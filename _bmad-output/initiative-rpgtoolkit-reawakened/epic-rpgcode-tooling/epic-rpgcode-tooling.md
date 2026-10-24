@@ -43,3 +43,5 @@ Script authors get modern tooling in any LSP or DAP client; the CAP-14 success c
 - Waits on rpgcode-vm because: the parser and the VM.
 - Decision: envelope re-sliced against the architecture spine, 2026-10-10.
 - Handoff (epic board-rendering inception, 2026-10-16): epic 4 entry 4.30 builds `setBreakpoints`, the `paused { thread, frame, line }` stop, the open-tick cursor and the resume modes `continue` and a one-instruction `step`. Step over, step in and step out are this epic's, built from `step` and the frame depth; watches and the call stack read state through the engine's read-only views. The initiative file now lists epic 4 in this epic's `after`.
+
+- Handoff (owner request, 2026-10-24): Epic 22 (#624, `epic-rpgcode-grammar`) owns the independent spec-authored tree-sitter grammar and syntax artifact. This epic retains semantic LSP/DAP ownership; no dependency on Epic 22 is added. Task 22.9 integrates only syntax highlighting/outlines in the shared program editor.

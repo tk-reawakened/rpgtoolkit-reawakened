@@ -1,0 +1,190 @@
+# Planned entries of Epic 22. IDs are stable; table order is build order.
+# All implementation is backlog/no sprint. GitHub is the primary tracker.
+# Only 22.9 waits for Epic 11; grammar and CodeGraph do not gate gameplay.
+
+[[entry]]
+id = 1
+tracker_id = "#625"
+type = "story"
+title = "Settle syntax gaps and define the independent corpus contract"
+description = "Make the specification sufficient to author a second grammar without consulting the runtime parser. Record the grammar boundary, rule-to-corpus ledger and consumer contracts before grammar implementation."
+verify = "1. Audit ADR 0011 against docs/spec, including conflicting by-reference parameter positions. Resolve each ambiguity doc-first with evidence and owner decisions, or create a separately tracked blocker assigned to its affected milestone; never choose silently.\n2. Define stable CST node/field and source-range conventions, the supported dialect boundary and .prg/.rnc tooling associations without introducing an engine file format.\n3. Define a ledger mapping every intended rule and newly authored valid/invalid/edit case to a normative anchor and rule ID; review expected trees before grammar output is available. No runtime parser source, outputs, AST fixtures or real-game source supplies the oracle.\n4. Confirm backtick as XOR, + concatenation and left-associative power below unary minus; distinguish declaration references, return references and expression AND.\n5. Record G1-G7 and that this grammar never participates in execution. 22.1 may close with separately tracked blockers for later milestones. Unresolved lexical rules block 22.3; statement/module gaps block only their affected milestone. No guessed syntax or weakened expected trees."
+covers = ["CAP-14"]
+after = []
+hitl = true
+refine = true
+risk = "high"
+plan_checkpoint = true
+done_checkpoint = true
+references = ["docs/adr/0011-tree-sitter-rpgcode.md", "docs/spec/engine/rpgcode-language.md#lexical-rules", "docs/spec/engine/rpgcode-language.md#keywords-and-structure", "docs/spec/engine/rpgcode-language.md#expressions", "docs/spec/formats/rpgcode-program.md#text-form"]
+notes = ["Kind: specification. Backlog (Todo); no Sprint. Refine before implementation.", "Grammar/scanner/corpus/queries derive from docs/spec, never the runtime parser, its outputs or AST fixtures, real games or legacy source.", "Native/Wasm and incremental/full parity, scanner progress and source-range mapping are acceptance gates. No core runtime changes or golden/hash drift."]
+
+[[entry]]
+id = 2
+tracker_id = "#626"
+type = "story"
+title = "Prove the scanner, Wasm and CodeGraph integration routes"
+description = "Establish a reproducible toolchain and an evidence-backed path to both consumers before promising that a Wasm file can be loaded by CodeGraph."
+verify = "1. Record exact permissively licensed tree-sitter CLI/runtime, C/Wasm compiler and ABI versions; audit build and shipped dependencies against G6. Do not add a dependency to core.\n2. Demonstrate a disposable, independently authored C-scanner smoke case in native and browser Wasm builds; record commands, artifact loading, offset representation and version compatibility. Production grammar work remains in 22.3 onward.\n3. Inspect the pinned CodeGraph registration/extractor pipeline and prove whether it accepts this grammar artifact or requires a native binding, extension API, upstream change or separately maintained adapter. Record exact tested versions and evidence.\n4. If a CodeGraph prerequisite is unsupported, record a concrete blocker and upstream/local follow-up with owner and exit criteria. Do not claim integration, map RPGCode to TypeScript or hold editor/grammar work for that blocker.\n5. Record the chosen package location outside core, artifact/version ownership, future dependency changes and consumer handoffs for review before implementation; no installation/dependency change is part of the planning PR."
+covers = ["CAP-14"]
+after = []
+hitl = false
+refine = true
+risk = "high"
+plan_checkpoint = true
+done_checkpoint = true
+references = ["docs/adr/0011-tree-sitter-rpgcode.md", "docs/guardrails.md", "https://tree-sitter.github.io/tree-sitter/creating-parsers/4-external-scanners.html", "https://tree-sitter.github.io/tree-sitter/cli/build.html", "https://github.com/colbymchenry/codegraph"]
+notes = ["Kind: spike. Backlog (Todo); no Sprint. Refine before implementation.", "Grammar/scanner/corpus/queries derive from docs/spec, never the runtime parser, its outputs or AST fixtures, real games or legacy source.", "Native/Wasm and incremental/full parity, scanner progress and source-range mapping are acceptance gates. No core runtime changes or golden/hash drift."]
+
+[[entry]]
+id = 3
+tracker_id = "#627"
+type = "story"
+title = "Build the lexical layer and incremental external scanner"
+description = "Create the independent grammar package, native/browser corpus harness and bounded C scanner, with lexical correctness and edit recovery as the first implementation milestone."
+verify = "1. Author from LEX-1 through LEX-11: ASCII-insensitive names/keywords without lowercasing input, numeric/exponent versus digit-leading identifier boundaries, sigils/adjacent !=, comment forms, single-line strings and statement terminators.\n2. Cover CR, LF and CRLF, standalone trailing _ with optional comments, continued-line leading * versus comment, EOF/truncated constructs and edits across lexical boundaries.\n3. Serialize and deserialize complete bounded scanner state; repeated recovery must advance or terminate and must not loop on zero-width tokens. Prove scanner restoration across incremental edits and ambiguity recovery.\n4. Run the same spec-authored reviewed cases natively and in browser Wasm; full parse and edit/reparse yield equivalent syntax/ranges, including non-ASCII string text and UTF-8 byte versus UTF-16 positions.\n5. CI exercises both loaders and rejects forbidden runtime-parser imports/oracle inputs; package and scanner remain outside core, with no runtime dependency or golden changes."
+covers = ["CAP-14"]
+after = [1, 2]
+hitl = false
+refine = true
+risk = "high"
+plan_checkpoint = true
+done_checkpoint = false
+references = ["docs/adr/0011-tree-sitter-rpgcode.md", "docs/spec/engine/rpgcode-language.md#lexical-rules", "docs/spec/formats/rpgcode-program.md#text-form"]
+notes = ["Kind: library. Backlog (Todo); no Sprint. Refine before implementation.", "Grammar/scanner/corpus/queries derive from docs/spec, never the runtime parser, its outputs or AST fixtures, real games or legacy source.", "Native/Wasm and incremental/full parity, scanner progress and source-range mapping are acceptance gates. No core runtime changes or golden/hash drift."]
+
+[[entry]]
+id = 4
+tracker_id = "#628"
+type = "story"
+title = "Parse statements, control flow and reference declarations"
+description = "Extend the grammar with the documented statement skeleton, functions and reference forms, preserving useful partial trees while an author types."
+verify = "1. Cover STX-1 through STX-6 and FUN-1/FUN-3/FUN-5: required blocks, newline before brace, branches/loops, empty for parts, labels/case forms, function declarations, parameter forms and return &lvalue. Include on error goto :label, on error resume next and resume next from the error-handling specification.\n2. Keep statement ownership separate from expression precedence in 22.5; any interim expression placeholder is explicit and cannot count as acceptance of unimplemented expression forms.\n3. Reviewed valid, invalid and partial-input cases distinguish declaration &, return &, call-site syntax and expression AND under the ruled 22.1 contract; brace-less bodies and forbidden function variadics/defaults receive the intended syntax result.\n4. Every new rule has spec-cited cases; native/Wasm and full-versus-incremental trees/ranges agree, with ERROR/missing nodes that preserve surrounding declarations."
+covers = ["CAP-14"]
+after = [3]
+hitl = false
+refine = true
+risk = "medium"
+plan_checkpoint = false
+done_checkpoint = false
+references = ["docs/adr/0011-tree-sitter-rpgcode.md", "docs/spec/engine/rpgcode-language.md#keywords-and-structure", "docs/spec/engine/rpgcode-language.md#expressions", "docs/spec/engine/rpgcode-errors-and-threads.md"]
+notes = ["Kind: library. Backlog (Todo); no Sprint. Refine before implementation.", "Grammar/scanner/corpus/queries derive from docs/spec, never the runtime parser, its outputs or AST fixtures, real games or legacy source.", "Native/Wasm and incremental/full parity, scanner progress and source-range mapping are acceptance gates. No core runtime changes or golden/hash drift."]
+
+[[entry]]
+id = 5
+tracker_id = "#629"
+type = "story"
+title = "Implement expression precedence, calls and object expressions"
+description = "Give operators and postfix expressions an independently specified concrete syntax tree with stable grouping and source ranges."
+verify = "1. Cover EXP-2 through EXP-7 and FUN-8 with reviewed grouping trees for unary/power, left-associative ^, backtick XOR versus + concatenation, ~=, adjacent !=, bitwise/comparison boundaries, assignment and conditional forms.\n2. Cover nested member/index/call chains, callable/lambda syntax and dictionary/object literals from the spec; declaration/module syntax stays in 22.7.\n3. Include minimum pairs for destructor ~Name versus unary ~ and reference & versus AND, with context supplied by the documented declaration rules.\n4. New valid/invalid/edit cases are authored directly from spec and expected grouping is reviewed before implementation results; native/Wasm and edit/full trees agree without consulting runtime AST output."
+covers = ["CAP-14"]
+after = [4]
+hitl = false
+refine = true
+risk = "high"
+plan_checkpoint = false
+done_checkpoint = false
+references = ["docs/adr/0011-tree-sitter-rpgcode.md", "docs/spec/engine/rpgcode-language.md#expressions", "docs/spec/engine/rpgcode-language.md#keywords-and-structure", "docs/spec/engine/rpgcode-modules-and-objects.md#objects"]
+notes = ["Kind: library. Backlog (Todo); no Sprint. Refine before implementation.", "Grammar/scanner/corpus/queries derive from docs/spec, never the runtime parser, its outputs or AST fixtures, real games or legacy source.", "Native/Wasm and incremental/full parity, scanner progress and source-range mapping are acceptance gates. No core runtime changes or golden/hash drift."]
+
+[[entry]]
+id = 6
+tracker_id = "#630"
+type = "story"
+title = "Parse generic commands and their argument forms"
+description = "Support RPGCode command syntax through generic calls so built-ins, aliases and plugins do not become hundreds of reserved grammar tokens."
+verify = "1. Cover documented calls, zero-argument/bare forms and legacy prefix only within the supported dialect contract, using new cases cited to built-in and dialect specifications.\n2. Cover documented optional/variadic command argument forms and output lvalues without assigning runtime semantics to syntax. User function declaration restrictions remain distinct.\n3. Built-in catalogue names, mixed case, aliases and unknown plugin names use the same call syntax; the grammar neither hardcodes the current catalogue count nor performs arity/owner/handler resolution.\n4. Tests separate syntactic argument boundaries from semantic metadata validation; no catalogue-stub edits, execution or dispatch changes. Native/Wasm and incremental/full cases agree."
+covers = ["CAP-14"]
+after = [5]
+hitl = false
+refine = true
+risk = "medium"
+plan_checkpoint = false
+done_checkpoint = false
+references = ["docs/adr/0011-tree-sitter-rpgcode.md", "docs/spec/engine/rpgcode-functions.md#rpgcode-built-in-commands", "docs/spec/engine/rpgcode-dialects.md#toolkit-2x", "docs/spec/engine/rpgcode-language.md#keywords-and-structure"]
+notes = ["Kind: library. Backlog (Todo); no Sprint. Refine before implementation.", "Grammar/scanner/corpus/queries derive from docs/spec, never the runtime parser, its outputs or AST fixtures, real games or legacy source.", "Native/Wasm and incremental/full parity, scanner progress and source-range mapping are acceptance gates. No core runtime changes or golden/hash drift."]
+
+[[entry]]
+id = 7
+tracker_id = "#631"
+type = "story"
+title = "Parse modules, classes and declaration outlines"
+description = "Complete the independent structural grammar for includes, qualified names, redirects and object declarations, giving consumers stable declaration boundaries."
+verify = "1. Cover MOD-1 through MOD-4 and documented OOP syntax: literal/computed includes, namespaces/qualified references, redirects, class/struct declarations, bases/access labels, methods and destructors.\n2. Represent directives and declarations without loading files, resolving packages, evaluating computed includes or applying redirects. Dynamic targets remain explicitly unresolved.\n3. Provide stable named nodes/fields and range expectations for functions, methods, classes, labels and comments needed by outlines/bookmarks and extraction.\n4. Spec-authored valid/invalid/incomplete and edit cases pass native/Wasm parity; any unruled form returns to the doc-first process instead of being inferred from the runtime parser or games."
+covers = ["CAP-14"]
+after = [6]
+hitl = false
+refine = true
+risk = "medium"
+plan_checkpoint = false
+done_checkpoint = false
+references = ["docs/adr/0011-tree-sitter-rpgcode.md", "docs/spec/engine/rpgcode-modules-and-objects.md#modules", "docs/spec/engine/rpgcode-modules-and-objects.md#syntax-oop-1-oop-2-oop-3", "docs/spec/engine/rpgcode-language.md#keywords-and-structure"]
+notes = ["Kind: library. Backlog (Todo); no Sprint. Refine before implementation.", "Grammar/scanner/corpus/queries derive from docs/spec, never the runtime parser, its outputs or AST fixtures, real games or legacy source.", "Native/Wasm and incremental/full parity, scanner progress and source-range mapping are acceptance gates. No core runtime changes or golden/hash drift."]
+
+[[entry]]
+id = 8
+tracker_id = "#632"
+type = "story"
+title = "Release the versioned grammar, Wasm artifact and query contract"
+description = "Deliver a reproducible, consumer-ready grammar artifact and public syntax/query contract independent of the VM."
+verify = "1. Produce a versioned .wasm including the C scanner and a tested native counterpart under MIT or Apache-2.0; pin ABI/toolchain inputs and verify repeat clean builds reproduce the artifact digest.\n2. Publish the reviewed CST/field schema, highlight queries and outline/bookmark extraction contract including functions, methods, classes, labels and comments; include source/spec traceability and compatibility/version policy.\n3. Test the entire independently authored corpus through native and browser loaders, including ERROR/missing trees, edit recovery and byte/UTF-16 mappings; document Windows-1252 decoding at the consumer boundary.\n4. Document supported associations/dialects, load failures and the actual browser/native loading instructions from 22.2; make the artifact usable by consumers without runtime-parser imports.\n5. Audit licences/notices and package edges; core, runners, game formats, state hashes and existing goldens remain unchanged. Consumer tasks depend on this versioned release, not unpublished library changes."
+covers = ["CAP-14"]
+after = [7]
+hitl = false
+refine = true
+risk = "high"
+plan_checkpoint = true
+done_checkpoint = true
+references = ["docs/adr/0011-tree-sitter-rpgcode.md", "docs/spec/engine/rpgcode-language.md#lexical-rules", "docs/spec/engine/rpgcode-modules-and-objects.md#syntax-oop-1-oop-2-oop-3", "docs/editor-features.md", "docs/guardrails.md"]
+notes = ["Kind: library. Backlog (Todo); no Sprint. Refine before implementation.", "Grammar/scanner/corpus/queries derive from docs/spec, never the runtime parser, its outputs or AST fixtures, real games or legacy source.", "Native/Wasm and incremental/full parity, scanner progress and source-range mapping are acceptance gates. No core runtime changes or golden/hash drift."]
+
+[[entry]]
+id = 9
+tracker_id = "#633"
+type = "story"
+title = "Integrate incremental highlighting and outlines in editor-ui"
+description = "Use the released Wasm grammar in the shared program editor so authors see consistent syntax colouring and navigation across editor hosts."
+verify = "1. Start only after the Epic 11 shared document, program-editor and platform-services seams are available; do not build hosts/editor foundations inside this task. Refine against their actual tracked tickets before starting.\n2. Load the released artifact/query contract through the approved asset/platform seam; implement live highlighting and function/class/method/label/comment outline/bookmark navigation in editor-ui first, per T-40.\n3. Incremental edits, undo/redo, reopen, malformed/incomplete text, non-ASCII data and CP1252-to-UTF8/UTF16 mapping retain correct ranges and document ownership. Syntax queries do not replace LSP diagnostics, arity checks, formatting or debug services.\n4. The same integration passes in host-web/PWA and host-vscode including vscode.dev; hosts supply services/chrome only. A missing grammar or unsupported ABI reports a tooling failure and leaves text editing and test-run usable.\n5. Verify G2 package edges and document/editor conformance. No parse.ts dependency, VM change, new game format or game-loop dependency is introduced."
+covers = ["CAP-14", "CAP-15", "CAP-18"]
+after = [8, "epic-editor-foundation"]
+hitl = false
+refine = true
+risk = "high"
+plan_checkpoint = true
+done_checkpoint = false
+references = ["docs/adr/0011-tree-sitter-rpgcode.md", "docs/editor-features.md", "docs/spec/engine/rpgcode-language.md#lexical-rules", "docs/guardrails.md", "_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-foundation/epic-editor-foundation.md"]
+notes = ["Kind: integration. Backlog (Todo); no Sprint. Refine before implementation.", "Grammar/scanner/corpus/queries derive from docs/spec, never the runtime parser, its outputs or AST fixtures, real games or legacy source.", "Native/Wasm and incremental/full parity, scanner progress and source-range mapping are acceptance gates. No core runtime changes or golden/hash drift."]
+
+[[entry]]
+id = 10
+tracker_id = "#634"
+type = "story"
+title = "Integrate RPGCode symbols, imports and calls with CodeGraph"
+description = "Implement the evidenced CodeGraph adapter/registration route using the released independent grammar, rather than pretending a Wasm artifact registers a language automatically."
+verify = "1. Resolve the concrete capability/upstream blocker identified by 22.2 before starting implementation; record compatible pinned versions and use the supported adapter/native route. No TypeScript extension mapping workaround.\n2. Extract stable symbol definitions, declared functions/classes/methods, syntactic includes/imports and call sites with normalized names plus original spelling and source ranges, from the public CST/query contract.\n3. Validate .prg and approved .rnc associations against independently authored fixtures; mixed-case names, static/computed includes, incomplete sources and dynamic targets produce honest syntax-level results without inventing resolved runtime edges.\n4. Add/update/delete/reindex operations have deterministic node identities and no stale or duplicate edges. A fresh index and refreshed index agree on reviewed expected graph facts.\n5. Demonstrate actual navigation queries on the fixtures and retain the repository packages-only TypeScript index boundary; do not index the repo root or docs/_bmad-output, and do not claim runtime handler/command census evidence.\n6. Adapter code imports no runtime parser, core stays free of tooling dependencies, and grammar releases are consumed by version instead of embedding a second grammar copy."
+covers = ["CAP-14"]
+after = [2, 8]
+hitl = false
+refine = true
+risk = "high"
+plan_checkpoint = true
+done_checkpoint = false
+references = ["docs/adr/0011-tree-sitter-rpgcode.md", "docs/spec/engine/rpgcode-language.md#lexical-rules", "docs/spec/engine/rpgcode-modules-and-objects.md#modules", "docs/codegraph.md", "https://github.com/colbymchenry/codegraph"]
+notes = ["Kind: integration. Backlog (Todo); no Sprint. Refine before implementation.", "Grammar/scanner/corpus/queries derive from docs/spec, never the runtime parser, its outputs or AST fixtures, real games or legacy source.", "Native/Wasm and incremental/full parity, scanner progress and source-range mapping are acceptance gates. No core runtime changes or golden/hash drift."]
+
+[[entry]]
+id = 11
+tracker_id = "#635"
+type = "story"
+title = "Verify both consumers, provenance and runtime isolation"
+description = "Close the epic only when the released grammar works in both intended consumers and the runtime isolation and independent provenance claims are demonstrated."
+verify = "1. Maintain a checked requirement-to-task-to-evidence matrix for the five grammar milestones, Wasm/query release, editor hosts and CodeGraph extraction; no unresolved release blocker is marked done.\n2. Run the full independently authored corpus, incremental/native/Wasm parity, editor host conformance and fresh/refreshed extraction fixtures against the same released grammar version.\n3. Audit authored grammar/scanner/corpus/query provenance against docs/spec and forbid runtime-parser dependencies/oracles and legacy source. Resolve any discrepancy doc-first instead of changing expected trees to agree with an implementation.\n4. Run required typecheck, lint, licence, provenance, package-edge, unit/strict, golden and closing checks; committed PNGs, ledger and state hashes must not move. Treat drift as a G5 failure and stop, never re-record it to finish this epic.\n5. Document install/build/refresh, supported dialects and file associations, ABI/version compatibility and recovery when tooling is unavailable. Demonstrate that gameplay and test-run work with grammar/CodeGraph unavailable.\n6. Record acceptance evidence and remaining limitations in docs; do not close the epic on a feasibility report or a partially working consumer."
+covers = ["CAP-14", "CAP-15", "CAP-18"]
+after = [9, 10]
+hitl = false
+refine = true
+risk = "high"
+plan_checkpoint = true
+done_checkpoint = true
+references = ["docs/adr/0011-tree-sitter-rpgcode.md", "docs/guardrails.md", "CONTRIBUTING.md", "docs/editor-features.md", "docs/codegraph.md"]
+notes = ["Kind: acceptance. Backlog (Todo); no Sprint. Refine before implementation.", "Grammar/scanner/corpus/queries derive from docs/spec, never the runtime parser, its outputs or AST fixtures, real games or legacy source.", "Native/Wasm and incremental/full parity, scanner progress and source-range mapping are acceptance gates. No core runtime changes or golden/hash drift."]

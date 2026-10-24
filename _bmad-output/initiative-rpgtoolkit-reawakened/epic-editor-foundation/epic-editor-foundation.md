@@ -55,3 +55,5 @@ Authors can open a legacy project in VS Code or in the browser and edit its sett
   - Test-run should report loading stalls with the asset that caused them, and warn on asset references the prefetch planner cannot predict (e.g. `send(boardVar$)`).
   - Audio preview in editors plays through the `synth` package with the project's SoundFont.
   - Packaging bundles the authored SoundFont, warns on unclear bank licences, and never redistributes the legacy MIDI pack.
+
+- Handoff (owner request, 2026-10-24): Epic 22 (#624, `epic-rpgcode-grammar`) task 22.9 consumes this epic's shared document, program-editor and platform-services seams for highlighting/outlines. It waits for those foundations; this epic does not wait for Epic 22. Grammar absence must leave text editing and test-run usable.

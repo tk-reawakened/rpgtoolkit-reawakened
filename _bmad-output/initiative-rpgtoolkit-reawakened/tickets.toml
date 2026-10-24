@@ -146,3 +146,11 @@ slug = "epic-documentation-website"
 title = "Documentation and public website: install, make, import, debug, package and share games"
 covers = ["CAP-19"]
 after = [{ epic = 1, needs = "the licence, provenance and required-checks gates and contributor docs that the site and its tooling must pass (1.5, 1.6, 1.10)" }, { epic = 2, needs = "the project dump tool, package loader and writer, so the import and packaging guides describe what exists (2.10, 2.11, 2.12)" }, { epic = 16, needs = "the TK2 readers and corpus gate, so the migration guide states what loads" }, { epic = 3, needs = "the plugin contract and manifest, the native legacy packs and the built-in registry the RPGCode reference and the plugin guide describe (3.23, 3.24, 3.25)" }, { epic = 9, needs = "the web runner and packaging, so play, share and package pages are walked against the real thing" }, { epic = 10, needs = "the language server and debug adapter the debugging guide describes" }, { epic = 11, needs = "the editor shell, both hosts and the program editor, for install, open and workflow pages" }, { epic = 12, needs = "the P0 asset editors, for the first-game tutorial and the editor guides" }, { epic = 13, needs = "the P1 tools and legacy upgrade wizards, for their guides and the migration guide" }, { epic = 14, needs = "the P2 tools and the in-editor tutorials, so written guides do not duplicate them" }, { epic = 15, needs = "the desktop shell decision and host, so the install pages say what ships" }]
+
+[[epic]]
+id = 22
+tracker_id = "#624"
+slug = "epic-rpgcode-grammar"
+title = "Independent RPGCode syntax for editor navigation and CodeGraph"
+covers = ["CAP-14", "CAP-15", "CAP-18"]
+after = [{ epic = 11, needs = "shared editor documents, program editor and platform-services for 22.9 only; early grammar and CodeGraph tasks are independent" }]
