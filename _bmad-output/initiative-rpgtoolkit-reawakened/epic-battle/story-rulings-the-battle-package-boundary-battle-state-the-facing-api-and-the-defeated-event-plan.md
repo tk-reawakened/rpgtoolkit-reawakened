@@ -3,7 +3,7 @@ title: "Rulings: the battle package boundary, battle state, the facing API and t
 type: 'feature'
 ticket: 1
 created: '2026-10-19'
-status: draft
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "high"
 context:
