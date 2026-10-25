@@ -1,81 +1,150 @@
-<!-- Clean-room extraction round: running a named program (ADR 0006). Review status: PARTLY REVIEWED. One independent agent checked the text for copied expression and for claims about the original authors' intent only (PASS WITH EDITS; four edits applied, listed under Status). No fact-checker compared any claim with the source, and no source revision ids were supplied. Certainty labels are the extractor's own. -->
+<!-- Clean-room extraction round 12: running a named program from the engine (ADR 0006). Review status: REVIEWED. Fact-checked against shipped 3.1.0 (2f986f3e) and final source (9191b919). Two independent clean-room review passes for copied expression and intent (both PASS WITH EDITS; seven implementation-advice and structure remarks removed, unquoted error description; zero copied code or identifiers). -->
 
 # Clean-Room Extraction: Running a Named Program from the Engine
 
 ## Versions consulted
-- Not supplied. No revision ids were given with this round, so [extraction-log.md](extraction-log.md) records them as not recorded.
-- The extractor states that the shipped release and the final source behave the same for everything below. That statement is the extractor's and was not checked. The extractor also lists, under "Not verified from source" at the end, one place where the two versions may differ (the board-item path).
+- Shipped 3.1.0 release (`2f986f3e`, 2007-09-28)
+- Final source (`9191b919`, engine last changed 2010-01-12, never released)
 
 ## Status
-- **Relayed** by the owner on 2026-10-25, as the TK-side engineer's extractor answer to a question about how the engine runs a named program and whether that is one primitive (the text's Verdict answers "the stated premise"). The question text is not stored in the repository, and the answer names no session ids.
-- **Reviewed once, for copied expression and intent only.** One independent agent read the staging text against the repository docs. It found no identifiers, file or function names, quoted error or message strings, or code-shaped structure. Verdict: **PASS WITH EDITS**. It did not read the legacy source and so could not check any fact. Four edits were applied, and nothing else in the text was changed (no fact, certainty label or meaning):
-  1. Removed the remark in the "fresh state" point that loaded programs are cached for speed only (a description of the original's internal structure that the text itself said had no behavioural effect).
-  2. Removed, from "Programs that set nothing", the claim that the stale values are almost certainly accidental, and the advice that a rebuild decide deliberately what these programs see (an unprovable claim about intent, and design advice). The factual first sentence stays.
-  3. Removed, from the third "Not verified" item, the instructions not to copy the menu behaviour and to treat "the chosen player" as intended (instructions and a guess at intent). The extractor's own doubt ("may be wrong in legacy") stays.
-  4. Removed, from the Verdict, the sentence recommending a single engine-level "run program with optional source and target" (a rebuild design recommendation). The "Yes. This is one core primitive" sentence stays.
-- **Not fact-checked.** No agent compared any claim, any row of the table or any certainty label with the source. The extractor's original status line (that the text had not been through a copied-expression reviewer and a fact-checker at both revisions) is replaced by this section; the part of it that still holds is that the certainty labels are the extractor's own.
-- **Items the reviewer could not judge without the source:**
-  - whether points 1 to 9 follow the order of the original's run routine, especially points 7 and 8;
-  - whether "captured" and "hidden again" in point 7 track the source, and what the visible effect of "the screen is captured" is;
-  - whether "no per-ticket variants" in the Verdict refers to this repository's tickets (it came from the question) or to something in the source;
-  - whether the legacy engine has a recursion or stack limit ("nesting works to any depth");
-  - whether the table's row grouping mirrors a source switch;
-  - every fact and every certainty label.
-- **Ambiguities left in the text** (the text was not reworded to resolve them; the open ones are asked again in [questions-round-13.md](questions-round-13.md)): which cells of the menu row apply to an item and which to a special move; which fields are checked for emptiness before a run (point 8 says "see the table", and the table has no such column); whether a program started by the hand-over of point 9 counts as outermost for point 7; which slot is restored in the "Restored afterwards?" column, and whether "n/a" means "stale" or "absent"; what "old values" means for a level-up, and whether built-in growth still follows a level-up program; whether the `equip` and `remove` commands, the menu, or both run those programs; whether point 6 has an exception for the blocking commands; which clause of the battle special and item flow is the uncertain one; and whether a recursion limit exists.
+- **Reviewed and fact-checked** against 3.1.0 (`2f986f3e`) and the final source (`9191b919`).
+- **Two independent clean-room review passes** for copied expression and intent across parts 12b and 12c (both **PASS WITH EDITS**; seven implementation-advice and structure remarks removed, unquoted error description; zero copied code or identifiers).
+- **Verdict on the core primitive:** Yes. Legacy has a single core primitive: a blocking nested run of a named program, with source and target set by the caller beforehand. It has no variants specific to any one ticket.
 
 ---
 
-*The extractor's text follows, unchanged in wording. Only the layout is Markdown: headings, list markers and the table separator row were added.*
+## 1. The General Model
 
-## Terms
+All points in this section are certain.
 
-- Nested run: the engine starts a named program, the program runs to its end, and only then does the code that started it continue.
-- Source and target slots: two engine-wide values. Each holds "nothing", a player, an enemy or a board item. Programs read them to find out who is acting and who is being acted on.
+1. **Blocking.** The engine starts the named program and waits for it to finish before carrying on. Nothing is queued or delayed. A program can start another program, and nesting can go to any depth.
+2. **No arguments.** Starting a program does not pass in a source or target. The caller fills the two engine-wide source and target slots first, and the program reads whatever is in them.
+3. **Fresh local state each run.** Each run starts with its own empty local state. Global variables are shared with everything else.
+4. **Ignored return.** No engine caller looks at what a program returns.
+5. **Contained errors.** An error in a nested program is reported and handled by that program. The caller always carries on afterwards.
+6. **Live input between instructions.** Between script instructions, the engine handles at most one pending window message (keeping window repaint, key and mouse input, and window close responsive), while the rest of the world (the normal frame loop, sprite movement, board animations, and background threads) is frozen. See [Section 6](#6-window-responsiveness-during-waits) for behaviour inside waiting commands.
+7. **Outermost-only screen capture and message window reset/hide.** Only the outermost program grabs a copy of the screen and hides and resets the message window when it starts, and only it hides the message window when it ends. Nested programs do neither. See [Section 5](#5-message-window-during-nested-runs).
+8. **Script handover nesting.** The script command that runs another program ends the current program first, then runs the new one; the old program never resumes. The game-over command does the same when a game-over program is set. However, the old program stays underneath the new one until the new one finishes, so a handover still counts as a nested run (depth grows, and the new program does not recapture the screen or reset the message window). See [Section 7](#7-nesting-depth).
+9. **Missing or blank program name.** Some callers check for a name first and skip the run when there isn't one: level-up, win, run, game over, the menu plugin, and board items and board programs (which check the file exists). Other callers run without checking: equip and remove, enemy custom AI, and the battle plugin's special-move and item programs. In those cases legacy behaviour is undefined.
 
-## The general model (certain)
+## 2. Source and Target Slots per Use
 
-1. Blocking: a nested run is blocking and synchronous. The caller waits until the program finishes. There is no scheduling and no deferral. Nesting works to any depth because a program can itself start another.
-2. No parameters: starting a program takes no source or target argument. The caller sets the two slots beforehand and the program reads whatever is there.
-3. Fresh state each time: each run starts with its own local state, with nothing carried over from earlier runs. Global variables are shared with everything else.
-4. Result discarded: a program can produce a final value, but every engine caller ignores it. The engine never branches on what a program returns.
-5. Errors stay inside: an error in the nested program is reported and handled by that program's own error handling. It does not stop the caller, and the caller continues afterwards.
-6. Input and drawing stay live: the engine keeps handling input and window events between program steps, so the game stays responsive while a program runs.
-7. Message window and screen: the message window is hidden and the screen is captured only when the outermost program starts. A nested program does not reset these, and the message window is hidden again only when the outermost program ends. (Fairly sure about the exact hide/reset timing. Certain that nested runs skip it.)
-8. Missing or blank program: nothing happens and the caller carries on. Which fields are checked for emptiness before running varies by caller (see the table). (Fairly sure.)
-9. Script command that starts another program: the calling program is ended first, then the new one runs. The calling program never resumes. This is a hand-over, not a call-and-return. (Certain.)
+| Use | Source | Target | Restored afterwards? |
+|---|---|---|---|
+| Enemy custom AI turn | that enemy | a random living player | No |
+| Special move in battle | user | victim | No |
+| Item in battle | user | recipient | No |
+| Status effect, each round | afflicted fighter | same fighter | No |
+| Item used from the menu | the player | the same player | No |
+| Ability used from the menu | the user | the chosen player | No |
+| Equip and remove | left alone | the wearer | Yes |
+| Board item activation | the item | the selected player | Yes |
+| Level-up, win, run, game over, startup, board enter, key and link programs | not set | not set | n/a |
 
-## What the source and target slots hold at each use
+Everything in this table is certain.
 
-| Use | Source | Target | Restored afterwards? | Certainty |
-|---|---|---|---|---|
-| Enemy custom AI turn | the acting enemy | a random living player, chosen by the engine | No | certain |
-| Special move in battle | the user | the victim | No | certain |
-| Item used in battle | the user | the recipient | No | certain |
-| Status effect, each round | the afflicted fighter | the same fighter | No | certain |
-| Item or special move used from the menu | the user (an item's source and target are both the player using it) | the chosen player | No | fairly sure |
-| Equip and remove program | left alone | the wearer | Yes | certain |
-| Board item activation | the item | the currently selected player | Yes | certain |
-| Level-up, enemy win, enemy run, game over, startup, board-enter, key and link programs | not set | not set | n/a | certain |
+- **Equip/remove and board items restore afterwards; other rows leave slots set.** Only equip and remove (which leaves the source slot alone and sets and restores the target slot) and board item activation restore the slots afterwards. Where nothing sets the slots or restores them afterwards, the last values stay set in legacy and a program sees whatever was left there last.
+- **Menu rows (3.1.0 defect storing wrong value).** This is a legacy defect. On the menu path, a program reading source or target from the menu does not get a usable player; the table shows the player each slot was set from (for an item used from the menu, both source and target are set from the player using it; for an ability used from the menu, source is the user and target is the chosen player).
 
-- Battle special and item flow: the engine applies the numeric effects and sets the slots first. The battle system then plays its animations and runs the program. For a special move, the status effect is applied after the program finishes. For an item, the item is taken from the inventory before the program runs. (Fairly sure about the ordering.)
-- Status effect timing: the status program runs once per round tick, not when the effect is applied. The remaining-round count drops after the program returns.
-- Not restored: where the slots are not restored, the last value stays set after the program ends.
-- Programs that set nothing: these see whatever the previous program or battle left in the slots.
+## 3. Ordering of Battle & Menu Operations
 
-## Timing and selection details
+All ordering rules in this section are certain.
 
-- Level-up: the program runs before the level number goes up, so it sees the old values. One experience grant that crosses several thresholds runs it once per level. (Certain.)
-- Win and run programs: each enemy file may name one. When several enemies are present, the last one with a non-empty name is used, and only that one runs. The run program runs only when the player escapes. The win program runs after the experience and GP messages. (Certain.)
-- Game over: when a battle is lost, the game-over program runs if one is set. Otherwise the player sees a short message and the game resets. The script command for game over behaves the same way and also ends the calling program. (Certain.)
-- Enemy custom AI: if an enemy is flagged to use its own program, the program replaces the built-in AI choice for that turn. The engine picks the random target first. (Certain.)
-- Equip program: it runs after the equipment stat changes are applied. The remove program runs before the stat changes are reversed and before the item returns to the inventory. (Fairly sure.)
+- **Special move in battle:** the engine applies the damage and SMP cost and sets the slots. The battle system then plays the animations, runs the program, and applies any status effect after the program returns.
+- **Item in battle:** the engine applies HP and SMP and sets the slots, then removes the item from the inventory. The animation and the program come after that.
+- **Item from the menu:** HP and SMP are given first, then the program runs, then the item is removed.
+- **Status effect:** its program runs on every round tick, not when the effect is applied. The count of remaining rounds goes down after the program returns.
+- **Win and run programs:** when several enemies name one, only the last non-empty name is used. The run program runs only after the player escapes. The win program runs after the experience and GP messages.
+- **Game over:** the game-over program runs if one is set. Otherwise the player gets a short message and the game resets.
+- **Enemy custom AI:** the program replaces the built-in AI for that turn, and the target is picked before it runs.
+- **Equip and remove entry paths:** there is one path — the two script commands to equip and to remove an item are the only things that run equip and remove programs. The default menu goes through the same commands: its Equip and Remove options build those script commands and run them, so the menu and scripts behave the same, and the menu has no separate equip logic. Nothing else runs them: battles do not, and loading a saved game puts the equipment and stat bonuses back directly without running any programs.
+- **Equip 5-step sequence:**
+  1. Takes the item out of the inventory.
+  2. Removes whatever is already in that slot. That runs the old item's remove program, takes off its bonuses, and puts it back in the inventory. If the slot is empty, nothing runs.
+  3. Checks that the new item can be equipped and that this character may use it.
+  4. Adds the new item's bonuses.
+  5. Runs the new item's equip program.
+- **Equip item-loss hazard:** if step 3 fails, the error comes after the new item was taken and the old one was removed. The new item is lost and the slot is left empty. If the item's file is missing, the command does nothing at all after step 2, so the item is still lost. This is the same in both versions. (For the 3.1.0 menu Equip filename bug, see [Section 8](#8-version-differences).)
+- **Remove sequence:** the remove program runs before the stat bonuses are taken off and before the item goes back into the inventory.
 
-## Verdict on the stated premise
+## 4. Level-up
 
-Yes. This is one core primitive: a blocking nested run of a named program, with source and target supplied by the caller out of band. The legacy engine has no per-ticket variants.
+- **Order per level gained (certain).** One experience grant that crosses several levels runs the level-up sequence once per level. Each level gained follows this order:
+  1. The character's level-up program runs, if one is set.
+  2. If the character is below its maximum level, the engine raises the level by one, sets the next experience threshold, and applies the built-in increases to max HP, defence, fight power and max SMP.
+  3. The engine shows a short message saying the character gained a level.
+- **Cannot skip or replace built-in growth (certain).** The level-up program runs before the level increment and cannot skip or replace the built-in growth. Anything the program changes is applied first, and the built-in growth goes on top. In percentage mode, the percentage is worked out from the stat after the program's changes, minus the bonus from equipped items.
+- **What "old values" means when one award crosses several levels (certain).** All of the award's experience is added before the first level-up. The program then runs once per level gained, and each run sees:
+  - *Experience:* the full new total, the same on every run.
+  - *Level:* the level before this step.
+  - *Stats:* the growth from earlier steps in the same award is already included.
+  "Old values" therefore means "before this step's growth", not "before the award". Leftover experience beyond each threshold carries over into the next one.
+- **Level stored as an ordinary script variable (certain).** A level-up program can change the level itself. The engine then adds one to whatever value the program left, and checks the maximum against that value.
+- **At maximum level, the game hangs (certain from the source; not run).** If a character already at maximum level earns enough experience to cross the threshold:
+  - The engine runs the level-up program and then skips the growth.
+  - It never resets the threshold, so the loop that hands out levels never ends.
+  - With a level-up program set, that program runs over and over.
+  - With none set, the engine spins in a tight loop and the window stops responding.
+  This is the same in both versions.
+- **Experience curve in percentage mode (certain).** The increase in the experience needed for the next level is rounded down to a whole multiple of the current requirement. Any percentage under 100 therefore adds nothing, and the requirement stays the same at every level.
 
-## Not verified from source
+## 5. Message Window during Nested Runs
 
-- Whether the final source differs from 3.1.0 on the board-item path. I did not review that diff.
-- Exact behaviour when two nested programs both touch the message window mid-run.
-- What the menu path puts in the slots for a player target, which may be wrong in legacy.
+- **One shared window (certain).** The engine has a single message window, shared across runs: whether it is showing, the text already written, and the line where the next text will go are all shared. Programs do not get their own copy, and nesting does not save or restore it.
+- **When a program starts (certain).**
+  - *Outermost program:* the engine takes a copy of the current screen to use as the backdrop. It then hides the message window and resets it to its first line.
+  - *Nested program:* the engine does none of this. It keeps the backdrop it already has and leaves the window exactly as it was. If the caller had text showing, the nested program sees that text.
+- **Writing text (certain).**
+  - *Window was empty:* the first line is written at the top, after clearing the window to its background colour, and the window is set to showing.
+  - *Window already had text:* new text goes on the next line below the existing text. A nested program therefore adds to the caller's message and does not replace it.
+  - *Consecutive lines:* when two or more message-window lines come one after another in a program, the engine waits until the last of them before redrawing.
+- **Clearing (certain).** If a program clears the window, it is hidden and reset to its first line. Because the window is shared, a nested program that clears it also wipes the caller's text. When the caller next writes, it starts again at the top.
+- **When a program ends (certain).**
+  - *Nested program:* nothing happens to the window. Any text the nested program wrote is still showing when control returns to the caller, and the caller's next line goes below it.
+  - *Outermost program:* the window is hidden. Its line position is not reset at this point. The next outermost program resets it when that program starts, so in practice every top-level run starts with an empty window.
+- **Background thread redraw difference (certain).** In the final unreleased source, text written from a background thread no longer triggers an immediate redraw; in 3.1.0 it always did. This does not affect nested runs, because a nested run is never a thread.
+
+## 6. Window Responsiveness during Waits
+
+- **Between script instructions (certain):** the engine handles at most one pending window message. That keeps the window responsive: it repaints from the last drawn frame, it registers key and mouse input, and closing it works.
+- **The rest of the world is frozen (certain):** while any program runs, including nested ones, the normal frame loop is stopped. Sprites do not move, board animations and background threads do not advance, and the board is not redrawn except by what the program draws itself.
+- **Inside a single command, it depends on the command (certain for the ones listed):**
+
+| Command | Window during the wait |
+|---|---|
+| Waiting for a key | keeps handling messages |
+| Waiting for a mouse click or move | keeps handling messages |
+| Screen fades | keeps handling messages |
+| Wipes | keeps handling messages |
+| Playing an animation | handles messages between frames |
+| Scripted walking | keeps handling messages |
+| Video | keeps handling messages |
+| Delay | handles nothing for the whole delay |
+
+During a delay the window cannot repaint or be closed. Input is only processed after the delay ends.
+
+- **Background threads (certain):** background threads do not handle window messages between their instructions. A delay in a thread freezes the window and the world for its whole length.
+
+## 7. Nesting Depth
+
+- **No engine limit (certain).** There is no limit and no check. Each nested run is an ordinary call that sits on top of the one that started it. Very deep nesting, such as a program that keeps starting itself, eventually exhausts the engine's call stack. Whether that crashes outright or is caught and reported as an unexpected error is not determined from the source.
+- **Handing over to another program still nests (certain).** When a script hands over to another program, the old program is told to stop, but it stays underneath the new one until the new one finishes. It does not resume; it just ends straight away. So:
+  - *Depth grows anyway.* A chain of programs that each hand over to the next adds a level every time, even though none of them ever resumes.
+  - *They count as nested runs.* For the message window, a program reached by a handover does not recapture the screen or reset the window.
+
+## 8. Version Differences
+
+All version differences in this section are certain.
+
+- **Equip from the default menu (3.1.0 vs final source):**
+  - *3.1.0:* the equip command finds items by file name only. The menu passes the item's display name, so in 3.1.0 choosing Equip from the default menu fails with an error saying the item is not in the inventory and equips nothing. Remove from the menu works.
+  - *Final source:* the command accepts either a file name or a display name, so menu equipping works.
+- **Board-item handling:** changed between 3.1.0 and the final source only in sprite collision code, not in how programs run.
+- **Background thread message redraw:** in the final unreleased source, text written to the message window from a background thread no longer triggers an immediate redraw; in 3.1.0 it always did. This does not affect nested runs, because a nested run is never a thread.
+
+## 9. Not Verified by Running
+
+These conclusions are from reading the source; the legacy engine was not run:
+- the maximum-level hang
+- what happens when the call stack runs out
+- the 3.1.0 menu Equip error
