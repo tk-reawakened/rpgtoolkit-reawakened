@@ -4,7 +4,7 @@ type: 'feature'
 ticket: 7
 created: '2026-10-22'
 risk: "high"
-status: built
+status: done
 context:
   - "spec - docs/spec/engine/plugins-and-battle.md#e-80"
   - "spec - docs/spec/engine/plugins-and-battle.md#e-95"

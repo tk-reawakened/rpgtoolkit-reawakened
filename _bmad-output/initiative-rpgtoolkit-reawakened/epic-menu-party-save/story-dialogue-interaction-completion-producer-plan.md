@@ -4,6 +4,7 @@ type: 'feature'
 ticket: 11
 created: '2026-10-22'
 risk: "high"
+status: done
 context:
   - "spec - docs/spec/engine/plugins-and-battle.md#e-95"
   - "spec - docs/spec/engine/rpgcode-modules-and-objects.md#emit-13"
