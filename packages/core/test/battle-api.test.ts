@@ -187,7 +187,7 @@ givehp("Hero", 5)
   equal(state.vm.globals.revivedcount, 1);
 });
 
-test("status built-ins read rounds and identity from .ste without ticking its effects", () => {
+test("status built-ins read rounds and use file identity without ticking effects", () => {
   const { state, hero } = makeState();
   const encoded = hex(statusEffectBytes());
   const poll: WaitPoll = (_view, wait) => wait.kind === "request" ? { ok: true, value: encoded } : null;
@@ -195,9 +195,32 @@ test("status built-ins read rounds and identity from .ste without ticking its ef
   equal(result.finished, true);
   deepEqual(result.diagnostics.map(({ code }) => code), []);
   equal(state.vm.globals.statuslog, "4:0:2;0:1:2;");
-  equal(state.actors.actors.find((actor) => actor.id === hero.id)?.statuses.poison, undefined);
+  deepEqual(state.actors.actors.find((actor) => actor.id === hero.id)?.statuses, {});
   equal(state.actors.actors.find((actor) => actor.id === hero.id)?.stats.hp, 10);
   equal(state.actors.actors.find((actor) => actor.id === hero.id)?.stats.smp, 4);
+});
+
+test("equal display names in different status files stay distinct and reapplication restarts by file", () => {
+  const { state, hero } = makeState();
+  const encoded = hex(statusEffectBytes());
+  const poll: WaitPoll = (_view, wait) => wait.kind === "request" ? { ok: true, value: encoded } : null;
+  const first = runScript(state, `
+applystatus("Hero", "StatusE/First")
+applystatus("Hero", "second.ste")
+`, poll);
+  equal(first.finished, true);
+  deepEqual(first.diagnostics, []);
+  const statuses = () => state.actors.actors.find((actor) => actor.id === hero.id)!.statuses;
+  deepEqual(statuses(), { "First.ste": 4, "second.ste": 4 });
+  statuses()["First.ste"] = 1;
+  const reapplied = runScript(state, `applystatus("Hero", "fIRST.STE")`, poll);
+  equal(reapplied.finished, true);
+  deepEqual(reapplied.diagnostics, []);
+  deepEqual(statuses(), { "First.ste": 4, "second.ste": 4 });
+  const removed = runScript(state, `removestatus("Hero", "FIRST")`, poll);
+  equal(removed.finished, true);
+  deepEqual(removed.diagnostics, []);
+  deepEqual(statuses(), { "second.ste": 4 });
 });
 
 test("fighter, party-name and enemy handles report stable errors without changing either section", () => {

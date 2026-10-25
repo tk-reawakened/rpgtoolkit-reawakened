@@ -2,6 +2,6 @@
   "name": "stock_battle",
   "version": "1.0.0",
   "namespace": "stock_battle",
-  "requests": [],
+  "requests": ["asset"],
   "program": "startup.prg"
 }
