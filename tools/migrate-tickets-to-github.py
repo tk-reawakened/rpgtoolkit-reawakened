@@ -376,9 +376,12 @@ def main():
                 if new_content != content:
                     epic_toml.write_text(new_content, encoding="utf-8")
                 updated_count += 1
-                plan_name = t.get("file")
+                plan_name = t.get("plan") or t.get("file")
                 if plan_name:
-                    plan_path = epic_toml.parent / plan_name
+                    plan_path = Path(plan_name)
+                    if not plan_path.is_absolute():
+                        root_candidate = root / plan_path
+                        plan_path = root_candidate if root_candidate.is_file() else epic_toml.parent / plan_path
                     if plan_path.is_file():
                         update_plan_tracker_metadata(plan_path, f"#{issue_num}")
 
