@@ -74,6 +74,10 @@ const BATTLE_READ_THROWS: NonNullable<BuiltinDoc["throws"]> = [
   { code: "battle.not-active", when: "there is no active battle" },
   { code: "battle.bad-fighter", when: "the party, index, or fighter position is invalid" },
 ];
+const BATTLE_PARTY_SIZE_THROWS: NonNullable<BuiltinDoc["throws"]> = [
+  { code: "battle.not-active", when: "there is no active battle" },
+  { code: "battle.bad-fighter", when: "party is not 0 or 1" },
+];
 const BATTLE_CHARGE_THROWS: NonNullable<BuiltinDoc["throws"]> = [
   ...BATTLE_READ_THROWS,
   { code: "builtin.bad-arg", when: "the charge or resulting stored charge is not finite" },
@@ -315,7 +319,7 @@ const PARTY_SIZE = {
   doc: internalDocumentation(
     "Read a battle party size.",
     "For `battle.partySize(party)`, returns the number of entries in party 0 (enemies) or party 1 (the player's ordered party). Party is 0 or 1; the read comes from the saved battle section and completes synchronously.",
-    BATTLE_READ_THROWS,
+    BATTLE_PARTY_SIZE_THROWS,
   ),
   call: (view: CommandView, args: readonly Arg[]) => ({ value: resolve(owner(view).partySize(numeric(args, 1))) }),
 } satisfies BuiltinSpec;
@@ -341,10 +345,11 @@ function chargeCommand(
   behaviour: string,
   params: readonly ParamSpec[],
   action: (args: readonly Arg[]) => BattleAction,
+  throws: NonNullable<BuiltinDoc["throws"]> = BATTLE_CHARGE_THROWS,
 ): BuiltinSpec {
   return {
     name, aliases: [], params,
-    doc: internalDocumentation(summary, behaviour, BATTLE_CHARGE_THROWS),
+    doc: internalDocumentation(summary, behaviour, throws),
     call: (view, args) => { resolve(owner(view).apply(action(args))); return { value: null }; },
   };
 }
@@ -386,6 +391,7 @@ const RELEASE_CHARGE = chargeCommand(
   "For `battle.releaseCharge(party, index)`, sets that fighter's stored charge to exactly 0 through the battle owner. Party and index are 0-based party/entry selectors.",
   [parameter("self"), parameter("party"), parameter("index")],
   (args) => ({ type: "releaseCharge", party: numeric(args, 1), index: numeric(args, 2) }),
+  BATTLE_READ_THROWS,
 );
 const FINISH = {
   name: "__battle_finish", aliases: [], params: [parameter("self"), parameter("code")],
