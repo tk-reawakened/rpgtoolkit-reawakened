@@ -164,10 +164,13 @@ The engine keeps the battle **model**; the plugin owns the **loop and the UI**.
 
 5. The engine restores the board music and redraws.
 
+**Reawakened rule (Epic 7.1).** Steps 1 to 5 above are the legacy plugin protocol. In the rebuild the core sets up the parties and the `battle` section, and the `stock_battle` package (or a main-file fight program) performs steps 3 and 4 itself, on one battle thread, using the operations of [battle.md](battle.md#bat-3); `CBFightTick` has no rebuild counterpart ([BAT-4](battle.md#bat-4)). The outcome table is applied by the compatibility adapter of [BAT-8](battle.md#bat-8).
+
 <a id="e-79"></a>
 **E-79 Battle-facing script API.** The fight plugin interface exposes fighter queries (HP, SMP, FP, DP, name, animation, charge %), actions (attack, use item, use special, release charge, add or remove a status effect) and a `fightTick` — callbacks 114 to 132 below.
 
 **Reawakened rule.** The rebuild ships a **default battle UI** that reproduces the stock look and feel, and keeps the battle **rules in the core** rather than in the UI. **Boundary (entry 19.1; owner decision of 2026-10-19, with the ruling in Epic 20):** the actor data and the rules that interpret it belong to the core; battle systems themselves (turn order, damage, AI) are scripts in packages built on the objects and emitters of [rpgcode-modules-and-objects.md](rpgcode-modules-and-objects.md), not core code. Where this paragraph's "battle rules in the core" and that boundary differ, the boundary governs, and entry 20.1 reconciles the wording and the AD-26 `battle` phase.
+**Reawakened rule (Epic 7.1; supersedes the wording "rules in the core" above).** The battle's charge, turn order, damage, AI, status rounds and the sequence after an outcome are package scripts, not core rules; the core owns actor data, the `battle` section and the one outcome adapter of [BAT-8](battle.md#bat-8). See [battle.md BAT-1](battle.md#bat-1).
 
 **Reawakened rule.** **RPGCode-written battle systems** must be able to drive the same core operations as that default UI (they replace it through the main file's custom fight program), so a script can build its own battle screen without a second rules engine.
 
@@ -181,6 +184,7 @@ The engine keeps the battle **model**; the plugin owns the **loop and the UI**.
 
 <a id="e-72"></a>
 **E-72 Charge-bar turns ("active time").** Each fighter's charge fills by *speed* per tick — players' maximum 75, enemies' maximum 123, both starting at a random value. A charged **player** stops charging and waits for a menu choice; a charged **enemy** acts immediately and resets. Disabled fighters do not charge.
+**Reawakened rule (Epic 7.1; R11-Q1 to Q4).** Initial charge is a random whole number from 0 to the threshold minus 1. In 3.1 nobody charges while any turn (menu, animation, message) is in progress, an enemy's charge resets right after it acts, and a fighter crossing its threshold acts in the next pass. See [BAT-4](battle.md#bat-4).
 
 <a id="e-73"></a>
 **E-73 Player actions.** Fight (physical attack), Special Move (named per character, e.g. "Magic"), Item (a battle-usable item; consumes one), Run.
@@ -204,14 +208,20 @@ Legacy battles are one-sided, so each attack has exactly one side with a value a
 | enemy | player | the enemy's offensive value (`giveCrit`); the player's defensive value is -1 |
 
 *Departures from the original.* (1) For an enemy attacking a player, the original read the limit from a record the player target does not have, which gave an invalid result; the rebuild uses the attacking enemy's offensive value, which is what the two field names and [`enemy.md`](../formats/enemy.md#layout) rows 9 and 10 describe. (2) The original fixed the limit at 0 for a player attacking a player, so DP was always skipped; in the rebuild both values are -1 unless a game gives them, so DP is subtracted. (3) For an enemy attacking an enemy the original used only the attacker's `giveCrit`; the rebuild also applies the target's `takeCrit`. Pairings (2) and (3) are not normal battle arrangements. *Special moves* do not use these steps: a special move takes its own flat FP value off the target's HP, its own target-SMP value off the target's SMP and its own source-SMP value off the user's SMP, each kept at 0 or above, with no luck and no DP subtraction. *Evidence:* [facts-round-10.md](../../provenance/facts-round-10.md) D1 to D8; `enemy.md` rows 9 and 10. *Rejected alternatives:* a single value shared by both directions, which cannot say how often an enemy lands a critical hit apart from how often it suffers one; defaulting characters to 1, which would be a 50 % chance rather than neutral; `null` instead of -1 for "none", which the owner declined (-1 is the legacy "none" convention). DP derivation from stats and equipment and the defaults of `takeCrit`/`giveCrit` on enemies are not ruled here (facts D9).
+**Reawakened rule (Epic 7.1; R11-Q7).** Special moves and items do not use the steps above: a special has no luck, critical, DP or floor of 1; an item adds its values and is kept between 0 and the maximum. See [BAT-5](battle.md#bat-5).
 
 <a id="e-75"></a>
 **E-75 Status effects.** Applied by moves or by script and keyed by file (re-applying restarts it). Each round while the fighter is charged: apply ±HP and ±SMP and optionally run a program (with `source`/`target` = the fighter); it lasts a number of rounds. **Speed up / slow down** change the charge rate; **disable** freezes charging and is reference-counted when several disables are active.
 
+**Reawakened rule (Epic 7.1; R11-Q5, Q6).** A status ticks once per turn of its fighter, effect first and then the round count; statuses sum without a floor or ceiling; a disable never ends by itself. See [BAT-6](battle.md#bat-6).
+
 <a id="e-77"></a>
 **E-77 Outcome.** **Win:** the total gold and experience of all enemies, a "Gained N experience / GP" message, the experience given to every party member (which may level them up), and the enemy defeat program. **Run:** the run-away program and no rewards. **Lose:** the game-over program, or `reset()` when there is none. The board music resumes afterwards.
 
+**Reawakened rule (Epic 7.1; R11-Q11 to Q13).** Running succeeds 2 times in 5 and a failed attempt costs the turn; rewards go to every party member in a ruled order; one run program and one win program (the last enemy's that has one) run. See [BAT-8](battle.md#bat-8).
+
 > **Open conflict R-57 — battle model and notification quirks.** the legacy feature inventory (E-74, E-72) says players act at a maximum charge of 75, enemies at 123, damage has a ±10 % variance and a critical hit bypasses DP; this page, `docs/spec/engine/plugins-and-battle.md:102`, says "`skill` is always −1" in the original engine and gives the charge, damage and notification codes above, including that the engine "never sends 6 or 7". Owner epic: **battle**. Landed code: none. The owner settles it at inception; this page rules nothing.
+> **Ruled — R-57 is settled by entry 7.1.** The conflict above is closed by [battle.md](battle.md), using the facts of [round 11](../../provenance/facts-round-11.md): players act at 75, enemies at 123, `skill` is −1 on the random path, and the legacy engine never sent `fightInform` codes 6 and 7 (the rebuild detects deaths and the end of the battle, [BAT-12](battle.md#bat-12)). Read the paragraph above as the history of the conflict, not as an open question.
 
 ### Enemy AI
 
@@ -226,9 +236,14 @@ Legacy battles are one-sided, so each attack has exactly one side with a value a
 <a id="e-76"></a>
 **E-76 Enemy AI.** The four built-in levels are the table above. An enemy can instead use a **custom AI program** (with `source` = enemy and `target` = a random player). Enemies use only specials they can afford, and curative specials target allies.
 
+**Reawakened rule (Epic 7.1; R11-Q8 to Q10).** "Weakest" is the lowest current HP; healing specials go to a random ally at levels 0 and 1 and to the lowest-HP ally at levels 2 and 3. See [BAT-7](battle.md#bat-7).
+
 ### Random encounters
 
 Tested at most once per tile the player moves, on boards that allow battles, when the main file enables fighting (`fightGameYn = 0`). Type 0: a fight starts with probability 1 / `chances`. Type 1: a fight starts every `chances` tiles walked. If the main file's custom-fight flag is set, its fight program runs instead. Otherwise 1-4 enemies (random count) are drawn from the main file's encounter table among those whose skill level matches the board's battle skill, and the board's battle background is used. If no enemy has that skill level the message "No enemies of skill level N found." is shown.
+
+**Reawakened rule (Epic 7.1; R11-Q14).** The number of enemies is 1 to 4, each equally likely, and each is drawn independently. See [BAT-9](battle.md#bat-9).
+
 
 ## Callback interface
 
