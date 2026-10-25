@@ -2,5 +2,6 @@
   "name": "stock_rpg",
   "version": "1.0.0",
   "namespace": "stock_rpg",
-  "requests": []
+  "requests": [],
+  "program": "startup.prg"
 }
