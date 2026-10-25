@@ -4,9 +4,9 @@ type: 'feature'
 ticket: 12
 created: '2026-10-25'
 status: 'built'
-review: 'approve'
-review_source: 'independent BMad code review with clean post-fix re-review'
-lenses_ran: ['blind-hunter', 'edge-case-hunter', 'verification-gap', 'intent-alignment', 'fresh-fix-rereview']
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 baseline_revision: 'c7efe748b6a3dce7bc1e15ae865c4aede0772146'
 route: 'full'
 route_source: 'auto'
@@ -107,4 +107,4 @@ The native command centralizes mapping the producer's stable actor ID to the can
 
 - Independent fresh-fix re-review: clean, no findings, against the uncommitted ticket-only worktree diff at HEAD/base `c7efe748b6a3dce7bc1e15ae865c4aede0772146`. The reviewer verified target removal after queueing, source-emitter handling, invalid/unregistered inputs, null target, exact details, and absence of unrelated changes.
 
-- The completed BMad review used blind-hunter, edge-case-hunter, verification-gap, and intent-alignment lenses; the finding was fixed and the independent fresh-fix re-review passed with no findings.
+- Build Step 4 ran the pinned Quick lens (`review: 'quick'`, `lenses_ran: ['quick']`). Separately, the BMad code-review workflow ran blind-hunter, edge-case-hunter, verification-gap, and intent-alignment; the target-removal finding was fixed and the independent fresh-fix re-review passed with no findings.
