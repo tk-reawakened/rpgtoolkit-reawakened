@@ -11,43 +11,48 @@ context:
   - "spec - docs/spec/engine/plugins-and-battle.md#e-71, #e-77"
   - "spec - docs/spec/engine/movement-and-collision.md#e-78"
   - "spec - docs/spec/engine/rpgcode-modules-and-objects.md (EMIT-13)"
-  - "spec - docs/spec/engine/actors.md as ruled by 20.1 (the default level-up equation)"
+  - "spec - docs/spec/engine/progression-and-levels.md (the default level-up equation, maximum level)"
+  - "facts - docs/provenance/facts-round-11.md Q11 to Q13"
 ---
 
 ## Intent
 
-Resolve a battle's outcome and apply the rewards and consequences E-77 and E-78 state. The package reports the outcome with `battle.finish(code)`; the core applies the automatic paths (run, win, lose) and the package handles the two plugin outcomes (1 and 3). Experience goes to every party member, gold is posted as one inventory effect, level-up uses the 20.6 default, and `defeated` is emitted once per enemy.
+Resolve a battle's outcome and apply the rewards and consequences E-77 and E-78 state, in the order the 3.1 facts record. The package reports the outcome with `battle.finish(code)`; the compatibility adapter of BAT-8 (proposed, pending owner review) applies the automatic paths (run, win, lose) from generic operations, and the package handles the two plugin outcomes (1 and 3). Experience goes to every party member, gold is posted as one inventory effect, level-up uses the 20.6 default, and `defeated` is emitted once per enemy.
 
 ## Boundaries
 
-No damage, status or AI (7.5 to 7.7). No inventory implementation: gold is a plain-data effect that Epic 8 consumes. No menus or save UI. The level-up equation is 20.1's; this entry calls it and does not write a second curve.
+No damage, status or AI (7.5 to 7.7). No inventory implementation: gold is a plain-data effect that Epic 8 consumes. No menus or save UI. The level-up equation and the maximum-level behaviour are `progression-and-levels.md`'s; this entry calls them and does not write a second curve.
 
 ## Key Decisions
 
-1. **Who applies what.** Codes 0 (run), 2 (win) and 4 (lose) are automatic and applied by the core after `finish(code)`. Codes 1 and 3 are package-handled: the package has already run the custom path and the core does nothing. A code outside 0-4 is rejected at `finish`.
+1. **Who applies what (BAT-8, pending owner review).** Codes 0 (run), 2 (win) and 4 (lose) are automatic: after `finish(code)` the core performs the sequence below using only generic operations (experience award, one gold effect, message path, program run, `reset()`). Codes 1 and 3 are package-handled: the core does nothing. A code outside 0-4 is rejected at `finish`; a second `finish` is `battle.already-finished`.
 
-2. **Run.** Outcome 0 runs the run-away program, if the encounter registers one, and returns to the board. The battle track stops and the board's music is re-posted from `boardKey` (7.10). Running never awards gold or experience and never emits `defeated`.
+2. **Run (R11-Q11).** The Run action is blocked for the whole fight if any one enemy forbids running: it is still listed but drawn differently, choosing it plays the cancel sound and keeps the turn. When allowed it succeeds with chance 2 in 5 (one seeded draw in `[0, 5)`, 0 and 1 succeed); a failed attempt shows a message and spends the turn. A success shows a message and the battle ends at the start of the next pass; later charged players in that pass still have their statuses tick, and if that leaves every player at 0 HP the battle is a loss. Outcome 0 then runs one run program: the last enemy, in encounter order, that has one. No gold, no experience, no `defeated`. The battle track stops and the board's music is re-posted from `boardKey` (7.10).
 
-3. **Win.** Outcome 2 sums each enemy's gold and posts one `{ kind: "inventory.gainGold", amount }` effect; grants each enemy's experience to every party member; for each member that crosses a level threshold, calls the 20.6 default level-up (runs the level-up program and raises max HP, DP, FP and max SMP without refilling current values); shows the gold and level-up messages in the ruled order; then runs the defeat program(s) the encounter names (one per enemy where present). R-16 is the single `experienceIncrease` rule inherited from 20.1.
+3. **Win (R11-Q12).** Outcome 2 sums every enemy's gold and experience. In this order: post the gold as one `{ kind: "inventory.gainGold", amount }` effect, silently; show the experience message if the total is above 0; give every party member, fallen included and in party order, the **full** experience total, and for each level gained run the level-up program if there is one, apply the 20.6 default stat rise (no refill of current values) and show the short level-gained message (not at maximum level); show the gold message if the total is above 0; then run the win program of the last enemy, in encounter order, that has one (only that one). The maximum-level experience retry of 3.1 is not reproduced: the actor owner terminates safely there.
 
-4. **Lose.** Outcome 4 runs the game-over program if one is registered; otherwise it shows "Game over." and calls `reset()`. It awards nothing. The battle ends before the program runs so the program sees the board state, not a live battle.
+4. **Lose (R11-Q13).** A loss is every player at 0 HP or below, checked between passes before the win check, so a simultaneous fall is a loss. Outcome 4 runs the game-over program if one is registered, and then the engine does **not** reset; without one it shows the game-over message and calls `reset()`. It awards nothing. The battle ends before the program runs so the program sees the board state, not a live battle. In every outcome the board music returns and the scene is redrawn.
 
-5. **`defeated`.** Emitted on each enemy actor at the moment it becomes fallen and unusable, once per enemy per battle, with `{ cause: "damage" | "status" | "script", source: actorId | null }`. `source` is the actor that caused it when known, otherwise null. The package re-emits `battle.defeated` on the game for global listeners (EMIT-13 namespace rule). A run emits none; a lose does not emit for the players.
+5. **`defeated` (BAT-12).** Emitted by the package on each enemy actor the first time it reaches 0 HP, once per enemy per battle, with `{ cause: "damage" | "status" | "script", source: actorId | null }`. The package re-emits it on the game as `stock_battle.defeated` for global listeners (EMIT-8, EMIT-13). A defeated enemy stays in its slot as an inactive fighter; a run emits none; a loss does not emit for the players.
 
-6. **Messages.** The reward message ("Gained N experience / GP") and each level-up message go through the existing message path, in the order BAT-8 records. The text is data where the game supplies a format, otherwise the ruled default; the no-enemies message comes from the start path and is not repeated here.
+6. **Messages.** The reward, level-up and gold messages go through the existing message path in the order of decision 3. The text is data where the game supplies a format, otherwise the ruled default; the no-enemies message comes from the start path and is not repeated here.
 
-7. **`canRun`.** The Run action is offered only when the battle's `canRun` is true (no enemy forbids it); a direct call raises `battle.cannot-run` and leaves the battle running.
+7. **`canRun`.** `canRun` is true only when no enemy forbids running; `battle.finish(0)` while it is false raises the catchable `battle.cannot-run` and leaves the battle running.
 
 ## Acceptance
 
-1. Seeded win, run and lose paths produce the ruled outcomes, rewards and consequences.
-2. Experience is granted to every party member once; each threshold crossing follows the 20.6 equation and does not refill current HP/SMP/FP.
+1. Seeded win, run and lose paths produce the ruled outcomes, rewards and consequences, in the decision-3 order for a win.
+2. Experience is granted in full to every party member, fallen included, once; each threshold crossing follows `progression-and-levels.md` and does not refill current HP/SMP/FP; a character at maximum level never loops.
 3. Gold is posted exactly once as an inventory effect and consumed by the test double.
-4. `defeated` fires once per enemy per battle, not on a run, and carries the ruled fields; the game re-emit is `battle.defeated`.
-5. The game-over program runs, or "Game over." shows and `reset()` is called when none is registered.
-6. `canRun` gates the Run action and a refused run is a stable error with the battle still live.
-7. Messages appear in the order BAT-8 rules; level-up text follows the game's data where supplied, otherwise the ruled default.
+4. `defeated` fires once per enemy per battle, not on a run, carries the ruled fields and is re-emitted as `stock_battle.defeated`.
+5. The game-over program runs without a reset, or the message shows and `reset()` is called when none is registered.
+6. Run is blocked when any enemy forbids it without spending the turn; an allowed run succeeds on a seeded 2-in-5 draw and a failed one spends the turn; one run program and one win program run.
+7. A simultaneous fall of both sides is a loss.
 
 ## Verification
 
-Seeded win/run/lose tests, a per-member experience/level-up test against the 20.6 equation, a gold-effect test, a `defeated`-count and payload test, a game-over/reset test, and a `canRun` test. Full suite, typecheck and lint.
+Seeded win/run/lose tests, an ordering test for the win sequence, a per-member experience/level-up test (including a maximum-level member), a gold-effect test, a `defeated`-count, payload and re-emit test, a game-over/reset test, a `canRun` and run-chance test, and a simultaneous-fall test. Full suite, typecheck and lint.
+
+## Plan Change Log
+
+- 2026-10-25: reconciled with `battle.md` BAT-8 and BAT-12 and facts round 11: reward order (gold, experience message, level-ups, gold message, one win program); run chance 2 in 5 and a failed run spends the turn; the game-over program replaces the reset; one run and one win program (the last enemy's that has one); the re-emit is `stock_battle.defeated`.

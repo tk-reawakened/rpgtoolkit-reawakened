@@ -17,7 +17,7 @@ context:
 
 Implement E-75 status effects in the stock package on top of the core's status data. The core stores the effect, its remaining rounds and the source; the package decides when a round passes, applies the per-round effects and interprets speed, slow and disable.
 
-A round passes when a fighter becomes charged: the package calls the core's `advanceStatus(1)` once, then applies each surviving status's ±HP, ±SMP and program effect. Re-applying a status restarts its rounds. At zero it expires and its contributions disappear.
+A status ticks once per turn of the fighter carrying it: in the pass where the fighter is found fully charged, just before its turn, and for each status in turn the package applies its HP amount, then its SMP amount, then runs its program, then reduces its round count, then expires it at 0 (BAT-6). Re-applying a status restarts its rounds. A fighter's statuses tick in order of their file names compared in upper case.
 
 ## Boundaries
 
@@ -27,11 +27,11 @@ No damage formulas (7.5) and no AI (7.7). The core owns the status data, lifetim
 
 1. **Storage.** A status is identified by its `.ste` file name and carries `{ id, name, rounds, source, data }`. Applying an existing id replaces the entry and restarts `rounds`; it does not stack two copies. Two different statuses may both contribute speed.
 
-2. **Round boundary.** The package calls `advanceStatus(1)` on the fighter, not on every actor, and only when that fighter becomes charged. A disabled fighter that has not yet reached its threshold never becomes charged, so it takes no new status round; disable does not undo a round already applied. This is the ruled legacy behaviour and the reason disable is strong.
+2. **Round boundary.** The tick is the fighter becoming charged, once per turn (BAT-6, R11-Q5). A disabled fighter never becomes charged, so it takes no status round and a disable never ends by itself; it ends only by `removestatus` or the battle's end. With several disables it stays frozen until all are gone. The legacy cancellation of a player's self-disable at turn end is not reproduced.
 
-3. **Per-round effects.** After the advance, each status whose rounds remain applies its HP delta (through the actor heal/damage path), its SMP delta, and optionally runs its program with `source` = the status's source and `target` = the fighter. A program error is reported with the status id and does not abort the battle; the remaining statuses still apply.
+3. **Per-round effects.** For each status in file-name order: apply the HP delta (through the actor heal/damage path, so it stops at 0 and at the maximum), then the SMP delta, then run the program with the fighter as both `source` and `target`, then age that status by one round and expire it at 0. If `advanceStatus(1)` cannot age one status at a time, apply all effects then age all (the BAT-6 departure 4). A program error is reported with the status id and does not abort the battle; the remaining statuses still apply. A `.ste` with fewer than 1 round loads with a diagnostic and lasts until removed.
 
-4. **Charge contribution.** Speed adds +2 to the fighter's rate per active speed status; slow subtracts 2 per active slow status; the rate is floored at 0. Disable is a reference count: the fighter is frozen while at least one disable status is active, and unfreezes when the last one expires or is removed.
+4. **Charge contribution.** Speed adds 2 to the rate per active speed status and slow subtracts 2; the effects sum across different status files with **no floor and no ceiling** (BAT-4). A rate of 0 or less means the fighter never becomes charged. Disable is a reference count and freezes charging (a charge at or above the threshold is set to one below it).
 
 5. **Removal and death.** `removestatus` removes the entry and drops its contributions immediately. A lethal per-round HP effect fires `fallen` once with `cause: "status"` through the actor path; the package does not emit `defeated` (7.8 does). Status state saves with the actor and replays identically.
 
@@ -40,7 +40,7 @@ No damage formulas (7.5) and no AI (7.7). The core owns the status data, lifetim
 1. Apply, re-apply, remove and expire behave as ruled; re-apply restarts the rounds and does not duplicate the entry.
 2. A per-round HP, SMP and program effect runs exactly once per round, at the fighter's charged boundary.
 3. Speed and slow stack per active effect; disable freezes only while at least one disable is active and unfreezes on the last removal.
-4. A lethal status fires `fallen` once with cause `status` and does not emit `defeated`.
+4. A lethal status fires `fallen` once with cause `status`; for an enemy the package then emits `defeated` once (7.8).
 5. Status state is saved with the actor and a save/restore replays identically; statuses are absent from the `battle` section.
 6. A program error in a per-round effect is reported and does not abort the battle.
 
