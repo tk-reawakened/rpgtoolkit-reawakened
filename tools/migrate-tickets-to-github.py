@@ -17,9 +17,14 @@ PROJECT_ID = "PVT_kwDOFH0rD84Bnzfi"
 
 STATUS_FIELD_ID = "PVTSSF_lADOFH0rD84BnzfizhmWa0w"
 STATUS_OPTIONS = {
-    "Todo": "f75ad846",
-    "In Progress": "47fc9ee4",
-    "Done": "98236657",
+    "Draft": "21a74e34",
+    "Ready for Dev": "a8cecafe",
+    "In Progress": "f6c0d6d9",
+    "In Review": "fb146e09",
+    "Built": "bc56f2f4",
+    "Blocked": "31d77a88",
+    "Done": "d4a82464",
+    "Dropped": "939c6cf8",
 }
 
 AREA_FIELD_ID = "PVTSSF_lADOFH0rD84BnzfizhmWbGg"
@@ -108,8 +113,10 @@ def gh_api_request(endpoint: str, data: dict | None = None, method: str | None =
 
 
 def gh_graphql(query: str, variables: dict, token: str) -> dict:
-    return gh_api_request("https://api.github.com/graphql", {"query": query, "variables": variables}, token=token)
-
+    response = gh_api_request("https://api.github.com/graphql", {"query": query, "variables": variables}, token=token)
+    if response.get("errors"):
+        raise RuntimeError(f"GitHub GraphQL error: {response['errors']}")
+    return response
 
 def get_existing_issues(token: str) -> dict[str, dict]:
     print("Fetching existing GitHub issues...", flush=True)
@@ -151,6 +158,30 @@ def update_entry_tracker_id(content: str, entry_id: str | int, tracker_id: str) 
     else:
         new_block = re.sub(rf"(\bid\s*=\s*(?:{entry_id}|\"{entry_id}\")\b)", rf'\1\ntracker_id = "{tracker_id}"', block)
     return content[: match.start()] + new_block + content[match.end() :]
+
+
+def update_plan_tracker_metadata(path: Path, tracker_id: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    match = re.match(r"\A---\s*\n(.*?)\n---\s*\n", text, flags=re.S)
+    if not match:
+        raise ValueError(f"Story plan has no YAML frontmatter: {path}")
+    lines = match.group(1).splitlines()
+    issue_number = int(tracker_id.removeprefix("#"))
+    fields = {
+        "tracker_id": f'"{tracker_id}"',
+        "remote": f'"https://github.com/{REPO}/issues/{issue_number}"',
+    }
+    for key, value in fields.items():
+        replacement = f"{key}: {value}"
+        for idx, line in enumerate(lines):
+            if line.startswith(f"{key}:"):
+                lines[idx] = replacement
+                break
+        else:
+            lines.append(replacement)
+    updated = match.group(0).replace(match.group(1), "\n".join(lines), 1) + text[match.end():]
+    if updated != text:
+        path.write_text(updated, encoding="utf-8")
 
 
 def main():
@@ -291,14 +322,50 @@ def main():
                 if priority_opt:
                     gh_graphql(update_query, {"projectId": PROJECT_ID, "itemId": item_id, "fieldId": PRIORITY_FIELD_ID, "optId": priority_opt}, token=token)
 
-                # Update Status if not done (done is auto-assigned by GitHub)
-                if state != "done":
-                    status_opt = STATUS_OPTIONS.get("Todo")
-                    if status_opt:
-                        gh_graphql(update_query, {"projectId": PROJECT_ID, "itemId": item_id, "fieldId": STATUS_FIELD_ID, "optId": status_opt}, token=token)
-
             # Small sleep to keep well below secondary rate limits
             time.sleep(0.4)
+        # Ensure existing and newly-created issues both reflect the ticket-store status.
+        if issue_node_id and not args.dry_run:
+            project_query = """
+            mutation($projectId: ID!, $contentId: ID!) {
+                addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
+                    item { id }
+                }
+            }
+            """
+            item_result = gh_graphql(project_query, {"projectId": PROJECT_ID, "contentId": issue_node_id}, token=token)
+            item_id = item_result.get("data", {}).get("addProjectV2ItemById", {}).get("item", {}).get("id")
+            if not item_id:
+                raise RuntimeError(f"Could not get Project 3 item for issue #{issue_num}")
+            ticket_status = t.get("status", "").lower()
+            status_name = {
+                "draft": "Draft",
+                "ready-for-dev": "Ready for Dev",
+                "in-progress": "In Progress",
+                "in-review": "In Review",
+                "built": "Built",
+                "blocked": "Blocked",
+                "done": "Done",
+                "dropped": "Dropped",
+            }.get(ticket_status)
+            if status_name is None:
+                status_name = {"done": "Done", "dropped": "Dropped"}.get(state, "Draft")
+            status_query = """
+            mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optId: String!) {
+                updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId,
+                    itemId: $itemId,
+                    fieldId: $fieldId,
+                    value: { singleSelectOptionId: $optId }
+                }) { projectV2Item { id } }
+            }
+            """
+            gh_graphql(status_query, {
+                "projectId": PROJECT_ID,
+                "itemId": item_id,
+                "fieldId": STATUS_FIELD_ID,
+                "optId": STATUS_OPTIONS[status_name],
+            }, token=token)
 
         # Update tickets.toml with tracker_id
         if issue_num:
@@ -309,6 +376,14 @@ def main():
                 if new_content != content:
                     epic_toml.write_text(new_content, encoding="utf-8")
                 updated_count += 1
+                plan_name = t.get("plan") or t.get("file")
+                if plan_name:
+                    plan_path = Path(plan_name)
+                    if not plan_path.is_absolute():
+                        root_candidate = root / plan_path
+                        plan_path = root_candidate if root_candidate.is_file() else epic_toml.parent / plan_path
+                    if plan_path.is_file():
+                        update_plan_tracker_metadata(plan_path, f"#{issue_num}")
 
     print(f"\nDone! Created: {created_count}, Updated tracker IDs: {updated_count}", flush=True)
 
