@@ -234,6 +234,7 @@ test("reset() leaves the audio section, its script settings and the playing musi
     if (state.time.tick === 5) {
       state.audio.settings.masterVolume = 40;
       state.audio.soundFont = "media/boss.sf2" as AssetKey;
+      state.battle = { id: 1, boardKey: "boards/a.brd", background: "fight.bkg", canRun: true, outcome: null, parties: [[], []] };
     }
   });
   const before = run(host.engine, game.files, 8);
@@ -241,6 +242,7 @@ test("reset() leaves the audio section, its script settings and the playing musi
   const cueIdBefore = host.state().audio.cueId;
   const after = run(host.engine, game.files, 30);
   equal(host.state().vm.threads.length, 0, "the reset dropped the program: the lifecycle did run");
+  equal(host.state().battle, null, "reset clears the active battle section");
   equal(host.state().audio.settings.masterVolume, 40);
   equal(host.state().audio.soundFont, "media/boss.sf2");
   equal(host.state().audio.tracks[0]?.state, "playing");
