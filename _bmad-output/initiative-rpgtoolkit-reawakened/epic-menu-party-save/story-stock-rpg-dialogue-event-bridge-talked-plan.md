@@ -11,9 +11,6 @@ baseline_revision: 'c7efe748b6a3dce7bc1e15ae865c4aede0772146'
 route: 'full'
 route_source: 'auto'
 risk: 'high'
-review: ''
-review_source: ''
-lenses_ran: []
 review_loop_iteration: 0
 context:
   - "docs/spec/engine/plugins-and-battle.md#e-95 (E-95 source/target context only)"
