@@ -200,6 +200,84 @@ export function updateActorStats(section: ActorsSection, id: ActorId | number, p
   return { actor: current, transitions };
 }
 
+export type StatusChangeOptions = { readonly source?: ActorSource; readonly hooks?: ActorHooks };
+
+/**
+ * Set an actor-owned status counter. Matching identities ignore case; an
+ * existing status keeps its key and its counter is replaced, never added.
+ */
+export function applyActorStatus(
+  section: ActorsSection,
+  id: ActorId | number,
+  status: string,
+  amount: number,
+  options: StatusChangeOptions = {},
+): ActorRuleResult | null {
+  const stableId = actorId(id);
+  const actor = getActor(section, stableId);
+  if (actor === null) return null;
+  if (typeof status !== "string") throw new TypeError("status identity must be a string");
+  const rounds = integer(amount, "status rounds");
+  if (rounds < 0) throw new RangeError("status rounds must not be negative");
+  const source = actorSource(options.source);
+  const existing = Object.keys(actor.statuses).find((key) => key.toUpperCase() === status.toUpperCase());
+  const key = existing ?? status;
+  const previousRounds = existing === undefined ? 0 : actor.statuses[key]!;
+  let nextRounds = rounds;
+  if (options.hooks?.statusChanged !== undefined) {
+    const result = record(options.hooks.statusChanged(actor, { status: key, previousRounds, rounds, source }), "statusChanged");
+    exactKeys(result, ["rounds"], "statusChanged");
+    if (result.rounds !== undefined) {
+      nextRounds = integer(result.rounds, `status ${key} rounds`);
+      if (nextRounds < 0) throw new RangeError(`status ${key} rounds must not be negative`);
+    }
+  }
+  const statuses = { ...actor.statuses };
+  Object.defineProperty(statuses, key, { value: nextRounds, enumerable: true, writable: true, configurable: true });
+  patchActor(section, stableId, { statuses });
+  const current = getActor(section, stableId);
+  if (current === null) return null;
+  return {
+    actor: current,
+    transitions: [{ type: "statusChanged", actorId: stableId, status: key, previousRounds, rounds: nextRounds, expired: false, source }],
+  };
+}
+
+/** Remove one matching actor status and report its ordinary transition. */
+export function removeActorStatus(
+  section: ActorsSection,
+  id: ActorId | number,
+  status: string,
+  options: StatusChangeOptions = {},
+): ActorRuleResult | null {
+  const stableId = actorId(id);
+  const actor = getActor(section, stableId);
+  if (actor === null) return null;
+  if (typeof status !== "string") throw new TypeError("status identity must be a string");
+  const key = Object.keys(actor.statuses).find((candidate) => candidate.toUpperCase() === status.toUpperCase());
+  if (key === undefined) return { actor, transitions: [] };
+  const previousRounds = actor.statuses[key]!;
+  const source = actorSource(options.source);
+  let rounds = 0;
+  if (options.hooks?.statusChanged !== undefined) {
+    const result = record(options.hooks.statusChanged(actor, { status: key, previousRounds, rounds, source }), "statusChanged");
+    exactKeys(result, ["rounds"], "statusChanged");
+    if (result.rounds !== undefined) {
+      rounds = integer(result.rounds, `status ${key} rounds`);
+      if (rounds < 0) throw new RangeError(`status ${key} rounds must not be negative`);
+    }
+  }
+  const statuses = { ...actor.statuses };
+  if (rounds === 0) delete statuses[key];
+  else Object.defineProperty(statuses, key, { value: rounds, enumerable: true, writable: true, configurable: true });
+  patchActor(section, stableId, { statuses });
+  const current = getActor(section, stableId);
+  if (current === null) return null;
+  return {
+    actor: current,
+    transitions: [{ type: "statusChanged", actorId: stableId, status: key, previousRounds, rounds, expired: rounds === 0, source }],
+  };
+}
 export type AdvanceStatusOptions = { readonly source?: ActorSource; readonly hooks?: ActorHooks };
 
 /** Age every actor status by a caller-defined non-negative integer amount. */

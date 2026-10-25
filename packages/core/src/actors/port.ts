@@ -1,14 +1,18 @@
 import { actorId, getActor, patchActor as patchActorModel, type ActorId, type ActorRecord, type ActorStats, type ActorsSection } from "./model.ts";
 import {
   advanceStatus,
+  applyActorStatus,
   applyEquipment,
   awardExperience,
+  removeActorStatus,
   updateActorStats,
   type ActorHooks,
+  type ActorSource,
   type AdvanceStatusOptions,
   type ActorRuleResult,
   type EquipmentItemDefinition,
   type StatsChangeOptions,
+  type StatusChangeOptions,
 } from "./rules.ts";
 import type { ActorEventSink } from "./object.ts";
 import type { HostObjectType } from "../script/host.ts";
@@ -26,6 +30,12 @@ export type StatsPort = {
 
 export type ActorOperationService = {
   updateStats(actor: ActorId | number, patch: Partial<ActorStats>, options: Omit<StatsChangeOptions, "hooks">): ActorRuleResult | null;
+  /** Apply damage or healing through the actor owner; only `smp` selects SMP, all other pools use HP. */
+  damage(actor: ActorId | number, amount: number, source?: ActorSource, pool?: string): number | null;
+  /** Replace or start a status counter by identity through the actor owner and emit its ordinary transition. */
+  applyStatus(actor: ActorId | number, status: string, rounds: number, options?: Omit<StatusChangeOptions, "hooks">): ActorRuleResult | null;
+  /** Remove a matching status identity through the actor owner; an absent identity is a no-op. */
+  removeStatus(actor: ActorId | number, status: string, options?: Omit<StatusChangeOptions, "hooks">): ActorRuleResult | null;
   advanceStatus(actor: ActorId | number, amount: number, options?: Omit<AdvanceStatusOptions, "hooks">): ActorRuleResult | null;
   applyEquipment(actor: ActorId | number, equipped: readonly string[], items: readonly EquipmentItemDefinition[]): ActorRuleResult | null;
   awardExperience(actor: ActorId | number, amount: number): ActorRuleResult | null;
@@ -59,6 +69,27 @@ export function createActorService(
     },
     updateStats(actor, patch, options) {
       const result = updateActorStats(section, actor, patch, { ...options, hooks: hooksFor(actor) });
+      if (result !== null) events?.(result);
+      return result;
+    },
+    damage(actor, amount, source = null, pool = "hp") {
+      if (!Number.isFinite(amount)) throw new RangeError("damage amount must be finite");
+      const record = getActor(section, actorId(actor));
+      if (record === null) return null;
+      const field = pool === "smp" ? "smp" : "hp";
+      const before = record.stats[field];
+      const result = updateActorStats(section, actor, { [field]: before - amount }, { cause: "damage", source, hooks: hooksFor(actor) });
+      if (result === null) return null;
+      events?.(result);
+      return before - result.actor.stats[field];
+    },
+    applyStatus(actor, status, rounds, options = {}) {
+      const result = applyActorStatus(section, actor, status, rounds, { ...options, hooks: hooksFor(actor) });
+      if (result !== null) events?.(result);
+      return result;
+    },
+    removeStatus(actor, status, options = {}) {
+      const result = removeActorStatus(section, actor, status, { ...options, hooks: hooksFor(actor) });
       if (result !== null) events?.(result);
       return result;
     },
