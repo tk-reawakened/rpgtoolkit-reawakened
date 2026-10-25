@@ -15,6 +15,7 @@ import { readMainFile } from "../formats/main-file/reader.ts";
 import type { MainFile } from "../formats/main-file/model.ts";
 import { readLegacyFont } from "../formats/font/reader.ts";
 import { gateTrueType } from "../formats/font/truetype.ts";
+import type { AssetKind } from "../formats/main-file/layout.ts";
 import type { AssetIndex, AssetRoot } from "../formats/resolver/model.ts";
 import type { DrawList, Rgb, Tint } from "../ports/draw.ts";
 import type { InputRecord } from "../ports/input.ts";
@@ -207,6 +208,13 @@ type Arrival = { readonly x: number; readonly y: number; readonly layer: number;
 
 const DEFAULT_ENGINE_PLUGINS: readonly ResolvedPlugin[] = resolveManifestPlugins(ENGINE_DEFAULT_MANIFEST).plugins;
 const SCRIPT_REQUEST_BASE = 0x40000000;
+const SCRIPT_ASSET_AREAS: Readonly<Record<string, { readonly folder: string; readonly kind: "script-character" | "script-item" | "script-asset" }>> = {
+  characters: { folder: "characters", kind: "script-character" },
+  items: { folder: "item", kind: "script-item" },
+  enemies: { folder: "enemy", kind: "script-asset" },
+  specialMoves: { folder: "spcmove", kind: "script-asset" },
+  statusEffects: { folder: "statuse", kind: "script-asset" },
+};
 
 /** Create the deterministic fixed-tick engine; host assets arrive only as AD-14 replies. */
 const DEFAULT_GAME_AUDIO_SETTINGS = {
@@ -488,15 +496,15 @@ export function createEngine(init: EngineInit): Engine {
       "engine",
       (section, effect) => bus.dispatchRecorded(section, effect),
       (request) => {
-        if (request.kind === "asset" && (request.area === "characters" || request.area === "items") &&
+        const scriptArea = request.kind === "asset" && typeof request.area === "string" && Object.hasOwn(SCRIPT_ASSET_AREAS, request.area) ? SCRIPT_ASSET_AREAS[request.area] : undefined;
+        if (request.kind === "asset" && scriptArea !== undefined &&
             typeof request.path === "string" && typeof request.reqId === "number" &&
             Number.isSafeInteger(request.reqId) && request.reqId > 0 && request.reqId < SCRIPT_REQUEST_BASE) {
-          const area = request.area;
+          const area = request.area as AssetKind;
           const resolved = resolveAsset(index, root, area, request.path);
-          const folder = area === "items" ? "item" : "characters";
-          const key = resolved.ok ? resolved.value : assetKey(`${folder}/${request.path}`);
+          const key = resolved.ok ? resolved.value : assetKey(`${scriptArea.folder}/${request.path}`);
           const reqId = SCRIPT_REQUEST_BASE + request.reqId;
-          pending.set(reqId, { reqId, key, kind: area === "items" ? "script-item" : "script-character" });
+          pending.set(reqId, { reqId, key, kind: scriptArea.kind });
           requestsOut.push({ kind: "asset", reqId, key });
           return;
         }
@@ -736,7 +744,7 @@ export function createEngine(init: EngineInit): Engine {
     if (entry === undefined) return;
     pending.delete(entry.reqId);
     consumed.push(record);
-    if (entry.kind === "script-character" || entry.kind === "script-item") {
+    if (entry.kind === "script-character" || entry.kind === "script-item" || entry.kind === "script-asset") {
       if (record.event.bytes === null) {
         replyToRequest(state.vm, entry.reqId - SCRIPT_REQUEST_BASE, { ok: false, value: "" });
       } else {
