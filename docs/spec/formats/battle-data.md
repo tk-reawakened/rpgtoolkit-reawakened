@@ -60,13 +60,14 @@ Lives in `SpcMove\`. Learned by characters (see [character.md](character.md)) an
 | 5 | smp | int | SMP it costs the user (clamped at 0; the built-in enemy AI only picks a move it can afford) |
 | 6 | prg | string | program run when the move is used |
 | 7 | targetSmp | int | SMP removed from the target (clamped at 0) |
-| 8 | battle | byte | usable in battle (see note) |
-| 9 | menu | byte | usable from the menu (see note) |
+| 8 | battle | byte | usable in battle: **0 = usable, 1 = not usable** (see note) |
+| 9 | menu | byte | usable from the menu: **0 = usable, 1 = not usable** (see note) |
 | 10 | statusEffect | string | `.ste` applied to the target |
 | 11 | animation | string | `.anm` played when it is used |
 | 12 | description | string | |
 
 **Compatibility note on fields 8-9:** the 3.1.0 editor writes these two flags inverted relative to its checkboxes and loads them back without inverting, so re-opening a move in the editor can flip them (inferred from the editor code; no sample file exists). The engine passes the raw values to plugins. A new implementation should decide on one meaning (1 = usable is the natural reading) and treat existing files with care.
+**Ruled (Epic 7.1; owner-relayed [round 11](../../provenance/facts-round-11.md) Q15).** The stored byte is **0 for usable**: the default battle system lists a move in battle only when field 8 is 0, and the default menu allows a move only when field 9 is 0, and the editor's save agrees. The inversion is only in the editor's load, which shows the stored byte in its checkbox without converting it back, so a move saved as usable reopens unticked. This replaces the "inferred" reading in the note above: the engine's meaning is the one in the table, and the Reawakened model reads the byte as 0 = usable; whether opening a move in the 3.1 editor itself flips the stored value was not verified. The built-in enemy AI ignores these flags.
 
 Toolkit 2 text special moves: [legacy/text-formats.md](legacy/text-formats.md#special-move).
 

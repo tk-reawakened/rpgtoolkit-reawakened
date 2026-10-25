@@ -15,7 +15,7 @@ context:
 
 ## Intent
 
-Implement the player's three actions in the stock package: Fight (a physical attack), Special Move (FP and SMP drain with an SMP cost) and Item (a fight HP/SMP effect through an inventory port). Damage follows E-74: seeded ±10% variance on FP, DP subtracted unless a critical, minimum 1, and an optional SMP pool instead of HP. The move's animation and status are applied here.
+Implement the player's three actions in the stock package: Fight (a physical attack), Special Move (FP and SMP drain with an SMP cost) and Item (a fight HP/SMP effect through an inventory port). Ordinary-attack damage follows the E-74 rule of `plugins-and-battle.md` unchanged (an integer luck percentage from -10 to +9, then the critical draws, DP unless critical, minimum 1); specials and items follow BAT-5 (no luck, critical or DP; items cap at maximum).
 
 Everything goes through the actor's damage/heal methods, so `fallen` fires once and the state stays in one place.
 
@@ -25,17 +25,17 @@ No loop (7.4), no status round effects (7.6), no AI (7.7), no rewards (7.8), no 
 
 ## Key Decisions
 
-1. **One draw per hit.** Damage takes one seeded draw in `[0.9, 1.1]`, applies it to FP, and rounds by the one rule ruled in 7.1 (round half away from zero, then integer). A test table pins the edges (FP 1, FP with a 0.9 draw, FP with a 1.1 draw, DP larger than damage).
+1. **Ordinary attack.** The E-74 rule recorded from facts round 10 is the only damage rule: one seeded whole-percentage draw from -10 to +9 in exact integer arithmetic with the fraction dropped toward zero, then the offensive and defensive critical draws, DP unless critical, floor 1, HP or SMP never below 0. The draw order is luck, offensive, defensive. This entry cites it and writes no second formula, no `[0.9, 1.1]` multiplier and no rounding rule of its own. A test table pins the edges (a supplied amount of 1, the -10 and +9 draws, DP larger than damage).
 
-2. **Criticals.** An enemy's `takeCrit` is the 1-in-N chance of a critical hit on it, and its `giveCrit` is the 1-in-N chance of it landing one; a character with neither field cannot crit or be crit. A critical bypasses DP and still applies the variance and the minimum 1. `attackall` and `drainall` never critically hit and apply their amount to each target.
+2. **Criticals.** `takeCrit` and `giveCrit` are -1 when absent; a side with -1 makes no draw and consumes no random number. A critical bypasses DP; the floor of 1 still applies. `attackall` and `drainall` never critically hit and apply their amount to each living target.
 
-3. **Pools.** Damage targets HP unless the move or item says SMP; SMP damage clamps at 0 and never goes through `fallen` (SMP 0 is not death). A special's target drain is SMP; its user cost is SMP. An unaffordable special is not offered by the action selector and, if called directly, raises `battle.unaffordable`.
+3. **Specials and pools.** A special has no luck, critical, DP or floor of 1: its FP comes off the target's HP, its target-SMP off the target's SMP, its cost off the user's SMP, each stopping at 0 and, by the BAT-5 departure, at the maximum for a heal. A move with 0 FP does no damage. An unaffordable special (cost above current SMP) is not selectable and a direct call raises `battle.unaffordable`. SMP 0 is not death. Order after the effect: the user's special animation, the move's animation over the target, the move's program, its status effect, then the amounts shown.
 
 4. **Items.** The fight effect is `{ kind: "inventory.consume", item, target, hp?, smp? }`, posted as a plain-data effect. The test double consumes it and asserts exactly one effect per use. The battle never edits an item list and never assumes a bag shape; Epic 8 chooses that.
 
-5. **Animation and status.** The move's animation is requested through the existing animation path and its status is applied through the actor method. The action returns after the animation is requested, not after a host callback, so the loop stays in game time.
+5. **Animation and status.** Animations are requested through the existing animation path and the status through the actor method, in the BAT-5 order. The action returns after the request, not after a host callback, so the loop stays in game time.
 
-6. **Death once.** A lethal hit calls the actor's damage method once; the package does not emit its own second death event. The once-per-enemy `defeated` helper (7.8) is called on the actor's fallen transition, so two damage paths cannot double-emit.
+6. **Death once.** A lethal hit calls the actor's damage method once and `fallen` fires once. The package then emits `defeated` once per enemy per battle (BAT-12, built by 7.8's helper), so two damage paths cannot double-emit; a lethal hit on a player emits no `defeated`.
 
 ## Acceptance
 
@@ -43,7 +43,7 @@ No loop (7.4), no status round effects (7.6), no AI (7.7), no rewards (7.8), no 
 2. A special's FP/SMP drain and SMP cost are applied and clamp; an unaffordable special is unavailable and a direct call raises a stable error.
 3. An item posts exactly one inventory consume effect through the test double and never edits the item list.
 4. `attackall`/`drainall` apply to every target without criticals.
-5. A lethal hit through any of the three actions fires the actor's `fallen` once and does not emit `defeated`.
+5. A lethal hit through any of the three actions fires the actor's `fallen` once; for an enemy the package then emits `defeated` once (7.8).
 6. No wall clock or unseeded randomness is used; the same seed and action stream reproduce the same damage.
 
 ## Verification

@@ -176,7 +176,7 @@ Parent: [ADR 0001](../../../docs/adr/0001-typescript-core.md) and [guardrails.md
 | `inventory` | `core/menu` | items, equipment, gold |
 | `triggers` | `core/triggers` | armed and fired state, repeat counters |
 | `vm` | `core/script` | threads, globals (incl. character stats), objects, redirects |
-| `battle` | `core/battle` | saveable transient battle-package data and fighter references; never owns or copies actor HP, SMP, stats, or progression |
+| `battle` | `core/battle` | the active battle: id, board key, background, `canRun`, outcome and two ordered parties of fighter references with their charge; status effects, HP, SMP, stats and progression live on the actor and are never copied or owned here ([battle.md BAT-2](../../../docs/spec/engine/battle.md#bat-2)) |
 | `menu` | `core/menu` | open screens |
 | `input` | `core/input` | key queue, held keys, mouse, on-screen buttons |
 | `ui` | `core/render` | message window, fonts, cursor maps, mouse cursor |

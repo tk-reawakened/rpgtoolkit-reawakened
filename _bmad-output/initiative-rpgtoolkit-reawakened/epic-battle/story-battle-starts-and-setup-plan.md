@@ -28,9 +28,9 @@ No loop, damage, status, AI or rewards (7.4 to 7.8). No UI (7.11). It repoints t
 
 1. **Handoff is the only coupling.** The start path reads the plain-data handoff and never imports movement internals. The handoff names the board, the drawn enemy records and the background; a missing field is a located error, not a default.
 
-2. **Parties.** Party 0 is the drawn enemies, hydrated with 20.5 in handoff order. Party 1 is the actor store's ordered party (the order Epic 8 will use for the party menu), with each entry's charge initialised by 7.4. An empty party is a located error; a party whose members are all fallen is not, and the outcome path resolves it.
+2. **Parties (BAT-9, R11-Q14).** Party 0 is the drawn enemies (1 to 4, each count equally likely, each drawn independently from the matching skill level, so an enemy may repeat; the draw belongs to the 5.11 handoff), hydrated with 20.5 in handoff order. Party 1 is every occupied slot of the actor store's ordered party (the order Epic 8 will use for the party menu), fallen members included and starting fallen, with each entry's charge initialised by 7.4. An empty party is a located error; a party whose members are all fallen is not, and the outcome path resolves it. `skill` is -1 on the random path.
 
-3. **Background and `canRun`.** The `.bkg` background image and the canRun flag come from the encounter/battle data; the background is recorded in the section and loaded by 7.11. `Fight` takes its background argument; `FightEnemy` takes the enemy record's.
+3. **Background and `canRun`.** The `.bkg` background image comes from the encounter or the `Fight` argument and is recorded in the section and loaded by 7.11. `canRun` is false if any one enemy in the fight forbids running, for `Fight` and `FightEnemy` alike; their run and win programs still apply (7.8).
 
 4. **No enemies.** When the pool is empty, the start path shows the exact message from the spec ("No enemies of skill level N found." with N substituted) and returns without creating a battle. It does not call the package and does not register a phase.
 
@@ -44,7 +44,7 @@ No loop, damage, status, AI or rewards (7.4 to 7.8). No UI (7.11). It repoints t
 
 1. A random handoff starts a battle with the drawn enemies, the board background and the ruled `canRun`.
 2. The no-enemies handoff shows the exact message, creates no battle and registers no phase.
-3. `Fight` and `FightEnemy` create the ruled parties and background; an empty party is a located error and a fallen party resolves through the outcome.
+3. `Fight` and `FightEnemy` create the ruled parties and background, with fallen party members included and starting fallen; one enemy that forbids running makes `canRun` false; an empty party is a located error and a fallen party resolves through the outcome.
 4. A main-file custom fight program replaces the package loop and uses the same outcome path.
 5. A game with no battle package ends the battle immediately with a diagnostic and no hang.
 6. The phase list matches the 20.1 ruling and the phase test update is deliberate.
