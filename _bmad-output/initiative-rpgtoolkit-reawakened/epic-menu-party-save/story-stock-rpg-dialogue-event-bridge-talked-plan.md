@@ -3,7 +3,7 @@ title: "Stock RPG dialogue event bridge: talked"
 type: 'feature'
 ticket: 12
 created: '2026-10-25'
-status: 'built'
+status: done
 review: 'quick'
 review_source: 'pinned'
 lenses_ran: ['quick']
