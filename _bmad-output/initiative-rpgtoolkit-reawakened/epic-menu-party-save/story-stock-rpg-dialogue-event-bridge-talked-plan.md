@@ -4,14 +4,14 @@ type: 'feature'
 ticket: 12
 created: '2026-10-25'
 status: 'built'
-review: 'none'
-review_source: 'pinned'
-lenses_ran: []
+review: 'approve'
+review_source: 'independent BMad code review with clean post-fix re-review'
+lenses_ran: ['blind-hunter', 'edge-case-hunter', 'verification-gap', 'intent-alignment', 'fresh-fix-rereview']
 baseline_revision: 'c7efe748b6a3dce7bc1e15ae865c4aede0772146'
 route: 'full'
 route_source: 'auto'
 risk: 'high'
-review_loop_iteration: 0
+review_loop_iteration: 1
 context:
   - "docs/spec/engine/plugins-and-battle.md#e-95 (E-95 source/target context only)"
   - "docs/spec/engine/plugins-and-battle.md: Reawakened rule for `dialogue(text)` immediately after E-123 (line 134; unanchored)"
@@ -106,3 +106,5 @@ The native command centralizes mapping the producer's stable actor ID to the can
 - Frozen intent and acceptance criteria are unchanged. Normative spec remains unchanged because it already defines actorId liveness at production, targetId as actor ID or null, and delayed listener queue delivery. No project changelog exists.
 
 - Independent fresh-fix re-review: clean, no findings, against the uncommitted ticket-only worktree diff at HEAD/base `c7efe748b6a3dce7bc1e15ae865c4aede0772146`. The reviewer verified target removal after queueing, source-emitter handling, invalid/unregistered inputs, null target, exact details, and absence of unrelated changes.
+
+- The completed BMad review used blind-hunter, edge-case-hunter, verification-gap, and intent-alignment lenses; the finding was fixed and the independent fresh-fix re-review passed with no findings.
