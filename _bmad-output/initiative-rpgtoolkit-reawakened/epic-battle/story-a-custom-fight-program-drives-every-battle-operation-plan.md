@@ -30,7 +30,7 @@ No new API. If the fixture needs an operation the spec does not rule, the gap is
 
 4. **Determinism.** The program uses only the seeded stream and the tick wait; the test pins a state hash after a fixed number of ticks and a draw-list hash. A second run from the same seed reproduces both.
 
-5. **Outcome.** The program finishes with outcome 2, so the automatic reward path (7.8) still runs for a custom program; the test asserts gold and experience were applied once, and that the program's own `defeated` emit fired once per enemy. The emit is the program's job because `defeated` belongs to the battle package (EMIT-13); the stock package does it in 7.8, and this fixture proves the API is reachable without it.
+5. **Outcome.** The program finishes with outcome 2, so the BAT-8 outcome adapter (proposed, pending owner review) still applies the win sequence for a custom program; the test asserts gold was posted once and experience given in full to every member, and that the program's own `defeated` emit fired once per enemy. A second run finishing with 3 asserts the adapter applies nothing. The emit is the program's job because `defeated` belongs to the battle package (EMIT-13); the stock package does it in 7.8 and also re-emits `stock_battle.defeated`, which does not occur here unless the program sends it. If the owner rejects the adapter, this decision and acceptance 4 change before build.
 
 6. **Isolation.** The program cannot read an internal package function or a module-private value; an attempted access is a normal "unknown name" error, and the test asserts it.
 
@@ -39,7 +39,7 @@ No new API. If the fixture needs an operation the spec does not rule, the gap is
 1. The custom program calls every ruled battle operation at least once; the coverage assertion fails if one is missing.
 2. The same core state is driven with the stock package absent and with it present-but-replaced.
 3. A seeded battle produces a stable state hash and draw list across runs.
-4. The automatic outcome path still applies (gold once, experience to every member), and the program's own `defeated` emit fires once per enemy.
+4. The BAT-8 outcome adapter still applies for outcome 2 (gold once, full experience to every member) and applies nothing for outcome 3; the program's own `defeated` emit fires once per enemy.
 5. The program cannot read package internals; an attempted access is a normal unknown-name error.
 6. No undocumented operation is used; a needed gap was fixed in `battle.md` first.
 

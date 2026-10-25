@@ -34,14 +34,14 @@ No new drawing primitives. No new input device abstraction. The UI never mutates
 
 4. **Input.** The existing key queue supplies up/down/confirm/cancel; the UI maps them to list moves and target moves. No new key names. A held key is one move per tick, not a repeat storm.
 
-5. **Target selection.** Fight and Special move the target cursor across living opponents; Item across living party members; Run is immediate. Cancel returns one level; at the top level it does nothing (it does not open a menu).
+5. **Target selection and refusals (R11-Q7, Q9, Q11).** Fight and Special move the target cursor across living opponents (a defeated enemy stays in its slot, shows its defeat animation and is skipped); Item moves across party members, **including fallen ones**, so a healing item revives them. A special whose cost exceeds the player's current SMP is refused and the player stays in the menu. When running is blocked, Run is still listed but drawn differently, and choosing it plays the cancel sound and keeps the turn; when allowed it is immediate (7.8 rolls the chance). Cancel returns one level; at the top level it does nothing (it does not open a menu).
 
 6. **Golden and approval.** A seeded battle renders one deterministic frame after a fixed scripted input sequence. The owner approves it at the plan checkpoint and again at done; the draw list and image are re-recorded only deliberately (G5), with the reason in the commit.
 
 ## Acceptance
 
 1. A seeded battle renders a deterministic golden frame that the owner approves.
-2. Every command and every target is selectable with the keyboard; cancel returns one level and never opens a menu.
+2. Every command and every target is selectable with the keyboard; cancel returns one level and never opens a menu; a blocked Run plays the cancel sound and keeps the turn; an unaffordable special keeps the player in the menu; a healing item can target and revive a fallen ally.
 3. Bars and sprites reflect the battle state and the UI never mutates it.
 4. Only the ruled primitives are used; no new pack row is added.
 5. A held key moves one step per tick.
