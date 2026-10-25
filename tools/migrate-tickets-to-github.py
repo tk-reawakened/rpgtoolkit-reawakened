@@ -113,8 +113,10 @@ def gh_api_request(endpoint: str, data: dict | None = None, method: str | None =
 
 
 def gh_graphql(query: str, variables: dict, token: str) -> dict:
-    return gh_api_request("https://api.github.com/graphql", {"query": query, "variables": variables}, token=token)
-
+    response = gh_api_request("https://api.github.com/graphql", {"query": query, "variables": variables}, token=token)
+    if response.get("errors"):
+        raise RuntimeError(f"GitHub GraphQL error: {response['errors']}")
+    return response
 
 def get_existing_issues(token: str) -> dict[str, dict]:
     print("Fetching existing GitHub issues...", flush=True)
@@ -296,23 +298,50 @@ def main():
                 if priority_opt:
                     gh_graphql(update_query, {"projectId": PROJECT_ID, "itemId": item_id, "fieldId": PRIORITY_FIELD_ID, "optId": priority_opt}, token=token)
 
-                ticket_status = t.get("status", "").lower()
-                status_name = {
-                    "draft": "Draft",
-                    "ready-for-dev": "Ready for Dev",
-                    "in-progress": "In Progress",
-                    "in-review": "In Review",
-                    "built": "Built",
-                    "blocked": "Blocked",
-                    "done": "Done",
-                    "dropped": "Dropped",
-                }.get(ticket_status)
-                if status_name is None:
-                    status_name = {"done": "Done", "dropped": "Dropped"}.get(state, "Draft")
-                status_opt = STATUS_OPTIONS[status_name]
-                gh_graphql(update_query, {"projectId": PROJECT_ID, "itemId": item_id, "fieldId": STATUS_FIELD_ID, "optId": status_opt}, token=token)
             # Small sleep to keep well below secondary rate limits
             time.sleep(0.4)
+        # Ensure existing and newly-created issues both reflect the ticket-store status.
+        if issue_node_id and not args.dry_run:
+            project_query = """
+            mutation($projectId: ID!, $contentId: ID!) {
+                addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
+                    item { id }
+                }
+            }
+            """
+            item_result = gh_graphql(project_query, {"projectId": PROJECT_ID, "contentId": issue_node_id}, token=token)
+            item_id = item_result.get("data", {}).get("addProjectV2ItemById", {}).get("item", {}).get("id")
+            if not item_id:
+                raise RuntimeError(f"Could not get Project 3 item for issue #{issue_num}")
+            ticket_status = t.get("status", "").lower()
+            status_name = {
+                "draft": "Draft",
+                "ready-for-dev": "Ready for Dev",
+                "in-progress": "In Progress",
+                "in-review": "In Review",
+                "built": "Built",
+                "blocked": "Blocked",
+                "done": "Done",
+                "dropped": "Dropped",
+            }.get(ticket_status)
+            if status_name is None:
+                status_name = {"done": "Done", "dropped": "Dropped"}.get(state, "Draft")
+            status_query = """
+            mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optId: String!) {
+                updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId,
+                    itemId: $itemId,
+                    fieldId: $fieldId,
+                    value: { singleSelectOptionId: $optId }
+                }) { projectV2Item { id } }
+            }
+            """
+            gh_graphql(status_query, {
+                "projectId": PROJECT_ID,
+                "itemId": item_id,
+                "fieldId": STATUS_FIELD_ID,
+                "optId": STATUS_OPTIONS[status_name],
+            }, token=token)
 
         # Update tickets.toml with tracker_id
         if issue_num:

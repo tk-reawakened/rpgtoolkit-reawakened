@@ -138,6 +138,15 @@ Project maintainers plan large epics, architecture spikes, and initiative roadma
 
 Contributors never need to install or run BMAD tooling—all task acceptance criteria and spec references are included directly in the GitHub Issue. If you are a maintainer or working on the initiative planning spine directly, see [initiative-rpgtoolkit-reawakened.md](_bmad-output/initiative-rpgtoolkit-reawakened/initiative-rpgtoolkit-reawakened.md) and `_bmad-output/`.
 
+To publish a planned epic, make `_bmad-output/initiative-rpgtoolkit-reawakened/tickets.toml` and the epic folder's `tickets.toml` authoritative first, then run:
+
+```sh
+python3 tools/migrate-tickets-to-github.py --epic epic-slug
+python3 tools/create-epic-on-github.py epic-slug
+```
+
+The first command mirrors story issues and their tracker IDs. The second creates or syncs the `[Epic N]` parent, writes its `tracker_id` to the initiative index, adds it to Project 3, and links all published story issues as native sub-issues. It also syncs parent/story statuses from BMAD ticket metadata. Use `--dry-run` on either command to preview the planned actions.
+
 ## Doing the work
 
 1. **Docs first.** If the spec is wrong or silent, fix it in its own commit first (G7). Then write the code from the spec.
