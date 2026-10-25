@@ -71,7 +71,7 @@ At compile time each unknown command name is offered to every RPGCode plugin's *
 
 **Legacy (R12).** In 3.1 `source` and `target` are two engine-wide values shared by everything, not stored per program (R2-Q24; [facts-round-12.md](../../provenance/facts-round-12.md), reviewed and fact-checked against `2f986f3e` and `9191b919`). What each starter puts there, and which starters restore them afterwards, is the use table under [`callProgram`](rpgcode-functions.md#reawakened-callprogram).
 
-**Reawakened rule (Proposed, pending owner review).** The pair is stored per thread ([THR-2](rpgcode-errors-and-threads.md#thr-2)), and a nested program call sets it for the call and restores it when the call ends (`callProgram`, above). *Rejected:* two engine-wide slots left set across calls, which cannot be replayed ([THR-2](rpgcode-errors-and-threads.md#thr-2)).
+**Reawakened rule (OWNER; Jensen, 2026-10-25).** The pair is stored per thread ([THR-2](rpgcode-errors-and-threads.md#thr-2)). A nested [`callProgram(file, [context])`](rpgcode-functions.md#reawakened-callprogram) call exposes the optional `context` dictionary (viewbag) in the called program's root scope, sets the thread's `source` and `target` slots for the call when `context.source` / `context.target` (or the positional `(file, source, target)` compatibility alias) are supplied, inherits any omitted slot from the caller, and restores the caller's slots when the call ends. *Rejected:* two engine-wide slots left set across calls, which cannot be replayed ([THR-2](rpgcode-errors-and-threads.md#thr-2)), or limiting `callProgram` to two fixed positional parameters instead of a generic `context` dictionary.
 
 ## Menu plugin
 
