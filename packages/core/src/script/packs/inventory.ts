@@ -287,7 +287,7 @@ const SHOP_ASSET_CONTINUATION: BuiltinSpec = {
 };
 const INN: BuiltinSpec = {
   name: "inn", aliases: [], params: [],
-  doc: { ...docs("Fully heal the player party.", "Sets every party member's current HP and SMP to their maxima immediately, including fallen members; it does not change status effects, equipment, inventory, roster or gold."), groups: [INVENTORY_GROUP, "battle-stats-menus-29"] },
+  doc: { ...docs("Fully heal the player party.", "Sets every party member's current HP and SMP to their maxima immediately, including fallen members; it does not change status effects, equipment, inventory, roster or gold."), groups: [INVENTORY_GROUP, "battle-stats-menus-33"] },
   call: () => ({ value: null, effects: [{ kind: "state-write", section: "party", args: [{ type: "inn" }] }] }),
 };
 export const INVENTORY_COMMANDS: readonly BuiltinSpec[] = [GIVE_ITEM, TAKE_ITEM, ITEM_COUNT, GIVE_GOLD, TAKE_GOLD, GET_GOLD, EQUIP, REMOVE, EQUIPMENT_ASSET_CONTINUATION, ITEM_ASSET_CONTINUATION, CALL_SHOP, SHOP_ASSET_CONTINUATION, INN];

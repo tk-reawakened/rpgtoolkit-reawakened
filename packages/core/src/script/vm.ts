@@ -23,6 +23,7 @@ import { createClockPort, MAX_TICK, runTimePhase } from "../time/time.ts";
 import { createActorHostType, createActorService, type ActorService } from "../actors/port.ts";
 import { createActorEventSink } from "../actors/object.ts";
 import { createBehaviourRegistry, resolveBehaviour, type BehaviourRegistry } from "../actors/behaviour.ts";
+import { createMenuOwnerPorts, type MenuOwnerPorts } from "../menu/ports.ts";
 import type { Arg, BuiltinSpec } from "./builtins.ts";
 import { createDefaultVirtuals, type VirtualVariablePort } from "./virtuals.ts";
 import { MEDIA_HOST_TYPES, objectValue, mediaVoiceRef, type MediaPlayOptions, type MediaScriptService } from "../audio/script.ts";
@@ -44,9 +45,10 @@ import {
   toDiagnostic,
 } from "./errors.ts";
 import { NULL_LOGGER } from "./logging.ts";
-import { ENGINE_DEFAULT_MANIFEST, foldNamespace } from "./manifest.ts";
+import { ENGINE_DEFAULT_MANIFEST, foldNamespace, isPlainData } from "./manifest.ts";
 import { collectCells, eachLiveRoot, recordOwner } from "./cells.ts";
 import {
+  addNativeMenuProvider,
   addRegistration,
   createPluginLayers,
   layerIdOf,
@@ -55,7 +57,9 @@ import {
   removeHandle,
   removeRegistration,
   topLayerHandle,
+  topMenuProvider,
   type LayerRequest,
+  type MenuProviderRequest,
   type PluginLayers,
 } from "./layers.ts";
 import { collectStateGarbage, runEventsPhase } from "../events/dispatch.ts";
@@ -81,7 +85,7 @@ import { createProgramCache, type ProgramCache } from "./cache.ts";
 import { runModuleCommand } from "./modules.ts";
 import { MODULE_COMMANDS } from "./parse.ts";
 import type { SourcePos, StepOp } from "./ops.ts";
-import type { CommandResult, CommandRequest, CommandView, ResolvedPlugin } from "./plugin.ts";
+import type { CommandResult, CommandRequest, CommandView, ResolvedPlugin, MenuProvider, MenuProviderEvent, MenuProviderResult, MenuScreenId } from "./plugin.ts";
 import {
   COMPILER_VERSION,
   fileProgramRef,
@@ -139,6 +143,7 @@ import {
  */
 export const STEP_BUDGET = 1000;
 
+
 /** What one tick left the script threads doing. */
 export type ScriptStatus = "running" | "waiting" | "finished";
 
@@ -186,12 +191,64 @@ export type ScriptServices = ScriptObservers & {
    * rebuilt by package start-up and not saved. A call reaches them through the first entry of the environment table.
    */
   readonly layers: PluginLayers;
+  /** Native whole-screen transition handlers, session-only; keys include manifest identity. */
+  readonly menuProviders: ReadonlyMap<string, MenuProvider>;
+  readonly menuProviderIdentityExists: (id: string) => boolean;
+  readonly menuOwners: MenuOwnerPorts;
   readonly postEffect?: (section: SectionKey, effect: EffectRecord) => void;
   /** Engine-owned synchronous host-request dispatch hook. */
   readonly postRequest?: (request: CommandRequest) => void;
   /** The script-facing media owner (MEDIA-1), when the engine provides one. */
   readonly media?: MediaScriptService;
 };
+
+function isMenuProviderResult(value: unknown): value is MenuProviderResult {
+  if (!isPlainData(value) || typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const result = value as Record<string, unknown>;
+  if (result.kind === "complete") return true;
+  if (!Object.hasOwn(result, "state")) return false;
+  if (result.kind === "open") {
+    return result.screen === "main" || result.screen === "items" || result.screen === "equipment" || result.screen === "abilities";
+  }
+  if (result.kind !== "wait" || result.wait === null || typeof result.wait !== "object" || Array.isArray(result.wait)) return false;
+  const wait = result.wait as Record<string, unknown>;
+  return wait.kind === "menu.screen" && wait.global === true && typeof wait.id === "string" &&
+    Array.isArray(wait.payload) && Array.isArray(wait.resumeRefs) && wait.resumeRefs.every((ref) => typeof ref === "string");
+}
+
+function handleMenuProviderFailure(
+  thread: Thread,
+  vm: VmState,
+  services: ScriptServices,
+  continuation: { readonly [key: string]: PlainData },
+  caught: unknown,
+): void {
+  const baseDepth = Number.isSafeInteger(continuation.menuBaseDepth) ? Number(continuation.menuBaseDepth) : 0;
+  const cleanup = services.menuOwners.menu.apply({
+    type: "navigation",
+    screens: services.menuOwners.menu.read().screens.slice(0, baseDepth),
+  });
+  if (!cleanup.ok) throw new ScriptError("menu.state-refused", cleanup.error?.message ?? "menu frame cleanup was refused");
+  const frameIndex = Number(continuation.frameIndex);
+  const opIp = Number(continuation.opIp);
+  const depth = Number(continuation.depth);
+  const callerFrame = thread.frames[frameIndex];
+  if (callerFrame === undefined || !Number.isSafeInteger(opIp) || !Number.isSafeInteger(depth)) {
+    throw new ScriptError("restore.menu-provider", "menu provider error continuation cannot be unwound");
+  }
+  const callerProgram = services.programs.get(callerFrame.program);
+  const op = callerProgram.ops[opIp];
+  if (op === undefined) throw new ScriptError("restore.menu-provider", "menu provider error instruction is unavailable");
+  const pos = {
+    file: typeof continuation.file === "string" ? continuation.file : "<menu>",
+    line: typeof continuation.line === "number" ? continuation.line : 0,
+  };
+  const error = caught instanceof ScriptError
+    ? new ScriptError(caught.code, caught.message, pos)
+    : new ScriptError("menu.provider-error", caught instanceof Error ? caught.message : String(caught), pos);
+  thread.frames.length = frameIndex + 1;
+  handleFailure(thread, vm, services, callerProgram, callerFrame, op, opIp, depth, error);
+}
 
 /** Take every diagnostic collected since the last drain, oldest first. */
 export function drainDiagnostics(services: ScriptServices): Diagnostic[] {
@@ -213,6 +270,7 @@ export function createScriptServices(
   packageStartup: boolean | PackageStartupLifecycle = false,
   media?: MediaScriptService,
   observers?: ScriptObservers,
+  menuPorts?: MenuOwnerPorts,
 ): ScriptServices {
   const loader = typeof loaderOrGameId === "string" ? undefined : loaderOrGameId;
   const gameId = typeof loaderOrGameId === "string" ? loaderOrGameId : explicitGameId;
@@ -303,6 +361,15 @@ export function createScriptServices(
     });
   }
   const pluginOptions = new Map<string, PlainData>();
+  const menuProviders = new Map<string, MenuProvider>();
+  for (const plugin of plugins) {
+    for (const [screen, provider] of Object.entries(plugin.definition.menuProviders ?? {})) {
+      if (provider === undefined) continue;
+      const id = `${plugin.definition.id}@${plugin.definition.version}:menu:${screen}`;
+      menuProviders.set(id, provider);
+      addNativeMenuProvider(layers, { id, screen, provider });
+    }
+  }
   for (const plugin of plugins) {
     if (plugin.options !== undefined) pluginOptions.set(plugin.definition.id, plugin.options);
   }
@@ -317,6 +384,7 @@ export function createScriptServices(
   const hydratedTypes = new Map<string, HostObjectType>();
   hydratedTypes.set("actor", createActorHostType(actors));
   if (media !== undefined) for (const type of MEDIA_HOST_TYPES) hydratedTypes.set(type.name, type);
+  const menuOwners = menuPorts ?? createMenuOwnerPorts(state);
   for (const plugin of plugins) {
     for (const type of plugin.definition.hostTypes ?? []) hydratedTypes.set(type.name, type);
   }
@@ -369,6 +437,10 @@ export function createScriptServices(
     hiddenFileWarned: new Set(),
     hostTypes: hydratedTypes,
     layers,
+    menuProviders,
+    menuProviderIdentityExists: (id) =>
+      menuProviders.has(id) || (layers.menuLayers.get(id) !== undefined && !layers.menuLayers.get(id)!.removed),
+    menuOwners,
     ...(loader === undefined ? {} : { loader }),
     ...(postEffect === undefined ? {} : { postEffect }),
     ...(postRequest === undefined ? {} : { postRequest }),
@@ -419,7 +491,11 @@ export function runWaitsPhase(
 function resolveWait(vm: VmState, view: WaitView, poll: WaitPoll, thread: Thread, claim?: (seq: number) => void, services?: ScriptServices, onResolved?: (wait: Wait) => void): void {
   const wait = thread.wait;
   if (wait === null) return;
-  if (wait.kind === "input.key" && wait.parkSeq === undefined) wait.parkSeq = view.input?.nextSeq ?? 0;
+  const menuContinuation = wait.kind === "menu.screen" ? wait.payload[0] : null;
+  if (menuContinuation !== null && typeof menuContinuation === "object" && !Array.isArray(menuContinuation) &&
+      menuContinuation.parkSeq === null) {
+    menuContinuation.parkSeq = view.input?.nextSeq ?? 0;
+  }
   const result = poll(view, wait);
   if (result === null) return;
   if (result.claim !== undefined) claim?.(result.claim);
@@ -431,6 +507,127 @@ function resolveWait(vm: VmState, view: WaitView, poll: WaitPoll, thread: Thread
     return;
   }
   onResolved?.(wait);
+  if (wait.kind === "menu.screen" && wait.payload[0] !== null && typeof wait.payload[0] === "object" &&
+      !Array.isArray(wait.payload[0]) && typeof wait.payload[0].providerId === "string") {
+    const saved = wait.payload[0];
+    if (services === undefined || saved === null || typeof saved !== "object" || Array.isArray(saved) ||
+        typeof saved.providerId !== "string" || typeof saved.screen !== "string") {
+      throw new ScriptError("restore.menu-provider", "menu provider continuation is malformed");
+    }
+    const registered = [...services.layers.menuLayers.values()].find((layer) => layer.id === saved.providerId && !layer.removed);
+    if (registered?.kind === "rpgcode") {
+      const caller = thread.frames[thread.frames.length - 1]!;
+      const program = services.programs.get(caller.program);
+      const before = thread.frames.length;
+      const context = createObject(vm, null);
+      writeMember(context, "screen", saved.screen);
+      writeMember(context, "state", null);
+      writeMember(context, "event", "enter");
+      try {
+        const savedFile = typeof saved.file === "string" ? saved.file : "<menu>";
+        const savedLine = typeof saved.line === "number" ? saved.line : 0;
+        const childPos = program.ops[Math.max(0, caller.ip - 1)]?.pos ?? { file: savedFile, line: savedLine };
+        performCallable(thread, vm, services, program, caller, thread.frames.length - 1, registered.provider, [
+          { value: { kind: "object", handle: context.handle, className: DICTIONARY_CLASS }, ref: null },
+        ], childPos);
+      } catch (error) {
+        handleMenuProviderFailure(thread, vm, services, saved, error);
+        return;
+      }
+      const childFrame = thread.frames[before];
+      if (childFrame !== undefined) {
+        childFrame.menuScreen = saved.screen;
+        childFrame.menuContinuation = saved as PlainData;
+      }
+      return;
+    }
+    const provider = services.menuProviders.get(saved.providerId);
+    if (provider === undefined) throw new ScriptError("restore.menu-provider", `menu provider "${saved.providerId}" is not registered`);
+    const event: MenuProviderEvent = saved.phase === "enter"
+      ? { type: "enter" }
+      : saved.phase === "child.closed"
+        ? { type: "child.closed", screen: String(saved.childScreen) as MenuScreenId }
+        : { type: "input", key: String(result.value) };
+    try {
+      const transition = provider({
+        providerId: saved.providerId,
+        context: services.menuOwners,
+        state: saved.state as PlainData,
+        event,
+      });
+      if (!isMenuProviderResult(transition)) throw new ScriptError("menu.provider-result", "menu provider returned an invalid or non-plain transition");
+      const parents = Array.isArray(saved.parents)
+        ? saved.parents as unknown as Array<{ providerId: string; screen: string; state: PlainData }>
+        : [];
+      if (transition.kind === "wait") {
+        if (transition.wait.kind !== "menu.screen" || !transition.wait.global) {
+          throw new ScriptError("menu.provider-wait", "menu providers must return a global menu.screen wait");
+        }
+        thread.wait = {
+          ...transition.wait,
+          payload: [{ ...saved, state: transition.state, phase: "input", childScreen: null, parkSeq: view.input?.nextSeq ?? null }, ...transition.wait.payload],
+        };
+        thread.status = "waiting";
+        return;
+      }
+      if (transition.kind === "open") {
+        const child = topMenuProvider(services.layers, transition.screen);
+        if (child === undefined) throw new ScriptError("menu.provider-missing", `no menu provider is registered for "${transition.screen}"`);
+        const pushed = services.menuOwners.menu.apply({
+          type: "navigation",
+          screens: [...services.menuOwners.menu.read().screens, { screen: transition.screen, actorId: services.menuOwners.party.read().selected, selection: 0 }],
+        });
+        if (!pushed.ok) throw new ScriptError("menu.state-refused", pushed.error?.message ?? "menu frame was refused");
+        const childState = {
+          ...saved,
+          providerId: child.id,
+          screen: transition.screen,
+          state: null,
+          phase: "enter",
+          childScreen: null,
+          parkSeq: null,
+          parents: [...parents, { providerId: saved.providerId, screen: saved.screen, state: transition.state }],
+        };
+        thread.wait = { kind: "menu.screen", global: true, id: child.id, payload: [childState], resumeRefs: [] };
+        thread.status = "waiting";
+        return;
+      }
+      const popped = services.menuOwners.menu.apply({
+        type: "navigation",
+        screens: services.menuOwners.menu.read().screens.slice(0, -1),
+      });
+      if (!popped.ok) throw new ScriptError("menu.state-refused", popped.error?.message ?? "menu frame close was refused");
+      if (parents.length > 0) {
+        const parent = parents[parents.length - 1]!;
+        if (!services.menuProviders.has(parent.providerId)) {
+          throw new ScriptError("menu.provider-missing", `parent menu provider "${parent.providerId}" is not registered`);
+        }
+        thread.wait = {
+          kind: "menu.screen",
+          global: true,
+          id: parent.providerId,
+          payload: [{
+            ...saved,
+            providerId: parent.providerId,
+            screen: parent.screen,
+            state: parent.state,
+            phase: "child.closed",
+            childScreen: saved.screen,
+            parkSeq: null,
+            parents: parents.slice(0, -1),
+          }],
+          resumeRefs: [],
+        };
+        thread.status = "waiting";
+        return;
+      }
+      frame.operands.push({ value: null, ref: null });
+      return;
+    } catch (caught) {
+      handleMenuProviderFailure(thread, vm, services, saved, caught);
+      return;
+    }
+  }
   if (wait.kind === "request" || wait.kind === "blob") {
     if (!result.ok) {
       recordDiagnostic(vm, view.tick, thread.id, "request.failed", wait.file, wait.line, toStringValue(result.value));
@@ -603,11 +800,22 @@ export function advanceScriptTick(
   budget: number = STEP_BUDGET,
   poll: WaitPoll = defaultWaitPoll,
 ): ScriptStatus {
-  runWaitsPhase(state.vm, { tick: state.time.tick, events: state.events }, poll, undefined, undefined, (wait) => {
-    if (wait.kind === "input.key" && wait.dialogue !== undefined) {
-      queueNativeEvent(state.vm, state.events, "game", "dialogue.completed", wait.dialogue);
-    }
-  });
+  const claims = state.engine.claims;
+  if (claims !== undefined) claims.length = 0;
+  const activeClaims = claims ?? [];
+  runWaitsPhase(
+    state.vm,
+    { tick: state.time.tick, events: state.events, input: state.input, ui: state.ui, claims: activeClaims },
+    poll,
+    (seq) => { if (!activeClaims.includes(seq)) activeClaims.push(seq); },
+    services,
+    (wait) => {
+      if (wait.kind === "input.key" && wait.dialogue !== undefined) {
+        queueNativeEvent(state.vm, state.events, "game", "dialogue.completed", wait.dialogue);
+      }
+    },
+  );
+  if (claims === undefined && activeClaims.length > 0) state.engine.claims = activeClaims;
   runThreadsPhase(state.vm, services, budget);
   runEventsPhase(state, services, budget);
   assertNoDeadlock(state.vm, services);
@@ -1560,14 +1768,10 @@ function findDefinition(
 }
 
 /**
- * `registerPlugin(definition)` (MOD-4, PKG-5; entry 19.8). `definition` is a dictionary with a
- * `name` (a label) and a `commands` dictionary of command name to interceptor, a callable that
- * takes the command's arguments and then `next`. Each command, in the dictionary's order, gets
- * a layer in the table of layers in front of the top layer already registered for it, else in
- * front of the engine's own binding (the answer `bindingOf` gives with no variable in the way,
- * so the layer below never depends on the scope that registered). Everything is checked before
- * anything is registered, so a failed call registers nothing. The value is a dictionary
- * `{ name, remove }`.
+ * `registerPlugin(definition)` validates the required `name` and `commands` dictionary,
+ * plus optional `menuProviders`. Both facets are checked before either is installed.
+ * Command layers stay in the one environment table; menu providers are separate
+ * whole-screen layers sharing the same registration handle and deterministic order.
  */
 function registerPluginCall(
   vm: VmState,
@@ -1581,8 +1785,10 @@ function registerPluginCall(
   if (typeof label !== "string") {
     throw new ScriptError("builtin.bad-arg", `"registerPlugin" takes the plugin's name as a string`, pos);
   }
-  const commands = liveObject(vm, readMember(definition, "commands"), pos, `"registerPlugin" takes a commands dictionary`);
+  const commandsValue = readMember(definition, "commands");
+  const commands = liveObject(vm, commandsValue, pos, `"registerPlugin" takes a commands dictionary`);
   const requests: LayerRequest[] = [];
+  const menuRequests: MenuProviderRequest[] = [];
   for (const key of commands.keys) {
     const interceptor = readMember(commands, key);
     if (!isCallableValue(interceptor)) {
@@ -1606,7 +1812,23 @@ function registerPluginCall(
     }
     requests.push({ command, interceptor, engine });
   }
-  const registration = addRegistration(services.layers, label, requests);
+  const menuProvidersKey = definition.keys.find((key) => foldAscii(key) === "menuproviders");
+  if (menuProvidersKey !== undefined) {
+    const rawMenuProviders = readMember(definition, menuProvidersKey);
+    const providers = liveObject(vm, rawMenuProviders, pos, `"registerPlugin" takes a menuProviders dictionary`);
+    const validScreens = new Set(["main", "items", "equipment", "abilities"]);
+    for (const screen of providers.keys) {
+      if (!validScreens.has(screen)) {
+        throw new ScriptError("builtin.bad-arg", `registerPlugin: unknown menu screen "${screen}"`, pos);
+      }
+      const provider = readMember(providers, screen);
+      if (!isCallableValue(provider)) {
+        throw new ScriptError(CALLABLE_NOT_CALLABLE, `registerPlugin: the menu provider "${screen}" is not callable`, pos);
+      }
+      menuRequests.push({ screen, provider });
+    }
+  }
+  const registration = addRegistration(services.layers, label, requests, menuRequests);
   const result = createObject(vm, null);
   writeMember(result, "name", label);
   writeMember(result, "remove", removeHandle(registration.id));
@@ -1941,6 +2163,141 @@ function dispatchResolved(
   for (const effect of result.effects ?? []) {
     if (effect.kind === "vm.control") {
       const action = effect.args?.[0];
+      if (action === "menu.open") {
+        const screen = effect.args?.[1];
+        if (typeof screen !== "string" || !["main", "items", "equipment", "abilities"].includes(screen)) {
+          throw new ScriptError("builtin.bad-arg", "menu.open: invalid screen", pos);
+        }
+        const menuBaseDepth = services.menuOwners.menu.read().screens.length;
+        const registered = topMenuProvider(services.layers, screen);
+        if (registered?.kind === "rpgcode") {
+          const opened = services.menuOwners.menu.apply({
+            type: "navigation",
+            screens: [...services.menuOwners.menu.read().screens, { screen, actorId: services.menuOwners.party.read().selected, selection: 0 }],
+          });
+          if (!opened.ok) throw new ScriptError("menu.state-refused", opened.error?.message ?? "menu frame was refused", pos);
+          const context = createObject(vm, null);
+          writeMember(context, "screen", screen);
+          writeMember(context, "state", null);
+          writeMember(context, "event", "enter");
+          const before = thread.frames.length;
+          try {
+            performCallable(
+              thread, vm, services, program, frame, frameIndex, registered.provider,
+              [{ value: { kind: "object", handle: context.handle, className: DICTIONARY_CLASS }, ref: null }],
+              pos,
+            );
+          } catch (error) {
+            services.menuOwners.menu.apply({ type: "navigation", screens: services.menuOwners.menu.read().screens.slice(0, menuBaseDepth) });
+            throw error instanceof ScriptError
+              ? new ScriptError(error.code, error.message, pos)
+              : new ScriptError("menu.provider-error", error instanceof Error ? error.message : String(error), pos);
+          }
+          const providerFrame = thread.frames[before];
+          if (providerFrame !== undefined) {
+            providerFrame.menuScreen = screen;
+            providerFrame.menuContinuation = {
+              providerId: registered.id,
+              screen,
+              state: null,
+              phase: "enter",
+              childScreen: null,
+              parkSeq: null,
+              parents: [],
+              frameIndex,
+              opIp: frame.ip - 1,
+              depth: frame.operands.length + args.length,
+              menuBaseDepth,
+              file: pos.file,
+              line: pos.line,
+            };
+          }
+          continue;
+        }
+        if (registered?.kind !== "native") throw new ScriptError("menu.provider-missing", `no menu provider is registered for "${screen}"`, pos);
+        const providerId = registered.id;
+        const provider = registered.provider;
+        const opened = services.menuOwners.menu.apply({
+          type: "navigation",
+          screens: [...services.menuOwners.menu.read().screens, { screen, actorId: services.menuOwners.party.read().selected, selection: 0 }],
+        });
+        if (!opened.ok) throw new ScriptError("menu.state-refused", opened.error?.message ?? "menu frame was refused", pos);
+        const continuation = {
+          providerId,
+          screen,
+          state: null,
+          phase: "enter",
+          childScreen: null,
+          parkSeq: services.view.state?.input.nextSeq ?? 0,
+          parents: [],
+          frameIndex,
+          opIp: frame.ip - 1,
+          depth: frame.operands.length + args.length,
+          menuBaseDepth,
+          file: pos.file,
+          line: pos.line,
+        };
+        let transition: MenuProviderResult;
+        try {
+          transition = provider({ providerId, context: services.menuOwners, state: null, event: { type: "enter" } });
+          if (!isMenuProviderResult(transition)) throw new ScriptError("menu.provider-result", "menu provider returned an invalid or non-plain transition", pos);
+        } catch (error) {
+          services.menuOwners.menu.apply({ type: "navigation", screens: services.menuOwners.menu.read().screens.slice(0, menuBaseDepth) });
+          throw error instanceof ScriptError
+            ? new ScriptError(error.code, error.message, pos)
+            : new ScriptError("menu.provider-error", error instanceof Error ? error.message : String(error), pos);
+        }
+        if (transition.kind === "wait") {
+          if (transition.wait.kind !== "menu.screen" || !transition.wait.global) {
+            services.menuOwners.menu.apply({ type: "navigation", screens: services.menuOwners.menu.read().screens.slice(0, -1) });
+            throw new ScriptError("menu.provider-wait", "menu providers must return a global menu.screen wait", pos);
+          }
+          thread.wait = {
+            ...transition.wait,
+            payload: [{ ...continuation, state: transition.state, phase: "input" }, ...transition.wait.payload],
+          };
+          thread.status = "waiting";
+          parked = true;
+        } else if (transition.kind === "open") {
+          const child = topMenuProvider(services.layers, transition.screen);
+          if (child === undefined) {
+            services.menuOwners.menu.apply({ type: "navigation", screens: services.menuOwners.menu.read().screens.slice(0, -1) });
+            throw new ScriptError("menu.provider-missing", `no menu provider is registered for "${transition.screen}"`, pos);
+          }
+          const childFrame = services.menuOwners.menu.apply({
+            type: "navigation",
+            screens: [...services.menuOwners.menu.read().screens, { screen: transition.screen, actorId: services.menuOwners.party.read().selected, selection: 0 }],
+          });
+          if (!childFrame.ok) {
+            services.menuOwners.menu.apply({ type: "navigation", screens: services.menuOwners.menu.read().screens.slice(0, menuBaseDepth) });
+            throw new ScriptError("menu.state-refused", childFrame.error?.message ?? "menu frame was refused", pos);
+          }
+          thread.wait = {
+            kind: "menu.screen",
+            global: true,
+            id: child.id,
+            payload: [{
+              ...continuation,
+              providerId: child.id,
+              screen: transition.screen,
+              state: null,
+              phase: "enter",
+              childScreen: null,
+              parkSeq: null,
+              parents: [{ providerId, screen, state: transition.state }],
+            }],
+            resumeRefs: [],
+          };
+          thread.status = "waiting";
+          parked = true;
+        } else {
+          const closed = services.menuOwners.menu.apply({ type: "navigation", screens: services.menuOwners.menu.read().screens.slice(0, -1) });
+          if (!closed.ok) {
+            services.menuOwners.menu.apply({ type: "navigation", screens: services.menuOwners.menu.read().screens.slice(0, menuBaseDepth) });
+            throw new ScriptError("menu.state-refused", closed.error?.message ?? "menu frame close was refused", pos);
+          }
+        }
+      }
       if (action === "end") {
         thread.frames = [];
         thread.status = "finished";
@@ -2321,7 +2678,11 @@ function dispatchResolved(
   }
 
   if (result.wait !== undefined) {
-    thread.wait = result.wait;
+    const wait = result.wait.kind === "input.key" && result.wait.parkSeq === undefined &&
+      services.view.state?.input.keys.length
+      ? { ...result.wait, parkSeq: services.view.state.input.nextSeq }
+      : result.wait;
+    thread.wait = wait;
     thread.status = "waiting";
     return "yield";
   }
@@ -3116,8 +3477,41 @@ export function stepThread(
             ? { value: frame.returnValue, ref: null }
             : frame.operands.pop() ?? { value: 0, ref: null };
         const releaseHandle = frame.releaseHandle;
+        const menuScreen = frame.menuScreen;
+        const menuContinuation = frame.menuContinuation;
         const poppedIndex = thread.frames.length - 1;
         thread.frames.pop();
+        if (menuScreen !== undefined) {
+          services.menuOwners.menu.apply({ type: "navigation", screens: services.menuOwners.menu.read().screens.slice(0, -1) });
+        }
+        if (menuContinuation !== undefined && menuContinuation !== null && typeof menuContinuation === "object" && !Array.isArray(menuContinuation)) {
+          const saved = menuContinuation as Record<string, unknown>;
+          const parents = Array.isArray(saved.parents) ? saved.parents as Array<Record<string, unknown>> : [];
+          if (parents.length > 0) {
+            const parent = parents[parents.length - 1]!;
+            if (typeof parent.providerId !== "string" || typeof parent.screen !== "string" || !services.menuProviders.has(parent.providerId)) {
+              throw new ScriptError("menu.provider-missing", "native parent menu provider is unavailable after RPGCode child close");
+            }
+            thread.wait = {
+              kind: "menu.screen",
+              global: true,
+              id: parent.providerId,
+              payload: [{
+                ...saved,
+                providerId: parent.providerId,
+                screen: parent.screen,
+                state: parent.state as PlainData,
+                phase: "child.closed",
+                childScreen: menuScreen,
+                parkSeq: null,
+                parents: parents.slice(0, -1),
+              } as unknown as PlainData],
+              resumeRefs: [],
+            };
+            thread.status = "waiting";
+            break;
+          }
+        }
         if (releaseHandle !== undefined) {
           releaseObject(vm, services, releaseHandle);
         }
@@ -3136,9 +3530,19 @@ export function stepThread(
       }
     }
     } catch (caught) {
-      // Load-time errors are not catchable; only a runtime failure of this one op is routed here.
-      if (!(caught instanceof ScriptError) || failureClass(caught.code) === null) throw caught;
-      handleFailure(thread, vm, services, program, frame, op, opIp, depth, caught);
+      if (frame.menuContinuation !== undefined) {
+        handleMenuProviderFailure(
+          thread,
+          vm,
+          services,
+          frame.menuContinuation as { readonly [key: string]: PlainData },
+          caught,
+        );
+      } else {
+        // Load-time errors are not catchable; only a runtime failure of this one op is routed here.
+        if (!(caught instanceof ScriptError) || failureClass(caught.code) === null) throw caught;
+        handleFailure(thread, vm, services, program, frame, op, opIp, depth, caught);
+      }
     }
   }
   return finish();

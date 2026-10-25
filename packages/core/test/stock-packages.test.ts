@@ -167,7 +167,7 @@ test("stock packages load through the .gam list and keep the no-plugin behavior"
   equal(doubles.state().vm.globals.ended, 1);
 });
 
-test("without stock packages, battle ends and the menu command does nothing", () => {
+test("without stock packages, menu facade reports missing provider and leaves the stack unchanged", () => {
   const game = authoredGame([]);
   const doubles = startDoubles();
   const engine = createEngine({
@@ -183,8 +183,9 @@ test("without stock packages, battle ends and the menu command does nothing", ()
     ...doubles.options,
   });
   const result = run(engine, game.files, doubles);
-  equal(result.diagnostics.length, 0);
+  deepEqual(result.diagnostics.map((diagnostic) => diagnostic.code), ["menu.provider-missing"]);
   equal(doubles.state().vm.globals.ended, 1);
+  equal(doubles.state().menu.screens.length, 0);
 });
 
 /** A legacy main file naming the stock DLLs in all three legacy rows (docs/spec/formats/main-file.md#layout rows 23, 24 and 38b). */

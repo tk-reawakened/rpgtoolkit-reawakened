@@ -509,6 +509,7 @@ export function createEngine(init: EngineInit): Engine {
       packageStartupLifecycle,
       media,
       init.scriptObservers,
+      menuOwners,
     );
     media.activateDeclared();
     if (runStartups) {

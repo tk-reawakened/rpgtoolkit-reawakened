@@ -173,6 +173,32 @@ test("owner actions isolate sections and reject invalid actions atomically", () 
   rejected(ports.menu.apply({ type: "navigation", screens: [{ screen: "status", actorId: 999, selection: 0 }] }));
   equal(snapshot(state), unchanged);
 });
+
+test("menu updateCurrent atomically updates only the active frame and refuses an empty stack", () => {
+  const state = actorState();
+  const ports = createMenuOwnerPorts(state);
+  const [first, second] = state.actors.actors;
+  if (first === undefined || second === undefined) throw new Error("actor fixture is incomplete");
+  const before = snapshot(state);
+  deepEqual(ports.menu.apply({ type: "updateCurrent", actorId: first.id, selection: 2 }), {
+    ok: false,
+    error: { path: "menu.screens", message: "no active menu frame" },
+  });
+  equal(snapshot(state), before);
+  ports.menu.apply({ type: "navigation", screens: [
+    { screen: "main", actorId: null, selection: 0 },
+    { screen: "items", actorId: null, selection: 0 },
+  ] });
+  deepEqual(ports.menu.apply({ type: "updateCurrent", actorId: second.id, selection: 9 }), { ok: true, error: null });
+  deepEqual(state.menu.screens, [
+    { screen: "main", actorId: null, selection: 0 },
+    { screen: "items", actorId: second.id, selection: 9 },
+  ]);
+  const unchanged = snapshot(state);
+  rejected(ports.menu.apply({ type: "updateCurrent", actorId: 999, selection: 0 }));
+  rejected(ports.menu.apply({ type: "updateCurrent", actorId: first.id, selection: -1 }));
+  equal(snapshot(state), unchanged);
+});
 test("authored RPGCode party operations preserve actor identity and emit only committed events", () => {
   const state = createGameState({ seed: 21 });
   const first = addActor(state.actors, { kind: "party", source: "first.tem", name: "First" });

@@ -30,45 +30,99 @@ import type { CallableValue } from "../ports/value.ts";
 export const LAYER_PREFIX = "plugin.layer:";
 /** The `def` prefix of a registration's `remove` callable; the rest is the registration id. */
 export const REGISTRATION_PREFIX = "plugin.remove:";
-
-/** One registered layer of one command. */
+/** One registered command interceptor and the binding it wraps. */
 export type PluginLayer = {
   readonly id: string;
   readonly registration: string;
   readonly command: string;
-  /** The author's function, taking the command's arguments and then `next`. */
   readonly interceptor: CallableValue;
-  /** What `next` is: the layer below, or the engine's own binding. */
   readonly below: CallableValue;
-  /** A removed layer passes every call to `below` unchanged. */
   removed: boolean;
 };
 
-/** One `registerPlugin` call: its label and the layers it made, in registration order. */
+
+/** One whole-screen provider in the unified per-screen registry. */
+export type MenuProviderLayer =
+  | {
+      readonly id: string;
+      readonly registration: string;
+      readonly screen: string;
+      readonly kind: "rpgcode";
+      readonly provider: CallableValue;
+      readonly order: number;
+      removed: boolean;
+    }
+  | {
+      readonly id: string;
+      readonly registration: string;
+      readonly screen: string;
+      readonly kind: "native";
+      readonly provider: import("./plugin.ts").MenuProvider;
+      readonly order: number;
+      removed: boolean;
+    };
+
+export type NativeMenuProviderRequest = {
+  readonly id: string;
+  readonly screen: string;
+  readonly provider: import("./plugin.ts").MenuProvider;
+};
+
+export function addNativeMenuProvider(table: PluginLayers, request: NativeMenuProviderRequest): void {
+  const id = request.id;
+  const existing = table.menuLayers.get(id);
+  if (existing !== undefined) {
+    if (existing.kind !== "native" || existing.screen !== request.screen) {
+      throw new Error(`menu provider identity "${id}" is already registered with a different kind or screen`);
+    }
+    // Services are rebuilt after package startup on restore. Keep the provider's
+    // original slot so rebuilding cannot move it above a later RPGCode override.
+    return;
+  }
+  const layer: MenuProviderLayer = {
+    id, registration: id, screen: request.screen, kind: "native",
+    provider: request.provider, order: ++table.menuOrder, removed: false,
+  };
+  table.menuLayers.set(id, layer);
+  const stack = table.menuStacks.get(request.screen) ?? [];
+  stack.push(id);
+  table.menuStacks.set(request.screen, stack);
+}
+
+/** One `registerPlugin` call: its command and menu layers, in registration order. */
 export type PluginRegistration = {
   readonly id: string;
   readonly name: string;
   readonly layers: readonly string[];
+  readonly menuLayers: readonly string[];
 };
 
 /** The layers of one running game (see the file header). */
 export type PluginLayers = {
   seq: number;
+  menuOrder: number;
   readonly layers: Map<string, PluginLayer>;
   /** Per command, the live layer ids, bottom first. */
   readonly stacks: Map<string, string[]>;
   readonly registrations: Map<string, PluginRegistration>;
+  readonly menuLayers: Map<string, MenuProviderLayer>;
+  /** Per screen, the live menu provider layer ids, registration order. */
+  readonly menuStacks: Map<string, string[]>;
 };
 
 /** An empty layer table. */
 export function createPluginLayers(): PluginLayers {
-  return { seq: 0, layers: new Map(), stacks: new Map(), registrations: new Map() };
+  return { seq: 0, menuOrder: 0, layers: new Map(), stacks: new Map(), registrations: new Map(), menuLayers: new Map(), menuStacks: new Map() };
 }
+
 
 /** Discard package layers after an aborted startup pass. */
 export function clearPluginLayers(table: PluginLayers): void {
   table.seq = 0;
+  table.menuOrder = 0;
   table.layers.clear();
+  table.menuLayers.clear();
+  table.menuStacks.clear();
   table.stacks.clear();
   table.registrations.clear();
 }
@@ -76,23 +130,35 @@ export function clearPluginLayers(table: PluginLayers): void {
 export function snapshotPluginLayers(table: PluginLayers): PluginLayers {
   return {
     seq: table.seq,
+    menuOrder: table.menuOrder,
     layers: new Map([...table.layers].map(([id, layer]) => [id, { ...layer, interceptor: copyCallable(layer.interceptor), below: copyCallable(layer.below) }])),
     stacks: new Map([...table.stacks].map(([command, ids]) => [command, [...ids]])),
-    registrations: new Map([...table.registrations].map(([id, registration]) => [id, { ...registration, layers: [...registration.layers] }])),
+    registrations: new Map([...table.registrations].map(([id, registration]) => [id, { ...registration, layers: [...registration.layers], menuLayers: [...registration.menuLayers] }])),
+    menuLayers: new Map([...table.menuLayers].map(([id, layer]) => [
+      id,
+      layer.kind === "rpgcode" ? { ...layer, provider: copyCallable(layer.provider) } : { ...layer },
+    ])),
+    menuStacks: new Map([...table.menuStacks].map(([screen, ids]) => [screen, [...ids]])),
   };
 }
 
 /** Restore a session layer table to a pre-startup snapshot without replacing its object. */
 export function restorePluginLayers(table: PluginLayers, snapshot: PluginLayers): void {
+  table.menuOrder = snapshot.menuOrder;
   table.seq = snapshot.seq;
   table.layers.clear();
   for (const [id, layer] of snapshot.layers) table.layers.set(id, { ...layer, interceptor: copyCallable(layer.interceptor), below: copyCallable(layer.below) });
   table.stacks.clear();
   for (const [command, ids] of snapshot.stacks) table.stacks.set(command, [...ids]);
   table.registrations.clear();
-  for (const [id, registration] of snapshot.registrations) table.registrations.set(id, { ...registration, layers: [...registration.layers] });
+  for (const [id, registration] of snapshot.registrations) table.registrations.set(id, { ...registration, layers: [...registration.layers], menuLayers: [...registration.menuLayers] });
+  table.menuLayers.clear();
+  for (const [id, layer] of snapshot.menuLayers) {
+    table.menuLayers.set(id, layer.kind === "rpgcode" ? { ...layer, provider: copyCallable(layer.provider) } : { ...layer });
+  }
+  table.menuStacks.clear();
+  for (const [screen, ids] of snapshot.menuStacks) table.menuStacks.set(screen, [...ids]);
 }
-
 /** The layer id a `def` names, or `null` when `def` is not a layer wrapper. */
 export function layerIdOf(def: string): string | null {
   return def.startsWith(LAYER_PREFIX) ? def.slice(LAYER_PREFIX.length) : null;
@@ -132,6 +198,18 @@ export type LayerRequest = {
   readonly interceptor: CallableValue;
   readonly engine: CallableValue | undefined;
 };
+export type MenuProviderRequest = { readonly screen: string; readonly provider: CallableValue };
+
+/** Top live provider in registration order for one screen. */
+export function topMenuProvider(table: PluginLayers, screen: string): MenuProviderLayer | undefined {
+  const stack = table.menuStacks.get(screen);
+  let top: MenuProviderLayer | undefined;
+  for (const id of stack ?? []) {
+    const layer = table.menuLayers.get(id);
+    if (layer !== undefined && !layer.removed && (top === undefined || layer.order > top.order)) top = layer;
+  }
+  return top;
+}
 
 /**
  * Register `requests` in order as one registration. Each layer's `below` is the
@@ -142,6 +220,7 @@ export function addRegistration(
   table: PluginLayers,
   name: string,
   requests: readonly LayerRequest[],
+  menuRequests: readonly MenuProviderRequest[] = [],
 ): PluginRegistration {
   table.seq += 1;
   const id = `R${table.seq}`;
@@ -166,7 +245,21 @@ export function addRegistration(
     table.stacks.set(request.command, stack);
     made.push(layerId);
   }
-  const registration: PluginRegistration = { id, name, layers: made };
+  const madeMenus: string[] = [];
+  for (const request of menuRequests) {
+    table.seq += 1;
+    const layerId = `M${table.seq}`;
+    table.menuLayers.set(layerId, {
+      id: layerId, registration: id, screen: request.screen,
+      provider: copyCallable(request.provider), kind: "rpgcode",
+      order: ++table.menuOrder, removed: false,
+    });
+    const stack = table.menuStacks.get(request.screen) ?? [];
+    stack.push(layerId);
+    table.menuStacks.set(request.screen, stack);
+    madeMenus.push(layerId);
+  }
+  const registration: PluginRegistration = { id, name, layers: made, menuLayers: madeMenus };
   table.registrations.set(id, registration);
   return registration;
 }
@@ -193,6 +286,17 @@ export function removeRegistration(table: PluginLayers, id: string): 0 | 1 | nul
     if (at >= 0) stack.splice(at, 1);
     if (stack.length === 0) table.stacks.delete(layer.command);
   }
+  for (const layerId of registration.menuLayers) {
+    const layer = table.menuLayers.get(layerId);
+    if (layer === undefined || layer.removed) continue;
+    layer.removed = true;
+    removed = 1;
+    const stack = table.menuStacks.get(layer.screen);
+    if (stack === undefined) continue;
+    const at = stack.indexOf(layerId);
+    if (at >= 0) stack.splice(at, 1);
+    if (stack.length === 0) table.menuStacks.delete(layer.screen);
+  }
   return removed;
 }
 
@@ -207,6 +311,7 @@ export function layerRoots(table: PluginLayers): readonly CallableValue[] {
     if (!layer.removed) roots.push(layer.interceptor);
     roots.push(layer.below);
   }
+  for (const layer of table.menuLayers.values()) if (!layer.removed && layer.kind === "rpgcode") roots.push(layer.provider);
   return roots;
 }
 

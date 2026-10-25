@@ -8,13 +8,14 @@
 // through the one environment table without a second dispatch mechanism,
 // rebuilt at every start-up (runPackageStartup) on a fresh state, and removed by
 // the registration's remove callable.
-import { deepEqual, equal, throws } from "node:assert/strict";
+import { deepEqual, equal, ok, throws } from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { TextEncoder } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
+  CATALOGUE_PLUGIN,
   advanceScriptTick,
   assetKey,
   createAssetIndex,
@@ -258,6 +259,541 @@ test("no new resolution tier exists in resolveCall: resolveCall resolves through
   equal(resolved?.kind, "command");
 });
 
+test("registerPlugin accepts a menu-only registration and empty menu maps do not mask the screen", () => {
+  const loader = loaderOf({
+    "menu-only.prg": `
+emptyHandle = registerPlugin({ name: "empty", commands: {}, menuProviders: {} })
+menuHandle = registerPlugin({ name: "menu-only", commands: {}, menuProviders: { main: (context) => null } })
+`,
+  });
+  const state = createGameState({ seed: 0 });
+  const layers = createPluginLayers();
+  const services = servicesOf(state, loader, layers);
+  startProgram(state.vm, fileProgramRef(loader, "menu-only.prg"));
+  advanceOrFail(state, services);
+  equal(layers.menuStacks.get("main")?.length, 1);
+  equal(layers.menuLayers.size, 1);
+  equal([...layers.registrations.values()].filter((registration) => registration.name === "empty")[0]?.menuLayers.length, 0);
+  equal(services.menuOwners.menu.updateCurrent({ actorId: null, selection: 0 }).ok, false);
+  advanceOrFail(state, services);
+  equal(finished(state), true);
+});
+
+test("an RPGCode menu-only provider enters through a direct facade call and returns on the same thread", () => {
+  const loader = loaderOf({
+    "game.prg": 'registerPlugin({ name: "menu-only", commands: {}, menuProviders: { main: (context) => { entered = context.screen } } })\nmainmenu()\nend()\n',
+  });
+  const state = createGameState({ seed: 0 });
+  const services = coreCreateScriptServices(
+    state,
+    [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }],
+    undefined,
+    undefined,
+    loader,
+  );
+  startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+  advanceOrFail(state, services);
+  equal(state.vm.globals.entered, "main");
+  equal(state.menu.screens.length, 0);
+  equal(finished(state), true);
+});
+
+test("a facade call without a custom or stock provider refuses without changing the menu stack", () => {
+  const loader = loaderOf({ "game.prg": "mainmenu()\nend()\n" });
+  const state = createGameState({ seed: 0 });
+  const services = coreCreateScriptServices(
+    state,
+    [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }],
+    undefined,
+    undefined,
+    loader,
+  );
+  startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+  throws(
+    () => advanceOrFail(state, services),
+    (error: unknown) => error instanceof ScriptError && error.code === "menu.provider-missing",
+  );
+  equal(state.menu.screens.length, 0);
+});
+
+test("a native menu provider waits and resumes its same-thread facade call", () => {
+  const loader = loaderOf({ "game.prg": "mainmenu()\nend()\n" });
+  const state = createGameState({ seed: 0 });
+  const providerEvents: string[] = [];
+  const nativeMenu: PluginDefinition = {
+    id: "test-menu",
+    version: "1.2.0",
+    commands: [],
+    menuProviders: {
+      main: ({ event }) => {
+        providerEvents.push(event.type);
+        return event.type === "input"
+          ? { kind: "complete" }
+          : { kind: "wait", state: { entered: true }, wait: { kind: "menu.screen", global: true, id: "test-menu", payload: [], resumeRefs: [] } };
+      },
+    },
+  };
+  const services = coreCreateScriptServices(
+    state,
+    [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }, { definition: nativeMenu }],
+    undefined,
+    undefined,
+    loader,
+  );
+  startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+  advanceOrFail(state, services);
+  equal(state.vm.threads[0]?.status, "waiting");
+  equal(state.menu.screens.at(-1)?.screen, "main");
+  const saved = snapshot(state);
+  const restored = restoreGameState(saved);
+  const providerPlugins = [
+    { definition: CORE_PLUGIN },
+    { definition: UI_PLUGIN },
+    { definition: CATALOGUE_PLUGIN },
+    { definition: nativeMenu },
+  ] as const;
+  const restoredServices = coreCreateScriptServices(restored, providerPlugins, undefined, undefined, loader);
+  verifyRestoredHandles(restored.vm, restoredServices);
+  const changedProvider = { ...nativeMenu, version: "1.3.0" };
+  const incompatibleServices = coreCreateScriptServices(
+    restored,
+    [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }, { definition: changedProvider }],
+    undefined,
+    undefined,
+    loader,
+  );
+  throws(
+    () => verifyRestoredHandles(restored.vm, incompatibleServices),
+    (error: unknown) => error instanceof ScriptError && error.code === "restore.menu-provider",
+  );
+  const seq = restored.input.nextSeq;
+  restored.input.nextSeq += 1;
+  restored.input.keys.push({ seq, name: "enter", code: "Enter", char: null });
+  advanceOrFail(restored, restoredServices);
+  deepEqual(providerEvents, ["enter", "input"]);
+  equal(restored.menu.screens.length, 0);
+  equal(finished(restored), true);
+});
+test("the unified registry lets a later RPGCode provider win and routes a TypeScript parent through an RPGCode child", () => {
+  const loader = loaderOf({
+    "game.prg": 'registerPlugin({ name: "items-rpg", commands: {}, menuProviders: { items: (context) => { entered = context.screen } } })\nmainmenu()\nend()\n',
+  });
+  const state = createGameState({ seed: 0 });
+  const events: string[] = [];
+  const nativeMenu: PluginDefinition = {
+    id: "native-menu",
+    version: "1.0.0",
+    commands: [],
+    menuProviders: {
+      main: ({ event }) => {
+        events.push(`main:${event.type}`);
+        return event.type === "child.closed"
+          ? { kind: "complete" }
+          : { kind: "open", state: { main: true }, screen: "items" };
+      },
+      items: ({ event }) => { events.push(`native-items:${event.type}`); return { kind: "complete" }; },
+    },
+  };
+  const plugins = [
+    { definition: CORE_PLUGIN },
+    { definition: UI_PLUGIN },
+    { definition: CATALOGUE_PLUGIN },
+    { definition: nativeMenu },
+  ];
+  const layers = createPluginLayers();
+  const services = coreCreateScriptServices(state, plugins, undefined, undefined, loader, "default", undefined, undefined, layers);
+  startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+  const threadId = state.vm.threads[0]?.id;
+  runToEnd(state, services);
+  deepEqual(events, ["main:enter", "main:child.closed"]);
+  equal(state.vm.globals.entered, "items");
+  equal(state.menu.screens.length, 0);
+  equal(state.vm.threads[0]?.id, threadId, "cross-surface nesting stays on the caller thread");
+});
+test("a saved RPGCode child frame validates its native parent and resumes after restore", () => {
+  const loader = loaderOf({
+    "startup.prg": 'registerPlugin({ name: "items-rpg", commands: {}, menuProviders: { items: (context) => { entered = context.screen; sleep(2) } } })\n',
+    "game.prg": "mainmenu()\nend()\n",
+  });
+  const events: string[] = [];
+  const nativeMenu: PluginDefinition = {
+    id: "native-menu",
+    version: "1.0.0",
+    commands: [],
+    menuProviders: {
+      main: ({ event }) => {
+        events.push(`main:${event.type}`);
+        return event.type === "child.closed" ? { kind: "complete" } : { kind: "open", state: {}, screen: "items" };
+      },
+    },
+  };
+  const plugins = [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }, { definition: nativeMenu }];
+  const state = createGameState({ seed: 0 });
+  const layers = createPluginLayers();
+  const services = coreCreateScriptServices(state, plugins, undefined, undefined, loader, "default", undefined, undefined, layers);
+  runPackageStartup(state, services, [fileProgramRef(loader, "startup.prg")], []);
+  startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+  advanceOrFail(state, services);
+  advanceOrFail(state, services);
+  equal(state.vm.threads[0]?.status, "waiting");
+  ok(state.vm.threads[0]?.frames.some((frame) => frame.menuContinuation !== undefined));
+  const restored = restoreGameState(snapshot(state));
+  const restoredLayers = createPluginLayers();
+  const scratch = createGameState({ seed: 0 });
+  const scratchServices = coreCreateScriptServices(scratch, plugins, undefined, undefined, loader, "default", undefined, undefined, restoredLayers);
+  runPackageStartup(scratch, scratchServices, [fileProgramRef(loader, "startup.prg")], []);
+  const restoredServices = coreCreateScriptServices(restored, plugins, undefined, undefined, loader, "default", undefined, undefined, restoredLayers);
+  verifyRestoredHandles(restored.vm, restoredServices);
+  runToEnd(restored, restoredServices);
+  deepEqual(events, ["main:enter", "main:child.closed"]);
+  equal(restored.vm.globals.entered, "items");
+  equal(restored.menu.screens.length, 0);
+});
+test("an RPGCode provider frame resumes around a native child facade call", () => {
+  const loader = loaderOf({
+    "startup.prg": 'registerPlugin({ name: "main-rpg", commands: {}, menuProviders: { main: (context) => { itemmenu(); parentResumed = 1 } } })\n',
+    "game.prg": "mainmenu()\nend()\n",
+  });
+  const nativeEvents: string[] = [];
+  const nativeMenu: PluginDefinition = {
+    id: "native-child",
+    version: "1.0.0",
+    commands: [],
+    menuProviders: {
+      items: ({ event }) => {
+        nativeEvents.push(event.type);
+        return event.type === "input"
+          ? { kind: "complete" }
+          : { kind: "wait", state: {}, wait: { kind: "menu.screen", global: true, id: "native-child", payload: [], resumeRefs: [] } };
+      },
+    },
+  };
+  const plugins = [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }, { definition: nativeMenu }];
+  const state = createGameState({ seed: 0 });
+  const layers = createPluginLayers();
+  const services = coreCreateScriptServices(state, plugins, undefined, undefined, loader, "default", undefined, undefined, layers);
+  runPackageStartup(state, services, [fileProgramRef(loader, "startup.prg")], []);
+  startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+  advanceOrFail(state, services);
+  equal(state.vm.threads[0]?.status, "waiting");
+  const seq = state.input.nextSeq;
+  state.input.nextSeq += 1;
+  state.input.keys.push({ seq, name: "enter", code: "Enter", char: null });
+  runToEnd(state, services);
+  deepEqual(nativeEvents, ["enter", "input"]);
+  equal(state.vm.globals.parentresumed, 1);
+  equal(state.menu.screens.length, 0);
+});
+test("a later native registration replaces an earlier RPGCode provider in the same registry", () => {
+  const loader = loaderOf({
+    "register.prg": 'registerPlugin({ name: "rpg-first", commands: {}, menuProviders: { main: (context) => { entered = "rpg" } } })\nend()\n',
+    "game.prg": "mainmenu()\nend()\n",
+  });
+  const state = createGameState({ seed: 0 });
+  const layers = createPluginLayers();
+  const initialServices = coreCreateScriptServices(state, [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }], undefined, undefined, loader, "default", undefined, undefined, layers);
+  startProgram(state.vm, fileProgramRef(loader, "register.prg"));
+  runToEnd(state, initialServices);
+  const events: string[] = [];
+  const nativeMenu: PluginDefinition = {
+    id: "native-later",
+    version: "1.0.0",
+    commands: [],
+    menuProviders: { main: ({ event }) => { events.push(event.type); return { kind: "complete" }; } },
+  };
+  const services = coreCreateScriptServices(
+    state,
+    [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }, { definition: nativeMenu }],
+    undefined,
+    undefined,
+    loader,
+    "default",
+    undefined,
+    undefined,
+    layers,
+  );
+  startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+  runToEnd(state, services);
+  deepEqual(events, ["enter"]);
+  equal(state.vm.globals.entered, undefined);
+});
+test("removing an RPGCode winner reveals the preceding native provider", () => {
+  const loader = loaderOf({
+    "game.prg": 'rpgHandle = registerPlugin({ name: "rpg-override", commands: {}, menuProviders: { main: (context) => { winner = "rpg" } } })\nmainmenu()\nrpgHandle.remove()\nmainmenu()\nend()\n',
+  });
+  const events: string[] = [];
+  const nativeMenu: PluginDefinition = {
+    id: "native-base",
+    version: "1.0.0",
+    commands: [],
+    menuProviders: { main: ({ event }) => { events.push(event.type); return { kind: "complete" }; } },
+  };
+  const state = createGameState({ seed: 0 });
+  const services = coreCreateScriptServices(
+    state,
+    [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }, { definition: nativeMenu }],
+    undefined,
+    undefined,
+    loader,
+  );
+  startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+  runToEnd(state, services);
+  equal(state.vm.globals.winner, "rpg");
+  deepEqual(events, ["enter"]);
+});
+test("removing an RPGCode provider does not cancel its already-entered frame", () => {
+  const loader = loaderOf({
+    "game.prg": 'rpgHandle = registerPlugin({ name: "rpg-override", commands: {}, menuProviders: { main: (context) => { sleep(1); winner = "rpg-finished" } } })\nthread("rpgHandle.remove()", 0)\nmainmenu()\nend()\n',
+  });
+  const events: string[] = [];
+  const nativeMenu: PluginDefinition = {
+    id: "native-base",
+    version: "1.0.0",
+    commands: [],
+    menuProviders: { main: ({ event }) => { events.push(event.type); return { kind: "complete" }; } },
+  };
+  const state = createGameState({ seed: 0 });
+  const services = coreCreateScriptServices(
+    state,
+    [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }, { definition: nativeMenu }],
+    undefined,
+    undefined,
+    loader,
+  );
+  startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+  runToEnd(state, services);
+  equal(state.vm.globals.winner, "rpg-finished");
+  deepEqual(events, []);
+  equal(state.menu.screens.length, 0);
+});
+
+test("InternalMenu routes the four compatibility indices and rejects index 3", () => {
+  const screens: string[] = [];
+  const nativeMenu: PluginDefinition = {
+    id: "compat-menu",
+    version: "1.0.0",
+    commands: [],
+    menuProviders: {
+      main: ({ event }) => { if (event.type === "enter") screens.push("main"); return { kind: "complete" }; },
+      items: ({ event }) => { if (event.type === "enter") screens.push("items"); return { kind: "complete" }; },
+      equipment: ({ event }) => { if (event.type === "enter") screens.push("equipment"); return { kind: "complete" }; },
+      abilities: ({ event }) => { if (event.type === "enter") screens.push("abilities"); return { kind: "complete" }; },
+    },
+  };
+  const loader = loaderOf({ "game.prg": "internalmenu(0)\ninternalmenu(1)\ninternalmenu(2)\ninternalmenu(4)\nend()\n" });
+  const state = createGameState({ seed: 0 });
+  const services = coreCreateScriptServices(
+    state,
+    [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }, { definition: nativeMenu }],
+    undefined,
+    undefined,
+    loader,
+  );
+  startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+  advanceOrFail(state, services);
+  deepEqual(screens, ["main", "items", "equipment", "abilities"]);
+  equal(state.menu.screens.length, 0);
+
+  const invalidLoader = loaderOf({ "game.prg": "internalmenu(3)\nend()\n" });
+  const invalidState = createGameState({ seed: 0 });
+  const invalidServices = coreCreateScriptServices(
+    invalidState,
+    [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }, { definition: nativeMenu }],
+    undefined,
+    undefined,
+    invalidLoader,
+  );
+  startProgram(invalidState.vm, fileProgramRef(invalidLoader, "game.prg"));
+  throws(
+    () => advanceOrFail(invalidState, invalidServices),
+    (error: unknown) => error instanceof ScriptError && error.code === "builtin.bad-arg",
+  );
+  equal(invalidState.menu.screens.length, 0);
+});
+
+test("a native provider cannot save a closure in its continuation state", () => {
+  const loader = loaderOf({ "game.prg": "mainmenu()\nend()\n" });
+  const state = createGameState({ seed: 0 });
+  const nativeMenu: PluginDefinition = {
+    id: "invalid-menu",
+    version: "1.0.0",
+    commands: [],
+    menuProviders: {
+      main: () => ({
+        kind: "wait",
+        state: (() => null) as never,
+        wait: { kind: "menu.screen", global: true, id: "invalid-menu", payload: [], resumeRefs: [] },
+      }),
+    },
+  };
+  const services = coreCreateScriptServices(
+    state,
+    [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }, { definition: nativeMenu }],
+    undefined,
+    undefined,
+    loader,
+  );
+  startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+  throws(
+    () => advanceOrFail(state, services),
+    (error: unknown) => error instanceof ScriptError && error.code === "menu.provider-result",
+  );
+  equal(state.menu.screens.length, 0);
+  equal(state.vm.threads[0]?.status, "finished");
+});
+
+test("a resumed provider exception cleans its menu stack and reaches the caller handler", () => {
+  const loader = loaderOf({
+    "game.prg": "function guarded() {\nsetErrorHandler(:caught)\nmainmenu()\nafter = 1\nreturn 0\n:caught\nhandled = 1\nreturn 0\n}\nguarded()\nend()\n",
+  });
+  const state = createGameState({ seed: 0 });
+  const nativeMenu: PluginDefinition = {
+    id: "throwing-menu",
+    version: "1.0.0",
+    commands: [],
+    menuProviders: {
+      main: () => ({ kind: "open", state: { entered: true }, screen: "items" }),
+      items: ({ event }) => {
+        if (event.type === "input") throw new Error("provider exploded");
+        return { kind: "wait", state: { entered: true }, wait: { kind: "menu.screen", global: true, id: "throwing-menu", payload: [], resumeRefs: [] } };
+      },
+    },
+  };
+  const services = coreCreateScriptServices(
+    state,
+    [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }, { definition: nativeMenu }],
+    undefined,
+    undefined,
+    loader,
+  );
+  startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+  advanceScriptTick(state, services);
+  advanceScriptTick(state, services);
+  equal(state.menu.screens.length, 2);
+  equal(state.vm.threads[0]?.status, "waiting");
+  const seq = state.input.nextSeq;
+  state.input.nextSeq += 1;
+  state.input.keys.push({ seq, name: "enter", code: "Enter", char: null });
+  advanceScriptTick(state, services);
+  equal(state.vm.globals.handled, 1, "the caller's error handler should run");
+  equal(state.vm.globals.after, undefined);
+  equal(state.menu.screens.length, 0);
+  equal(finished(state), true);
+});
+
+for (const failureCase of [
+  {
+    name: "invalid resumed wait",
+    provider: {
+      id: "invalid-wait",
+      version: "1.0.0",
+      commands: [],
+      menuProviders: {
+        main: ({ event }: { readonly event: { readonly type: string } }) => event.type === "input"
+          ? ({
+            kind: "wait",
+            state: {},
+            wait: { kind: "input.key", global: true, key: null, resumeRefs: [] },
+          } as never)
+          : { kind: "wait", state: {}, wait: { kind: "menu.screen", global: true, id: "invalid-wait", payload: [], resumeRefs: [] } },
+      },
+    } satisfies PluginDefinition,
+  },
+  {
+    name: "missing nested child provider",
+    provider: {
+      id: "missing-child",
+      version: "1.0.0",
+      commands: [],
+      menuProviders: {
+        main: ({ event }: { readonly event: { readonly type: string } }) => event.type === "input"
+          ? { kind: "open", state: {}, screen: "items" }
+          : { kind: "wait", state: {}, wait: { kind: "menu.screen", global: true, id: "missing-child", payload: [], resumeRefs: [] } },
+      },
+    } satisfies PluginDefinition,
+  },
+]) {
+  test(`resumed provider ${failureCase.name} unwinds through the caller handler`, () => {
+    const loader = loaderOf({
+      "game.prg": "function guarded() {\nsetErrorHandler(:caught)\nmainmenu()\nafter = 1\nreturn 0\n:caught\nhandled = 1\nreturn 0\n}\nguarded()\nend()\n",
+    });
+    const state = createGameState({ seed: 0 });
+    const services = coreCreateScriptServices(
+      state,
+      [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }, { definition: failureCase.provider }],
+      undefined,
+      undefined,
+      loader,
+    );
+    startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+    advanceScriptTick(state, services);
+    equal(state.vm.threads[0]?.status, "waiting");
+    const seq = state.input.nextSeq;
+    state.input.nextSeq += 1;
+    state.input.keys.push({ seq, name: "enter", code: "Enter", char: null });
+    advanceScriptTick(state, services);
+    equal(state.vm.globals.handled, 1);
+    equal(state.vm.globals.after, undefined);
+    equal(state.menu.screens.length, 0);
+    equal(finished(state), true);
+  });
+}
+test("restore validates every nested parent provider identity before resuming the child", () => {
+  const loader = loaderOf({ "game.prg": "mainmenu()\nend()\n" });
+  const parentMenu: PluginDefinition = {
+    id: "parent-menu",
+    version: "1.0.0",
+    commands: [],
+    menuProviders: { main: () => ({ kind: "open", state: { parent: true }, screen: "items" }) },
+  };
+  const childMenu: PluginDefinition = {
+    id: "child-menu",
+    version: "1.0.0",
+    commands: [],
+    menuProviders: {
+      items: () => ({
+        kind: "wait",
+        state: { child: true },
+        wait: { kind: "menu.screen", global: true, id: "child-menu", payload: [], resumeRefs: [] },
+      }),
+    },
+  };
+  const state = createGameState({ seed: 0 });
+  const plugins = [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }, { definition: parentMenu }, { definition: childMenu }];
+  const services = coreCreateScriptServices(state, plugins, undefined, undefined, loader);
+  startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+  advanceScriptTick(state, services);
+  advanceScriptTick(state, services);
+  equal(state.vm.threads[0]?.status, "waiting");
+  equal(state.menu.screens.length, 2);
+
+  const restored = restoreGameState(snapshot(state));
+  const withParent = coreCreateScriptServices(restored, plugins, undefined, undefined, loader);
+  verifyRestoredHandles(restored.vm, withParent);
+  const withoutParent = coreCreateScriptServices(
+    restored,
+    [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }, { definition: childMenu }],
+    undefined,
+    undefined,
+    loader,
+  );
+  throws(
+    () => verifyRestoredHandles(restored.vm, withoutParent),
+    (error: unknown) => error instanceof ScriptError && error.code === "restore.menu-provider",
+  );
+  const changedParent = coreCreateScriptServices(
+    restored,
+    [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }, { definition: { ...parentMenu, version: "2.0.0" } }, { definition: childMenu }],
+    undefined,
+    undefined,
+    loader,
+  );
+  throws(
+    () => verifyRestoredHandles(restored.vm, changedParent),
+    (error: unknown) => error instanceof ScriptError && error.code === "restore.menu-provider",
+  );
+});
+
 // --- Errors and edge cases ------------------------------------------------------------------
 
 test("registerPlugin fails cleanly when a command value is not a callable", () => {
@@ -286,6 +822,7 @@ test("registerPlugin fails cleanly when the definition is not a dictionary", () 
     "bad.prg": `registerPlugin("not-a-dict")\nend()\n`,
   });
   const state = createGameState({ seed: 0 });
+
   const layers = createPluginLayers();
   const services = servicesOf(state, loader, layers);
   startProgram(state.vm, fileProgramRef(loader, "bad.prg"));

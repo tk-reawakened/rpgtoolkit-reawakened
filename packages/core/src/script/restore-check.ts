@@ -30,6 +30,8 @@ export type RestoreCheckServices = {
   readonly programs: ProgramCache;
   readonly commands: CommandLookup;
   readonly hostTypes?: ReadonlyMap<string, HostObjectType>;
+  readonly menuProviders?: ReadonlyMap<string, unknown>;
+  readonly menuProviderIdentityExists?: (id: string) => boolean;
 };
 
 /** A short name for a program in a message: its path, or `<inline>`. */
@@ -55,6 +57,45 @@ export function verifyRestoredHandles(vm: VmState, services: RestoreCheckService
   eachRootValue(vm, collect, () => undefined);
   for (const id of Object.keys(vm.cells ?? {})) collect(`vm.cells.${id}`, vm.cells?.[id]);
   for (const [index, listener] of (events?.listeners ?? []).entries()) collect(`events.listeners[${index}].callable`, listener.callable);
+  for (const thread of vm.threads) {
+    const continuations: unknown[] = [];
+    const wait = thread.wait;
+    if (wait?.kind === "menu.screen" && wait.payload[0] !== null && typeof wait.payload[0] === "object" && !Array.isArray(wait.payload[0])) {
+      continuations.push(wait.payload[0]);
+    }
+    for (const frame of thread.frames) {
+      if (frame.menuContinuation !== undefined) continuations.push(frame.menuContinuation);
+    }
+    for (const candidate of continuations) {
+      if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) {
+        throw new ScriptError("restore.menu-provider", `the snapshot's thread ${thread.id} menu continuation is malformed`);
+      }
+      const continuation = candidate as Record<string, unknown>;
+      const providerIds: string[] = [];
+      if (Object.hasOwn(continuation, "providerId")) {
+        if (typeof continuation.providerId !== "string") {
+          throw new ScriptError("restore.menu-provider", `the snapshot's thread ${thread.id} menu provider identity is malformed`);
+        }
+        providerIds.push(continuation.providerId);
+      }
+      if (Object.hasOwn(continuation, "parents")) {
+        if (!Array.isArray(continuation.parents)) {
+          throw new ScriptError("restore.menu-provider", `the snapshot's thread ${thread.id} menu parent continuations are malformed`);
+        }
+        for (const [index, parent] of continuation.parents.entries()) {
+          if (parent === null || typeof parent !== "object" || Array.isArray(parent) || typeof parent.providerId !== "string") {
+            throw new ScriptError("restore.menu-provider", `the snapshot's thread ${thread.id} menu parent ${index} identity is malformed`);
+          }
+          providerIds.push(parent.providerId);
+        }
+      }
+      for (const providerId of providerIds) {
+        if (services.menuProviderIdentityExists?.(providerId) !== true && services.menuProviders?.has(providerId) !== true) {
+          throw new ScriptError("restore.menu-provider", `the snapshot's thread ${thread.id} menu provider "${providerId}" is not registered`);
+        }
+      }
+    }
+  }
   for (const { path, value } of callables) {
     if (value.receiver === null) continue;
     const handle = Number(value.receiver);

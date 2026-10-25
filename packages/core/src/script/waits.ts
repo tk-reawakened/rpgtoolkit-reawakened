@@ -28,6 +28,25 @@ export function pollSleep(view: WaitView, wait: Wait): WaitResult | null {
   return view.tick >= wait.until ? DONE : null;
 }
 
+type InputKeyWait = Extract<Wait, { readonly kind: "input.key" }>;
+
+function pollCursorMapKey(wait: InputKeyWait, key: string, count: number, claim?: number): WaitResult | null {
+  const normalized = key.toLowerCase();
+  let selected = Math.max(0, Math.min(count - 1, Math.trunc(wait.cursorSelection ?? 0)));
+  if (normalized === "left" || normalized === "up") selected = (selected + count - 1) % count;
+  else if (normalized === "right" || normalized === "down") selected = (selected + 1) % count;
+  else if (normalized === "enter" || normalized === "return" || normalized === "space") {
+    return claim === undefined ? { value: selected, ok: true } : { value: selected, ok: true, claim };
+  } else if (/^[0-9]+$/.test(normalized)) {
+    const direct = Number(normalized);
+    if (direct >= 0 && direct < count) {
+      return claim === undefined ? { value: direct, ok: true } : { value: direct, ok: true, claim };
+    }
+  } else return null;
+  wait.cursorSelection = selected;
+  return null;
+}
+
 /** `input.key`: resolve ordinary keys or cursor-map navigation/selection. */
 export function pollInputKey(view: WaitView, wait: Wait): WaitResult | null {
   if (wait.kind !== "input.key") return null;
@@ -37,8 +56,10 @@ export function pollInputKey(view: WaitView, wait: Wait): WaitResult | null {
   const map = wait.cursorMap === undefined ? undefined : cursorMaps?.find((entry) => entry.id === wait.cursorMap);
   if (map !== undefined) {
     const count = map.points.length;
-    if (count === 0) return null;
-    let selected = Math.max(0, Math.min(count - 1, Math.trunc(wait.cursorSelection ?? 0)));
+    if (count === 0) {
+      wait.key = null;
+      return null;
+    }
     const pointer = view.input?.pointer;
     if (pointer !== undefined && pointer.buttons !== 0) {
       let best = 0;
@@ -55,16 +76,14 @@ export function pollInputKey(view: WaitView, wait: Wait): WaitResult | null {
     if (view.input !== undefined) {
       for (const key of view.input.keys) {
         if (key.seq < floor || claimed.has(key.seq)) continue;
-        const normalized = key.name.toLowerCase();
-        if (normalized === "left" || normalized === "up") selected = (selected + count - 1) % count;
-        else if (normalized === "right" || normalized === "down") selected = (selected + 1) % count;
-        else if (normalized === "enter" || normalized === "return" || normalized === "space") return { value: selected, ok: true, claim: key.seq };
-        else if (/^[0-9]+$/.test(normalized)) {
-          const direct = Number(normalized);
-          if (direct >= 0 && direct < count) return { value: direct, ok: true, claim: key.seq };
-        } else continue;
-        wait.cursorSelection = selected;
+        const result = pollCursorMapKey(wait, key.name, count, key.seq);
+        if (result !== null) return result;
       }
+    }
+    if (wait.key !== null) {
+      const result = pollCursorMapKey(wait, wait.key, count);
+      wait.key = null;
+      if (result !== null) return result;
     }
     return null;
   }
@@ -73,11 +92,28 @@ export function pollInputKey(view: WaitView, wait: Wait): WaitResult | null {
       if (key.seq < floor || claimed.has(key.seq)) continue;
       return { value: key.name, ok: true, claim: key.seq };
     }
-    return null;
   }
   if (wait.key === null) return null;
   return { value: wait.key, ok: true };
 }
+/** `menu.screen`: resolve provider input, or wait for the active shop context to close. */
+export function pollMenuScreen(view: WaitView, wait: Wait): WaitResult | null {
+  if (wait.kind !== "menu.screen") return null;
+  const saved = wait.payload[0];
+  if (saved !== null && typeof saved === "object" && !Array.isArray(saved) && typeof saved.providerId === "string") {
+    const floor = typeof saved.parkSeq === "number" ? saved.parkSeq : 0;
+    if (saved.phase !== "input") return { value: null, ok: true };
+    const claimed = new Set(view.claims ?? []);
+    for (const key of view.input?.keys ?? []) {
+      if (key.seq < floor || claimed.has(key.seq)) continue;
+      return { value: key.name, ok: true, claim: key.seq };
+    }
+    return null;
+  }
+  if (view.shopStock === undefined) throw new ScriptError("wait.no-menu-view", "a menu.screen wait was polled with no shop view");
+  return view.shopStock.length === 0 ? DONE : null;
+}
+
 
 /** `movement`: resolved when every collected move has reached its end tick. */
 export function pollMovement(view: WaitView, wait: Wait): WaitResult | null {
@@ -127,12 +163,6 @@ export function pollRenderMsgBox(view: WaitView, wait: Wait): WaitResult | null 
     if (normalized === "enter" || normalized === "return" || normalized === "space") return { value: style === 1 ? 6 : 1, ok: true, claim: key.seq };
   }
   return null;
-}
-/** `menu.screen`: resume once the active menu-owned shop context is closed. */
-export function pollMenuScreen(view: WaitView, wait: Wait): WaitResult | null {
-  if (wait.kind !== "menu.screen") return null;
-  if (view.shopStock === undefined) throw new ScriptError("wait.no-menu-view", "a menu.screen wait was polled with no shop view");
-  return view.shopStock.length === 0 ? DONE : null;
 }
 
 /** The audio owner resolver for finite-end and loop-pass waits. */

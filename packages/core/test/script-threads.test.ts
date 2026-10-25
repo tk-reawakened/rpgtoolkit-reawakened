@@ -6,6 +6,7 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { test } from "node:test";
 import {
+  applyInputEvent,
   advanceScriptTick,
   canon,
   CATALOGUE_STUBS_PLUGIN,
@@ -527,6 +528,18 @@ test("no deadlock while a timed sleep, a request or a key wait can still end", (
   key.state.vm.threads[0]!.wait = { kind: "input.key", global: true, key: null };
   runTicks(key.state, key.plugins, 5);
   equal(key.state.vm.block?.kind, "input.key");
+});
+test("input key wait accepts the next key buffered after the thread parks", () => {
+  const { state, plugins } = setup("wait(pressed)\nend()\n");
+  const services = createScriptServices(state, plugins);
+  advanceScriptTick(state, services);
+  const wait = state.vm.threads[0]?.wait;
+  if (wait?.kind !== "input.key") throw new Error("expected the thread to park on a key wait");
+  equal(wait.parkSeq, undefined);
+  applyInputEvent(state.input, { kind: "key", name: "A", code: "KeyA", char: "a", down: true });
+  advanceScriptTick(state, services);
+  equal(state.vm.globals.pressed, "A");
+  equal(state.vm.threads[0]?.status, "finished");
 });
 
 test("snapshot and replay: a mid-sleep and a mid-request restore with identical per-tick hashes", () => {

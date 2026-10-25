@@ -94,14 +94,14 @@ id = 7
 tracker_id = "#588"
 type = "story"
 title = "Default menu controller, input waits and replacement seam"
-description = "Implements menu-key and InternalMenu(n) routing, the saveable menu.screen wait, input/selection flow and replaceable stock_menu package boundary using Epic 4's existing UI and input services."
-verify = "Scripted key and modal responses open each supported screen directly and through the main menu, resume at the recorded tick after waits, and preserve menu/input state through reset and snapshot/restore."
+description = "Implements the owner-ratified MainMenu/ItemMenu/EquipmentMenu/AbilitiesMenu blocking facade, InternalMenu(0/1/2/4) compatibility routing, saveable menu.screen wait and one ordered whole-screen menuProviders registry shared by native TypeScript and RPGCode providers. A later non-empty registration wins across kinds; direct and nested lookup share that winner. Removal excludes an RPGCode registration from future winner selection and exposes the preceding provider, but does not cancel an already-entered provider frame in the current runtime. Runtime removal is not saved; restore requires active identities to be rebuilt at startup. The default stock_menu screen implementations are delivered by dependent entry 8 (#585), not by an inert fallback in this seam."
+verify = "Headless scripts prove direct and compatibility routing, invalid-value rejection, later TypeScript↔RPGCode replacement/removal, direct and nested winner consistency, menu-only registration, caller-thread wait/resume, TypeScript-parent→RPGCode-child and RPGCode-parent→TypeScript-child routing on the same thread, child.closed delivery, and cross-kind exception cleanup (including malformed waits, missing nested providers and refused owner actions), atomic updateCurrent, and reset/snapshot/restore. Verify removal changes future winner selection while an already-entered RPGCode frame finishes in the current runtime. Runtime removal is not serialized; restore must reject a missing current or parent continuation identity in the startup-rebuilt registry rather than restart or fall back. When stock_menu is loaded, unoverridden screen types resolve to its default provider; without a custom provider or stock_menu, the direct facade raises catchable menu.provider-missing without pushing a frame. Validate stable identities from waits and active VM frames, including every parent continuation, before resume; reject missing/version-changed providers. TypeScript continuations are plain data. Verify RPGCode per-thread step preemption and exactly one native callback dispatch per enter/input/child.closed event; advisory bounded-work cannot preempt an infinite synchronous callback, and no wall-clock timeout is used. Full default screen behavior is delivered and tested by #585."
 covers = ["CAP-10", "CAP-11"]
 after = [2, 3, 4, "3.9", "4.19", "4.21", "20.11"]
 hitl = false
 risk = "high"
 plan_checkpoint = true
-references = ["spec - docs/spec/engine/plugins-and-battle.md#e-80", "spec - docs/spec/engine/plugins-and-battle.md#e-95", "spec - docs/spec/engine/rpgcode-language.md#threads"]
+references = ["spec - docs/spec/engine/plugins-and-battle.md#e-80", "spec - docs/spec/engine/rpgcode-modules-and-objects.md#pure-rpgcode-plugins-and-middleware-mod-4--reawakened-rule", "spec - docs/spec/engine/rpgcode-functions.md#battle-stats-menus-33", "spec - docs/spec/engine/rpgcode-language.md#threads"]
 
 [[entry]]
 id = 8

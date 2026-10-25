@@ -36,7 +36,7 @@
  * docs/adr/0004 (decisions 2 and 6); AD-8, AD-10.
  */
 
-import type { AssetDecoder } from "../formats/registry/decoder.ts";
+import type { MenuOwnerPorts } from "../menu/ports.ts";
 import type { PlainData } from "../ports/plain-data.ts";
 import type { RngPort } from "../ports/rng.ts";
 import type { ClockPort } from "../ports/time.ts";
@@ -53,6 +53,7 @@ import type { HostRequestKind } from "./manifest.ts";
 import type { ActorHooks } from "../actors/rules.ts";
 import type { MediaScriptService } from "../audio/script.ts";
 
+import type { AssetDecoder } from "../formats/registry/decoder.ts";
 /**
  * The read-only view a command runs against (AD-8; decision U2). It holds game
  * state read-only plus the two injected ports a command may draw from: the
@@ -154,14 +155,33 @@ export type PluginDoc = {
   readonly requires?: readonly string[];
 };
 
+/** Menu facade screen identifiers (E-80, #588). */
+export type MenuScreenId = "main" | "items" | "equipment" | "abilities";
+export type MenuProviderEvent =
+  | { readonly type: "enter" }
+  | { readonly type: "input"; readonly key: string }
+  | { readonly type: "child.closed"; readonly screen: MenuScreenId };
+export type MenuProviderInput = {
+  readonly providerId: string;
+  readonly context: MenuOwnerPorts;
+  readonly state: PlainData;
+  readonly event: MenuProviderEvent;
+};
+export type MenuProviderResult =
+  | { readonly kind: "wait"; readonly state: PlainData; readonly wait: Wait }
+  | { readonly kind: "open"; readonly state: PlainData; readonly screen: MenuScreenId }
+  | { readonly kind: "complete" };
+export type MenuProvider = (input: MenuProviderInput) => MenuProviderResult;
+
 /** Package-scoped actor behaviour registration available during start-up. */
 export type BehaviourRegistrar = (name: string, hooks: ActorHooks) => boolean;
-
 /** One plugin: an ordered command and asset pack (ADR 0004 decisions 2 and 6). */
 export type PluginDefinition = {
   readonly id: string;
   readonly version: string;
   readonly commands: readonly BuiltinSpec[];
+  /** Whole-screen menu transitions keyed by canonical screen token (E-80, #588). */
+  readonly menuProviders?: Partial<Readonly<Record<MenuScreenId, MenuProvider>>>;
   /** Ordered package track configuration applied during game boot (MEDIA-4); files remain RPGCode-selected. */
   readonly audioTracks?: readonly { readonly name: string; readonly voiceCount?: number }[];
   /** Optional plain-data package documentation, excluded from VM state. */

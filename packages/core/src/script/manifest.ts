@@ -118,7 +118,7 @@ function diagnostic(
   return { code, path, index, message };
 }
 
-function isPlainData(value: unknown, seen: Set<object> = new Set()): value is PlainData {
+export function isPlainData(value: unknown, seen: Set<object> = new Set()): value is PlainData {
   if (value === null) return true;
   if (typeof value === "boolean" || typeof value === "string") return true;
   if (typeof value === "number") return Number.isFinite(value) && !Object.is(value, -0);

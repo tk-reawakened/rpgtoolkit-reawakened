@@ -290,8 +290,8 @@ const BINDING_SPECS: readonly BuiltinSpec[] = [
     aliases: [],
     params: [{ name: "definition", optional: false, byRef: false, variadic: false }],
     doc: {
-      summary: "Wrap engine commands in layers of your own: each command you list runs your function first, and your function calls `next` to pass the call down.",
-      behaviour: "Take a dictionary with a name and a commands dictionary of command name to function. Each function takes the command's arguments and then `next`, the layer below it (the layer registered before it, or the engine's own command). A later registration of a command runs first. The layers are rebuilt each time the game starts and are not saved. Return a dictionary with the name and a `remove` function that takes the registered layers out again; layers registered after them keep working. The command does not wait.",
+      summary: "Register command layers and/or replaceable menu-screen providers.",
+      behaviour: "Take a dictionary with a name and a required commands dictionary, which may be empty, plus an optional menuProviders dictionary keyed by screen. Command interceptors call next to pass through to the layer below; menu providers replace their whole screen and receive no next. Later registrations win per key. Registrations are rebuilt at game start and are not saved; the returned remove function removes their layers/providers. The call does not wait.",
       groups: ["reawakened-additions-not-part-of-the-282-legacy-catalogue", "core-runtime"],
       returns: { summary: "A dictionary `{ name, remove }`; calling `remove()` returns 1, or 0 when the layers were already removed." },
       throws: [
