@@ -2,7 +2,7 @@
  * State section declarations for AD-10. The seven sections the board-rendering
  * epic owns (`world`, `camera`, `ui`, `fx`, `surfaces`, `input`, `engine`) live
  * in modules under `save/sections/`; this barrel re-exports them and the
- * sections owned elsewhere (`sprites`, `triggers`, `audio`, `events`).
+ * sections owned elsewhere (`sprites`, `triggers`, `battle`, `audio`, `events`).
  *
  * AD-10 (one state tree, one owner per section); AD-11 (one canonical form);
  * docs/spec/formats/save-game.md#reawakened-canonical-party-inventory-and-menu-state
@@ -50,8 +50,8 @@ export { createInventorySection, INVENTORY_SCHEMA_VERSION, type InventorySection
 /** Owner: `core/triggers` (armed and fired state, repeat counters). */
 export type { TriggersSection } from "../triggers/model.ts";
 
-/** Owner: `core/battle` (fighter references, charge, status). Filled by epic battle. */
-export type BattleSection = Record<string, never>;
+/** Owner: `core/battle` (fighter references and charge only). */
+export { BATTLE_SCHEMA_VERSION, createBattleSection, type BattleSection, type BattleFighter, type BattleIssue, type BattleParty, type BattleState, validateBattleSection, isBattleFighterUsable } from "../battle/model.ts";
 
 /** Owner: `core/menu` (open screens). */
 export { createMenuSection, MENU_SCHEMA_VERSION, type MenuSection } from "../menu/model.ts";

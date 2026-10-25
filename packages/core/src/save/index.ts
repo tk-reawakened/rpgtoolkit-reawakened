@@ -12,8 +12,15 @@ export { restoreGameState, snapshot } from "./snapshot.ts";
 export { hashGameState } from "./hash.ts";
 export {
   createFxSection,
-  type AudioSection,
+  BATTLE_SCHEMA_VERSION,
+  createBattleSection,
+  validateBattleSection,
+  isBattleFighterUsable,
   type BattleSection,
+  type BattleFighter,
+  type BattleIssue,
+  type BattleParty,
+  type BattleState,
   type CameraSection,
   type EngineSection,
   type FxSection,

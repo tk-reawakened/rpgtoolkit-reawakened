@@ -55,7 +55,21 @@ import { INPUT_SCHEMA_VERSION } from "./sections/input.ts";
 import { AUDIO_SCHEMA_VERSION, createAudioSection } from "../audio/model.ts";
 import { createEventsSection } from "../events/model.ts";
 import { EVENT_DISPATCH_WAIT } from "../events/emitter.ts";
+import type { Diagnostic } from "../ports/engine.ts";
+import { BATTLE_SCHEMA_VERSION, createBattleSection, validateBattleSection } from "../battle/model.ts";
 import { migrateMenuSections } from "../menu/migrate.ts";
+/** Upgrade the old empty battle placeholder to the fighter-reference section. */
+function migrateBattle(record: Record<string, unknown>, schema: Record<string, unknown>): void {
+  const version = schema.battle;
+  if (typeof version !== "number") shapeError("the snapshot's `schema` has no numeric `battle` version");
+  if (version > BATTLE_SCHEMA_VERSION) shapeError(`the snapshot's battle schema version ${String(version)} is newer than supported version ${BATTLE_SCHEMA_VERSION}`);
+  if (version < BATTLE_SCHEMA_VERSION) {
+    if (version !== 1) shapeError(`the snapshot's battle schema version ${String(version)} has no migration`);
+    record.battle = createBattleSection();
+    schema.battle = BATTLE_SCHEMA_VERSION;
+  }
+}
+
 /** The canonical form of a whole game state (AD-10/AD-11). */
 export function snapshot(state: GameState): string {
   return canon(tagNonFinite(state) as never);
@@ -730,7 +744,10 @@ function validateShape(record: Record<string, unknown>): void {
   for (const key of Object.keys(SCHEMA_VERSIONS)) numberAt(schema[key], `schema.${key}`);
   stringAt(schema.compiler, "schema.compiler");
   for (const key of Object.keys(SCHEMA_VERSIONS)) {
-    if (key === "schema" || key === "vm" || key === "rng" || key === "time") continue;
+    if (key === "battle") {
+      if (record.battle !== null) recordAt(record[key], key);
+      continue;
+    }
     recordAt(record[key], key);
     if (key === "sprites") validateSpritesShape(record[key]);
     if (key === "actors") validateActorsShape(record[key]);
@@ -746,7 +763,7 @@ function validateShape(record: Record<string, unknown>): void {
 }
 
 /** Parse and check a snapshot's canonical form (see the file header). */
-export function restoreGameState(json: string): GameState {
+export function restoreGameState(json: string, diagnostics: Diagnostic[] = []): GameState {
   let parsed: unknown;
   try {
     parsed = reviveNonFinite(JSON.parse(json));
@@ -773,6 +790,7 @@ export function restoreGameState(json: string): GameState {
   migrateEvents(record, schema as Record<string, unknown>);
   migrateActors(record, schema as Record<string, unknown>);
   validateActorsShape(record.actors);
+  migrateBattle(record, schema as Record<string, unknown>);
   migrateMenuSections(record, schema as Record<string, unknown>);
   for (const key of Object.keys(SCHEMA_VERSIONS)) {
     if (!Object.hasOwn(record, key)) {
@@ -785,6 +803,14 @@ export function restoreGameState(json: string): GameState {
   migrateInput(record, schema as Record<string, unknown>);
   migrateTriggers(record, schema as Record<string, unknown>);
   migrateAudio(record, schema as Record<string, unknown>);
+  const battleIssues = validateBattleSection(record.battle, record.actors as GameState["actors"]);
+  for (const issue of battleIssues) {
+    if (issue.recoverable) {
+      diagnostics.push({ code: "restore.battle-fighter", file: "battle", line: 0, message: `${issue.path}: ${issue.message}` });
+    } else {
+      shapeError(`the snapshot's ${issue.path} ${issue.message}`);
+    }
+  }
   validateShape(record);
   return parsed as GameState;
 }

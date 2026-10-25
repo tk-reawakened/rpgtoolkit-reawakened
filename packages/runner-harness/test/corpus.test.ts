@@ -351,16 +351,16 @@ test("corpus: whole fetched corpus suite over fixtures/legacy runs all 10 progra
   // one-argument `mediaPlay(file)`. The legacy corpus calls are bare statements, so they ignore the value and keep
   // the same playback cues; the returned object changes the hashed VM state. Closing PNGs remain visual baselines.
   const expectedHashes: Record<string, string> = {
-    "sample-start-demo": "3b301e4d4459ac30",
-    "sample-system-demo": "5cac5a042db31f76",
-    "sample-sys-test-demo": "5cac5a042db31f76",
-    "sample-win-demo": "5f3d8852f4ce2eec",
-    "sample-oldman-demo": "79da90dccdb439df",
-    "sample-man-demo": "e43fe10c7064f97c",
-    "sample-man-wander-demo": "dd9c03c6953b6b29",
-    "sample-start-basic": "1d9129cf40b585c4",
-    "sample-system-basic": "5cac5a042db31f76",
-    "sample-wander-basic": "1e73720211ff99d1",
+    "sample-start-demo": "0a945281923748f8",
+    "sample-system-demo": "1ce654d81a6886a2",
+    "sample-sys-test-demo": "1ce654d81a6886a2",
+    "sample-win-demo": "383f4dd2c0f489b8",
+    "sample-oldman-demo": "ccf463e5d521bb1b",
+    "sample-man-demo": "44aa580ea6447e40",
+    "sample-man-wander-demo": "ab6c367ab60ea605",
+    "sample-start-basic": "f56d6a75579b894c",
+    "sample-system-basic": "1ce654d81a6886a2",
+    "sample-wander-basic": "23190a110d6de985",
   };
 
   for (const res of results) {
@@ -383,7 +383,7 @@ test("corpus: defined finish line for programs that never end (Basic/Prg/wander.
   const hash2 = host2.stateHash();
 
   equal(hash1, hash2);
-  equal(hash1, "1e73720211ff99d1");
+  equal(hash1, "23190a110d6de985");
 
   for (let split = 0; split <= 5; split++) {
     const fresh = wander.createHost(0);

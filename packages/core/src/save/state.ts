@@ -55,6 +55,7 @@ import {
   createPartySection, createInventorySection, createMenuSection,
   PARTY_SCHEMA_VERSION, INVENTORY_SCHEMA_VERSION, MENU_SCHEMA_VERSION,
 } from "../menu/model.ts";
+import { BATTLE_SCHEMA_VERSION, createBattleSection } from "../battle/model.ts";
 
 /** Every `GameState` section key (AD-10), i.e. the schema version map's keys. */
 export const SCHEMA_VERSIONS = {
@@ -66,7 +67,7 @@ export const SCHEMA_VERSIONS = {
   inventory: INVENTORY_SCHEMA_VERSION,
   triggers: 2,
   vm: 5,
-  battle: 1,
+  battle: BATTLE_SCHEMA_VERSION,
   menu: MENU_SCHEMA_VERSION,
   input: 2,
   ui: 1,
@@ -173,7 +174,7 @@ export function createGameState(init: { seed: number }): GameState {
     inventory: createInventorySection(),
     triggers: createTriggersSection(),
     vm: createVmState(),
-    battle: {},
+    battle: createBattleSection(),
     menu: createMenuSection(),
     input: createInputSection(),
     ui: {} as UiSection,
