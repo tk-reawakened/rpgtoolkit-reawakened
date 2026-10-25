@@ -153,6 +153,21 @@ test("battle object and legacy stat aliases resolve live actor objects from auth
   equal(handleOf(state.vm.globals.enemyfighter), expectedEnemy.handle);
 });
 
+test("hp writes update the actor store and are visible through a second alias and fighter object", () => {
+  const { state, hero } = makeState();
+  const result = runScript(state, `
+fighter = battle.fighter(1, 0)
+hp("Hero", 4)
+aliasHp = gethp("Hero")
+objectHp = fighter.hp
+`);
+  equal(result.finished, true);
+  deepEqual(result.diagnostics.map(({ code }) => code), []);
+  equal(state.vm.globals.aliashp, 4);
+  equal(state.vm.globals.objecthp, 4);
+  equal(state.actors.actors.find((actor) => actor.id === hero.id)?.stats.hp, 4);
+});
+
 test("givehp uses actor damage and heal transitions exactly once", () => {
   const { state, hero } = makeState();
   const result = runScript(state, `
