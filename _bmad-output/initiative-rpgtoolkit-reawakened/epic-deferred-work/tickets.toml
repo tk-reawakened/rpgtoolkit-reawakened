@@ -1,0 +1,41 @@
+# tickets.toml — deferred findings promoted after revalidation.
+
+[[entry]]
+id = 1
+tracker_id = "#640"
+type = "story"
+status = "draft"
+title = "Reject unrepresentable actor and battle writer values"
+description = "Harden actor and battle format writers so values that exceed encoded bounds, required minor-specific fields that are absent, and invalid header fields return located errors instead of silently wrapping or writing unreadable files, following the normative format specifications."
+verify = "Boundary tests prove invalid actor and battle models are refused and valid boundary values retain byte-identical serialization."
+covers = ["CAP-1"]
+after = []
+hitl = false
+risk = "medium"
+refine = true
+
+[[entry]]
+id = 2
+tracker_id = "#641"
+type = "story"
+status = "ready-for-dev"
+title = "Pin pre-vector board run-overrun behavior"
+description = "Add a hard-coded regression fixture for a pre-vector run that exceeds the remaining board cells and assert the documented warning and resulting cells without relying on the writer to construct the same bytes."
+verify = "The focused test fails if the overrun is silently truncated, over-allocates cells, or omits the documented warning, while the existing negative-LUT refusal remains covered."
+covers = ["CAP-1"]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 3
+tracker_id = "#642"
+type = "story"
+title = "Rule first-board and no-board display behavior"
+status = "blocked"
+blocked_reason = "Awaiting owner rulings on first-board clearing and no-board background behavior."
+description = "Settle whether board entry clears startup text and the message window and whether a no-board frame is black or transparent, then record the decisions in the normative rendering specification before implementation tickets are added."
+verify = "The docs contain an owner-approved ruling for each behavior, rejected alternatives, and explicit deferrals for any unresolved part."
+covers = ["CAP-2"]
+after = []
+hitl = true
+risk = "medium"

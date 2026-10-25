@@ -154,3 +154,9 @@ slug = "epic-rpgcode-grammar"
 title = "Independent RPGCode syntax for editor navigation and CodeGraph"
 covers = ["CAP-14", "CAP-15", "CAP-18"]
 after = [{ epic = 11, needs = "shared editor documents, program editor and platform-services for 22.9 only; early grammar and CodeGraph tasks are independent" }]
+[[epic]]
+id = 23
+tracker_id = "#639"
+slug = "epic-deferred-work"
+title = "Deferred work: hardening and carry-forward"
+after = [{ epic = 2, needs = "legacy format and conversion contracts" }, { epic = 4, needs = "rendering and surface contracts" }, { epic = 3, needs = "VM and state contracts" }]
