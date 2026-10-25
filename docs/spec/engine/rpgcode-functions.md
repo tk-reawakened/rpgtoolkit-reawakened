@@ -279,7 +279,7 @@ All 282 command names the 3.1 engine registers, grouped by area. Names are case-
 <a id="e-32"></a>
 **E-32 Scripted sprite control.** Place, erase, create and destroy items; get or set a location and a facing; set a speed; play a stance; swap a player's graphics (`NewPlayer`); wander randomly, optionally restricted; query the queued path.
 
-## Battle, stats & menus (29)
+## Battle, stats & menus (33)
 
 | Command | Signature | Purpose | Notes |
 |---|---|---|---|
@@ -307,7 +307,11 @@ All 282 command names the 3.1 engine registers, grouped by area. Names are case-
 | `battlespeed` | `void battlespeed(int speed)` | Obsolete. | obsolete: raises an error and the statement is skipped |
 | `getdp` | `int getdp(string handle, [int &ret])` | Get a fighter's dp. |  |
 | `getfp` | `int getfp(string handle, [int &ret])` | Get a fighter's fp. |  |
-| `internalmenu` | `void internalmenu(int menu)` | Show a menu using the menu plugin. |  |
+| `internalmenu` | `void internalmenu(int menu)` | Show a menu using the menu plugin. | Reawakened compatibility adapter: 0 = main, 1 = items, 2 = equipment, 4 = abilities; all other values are rejected. These arguments are not legacy native `menu(request)` values (1/2/4/8). |
+| `mainmenu` | `void mainmenu()` | Open the main menu. | Reawakened facade; invokes the `main` menu provider immediately and blocks the calling thread until it closes. |
+| `itemmenu` | `void itemmenu()` | Open the items menu. | Reawakened facade; invokes the `items` menu provider immediately and blocks the calling thread until it closes. |
+| `equipmentmenu` | `void equipmentmenu()` | Open the equipment menu. | Reawakened facade; invokes the `equipment` menu provider immediately and blocks the calling thread until it closes. |
+| `abilitiesmenu` | `void abilitiesmenu()` | Open the abilities menu. | Reawakened facade; invokes the `abilities` menu provider immediately and blocks the calling thread until it closes. |
 | `applystatus` | `void applystatus(string target, string file)` | Apply a status effect to a fighter. |  |
 | `removestatus` | `void removestatus(string target, string file)` | Remove a status effect from a fighter. |  |
 | `drawenemy` | `void drawenemy(string file, int x, int y, [canvas cnv])` | Draw an enemy. | Draws battle asset frame 0 at logical pixel coordinates without changing battle state or consuming RNG. |
@@ -495,7 +499,7 @@ The following functions are Reawakened built-in additions provided in the pure b
 | `isInfinity` | `int isInfinity(variant &value, [int &ret])` | Returns 1 if `value` is numeric and +Infinity or -Infinity, 0 otherwise. | Reawakened addition; takes first arg byRef |
 | `isFinite` | `int isFinite(variant &value, [int &ret])` | Returns 1 if `value` is numeric and a finite number (not NaN, not ±Infinity), 0 otherwise. | Reawakened addition; takes first arg byRef |
 | `bindThis` | `callable bindThis(callable fn, object obj)` | Return a new callable whose `this` receiver is `obj`, without mutating `fn`. | Reawakened addition; `fn` must be callable and `obj` must be a live object handle; see [OOP-11](rpgcode-modules-and-objects.md#oop-11). |
-| `registerPlugin` | `object registerPlugin(object definition)` | Wrap engine commands in layers of your own: each command you list runs your function first, and your function calls `next` to pass the call down. | Reawakened addition; `definition` is a dictionary with a `name` and a `commands` dictionary of command name to a function that takes the command's arguments and then `next`; the value is a dictionary `{ name, remove }`; does not wait; see [MOD-4](rpgcode-modules-and-objects.md#pure-rpgcode-plugins-and-middleware-mod-4--reawakened-rule) and [How the layers are held](rpgcode-modules-and-objects.md#registerplugin-layers-entry-198). |
+| `registerPlugin` | `object registerPlugin(object definition)` | Register command layers and/or replaceable menu-screen providers. | Reawakened addition; `definition` has a `name`, required `commands` dictionary (which may be empty), and optional `menuProviders` dictionary keyed by `main`, `items`, `equipment`, or `abilities`; empty dictionaries contribute no entries. If `stock_menu` is loaded, unspecified screen keys retain its default provider; without a custom or loaded stock provider, a direct facade call raises catchable `menu.provider-missing` without changing the menu stack. Menu-only RPGCode registrations use `commands: {}`. See [E-80](plugins-and-battle.md#e-80) and [MOD-4](rpgcode-modules-and-objects.md#pure-rpgcode-plugins-and-middleware-mod-4--reawakened-rule). The value is `{ name, remove }`; registration does not wait. |
 | `on` | `void on(object emitter, string type, callable fn)` | Add a listener for an event type to an object. | Reawakened addition; the free-function form of `emitter.on(type, fn)`; see [EMIT-2](rpgcode-modules-and-objects.md#emit-1) and [EMIT-14](rpgcode-modules-and-objects.md#emit-14). |
 | `once` | `void once(object emitter, string type, callable fn)` | Add a listener for an event type to an object that runs at most one time. | Reawakened addition; the free-function form of `emitter.once(type, fn)`; see [EMIT-4](rpgcode-modules-and-objects.md#emit-1) and [EMIT-14](rpgcode-modules-and-objects.md#emit-14). |
 | `off` | `void off(object emitter, string type, [callable fn])` | Remove one listener, or every listener, of an event type from an object. | Reawakened addition; the free-function form of `emitter.off(type, fn)`; see [EMIT-4](rpgcode-modules-and-objects.md#emit-1) and [EMIT-14](rpgcode-modules-and-objects.md#emit-14). |
