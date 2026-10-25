@@ -350,8 +350,6 @@ test("corpus: whole fetched corpus suite over fixtures/legacy runs all 10 progra
   // Re-pinned by tickets 8.2 and 21.5: schema-2 party/inventory/menu state is hashed; MEDIA-1 returns a voice from
   // one-argument `mediaPlay(file)`. The legacy corpus calls are bare statements, so they ignore the value and keep
   // the same playback cues; the returned object changes the hashed VM state. Closing PNGs remain visual baselines.
-  // Re-pinned by ticket 7.3: the default manifest now binds the actor-backed battle stat aliases;
-  // the fetched corpus state hash below records the resulting command-state change.
   const expectedHashes: Record<string, string> = {
     "sample-start-demo": "0a945281923748f8",
     "sample-system-demo": "1ce654d81a6886a2",
@@ -359,7 +357,7 @@ test("corpus: whole fetched corpus suite over fixtures/legacy runs all 10 progra
     "sample-win-demo": "383f4dd2c0f489b8",
     "sample-oldman-demo": "ccf463e5d521bb1b",
     "sample-man-demo": "44aa580ea6447e40",
-    "sample-man-wander-demo": "018d461733040046",
+    "sample-man-wander-demo": "ab6c367ab60ea605",
     "sample-start-basic": "f56d6a75579b894c",
     "sample-system-basic": "1ce654d81a6886a2",
     "sample-wander-basic": "23190a110d6de985",

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   advanceScriptTick,
   BATTLE_PLUGIN,
+  CORE_PLUGIN,
   CATALOGUE_PLUGIN,
   CATALOGUE_RESPONDERS_PLUGIN,
   createGameState,
@@ -26,6 +27,8 @@ const BATTLE_FACING_NAMES = [
   "hp", "givehp", "gethp", "maxhp", "getmaxhp", "smp", "givesmp", "getsmp", "maxsmp", "getmaxsmp",
   "fp", "givefp", "getfp", "dp", "getdp", "applystatus", "removestatus", "giveexp",
 ] as const;
+
+const CORE_PURE_NAMES = ["run", "change", "rpgcode", "delay", "done", "stop", "branch", "fbranch"] as const;
 
 function callText(spec: BuiltinSpec): string {
   if (spec.name === "branch" || spec.name === "fbranch") return `${spec.name}(:target)\n:target\n`;
@@ -83,6 +86,13 @@ test("battle-facing built-ins have one registration path", () => {
     equal(BATTLE_PLUGIN.commands.filter((command) => command.name === name).length, 1, `${name} in battle pack`);
     equal(CATALOGUE_PLUGIN.commands.some((command) => command.name === name), false, `${name} absent from catalogue plugin`);
     equal(CATALOGUE_RESPONDERS_PLUGIN.commands.some((command) => command.name === name), false, `${name} absent from responders`);
+  }
+});
+
+test("core pure commands are not duplicated in the default catalogue layer", () => {
+  for (const name of CORE_PURE_NAMES) {
+    equal(CORE_PLUGIN.commands.some((command) => command.name === name || command.aliases.includes(name)), true, `${name} remains in core`);
+    equal(CATALOGUE_PLUGIN.commands.some((command) => command.name === name || command.aliases.includes(name)), false, `${name} is not duplicated by catalogue`);
   }
 });
 

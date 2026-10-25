@@ -521,6 +521,7 @@ const MOVEMENT_PACK_NAMES: Record<string, true> = {
   itemstance: true, wander: true, wait: true, get: true, clearbuffer: true, setbutton: true,
   checkbutton: true, clearbuttons: true, mousemove: true, mouseclick: true,
 };
+const CORE_PURE_COMMANDS = new Set(PURE_SPECS.flatMap((command) => [command.name, ...command.aliases]));
 /** The default catalogue layer combines safe stubs and responders not owned by CORE_PLUGIN. */
 export const CATALOGUE_PLUGIN: PluginDefinition = {
   id: "catalogue",
@@ -528,7 +529,7 @@ export const CATALOGUE_PLUGIN: PluginDefinition = {
   commands: [
     ...documentCommands(CATALOGUE_STUBS_PLUGIN.commands.filter((command) => command.name !== "internalmenu" && MOVEMENT_PACK_NAMES[command.name] !== true && !CATALOGUE_GRAPHICS_NAMES.has(command.name) && MEDIA_PACK_NAMES[command.name] !== true && !BATTLE_COMMAND_NAMES.has(command.name) && !INVENTORY_COMMAND_NAMES.has(command.name))),
     ...CATALOGUE_RESPONDERS_PLUGIN.commands.filter(
-      (command) => MOVEMENT_PACK_NAMES[command.name] !== true && !CATALOGUE_GRAPHICS_NAMES.has(command.name) && MEDIA_PACK_NAMES[command.name] !== true && !BATTLE_COMMAND_NAMES.has(command.name) && !CORE_FILE_COMMANDS.has(command.name) && !INVENTORY_COMMAND_NAMES.has(command.name),
+      (command) => MOVEMENT_PACK_NAMES[command.name] !== true && !CATALOGUE_GRAPHICS_NAMES.has(command.name) && MEDIA_PACK_NAMES[command.name] !== true && !BATTLE_COMMAND_NAMES.has(command.name) && !CORE_FILE_COMMANDS.has(command.name) && !CORE_PURE_COMMANDS.has(command.name) && !INVENTORY_COMMAND_NAMES.has(command.name),
     ),
     ...INVENTORY_COMMANDS,
     ...MENU_COMMANDS,

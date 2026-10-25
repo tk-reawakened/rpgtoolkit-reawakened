@@ -10,6 +10,14 @@ import type { CommandResult, CommandView, PluginDefinition } from "../plugin.ts"
 
 const GROUP = "battle-stats-menus-33";
 const NO_WAIT = { kind: "never", summary: "Completes in the current script turn." } as const;
+const STATUS_WAIT = { kind: "host-request", summary: "Waits for the host to load and return the requested StatusE `.ste` asset." } as const;
+const FIGHTER_HANDLES = "Handles accept `source` or `target` from the current script thread, a party-member name resolved in the actor store's ordered party, an actor object (including the object returned by `battle.fighter(...)`), or an enemy reference `{ party: 0, index }` with a zero-based index.";
+const STAT_THROWS: NonNullable<BuiltinDoc["throws"]> = [
+  { code: "battle.bad-fighter", when: "the handle does not identify an actor or its enemy-reference position is invalid" },
+  { code: "battle.not-active", when: "an enemy reference is used without an active battle" },
+  { code: "builtin.bad-arg", when: "a stat value or amount is not a valid safe integer for the actor owner" },
+];
+const STAT_READ_THROWS = STAT_THROWS.filter((item) => item.code !== "builtin.bad-arg");
 
 type StatusOperation = "apply" | "remove";
 
@@ -37,8 +45,48 @@ function output(args: readonly Arg[], index: number, value: Value): CommandResul
   return args[index] === undefined || args[index]?.ref === null ? [] : [[index, value]];
 }
 
-function documentation(summary: string, behaviour: string, throws: BuiltinDoc["throws"] = [{ code: "battle.bad-fighter", when: "the handle does not identify an actor" }]): BuiltinDoc {
-  return { summary, behaviour, groups: [GROUP], tags: ["legacy"], waits: NO_WAIT, throws };
+const STATUS_APPLY_THROWS: NonNullable<BuiltinDoc["throws"]> = [
+  { code: "battle.not-active", when: "there is no active battle" },
+  { code: "battle.bad-fighter", when: "the target does not identify an active fighter" },
+  { code: "asset.missing", when: "the requested StatusE asset is missing" },
+  { code: "request.bad-reply", when: "the host asset reply is not valid hexadecimal bytes" },
+  { code: "format.status-effect", when: "the bytes are not a valid StatusE `.ste` file" },
+  { code: "builtin.bad-arg", when: "the `.ste` rounds value is not a non-negative safe integer" },
+];
+const STATUS_REMOVE_THROWS: NonNullable<BuiltinDoc["throws"]> = [
+  { code: "battle.not-active", when: "there is no active battle" },
+  { code: "battle.bad-fighter", when: "the target does not identify an active fighter" },
+  { code: "asset.missing", when: "the requested StatusE asset is missing" },
+  { code: "request.bad-reply", when: "the host asset reply is not valid hexadecimal bytes" },
+  { code: "format.status-effect", when: "the bytes are not a valid StatusE `.ste` file" },
+];
+
+function documentation(
+  summary: string,
+  behaviour: string,
+  throws: NonNullable<BuiltinDoc["throws"]> = STAT_THROWS,
+  waits: BuiltinDoc["waits"] = NO_WAIT,
+): BuiltinDoc {
+  return { summary, behaviour, groups: [GROUP], tags: ["legacy"], waits, throws };
+}
+
+const BATTLE_READ_THROWS: NonNullable<BuiltinDoc["throws"]> = [
+  { code: "battle.not-active", when: "there is no active battle" },
+  { code: "battle.bad-fighter", when: "the party, index, or fighter position is invalid" },
+];
+const BATTLE_CHARGE_THROWS: NonNullable<BuiltinDoc["throws"]> = [
+  ...BATTLE_READ_THROWS,
+  { code: "builtin.bad-arg", when: "the charge or resulting stored charge is not finite" },
+];
+const BATTLE_FINISH_THROWS: NonNullable<BuiltinDoc["throws"]> = [
+  { code: "battle.not-active", when: "there is no active battle" },
+  { code: "battle.bad-outcome", when: "the outcome is not an integer from 0 through 4" },
+  { code: "battle.already-finished", when: "the battle already has an outcome" },
+  { code: "battle.cannot-run", when: "outcome 0 is requested while canRun is false" },
+];
+
+function internalDocumentation(summary: string, behaviour: string, throws: NonNullable<BuiltinDoc["throws"]> = []): BuiltinDoc {
+  return { summary, behaviour, groups: ["internal"], access: "internal", waits: NO_WAIT, throws };
 }
 
 function owner(view: CommandView) {
@@ -182,16 +230,17 @@ function statusContinuation(view: CommandView, args: readonly Arg[]): CommandRes
   if (!status.ok) throw new ScriptError("format.status-effect", status.error.message);
   const operation = text(args, 2);
   const actorId = integer(args, 3, "battle status operation");
+  if (operation !== "apply" && operation !== "remove") throw new ScriptError("request.bad-reply", "unknown status operation");
+  if (operation === "apply" && (!Number.isSafeInteger(status.value.rounds) || status.value.rounds < 0)) {
+    throw new ScriptError("builtin.bad-arg", "applystatus: StatusE rounds must be a non-negative safe integer");
+  }
   const sourceValue = args[4]?.value;
   const source = typeof sourceValue === "number" && Number.isSafeInteger(sourceValue) && sourceValue > 0 ? sourceValue as ActorId : null;
   const actors = view.actors;
   if (actors === undefined) throw new ScriptError("battle.bad-fighter", `unknown status target (party=unknown, index=unknown)`);
   const result = operation === "apply"
     ? actors.applyStatus(actorId, status.value.name, status.value.rounds, { source })
-    : operation === "remove"
-      ? actors.removeStatus(actorId, status.value.name, { source })
-      : null;
-  if (operation !== "apply" && operation !== "remove") throw new ScriptError("request.bad-reply", "unknown status operation");
+    : actors.removeStatus(actorId, status.value.name, { source });
   if (result === null) throw new ScriptError("battle.bad-fighter", `unknown status target (party=unknown, index=unknown)`);
   return { value: null };
 }
@@ -206,16 +255,21 @@ function statCommand(
   const params = mode === "get"
     ? [parameter("handle"), parameter("ret", true, true)]
     : [parameter("handle"), parameter(mode === "set" ? "value" : amountName ?? "add")];
-  const behaviour = mode === "get"
-    ? `Reads the live actor-owned ${field === "maxHp" ? "maximum HP" : field === "maxSmp" ? "maximum SMP" : field} value and optionally writes it to the trailing by-reference result; no stat copy is made.`
+  const statName = field === "maxHp" ? "maximum HP" : field === "maxSmp" ? "maximum SMP" : field;
+  const unit = field.toLowerCase().includes("hp") ? "HP points" : field.toLowerCase().includes("smp") ? "SMP points" : `${field} stat points`;
+  const operation = mode === "get"
+    ? `Reads the live actor-owned ${statName} in ${unit}; the optional trailing by-reference result receives the same current value.`
     : mode === "set"
-      ? `Sets the live actor-owned ${field === "maxHp" ? "maximum HP" : field === "maxSmp" ? "maximum SMP" : field} value through the actor service, which validates and commits the stat update.`
-      : `Adds the requested amount to the live actor-owned ${field} value through the actor service; the safe-integer update is validated and committed atomically.`;
+      ? `Sets the live actor-owned ${statName} in ${unit} through the actor owner. HP and SMP are clamped to [0, maximum]; lowering a maximum also clamps its current value.`
+      : field === "hp" || field === "smp"
+        ? `Adds the signed ${unit} amount through the actor owner's damage/heal operation (positive heals, negative damages); the owner clamps the result to [0, maximum]${field === "hp" ? " and emits the ordinary fallen transition once when HP crosses to zero" : ""}.`
+        : `Adds the signed ${unit} amount to the live actor-owned value through the actor owner; the resulting safe integer is committed atomically.`;
+  const behaviour = `${FIGHTER_HANDLES} ${operation} These aliases always read and write the actor store; no stats are copied, and they do not require an active battle for legacy actor handles. The call completes synchronously.`;
   return {
     name,
     aliases: [],
     params,
-    doc: documentation(summary, behaviour),
+    doc: documentation(summary, behaviour, mode === "get" ? STAT_READ_THROWS : STAT_THROWS),
     call: (view, args) => {
       const actorId = referenceActor(view, args[0]?.value);
       const actor = actorRecord(view, actorId);
@@ -258,12 +312,20 @@ function statCommand(
 
 const PARTY_SIZE = {
   name: "__battle_party_size", aliases: [], params: [parameter("self"), parameter("party")],
-  doc: { summary: "Read a battle party size.", behaviour: "Returns the number of fighter entries in the requested saved battle party.", access: "internal" },
+  doc: internalDocumentation(
+    "Read a battle party size.",
+    "For `battle.partySize(party)`, returns the number of entries in party 0 (enemies) or party 1 (the player's ordered party). Party is 0 or 1; the read comes from the saved battle section and completes synchronously.",
+    BATTLE_READ_THROWS,
+  ),
   call: (view: CommandView, args: readonly Arg[]) => ({ value: resolve(owner(view).partySize(numeric(args, 1))) }),
 } satisfies BuiltinSpec;
 const FIGHTER = {
   name: "__battle_fighter", aliases: [], params: [parameter("self"), parameter("party"), parameter("index")],
-  doc: { summary: "Hydrate one battle fighter object.", behaviour: "Returns the canonical actor host object for the requested usable fighter position.", access: "internal" },
+  doc: internalDocumentation(
+    "Return a battle fighter object.",
+    "For `battle.fighter(party, index)`, returns the same canonical actor host object registered in the actor store, not a copy. Party 0 is enemies, party 1 is the player's ordered party, and index is zero-based; only usable positions resolve.",
+    BATTLE_READ_THROWS,
+  ),
   call: (view: CommandView, args: readonly Arg[]) => {
     const fighter = resolve(owner(view).fighter(numeric(args, 1), numeric(args, 2)));
     const state = view.state;
@@ -273,34 +335,80 @@ const FIGHTER = {
     return { value: { kind: "object", handle: record.handle, className: record.className } };
   },
 } satisfies BuiltinSpec;
-function chargeCommand(name: string, params: readonly ParamSpec[], action: (args: readonly Arg[]) => BattleAction): BuiltinSpec {
+function chargeCommand(
+  name: string,
+  summary: string,
+  behaviour: string,
+  params: readonly ParamSpec[],
+  action: (args: readonly Arg[]) => BattleAction,
+): BuiltinSpec {
   return {
     name, aliases: [], params,
-    doc: { summary: "Update battle charge through its owner.", behaviour: "Validates the fighter reference and commits the requested stored-charge operation without clamping its value.", access: "internal" },
+    doc: internalDocumentation(summary, behaviour, BATTLE_CHARGE_THROWS),
     call: (view, args) => { resolve(owner(view).apply(action(args))); return { value: null }; },
   };
 }
 const CHARGE = {
   name: "__battle_charge", aliases: [], params: [parameter("self"), parameter("party"), parameter("index")],
-  doc: { summary: "Read a fighter charge.", behaviour: "Returns the stored charge without clamping it.", access: "internal" },
+  doc: internalDocumentation(
+    "Read a fighter's stored charge.",
+    "For `battle.charge(party, index)`, returns the exact stored charge number for that zero-based fighter entry. Storage is not clamped to a threshold; party 0 is enemies and party 1 is the player's ordered party.",
+    BATTLE_READ_THROWS,
+  ),
   call: (view: CommandView, args: readonly Arg[]) => ({ value: resolve(owner(view).charge(numeric(args, 1), numeric(args, 2))) }),
 } satisfies BuiltinSpec;
 const CHARGE_PERCENT = {
   name: "__battle_charge_percent", aliases: [], params: [parameter("self"), parameter("party"), parameter("index")],
-  doc: { summary: "Read a fighter charge percentage.", behaviour: "Returns the whole percentage of its party threshold, clamped to 0–100.", access: "internal" },
+  doc: internalDocumentation(
+    "Read a fighter's charge percentage.",
+    "For `battle.chargePercent(party, index)`, computes floor(stored charge × 100 / threshold), then clamps the result to 0–100. The threshold is 123 for enemy party 0 and 75 for player party 1; stored charge itself is unchanged.",
+    BATTLE_READ_THROWS,
+  ),
   call: (view: CommandView, args: readonly Arg[]) => ({ value: resolve(owner(view).chargePercent(numeric(args, 1), numeric(args, 2))) }),
 } satisfies BuiltinSpec;
-const ADD_CHARGE = chargeCommand("__battle_add_charge", [parameter("self"), parameter("party"), parameter("index"), parameter("amount")], (args) => ({ type: "addCharge", party: numeric(args, 1), index: numeric(args, 2), amount: numeric(args, 3) }));
-const SET_CHARGE = chargeCommand("__battle_set_charge", [parameter("self"), parameter("party"), parameter("index"), parameter("charge")], (args) => ({ type: "setCharge", party: numeric(args, 1), index: numeric(args, 2), charge: numeric(args, 3) }));
-const RELEASE_CHARGE = chargeCommand("__battle_release_charge", [parameter("self"), parameter("party"), parameter("index")], (args) => ({ type: "releaseCharge", party: numeric(args, 1), index: numeric(args, 2) }));
+const ADD_CHARGE = chargeCommand(
+  "__battle_add_charge",
+  "Add to a fighter's stored charge.",
+  "For `battle.addCharge(party, index, amount)`, adds a finite numeric amount to the stored charge and commits through the battle owner. The stored value is not clamped to a threshold; party and index are 0-based party/entry selectors.",
+  [parameter("self"), parameter("party"), parameter("index"), parameter("amount")],
+  (args) => ({ type: "addCharge", party: numeric(args, 1), index: numeric(args, 2), amount: numeric(args, 3) }),
+);
+const SET_CHARGE = chargeCommand(
+  "__battle_set_charge",
+  "Set a fighter's stored charge.",
+  "For `battle.setCharge(party, index, charge)`, stores the finite numeric value exactly through the battle owner, without threshold clamping. Party and index are 0-based party/entry selectors.",
+  [parameter("self"), parameter("party"), parameter("index"), parameter("charge")],
+  (args) => ({ type: "setCharge", party: numeric(args, 1), index: numeric(args, 2), charge: numeric(args, 3) }),
+);
+const RELEASE_CHARGE = chargeCommand(
+  "__battle_release_charge",
+  "Release a fighter's charge.",
+  "For `battle.releaseCharge(party, index)`, sets that fighter's stored charge to exactly 0 through the battle owner. Party and index are 0-based party/entry selectors.",
+  [parameter("self"), parameter("party"), parameter("index")],
+  (args) => ({ type: "releaseCharge", party: numeric(args, 1), index: numeric(args, 2) }),
+);
 const FINISH = {
   name: "__battle_finish", aliases: [], params: [parameter("self"), parameter("code")],
-  doc: { summary: "Finish the current battle.", behaviour: "Validates the 0–4 outcome and records it once; outcome sequencing belongs to the battle package.", access: "internal" },
+  doc: internalDocumentation(
+    "Record a battle outcome.",
+    "`battle.finish(code)` accepts integer codes 0 through 4 and records the outcome once through the battle owner; code 0 (run) is accepted only when `battle.canRun` is true. It does not execute an outcome adapter or sequence.",
+    BATTLE_FINISH_THROWS,
+  ),
   call: (view: CommandView, args: readonly Arg[]) => { resolve(owner(view).apply({ type: "finish", code: numeric(args, 1) })); return { value: null }; },
 } satisfies BuiltinSpec;
 const STATUS_ASSET = {
   name: "__battle_status_asset", aliases: [], params: [parameter("ok"), parameter("bytes"), parameter("operation"), parameter("actor"), parameter("source", true)],
-  doc: { summary: "Resume a status effect asset request.", behaviour: "Reads the status name and rounds from the `.ste` asset and commits a status counter change through the actor owner.", access: "internal" },
+  doc: internalDocumentation(
+    "Resume a status-effect asset request.",
+    "After the host replies, reads the status name and rounds from the `.ste` asset and delegates the counter change to the actor owner.",
+    [
+      { code: "asset.missing", when: "the requested StatusE asset is missing" },
+      { code: "request.bad-reply", when: "the host reply is malformed" },
+      { code: "format.status-effect", when: "the bytes are not a valid StatusE `.ste` file" },
+      { code: "builtin.bad-arg", when: "the `.ste` rounds value is not a non-negative safe integer" },
+      { code: "battle.bad-fighter", when: "the target actor does not exist" },
+    ],
+  ),
   call: statusContinuation,
 } satisfies BuiltinSpec;
 
@@ -321,22 +429,41 @@ const DP = statCommand("dp", "Set a fighter's dp.", "dp", "set");
 const GET_DP = statCommand("getdp", "Get a fighter's dp.", "dp", "get");
 const GIVE_EXP: BuiltinSpec = {
   name: "giveexp", aliases: [], params: [parameter("handle"), parameter("amount")],
-  doc: documentation("Give experience to a player.", "Awards the amount to the named actor through the actor progression owner; all level changes and events use the shared actor progression path."),
+  doc: documentation(
+    "Give experience to a player.",
+    `${FIGHTER_HANDLES} Awards a non-negative safe-integer number of experience points through the actor progression owner; all threshold checks, level changes, and events follow that shared path. The update is synchronous unless an actor level-up hook requests a wait; legacy actor handles work without an active battle.`,
+    [
+      { code: "battle.bad-fighter", when: "the handle does not identify an actor" },
+      { code: "battle.not-active", when: "an enemy reference is used without an active battle" },
+      { code: "builtin.bad-arg", when: "the amount is not a non-negative safe integer" },
+    ],
+  ),
   call: (view, args) => {
     const id = referenceActor(view, args[0]?.value);
     const amount = integer(args, 1, "giveexp");
+    if (amount < 0) throw new ScriptError("builtin.bad-arg", "giveexp: amount must not be negative");
     if (view.actors?.awardExperience(id, amount) === null || view.actors === undefined) return badFighter(args[0]?.value);
     return { value: null };
   },
 };
 const APPLY_STATUS: BuiltinSpec = {
   name: "applystatus", aliases: [], params: [parameter("target"), parameter("file")],
-  doc: documentation("Apply a status effect to a fighter.", "Loads the named `.ste` file from StatusE, then starts or restarts the actor-owned counter using its name and rounds fields; the counter is not incremented and no battle-round effects run here.", [{ code: "battle.not-active", when: "there is no active battle" }, { code: "battle.bad-fighter", when: "the target is not an active fighter" }]),
+  doc: documentation(
+    "Apply a status effect to a fighter.",
+    `Loads StatusE/<file>.ste (the prefix and extension may be omitted), then starts or restarts the actor-owned counter at the file's non-negative rounds value, including zero; re-application replaces the counter and never adds rounds. The actor owner emits the ordinary \`statusChanged\` event with detail { status, previousRounds, rounds, expired, source }. This call waits for the asset reply but does not tick counters or apply battle-round effects. ${FIGHTER_HANDLES}`,
+    STATUS_APPLY_THROWS,
+    STATUS_WAIT,
+  ),
   call: (view, args) => statusRequest(view, args, "apply"),
 };
 const REMOVE_STATUS: BuiltinSpec = {
   name: "removestatus", aliases: [], params: [parameter("target"), parameter("file")],
-  doc: documentation("Remove a status effect from a fighter.", "Loads the named `.ste` file from StatusE to identify the status counter, then removes it through the actor owner; no battle-round effects run here.", [{ code: "battle.not-active", when: "there is no active battle" }, { code: "battle.bad-fighter", when: "the target is not an active fighter" }]),
+  doc: documentation(
+    "Remove a status effect from a fighter.",
+    `Loads StatusE/<file>.ste (the prefix and extension may be omitted) to identify the status name, then removes that actor-owned counter; when present, the actor owner emits the ordinary \`statusChanged\` event with detail { status, previousRounds, rounds, expired, source }. Removing an absent status is a no-op. This call waits for the asset reply but does not tick counters or apply battle-round effects. ${FIGHTER_HANDLES}`,
+    STATUS_REMOVE_THROWS,
+    STATUS_WAIT,
+  ),
   call: (view, args) => statusRequest(view, args, "remove"),
 };
 
@@ -350,10 +477,10 @@ export const BATTLE_PLUGIN: PluginDefinition = {
   id: "battle",
   version: "1.0.0",
   doc: {
-    summary: "Owner-mediated access to active battle fighters and their actor-owned stats.",
+    summary: "For game scripts, inspect active fighters, read or update stored charge, and record a battle outcome through the battle owner.",
     groups: [
-      { id: GROUP, name: "Battle, stats & menus", summary: "Read and update battle fighters and their actor-owned stats." },
-      { id: "internal", name: "Internal", summary: "Hydrated battle object continuations." },
+      { id: GROUP, name: "Battle, stats & menus", summary: "`battle.partySize`, `battle.fighter`, charge methods (`battle.charge`, `battle.addCharge`, `battle.setCharge`, `battle.releaseCharge`, `battle.chargePercent`), and `battle.finish` are synchronous owner-mediated operations requiring an active battle. Party is 0 for enemies and 1 for the player's ordered party; indexes are zero-based. Invalid party/index/position is `battle.bad-fighter`; no active battle is `battle.not-active`. `battle.canRun` is a read-only boolean; `battle.outcome` is read-only and is null until finish records a code from 0 through 4. `battle.fighter` returns the canonical actor object." },
+      { id: "internal", name: "Internal", summary: "Deterministic host continuations for battle methods and StatusE requests." },
     ],
   },
   commands: BATTLE_COMMANDS,
