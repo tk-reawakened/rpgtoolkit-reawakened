@@ -17,6 +17,7 @@ import {
   readMainFile,
   writeBoard,
   writeMainFile,
+  STOCK_RPG_PLUGIN,
 } from "../src/index.ts";
 import { pluginManifestFor, resolveManifestPlugins } from "../src/engine/boot.ts";
 import type { BuiltinSpec } from "../src/script/builtins.ts";
@@ -53,16 +54,18 @@ const STOCK_BATTLE_FIGHTENEMY: BuiltinSpec = {
 };
 
 function packageCatalogue(): readonly PackageCatalogueEntry[] {
-  return [stockPackage("stock_battle"), stockPackage("stock_menu")].map(({ manifest, source }) => ({
+  return [stockPackage("stock_battle"), stockPackage("stock_menu"), stockPackage("stock_rpg")].map(({ manifest, source }) => ({
     name: manifest.name,
     version: manifest.version,
     namespace: manifest.namespace,
     requests: manifest.requests,
-    definition: {
-      id: manifest.name,
-      version: manifest.version,
-      commands: manifest.name === "stock_battle" ? [STOCK_BATTLE_FIGHTENEMY] : [],
-    },
+    definition: manifest.name === "stock_rpg"
+      ? STOCK_RPG_PLUGIN
+      : {
+        id: manifest.name,
+        version: manifest.version,
+        commands: manifest.name === "stock_battle" ? [STOCK_BATTLE_FIGHTENEMY] : [],
+      },
     startup: { kind: "inline", text: source, compiler: COMPILER_VERSION, dialect: "tk3" },
   }));
 }
@@ -146,6 +149,7 @@ test("stock packages load through the .gam list and keep the no-plugin behavior"
   deepEqual(resolved.plugins.map((plugin) => plugin.package), [
     { name: "stock_battle", version: "1.0.0", namespace: "stock_battle", requests: [] },
     { name: "stock_menu", version: "1.0.0", namespace: "stock_menu", requests: [] },
+    { name: "stock_rpg", version: "1.0.0", namespace: "stock_rpg", requests: [] },
   ]);
   const game = authoredGame();
   const doubles = startDoubles();
@@ -165,6 +169,20 @@ test("stock packages load through the .gam list and keep the no-plugin behavior"
   equal(result.diagnostics.some((diagnostic) => diagnostic.code === "plugin.unresolved"), false);
   equal(result.diagnostics.some((diagnostic) => diagnostic.code.startsWith("package.startup-")), false);
   equal(doubles.state().vm.globals.ended, 1);
+});
+
+test("stock_rpg startup is available only through explicit host catalogue selection", () => {
+  const catalogue = packageCatalogue();
+  const resolved = resolveManifestPlugins(
+    [{ id: "stock_rpg", version: "1.0.0", namespace: "stock_rpg", requests: [] }],
+    "main.gam",
+    catalogue,
+  );
+  equal(resolved.diagnostics.length, 0);
+  equal(resolved.plugins.length, 1);
+  equal(resolved.plugins[0]?.package?.name, "stock_rpg");
+  equal(resolved.plugins[0]?.definition, STOCK_RPG_PLUGIN);
+  equal(resolved.plugins[0]?.startup?.kind, "inline");
 });
 
 test("without stock packages, menu facade reports missing provider and leaves the stack unchanged", () => {

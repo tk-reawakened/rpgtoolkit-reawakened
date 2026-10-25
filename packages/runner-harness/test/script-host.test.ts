@@ -1,9 +1,27 @@
 // The VM-backed test host (AD-1; the tracer ticket's acceptance): the tracer
 // program end to end through `runLog`, snapshot/restore across every split, and
 // the empty Engine contract that keeps the golden job green.
-import { deepEqual, equal } from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
-import { addActor, COMPILER_VERSION, createHostObject, hashState, snapshot, type BuiltinSpec, type Diagnostic, type LogRecord, type PluginDefinition, type SurfaceId } from "@tk-reawakened/core";
+import {
+  actorEmitterKey,
+  addActor,
+  COMPILER_VERSION,
+  createHostObject,
+  ENGINE_DEFAULT_MANIFEST,
+  hashState,
+  registerActorObject,
+  snapshot,
+  STOCK_RPG_PLUGIN,
+  type BuiltinSpec,
+  type Diagnostic,
+  type LogRecord,
+  type PluginDefinition,
+  type SurfaceId,
+} from "@tk-reawakened/core";
 import { createNullAudio, createScriptHost, restoreScriptHost, runLog, type Run } from "../src/index.ts";
 
 const TRACER = 'greeting = "hi"\ncount = 2\nsleep(count)\ncount = 3\nend()\n';
@@ -451,6 +469,88 @@ test("restore preserves a startup RPGCode menu override over the same native pro
   equal(host.stateHash(), restored.stateHash());
   equal(restored.state().vm.globals.winner, "rpg");
   deepEqual(nativeEvents, []);
+});
+test("stock_rpg actor talked delivery survives restore from a queued event exactly once", () => {
+  const startup = {
+    kind: "inline" as const,
+    text: readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../../stock/stock_rpg/startup.prg"), "utf8"),
+    compiler: COMPILER_VERSION,
+    dialect: "tk3" as const,
+  };
+  const probe: PluginDefinition = {
+    id: "talked-restore-probe",
+    version: "1.0.0",
+    commands: [
+      {
+        name: "queuetalked",
+        aliases: [],
+        params: [],
+        call: () => ({
+          value: null,
+          effects: [{
+            kind: "emit",
+            args: ["actor:1", "talked", { actorId: 1, targetId: null, text: "restored dialogue" }],
+          }],
+        }),
+      },
+      {
+        name: "recordtalked",
+        aliases: [],
+        params: [{ name: "event", optional: false, byRef: false, variadic: false }],
+        call: (view) => {
+          if (view.state !== undefined) {
+            view.state.vm.globals.talkedCount = Number(view.state.vm.globals.talkedCount ?? 0) + 1;
+          }
+          return { value: null };
+        },
+      },
+    ],
+    listeners: [{ emitter: "actor:*", type: "talked", command: "recordtalked" }],
+  };
+  const manifest = [...ENGINE_DEFAULT_MANIFEST, { id: "stock_rpg" }, { id: probe.id }];
+  const options = {
+    manifest,
+    plugins: [STOCK_RPG_PLUGIN, probe],
+    packageStartups: [{ owner: "stock_rpg", ref: startup }],
+  };
+  const createPendingHost = () => {
+    const pendingHost = createScriptHost({
+      ...options,
+      seed: 0,
+      program: "queueTalked()\nsleep(1)\nend()\n",
+    });
+    const actor = addActor(pendingHost.state().actors, { kind: "npc", source: "speaker.tem" });
+    registerActorObject(pendingHost.state().vm, pendingHost.state().events, pendingHost.state().actors, actor.id);
+    return pendingHost;
+  };
+  const baseline = createPendingHost();
+  const host = createPendingHost();
+  baseline.advance(1, []);
+  host.advance(1, []);
+  const queued = host.state().events.queue[0];
+  if (queued === undefined) throw new Error("talked event was not queued before the script wait");
+  equal(queued.emitter, actorEmitterKey(1));
+  deepEqual(host.state().events.nativeDetails?.[String(queued.event)], {
+    actorId: 1,
+    targetId: null,
+    text: "restored dialogue",
+  });
+
+  const restored = restoreScriptHost(host.snapshot(), options);
+  const countDialogueListeners = (state: ReturnType<typeof host.state>) => state.events.listeners.filter(({ emitter, type }) =>
+    emitter === "game" && type === "dialogue.completed"
+  ).length;
+  equal(countDialogueListeners(host.state()), 1, "the stock package startup listener is registered");
+  equal(countDialogueListeners(restored.state()), 1, "restore rebuilds the startup listener without duplication");
+  deepEqual(restored.state().events.queue, host.state().events.queue, "restore preserves the pending talked event");
+
+  baseline.advance(5, []);
+  restored.advance(5, []);
+  equal(restored.state().vm.globals.talkedCount, 1);
+  equal(restored.state().events.queue.length, 0);
+  equal(restored.stateHash(), baseline.stateHash(), "restored pending delivery matches uninterrupted replay");
+  restored.advance(1, []);
+  equal(restored.state().vm.globals.talkedCount, 1, "the restored event is not delivered twice");
 });
 
 test("a runtime failure reaches the report as a located diagnostic and runLog observes it", () => {
