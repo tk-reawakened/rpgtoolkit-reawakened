@@ -337,6 +337,28 @@ test("stock startup seeds each fighter once in enemy/player order, including fal
   equal(globals(rig.state).turncount, 0);
 });
 
+test("initial charge reaches both inclusive bounds without exceeding them over 1024 seeds", () => {
+  const observed = [
+    { min: Infinity, max: -Infinity },
+    { min: Infinity, max: -Infinity },
+  ];
+  for (let seed = 0; seed < 1024; seed += 1) {
+    const rig = makeState({ seed, enemies: 1, players: 1 });
+    startUntilFirstSleep(rig);
+    const initial = charges(rig.state);
+    for (const party of [0, 1] as const) {
+      const charge = initial[party]![0]!;
+      const threshold = party === 0 ? 123 : 75;
+      ok(Number.isInteger(charge) && charge >= 0 && charge < threshold,
+        `seed ${seed}, party ${party}: initial charge ${charge} is within 0..${threshold - 1}`);
+      observed[party]!.min = Math.min(observed[party]!.min, charge);
+      observed[party]!.max = Math.max(observed[party]!.max, charge);
+    }
+    equal(rig.services.diagnostics.length, 0);
+  }
+  deepEqual(observed, [{ min: 0, max: 122 }, { min: 0, max: 74 }]);
+});
+
 test("a seeded 60-pass timeline and each pass's restored continuation match the charge oracle", () => {
   const rig = makeState({ seed: 312, enemies: 2, players: 2 });
   startUntilFirstSleep(rig);
