@@ -17,7 +17,7 @@ context:
 
 ## Intent
 
-Resolve a battle's outcome and apply the rewards and consequences E-77 and E-78 state, in the order the 3.1 facts record. The package reports the outcome with `battle.finish(code)`; the compatibility adapter of BAT-8 (proposed, pending owner review) applies the automatic paths (run, win, lose) from generic operations, and the package handles the two plugin outcomes (1 and 3). Experience goes to every party member, gold is posted as one inventory effect, level-up uses the 20.6 default, and `defeated` is emitted once per enemy.
+Resolve a battle's outcome and apply the rewards and consequences E-77 and E-78 state, in the order the 3.1 facts record. The package reports the outcome with `battle.finish(code)`; the compatibility adapter of BAT-8 (owner-approved 2026-10-25) applies the automatic paths (run, win, lose) from generic operations, and the package handles the two plugin outcomes (1 and 3). Experience goes to every party member, gold is posted as one inventory effect, level-up uses the 20.6 default, and `defeated` is emitted once per enemy.
 
 ## Boundaries
 
@@ -25,7 +25,7 @@ No damage, status or AI (7.5 to 7.7). No inventory implementation: gold is a pla
 
 ## Key Decisions
 
-1. **Who applies what (BAT-8, pending owner review).** Codes 0 (run), 2 (win) and 4 (lose) are automatic: after `finish(code)` the core performs the sequence below using only generic operations (experience award, one gold effect, message path, program run, `reset()`). Codes 1 and 3 are package-handled: the core does nothing. A code outside 0-4 is rejected at `finish`; a second `finish` is `battle.already-finished`.
+1. **Who applies what (BAT-8).** Codes 0 (run), 2 (win) and 4 (lose) are automatic: after `finish(code)` the core performs the sequence below using only generic operations (experience award, one gold effect, message path, program run, `reset()`). Codes 1 and 3 are package-handled: the core does nothing. A code outside 0-4 is rejected at `finish`; a second `finish` is `battle.already-finished`.
 
 2. **Run (R11-Q11).** The Run action is blocked for the whole fight if any one enemy forbids running: it is still listed but drawn differently, choosing it plays the cancel sound and keeps the turn. When allowed it succeeds with chance 2 in 5 (one seeded draw in `[0, 5)`, 0 and 1 succeed); a failed attempt shows a message and spends the turn. A success shows a message and the battle ends at the start of the next pass; later charged players in that pass still have their statuses tick, and if that leaves every player at 0 HP the battle is a loss. Outcome 0 then runs one run program: the last enemy, in encounter order, that has one. No gold, no experience, no `defeated`. The battle track stops and the board's music is re-posted from `boardKey` (7.10).
 

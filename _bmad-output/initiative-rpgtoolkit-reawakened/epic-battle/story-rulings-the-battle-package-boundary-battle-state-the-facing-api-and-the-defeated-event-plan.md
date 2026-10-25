@@ -41,19 +41,19 @@ Documentation only. No TypeScript, fixtures or package code. Builds on 20.1's ac
 
 5. **Damage, status and AI (BAT-5 to BAT-7).** The ordinary attack is the E-74 rule of round 10, cited not restated. Specials and items follow R11-Q7. Statuses tick once per turn of their fighter, effect then count, in upper-cased file-name order; disable never ends by itself. The four AI levels follow R11-Q8 with a fixed draw order and an AI error ends only its turn. The departures (heal stops at the maximum, fewer than 1 round lasts until removed, no player-turn disable cancellation, `ai()` rejects a bad level, an empty target set skips the turn) are listed in BAT-5 to BAT-7 and BAT-15.
 
-6. **Outcomes, rewards and `defeated` (BAT-8, BAT-12).** Run succeeds 2 times in 5 and a failed run spends the turn; the win sequence is gold, experience message, level-ups, gold message, one win program; every member gets the full experience; one run program and one win program (the last enemy's that has one); the game-over program replaces the reset. The compatibility adapter that applies codes 0, 2 and 4 from generic core operations is **proposed, pending owner review**. `defeated` is emitted on the enemy actor once per enemy per battle; the game re-emit is `stock_battle.defeated`. *Rejected:* a purely package-owned reward sequence (a custom fight program with no package would get no rewards).
+6. **Outcomes, rewards and `defeated` (BAT-8, BAT-12).** Run succeeds 2 times in 5 and a failed run spends the turn; the win sequence is gold, experience message, level-ups, gold message, one win program; every member gets the full experience; one run program and one win program (the last enemy's that has one); the game-over program replaces the reset. The compatibility adapter applies codes 0, 2 and 4 from generic core operations. `defeated` is emitted on the enemy actor once per enemy per battle; the game re-emit is `stock_battle.defeated`. *Rejected:* a purely package-owned reward sequence (a custom fight program with no package would get no rewards).
 
 7. **Starts, loading, music and UI (BAT-9 to BAT-11, BAT-14).** 1 to 4 enemies, each independently drawn; the whole party fights, fallen members starting fallen; a custom fight program replaces the package loop, not the section or adapter; battle music goes through the media object with source `battle`; the UI uses only existing primitives; with no battle package a battle ends at once with a diagnostic.
 
 8. **Save and determinism (BAT-13, BAT-15).** The section saves fighters and charge only and is validated on load; the hazards listed in BAT-15 are not reproduced.
 
-## Pending owner review
+## Owner review
 
-Marked **Proposed (pending owner review)** in `battle.md`: the one-thread, 60-passes-a-second loop (BAT-4); the heal-stops-at-maximum, fewer-than-1-round and no-self-disable-cancellation departures (BAT-5, BAT-6); the outcome compatibility adapter in core and the seeded 2-in-5 run draw (BAT-8). The remaining rows record 3.1 facts or earlier owner rulings.
+Approved by the owner (Jensen, 2026-10-25) at the plan checkpoint, and marked OWNER in `battle.md`: the one-thread, 60-passes-a-second loop (BAT-4); the heal-stops-at-maximum, fewer-than-1-round and no-self-disable-cancellation departures (BAT-5, BAT-6); the outcome compatibility adapter in core and the seeded 2-in-5 run draw (BAT-8); the `stock_battle.defeated` re-emit name (BAT-12). The remaining rows record 3.1 facts or earlier owner rulings.
 
 ## Acceptance
 
-1. `docs/spec/engine/battle.md` exists with BAT-1 to BAT-15, each row carrying evidence and a rejected alternative (an owner marker where the owner has ruled, a "Proposed" marker otherwise).
+1. `docs/spec/engine/battle.md` exists with BAT-1 to BAT-15, each row carrying evidence and a rejected alternative, and every Reawakened rule approved by the owner.
 2. AD-10's `battle` row says fighter references and charge only, with status effects on actors; the code comment and placeholder are 7.2's, not this entry's.
 3. EMIT-13's `defeated` row carries `{ cause, source }`, once per enemy per battle, and the game re-emit is `stock_battle.defeated`.
 4. E-71 to E-79 point to `battle.md`; E-79 no longer presents `fightTick` as a rebuild operation; R-57 is closed.

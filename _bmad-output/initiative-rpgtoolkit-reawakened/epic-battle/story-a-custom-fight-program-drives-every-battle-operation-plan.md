@@ -30,7 +30,7 @@ No new API. If the fixture needs an operation the spec does not rule, the gap is
 
 4. **Determinism.** The program uses only the seeded stream and the tick wait; the test pins a state hash after a fixed number of ticks and a draw-list hash. A second run from the same seed reproduces both.
 
-5. **Outcome.** The program finishes with outcome 2, so the BAT-8 outcome adapter (proposed, pending owner review) still applies the win sequence for a custom program; the test asserts gold was posted once and experience given in full to every member, and that the program's own `defeated` emit fired once per enemy. A second run finishing with 3 asserts the adapter applies nothing. The emit is the program's job because `defeated` belongs to the battle package (EMIT-13); the stock package does it in 7.8 and also re-emits `stock_battle.defeated`, which does not occur here unless the program sends it. If the owner rejects the adapter, this decision and acceptance 4 change before build.
+5. **Outcome.** The program finishes with outcome 2, so the BAT-8 outcome adapter (owner-approved 2026-10-25) still applies the win sequence for a custom program; the test asserts gold was posted once and experience given in full to every member, and that the program's own `defeated` emit fired once per enemy. A second run finishing with 3 asserts the adapter applies nothing. The emit is the program's job because `defeated` belongs to the battle package (EMIT-13); the stock package does it in 7.8 and also re-emits `stock_battle.defeated`, which does not occur here unless the program sends it.
 
 6. **Isolation.** The program cannot read an internal package function or a module-private value; an attempted access is a normal "unknown name" error, and the test asserts it.
 
