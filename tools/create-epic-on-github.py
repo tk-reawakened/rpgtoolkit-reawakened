@@ -69,6 +69,28 @@ def write_epic_tracker_id(index_path: Path, epic_id: int, tracker_id: str) -> No
             return
     raise ValueError(f"Epic id {epic_id} was not found in {index_path}")
 
+def write_epic_frontmatter(epic_doc: Path, tracker_id: str) -> None:
+    text = epic_doc.read_text(encoding="utf-8")
+    match = re.match(r"\A---\s*\n(.*?)\n---\s*\n", text, flags=re.S)
+    if not match:
+        raise ValueError(f"Epic document has no YAML frontmatter: {epic_doc}")
+    issue_number = github_issue_number(tracker_id)
+    lines = match.group(1).splitlines()
+    fields = {
+        "tracker_id": f'"{tracker_id}"',
+        "remote": f'"https://github.com/{REPO}/issues/{issue_number}"',
+    }
+    for key, value in fields.items():
+        for idx, line in enumerate(lines):
+            if line.startswith(f"{key}:"):
+                lines[idx] = f"{key}: {value}"
+                break
+        else:
+            lines.append(f"{key}: {value}")
+    updated = match.group(0).replace(match.group(1), "\n".join(lines), 1) + text[match.end():]
+    if updated != text:
+        epic_doc.write_text(updated, encoding="utf-8")
+
 
 def graphql(query: str, variables: dict) -> dict:
     return gh_api("graphql", {"query": query, "variables": variables})
@@ -97,6 +119,10 @@ def main() -> None:
 
     markdown = epic_doc.read_text(encoding="utf-8")
     body = re.sub(r"\A---\s*\n.*?\n---\s*\n", "", markdown, count=1, flags=re.S).strip()
+    epic_status_match = re.search(r"(?m)^status:\s*([a-z-]+)\s*$", markdown)
+    epic_status = epic_status_match.group(1) if epic_status_match else ""
+    if epic_status not in {"in-progress", "done", "dropped"}:
+        raise SystemExit(f"Epic status must be one of in-progress, done, dropped; got {epic_status!r}")
     title = f"[Epic {epic_id}] {epic['title']}"
     stories = tomllib.loads(story_index.read_text(encoding="utf-8")).get("entry", [])
     existing_tracker = epic.get("tracker_id", "")
@@ -121,6 +147,7 @@ def main() -> None:
         parent_number = int(created["number"])
         write_epic_tracker_id(index_path, epic_id, f"#{parent_number}")
         print(f"Created Epic issue #{parent_number} and wrote tracker_id")
+    write_epic_frontmatter(epic_doc, f"#{parent_number}")
 
     parent = gh_api(f"repos/{REPO}/issues/{parent_number}")
     if parent.get("title") != title or (parent.get("body") or "").rstrip() != body.rstrip():
@@ -155,9 +182,9 @@ def main() -> None:
         "project": PROJECT_ID,
         "item": project_item["id"],
         "field": STATUS_FIELD_ID,
-        "option": STATUS_OPTION_IDS["in-progress"],
+        "option": STATUS_OPTION_IDS[epic_status],
     })
-    print(f"Added parent issue #{parent_number} to Project 3 with In Progress status")
+    print(f"Added parent issue #{parent_number} to Project 3 with {epic_status} status")
 
     existing_children = graphql(
         """query($parent:ID!) {

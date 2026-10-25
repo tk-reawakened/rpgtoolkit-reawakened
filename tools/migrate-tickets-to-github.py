@@ -160,6 +160,30 @@ def update_entry_tracker_id(content: str, entry_id: str | int, tracker_id: str) 
     return content[: match.start()] + new_block + content[match.end() :]
 
 
+def update_plan_tracker_metadata(path: Path, tracker_id: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    match = re.match(r"\A---\s*\n(.*?)\n---\s*\n", text, flags=re.S)
+    if not match:
+        raise ValueError(f"Story plan has no YAML frontmatter: {path}")
+    lines = match.group(1).splitlines()
+    issue_number = int(tracker_id.removeprefix("#"))
+    fields = {
+        "tracker_id": f'"{tracker_id}"',
+        "remote": f'"https://github.com/{REPO}/issues/{issue_number}"',
+    }
+    for key, value in fields.items():
+        replacement = f"{key}: {value}"
+        for idx, line in enumerate(lines):
+            if line.startswith(f"{key}:"):
+                lines[idx] = replacement
+                break
+        else:
+            lines.append(replacement)
+    updated = match.group(0).replace(match.group(1), "\n".join(lines), 1) + text[match.end():]
+    if updated != text:
+        path.write_text(updated, encoding="utf-8")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="Print actions without creating issues")
@@ -352,6 +376,11 @@ def main():
                 if new_content != content:
                     epic_toml.write_text(new_content, encoding="utf-8")
                 updated_count += 1
+                plan_name = t.get("file")
+                if plan_name:
+                    plan_path = epic_toml.parent / plan_name
+                    if plan_path.is_file():
+                        update_plan_tracker_metadata(plan_path, f"#{issue_num}")
 
     print(f"\nDone! Created: {created_count}, Updated tracker IDs: {updated_count}", flush=True)
 
