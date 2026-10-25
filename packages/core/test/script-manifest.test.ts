@@ -23,6 +23,7 @@ test("the default manifest is core and catalogue followed by owner/native packs"
   deepEqual(ENGINE_DEFAULT_MANIFEST.map((entry) => entry.id), [
     "core",
     "media",
+    "battle",
     "catalogue",
     "world",
     "render",

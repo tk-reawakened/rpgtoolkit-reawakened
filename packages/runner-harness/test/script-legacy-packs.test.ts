@@ -13,7 +13,7 @@ test("headless runner executes native pack commands from default manifest and re
   const host = createScriptHost({
     program: [
       'giveDp("Hero", 25)',
-      'giveFp("Hero", 10)',
+      // Battle stat aliases are actor-owner operations rather than legacy GsMisc effects.
       "getDirection(0, dir)",
       "getPlayerCoords(px, py)",
       'drawText("Greetings", 10, 20, "#ffffff")',
@@ -40,7 +40,7 @@ test("headless runner executes native pack commands from default manifest and re
   equal(globals.msg, "Hero score: 500");
 
   const effects = host.state().vm.effects;
-  equal(effects.length >= 10, true);
+  equal(effects.length >= 9, true);
 
   // Check GsMisc effects
   const dpEffect = effects.find((e) => e.name === "givedp");

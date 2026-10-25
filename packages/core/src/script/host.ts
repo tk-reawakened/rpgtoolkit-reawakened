@@ -1,6 +1,7 @@
 /** Session-only host object hydration (OOP-10/OOP-12). */
 
 import type { MediaScriptService } from "../audio/script.ts";
+import type { BattleOwner } from "../battle/port.ts";
 import type { EventsSection } from "../events/model.ts";
 import type { GameState } from "../save/state.ts";
 import type { Value } from "../ports/value.ts";
@@ -14,6 +15,8 @@ export type HostObjectContext = {
   readonly record: ObjectRecord;
   /** The script-facing media owner, when the engine provides one (MEDIA-1). */
   readonly media?: MediaScriptService;
+  /** Owner-mediated access to the saved battle section. */
+  readonly battle?: BattleOwner;
 };
 
 /** The result of an owner-backed host member write. */

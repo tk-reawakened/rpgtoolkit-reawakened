@@ -23,6 +23,7 @@ import { GRAPHICS_COMMANDS } from "./packs/graphics.ts";
 import { RENDER_PLUGIN } from "./packs/render.ts";
 import { toNumberValue, toStringValue } from "./values.ts";
 import { INVENTORY_COMMANDS, INVENTORY_COMMAND_NAMES } from "./packs/inventory.ts";
+import { BATTLE_COMMAND_NAMES } from "./packs/battle.ts";
 const MENU_SCREENS = ["main", "items", "equipment", "abilities"] as const;
 const MENU_COMMANDS: readonly BuiltinSpec[] = [
   ...MENU_SCREENS.map((screen) => ({
@@ -306,7 +307,6 @@ const ROWS: readonly Row[] = [
   { name: "smartstep", kind: "mixed", params: "...", sections: ["sprites"], wait: null, obsolete: false, byRefOut: false },
   { name: "stance", kind: "mixed", params: "slot,handle", sections: ["sprites"], wait: null, obsolete: false, byRefOut: false },
   { name: "posture", kind: "mixed", params: "slot,handle", sections: ["sprites"], wait: null, obsolete: false, byRefOut: false },
-  { name: "giveexp", kind: "mixed", params: "h,amount", sections: ["vm","engine"], wait: null, obsolete: false, byRefOut: false },
   { name: "inn", kind: "mixed", params: "", sections: ["vm"], wait: null, obsolete: false, byRefOut: false },
   { name: "equip", kind: "mixed", params: "h,slot,item", sections: ["inventory","vm"], wait: null, obsolete: false, byRefOut: false },
   { name: "remove", kind: "mixed", params: "h,slot", sections: ["inventory","vm"], wait: null, obsolete: false, byRefOut: false },
@@ -317,7 +317,6 @@ const ROWS: readonly Row[] = [
   { name: "callshop", kind: "wait", params: "item1,\u2026", sections: ["menu"], wait: "menu.screen", obsolete: false, byRefOut: false },
   { name: "fight", kind: "mixed", params: "skill,bkg", sections: ["battle","engine"], wait: null, obsolete: false, byRefOut: false },
   { name: "fightenemy", kind: "mixed", params: "e1,\u2026,bkg", sections: ["battle","engine"], wait: null, obsolete: false, byRefOut: false },
-  { name: "applystatus", kind: "mixed", params: "h,file", sections: ["battle"], wait: null, obsolete: false, byRefOut: false },
   { name: "fightmenugraphic", kind: "mixed", params: "file", sections: ["ui","battle"], wait: null, obsolete: false, byRefOut: false },
   { name: "menugraphic", kind: "mixed", params: "file", sections: ["ui"], wait: null, obsolete: false, byRefOut: false },
   { name: "mediaplay", kind: "mixed", params: "file", sections: ["audio"], wait: null, obsolete: false, byRefOut: false },
@@ -509,6 +508,7 @@ const CATALOGUE_OWNED_NAMES = new Set([
   ...CATALOGUE_STUBS_PLUGIN.commands.map((command) => command.name).filter((name) => !CATALOGUE_GRAPHICS_NAMES.has(name)),
   ...CATALOGUE_RESPONDERS_PLUGIN.commands.map((command) => command.name).filter((name) => !CATALOGUE_GRAPHICS_NAMES.has(name)),
   ...INVENTORY_COMMAND_NAMES,
+  ...BATTLE_COMMAND_NAMES,
 ]);
 const CORE_FILE_COMMANDS = new Set(["openfileinput", "openfileoutput", "openfileappend", "openfilebinary", "fileinput", "fileprint", "fileget", "fileput"]);
 const MOVEMENT_PACK_NAMES: Record<string, true> = {
@@ -522,14 +522,13 @@ const MOVEMENT_PACK_NAMES: Record<string, true> = {
   checkbutton: true, clearbuttons: true, mousemove: true, mouseclick: true,
 };
 /** The default catalogue layer combines safe stubs and responders not owned by CORE_PLUGIN. */
-const CORE_PURE_COMMANDS = new Set(PURE_SPECS.flatMap((command) => [command.name, ...command.aliases]));
 export const CATALOGUE_PLUGIN: PluginDefinition = {
   id: "catalogue",
   version: "1.0.0",
   commands: [
-    ...documentCommands(CATALOGUE_STUBS_PLUGIN.commands.filter((command) => command.name !== "internalmenu" && MOVEMENT_PACK_NAMES[command.name] !== true && !CATALOGUE_GRAPHICS_NAMES.has(command.name) && MEDIA_PACK_NAMES[command.name] !== true && !INVENTORY_COMMAND_NAMES.has(command.name))),
+    ...documentCommands(CATALOGUE_STUBS_PLUGIN.commands.filter((command) => command.name !== "internalmenu" && MOVEMENT_PACK_NAMES[command.name] !== true && !CATALOGUE_GRAPHICS_NAMES.has(command.name) && MEDIA_PACK_NAMES[command.name] !== true && !BATTLE_COMMAND_NAMES.has(command.name) && !INVENTORY_COMMAND_NAMES.has(command.name))),
     ...CATALOGUE_RESPONDERS_PLUGIN.commands.filter(
-      (command) => MOVEMENT_PACK_NAMES[command.name] !== true && !CATALOGUE_GRAPHICS_NAMES.has(command.name) && MEDIA_PACK_NAMES[command.name] !== true && !CORE_FILE_COMMANDS.has(command.name) && !CORE_PURE_COMMANDS.has(command.name) && !INVENTORY_COMMAND_NAMES.has(command.name),
+      (command) => MOVEMENT_PACK_NAMES[command.name] !== true && !CATALOGUE_GRAPHICS_NAMES.has(command.name) && MEDIA_PACK_NAMES[command.name] !== true && !BATTLE_COMMAND_NAMES.has(command.name) && !CORE_FILE_COMMANDS.has(command.name) && !INVENTORY_COMMAND_NAMES.has(command.name),
     ),
     ...INVENTORY_COMMANDS,
     ...MENU_COMMANDS,

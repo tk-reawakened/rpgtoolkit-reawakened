@@ -69,6 +69,9 @@ const REAL_PACK_COMMANDS: Record<string, true> = {
   playerdirection: true, itemdirection: true, playerspeed: true, itemspeed: true, playerstance: true,
   itemstance: true, wander: true, wait: true, get: true, clearbuffer: true, setbutton: true,
   checkbutton: true, clearbuttons: true, mousemove: true, mouseclick: true,
+  hp: true, givehp: true, gethp: true, maxhp: true, getmaxhp: true, smp: true, givesmp: true,
+  getsmp: true, maxsmp: true, getmaxsmp: true, fp: true, givefp: true, getfp: true, dp: true,
+  getdp: true, applystatus: true, removestatus: true, giveexp: true,
 };
 const catalogueRows = catalogue.names.filter((row) => STUB_KINDS[row.effectKind] === true && REAL_PACK_COMMANDS[row.name.toLowerCase()] !== true);
 const rowByName = new Map(catalogueRows.map((row) => [row.name.toLowerCase(), row]));
@@ -135,8 +138,8 @@ function callArity(spec: BuiltinSpec): number {
 test("every catalogue stub name resolves to its own spec, folded to lower case", () => {
   const services = createScriptServices(createGameState({ seed: 0 }));
 
-  equal(COMMANDS.length, 49);
-  equal(new Set(COMMANDS.map((spec) => spec.name)).size, 49);
+  equal(COMMANDS.length, 36);
+  equal(new Set(COMMANDS.map((spec) => spec.name)).size, 36);
   for (const spec of COMMANDS) {
     equal(spec.name, spec.name.toLowerCase());
     const resolved = services.commands.get(spec.name);
@@ -159,7 +162,7 @@ test("every catalogue stub name resolves to its own spec, folded to lower case",
 });
 
 test("the stub layer declares the catalogue's by-reference outputs", () => {
-  equal(COMMANDS.filter((spec) => spec.params.some((param) => param.byRef)).length, 13);
+  equal(COMMANDS.filter((spec) => spec.params.some((param) => param.byRef)).length, 7);
   // Variadic rows cannot fix an output position in their generated spec.
   equal(COMMANDS.filter((spec) => spec.params.some((param) => param.variadic)).length, 0);
   for (const spec of COMMANDS) {

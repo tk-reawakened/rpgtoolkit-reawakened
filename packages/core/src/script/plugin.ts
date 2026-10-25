@@ -45,6 +45,7 @@ import type { NativeListener } from "../events/model.ts";
 import type { Wait } from "../ports/wait.ts";
 import type { GameState, SectionKey } from "../save/state.ts";
 import type { ActorService } from "../actors/port.ts";
+import type { BattleOwner } from "../battle/port.ts";
 import type { Arg, BuiltinSpec } from "./builtins.ts";
 import type { EffectKind } from "./effects.ts";
 import type { HostObjectType } from "./host.ts";
@@ -74,6 +75,8 @@ export type CommandView = {
    * transitions; a command never patches the actor section directly.
    */
   readonly actors?: ActorService;
+  /** Owner-mediated access to the saved battle section. */
+  readonly battle?: BattleOwner;
   /** Stable core-derived identity used to scope host storage. */
   readonly gameId?: string;
   /** Manifest options for the layer currently handling this command. */
