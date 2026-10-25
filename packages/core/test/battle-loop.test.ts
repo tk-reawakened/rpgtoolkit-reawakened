@@ -289,6 +289,59 @@ test("disable reference-counts active status files, clamps ready charge, and res
   equal(globals(rig.state).turnorder, "1:0,");
 });
 
+test("cached rates refresh before charging after status apply, same-count replacement, and disable removal", () => {
+  const rig = makeState();
+  const poll = statusPoll(rig.state, { "speed.ste": [1, 0, 0], "slow.ste": [0, 1, 0], "freeze.ste": [0, 0, 1] });
+  startUntilFirstSleep(rig, poll);
+  setCharge(rig.state, 0, 0, 0);
+  setCharge(rig.state, 1, 0, 0);
+  tick(rig.state, rig.services);
+  equal(charges(rig.state)[0]![0], 3);
+  rig.services.actors.applyStatus(rig.enemies[0]!.id, "speed.ste", 0);
+  startUntilFirstSleep(rig, poll);
+  equal(charges(rig.state)[0]![0], 8, "new speed is used by the next charge step");
+  rig.services.actors.removeStatus(rig.enemies[0]!.id, "speed.ste");
+  rig.services.actors.applyStatus(rig.enemies[0]!.id, "slow.ste", 0);
+  startUntilFirstSleep(rig, poll);
+  equal(charges(rig.state)[0]![0], 9, "a same-count status replacement invalidates the cached rate");
+  rig.services.actors.applyStatus(rig.enemies[0]!.id, "freeze.ste", 0);
+  setCharge(rig.state, 0, 0, 123);
+  startUntilFirstSleep(rig, poll);
+  equal(charges(rig.state)[0]![0], 122, "new disable freezes and clamps before charging");
+  rig.services.actors.removeStatus(rig.enemies[0]!.id, "freeze.ste");
+  tick(rig.state, rig.services);
+  equal(charges(rig.state)[0]![0], 123, "removing the final disable unfreezes on the next step");
+  tick(rig.state, rig.services);
+  equal(charges(rig.state)[0]![0], 0);
+  equal(globals(rig.state).turnorder, "0:0,");
+});
+
+test("status cache restores identically both before and after a mid-battle status change is refreshed", () => {
+  const flags = { "speed.ste": [1, 0, 0], "inert.ste": [0, 0, 0], "a-slow.ste": [0, 1, 0] } as const;
+  for (const refreshed of [false, true]) {
+    const rig = makeState({ enemyStatuses: { "speed.ste": 0, "inert.ste": 0 } });
+    const poll = statusPoll(rig.state, flags);
+    startUntilFirstSleep(rig, poll);
+    setCharge(rig.state, 0, 0, 0);
+    setCharge(rig.state, 1, 0, 0);
+    tick(rig.state, rig.services);
+    equal(charges(rig.state)[0]![0], 5);
+    rig.services.actors.removeStatus(rig.enemies[0]!.id, "speed.ste");
+    rig.services.actors.applyStatus(rig.enemies[0]!.id, "a-slow.ste", 0);
+    if (refreshed) startUntilFirstSleep(rig, poll);
+    const restored = restoreRig(snapshot(rig.state), rig.seed);
+    const restoredPoll = statusPoll(restored.state, flags);
+    equal(hashGameState(restored.state), hashGameState(rig.state));
+    for (let elapsed = 0; elapsed < 8; elapsed += 1) {
+      tick(rig.state, rig.services, STEP_BUDGET, poll);
+      tick(restored.state, restored.services, STEP_BUDGET, restoredPoll);
+      equal(hashGameState(restored.state), hashGameState(rig.state),
+        `saved ${refreshed ? "after" : "before"} cache refresh, tick ${elapsed}`);
+    }
+    equal(charges(rig.state)[0]![0], refreshed ? 14 : 12, "restored charge uses slow, not stale speed");
+  }
+});
+
 test("failed status loads contribute nothing and are requested only once per fighter and battle", () => {
   const rig = makeState({
     enemies: 2,
@@ -521,24 +574,35 @@ test("a sleeping battle hook and loop state round-trip exactly at every pass and
   }
 });
 
-test("nine-fighter idle pass uses 897 VM steps within STEP_BUDGET, excluding startup", () => {
-  const rig = makeState({ seed: 71, enemies: 5, players: 4 });
-  startUntilFirstSleep(rig); // exclude all initialization, even if budget-preempted
-  for (let index = 0; index < 5; index += 1) setCharge(rig.state, 0, index, 0);
-  for (let index = 0; index < 4; index += 1) setCharge(rig.state, 1, index, 0);
-  tick(rig.state, rig.services); // first entry omits the steady-state loop back-edge
-  deepEqual(charges(rig.state), [[3, 3, 3, 3, 3], [3, 3, 3, 3]], "one complete pass fits a real tick");
-  const beforeMeasured = ownerSteps(rig.state, "stock_battle");
-  tick(rig.state, rig.services);
-  const measured = ownerSteps(rig.state, "stock_battle") - beforeMeasured;
-  ok(rig.state.vm.threads.some((thread) => thread.wait?.kind === "sleep"), "the measured idle pass completes and parks for its next tick");
-  const beforeRepeated = ownerSteps(rig.state, "stock_battle");
-  tick(rig.state, rig.services);
-  const repeated = ownerSteps(rig.state, "stock_battle") - beforeRepeated;
-  equal(measured, 897, "measured stock_battle instructions per steady idle pass");
-  equal(repeated, measured, `stable idle pass uses ${measured} VM steps`);
-  ok(measured <= STEP_BUDGET, `nine-fighter idle pass used ${measured} steps, budget is ${STEP_BUDGET}`);
-  equal(globals(rig.state).turncount, 0);
+test("idle passes fit one real engine tick with measured headroom, with or without cached statuses", () => {
+  for (const [enemies, players, withStatus, expectedSteps] of [
+    [5, 4, false, 701],
+    [5, 4, true, 701],
+    [4, 4, false, 626],
+    [4, 4, true, 626],
+    [3, 3, false, 476],
+  ] as const) {
+    const statuses = withStatus ? { "inert.ste": 0 } : {};
+    const rig = makeState({ seed: 71, enemies, players, enemyStatuses: statuses, playerStatuses: statuses });
+    const poll = statusPoll(rig.state, { "inert.ste": [0, 0, 0] });
+    startUntilFirstSleep(rig, poll); // exclude initialization and asset reads
+    for (const party of [0, 1] as const) {
+      for (let index = 0; index < rig.state.battle!.parties[party].length; index += 1) setCharge(rig.state, party, index, 0);
+    }
+    tick(rig.state, rig.services, STEP_BUDGET, poll); // first entry omits the loop back-edge
+    for (let pass = 2; pass <= 3; pass += 1) {
+      const beforeTick = rig.state.time.tick;
+      const beforeSteps = ownerSteps(rig.state, "stock_battle");
+      tick(rig.state, rig.services, STEP_BUDGET, poll);
+      equal(rig.state.time.tick - beforeTick, 1);
+      deepEqual(charges(rig.state), [Array<number>(enemies).fill(pass * 3), Array<number>(players).fill(pass * 3)],
+        `${enemies}+${players}, statuses=${withStatus}: every fighter advances exactly once in this tick`);
+      ok(rig.state.vm.threads.some((thread) => thread.wait?.kind === "sleep"), "the complete pass reaches its tick sleep");
+      equal(ownerSteps(rig.state, "stock_battle") - beforeSteps, expectedSteps);
+      ok(expectedSteps <= STEP_BUDGET - 250, `idle pass retains at least 250 of ${STEP_BUDGET} steps`);
+      equal(globals(rig.state).turncount, 0);
+    }
+  }
 });
 
 test("fake-host multi-tick catch-up matches the same sequence of engine ticks and hashes", () => {

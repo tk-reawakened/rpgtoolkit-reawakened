@@ -93,44 +93,42 @@ battleDecided = () => {
 
 // Charge contributions only: ticket 7.6 can extend the turn path with effects
 // and expiry. Counter presence means active, including an indefinite zero.
-// Each fighter owns its own per-battle flag cache in the loop's saved locals.
-// Return the rate and refresh cache.disabled (the active disable count), without
-// allocating a new result dictionary on every fighter's pass.
+// Recompute only when the actor's exact status signature changes. Both the
+// computed contribution and each file's flags live in saved VM dictionaries.
 // A failed asset read reports its located error once and caches no contribution;
 // removing/reapplying a status cannot turn that into a diagnostic every pass.
 function battleStatusRate(fighter, cache) {
-  local(file) = getstatus(fighter, 0)
-  cache.disabled = 0
-  if (file == "") {
-    return 3
-  }
+  local(file)
   local(index) = 0
   local(flags)
   local(key)
-  local(rate) = 3
+  cache.signature = statussignature(fighter)
+  cache.rate = 3
+  cache.disabled = 0
+  file = getstatus(fighter, 0)
   while (file != "") {
     key = ucase(file)
-    flags = cache[key]
+    flags = cache.files[key]
     if (flags == null) {
       flags = statusflags(file)
       if (flags == null) {
         flags = { speed: 0, slow: 0, disable: 0 }
       }
-      cache[key] = flags
+      cache.files[key] = flags
     }
-    rate = rate + 2 * flags.speed - 2 * flags.slow
+    cache.rate = cache.rate + 2 * flags.speed - 2 * flags.slow
     cache.disabled = cache.disabled + flags.disable
     index = index + 1
     file = getstatus(fighter, index)
   }
-  return rate
+  return cache.rate
 }
 
 // The battle section is supplied by the start owner (ticket 7.9). No enemies,
 // actions, outcome decisions, status rounds, presentation or clocks live here.
-// A steady idle pass of nine fighters uses 897/1000 VM steps. More statuses or
-// turn work can preempt a pass; BAT-4 permits it to resume late, in the same
-// saved order next tick, never starting a second pass over unfinished fighters.
+// Measured steady idle cost: 75 steps/fighter + 26/pass: eight fighters 626,
+// nine 701 of STEP_BUDGET=1000, with no statuses or one cached inert status each.
+// Status changes and turns can still preempt; BAT-4 resumes the saved pass.
 function battle() {
   local(party)
   local(index)
@@ -138,51 +136,53 @@ function battle() {
   local(threshold)
   local(fighter)
   local(charge)
-  local(rate)
   local(cache)
-  local(caches) = {}
+  local(position)
+  local(count) = 0
+  local(fighters) = {}
+  // BAT-2 fixes the battle's fighter lists. Capture their ordered references
+  // and constants once, not mutable HP or status data. Restore keeps these
+  // dictionaries and actor handles; it does not rebuild or reseed the battle.
   for (party = 0; party < 2; party = party + 1) {
     threshold = party == 0 ? 123 : 75
     size = battle.partySize(party)
     for (index = 0; index < size; index = index + 1) {
       battle.setCharge(party, index, random(threshold) - 1)
-      caches[party + ":" + index] = {}
+      fighters[count] = {
+        party: party, index: index, threshold: threshold,
+        fighter: battle.fighter(party, index), files: {}
+      }
+      count = count + 1
     }
   }
-  // Resolve existing status assets before the first advance. All definitions
-  // are plain VM data, and new files applied later resolve through the same seam.
-  for (party = 0; party < 2; party = party + 1) {
-    size = battle.partySize(party)
-    for (index = 0; index < size; index = index + 1) {
-      fighter = battle.fighter(party, index)
-      if (fighter != null) {
-        battleStatusRate(fighter, caches[party + ":" + index])
-      }
+  // Resolve current status assets only after every initial seeded draw.
+  for (position = 0; position < count; position = position + 1) {
+    cache = fighters[position]
+    if (cache.fighter != null) {
+      battleStatusRate(cache.fighter, cache)
     }
   }
   threadSleep(getThreadId(), 1/60)
   while (battleDecided() == 0) {
-    for (party = 0; party < 2; party = party + 1) {
-      threshold = party == 0 ? 123 : 75
-      size = battle.partySize(party)
-      for (index = 0; index < size; index = index + 1) {
-        fighter = battle.fighter(party, index)
-        if (fighter != null) {
-          if (fighter.hp > 0) {
-            cache = caches[party + ":" + index]
-            rate = battleStatusRate(fighter, cache)
-            charge = battle.charge(party, index)
-            if (cache.disabled > 0) {
-              if (charge >= threshold) {
-                battle.setCharge(party, index, threshold - 1)
-              }
+    for (position = 0; position < count; position = position + 1) {
+      cache = fighters[position]
+      fighter = cache.fighter
+      if (fighter != null) {
+        if (fighter.hp > 0) {
+          if (statussignature(fighter) != cache.signature) {
+            battleStatusRate(fighter, cache)
+          }
+          charge = battle.charge(cache.party, cache.index)
+          if (cache.disabled > 0) {
+            if (charge >= cache.threshold) {
+              battle.setCharge(cache.party, cache.index, cache.threshold - 1)
+            }
+          } else {
+            if (charge >= cache.threshold) {
+              stockBattle.turn(cache.party, cache.index)
+              battle.releaseCharge(cache.party, cache.index)
             } else {
-              if (charge >= threshold) {
-                stockBattle.turn(party, index)
-                battle.releaseCharge(party, index)
-              } else {
-                battle.addCharge(party, index, rate)
-              }
+              battle.addCharge(cache.party, cache.index, cache.rate)
             }
           }
         }

@@ -1,12 +1,13 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
-import { addActor, advanceScriptTick, BATTLE_PLUGIN, BinaryWriter, CORE_PLUGIN, createGameState, createScriptServices, startProgram, STATUS_EFFECT_MAGIC, type GameState, type WaitPoll } from "../src/index.ts";
+import { addActor, advanceScriptTick, BATTLE_PLUGIN, BinaryWriter, CORE_PLUGIN, createGameState, createScriptServices, restoreGameState, snapshot, startProgram, STATUS_EFFECT_MAGIC, type GameState, type WaitPoll } from "../src/index.ts";
 
 const plugins = [{ definition: CORE_PLUGIN }, { definition: BATTLE_PLUGIN }] as const;
 function stateWithStatus() {
   const state = createGameState({ seed: 3 });
   const actor = addActor(state.actors, { kind: "party", source: "hero.tem", name: "Hero", statuses: { "First.ste": 0, "Second.ste": 2 } });
   state.party.members.push(actor.id);
+  state.party.selected = actor.id;
   return { state, actor };
 }
 
@@ -28,12 +29,77 @@ function statusEffectBytes(): Uint8Array {
   return writer.toBytes();
 }
 
-test("getstatus lists identities in insertion order, including zero-round status", () => {
+test("getstatus lists identities in canonical order, including zero-round status", () => {
   const { state } = stateWithStatus();
   run(state, 'first = getstatus("Hero", 0)\nsecond = getstatus("Hero", 1)\nmissing = getstatus("Hero", 2)');
   equal(state.vm.globals.first, "First.ste");
   equal(state.vm.globals.second, "Second.ste");
   equal(state.vm.globals.missing, "");
+});
+
+test("getstatus enumeration is unchanged by canonical snapshot key reordering", () => {
+  const { state, actor } = stateWithStatus();
+  const services = createScriptServices(state, plugins);
+  ok(services.actors.applyStatus(actor.id, "AAA.ste", 0) !== null);
+  const code = 'a = getstatus("Hero", 0)\nb = getstatus("Hero", 1)\nc = getstatus("Hero", 2)';
+  run(state, code);
+  deepEqual([state.vm.globals.a, state.vm.globals.b, state.vm.globals.c], ["AAA.ste", "First.ste", "Second.ste"]);
+  const restored = restoreGameState(snapshot(state));
+  run(restored, code);
+  deepEqual([restored.vm.globals.a, restored.vm.globals.b, restored.vm.globals.c], ["AAA.ste", "First.ste", "Second.ste"]);
+});
+
+test("statussignature is a stable read-only exact status token", () => {
+  const { state, actor } = stateWithStatus();
+  const before = JSON.stringify(actor);
+  run(state, 'first = statussignature("Hero")\nsecond = statussignature("Hero")');
+  const initial = JSON.stringify(actor.statuses);
+  equal(state.vm.globals.first, initial);
+  equal(state.vm.globals.second, initial);
+  equal(JSON.stringify(actor), before);
+});
+test("statussignature detects owner-applied status changes and same-count replacements", () => {
+  const { state, actor } = stateWithStatus();
+  const services = createScriptServices(state, plugins);
+  run(state, 'initial = statussignature("Hero")');
+  ok(services.actors.applyStatus(actor.id, "Third.ste", 2) !== null);
+  run(state, 'applied = statussignature("Hero")');
+  ok(state.vm.globals.initial !== state.vm.globals.applied);
+  ok(services.actors.removeStatus(actor.id, "Third.ste") !== null);
+  run(state, 'removed = statussignature("Hero")');
+  equal(state.vm.globals.removed, state.vm.globals.initial);
+  ok(services.actors.removeStatus(actor.id, "Second.ste") !== null);
+  ok(services.actors.applyStatus(actor.id, "Replacement.ste", 2) !== null);
+  run(state, 'replacement = statussignature("Hero")');
+  ok(state.vm.globals.replacement !== state.vm.globals.initial);
+});
+
+test("statussignature detects counter restarts and zero-round presence", () => {
+  const { state, actor } = stateWithStatus();
+  const services = createScriptServices(state, plugins);
+  run(state, 'initial = statussignature("Hero")');
+  ok(services.actors.applyStatus(actor.id, "First.ste", 1) !== null);
+  run(state, 'counter = statussignature("Hero")');
+  ok(state.vm.globals.initial !== state.vm.globals.counter);
+  ok(services.actors.applyStatus(actor.id, "First.ste", 0) !== null);
+  ok(services.actors.removeStatus(actor.id, "Second.ste") !== null);
+  run(state, 'zero = statussignature("Hero")');
+  ok(state.vm.globals.zero !== state.vm.globals.counter);
+  ok(services.actors.removeStatus(actor.id, "First.ste") !== null);
+  run(state, 'removed = statussignature("Hero")');
+  equal(state.vm.globals.removed, "{}");
+});
+
+test("statussignature survives canonical save key reordering exactly", () => {
+  const { state, actor } = stateWithStatus();
+  const services = createScriptServices(state, plugins);
+  ok(services.actors.applyStatus(actor.id, "AAA.ste", 0) !== null);
+  deepEqual(Object.keys(state.actors.actors[0]!.statuses), ["First.ste", "Second.ste", "AAA.ste"]);
+  run(state, 'saved = statussignature("Hero")');
+  const restored = restoreGameState(snapshot(state));
+  deepEqual(Object.keys(restored.actors.actors[0]!.statuses), ["AAA.ste", "First.ste", "Second.ste"]);
+  run(restored, 'after = statussignature("Hero")');
+  equal(restored.vm.globals.after, restored.vm.globals.saved);
 });
 
 test("getstatus rejects invalid indexes", () => {

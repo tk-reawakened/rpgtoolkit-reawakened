@@ -2,6 +2,7 @@ import type { StatusEffect } from "../../formats/battle/model.ts";
 import { readStatusEffect } from "../../formats/battle/status-effect.ts";
 import type { Result } from "../../formats/result.ts";
 import { BinaryReader } from "../../formats/binary/reader.ts";
+import { canon } from "../../canon/index.ts";
 import { createObject, writeMember } from "../objects.ts";
 import type { ActorId, ActorStats } from "../../actors/model.ts";
 import { registerActorObject } from "../../actors/object.ts";
@@ -295,7 +296,7 @@ const GET_STATUS = {
   name: "getstatus", aliases: [], params: [parameter("fighter"), parameter("index")],
   doc: {
     summary: "Read one of a fighter's active status file names.",
-    behaviour: "Returns the filename key of the zero-based status entry in insertion order, or an empty string when the index is past the end. A present zero-round counter remains included until removed. This does not read status rules or change actor state.",
+    behaviour: "Returns the filename key of the zero-based status entry in canonical filename order, or an empty string when the index is past the end. Canonical ordering matches snapshots, so enumeration resumes identically after restore. A present zero-round counter remains included until removed. This does not read status rules or change actor state.",
     groups: [GROUP, "reawakened-additions-not-part-of-the-282-legacy-catalogue"], tags: ["experimental"], waits: NO_WAIT,
     throws: [...STAT_READ_THROWS, { code: "builtin.bad-arg", when: "index is not a non-negative safe integer" }],
   },
@@ -305,13 +306,22 @@ const GET_STATUS = {
     if (index < 0) throw new ScriptError("builtin.bad-arg", "getstatus: index must be non-negative");
     const actor = actorRecord(view, id);
     if (actor === null) return { value: "" };
-    let position = 0;
-    for (const key in actor.statuses) {
-      if (!Object.hasOwn(actor.statuses, key)) continue;
-      if (position === index) return { value: key };
-      position += 1;
-    }
-    return { value: "" };
+    // Actor maps are key-sorted by canonical snapshots; use the same order live.
+    return { value: Object.keys(actor.statuses).sort()[index] ?? "" };
+  },
+} satisfies BuiltinSpec;
+const STATUS_SIGNATURE = {
+  name: "statussignature", aliases: [], params: [parameter("fighter")],
+  doc: {
+    summary: "Read a fighter's status signature.",
+    behaviour: `Returns an opaque exact canonical JSON text token for the fighter's current status names and round counters; it changes when the status set or any counter changes, including presence of a zero-round status. Canonical key order matches snapshots, so the result is safe to save and compare after restore regardless of insertion order. This synchronous read does not load StatusE files or change actor state. ${FIGHTER_HANDLES}`,
+    groups: [GROUP, "reawakened-additions-not-part-of-the-282-legacy-catalogue"], tags: ["experimental"], waits: NO_WAIT,
+    throws: STAT_READ_THROWS,
+  },
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const id = referenceActor(view, args[0]?.value);
+    const actor = actorRecord(view, id);
+    return { value: actor === null ? "{}" : canon(actor.statuses) };
   },
 } satisfies BuiltinSpec;
 
@@ -543,6 +553,7 @@ export const BATTLE_COMMANDS: readonly BuiltinSpec[] = [
   PARTY_SIZE, FIGHTER, CHARGE, ADD_CHARGE, SET_CHARGE, RELEASE_CHARGE, CHARGE_PERCENT, FINISH,
   HP, GIVE_HP, GET_HP, MAX_HP, GET_MAX_HP, SMP, GIVE_SMP, GET_SMP, MAX_SMP, GET_MAX_SMP,
   FP, GIVE_FP, GET_FP, DP, GET_DP, GIVE_EXP, APPLY_STATUS, REMOVE_STATUS, STATUS_ASSET, GET_STATUS, STATUS_FLAGS, STATUS_FLAGS_ASSET,
+  STATUS_SIGNATURE,
 ];
 export const BATTLE_COMMAND_NAMES = new Set<string>(BATTLE_COMMANDS.flatMap((command) => [command.name, ...command.aliases]));
 export const BATTLE_PLUGIN: PluginDefinition = {
