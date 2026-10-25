@@ -307,7 +307,7 @@ All 282 command names the 3.1 engine registers, grouped by area. Names are case-
 | `battlespeed` | `void battlespeed(int speed)` | Obsolete. | obsolete: raises an error and the statement is skipped |
 | `getdp` | `int getdp(string handle, [int &ret])` | Get a fighter's dp. |  |
 | `getfp` | `int getfp(string handle, [int &ret])` | Get a fighter's fp. |  |
-| `internalmenu` | `void internalmenu(int menu)` | Show a menu using the menu plugin. | Reawakened compatibility adapter: 0 = main, 1 = items, 2 = equipment, 4 = abilities; all other values are rejected. These arguments are not legacy native `menu(request)` values (1/2/4/8). |
+| `internalmenu` | `void internalmenu(int menu)` | Open a menu by compatibility index. | Reawakened compatibility adapter: 0 = main, 1 = items, 2 = equipment, 4 = abilities; all other values are rejected. These arguments are not legacy native `menu(request)` values (1/2/4/8). |
 | `mainmenu` | `void mainmenu()` | Open the main menu. | Reawakened facade; invokes the `main` menu provider immediately and blocks the calling thread until it closes. |
 | `itemmenu` | `void itemmenu()` | Open the items menu. | Reawakened facade; invokes the `items` menu provider immediately and blocks the calling thread until it closes. |
 | `equipmentmenu` | `void equipmentmenu()` | Open the equipment menu. | Reawakened facade; invokes the `equipment` menu provider immediately and blocks the calling thread until it closes. |

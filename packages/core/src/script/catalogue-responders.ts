@@ -29,14 +29,14 @@ const MENU_COMMANDS: readonly BuiltinSpec[] = [
     aliases: [],
     name: screen === "main" ? "mainmenu" : screen === "items" ? "itemmenu" : screen === "equipment" ? "equipmentmenu" : "abilitiesmenu",
     params: [],
-    doc: { summary: `Open the ${screen} menu.`, behaviour: "Blocks on the calling script thread until the menu provider completes normally.", groups: ["menu"] },
+    doc: { summary: `Open the ${screen} menu.`, behaviour: "Blocks on the calling script thread until the menu provider completes normally.", groups: ["battle-stats-menus-33"] },
     call: () => ({ value: null, effects: [{ kind: "vm.control" as const, args: ["menu.open", screen] }] }),
   })),
   {
     name: "internalmenu",
     aliases: [],
     params: [{ name: "n", optional: false, byRef: false, variadic: false }],
-    doc: { summary: "Open a menu by compatibility index.", behaviour: "Maps 0, 1, 2 and 4 to the main, items, equipment and abilities menu facades; other values raise a catchable invalid-argument error.", groups: ["menu"] },
+    doc: { summary: "Open a menu by compatibility index.", behaviour: "Maps 0, 1, 2 and 4 to the main, items, equipment and abilities menu facades; other values raise a catchable invalid-argument error.", groups: ["battle-stats-menus-33"] },
     call: (_view, args) => {
       const index = Number(args[0]?.value);
       const screen = index === 0 ? "main" : index === 1 ? "items" : index === 2 ? "equipment" : index === 4 ? "abilities" : null;
@@ -136,7 +136,7 @@ const TICKET_4_29_DOCS: Readonly<Record<string, BuiltinDoc>> = {
   drawenemy: {
     summary: "Draw an enemy.",
     behaviour: "Draws battle asset frame 0 at logical-pixel coordinates without mutating battle state or consuming randomness; the call does not wait.",
-    groups: ["battle-stats-menus-29"],
+    groups: ["battle-stats-menus-33"],
     waits: { kind: "never", summary: "Does not wait." },
     see: ["docs/spec/engine/rpgcode-functions.md#reawakened-draw-enemy"],
   },
@@ -166,7 +166,7 @@ const TICKET_4_29_DOCS: Readonly<Record<string, BuiltinDoc>> = {
   win: {
     summary: "Obsolete.",
     behaviour: "Raises the catchable obsolete-command error and skips the statement; use the configured game-over flow instead.",
-    groups: ["program-flow-errors-debugging-25", "battle-stats-menus-29"],
+    groups: ["program-flow-errors-debugging-25", "battle-stats-menus-33"],
     tags: ["obsolete"],
     replacedBy: { kind: "syntax", text: "Use the configured game-over flow." },
     reason: "Game-over presentation is owned by the board-rendering lifecycle.",

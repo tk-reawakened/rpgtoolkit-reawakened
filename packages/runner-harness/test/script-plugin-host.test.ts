@@ -108,3 +108,40 @@ test("a wrapper stopped on a key press: saved while it waits, the restored host 
   }
   equal(savedWhileWaitingForKey >= 2, true, `saves landed while the gate waited (${savedWhileWaitingForKey})`);
 });
+test("the script host delivers cursor-map keys once and restores the selected point", () => {
+  const fresh = hostOf("boot-cursormap.prg");
+  fresh.state().ui.cursorMaps = [{ id: 1, points: [{ x: 10, y: 20 }, { x: 50, y: 60 }], selected: 0 }];
+  fresh.state().ui.activeCursorMap = 1;
+  fresh.advance(1, []);
+  const initialWait = fresh.state().vm.threads[0]?.wait;
+  if (initialWait?.kind !== "input.key" || initialWait.cursorMap === undefined) {
+    throw new Error("expected the script to park on a cursor-map key wait");
+  }
+  equal(initialWait.cursorMap, 1);
+
+  const right: InputRecord = { tick: 0, event: { kind: "key", name: "Right", code: "ArrowRight", char: null, down: true } };
+  deepEqual(fresh.advance(1, [right]).consumed, [right]);
+  const movedState = fresh.state();
+  const movedWait = movedState.vm.threads[0]?.wait;
+  if (movedWait?.kind !== "input.key") {
+    throw new Error("expected the cursor-map wait to remain active");
+  }
+  equal(movedWait.cursorSelection, 1);
+  equal(movedWait.key, null);
+
+  fresh.advance(1, []);
+  const afterIdle = fresh.state().vm.threads[0]?.wait;
+  if (afterIdle?.kind !== "input.key") throw new Error("expected the cursor-map wait to remain active after an idle tick");
+  equal(afterIdle.cursorSelection, 1, "the injected navigation key is not applied twice");
+
+  const restored = restore(fresh.snapshot());
+  equal(restored.stateHash(), fresh.stateHash());
+  const enter: InputRecord = { tick: 0, event: { kind: "key", name: "Enter", code: "Enter", char: null, down: true } };
+  fresh.advance(1, [enter]);
+  restored.advance(1, [enter]);
+  equal(restored.stateHash(), fresh.stateHash());
+  equal(fresh.state().vm.globals.selected, 1);
+  equal(fresh.state().vm.globals.done, 1);
+  equal(finishedHost(fresh), true);
+  equal(finishedHost(restored), true);
+});

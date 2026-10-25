@@ -100,7 +100,7 @@ const NATIVE_SUMMARY_BY_NAME: Record<string, string> = {
 };
 const NATIVE_GROUP_BY_NAME: Record<string, string> = {
   viewbrd: "board-tiles-vectors-screen-effects-33",
-  drawenemy: "battle-stats-menus-29",
+  drawenemy: "battle-stats-menus-33",
 };
 function docs(summary: string, behaviour: string, waits = "The command completes in the current script turn."): BuiltinDoc {
   return { summary, behaviour, groups: ["graphics-canvases-animation-video-31"], waits: { kind: "never", summary: waits }, tags: ["legacy"] };

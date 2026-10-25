@@ -491,7 +491,6 @@ export function runWaitsPhase(
 function resolveWait(vm: VmState, view: WaitView, poll: WaitPoll, thread: Thread, claim?: (seq: number) => void, services?: ScriptServices, onResolved?: (wait: Wait) => void): void {
   const wait = thread.wait;
   if (wait === null) return;
-  if (wait.kind === "input.key" && wait.parkSeq === undefined) wait.parkSeq = view.input?.nextSeq ?? 0;
   const menuContinuation = wait.kind === "menu.screen" ? wait.payload[0] : null;
   if (menuContinuation !== null && typeof menuContinuation === "object" && !Array.isArray(menuContinuation) &&
       menuContinuation.parkSeq === null) {
@@ -801,12 +800,14 @@ export function advanceScriptTick(
   budget: number = STEP_BUDGET,
   poll: WaitPoll = defaultWaitPoll,
 ): ScriptStatus {
-  const claims = state.engine.claims ?? (state.engine.claims = []);
+  const claims = state.engine.claims;
+  if (claims !== undefined) claims.length = 0;
+  const activeClaims = claims ?? [];
   runWaitsPhase(
     state.vm,
-    { tick: state.time.tick, events: state.events, input: state.input, claims },
+    { tick: state.time.tick, events: state.events, input: state.input, ui: state.ui, claims: activeClaims },
     poll,
-    (seq) => { if (!claims.includes(seq)) claims.push(seq); },
+    (seq) => { if (!activeClaims.includes(seq)) activeClaims.push(seq); },
     services,
     (wait) => {
       if (wait.kind === "input.key" && wait.dialogue !== undefined) {
@@ -814,6 +815,7 @@ export function advanceScriptTick(
       }
     },
   );
+  if (claims === undefined && activeClaims.length > 0) state.engine.claims = activeClaims;
   runThreadsPhase(state.vm, services, budget);
   runEventsPhase(state, services, budget);
   assertNoDeadlock(state.vm, services);
@@ -2676,7 +2678,11 @@ function dispatchResolved(
   }
 
   if (result.wait !== undefined) {
-    thread.wait = result.wait;
+    const wait = result.wait.kind === "input.key" && result.wait.parkSeq === undefined &&
+      services.view.state?.input.keys.length
+      ? { ...result.wait, parkSeq: services.view.state.input.nextSeq }
+      : result.wait;
+    thread.wait = wait;
     thread.status = "waiting";
     return "yield";
   }
