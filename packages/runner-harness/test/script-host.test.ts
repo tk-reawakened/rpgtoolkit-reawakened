@@ -415,6 +415,43 @@ test("restore reruns startup hooks on scratch and actual services", () => {
   equal(restored.state().actors.actors[0]?.stats.dp, 42);
   equal((restored.state().vm.stepCounters?.["test-startup-actors"] ?? 0) > 0, true);
 });
+test("restore preserves a startup RPGCode menu override over the same native provider", () => {
+  const nativeEvents: string[] = [];
+  const nativeMenu: PluginDefinition = {
+    id: "test-native-menu",
+    version: "1.0.0",
+    commands: [],
+    menuProviders: {
+      main: ({ event }) => {
+        nativeEvents.push(event.type);
+        return { kind: "complete" };
+      },
+    },
+  };
+  const startup = {
+    kind: "inline" as const,
+    text: 'registerPlugin({ name: "menu-override", commands: {}, menuProviders: { main: (context) => { sleep(1); winner = "rpg" } } })\n',
+    compiler: COMPILER_VERSION,
+    dialect: "tk3" as const,
+  };
+  const host = createScriptHost({
+    seed: 0,
+    program: "mainmenu()\nend()\n",
+    plugins: [nativeMenu],
+    packageStartups: [{ owner: nativeMenu.id, ref: startup }],
+  });
+  host.advance(1, []);
+  equal(host.state().menu.screens.length, 1);
+  const restored = restoreScriptHost(host.snapshot(), {
+    plugins: [nativeMenu],
+    packageStartups: [{ owner: nativeMenu.id, ref: startup }],
+  });
+  host.advance(1, []);
+  restored.advance(1, []);
+  equal(host.stateHash(), restored.stateHash());
+  equal(restored.state().vm.globals.winner, "rpg");
+  deepEqual(nativeEvents, []);
+});
 
 test("a runtime failure reaches the report as a located diagnostic and runLog observes it", () => {
   const records: LogRecord[] = [];

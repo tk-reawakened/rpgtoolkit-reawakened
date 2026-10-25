@@ -78,6 +78,24 @@ export function pollInputKey(view: WaitView, wait: Wait): WaitResult | null {
   if (wait.key === null) return null;
   return { value: wait.key, ok: true };
 }
+/** `menu.screen`: resolve provider input, or wait for the active shop context to close. */
+export function pollMenuScreen(view: WaitView, wait: Wait): WaitResult | null {
+  if (wait.kind !== "menu.screen") return null;
+  const saved = wait.payload[0];
+  if (saved !== null && typeof saved === "object" && !Array.isArray(saved) && typeof saved.providerId === "string") {
+    const floor = typeof saved.parkSeq === "number" ? saved.parkSeq : 0;
+    if (saved.phase !== "input") return { value: null, ok: true };
+    const claimed = new Set(view.claims ?? []);
+    for (const key of view.input?.keys ?? []) {
+      if (key.seq < floor || claimed.has(key.seq)) continue;
+      return { value: key.name, ok: true, claim: key.seq };
+    }
+    return null;
+  }
+  if (view.shopStock === undefined) throw new ScriptError("wait.no-menu-view", "a menu.screen wait was polled with no shop view");
+  return view.shopStock.length === 0 ? DONE : null;
+}
+
 
 /** `movement`: resolved when every collected move has reached its end tick. */
 export function pollMovement(view: WaitView, wait: Wait): WaitResult | null {
@@ -127,12 +145,6 @@ export function pollRenderMsgBox(view: WaitView, wait: Wait): WaitResult | null 
     if (normalized === "enter" || normalized === "return" || normalized === "space") return { value: style === 1 ? 6 : 1, ok: true, claim: key.seq };
   }
   return null;
-}
-/** `menu.screen`: resume once the active menu-owned shop context is closed. */
-export function pollMenuScreen(view: WaitView, wait: Wait): WaitResult | null {
-  if (wait.kind !== "menu.screen") return null;
-  if (view.shopStock === undefined) throw new ScriptError("wait.no-menu-view", "a menu.screen wait was polled with no shop view");
-  return view.shopStock.length === 0 ? DONE : null;
 }
 
 /** The audio owner resolver for finite-end and loop-pass waits. */

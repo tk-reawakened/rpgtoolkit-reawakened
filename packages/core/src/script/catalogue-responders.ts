@@ -23,6 +23,28 @@ import { GRAPHICS_COMMANDS } from "./packs/graphics.ts";
 import { RENDER_PLUGIN } from "./packs/render.ts";
 import { toNumberValue, toStringValue } from "./values.ts";
 import { INVENTORY_COMMANDS, INVENTORY_COMMAND_NAMES } from "./packs/inventory.ts";
+const MENU_SCREENS = ["main", "items", "equipment", "abilities"] as const;
+const MENU_COMMANDS: readonly BuiltinSpec[] = [
+  ...MENU_SCREENS.map((screen) => ({
+    aliases: [],
+    name: screen === "main" ? "mainmenu" : screen === "items" ? "itemmenu" : screen === "equipment" ? "equipmentmenu" : "abilitiesmenu",
+    params: [],
+    doc: { summary: `Open the ${screen} menu.`, behaviour: "Blocks on the calling script thread until the menu provider completes normally.", groups: ["menu"] },
+    call: () => ({ value: null, effects: [{ kind: "vm.control" as const, args: ["menu.open", screen] }] }),
+  })),
+  {
+    name: "internalmenu",
+    aliases: [],
+    params: [{ name: "n", optional: false, byRef: false, variadic: false }],
+    doc: { summary: "Open a menu by compatibility index.", behaviour: "Maps 0, 1, 2 and 4 to the main, items, equipment and abilities menu facades; other values raise a catchable invalid-argument error.", groups: ["menu"] },
+    call: (_view, args) => {
+      const index = Number(args[0]?.value);
+      const screen = index === 0 ? "main" : index === 1 ? "items" : index === 2 ? "equipment" : index === 4 ? "abilities" : null;
+      if (screen === null) throw new ScriptError("builtin.bad-arg", `"internalmenu": unsupported menu index ${String(args[0]?.value)}`);
+      return { value: null, effects: [{ kind: "vm.control", args: ["menu.open", screen] }] };
+    },
+  },
+];
 
 const TICKET_4_29_DOCS: Readonly<Record<string, BuiltinDoc>> = {
   mwin: {
@@ -505,11 +527,12 @@ export const CATALOGUE_PLUGIN: PluginDefinition = {
   id: "catalogue",
   version: "1.0.0",
   commands: [
-    ...documentCommands(CATALOGUE_STUBS_PLUGIN.commands.filter((command) => MOVEMENT_PACK_NAMES[command.name] !== true && !CATALOGUE_GRAPHICS_NAMES.has(command.name) && MEDIA_PACK_NAMES[command.name] !== true && !INVENTORY_COMMAND_NAMES.has(command.name))),
+    ...documentCommands(CATALOGUE_STUBS_PLUGIN.commands.filter((command) => command.name !== "internalmenu" && MOVEMENT_PACK_NAMES[command.name] !== true && !CATALOGUE_GRAPHICS_NAMES.has(command.name) && MEDIA_PACK_NAMES[command.name] !== true && !INVENTORY_COMMAND_NAMES.has(command.name))),
     ...CATALOGUE_RESPONDERS_PLUGIN.commands.filter(
       (command) => MOVEMENT_PACK_NAMES[command.name] !== true && !CATALOGUE_GRAPHICS_NAMES.has(command.name) && MEDIA_PACK_NAMES[command.name] !== true && !CORE_FILE_COMMANDS.has(command.name) && !CORE_PURE_COMMANDS.has(command.name) && !INVENTORY_COMMAND_NAMES.has(command.name),
     ),
     ...INVENTORY_COMMANDS,
+    ...MENU_COMMANDS,
     ...PACK_CATALOGUE_FALLBACKS.filter((command) => !CATALOGUE_OWNED_NAMES.has(command.name)),
     ...documentCommands(RENDER_PACK_FALLBACKS.filter((command) => !CATALOGUE_OWNED_NAMES.has(command.name))),
   ],

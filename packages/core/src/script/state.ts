@@ -103,6 +103,11 @@ export type Frame = {
   /** Value supplied by a construction frame when it returns. */
   returnValue?: Value;
   /** Object freed after a destructor frame returns. */
+  /** The menu frame owned by this provider call; popped when this frame returns. */
+  menuScreen?: string;
+  /** Plain-data native parent continuation waiting for this RPGCode child. */
+  menuContinuation?: PlainData;
+  /** Object freed after a destructor frame returns. */
   releaseHandle?: number;
 };
 

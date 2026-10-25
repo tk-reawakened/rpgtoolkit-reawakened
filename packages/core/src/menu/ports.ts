@@ -28,7 +28,8 @@ export type PartyAction =
   | { readonly type: "inn" };
 export type MenuAction =
   | { readonly type: "navigation"; readonly screens: readonly Readonly<MenuScreen>[] }
-  | { readonly type: "graphic"; readonly value: string | null };
+  | { readonly type: "graphic"; readonly value: string | null }
+  | { readonly type: "updateCurrent"; readonly actorId: number | null; readonly selection: number };
 export type SectionOwnerPort<S, A> = {
   read(): DeepReadonly<S>;
   apply(action: A): MenuStateResult;
@@ -36,7 +37,9 @@ export type SectionOwnerPort<S, A> = {
 export type MenuOwnerPorts = {
   readonly party: SectionOwnerPort<PartySection, PartyAction>;
   readonly inventory: SectionOwnerPort<InventorySection, InventoryActionType>;
-  readonly menu: SectionOwnerPort<MenuSection, MenuAction>;
+  readonly menu: SectionOwnerPort<MenuSection, MenuAction> & {
+    updateCurrent(input: { readonly actorId: number | null; readonly selection: number }): MenuStateResult;
+  };
   readonly shop: {
     readonly stock: () => readonly string[];
     activate(sources: unknown): MenuStateResult;
@@ -230,6 +233,17 @@ export function createMenuOwnerPorts(
       apply(action: unknown): MenuStateResult {
         const record = actionRecord(action);
         if (record === null) return rejected({ path: "menu.action", message: "expected an action object" });
+        if (record.type === "updateCurrent") {
+          const error = validateActionFields(record, ["type", "actorId", "selection"], "menu.action");
+          if (error !== null) return rejected(error);
+          if (state.menu.screens.length === 0) return rejected({ path: "menu.screens", message: "no active menu frame" });
+          const candidate = { ...state.menu.screens[state.menu.screens.length - 1]!, actorId: record.actorId as number | null, selection: record.selection as number };
+          const candidateState = { ...state.menu, screens: [...state.menu.screens.slice(0, -1), candidate] };
+          const issue = validateMenuSection(candidateState, state.actors);
+          if (issue !== null) return rejected(issue);
+          state.menu = candidateState as MenuSection;
+          return ACCEPTED;
+        }
         let keys: readonly string[];
         let candidate: unknown;
         switch (record.type) {
@@ -249,6 +263,9 @@ export function createMenuOwnerPorts(
         const next = candidate as MenuSection;
         state.menu = { ...next, screens: record.type === "navigation" ? next.screens.map((screen) => ({ ...screen })) : next.screens };
         return ACCEPTED;
+      },
+      updateCurrent(input: { readonly actorId: number | null; readonly selection: number }): MenuStateResult {
+        return this.apply({ type: "updateCurrent", actorId: input.actorId, selection: input.selection });
       },
     },
   };
