@@ -21,6 +21,8 @@ import type { GameState, SectionKey } from "../save/state.ts";
 import type { ClockPort } from "../ports/time.ts";
 import { createClockPort, MAX_TICK, runTimePhase } from "../time/time.ts";
 import { createActorHostType, createActorService, type ActorService } from "../actors/port.ts";
+import { createBattleOwner } from "../battle/port.ts";
+import { BATTLE_HOST_TYPE, createBattleHostType } from "../battle/host.ts";
 import { createActorEventSink } from "../actors/object.ts";
 import { createBehaviourRegistry, resolveBehaviour, type BehaviourRegistry } from "../actors/behaviour.ts";
 import { createMenuOwnerPorts, type MenuOwnerPorts } from "../menu/ports.ts";
@@ -337,18 +339,24 @@ export function createScriptServices(
     (actor) => resolveBehaviour(behaviours, actor, diagnostics),
     createActorEventSink(state.vm, state.events, state.actors),
   );
+  const battle = createBattleOwner({
+    readBattle: () => state.battle,
+    readActors: () => state.actors,
+    commit: (section) => { state.battle = section; },
+  });
   const view = Object.freeze({
     rng,
     clock,
     state: commandState,
     actors,
+    battle,
     ...(media === undefined ? {} : { media }),
     objectMembers: (handle: number) => state.vm.objects.find((record) => record.handle === handle)?.members,
     gameId,
     get packageStartup() { return packageStartupActive.active; },
     get thread() { return commandThread; },
   }) as CommandView;
-  const virt = virtuals ?? createDefaultVirtuals(state, actors, media);
+  const virt = virtuals ?? createDefaultVirtuals(state, actors, media, battle);
   const registry = assembleCommands(observePlugins(plugins, observers?.postHandler), logger);
   for (const problem of registerNativeListeners(state.events, plugins)) {
     logger.warn({
@@ -383,6 +391,7 @@ export function createScriptServices(
   });
   const hydratedTypes = new Map<string, HostObjectType>();
   hydratedTypes.set("actor", createActorHostType(actors));
+  hydratedTypes.set(BATTLE_HOST_TYPE, createBattleHostType());
   if (media !== undefined) for (const type of MEDIA_HOST_TYPES) hydratedTypes.set(type.name, type);
   const menuOwners = menuPorts ?? createMenuOwnerPorts(state);
   for (const plugin of plugins) {
@@ -1027,7 +1036,14 @@ function isHostMethod(program: Program, record: ObjectRecord, name: string, serv
 
 function hostContext(services: ScriptServices, record: ObjectRecord): HostObjectContext | null {
   const state = services.view.state;
-  return state === undefined ? null : { state, events: state.events, vm: state.vm, record, ...(services.media === undefined ? {} : { media: services.media }) };
+  return state === undefined ? null : {
+    state,
+    events: state.events,
+    vm: state.vm,
+    record,
+    ...(services.media === undefined ? {} : { media: services.media }),
+    ...(services.view.battle === undefined ? {} : { battle: services.view.battle }),
+  };
 }
 
 function hostMemberName(name: string): string {

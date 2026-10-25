@@ -14,6 +14,7 @@ export * from "./render/index.ts";
 export * from "./audio/index.ts";
 
 export * from "./actors/index.ts";
+export * from "./battle/index.ts";
 export * from "./menu/index.ts";
 export * from "./sprites/index.ts";
 export * from "./triggers/index.ts";

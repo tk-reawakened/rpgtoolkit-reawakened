@@ -657,39 +657,6 @@ export const GSMISC_PLUGIN: PluginDefinition = {
       call: (_view, args) => effect(args, "party"),
     },
     {
-      name: "givefp",
-      aliases: [],
-      params: [
-        { name: "target", optional: false, byRef: false, variadic: false },
-        { name: "amount", optional: false, byRef: false, variadic: false },
-      ],
-      call: (_view, args) => effect(args, "party"),
-    },
-    {
-      name: "getdp",
-      aliases: [],
-      params: [
-        { name: "target", optional: false, byRef: false, variadic: false },
-        { name: "dest", optional: true, byRef: true, variadic: false },
-      ],
-      call: (_view, args) => {
-        const out = byRefOut(args, 1, 0);
-        return { value: 0, out, effects: [{ kind: "mixed", section: "party" }] };
-      },
-    },
-    {
-      name: "getfp",
-      aliases: [],
-      params: [
-        { name: "target", optional: false, byRef: false, variadic: false },
-        { name: "dest", optional: true, byRef: true, variadic: false },
-      ],
-      call: (_view, args) => {
-        const out = byRefOut(args, 1, 0);
-        return { value: 0, out, effects: [{ kind: "mixed", section: "party" }] };
-      },
-    },
-    {
       name: "gettime",
       aliases: [],
       params: [{ name: "dest", optional: true, byRef: true, variadic: false }],

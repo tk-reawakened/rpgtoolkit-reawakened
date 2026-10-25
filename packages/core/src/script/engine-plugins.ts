@@ -10,13 +10,15 @@
 import { CORE_PLUGIN } from "./builtins.ts";
 import { CATALOGUE_PLUGIN } from "./catalogue-responders.ts";
 import { NATIVE_PACK_TABLE } from "./legacy-plugins.ts";
+import { BATTLE_PLUGIN } from "./packs/battle.ts";
 import { MEDIA_PLUGIN } from "./packs/media.ts";
 import type { PluginDefinition } from "./plugin.ts";
 
-/** Manifest id to the engine's own definition: `core`, `media`, `catalogue` and every native pack. */
+/** Manifest id to the engine's own definition: `core`, `media`, `battle`, `catalogue` and every native pack. */
 export const ENGINE_PLUGIN_TABLE: Readonly<Record<string, PluginDefinition>> = {
   core: CORE_PLUGIN,
   media: MEDIA_PLUGIN,
+  battle: BATTLE_PLUGIN,
   catalogue: CATALOGUE_PLUGIN,
   ...NATIVE_PACK_TABLE,
 };

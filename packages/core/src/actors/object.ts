@@ -44,6 +44,7 @@ export function queueActorTransition(vm: VmState, events: EventsSection, actors:
     case "statusChanged":
       queueNativeEvent(vm, events, actorEmitterKey(actor.id), transition.type, {
         status: transition.status,
+        // Script member names are folded; readEvent exposes the specified previousRounds spelling.
         previousrounds: transition.previousRounds,
         rounds: transition.rounds,
         expired: transition.expired,

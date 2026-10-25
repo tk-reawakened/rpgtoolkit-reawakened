@@ -14,6 +14,7 @@ import {
   PACKAGE_ROOT,
   utf8Encode,
   CORE_PLUGIN,
+  BATTLE_PLUGIN,
   MEDIA_PLUGIN,
   CATALOGUE_PLUGIN,
   WORLD_PLUGIN,
@@ -1226,6 +1227,7 @@ export function verifyCatalogueCompleteness(
   const plugins = [
     { definition: CORE_PLUGIN },
     { definition: MEDIA_PLUGIN },
+    { definition: BATTLE_PLUGIN },
     { definition: CATALOGUE_PLUGIN },
     { definition: WORLD_PLUGIN },
     { definition: TK2_COMPAT_PLUGIN },

@@ -94,6 +94,7 @@ export type PluginManifestParseResult = {
 export const ENGINE_DEFAULT_MANIFEST: PluginManifest = [
   { id: "core" },
   { id: "media" },
+  { id: "battle" },
   { id: "catalogue" },
   { id: "world" },
   { id: "render" },

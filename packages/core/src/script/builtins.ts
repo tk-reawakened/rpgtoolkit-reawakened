@@ -172,19 +172,12 @@ export const CORE_PLUGIN: PluginDefinition = {
           throw new ScriptError("builtin.bad-arg", "actor_damage: target must be an actor object");
         }
         const id = Number(emitter.slice("actor:".length));
-        const actor = view.actors.readActor(id);
         const amount = args[1]?.value;
-        if (actor === null || typeof amount !== "number" || !Number.isFinite(amount)) return { value: 0 };
+        if (typeof amount !== "number" || !Number.isFinite(amount)) return { value: 0 };
         const sourceValue = args[2]?.value;
         const source = typeof sourceValue === "number" && sourceValue > 0 ? sourceValue : null;
         const pool = args[3]?.value === "smp" ? "smp" : "hp";
-        const before = pool === "smp" ? actor.stats.smp : actor.stats.hp;
-        const patch = pool === "smp" ? { smp: before - amount } : { hp: before - amount };
-        const result = view.actors.updateStats(id, patch, { cause: "damage", source });
-        if (result === null) return { value: 0 };
-        const afterActor = view.actors.readActor(id);
-        const after = afterActor === null ? before : pool === "smp" ? afterActor.stats.smp : afterActor.stats.hp;
-        return { value: before - after };
+        return { value: view.actors.damage(id, amount, source, pool) ?? 0 };
       },
       doc: {
         summary: "Apply damage to a live actor's HP or SMP pool.",

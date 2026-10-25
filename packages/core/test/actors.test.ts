@@ -376,7 +376,7 @@ statusSource = 99
 statusExpired = -1
 actor.on("fallen", (event) => { fallenCause = event.detail.cause; fallenSource = event.detail.source; fallenCount = fallenCount + 1 })
 actor.on("revived", (event) => { revivedCause = event.detail.cause; revivedSource = event.detail.source; revivedCount = revivedCount + 1 })
-actor.on("statusChanged", (event) => { statusName = event.detail.status + ":" + event.detail.previousrounds + ":" + event.detail.rounds; statusSource = event.detail.source; statusExpired = event.detail.expired })
+actor.on("statusChanged", (event) => { statusName = event.detail.status + ":" + event.detail.previousRounds + ":" + event.detail.rounds; statusSource = event.detail.source; statusExpired = event.detail.expired })
 actor.hp = 0
 actor.hp = 0
 `,

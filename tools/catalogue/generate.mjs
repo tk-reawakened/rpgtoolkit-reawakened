@@ -167,7 +167,7 @@ const IMPLEMENTED_COMMANDS = new Set([
   "fileeof",
   "apppath",
 ]);
-/** Commands owned by first-party world/render packs; catalogue stubs must not shadow them. */
+/** Commands owned by first-party domain packs; catalogue stubs must not shadow them. */
 const REAL_PACK_COMMANDS = new Set([
   // world pack
   "camerapanto", "camerafollow", "camerareset", "camerashake", "getcorner",
@@ -194,7 +194,9 @@ const REAL_PACK_COMMANDS = new Set([
   "push", "pushitem", "playerstep", "itemstep", "playerpath", "itempath", "playerlocation", "itemlocation",
   "playergetpath", "itemgetpath", "activeplayer", "removeplayer", "destroyplayer", "playerdirection", "itemdirection", "playerspeed",
   "itemspeed", "playerstance", "itemstance", "wander", "wait", "get", "clearbuffer", "setbutton", "checkbutton", "clearbuttons", "mousemove", "mouseclick",
-
+  // battle pack
+  "hp", "givehp", "gethp", "maxhp", "getmaxhp", "smp", "givesmp", "getsmp", "maxsmp", "getmaxsmp",
+  "fp", "givefp", "getfp", "dp", "getdp", "applystatus", "removestatus", "giveexp",
 ]);
 /** The stub-safe rows of the catalogue, in catalogue order. */
 export function stubRows(catalogue) {

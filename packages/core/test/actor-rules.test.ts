@@ -3,12 +3,16 @@ import { test } from "node:test";
 import {
   addActor,
   advanceStatus,
+  applyActorStatus,
   applyEquipment,
   equipmentDefinitionFromItem,
   awardExperience,
+  createActorService,
   createActorsSection,
+  removeActorStatus,
   updateActorStats,
   type ActorHooks,
+  type StatusChangedContext,
 } from "../src/index.ts";
 
 function actor(overrides: Record<string, unknown> = {}) {
@@ -305,4 +309,50 @@ test("the five hooks are direct synchronous plain-data seams", () => {
   ok(calls.includes("equipmentChanged"));
   ok(calls.includes("levelUp"));
   ok(calls.includes("stats"));
+});
+
+test("actor status owner restarts counters, removes identities, and emits ordinary transitions", () => {
+  const state = actor({ statuses: { Poison: 2 } });
+  const published: unknown[] = [];
+  const hookCalls: StatusChangedContext[] = [];
+  const service = createActorService(
+    state.section,
+    () => ({
+      statusChanged: (_record, context) => { hookCalls.push(context); return {}; },
+    }),
+    (result) => published.push(...result.transitions),
+  );
+
+  const restarted = service.applyStatus(state.actor.id, "poison", 5, { source: 22 });
+  ok(restarted);
+  deepEqual(state.section.actors[0]?.statuses, { Poison: 5 });
+  deepEqual(restarted.transitions, [{
+    type: "statusChanged", actorId: state.actor.id, status: "Poison",
+    previousRounds: 2, rounds: 5, expired: false, source: 22,
+  }]);
+  equal(hookCalls[0]?.rounds, 5);
+
+  const removed = service.removeStatus(state.actor.id, "POISON", { source: 22 });
+  ok(removed);
+  deepEqual(state.section.actors[0]?.statuses, {});
+  deepEqual(removed.transitions, [{
+    type: "statusChanged", actorId: state.actor.id, status: "Poison",
+    previousRounds: 5, rounds: 0, expired: true, source: 22,
+  }]);
+  equal(service.removeStatus(state.actor.id, "poison")?.transitions.length, 0);
+  equal(published.length, 2);
+  deepEqual(published, [...restarted.transitions, ...removed.transitions]);
+
+  const zeroRounds = applyActorStatus(state.section, state.actor.id, "slow", 0);
+  ok(zeroRounds);
+  deepEqual(state.section.actors[0]?.statuses, { slow: 0 });
+  const zeroTransition = zeroRounds.transitions[0];
+  if (zeroTransition?.type !== "statusChanged") throw new Error("applying a status must emit a statusChanged transition");
+  equal(zeroTransition.expired, false);
+  const beforeInvalid = JSON.stringify(state.section.actors[0]?.statuses);
+  throws(() => service.applyStatus(state.actor.id, "slow", -1));
+  equal(JSON.stringify(state.section.actors[0]?.statuses), beforeInvalid);
+  const directRemoval = removeActorStatus(state.section, state.actor.id, "SLOW");
+  ok(directRemoval);
+  deepEqual(state.section.actors[0]?.statuses, {});
 });

@@ -1,0 +1,43 @@
+party0Size = battle.partySize(0)
+party1Size = battle.partySize(1)
+fighter = battle.fighter(1, 0)
+enemyFighter = battle.fighter(0, 0)
+enemyReference = { party: 0, index: 0 }
+sourceHp = gethp("source")
+targetHp = gethp("target")
+partyNameHp = gethp("Hero")
+enemyReferenceHp = gethp(enemyReference)
+initialPlayerCharge = battle.charge(1, 0)
+battle.addCharge(1, 0, 200)
+storedPlayerCharge = battle.charge(1, 0)
+playerPercentHigh = battle.chargePercent(1, 0)
+battle.setCharge(0, 0, 61.5)
+enemyPercent = battle.chargePercent(0, 0)
+battle.setCharge(1, 0, -5)
+playerPercentLow = battle.chargePercent(1, 0)
+battle.releaseCharge(1, 0)
+releasedCharge = battle.charge(1, 0)
+runAllowed = battle.canRun
+outcomeBefore = battle.outcome
+hp("Hero", 4)
+givehp("Hero", 3)
+fighterHp = fighter.hp
+aliasHp = gethp("Hero")
+maxhp("Hero", 22)
+maxHpRead = getmaxhp("Hero")
+smp("Hero", 2)
+givesmp("Hero", 3)
+smpRead = getsmp("Hero")
+maxsmp("Hero", 9)
+maxSmpRead = getmaxsmp("Hero")
+fp("Hero", 4)
+givefp("Hero", 2)
+fpRead = getfp("Hero")
+dp("Hero", 7)
+dpRead = getdp("Hero")
+giveexp("Hero", 1)
+experienceRead = fighter.experience
+fighter.hp = 6
+secondAliasHp = gethp("Hero")
+battle.finish(2)
+outcomeAfter = battle.outcome

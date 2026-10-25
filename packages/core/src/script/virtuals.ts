@@ -9,6 +9,8 @@ import { createActorService, type ActorService } from "../actors/port.ts";
 import type { ActorStats } from "../actors/model.ts";
 import type { GameState } from "../save/state.ts";
 import { TICKS_PER_SECOND } from "../time/time.ts";
+import { createBattleOwner, type BattleOwner } from "../battle/port.ts";
+import { registerBattleObject } from "../battle/host.ts";
 import { ScriptError } from "./errors.ts";
 
 export type VirtualWriteResult = "written" | "read-only" | "not-virtual";
@@ -50,6 +52,7 @@ function isSystemVirtual(name: string): boolean {
   return (
     name === "gametime" ||
     name === "music" ||
+    name === "battle" ||
     name === "party" ||
     name === "media" ||
     name === GAME_EMITTER ||
@@ -81,6 +84,11 @@ export function createDefaultVirtuals(
   state: GameState,
   actors: ActorService = createActorService(state.actors),
   media?: MediaScriptService,
+  battle: BattleOwner = createBattleOwner({
+    readBattle: () => state.battle,
+    readActors: () => state.actors,
+    commit: (section) => { state.battle = section; },
+  }),
 ): VirtualVariablePort {
   const read = (rawName: string): Value | undefined => {
     const name = rawName.toLowerCase();
@@ -91,6 +99,9 @@ export function createDefaultVirtuals(
     }
     if (name === "gametime") return Math.floor(state.time.tick / TICKS_PER_SECOND);
     if (name === "music") return musicFile(state.audio) ?? "";
+    if (name === "battle") {
+      return objectValue(registerBattleObject(state.vm));
+    }
     if (name === "media") {
       const record = media === undefined ? registerEmitter(state.vm, state.events, MEDIA_EMITTER) : media.mediaObject();
       return objectValue(record);
