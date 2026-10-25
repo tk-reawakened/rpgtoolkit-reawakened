@@ -1,4 +1,4 @@
-import { deepEqual, equal, ok } from "node:assert/strict";
+import { deepEqual, equal, ok, throws } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,7 @@ import {
   SCHEMA_VERSIONS,
   snapshot,
   type BattleState,
+  type Diagnostic,
   validateBattleSection,
 } from "../src/index.ts";
 const fixturePath = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "save", "battle-v1.json");
@@ -32,6 +33,17 @@ test("battle state snapshots preserve fighters, charge and outcome in the canoni
   ok(!JSON.stringify(restored.battle).match(/\"(hp|smp|status|stats)\"/));
 });
 
+test("restored mid-fight battle continues to the uninterrupted canonical hash", () => {
+  const uninterrupted = createGameState({ seed: 27 });
+  uninterrupted.battle = makeBattle(uninterrupted);
+  const resumed = restoreGameState(snapshot(uninterrupted));
+  for (const current of [uninterrupted, resumed]) {
+    current.time.tick += 1;
+    current.battle!.parties[0][0]!.charge += 1;
+  }
+  equal(hashGameState(resumed), hashGameState(uninterrupted));
+});
+
 test("battle section schema v1 empty placeholder restores to null", () => {
   const raw = JSON.parse(readFileSync(fixturePath, "utf8")) as { battle: unknown; schema: { battle: number } };
   equal(raw.schema.battle, 1);
@@ -47,8 +59,8 @@ test("dangling and duplicate fighter ids are retained with one located diagnosti
   battle.parties[0].push({ party: 0, actorId: 900 as never, charge: 2 });
   battle.parties[1].push({ ...battle.parties[1][0]!, charge: 3 });
   state.battle = battle;
-  const diagnostics: { code: string; message: string }[] = [];
-  const restored = restoreGameState(snapshot(state), diagnostics as never);
+  const diagnostics: Diagnostic[] = [];
+  const restored = restoreGameState(snapshot(state), diagnostics);
   equal(diagnostics.length, 2);
   ok(diagnostics.every((item) => item.code === "restore.battle-fighter"));
   ok(diagnostics.some((item) => item.message.includes("battle.parties[0][1].actorId")));
@@ -68,6 +80,19 @@ test("battle validation locates malformed outcomes and non-finite charge", () =>
   const issues = validateBattleSection(malformed, state.actors);
   ok(issues.some((issue) => issue.path === "battle.outcome"));
   ok(issues.some((issue) => issue.path === "battle.parties[1][0].charge"));
+});
+
+test("malformed battle shapes reject restore with the standard shape error", () => {
+  const state = createGameState({ seed: 1 });
+  state.battle = makeBattle(state);
+  for (const battle of [
+    { ...state.battle, outcome: 5 },
+    { ...state.battle, parties: [state.battle.parties[0], [{ ...state.battle.parties[1][0]!, charge: Number.NaN }]] },
+    { ...state.battle, parties: [state.battle.parties[0]] },
+  ]) {
+    const malformed = { ...JSON.parse(snapshot(state)), battle };
+    throws(() => restoreGameState(JSON.stringify(malformed)), (error: unknown) => (error as { code?: string }).code === "restore.shape");
+  }
 });
 
 test("a fresh game state has no active battle", () => {
