@@ -17,9 +17,14 @@ PROJECT_ID = "PVT_kwDOFH0rD84Bnzfi"
 
 STATUS_FIELD_ID = "PVTSSF_lADOFH0rD84BnzfizhmWa0w"
 STATUS_OPTIONS = {
-    "Todo": "f75ad846",
-    "In Progress": "47fc9ee4",
-    "Done": "98236657",
+    "Draft": "21a74e34",
+    "Ready for Dev": "a8cecafe",
+    "In Progress": "f6c0d6d9",
+    "In Review": "fb146e09",
+    "Built": "bc56f2f4",
+    "Blocked": "31d77a88",
+    "Done": "d4a82464",
+    "Dropped": "939c6cf8",
 }
 
 AREA_FIELD_ID = "PVTSSF_lADOFH0rD84BnzfizhmWbGg"
@@ -291,12 +296,21 @@ def main():
                 if priority_opt:
                     gh_graphql(update_query, {"projectId": PROJECT_ID, "itemId": item_id, "fieldId": PRIORITY_FIELD_ID, "optId": priority_opt}, token=token)
 
-                # Update Status if not done (done is auto-assigned by GitHub)
-                if state != "done":
-                    status_opt = STATUS_OPTIONS.get("Todo")
-                    if status_opt:
-                        gh_graphql(update_query, {"projectId": PROJECT_ID, "itemId": item_id, "fieldId": STATUS_FIELD_ID, "optId": status_opt}, token=token)
-
+                ticket_status = t.get("status", "").lower()
+                status_name = {
+                    "draft": "Draft",
+                    "ready-for-dev": "Ready for Dev",
+                    "in-progress": "In Progress",
+                    "in-review": "In Review",
+                    "built": "Built",
+                    "blocked": "Blocked",
+                    "done": "Done",
+                    "dropped": "Dropped",
+                }.get(ticket_status)
+                if status_name is None:
+                    status_name = {"done": "Done", "dropped": "Dropped"}.get(state, "Draft")
+                status_opt = STATUS_OPTIONS[status_name]
+                gh_graphql(update_query, {"projectId": PROJECT_ID, "itemId": item_id, "fieldId": STATUS_FIELD_ID, "optId": status_opt}, token=token)
             # Small sleep to keep well below secondary rate limits
             time.sleep(0.4)
 
