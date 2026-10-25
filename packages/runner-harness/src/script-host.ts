@@ -366,7 +366,8 @@ export function createScriptHost(init: ScriptHostInit): ScriptHost {
 
 /** Restore a host from a snapshot, rebinding the same effective manifest. */
 export function restoreScriptHost(json: string, init: ScriptHostRestore): ScriptHost {
-  const gameState = restoreGameState(json);
+  const restoreDiagnostics: Diagnostic[] = [];
+  const gameState = restoreGameState(json, restoreDiagnostics);
   const isTk2 =
     init.dialect === "tk2" ||
     gameState.vm.threads.some((t) => t.frames.some((f) => f.program.dialect === "tk2"));
@@ -422,5 +423,5 @@ export function restoreScriptHost(json: string, init: ScriptHostRestore): Script
   // The compiled programs are not in the snapshot: check that every callable in it
   // still resolves against the ones this host rebuilds (FUN-8; entry 18.6).
   verifyRestoredHandles(gameState.vm, services, gameState.events);
-  return createHost(gameState, services, resolution.diagnostics, init.blobs);
+  return createHost(gameState, services, [...restoreDiagnostics, ...resolution.diagnostics], init.blobs);
 }

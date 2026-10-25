@@ -744,6 +744,7 @@ function validateShape(record: Record<string, unknown>): void {
   for (const key of Object.keys(SCHEMA_VERSIONS)) numberAt(schema[key], `schema.${key}`);
   stringAt(schema.compiler, "schema.compiler");
   for (const key of Object.keys(SCHEMA_VERSIONS)) {
+    if (key === "schema" || key === "vm" || key === "rng" || key === "time") continue;
     if (key === "battle") {
       if (record.battle !== null) recordAt(record[key], key);
       continue;
