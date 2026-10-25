@@ -220,7 +220,7 @@ function statusRequest(view: CommandView, args: readonly Arg[], operation: Statu
   return {
     value: null,
     request: { kind: "asset", area: "statusEffects", path: statusPath(text(args, 1)) },
-    then: { command: "__battle_status_asset", args: [operation, target, statusSource(view)] },
+    then: { command: "__battle_status_asset", args: [operation, target, statusSource(view), statusPath(text(args, 1))] },
   };
 }
 
@@ -242,9 +242,10 @@ function statusContinuation(view: CommandView, args: readonly Arg[]): CommandRes
   const source = typeof sourceValue === "number" && Number.isSafeInteger(sourceValue) && sourceValue > 0 ? sourceValue as ActorId : null;
   const actors = view.actors;
   if (actors === undefined) throw new ScriptError("battle.bad-fighter", `unknown status target (party=unknown, index=unknown)`);
+  const file = text(args, 5);
   const result = operation === "apply"
-    ? actors.applyStatus(actorId, status.value.name, status.value.rounds, { source })
-    : actors.removeStatus(actorId, status.value.name, { source });
+    ? actors.applyStatus(actorId, file, status.value.rounds, { source })
+    : actors.removeStatus(actorId, file, { source });
   if (result === null) throw new ScriptError("battle.bad-fighter", `unknown status target (party=unknown, index=unknown)`);
   return { value: null };
 }
@@ -403,10 +404,10 @@ const FINISH = {
   call: (view: CommandView, args: readonly Arg[]) => { resolve(owner(view).apply({ type: "finish", code: numeric(args, 1) })); return { value: null }; },
 } satisfies BuiltinSpec;
 const STATUS_ASSET = {
-  name: "__battle_status_asset", aliases: [], params: [parameter("ok"), parameter("bytes"), parameter("operation"), parameter("actor"), parameter("source", true)],
+  name: "__battle_status_asset", aliases: [], params: [parameter("ok"), parameter("bytes"), parameter("operation"), parameter("actor"), parameter("source"), parameter("file")],
   doc: internalDocumentation(
     "Resume a status-effect asset request.",
-    "After the host replies, reads the status name and rounds from the `.ste` asset and delegates the counter change to the actor owner.",
+    "After the host replies, reads rounds from the `.ste` asset and delegates the counter change to the actor owner, keyed by the supplied file name (extension appended, StatusE prefix removed); the in-file name is display data only.",
     [
       { code: "asset.missing", when: "the requested StatusE asset is missing" },
       { code: "request.bad-reply", when: "the host reply is malformed" },
@@ -456,7 +457,7 @@ const APPLY_STATUS: BuiltinSpec = {
   name: "applystatus", aliases: [], params: [parameter("target"), parameter("file")],
   doc: documentation(
     "Apply a status effect to a fighter.",
-    `Loads StatusE/<file>.ste (the prefix and extension may be omitted), then starts or restarts the actor-owned counter at the file's non-negative rounds value, including zero; re-application replaces the counter and never adds rounds. The actor owner emits the ordinary \`statusChanged\` event with detail { status, previousRounds, rounds, expired, source }. This call waits for the asset reply but does not tick counters or apply battle-round effects. ${FIGHTER_HANDLES}`,
+    `Loads StatusE/<file>.ste (the prefix and extension may be omitted), then starts or restarts the actor-owned counter keyed by that file name, preserving spelling and comparing ignoring case, at the file's non-negative rounds value, including zero; re-application replaces the counter and never adds rounds. The embedded name is display data only. The actor owner emits the ordinary \`statusChanged\` event with detail { status, previousRounds, rounds, expired, source }. This call waits for the asset reply but does not tick counters or apply battle-round effects. ${FIGHTER_HANDLES}`,
     STATUS_APPLY_THROWS,
     STATUS_WAIT,
   ),
@@ -466,7 +467,7 @@ const REMOVE_STATUS: BuiltinSpec = {
   name: "removestatus", aliases: [], params: [parameter("target"), parameter("file")],
   doc: documentation(
     "Remove a status effect from a fighter.",
-    `Loads StatusE/<file>.ste (the prefix and extension may be omitted) to identify the status name, then removes that actor-owned counter; when present, the actor owner emits the ordinary \`statusChanged\` event with detail { status, previousRounds, rounds, expired, source }. Removing an absent status is a no-op. This call waits for the asset reply but does not tick counters or apply battle-round effects. ${FIGHTER_HANDLES}`,
+    `Loads StatusE/<file>.ste (the prefix and extension may be omitted), then removes the actor-owned counter keyed by that file name, compared ignoring case; when present, the actor owner emits the ordinary \`statusChanged\` event with detail { status, previousRounds, rounds, expired, source }. Removing an absent status is a no-op. The embedded name is display data only. This call waits for the asset reply but does not tick counters or apply battle-round effects. ${FIGHTER_HANDLES}`,
     STATUS_REMOVE_THROWS,
     STATUS_WAIT,
   ),
