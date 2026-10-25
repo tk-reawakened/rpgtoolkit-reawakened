@@ -437,7 +437,7 @@ const GIVE_EXP: BuiltinSpec = {
   name: "giveexp", aliases: [], params: [parameter("handle"), parameter("amount")],
   doc: documentation(
     "Give experience to a player.",
-    `${FIGHTER_HANDLES} Awards a non-negative safe-integer number of experience points through the actor progression owner; all threshold checks, level changes, and events follow that shared path. The update is synchronous unless an actor level-up hook requests a wait; legacy actor handles work without an active battle.`,
+    `${FIGHTER_HANDLES} Awards a non-negative safe-integer number of experience points through the actor progression owner. It checks each crossed threshold in order and commits level/stat changes synchronously; the command does not wait. Legacy actor handles work without an active battle.`,
     [
       { code: "battle.bad-fighter", when: "the handle does not identify an actor" },
       { code: "battle.not-active", when: "an enemy reference is used without an active battle" },
