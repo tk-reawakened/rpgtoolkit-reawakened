@@ -3,7 +3,7 @@ title: "The battle-facing API and the battle built-ins"
 type: 'feature'
 ticket: 3
 created: '2026-10-19'
-status: draft
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "high"
 context:

@@ -3,7 +3,7 @@ title: "Battle state: parties, fighter references and charge"
 type: 'feature'
 ticket: 2
 created: '2026-10-19'
-status: draft
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "high"
 context:
