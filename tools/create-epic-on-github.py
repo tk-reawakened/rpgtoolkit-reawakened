@@ -31,14 +31,17 @@ STATUS_OPTION_IDS = {
 }
 
 
-def gh_api(endpoint: str, payload: dict | None = None) -> dict:
+def gh_api(endpoint: str, payload: dict | None = None, method: str = "POST") -> dict:
     command = ["gh", "api", endpoint]
     if payload is not None:
-        command.extend(["--method", "POST", "--input", "-"])
+        command.extend(["--method", method, "--input", "-"])
         result = subprocess.run(command, input=json.dumps(payload), text=True, capture_output=True, check=True)
     else:
         result = subprocess.run(command, text=True, capture_output=True, check=True)
-    return json.loads(result.stdout) if result.stdout.strip() else {}
+    response = json.loads(result.stdout) if result.stdout.strip() else {}
+    if endpoint == "graphql" and response.get("errors"):
+        raise RuntimeError(f"GitHub GraphQL error: {response['errors']}")
+    return response
 
 
 def github_issue_number(tracker_id: str) -> int:
@@ -120,6 +123,13 @@ def main() -> None:
         print(f"Created Epic issue #{parent_number} and wrote tracker_id")
 
     parent = gh_api(f"repos/{REPO}/issues/{parent_number}")
+    if parent.get("title") != title or (parent.get("body") or "").rstrip() != body.rstrip():
+        gh_api(
+            f"repos/{REPO}/issues/{parent_number}",
+            {"title": title, "body": body},
+            method="PATCH",
+        )
+        print(f"Updated parent issue #{parent_number} from epic metadata")
     parent_node = parent["node_id"]
     project_query = """mutation($project:ID!, $content:ID!) {
       addProjectV2ItemById(input:{projectId:$project, contentId:$content}) { item { id } }
