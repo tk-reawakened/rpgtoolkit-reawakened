@@ -656,6 +656,17 @@ test("a host restored while a closure is parked mid-call finishes with the same 
   equal(restored.state().vm.globals.after, 13);
 });
 
+test("restoreScriptHost reports dangling battle fighters through TickReport and keeps them", () => {
+  const host = createScriptHost({ program: "end()\n", seed: 0 });
+  const saved = JSON.parse(host.snapshot()) as { battle: unknown; actors: { actors: unknown[] } };
+  saved.battle = { id: 1, boardKey: "board", background: "fight.bkg", canRun: true, outcome: null, parties: [[{ party: 0, actorId: 987654, charge: 3 }], []] };
+  const restored = restoreScriptHost(JSON.stringify(saved), {});
+  equal(restored.state().battle?.parties[0][0]?.actorId, 987654);
+  const diagnostics = restored.advance(0, []).diagnostics.filter((item) => item.code === "restore.battle-fighter");
+  equal(diagnostics.length, 1);
+  equal(diagnostics[0]?.message.includes("battle.parties[0][0].actorId"), true);
+});
+
 test("restoreScriptHost refuses a snapshot whose closure data is damaged, with a typed error naming the place", () => {
   const host = createScriptHost({ program: CLOSURES, seed: 0 });
   host.advance(1, []);
