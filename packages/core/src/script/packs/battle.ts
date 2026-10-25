@@ -479,7 +479,7 @@ export const BATTLE_PLUGIN: PluginDefinition = {
   doc: {
     summary: "For game scripts, inspect active fighters, read or update stored charge, and record a battle outcome through the battle owner.",
     groups: [
-      { id: GROUP, name: "Battle, stats & menus", summary: "`battle.partySize`, `battle.fighter`, charge methods (`battle.charge`, `battle.addCharge`, `battle.setCharge`, `battle.releaseCharge`, `battle.chargePercent`), and `battle.finish` are synchronous owner-mediated operations requiring an active battle. Party is 0 for enemies and 1 for the player's ordered party; indexes are zero-based. Invalid party/index/position is `battle.bad-fighter`; no active battle is `battle.not-active`. `battle.canRun` is a read-only boolean; `battle.outcome` is read-only and is null until finish records a code from 0 through 4. `battle.fighter` returns the canonical actor object." },
+      { id: GROUP, name: "Battle, stats & menus", summary: "`battle.partySize`, `battle.fighter`, charge methods (`battle.charge`, `battle.addCharge`, `battle.setCharge`, `battle.releaseCharge`, `battle.chargePercent`), and `battle.finish` are synchronous owner-mediated operations requiring an active battle. Party is 0 for enemies and 1 for the player's ordered party; indexes are zero-based. Invalid party/index/position is `battle.bad-fighter`; no active battle is `battle.not-active`. `battle.canRun` is read-only and returns 1 when the section flag is true or 0 when false; `battle.outcome` is read-only and is null until finish records a code from 0 through 4. `battle.fighter` returns the canonical actor object." },
       { id: "internal", name: "Internal", summary: "Deterministic host continuations for battle methods and StatusE requests." },
     ],
   },
