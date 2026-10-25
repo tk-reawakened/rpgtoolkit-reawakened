@@ -2818,19 +2818,29 @@ export function stepThread(
       steps += 1;
       incrementStepCounter(vm, top.program.owner);
       const pos: SourcePos = { file: pending.file, line: pending.line };
-      const args = pending.args.map((value) => continuationArg(value, pos));
-      const outcome = performContinuation(
-        thread,
-        vm,
-        services,
-        services.programs.get(top.program),
-        top,
-        pendingIndex,
-        pending.command,
-        args,
-        pos,
-      );
-      if (outcome === "yield") return finish();
+      const program = services.programs.get(top.program);
+      // The requesting call has already consumed its arguments and advanced
+      // the IP. A failed reply belongs to that same call and frame (ERR-1/2),
+      // not to the host: restore its missing result or enter its error handler.
+      const callIp = top.ip - 1;
+      const call = program.ops[callIp];
+      const depth = top.operands.length + (call === undefined ? 0 : stackEffect(call).pops);
+      try {
+        const args = pending.args.map((value) => continuationArg(value, pos));
+        const outcome = performContinuation(
+          thread, vm, services, program, top, pendingIndex, pending.command, args, pos,
+        );
+        if (outcome === "yield") return finish();
+      } catch (caught) {
+        if (top.menuContinuation !== undefined) {
+          handleMenuProviderFailure(
+            thread, vm, services, top.menuContinuation as { readonly [key: string]: PlainData }, caught,
+          );
+        } else {
+          if (!(caught instanceof ScriptError) || failureClass(caught.code) === null || call === undefined) throw caught;
+          handleFailure(thread, vm, services, program, top, call, callIp, depth, caught);
+        }
+      }
       continue;
     }
     const queued = thread.queue[0];

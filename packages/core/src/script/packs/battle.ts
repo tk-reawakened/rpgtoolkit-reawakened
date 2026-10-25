@@ -1,7 +1,10 @@
-import { BinaryReader } from "../../formats/binary/reader.ts";
+import type { StatusEffect } from "../../formats/battle/model.ts";
 import { readStatusEffect } from "../../formats/battle/status-effect.ts";
-import { registerActorObject } from "../../actors/object.ts";
+import type { Result } from "../../formats/result.ts";
+import { BinaryReader } from "../../formats/binary/reader.ts";
+import { createObject, writeMember } from "../objects.ts";
 import type { ActorId, ActorStats } from "../../actors/model.ts";
+import { registerActorObject } from "../../actors/object.ts";
 import type { BattleAction, BattleOperationResult } from "../../battle/port.ts";
 import type { Value } from "../../ports/value.ts";
 import type { Arg, BuiltinDoc, BuiltinSpec, ParamSpec } from "../builtins.ts";
@@ -224,13 +227,16 @@ function statusRequest(view: CommandView, args: readonly Arg[], operation: Statu
   };
 }
 
-function statusContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
+function statusFileReply(args: readonly Arg[]): Result<StatusEffect> {
   if (numeric(args, 0) !== 1) throw new ScriptError("asset.missing", "status effect asset was not found");
   const hex = text(args, 1);
   if (hex.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(hex)) throw new ScriptError("request.bad-reply", "status effect asset reply must be hexadecimal bytes");
   const bytes = new Uint8Array(hex.length / 2);
   for (let index = 0; index < bytes.length; index += 1) bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
-  const status = readStatusEffect(new BinaryReader(bytes));
+  return readStatusEffect(new BinaryReader(bytes));
+}
+function statusContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
+  const status = statusFileReply(args);
   if (!status.ok) throw new ScriptError("format.status-effect", status.error.message);
   const operation = text(args, 2);
   const actorId = integer(args, 3, "battle status operation");
@@ -249,6 +255,65 @@ function statusContinuation(view: CommandView, args: readonly Arg[]): CommandRes
   if (result === null) throw new ScriptError("battle.bad-fighter", `unknown status target (party=unknown, index=unknown)`);
   return { value: null };
 }
+
+function statusFlagsContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
+  const status = statusFileReply(args);
+  if (!status.ok) throw new ScriptError("format.status-effect", status.error.message);
+  const object = createObject(view.state!.vm, null);
+  writeMember(object, "speed", status.value.speedUp !== 0 ? 1 : 0);
+  writeMember(object, "slow", status.value.slowDown !== 0 ? 1 : 0);
+  writeMember(object, "disable", status.value.disable !== 0 ? 1 : 0);
+  return { value: { kind: "object", handle: object.handle, className: object.className } };
+}
+
+const STATUS_FLAGS_ASSET = {
+  name: "__battle_status_flags_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
+  doc: internalDocumentation("Resume a StatusE flag request.", "Reads the StatusE asset and returns only its normalized speed, slow and disable values."),
+  call: statusFlagsContinuation,
+} satisfies BuiltinSpec;
+
+const STATUS_FLAGS = {
+  name: "statusflags", aliases: [], params: [parameter("file")],
+  doc: {
+    summary: "Read a status file's speed, slow and disable flags.",
+    behaviour: "Requests the normalized StatusE `.ste` asset and returns a dictionary with numeric `speed`, `slow` and `disable` values of 1 or 0. It reads only the file and does not change actor counters or stats.",
+    groups: [GROUP, "reawakened-additions-not-part-of-the-282-legacy-catalogue"], tags: ["experimental"], waits: STATUS_WAIT,
+    throws: [
+      { code: "asset.missing", when: "the requested StatusE asset is missing" },
+      { code: "request.bad-reply", when: "the host reply is not valid hexadecimal bytes" },
+      { code: "format.status-effect", when: "the bytes are not a valid StatusE `.ste` file" },
+    ],
+  },
+  call: (_view: CommandView, args: readonly Arg[]) => ({
+    value: null,
+    request: { kind: "asset", area: "statusEffects", path: statusPath(text(args, 0)) },
+    then: { command: "__battle_status_flags_asset", args: [] },
+  }),
+} satisfies BuiltinSpec;
+
+const GET_STATUS = {
+  name: "getstatus", aliases: [], params: [parameter("fighter"), parameter("index")],
+  doc: {
+    summary: "Read one of a fighter's active status file names.",
+    behaviour: "Returns the filename key of the zero-based status entry in insertion order, or an empty string when the index is past the end. A present zero-round counter remains included until removed. This does not read status rules or change actor state.",
+    groups: [GROUP, "reawakened-additions-not-part-of-the-282-legacy-catalogue"], tags: ["experimental"], waits: NO_WAIT,
+    throws: [...STAT_READ_THROWS, { code: "builtin.bad-arg", when: "index is not a non-negative safe integer" }],
+  },
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const id = referenceActor(view, args[0]?.value);
+    const index = integer(args, 1, "getstatus");
+    if (index < 0) throw new ScriptError("builtin.bad-arg", "getstatus: index must be non-negative");
+    const actor = actorRecord(view, id);
+    if (actor === null) return { value: "" };
+    let position = 0;
+    for (const key in actor.statuses) {
+      if (!Object.hasOwn(actor.statuses, key)) continue;
+      if (position === index) return { value: key };
+      position += 1;
+    }
+    return { value: "" };
+  },
+} satisfies BuiltinSpec;
 
 function statCommand(
   name: string,
@@ -477,7 +542,7 @@ const REMOVE_STATUS: BuiltinSpec = {
 export const BATTLE_COMMANDS: readonly BuiltinSpec[] = [
   PARTY_SIZE, FIGHTER, CHARGE, ADD_CHARGE, SET_CHARGE, RELEASE_CHARGE, CHARGE_PERCENT, FINISH,
   HP, GIVE_HP, GET_HP, MAX_HP, GET_MAX_HP, SMP, GIVE_SMP, GET_SMP, MAX_SMP, GET_MAX_SMP,
-  FP, GIVE_FP, GET_FP, DP, GET_DP, GIVE_EXP, APPLY_STATUS, REMOVE_STATUS, STATUS_ASSET,
+  FP, GIVE_FP, GET_FP, DP, GET_DP, GIVE_EXP, APPLY_STATUS, REMOVE_STATUS, STATUS_ASSET, GET_STATUS, STATUS_FLAGS, STATUS_FLAGS_ASSET,
 ];
 export const BATTLE_COMMAND_NAMES = new Set<string>(BATTLE_COMMANDS.flatMap((command) => [command.name, ...command.aliases]));
 export const BATTLE_PLUGIN: PluginDefinition = {
