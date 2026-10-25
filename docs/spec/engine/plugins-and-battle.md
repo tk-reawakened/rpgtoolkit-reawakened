@@ -69,6 +69,10 @@ At compile time each unknown command name is offered to every RPGCode plugin's *
 <a id="e-95"></a>
 **E-95 Source/target context.** Each running program has a *source* and a *target* entity (player, item or enemy), set by whatever triggered it, and functions resolve the `"source"` and `"target"` handles against that pair ([rpgcode-language.md](rpgcode-language.md#threads), [rpgcode-functions.md](rpgcode-functions.md)). The engine sets the same pair for a plugin call, which is what callbacks 79 and 80 below are for.
 
+**Legacy (R12).** In 3.1 `source` and `target` are two engine-wide values shared by everything, not stored per program (R2-Q24; [facts-round-12.md](../../provenance/facts-round-12.md), reviewed for copied expression and intent only, not fact-checked). What each starter puts there, and which starters restore them afterwards, is the use table under [`callProgram`](rpgcode-functions.md#reawakened-callprogram).
+
+**Reawakened rule (Proposed, pending owner review).** The pair is stored per thread ([THR-2](rpgcode-errors-and-threads.md#thr-2)), and a nested program call sets it for the call and restores it when the call ends (`callProgram`, above). *Rejected:* two engine-wide slots left set across calls, which cannot be replayed ([THR-2](rpgcode-errors-and-threads.md#thr-2)).
+
 ## Menu plugin
 
 Legacy plugin entry point: `menu(request)`: 1 main menu, 2 inventory, 4 equipment, 8 abilities. The legacy plugin draws its own UI and returns when closed.

@@ -78,6 +78,7 @@ Every row above except the modulo row and the callable row is legacy behaviour (
 * **Reawakened rule — remaining time.** `threadSleepRemaining` returns `(end − now) / 60`, unrounded, and `0` for an indefinite or not-sleeping thread.
 * **Reawakened rule — wake order.** When several threads are due to wake on the same tick they resume in ascending thread id. Legacy stepped threads in an unspecified order (a pointer-ordered set); ascending id is deterministic and matches the wait phase, which polls waiting threads in ascending id.
 
+<a id="thr-2"></a>
 ### THR-2 — the `source` and `target` handles
 
 * Legacy kept `source` and `target` as two engine-wide slots shared by everything: the code that started an entity event (an item's thread, an equip, a sprite program, a fight) set them and restored them afterwards, a plain thread left them alone, and `tellThread` code saw whatever the caller had left there. — legacy behaviour (R2-Q24).
@@ -86,8 +87,11 @@ Every row above except the modulo row and the callable row is legacy behaviour (
   * The `"source"` and `"target"` special handles read those slots; `sourceHandle()` and `targetHandle()` return `0` when a slot is `null`.
   * `run()` does not change the pair. — legacy behaviour (R2-Q24).
   * Reason this departs from legacy: the shared slots make one thread's context depend on unrelated events and cannot be replayed; per-thread slots are deterministic.
+  * **Legacy (R12) — which starters actually restore the slots.** Clean-room [round 12](../../provenance/facts-round-12.md) (reviewed for copied expression and intent only, not fact-checked) refines the first bullet: in 3.1, only an equip or remove program (which sets the target only and leaves the source alone) and a board-item activation restore afterwards; the battle uses (enemy custom AI, special move, item in battle, status program) and the menu use leave the last values set; and the level-up, enemy win, enemy run, game-over, start-up, board-enter, key and link programs set nothing and see whatever an earlier program or battle left. See the use table under [`callProgram`](rpgcode-functions.md#reawakened-callprogram).
+  * **Reawakened rule — nested program calls and the use table (Proposed, pending owner review).** The engine and script starters in that table run through [`callProgram`](rpgcode-functions.md#reawakened-callprogram), which sets the pair on the calling thread for the call and **restores it when the call ends** (a deliberate departure from the battle and menu rows of R12), inherits the caller's pair when none is supplied (and for an equip or remove program sets the target to the wearer and inherits the source), and passes `null`/`null` for the programs that legacy leaves unset (a deliberate departure from R12's stale values). *Rejected:* keeping the legacy "last values stay set" rule for battle and menu programs, and keeping stale values for outcome and start-up programs, for the same replay reason as above.
 * **Reawakened rule — `tellThread` is queued, not immediate.** `tellThread(id, code)` stores the injected code on the target thread, which runs it at its next turn in the threads phase, spending the target thread's own budget and seeing the target thread's `source` and `target`; the caller's step is not interrupted. Legacy ran the code at once, inside the caller's moment, with the caller's slots; queuing keeps a step's outcome independent of another thread's state, which a deterministic replay requires.
 
+<a id="thr-3"></a>
 ### THR-3 — what a "step" is, and the preemption budget
 
 * **Reawakened rule — a step is one VM instruction.** In this spec a `step` is one instruction the VM executes, and it is not the same as a `tick`, which is one fixed simulation update (the whole phase list). A snapshot may be taken between any two steps, and a test that compares "the same state hash after N steps" counts VM steps, not ticks.

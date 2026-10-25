@@ -116,6 +116,8 @@ The legacy stat built-ins (`hp`, `givehp`, `smp`, `givesmp`, `fp`, `givefp`, `dp
 
 `attackall` and `drainall` deal their amount to each living target without a critical test. Damage and heals go through the actor's `damage` operation, so `fallen` fires once per lethal hit; before it, the package sends the cancelable `beforeDamage` on the battle thread ([BAT-12](#bat-12), entry 7.14).
 
+**Program call and `source`/`target` (Proposed, pending owner review; from [facts-round-12.md](../../provenance/facts-round-12.md), not part of the entry 7.1 approval).** *Legacy (R12):* for a special move, `source` = the user and `target` = the victim; for an item, `source` = the user and `target` = the recipient; neither is restored afterwards (certain); the slots are set before the animations and, for an item, the copy is taken from the inventory before the program runs (fairly sure; [round 13 question 5](../../provenance/questions-round-13.md#5-battle-special-moves-and-items-which-clauses-of-the-order-are-certain)). **Reawakened rule (Proposed):** the move's program and the item's battle program run through [`callProgram`](rpgcode-functions.md#reawakened-callprogram) with that pair, which restores the pair when the program ends. *Rejected:* leaving the pair set after the call, as there.
+
 *Evidence:* facts round 10; [R11-Q7](../../provenance/facts-round-11.md); E-74. *Rejected:* applying the ordinary-attack luck and DP to specials, which R11-Q7 contradicts; and a second damage formula for the package.
 
 <a id="bat-6"></a>
@@ -136,6 +138,8 @@ The legacy stat built-ins (`hp`, `givehp`, `smp`, `givesmp`, `fp`, `givefp`, `dp
 2. A `.ste` with fewer than 1 round loads with a diagnostic and lasts until removed; the legacy wrap-around after about 65,000 turns is not reproduced.
 3. The player-turn disable cancellation is **not** reproduced: a disable stays until removed, which keeps one meaning for the reference count.
 4. If `advanceStatus(1)` cannot age one status at a time, the package applies all effects in order and then ages all counts; the only difference is a status program reading another status's remaining rounds mid-turn.
+
+**Program call and `source`/`target` (Proposed, pending owner review; from [facts-round-12.md](../../provenance/facts-round-12.md), not part of the entry 7.1 approval).** *Legacy (R12):* `source` and `target` are both the afflicted fighter and are not restored afterwards (certain; R12 says the program runs "once per round tick", read here as once per turn of the fighter). **Reawakened rule (Proposed):** the status program step runs through [`callProgram`](rpgcode-functions.md#reawakened-callprogram) with `(fighter, fighter)`, restoring the pair afterwards. *Rejected:* leaving the pair set after the call, as there.
 
 *Evidence:* [R11-Q5, Q6](../../provenance/facts-round-11.md); E-75; [battle-data.md](../formats/battle-data.md#status-effect-ste). *Rejected:* aging every actor's statuses each tick (3.1 ages per turn, which is why disable is strong); and a floor of 0 on the rate, which 3.1 does not have.
 
@@ -159,6 +163,8 @@ The legacy stat built-ins (`hp`, `givehp`, `smp`, `givesmp`, `fp`, `givefp`, `dp
 
 **Reawakened rule.** The coin is one seeded draw from {0, 1}. The draw order is the coin, then the special-move pick, then the target, then the combat draws of BAT-5 (a Reawakened choice; the original's order is not recorded). The built-in `ai(level)` sets the level of the acting enemy and rejects a level outside 0 to 3 with a catchable error, instead of silently doing nothing. When no living player remains, an AI turn is skipped: 3.1 divides by zero on an empty target pick after the party falls mid-pass (R11-Q4), which is not reproduced. An error in a custom AI program is reported and ends only that turn.
 
+**Program call and `source`/`target` (Proposed, pending owner review; from [facts-round-12.md](../../provenance/facts-round-12.md), not part of the entry 7.1 approval).** *Legacy (R12):* the random living player target is picked before the program runs, and the slots are not restored afterwards (certain). **Reawakened rule (Proposed):** the custom AI program runs through [`callProgram`](rpgcode-functions.md#reawakened-callprogram) with `(enemy, target)`, restoring the pair afterwards; the difference between "ends only that turn" above and [ERR-2](rpgcode-errors-and-threads.md#err-2) (the program continues after an error) is flagged there for the owner. *Rejected:* leaving the pair set after the call, as there.
+
 *Evidence:* [R11-Q8, Q9, Q10](../../provenance/facts-round-11.md); E-76. *Rejected:* an engine-side AI, which would stop a custom fight program from replacing it.
 
 <a id="bat-8"></a>
@@ -175,6 +181,8 @@ The legacy stat built-ins (`hp`, `givehp`, `smp`, `givesmp`, `fp`, `givefp`, `dp
 **Reawakened rule (OWNER; Jensen, 2026-10-25).** The compatibility adapter. `battle.finish(code)` records the outcome. For 0, 2 and 4 the core then performs the sequence above using only generic operations that already exist: the actors' experience award (which handles level-ups and the maximum-level case, [progression-and-levels.md](progression-and-levels.md#maximum-level)), one plain-data gold effect for Epic 8's inventory, the message path, running the named program, and `reset()`. For 1 and 3 the core does nothing: the package or custom program has handled it. The stock package uses the same adapter. This is the only battle-specific operation in the core; it exists so a fight program written for 3.1's outcome codes needs nothing more. The success chance is one seeded draw in `[0, 5)` with 0 and 1 succeeding. A blocked Run does not spend the turn; `battle.finish(0)` while `canRun` is false is the catchable `battle.cannot-run`.
 
 **Departure.** The maximum-level freeze recorded in R11-Q12 (a character at maximum level given enough experience retries forever) is not reproduced; the actor owner terminates safely there.
+
+**Program call and `source`/`target` (Proposed, pending owner review; from [facts-round-12.md](../../provenance/facts-round-12.md), not part of the entry 7.1 approval).** *Legacy (R12):* the win, run, game-over and level-up programs do not set the slots and see whatever an earlier program or battle left there (certain). **Reawakened rule (Proposed):** the adapter's win, run and game-over program steps, and the level-up program step of the reward sequence, run through [`callProgram`](rpgcode-functions.md#reawakened-callprogram) with `null` / `null` (a departure from R12's stale values). *Rejected:* leaving the battle's last pair in place, as there.
 
 *Evidence:* [R11-Q11 to Q13](../../provenance/facts-round-11.md); E-77; [progression-and-levels.md](progression-and-levels.md). *Rejected:* a purely package-owned reward sequence, because a custom fight program with no package present would then receive no rewards and E-79 ("a script can build its own battle screen without a second rules engine") would fail.
 
