@@ -24,10 +24,12 @@ import {
   createEmptyBoard,
   createEmptyMainFile,
   createEngine,
+  createInitialPlayer,
   createGameState,
   createPluginLayers,
   createScriptServices,
   defaultWaitPoll,
+  enqueueDirectionMove,
   fileProgramRef,
   hashDrawList,
   hashGameState,
@@ -37,6 +39,7 @@ import {
   registerActorObject,
   restoreGameState,
   runEventsPhase,
+  runMovementPhase,
   runPackageStartup,
   runThreadsPhase,
   runWaitsPhase,
@@ -732,7 +735,7 @@ test("a save taken while the custom program waits on its enemy files, inside the
 
 type GameFiles = Map<string, Uint8Array>;
 
-function fieldBoard(): Uint8Array {
+function fieldBoard(battles = false): Uint8Array {
   const empty = createEmptyBoard();
   return unwrap(writeBoard({
     ...empty,
@@ -742,7 +745,11 @@ function fieldBoard(): Uint8Array {
     tileMatrix: Array.from({ length: 40 * 30 }, () => 0),
     tileRuns: [{ lutIndex: 0, count: 40 * 30, marker: true }],
     layerTitles: ["", ""],
-    properties: { ...empty.properties, start: { x: 64, y: 64, layer: 1 } },
+    properties: {
+      ...empty.properties,
+      start: { x: 64, y: 64, layer: 1 },
+      ...(battles ? { allowBattles: 1, battleSkill: 1, battleBackground: "night.bkg" } : {}),
+    },
   }));
 }
 
@@ -753,6 +760,11 @@ type GameOptions = {
   readonly seed?: number;
   /** How many party members the hook seeds (default 1). */
   readonly heroes?: number;
+  /**
+   * Let the engine's own random-encounter evaluator post the custom request: the main file's fight settings and the
+   * board's battle settings are authored, and the test posts nothing. Every tile the player steps is an encounter.
+   */
+  readonly encounter?: boolean;
   /** The main file's custom fight program (default "fight.prg"). */
   readonly customFight?: string;
 };
@@ -768,11 +780,12 @@ function authorGame(programs: Readonly<Record<string, string>>, options: GameOpt
     initBoard: "start.brd",
     initChar: "hero.tem",
     useCustomFightPrg: 1,
+    ...(options.encounter === true ? { fightingDisabled: 0, fightType: 1, chances: 1 } : {}),
     customFightPrg: options.customFight ?? "fight.prg",
     packagePlugins: options.stock === false ? [] : ["stock_battle"],
   };
   files.set(assetKey("main.gam"), unwrap(writeMainFile(main)));
-  files.set(assetKey("boards/start.brd"), fieldBoard());
+  files.set(assetKey("boards/start.brd"), fieldBoard(options.encounter === true));
   files.set(assetKey("chrs/hero.tem"), characterBytes());
   files.set(assetKey("enemy/slime.ene"), authoredAssets["slime.ene"]!);
   files.set(assetKey("enemy/bat.ene"), authoredAssets["bat.ene"]!);
@@ -828,7 +841,16 @@ function bootGame(mode: string, program = "fight.prg", extra: Readonly<Record<st
     height: 240,
     maxTicks: 4000,
     packageCatalogue: options.stock === false ? [] : stockCatalogue(),
-    phaseRegistrations: [{
+    phaseRegistrations: [...(options.encounter === true ? [{
+      // The host's movement: the held right arrow walks the player one tile at a time while its queue is empty.
+      phase: "movement" as const,
+      run: (state: GameState) => {
+        const player = state.sprites.players[0];
+        if (player === undefined) return;
+        if (state.input.held["ArrowRight"] === true && player.queue.moves.length === 0) enqueueDirectionMove(state.sprites, player.id, "E");
+        runMovementPhase(state.sprites, state.world.board ?? null, state.time.tick, {});
+      },
+    }] : []), {
       phase: "triggers",
       run: (state, post) => {
         latest = state;
@@ -847,6 +869,12 @@ function bootGame(mode: string, program = "fight.prg", extra: Readonly<Record<st
         state.party.members = members;
         state.party.selected = members[0] ?? null;
         posted.rngAtPost = clonePlain(state.rng);
+        if (options.encounter === true) {
+          // The player's sprite stands on the board; the movement phase below walks it, and the engine's own
+          // random-encounter evaluator watches the tiles it crosses.
+          createInitialPlayer(state.sprites, state.world.board, { id: "player:0", kind: "player", source: "hero.tem", x: 80, y: 63, layer: 1 });
+          return;
+        }
         post("battle", {
           thread: 0,
           name: "battle.customFight",
@@ -960,18 +988,42 @@ type MainFileApiRun = {
   readonly drewCustomText: boolean;
 };
 
+const ARROW_RIGHT = { kind: "key" as const, name: "ArrowRight", code: "ArrowRight", char: "", down: true };
+const ARROW_RIGHT_UP = { ...ARROW_RIGHT, down: false };
+const ENTER = { kind: "key" as const, name: "Enter", code: "Enter", char: "", down: true };
+
 /**
- * Boot a game whose main file names the all-API program as its custom fight program, post the custom request the
- * evaluator would post, and run to the program's end. The program registers its own battle handler and starts the
- * fight with the public FightEnemy.
+ * Boot a game whose main file names the all-API program as its custom fight program and whose fight settings and board
+ * make every step an encounter. The test posts no request: it holds the arrow key, the engine's own evaluator rolls the
+ * encounter and posts `battle.customFight`, and the engine runs the program, which registers its own battle handler and
+ * starts the fight with the public FightEnemy. The handler then waits for a key, which the test delivers as input.
  */
 function runMainFileApiFight(options: { readonly stock: boolean; readonly seed: number }): MainFileApiRun {
   const booted = bootGame("api", "api-fight.prg", { "api-fight.prg": mainFileApiSource }, {
     stock: options.stock,
     seed: options.seed,
     heroes: 2,
+    encounter: true,
     customFight: "api-fight.prg",
   });
+  const press = (event: typeof ARROW_RIGHT | typeof ENTER): void => {
+    booted.engine.advance(0, [{ tick: booted.engine.advance(0, []).tickAfter, event }]);
+  };
+  play(booted, (state) => state.vm.globals.ready === 1 && state.party.members.length === 2);
+  equal(booted.state().battle, null, "no fight exists before the player steps");
+  press(ARROW_RIGHT);
+  play(booted, (state) => state.vm.globals.apicalls === 1);
+  press(ARROW_RIGHT_UP);
+
+  // The program's own loop has started: the core prepared the battle, the handler runs, and it waits on a key.
+  const waiting = booted.state();
+  equal(waiting.battle?.outcome, null, "the fight is live while the loop waits for input");
+  equal(waiting.vm.globals.apiafterfight, 0, "FightEnemy has not returned");
+  equal(waiting.vm.globals.apicoverage, "party-size;battle-read;charge;stats;status;damage-defeated;draw;");
+  ok(waiting.vm.threads.some((thread) => thread.wait?.kind === "input.key"), "the loop is parked on a key wait");
+  equal(waiting.vm.globals.apipressed, 0, "no key has been read yet");
+
+  press(ENTER);
   play(booted, (state) => state.vm.globals.apiafterfight === 1);
   // Let the events the program queued (status changes, the two defeated emits) drain.
   for (let tick = 0; tick < 5; tick += 1) booted.engine.advance(1, []);
@@ -1009,7 +1061,7 @@ test("one main-file all-API custom fight program runs the real path identically 
     deepEqual(run.diagnostics, [], `${label}: the program read nothing missing and reported nothing`);
     const seen = run.recorded;
     equal(seen.apicalls, 1, `${label}: the program's own battle handler ran once`);
-    equal(seen.apicoverage, "party-size;battle-read;charge;stats;status;damage-defeated;draw;tick-wait;finish;");
+    equal(seen.apicoverage, "party-size;battle-read;charge;stats;status;damage-defeated;draw;input;finish;");
     equal(seen.apiafterfight, 1, `${label}: FightEnemy returned to the program`);
     equal(seen.apienemycount, 2);
     equal(seen.apiherocount, 2);
@@ -1033,6 +1085,7 @@ test("one main-file all-API custom fight program runs the real path identically 
     equal(seen.apienemydefeated, 1);
     equal(seen.apienemy2defeated, 1);
     equal(typeof seen.apiseededroll, "number");
+    equal(seen.apipressed, "Enter", `${label}: the program read the delivered key`);
     equal(run.outcome, 2, `${label}: the program's finish(2) took the BAT-8 outcome path`);
     equal(run.gold, 6, `${label}: the adapter paid both enemies' gold once`);
     ok(run.drewCustomText, `${label}: the program's drawing reached the UI`);
@@ -1043,6 +1096,12 @@ test("one main-file all-API custom fight program runs the real path identically 
   equal(replaced.drawHash, absent.drawHash, "and the same draw list");
   deepEqual(replaced.recorded, absent.recorded, "and the same recorded values, including the seeded draw");
 
+  const repeated = runMainFileApiFight({ stock: false, seed: 291 });
+  equal(repeated.stateHash, absent.stateHash, "the same seed reproduces the run");
+  equal(repeated.drawHash, absent.drawHash);
   const otherSeed = runMainFileApiFight({ stock: false, seed: 292 });
-  ok(otherSeed.stateHash !== absent.stateHash, "a different seed changes the state hash");
+  ok(otherSeed.recorded.apiseededroll !== absent.recorded.apiseededroll, "a different seed changes the program's seeded roll");
+  ok(otherSeed.stateHash !== absent.stateHash, "and the state hash");
+  ok(otherSeed.drawHash !== absent.drawHash, "and the drawn text, which carries the roll");
+  equal(otherSeed.recorded.apicoverage, absent.recorded.apicoverage, "while the program still covers the same operations");
 });

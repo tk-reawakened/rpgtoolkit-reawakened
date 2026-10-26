@@ -30,6 +30,7 @@ global(apiEnemy2Damage)
 global(apiEnemyDefeated)
 global(apiEnemy2Defeated)
 global(apiSeededRoll)
+global(apiPressed)
 
 apiCoverage = ""
 apiCalls = 0
@@ -103,8 +104,8 @@ function mainFileBattleLoop() {
   apiSeededRoll = random(100)
   pixelText(12, 18, "Custom fight " + apiSeededRoll)
   apiCoverage = apiCoverage + "draw;"
-  threadSleep(getThreadId(), 1/60)
-  apiCoverage = apiCoverage + "tick-wait;"
+  wait(apiPressed)
+  apiCoverage = apiCoverage + "input;"
   battle.finish(2)
   apiCoverage = apiCoverage + "finish;"
   return 0
