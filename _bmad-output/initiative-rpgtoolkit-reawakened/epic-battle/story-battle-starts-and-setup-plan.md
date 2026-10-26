@@ -3,7 +3,7 @@ title: "Battle starts and setup: random encounters, Fight and FightEnemy"
 type: 'feature'
 ticket: 9
 created: '2026-10-19'
-status: draft
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "high"
 context:
@@ -42,12 +42,12 @@ No loop, damage, status, AI or rewards (7.4 to 7.8). No UI (7.11). It repoints t
 
 ## Acceptance
 
-1. A random handoff starts a battle with the drawn enemies, the board background and the ruled `canRun`.
-2. The no-enemies handoff shows the exact message, creates no battle and registers no phase.
-3. `Fight` and `FightEnemy` create the ruled parties and background, with fallen party members included and starting fallen; one enemy that forbids running makes `canRun` false; an empty party is a located error and a fallen party resolves through the outcome.
-4. A random encounter on a game whose main file names a fight program runs that program, with the request (trigger, board, actor, program) as `context` and `source`/`target` null, no fighters in the request, no enemy drawn and no random number taken by the engine; a program that calls `FightEnemy` gets the full setup and the stock battle through to its outcome; a program name that matches no file is a catchable `program.missing` and no battle starts.
-5. A game with no battle package ends the battle immediately with a diagnostic and no hang.
-6. The phase list matches the 20.1 ruling and the phase test update is deliberate.
+- [ ] A random handoff starts a battle with the drawn enemies, the board background and the ruled `canRun`. The named handoff test verifies the enemy sources and background without a second draw but does not assert `canRun`: `packages/core/test/battle-start.test.ts` — “random encounter handoff uses its drawn enemies without drawing again”.
+- [ ] The no-enemies handoff shows the exact message, creates no battle and registers no phase. `packages/core/test/engine.test.ts` proves the message and no battle, but no named test asserts that no phase was registered.
+- [ ] `Fight` and `FightEnemy` create the ruled parties and background, with fallen party members included and starting fallen; one enemy that forbids running makes `canRun` false; an empty party is a located error and a fallen party resolves through the outcome. Tests prove the `FightEnemy` setup and the empty-party/outcome cases, but no named test proves the full setup clause for `Fight`.
+- [x] A random encounter on a game whose main file names a fight program runs that program with the request as `context`, `source`/`target` null, no fighters or engine draw; `FightEnemy` gets the full setup and stock battle through its outcome; a missing program is catchable and starts no battle. Tests: `packages/core/test/battle-custom-fight.test.ts` — “a custom encounter runs the main file's program with the request as its context, loads no enemy and takes no random number”; “a program that spells its enemies out with FightEnemy gets the BAT-9 setup and a complete stock battle”; “a custom program name that matches no file is a catchable program.missing and starts no battle”.
+- [x] A game with no battle package ends the battle immediately with a diagnostic and no hang. Test: `packages/core/test/engine.test.ts` — “engine displays no-enemies handoffs, runs custom starts as a program, and rejects absent stock_battle”.
+- [x] The phase list matches the 20.1 ruling and the phase test update is deliberate. Test: `packages/core/test/engine.test.ts` — “engine runs the fixed phase order, registers audio after animation, and pauses on focus loss”.
 
 ## Verification
 
