@@ -81,7 +81,12 @@ The default level-up does not directly refill current HP or current SMP.
 
 `levelUpType = 1` applies those configured values as fixed points. Equipment bonuses remain separate from intrinsic progression and are not compounded by percentage growth.
 
-A non-empty legacy `levelUpProgram` wins over a modern behaviour `levelUp` hook. Core advancement records each crossed level and returns a plain-data legacy level-up handoff containing the actor id, award, target level, and default proposal for the owning script layer; it does not invoke the program, invoke the behaviour hook, apply default stat growth, or emit `leveledUp` for that pending result. The handoff contains no program path or callable. If the legacy program is empty, a resolved behaviour may return a partial plain-data result patch; otherwise the core default applies. Omitted result fields mean unchanged, and executable code is never stored in actor or save data.
+### Legacy precedence and level-up programs
+
+In legacy Toolkit 3.1 (and the final source; [facts-round-12.md](../../provenance/facts-round-12.md) §4, [facts-round-11.md](../../provenance/facts-round-11.md) Q12, both certain), `levelUpProgram` runs **before** the level increment and **cannot skip or replace** the built-in stat growth: for each level gained, the engine (1) runs the character's `levelUpProgram` if one is set, (2) if the character is below `maxLevel`, increments the level by one, sets the next experience threshold, and applies the built-in increases to maximum HP, DP, FP, and maximum SMP **on top of** whatever changes the program made (in percentage mode, worked out from the stat after the program's changes, minus equipment bonuses), and (3) shows the level-gained message.
+
+Reawakened's modern rule allows a behaviour `levelUp` hook to override or customize growth, whereas legacy's `levelUpProgram` had built-in growth added on top of whatever the program did. A non-empty legacy `levelUpProgram` wins over a modern behaviour `levelUp` hook: core advancement records each crossed level and returns a plain-data legacy level-up handoff containing the actor id, award, target level, and default proposal for the owning script layer; it does not invoke the program or invoke the behaviour hook directly. The handoff contains no program path or callable. For a legacy `levelUpProgram`, the owning script layer runs the program for each crossed level before the built-in level increment and stat growth are applied on top. If the legacy program is empty, a resolved behaviour may return a partial plain-data result patch to override or customize the core proposal; otherwise the core default applies. Omitted result fields mean unchanged, and executable code is never stored in actor or save data.
+
 The core invokes `statsChanged` only after one or more non-legacy level-ups actually apply core stat growth. An XP-only award, an award to an actor already at `maxLevel`, and a legacy-program handoff do not invoke `statsChanged` and cannot mutate stats through that hook. Hook delta keys and values are validated against the closed level-stat set before any level-up is committed.
 
 ## Modern actor progression
@@ -106,6 +111,16 @@ The legacy character may name an RPGCode program to run during level-up. It can 
 
 The editor MAY offer a non-destructive conversion of this program into a named behaviour. It MUST warn when a legacy program takes precedence, preserve the original until conversion is accepted, and never execute both implementations automatically.
 
+**Legacy (R12 §4; R11-Q12, certain).** In 3.1 all of an award's experience is added before the first level-up, and one grant that crosses several thresholds runs the level-up sequence once per level gained ([facts-round-12.md](../../provenance/facts-round-12.md) §4; [facts-round-11.md](../../provenance/facts-round-11.md) Q12). Each step runs in this order:
+
+1. The character's `levelUpProgram` runs, if one is set.
+2. If the character is below `maxLevel`, the engine increments the level by one, sets the next experience threshold, and applies the built-in growth to max HP, DP, FP, and max SMP on top of whatever the program changed.
+3. The engine shows a short message saying the character gained a level.
+
+Across a multi-level award, each run of `levelUpProgram` sees the full new experience total (the same on every run), the level before this step, and stats that already include the growth from earlier steps in the same award ("old values" means "before this step's growth", not "before the award"). Because the level is stored as an ordinary script variable in legacy, the program can modify the level itself; the engine then adds one to whatever value the program left and checks `maxLevel` against that value. In percentage mode (`levelUpType = 0`), legacy rounds the increase in the experience requirement down to a whole multiple of the current requirement (so any percentage under 100 adds nothing in legacy; see [Threshold and level-up behavior](#threshold-and-level-up-behavior) for Reawakened's non-truncating percentage formula). The program does not set `source` or `target`, so in 3.1 it sees whatever an earlier program or battle left in those slots (R12 §2; certain).
+
+**Reawakened rule — running the program (OWNER; Jensen, 2026-10-25).** For each crossed level, the owning script layer runs `levelUpProgram` through [`executeProgram`](rpgcode-functions.md#reawakened-executeprogram) with `{ source: null, target: null }` (with room for level/growth details in `context`; a departure from R12's stale slots) before that step's level increment and built-in stat growth are applied on top. Contrast this with a modern behaviour `levelUp` hook, which can override or customize the growth proposal instead of having built-in growth added on top. *Rejected:* leaving the enclosing caller's `source` and `target` in place, which makes what the level-up program sees depend on whether the award came from a battle or a script.
+
 ## Special moves
 
 A special move assigned to a character is not copied into a separate learned-move inventory. The engine evaluates its conditions when it builds the actor's available moves. A move is available when at least one configured condition succeeds:
@@ -123,7 +138,9 @@ The current actor section is schema version 2. Restoration migrates a version-1 
 
 ## Maximum level
 
-At `maxLevel`, additional XP remains recorded, but no further level or stat changes occur. The threshold check terminates safely and cannot loop indefinitely.
+In legacy 3.1 and the final source, if a character already at `maxLevel` earns enough experience to cross the threshold, the engine runs `levelUpProgram`, skips the level increment and stat growth, and never resets the threshold — causing an infinite loop that either runs `levelUpProgram` endlessly or spins in a tight loop and freezes the window ([facts-round-12.md](../../provenance/facts-round-12.md) §4, [facts-round-11.md](../../provenance/facts-round-11.md) Q12).
+
+In Reawakened, at `maxLevel`, additional XP remains recorded, but no further level, stat changes, or level-up program runs occur. The threshold check terminates safely and cannot loop indefinitely.
 
 ## Parity checklist
 
