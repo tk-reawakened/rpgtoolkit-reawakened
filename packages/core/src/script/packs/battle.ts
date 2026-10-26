@@ -943,13 +943,13 @@ const END_LOSS = {
 
 const GAIN_GOLD = {
   name: "__battle_gain_gold", aliases: [], params: [parameter("rewards")],
-  doc: internalDocumentation("Post battle gold to inventory.", "Posts one state-write effect carrying `{ kind: \"inventory.gainGold\", amount }`; the inventory owner consumes it."),
+  doc: internalDocumentation("Post battle gold to inventory.", "Posts one state-write effect carrying `{ type: \"addGold\", amount }`; the inventory owner consumes it."),
   call: (view: CommandView, args: readonly Arg[]) => ({
     value: null,
     effects: [{
       kind: "state-write",
       section: "inventory",
-      args: [{ kind: "inventory.gainGold", amount: rewardAmount(view, args[0]?.value, "gold") }],
+      args: [{ type: "addGold", amount: rewardAmount(view, args[0]?.value, "gold") }],
     }],
   }),
 } satisfies BuiltinSpec;
