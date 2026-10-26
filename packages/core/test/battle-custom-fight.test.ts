@@ -12,6 +12,7 @@ import { UI_PLUGIN } from "../src/script/packs/ui.ts";
 import {
   addActor,
   assetKey,
+  BATTLE_BACKGROUND_MAGIC,
   BATTLE_PLUGIN,
   BinaryWriter,
   CATALOGUE_RESPONDERS_PLUGIN,
@@ -40,6 +41,7 @@ import {
   startThread,
   STEP_BUDGET,
   verifyRestoredHandles,
+  writeBattleBackground,
   WORLD_PLUGIN,
   writeBoard,
   writeMainFile,
@@ -48,6 +50,7 @@ import {
   type PackageCatalogueEntry,
   type PluginLayers,
   type ProgramLoader,
+  type BattleBackground,
   type ResolvedPlugin,
   type ScriptServices,
   type Wait,
@@ -156,7 +159,25 @@ function characterBytes(): Uint8Array {
   return writer.toBytes();
 }
 
+function backgroundBytes(): Uint8Array {
+  const result = writeBattleBackground({
+    magic: BATTLE_BACKGROUND_MAGIC,
+    major: 2,
+    minor: 2,
+    image: "",
+    music: "",
+    menuMoveSound: "",
+    menuChooseSound: "",
+    readySound: "",
+    cantDoSound: "",
+    residue: new Uint8Array(),
+  });
+  if (!result.ok) throw new Error(result.error.message);
+  return result.value;
+}
+
 const authoredAssets: Readonly<Record<string, Uint8Array>> = {
+  "night.bkg": backgroundBytes(),
   "slime.ene": enemyBytes("Slime"),
   "bat.ene": enemyBytes("Bat"),
   "player0.tem": characterBytes(),
@@ -299,7 +320,7 @@ function pollAssets(rig: Rig): WaitPoll {
     const request = rig.state.vm.effects.find((effect) => effect.request?.reqId === wait.reqId)?.request;
     if (request === null || request === undefined) return defaultWaitPoll(view, wait);
     const name = typeof request.path === "string" ? request.path.toLowerCase().split("/").at(-1) ?? "" : "";
-    const bytes = request.area === "enemies" || request.area === "characters" ? authoredAssets[name] : undefined;
+    const bytes = request.area === "enemies" || request.area === "characters" || request.area === "backgrounds" ? authoredAssets[name] : undefined;
     return bytes === undefined ? { ok: false, value: null } : { ok: true, value: hex(bytes) };
   };
 }
@@ -534,7 +555,7 @@ function fieldBoard(): Uint8Array {
 
 function authorGame(programs: Readonly<Record<string, string>>): { readonly files: GameFiles; readonly paths: readonly string[] } {
   const files: GameFiles = new Map();
-  const paths = ["main.gam", "Boards/start.brd", "Chrs/hero.tem", "Enemy/slime.ene", "Enemy/bat.ene"];
+  const paths = ["main.gam", "Boards/start.brd", "Chrs/hero.tem", "Enemy/slime.ene", "Enemy/bat.ene", "Bkrounds/night.bkg"];
   const main = {
     ...createEmptyMainFile(),
     major: 2,
@@ -551,6 +572,7 @@ function authorGame(programs: Readonly<Record<string, string>>): { readonly file
   files.set(assetKey("chrs/hero.tem"), characterBytes());
   files.set(assetKey("enemy/slime.ene"), authoredAssets["slime.ene"]!);
   files.set(assetKey("enemy/bat.ene"), authoredAssets["bat.ene"]!);
+  files.set(assetKey("Bkrounds/night.bkg"), backgroundBytes());
   for (const [name, text] of Object.entries(programs)) {
     paths.push(`Prg/${name}`);
     files.set(assetKey(`Prg/${name}`), encoder.encode(text));

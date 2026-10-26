@@ -214,6 +214,7 @@ const SCRIPT_ASSET_AREAS: Readonly<Record<string, { readonly folder: string; rea
   enemies: { folder: "enemy", kind: "script-asset" },
   specialMoves: { folder: "spcmove", kind: "script-asset" },
   statusEffects: { folder: "statuse", kind: "script-asset" },
+  backgrounds: { folder: "bkrounds", kind: "script-asset" },
 };
 
 function encodeInlineScriptString(value: string): string {

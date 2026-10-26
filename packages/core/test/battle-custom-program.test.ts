@@ -366,7 +366,7 @@ test("custom fight finish routes outcomes 0, 2 and 4 through the adapter and lea
   equal(win.state.vm.globals.winprogramcount, 1);
   deepEqual(
     win.state.vm.effects.filter((effect) => effect.patch?.section === "inventory").map((effect) => effect.args[0]),
-    [{ kind: "inventory.gainGold", amount: 8 }],
+    [{ type: "addGold", amount: 8 }],
   );
 
   const loss = runCustomOutcome(4, "battle-outcome-game-over.prg");
