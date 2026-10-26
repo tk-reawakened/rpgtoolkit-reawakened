@@ -172,6 +172,7 @@ test("scene registration posts a battle effect through the phase callback", () =
   const { state, config } = setup(fixture.cases[1]!, 7);
   const posted: string[] = [];
   const registration = randomEncounterPhaseRegistration({ config });
+  equal(registration.phase, "triggers");
   state.time.tick = 0;
   registration.run(state);
   state.sprites.players[0] = { ...state.sprites.players[0]!, x: 80 };

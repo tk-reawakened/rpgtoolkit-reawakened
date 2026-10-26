@@ -2,7 +2,7 @@
   "scene": "movement-tile-pixel",
   "schema": 1,
   "note": "Authored from docs/spec; expected facts are derived by tools/fixtures/movement, not by packages/core. No state or draw hashes: later entries assert those.",
-  "tick": "60 Hz fixed; phases input, waits, threads, movement, edges, triggers, battle, animation (AD-26)",
+  "tick": "60 Hz fixed; phases input, waits, threads, movement, edges, triggers, animation (AD-26)",
   "units": "board pixels; fractions are exact multiples of 1/256",
   "spec": ["movement-and-collision.md#e-22","movement-and-collision.md#e-23","movement-and-collision.md#r-50"],
   "proposed": ["P-1","P-3","P-4"],

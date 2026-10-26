@@ -5,7 +5,7 @@ import type { SectionKey } from "../state.ts";
 
 export type EngineEffectQueue = Partial<Record<SectionKey, EffectRecord[]>>;
 
-export type EnginePhase = "input" | "waits" | "threads" | "events" | "movement" | "edges" | "triggers" | "battle" | "animation" | "audio" | "time";
+export type EnginePhase = "input" | "waits" | "threads" | "events" | "movement" | "edges" | "triggers" | "animation" | "audio" | "time";
 
 /** The resumable VM portion of a fixed tick (AD-1 breakpoint cursor). */
 export type OpenTickCursor = {

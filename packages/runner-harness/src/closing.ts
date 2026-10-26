@@ -174,7 +174,7 @@ function createBootDoubles(options: ClosingRunOptions = {}) {
   ];
   if (options.syntheticBattle === true) {
     phaseRegistrations.push({
-      phase: "battle",
+      phase: "triggers",
       run: (_state, post) => {
         if (battlePosted || post === undefined) return;
         battlePosted = true;

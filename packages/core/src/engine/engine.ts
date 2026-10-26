@@ -108,7 +108,6 @@ export const ENGINE_PHASES = [
   "movement",
   "edges",
   "triggers",
-  "battle",
   "animation",
   "audio",
   "time",
@@ -215,6 +214,14 @@ const SCRIPT_ASSET_AREAS: Readonly<Record<string, { readonly folder: string; rea
   specialMoves: { folder: "spcmove", kind: "script-asset" },
   statusEffects: { folder: "statuse", kind: "script-asset" },
 };
+
+function encodeInlineScriptString(value: string): string {
+  const codeUnits: string[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    codeUnits.push(value.charCodeAt(index).toString(16).padStart(4, "0"));
+  }
+  return codeUnits.join("");
+}
 
 /** Create the deterministic fixed-tick engine; host assets arrive only as AD-14 replies. */
 const DEFAULT_GAME_AUDIO_SETTINGS = {
@@ -393,6 +400,44 @@ export function createEngine(init: EngineInit): Engine {
     applySpriteEffect(state, effect.name, values);
   });
   bus.register("triggers", (effect) => applyTriggerEffect(state, effect));
+  bus.register("battle", (effect) => {
+    const payload = effect.args[0];
+    if (effect.name === "battle.customFight") {
+      diagnostics.push({
+        code: "battle.custom-fight-owner-ruling",
+        file: mainKey ?? "",
+        line: 0,
+        message: "the current custom-fight request contains trigger, board, actor and program but no drawn fighter references; waiting for the owner's ruling before running a custom random fight",
+      });
+      return;
+    }
+    if (effect.name === "battle.noEnemies") {
+      if (typeof payload !== "object" || payload === null || Array.isArray(payload) || typeof payload.message !== "string") {
+        diagnostics.push({ code: "battle.bad-handoff", file: mainKey ?? "", line: 0, message: "random no-enemies event requires a message" });
+        return;
+      }
+      bus.postEffect("ui", engineEffect("ui", "mwin", [payload.message]));
+      return;
+    }
+    if (effect.name !== "battle.randomEncounter") return;
+    const serialized = JSON.stringify(payload);
+    if (serialized === undefined) {
+      diagnostics.push({ code: "battle.bad-handoff", file: mainKey ?? "", line: 0, message: "random encounter handoff is not plain serializable data" });
+      return;
+    }
+    const kind = blockingAlive() ? "board" : "blocking";
+    const ref: ProgramRef = {
+      kind: "inline",
+      text: `__battle_start_handoff(${JSON.stringify(encodeInlineScriptString(serialized))})`,
+      compiler: COMPILER_VERSION,
+    };
+    try {
+      startThread(state.vm, { ref, kind, owner: kind === "blocking" ? "script" : "world" });
+    } catch (error) {
+      if (!(error instanceof ScriptError)) throw error;
+      diagnostics.push({ code: error.code, file: error.pos?.file ?? mainKey ?? "", line: error.pos?.line ?? 0, message: error.message });
+    }
+  });
   // The audio callback runs during an originating engine phase; services are
   // initialized below before any phase can post an engine-originated start.
   let services!: ScriptServices;
@@ -519,6 +564,10 @@ export function createEngine(init: EngineInit): Engine {
       init.scriptObservers,
       menuOwners,
       mainFile?.gameOverPrg ?? null,
+      {
+        enemies: mainFile?.enemies ?? [],
+        stockBattleAvailable: plugins.some((plugin) => plugin.definition.id === "stock_battle"),
+      },
     );
     media.activateDeclared();
     if (runStartups) {
@@ -1544,8 +1593,6 @@ export function createEngine(init: EngineInit): Engine {
         return;
       case "triggers":
         for (const registration of registrationByPhase.get(phase) ?? []) registration.run(state, (section, effect) => bus.postEffect(section, effect));
-        return;
-      case "battle":
         if (mainFile !== null) {
           runRandomEncounterPhase(state, {
             fightingDisabled: mainFile.fightingDisabled,
@@ -1556,7 +1603,6 @@ export function createEngine(init: EngineInit): Engine {
             customFightPrg: mainFile.customFightPrg,
           }, (section, effect) => bus.postEffect(section, effect));
         }
-        for (const registration of registrationByPhase.get(phase) ?? []) registration.run(state, (section, effect) => bus.postEffect(section, effect));
         return;
       case "animation":
         runAnimationPhase();
