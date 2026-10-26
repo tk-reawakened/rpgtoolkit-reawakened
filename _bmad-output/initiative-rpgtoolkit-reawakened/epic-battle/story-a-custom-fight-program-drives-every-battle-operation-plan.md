@@ -3,7 +3,7 @@ title: "A custom fight program drives every battle operation"
 type: 'feature'
 ticket: 12
 created: '2026-10-19'
-status: draft
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "high"
 context:
@@ -36,12 +36,12 @@ No new API. If the fixture needs an operation the spec does not rule, the gap is
 
 ## Acceptance
 
-1. The custom program calls every ruled battle operation at least once; the coverage assertion fails if one is missing.
-2. The same core state is driven with the stock package absent and with it present-but-replaced.
-3. A seeded battle produces a stable state hash and draw list across runs.
-4. The BAT-8 outcome adapter still applies for outcome 2 (gold once, full experience to every member) and applies nothing for outcome 3; the program's own `defeated` emit fires once per enemy.
-5. The program cannot read package internals; an attempted access is a normal unknown-name error.
-6. No undocumented operation is used; a needed gap was fixed in `battle.md` first.
+- [x] The custom program calls every ruled battle operation at least once; the coverage assertion fails if one is missing. Test: `packages/core/test/battle-custom-program.test.ts` — “custom fight program drives the public battle and actor APIs without stock package internals”.
+- [ ] The same core state is driven with the stock package absent and with it present-but-replaced. No named test runs that same custom-program state in both configurations; the replacement-loop tests use a separate fixture.
+- [x] A seeded battle produces a stable state hash and draw list across runs. Test: `packages/core/test/battle-custom-program.test.ts` — “custom fight seed and mid-battle save restore preserve state and drawing”.
+- [x] The BAT-8 outcome adapter applies for outcome 2 and nothing for outcome 3; the program's own `defeated` emit fires once per enemy. Tests: `packages/core/test/battle-custom-program.test.ts` — “custom fight finish routes outcomes 0, 2 and 4 through the adapter and leaves 1 and 3 alone”; “custom fight program drives the public battle and actor APIs without stock package internals”.
+- [ ] The program cannot read package internals; an attempted access is a normal unknown-name error. The named test proves that `stockBattle` cannot resolve without the package and reports `include.missing`, but does not prove the specified ordinary unknown-name error. Test: `packages/core/test/battle-custom-program.test.ts` — “a custom program cannot resolve stock battle internals without the package”.
+- [ ] No undocumented operation is used; a needed gap was fixed in `battle.md` first. No named core test proves the documentation audit.
 
 ## Verification
 

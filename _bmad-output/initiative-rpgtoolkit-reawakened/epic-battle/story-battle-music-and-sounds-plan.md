@@ -3,7 +3,7 @@ title: "Battle music and sounds through the media object"
 type: 'feature'
 ticket: 10
 created: '2026-10-19'
-status: draft
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "medium"
 context:
@@ -39,12 +39,12 @@ No UI (7.11), no loop or rules. It does not add audio primitives to `core`; it u
 
 ## Acceptance
 
-1. The battle track replaces the board track at start; on the outcome the `battle` track stops and the board's music is re-posted from `boardKey`.
-2. Source `battle` reaches `beforePlay`; a listener can replace or cancel; a listener error plays the original.
-3. Every battle and menu cue is a media cue with the ruled name; a missing cue is silent.
-4. Voices mix without stopping the track; two same-tick cues both play.
-5. A save contains no audio; a mid-battle load starts the restored track and a non-battle load leaves no `battle` track.
-6. The null-audio runner produces the same cue stream and state hash.
+- [x] The battle track replaces the board track at start; on the outcome the `battle` track stops and the board's music is re-posted from `boardKey`. Tests: `packages/core/test/media-objects.test.ts` — “battle music replaces board music on the built-in track with the battle source”; `packages/core/test/engine-boot.test.ts` — “battleEnded dispatches before boardReturned and restores active board music before audio”.
+- [ ] Source `battle` reaches `beforePlay`; a listener can replace or cancel; a listener error plays the original. Tests cover the battle source and replacement/cancellation, but none proves the listener-error fallback; `packages/core/test/audio-runtime.test.ts` — “a failed engine beforePlay dispatch rejects the start” tests rejection instead.
+- [ ] Every battle and menu cue is a media cue with the ruled name; a missing cue is silent. The missing-music test covers music only; no named test asserts the complete battle/menu cue mapping.
+- [ ] Voices mix without stopping the track; two same-tick cues both play. No named core test proves both clauses for battle cues.
+- [ ] A save contains no audio; a mid-battle load starts the restored track and a non-battle load leaves no `battle` track. The named save test keeps playback state, and no named test proves this battle-track behavior through game save/load.
+- [ ] The null-audio runner produces the same cue stream and state hash. No named core test compares both runners.
 
 ## Verification
 

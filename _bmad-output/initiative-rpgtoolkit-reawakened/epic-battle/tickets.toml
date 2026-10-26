@@ -152,6 +152,7 @@ references = [
 [[entry]]
 id = 9
 tracker_id = "#512"
+tracker_status = "done"
 type = "story"
 title = "Battle starts and setup: random encounters, Fight and FightEnemy"
 description = "Consumes the 5.11 random-encounter handoff and implements `Fight` and `FightEnemy` (BAT-9): create enemy actors with 20.5 from the handoff (1 to 4 enemies, each count equally likely, each drawn independently from the main file's entries of the matching skill level), start party 0 enemies and party 1 from every occupied slot of the actor store's ordered party (fallen members included, starting fallen), load the `.bkg` background image and set `canRun` false if any one enemy forbids running, show the no-enemies message and start nothing when no entry matches, call the registered `battle` command and wait for its outcome, and repoint the 5.11 `battle` phase registration to the phase ruled by 20.1. `skill` is -1 on the random path. A custom encounter is spelled out, not drawn (owner ruling, 2026-10-26): when the main file names a custom fight program, the 5.11 request carries no fighters and the engine draws nothing; it runs the program in place of the draw and the program names its enemies with `FightEnemy`."
@@ -170,6 +171,7 @@ references = [
 [[entry]]
 id = 10
 tracker_id = "#513"
+tracker_status = "done"
 type = "story"
 title = "Battle music and sounds through the media object"
 description = "Plays the battle's music, sounds and menu cues through the 21.5 media object: play the battle background's music with source `battle`, let a `beforePlay` listener replace or cancel it, play the menu move/confirm/cancel and battle cues as voices, stop the battle track and have the board's music re-posted from the battle's `boardKey` on the outcome, and keep audio out of the save (a mid-battle load stops the stale track and plays the battle track again, with the board track restored from the board after the battle)."
@@ -206,6 +208,7 @@ references = [
 [[entry]]
 id = 12
 tracker_id = "#515"
+tracker_status = "done"
 type = "story"
 title = "A custom fight program drives every battle operation"
 description = "Proves the replacement path (BAT-3, BAT-8, BAT-12): a fixture RPGCode fight program registered as the main file's fight program drives every battle-facing operation of BAT-3 (party size and fighter lookup, charge read/add/set/release and percent, `canRun`, stat reads and writes through the actor, status apply and remove, damage through the actor, the enemy `defeated` emit, `finish`) and its own drawing and input, without the stock package's loop or UI, over the same core battle section; a seeded short battle pins the state hash and draw list. With the package absent, the program emits `defeated` itself and no `stock_battle.defeated` re-emit occurs unless the program sends one."

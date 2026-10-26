@@ -3,7 +3,7 @@ title: "Refactor sweep"
 type: 'feature'
 ticket: 13
 created: '2026-10-19'
-status: draft
+status: built
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "low"
 context:
@@ -37,12 +37,12 @@ No new behaviour. If the sweep finds a missing rule, it is fixed in `battle.md` 
 
 ## Acceptance
 
-1. No duplicate battle registration, handoff reader or dead battle-phase path remains.
-2. The phase, catalogue, command-docs, provenance and licence gates are green.
-3. Every docs link and anchor in `battle.md` and its amendments resolves.
-4. Each Done-when item is checked with a test or fixture named in the PR.
-5. The placeholder and its comment are gone; the section is exported and reset exactly once.
-6. The full suite, typecheck and lint pass.
+- [ ] No duplicate battle registration, handoff reader or dead battle-phase path remains. No named core test asserts all three.
+- [ ] The phase, catalogue, command-docs, provenance and licence gates are green. These are repository gates, not a named `packages/core/test` test.
+- [ ] Every docs link and anchor in `battle.md` and its amendments resolves. No named core test checks these links.
+- [ ] Each Done-when item is checked with a test or fixture named in the PR. This is blocked by Epic 7.11, which remains intentionally unbuilt.
+- [ ] The placeholder and its comment are gone; the section is exported and reset exactly once. No named core test asserts all of these.
+- [ ] The full suite, typecheck and lint pass. No named core test proves these repository-wide gates.
 
 ## Verification
 
