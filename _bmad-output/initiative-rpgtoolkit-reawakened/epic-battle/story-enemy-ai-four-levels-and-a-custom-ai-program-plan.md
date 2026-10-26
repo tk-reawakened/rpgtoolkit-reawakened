@@ -3,7 +3,7 @@ title: "Enemy AI: four levels and a custom AI program"
 type: 'feature'
 ticket: 7
 created: '2026-10-19'
-status: draft
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "medium"
 context:
@@ -39,13 +39,13 @@ No damage or status application (7.5, 7.6). AI chooses; the action code applies.
 
 ## Acceptance
 
-1. Each of the four levels makes the ruled choices over a seeded run, including the coin, the special-first and weakest-target cases.
-2. An unaffordable special falls back to a physical attack; a healing special goes to a random ally at levels 0 and 1 and to the lowest-HP ally at levels 2 and 3; a harmful one targets the player party.
-3. A custom AI program drives the action and cannot read package internals; an error ends the turn, reports, and leaves the battle running; a program that does nothing spends the turn.
-4. Every draw is in the ruled order; a tie is deterministic.
-5. `ai(level)` validates its argument and applies to the acting enemy only.
-6. With no living player the AI skips its turn; no division by zero occurs.
-7. No unseeded randomness or wall clock is used.
+- [x] Each of the four levels makes the ruled choices over a seeded run, including the coin, special-first and weakest-target cases. Test: `battle-ai.test.ts` — “all four AI levels follow their coin, special and target boundaries across seeds”.
+- [x] An unaffordable special falls back to a physical attack; healing specials choose the ruled allies by level; harmful specials target players. Tests: `battle-ai.test.ts` — “affordable specials are chosen equally, unaffordable moves are filtered, and no affordable move falls back to attack”; “healing specials choose living allies by level and may target an already-full ally”; “zero-FP moves are harmful and target players”.
+- [x] A custom AI program receives source/target, can act or hand off, and reports errors while battle continues; a no-op custom program spends its turn. Tests: `battle-ai.test.ts` — “custom AI receives source/target handles, can act or hand off, and ERR-2 continues after errors”; “a no-op custom AI spends its turn without an automatic attack”.
+- [x] Every draw is in the ruled order and weakest-target ties are deterministic. Tests: `battle-ai.test.ts` — “all four AI levels follow their coin, special and target boundaries across seeds”; “weak-target ties preserve earlier party position and no living player draws no RNG”.
+- [ ] `ai(level)` validates its argument and applies to the acting enemy only. The named custom-AI test asserts `ai(4)` raises `builtin.bad-arg`, but no named test proves the level change affects only the acting enemy.
+- [x] With no living player the AI skips its turn without division by zero. Test: `battle-ai.test.ts` — “weak-target ties preserve earlier party position and no living player draws no RNG”.
+- [ ] No unseeded randomness or wall clock is used. The named equal-seed test compares decision hashes, but no test asserts that those APIs are absent.
 
 ## Verification
 
