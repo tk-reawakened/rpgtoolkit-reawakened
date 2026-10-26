@@ -39,5 +39,5 @@ giveexp("Hero", 1)
 experienceRead = fighter.experience
 fighter.hp = 6
 secondAliasHp = gethp("Hero")
-battle.finish(2)
+battle.finish(1)
 outcomeAfter = battle.outcome
