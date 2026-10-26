@@ -504,25 +504,31 @@ test("soundfont-setting: the 6.3 worked example's cue ids, order and values", ()
   equal(cuesAt(reload, 8)[0].asset, "media/town.sf2");
 });
 
-test("battle-music-handoff: stop then play, silence without music, restart on return", () => {
+test("battle-music-handoff: battle music takes over and board return restores active music", () => {
   const c = theCase("battle-music-handoff", "battle-music-then-return");
   deepEqual(kinds(c, 6), ["media.stop/music#0", "media.play/music#0"]);
+  equal(c.script[1].source, "battle");
   equal(cuesAt(c, 6)[1].asset, "media/fight.mid");
   deepEqual(kinds(c, 14), ["media.stop/music#0", "media.play/music#0"]);
+  equal(c.script[2].source, "board");
   deepEqual([cuesAt(c, 14)[1].asset, cuesAt(c, 14)[1].positionTicks, cuesAt(c, 14)[1].loop], ["media/field.mid", 0, true]);
   const none = theCase("battle-music-handoff", "battle-without-music-is-silent");
-  deepEqual(kinds(none, 6), ["media.stop/music#0"]);
-  deepEqual(rowAt(none, 7).tr, []);
-  deepEqual(allCues(none).map((q) => q.kind), ["soundfont.set", "media.play", "media.stop", "media.play"]);
+  deepEqual(kinds(none, 6), []);
+  deepEqual(trackAt(none, 7, "music").slice(0, 4), ["music", "playing", 1, "media/field.mid"]);
+  deepEqual(allCues(none).map((q) => q.kind), ["soundfont.set", "media.play"]);
+  equal(trackAt(none, 11, "music")[3], "media/field.mid");
+  deepEqual(kinds(none, 12), []);
   const lost = theCase("battle-music-handoff", "in-fight-music-change-is-lost");
   equal(cuesAt(lost, 10)[1].asset, "media/other.mid");
   equal(cuesAt(lost, 14)[1].asset, "media/field.mid");
+  equal(lost.script[3].source, "board");
   const same = theCase("battle-music-handoff", "same-file-battle-carries-on-and-restart-restarts");
   deepEqual(kinds(same, 6), []);
-  deepEqual(kinds(same, 14), ["media.stop/music#0", "media.play/music#0"]);
+  deepEqual(kinds(same, 14), []);
   const virtual = theCase("battle-music-handoff", "music-virtual-follows-the-music-track-file");
   equal(trackAt(virtual, 8, "music")[3], "media/fight.mid");
   deepEqual(trackAt(virtual, 11, "music").slice(0, 4), ["music", "stopped", 1, "media/fight.mid"]);
+  equal(trackAt(virtual, 15, "music")[3], "media/field.mid");
 });
 
 test("legacy-parity-ledger: legacy names behave as their standard calls", () => {
