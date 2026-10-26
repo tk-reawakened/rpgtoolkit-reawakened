@@ -215,6 +215,7 @@ if (outcome == 2) {
     executeProgram(runProgram, { source: null, target: null })
   }
 }
+game.emit("battleEnded", { outcome: outcome })
 `;
 
 function outcomeAdapterEffect(): CommandEffect {
@@ -516,7 +517,7 @@ function pendingBattleStart(encoded: string): BattleStartPending {
     typeof record.background !== "string" ||
     !strings(record.enemySources) || record.enemySources.length === 0 || record.enemySources.length > 4 ||
     !strings(record.loadedHex) || typeof record.next !== "number" || !Number.isSafeInteger(record.next) || record.next < 0 ||
-    record.loadedHex.length !== record.next || record.next >= record.enemySources.length ||
+    record.loadedHex.length !== record.next || record.next > record.enemySources.length ||
     !ids(record.playerIds) || record.playerIds.length === 0 ||
     typeof record.runStock !== "boolean"
   ) throw new ScriptError("battle.bad-handoff", "battle start continuation fields are invalid");
@@ -564,6 +565,15 @@ function startBattleAssetRequest(view: CommandView, pending: BattleStartPending)
   };
 }
 
+function startBattleBackgroundRequest(view: CommandView, pending: BattleStartPending): CommandResult {
+  if (pending.background === "") return finishBattleStart(view, pending, "");
+  return {
+    value: null,
+    request: { kind: "asset", area: "backgrounds", path: assetPath(pending.background, "Bkrounds", ".bkg", "fight") },
+    then: { command: "__battle_start_background_asset", args: [JSON.stringify(pending)] },
+  };
+}
+
 function pendingStart(
   view: CommandView,
   boardKey: string,
@@ -600,7 +610,7 @@ function stockBattleLoop(): CommandEffect {
   };
 }
 
-function finishBattleStart(view: CommandView, pending: BattleStartPending): CommandResult {
+function finishBattleStart(view: CommandView, pending: BattleStartPending, backgroundMusic: string): CommandResult {
   const state = view.state;
   const actors = view.actors;
   const battle = view.battle;
@@ -626,6 +636,7 @@ function finishBattleStart(view: CommandView, pending: BattleStartPending): Comm
     players: pending.playerIds,
   });
   if (!started.ok) throw new ScriptError(started.error.code, started.error.message);
+  if (backgroundMusic !== "") view.media?.playBattleMusic(backgroundMusic);
   return pending.runStock ? { value: null, effects: [stockBattleLoop()] } : { value: null };
 }
 
@@ -639,7 +650,13 @@ function battleStartAssetContinuation(view: CommandView, args: readonly Arg[]): 
     loadedHex: [...pending.loadedHex, hex.toLowerCase()],
     next: pending.next + 1,
   };
-  return next.next < next.enemySources.length ? startBattleAssetRequest(view, next) : finishBattleStart(view, next);
+  return next.next < next.enemySources.length ? startBattleAssetRequest(view, next) : startBattleBackgroundRequest(view, next);
+}
+function battleStartBackgroundAssetContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
+  const pending = pendingBattleStart(text(args, 2));
+  const background = readBattleBackground(new BinaryReader(replyBytes(args, "battle background")));
+  if (!background.ok) throw new ScriptError("format.battle-background", background.error.message);
+  return finishBattleStart(view, pending, background.value.music);
 }
 
 function beginBattleStart(view: CommandView, boardKey: string, background: string, sources: readonly string[], runStock: boolean): CommandResult {
@@ -1054,11 +1071,10 @@ const EXPERIENCE_STEP = {
 
 const APPLY_OUTCOME = {
   name: "__battle_apply_outcome", aliases: [], params: [parameter("code")],
-  doc: internalDocumentation("Apply one automatic battle outcome.", "Records the automatic outcome if the package did not already do so, permits a recorded win or run to be corrected to a simultaneous loss, then invokes the core outcome adapter for codes 0, 2 or 4."),
+  doc: internalDocumentation("Apply one battle outcome.", "Records the automatic outcome if the package did not already do so, permits a recorded win or run to be corrected to a simultaneous loss, then completes the core outcome adapter and battle-ended notification."),
   call: (view: CommandView, args: readonly Arg[]) => {
     const code = integer(args, 0, "battle outcome");
-    if (code === 1 || code === 3) return { value: null };
-    if (code !== 0 && code !== 2 && code !== 4) throw new ScriptError("battle.bad-outcome", `automatic battle outcome must be 0, 2 or 4: ${display(code)}`);
+    if (code < 0 || code > 4) throw new ScriptError("battle.bad-outcome", `automatic battle outcome must be 0 through 4: ${display(code)}`);
     const battle = owner(view);
     const current = resolve(battle.outcome());
     if (current === null) resolve(battle.decideOutcome(code));
@@ -1644,13 +1660,13 @@ const FINISH = {
   name: "__battle_finish", aliases: [], params: [parameter("self"), parameter("code")],
   doc: internalDocumentation(
     "Record a battle outcome.",
-    "`battle.finish(code)` accepts integer codes 0 through 4 and records the outcome once through the battle owner; codes 0, 2 and 4 invoke the core compatibility adapter unless the stock package is managing the outcome. Codes 1 and 3 are left to the package or custom program.",
+    "`battle.finish(code)` accepts integer codes 0 through 4 and records the outcome once through the battle owner. Codes 0, 2 and 4 run the core compatibility outcome adapter; codes 1 and 3 remain package- or custom-program-handled. The adapter announces battleEnded after the applicable outcome handling completes.",
     BATTLE_FINISH_THROWS,
   ),
   call: (view: CommandView, args: readonly Arg[]) => {
     const code = numeric(args, 1);
     resolve(owner(view).apply({ type: "finish", code }));
-    return !markStockBattleOutcomePending(view) && (code === 0 || code === 2 || code === 4)
+    return !markStockBattleOutcomePending(view)
       ? { value: null, effects: [outcomeAdapterEffect()] }
       : { value: null };
   },
@@ -1732,10 +1748,21 @@ const BATTLE_START_ASSET: BuiltinSpec = {
   params: [parameter("ok"), parameter("bytes"), parameter("continuation")],
   doc: internalDocumentation(
     "Resume battle setup after loading an enemy.",
-    "Collects each enemy asset in order, then hydrates the encounter actors and commits the plain-data battle section.",
+    "Loads each enemy asset in order, then requests the fight background before committing the battle section.",
     [...ASSET_REPLY_THROWS, { code: "format.enemy", when: "an enemy asset is not a valid `.ene` file" }],
   ),
   call: battleStartAssetContinuation,
+};
+const BATTLE_START_BACKGROUND_ASSET: BuiltinSpec = {
+  name: "__battle_start_background_asset",
+  aliases: [],
+  params: [parameter("ok"), parameter("bytes"), parameter("continuation")],
+  doc: internalDocumentation(
+    "Resume battle setup after loading its background.",
+    "Reads the background music field, starts it through the engine-owned built-in music track when present, and commits the plain-data battle section.",
+    [...ASSET_REPLY_THROWS, { code: "format.battle-background", when: "the asset is not a valid `.bkg` file" }],
+  ),
+  call: battleStartBackgroundAssetContinuation,
 };
 const START_HANDOFF: BuiltinSpec = {
   name: "__battle_start_handoff",
@@ -1832,7 +1859,7 @@ const FIGHT_ENEMY: BuiltinSpec = {
 };
 
 export const BATTLE_COMMANDS: readonly BuiltinSpec[] = [
-  FIGHT, FIGHT_ENEMY, BATTLE_START_ASSET, START_HANDOFF, CUSTOM_FIGHT, PREPARE_RANDOM_BATTLE, PREPARE_EXPLICIT_BATTLE,
+  FIGHT, FIGHT_ENEMY, BATTLE_START_ASSET, BATTLE_START_BACKGROUND_ASSET, START_HANDOFF, CUSTOM_FIGHT, PREPARE_RANDOM_BATTLE, PREPARE_EXPLICIT_BATTLE,
   PARTY_SIZE, FIGHTER, AI, CHARGE, ADD_CHARGE, SET_CHARGE, RELEASE_CHARGE, CHARGE_PERCENT, FINISH,
   HP, GIVE_HP, GET_HP, MAX_HP, GET_MAX_HP, SMP, GIVE_SMP, GET_SMP, MAX_SMP, GET_MAX_SMP,
   FP, GIVE_FP, GET_FP, DP, GET_DP, GIVE_EXP, APPLY_STATUS, REMOVE_STATUS, STATUS_DATA, STATUS_ASSET, GET_STATUS, STATUS_FLAGS, STATUS_FLAGS_ASSET, STATUS_DATA_ASSET,

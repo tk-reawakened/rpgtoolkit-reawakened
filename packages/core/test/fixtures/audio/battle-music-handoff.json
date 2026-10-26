@@ -15,7 +15,7 @@
   "cases": [
     {
       "name": "battle-music-then-return",
-      "note": "Synthetic battle effects (source battle): a fight with music A stops the board music then plays A from zero; when the fight ends the saved pre-fight file is posted with the restart flag, so it stops A and plays the board music again from zero (Q8, Q9).",
+      "note": "An engine-mediated battle start with non-empty .bkg music replaces board music. After battleEnded and boardReturned, the board/audio producer posts the active board's music with source board; a different file replaces battle music from zero (Q8, Q9).",
       "setup": {
         "defaultSoundFont": null,
         "assets": {
@@ -28,7 +28,7 @@
       "script": [
         {"t":0,"op":"effect","kind":"music.play","asset":"media/field.mid","loop":true,"restart":false,"source":"board"},
         {"t":6,"op":"effect","kind":"music.play","asset":"media/fight.mid","loop":true,"restart":false,"source":"battle"},
-        {"t":14,"op":"effect","kind":"music.play","asset":"media/field.mid","loop":true,"restart":true,"source":"battle"}
+        {"t":14,"op":"effect","kind":"music.play","asset":"media/field.mid","loop":true,"restart":false,"source":"board"}
       ],
       "ticks": 18,
       "expect": [
@@ -55,7 +55,7 @@
     },
     {
       "name": "battle-without-music-is-silent",
-      "note": "A fight with no music posts a null asset: media.stop only and the music file is cleared; there is no fallback track. On return the pre-fight file plays from zero.",
+      "note": "A fight with no background music posts no effect, so board music keeps playing. On return, the board/audio producer posts the active board's same music; the ordinary same-file rule carries it on.",
       "setup": {
         "defaultSoundFont": null,
         "assets": {
@@ -67,8 +67,7 @@
       },
       "script": [
         {"t":0,"op":"effect","kind":"music.play","asset":"media/field.mid","loop":true,"restart":false,"source":"board"},
-        {"t":6,"op":"effect","kind":"music.play","asset":null,"loop":true,"restart":false,"source":"battle"},
-        {"t":12,"op":"effect","kind":"music.play","asset":"media/field.mid","loop":true,"restart":true,"source":"battle"}
+        {"t":12,"op":"effect","kind":"music.play","asset":"media/field.mid","loop":true,"restart":false,"source":"board"}
       ],
       "ticks": 16,
       "expect": [
@@ -78,22 +77,22 @@
         {"t":3,"tr":[["music","playing",1,"media/field.mid",3,50,[[0,"playing",2,0,100,0,3,null,1,null]]]]},
         {"t":4,"tr":[["music","playing",1,"media/field.mid",4,50,[[0,"playing",2,0,100,0,4,null,1,null]]]]},
         {"t":5,"tr":[["music","playing",1,"media/field.mid",5,50,[[0,"playing",2,0,100,0,5,null,1,null]]]]},
-        {"t":6,"tr":[],"cues":[{"cueId":3,"tick":6,"kind":"media.stop","track":"music","voice":0,"asset":null,"loop":null,"flags":null,"positionTicks":null,"volume":null,"targetVolume":null,"durationTicks":null}],"ev":[{"e":"silence","track":"music","source":"battle"}]},
-        {"t":7,"tr":[]},
-        {"t":8,"tr":[]},
-        {"t":9,"tr":[]},
-        {"t":10,"tr":[]},
-        {"t":11,"tr":[]},
-        {"t":12,"tr":[["music","playing",1,"media/field.mid",0,50,[[0,"playing",4,0,100,12,0,null,1,null]]]],"cues":[{"cueId":4,"tick":12,"kind":"media.play","track":"music","voice":0,"asset":"media/field.mid","loop":true,"flags":1,"positionTicks":0,"volume":100,"targetVolume":null,"durationTicks":null}]},
-        {"t":13,"tr":[["music","playing",1,"media/field.mid",1,50,[[0,"playing",4,0,100,12,1,null,1,null]]]]},
-        {"t":14,"tr":[["music","playing",1,"media/field.mid",2,50,[[0,"playing",4,0,100,12,2,null,1,null]]]]},
-        {"t":15,"tr":[["music","playing",1,"media/field.mid",3,50,[[0,"playing",4,0,100,12,3,null,1,null]]]]}
+        {"t":6,"tr":[["music","playing",1,"media/field.mid",6,50,[[0,"playing",2,0,100,0,6,null,1,null]]]]},
+        {"t":7,"tr":[["music","playing",1,"media/field.mid",7,50,[[0,"playing",2,0,100,0,7,null,1,null]]]]},
+        {"t":8,"tr":[["music","playing",1,"media/field.mid",8,50,[[0,"playing",2,0,100,0,8,null,1,null]]]]},
+        {"t":9,"tr":[["music","playing",1,"media/field.mid",9,50,[[0,"playing",2,0,100,0,9,null,1,null]]]]},
+        {"t":10,"tr":[["music","playing",1,"media/field.mid",10,50,[[0,"playing",2,0,100,0,10,null,1,null]]]]},
+        {"t":11,"tr":[["music","playing",1,"media/field.mid",11,50,[[0,"playing",2,0,100,0,11,null,1,null]]]]},
+        {"t":12,"tr":[["music","playing",1,"media/field.mid",12,50,[[0,"playing",2,0,100,0,12,null,1,null]]]],"ev":[{"e":"same-file","track":"music","file":"media/field.mid","action":"carry-on"}]},
+        {"t":13,"tr":[["music","playing",1,"media/field.mid",13,50,[[0,"playing",2,0,100,0,13,null,1,null]]]]},
+        {"t":14,"tr":[["music","playing",1,"media/field.mid",14,50,[[0,"playing",2,0,100,0,14,null,1,null]]]]},
+        {"t":15,"tr":[["music","playing",1,"media/field.mid",15,50,[[0,"playing",2,0,100,0,15,null,1,null]]]]}
       ],
-      "end": {"cueId":5,"soundFont":null,"master":100}
+      "end": {"cueId":3,"soundFont":null,"master":100}
     },
     {
       "name": "in-fight-music-change-is-lost",
-      "note": "A script that changes the music during the fight replaces the fight music; the return still restarts the pre-fight file, so the change is lost.",
+      "note": "A script music change during battle replaces fight music; on boardReturned, the active board's music is posted with source board and replaces that change.",
       "setup": {
         "defaultSoundFont": null,
         "assets": {
@@ -107,7 +106,7 @@
         {"t":0,"op":"effect","kind":"music.play","asset":"media/field.mid","loop":true,"restart":false,"source":"board"},
         {"t":6,"op":"effect","kind":"music.play","asset":"media/fight.mid","loop":true,"restart":false,"source":"battle"},
         {"t":10,"op":"mediaPlay","file":"other.mid"},
-        {"t":14,"op":"effect","kind":"music.play","asset":"media/field.mid","loop":true,"restart":true,"source":"battle"}
+        {"t":14,"op":"effect","kind":"music.play","asset":"media/field.mid","loop":true,"restart":false,"source":"board"}
       ],
       "ticks": 18,
       "expect": [
@@ -134,7 +133,7 @@
     },
     {
       "name": "same-file-battle-carries-on-and-restart-restarts",
-      "note": "When the fight's music is the board's, the entry carries on without a cue (same-file rule); the return with the restart flag restarts the same file from zero.",
+      "note": "When the fight's music is the board's, both engine requests use the same-file carry-on rule: battle entry and board return emit no transition cue.",
       "setup": {
         "defaultSoundFont": null,
         "assets": {
@@ -147,7 +146,7 @@
       "script": [
         {"t":0,"op":"effect","kind":"music.play","asset":"media/field.mid","loop":true,"restart":false,"source":"board"},
         {"t":6,"op":"effect","kind":"music.play","asset":"media/field.mid","loop":true,"restart":false,"source":"battle"},
-        {"t":14,"op":"effect","kind":"music.play","asset":"media/field.mid","loop":true,"restart":true,"source":"battle"}
+        {"t":14,"op":"effect","kind":"music.play","asset":"media/field.mid","loop":true,"restart":false,"source":"board"}
       ],
       "ticks": 18,
       "expect": [
@@ -165,16 +164,16 @@
         {"t":11,"tr":[["music","playing",1,"media/field.mid",11,50,[[0,"playing",2,0,100,0,11,null,1,null]]]]},
         {"t":12,"tr":[["music","playing",1,"media/field.mid",12,50,[[0,"playing",2,0,100,0,12,null,1,null]]]]},
         {"t":13,"tr":[["music","playing",1,"media/field.mid",13,50,[[0,"playing",2,0,100,0,13,null,1,null]]]]},
-        {"t":14,"tr":[["music","playing",1,"media/field.mid",0,50,[[0,"playing",4,0,100,14,0,null,1,null]]]],"cues":[{"cueId":3,"tick":14,"kind":"media.stop","track":"music","voice":0,"asset":null,"loop":null,"flags":null,"positionTicks":null,"volume":null,"targetVolume":null,"durationTicks":null},{"cueId":4,"tick":14,"kind":"media.play","track":"music","voice":0,"asset":"media/field.mid","loop":true,"flags":1,"positionTicks":0,"volume":100,"targetVolume":null,"durationTicks":null}]},
-        {"t":15,"tr":[["music","playing",1,"media/field.mid",1,50,[[0,"playing",4,0,100,14,1,null,1,null]]]]},
-        {"t":16,"tr":[["music","playing",1,"media/field.mid",2,50,[[0,"playing",4,0,100,14,2,null,1,null]]]]},
-        {"t":17,"tr":[["music","playing",1,"media/field.mid",3,50,[[0,"playing",4,0,100,14,3,null,1,null]]]]}
+        {"t":14,"tr":[["music","playing",1,"media/field.mid",14,50,[[0,"playing",2,0,100,0,14,null,1,null]]]],"ev":[{"e":"same-file","track":"music","file":"media/field.mid","action":"carry-on"}]},
+        {"t":15,"tr":[["music","playing",1,"media/field.mid",15,50,[[0,"playing",2,0,100,0,15,null,1,null]]]]},
+        {"t":16,"tr":[["music","playing",1,"media/field.mid",16,50,[[0,"playing",2,0,100,0,16,null,1,null]]]]},
+        {"t":17,"tr":[["music","playing",1,"media/field.mid",17,50,[[0,"playing",2,0,100,0,17,null,1,null]]]]}
       ],
-      "end": {"cueId":5,"soundFont":null,"master":100}
+      "end": {"cueId":3,"soundFont":null,"master":100}
     },
     {
       "name": "music-virtual-follows-the-music-track-file",
-      "note": "The music virtual variable reads the music track's file: it shows the fight music during the battle and, after a stop, still shows it (Q19), until the return replaces it.",
+      "note": "The music virtual variable reads the music track's file: it shows fight music during battle and, after a stop, still shows it (Q19), until the board/audio producer restores the active board's music.",
       "setup": {
         "defaultSoundFont": null,
         "assets": {
@@ -188,7 +187,7 @@
         {"t":0,"op":"effect","kind":"music.play","asset":"media/field.mid","loop":true,"restart":false,"source":"board"},
         {"t":6,"op":"effect","kind":"music.play","asset":"media/fight.mid","loop":true,"restart":false,"source":"battle"},
         {"t":10,"op":"mediaStop","track":"music"},
-        {"t":14,"op":"effect","kind":"music.play","asset":"media/field.mid","loop":true,"restart":true,"source":"battle"}
+        {"t":14,"op":"effect","kind":"music.play","asset":"media/field.mid","loop":true,"restart":false,"source":"board"}
       ],
       "ticks": 17,
       "expect": [

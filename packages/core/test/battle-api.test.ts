@@ -309,6 +309,24 @@ test("finish validates outcomes, records once, and refuses a disallowed run atom
   equal(alreadyFinished.state.battle?.outcome, 3);
 });
 
+test("battle.finish emits one battleEnded event with its outcome after outcome handling", () => {
+  const { state } = makeState();
+  const result = runScript(state, `
+battleEndedCount = 0
+game.on("battleEnded", (event) => {
+  battleEndedCount = battleEndedCount + 1
+  battleEndedOutcome = event.detail.outcome
+})
+battle.finish(3)
+`);
+  equal(result.finished, true);
+  deepEqual(result.diagnostics.map(({ code }) => code), []);
+  equal(state.battle?.outcome, 3);
+  equal(state.vm.globals.battleendedcount, 1);
+  equal(state.vm.globals.battleendedoutcome, 3);
+});
+
+
 test("battle-only reads report not-active while legacy stat aliases still work outside battle", () => {
   const { state, hero } = makeState();
   state.battle = null;
