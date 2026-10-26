@@ -9,6 +9,7 @@ import {
   BATTLE_PLUGIN,
   BinaryWriter,
   CORE_PLUGIN,
+  createBattleOwner,
   createGameState,
   createScriptServices,
   registerActorObject,
@@ -62,6 +63,50 @@ function makeState(canRun = true) {
   };
   return { state, enemy, hero };
 }
+test("battle owner starts ordered parties with fallen players and a fresh battle id", () => {
+  const { state, enemy, hero } = makeState();
+  const fallen = addActor(state.actors, {
+    kind: "party",
+    source: "fallen.tem",
+    name: "Fallen",
+    stats: { hp: 0, maxHp: 20 },
+  });
+  state.party.members = [hero.id, fallen.id];
+  const owner = createBattleOwner({
+    readBattle: () => state.battle,
+    readActors: () => state.actors,
+    commit: (battle) => { state.battle = battle; },
+  });
+  const result = owner.start({
+    boardKey: "boards/field.brd",
+    background: "night.bkg",
+    canRun: false,
+    enemies: [enemy.id],
+    players: state.party.members,
+  });
+  ok(result.ok);
+  equal(result.value.id, 2);
+  equal(result.value.boardKey, "boards/field.brd");
+  equal(result.value.background, "night.bkg");
+  equal(result.value.canRun, false);
+  deepEqual(result.value.parties, [
+    [{ party: 0, actorId: enemy.id, charge: 0 }],
+    [
+      { party: 1, actorId: hero.id, charge: 0 },
+      { party: 1, actorId: fallen.id, charge: 0 },
+    ],
+  ]);
+  const empty = owner.start({
+    boardKey: "boards/field.brd",
+    background: "night.bkg",
+    canRun: true,
+    enemies: [enemy.id],
+    players: [],
+  });
+  equal(empty.ok, false);
+  if (!empty.ok) equal(empty.error.code, "battle.empty-party");
+  equal(state.battle?.id, 2, "a rejected empty party leaves the current section intact");
+});
 
 function runScript(state: GameState, text: string, poll?: WaitPoll) {
   const services = createScriptServices(state, plugins);

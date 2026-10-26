@@ -132,5 +132,5 @@ export function runRandomEncounterPhase(state: GameState, config: RandomEncounte
 
 /** Register the evaluator for scene-mode runners; boot mode supplies its config directly. */
 export function randomEncounterPhaseRegistration(options: RandomEncounterOptions): EnginePhaseRegistration {
-  return { phase: "battle", rank: options.rank ?? 0, run: (state, post) => runRandomEncounterPhase(state, options.config, post) };
+  return { phase: "triggers", rank: options.rank ?? 0, run: (state, post) => runRandomEncounterPhase(state, options.config, post) };
 }

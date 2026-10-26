@@ -1,8 +1,9 @@
-import type { ActorsSection } from "../actors/model.ts";
+import { actorId, type ActorId, type ActorsSection } from "../actors/model.ts";
 import { isBattleFighterUsable, type BattleFighter, type BattleParty, type BattleSection, type BattleState } from "./model.ts";
 
 export type BattleErrorCode =
   | "battle.bad-fighter"
+  | "battle.empty-party"
   | "battle.bad-outcome"
   | "battle.already-finished"
   | "battle.cannot-run"
@@ -21,8 +22,17 @@ export type BattleAction =
   | { readonly type: "releaseCharge"; readonly party: number; readonly index: number }
   | { readonly type: "finish"; readonly code: number };
 
+/** Ordered actor references and encounter metadata for BAT-9 setup. */
+export type BattleStartInput = {
+  readonly boardKey: string;
+  readonly background: string;
+  readonly canRun: boolean;
+  readonly enemies: readonly (ActorId | number)[];
+  readonly players: readonly (ActorId | number)[];
+};
 /** Owner boundary over the one saved battle section; callers never mutate it directly. */
 export type BattleOwner = {
+  start(input: BattleStartInput): BattleOperationResult<BattleState>;
   partySize(party: number): BattleOperationResult<number>;
   fighter(party: number, index: number): BattleOperationResult<BattleFighter>;
   charge(party: number, index: number): BattleOperationResult<number>;
@@ -84,6 +94,45 @@ export function createBattleOwner(store: BattleOwnerStore): BattleOwner {
   };
 
   return {
+    start(input) {
+      if (input.players.length === 0) return failure("battle.empty-party", "cannot start a battle with an empty party");
+      if (input.enemies.length === 0) return failure("battle.bad-fighter", "cannot start a battle without enemies");
+      if (typeof input.boardKey !== "string" || input.boardKey === "" || typeof input.background !== "string" || typeof input.canRun !== "boolean") {
+        return failure("builtin.bad-arg", "battle start requires a board key, background and canRun flag");
+      }
+      const actors = store.readActors().actors;
+      const party = (ids: readonly (ActorId | number)[], number: BattleParty, kind: "enemy" | "party"): BattleOperationResult<BattleFighter[]> => {
+        const fighters: BattleFighter[] = [];
+        for (let index = 0; index < ids.length; index += 1) {
+          const id = ids[index];
+          if (typeof id !== "number" || !Number.isSafeInteger(id) || id < 1) {
+            return badFighter(number, index, "actor id must be a positive safe integer");
+          }
+          const record = actors.find((candidate) => candidate.id === id && candidate.kind === kind);
+          if (record === undefined || fighters.some((fighter) => fighter.actorId === id)) {
+            return badFighter(number, index, `no unique ${kind} actor exists at this position`);
+          }
+          fighters.push({ party: number, actorId: actorId(id), charge: 0 });
+        }
+        return success(fighters);
+      };
+      const enemies = party(input.enemies, 0, "enemy");
+      if (!enemies.ok) return enemies;
+      const players = party(input.players, 1, "party");
+      if (!players.ok) return players;
+      const id = (store.readBattle()?.id ?? 0) + 1;
+      if (!Number.isSafeInteger(id)) return failure("builtin.bad-arg", "battle id counter exceeds the safe-integer range");
+      const battle: BattleState = {
+        id,
+        boardKey: input.boardKey,
+        background: input.background,
+        canRun: input.canRun,
+        outcome: null,
+        parties: [enemies.value, players.value],
+      };
+      store.commit(battle);
+      return success(battle);
+    },
     partySize(partyValue) {
       if (partyValue !== 0 && partyValue !== 1) return badFighter(partyValue, "n/a", "party must be 0 or 1");
       const current = active();

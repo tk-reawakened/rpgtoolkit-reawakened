@@ -1,7 +1,7 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { TextEncoder } from "node:util";
 import { test } from "node:test";
-import { addActor, applyEmitterOp, COMPILER_VERSION, createAssetIndex, createEmptyBoard, createEmptyMainFile, createEngine, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, PACKAGE_ROOT, writeBoard, writeMainFile, type Board, type GameState, type PluginDefinition, type ResolvedPlugin } from "../src/index.ts";
+import { addActor, applyEmitterOp, COMPILER_VERSION, createAssetIndex, createEmptyBoard, createEmptyMainFile, createEngine, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, PACKAGE_ROOT, writeBoard, writeMainFile, type Board, type EffectRecord, type GameState, type PluginDefinition, type ResolvedPlugin } from "../src/index.ts";
 
 function boardBytes(board: Board): Uint8Array {
   const encoded = writeBoard(board);
@@ -317,7 +317,7 @@ test("createEngine does not start inline main program after package startup fail
 
 
 test("engine runs the fixed phase order, registers audio after animation, and pauses on focus loss", () => {
-  deepEqual(ENGINE_PHASES, ["input", "waits", "threads", "events", "movement", "edges", "triggers", "battle", "animation", "audio", "time"]);
+  deepEqual(ENGINE_PHASES, ["input", "waits", "threads", "events", "movement", "edges", "triggers", "animation", "audio", "time"]);
   const phases: string[] = [];
   const engine = loadedEngine([
     { phase: "movement", run: (state) => phases.push(`movement:${state.time.tick}`) },
@@ -330,6 +330,77 @@ test("engine runs the fixed phase order, registers audio after animation, and pa
   equal(resumed.ticksRun, 2);
   equal(resumed.tickAfter, 2);
   deepEqual(phases, ["events:0", "movement:0", "audio:0", "events:1", "movement:1", "audio:1"]);
+});
+
+test("engine displays no-enemies handoffs, reports custom starts for owner ruling, and rejects absent stock_battle", () => {
+  let triggerCount = 0;
+  const observed: { state: GameState | null } = { state: null };
+  const uiEffects: EffectRecord[] = [];
+  const board = createEmptyBoard();
+  const encodedBoard = writeBoard(board);
+  if (!encodedBoard.ok) throw new Error(encodedBoard.error.message);
+  const engine = createEngine({
+    seed: 19,
+    assetIndex: createAssetIndex(["Boards/test.brd"]),
+    assetRoot: PACKAGE_ROOT,
+    initialBoard: "test.brd",
+    width: 32,
+    height: 32,
+    maxTicks: 8,
+    phaseRegistrations: [{
+      phase: "triggers",
+      run: (state, post) => {
+        observed.state = state;
+        if (post === undefined || triggerCount >= 3) return;
+        const noEnemies = triggerCount === 0;
+        const randomEncounter = triggerCount === 1;
+        triggerCount += 1;
+        const common = {
+          trigger: "random",
+          board: { key: "boards/test.brd", skill: 1, background: "night.bkg" },
+          actor: { id: "player:0", kind: "player", index: 0, source: "hero.tem", x: 0, y: 0, layer: 1 },
+        };
+        const payload = noEnemies
+          ? { ...common, message: "No enemies of skill level 1 found." }
+          : randomEncounter
+            ? {
+                ...common,
+                fighters: [
+                  { party: "player", id: "player:0", index: 0, source: "hero.tem", skill: null },
+                  { party: "enemy", id: "enemy:0", index: 0, source: "slime.ene", skill: 1 },
+                ],
+              }
+            : { ...common, program: "custom.prg" };
+        const name = noEnemies ? "battle.noEnemies" : randomEncounter ? "battle.randomEncounter" : "battle.customFight";
+        post("battle", {
+          thread: 0,
+          name,
+          kind: "state-write",
+          args: [payload],
+          out: {},
+          result: null,
+          patch: null,
+          wait: null,
+          request: null,
+        });
+      },
+    }],
+    effectAppliers: [{ section: "ui", applier: (effect) => uiEffects.push(effect) }],
+  });
+  const initial = engine.advance(0, []);
+  const request = initial.requests[0];
+  if (request?.kind !== "asset") throw new Error("expected initial board request");
+  const loaded = engine.advance(0, [{ tick: 0, event: { kind: "asset", reqId: request.reqId, bytes: encodedBoard.value } }]);
+  equal(loaded.loading, false);
+
+  engine.advance(1, []);
+  equal(uiEffects[0]?.name, "mwin");
+  equal(uiEffects[0]?.args[0], "No enemies of skill level 1 found.");
+  engine.advance(1, []);
+  const missingPackage = engine.advance(1, []);
+  equal(missingPackage.diagnostics.some((diagnostic) => diagnostic.code === "battle.package-missing"), true);
+  equal(missingPackage.diagnostics.some((diagnostic) => diagnostic.code === "battle.custom-fight-owner-ruling"), true);
+  equal(observed.state?.battle, null);
 });
 
 function programEngine(program: string, registrations: NonNullable<Parameters<typeof createEngine>[0]["phaseRegistrations"]>) {

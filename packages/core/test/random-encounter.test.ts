@@ -84,7 +84,7 @@ function setup(caseData: FixtureCase, seed: number): { state: GameState; board: 
   };
 }
 
-test("random encounter fixtures all drive movement, trigger, and battle phases", () => {
+test("random encounter fixtures drive movement, triggers, and random-encounter evaluation", () => {
   const fixture = JSON.parse(readFileSync(join(fixtureRoot, "random-encounter.json"), "utf8")) as Fixture;
   for (const caseData of fixture.cases) {
     const { state, board, config } = setup(caseData, 0x511);
@@ -172,6 +172,7 @@ test("scene registration posts a battle effect through the phase callback", () =
   const { state, config } = setup(fixture.cases[1]!, 7);
   const posted: string[] = [];
   const registration = randomEncounterPhaseRegistration({ config });
+  equal(registration.phase, "triggers");
   state.time.tick = 0;
   registration.run(state);
   state.sprites.players[0] = { ...state.sprites.players[0]!, x: 80 };
