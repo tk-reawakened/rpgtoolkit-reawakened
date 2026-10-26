@@ -15,6 +15,7 @@ import {
   addActor,
   assetKey,
   BATTLE_PLUGIN,
+  BinaryWriter,
   CATALOGUE_RESPONDERS_PLUGIN,
   CATALOGUE_STUBS_PLUGIN,
   CORE_PLUGIN,
@@ -39,6 +40,7 @@ import {
   runWaitsPhase,
   snapshot,
   startProgram,
+  STATUS_EFFECT_MAGIC,
   STEP_BUDGET,
   verifyRestoredHandles,
   WORLD_PLUGIN,
@@ -133,6 +135,25 @@ function itemAsset(values: { hp: number; smp: number; animation: string; program
   })));
 }
 
+function statusEffectAsset(rounds: number): string {
+  const writer = new BinaryWriter();
+  writer.str(STATUS_EFFECT_MAGIC);
+  writer.i16(2);
+  writer.i16(2);
+  writer.str("Authored battle status");
+  writer.i16(rounds);
+  writer.i16(0);
+  writer.i16(0);
+  writer.i16(0);
+  writer.i16(0);
+  writer.i16(0);
+  writer.i16(0);
+  writer.i16(0);
+  writer.i16(0);
+  writer.str("");
+  return hex(writer.toBytes());
+}
+
 // ---- the seeded oracle ------------------------------------------------------
 
 type Oracle = { readonly damage: number; readonly used: number; readonly critical: boolean; readonly luck: number | null; readonly rng: RngState };
@@ -186,6 +207,8 @@ type RunOptions = {
   readonly rounds?: number;
   readonly assets?: Readonly<Record<string, string>>;
   readonly saveWhen?: (state: GameState) => boolean;
+  readonly inventory?: GameState["inventory"];
+  readonly watchFallen?: boolean;
 };
 
 type RunResult = {
@@ -235,11 +258,27 @@ function run(options: RunOptions): RunResult {
   const assets = options.assets ?? {};
   const requested: string[] = [];
   let state = createGameState({ seed });
+  if (options.inventory !== undefined) state.inventory = options.inventory;
   const attackerSpec = options.attacker === undefined ? { fp: 10, smp: 10 } : options.attacker;
   const attacker = attackerSpec === null ? null : makeActor(state, { source: "hero.tem", ...attackerSpec }, "hero.tem");
   const target = options.target === null ? null : makeActor(state, { kind: "enemy", hp: 1000, maxHp: 1000, ...options.target }, "slime.tem");
   const second = makeActor(state, { kind: "enemy", ...options.second }, "bat.tem");
-  void second;
+  if (attacker !== null && target !== null) {
+    state.battle = {
+      id: 1,
+      boardKey: "boards/battle-actions.brd",
+      background: "battle-actions.bkg",
+      canRun: true,
+      outcome: null,
+      parties: [
+        [
+          { party: 0, actorId: target.record.id, charge: 0 },
+          { party: 0, actorId: second.record.id, charge: 0 },
+        ],
+        [{ party: 1, actorId: attacker.record.id, charge: 0 }],
+      ],
+    };
+  }
   const layers = createPluginLayers();
   let services = servicesFor(state, layers);
   runPackageStartup(state, services, [startupRef], [stockBattle]);
@@ -254,6 +293,7 @@ function run(options: RunOptions): RunResult {
   globals.poolin = options.pool ?? "hp";
   globals.filein = options.file ?? "";
   globals.rounds = options.rounds ?? 0;
+  globals.watchfallen = options.watchFallen === true ? 1 : 0;
   startProgram(state.vm, { ...fileProgramRef(loader, "battle-actions.prg"), owner: "battle-actions-test" });
   const before = totalSteps(state);
   let saved = false;
@@ -425,6 +465,14 @@ test("attackAmount supplies the base: pool selects SMP, and a product beyond 32 
   deepEqual(codes(huge.services), []);
 });
 
+test("attackAmount clamps an SMP-pool underflow at zero", () => {
+  const result = run({
+    scenario: "attackamount", seed: 14, amount: 30, pool: "smp",
+    attacker: { fp: 99 }, target: { smp: 4, maxSmp: 20 },
+  });
+  equal(stat(result.state, TARGET, "smp"), 0);
+});
+
 // ---- special moves (R11-Q7) -------------------------------------------------
 
 const heroChar = characterAsset("cast.anm");
@@ -509,6 +557,41 @@ test("special move presentation order: user stance animation, move animation, pr
     `cast.anm@${ATTACKER}:20:6;fire.anm@${TARGET}:13:17;P:fire.prg:${ATTACKER}>${TARGET}:;`,
     "user (hook argument order file, fighter) then move animation over the target, then the program with source and target");
   ok(result.requested.includes("hero.tem"), "the stance file is read from the user's actor.source asset");
+});
+
+test("a special move applies its status after the move program runs", () => {
+  const result = run({
+    scenario: "special", file: "fire.spc", hookmode: "record",
+    attacker: { smp: 10 }, target: { hp: 20, smp: 20 },
+    assets: {
+      ...specialAssets({ fp: 5, targetSmp: 0, cost: 0, animation: "", program: "fire.prg", status: "burn.ste" }),
+      "burn.ste": statusEffectAsset(2),
+    },
+  });
+  ok(result.requested.includes("burn.ste"), "the move's referenced status asset is loaded");
+  equal(result.state.vm.globals.order,
+    `cast.anm@${ATTACKER}:20:10;P:fire.prg:${ATTACKER}>${TARGET}:;`,
+    "the program reads no status because it runs before the status is applied");
+  deepEqual(result.state.actors.actors.find(({ id }) => id === TARGET)?.statuses, { "burn.ste": 2 });
+});
+
+test("a lethal Fight fires fallen exactly once", () => {
+  const result = run({
+    scenario: "attack", seed: 17, watchFallen: true,
+    attacker: { fp: 30 }, target: { hp: 3, maxHp: 20 },
+  });
+  equal(stat(result.state, TARGET, "hp"), 0);
+  equal(result.state.vm.globals.fallen1, 1);
+});
+
+test("a lethal Special Move fires fallen exactly once", () => {
+  const result = run({
+    scenario: "special", watchFallen: true, file: "fire.spc",
+    attacker: { smp: 10 }, target: { hp: 3, maxHp: 20 },
+    assets: specialAssets({ fp: 20, targetSmp: 0, cost: 0, animation: "" }),
+  });
+  equal(stat(result.state, TARGET, "hp"), 0);
+  equal(result.state.vm.globals.fallen1, 1);
 });
 
 test("an empty stance or move animation skips the hook; an empty program is not run", () => {
@@ -671,6 +754,35 @@ test("item adds clamped HP and SMP, posts exactly one consume effect and changes
   deepEqual(ledger, { "potion.itm": 2 });
   equal(stat(result.state, ATTACKER, "smp"), 10, "using an item costs the user no SMP");
 });
+
+test("a damaging item fires fallen exactly once", () => {
+  const result = run({
+    scenario: "item", watchFallen: true, file: "potion.itm",
+    attacker: { smp: 10 }, target: { hp: 3, maxHp: 20 },
+    assets: { "potion.itm": itemAsset({ hp: -20, smp: 0, animation: "" }) },
+  });
+  equal(stat(result.state, TARGET, "hp"), 0);
+  equal(result.state.vm.globals.fallen1, 1);
+});
+
+test("using an item leaves an existing inventory list unchanged", () => {
+  const inventory: GameState["inventory"] = {
+    ...createGameState({ seed: 2 }).inventory,
+    nextId: 3,
+    items: [
+      { id: 1, source: "items/potion.itm", handle: "Potion", quantity: 2 },
+      { id: 2, source: "items/ether.itm", handle: "Ether", quantity: 1 },
+    ],
+    gold: 45,
+  };
+  const expectedInventory = JSON.parse(JSON.stringify(inventory)) as GameState["inventory"];
+  const result = run({
+    scenario: "item", seed: 2, file: "potion.itm", inventory,
+    attacker: { smp: 10 }, target: { hp: 10, maxHp: 20, smp: 12 },
+    assets: { "potion.itm": itemAsset({ hp: 5, smp: 0, animation: "" }) },
+  });
+  deepEqual(result.state.inventory, expectedInventory);
+});
 test("the default item program runs with source and target, then restores both slots", () => {
   const assets = {
     "potion.itm": itemAsset({ hp: 5, smp: 0, animation: "", program: "battle-action-program.prg" }),
@@ -725,6 +837,22 @@ test("attackall emits beforeDamage once per target and fallen once for each leth
   equal(stat(result.state, TARGET, "hp"), 14);
   equal(stat(result.state, SECOND, "hp"), 0);
   deepEqual({ ...result.state.rng }, freshRng(5), "attackall draws nothing");
+});
+
+test("attackall and drainall ignore active critical limits and consume no random draws", () => {
+  for (const [scenario, field] of [["all", "hp"], ["drainall", "smp"]] as const) {
+    const seed = 5;
+    const result = run({
+      scenario, seed, amount: 6,
+      attacker: { fp: 10, by: 0, on: 0 },
+      target: { hp: 20, smp: 20, by: 0, on: 0 },
+      second: { hp: 20, smp: 20, by: 0, on: 0 },
+    });
+    equal(result.state.vm.globals.dealt, 12, `${scenario} returns both target damage amounts`);
+    equal(stat(result.state, TARGET, field), 14);
+    equal(stat(result.state, SECOND, field), 14);
+    deepEqual({ ...result.state.rng }, freshRng(seed), `${scenario} consumes no critical or combat draws`);
+  }
 });
 
 test("a parked beforeDamage listener saves and restores to the same state", () => {

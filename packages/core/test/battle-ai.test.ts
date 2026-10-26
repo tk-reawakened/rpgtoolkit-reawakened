@@ -100,6 +100,7 @@ type RunOptions = {
   readonly extraAssets?: Readonly<Record<string, string>>;
   readonly holdSpecialOnce?: boolean;
   readonly saveMidSpecial?: boolean;
+  readonly secondTurn?: boolean;
 };
 type ActorFixture = {
   readonly record: ActorRecord;
@@ -242,6 +243,7 @@ function makeRig(options: RunOptions): Rig {
   runPackageStartup(state, services, [startupRef], [stockBattle]);
   const assets: Record<string, string> = { ...options.extraAssets };
   definitions.forEach((definition, index) => { assets[`enemy-${index}.ene`] = enemyAsset(definition); });
+  state.vm.globals.secondturn = options.secondTurn === true ? 1 : 0;
   state.vm.globals.custommode = options.customMode ?? "noop";
   state.vm.globals.customcalls = 0;
   state.vm.globals.customerrorresumed = 0;
@@ -318,6 +320,11 @@ function runScenario(options: RunOptions): RunResult {
 function drawValues(seed: number, count: number): number[] {
   const rng = { ...createGameState({ seed }).rng };
   return Array.from({ length: count }, () => nextUint32(rng));
+}
+function expectedRngAfter(seed: number, draws: number) {
+  const rng = { ...createGameState({ seed }).rng };
+  for (let index = 0; index < draws; index += 1) nextUint32(rng);
+  return rng;
 }
 
 function findSeed(predicate: (draws: readonly number[]) => boolean, from = 1): number {
@@ -452,7 +459,42 @@ test("all four AI levels follow their coin, special and target boundaries across
   equal(stat(level3.state, level3.players[1]!.record.id, "hp"), 26, "level 3 always tries a special on the weakest player");
 });
 
-test("affordable specials are chosen equally, unaffordable moves are filtered, and no affordable move falls back to attack", () => {
+test("enemy AI pins coin, special pick, target, and post-target combat draw order", () => {
+  const moveAssets = {
+    "move-a.spc": specialMoveAsset({ fp: 7, smp: 1 }),
+    "move-b.spc": specialMoveAsset({ fp: 13, smp: 1 }),
+  };
+  const specialSeed = findSeed((draws) => draws[0]! % 2 === 1);
+  const specialDraws = drawValues(specialSeed, 3);
+  const pickedDamage = [7, 13][specialDraws[1]! % 2]!;
+  const specialTarget = specialDraws[2]! % 2;
+  const special = runScenario({
+    seed: specialSeed,
+    enemies: [{ aiLevel: 0, specialMoves: ["move-a.spc", "move-b.spc"] }],
+    players: [{ hp: 100 }, { hp: 100 }],
+    extraAssets: moveAssets,
+  });
+  equal(stat(special.state, special.players[specialTarget]!.record.id, "hp"), 100 - pickedDamage);
+  equal(stat(special.state, special.players[1 - specialTarget]!.record.id, "hp"), 100);
+  deepEqual(special.state.rng, expectedRngAfter(specialSeed, 3),
+    "the coin, move pick and target each draw once; the special action adds no combat draws");
+
+  const attackSeed = findSeed((draws) => draws[0]! % 2 === 0);
+  const attackDraws = drawValues(attackSeed, 3);
+  const attackTarget = attackDraws[1]! % 2;
+  const attackDamage = Math.max(1, Math.trunc(5 * (100 + attackDraws[2]! % 20 - 10) / 100));
+  const attack = runScenario({
+    seed: attackSeed,
+    enemies: [{ aiLevel: 0, fp: 5 }],
+    players: [{ hp: 100 }, { hp: 100 }],
+  });
+  equal(stat(attack.state, attack.players[attackTarget]!.record.id, "hp"), 100 - attackDamage);
+  equal(stat(attack.state, attack.players[1 - attackTarget]!.record.id, "hp"), 100);
+  deepEqual(attack.state.rng, expectedRngAfter(attackSeed, 3),
+    "the coin and target draws precede the attack's one luck draw");
+});
+
+test("availableSpecials filters unaffordable moves; affordable moves are chosen equally and no affordable move falls back to attack", () => {
   const definitions = [
     { name: "move-a.spc", fp: 7, smp: 1 },
     { name: "move-b.spc", fp: 13, smp: 2 },
@@ -505,6 +547,30 @@ test("healing specials choose living allies by level and may target an already-f
     extraAssets,
   });
   equal(stat(level1Random.state, level1Random.enemies[0]!.record.id, "hp"), 40, "levels 0/1 may choose any living ally, including self");
+
+  const level0Seed = findSeed((draws) => draws[0]! % 2 === 1 && draws[2]! % 2 === 0);
+  const level0 = runScenario({
+    seed: level0Seed,
+    enemies: [
+      { aiLevel: 0, hp: 30, maxHp: 100, specialMoves: ["heal.spc"] },
+      { hp: 100, maxHp: 100 },
+    ],
+    extraAssets,
+  });
+  equal(stat(level0.state, level0.enemies[0]!.record.id, "hp"), 40, "level 0 may randomly select the wounded ally");
+  equal(stat(level0.state, level0.enemies[1]!.record.id, "hp"), 100);
+
+  const level2Seed = findSeed((draws) => draws[0]! % 2 === 1);
+  const level2 = runScenario({
+    seed: level2Seed,
+    enemies: [
+      { aiLevel: 2, hp: 30, maxHp: 100, specialMoves: ["heal.spc"] },
+      { hp: 50, maxHp: 100 },
+    ],
+    extraAssets,
+  });
+  equal(stat(level2.state, level2.enemies[0]!.record.id, "hp"), 40, "level 2 heals the lowest-HP ally");
+  equal(stat(level2.state, level2.enemies[1]!.record.id, "hp"), 50);
 
   const level3Weakest = runScenario({
     seed: targetFull,
@@ -612,6 +678,25 @@ test("custom AI receives source/target handles, can act or hand off, and ERR-2 c
   });
   equal(invalid.state.vm.globals.customerrorresumed, 1);
   ok(invalid.services.diagnostics.some(({ code }) => code === "builtin.bad-arg"));
+});
+
+test("ai(level) handoff leaves another enemy's level-three behavior unchanged", () => {
+  const seed = findSeed((draws) => draws[1]! % 2 === 0 && draws[3]! % 2 === 0);
+  const draws = drawValues(seed, 4);
+  const firstAttackDamage = Math.max(1, Math.trunc(5 * (100 + draws[2]! % 20 - 10) / 100));
+  const result = runScenario({
+    seed,
+    enemies: [
+      { aiLevel: 1, customAi: 1, aiProgram: "battle-ai-custom.prg", fp: 5 },
+      { aiLevel: 3, specialMoves: ["hit.spc"] },
+    ],
+    players: [{ hp: 75 }, { hp: 20 }],
+    customMode: "handoff",
+    secondTurn: true,
+    extraAssets: { "hit.spc": specialMoveAsset({ fp: 9, smp: 1 }) },
+  });
+  equal(stat(result.state, result.players[1]!.record.id, "hp"), 20 - firstAttackDamage - 9);
+  equal(stat(result.state, result.enemies[1]!.record.id, "smp"), 19, "the second enemy still follows its level 3 special-first rule");
 });
 
 test("a no-op custom AI spends its turn without an automatic attack", () => {
