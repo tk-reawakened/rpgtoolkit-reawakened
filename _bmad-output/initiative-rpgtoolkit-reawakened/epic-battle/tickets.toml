@@ -80,7 +80,6 @@ references = [
 [[entry]]
 id = 5
 tracker_id = "#508"
-tracker_status = "done"
 type = "story"
 title = "Player actions and damage: attacks, criticals, specials and items"
 description = "Implements the player's Fight, Special Move and Item actions inside the stock package (BAT-5). The ordinary attack is the E-74 rule of facts round 10, unchanged: one seeded whole-percentage luck draw from -10 to +9 in exact integer arithmetic with the fraction dropped toward zero, then the offensive and defensive critical draws (-1 means no draw), DP subtracted unless critical, a floor of 1, to HP or SMP. A special has no luck, critical, DP or floor: its FP comes off the target's HP, its target-SMP off the target's SMP and its cost off the user's SMP, each stopping at 0 (and, by the proposed departure, a heal stopping at the maximum); an unaffordable special is refused; after the effect the user's animation, the move's animation, its program and its status follow in that order. An item adds its battle HP and SMP to the target, kept between 0 and the maximum, through an inventory port with a test double and one posted consume effect. `attackall`/`drainall` hit each living target without criticals; damage goes through the actor method so `fallen` fires once, before which the package sends `beforeDamage` (7.14)."
@@ -98,7 +97,6 @@ references = [
 [[entry]]
 id = 6
 tracker_id = "#509"
-tracker_status = "done"
 type = "story"
 title = "Status effects: rounds, per-round effects, speed and disable"
 description = "Implements E-75 status effects over the core counter (BAT-6): apply a `.ste` by file with re-apply (names compared ignoring case) restarting its rounds; once per turn of the fighter carrying it, in the pass where it is found fully charged and just before its turn, for each status in upper-cased file-name order apply its HP amount, then its SMP amount, then run its program with the fighter as source and target, then age it by one round and expire it at 0; speed and slow add and subtract 2 to the charge rate with no floor or ceiling; disable is a reference count, freezes charging and never ends by itself. A `.ste` with fewer than 1 round lasts until removed; a player's self-disable is not cancelled at turn end. Remove/expire drops the contribution and a lethal status fires `fallen` with cause `status`."
@@ -116,7 +114,6 @@ references = [
 [[entry]]
 id = 7
 tracker_id = "#510"
-tracker_status = "done"
 type = "story"
 title = "Enemy AI: four levels and a custom AI program"
 description = "Implements E-76 enemy AI in the stock package (BAT-7): level 0 a fair coin between an ordinary attack on a random living player and trying a special; level 1 always tries a special with random targets; levels 2 and 3 as 0 and 1 with the weakest target (lowest current HP, earlier party slot on a tie, fallen skipped). Trying a special picks with equal chances among specials the enemy can afford (the battle flag is not checked) and otherwise attacks. FP below 0 is healing and goes to a random living ally at levels 0 and 1 and the lowest-HP living ally at levels 2 and 3. A custom `useCode` program runs with `source` as the enemy and `target` as a random living player and must act itself; a program that does nothing spends the turn. The draw order is fixed; with no living player the turn is skipped; the `ai(level)` built-in sets the acting enemy's level and rejects a level outside 0-3."
@@ -133,7 +130,6 @@ references = [
 [[entry]]
 id = 8
 tracker_id = "#511"
-tracker_status = "done"
 type = "story"
 title = "Outcomes, rewards and level-up: win, run and lose"
 description = "Implements E-77 and E-78 outcomes (BAT-8, BAT-12): `battle.finish` maps the outcome to codes 0-4 and the outcome compatibility adapter applies 0, 2 and 4 from generic core operations while 1 and 3 apply nothing. Run is blocked for the whole fight if any enemy forbids it (still listed, cancel sound, turn kept); otherwise it succeeds on a seeded 2-in-5 draw and a failed attempt spends the turn; a success runs one run program (the last enemy's that has one) and gives no rewards. A win posts the summed gold silently as one inventory effect, shows the experience message, gives every party member (fallen included) the full experience with each level-up running the level-up program, the 20.6 default stat rise and a level-gained message, shows the gold message, and runs one win program (the last enemy's that has one). A loss (every player at 0 HP, checked before the win) runs the game-over program without a reset, or shows the message and calls `reset()`. `defeated` is emitted once per enemy per battle and re-emitted on the game as `stock_battle.defeated`; the maximum-level retry of 3.1 is not reproduced."
@@ -152,7 +148,6 @@ references = [
 [[entry]]
 id = 9
 tracker_id = "#512"
-tracker_status = "done"
 type = "story"
 title = "Battle starts and setup: random encounters, Fight and FightEnemy"
 description = "Consumes the 5.11 random-encounter handoff and implements `Fight` and `FightEnemy` (BAT-9): create enemy actors with 20.5 from the handoff (1 to 4 enemies, each count equally likely, each drawn independently from the main file's entries of the matching skill level), start party 0 enemies and party 1 from every occupied slot of the actor store's ordered party (fallen members included, starting fallen), load the `.bkg` background image and set `canRun` false if any one enemy forbids running, show the no-enemies message and start nothing when no entry matches, call the registered `battle` command and wait for its outcome, and repoint the 5.11 `battle` phase registration to the phase ruled by 20.1. `skill` is -1 on the random path. A custom encounter is spelled out, not drawn (owner ruling, 2026-10-26): when the main file names a custom fight program, the 5.11 request carries no fighters and the engine draws nothing; it runs the program in place of the draw and the program names its enemies with `FightEnemy`."
@@ -171,7 +166,6 @@ references = [
 [[entry]]
 id = 10
 tracker_id = "#513"
-tracker_status = "done"
 type = "story"
 title = "Battle music and sounds through the media object"
 description = "Plays the battle's music, sounds and menu cues through the 21.5 media object: play the battle background's music with source `battle`, let a `beforePlay` listener replace or cancel it, play the menu move/confirm/cancel and battle cues as voices, stop the battle track and have the board's music re-posted from the battle's `boardKey` on the outcome, and keep audio out of the save (a mid-battle load stops the stale track and plays the battle track again, with the board track restored from the board after the battle)."
@@ -208,7 +202,6 @@ references = [
 [[entry]]
 id = 12
 tracker_id = "#515"
-tracker_status = "done"
 type = "story"
 title = "A custom fight program drives every battle operation"
 description = "Proves the replacement path (BAT-3, BAT-8, BAT-12): a fixture RPGCode fight program registered as the main file's fight program drives every battle-facing operation of BAT-3 (party size and fighter lookup, charge read/add/set/release and percent, `canRun`, stat reads and writes through the actor, status apply and remove, damage through the actor, the enemy `defeated` emit, `finish`) and its own drawing and input, without the stock package's loop or UI, over the same core battle section; a seeded short battle pins the state hash and draw list. With the package absent, the program emits `defeated` itself and no `stock_battle.defeated` re-emit occurs unless the program sends one."
@@ -256,4 +249,134 @@ references = [
   "spec - docs/spec/engine/rpgcode-modules-and-objects.md (EMIT-5, EMIT-11, EMIT-13)",
   "handoff - Epic 20 story 20.9 / issue #474",
   "prerequisite - Epic 19 story 19.17 / issue #562",
+]
+
+[[entry]]
+id = 15
+tracker_id = "#687"
+type = "story"
+title = "Actor-local defeated event from stock_battle"
+description = """Completes the stock_battle `defeated` contract (BAT-12/EMIT-13) by emitting the ruled `{ cause, source }` event on each enemy actor once on first defeat, re-emitting identical detail as `stock_battle.defeated`, preserving event-queue/save-restore deduplication, emitting nothing on run, and keeping ownership out of core."""
+verify = """Named deterministic authored-RPGCode tests prove actor-local listeners receive each cause/source once per enemy, the game-level re-emission has identical detail, event-queue restore does not duplicate it, and a run emits neither event."""
+covers = ["CAP-9"]
+after = [5, 6, 8]
+hitl = false
+risk = "high"
+references = [
+  "issue - #511 (outcomes, rewards and level-up)",
+  "spec - docs/spec/engine/battle.md#bat-12",
+  "spec - docs/spec/engine/rpgcode-modules-and-objects.md#emit-13",
+]
+
+[[entry]]
+id = 16
+tracker_id = "#688"
+type = "story"
+title = "Epic 7 documentation and rulings reconciliation"
+description = """Reconcile Epic 7 specifications and plans with the approved rulings without runtime changes: BAT-3 documents `battle.background`, actor-object handles, and the shared `battle.bad-fighter` code distinct from `battle.bad-outcome`; BAT-7 follows ERR-2 continuation; BAT-8 records `random(5) <= 2` and negligible modulo bias (about 1 in 10^10); BAT-9 confines `skill = -1` to the legacy callback; BAT-10 returns to the active board and saves playback in the independent audio section; BAT-11–15, E-73/E-78, R-57, the battle built-in catalog, and stale plan wording are reconciled while preserving useful historical notes."""
+verify = """The listed BAT rows, E-73/E-78, R-57, function catalog, and plans match the rulings; required BAT-11–15 evidence/OWNER markers/rejected alternatives are complete; E-73 links to battle rules; E-78 agrees with R-16; R-57 is no longer labeled open; `fp`, `givefp`, and `dp` appear in the battle catalog; and no runtime or RNG behavior changes."""
+covers = ["CAP-5", "CAP-9"]
+after = [1]
+hitl = false
+risk = "medium"
+references = [
+  "issue - #504 (battle rulings and BAT-1–15)",
+  "spec - docs/spec/engine/battle.md (BAT-3, BAT-7–15)",
+  "spec - docs/spec/engine/plugins-and-battle.md (E-73, R-57)",
+  "spec - docs/spec/engine/movement-and-collision.md#e-78",
+  "spec - docs/spec/engine/progression-and-levels.md (R-16)",
+  "spec - docs/spec/engine/rpgcode-functions.md (battle built-ins)",
+  "spec - docs/spec/engine/rpgcode-modules-and-objects.md#emit-13",
+  "spec - docs/spec/engine/audio-media.md (saved playback section)",
+  "plan - _bmad-output/initiative-rpgtoolkit-reawakened/epic-battle/story-outcomes-rewards-and-level-up-plan.md",
+]
+notes = [
+  "Owner ruling, 2026-10-26: accept `random(5) <= 2` with negligible modulo bias (about 1 in 10^10); document it and do not change the RNG.",
+  "Owner ruling, 2026-10-26: active-board return, not `boardKey` lookup; battle audio is saved in the independent audio section, not BattleState.",
+]
+
+[[entry]]
+id = 17
+tracker_id = "#689"
+type = "story"
+title = "Test gaps for battle state, API, combat, and AI"
+description = """Add named deterministic tests for the remaining Epic 7.2–7.7 acceptance gaps in state validation/snapshots, API/catalogue parity, charge/actions/status, and enemy AI, including the audit-requested narrow static guard against wall-clock or unseeded randomness in battle core/package inputs, while preserving approved errors and rules and leaving the save golden to 7.20."""
+verify = """Tests prove validator input immutability, valid-restore silence, out-of-battle `battle: null`, no stat/status copies, atomic shared `battle.bad-fighter` versus `battle.bad-outcome` errors, built-in/catalogue/docs parity, SMP attack underflow, AOE no-critical draws, non-empty inventory immutability, special availability/status order, exactly-once `fallen` for lethal Fight/Special/Item, status effect order and signed clamps, level-0/2 healing AI, post-target draw order, AI ownership, and ERR-2 custom-AI report/continuation through return; one scoped static guard rejects forbidden time/unseeded-RNG APIs and all other tests assert deterministic behavior without golden changes."""
+covers = ["CAP-5", "CAP-9", "CAP-11"]
+after = [2, 3, 4, 5, 6, 7]
+hitl = false
+risk = "high"
+references = [
+  "issues - #505–#510 (Epic 7.2–7.7)",
+  "spec - docs/spec/engine/battle.md (BAT-2–BAT-7)",
+  "spec - docs/spec/engine/rpgcode-functions.md (battle built-ins)",
+  "spec - docs/spec/engine/progression-and-levels.md",
+  "spec - docs/spec/engine/rpgcode-modules-and-objects.md#emit-13",
+  "spec - docs/spec/formats/save-game.md",
+]
+notes = [
+  "The battle-section save golden is tracked separately by Epic 7.20.",
+  "The requested source-text guard is limited to wall-clock/unseeded-random APIs; all other permanent tests assert real deterministic behavior.",
+]
+
+[[entry]]
+id = 18
+tracker_id = "#690"
+type = "story"
+title = "Test gaps for outcomes, battle starts, and custom fight programs"
+description = """Close the remaining deterministic test gaps in Epic 7.8, 7.9, and 7.12 by consuming the gold effect through an inventory double, proving SMP preservation on level-up, covering Fight/FightEnemy setup and random-handoff `canRun` including fallen HP/empty party, asserting no-enemy/no-battle and catchable `program.missing` continuation, and running the same main-file all-API custom fight through the real path with stock_battle absent and present-but-replaced."""
+verify = """A seeded victory consumes the gold action and preserves current SMP; deterministic Fight/FightEnemy tests assert ordered parties, background, `canRun`, and fallen HP, the handoff derives `canRun` without another draw, an empty party is a located error, and an empty pool shows the exact message with no active battle; catchable `program.missing` continues to a marker without starting battle; and one main-file-registered all-API program drives the real custom-fight path in paired seeded absent/replaced-package runs with equal outcome/state/draw checks, no stock internals, and `include.missing` for absent `stockBattle` access, while the approved `random(5) <= 2` boundary remains unchanged."""
+covers = ["CAP-5", "CAP-9", "CAP-10"]
+after = [8, 9, 12]
+hitl = false
+risk = "high"
+references = [
+  "issues - #511 (outcomes), #512 (battle starts), #515 (custom fight program)",
+  "spec - docs/spec/engine/battle.md (BAT-3, BAT-8, BAT-9, BAT-12)",
+  "spec - docs/spec/engine/plugins-and-battle.md#e-78",
+  "spec - docs/spec/engine/progression-and-levels.md",
+  "spec - docs/spec/engine/rpgcode-functions.md (battle API)",
+]
+notes = [
+  "Owner ruling, 2026-10-26: absent-package access to `stockBattle` reports `include.missing`.",
+  "Owner ruling, 2026-10-26: `random(5) <= 2` and its negligible modulo bias are accepted; no RNG change.",
+]
+
+[[entry]]
+id = 19
+tracker_id = "#691"
+type = "story"
+title = "Battle combat cues through the media object"
+description = """Complete Epic 7.10 combat-cue routing and verification through the media object by emitting ruled cues, treating missing cues as silent, mixing same-tick voices over music, verifying battle-source cancellation/replacement and listener-failure rejection, comparing null/real runner cue and hash parity, exercising real battle save/load restart through the independent audio section, and returning to the active board; menu cues remain in 7.11."""
+verify = """Named real-path tests prove every combat cue uses media, a missing cue is silent, same-tick cues mix over music, source `battle` reaches `beforePlay` with cancellation/replacement and listener failure rejecting without fallback, null/real runners yield equal cue streams and state hashes, an active-battle save/load restores independent audio and restarts music once with no audio in BattleState, and outcome returns to active-board music without `boardKey` lookup; menu cues are excluded."""
+covers = ["CAP-7", "CAP-9", "CAP-11"]
+after = [10, "21.4", "21.5"]
+hitl = false
+risk = "medium"
+references = [
+  "issue - #513 (battle music and sounds)",
+  "spec - docs/spec/engine/battle.md (BAT-10)",
+  "spec - docs/spec/engine/audio-media.md#audio-save-load",
+  "spec - docs/spec/engine/plugins-and-battle.md#e-71",
+]
+notes = [
+  "Menu move/confirm/cancel cue emission stays with Epic 7.11.",
+  "Owner ruling, 2026-10-26: listener failure rejects start; playback is saved in the independent audio section, not BattleState; outcome returns music to the active board.",
+]
+
+[[entry]]
+id = 20
+tracker_id = "#692"
+type = "story"
+title = "Battle-section save golden"
+description = """Add the deliberate deterministic Epic 7.2 save golden comparing equivalent out-of-battle and mid-battle snapshots so the only changed root section is `battle`, which contains the ruled fighter references and charge without copied actor state or audio, while preserving the schema-v1 migration and unrelated goldens."""
+verify = """A named save-golden test captures equivalent deterministic saves with identical non-battle sections and a diff only under `battle`, showing its versioned parties/fighter references, background, `canRun`, outcome and charge with no HP/SMP/stats/status/audio; the schema-v1 migration remains valid and no unrelated golden is changed (G5)."""
+covers = ["CAP-9", "CAP-11"]
+after = [2]
+hitl = false
+risk = "medium"
+references = [
+  "issue - #505 (battle state and save acceptance)",
+  "spec - docs/spec/engine/battle.md (BAT-2, BAT-13)",
+  "spec - docs/spec/formats/save-game.md",
 ]
