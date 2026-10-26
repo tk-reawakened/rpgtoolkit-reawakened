@@ -28,7 +28,7 @@ Revalidate these observations as input to the design:
 
 ## Approach
 
-Scope: one design pass and one owner-review pass; further analysis needs owner agreement or a follow-up planning ticket. Do not modify tooling or create implementation tickets in this spike.
+Scope: the agreed bound is one design pass and one owner-review pass; this is a pass-count limit with no calendar deadline. Further analysis needs owner agreement or a follow-up planning ticket. Do not modify tooling or create implementation tickets in this spike.
 
 1. Recheck the reported workflow and ticket-tree problems, comparing both ticket-17 claimant paths and statuses in the affected owner checkout versus `origin/main`; record the discrepancy. Reconcile the uncommitted `tickets.py` edit separately.
 2. Map the operations and information needed by humans, director sessions, and workers, including how each reads and writes GitHub through `gh` or the API without a repository PR for status or acceptance changes.
@@ -64,7 +64,8 @@ Good enough: the design lets the team decide how GitHub becomes the normal inter
 ## Notes
 
 - Observation: Revisit `tools/sync-issue-bodies.py`, `tools/migrate-tickets-to-github.py`, `tools/link-epics-subissues.py`, and `_bmad/method/scripts/tickets.py`.
-- Observation: The owner-reported ticket-17 collision names `_bmad-output/initiative-rpgtoolkit-reawakened/epic-rpgcode-platform/story-implement-package-catalogue-loader-and-startup-runtime-plan.md` and `_bmad-output/initiative-rpgtoolkit-reawakened/epic-rpgcode-platform/story-package-catalogue-loader-runtime-and-package-startup-lifecycle-plan.md`; both plans are status `done` in the owner checkout. The `origin/main` worktree has the second plan and a similarly named first-path story leaf (`id: 17`, tracker `#562`) rather than the first `-plan.md`. Record the affected revision and the separate `tickets.py` local-edit decision; do not delete either plan without clear evidence.
+- Observation: The main checkout has an uncommitted one-line change in `_bmad/method/scripts/tickets.py` that sets a loaded entry's `tracker_id` to empty instead of reading its `tickets.toml` value; its intent and disposition are unresolved.
+- Open question: Should the owner's one-line `tracker_id` change be retained, revised, or reverted, and what was its intended contract? Record that disposition separately from the ticket-17 plan decision before implementation.
 - Open question: What planning content stays in the repository, and what becomes generated, a thin pointer, or is retired?
 - Open question: How should status and acceptance changes remain auditable when they no longer land through repository PRs?
 - Open question: What offline-work and clean-room provenance requirements must the design preserve?
