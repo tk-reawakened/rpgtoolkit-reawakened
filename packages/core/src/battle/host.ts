@@ -17,6 +17,7 @@ function resolve<T>(result: BattleOperationResult<T>): T {
   return result.value;
 }
 
+
 /** Hydrated global battle methods and live, read-only battle-section fields. */
 export function createBattleHostType(): HostObjectType {
   return {

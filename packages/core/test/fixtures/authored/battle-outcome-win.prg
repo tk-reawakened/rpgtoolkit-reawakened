@@ -1,0 +1,1 @@
+battle.finish(2)

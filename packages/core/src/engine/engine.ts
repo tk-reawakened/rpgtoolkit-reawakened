@@ -518,6 +518,7 @@ export function createEngine(init: EngineInit): Engine {
       media,
       init.scriptObservers,
       menuOwners,
+      mainFile?.gameOverPrg ?? null,
     );
     media.activateDeclared();
     if (runStartups) {

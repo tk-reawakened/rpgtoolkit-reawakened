@@ -7,15 +7,18 @@ import { readStatusEffect } from "../../formats/battle/status-effect.ts";
 import type { Result } from "../../formats/result.ts";
 import { BinaryReader } from "../../formats/binary/reader.ts";
 import { canon } from "../../canon/index.ts";
-import { createObject, writeMember } from "../objects.ts";
+import { createObject, findObject, readMember, writeMember } from "../objects.ts";
 import type { ActorId, ActorStats } from "../../actors/model.ts";
 import { registerActorObject } from "../../actors/object.ts";
 import type { BattleAction, BattleOperationResult } from "../../battle/port.ts";
 import type { Value } from "../../ports/value.ts";
+import type { ObjectRecord } from "../state.ts";
 import type { Arg, BuiltinDoc, BuiltinSpec, ParamSpec } from "../builtins.ts";
 import { ScriptError } from "../errors.ts";
 import { recordDiagnostic } from "../effects.ts";
 import type { CommandEffect, CommandResult, CommandView, PluginDefinition } from "../plugin.ts";
+import { COMPILER_VERSION } from "../program.ts";
+import type { PlainData } from "../../ports/plain-data.ts";
 
 const GROUP = "battle-stats-menus-33";
 const NO_WAIT = { kind: "never", summary: "Completes in the current script turn." } as const;
@@ -100,6 +103,126 @@ const BATTLE_FINISH_THROWS: NonNullable<BuiltinDoc["throws"]> = [
 
 function internalDocumentation(summary: string, behaviour: string, throws: NonNullable<BuiltinDoc["throws"]> = []): BuiltinDoc {
   return { summary, behaviour, groups: ["internal"], access: "internal", waits: NO_WAIT, throws };
+}
+
+const BATTLE_OUTCOME_ADAPTER = `
+local(outcome) = battle.outcome
+local(gameOver)
+local(size)
+local(index)
+local(enemy)
+local(data)
+local(enemyData)
+local(reward)
+local(runProgram)
+local(playerCount)
+local(playerIndex)
+local(fighter)
+local(characterData)
+local(plan)
+local(step)
+local(context)
+local(levels)
+local(stepFailed)
+if (outcome == 4) {
+  __battle_end_loss()
+  gameOver = __battle_game_over_program()
+  if (gameOver != "") {
+    executeProgram(gameOver, { source: null, target: null })
+  } else {
+    mwin("Game over.")
+    reset()
+  }
+}
+if (outcome == 0) {
+  size = battle.partySize(0)
+  index = 0
+  enemyData = {}
+  while (index < size) {
+    enemy = { party: 0, index: index }
+    data = battleenemydata(enemy)
+    if (data != null) {
+      enemyData[index] = data
+    }
+    index = index + 1
+  }
+  reward = __battle_outcome_rewards(enemyData, size)
+  runProgram = reward.runprogram
+  if (runProgram != "") {
+    executeProgram(runProgram, { source: null, target: null })
+  }
+}
+if (outcome == 2) {
+  size = battle.partySize(0)
+  index = 0
+  enemyData = {}
+  while (index < size) {
+    enemy = { party: 0, index: index }
+    data = battleenemydata(enemy)
+    if (data != null) {
+      enemyData[index] = data
+    }
+    index = index + 1
+  }
+  reward = __battle_outcome_rewards(enemyData, size)
+  __battle_gain_gold(reward)
+  if (reward.experience > 0) {
+    mwin("Gained " + reward.experience + " experience.")
+  }
+  playerCount = battle.partySize(1)
+  playerIndex = 0
+  while (playerIndex < playerCount) {
+    fighter = __battle_actor_ref(1, playerIndex)
+    if (fighter != "") {
+      characterData = battlecharacterdata(fighter)
+      plan = __battle_experience_begin(fighter, reward)
+      if (plan != null) {
+        if (plan.legacy != 0) {
+          stepFailed = 0
+          while (__battle_experience_step_ready(fighter, plan) != 0 && stepFailed == 0) {
+            if (characterData != null && characterData.levelupprogram != "") {
+              context = __battle_levelup_context(fighter)
+              executeProgram(characterData.levelupprogram, context)
+            }
+            step = __battle_experience_step(fighter, plan)
+            if (step != null) {
+              plan = step.plan
+              if (step.leveled != 0) {
+                mwin(step.name + " gained a level")
+              }
+            } else {
+              stepFailed = 1
+            }
+          }
+        } else {
+          levels = plan.levels
+          while (levels > 0) {
+            mwin(plan.name + " gained a level")
+            levels = levels - 1
+          }
+        }
+      }
+    }
+    playerIndex = playerIndex + 1
+  }
+  if (reward.gold > 0) {
+    mwin("Gained " + reward.gold + " GP.")
+  }
+  runProgram = reward.winprogram
+  if (runProgram != "") {
+    executeProgram(runProgram, { source: null, target: null })
+  }
+}
+`;
+
+function outcomeAdapterEffect(): CommandEffect {
+  const ref = {
+    kind: "inline",
+    text: BATTLE_OUTCOME_ADAPTER,
+    compiler: COMPILER_VERSION,
+    dialect: "tk3",
+  };
+  return { kind: "vm.control", args: ["executeProgramRef", ref as PlainData] };
 }
 
 function owner(view: CommandView) {
@@ -367,6 +490,253 @@ function dictionary(view: CommandView, members: Readonly<Record<string, Value>>)
   return { value: { kind: "object", handle: object.handle, className: object.className } };
 }
 
+function dictionaryObject(view: CommandView, value: Value | undefined, name: string) {
+  const state = view.state;
+  if (state === undefined || typeof value !== "object" || value === null || !("kind" in value) || value.kind !== "object") {
+    throw new ScriptError("builtin.bad-arg", `${name}: expected a live dictionary`);
+  }
+  const record = findObject(state.vm, value.handle);
+  if (record === undefined || record.className !== "") {
+    throw new ScriptError("builtin.bad-arg", `${name}: expected a live dictionary`);
+  }
+  return record;
+}
+
+function rewardAmount(view: CommandView, rewards: Value | undefined, field: "experience" | "gold"): number {
+  const record = dictionaryObject(view, rewards, "battle outcome");
+  const value = readMember(record, field);
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new ScriptError("builtin.bad-arg", `battle outcome: ${field} total must be a non-negative safe integer`);
+  }
+  return value;
+}
+
+function stockBattleActive(view: CommandView): boolean {
+  const value = view.state?.vm.globals.stockbattle;
+  if (typeof value !== "object" || value === null || !("kind" in value) || value.kind !== "object") return false;
+  const object = findObject(view.state!.vm, value.handle);
+  return object !== undefined && readMember(object, "active") === 1;
+}
+
+function battleSlotActor(view: CommandView, party: 0 | 1, index: number) {
+  const battle = view.state?.battle;
+  if (battle === undefined || battle === null) throw new ScriptError("battle.not-active", "there is no active battle");
+  if (!Number.isSafeInteger(index) || index < 0) throw new ScriptError("battle.bad-fighter", `invalid battle fighter index ${display(index)}`);
+  const fighter = battle.parties[party][index];
+  const actor = fighter === undefined ? null : actorRecord(view, fighter.actorId);
+  if (actor === null || actor.kind !== (party === 0 ? "enemy" : "party")) {
+    throw new ScriptError("battle.bad-fighter", `no usable fighter exists at this position (party=${party}, index=${index})`);
+  }
+  return actor;
+}
+
+function battleActorFromHandle(view: CommandView, party: 0 | 1, value: Value | undefined) {
+  const state = view.state;
+  if (state?.battle === undefined || state.battle === null) throw new ScriptError("battle.not-active", "there is no active battle");
+  let id: ActorId | undefined;
+  if (typeof value === "object" && value !== null && "kind" in value && value.kind === "object") {
+    id = actorIdForObject(view, value.handle);
+    if (id === undefined) {
+      const record = state.vm.objects.find((candidate) => candidate.handle === value.handle);
+      const targetParty = record === undefined ? undefined : readMember(record, "party");
+      const targetIndex = record === undefined ? undefined : readMember(record, "index");
+      if (targetParty !== party || typeof targetIndex !== "number" || !Number.isSafeInteger(targetIndex) || targetIndex < 0) {
+        throw new ScriptError("battle.bad-fighter", `fighter reference must name party ${party} (party=${display(targetParty)}, index=${display(targetIndex)})`);
+      }
+      return battleSlotActor(view, party, targetIndex);
+    }
+  } else if (typeof value === "string") {
+    id = partyActor(view, value) ?? anyActor(view, value);
+    if (id === undefined) {
+      const parsed = Number(value);
+      if (Number.isSafeInteger(parsed) && parsed > 0 && actorRecord(view, parsed) !== null) id = parsed as ActorId;
+    }
+  }
+  const fighter = id === undefined ? undefined : state.battle.parties[party].find((entry) => entry.actorId === id);
+  const actor = fighter === undefined ? null : actorRecord(view, fighter.actorId);
+  if (actor === null || actor.kind !== (party === 0 ? "enemy" : "party")) return badFighter(value);
+  return actor;
+}
+
+function outcomeRewardValue(record: ObjectRecord, field: "experience" | "gold"): number {
+  const value = readMember(record, field);
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new ScriptError("builtin.bad-arg", `battle outcome: ${field} reward must be a non-negative safe integer`);
+  }
+  return value;
+}
+
+const OUTCOME_REWARDS = {
+  name: "__battle_outcome_rewards", aliases: [], params: [parameter("enemies"), parameter("size")],
+  doc: internalDocumentation("Sum battle outcome data.", "Reads each enemy data dictionary in encounter order and returns checked experience and gold totals plus the last non-empty run and win program references."),
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const enemies = dictionaryObject(view, args[0]?.value, "battle outcome enemies");
+    const size = integer(args, 1, "battle outcome enemy count");
+    if (size < 0) throw new ScriptError("builtin.bad-arg", "battle outcome enemy count must not be negative");
+    let experience = 0;
+    let gold = 0;
+    let runprogram = "";
+    let winprogram = "";
+    for (let index = 0; index < size; index += 1) {
+      const raw = readMember(enemies, String(index));
+      if (raw === undefined || raw === null) continue;
+      const data = dictionaryObject(view, raw, "battle enemy data");
+      const exp = outcomeRewardValue(data, "experience");
+      const gp = outcomeRewardValue(data, "gold");
+      experience += exp;
+      gold += gp;
+      if (!Number.isSafeInteger(experience) || !Number.isSafeInteger(gold)) {
+        throw new ScriptError("builtin.bad-arg", "battle outcome reward total exceeds the safe-integer range");
+      }
+      const run = readMember(data, "runawayprogram");
+      const win = readMember(data, "defeatprogram");
+      if (typeof run === "string" && run !== "") runprogram = run;
+      if (typeof win === "string" && win !== "") winprogram = win;
+    }
+    return dictionary(view, { experience, gold, runprogram, winprogram });
+  },
+} satisfies BuiltinSpec;
+
+const GAME_OVER_PROGRAM = {
+  name: "__battle_game_over_program", aliases: [], params: [],
+  doc: internalDocumentation("Read the configured game-over program.", "Returns the main file's game-over program reference or an empty string when none is configured."),
+  call: (view: CommandView) => ({ value: view.gameOverProgram ?? "" }),
+} satisfies BuiltinSpec;
+
+const END_LOSS = {
+  name: "__battle_end_loss", aliases: [], params: [],
+  doc: internalDocumentation("End a lost battle before game over.", "Clears the owner-held battle section after outcome 4 has been recorded, before the game-over program or reset sequence."),
+  call: (view: CommandView) => { resolve(owner(view).endLoss()); return { value: null }; },
+} satisfies BuiltinSpec;
+
+const GAIN_GOLD = {
+  name: "__battle_gain_gold", aliases: [], params: [parameter("rewards")],
+  doc: internalDocumentation("Post battle gold to inventory.", "Posts one state-write effect carrying `{ kind: \"inventory.gainGold\", amount }`; the inventory owner consumes it."),
+  call: (view: CommandView, args: readonly Arg[]) => ({
+    value: null,
+    effects: [{
+      kind: "state-write",
+      section: "inventory",
+      args: [{ kind: "inventory.gainGold", amount: rewardAmount(view, args[0]?.value, "gold") }],
+    }],
+  }),
+} satisfies BuiltinSpec;
+
+const BATTLE_ACTOR_REF = {
+  name: "__battle_actor_ref", aliases: [], params: [parameter("party"), parameter("index")],
+  doc: internalDocumentation("Resolve a battle party slot.", "Returns the actor id as a string for the requested battle party slot, including a fallen fighter."),
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const party = integer(args, 0, "battle party");
+    if (party !== 0 && party !== 1) throw new ScriptError("battle.bad-fighter", "party must be 0 or 1");
+    return { value: String(battleSlotActor(view, party as 0 | 1, integer(args, 1, "battle index")).id) };
+  },
+} satisfies BuiltinSpec;
+
+const EXPERIENCE_BEGIN = {
+  name: "__battle_experience_begin", aliases: [], params: [parameter("fighter"), parameter("rewards")],
+  doc: internalDocumentation("Begin one battle experience award.", "Adds the full award first. Legacy-program actors receive an ordered step plan; other actors use the actor owner's ordinary progression operation."),
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const idValue = Number(text(args, 0));
+    if (!Number.isSafeInteger(idValue) || idValue <= 0) return badFighter(args[0]?.value);
+    const actors = view.actors;
+    const actor = actors?.readActor(idValue);
+    if (actors === undefined || actor === null || actor === undefined || actor.kind !== "party") return badFighter(args[0]?.value);
+    const amount = rewardAmount(view, args[1]?.value, "experience");
+    if (actor.progression.legacyLevelUp === true) {
+      const plan = actors.beginLegacyBattleExperience(idValue, amount);
+      if (plan === null) return badFighter(args[0]?.value);
+      return dictionary(view, {
+        legacy: 1, remaining: plan.remainingExperience, maxlevel: plan.maxLevel,
+        levels: 0, name: plan.actor.name,
+      });
+    }
+    const result = actors.awardExperience(idValue, amount);
+    if (result === null) return badFighter(args[0]?.value);
+    const levels = result.transitions.filter((transition) => transition.type === "leveledUp").length;
+    return dictionary(view, {
+      legacy: 0, remaining: 0, maxlevel: result.actor.progression.maxLevel,
+      levels, name: result.actor.name,
+    });
+  },
+} satisfies BuiltinSpec;
+
+const EXPERIENCE_STEP_READY = {
+  name: "__battle_experience_step_ready", aliases: [], params: [parameter("fighter"), parameter("plan")],
+  doc: internalDocumentation("Check for a reached legacy threshold.", "Returns 1 when the legacy plan has a non-positive remainder and the actor is below a positive maximum level; otherwise returns 0."),
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const id = Number(text(args, 0));
+    if (!Number.isSafeInteger(id) || id <= 0) return badFighter(args[0]?.value);
+    const actor = view.actors?.readActor(id);
+    if (actor === null || actor === undefined || actor.kind !== "party") return badFighter(args[0]?.value);
+    const plan = dictionaryObject(view, args[1]?.value, "legacy experience plan");
+    const remaining = readMember(plan, "remaining");
+    const maxLevel = readMember(plan, "maxlevel");
+    return {
+      value: readMember(plan, "legacy") === 1 && typeof remaining === "number" && remaining <= 0 &&
+        typeof maxLevel === "number" && maxLevel > 0 && actor.stats.level < maxLevel ? 1 : 0,
+    };
+  },
+} satisfies BuiltinSpec;
+
+const LEVELUP_CONTEXT = {
+  name: "__battle_levelup_context", aliases: [], params: [parameter("fighter")],
+  doc: internalDocumentation("Build a level-up program context.", "Returns fresh context data with null source and target plus the fighter id, current pre-step level and total experience."),
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const id = Number(text(args, 0));
+    if (!Number.isSafeInteger(id) || id <= 0) return badFighter(args[0]?.value);
+    const actor = view.actors?.readActor(id);
+    if (actor === null || actor === undefined || actor.kind !== "party") return badFighter(args[0]?.value);
+    const handle = String(actor.id);
+    return dictionary(view, {
+      source: null, target: null, actor: handle, fighter: handle,
+      level: actor.stats.level, experience: actor.stats.experience,
+    });
+  },
+} satisfies BuiltinSpec;
+
+const EXPERIENCE_STEP = {
+  name: "__battle_experience_step", aliases: [], params: [parameter("fighter"), parameter("plan")],
+  doc: internalDocumentation("Apply one built-in level-up step.", "Applies one actor-owned growth step after its legacy level-up program returns and returns the next plan and display name."),
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const id = Number(text(args, 0));
+    if (!Number.isSafeInteger(id) || id <= 0) return badFighter(args[0]?.value);
+    const plan = dictionaryObject(view, args[1]?.value, "legacy experience plan");
+    const remaining = readMember(plan, "remaining");
+    if (typeof remaining !== "number" || !Number.isSafeInteger(remaining)) throw new ScriptError("builtin.bad-arg", "legacy experience plan has an invalid remainder");
+    const result = view.actors?.completeLegacyBattleLevelStep(id, remaining);
+    if (result === null || result === undefined) return badFighter(args[0]?.value);
+    const nextPlan = dictionary(view, {
+      legacy: 1,
+      remaining: result.remainingExperience,
+      maxlevel: result.actor.progression.maxLevel,
+      levels: 0,
+      name: result.actor.name,
+    }).value;
+    return dictionary(view, {
+      plan: nextPlan,
+      leveled: result.leveledUp ? 1 : 0,
+      name: result.actor.name,
+    });
+  },
+} satisfies BuiltinSpec;
+
+const APPLY_OUTCOME = {
+  name: "__battle_apply_outcome", aliases: [], params: [parameter("code")],
+  doc: internalDocumentation("Apply one automatic battle outcome.", "Records the automatic outcome if the package did not already do so, permits a recorded win or run to be corrected to a simultaneous loss, then invokes the core outcome adapter for codes 0, 2 or 4."),
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const code = integer(args, 0, "battle outcome");
+    if (code === 1 || code === 3) return { value: null };
+    if (code !== 0 && code !== 2 && code !== 4) throw new ScriptError("battle.bad-outcome", `automatic battle outcome must be 0, 2 or 4: ${display(code)}`);
+    const battle = owner(view);
+    const current = resolve(battle.outcome());
+    if (current === null) resolve(battle.decideOutcome(code));
+    else if (current !== code && !(code === 4 && (current === 0 || current === 2))) {
+      throw new ScriptError("battle.bad-outcome", `cannot replace battle outcome ${current} with ${code}`);
+    } else if (current !== code) resolve(battle.decideOutcome(code));
+    return { value: null, effects: [outcomeAdapterEffect()] };
+  },
+} satisfies BuiltinSpec;
+
 const ASSET_WAIT = { kind: "host-request", summary: "Waits for the host to load and return the requested asset." } as const;
 const ASSET_REPLY_THROWS: NonNullable<BuiltinDoc["throws"]> = [
   { code: "asset.missing", when: "the requested asset is missing" },
@@ -487,12 +857,17 @@ function enemyDataContinuation(view: CommandView, args: readonly Arg[]): Command
     ailevel: enemy.value.aiLevel,
     customai: enemy.value.customAi,
     aiprogram: enemy.value.aiProgram,
+    canrun: enemy.value.canRun,
+    experience: enemy.value.experienceReward,
+    gold: enemy.value.goldReward,
+    defeatprogram: enemy.value.defeatProgram,
+    runawayprogram: enemy.value.runAwayProgram,
   });
 }
 
 const ENEMY_DATA_ASSET = {
   name: "__battle_enemy_data_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
-  doc: internalDocumentation("Resume an enemy asset request.", "Reads the `.ene` bytes and returns their special-move list and AI settings as a plain-data dictionary.", [...ASSET_REPLY_THROWS, { code: "format.enemy", when: "the bytes are not a valid enemy `.ene` file" }]),
+  doc: internalDocumentation("Resume an enemy asset request.", "Reads the `.ene` bytes and returns battle AI and outcome settings as a plain-data dictionary.", [...ASSET_REPLY_THROWS, { code: "format.enemy", when: "the bytes are not a valid enemy `.ene` file" }]),
   call: enemyDataContinuation,
 } satisfies BuiltinSpec;
 
@@ -500,7 +875,7 @@ const ENEMY_DATA = {
   name: "battleenemydata", aliases: [], params: [parameter("fighter")],
   doc: {
     summary: "Read an enemy's battle settings.",
-    behaviour: "Reads the `.ene` file named by an active enemy's source and returns its battle settings without changing actor, inventory or battle state: `specialmoves` is a dictionary indexed from 0 through `specialcount - 1`, `ailevel` is the stored AI level, `customai` is the stored custom-AI flag, and `aiprogram` is the AI program file name. Blank special-move names and stored flag values are returned unchanged. It chooses no action and does not check move costs. Member names are matched ignoring case.",
+    behaviour: "Reads the `.ene` file named by an enemy's source and returns its battle settings without changing actor, inventory or battle state: `specialmoves` is a dictionary indexed from 0 through `specialcount - 1`, `ailevel` is the stored AI level, `customai` is the stored custom-AI flag, and `aiprogram` is the AI program file name. It also returns `canrun`, `experience`, `gold`, `defeatprogram` (the win program), and `runawayprogram`. The actor may be a fallen enemy still present in its battle slot. Blank file names and stored flag values are returned unchanged. It chooses no action and does not check move costs. Member names are matched ignoring case.",
     groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
     throws: [
       { code: "battle.not-active", when: "there is no active battle" },
@@ -510,13 +885,47 @@ const ENEMY_DATA = {
     ],
   },
   call: (view: CommandView, args: readonly Arg[]) => {
-    const id = activeBattleActor(view, args[0]?.value);
-    const actor = actorRecord(view, id);
-    if (actor === null || actor.kind !== "enemy") return badFighter(args[0]?.value);
+    const actor = battleActorFromHandle(view, 0, args[0]?.value);
     return {
       value: null,
       request: { kind: "asset", area: "enemies", path: actor.source },
       then: { command: "__battle_enemy_data_asset", args: [] },
+    };
+  },
+} satisfies BuiltinSpec;
+
+function characterDataContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
+  const character = readCharacter(new BinaryReader(replyBytes(args, "character")));
+  if (!character.ok) throw new ScriptError("format.character", character.error.message);
+  return dictionary(view, { levelupprogram: character.value.levelUpProgram });
+}
+
+const CHARACTER_DATA_ASSET = {
+  name: "__battle_character_data_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
+  doc: internalDocumentation("Resume a character asset request.", "Reads the `.cha` bytes and returns the level-up program reference as a plain-data dictionary.", [...ASSET_REPLY_THROWS, { code: "format.character", when: "the bytes are not a valid character `.cha` file" }]),
+  call: characterDataContinuation,
+} satisfies BuiltinSpec;
+
+const CHARACTER_DATA = {
+  name: "battlecharacterdata", aliases: [], params: [parameter("fighter")],
+  doc: {
+    summary: "Read a character's level-up program.",
+    behaviour: "Reads the `.cha` file named by a party fighter's source and returns `{ levelupprogram }` without changing actor, inventory or battle state. Fallen party fighters still in the battle are accepted. A blank program reference is returned unchanged. Member names are matched ignoring case.",
+    groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
+    throws: [
+      { code: "battle.not-active", when: "there is no active battle" },
+      { code: "battle.bad-fighter", when: "the handle does not identify an active party fighter" },
+      ...ASSET_REPLY_THROWS,
+      { code: "format.character", when: "the bytes are not a valid character `.cha` file" },
+    ],
+  },
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const actor = battleActorFromHandle(view, 1, args[0]?.value);
+    if (actor.source === "") return dictionary(view, { levelupprogram: "" });
+    return {
+      value: null,
+      request: { kind: "asset", area: "characters", path: actor.source },
+      then: { command: "__battle_character_data_asset", args: [] },
     };
   },
 } satisfies BuiltinSpec;
@@ -857,10 +1266,16 @@ const FINISH = {
   name: "__battle_finish", aliases: [], params: [parameter("self"), parameter("code")],
   doc: internalDocumentation(
     "Record a battle outcome.",
-    "`battle.finish(code)` accepts integer codes 0 through 4 and records the outcome once through the battle owner; code 0 (run) is accepted only when `battle.canRun` is true. It does not execute an outcome adapter or sequence.",
+    "`battle.finish(code)` accepts integer codes 0 through 4 and records the outcome once through the battle owner; codes 0, 2 and 4 invoke the core compatibility adapter unless the stock package is managing the outcome. Codes 1 and 3 are left to the package or custom program.",
     BATTLE_FINISH_THROWS,
   ),
-  call: (view: CommandView, args: readonly Arg[]) => { resolve(owner(view).apply({ type: "finish", code: numeric(args, 1) })); return { value: null }; },
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const code = numeric(args, 1);
+    resolve(owner(view).apply({ type: "finish", code }));
+    return !stockBattleActive(view) && (code === 0 || code === 2 || code === 4)
+      ? { value: null, effects: [outcomeAdapterEffect()] }
+      : { value: null };
+  },
 } satisfies BuiltinSpec;
 const STATUS_ASSET = {
   name: "__battle_status_asset", aliases: [], params: [parameter("ok"), parameter("bytes"), parameter("operation"), parameter("actor"), parameter("source"), parameter("file")],
@@ -937,8 +1352,10 @@ export const BATTLE_COMMANDS: readonly BuiltinSpec[] = [
   PARTY_SIZE, FIGHTER, AI, CHARGE, ADD_CHARGE, SET_CHARGE, RELEASE_CHARGE, CHARGE_PERCENT, FINISH,
   HP, GIVE_HP, GET_HP, MAX_HP, GET_MAX_HP, SMP, GIVE_SMP, GET_SMP, MAX_SMP, GET_MAX_SMP,
   FP, GIVE_FP, GET_FP, DP, GET_DP, GIVE_EXP, APPLY_STATUS, REMOVE_STATUS, STATUS_DATA, STATUS_ASSET, GET_STATUS, STATUS_FLAGS, STATUS_FLAGS_ASSET, STATUS_DATA_ASSET,
-  MOVE_DATA, MOVE_ASSET, ITEM_DATA, ITEM_ASSET, ENEMY_DATA, ENEMY_DATA_ASSET, ANIMATION_FILE, ANIMATION_ASSET, CONSUME, UNAFFORDABLE, INTEGER_MUL_DIV,
+  MOVE_DATA, MOVE_ASSET, ITEM_DATA, ITEM_ASSET, ENEMY_DATA, ENEMY_DATA_ASSET, CHARACTER_DATA, CHARACTER_DATA_ASSET, ANIMATION_FILE, ANIMATION_ASSET, CONSUME, UNAFFORDABLE, INTEGER_MUL_DIV,
   STATUS_SIGNATURE, PROGRAM_CONTEXT, STATUS_DELTA, STATUS_ADVANCE,
+  OUTCOME_REWARDS, GAME_OVER_PROGRAM, END_LOSS, GAIN_GOLD, BATTLE_ACTOR_REF, EXPERIENCE_BEGIN,
+  EXPERIENCE_STEP_READY, LEVELUP_CONTEXT, EXPERIENCE_STEP, APPLY_OUTCOME,
 ];
 export const BATTLE_COMMAND_NAMES = new Set<string>(BATTLE_COMMANDS.flatMap((command) => [command.name, ...command.aliases]));
 export const BATTLE_PLUGIN: PluginDefinition = {

@@ -38,6 +38,18 @@ export type ActorRuleResult = {
   readonly transitions: readonly ActorTransition[];
   readonly legacyLevelUps?: readonly LegacyLevelUpHandoff[];
 };
+export type LegacyBattleExperiencePlan = {
+  readonly actor: ActorRecord;
+  readonly remainingExperience: number;
+  readonly maxLevel: number;
+};
+
+export type LegacyBattleLevelStep = {
+  readonly actor: ActorRecord;
+  readonly leveledUp: boolean;
+  readonly remainingExperience: number;
+  readonly transitions: readonly ActorTransition[];
+};
 
 export type StatsChangedContext = {
   readonly operation: "stats" | "equipment" | "levelUp";
@@ -533,4 +545,77 @@ export function awardExperience(section: ActorsSection, id: ActorId | number, am
   if (current === null) return null;
   if (wasFallen && current.stats.hp > 0) transitions.push({ type: "revived", actorId: stableId, cause: "script", source: null });
   return legacyLevelUps.length === 0 ? { actor: current, transitions } : { actor: current, transitions, legacyLevelUps };
+}
+/** Record full battle XP first so a legacy level-up program sees the new total before growth. */
+export function beginLegacyBattleExperienceAward(
+  section: ActorsSection,
+  id: ActorId | number,
+  amount: number,
+): LegacyBattleExperiencePlan | null {
+  const stableId = actorId(id);
+  const actor = getActor(section, stableId);
+  if (actor === null) return null;
+  const award = integer(amount, "experience award");
+  if (award < 0) throw new RangeError("experience award must not be negative");
+  const progression = progressionInput(actor);
+  if (progression.legacyLevelUp !== true) throw new RangeError("legacy level-up program is not enabled");
+  const remainingExperience = progression.maxLevel > 0 && actor.stats.level < progression.maxLevel
+    ? safeAdd(progression.remainingExperience, -award, "remaining experience")
+    : progression.remainingExperience;
+  const experience = safeAdd(actor.stats.experience, award, "total experience");
+  patchActor(section, stableId, { stats: statsWithPatch(actor.stats, { experience }) });
+  const current = getActor(section, stableId);
+  return current === null ? null : { actor: current, remainingExperience, maxLevel: progression.maxLevel };
+}
+
+/** Apply one legacy level's built-in growth after its program has returned. */
+export function completeLegacyBattleLevelStep(
+  section: ActorsSection,
+  id: ActorId | number,
+  remainingExperienceValue: number,
+  hooks: ActorHooks = {},
+): LegacyBattleLevelStep | null {
+  const stableId = actorId(id);
+  const actor = getActor(section, stableId);
+  if (actor === null) return null;
+  const remainingExperience = integer(remainingExperienceValue, "remaining experience");
+  if (remainingExperience > 0) throw new RangeError("a legacy level-up step requires a reached threshold");
+  const progression = progressionInput(actor);
+  if (progression.legacyLevelUp !== true) throw new RangeError("legacy level-up program is not enabled");
+  if (progression.maxLevel <= 0 || actor.stats.level >= progression.maxLevel) {
+    patchActor(section, stableId, { progression: { remainingExperience: 0 } });
+    const current = getActor(section, stableId);
+    return current === null ? null : { actor: current, leveledUp: false, remainingExperience: 0, transitions: [] };
+  }
+  const level = safeAdd(actor.stats.level, 1, "actor level");
+  const deltas = levelDeltas(actor, progression);
+  const wasFallen = actor.stats.hp <= 0;
+  let stats = applyLevelDelta(statsWithPatch(actor.stats, { level }), deltas);
+  stats = applyStatsHook(actor, actor.stats, stats, "levelUp", hooks);
+  if (wasFallen && stats.hp > 0) stats = applyReviveHook(actor, stats, "script", null, hooks.revive);
+  let nextRequirement = progression.nextRequirement;
+  let nextRemaining = 0;
+  if (level < progression.maxLevel) {
+    if (nextRequirement <= 0) throw new RangeError("invalid actor progression threshold");
+    if (progression.levelUpType === 0) {
+      const product = safeProduct(nextRequirement, progression.experienceIncrease, "percentage threshold");
+      nextRequirement = safeAdd(nextRequirement, Math.trunc(product / 100), "next level requirement");
+    } else {
+      nextRequirement = safeAdd(nextRequirement, progression.experienceIncrease, "next level requirement");
+    }
+    if (nextRequirement <= 0) throw new RangeError("invalid actor progression threshold");
+    nextRemaining = safeAdd(remainingExperience, nextRequirement, "remaining experience");
+  }
+  patchActor(section, stableId, { stats, progression: { remainingExperience: nextRemaining, nextRequirement } });
+  const current = getActor(section, stableId);
+  if (current === null) return null;
+  const transitions: ActorTransition[] = [{
+    type: "leveledUp",
+    actorId: stableId,
+    level,
+    experience: current.stats.experience,
+    applied: { ...deltas },
+  }];
+  if (wasFallen && current.stats.hp > 0) transitions.push({ type: "revived", actorId: stableId, cause: "script", source: null });
+  return { actor: current, leveledUp: true, remainingExperience: nextRemaining, transitions };
 }

@@ -4,6 +4,8 @@ import {
   applyActorStatus,
   applyEquipment,
   awardExperience,
+  beginLegacyBattleExperienceAward,
+  completeLegacyBattleLevelStep,
   removeActorStatus,
   updateActorStats,
   type ActorHooks,
@@ -11,6 +13,8 @@ import {
   type AdvanceStatusOptions,
   type ActorRuleResult,
   type EquipmentItemDefinition,
+  type LegacyBattleExperiencePlan,
+  type LegacyBattleLevelStep,
   type StatsChangeOptions,
   type StatusChangeOptions,
 } from "./rules.ts";
@@ -39,6 +43,9 @@ export type ActorOperationService = {
   advanceStatus(actor: ActorId | number, amount: number, options?: Omit<AdvanceStatusOptions, "hooks">): ActorRuleResult | null;
   applyEquipment(actor: ActorId | number, equipped: readonly string[], items: readonly EquipmentItemDefinition[]): ActorRuleResult | null;
   awardExperience(actor: ActorId | number, amount: number): ActorRuleResult | null;
+  /** Add battle XP before legacy level-up programs, then apply growth one ordered step at a time. */
+  beginLegacyBattleExperience(actor: ActorId | number, amount: number): LegacyBattleExperiencePlan | null;
+  completeLegacyBattleLevelStep(actor: ActorId | number, remainingExperience: number): LegacyBattleLevelStep | null;
 };
 
 export type ActorService = StatsPort & ActorOperationService & {
@@ -106,6 +113,14 @@ export function createActorService(
     awardExperience(actor, amount) {
       const result = awardExperience(section, actor, amount, hooksFor(actor));
       if (result !== null) events?.(result);
+      return result;
+    },
+    beginLegacyBattleExperience(actor, amount) {
+      return beginLegacyBattleExperienceAward(section, actor, amount);
+    },
+    completeLegacyBattleLevelStep(actor, remainingExperience) {
+      const result = completeLegacyBattleLevelStep(section, actor, remainingExperience, hooksFor(actor));
+      if (result !== null && result.transitions.length > 0) events?.({ actor: result.actor, transitions: result.transitions });
       return result;
     },
     readActor(actor) {

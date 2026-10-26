@@ -272,6 +272,7 @@ export function createScriptServices(
   media?: MediaScriptService,
   observers?: ScriptObservers,
   menuPorts?: MenuOwnerPorts,
+  gameOverProgram: string | null = null,
 ): ScriptServices {
   const loader = typeof loaderOrGameId === "string" ? undefined : loaderOrGameId;
   const gameId = typeof loaderOrGameId === "string" ? loaderOrGameId : explicitGameId;
@@ -351,6 +352,7 @@ export function createScriptServices(
     battle,
     ...(media === undefined ? {} : { media }),
     objectMembers: (handle: number) => state.vm.objects.find((record) => record.handle === handle)?.members,
+    gameOverProgram,
     gameId,
     get packageStartup() { return packageStartupActive.active; },
     get thread() { return commandThread; },
@@ -2478,6 +2480,33 @@ function dispatchResolved(
           thread.collect = null;
           return "yield";
         }
+      }
+      if (action === "executeProgramRef") {
+        const raw = effect.args?.[1];
+        if (
+          typeof raw !== "object" || raw === null || Array.isArray(raw) ||
+          raw.kind !== "inline" || typeof raw.text !== "string" || typeof raw.compiler !== "string"
+        ) throw new ScriptError("builtin.bad-arg", "executeProgramRef: expected an inline program reference", pos);
+        const callerPair = { source: thread.source, target: thread.target };
+        const plan = prepareProgramContext(vm, services, "executeProgram", "positional", undefined, null, null, callerPair, pos);
+        const newRef = withRedirects(raw as unknown as ProgramRef, vm.redirects);
+        services.programs.get(newRef);
+        const context = materializeProgramContext(vm, plan);
+        const rootFrame: Frame = {
+          program: newRef,
+          ip: 0,
+          locals: {},
+          operands: [],
+          errorHandler: null,
+          autoLocal: false,
+          programRoot: { restore: callerPair },
+        };
+        setOwnSlot(rootFrame.locals, "context", { value: context, ref: localRef("context") });
+        thread.source = plan.pair.source;
+        thread.target = plan.pair.target;
+        frame.operands.push({ value: 0, ref: null });
+        thread.frames.push(rootFrame);
+        controlApplied = true;
       }
       if (action === "executeProgram" || action === "replaceProgram") {
         const file = effect.args?.[1];

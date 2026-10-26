@@ -85,6 +85,8 @@ export type CommandView = {
   readonly packageStartup?: boolean;
   /** The id of the thread whose call is running; the VM sets it before every call. */
   readonly thread?: number;
+  /** Main-file game-over program selected by the boot owner. */
+  readonly gameOverProgram?: string | null;
 };
 
 /**

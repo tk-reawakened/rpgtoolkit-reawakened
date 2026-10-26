@@ -29,13 +29,17 @@ export type BattleOwner = {
   chargePercent(party: number, index: number): BattleOperationResult<number>;
   canRun(): BattleOperationResult<boolean>;
   outcome(): BattleOperationResult<BattleState["outcome"]>;
+  /** Resolve an automatic outcome after the stock pass has applied its loss/run/win precedence. */
+  decideOutcome(code: number): BattleOperationResult<null>;
+  /** End a lost battle before a game-over program runs. */
+  endLoss(): BattleOperationResult<null>;
   apply(action: BattleAction): BattleOperationResult<null>;
 };
 
 export type BattleOwnerStore = {
   readonly readBattle: () => BattleSection;
   readonly readActors: () => ActorsSection;
-  readonly commit: (battle: BattleState) => void;
+  readonly commit: (battle: BattleSection) => void;
 };
 
 const PARTY_THRESHOLDS: Readonly<Record<BattleParty, number>> = { 0: 123, 1: 75 };
@@ -104,6 +108,23 @@ export function createBattleOwner(store: BattleOwnerStore): BattleOwner {
     outcome() {
       const current = active();
       return current.ok ? success(current.value.outcome) : current;
+    },
+    decideOutcome(code) {
+      const current = active();
+      if (!current.ok) return current;
+      if (!Number.isSafeInteger(code) || (code !== 0 && code !== 2 && code !== 4)) {
+        return failure("battle.bad-outcome", `automatic battle outcome must be 0, 2 or 4: ${display(code)}`);
+      }
+      if (code === 0 && !current.value.canRun) return failure("battle.cannot-run", "the active battle does not allow running");
+      store.commit({ ...current.value, outcome: code });
+      return success(null);
+    },
+    endLoss() {
+      const current = active();
+      if (!current.ok) return current;
+      if (current.value.outcome !== 4) return failure("battle.bad-outcome", "only a lost battle can end before game over");
+      store.commit(null);
+      return success(null);
     },
     apply(action) {
       if (action.type === "finish") {
