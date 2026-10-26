@@ -84,7 +84,7 @@ function setup(caseData: FixtureCase, seed: number): { state: GameState; board: 
   };
 }
 
-test("random encounter fixtures all drive movement, trigger, and battle phases", () => {
+test("random encounter fixtures drive movement, triggers, and random-encounter evaluation", () => {
   const fixture = JSON.parse(readFileSync(join(fixtureRoot, "random-encounter.json"), "utf8")) as Fixture;
   for (const caseData of fixture.cases) {
     const { state, board, config } = setup(caseData, 0x511);
