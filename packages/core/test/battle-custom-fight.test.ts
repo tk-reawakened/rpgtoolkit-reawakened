@@ -420,7 +420,7 @@ test("a program that spells its enemies out with FightEnemy gets the BAT-9 setup
   deepEqual(rig.state.battle?.parties[0].map(({ actorId }) => rig.state.actors.actors.find((actor) => actor.id === actorId)?.stats.hp), [0, 0, 0]);
   const gold = rig.state.vm.effects.filter((effect) => effect.patch?.section === "inventory");
   equal(gold.length, 1, "the outcome adapter posted its one gold effect");
-  deepEqual(gold[0]?.args, [{ kind: "inventory.gainGold", amount: 9 }]);
+  deepEqual(gold[0]?.args, [{ type: "addGold", amount: 9 }]);
   deepEqual(rig.services.diagnostics, []);
   equal(alive(rig.state), false, "the program returned from FightEnemy and ended");
 });
@@ -706,4 +706,13 @@ test("the engine hands a custom program's FightEnemy call to the stock loop with
   equal(state.vm.globals.afterfight, 0, "the program is still inside FightEnemy, waiting on the stock loop");
   equal(alive(state), true);
   deepEqual(booted.diagnostics.map(({ code, message }) => `${code}: ${message}`), []);
+});
+
+test("the engine applies stock battle win rewards through Epic 8 inventory", () => {
+  const booted = bootGame("fight-order");
+  play(booted, (state) => state.vm.globals.afterfight === 1);
+  const state = booted.state();
+  equal(state.battle?.outcome, 2);
+  equal(state.inventory.gold, 9);
+  equal(booted.diagnostics.some(({ code }) => code === "menu.state-invalid"), false);
 });

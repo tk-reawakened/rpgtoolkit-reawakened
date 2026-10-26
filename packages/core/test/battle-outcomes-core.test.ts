@@ -186,7 +186,7 @@ test("the core win adapter awards XP, posts one gold effect and runs the enemy w
   equal(state.vm.globals.winprogramcount, 1);
   const gold = state.vm.effects.filter((effect) => effect.kind === "state-write" && effect.patch?.section === "inventory");
   equal(gold.length, 1);
-  deepEqual(gold[0]?.args, [{ kind: "inventory.gainGold", amount: 4 }]);
+  deepEqual(gold[0]?.args, [{ type: "addGold", amount: 4 }]);
   const messages = state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]);
   ok(messages.indexOf("Gained 23 experience.") < messages.indexOf("Hero gained a level"));
   ok(messages.indexOf("Hero gained a level") < messages.indexOf("Gained 4 GP."));
