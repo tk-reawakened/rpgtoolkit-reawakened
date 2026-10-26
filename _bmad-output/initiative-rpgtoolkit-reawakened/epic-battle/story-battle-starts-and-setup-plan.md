@@ -3,7 +3,7 @@ title: "Battle starts and setup: random encounters, Fight and FightEnemy"
 type: 'feature'
 ticket: 9
 created: '2026-10-19'
-status: done
+status: in-progress
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "high"
 context:

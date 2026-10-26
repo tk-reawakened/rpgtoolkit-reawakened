@@ -22,6 +22,7 @@ import {
   hashGameState,
   nextUint32,
   PACKAGE_ROOT,
+  readStepCounters,
   registerActorObject,
   restoreGameState,
   runEventsPhase,
@@ -29,6 +30,7 @@ import {
   runThreadsPhase,
   runWaitsPhase,
   snapshot,
+  startThread,
   startProgram,
   STEP_BUDGET,
   STATUS_EFFECT_MAGIC,
@@ -362,6 +364,61 @@ function start(rig: Rig, poll: WaitPoll): void {
   tickUntil(rig, poll, () => stockBattleMember(rig, "defeatedListenerCount") === rig.enemies.length + rig.players.length);
 }
 
+function observeDefeatedEvents(rig: Rig): void {
+  const actorListeners = rig.enemies.map((_, index) => `
+global(defeatedActor${index}Count)
+global(defeatedActor${index}Cause)
+global(defeatedActor${index}Source)
+defeatedActor${index}Count = 0
+defeatedActor${index}Cause = ""
+defeatedActor${index}Source = null
+local(enemy${index}) = battle.fighter(0, ${index})
+on(enemy${index}, "defeated", (event) => {
+  defeatedActor${index}Count = defeatedActor${index}Count + 1
+  defeatedActor${index}Cause = event.detail.cause
+  defeatedActor${index}Source = event.detail.source
+  defeatedEventOrder = defeatedEventOrder + "A${index}"
+})
+`).join("\n");
+  startThread(rig.state.vm, {
+    ref: {
+      kind: "inline",
+      compiler: "2",
+      text: `
+global(defeatedEventOrder)
+global(defeatedGameCount)
+global(defeatedGameCause0)
+global(defeatedGameSource0)
+global(defeatedGameCause1)
+global(defeatedGameSource1)
+defeatedEventOrder = ""
+defeatedGameCount = 0
+defeatedGameCause0 = ""
+defeatedGameSource0 = null
+defeatedGameCause1 = ""
+defeatedGameSource1 = null
+${actorListeners}
+on(game, "stock_battle.defeated", (event) => {
+  defeatedGameCount = defeatedGameCount + 1
+  defeatedEventOrder = defeatedEventOrder + "G"
+  if (defeatedGameCount == 1) {
+    defeatedGameCause0 = event.detail.cause
+    defeatedGameSource0 = event.detail.source
+  }
+  if (defeatedGameCount == 2) {
+    defeatedGameCause1 = event.detail.cause
+    defeatedGameSource1 = event.detail.source
+  }
+})
+`,
+    },
+    kind: "persistent",
+    owner: "script",
+  });
+  runThreadsPhase(rig.state.vm, rig.services, STEP_BUDGET);
+}
+
+
 function globals(rig: Rig): Record<string, unknown> {
   return rig.state.vm.globals;
 }
@@ -388,6 +445,19 @@ function seedForRunValue(value: number, precedingDraws = 2): number {
   }
   throw new Error(`no seed found for run draw ${value}`);
 }
+
+test("an idle nine-fighter stock battle pass stays below 701 script steps", () => {
+  const rig = makeRig({ enemyOptions: [{}, {}, {}, {}], players: 5 });
+  const poll = pollAssets(rig);
+  start(rig, poll);
+  for (let index = 0; index < rig.enemies.length; index += 1) setCharge(rig, 0, index, 0);
+  for (let index = 0; index < rig.players.length; index += 1) setCharge(rig, 1, index, 0);
+  const before = Object.values(readStepCounters(rig.state.vm)).reduce((total, count) => total + count, 0);
+  tick(rig, poll);
+  const after = Object.values(readStepCounters(rig.state.vm)).reduce((total, count) => total + count, 0);
+  const passSteps = after - before;
+  ok(passSteps < 701, `idle nine-fighter pass used ${passSteps} steps`);
+});
 
 test("a stock victory sums XP/gold, rewards fallen and living members, orders level-up growth, and runs only the last win program", () => {
   const rig = makeRig({
@@ -450,6 +520,7 @@ test("a successful seeded run skips later turns but ticks later statuses, runs o
   });
   const poll = pollAssets(rig);
   start(rig, poll);
+  observeDefeatedEvents(rig);
   globals(rig).outcomemode = "run";
   setCharge(rig, 1, 0, 75);
   setCharge(rig, 1, 1, 75);
@@ -464,6 +535,9 @@ test("a successful seeded run skips later turns but ticks later statuses, runs o
   equal(globals(rig).firstrunprogramcount ?? 0, 0, "only the last enemy's non-empty run program runs");
   equal(globals(rig).levelprogramcount, 0);
   equal(rig.state.vm.effects.some((effect) => effect.patch?.section === "inventory"), false);
+  equal(globals(rig).defeatedactor0count, 0, "a successful run emits no actor-local defeated event");
+  equal(globals(rig).defeatedactor1count, 0, "a successful run emits no actor-local defeated event for another enemy");
+  equal(globals(rig).defeatedgamecount, 0, "a successful run emits no game-level defeated event");
   equal(seededRunValue(seed, 4), 2, "the upper successful result of random(5)");
   ok(rig.messages.includes("Escaped."));
 });
@@ -525,28 +599,64 @@ test("an all-fallen party resolves loss through the stock outcome path", () => {
   equal(globals(rig).winprogramcount ?? 0, 0);
 });
 
-test("enemy defeated re-emits once with damage source and plain payload, including after event-queue restore", () => {
-  const rig = makeRig();
+test("enemy defeated emits once locally before game re-emission for each enemy, including after event-queue restore", () => {
+  const rig = makeRig({ enemyOptions: [{}, {}] });
   const poll = pollAssets(rig);
   start(rig, poll);
+  observeDefeatedEvents(rig);
+  ok(rig.enemies[0] !== rig.enemies[1], "the test observes two distinct enemy actors");
   rig.services.actors.damage(rig.enemies[0]!, 99, rig.players[0]!);
+  rig.services.actors.damage(rig.enemies[1]!, 99, rig.players[0]!);
   const restoredState = restoreGameState(snapshot(rig.state));
   const restoredLayers = createPluginLayers();
   const restoredServices = createScriptServices(restoredState, [...plugins, stockBattlePlugin], undefined, undefined, loader, "default", undefined, undefined, restoredLayers);
   verifyRestoredHandles(restoredState.vm, restoredServices);
+  const restoredRig: Rig = { ...rig, state: restoredState, services: restoredServices };
   equal(hashGameState(restoredState), hashGameState(rig.state));
-  for (let phase = 0; phase < 3; phase += 1) {
+  for (let phase = 0; phase < 8; phase += 1) {
     runEventsPhase(rig.state, rig.services, STEP_BUDGET);
     runEventsPhase(restoredState, restoredServices, STEP_BUDGET);
-    equal(hashGameState(restoredState), hashGameState(rig.state), `re-emitted event restore phase ${phase}`);
+    equal(hashGameState(restoredState), hashGameState(rig.state), `re-emitted events restore phase ${phase}`);
   }
-  equal(globals(rig).outcomeeventcount, 1);
-  equal(globals(rig).outcomeeventcause, "damage");
-  equal(globals(rig).outcomeeventsource, rig.players[0]);
+  for (const observed of [rig, restoredRig]) {
+    equal(globals(observed).defeatedactor0count, 1);
+    equal(globals(observed).defeatedactor0cause, "damage");
+    equal(globals(observed).defeatedactor0source, rig.players[0]);
+    equal(globals(observed).defeatedactor1count, 1);
+    equal(globals(observed).defeatedactor1cause, "damage");
+    equal(globals(observed).defeatedactor1source, rig.players[0]);
+    equal(globals(observed).defeatedgamecount, 2);
+    equal(globals(observed).defeatedgamecause0, "damage");
+    equal(globals(observed).defeatedgamesource0, rig.players[0]);
+    equal(globals(observed).defeatedgamecause1, "damage");
+    equal(globals(observed).defeatedgamesource1, rig.players[0]);
+    equal(globals(observed).defeatedeventorder, "A0GA1G", "each actor event is delivered before its game re-emission");
+  }
+  equal(globals(rig).outcomeeventcount, 2, "the original game listener receives both defeated events");
   rig.services.actors.updateStats(rig.enemies[0]!, { hp: 20 }, { cause: "script", source: null });
   rig.services.actors.damage(rig.enemies[0]!, 99, rig.players[0]!);
   for (let phase = 0; phase < 3; phase += 1) runEventsPhase(rig.state, rig.services, STEP_BUDGET);
-  equal(globals(rig).outcomeeventcount, 1, "reviving and falling again does not re-emit in the same battle");
+  equal(globals(rig).defeatedactor0count, 1, "reviving and falling again does not re-emit locally in this battle");
+  equal(globals(rig).defeatedgamecount, 2, "reviving and falling again does not re-emit globally in this battle");
+  equal(globals(rig).outcomeeventcount, 2);
+});
+
+test("lethal status damage emits one actor-local and game-level defeated event with cause status", () => {
+  const rig = makeRig();
+  const poll = pollAssets(rig);
+  start(rig, poll);
+  observeDefeatedEvents(rig);
+  rig.services.actors.updateStats(rig.enemies[0]!, { hp: 2 }, { cause: "script", source: null });
+  rig.services.actors.applyStatus(rig.enemies[0]!, "late-turn.ste", 1);
+  setCharge(rig, 0, 0, 123);
+  tickUntil(rig, poll, () => globals(rig).defeatedactor0count === 1 && globals(rig).defeatedgamecount === 1);
+  equal(rig.state.actors.actors.find(({ id }) => id === rig.enemies[0])?.stats.hp, 0);
+  equal(globals(rig).defeatedactor0cause, "status");
+  equal(globals(rig).defeatedactor0source, 0, "source-null uses the engine's zero actor-id sentinel");
+  equal(globals(rig).defeatedgamecause0, "status");
+  equal(globals(rig).defeatedgamesource0, 0, "source-null uses the engine's zero actor-id sentinel");
+  equal(globals(rig).defeatedeventorder, "A0G");
+  equal(globals(rig).outcomeeventcount, 1);
 });
 
 test("a level-up program parked mid-outcome resumes identically after save and restore", () => {

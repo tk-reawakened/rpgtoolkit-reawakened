@@ -17,6 +17,7 @@ global(amountin)
 global(poolin)
 global(filein)
 global(rounds)
+global(watchFallen)
 global(postSource)
 global(postTarget)
 postSource = 0
@@ -48,6 +49,10 @@ fallen1 = 0
 fallen2 = 0
 dealt = 0
 total = 0
+
+if (watchfallen == 1) {
+  on(target, "fallen", (event) => { fallen1 = fallen1 + 1 })
+}
 
 if (hookmode == "record") {
   stockBattle.animate = (file, fighter) => {
@@ -102,6 +107,9 @@ if (scenario == "all") {
   on(target, "fallen", (event) => { fallen1 = fallen1 + 1 })
   on(second, "fallen", (event) => { fallen2 = fallen2 + 1 })
   dealt = attackall({ source: attacker, first: target, second: second, third: null, amount: amountin })
+}
+if (scenario == "drainall") {
+  dealt = drainall({ source: attacker, first: target, second: second, third: null, amount: amountin })
 }
 if (scenario == "parked") {
   on(target, "beforeDamage", (event) => {
