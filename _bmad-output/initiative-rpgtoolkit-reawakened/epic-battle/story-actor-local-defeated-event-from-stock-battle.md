@@ -14,11 +14,11 @@ risk: high
 
 ## Description
 
-Only one BAT-12/EMIT-13 test gap remains: a lethal `script` cause in `stock_battle`. Drive an enemy's first defeat through a script-originated stat update with an actor as the source, then assert the actor-local `defeated` and game-level `stock_battle.defeated` events each carry exactly `{ cause: "script", source: actorId }`. PR #693 already covers damage/status causes, event ordering, per-enemy deduplication after revival, event-queue restore, and run suppression; do not duplicate that coverage.
+Only one BAT-12/EMIT-13 test gap remains: a lethal `script` cause in `stock_battle`. Drive an enemy's first defeat through a script-originated stat update (authored `hp(...)`), then assert the actor-local `defeated` and game-level `stock_battle.defeated` events each carry exactly `{ cause: "script", source: null }`. Script-originated stat writes carry no attacking actor and BAT-12 permits `source: actorId | null`, so a non-null source is not available without inventing a new API; scripts observe null as the zero actor-id sentinel. PR #693 already covers damage/status causes, event ordering, per-enemy deduplication after revival, event-queue restore, and run suppression; do not duplicate that coverage.
 
 ## Acceptance Criteria
 
-1. **Script-caused defeat:** A named deterministic authored-RPGCode test causes an enemy's first lethal stat update with `cause: "script"` and a non-null actor source; capture actor-local and game-level event details, assert each deep-equals exactly `{ cause: "script", source: actorId }`, and assert one delivery of each.
+1. **Script-caused defeat:** A named deterministic authored-RPGCode test causes an enemy's first lethal stat update with `cause: "script"` through authored RPGCode `hp(...)`; capture actor-local and game-level event details, assert each has cause `script` and a null source (zero sentinel in script), and assert one delivery of each.
 2. **Existing coverage:** Do not repeat the damage/status, restore, revival-deduplication, or run cases covered by merged PR #693.
 3. **Ownership:** The event behavior remains in stock_battle; core does not gain battle-loop/event ownership.
 
