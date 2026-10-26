@@ -150,6 +150,8 @@ The engine keeps the battle **model**; the plugin owns the **loop and the UI**.
 <a id="e-70"></a>
 **E-70 Battle start.** *Random:* after each whole-tile step on a board that allows battles, and with fighting enabled globally, roll 1-in-`chances` (type 0) or check every `chances` tiles (type 1); if the main file names a custom battle program it runs instead; otherwise 1-4 enemies are drawn at random from the main file's pool among those whose skill level equals the board's, and the board's battle background is used. *Scripted:* `Fight(skill, bkg)` or `FightEnemy(e1, e2, …, bkg)`.
 
+**Reawakened rule (OWNER; Jensen, 2026-10-26).** A random encounter draws its enemies at random from the main file's list; a custom encounter is spelled out. When the main file names a custom battle program, the encounter runs it in place of the draw: the engine draws no enemy and passes none, and the program names the fighters itself, in the order it writes them, with `FightEnemy(e1, e2, …, bkg)`. See [BAT-9](battle.md#bat-9).
+
 <a id="e-71"></a>
 **E-71 Battle setup.** Two parties (enemies and the player's), the battle background's music replacing the board music, the background image and menu sounds loaded, and running away allowed unless an enemy forbids it.
 
@@ -247,6 +249,8 @@ Legacy battles are one-sided, so each attack has exactly one side with a value a
 Tested at most once per tile the player moves, on boards that allow battles, when the main file enables fighting (`fightGameYn = 0`). Type 0: a fight starts with probability 1 / `chances`. Type 1: a fight starts every `chances` tiles walked. If the main file's custom-fight flag is set, its fight program runs instead. Otherwise 1-4 enemies (random count) are drawn from the main file's encounter table among those whose skill level matches the board's battle skill, and the board's battle background is used. If no enemy has that skill level the message "No enemies of skill level N found." is shown.
 
 **Reawakened rule (Epic 7.1; R11-Q14).** The number of enemies is 1 to 4, each equally likely, and each is drawn independently. See [BAT-9](battle.md#bat-9).
+
+**Reawakened rule (OWNER; Jensen, 2026-10-26).** If the main file's custom-fight flag is set and names a program, the chance is rolled as above but the draw above never happens: the program runs in its place, receives the board, the player and its own name as its `context`, and names the enemies itself with `FightEnemy`. A set flag with a blank name names no program, so the encounter is drawn as above. See [BAT-9](battle.md#bat-9).
 
 
 ## Callback interface

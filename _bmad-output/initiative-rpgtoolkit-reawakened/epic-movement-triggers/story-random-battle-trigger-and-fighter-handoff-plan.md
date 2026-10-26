@@ -78,6 +78,7 @@ Proposed ruling (pending owner review): enemy count is `1 + draw(4)` and each en
 
 ## Plan Change Log
 - 2026-10-18: built on baseline `4e00c268219124233e37e27d7215225b48c87ca5`; encounter progress remains optional in the existing sprites schema so unrelated state hashes and goldens stay unchanged.
+- 2026-10-26 (owner amendment, Jensen; applied by the director): the frozen block above is unchanged and its "Custom fight" row stands. The owner ruled that a random encounter draws from a list of available enemies while a custom encounter is spelled out. That is settled without a format change: `battle.customFight` keeps carrying only `trigger`, `board`, `actor` and `program`, with no fighters and no draw by the evaluator, and the enemy list lives in the custom program's own `FightEnemy(...)` call. The engine (entry 7.9) now runs `program` in place of the draw, with the request as `context`. BAT-9, E-70 and the random-encounters rule are amended to match, in the docs-only change that records this entry. Considered and rejected: a per-encounter enemy-list field in the main file or on the board (a format change with no legacy source) and handing the evaluator's pool to the program (what may be drawn is not what fights now).
 
 ## Implementation Evidence
 

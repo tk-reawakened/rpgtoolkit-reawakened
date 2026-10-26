@@ -125,7 +125,7 @@ There is **no frame-rate cap** in the original engine: the loop runs as fast as 
 
 **Reawakened rule (OWNER; Epic 20, entry 20.1; Jensen, 2026-10-19).** The engine runs these phases once per fixed 60 Hz tick, in order: `input`, `waits`, `threads`, `events`, `movement`, `edges`, `triggers`, `animation`, `audio`, `time`. Modules register only with named phases, and rank orders registrations within each phase. There is no core `battle` phase ([BAT-1](battle.md#bat-1), [ACT-10](actors.md#act-10)).
 
-Random-encounter evaluation belongs to `triggers`, after a completed whole-tile step and activation checks. It may start the main file's custom fight program or the `stock_battle` package. Battle systems run through RPGCode package programs and ordinary VM threads; the saveable `battle` section does not add a core phase.
+Random-encounter evaluation belongs to `triggers`, after a completed whole-tile step and activation checks. A drawn encounter hands its enemies to the `stock_battle` package; a custom encounter (the main file names a fight program) draws nothing and runs that program, which names its own enemies ([BAT-9](battle.md#bat-9)). Battle systems run through RPGCode package programs and ordinary VM threads; the saveable `battle` section does not add a core phase.
 
 <!-- OWNER: Jensen, 2026-10-19; Epic 20, entry 20.1 phase-pipeline ruling. Source: _bmad-output/initiative-rpgtoolkit-reawakened/epic-actors/epic-actors.md and architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md (AD-26). -->
 
