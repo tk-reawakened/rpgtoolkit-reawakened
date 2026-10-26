@@ -1,4 +1,8 @@
 import type { StatusEffect } from "../../formats/battle/model.ts";
+import { readSpecialMove } from "../../formats/battle/special-move.ts";
+import { readCharacter } from "../../formats/actor/character.ts";
+import { readEnemy } from "../../formats/actor/enemy.ts";
+import { readItem } from "../../formats/actor/item.ts";
 import { readStatusEffect } from "../../formats/battle/status-effect.ts";
 import type { Result } from "../../formats/result.ts";
 import { BinaryReader } from "../../formats/binary/reader.ts";
@@ -10,7 +14,7 @@ import type { BattleAction, BattleOperationResult } from "../../battle/port.ts";
 import type { Value } from "../../ports/value.ts";
 import type { Arg, BuiltinDoc, BuiltinSpec, ParamSpec } from "../builtins.ts";
 import { ScriptError } from "../errors.ts";
-import type { CommandResult, CommandView, PluginDefinition } from "../plugin.ts";
+import type { CommandEffect, CommandResult, CommandView, PluginDefinition } from "../plugin.ts";
 
 const GROUP = "battle-stats-menus-33";
 const NO_WAIT = { kind: "never", summary: "Completes in the current script turn." } as const;
@@ -228,13 +232,17 @@ function statusRequest(view: CommandView, args: readonly Arg[], operation: Statu
   };
 }
 
-function statusFileReply(args: readonly Arg[]): Result<StatusEffect> {
-  if (numeric(args, 0) !== 1) throw new ScriptError("asset.missing", "status effect asset was not found");
+function replyBytes(args: readonly Arg[], what: string): Uint8Array {
+  if (numeric(args, 0) !== 1) throw new ScriptError("asset.missing", `${what} asset was not found`);
   const hex = text(args, 1);
-  if (hex.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(hex)) throw new ScriptError("request.bad-reply", "status effect asset reply must be hexadecimal bytes");
+  if (hex.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(hex)) throw new ScriptError("request.bad-reply", `${what} asset reply must be hexadecimal bytes`);
   const bytes = new Uint8Array(hex.length / 2);
   for (let index = 0; index < bytes.length; index += 1) bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
-  return readStatusEffect(new BinaryReader(bytes));
+  return bytes;
+}
+
+function statusFileReply(args: readonly Arg[]): Result<StatusEffect> {
+  return readStatusEffect(new BinaryReader(replyBytes(args, "status effect")));
 }
 function statusContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
   const status = statusFileReply(args);
@@ -292,6 +300,176 @@ const STATUS_FLAGS = {
   }),
 } satisfies BuiltinSpec;
 
+function assetPath(value: string, folder: string, extension: string, command: string): string {
+  let path = value.trim().replaceAll("\\", "/");
+  if (path.toLowerCase().startsWith(`${folder.toLowerCase()}/`)) path = path.slice(folder.length + 1);
+  if (path === "") throw new ScriptError("builtin.bad-arg", `${command}: the file name must not be empty`);
+  return path.toLowerCase().endsWith(extension) ? path : `${path}${extension}`;
+}
+
+function dictionary(view: CommandView, members: Readonly<Record<string, Value>>): CommandResult {
+  const object = createObject(view.state!.vm, null);
+  for (const [key, value] of Object.entries(members)) writeMember(object, key, value);
+  return { value: { kind: "object", handle: object.handle, className: object.className } };
+}
+
+const ASSET_WAIT = { kind: "host-request", summary: "Waits for the host to load and return the requested asset." } as const;
+const ASSET_REPLY_THROWS: NonNullable<BuiltinDoc["throws"]> = [
+  { code: "asset.missing", when: "the requested asset is missing" },
+  { code: "request.bad-reply", when: "the host reply is not valid hexadecimal bytes" },
+];
+const REAWAKENED = [GROUP, "reawakened-additions-not-part-of-the-282-legacy-catalogue"];
+
+const MOVE_ASSET = {
+  name: "__battle_move_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
+  doc: internalDocumentation("Resume a special-move asset request.", "Reads the `.spc` bytes and returns only the normalized battle fields as a dictionary with lowercase keys.", [...ASSET_REPLY_THROWS, { code: "format.special-move", when: "the bytes are not a valid special move `.spc` file" }]),
+  call: (view: CommandView, args: readonly Arg[]): CommandResult => {
+    const move = readSpecialMove(new BinaryReader(replyBytes(args, "special move")));
+    if (!move.ok) throw new ScriptError("format.special-move", move.error.message);
+    return dictionary(view, {
+      fp: move.value.damage, smp: move.value.smpCost, targetsmp: move.value.targetSmpDrain,
+      animation: move.value.animation, program: move.value.program, statuseffect: move.value.statusEffect,
+      battle: move.value.usableInBattle, menu: move.value.usableFromMenu,
+    });
+  },
+} satisfies BuiltinSpec;
+
+const MOVE_DATA = {
+  name: "battlemovedata", aliases: [], params: [parameter("file")],
+  doc: {
+    summary: "Read a special move file's battle numbers and references.",
+    behaviour: "Loads SpcMove/<file>.spc (the prefix and extension may be omitted) and returns a dictionary of its stored values without changing any actor, inventory or battle state: `fp` (damage), `smp` (cost to the user), `targetsmp` (SMP drained from the target), `animation`, `program`, `statuseffect` (file names, possibly empty), and `battle` / `menu`, the stored usability bytes passed through unchanged. The stored byte is 0 for usable and non-zero (1, or -1 in old files) for not usable; comparing it is left to the calling script. Member names are matched ignoring case. It makes no rules about damage, cost or affordability. Failures raise the ordinary asset and format errors, which the standard script error policy turns into a null result.",
+    groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
+    throws: [...ASSET_REPLY_THROWS, { code: "format.special-move", when: "the bytes are not a valid special move `.spc` file" }, { code: "builtin.bad-arg", when: "the file name is empty" }],
+  },
+  call: (_view: CommandView, args: readonly Arg[]) => {
+    const path = assetPath(text(args, 0), "SpcMove", ".spc", "battlemovedata");
+    return { value: null, request: { kind: "asset", area: "specialMoves", path }, then: { command: "__battle_move_asset", args: [] } };
+  },
+} satisfies BuiltinSpec;
+
+const ITEM_ASSET = {
+  name: "__battle_item_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
+  doc: internalDocumentation("Resume an item asset request for battle data.", "Reads the `.itm` bytes and returns only the battle-use HP, SMP, animation and program as a dictionary with lowercase keys.", [...ASSET_REPLY_THROWS, { code: "format.item", when: "the bytes are not a valid item `.itm` file" }]),
+  call: (view: CommandView, args: readonly Arg[]): CommandResult => {
+    const item = readItem(new BinaryReader(replyBytes(args, "item")));
+    if (!item.ok) throw new ScriptError("format.item", item.error.message);
+    return dictionary(view, { hp: item.value.battleUseHp, smp: item.value.battleUseSmp, animation: item.value.battleAnimation, program: item.value.battleUseProgram });
+  },
+} satisfies BuiltinSpec;
+
+const ITEM_DATA = {
+  name: "battleitemdata", aliases: [], params: [parameter("file")],
+  doc: {
+    summary: "Read an item file's battle-use numbers and references.",
+    behaviour: "Loads Item/<file>.itm (the prefix and extension may be omitted) and returns a dictionary of its stored battle-use values without changing any actor, inventory or battle state: `hp` and `smp` (the amounts the item restores when used in battle), `animation` and `program` (file names, possibly empty). It does not check that the item is battle-usable or owned. Failures raise the ordinary asset and format errors, which the standard script error policy turns into a null result.",
+    groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
+    throws: [...ASSET_REPLY_THROWS, { code: "format.item", when: "the bytes are not a valid item `.itm` file" }, { code: "builtin.bad-arg", when: "the file name is empty" }],
+  },
+  call: (_view: CommandView, args: readonly Arg[]) => {
+    const path = assetPath(text(args, 0), "Item", ".itm", "battleitemdata");
+    return { value: null, request: { kind: "asset", area: "items", path }, then: { command: "__battle_item_asset", args: [] } };
+  },
+} satisfies BuiltinSpec;
+
+// Battle stance slots. Characters store FIGHT, DEFEND, SPECIAL MOVE, DIE, REST; enemies store REST, FIGHT, DEFEND, SPECIAL MOVE, DIE.
+const STANCE_SLOTS: Record<string, { readonly character: number; readonly enemy: number }> = {
+  fight: { character: 0, enemy: 1 }, attack: { character: 0, enemy: 1 },
+  defend: { character: 1, enemy: 2 }, defense: { character: 1, enemy: 2 },
+  special: { character: 2, enemy: 3 }, specialmove: { character: 2, enemy: 3 },
+  die: { character: 3, enemy: 4 }, death: { character: 3, enemy: 4 },
+  rest: { character: 4, enemy: 0 },
+};
+
+const ANIMATION_ASSET = {
+  name: "__battle_fighter_animation_asset", aliases: [], params: [parameter("ok"), parameter("bytes"), parameter("enemy"), parameter("character"), parameter("enemySlot")],
+  doc: internalDocumentation("Resume a fighter source asset request.", "Reads the actor's character or enemy asset and returns the named battle stance animation file, or an empty string when the asset stores none.", [...ASSET_REPLY_THROWS, { code: "format.character", when: "the character bytes are invalid" }, { code: "format.enemy", when: "the enemy bytes are invalid" }]),
+  call: (_view: CommandView, args: readonly Arg[]): CommandResult => {
+    const bytes = replyBytes(args, "fighter source");
+    if (numeric(args, 2) === 1) {
+      const enemy = readEnemy(new BinaryReader(bytes));
+      if (!enemy.ok) throw new ScriptError("format.enemy", enemy.error.message);
+      return { value: enemy.value.stances[numeric(args, 4)] ?? "" };
+    }
+    const character = readCharacter(new BinaryReader(bytes));
+    if (!character.ok) throw new ScriptError("format.character", character.error.message);
+    return { value: character.value.battleStances?.[numeric(args, 3)] ?? "" };
+  },
+} satisfies BuiltinSpec;
+
+const ANIMATION_FILE = {
+  name: "fighteranimationfile", aliases: [], params: [parameter("fighter"), parameter("stance")],
+  doc: {
+    summary: "Look up the animation file a fighter's source asset names for a battle stance.",
+    behaviour: `Reads the fighter's source asset (a character file for players and other non-enemies, an enemy file for enemies) and returns the file name stored for the stance: \`fight\` (or \`attack\`), \`defend\`, \`special move\`, \`die\` or \`rest\`, matched ignoring case, spaces and punctuation. It returns an empty string when the asset stores none (or the source is empty) and only reads a file name: it plays nothing and assumes no screen position. ${FIGHTER_HANDLES}`,
+    groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
+    throws: [...STAT_READ_THROWS, ...ASSET_REPLY_THROWS, { code: "builtin.bad-arg", when: "the stance name is not recognised" }, { code: "format.character", when: "a character source is not a valid `.cha` file" }, { code: "format.enemy", when: "an enemy source is not a valid `.ene` file" }],
+  },
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const id = referenceActor(view, args[0]?.value);
+    const key = text(args, 1).toLowerCase().replace(/[^a-z]/g, "");
+    if (!Object.hasOwn(STANCE_SLOTS, key)) throw new ScriptError("builtin.bad-arg", `fighteranimationfile: unknown stance "${text(args, 1)}"`);
+    const slots = STANCE_SLOTS[key]!;
+    const actor = actorRecord(view, id);
+    if (actor === null) return badFighter(args[0]?.value);
+    if (actor.source === "") return { value: "" };
+    const enemy = actor.kind === "enemy";
+    return {
+      value: null,
+      request: { kind: "asset", area: enemy ? "enemies" : "characters", path: actor.source },
+      then: { command: "__battle_fighter_animation_asset", args: [enemy ? 1 : 0, slots.character, slots.enemy] },
+    };
+  },
+} satisfies BuiltinSpec;
+
+/** The one plain-data inventory request `battleconsume` posts; tests and the inventory owner read it from the effect log. */
+export function inventoryConsumeEffect(item: string, target: number, hp: number, smp: number): CommandEffect {
+  return { kind: "state-write", section: "inventory", args: [{ kind: "inventory.consume", item, target, hp, smp }] };
+}
+
+const CONSUME = {
+  name: "battleconsume", aliases: [], params: [parameter("item"), parameter("target"), parameter("hp"), parameter("smp")],
+  doc: {
+    summary: "Ask the inventory to consume one battle item.",
+    behaviour: `Posts exactly one inventory request, \`{ kind: "inventory.consume", item, target, hp, smp }\`, where \`item\` is the item file name as given (backslashes become forward slashes), \`target\` is the numeric actor id and \`hp\` / \`smp\` are the safe-integer amounts the item gave. It changes no inventory list, quantity or actor stat itself; the inventory owner decides what the request does. ${FIGHTER_HANDLES}`,
+    groups: REAWAKENED, tags: ["experimental"], waits: NO_WAIT,
+    throws: [...STAT_READ_THROWS, { code: "builtin.bad-arg", when: "the item name is empty or hp / smp is not a safe integer" }],
+  },
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const item = text(args, 0).trim().replaceAll("\\", "/");
+    if (item === "") throw new ScriptError("builtin.bad-arg", "battleconsume: the item name must not be empty");
+    const target = referenceActor(view, args[1]?.value);
+    return { value: null, effects: [inventoryConsumeEffect(item, target, integer(args, 2, "battleconsume"), integer(args, 3, "battleconsume"))] };
+  },
+} satisfies BuiltinSpec;
+
+const UNAFFORDABLE = {
+  name: "battleunaffordable", aliases: [], params: [],
+  doc: {
+    summary: "Stop the current action because it cannot be paid for.",
+    behaviour: "Always raises the catchable error `battle.unaffordable`. RPGCode has no command to raise an error, so scripts call this after their own comparison of cost and available points; this command decides nothing about affordability.",
+    groups: REAWAKENED, tags: ["experimental"], waits: NO_WAIT,
+    throws: [{ code: "battle.unaffordable", when: "always" }],
+  },
+  call: (): CommandResult => { throw new ScriptError("battle.unaffordable", "the action cannot be afforded"); },
+} satisfies BuiltinSpec;
+
+const INTEGER_MUL_DIV = {
+  name: "integermuldiv", aliases: [], params: [parameter("a"), parameter("b"), parameter("divisor")],
+  doc: {
+    summary: "Multiply two whole numbers and divide by a third, exactly.",
+    behaviour: "Returns a × b ÷ divisor with the product kept exact (no 32-bit wrap-around) and the quotient truncated toward zero, so -7 × 1 ÷ 2 is -3. Deterministically it computes BigInt(a) × BigInt(b) / BigInt(divisor) and reads no state.",
+    groups: REAWAKENED, tags: ["experimental"], waits: NO_WAIT,
+    throws: [{ code: "builtin.bad-arg", when: "an argument is not a safe integer, the divisor is 0, or the result is not a safe integer" }],
+  },
+  call: (_view: CommandView, args: readonly Arg[]): CommandResult => {
+    const divisor = integer(args, 2, "integermuldiv");
+    if (divisor === 0) throw new ScriptError("builtin.bad-arg", "integermuldiv: the divisor must not be 0");
+    const quotient = (BigInt(integer(args, 0, "integermuldiv")) * BigInt(integer(args, 1, "integermuldiv"))) / BigInt(divisor);
+    if (quotient > BigInt(Number.MAX_SAFE_INTEGER) || quotient < -BigInt(Number.MAX_SAFE_INTEGER)) throw new ScriptError("builtin.bad-arg", "integermuldiv: the result is not a safe integer");
+    return { value: Number(quotient) };
+  },
+} satisfies BuiltinSpec;
 const GET_STATUS = {
   name: "getstatus", aliases: [], params: [parameter("fighter"), parameter("index")],
   doc: {
@@ -553,6 +731,7 @@ export const BATTLE_COMMANDS: readonly BuiltinSpec[] = [
   PARTY_SIZE, FIGHTER, CHARGE, ADD_CHARGE, SET_CHARGE, RELEASE_CHARGE, CHARGE_PERCENT, FINISH,
   HP, GIVE_HP, GET_HP, MAX_HP, GET_MAX_HP, SMP, GIVE_SMP, GET_SMP, MAX_SMP, GET_MAX_SMP,
   FP, GIVE_FP, GET_FP, DP, GET_DP, GIVE_EXP, APPLY_STATUS, REMOVE_STATUS, STATUS_ASSET, GET_STATUS, STATUS_FLAGS, STATUS_FLAGS_ASSET,
+  MOVE_DATA, MOVE_ASSET, ITEM_DATA, ITEM_ASSET, ANIMATION_FILE, ANIMATION_ASSET, CONSUME, UNAFFORDABLE, INTEGER_MUL_DIV,
   STATUS_SIGNATURE,
 ];
 export const BATTLE_COMMAND_NAMES = new Set<string>(BATTLE_COMMANDS.flatMap((command) => [command.name, ...command.aliases]));

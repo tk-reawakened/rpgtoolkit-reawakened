@@ -304,6 +304,10 @@ export function applyMenuStateEffect(ports: MenuOwnerPorts, effect: EffectRecord
       return;
     }
   }
+  if (section === "inventory" && effect.kind === "state-write" && effect.args.length === 1 && actionRecord(effect.args[0])?.kind === "inventory.consume") {
+    // Battle consumption posts the request as plain data; a later inventory owner decides it, so this port changes nothing.
+    return;
+  }
   if (effect.name !== "state" && effect.name !== "menu.state" && !(section === "inventory" && effect.kind === "state-write")) return;
   if (section !== "party" && section !== "inventory" && section !== "menu") {
     throw new ScriptError("menu.state-invalid", "menu.action: expected a party, inventory or menu section");
