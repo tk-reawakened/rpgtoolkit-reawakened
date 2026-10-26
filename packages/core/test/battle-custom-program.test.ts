@@ -7,10 +7,12 @@ import {
   addActor,
   advanceScriptTick,
   applyUiEffect,
+  assetKey,
   BATTLE_PLUGIN,
   BinaryWriter,
   composeUi,
   CORE_PLUGIN,
+  createAssetIndex,
   createGameState,
   createScriptServices,
   defaultWaitPoll,
@@ -18,6 +20,7 @@ import {
   hashDrawList,
   hashState,
   MOVEMENT_PLUGIN,
+  PACKAGE_ROOT,
   restoreGameState,
   runEventsPhase,
   snapshot,
@@ -26,6 +29,7 @@ import {
   UI_PLUGIN,
   type DrawList,
   type GameState,
+  type ProgramLoader,
   type ScriptServices,
   type WaitPoll,
 } from "../src/index.ts";
@@ -55,6 +59,82 @@ function statusEffectBytes(): Uint8Array {
 function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
+function putBoundedStrings(writer: BinaryWriter, values: readonly string[]): void {
+  writer.i16(values.length === 0 ? -1 : values.length - 1);
+  for (const value of values) writer.str(value);
+}
+
+function characterBytes(): Uint8Array {
+  const writer = new BinaryWriter();
+  writer.str("RPGTLKIT CHAR");
+  writer.i16(2);
+  writer.i16(8);
+  writer.str("Hero");
+  for (const name of ["exp!", "dp!", "fp!", "hp!", "maxhp!", "name$", "smp!", "maxsm!", "level!"]) writer.str(name);
+  for (const value of [10, 100, 100, 10, 40, 40, 40, 1]) writer.i32(value);
+  writer.str("");
+  for (let index = 0; index < 201; index += 1) {
+    writer.str("");
+    writer.i32(0);
+    writer.i32(0);
+    writer.str("");
+    writer.str("");
+  }
+  writer.str("");
+  writer.i8(0);
+  for (let index = 0; index < 11; index += 1) writer.str("");
+  for (let index = 0; index < 7; index += 1) writer.i8(1);
+  writer.i32(90);
+  writer.i16(5);
+  writer.i32(0);
+  for (let index = 0; index < 4; index += 1) writer.i16(5);
+  writer.str("");
+  writer.i8(0);
+  writer.i8(1);
+  for (let index = 0; index < 8; index += 1) writer.str("");
+  for (let index = 0; index < 6; index += 1) writer.str("");
+  for (let index = 0; index < 8; index += 1) writer.str("");
+  writer.f64(3);
+  writer.f64(0.05);
+  writer.i32(-1);
+  writer.i16(-1);
+  return writer.toBytes();
+}
+
+function enemyBytes(): Uint8Array {
+  const writer = new BinaryWriter();
+  writer.str("RPGTLKIT ENEMY");
+  writer.i16(2);
+  writer.i16(1);
+  writer.str("Slime");
+  for (const value of [8, 3, 3, 2]) writer.i32(value);
+  writer.i8(1);
+  writer.i16(-1);
+  writer.i16(-1);
+  putBoundedStrings(writer, []);
+  putBoundedStrings(writer, []);
+  putBoundedStrings(writer, []);
+  writer.i8(0);
+  writer.i8(0);
+  writer.str("");
+  writer.i32(23);
+  writer.i32(4);
+  writer.str("battle-outcome-win-program.prg");
+  writer.str("battle-outcome-run-program.prg");
+  putBoundedStrings(writer, ["", "", "", "", "", ""]);
+  writer.i32(-1);
+  return writer.toBytes();
+}
+
+const outcomeProgramBytes = Object.fromEntries(
+  ["battle-outcome-run-program.prg", "battle-outcome-win-program.prg", "battle-outcome-game-over.prg"]
+    .map((name) => [assetKey(`Prg/${name}`), new TextEncoder().encode(readFileSync(join(fixtureDirectory, name), "utf8"))]),
+);
+const outcomeLoader: ProgramLoader = {
+  index: createAssetIndex(Object.keys(outcomeProgramBytes)),
+  root: PACKAGE_ROOT,
+  read: (key) => outcomeProgramBytes[key],
+};
 
 type Rig = {
   readonly state: GameState;
@@ -65,7 +145,7 @@ type Rig = {
 };
 
 
-function makeRig(seed: number, outcomeCode = 1): Rig {
+function makeRig(seed: number, outcomeCode = 1, gameOverProgram: string | null = null): Rig {
   const state = createGameState({ seed });
   const enemy = addActor(state.actors, {
     kind: "enemy", source: "slime-a.ene", name: "Slime A",
@@ -115,12 +195,24 @@ function makeRig(seed: number, outcomeCode = 1): Rig {
     ],
   };
   state.vm.globals.outcomecode = outcomeCode;
-  const services = createScriptServices(state, plugins);
+  const services = createScriptServices(
+    state, plugins, undefined, undefined, outcomeLoader, "default", undefined, undefined,
+    undefined, undefined, false, undefined, undefined, undefined, gameOverProgram,
+  );
   const thread = startProgram(state.vm, { kind: "inline", text: customFight, compiler: "2" });
   let inputReady = false;
   const encodedStatus = hex(statusEffectBytes());
+  const encodedEnemy = hex(enemyBytes());
+  const encodedCharacter = hex(characterBytes());
   const poll: WaitPoll = (view, wait) => {
-    if (wait.kind === "request") return { ok: true, value: encodedStatus };
+    if (wait.kind === "request") {
+      const value = wait.then?.command === "__battle_status_asset"
+        ? encodedStatus
+        : wait.then?.command === "__battle_enemy_data_asset"
+          ? encodedEnemy
+          : encodedCharacter;
+      return { ok: true, value };
+    }
     if (wait.kind === "input.key") return inputReady ? { ok: true, value: "Enter" } : null;
     return defaultWaitPoll(view, wait);
   };
@@ -157,6 +249,12 @@ function resumeToFinish(rig: Rig): void {
     if (threadOf(rig).status === "finished" && rig.state.events.queue.length === 0 && rig.state.events.dispatch === null) return;
   }
   throw new Error("custom fight did not finish");
+}
+function runCustomOutcome(outcomeCode: number, gameOverProgram: string | null = null): Rig {
+  const rig = makeRig(11, outcomeCode, gameOverProgram);
+  runToInput(rig);
+  resumeToFinish(rig);
+  return rig;
 }
 function applyUiEffects(state: GameState): void {
   for (const effect of state.vm.effects) {
@@ -249,6 +347,45 @@ test("custom fight seed and mid-battle save restore preserve state and drawing",
   equal(first.state.battle?.outcome, 1);
   equal(restoredState.battle?.outcome, 1);
 });
+test("custom fight finish routes outcomes 0, 2 and 4 through the adapter and leaves 1 and 3 alone", () => {
+  const runAway = runCustomOutcome(0);
+  deepEqual(runAway.services.diagnostics.map(({ code }) => code), []);
+  equal(runAway.state.battle?.outcome, 0);
+  equal(runAway.state.vm.globals.runprogramcount, 1);
+  equal(runAway.state.vm.globals.winprogramcount, undefined);
+  equal(runAway.state.vm.effects.some((effect) => effect.patch?.section === "inventory"), false);
+
+  const win = runCustomOutcome(2);
+  deepEqual(win.services.diagnostics.map(({ code }) => code), []);
+  equal(win.state.battle?.outcome, 2);
+  deepEqual(
+    win.state.actors.actors.filter((actor) => actor.kind === "party").map((actor) => actor.stats.experience),
+    [46, 46],
+  );
+  equal(win.state.vm.globals.winprogramcount, 1);
+  deepEqual(
+    win.state.vm.effects.filter((effect) => effect.patch?.section === "inventory").map((effect) => effect.args[0]),
+    [{ kind: "inventory.gainGold", amount: 8 }],
+  );
+
+  const loss = runCustomOutcome(4, "battle-outcome-game-over.prg");
+  deepEqual(loss.services.diagnostics.map(({ code }) => code), []);
+  equal(loss.state.battle, null);
+  equal(loss.state.vm.globals.gameoverprogramcount, 1);
+  equal(loss.state.vm.effects.some((effect) => effect.patch?.section === "engine" && effect.args[0] === "reset"), false);
+
+  for (const outcomeCode of [1, 3]) {
+    const handled = runCustomOutcome(outcomeCode);
+    deepEqual(handled.services.diagnostics.map(({ code }) => code), []);
+    equal(handled.state.battle?.outcome, outcomeCode);
+    equal(handled.state.vm.globals.runprogramcount, undefined);
+    equal(handled.state.vm.globals.winprogramcount, undefined);
+    equal(handled.state.vm.globals.gameoverprogramcount, undefined);
+    equal(handled.state.vm.effects.some((effect) => effect.patch?.section === "inventory"), false);
+    equal(handled.state.vm.effects.some((effect) => effect.patch?.section === "engine" && effect.args[0] === "reset"), false);
+  }
+});
+
 test("a custom program cannot resolve stock battle internals without the package", () => {
   const state = createGameState({ seed: 7 });
   const services = createScriptServices(state, plugins);
