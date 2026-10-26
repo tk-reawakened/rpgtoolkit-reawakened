@@ -422,7 +422,7 @@ test("a stock victory sums XP/gold, rewards fallen and living members, orders le
   ok(rig.services.diagnostics.some(({ code }) => code === "unknown.command"));
   const inventory = rig.state.vm.effects.filter((effect) => effect.patch?.section === "inventory");
   equal(inventory.length, 1);
-  deepEqual(inventory[0]?.args, [{ kind: "inventory.gainGold", amount: 7 }]);
+  deepEqual(inventory[0]?.args, [{ type: "addGold", amount: 7 }]);
   const messages = rig.messages;
   ok(messages.indexOf("Gained 30 experience.") < messages.indexOf("Player0 gained a level"));
   ok(messages.indexOf("Player0 gained a level") < messages.indexOf("Gained 7 GP."));
