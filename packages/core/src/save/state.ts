@@ -5,10 +5,9 @@
  * `schema` (here), `vm` (`core/script`), `rng` (`core/rng`) and `time`
  * (`core/time`); of the other sixteen, seven are real sections declared under
  * `save/sections/` (`world`, `camera`, `ui`, `fx`, `surfaces`, `input`,
- * `engine`), eight are owned by their modules (`sprites`, `actors`,
- * `triggers`, `audio`, `events`, `party`, `inventory`, and `menu`) and
- * `battle` remains an explicit placeholder. `SchemaState` is AD-23's
- * per-section version map plus the compiler version.
+ * `engine`), nine are owned by their modules (`sprites`, `actors`,
+ * `triggers`, `audio`, `events`, `party`, `inventory`, `menu`, and `battle`).
+ * `SchemaState` is AD-23's per-section version map plus the compiler version.
  *
  * **The schema-bump rule (AD-7's check).** A change to any `*State` type or to
  * `StepOp` needs either a section's version in `SCHEMA_VERSIONS` bumped or
