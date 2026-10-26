@@ -659,6 +659,30 @@ test("lethal status damage emits one actor-local and game-level defeated event w
   equal(globals(rig).outcomeeventcount, 1);
 });
 
+test("authored hp() script update that first drops an enemy to 0 emits one script-cause defeated event locally and on the game", () => {
+  const rig = makeRig();
+  const poll = pollAssets(rig);
+  start(rig, poll);
+  observeDefeatedEvents(rig);
+  startThread(rig.state.vm, {
+    ref: { kind: "inline", compiler: "2", text: "hp(battle.fighter(0, 0), 0)\n" },
+    kind: "persistent",
+    owner: "script",
+  });
+  tickUntil(rig, poll, () => globals(rig).defeatedactor0count === 1 && globals(rig).defeatedgamecount === 1);
+  for (let phase = 0; phase < 4; phase += 1) runEventsPhase(rig.state, rig.services, STEP_BUDGET);
+  equal(rig.state.actors.actors.find(({ id }) => id === rig.enemies[0])?.stats.hp, 0);
+  equal(globals(rig).defeatedactor0count, 1, "exactly one actor-local delivery");
+  equal(globals(rig).defeatedgamecount, 1, "exactly one game-level delivery");
+  equal(globals(rig).defeatedactor0cause, "script");
+  equal(globals(rig).defeatedgamecause0, "script");
+  // Script stat writes carry no attacking actor, so the source is null; scripts observe null as the zero actor-id sentinel.
+  equal(globals(rig).defeatedactor0source, 0);
+  equal(globals(rig).defeatedgamesource0, 0);
+  equal(globals(rig).defeatedeventorder, "A0G");
+  equal(globals(rig).outcomeeventcount, 1);
+});
+
 test("a level-up program parked mid-outcome resumes identically after save and restore", () => {
   const rig = makeRig({ enemyOptions: [{ experience: 25, gold: 1, winProgram: "battle-outcome-last-win.prg" }] });
   const poll = pollAssets(rig);
