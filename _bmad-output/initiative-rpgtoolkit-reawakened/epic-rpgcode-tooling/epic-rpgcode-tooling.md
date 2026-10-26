@@ -1,5 +1,7 @@
 ---
 type: epic
+tracker_id: "#666"
+remote: https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/666
 title: "RPGCode language tooling: language server, linter, formatter, test framework, help and debug adapter"
 parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-14"]
