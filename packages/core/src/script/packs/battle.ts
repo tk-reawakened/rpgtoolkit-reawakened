@@ -476,6 +476,52 @@ const ANIMATION_FILE = {
   },
 } satisfies BuiltinSpec;
 
+function enemyDataContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
+  const enemy = readEnemy(new BinaryReader(replyBytes(args, "enemy")));
+  if (!enemy.ok) throw new ScriptError("format.enemy", enemy.error.message);
+  const specialMoves = createObject(view.state!.vm, null);
+  enemy.value.specialMoves.forEach((file, index) => writeMember(specialMoves, String(index), file));
+  return dictionary(view, {
+    specialmoves: { kind: "object", handle: specialMoves.handle, className: specialMoves.className },
+    specialcount: enemy.value.specialMoves.length,
+    ailevel: enemy.value.aiLevel,
+    customai: enemy.value.customAi,
+    aiprogram: enemy.value.aiProgram,
+  });
+}
+
+const ENEMY_DATA_ASSET = {
+  name: "__battle_enemy_data_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
+  doc: internalDocumentation("Resume an enemy asset request.", "Reads the `.ene` bytes and returns their special-move list and AI settings as a plain-data dictionary.", [...ASSET_REPLY_THROWS, { code: "format.enemy", when: "the bytes are not a valid enemy `.ene` file" }]),
+  call: enemyDataContinuation,
+} satisfies BuiltinSpec;
+
+const ENEMY_DATA = {
+  name: "battleenemydata", aliases: [], params: [parameter("fighter")],
+  doc: {
+    summary: "Read an enemy's battle settings.",
+    behaviour: "Reads the `.ene` file named by an active enemy's source and returns its battle settings without changing actor, inventory or battle state: `specialmoves` is a dictionary indexed from 0 through `specialcount - 1`, `ailevel` is the stored AI level, `customai` is the stored custom-AI flag, and `aiprogram` is the AI program file name. Blank special-move names and stored flag values are returned unchanged. It chooses no action and does not check move costs. Member names are matched ignoring case.",
+    groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
+    throws: [
+      { code: "battle.not-active", when: "there is no active battle" },
+      { code: "battle.bad-fighter", when: "the handle does not identify an active enemy" },
+      ...ASSET_REPLY_THROWS,
+      { code: "format.enemy", when: "the bytes are not a valid enemy `.ene` file" },
+    ],
+  },
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const id = activeBattleActor(view, args[0]?.value);
+    const actor = actorRecord(view, id);
+    if (actor === null || actor.kind !== "enemy") return badFighter(args[0]?.value);
+    return {
+      value: null,
+      request: { kind: "asset", area: "enemies", path: actor.source },
+      then: { command: "__battle_enemy_data_asset", args: [] },
+    };
+  },
+} satisfies BuiltinSpec;
+
+
 /** The one plain-data inventory request `battleconsume` posts; tests and the inventory owner read it from the effect log. */
 export function inventoryConsumeEffect(item: string, target: number, hp: number, smp: number): CommandEffect {
   return { kind: "state-write", section: "inventory", args: [{ kind: "inventory.consume", item, target, hp, smp }] };
@@ -647,6 +693,25 @@ const FIGHTER = {
     return { value: { kind: "object", handle: record.handle, className: record.className } };
   },
 } satisfies BuiltinSpec;
+const AI = {
+  name: "ai", aliases: [], params: [parameter("level")],
+  doc: {
+    summary: "Have the source enemy use the internal AI.",
+    behaviour: "Use one of the four built-in enemy strategies by passing a whole-number level from 0 through 3. When stock_battle is loaded, it chooses and performs the source enemy's action at that level; it does not store the level on the actor. The package may wait while it reads enemy and special-move files.",
+    groups: [GROUP], tags: ["legacy"], waits: ASSET_WAIT,
+    throws: [
+      { code: "builtin.bad-arg", when: "level is not an integer from 0 through 3" },
+      { code: "battle.not-active", when: "there is no active battle" },
+      { code: "battle.bad-fighter", when: "source does not identify an active enemy" },
+    ],
+  },
+  call: (_view: CommandView, args: readonly Arg[]): CommandResult => {
+    const level = integer(args, 0, "ai");
+    if (level < 0 || level > 3) throw new ScriptError("builtin.bad-arg", "ai: level must be an integer from 0 through 3");
+    return { value: null };
+  },
+} satisfies BuiltinSpec;
+
 const PROGRAM_CONTEXT = {
   name: "__battle_program_context", aliases: [],
   params: [parameter("source"), parameter("target"), parameter("extra", true)],
@@ -869,10 +934,10 @@ const REMOVE_STATUS: BuiltinSpec = {
 };
 
 export const BATTLE_COMMANDS: readonly BuiltinSpec[] = [
-  PARTY_SIZE, FIGHTER, CHARGE, ADD_CHARGE, SET_CHARGE, RELEASE_CHARGE, CHARGE_PERCENT, FINISH,
+  PARTY_SIZE, FIGHTER, AI, CHARGE, ADD_CHARGE, SET_CHARGE, RELEASE_CHARGE, CHARGE_PERCENT, FINISH,
   HP, GIVE_HP, GET_HP, MAX_HP, GET_MAX_HP, SMP, GIVE_SMP, GET_SMP, MAX_SMP, GET_MAX_SMP,
   FP, GIVE_FP, GET_FP, DP, GET_DP, GIVE_EXP, APPLY_STATUS, REMOVE_STATUS, STATUS_DATA, STATUS_ASSET, GET_STATUS, STATUS_FLAGS, STATUS_FLAGS_ASSET, STATUS_DATA_ASSET,
-  MOVE_DATA, MOVE_ASSET, ITEM_DATA, ITEM_ASSET, ANIMATION_FILE, ANIMATION_ASSET, CONSUME, UNAFFORDABLE, INTEGER_MUL_DIV,
+  MOVE_DATA, MOVE_ASSET, ITEM_DATA, ITEM_ASSET, ENEMY_DATA, ENEMY_DATA_ASSET, ANIMATION_FILE, ANIMATION_ASSET, CONSUME, UNAFFORDABLE, INTEGER_MUL_DIV,
   STATUS_SIGNATURE, PROGRAM_CONTEXT, STATUS_DELTA, STATUS_ADVANCE,
 ];
 export const BATTLE_COMMAND_NAMES = new Set<string>(BATTLE_COMMANDS.flatMap((command) => [command.name, ...command.aliases]));

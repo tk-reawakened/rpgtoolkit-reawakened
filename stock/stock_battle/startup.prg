@@ -86,12 +86,230 @@ drainall = (request) => {
   return total
 }
 
-// BAT-4: this hook spends a turn without taking an action. A game or a later
-// stock battle module can replace stockBattle.turn with (party, index) => { ... }.
-// It runs on the loop's ONE thread; waits keep every fighter's charge parked.
-// The loop, not the hook, releases the acting fighter's charge after it returns.
+// BAT-4: this hook spends the acting turn; the default enemy turn below reads
+// `.ene` battle settings and uses the four built-in strategies or custom AI.
+// A game or later stock-battle module can replace stockBattle.turn with
+// `(party, index) => { ... }`. It runs on the loop's ONE thread; waits keep
+// every fighter's charge parked, and the loop releases charge after return.
 stockBattle = {
-  turn: (party, index) => { return 0 },
+  enemyDataCache: {},
+  specialDataCache: {},
+  // Custom AI programs receive source/target actor IDs as strings. Resolve one
+  // through the active fighter lists before passing it to the action helpers.
+  resolveFighter: (handle) => {
+    local(wanted)
+    local(party) = 0
+    local(index) = 0
+    local(size)
+    local(candidate)
+    if (handle == null) {
+      return null
+    }
+    wanted = handle
+    if (handle == "source") {
+      wanted = sourceHandle()
+    }
+    if (handle == "target") {
+      wanted = targetHandle()
+    }
+    if (wanted == null || wanted == 0) {
+      return null
+    }
+    while (party < 2) {
+      size = battle.partySize(party)
+      index = 0
+      while (index < size) {
+        candidate = battle.fighter(party, index)
+        if (candidate != null) {
+          if ("" + candidate.id == "" + wanted) {
+            return candidate
+          }
+        }
+        index = index + 1
+      }
+      party = party + 1
+    }
+    return null
+  },
+  enemyData: (fighter) => {
+    local(key) = "" + fighter.id
+    local(data)
+    if (stockBattle.enemyDataCache == null) {
+      stockBattle.enemyDataCache = {}
+    }
+    data = stockBattle.enemyDataCache[key]
+    if (data == null) {
+      data = battleenemydata(fighter)
+      if (data != null) {
+        stockBattle.enemyDataCache[key] = data
+      }
+    }
+    return data
+  },
+  living: (party) => {
+    local(result) = { count: 0, fighters: {} }
+    local(size) = battle.partySize(party)
+    local(index) = 0
+    local(candidate)
+    while (index < size) {
+      candidate = battle.fighter(party, index)
+      if (candidate != null) {
+        if (candidate.hp > 0) {
+          result.fighters[result.count] = candidate
+          result.count = result.count + 1
+        }
+      }
+      index = index + 1
+    }
+    return result
+  },
+  randomLiving: (living) => {
+    if (living.count < 1) {
+      return null
+    }
+    return living.fighters[random(living.count) - 1]
+  },
+  // Strictly-smaller replacement preserves the earlier party position on ties.
+  weakest: (living) => {
+    local(index) = 1
+    local(candidate)
+    local(result)
+    if (living.count < 1) {
+      return null
+    }
+    result = living.fighters[0]
+    while (index < living.count) {
+      candidate = living.fighters[index]
+      if (candidate.hp < result.hp) {
+        result = candidate
+      }
+      index = index + 1
+    }
+    return result
+  },
+  availableSpecials: (fighter, data) => {
+    local(result) = { count: 0, moves: {} }
+    local(index) = 0
+    local(file)
+    local(move)
+    while (index < data.specialcount) {
+      file = data.specialmoves[index]
+      if (file != "") {
+        move = stockBattle.specialDataCache[file]
+        if (move == null) {
+          move = battlemovedata(file)
+          if (move != null) {
+            stockBattle.specialDataCache[file] = move
+          }
+        }
+        if (move != null) {
+          if (move.smp <= fighter.smp) {
+            result.moves[result.count] = { file: file, data: move }
+            result.count = result.count + 1
+          }
+        }
+      }
+      index = index + 1
+    }
+    return result
+  },
+  performAi: (fighter, level) => {
+    local(players) = stockBattle.living(1)
+    local(trySpecial) = 0
+    local(data)
+    local(available)
+    local(choice)
+    local(targets)
+    local(target)
+    if (fighter == null) {
+      return 0
+    }
+    if (fighter.hp < 1) {
+      return 0
+    }
+    if (players.count < 1) {
+      return 0
+    }
+    if (level < 0 || level > 3) {
+      ai(level)
+      return 0
+    }
+    if (level == 1 || level == 3) {
+      trySpecial = 1
+    }
+    if (level == 0 || level == 2) {
+      if (random(2) == 2) {
+        trySpecial = 1
+      }
+    }
+    if (trySpecial != 0) {
+      data = stockBattle.enemyData(fighter)
+      if (data != null) {
+        available = stockBattle.availableSpecials(fighter, data)
+        if (available.count > 0) {
+          choice = available.moves[random(available.count) - 1]
+          if (choice.data.fp < 0) {
+            targets = stockBattle.living(0)
+            if (level < 2) {
+              target = stockBattle.randomLiving(targets)
+            } else {
+              target = stockBattle.weakest(targets)
+            }
+          } else {
+            if (level < 2) {
+              target = stockBattle.randomLiving(players)
+            } else {
+              target = stockBattle.weakest(players)
+            }
+          }
+          if (target != null) {
+            return stockBattle.special(fighter, target, choice.file)
+          }
+        }
+      }
+    }
+    if (level < 2) {
+      target = stockBattle.randomLiving(players)
+    } else {
+      target = stockBattle.weakest(players)
+    }
+    if (target == null) {
+      return 0
+    }
+    return stockBattle.attack(fighter, target)
+  },
+  turn: (party, index) => {
+    local(fighter)
+    local(players)
+    local(data)
+    local(target)
+    if (party != 0) {
+      return 0
+    }
+    fighter = battle.fighter(party, index)
+    if (fighter == null) {
+      return 0
+    }
+    if (fighter.hp < 1) {
+      return 0
+    }
+    players = stockBattle.living(1)
+    if (players.count < 1) {
+      return 0
+    }
+    data = stockBattle.enemyData(fighter)
+    if (data == null) {
+      return 0
+    }
+    if (data.customai != 0) {
+      target = stockBattle.randomLiving(players)
+      if (target != null) {
+        executeProgram(data.aiprogram, { source: "" + fighter.id, target: "" + target.id })
+      }
+      return 0
+    }
+    return stockBattle.performAi(fighter, data.ailevel)
+  },
   // Headless games have no battle screen. Positions and drawing belong to
   // ticket 7.11's default UI, which replaces this hook. Returning here does
   // not claim that a drawing request was made or an animation was displayed.
@@ -163,7 +381,13 @@ stockBattle = {
     if (source.hp < 1) {
       return result
     }
-    move = battlemovedata(file)
+    move = stockBattle.specialDataCache[file]
+    if (move == null) {
+      move = battlemovedata(file)
+      if (move != null) {
+        stockBattle.specialDataCache[file] = move
+      }
+    }
     if (move == null) {
       return result
     }
@@ -369,6 +593,8 @@ function battle() {
   local(position)
   local(count) = 0
   local(fighters) = {}
+  stockBattle.enemyDataCache = {}
+  stockBattle.specialDataCache = {}
   // BAT-2 fixes the battle's fighter lists. Capture their ordered references
   // and constants once, not mutable HP or status data. Restore keeps these
   // dictionaries and actor handles; it does not rebuild or reseed the battle.
@@ -434,6 +660,23 @@ registerPlugin({
     },
     fight: (skill, bkg, next) => {
       return next(skill, bkg)
+    },
+    ai: (level, next) => {
+      local(fighter)
+      local(data)
+      next(level)
+      if (level < 0 || level > 3) {
+        return 0
+      }
+      fighter = stockBattle.resolveFighter(sourceHandle())
+      if (fighter == null) {
+        return 0
+      }
+      data = stockBattle.enemyData(fighter)
+      if (data == null) {
+        return 0
+      }
+      return stockBattle.performAi(fighter, level)
     }
   }
 })
