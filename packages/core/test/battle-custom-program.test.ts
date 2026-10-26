@@ -6,18 +6,25 @@ import { test } from "node:test";
 import {
   addActor,
   advanceScriptTick,
+  applyUiEffect,
   BATTLE_PLUGIN,
   BinaryWriter,
+  composeUi,
   CORE_PLUGIN,
   createGameState,
   createScriptServices,
-  applyUiEffect,
+  defaultWaitPoll,
   GRAPHICS_PLUGIN,
+  hashDrawList,
+  hashState,
   MOVEMENT_PLUGIN,
+  restoreGameState,
   runEventsPhase,
+  snapshot,
   startProgram,
   STATUS_EFFECT_MAGIC,
   UI_PLUGIN,
+  type DrawList,
   type GameState,
   type ScriptServices,
   type WaitPoll,
@@ -156,6 +163,15 @@ function applyUiEffects(state: GameState): void {
     if (effect.patch?.section === "ui") applyUiEffect(state, effect.name, effect.args);
   }
 }
+function drawListFor(state: GameState): DrawList {
+  return {
+    tick: state.time.tick,
+    width: 640,
+    height: 480,
+    commands: composeUi(state.ui, 640, 480, state.input, false),
+  };
+}
+
 
 
 test("custom fight program drives the public battle and actor APIs without stock package internals", () => {
@@ -196,6 +212,42 @@ test("custom fight program drives the public battle and actor APIs without stock
   deepEqual(rig.state.actors.actors.find((actor) => actor.name === "Hero")?.statuses, {});
   equal(rig.state.actors.actors.find((actor) => actor.name === "Slime A")?.stats.hp, 0);
   ok(rig.state.ui.draws.some((draw) => draw.text.startsWith("Custom fight ")));
+});
+test("custom fight seed and mid-battle save restore preserve state and drawing", () => {
+  const first = makeRig(11);
+  const repeated = makeRig(11);
+  const differentSeed = makeRig(12);
+  for (const rig of [first, repeated, differentSeed]) {
+    runToInput(rig);
+    applyUiEffects(rig.state);
+    equal(rig.state.battle?.outcome, null);
+    equal(threadOf(rig).wait?.kind, "input.key");
+  }
+
+  const stateHash = hashState(first.state);
+  const drawHash = hashDrawList(drawListFor(first.state));
+  equal(stateHash, hashState(repeated.state));
+  equal(drawHash, hashDrawList(drawListFor(repeated.state)));
+  equal(stateHash === hashState(differentSeed.state), false);
+  equal(drawHash === hashDrawList(drawListFor(differentSeed.state)), false);
+  equal(stateHash, "f89983678b63bf24");
+  equal(drawHash, "3fa17af6365a9ba5");
+
+  const restoredState = restoreGameState(snapshot(first.state));
+  const restoredRig: Rig = {
+    state: restoredState,
+    services: createScriptServices(restoredState, plugins),
+    threadId: first.threadId,
+    poll: first.poll,
+    releaseInput: first.releaseInput,
+  };
+  resumeToFinish(first);
+  resumeToFinish(restoredRig);
+  deepEqual(first.services.diagnostics.map(({ code }) => code), []);
+  deepEqual(restoredRig.services.diagnostics.map(({ code }) => code), []);
+  equal(hashState(first.state), hashState(restoredState));
+  equal(first.state.battle?.outcome, 1);
+  equal(restoredState.battle?.outcome, 1);
 });
 test("a custom program cannot resolve stock battle internals without the package", () => {
   const state = createGameState({ seed: 7 });
