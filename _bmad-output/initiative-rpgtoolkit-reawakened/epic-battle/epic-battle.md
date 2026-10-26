@@ -26,7 +26,7 @@ Players fight legacy battles with the legacy outcomes; the CAP-9 success check, 
 5. The default battle UI renders an owner-approved deterministic golden image using the existing 3.1 drawing primitives.
 6. A mid-battle save restores the same fighters, charge, background, `canRun` and outcome, and the state hash is identical; the `battle` section holds fighter references and charge only.
 7. The `stock_battle` package loads by name and is mapped in `.gam`; a game without a battle package ends a battle immediately with a diagnostic rather than hanging.
-8. Battle music and cues play through the media object; after `boardReturned` the engine restores music from the active board, not by looking up `battle.boardKey`. `BattleSection` contains no battle audio; playback state is saved in the independent audio section. The null-audio runner produces the same cue stream.
+8. Battle music and cues play through the media object; after `boardReturned` the engine restores music from the active board, not by looking up `battle.boardKey`. A failed `beforePlay` listener rejects the music-start request only; it does not reject or stop battle start. `BattleSection` contains no battle audio; playback state is saved in the independent audio section. The null-audio runner produces the same cue stream.
 
 ## Boundaries
 

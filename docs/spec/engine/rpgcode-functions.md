@@ -400,8 +400,6 @@ run("nextChapter.prg")                                         // legacy Toolkit
 | `getsmp` | `int getsmp(string handle, [int &ret])` | Get a fighter's smp. |  |
 | `maxsmp` | `void maxsmp(string handle, int value)` | Set a fighter's max smp. |  |
 | `getmaxsmp` | `int getmaxsmp(string handle, [int &ret])` | Get a fighter's max smp. |  |
-| `fp` | `void fp(string handle, int value)` | Set a fighter's fp. | FP is fight power. |
-| `givefp` | `void givefp(string handle, int add)` | Increase a fighter's fp. | Increase the fighter's fight power. |
 | `fightenemy` | `void fightenemy(string enemy, string enemy, ... string background)` | Start a fight. |  |
 | `attackall` | `void attackall(int fp)` | Deal the specified amount in HP to all the members of the target's party. |  |
 | `drainall` | `void drainall(int fp)` | Deal the specified amount in SMP to all the members of the target's party. |  |
@@ -412,7 +410,6 @@ run("nextChapter.prg")                                         // legacy Toolkit
 | `fightmenugraphic` | `void fightmenugraphic(string image)` | Choose an image for the fight menu graphic. |  |
 | `fightstyle` | `void fightstyle()` | Obsolete. | obsolete: raises an error and the statement is skipped |
 | `battlespeed` | `void battlespeed(int speed)` | Obsolete. | obsolete: raises an error and the statement is skipped |
-| `dp` | `void dp(string handle, int value)` | Set a fighter's dp. | DP is defence points. |
 | `getdp` | `int getdp(string handle, [int &ret])` | Get a fighter's dp. |  |
 | `getfp` | `int getfp(string handle, [int &ret])` | Get a fighter's fp. |  |
 | `internalmenu` | `void internalmenu(int menu)` | Open a menu by compatibility index. | Reawakened compatibility adapter: 0 = main, 1 = items, 2 = equipment, 4 = abilities; all other values are rejected. These arguments are not legacy native `menu(request)` values (1/2/4/8). |
@@ -424,6 +421,16 @@ run("nextChapter.prg")                                         // legacy Toolkit
 | `removestatus` | `void removestatus(string target, string file)` | Remove a status effect from a fighter. |  |
 | `drawenemy` | `void drawenemy(string file, int x, int y, [canvas cnv])` | Draw an enemy. | Draws battle asset frame 0 at logical pixel coordinates without changing battle state or consuming RNG. |
 | `giveexp` | `void giveexp(string handle, int amount)` | Give experience to a player. |  |
+
+### Reawakened actor-stat aliases (not part of the 282 legacy catalogue)
+
+These three additions operate on the referenced actor's stats in Reawakened; they are registered in the battle-stat group but are not legacy 3.1 command names. In plain language, `fp` sets fight power, `givefp` increases it, and `dp` sets defence points.
+
+| Command | Signature | Purpose | Notes |
+|---|---|---|---|
+| `fp` | `void fp(string handle, int value)` | Set a fighter's fp. | Reawakened actor-stat alias; updates the actor's fight power. |
+| `givefp` | `void givefp(string handle, int add)` | Increase a fighter's fp. | Reawakened actor-stat alias; adds `add` to the actor's fight power. |
+| `dp` | `void dp(string handle, int value)` | Set a fighter's dp. | Reawakened actor-stat alias; updates the actor's defence points.
 
 <a id="reawakened-draw-enemy"></a>
 **Reawakened rule (OWNER; unverified default).** `drawenemy(file,x,y,canvas)` draws frame 0 of the named battle asset at logical-pixel coordinates on the selected canvas. It emits a draw command only: it does not mutate battle state, advance a battle turn or consume RNG, and it does not wait. Invalid asset or canvas references are reported through the normal deterministic asset diagnostic.

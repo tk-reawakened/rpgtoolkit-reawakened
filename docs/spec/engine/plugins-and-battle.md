@@ -228,7 +228,7 @@ Legacy battles are one-sided, so each attack has exactly one side with a value a
 **Reawakened rule (Epic 7.1; R11-Q11 to Q13).** Running succeeds 2 times in 5 and a failed attempt costs the turn; rewards go to every party member in a ruled order; one run program and one win program (the last enemy's that has one) run. See [BAT-8](battle.md#bat-8).
 
 > **Historical conflict R-57 (settled by entry 7.1).** The earlier disagreement concerned charge thresholds, damage variance and critical hits, legacy callback wording and notification codes. The owner resolved it at the Epic 7.1 checkpoint; the ruling below and [battle.md](battle.md) are authoritative.
-> **Ruled — R-57.** The adopted legacy facts are players act at 75, enemies at 123, damage has ±10 % variance and critical hits bypass DP; the original engine never sent `fightInform` codes 6 and 7 (the rebuild detects deaths and battle end, [BAT-12](battle.md#bat-12)). The `skill = -1` sentinel belongs only to the legacy callback; it is not part of the rebuilt package/start contract.
+> **Ruled — R-57.** The adopted legacy facts are that players act at 75, enemies at 123, physical-attack variance is a whole percentage from −10% to +9% (not symmetric; see [E-74](#e-74)), and critical hits bypass DP; the original engine never sent `fightInform` codes 6 and 7 (the rebuild detects deaths and battle end, [BAT-12](battle.md#bat-12)). The `skill = -1` sentinel belongs only to the legacy callback; it is not part of the rebuilt package/start contract.
 
 ### Enemy AI
 
