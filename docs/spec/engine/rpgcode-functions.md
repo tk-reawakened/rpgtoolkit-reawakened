@@ -430,7 +430,7 @@ These three additions operate on the referenced actor's stats in Reawakened; the
 |---|---|---|---|
 | `fp` | `void fp(string handle, int value)` | Set a fighter's fp. | Reawakened actor-stat alias; updates the actor's fight power. |
 | `givefp` | `void givefp(string handle, int add)` | Increase a fighter's fp. | Reawakened actor-stat alias; adds `add` to the actor's fight power. |
-| `dp` | `void dp(string handle, int value)` | Set a fighter's dp. | Reawakened actor-stat alias; updates the actor's defence points.
+| `dp` | `void dp(string handle, int value)` | Set a fighter's dp. | Reawakened actor-stat alias; updates the actor's defence points. |
 
 <a id="reawakened-draw-enemy"></a>
 **Reawakened rule (OWNER; unverified default).** `drawenemy(file,x,y,canvas)` draws frame 0 of the named battle asset at logical-pixel coordinates on the selected canvas. It emits a draw command only: it does not mutate battle state, advance a battle turn or consume RNG, and it does not wait. Invalid asset or canvas references are reported through the normal deterministic asset diagnostic.
