@@ -19,13 +19,29 @@ function run(state: GameState, code: string, poll?: WaitPoll) {
   return { thread, services };
 }
 
-function statusEffectBytes(): Uint8Array {
+type StatusFields = {
+  rounds: number;
+  speed: number;
+  slow: number;
+  disable: number;
+  hp: number;
+  hpAmount: number;
+  smp: number;
+  smpAmount: number;
+  runProgram: number;
+  program: string;
+};
+function statusEffectBytes(overrides: Partial<StatusFields> = {}): Uint8Array {
+  const fields: StatusFields = {
+    rounds: 1, speed: -1, slow: 7, disable: 0, hp: 0, hpAmount: 0,
+    smp: 0, smpAmount: 0, runProgram: 0, program: "", ...overrides,
+  };
   const writer = new BinaryWriter();
   writer.str(STATUS_EFFECT_MAGIC);
-  writer.i16(2); writer.i16(2); writer.str("test"); writer.i16(0);
-  writer.i16(-1); writer.i16(7); writer.i16(0);
-  for (let i = 0; i < 5; i += 1) writer.i16(0);
-  writer.str("");
+  writer.i16(2); writer.i16(2); writer.str("test"); writer.i16(fields.rounds);
+  writer.i16(fields.speed); writer.i16(fields.slow); writer.i16(fields.disable);
+  writer.i16(fields.hp); writer.i16(fields.hpAmount); writer.i16(fields.smp); writer.i16(fields.smpAmount);
+  writer.i16(fields.runProgram); writer.str(fields.program);
   return writer.toBytes();
 }
 
@@ -129,6 +145,70 @@ test("statusflags returns normalized file flags without actor mutations", () => 
   equal(JSON.stringify(actor.stats), statsBefore);
   equal(JSON.stringify(actor.statuses), statusesBefore);
 });
+test("statusdata returns duration, normalized effect flags, signed amounts and program without actor mutation", () => {
+  const { state, actor } = stateWithStatus();
+  const beforeStats = JSON.stringify(actor.stats);
+  const beforeStatuses = JSON.stringify(actor.statuses);
+  const bytes = statusEffectBytes({
+    rounds: 4, speed: 1, slow: 0, disable: -1,
+    hp: 1, hpAmount: 7, smp: 1, smpAmount: -3, runProgram: 1, program: "burn-round.prg",
+  });
+  run(state, 'data = statusdata("test")', (_view, wait) =>
+    wait.kind === "request"
+      ? { value: Array.from(bytes).map((byte) => byte.toString(16).padStart(2, "0")).join(""), ok: true }
+      : null,
+  );
+  const value = state.vm.globals.data;
+  ok(value !== null && typeof value === "object" && "handle" in value);
+  const dictionary = state.vm.objects.find((item) => item.handle === value.handle);
+  ok(dictionary);
+  deepEqual(dictionary.members, {
+    rounds: 4, speed: 1, slow: 0, disable: 1,
+    hp: 1, hpamount: 7, smp: 1, smpamount: -3,
+    runprogram: 1, program: "burn-round.prg",
+  });
+  equal(JSON.stringify(actor.stats), beforeStats);
+  equal(JSON.stringify(actor.statuses), beforeStatuses);
+  const indefiniteBytes = statusEffectBytes({ rounds: 0 });
+  run(state, 'short = statusdata("short.ste")', (_view, wait) =>
+    wait.kind === "request"
+      ? { value: Array.from(indefiniteBytes).map((byte) => byte.toString(16).padStart(2, "0")).join(""), ok: true }
+      : null,
+  );
+  ok(state.vm.effects.some((effect) =>
+    effect.name === "vm.diagnostic" && effect.args[0] === "battle.status-duration" &&
+    effect.args[1] === "StatusE/short.ste" && String(effect.args[3]).includes("lasts until removed")));
+});
+
+test("applystatus restarts the case-insensitive file identity and diagnoses indefinite durations", () => {
+  const { state, actor } = stateWithStatus();
+  actor.statuses = {};
+  state.battle = {
+    id: 1, boardKey: "boards/test.brd", background: "test.bkg", canRun: true, outcome: null,
+    parties: [[], [{ party: 1, actorId: actor.id, charge: 0 }]],
+  };
+  const bytes = statusEffectBytes({ rounds: 3 });
+  const poll: WaitPoll = (_view, wait) => wait.kind === "request"
+    ? { value: Array.from(bytes).map((byte) => byte.toString(16).padStart(2, "0")).join(""), ok: true }
+    : null;
+  run(state, 'applystatus(battle.fighter(1, 0), "test.ste")', poll);
+  run(state, 'applystatus(battle.fighter(1, 0), "TEST.STE")', poll);
+  deepEqual(state.actors.actors[0]?.statuses, { "test.ste": 3 });
+  run(state, 'removestatus(battle.fighter(1, 0), "TEST.STE")', poll);
+  equal(Object.hasOwn(state.actors.actors[0]?.statuses ?? {}, "test.ste"), false);
+
+  const indefiniteBytes = statusEffectBytes({ rounds: 0 });
+  run(state, 'applystatus(battle.fighter(1, 0), "forever.ste")', (_view, wait) =>
+    wait.kind === "request"
+      ? { value: Array.from(indefiniteBytes).map((byte) => byte.toString(16).padStart(2, "0")).join(""), ok: true }
+      : null,
+  );
+  equal(state.actors.actors[0]?.statuses["forever.ste"], 0);
+  ok(state.vm.effects.some((effect) =>
+    effect.name === "vm.diagnostic" && effect.args[0] === "battle.status-duration" &&
+    effect.args[1] === "StatusE/forever.ste" && String(effect.args[3]).includes("lasts until removed")));
+});
+
 
 test("statusflags distinguishes missing, malformed reply and malformed file", () => {
   const replies: readonly { readonly ok: boolean; readonly value: string }[] = [

@@ -4,8 +4,8 @@
 // thread call the package's public stockBattle action surface. Nothing here
 // re-implements a rule: the fixture only supplies actors, records what the
 // overridable animate hook is called with, and reports the returned values.
-// Move and item programs are left empty: the package has no program-call
-// primitive that can resume the action, so program ordering is not asserted.
+// Authored nested programs verify the source/target context, optional data,
+// errors, and saving while an action program is parked.
 
 global(scenario)
 global(hookmode)
@@ -17,6 +17,30 @@ global(amountin)
 global(poolin)
 global(filein)
 global(rounds)
+global(postSource)
+global(postTarget)
+postSource = 0
+postTarget = 0
+global(programCalls)
+global(programSource)
+global(programTarget)
+global(programContextSource)
+global(programContextTarget)
+global(programContextLabel)
+global(programContextValue)
+global(programStarted)
+global(programResumed)
+global(programErrorResumed)
+programCalls = 0
+programSource = 0
+programTarget = 0
+programContextSource = 0
+programContextTarget = 0
+programContextLabel = 0
+programContextValue = 0
+programStarted = 0
+programResumed = 0
+programErrorResumed = 0
 order = ""
 bd1 = 0
 bd2 = 0
@@ -29,8 +53,8 @@ if (hookmode == "record") {
   stockBattle.animate = (file, fighter) => {
     order = order + file + "@" + fighter.id + ":" + fighter.hp + ":" + fighter.smp + ";"
   }
-  stockBattle.runProgram = (file, source, target) => {
-    order = order + "P:" + file + ":" + source.id + ">" + target.id + ":" + getstatus(target, 0) + ";"
+  executeProgram = (file, context) => {
+    order = order + "P:" + file + ":" + context.source + ">" + context.target + ":" + getstatus(target, 0) + ";"
   }
 }
 if (hookmode == "wait") {
@@ -39,7 +63,7 @@ if (hookmode == "wait") {
     threadSleep(getThreadId(), 0.05)
     order = order + "w2 " + file + ";"
   }
-  stockBattle.runProgram = (file, source, target) => {
+  executeProgram = (file, context) => {
     order = order + "p1 " + file + ";"
     threadSleep(getThreadId(), 0.05)
     order = order + "p2 " + file + ";"
@@ -69,6 +93,9 @@ if (scenario == "item") {
   usedhp = used.hp
   usedsmp = used.smp
 }
+if (scenario == "programcontext") {
+  executeProgram(filein, { source: "" + attacker.id, target: "" + target.id, label: "extra", value: 17 })
+}
 if (scenario == "all") {
   on(target, "beforeDamage", (event) => { bd1 = bd1 + 1 })
   on(second, "beforeDamage", (event) => { bd2 = bd2 + 1 })
@@ -85,5 +112,7 @@ if (scenario == "parked") {
   on(target, "fallen", (event) => { fallen1 = fallen1 + 1 })
   dealt = attackall({ source: attacker, first: target, second: null, third: null, amount: amountin })
 }
+postSource = sourceHandle()
+postTarget = targetHandle()
 ended = 1
 end()

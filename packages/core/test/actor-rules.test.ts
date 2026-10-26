@@ -92,6 +92,19 @@ test("advanceStatus ages all counters in stable order and supports caller timing
   throws(() => advanceStatus(perTurn.section, perTurn.actor.id, -1));
   throws(() => advanceStatus(perTurn.section, perTurn.actor.id, 1.5));
 });
+test("zero-round statuses remain indefinite until explicitly removed", () => {
+  const state = actor();
+  state.actor.statuses = { indefinite: 0 };
+  const aged = advanceStatus(state.section, state.actor.id, 99);
+  ok(aged);
+  deepEqual(aged.actor.statuses, { indefinite: 0 });
+  deepEqual(aged.transitions, []);
+  const removed = removeActorStatus(state.section, state.actor.id, "INDEFINITE");
+  ok(removed);
+  deepEqual(removed.actor.statuses, {});
+  deepEqual(removed.transitions.map((transition) => transition.type === "statusChanged" && [transition.status, transition.expired]), [["indefinite", true]]);
+});
+
 
 test("equipment derives four bonuses from item data and applies stat deltas", () => {
   const state = actor();

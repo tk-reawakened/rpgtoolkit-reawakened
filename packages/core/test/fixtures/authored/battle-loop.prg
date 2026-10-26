@@ -6,12 +6,17 @@ global(turnOrder)
 global(turnSleepTicks)
 global(finishOnTurn)
 global(finishCode)
+global(turnNoop)
 turnCount = 0
 turnOrder = ""
 turnSleepTicks = 0
 finishOnTurn = 0
 finishCode = 2
+turnNoop = 0
 stockBattle.turn = (party, index) => {
+  if (turnNoop != 0) {
+    return 0
+  }
   turnCount = turnCount + 1
   turnOrder = turnOrder + party + ":" + index + ","
   if (finishOnTurn == turnCount) {
