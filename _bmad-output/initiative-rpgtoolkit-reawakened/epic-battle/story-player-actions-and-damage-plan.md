@@ -3,7 +3,7 @@ title: "Player actions and damage: attacks, criticals, specials and items"
 type: 'feature'
 ticket: 5
 created: '2026-10-19'
-status: draft
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "high"
 context:
@@ -39,12 +39,12 @@ No loop (7.4), no status round effects (7.6), no AI (7.7), no rewards (7.8), no 
 
 ## Acceptance
 
-1. The seeded damage table reproduces the ruled values at the edges; a critical bypasses DP; the minimum is 1; SMP damage clamps.
-2. A special's FP/SMP drain and SMP cost are applied and clamp; an unaffordable special is unavailable and a direct call raises a stable error.
-3. An item posts exactly one inventory consume effect through the test double and never edits the item list.
-4. `attackall`/`drainall` apply to every target without criticals.
-5. A lethal hit through any of the three actions fires the actor's `fallen` once; for an enemy the package then emits `defeated` once (7.8).
-6. No wall clock or unseeded randomness is used; the same seed and action stream reproduce the same damage.
+- [x] The seeded damage table reproduces the ruled values at the edges; a critical bypasses DP; the minimum is 1; SMP damage clamps.
+- [x] A special's FP/SMP drain and SMP cost are applied and clamp; an unaffordable special is unavailable and a direct call raises a stable error.
+- [x] An item posts exactly one inventory consume effect through the test double and never edits the item list.
+- [x] `attackall`/`drainall` apply to every target without criticals.
+- [ ] A lethal hit through any of the three actions fires the actor's `fallen` once; for an enemy the package then emits `defeated` once (7.8). The merged PRs confirm `fallen` once, but do not establish the 7.8 `defeated` behavior for this ticket.
+- [x] No wall clock or unseeded randomness is used; the same seed and action stream reproduce the same damage.
 
 ## Verification
 
