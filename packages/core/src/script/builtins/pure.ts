@@ -181,25 +181,28 @@ function control(args: readonly Arg[], action: "run" | "jump"): CommandEffect {
   return { kind: "vm.control", args: ["jump", toStringValue(args[0]?.value ?? 0)] };
 }
 
-function programDoc(summary: string, behaviour: string, see: string): BuiltinDoc {
+function programDoc(summary: string, behaviour: string, see: string, extraGroup?: string): BuiltinDoc {
   return {
     summary,
     behaviour,
-    groups: ["reawakened-additions-not-part-of-the-282-legacy-catalogue", "core-runtime"],
+    groups:
+      extraGroup === undefined
+        ? ["reawakened-additions-not-part-of-the-282-legacy-catalogue", "core-runtime"]
+        : [extraGroup, "reawakened-additions-not-part-of-the-282-legacy-catalogue", "core-runtime"],
     waits: { kind: "other", summary: "Runs on the calling thread; a wait in the program parks that thread." },
     see: [`docs/spec/engine/rpgcode-functions.md#${see}`],
   };
 }
 
 const EXECUTE_PROGRAM_DOC = programDoc(
-  "Run Prg/<file> as a nested call and return 0 when it finishes.",
-  "Runs a named file as a nested frame on this thread, with fresh locals and shared globals. It returns 0 when the nested program ends; a blank filename also returns 0, and a missing file raises catchable `program.missing` without starting it. The optional dictionary (or positional source and target) is bound to the called program's root variable `context`, not `this`. Supplied source and target handles apply only during the call; omitted values inherit the caller's pair, and the pair is restored when the called program ends.",
+  "Run `Prg/<file>` as a nested call and return 0 when it finishes.",
+  "Runs a named file as a nested frame on this thread, with fresh locals and shared globals. It returns 0 when the nested program ends; a blank filename also returns 0, and a missing file raises catchable `program.missing` without starting it. The optional dictionary (or positional source and target) is bound to the called program's root variable `context`, not `this`. Supplied source and target handles apply only during the call; omitted values inherit the caller's pair, and the pair is restored only when this call ends by end-of-file, `end()`, `done` or `stop`. A `replaceProgram` discards this frame chain and leaves its own pair installed.",
   "reawakened-executeprogram",
 );
 
 const REPLACE_PROGRAM_DOC = programDoc(
-  "End the calling program's frame chain and start Prg/<file> on the same thread without returning.",
-  "Discards every frame on this thread, including pending `executeProgram` returns and source/target restorations, then starts the named file with fresh locals and shared globals. The optional dictionary is bound to the new program's root variable `context`, not `this`. A blank filename leaves the current program unchanged; a missing file raises catchable `program.missing` without discarding the current frames.",
+  "End the calling program's frame chain and start `Prg/<file>` on the same thread without returning.",
+  "Discards every frame on this thread, including pending `executeProgram` returns and source/target restorations, then starts the named file with fresh locals and shared globals. It installs the resolved source/target pair; discarded callers' pairs are never restored. The optional dictionary is bound to the new program's root variable `context`, not `this`. A blank filename leaves the current program unchanged; a missing file raises catchable `program.missing` without discarding the current frames.",
   "reawakened-replaceprogram",
 );
 
@@ -240,6 +243,7 @@ const FLOW_SPECS: readonly BuiltinSpec[] = [
       "Transfer control to a different program.",
       "Legacy alias of `replaceProgram`: discards every frame on this thread and starts the named file. The optional context dictionary is passed to the replacement program.",
       "reawakened-replaceprogram",
+      "program-flow-errors-debugging-25",
     ),
     call: (_view, args) => ({ value: null, effects: [control(args, "run")] }),
   },
