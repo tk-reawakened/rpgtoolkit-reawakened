@@ -207,6 +207,9 @@ function makeRig(options: {
   readonly players?: number;
   readonly fallenPlayers?: readonly number[];
   readonly statusPlayerIndex?: number;
+  /** Every member grows by the built-in rule: no legacy level-up program, and each may reach level 3. */
+  readonly defaultLevelUp?: boolean;
+  readonly startingSmp?: readonly number[];
   readonly gameOverProgram?: string | null;
 } = {}): Rig {
   const seed = options.seed ?? 17;
@@ -233,7 +236,7 @@ function makeRig(options: {
         experience: 0,
         hp: options.fallenPlayers?.includes(index) ? 0 : 20,
         maxHp: 20,
-        smp: 6,
+        smp: options.startingSmp?.[index] ?? 6,
         maxSmp: 10,
         fp: 2,
         dp: 3,
@@ -244,7 +247,7 @@ function makeRig(options: {
       progression: {
         levelType: 10,
         experienceIncrease: 5,
-        maxLevel: index === 0 ? 3 : 1,
+        maxLevel: options.defaultLevelUp === true || index === 0 ? 3 : 1,
         levelHp: 5,
         levelDp: 2,
         levelFp: 3,
@@ -252,7 +255,7 @@ function makeRig(options: {
         levelUpType: 1,
         remainingExperience: 10,
         nextRequirement: 10,
-        legacyLevelUp: index === 0,
+        legacyLevelUp: options.defaultLevelUp !== true && index === 0,
       },
     });
     registerActorObject(state.vm, state.events, state.actors, player.id);
@@ -294,7 +297,7 @@ function makeRig(options: {
   startProgram(state.vm, { ...fileProgramRef(loader, "battle-outcome-loop.prg"), owner: "battle-outcome-test" });
   const enemyAssets = Object.fromEntries(enemyOptions.map((entry, index) => [`enemy${index}.ene`, enemyBytes(entry)]));
   const characterAssets = Object.fromEntries(players.map((_, index) => [
-    `player${index}.tem`, characterBytes(index === 0 ? "battle-outcome-levelup.prg" : ""),
+    `player${index}.tem`, characterBytes(options.defaultLevelUp !== true && index === 0 ? "battle-outcome-levelup.prg" : ""),
   ]));
   return {
     state, services, seed, enemies, players, enemyAssets, characterAssets,
@@ -505,6 +508,36 @@ test("a stock victory sums XP/gold, rewards fallen and living members, orders le
     effect.name === "mwin" && effect.args[0] === "Gained 7 GP.");
   ok(goldWrite >= 0 && goldWrite < experienceMessage && experienceMessage < goldMessage,
     "gold is written silently before XP and its message follows the level-up messages");
+});
+
+test("a seeded victory preserves living and fallen members' current SMP through default level-up growth", () => {
+  const rig = makeRig({
+    seed: 23,
+    enemyOptions: [{ experience: 30, gold: 1 }],
+    players: 2,
+    fallenPlayers: [1],
+    defaultLevelUp: true,
+    startingSmp: [6, 3],
+  });
+  const poll = pollAssets(rig);
+  start(rig, poll);
+  globals(rig).outcomemode = "win";
+  setCharge(rig, 1, 0, 75);
+  setCharge(rig, 0, 0, 0);
+  const member = (index: number) => {
+    const actor = rig.state.actors.actors.find(({ id }) => id === rig.players[index]);
+    if (actor === undefined) throw new Error(`party member ${index} is missing`);
+    return actor.stats;
+  };
+  tickUntil(rig, poll, () => rig.state.battle?.outcome === 2 && member(0).level === 3 && member(1).level === 3);
+
+  for (const [index, smp, hp] of [[0, 6, 20], [1, 3, 0]] as const) {
+    equal(member(index).level, 3, `member ${index} gained both levels`);
+    equal(member(index).maxSmp, 18, `member ${index} grew maximum SMP by the built-in rule`);
+    equal(member(index).smp, smp, `member ${index} keeps current SMP`);
+    equal(member(index).hp, hp, `member ${index} keeps current HP`);
+  }
+  equal(globals(rig).levelprogramcount, 0, "no level-up program ran");
 });
 
 test("a successful seeded run skips later turns but ticks later statuses, runs only the last program, and grants no reward", () => {

@@ -18,6 +18,7 @@ import {
   CATALOGUE_RESPONDERS_PLUGIN,
   CATALOGUE_STUBS_PLUGIN,
   COMPILER_VERSION,
+  composeUi,
   CORE_PLUGIN,
   createAssetIndex,
   createEmptyBoard,
@@ -28,7 +29,9 @@ import {
   createScriptServices,
   defaultWaitPoll,
   fileProgramRef,
+  hashDrawList,
   hashGameState,
+  hashState,
   nextUint32,
   PACKAGE_ROOT,
   registerActorObject,
@@ -39,6 +42,7 @@ import {
   runWaitsPhase,
   snapshot,
   startThread,
+  STATUS_EFFECT_MAGIC,
   STEP_BUDGET,
   verifyRestoredHandles,
   writeBattleBackground,
@@ -70,6 +74,7 @@ const fightSource = readFileSync(join(testDirectory, "fixtures", "authored", "ba
 const replacementBattleSource = readFileSync(join(testDirectory, "fixtures", "authored", "battle-replacement-package.prg"), "utf8");
 const replacementStartSource = readFileSync(join(testDirectory, "fixtures", "authored", "battle-replacement-start.prg"), "utf8");
 const gameOverSource = readFileSync(join(testDirectory, "fixtures", "authored", "battle-outcome-game-over.prg"), "utf8");
+const mainFileApiSource = readFileSync(join(testDirectory, "fixtures", "authored", "battle-main-file-custom-fight.prg"), "utf8");
 const encoder = new TextEncoder();
 
 function unwrap<T>(result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } }): T {
@@ -177,6 +182,18 @@ function backgroundBytes(): Uint8Array {
   });
   if (!result.ok) throw new Error(result.error.message);
   return result.value;
+}
+
+function statusEffectBytes(): Uint8Array {
+  const writer = new BinaryWriter();
+  writer.str(STATUS_EFFECT_MAGIC);
+  writer.i16(2);
+  writer.i16(2);
+  writer.str("Custom fight status");
+  writer.i16(2);
+  for (const value of [0, 0, 0, 0, 0, 0, 0, 0]) writer.i16(value);
+  writer.str("");
+  return writer.toBytes();
 }
 
 const authoredAssets: Readonly<Record<string, Uint8Array>> = {
@@ -355,9 +372,10 @@ function makeRig(options: {
 }
 
 /** Start the custom request the way the engine's battle applier does: one blocking thread, the encoded request. */
-function startCustomRequest(rig: Rig, request: unknown): void {
+function startCustomRequest(rig: Rig, request: unknown, afterMarker = false): void {
+  const call = `__battle_custom_fight(${JSON.stringify(encodeRequest(request))})`;
   startThread(rig.state.vm, {
-    ref: { kind: "inline", text: `__battle_custom_fight(${JSON.stringify(encodeRequest(request))})`, compiler: COMPILER_VERSION },
+    ref: { kind: "inline", text: afterMarker ? `global(afterCall)\n${call}\nafterCall = 1` : call, compiler: COMPILER_VERSION },
     kind: "blocking",
     owner: "script",
   });
@@ -523,9 +541,10 @@ test("FightEnemy from a custom program accepts one to four enemies and refuses n
 test("a custom program name that matches no file is a catchable program.missing and starts no battle", () => {
   const rig = makeRig({ mode: "fight-order" });
   const rngBefore = clonePlain(rig.state.rng);
-  startCustomRequest(rig, customRequest("missing.prg"));
+  startCustomRequest(rig, customRequest("missing.prg"), true);
   runToEnd(rig);
   ok(rig.services.diagnostics.some(({ code }) => code === "program.missing"), "the located program.missing diagnostic");
+  equal(globals(rig).aftercall, 1, "the thread continued past the reported error to its explicit marker");
   equal(globals(rig).customcalls, 0, "nothing ran");
   equal(rig.state.battle, null);
   deepEqual(rig.state.rng, rngBefore);
@@ -727,9 +746,20 @@ function fieldBoard(): Uint8Array {
   }));
 }
 
-function authorGame(programs: Readonly<Record<string, string>>): { readonly files: GameFiles; readonly paths: readonly string[] } {
+type GameOptions = {
+  /** Whether the main file loads `stock_battle` (default true). */
+  readonly stock?: boolean;
+  /** The seed of the engine's game RNG (default 291). */
+  readonly seed?: number;
+  /** How many party members the hook seeds (default 1). */
+  readonly heroes?: number;
+  /** The main file's custom fight program (default "fight.prg"). */
+  readonly customFight?: string;
+};
+
+function authorGame(programs: Readonly<Record<string, string>>, options: GameOptions = {}): { readonly files: GameFiles; readonly paths: readonly string[] } {
   const files: GameFiles = new Map();
-  const paths = ["main.gam", "Boards/start.brd", "Chrs/hero.tem", "Enemy/slime.ene", "Enemy/bat.ene", "Bkrounds/night.bkg"];
+  const paths = ["main.gam", "Boards/start.brd", "Chrs/hero.tem", "Enemy/slime.ene", "Enemy/bat.ene", "Bkrounds/night.bkg", "StatusE/custom-fight.ste"];
   const main = {
     ...createEmptyMainFile(),
     major: 2,
@@ -738,8 +768,8 @@ function authorGame(programs: Readonly<Record<string, string>>): { readonly file
     initBoard: "start.brd",
     initChar: "hero.tem",
     useCustomFightPrg: 1,
-    customFightPrg: "fight.prg",
-    packagePlugins: ["stock_battle"],
+    customFightPrg: options.customFight ?? "fight.prg",
+    packagePlugins: options.stock === false ? [] : ["stock_battle"],
   };
   files.set(assetKey("main.gam"), unwrap(writeMainFile(main)));
   files.set(assetKey("boards/start.brd"), fieldBoard());
@@ -747,6 +777,7 @@ function authorGame(programs: Readonly<Record<string, string>>): { readonly file
   files.set(assetKey("enemy/slime.ene"), authoredAssets["slime.ene"]!);
   files.set(assetKey("enemy/bat.ene"), authoredAssets["bat.ene"]!);
   files.set(assetKey("Bkrounds/night.bkg"), backgroundBytes());
+  files.set(assetKey("StatusE/custom-fight.ste"), statusEffectBytes());
   for (const [name, text] of Object.entries(programs)) {
     paths.push(`Prg/${name}`);
     files.set(assetKey(`Prg/${name}`), encoder.encode(text));
@@ -778,17 +809,17 @@ type Booted = {
  * Boot a game whose start program only sets `customMode` and `ready`. One phase registration then seeds a party member
  * and posts the custom request the evaluator would post, as a `triggers` effect, on the first running tick.
  */
-function bootGame(mode: string, program = "fight.prg", extra: Readonly<Record<string, string>> = {}): Booted {
+function bootGame(mode: string, program = "fight.prg", extra: Readonly<Record<string, string>> = {}, options: GameOptions = {}): Booted {
   const game = authorGame({
     "start.prg": `customMode = "${mode}"\ncustomCalls = 0\nafterFight = 0\nturnCount = 0\nready = 1\nend()\n`,
     "fight.prg": fightSource,
     ...extra,
-  });
+  }, options);
   let latest: GameState | null = null;
   let seeded = false;
   const posted = { rngAtPost: null as unknown };
   const engine = createEngine({
-    seed: 291,
+    seed: options.seed ?? 291,
     assetIndex: createAssetIndex(game.paths),
     assetRoot: PACKAGE_ROOT,
     mainFile: "main.gam",
@@ -796,22 +827,25 @@ function bootGame(mode: string, program = "fight.prg", extra: Readonly<Record<st
     width: 320,
     height: 240,
     maxTicks: 4000,
-    packageCatalogue: stockCatalogue(),
+    packageCatalogue: options.stock === false ? [] : stockCatalogue(),
     phaseRegistrations: [{
       phase: "triggers",
       run: (state, post) => {
         latest = state;
         if (seeded || post === undefined || state.vm.globals.ready !== 1 || state.world.board === null || state.world.board === undefined) return;
         seeded = true;
-        const hero = addActor(state.actors, {
-          kind: "party",
-          source: "hero.tem",
-          name: "Hero",
-          stats: { experience: 0, hp: 20, maxHp: 20, smp: 6, maxSmp: 10, fp: 2, dp: 3, level: 1, criticalOn: -1, criticalBy: -1 },
+        const members = Array.from({ length: options.heroes ?? 1 }, (_, index) => {
+          const hero = addActor(state.actors, {
+            kind: "party",
+            source: "hero.tem",
+            name: index === 0 ? "Hero" : `Hero ${index + 1}`,
+            stats: { experience: 0, hp: 20, maxHp: 20, smp: 6, maxSmp: 10, fp: 2, dp: 3, level: 1, criticalOn: -1, criticalBy: -1 },
+          });
+          registerActorObject(state.vm, state.events, state.actors, hero.id);
+          return hero.id;
         });
-        registerActorObject(state.vm, state.events, state.actors, hero.id);
-        state.party.members = [hero.id];
-        state.party.selected = hero.id;
+        state.party.members = members;
+        state.party.selected = members[0] ?? null;
         posted.rngAtPost = clonePlain(state.rng);
         post("battle", {
           thread: 0,
@@ -911,4 +945,104 @@ test("the engine applies stock battle win rewards through Epic 8 inventory", () 
   equal(state.battle?.outcome, 2);
   equal(state.inventory.gold, 9);
   equal(booted.diagnostics.some(({ code }) => code === "menu.state-invalid"), false);
+});
+
+// ---- one main-file all-API program, the real custom-fight path, with and without stock_battle -----------------
+
+type MainFileApiRun = {
+  readonly outcome: number | null | undefined;
+  readonly recorded: Record<string, unknown>;
+  readonly stockPresent: boolean;
+  readonly stateHash: string;
+  readonly drawHash: string;
+  readonly gold: number;
+  readonly diagnostics: readonly string[];
+  readonly drewCustomText: boolean;
+};
+
+/**
+ * Boot a game whose main file names the all-API program as its custom fight program, post the custom request the
+ * evaluator would post, and run to the program's end. The program registers its own battle handler and starts the
+ * fight with the public FightEnemy.
+ */
+function runMainFileApiFight(options: { readonly stock: boolean; readonly seed: number }): MainFileApiRun {
+  const booted = bootGame("api", "api-fight.prg", { "api-fight.prg": mainFileApiSource }, {
+    stock: options.stock,
+    seed: options.seed,
+    heroes: 2,
+    customFight: "api-fight.prg",
+  });
+  play(booted, (state) => state.vm.globals.apiafterfight === 1);
+  // Let the events the program queued (status changes, the two defeated emits) drain.
+  for (let tick = 0; tick < 5; tick += 1) booted.engine.advance(1, []);
+  const state = booted.state();
+  const recorded = Object.fromEntries(Object.entries(state.vm.globals).filter(([name]) => name.startsWith("api")));
+  // The comparable core state: everything the battle touches, without the clock or the package's own VM objects.
+  const projection = clonePlain({
+    battle: state.battle,
+    actors: state.actors,
+    party: state.party,
+    rng: state.rng,
+    inventory: state.inventory,
+    recorded,
+  });
+  return {
+    outcome: state.battle?.outcome,
+    recorded,
+    stockPresent: state.vm.globals.stockbattle !== undefined,
+    stateHash: hashState(projection as Parameters<typeof hashState>[0]),
+    drawHash: hashDrawList({ tick: 0, width: 640, height: 480, commands: composeUi(state.ui, 640, 480, state.input, false) }),
+    gold: state.inventory.gold,
+    diagnostics: booted.diagnostics.map(({ code, message }) => `${code}: ${message}`),
+    drewCustomText: state.ui.draws.some((draw) => draw.text.startsWith("Custom fight ")),
+  };
+}
+
+test("one main-file all-API custom fight program runs the real path identically with stock_battle absent and present-but-replaced", () => {
+  equal(/stockbattle/i.test(mainFileApiSource), false, "the program names no stock_battle internal");
+  const absent = runMainFileApiFight({ stock: false, seed: 291 });
+  const replaced = runMainFileApiFight({ stock: true, seed: 291 });
+  equal(absent.stockPresent, false, "the absent run has no stock_battle package");
+  equal(replaced.stockPresent, true, "the replaced run has the stock_battle package loaded");
+
+  for (const [label, run] of [["absent", absent], ["replaced", replaced]] as const) {
+    deepEqual(run.diagnostics, [], `${label}: the program read nothing missing and reported nothing`);
+    const seen = run.recorded;
+    equal(seen.apicalls, 1, `${label}: the program's own battle handler ran once`);
+    equal(seen.apicoverage, "party-size;battle-read;charge;stats;status;damage-defeated;draw;tick-wait;finish;");
+    equal(seen.apiafterfight, 1, `${label}: FightEnemy returned to the program`);
+    equal(seen.apienemycount, 2);
+    equal(seen.apiherocount, 2);
+    equal(seen.apiinitialoutcome, 0);
+    equal(seen.apirunallowed, 1);
+    equal(seen.apibackground, "night.bkg");
+    equal(seen.apiaddedenemycharge, Number(seen.apiinitialenemycharge) + 8);
+    equal(seen.apireleasedenemycharge, 0);
+    equal(seen.apienemypercent, 18);
+    equal(typeof seen.apiheropercent, "number");
+    equal(seen.apiherohp, 9);
+    equal(seen.apiheromaxhp, 21);
+    equal(seen.apiherosmp, 5);
+    equal(seen.apiheromaxsmp, 9);
+    equal(seen.apiherofp, 6);
+    equal(seen.apiherodp, 7);
+    equal(seen.apistatusname, "custom-fight.ste");
+    equal(seen.apistatuschanges, 2);
+    equal(seen.apienemydamage, 8);
+    equal(seen.apienemy2damage, 8);
+    equal(seen.apienemydefeated, 1);
+    equal(seen.apienemy2defeated, 1);
+    equal(typeof seen.apiseededroll, "number");
+    equal(run.outcome, 2, `${label}: the program's finish(2) took the BAT-8 outcome path`);
+    equal(run.gold, 6, `${label}: the adapter paid both enemies' gold once`);
+    ok(run.drewCustomText, `${label}: the program's drawing reached the UI`);
+  }
+
+  equal(replaced.outcome, absent.outcome);
+  equal(replaced.stateHash, absent.stateHash, "the same seed and inputs reproduce the same core state with and without the package");
+  equal(replaced.drawHash, absent.drawHash, "and the same draw list");
+  deepEqual(replaced.recorded, absent.recorded, "and the same recorded values, including the seeded draw");
+
+  const otherSeed = runMainFileApiFight({ stock: false, seed: 292 });
+  ok(otherSeed.stateHash !== absent.stateHash, "a different seed changes the state hash");
 });
