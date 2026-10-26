@@ -1729,7 +1729,7 @@ const FIGHT: BuiltinSpec = {
   aliases: [],
   params: [parameter("skill"), parameter("background")],
   doc: {
-    summary: "Start a battle with a random group at one skill level.",
+    summary: "Start a skill level fight.",
     behaviour: "Draws a uniformly selected count of one to four enemies, then independently draws each enemy uniformly from the main-file pool entries at the requested skill. The seeded game RNG owns every draw. It loads the selected enemy files, builds party 0 in draw order and party 1 from the ordered player party (including fallen members), stores the requested background and the run permission derived from every enemy, then waits for the stock battle loop to return. An empty matching pool shows the exact “No enemies of skill level N found.” message and starts nothing.",
     groups: [GROUP], tags: ["legacy"], waits: ASSET_WAIT,
     throws: [
@@ -1753,7 +1753,7 @@ const FIGHT_ENEMY: BuiltinSpec = {
   aliases: [],
   params: [{ name: "args", optional: true, byRef: false, variadic: true }],
   doc: {
-    summary: "Start a battle with one to four named enemies.",
+    summary: "Start a fight.",
     behaviour: "Treats the final argument as the background and each preceding argument as one enemy file, loads them in source order, and builds party 0 in that order and party 1 from the ordered player party (including fallen members). The saved background and run permission from all loaded enemies are passed to the stock battle loop, which this command waits for. This command consumes no enemy-selection randomness.",
     groups: [GROUP], tags: ["legacy"], waits: ASSET_WAIT,
     throws: [
