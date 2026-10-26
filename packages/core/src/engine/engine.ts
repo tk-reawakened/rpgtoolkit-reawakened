@@ -400,15 +400,35 @@ export function createEngine(init: EngineInit): Engine {
     applySpriteEffect(state, effect.name, values);
   });
   bus.register("triggers", (effect) => applyTriggerEffect(state, effect));
+  /**
+   * Run `command` on a new thread with the plain-data 5.11 request as its one argument. A drawn handoff and a
+   * custom request share it: the same blocking rule and the same located diagnostics.
+   */
+  function startBattleRequest(command: string, request: unknown, what: string): void {
+    const serialized = JSON.stringify(request);
+    if (serialized === undefined) {
+      diagnostics.push({ code: "battle.bad-handoff", file: mainKey ?? "", line: 0, message: `${what} is not plain serializable data` });
+      return;
+    }
+    const kind = blockingAlive() ? "board" : "blocking";
+    const ref: ProgramRef = {
+      kind: "inline",
+      text: `${command}(${JSON.stringify(encodeInlineScriptString(serialized))})`,
+      compiler: COMPILER_VERSION,
+    };
+    try {
+      startThread(state.vm, { ref, kind, owner: kind === "blocking" ? "script" : "world" });
+    } catch (error) {
+      if (!(error instanceof ScriptError)) throw error;
+      diagnostics.push({ code: error.code, file: error.pos?.file ?? mainKey ?? "", line: error.pos?.line ?? 0, message: error.message });
+    }
+  }
   bus.register("battle", (effect) => {
     const payload = effect.args[0];
     if (effect.name === "battle.customFight") {
-      diagnostics.push({
-        code: "battle.custom-fight-owner-ruling",
-        file: mainKey ?? "",
-        line: 0,
-        message: "the current custom-fight request contains trigger, board, actor and program but no drawn fighter references; waiting for the owner's ruling before running a custom random fight",
-      });
+      // A custom encounter is spelled out (BAT-9 rule 2): the request has no fighters, so the main file's program
+      // runs in place of the draw and names its own enemies with `FightEnemy`.
+      startBattleRequest("__battle_custom_fight", payload, "custom fight request");
       return;
     }
     if (effect.name === "battle.noEnemies") {
@@ -420,23 +440,7 @@ export function createEngine(init: EngineInit): Engine {
       return;
     }
     if (effect.name !== "battle.randomEncounter") return;
-    const serialized = JSON.stringify(payload);
-    if (serialized === undefined) {
-      diagnostics.push({ code: "battle.bad-handoff", file: mainKey ?? "", line: 0, message: "random encounter handoff is not plain serializable data" });
-      return;
-    }
-    const kind = blockingAlive() ? "board" : "blocking";
-    const ref: ProgramRef = {
-      kind: "inline",
-      text: `__battle_start_handoff(${JSON.stringify(encodeInlineScriptString(serialized))})`,
-      compiler: COMPILER_VERSION,
-    };
-    try {
-      startThread(state.vm, { ref, kind, owner: kind === "blocking" ? "script" : "world" });
-    } catch (error) {
-      if (!(error instanceof ScriptError)) throw error;
-      diagnostics.push({ code: error.code, file: error.pos?.file ?? mainKey ?? "", line: error.pos?.line ?? 0, message: error.message });
-    }
+    startBattleRequest("__battle_start_handoff", payload, "random encounter handoff");
   });
   // The audio callback runs during an originating engine phase; services are
   // initialized below before any phase can post an engine-originated start.
