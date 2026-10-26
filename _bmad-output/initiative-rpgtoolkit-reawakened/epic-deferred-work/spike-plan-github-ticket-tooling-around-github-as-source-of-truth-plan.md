@@ -8,7 +8,7 @@ status: draft
 
 ## Goal
 
-Write and owner-review a decision-ready design for safe GitHub-centered ticket work. This spike plans the tooling; it does not implement it.
+Write and owner-review a decision-ready design for safe GitHub-centered ticket work in one design pass and one owner-review pass, with no calendar deadline; further work requires owner agreement or a follow-up planning ticket. This spike plans the tooling; it does not implement it.
 
 ## Tasks
 
