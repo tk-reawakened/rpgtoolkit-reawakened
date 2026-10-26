@@ -6,12 +6,10 @@ localDamage = (request) => {
   local(event)
   local(source)
   local(target)
-  local(amount)
   local(pool)
   local(sourceId)
   source = request.source
   target = request.target
-  amount = request.amount
   pool = request.pool
   if (target == null) {
     return 0
@@ -23,7 +21,7 @@ localDamage = (request) => {
   event = target.emitCancelable("beforeDamage", {
     source: sourceId,
     target: target.id,
-    damage: amount
+    damage: request.amount
   })
   if (event.canceled == 1) {
     return 0
@@ -50,13 +48,19 @@ attackall = (request) => {
   local(total)
   total = 0
   if (request.first != null) {
-    total = total + physical({ source: request.source, target: request.first, amount: request.amount })
+    if (request.first.hp > 0) {
+      total = total + physical({ source: request.source, target: request.first, amount: request.amount })
+    }
   }
   if (request.second != null) {
-    total = total + physical({ source: request.source, target: request.second, amount: request.amount })
+    if (request.second.hp > 0) {
+      total = total + physical({ source: request.source, target: request.second, amount: request.amount })
+    }
   }
   if (request.third != null) {
-    total = total + physical({ source: request.source, target: request.third, amount: request.amount })
+    if (request.third.hp > 0) {
+      total = total + physical({ source: request.source, target: request.third, amount: request.amount })
+    }
   }
   return total
 }
@@ -65,13 +69,19 @@ drainall = (request) => {
   local(total)
   total = 0
   if (request.first != null) {
-    total = total + drain({ source: request.source, target: request.first, amount: request.amount })
+    if (request.first.hp > 0) {
+      total = total + drain({ source: request.source, target: request.first, amount: request.amount })
+    }
   }
   if (request.second != null) {
-    total = total + drain({ source: request.source, target: request.second, amount: request.amount })
+    if (request.second.hp > 0) {
+      total = total + drain({ source: request.source, target: request.second, amount: request.amount })
+    }
   }
   if (request.third != null) {
-    total = total + drain({ source: request.source, target: request.third, amount: request.amount })
+    if (request.third.hp > 0) {
+      total = total + drain({ source: request.source, target: request.third, amount: request.amount })
+    }
   }
   return total
 }
@@ -81,7 +91,155 @@ drainall = (request) => {
 // It runs on the loop's ONE thread; waits keep every fighter's charge parked.
 // The loop, not the hook, releases the acting fighter's charge after it returns.
 stockBattle = {
-  turn: (party, index) => { return 0 }
+  turn: (party, index) => { return 0 },
+  // Headless games have no battle screen. Positions and drawing belong to
+  // ticket 7.11's default UI, which replaces this hook. Returning here does
+  // not claim that a drawing request was made or an animation was displayed.
+  animate: (file, fighter) => { return 0 },
+  attack: (source, target) => {
+    if (source == null) {
+      return 0
+    }
+    return stockBattle.attackAmount(source, target, source.fp, "hp")
+  },
+  // E-74: only positive supplied amounts consume randomness. The offensive
+  // critical draw precedes the defensive one, which a successful first draw
+  // skips. A missing side (-1) consumes no draw, including for limit zero.
+  attackAmount: (source, target, amount, pool) => {
+    local(hit)
+    if (source == null) {
+      return 0
+    }
+    if (target == null) {
+      return 0
+    }
+    if (source.hp < 1) {
+      return 0
+    }
+    // SEM-3: reading a variable or member by name narrows a number to signed
+    // 32 bits, so the luck product goes through integerMulDiv, which keeps the
+    // product exact and drops the fraction toward zero before DP is subtracted.
+    // Supplied amounts must keep (amount * (100 + p) / 100) within signed 32
+    // bits; real stats are 32-bit on disk and 1.09 times a stat that large is
+    // not a game value.
+    hit = { amount: amount, critical: 0 }
+    if (hit.amount > 0) {
+      hit.amount = integerMulDiv(hit.amount, 100 + random(20) - 11, 100)
+      if (source.criticalBy >= 0) {
+        hit.critical = random(source.criticalBy + 1) == 1
+      }
+      if (hit.critical == 0) {
+        if (target.criticalOn >= 0) {
+          hit.critical = random(target.criticalOn + 1) == 1
+        }
+      }
+      if (hit.critical == 0) {
+        hit.amount = hit.amount - target.dp
+      }
+    }
+    if (hit.amount < 1) {
+      hit.amount = 1
+    }
+    if (pool == "smp") {
+      return drain({ source: source, target: target, amount: hit.amount })
+    }
+    return physical({ source: source, target: target, amount: hit.amount })
+  },
+  // BAT-5 special move. No luck, critical, DP or floor: FP and target-SMP
+  // come off the target, the cost off the user, each clamped by the actor
+  // owner. Returns the actual amounts removed (a heal is negative) for the UI.
+  // The user's SMP must cover the cost, or `battle.unaffordable` is reported
+  // and nothing changes and no random number is drawn.
+  special: (source, target, file) => {
+    local(move)
+    local(result)
+    result = { hp: 0, smp: 0, cost: 0 }
+    if (source == null) {
+      return result
+    }
+    if (target == null) {
+      return result
+    }
+    if (source.hp < 1) {
+      return result
+    }
+    move = battlemovedata(file)
+    if (move == null) {
+      return result
+    }
+    if (source.smp < move.smp) {
+      battleunaffordable()
+      return result
+    }
+    if (move.fp != 0) {
+      result.hp = special({ source: source, target: target, amount: move.fp })
+    }
+    if (move.targetsmp != 0) {
+      result.smp = drain({ source: source, target: target, amount: move.targetsmp })
+    }
+    if (move.smp != 0) {
+      result.cost = source.smp
+      source.smp = source.smp - move.smp
+      result.cost = result.cost - source.smp
+    }
+    stockBattle.presentation(fighteranimationfile(source, "special move"), source)
+    stockBattle.presentation(move.animation, target)
+    if (move.program != "") {
+      stockBattle.runProgram(move.program, source, target)
+    }
+    if (move.statuseffect != "") {
+      applystatus(target, move.statuseffect)
+    }
+    return result
+  },
+  // BAT-5 item. The item's battle HP and SMP are added to the target (clamped
+  // 0..max by the actor owner), then exactly one consume effect goes to the
+  // inventory port, then the item's animation and program. The item list is
+  // never read or edited here.
+  item: (source, target, file) => {
+    local(data)
+    local(result)
+    result = { hp: 0, smp: 0 }
+    if (source == null) {
+      return result
+    }
+    if (target == null) {
+      return result
+    }
+    if (source.hp < 1) {
+      return result
+    }
+    data = battleitemdata(file)
+    if (data == null) {
+      return result
+    }
+    if (data.hp != 0) {
+      result.hp = special({ source: source, target: target, amount: 0 - data.hp })
+    }
+    if (data.smp != 0) {
+      result.smp = drain({ source: source, target: target, amount: 0 - data.smp })
+    }
+    battleconsume(file, target, data.hp, data.smp)
+    stockBattle.presentation(data.animation, target)
+    if (data.program != "") {
+      stockBattle.runProgram(data.program, source, target)
+    }
+    return result
+  },
+  // The empty-name guard keeps the hook free of no-animation calls.
+  presentation: (file, fighter) => {
+    if (file != "") {
+      if (file != 0) {
+        stockBattle.animate(file, fighter)
+      }
+    }
+    return 0
+  },
+  // Program step of a special move or item. NOT implemented: no ruled way
+  // exists yet to run a named program to completion with source and target
+  // set and then resume this action on the battle thread. This default runs
+  // nothing and returns at once; it is the seam an owner ruling will fill.
+  runProgram: (file, source, target) => { return 0 }
 }
 
 // null is the unset value in RPGCode, but its literal also compares as numeric
