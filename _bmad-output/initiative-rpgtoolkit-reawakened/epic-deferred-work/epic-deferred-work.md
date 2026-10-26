@@ -29,6 +29,12 @@ Promote verified, still-open findings from `deferred-work.md` into focused, buil
 - Revalidate and harden legacy actor and battle writers against invalid values that currently serialize silently.
 - Pin the still-missing pre-vector board run-overrun behavior with a consumer-visible regression test; do not duplicate the existing negative-LUT test.
 - Record owner rulings for unresolved first-board and no-board rendering behavior before any code change.
+- Plan GitHub-centered ticket management as cross-epic workflow hardening; implementation waits for owner-approved design.
 
 ## Ordering note
 Although this is Epic 23, do this carry-forward work before taking up unrelated future epics when its tickets are ready. Epic-number ordering alone may not recommend it first.
+
+## Notes
+
+- Decision: 2026-10-26 — The owner directs this planning-only GitHub ticket-tooling spike into Epic 23 as cross-epic workflow hardening; it is not a promotion from the existing deferred-work ledger. No implementation ticket is cut before owner approval.
+- Decision: 2026-10-26 — A separate Refactor sweep story is not needed for the current set: the existing entries are independent deferred findings, and this spike plans rather than changes shared code or configuration. Reassess if implementation tickets are later added.
