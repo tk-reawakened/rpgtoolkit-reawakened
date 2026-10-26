@@ -271,6 +271,7 @@ function battleStatusBefore(leftText, rightText) {
 function battleStatusRate(fighter, cache) {
   local(file)
   local(index) = 0
+  local(orderIndex)
   local(sortIndex)
   local(data)
   local(key)
@@ -295,30 +296,46 @@ function battleStatusRate(fighter, cache) {
     }
     cache.rate = cache.rate + 2 * data.speed - 2 * data.slow
     cache.disabled = cache.disabled + data.disable
-    cache.order[index] = file
+    cache.order[index + 1] = file
     index = index + 1
     file = getstatus(fighter, index)
   }
   cache.statusCount = index
-  for (index = 1; index < cache.statusCount; index = index + 1) {
-    file = cache.order[index]
-    sortIndex = index - 1
-    while (sortIndex >= 0 && battleStatusBefore(file, cache.order[sortIndex])) {
+  for (orderIndex = 2; orderIndex <= cache.statusCount; orderIndex = orderIndex + 1) {
+    file = cache.order[orderIndex]
+    sortIndex = orderIndex - 1
+    while (sortIndex >= 1 && battleStatusBefore(file, cache.order[sortIndex])) {
       cache.order[sortIndex + 1] = cache.order[sortIndex]
       sortIndex = sortIndex - 1
     }
     cache.order[sortIndex + 1] = file
   }
+  // Keep only ordered effects in the turn hot path; all active statuses still age below.
+  if (cache.statusCount > 0) {
+    cache.effectOrder = {}
+    cache.effectCount = 0
+    for (orderIndex = 1; orderIndex <= cache.statusCount; orderIndex = orderIndex + 1) {
+      file = cache.order[orderIndex]
+      data = cache.files[ucase(file)]
+      if ((data.hp != 0 && data.hpamount != 0) ||
+          (data.smp != 0 && data.smpamount != 0) || data.runprogram != 0) {
+        cache.effectCount = cache.effectCount + 1
+        cache.effectOrder[cache.effectCount] = { file: file, data: data }
+      }
+    }
+  }
   return cache.rate
 }
 
 function battleStatusTurn(fighter, cache) {
-  local(position) = 0
+  local(position) = 1
+  local(effect)
   local(file)
   local(data)
-  while (position < cache.statusCount) {
-    file = cache.order[position]
-    data = cache.files[ucase(file)]
+  while (position <= cache.effectCount) {
+    effect = cache.effectOrder[position]
+    file = effect.file
+    data = effect.data
     if (data.hp != 0 && data.hpamount != 0) {
       __battle_status_delta(fighter, "hp", data.hpamount)
     }
@@ -326,7 +343,7 @@ function battleStatusTurn(fighter, cache) {
       __battle_status_delta(fighter, "smp", data.smpamount)
     }
     if (data.runprogram != 0) {
-      stockBattle.runProgram(data.program, fighter, fighter, { status: file })
+      executeProgram(data.program, { source: "" + fighter.id, target: "" + fighter.id, status: file })
     }
     position = position + 1
   }
@@ -334,6 +351,7 @@ function battleStatusTurn(fighter, cache) {
     __battle_status_advance(fighter, 1)
   }
 }
+
 
 // The battle section is supplied by the start owner (ticket 7.9). This
 // package owns charge, status rounds/effects, and the action thread's turn seam.
@@ -390,7 +408,10 @@ function battle() {
             }
           } else {
             if (charge >= cache.threshold) {
-              battleStatusTurn(fighter, cache)
+              if (cache.statusCount > 0) {
+                battleStatusTurn(fighter, cache)
+              }
+              stockBattle.turn(cache.party, cache.index)
               battle.releaseCharge(cache.party, cache.index)
             } else {
               battle.addCharge(cache.party, cache.index, cache.rate)

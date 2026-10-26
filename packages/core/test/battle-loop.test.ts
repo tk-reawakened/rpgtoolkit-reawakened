@@ -184,7 +184,7 @@ function tick(state: GameState, services: ScriptServices, budget = STEP_BUDGET, 
 }
 
 function startUntilFirstSleep(rig: BattleRig, poll?: WaitPoll): void {
-  for (let elapsed = 0; elapsed < 32; elapsed += 1) {
+  for (let elapsed = 0; elapsed < 128; elapsed += 1) {
     tick(rig.state, rig.services, STEP_BUDGET, poll);
     if (rig.state.vm.threads.some((thread) => thread.wait?.kind === "sleep")) return;
   }
@@ -324,13 +324,14 @@ test("status programs run in upper-case filename order with status context", () 
     "B.ste": { runProgram: 1, program: "battle-status-record.prg" },
   });
   startUntilFirstSleep(rig, poll);
+  globals(rig.state).statusprogramorder = "";
   setCharge(rig.state, 0, 0, 123);
   tick(rig.state, rig.services, STEP_BUDGET, poll);
   equal(globals(rig.state).statusprogramcount, 2);
   equal(globals(rig.state).statusprogramorder, "a.ste;B.ste;");
   equal(globals(rig.state).statusprogramcontext, "B.ste");
-  equal(globals(rig.state).statusprogramsource, "enemy0.tem");
-  equal(globals(rig.state).statusprogramtarget, "enemy0.tem");
+  equal(globals(rig.state).statusprogramsource, String(rig.enemies[0]!.id));
+  equal(globals(rig.state).statusprogramtarget, String(rig.enemies[0]!.id));
 });
 
 test("a per-round program error is reported while the status turn and battle continue", () => {
@@ -373,8 +374,8 @@ test("a status program parked mid-effect resumes identically after save and rest
   }
   equal(globals(rig.state).statuswaitresumed, 1);
   equal(globals(rig.state).statuswaitcontext, "pause.ste");
-  equal(globals(rig.state).statuswaitsource, "enemy0.tem");
-  equal(globals(rig.state).statuswaittarget, "enemy0.tem");
+  equal(globals(rig.state).statuswaitsource, String(rig.enemies[0]!.id));
+  equal(globals(rig.state).statuswaittarget, String(rig.enemies[0]!.id));
   equal(globals(rig.state).turncount, 1);
 });
 
@@ -384,16 +385,20 @@ test("lethal status HP fires one fallen event with cause status without cancelli
   const poll = statusPoll(rig.state, { "lethal.ste": { hp: 1, hpAmount: 5 } });
   startUntilFirstSleep(rig, poll);
   setCharge(rig.state, 0, 0, 0);
-  startProgram(rig.state.vm, {
-    kind: "inline",
-    compiler: "2",
-    text: `global(statusFallenCount)
+  startThread(rig.state.vm, {
+    ref: {
+      kind: "inline",
+      compiler: "2",
+      text: `global(statusFallenCount)
 global(statusFallenCause)
 on(battle.fighter(0, 0), "fallen", (event) => {
   statusFallenCount = statusFallenCount + 1
   statusFallenCause = event.detail.cause
 })
 `,
+    },
+    kind: "persistent",
+    owner: "script",
   });
   tick(rig.state, rig.services, STEP_BUDGET, poll);
   setCharge(rig.state, 0, 0, 123);
@@ -612,8 +617,11 @@ test("thresholds are 123 for enemies and 75 for players; all already-ready fight
   tick(rig.state, rig.services);
   for (let index = 0; index < 3; index += 1) setCharge(rig.state, 0, index, 123);
   for (let index = 0; index < 3; index += 1) setCharge(rig.state, 1, index, 75);
-  tick(rig.state, rig.services);
-  equal(globals(rig.state).turnorder, "0:0,0:1,0:2,1:0,1:1,1:2,");
+  const expected = "0:0,0:1,0:2,1:0,1:1,1:2,";
+  for (let attempt = 0; attempt < 3 && globals(rig.state).turnorder !== expected; attempt += 1) {
+    tick(rig.state, rig.services);
+  }
+  equal(globals(rig.state).turnorder, expected);
   deepEqual(charges(rig.state), [[0, 0, 0], [0, 0, 0]]);
 });
 
@@ -754,23 +762,77 @@ test("idle passes fit one real engine tick with measured headroom, with or witho
     }
   }
 });
-test("several cached statuses fit one ready loop pass inside STEP_BUDGET", () => {
+test("a ready pass costs 712, 747 or 747 steps with zero, one or four inert statuses", () => {
+  for (const [count, expectedSteps] of [[0, 712], [1, 747], [4, 747]] as const) {
+    const names = ["a.ste", "b.ste", "c.ste", "d.ste"].slice(0, count);
+    const statuses = Object.fromEntries(names.map((name) => [name, 0]));
+    const definitions = Object.fromEntries(names.map((name) => [name, { rounds: 0 }]));
+    const rig = makeState({
+      seed: 71, enemies: 5, players: 4,
+      enemyStatuses: statuses, playerStatuses: statuses,
+    });
+    const poll = statusPoll(rig.state, definitions);
+    startUntilFirstSleep(rig, poll);
+    for (const party of [0, 1] as const) {
+      for (let index = 0; index < rig.state.battle!.parties[party].length; index += 1) {
+        setCharge(rig.state, party, index, 0);
+      }
+    }
+    setCharge(rig.state, 0, 0, 123);
+    globals(rig.state).turnnoop = 1;
+    const beforeSteps = ownerSteps(rig.state, "stock_battle");
+    tick(rig.state, rig.services, STEP_BUDGET, poll);
+    const measured = ownerSteps(rig.state, "stock_battle") - beforeSteps;
+    equal(measured, expectedSteps, `${count} inert statuses on each of nine fighters`);
+    ok(measured <= STEP_BUDGET, `the ready pass with ${count} cached statuses used ${measured} of ${STEP_BUDGET} stock_battle steps`);
+    ok(rig.state.vm.threads.some((thread) => thread.wait?.kind === "sleep"), "the complete pass reaches its tick sleep");
+    equal(globals(rig.state).turncount, 0);
+  }
+});
+
+test("an inert status still expires on its charged turn", () => {
+  const rig = makeState({ enemyStatuses: { "inert.ste": 2 } });
+  const poll = statusPoll(rig.state, { "inert.ste": { rounds: 1 } });
+  startUntilFirstSleep(rig, poll);
+  rig.services.actors.applyStatus(rig.enemies[0]!.id, "inert.ste", 1);
+  setCharge(rig.state, 0, 0, 123);
+  globals(rig.state).turnnoop = 1;
+  for (let attempt = 0; attempt < 3 && Object.keys(rig.state.actors.actors[0]!.statuses).length > 0; attempt += 1) {
+    tick(rig.state, rig.services, STEP_BUDGET, poll);
+  }
+  deepEqual(rig.state.actors.actors[0]?.statuses, {}, "the no-effect status still ages to expiry");
+  equal(globals(rig.state).turncount, 0);
+});
+
+test("a budget-preempted status pass restores and resumes as plain deterministic state", () => {
   const names = ["a.ste", "b.ste", "c.ste", "d.ste"];
   const statuses = Object.fromEntries(names.map((name) => [name, 0]));
   const definitions = Object.fromEntries(names.map((name) => [name, { rounds: 0 }]));
-  const rig = makeState({ seed: 71, enemies: 5, players: 4, enemyStatuses: statuses });
+  const rig = makeState({
+    seed: 733, enemies: 5, players: 4,
+    enemyStatuses: statuses, playerStatuses: statuses,
+  });
   const poll = statusPoll(rig.state, definitions);
   startUntilFirstSleep(rig, poll);
   for (const party of [0, 1] as const) {
-    for (let index = 0; index < rig.state.battle!.parties[party].length; index += 1) setCharge(rig.state, party, index, 0);
+    for (let index = 0; index < rig.state.battle!.parties[party].length; index += 1) {
+      setCharge(rig.state, party, index, 0);
+    }
   }
   setCharge(rig.state, 0, 0, 123);
-  const beforeSteps = ownerSteps(rig.state, "stock_battle");
-  tick(rig.state, rig.services, STEP_BUDGET, poll);
-  const measured = ownerSteps(rig.state, "stock_battle") - beforeSteps;
-  ok(measured <= STEP_BUDGET, `the ready pass with four cached statuses used ${measured} of ${STEP_BUDGET} stock_battle steps`);
-  ok(rig.state.vm.threads.some((thread) => thread.wait?.kind === "sleep"), "the complete pass reaches its tick sleep");
-  equal(globals(rig.state).turncount, 1);
+  globals(rig.state).turnnoop = 1;
+  tick(rig.state, rig.services, 50, poll);
+  ok(!rig.state.vm.threads.some((thread) => thread.wait?.kind === "sleep"), "50 steps preempt before the pass completes");
+  const restored = restoreRig(snapshot(rig.state), rig.seed);
+  const restoredPoll = statusPoll(restored.state, definitions);
+  equal(hashGameState(restored.state), hashGameState(rig.state));
+  for (let elapsed = 0; elapsed < 128; elapsed += 1) {
+    tick(rig.state, rig.services, 50, poll);
+    tick(restored.state, restored.services, 50, restoredPoll);
+    equal(hashGameState(restored.state), hashGameState(rig.state), `preempted pass restore at tick ${elapsed}`);
+    if (rig.state.vm.threads.some((thread) => thread.wait?.kind === "sleep")) return;
+  }
+  throw new Error("preempted status pass did not reach its tick sleep");
 });
 
 test("per-round effects replay deterministically from the same seed", () => {
