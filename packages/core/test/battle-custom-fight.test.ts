@@ -69,6 +69,7 @@ const stockManifest = JSON.parse(readFileSync(join(repoRoot, "stock", "stock_bat
 const fightSource = readFileSync(join(testDirectory, "fixtures", "authored", "battle-custom-fight.prg"), "utf8");
 const replacementBattleSource = readFileSync(join(testDirectory, "fixtures", "authored", "battle-replacement-package.prg"), "utf8");
 const replacementStartSource = readFileSync(join(testDirectory, "fixtures", "authored", "battle-replacement-start.prg"), "utf8");
+const gameOverSource = readFileSync(join(testDirectory, "fixtures", "authored", "battle-outcome-game-over.prg"), "utf8");
 const encoder = new TextEncoder();
 
 function unwrap<T>(result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } }): T {
@@ -217,6 +218,7 @@ const scriptBytes: Record<string, Uint8Array> = {
   [assetKey("Prg/fight.prg")]: encoder.encode(fightSource),
   [assetKey("Prg/replacement-battle.prg")]: encoder.encode(replacementBattleSource),
   [assetKey("Prg/replacement-start.prg")]: encoder.encode(replacementStartSource),
+  [assetKey("Prg/battle-outcome-game-over.prg")]: encoder.encode(gameOverSource),
 };
 const loader: ProgramLoader = {
   index: createAssetIndex(Object.keys(scriptBytes)),
@@ -260,6 +262,7 @@ type Rig = {
   readonly stock: boolean;
   readonly replacement: boolean;
   readonly pool: readonly EnemyPoolEntry[];
+  readonly gameOverProgram: string | null;
   readonly players: readonly number[];
 };
 
@@ -269,6 +272,7 @@ function servicesFor(
   stock: boolean,
   replacement = false,
   pool: readonly EnemyPoolEntry[] = enemyPool,
+  gameOverProgram: string | null = null,
 ): ScriptServices {
   const battlePlugins = [
     ...(stock ? [stockBattlePlugin] : []),
@@ -289,7 +293,7 @@ function servicesFor(
     undefined,
     undefined,
     undefined,
-    null,
+    gameOverProgram,
     { enemies: pool, stockBattleAvailable: stock },
   );
 }
@@ -301,11 +305,13 @@ function makeRig(options: {
   readonly stock?: boolean;
   readonly replacement?: boolean;
   readonly pool?: readonly EnemyPoolEntry[];
+  readonly gameOverProgram?: string | null;
 }): Rig {
   const seed = options.seed ?? 17;
   const stock = options.stock ?? true;
   const replacement = options.replacement ?? false;
   const pool = options.pool ?? enemyPool;
+  const gameOverProgram = options.gameOverProgram ?? null;
   const state = createGameState({ seed });
   const players = Array.from({ length: options.players ?? 1 }, (_, index) => {
     const actor = addActor(state.actors, {
@@ -342,10 +348,10 @@ function makeRig(options: {
     ...(stock ? [startupRef] : []),
     ...(replacement ? [replacementStartupRef] : []),
   ];
-  const services = servicesFor(state, layers, stock, replacement, pool);
+  const services = servicesFor(state, layers, stock, replacement, pool, gameOverProgram);
   if (startupRefs.length > 0) runPackageStartup(state, services, startupRefs, battlePlugins);
   Object.assign(state.vm.globals, { custommode: options.mode, customcalls: 0, afterfight: 0, turncount: 0 });
-  return { state, services, layers, seed, stock, replacement, pool, players };
+  return { state, services, layers, seed, stock, replacement, pool, gameOverProgram, players };
 }
 
 /** Start the custom request the way the engine's battle applier does: one blocking thread, the encoded request. */
@@ -547,6 +553,110 @@ test("FightEnemy starts a core-prepared battle through a replacement loop withou
   equal(globals(rig).replacementafter, 1);
   equal(rig.state.battle?.outcome, 2);
   deepEqual(rig.services.diagnostics, []);
+});
+test("Fight and FightEnemy run a replacement loop through every public finish outcome without stock_battle", () => {
+  for (const [outcome, start] of [[0, "explicit"], [1, "random"], [2, "explicit"], [3, "random"], [4, "explicit"]] as const) {
+    const rig = makeRig({
+      mode: `replacement-${outcome}`,
+      stock: false,
+      replacement: true,
+      pool: replacementEnemyPool,
+      gameOverProgram: outcome === 4 ? "battle-outcome-game-over.prg" : null,
+    });
+    Object.assign(globals(rig), { replacementstart: start, replacementoutcome: outcome });
+    startReplacementProgram(rig);
+    runToEnd(rig);
+
+    equal(globals(rig).replacementbattlecalls, 1, `outcome ${outcome}: replacement loop ran once`);
+    equal(globals(rig).replacementfightcalls, start === "random" ? 1 : 0, `outcome ${outcome}: Fight uses the fight wrapper, FightEnemy does not`);
+    ok(Number(globals(rig).replacementenemycount) >= 1 && Number(globals(rig).replacementenemycount) <= 4);
+    equal(globals(rig).replacementplayercount, 1);
+    equal(globals(rig).replacementafter, 1);
+    deepEqual(rig.services.diagnostics, []);
+    if (outcome === 4) {
+      equal(rig.state.battle, null);
+      equal(globals(rig).gameoverprogramcount, 1);
+    } else {
+      equal(rig.state.battle?.outcome, outcome);
+    }
+
+    const inventoryEffects = rig.state.vm.effects.filter((effect) => effect.patch?.section === "inventory");
+    equal(inventoryEffects.length, outcome === 2 ? 1 : 0, `outcome ${outcome}: only a win applies gold`);
+    if (outcome === 2) deepEqual(inventoryEffects[0]?.args[0], { type: "addGold", amount: 3 });
+  }
+});
+
+test("a replacement package overrides the registered stock battle loop", () => {
+  const rig = makeRig({ mode: "replacement-over-stock", stock: true, replacement: true, pool: replacementEnemyPool });
+  globals(rig).replacementstart = "explicit";
+  globals(rig).replacementoutcome = 2;
+  startReplacementProgram(rig);
+  runToEnd(rig);
+  equal(globals(rig).replacementbattlecalls, 1);
+  equal(globals(rig).replacementfightcalls, 0);
+  equal(globals(rig).replacementafter, 1);
+  equal(rig.state.battle?.outcome, 2);
+  deepEqual(rig.services.diagnostics, []);
+});
+
+test("seeded Fight setup is deterministic with the replacement battle loop", () => {
+  const run = (seed: number): { readonly enemies: (string | undefined)[]; readonly hash: string; readonly rng: unknown; readonly tick: number } => {
+    const rig = makeRig({ mode: "replacement-seeded", seed, stock: false, replacement: true, pool: replacementEnemyPool });
+    Object.assign(globals(rig), { replacementstart: "random", replacementoutcome: 2 });
+    startReplacementProgram(rig);
+    runToEnd(rig);
+    const battle = rig.state.battle;
+    if (battle === null) throw new Error("the replacement loop did not leave a completed battle");
+    return {
+      enemies: actorSources(rig.state, battle.parties[0]),
+      hash: hashGameState(rig.state),
+      rng: clonePlain(rig.state.rng),
+      tick: rig.state.time.tick,
+    };
+  };
+  const first = run(291);
+  deepEqual(run(291), first);
+  ok(run(292).hash !== first.hash, "a different seed changes the setup state");
+});
+
+test("a replacement battle restores while its registered loop is suspended", () => {
+  const rig = makeRig({ mode: "replacement-restore", seed: 291, stock: false, replacement: true, pool: replacementEnemyPool });
+  Object.assign(globals(rig), { replacementstart: "random", replacementoutcome: 2, replacementpause: 1 });
+  startReplacementProgram(rig);
+  const poll = pollAssets(rig);
+  tickUntil(rig, poll, () => globals(rig).replacementbattlecalls === 1);
+  ok(rig.state.battle !== null, "the replacement loop has an active battle");
+  ok(
+    sleeping(rig.state),
+    `globals=${JSON.stringify(globals(rig))} threads=${JSON.stringify(rig.state.vm.threads.map(({ id, status, wait }) => ({ id, status, wait })))}`,
+  );
+  const saved = snapshot(rig.state);
+
+  const layers = createPluginLayers();
+  const scratch = createGameState({ seed: rig.seed });
+  runPackageStartup(
+    scratch,
+    servicesFor(scratch, layers, false, true, rig.pool, rig.gameOverProgram),
+    [replacementStartupRef],
+    [replacementBattlePlugin],
+  );
+  const state = restoreGameState(saved);
+  const services = servicesFor(state, layers, false, true, rig.pool, rig.gameOverProgram);
+  verifyRestoredHandles(state.vm, services);
+  const restored: Rig = { ...rig, state, services, layers };
+  const restoredPoll = pollAssets(restored);
+  equal(hashGameState(state), hashGameState(rig.state), "replacement state restores before resuming");
+  for (let elapsed = 0; elapsed < 600 && globals(rig).replacementafter !== 1; elapsed += 1) {
+    tick(rig, poll);
+    tick(restored, restoredPoll);
+    equal(hashGameState(state), hashGameState(rig.state), `replacement restore tick ${rig.state.time.tick}`);
+  }
+  equal(globals(rig).replacementafter, 1);
+  equal(globals(restored).replacementafter, 1);
+  equal(rig.state.battle?.outcome, 2);
+  equal(restored.state.battle?.outcome, 2);
+  deepEqual(rig.services.diagnostics, []);
+  deepEqual(restored.services.diagnostics, []);
 });
 
 test("the same seed and program reproduce the same state, diagnostics and hash", () => {
