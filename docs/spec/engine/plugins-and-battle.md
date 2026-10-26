@@ -156,7 +156,7 @@ The engine keeps the battle **model**; the plugin owns the **loop and the UI**.
 **E-71 Battle setup.** Two parties (enemies and the player's), the battle background's music replacing the board music, the background image and menu sounds loaded, and running away allowed unless an enemy forbids it.
 
 1. The engine sets up two parties: party 0 = enemies, party 1 = the player's party. It switches to the battle music.
-2. It calls `fight(enemyCount, skill, background, canRun)` and waits. **`skill` is always −1** in the original engine.
+2. The original engine calls `fight(enemyCount, skill, background, canRun)` and waits. The `skill = -1` sentinel is a legacy callback argument only; it is not part of the Reawakened package/start contract, whose request carries the board record and its own skill value.
 3. The plugin loops: it calls `CBFightTick` regularly. On each tick the engine charges every fighter, applies status effects and lets enemies whose charge is full act (AI), reporting each event back through `fightInform`. The plugin performs the players' actions with `CBFightDoAttack`, `CBFightUseItem`, `CBFightUseSpecialMove` and releases charge with `CBReleaseFighterCharge`, and draws everything itself (canvas callbacks), calling `CBDoEvents` to keep the window alive.
 4. The plugin returns an outcome:
 
@@ -175,8 +175,7 @@ The engine keeps the battle **model**; the plugin owns the **loop and the UI**.
 <a id="e-79"></a>
 **E-79 Battle-facing script API.** The fight plugin interface exposes fighter queries (HP, SMP, FP, DP, name, animation, charge %), actions (attack, use item, use special, release charge, add or remove a status effect) and a `fightTick` — callbacks 114 to 132 below.
 
-**Reawakened rule.** The rebuild ships a **default battle UI** that reproduces the stock look and feel, and keeps the battle **rules in the core** rather than in the UI. **Boundary (entry 19.1; owner decision of 2026-10-19, with the ruling in Epic 20):** the actor data and the rules that interpret it belong to the core; battle systems themselves (turn order, damage, AI) are scripts in packages built on the objects and emitters of [rpgcode-modules-and-objects.md](rpgcode-modules-and-objects.md), not core code. Where this paragraph's "battle rules in the core" and that boundary differ, the boundary governs, and entry 20.1 reconciles the wording and the AD-26 `battle` phase.
-**Reawakened rule (Epic 7.1; supersedes the wording "rules in the core" above).** The battle's charge, turn order, damage, AI, status rounds and the sequence after an outcome are package scripts, not core rules; the core owns actor data, the `battle` section and the one outcome adapter of [BAT-8](battle.md#bat-8). See [battle.md BAT-1](battle.md#bat-1).
+**Reawakened rule (OWNER; Epic 7.1).** The default battle UI, charge, turn order, damage, AI, status rounds and the sequence after an outcome are package scripts, not core rules. The core owns actor data, the `battle` section and the one outcome adapter of [BAT-8](battle.md#bat-8). The legacy `fightTick` callback remains documented above, but it is not a Reawakened core operation: the package loop is [BAT-4](battle.md#bat-4). See [battle.md BAT-1](battle.md#bat-1).
 
 **Reawakened rule.** **RPGCode-written battle systems** must be able to drive the same core operations as that default UI (they replace it through the main file's custom fight program), so a script can build its own battle screen without a second rules engine.
 
@@ -194,6 +193,8 @@ The engine keeps the battle **model**; the plugin owns the **loop and the UI**.
 
 <a id="e-73"></a>
 **E-73 Player actions.** Fight (physical attack), Special Move (named per character, e.g. "Magic"), Item (a battle-usable item; consumes one), Run.
+
+**Reawakened rule (Epic 7.1).** See [BAT-5](battle.md#bat-5) for the stock package's and custom programs' shared action semantics.
 
 <a id="e-74"></a>
 **E-74 Damage rules.** A physical attack uses the attacker's FP ±10 % random variance; the target's DP is subtracted **unless a critical hit happens** (enemies define 1-in-N crit chances for being hit and for hitting); minimum 1 damage; damage can be applied to SMP instead of HP. A special move removes its *FP* from the target's HP and its *target SMP drain* from the target's SMP, costs the user SMP, and may apply a status effect and play an animation. HP and SMP are clamped at 0.
@@ -226,8 +227,8 @@ Legacy battles are one-sided, so each attack has exactly one side with a value a
 
 **Reawakened rule (Epic 7.1; R11-Q11 to Q13).** Running succeeds 2 times in 5 and a failed attempt costs the turn; rewards go to every party member in a ruled order; one run program and one win program (the last enemy's that has one) run. See [BAT-8](battle.md#bat-8).
 
-> **Open conflict R-57 — battle model and notification quirks.** the legacy feature inventory (E-74, E-72) says players act at a maximum charge of 75, enemies at 123, damage has a ±10 % variance and a critical hit bypasses DP; this page, `docs/spec/engine/plugins-and-battle.md:102`, says "`skill` is always −1" in the original engine and gives the charge, damage and notification codes above, including that the engine "never sends 6 or 7". Owner epic: **battle**. Landed code: none. The owner settles it at inception; this page rules nothing.
-> **Ruled — R-57 is settled by entry 7.1.** The conflict above is closed by [battle.md](battle.md), using the facts of [round 11](../../provenance/facts-round-11.md): players act at 75, enemies at 123, `skill` is −1 on the random path, and the legacy engine never sent `fightInform` codes 6 and 7 (the rebuild detects deaths and the end of the battle, [BAT-12](battle.md#bat-12)). Read the paragraph above as the history of the conflict, not as an open question.
+> **Historical conflict R-57 (settled by entry 7.1).** The earlier disagreement concerned charge thresholds, damage variance and critical hits, legacy callback wording and notification codes. The owner resolved it at the Epic 7.1 checkpoint; the ruling below and [battle.md](battle.md) are authoritative.
+> **Ruled — R-57.** The adopted legacy facts are players act at 75, enemies at 123, damage has ±10 % variance and critical hits bypass DP; the original engine never sent `fightInform` codes 6 and 7 (the rebuild detects deaths and battle end, [BAT-12](battle.md#bat-12)). The `skill = -1` sentinel belongs only to the legacy callback; it is not part of the rebuilt package/start contract.
 
 ### Enemy AI
 

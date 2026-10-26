@@ -15,7 +15,7 @@ context:
 
 ## Intent
 
-Close the epic by making its seams single-owner and its evidence explicit. One registration path for the battle built-ins and the `battle` command; the battle section exported through the save barrel; the 5.11 handoff with one consumer; the 20.1 phase list; the package manifest and `.gam` mapping; the catalogue and command docs; the spec links and anchors. Remove the placeholder and any dead battle-phase code, then check every Done-when item with a named test or fixture.
+Close the epic by making its seams single-owner and its evidence explicit. One registration path for the battle built-ins and the `battle` command; the battle section exported through the save barrel; the 5.11 handoff with one consumer; the 20.1 phase list; the package manifest and `.gam` mapping; the catalogue and command docs; the spec links and anchors. Remove the live placeholder and any dead battle-phase code while retaining the schema-v1 empty-placeholder migration, then check every Done-when item with a named test or fixture.
 
 ## Boundaries
 
@@ -29,7 +29,7 @@ No new behaviour. If the sweep finds a missing rule, it is fixed in `battle.md` 
 
 3. **Phase list.** The phase list matches the 20.1 ruling; no `battle` core phase remains, and the phase test names the ruled list. Any dead branch that assumed a core phase is deleted.
 
-4. **Save barrel.** `BattleSection` is exported from the save barrel, the placeholder comment is gone, and the section appears once in the section list and once in the reset list.
+4. **Save barrel.** The live placeholder comment is gone; the schema-v1 empty-placeholder migration remains supported by its fixture; `BattleSection` is exported from the save barrel and appears once in the section list and once in the reset list.
 
 5. **Package manifest and `.gam`.** The `stock_battle` package is named in the manifest and mapped in `.gam` the same way as the other stock packages; its absence is the ruled "ends immediately" path, not a crash.
 
@@ -41,9 +41,13 @@ No new behaviour. If the sweep finds a missing rule, it is fixed in `battle.md` 
 - [ ] The phase, catalogue, command-docs, provenance and licence gates are green. These are repository gates, not a named `packages/core/test` test.
 - [ ] Every docs link and anchor in `battle.md` and its amendments resolves. No named core test checks these links.
 - [ ] Each Done-when item is checked with a test or fixture named in the PR. This is blocked by Epic 7.11, which remains intentionally unbuilt.
-- [ ] The placeholder and its comment are gone; the section is exported and reset exactly once. No named core test asserts all of these.
+- [ ] The live placeholder and its comment are gone; the schema-v1 empty-placeholder migration remains; the section is exported and reset exactly once. No named core test asserts all of these.
 - [ ] The full suite, typecheck and lint pass. No named core test proves these repository-wide gates.
 
 ## Verification
 
 The gates above, a link/anchor checker, a grep for the removed placeholder and dead phase code, and the full suite. The PR body carries the Done-when checklist with the evidence names.
+
+## Plan Change Log
+
+- 2026-10-26 (owner ruling, Jensen; applied by the director): “placeholder gone” refers to the live empty placeholder and stale comment; the schema-v1 empty-placeholder migration and its fixture remain.
