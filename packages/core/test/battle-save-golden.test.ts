@@ -1,9 +1,9 @@
 // Epic 7.2 save golden (#692, BAT-2/BAT-13): the same deterministic game saved
 // out of battle and mid-battle differs only under the root `battle` section.
-// Fixtures: fixtures/save/battle-v2-{out,mid}.json. Regenerate deliberately with
-// `UPDATE_GOLDEN=1`; the schema-v1 migration fixture `battle-v1.json` is untouched.
+// Fixtures: fixtures/save/battle-v2-{out,mid}.json. Regenerate deliberately by
+// writing `build()` output to the files; the schema-v1 migration fixture `battle-v1.json` is untouched.
 import { deepEqual, equal, ok } from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -26,8 +26,8 @@ function build(inBattle: boolean): string {
 
 function golden(name: string, actual: string): string {
   const path = join(dir, name);
-  if (process.env.UPDATE_GOLDEN === "1") writeFileSync(path, actual);
-  return readFileSync(path, "utf8");
+  equal(actual, readFileSync(path, "utf8"), `${name} drifted; regenerate it deliberately`);
+  return actual;
 }
 
 test("save golden: out-of-battle and mid-battle saves differ only under `battle`", () => {
