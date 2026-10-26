@@ -400,6 +400,23 @@ function validateVmShape(vm: Record<string, unknown>): void {
       arrayAt(frame.operands, `vm.threads[${index}].frames[${frameIndex}].operands`);
       if (frame.errorHandler !== null) recordAt(frame.errorHandler, `vm.threads[${index}].frames[${frameIndex}].errorHandler`);
       if (typeof frame.autoLocal !== "boolean") shapeError(`the snapshot's vm.threads[${index}].frames[${frameIndex}].autoLocal is invalid`);
+      if (frame.programRoot !== undefined) {
+        const rootPath = `vm.threads[${index}].frames[${frameIndex}].programRoot`;
+        const root = recordAt(frame.programRoot, rootPath);
+        if (Object.keys(root).sort().join(",") !== "restore") {
+          shapeError(`the snapshot's ${rootPath} must contain only restore`);
+        }
+        if (root.restore === null) {
+          if (frameIndex !== 0) shapeError(`the snapshot's ${rootPath}.restore may be null only on a replacement root`);
+        } else {
+          const restore = recordAt(root.restore, `${rootPath}.restore`);
+          if (Object.keys(restore).sort().join(",") !== "source,target" || frameIndex === 0) {
+            shapeError(`the snapshot's ${rootPath}.restore must be a caller pair on a nested program frame`);
+          }
+          if (restore.source !== null) stringAt(restore.source, `${rootPath}.restore.source`);
+          if (restore.target !== null) stringAt(restore.target, `${rootPath}.restore.target`);
+        }
+      }
     }
   }
   validateVmObjects(vm);

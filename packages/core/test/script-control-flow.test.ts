@@ -1,9 +1,13 @@
 // Control flow: if/elseif/else, while, until, for, switch, labels and control effects.
 import { equal } from "node:assert/strict";
+import { TextEncoder } from "node:util";
 import { test } from "node:test";
 import {
   advanceScriptTick,
+  assetKey,
+  createAssetIndex,
   createGameState,
+  PACKAGE_ROOT,
   hashState,
   restoreGameState,
   snapshot,
@@ -208,12 +212,20 @@ test("done and stop share end's full unwind semantics", () => {
   }
 });
 
-test("run abandons its caller and starts the replacement program", () => {
+test("run abandons its caller and starts the replacement file", () => {
+  const source = "child = 2\n";
+  const key = assetKey("Prg/child.prg");
+  const bytes = new TextEncoder().encode(source);
+  const loader = {
+    index: createAssetIndex(["Prg/child.prg"]),
+    root: PACKAGE_ROOT,
+    read: (asset: typeof key) => asset === key ? bytes : undefined,
+  };
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: 'before = 1\nrun("child = 2")\nafter = 3\n', compiler: "2" });
-  const services = createScriptServices(state);
-  advanceScriptTick(state, services);
-  advanceScriptTick(state, services);
+  startProgram(state.vm, { kind: "inline", text: 'before = 1\nrun("child.prg")\nafter = 3\n', compiler: "2" });
+  const services = createScriptServices(state, [], undefined, undefined, loader);
+  advanceOrFail(state, services);
+  advanceOrFail(state, services);
   equal(state.vm.globals.before, 1);
   equal(state.vm.globals.child, 2);
   equal(state.vm.globals.after, undefined);

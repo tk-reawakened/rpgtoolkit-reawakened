@@ -102,7 +102,8 @@ export type Frame = {
   objectClass?: string;
   /** Value supplied by a construction frame when it returns. */
   returnValue?: Value;
-  /** Object freed after a destructor frame returns. */
+  /** Named program boundary; a non-null restore pair marks nested executeProgram. */
+  programRoot?: { restore: { source: string | null; target: string | null } | null };
   /** The menu frame owned by this provider call; popped when this frame returns. */
   menuScreen?: string;
   /** Plain-data native parent continuation waiting for this RPGCode child. */
