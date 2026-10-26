@@ -368,6 +368,25 @@ function replyBytes(args: readonly Arg[], what: string): Uint8Array {
   return bytes;
 }
 
+const EMPTY_REQUEST_ARGS: readonly PlainData[] = [];
+
+function requestDataAsset(area: string, path: string, continuation: string, args: readonly PlainData[] = EMPTY_REQUEST_ARGS): CommandResult {
+  return { value: null, request: { kind: "asset", area, path }, then: { command: continuation, args } };
+}
+
+function dataAssetContinuation<T>(
+  what: string,
+  formatCode: string,
+  parse: (reader: BinaryReader) => Result<T>,
+  complete: (view: CommandView, args: readonly Arg[], data: T) => CommandResult,
+): BuiltinSpec["call"] {
+  return (view, args) => {
+    const data = parse(new BinaryReader(replyBytes(args, what)));
+    if (!data.ok) throw new ScriptError(formatCode, data.error.message);
+    return complete(view, args, data.value);
+  };
+}
+
 function statusFileReply(args: readonly Arg[]): Result<StatusEffect> {
   return readStatusEffect(new BinaryReader(replyBytes(args, "status effect")));
 }
@@ -436,29 +455,27 @@ const STATUS_FLAGS = {
     then: { command: "__battle_status_flags_asset", args: [statusPath(text(args, 0))] },
   }),
 } satisfies BuiltinSpec;
-function statusDataContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
-  const status = statusFileReply(args);
-  if (!status.ok) throw new ScriptError("format.status-effect", status.error.message);
-  diagnoseStatusDuration(view, text(args, 2), status.value.rounds);
-  const object = createObject(view.state!.vm, null);
-  writeMember(object, "rounds", status.value.rounds);
-  writeMember(object, "speed", status.value.speedUp !== 0 ? 1 : 0);
-  writeMember(object, "slow", status.value.slowDown !== 0 ? 1 : 0);
-  writeMember(object, "disable", status.value.disable !== 0 ? 1 : 0);
-  writeMember(object, "hp", status.value.hpEnabled !== 0 ? 1 : 0);
-  writeMember(object, "hpamount", status.value.hpPerRound);
-  writeMember(object, "smp", status.value.smpEnabled !== 0 ? 1 : 0);
-  writeMember(object, "smpamount", status.value.smpPerRound);
-  writeMember(object, "runprogram", status.value.runProgram !== 0 ? 1 : 0);
-  writeMember(object, "program", status.value.program);
-  return { value: { kind: "object", handle: object.handle, className: object.className } };
-}
 
 const STATUS_DATA_ASSET = {
   name: "__battle_status_data_asset", aliases: [], params: [parameter("ok"), parameter("bytes"), parameter("file")],
   doc: internalDocumentation("Resume a StatusE data request.", "Reads the `.ste` asset and returns its duration, normalized flags, signed per-round HP/SMP values and program reference."),
-  call: statusDataContinuation,
+  call: dataAssetContinuation("status effect", "format.status-effect", readStatusEffect, (view, args, status) => {
+    diagnoseStatusDuration(view, text(args, 2), status.rounds);
+    const object = createObject(view.state!.vm, null);
+    writeMember(object, "rounds", status.rounds);
+    writeMember(object, "speed", status.speedUp !== 0 ? 1 : 0);
+    writeMember(object, "slow", status.slowDown !== 0 ? 1 : 0);
+    writeMember(object, "disable", status.disable !== 0 ? 1 : 0);
+    writeMember(object, "hp", status.hpEnabled !== 0 ? 1 : 0);
+    writeMember(object, "hpamount", status.hpPerRound);
+    writeMember(object, "smp", status.smpEnabled !== 0 ? 1 : 0);
+    writeMember(object, "smpamount", status.smpPerRound);
+    writeMember(object, "runprogram", status.runProgram !== 0 ? 1 : 0);
+    writeMember(object, "program", status.program);
+    return { value: { kind: "object", handle: object.handle, className: object.className } };
+  }),
 } satisfies BuiltinSpec;
+
 
 const STATUS_DATA = {
   name: "statusdata", aliases: [], params: [parameter("file")],
@@ -472,11 +489,10 @@ const STATUS_DATA = {
       { code: "format.status-effect", when: "the bytes are not a valid StatusE `.ste` file" },
     ],
   },
-  call: (_view: CommandView, args: readonly Arg[]) => ({
-    value: null,
-    request: { kind: "asset", area: "statusEffects", path: statusPath(text(args, 0)) },
-    then: { command: "__battle_status_data_asset", args: [statusPath(text(args, 0))] },
-  }),
+  call: (_view: CommandView, args: readonly Arg[]) => {
+    const path = statusPath(text(args, 0));
+    return requestDataAsset("statusEffects", path, "__battle_status_data_asset", [path]);
+  },
 } satisfies BuiltinSpec;
 
 
@@ -1095,15 +1111,11 @@ const REAWAKENED = [GROUP, "reawakened-additions-not-part-of-the-282-legacy-cata
 const MOVE_ASSET = {
   name: "__battle_move_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
   doc: internalDocumentation("Resume a special-move asset request.", "Reads the `.spc` bytes and returns only the normalized battle fields as a dictionary with lowercase keys.", [...ASSET_REPLY_THROWS, { code: "format.special-move", when: "the bytes are not a valid special move `.spc` file" }]),
-  call: (view: CommandView, args: readonly Arg[]): CommandResult => {
-    const move = readSpecialMove(new BinaryReader(replyBytes(args, "special move")));
-    if (!move.ok) throw new ScriptError("format.special-move", move.error.message);
-    return dictionary(view, {
-      fp: move.value.damage, smp: move.value.smpCost, targetsmp: move.value.targetSmpDrain,
-      animation: move.value.animation, program: move.value.program, statuseffect: move.value.statusEffect,
-      battle: move.value.usableInBattle, menu: move.value.usableFromMenu,
-    });
-  },
+  call: dataAssetContinuation("special move", "format.special-move", readSpecialMove, (view, _args, move) => dictionary(view, {
+    fp: move.damage, smp: move.smpCost, targetsmp: move.targetSmpDrain,
+    animation: move.animation, program: move.program, statuseffect: move.statusEffect,
+    battle: move.usableInBattle, menu: move.usableFromMenu,
+  })),
 } satisfies BuiltinSpec;
 
 const MOVE_DATA = {
@@ -1114,20 +1126,19 @@ const MOVE_DATA = {
     groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
     throws: [...ASSET_REPLY_THROWS, { code: "format.special-move", when: "the bytes are not a valid special move `.spc` file" }, { code: "builtin.bad-arg", when: "the file name is empty" }],
   },
-  call: (_view: CommandView, args: readonly Arg[]) => {
-    const path = assetPath(text(args, 0), "SpcMove", ".spc", "battlemovedata");
-    return { value: null, request: { kind: "asset", area: "specialMoves", path }, then: { command: "__battle_move_asset", args: [] } };
-  },
+  call: (_view: CommandView, args: readonly Arg[]) => requestDataAsset(
+    "specialMoves",
+    assetPath(text(args, 0), "SpcMove", ".spc", "battlemovedata"),
+    "__battle_move_asset",
+  ),
 } satisfies BuiltinSpec;
 
 const ITEM_ASSET = {
   name: "__battle_item_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
   doc: internalDocumentation("Resume an item asset request for battle data.", "Reads the `.itm` bytes and returns only the battle-use HP, SMP, animation and program as a dictionary with lowercase keys.", [...ASSET_REPLY_THROWS, { code: "format.item", when: "the bytes are not a valid item `.itm` file" }]),
-  call: (view: CommandView, args: readonly Arg[]): CommandResult => {
-    const item = readItem(new BinaryReader(replyBytes(args, "item")));
-    if (!item.ok) throw new ScriptError("format.item", item.error.message);
-    return dictionary(view, { hp: item.value.battleUseHp, smp: item.value.battleUseSmp, animation: item.value.battleAnimation, program: item.value.battleUseProgram });
-  },
+  call: dataAssetContinuation("item", "format.item", readItem, (view, _args, item) => dictionary(view, {
+    hp: item.battleUseHp, smp: item.battleUseSmp, animation: item.battleAnimation, program: item.battleUseProgram,
+  })),
 } satisfies BuiltinSpec;
 
 const ITEM_DATA = {
@@ -1138,10 +1149,11 @@ const ITEM_DATA = {
     groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
     throws: [...ASSET_REPLY_THROWS, { code: "format.item", when: "the bytes are not a valid item `.itm` file" }, { code: "builtin.bad-arg", when: "the file name is empty" }],
   },
-  call: (_view: CommandView, args: readonly Arg[]) => {
-    const path = assetPath(text(args, 0), "Item", ".itm", "battleitemdata");
-    return { value: null, request: { kind: "asset", area: "items", path }, then: { command: "__battle_item_asset", args: [] } };
-  },
+  call: (_view: CommandView, args: readonly Arg[]) => requestDataAsset(
+    "items",
+    assetPath(text(args, 0), "Item", ".itm", "battleitemdata"),
+    "__battle_item_asset",
+  ),
 } satisfies BuiltinSpec;
 
 // Battle stance slots. Characters store FIGHT, DEFEND, SPECIAL MOVE, DIE, REST; enemies store REST, FIGHT, DEFEND, SPECIAL MOVE, DIE.
@@ -1193,23 +1205,18 @@ const ANIMATION_FILE = {
     };
   },
 } satisfies BuiltinSpec;
-function battleBackgroundDataContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
-  const background = readBattleBackground(new BinaryReader(replyBytes(args, "battle background")));
-  if (!background.ok) throw new ScriptError("format.battle-background", background.error.message);
-  return dictionary(view, {
-    image: background.value.image,
-    music: background.value.music,
-    selectsound: background.value.menuMoveSound,
-    choosesound: background.value.menuChooseSound,
-    readysound: background.value.readySound,
-    cantsound: background.value.cantDoSound,
-  });
-}
 
 const BACKGROUND_DATA_ASSET = {
   name: "__battle_background_data_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
   doc: internalDocumentation("Resume a battle-background asset request.", "Reads the `.bkg` bytes and returns the documented battle background values as a plain-data dictionary.", [...ASSET_REPLY_THROWS, { code: "format.battle-background", when: "the bytes are not a valid fight-background `.bkg` file" }]),
-  call: battleBackgroundDataContinuation,
+  call: dataAssetContinuation("battle background", "format.battle-background", readBattleBackground, (view, _args, background) => dictionary(view, {
+    image: background.image,
+    music: background.music,
+    selectsound: background.menuMoveSound,
+    choosesound: background.menuChooseSound,
+    readysound: background.readySound,
+    cantsound: background.cantDoSound,
+  })),
 } satisfies BuiltinSpec;
 
 const BACKGROUND_DATA = {
@@ -1227,42 +1234,33 @@ const BACKGROUND_DATA = {
   call: (view: CommandView): CommandResult => {
     const background = resolve(owner(view).background());
     if (background === "") return { value: null };
-    return {
-      value: null,
-      request: {
-        kind: "asset",
-        area: "backgrounds",
-        path: assetPath(background, "Bkrounds", ".bkg", "battlebackgrounddata"),
-      },
-      then: { command: "__battle_background_data_asset", args: [] },
-    };
+    return requestDataAsset(
+      "backgrounds",
+      assetPath(background, "Bkrounds", ".bkg", "battlebackgrounddata"),
+      "__battle_background_data_asset",
+    );
   },
 } satisfies BuiltinSpec;
-
-
-function enemyDataContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
-  const enemy = readEnemy(new BinaryReader(replyBytes(args, "enemy")));
-  if (!enemy.ok) throw new ScriptError("format.enemy", enemy.error.message);
-  const specialMoves = createObject(view.state!.vm, null);
-  enemy.value.specialMoves.forEach((file, index) => writeMember(specialMoves, String(index), file));
-  return dictionary(view, {
-    specialmoves: { kind: "object", handle: specialMoves.handle, className: specialMoves.className },
-    specialcount: enemy.value.specialMoves.length,
-    ailevel: enemy.value.aiLevel,
-    customai: enemy.value.customAi,
-    aiprogram: enemy.value.aiProgram,
-    canrun: enemy.value.canRun,
-    experience: enemy.value.experienceReward,
-    gold: enemy.value.goldReward,
-    defeatprogram: enemy.value.defeatProgram,
-    runawayprogram: enemy.value.runAwayProgram,
-  });
-}
 
 const ENEMY_DATA_ASSET = {
   name: "__battle_enemy_data_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
   doc: internalDocumentation("Resume an enemy asset request.", "Reads the `.ene` bytes and returns battle AI and outcome settings as a plain-data dictionary.", [...ASSET_REPLY_THROWS, { code: "format.enemy", when: "the bytes are not a valid enemy `.ene` file" }]),
-  call: enemyDataContinuation,
+  call: dataAssetContinuation("enemy", "format.enemy", readEnemy, (view, _args, enemy) => {
+    const specialMoves = createObject(view.state!.vm, null);
+    enemy.specialMoves.forEach((file, index) => writeMember(specialMoves, String(index), file));
+    return dictionary(view, {
+      specialmoves: { kind: "object", handle: specialMoves.handle, className: specialMoves.className },
+      specialcount: enemy.specialMoves.length,
+      ailevel: enemy.aiLevel,
+      customai: enemy.customAi,
+      aiprogram: enemy.aiProgram,
+      canrun: enemy.canRun,
+      experience: enemy.experienceReward,
+      gold: enemy.goldReward,
+      defeatprogram: enemy.defeatProgram,
+      runawayprogram: enemy.runAwayProgram,
+    });
+  }),
 } satisfies BuiltinSpec;
 
 const ENEMY_DATA = {
@@ -1280,24 +1278,15 @@ const ENEMY_DATA = {
   },
   call: (view: CommandView, args: readonly Arg[]) => {
     const actor = battleActorFromHandle(view, 0, args[0]?.value);
-    return {
-      value: null,
-      request: { kind: "asset", area: "enemies", path: actor.source },
-      then: { command: "__battle_enemy_data_asset", args: [] },
-    };
+    return requestDataAsset("enemies", actor.source, "__battle_enemy_data_asset");
   },
 } satisfies BuiltinSpec;
-
-function characterDataContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
-  const character = readCharacter(new BinaryReader(replyBytes(args, "character")));
-  if (!character.ok) throw new ScriptError("format.character", character.error.message);
-  return dictionary(view, { levelupprogram: character.value.levelUpProgram });
-}
 
 const CHARACTER_DATA_ASSET = {
   name: "__battle_character_data_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
   doc: internalDocumentation("Resume a character asset request.", "Reads the `.cha` bytes and returns the level-up program reference as a plain-data dictionary.", [...ASSET_REPLY_THROWS, { code: "format.character", when: "the bytes are not a valid character `.cha` file" }]),
-  call: characterDataContinuation,
+  call: dataAssetContinuation("character", "format.character", readCharacter, (view, _args, character) =>
+    dictionary(view, { levelupprogram: character.levelUpProgram })),
 } satisfies BuiltinSpec;
 
 const CHARACTER_DATA = {
@@ -1316,11 +1305,7 @@ const CHARACTER_DATA = {
   call: (view: CommandView, args: readonly Arg[]) => {
     const actor = battleActorFromHandle(view, 1, args[0]?.value);
     if (actor.source === "") return dictionary(view, { levelupprogram: "" });
-    return {
-      value: null,
-      request: { kind: "asset", area: "characters", path: actor.source },
-      then: { command: "__battle_character_data_asset", args: [] },
-    };
+    return requestDataAsset("characters", actor.source, "__battle_character_data_asset");
   },
 } satisfies BuiltinSpec;
 
