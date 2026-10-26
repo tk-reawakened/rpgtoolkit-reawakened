@@ -343,6 +343,52 @@ test("status programs run in upper-case filename order with status context", () 
   equal(globals(rig.state).statusprogramtarget, String(rig.enemies[0]!.id));
 });
 
+test("status programs observe HP and SMP effects before the counter ages", () => {
+  const rig = makeState({ enemyStatuses: { "order.ste": 2 } });
+  rig.services.actors.updateStats(rig.enemies[0]!.id, { hp: 11, smp: 5 }, { cause: "script", source: null });
+  const poll = statusPoll(rig.state, {
+    "order.ste": {
+      rounds: 2,
+      hp: 1,
+      hpAmount: 4,
+      smp: 1,
+      smpAmount: 3,
+      runProgram: 1,
+      program: "battle-status-record.prg",
+    },
+  });
+  startUntilFirstSleep(rig, poll);
+  setCharge(rig.state, 0, 0, 123);
+  tick(rig.state, rig.services, STEP_BUDGET, poll);
+
+  equal(globals(rig.state).statusprogramhp, 7);
+  equal(globals(rig.state).statusprogramsmp, 2);
+  equal(globals(rig.state).statusprogramsignature, '{"order.ste":2}');
+  equal(rig.state.actors.actors[0]?.stats.hp, 7);
+  equal(rig.state.actors.actors[0]?.stats.smp, 2);
+  deepEqual(rig.state.actors.actors[0]?.statuses, { "order.ste": 1 });
+  equal(globals(rig.state).turncount, 1);
+});
+
+test("signed status amounts heal and damage while clamping HP and SMP at both bounds", () => {
+  const cases = [
+    { status: "heal.ste", hp: 19, smp: 9, amount: -5, expectedHp: 20, expectedSmp: 10 },
+    { status: "damage.ste", hp: 2, smp: 3, amount: 20, expectedHp: 0, expectedSmp: 0 },
+  ] as const;
+  for (const item of cases) {
+    const rig = makeState({ enemyStatuses: { [item.status]: 1 } });
+    rig.services.actors.updateStats(rig.enemies[0]!.id, { hp: item.hp, smp: item.smp }, { cause: "script", source: null });
+    const poll = statusPoll(rig.state, {
+      [item.status]: { rounds: 2, hp: 1, hpAmount: item.amount, smp: 1, smpAmount: item.amount },
+    });
+    startUntilFirstSleep(rig, poll);
+    setCharge(rig.state, 0, 0, 123);
+    tick(rig.state, rig.services, STEP_BUDGET, poll);
+    equal(rig.state.actors.actors[0]?.stats.hp, item.expectedHp, `${item.status} HP`);
+    equal(rig.state.actors.actors[0]?.stats.smp, item.expectedSmp, `${item.status} SMP`);
+  }
+});
+
 test("a per-round program error is reported while the status turn and battle continue", () => {
   const rig = makeState({ enemyStatuses: { "broken.ste": 0, "good.ste": 0 } });
   const poll = statusPoll(rig.state, {
