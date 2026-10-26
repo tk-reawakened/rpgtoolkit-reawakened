@@ -37,13 +37,14 @@ No damage formulas (7.5) and no AI (7.7). The core owns the status data, lifetim
 
 ## Acceptance
 
-- [ ] Apply, re-apply, remove and expire behave as ruled; re-apply restarts the rounds and does not duplicate the entry. The merged PR body does not establish apply/re-apply/remove behavior.
-- [ ] A per-round HP, SMP and program effect runs exactly once per round, at the fighter's charged boundary. The merged PR body confirms ordered HP/SMP/program effects before aging counters, but does not establish the once-per-round boundary.
-- [ ] Speed and slow stack per active effect; disable freezes only while at least one disable is active and unfreezes on the last removal. The merged PR body notes cached speed/slow and disable contributions, but does not establish this full behavior.
-- [x] A lethal status fires `fallen` once with cause `status`.
-- [ ] For an enemy, the package then emits `defeated` once (7.8). The merged PR body explicitly says it does not emit `defeated`, following the issue and spec.
-- [ ] Status state is saved with the actor and a save/restore replays identically; statuses are absent from the `battle` section. The merged PR body confirms plain package state and snapshot/restore tests, but does not establish this exact storage boundary.
-- [ ] A program error in a per-round effect is reported and does not abort the battle. The merged PR body does not address program-error handling.
+- [x] Apply, re-apply, remove and expire behave as ruled; re-apply restarts the rounds and does not duplicate the entry. Tests: `battle-loop.test.ts` — “reapplying a case-insensitive status restarts one counter; HP and SMP effects run before each turn and expire”; `actor-rules.test.ts` — “actor status owner restarts counters, removes identities, and emits ordinary transitions”.
+- [x] A per-round HP, SMP and program effect runs exactly once per round, at the fighter's charged boundary. Tests: `battle-loop.test.ts` — “reapplying a case-insensitive status restarts one counter; HP and SMP effects run before each turn and expire”; “status programs run in upper-case filename order with status context”.
+- [x] Speed and slow stack per active effect; disable freezes only while at least one disable is active and unfreezes on the last removal. Tests: `battle-loop.test.ts` — “speed, slow, multiple status files, and zero-round counters produce the unbounded exact rate”; “disable reference-counts active status files, clamps ready charge, and resumes after the last owner removal”.
+- [x] A lethal status fires `fallen` once with cause `status`. Test: `battle-loop.test.ts` — “lethal status HP fires one fallen event with cause status without cancelling the turn”.
+- [ ] For an enemy, the package then emits `defeated` once (7.8). This clause belongs to 7.8; the merged test establishes `fallen` but no `defeated` behavior.
+- [x] Status state is saved with the actor and a save/restore replays identically. Tests: `battle-loop.test.ts` — “a budget-preempted status pass restores and resumes as plain deterministic state”; “status cache restores identically both before and after a mid-battle status change is refreshed”.
+- [ ] Statuses are absent from the `battle` section. The cited tests demonstrate actor status state but do not assert that the battle section lacks status data.
+- [x] A program error in a per-round effect is reported and does not abort the battle. Test: `battle-loop.test.ts` — “a per-round program error is reported while the status turn and battle continue”.
 
 ## Verification
 
