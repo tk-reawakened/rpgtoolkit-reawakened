@@ -2532,6 +2532,7 @@ function dispatchResolved(
             thread.wait = null;
             thread.detached = [];
             thread.collect = null;
+            return "yield";
           }
           controlApplied = true;
         }

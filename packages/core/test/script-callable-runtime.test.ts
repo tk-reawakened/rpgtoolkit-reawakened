@@ -283,7 +283,7 @@ test("a callable made in one program is callable from the program a run() starts
   });
   const state = createGameState({ seed: 0 });
   startProgram(state.vm, fileProgramRef(loader, "main.prg"));
-  // `run()` replaces the current frame chain; the replacement executes on the same thread.
+  // `run()` yields its turn, so the program it starts runs on the next tick.
   runToRest(state, createScriptServices(state, [], undefined, undefined, loader));
 
   equal(state.vm.globals.r, 6);
