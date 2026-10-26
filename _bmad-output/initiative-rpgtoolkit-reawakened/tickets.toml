@@ -101,7 +101,7 @@ after = [{ epic = 4, needs = "draw lists to replay" }, { epic = 6, needs = "audi
 [[epic]]
 id = 10
 slug = "epic-rpgcode-tooling"
-title = "RPGCode language server and debug adapter"
+title = "RPGCode language tooling: language server, linter, formatter, test framework, help and debug adapter"
 covers = ["CAP-14"]
 after = [{ epic = 3, needs = "the parser and the VM" }, { epic = 4, needs = "breakpoints, the open-tick cursor and the pause, resume and one-instruction step contract (4.30) for the debug adapter" }]
 
