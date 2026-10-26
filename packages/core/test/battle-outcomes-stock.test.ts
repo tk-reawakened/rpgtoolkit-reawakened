@@ -464,7 +464,7 @@ test("a successful seeded run skips later turns but ticks later statuses, runs o
   equal(globals(rig).firstrunprogramcount ?? 0, 0, "only the last enemy's non-empty run program runs");
   equal(globals(rig).levelprogramcount, 0);
   equal(rig.state.vm.effects.some((effect) => effect.patch?.section === "inventory"), false);
-  equal(seededRunValue(seed, 4), 2, "the successful edge draw is the second value in [0, 5)");
+  equal(seededRunValue(seed, 4), 2, "the upper successful result of random(5)");
   ok(rig.messages.includes("Escaped."));
 });
 
