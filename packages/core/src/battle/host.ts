@@ -42,6 +42,7 @@ export function createBattleHostType(): HostObjectType {
       if (owner === undefined) throw new ScriptError("battle.not-active", "there is no active battle");
       switch (name.toLowerCase()) {
         case "canrun": return resolve(owner.canRun()) ? 1 : 0;
+        case "background": return resolve(owner.background());
         case "outcome": return resolve(owner.outcome());
         default: return undefined;
       }
@@ -49,7 +50,7 @@ export function createBattleHostType(): HostObjectType {
     write() {
       return "read-only";
     },
-    readOnlyMembers: ["canRun", "outcome"],
+    readOnlyMembers: ["canRun", "background", "outcome"],
     remove() {
       return "system-owned";
     },

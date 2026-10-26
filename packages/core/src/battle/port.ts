@@ -28,6 +28,7 @@ export type BattleOwner = {
   charge(party: number, index: number): BattleOperationResult<number>;
   chargePercent(party: number, index: number): BattleOperationResult<number>;
   canRun(): BattleOperationResult<boolean>;
+  background(): BattleOperationResult<string>;
   outcome(): BattleOperationResult<BattleState["outcome"]>;
   /** Resolve an automatic outcome after the stock pass has applied its loss/run/win precedence. */
   decideOutcome(code: number): BattleOperationResult<null>;
@@ -104,6 +105,10 @@ export function createBattleOwner(store: BattleOwnerStore): BattleOwner {
     canRun() {
       const current = active();
       return current.ok ? success(current.value.canRun) : current;
+    },
+    background() {
+      const current = active();
+      return current.ok ? success(current.value.background) : current;
     },
     outcome() {
       const current = active();

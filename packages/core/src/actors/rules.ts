@@ -606,7 +606,7 @@ export function completeLegacyBattleLevelStep(
     if (nextRequirement <= 0) throw new RangeError("invalid actor progression threshold");
     nextRemaining = safeAdd(remainingExperience, nextRequirement, "remaining experience");
   }
-  patchActor(section, stableId, { stats, progression: { remainingExperience: nextRemaining, nextRequirement } });
+  patchActor(section, stableId, { stats, progression: { remainingExperience: nextRemaining < 0 ? 0 : nextRemaining, nextRequirement } });
   const current = getActor(section, stableId);
   if (current === null) return null;
   const transitions: ActorTransition[] = [{

@@ -1,5 +1,6 @@
 import type { StatusEffect } from "../../formats/battle/model.ts";
 import { readSpecialMove } from "../../formats/battle/special-move.ts";
+import { readBattleBackground } from "../../formats/battle/battle-background.ts";
 import { readCharacter } from "../../formats/actor/character.ts";
 import { readEnemy } from "../../formats/actor/enemy.ts";
 import { readItem } from "../../formats/actor/item.ts";
@@ -511,11 +512,13 @@ function rewardAmount(view: CommandView, rewards: Value | undefined, field: "exp
   return value;
 }
 
-function stockBattleActive(view: CommandView): boolean {
+function markStockBattleOutcomePending(view: CommandView): boolean {
   const value = view.state?.vm.globals.stockbattle;
   if (typeof value !== "object" || value === null || !("kind" in value) || value.kind !== "object") return false;
   const object = findObject(view.state!.vm, value.handle);
-  return object !== undefined && readMember(object, "active") === 1;
+  if (object === undefined || readMember(object, "active") !== 1) return false;
+  writeMember(object, "coreoutcomepending", 1);
+  return true;
 }
 
 function battleSlotActor(view: CommandView, party: 0 | 1, index: number) {
@@ -845,6 +848,52 @@ const ANIMATION_FILE = {
     };
   },
 } satisfies BuiltinSpec;
+function battleBackgroundDataContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
+  const background = readBattleBackground(new BinaryReader(replyBytes(args, "battle background")));
+  if (!background.ok) throw new ScriptError("format.battle-background", background.error.message);
+  return dictionary(view, {
+    image: background.value.image,
+    music: background.value.music,
+    selectsound: background.value.menuMoveSound,
+    choosesound: background.value.menuChooseSound,
+    readysound: background.value.readySound,
+    cantsound: background.value.cantDoSound,
+  });
+}
+
+const BACKGROUND_DATA_ASSET = {
+  name: "__battle_background_data_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
+  doc: internalDocumentation("Resume a battle-background asset request.", "Reads the `.bkg` bytes and returns the documented battle background values as a plain-data dictionary.", [...ASSET_REPLY_THROWS, { code: "format.battle-background", when: "the bytes are not a valid fight-background `.bkg` file" }]),
+  call: battleBackgroundDataContinuation,
+} satisfies BuiltinSpec;
+
+const BACKGROUND_DATA = {
+  name: "battlebackgrounddata", aliases: [], params: [],
+  doc: {
+    summary: "Read the active battle's background settings.",
+    behaviour: "Reads the active battle's `.bkg` file without changing battle state and returns `{ image, music, selectsound, choosesound, readysound, cantsound }`, preserving the stored file names. Returns null when the active battle has no background.",
+    groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
+    throws: [
+      { code: "battle.not-active", when: "there is no active battle" },
+      ...ASSET_REPLY_THROWS,
+      { code: "format.battle-background", when: "the bytes are not a valid fight-background `.bkg` file" },
+    ],
+  },
+  call: (view: CommandView): CommandResult => {
+    const background = resolve(owner(view).background());
+    if (background === "") return { value: null };
+    return {
+      value: null,
+      request: {
+        kind: "asset",
+        area: "backgrounds",
+        path: assetPath(background, "Bkrounds", ".bkg", "battlebackgrounddata"),
+      },
+      then: { command: "__battle_background_data_asset", args: [] },
+    };
+  },
+} satisfies BuiltinSpec;
+
 
 function enemyDataContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
   const enemy = readEnemy(new BinaryReader(replyBytes(args, "enemy")));
@@ -1272,7 +1321,7 @@ const FINISH = {
   call: (view: CommandView, args: readonly Arg[]) => {
     const code = numeric(args, 1);
     resolve(owner(view).apply({ type: "finish", code }));
-    return !stockBattleActive(view) && (code === 0 || code === 2 || code === 4)
+    return !markStockBattleOutcomePending(view) && (code === 0 || code === 2 || code === 4)
       ? { value: null, effects: [outcomeAdapterEffect()] }
       : { value: null };
   },
@@ -1352,7 +1401,7 @@ export const BATTLE_COMMANDS: readonly BuiltinSpec[] = [
   PARTY_SIZE, FIGHTER, AI, CHARGE, ADD_CHARGE, SET_CHARGE, RELEASE_CHARGE, CHARGE_PERCENT, FINISH,
   HP, GIVE_HP, GET_HP, MAX_HP, GET_MAX_HP, SMP, GIVE_SMP, GET_SMP, MAX_SMP, GET_MAX_SMP,
   FP, GIVE_FP, GET_FP, DP, GET_DP, GIVE_EXP, APPLY_STATUS, REMOVE_STATUS, STATUS_DATA, STATUS_ASSET, GET_STATUS, STATUS_FLAGS, STATUS_FLAGS_ASSET, STATUS_DATA_ASSET,
-  MOVE_DATA, MOVE_ASSET, ITEM_DATA, ITEM_ASSET, ENEMY_DATA, ENEMY_DATA_ASSET, CHARACTER_DATA, CHARACTER_DATA_ASSET, ANIMATION_FILE, ANIMATION_ASSET, CONSUME, UNAFFORDABLE, INTEGER_MUL_DIV,
+  MOVE_DATA, MOVE_ASSET, ITEM_DATA, ITEM_ASSET, ENEMY_DATA, ENEMY_DATA_ASSET, CHARACTER_DATA, CHARACTER_DATA_ASSET, BACKGROUND_DATA, BACKGROUND_DATA_ASSET, ANIMATION_FILE, ANIMATION_ASSET, CONSUME, UNAFFORDABLE, INTEGER_MUL_DIV,
   STATUS_SIGNATURE, PROGRAM_CONTEXT, STATUS_DELTA, STATUS_ADVANCE,
   OUTCOME_REWARDS, GAME_OVER_PROGRAM, END_LOSS, GAIN_GOLD, BATTLE_ACTOR_REF, EXPERIENCE_BEGIN,
   EXPERIENCE_STEP_READY, LEVELUP_CONTEXT, EXPERIENCE_STEP, APPLY_OUTCOME,
@@ -1364,7 +1413,7 @@ export const BATTLE_PLUGIN: PluginDefinition = {
   doc: {
     summary: "For game scripts, inspect active fighters, read or update stored charge, and record a battle outcome through the battle owner.",
     groups: [
-      { id: GROUP, name: "Battle, stats & menus", summary: "`battle.partySize`, `battle.fighter`, charge methods (`battle.charge`, `battle.addCharge`, `battle.setCharge`, `battle.releaseCharge`, `battle.chargePercent`), and `battle.finish` are synchronous owner-mediated operations requiring an active battle. Party is 0 for enemies and 1 for the player's ordered party; indexes are zero-based. Invalid party/index/position is `battle.bad-fighter`; no active battle is `battle.not-active`. `battle.canRun` is read-only and returns 1 when the section flag is true or 0 when false; `battle.outcome` is read-only and is null until finish records a code from 0 through 4. `battle.fighter` returns the canonical actor object." },
+      { id: GROUP, name: "Battle, stats & menus", summary: "`battle.partySize`, `battle.fighter`, charge methods (`battle.charge`, `battle.addCharge`, `battle.setCharge`, `battle.releaseCharge`, `battle.chargePercent`), and `battle.finish` are synchronous owner-mediated operations requiring an active battle. Party is 0 for enemies and 1 for the player's ordered party; indexes are zero-based. Invalid party/index/position is `battle.bad-fighter`; no active battle is `battle.not-active`. `battle.canRun`, `battle.background` and `battle.outcome` are read-only; `battlebackgrounddata()` reads the selected `.bkg` settings for the package. `battle.fighter` returns the canonical actor object." },
       { id: "internal", name: "Internal", summary: "Deterministic host continuations for battle methods and StatusE requests." },
     ],
   },
