@@ -332,7 +332,7 @@ test("engine runs the fixed phase order, registers audio after animation, and pa
   deepEqual(phases, ["events:0", "movement:0", "audio:0", "events:1", "movement:1", "audio:1"]);
 });
 
-test("engine displays no-enemies handoffs, reports custom starts for owner ruling, and rejects absent stock_battle", () => {
+test("engine displays no-enemies handoffs, runs custom starts as a program, and rejects absent stock_battle", () => {
   let triggerCount = 0;
   const observed: { state: GameState | null } = { state: null };
   const uiEffects: EffectRecord[] = [];
@@ -399,7 +399,8 @@ test("engine displays no-enemies handoffs, reports custom starts for owner rulin
   engine.advance(1, []);
   const missingPackage = engine.advance(1, []);
   equal(missingPackage.diagnostics.some((diagnostic) => diagnostic.code === "battle.package-missing"), true);
-  equal(missingPackage.diagnostics.some((diagnostic) => diagnostic.code === "battle.custom-fight-owner-ruling"), true);
+  const missingProgram = engine.advance(1, []);
+  equal(missingProgram.diagnostics.some((diagnostic) => diagnostic.code === "program.missing"), true, "a custom request whose program is not in the asset index reports program.missing");
   equal(observed.state?.battle, null);
 });
 

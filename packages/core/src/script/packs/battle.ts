@@ -13,7 +13,7 @@ import type { ActorId, ActorStats } from "../../actors/model.ts";
 import { actorInputFromEnemy } from "../../actors/hydrate.ts";
 import { registerActorObject } from "../../actors/object.ts";
 import type { BattleAction, BattleOperationResult } from "../../battle/port.ts";
-import type { Value } from "../../ports/value.ts";
+import type { ObjectValue, Value } from "../../ports/value.ts";
 import type { ObjectRecord } from "../state.ts";
 import type { Arg, BuiltinDoc, BuiltinSpec, ParamSpec } from "../builtins.ts";
 import { ScriptError } from "../errors.ts";
@@ -707,38 +707,58 @@ function decodeHandoffJson(encoded: string): string {
   return decoded;
 }
 
-function handoffBattleStart(view: CommandView, args: readonly Arg[]): CommandResult {
-  let handoff: unknown;
+type EncounterRequest = {
+  readonly record: Readonly<Record<string, unknown>>;
+  readonly board: { readonly key: string; readonly skill: number; readonly background: string };
+  readonly actor: {
+    readonly id: string;
+    readonly kind: "player";
+    readonly index: number;
+    readonly source: string;
+    readonly x: number;
+    readonly y: number;
+    readonly layer: number;
+  };
+};
+
+/** Decode and validate the plain-data board and player that every 5.11 encounter request carries. */
+function decodeEncounterRequest(args: readonly Arg[], label: string): EncounterRequest {
+  let decoded: unknown;
   try {
-    handoff = JSON.parse(decodeHandoffJson(text(args, 0)));
+    decoded = JSON.parse(decodeHandoffJson(text(args, 0)));
   } catch {
-    throw new ScriptError("battle.bad-handoff", "random battle handoff is not valid JSON");
+    throw new ScriptError("battle.bad-handoff", `${label} is not valid JSON`);
   }
-  if (typeof handoff !== "object" || handoff === null || Array.isArray(handoff)) {
-    throw new ScriptError("battle.bad-handoff", "random battle handoff is not an object");
+  if (typeof decoded !== "object" || decoded === null || Array.isArray(decoded)) {
+    throw new ScriptError("battle.bad-handoff", `${label} is not an object`);
   }
-  const record = handoff as Record<string, unknown>;
+  const record = decoded as Record<string, unknown>;
   const board = record.board;
   const actor = record.actor;
   if (typeof board !== "object" || board === null || Array.isArray(board) ||
       typeof actor !== "object" || actor === null || Array.isArray(actor)) {
-    throw new ScriptError("battle.bad-handoff", "random battle handoff requires board and actor records");
+    throw new ScriptError("battle.bad-handoff", `${label} requires board and actor records`);
   }
-  const boardRecord = board as Record<string, unknown>;
-  const actorRecord = actor as Record<string, unknown>;
+  const { key, skill, background } = board as Record<string, unknown>;
+  const { id, kind, index, source, x, y, layer } = actor as Record<string, unknown>;
   if (
     record.trigger !== "random" ||
-    typeof boardRecord.key !== "string" || boardRecord.key === "" ||
-    typeof boardRecord.skill !== "number" || !Number.isSafeInteger(boardRecord.skill) ||
-    typeof boardRecord.background !== "string" ||
-    typeof actorRecord.id !== "string" || actorRecord.kind !== "player" ||
-    typeof actorRecord.index !== "number" || !Number.isSafeInteger(actorRecord.index) ||
-    typeof actorRecord.source !== "string" ||
-    typeof actorRecord.x !== "number" || !Number.isFinite(actorRecord.x) ||
-    typeof actorRecord.y !== "number" || !Number.isFinite(actorRecord.y) ||
-    typeof actorRecord.layer !== "number" || !Number.isSafeInteger(actorRecord.layer) ||
-    !Array.isArray(record.fighters)
-  ) throw new ScriptError("battle.bad-handoff", "random battle handoff fields are invalid");
+    typeof key !== "string" || key === "" ||
+    typeof skill !== "number" || !Number.isSafeInteger(skill) ||
+    typeof background !== "string" ||
+    typeof id !== "string" || kind !== "player" ||
+    typeof index !== "number" || !Number.isSafeInteger(index) ||
+    typeof source !== "string" ||
+    typeof x !== "number" || !Number.isFinite(x) ||
+    typeof y !== "number" || !Number.isFinite(y) ||
+    typeof layer !== "number" || !Number.isSafeInteger(layer)
+  ) throw new ScriptError("battle.bad-handoff", `${label} fields are invalid`);
+  return { record, board: { key, skill, background }, actor: { id, kind, index, source, x, y, layer } };
+}
+
+function handoffBattleStart(view: CommandView, args: readonly Arg[]): CommandResult {
+  const { record, board } = decodeEncounterRequest(args, "random battle handoff");
+  if (!Array.isArray(record.fighters)) throw new ScriptError("battle.bad-handoff", "random battle handoff fields are invalid");
   const fighters = record.fighters as unknown[];
   if (fighters.length < 2 || fighters.length > 5 ||
       typeof fighters[0] !== "object" || fighters[0] === null || Array.isArray(fighters[0]) ||
@@ -759,13 +779,45 @@ function handoffBattleStart(view: CommandView, args: readonly Arg[]): CommandRes
     ) throw new ScriptError("battle.bad-handoff", "random battle enemy reference fields are invalid");
     sources.push(reference.source);
   }
-  return beginBattleStart(view, boardRecord.key, boardRecord.background, sources, true);
+  return beginBattleStart(view, board.key, board.background, sources, true);
+}
+
+function dictionaryValue(view: CommandView, members: Readonly<Record<string, Value>>): ObjectValue {
+  const state = view.state;
+  if (state === undefined) throw new ScriptError("builtin.bad-arg", "a program context requires live VM state");
+  const object = createObject(state.vm, null);
+  for (const [key, value] of Object.entries(members)) writeMember(object, key, value);
+  return { kind: "object", handle: object.handle, className: object.className };
 }
 
 function dictionary(view: CommandView, members: Readonly<Record<string, Value>>): CommandResult {
-  const object = createObject(view.state!.vm, null);
-  for (const [key, value] of Object.entries(members)) writeMember(object, key, value);
-  return { value: { kind: "object", handle: object.handle, className: object.className } };
+  return { value: dictionaryValue(view, members) };
+}
+
+/**
+ * A custom encounter is spelled out, not drawn (BAT-9 rule 2): the 5.11 request carries no fighters, so nothing
+ * is loaded and no random number is taken. The main file's fight program runs through the `executeProgram`
+ * frame push with the request as its `context` and `source` and `target` null; it names its own enemies with
+ * `FightEnemy`.
+ */
+function customFightStart(view: CommandView, args: readonly Arg[]): CommandResult {
+  const { record, board, actor } = decodeEncounterRequest(args, "custom fight request");
+  const program = record.program;
+  if (typeof program !== "string" || program.trim() === "") {
+    throw new ScriptError("battle.bad-handoff", "custom fight request requires a program name");
+  }
+  if (Object.hasOwn(record, "fighters")) {
+    throw new ScriptError("battle.bad-handoff", "a custom fight request carries no fighters");
+  }
+  const context = dictionaryValue(view, {
+    trigger: "random",
+    board: dictionaryValue(view, { key: board.key, skill: board.skill, background: board.background }),
+    actor: dictionaryValue(view, { ...actor }),
+    program,
+    source: null,
+    target: null,
+  });
+  return { value: null, effects: [{ kind: "vm.control", args: ["executeProgram", program, "object", context] }] };
 }
 
 function dictionaryObject(view: CommandView, value: Value | undefined, name: string) {
@@ -1696,6 +1748,17 @@ const START_HANDOFF: BuiltinSpec = {
   ),
   call: handoffBattleStart,
 };
+const CUSTOM_FIGHT: BuiltinSpec = {
+  name: "__battle_custom_fight",
+  aliases: [],
+  params: [parameter("request")],
+  doc: internalDocumentation(
+    "Run the main file's custom fight program for a custom random encounter.",
+    "Consumes the plain-data 5.11 custom request (trigger, board, actor and program name), loads no enemy and takes no random number, then runs the named program through `executeProgram` with the request as its `context` and `source` and `target` null. The program names its own enemies with `FightEnemy`.",
+    [{ code: "battle.bad-handoff", when: "the request is missing a required trigger, board, player or program field, or carries fighters" }, { code: "program.missing", when: "the named program is not in the asset index" }],
+  ),
+  call: customFightStart,
+};
 
 const PREPARE_RANDOM_BATTLE: BuiltinSpec = {
   name: "__battle_prepare_random",
@@ -1769,7 +1832,7 @@ const FIGHT_ENEMY: BuiltinSpec = {
 };
 
 export const BATTLE_COMMANDS: readonly BuiltinSpec[] = [
-  FIGHT, FIGHT_ENEMY, BATTLE_START_ASSET, START_HANDOFF, PREPARE_RANDOM_BATTLE, PREPARE_EXPLICIT_BATTLE,
+  FIGHT, FIGHT_ENEMY, BATTLE_START_ASSET, START_HANDOFF, CUSTOM_FIGHT, PREPARE_RANDOM_BATTLE, PREPARE_EXPLICIT_BATTLE,
   PARTY_SIZE, FIGHTER, AI, CHARGE, ADD_CHARGE, SET_CHARGE, RELEASE_CHARGE, CHARGE_PERCENT, FINISH,
   HP, GIVE_HP, GET_HP, MAX_HP, GET_MAX_HP, SMP, GIVE_SMP, GET_SMP, MAX_SMP, GET_MAX_SMP,
   FP, GIVE_FP, GET_FP, DP, GET_DP, GIVE_EXP, APPLY_STATUS, REMOVE_STATUS, STATUS_DATA, STATUS_ASSET, GET_STATUS, STATUS_FLAGS, STATUS_FLAGS_ASSET, STATUS_DATA_ASSET,
