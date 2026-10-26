@@ -354,4 +354,3 @@ test("fmath sources stay inside the G3 allowlist", () => {
   equal(/\bfrom\s*["']/.test(implementation), false, "fmath.ts must not reference another module");
   equal(/\bimport\s*\(/.test(implementation), false, "fmath.ts must not use a dynamic import");
 });
-
