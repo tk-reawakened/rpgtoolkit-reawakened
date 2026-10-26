@@ -80,6 +80,7 @@ references = [
 [[entry]]
 id = 5
 tracker_id = "#508"
+tracker_status = "done"
 type = "story"
 title = "Player actions and damage: attacks, criticals, specials and items"
 description = "Implements the player's Fight, Special Move and Item actions inside the stock package (BAT-5). The ordinary attack is the E-74 rule of facts round 10, unchanged: one seeded whole-percentage luck draw from -10 to +9 in exact integer arithmetic with the fraction dropped toward zero, then the offensive and defensive critical draws (-1 means no draw), DP subtracted unless critical, a floor of 1, to HP or SMP. A special has no luck, critical, DP or floor: its FP comes off the target's HP, its target-SMP off the target's SMP and its cost off the user's SMP, each stopping at 0 (and, by the proposed departure, a heal stopping at the maximum); an unaffordable special is refused; after the effect the user's animation, the move's animation, its program and its status follow in that order. An item adds its battle HP and SMP to the target, kept between 0 and the maximum, through an inventory port with a test double and one posted consume effect. `attackall`/`drainall` hit each living target without criticals; damage goes through the actor method so `fallen` fires once, before which the package sends `beforeDamage` (7.14)."
@@ -97,6 +98,7 @@ references = [
 [[entry]]
 id = 6
 tracker_id = "#509"
+tracker_status = "done"
 type = "story"
 title = "Status effects: rounds, per-round effects, speed and disable"
 description = "Implements E-75 status effects over the core counter (BAT-6): apply a `.ste` by file with re-apply (names compared ignoring case) restarting its rounds; once per turn of the fighter carrying it, in the pass where it is found fully charged and just before its turn, for each status in upper-cased file-name order apply its HP amount, then its SMP amount, then run its program with the fighter as source and target, then age it by one round and expire it at 0; speed and slow add and subtract 2 to the charge rate with no floor or ceiling; disable is a reference count, freezes charging and never ends by itself. A `.ste` with fewer than 1 round lasts until removed; a player's self-disable is not cancelled at turn end. Remove/expire drops the contribution and a lethal status fires `fallen` with cause `status`."

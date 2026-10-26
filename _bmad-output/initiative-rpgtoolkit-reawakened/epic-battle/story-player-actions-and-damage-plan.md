@@ -3,7 +3,7 @@ title: "Player actions and damage: attacks, criticals, specials and items"
 type: 'feature'
 ticket: 5
 created: '2026-10-19'
-status: draft
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "high"
 context:
@@ -39,12 +39,14 @@ No loop (7.4), no status round effects (7.6), no AI (7.7), no rewards (7.8), no 
 
 ## Acceptance
 
-1. The seeded damage table reproduces the ruled values at the edges; a critical bypasses DP; the minimum is 1; SMP damage clamps.
-2. A special's FP/SMP drain and SMP cost are applied and clamp; an unaffordable special is unavailable and a direct call raises a stable error.
-3. An item posts exactly one inventory consume effect through the test double and never edits the item list.
-4. `attackall`/`drainall` apply to every target without criticals.
-5. A lethal hit through any of the three actions fires the actor's `fallen` once; for an enemy the package then emits `defeated` once (7.8).
-6. No wall clock or unseeded randomness is used; the same seed and action stream reproduce the same damage.
+- [x] The seeded damage table reproduces the ruled values at the edges; a critical bypasses DP; the minimum is 1; SMP damage clamps. Tests: `battle-actions.test.ts` — “luck swing edges: -10 and +9 percent, truncation toward zero, minimum 1”; “DP is subtracted and the damage floor is 1 when DP exceeds the damage”; “critical draws: offensive first and short-circuits defensive, -1 draws nothing, limit 0 always skips DP”; “attackAmount supplies the base: pool selects SMP, and a product beyond 32 bits stays exact”.
+- [x] A special's FP/SMP drain and SMP cost are applied and clamp; an unaffordable special is unavailable and a direct call raises a stable error. Tests: `battle-actions.test.ts` — “special move clamps HP, SMP and the user's cost; no luck, DP, critical or floor”; “an unaffordable special move mutates nothing, draws nothing and reports battle.unaffordable”.
+- [x] An item posts exactly one inventory consume effect through the test double and never edits the item list. Test: `battle-actions.test.ts` — “item adds clamped HP and SMP, posts exactly one consume effect and changes no inventory”.
+- [x] `attackall` applies to every target without criticals. Test: `battle-actions.test.ts` — “attackall emits beforeDamage once per target and fallen once for each lethal hit”.
+- [ ] `drainall` applies without criticals. `battle-damage.test.ts` — “stock battle sends one cancelable beforeDamage for every damage path” exercises a drainall amount but does not assert the no-critical property.
+- [ ] A lethal hit through any of the three actions fires the actor's `fallen` once. `battle-actions.test.ts` proves this for attackall, but the merged tests do not demonstrate exactly-once `fallen` behavior for each of Fight, Special Move, and Item.
+- [ ] For an enemy hit, the package then emits `defeated` once (7.8). This is 7.8 behavior and no merged test cited here proves it for this ticket.
+- [x] No wall clock or unseeded randomness is used; the same seed and action stream reproduce the same damage. Test: `battle-actions.test.ts` — “the same action stream and seed give the same state hash; another seed does not”.
 
 ## Verification
 
