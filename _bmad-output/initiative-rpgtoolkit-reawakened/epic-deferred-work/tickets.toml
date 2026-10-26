@@ -39,3 +39,17 @@ covers = ["CAP-2"]
 after = []
 hitl = true
 risk = "medium"
+
+[[entry]]
+id = 4
+tracker_id = "#668"
+type = "story"
+status = "deferred"
+title = "Research: tracking what changed across packages in the monorepo"
+description = "Compare pnpm filters, Lerna, Nx, Turborepo and the in-repo dependency graph tool for knowing which packages a change affects, beyond the smart-gates path allowlist (#664), and for versioning and changelogs once Epic 10 publishes packages (#666)."
+verify = "A short comparison document with a recommendation and a go/no-go exists; no implementation is started."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "low"
+
