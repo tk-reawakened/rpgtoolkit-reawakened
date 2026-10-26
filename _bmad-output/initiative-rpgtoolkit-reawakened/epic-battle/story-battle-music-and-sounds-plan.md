@@ -29,7 +29,7 @@ No UI (7.11), no loop or rules. It does not add audio primitives to `core`; it u
 
 2. **`beforePlay`.** The hook runs for source `battle` and may return a replacement track or cancel. A cancelled battle track follows the hook's decision; the package does not retry. If dispatch fails, only the music-start request is rejected; battle start is not rejected or undone.
 
-3. **Cue names.** Menu move, confirm and cancel come from the menu data; attack, special, item, damage, critical, defeat and level-up come from the battle data. A missing cue is silent, not an error, so an old game without a cue still battles.
+3. **Cue names.** Superseded 2026-10-27: the earlier list (attack, special, item, damage, critical, defeat, level-up) had no contract source. The approved inventory is the BAT-10 cue inventory (`docs/spec/engine/battle.md#bat-10-cue-inventory`): `.bkg` `music`, board music on return, `readySound` and `cantDoSound` are routed by entry 7.19 (#691); `selectSound`, `chooseSound` and the main-file cursor sounds are menu cues for entry 7.11 (#514). A missing cue is silent, not an error, so an old game without a cue still battles.
 
 4. **Voices.** Cues are voices, not music: they mix over the track and do not stop it. Two cues in the same tick both play; the package does not deduplicate, because two hits on two fighters are two sounds.
 
