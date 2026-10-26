@@ -120,6 +120,15 @@ The world keeps animating while waiting for input: the idle state falls through 
 
 There is **no frame-rate cap** in the original engine: the loop runs as fast as the machine allows. A 120 fps cap was defined but disabled.
 
+<a id="reawakened-phases"></a>
+### Reawakened phases
+
+**Reawakened rule (OWNER; Epic 20, entry 20.1; Jensen, 2026-10-19).** The engine runs these phases once per fixed 60 Hz tick, in order: `input`, `waits`, `threads`, `events`, `movement`, `edges`, `triggers`, `animation`, `audio`, `time`. Modules register only with named phases, and rank orders registrations within each phase. There is no core `battle` phase ([BAT-1](battle.md#bat-1), [ACT-10](actors.md#act-10)).
+
+Random-encounter evaluation belongs to `triggers`, after a completed whole-tile step and activation checks. It may start the main file's custom fight program or the `stock_battle` package. Battle systems run through RPGCode package programs and ordinary VM threads; the saveable `battle` section does not add a core phase.
+
+<!-- OWNER: Jensen, 2026-10-19; Epic 20, entry 20.1 phase-pipeline ruling. Source: _bmad-output/initiative-rpgtoolkit-reawakened/epic-actors/epic-actors.md and architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md (AD-26). -->
+
 ### Blocking programs
 
 Programs started by triggers (board programs, item activation, the start-up program, menu choices) run **to completion inside the frame that started them**. While one runs the rest of the world is frozen, but the window stays responsive because the program loop handles a window message after every instruction. Background threads ([rpgcode-language.md](rpgcode-language.md#threads)) are different: they get a slice of instructions per frame and do not freeze the world.
