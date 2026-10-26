@@ -10,6 +10,7 @@ import { BinaryReader } from "../../formats/binary/reader.ts";
 import { canon } from "../../canon/index.ts";
 import { createObject, findObject, readMember, writeMember } from "../objects.ts";
 import type { ActorId, ActorStats } from "../../actors/model.ts";
+import { actorInputFromEnemy } from "../../actors/hydrate.ts";
 import { registerActorObject } from "../../actors/object.ts";
 import type { BattleAction, BattleOperationResult } from "../../battle/port.ts";
 import type { Value } from "../../ports/value.ts";
@@ -483,6 +484,282 @@ function assetPath(value: string, folder: string, extension: string, command: st
   if (path.toLowerCase().startsWith(`${folder.toLowerCase()}/`)) path = path.slice(folder.length + 1);
   if (path === "") throw new ScriptError("builtin.bad-arg", `${command}: the file name must not be empty`);
   return path.toLowerCase().endsWith(extension) ? path : `${path}${extension}`;
+}
+
+type BattleStartPending = {
+  readonly boardKey: string;
+  readonly background: string;
+  readonly enemySources: string[];
+  readonly loadedHex: string[];
+  readonly next: number;
+  readonly playerIds: number[];
+  readonly runStock: boolean;
+};
+
+function pendingBattleStart(encoded: string): BattleStartPending {
+  let value: unknown;
+  try {
+    value = JSON.parse(encoded);
+  } catch {
+    throw new ScriptError("battle.bad-handoff", "battle start continuation is not valid JSON");
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new ScriptError("battle.bad-handoff", "battle start continuation is not an object");
+  }
+  const record = value as Record<string, unknown>;
+  const strings = (item: unknown): item is string[] =>
+    Array.isArray(item) && item.every((entry) => typeof entry === "string");
+  const ids = (item: unknown): item is number[] =>
+    Array.isArray(item) && item.every((entry) => typeof entry === "number" && Number.isSafeInteger(entry) && entry > 0);
+  if (
+    typeof record.boardKey !== "string" || record.boardKey === "" ||
+    typeof record.background !== "string" ||
+    !strings(record.enemySources) || record.enemySources.length === 0 || record.enemySources.length > 4 ||
+    !strings(record.loadedHex) || typeof record.next !== "number" || !Number.isSafeInteger(record.next) || record.next < 0 ||
+    record.loadedHex.length !== record.next || record.next >= record.enemySources.length ||
+    !ids(record.playerIds) || record.playerIds.length === 0 ||
+    typeof record.runStock !== "boolean"
+  ) throw new ScriptError("battle.bad-handoff", "battle start continuation fields are invalid");
+  return {
+    boardKey: record.boardKey,
+    background: record.background,
+    enemySources: record.enemySources,
+    loadedHex: record.loadedHex,
+    next: record.next,
+    playerIds: record.playerIds,
+    runStock: record.runStock,
+  };
+}
+
+function validatedPartyIds(view: CommandView): readonly number[] {
+  const members = view.state?.party.members;
+  if (members === undefined || members.length === 0) {
+    throw new ScriptError("battle.empty-party", "cannot start a battle with an empty party");
+  }
+  if (members.some((id) => !Number.isSafeInteger(id) || id < 1)) {
+    throw new ScriptError("battle.bad-fighter", "player party contains an invalid actor id");
+  }
+  return members;
+}
+
+function statePartyIds(view: CommandView): number[] {
+  return [...validatedPartyIds(view)];
+}
+
+function seededBelow(view: CommandView, limit: number): number {
+  const range = 0x1_0000_0000;
+  const ceiling = Math.floor(range / limit) * limit;
+  let value: number;
+  do value = view.rng.nextUint32();
+  while (value >= ceiling);
+  return value % limit;
+}
+
+function startBattleAssetRequest(view: CommandView, pending: BattleStartPending): CommandResult {
+  const source = pending.enemySources[pending.next]!;
+  return {
+    value: null,
+    request: { kind: "asset", area: "enemies", path: source },
+    then: { command: "__battle_start_enemy_asset", args: [JSON.stringify(pending)] },
+  };
+}
+
+function pendingStart(
+  view: CommandView,
+  boardKey: string,
+  background: string,
+  enemySources: readonly string[],
+  runStock: boolean,
+): BattleStartPending {
+  if (runStock && view.battleStart?.stockBattleAvailable !== true) {
+    throw new ScriptError("battle.package-missing", 'the "stock_battle" package is not loaded');
+  }
+  if (enemySources.length < 1 || enemySources.length > 4) {
+    throw new ScriptError("builtin.bad-arg", "a battle must have between one and four enemies");
+  }
+  return {
+    boardKey,
+    background,
+    enemySources: enemySources.map((source) => assetPath(source, "Enemy", ".ene", "fight")),
+    loadedHex: [],
+    next: 0,
+    playerIds: statePartyIds(view),
+    runStock,
+  };
+}
+
+function stockBattleLoop(): CommandEffect {
+  return {
+    kind: "vm.control",
+    args: ["executeProgramRef", {
+      kind: "inline",
+      text: "battle()",
+      compiler: COMPILER_VERSION,
+      owner: "stock_battle",
+    }, null, null],
+  };
+}
+
+function finishBattleStart(view: CommandView, pending: BattleStartPending): CommandResult {
+  const state = view.state;
+  const actors = view.actors;
+  const battle = view.battle;
+  if (state === undefined || actors === undefined || battle === undefined) {
+    throw new ScriptError("battle.not-active", "battle start owners are unavailable");
+  }
+  const enemies = pending.loadedHex.map((hex, index) => {
+    const bytes = replyBytes([{ value: 1, ref: null }, { value: hex, ref: null }], "enemy");
+    const parsed = readEnemy(new BinaryReader(bytes));
+    if (!parsed.ok) throw new ScriptError("format.enemy", parsed.error.message);
+    return { source: pending.enemySources[index]!, enemy: parsed.value };
+  });
+  for (const id of pending.playerIds) {
+    const player = actors.readActor(id);
+    if (player?.kind !== "party") throw new ScriptError("battle.bad-fighter", `party actor ${id} does not exist`);
+  }
+  const enemyIds = enemies.map(({ source, enemy }) => actors.create(actorInputFromEnemy(source, enemy)).id);
+  const started = battle.start({
+    boardKey: pending.boardKey,
+    background: pending.background,
+    canRun: enemies.every(({ enemy }) => enemy.canRun !== 0),
+    enemies: enemyIds,
+    players: pending.playerIds,
+  });
+  if (!started.ok) throw new ScriptError(started.error.code, started.error.message);
+  return pending.runStock ? { value: null, effects: [stockBattleLoop()] } : { value: null };
+}
+
+function battleStartAssetContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
+  const bytes = replyBytes(args, "enemy");
+  const pending = pendingBattleStart(text(args, 2));
+  const hex = text(args, 1);
+  if (bytes.length * 2 !== hex.length) throw new ScriptError("request.bad-reply", "enemy asset reply changed while starting a battle");
+  const next: BattleStartPending = {
+    ...pending,
+    loadedHex: [...pending.loadedHex, hex.toLowerCase()],
+    next: pending.next + 1,
+  };
+  return next.next < next.enemySources.length ? startBattleAssetRequest(view, next) : finishBattleStart(view, next);
+}
+
+function beginBattleStart(view: CommandView, boardKey: string, background: string, sources: readonly string[], runStock: boolean): CommandResult {
+  if (boardKey === "" || typeof background !== "string") throw new ScriptError("battle.bad-handoff", "battle start requires a board key and background");
+  if (runStock && view.battleStart?.stockBattleAvailable !== true) {
+    throw new ScriptError("battle.package-missing", 'the "stock_battle" package is not loaded');
+  }
+  return startBattleAssetRequest(view, pendingStart(view, boardKey, background, sources, runStock));
+}
+
+function beginRandomBattle(view: CommandView, skill: number, background: string, runStock: boolean): CommandResult {
+  const state = view.state;
+  const setup = view.battleStart;
+  const board = state?.world.board;
+  if (setup === undefined || board === null || board === undefined) {
+    throw new ScriptError("battle.no-board", "Fight requires a loaded board and main-file enemy pool");
+  }
+  const pool = setup.enemies.filter((enemy) => enemy.skillLevel === skill);
+  if (pool.length === 0) {
+    const message = `No enemies of skill level ${skill} found.`;
+    const ref = { kind: "inline" as const, text: `mwin(${JSON.stringify(message)})`, compiler: COMPILER_VERSION };
+    return { value: null, effects: [{ kind: "vm.control", args: ["executeProgramRef", ref, null, null] }] };
+  }
+  if (runStock && setup.stockBattleAvailable !== true) {
+    throw new ScriptError("battle.package-missing", 'the "stock_battle" package is not loaded');
+  }
+  validatedPartyIds(view);
+  const count = 1 + seededBelow(view, 4);
+  const sources = Array.from({ length: count }, () => pool[seededBelow(view, pool.length)]!.enemyFile);
+  return beginBattleStart(view, board.key, background, sources, runStock);
+}
+
+function beginExplicitBattle(view: CommandView, args: readonly Arg[], runStock: boolean, allowEmpty = false): CommandResult {
+  if (args.length < 2 || args.length > 5) {
+    throw new ScriptError("builtin.bad-arg", "FightEnemy requires one to four enemy files followed by a background");
+  }
+  const background = args[args.length - 1]?.value;
+  if (typeof background !== "string") throw new ScriptError("builtin.bad-arg", "FightEnemy background must be a string");
+  const names = args.slice(0, -1).map((arg) => arg.value);
+  if (allowEmpty) {
+    const compact = names.filter((value) => value !== 0 && value !== "");
+    if (compact.some((value) => typeof value !== "string")) throw new ScriptError("builtin.bad-arg", "enemy file names must be strings");
+    if (compact.length === 0) throw new ScriptError("builtin.bad-arg", "battle setup requires at least one enemy file");
+    return beginBattleStart(view, view.state?.world.board?.key ?? "", background, compact as string[], runStock);
+  }
+  if (names.some((value) => typeof value !== "string" || value.trim() === "")) {
+    throw new ScriptError("builtin.bad-arg", "FightEnemy enemy file names must be non-empty strings");
+  }
+  if (runStock && view.battleStart?.stockBattleAvailable !== true) {
+    throw new ScriptError("battle.package-missing", 'the "stock_battle" package is not loaded');
+  }
+  const boardKey = view.state?.world.board?.key;
+  if (boardKey === undefined) throw new ScriptError("battle.no-board", "FightEnemy requires a loaded board");
+  return beginBattleStart(view, boardKey, background, names as string[], runStock);
+}
+
+function decodeHandoffJson(encoded: string): string {
+  if (encoded.length % 4 !== 0) throw new ScriptError("battle.bad-handoff", "random battle handoff encoding is invalid");
+  let decoded = "";
+  for (let index = 0; index < encoded.length; index += 4) {
+    const unit = encoded.slice(index, index + 4);
+    if (!/^[\da-f]{4}$/i.test(unit)) throw new ScriptError("battle.bad-handoff", "random battle handoff encoding is invalid");
+    decoded += String.fromCharCode(Number.parseInt(unit, 16));
+  }
+  return decoded;
+}
+
+function handoffBattleStart(view: CommandView, args: readonly Arg[]): CommandResult {
+  let handoff: unknown;
+  try {
+    handoff = JSON.parse(decodeHandoffJson(text(args, 0)));
+  } catch {
+    throw new ScriptError("battle.bad-handoff", "random battle handoff is not valid JSON");
+  }
+  if (typeof handoff !== "object" || handoff === null || Array.isArray(handoff)) {
+    throw new ScriptError("battle.bad-handoff", "random battle handoff is not an object");
+  }
+  const record = handoff as Record<string, unknown>;
+  const board = record.board;
+  const actor = record.actor;
+  if (typeof board !== "object" || board === null || Array.isArray(board) ||
+      typeof actor !== "object" || actor === null || Array.isArray(actor)) {
+    throw new ScriptError("battle.bad-handoff", "random battle handoff requires board and actor records");
+  }
+  const boardRecord = board as Record<string, unknown>;
+  const actorRecord = actor as Record<string, unknown>;
+  if (
+    record.trigger !== "random" ||
+    typeof boardRecord.key !== "string" || boardRecord.key === "" ||
+    typeof boardRecord.skill !== "number" || !Number.isSafeInteger(boardRecord.skill) ||
+    typeof boardRecord.background !== "string" ||
+    typeof actorRecord.id !== "string" || actorRecord.kind !== "player" ||
+    typeof actorRecord.index !== "number" || !Number.isSafeInteger(actorRecord.index) ||
+    typeof actorRecord.source !== "string" ||
+    typeof actorRecord.x !== "number" || !Number.isFinite(actorRecord.x) ||
+    typeof actorRecord.y !== "number" || !Number.isFinite(actorRecord.y) ||
+    typeof actorRecord.layer !== "number" || !Number.isSafeInteger(actorRecord.layer) ||
+    !Array.isArray(record.fighters)
+  ) throw new ScriptError("battle.bad-handoff", "random battle handoff fields are invalid");
+  const fighters = record.fighters as unknown[];
+  if (fighters.length < 2 || fighters.length > 5 ||
+      typeof fighters[0] !== "object" || fighters[0] === null || Array.isArray(fighters[0]) ||
+      (fighters[0] as Record<string, unknown>).party !== "player") {
+    throw new ScriptError("battle.bad-handoff", "random battle handoff requires one player reference and one to four enemies");
+  }
+  const sources: string[] = [];
+  for (const fighter of fighters.slice(1)) {
+    if (typeof fighter !== "object" || fighter === null || Array.isArray(fighter)) {
+      throw new ScriptError("battle.bad-handoff", "random battle enemy reference is invalid");
+    }
+    const reference = fighter as Record<string, unknown>;
+    if (
+      reference.party !== "enemy" || typeof reference.id !== "string" ||
+      typeof reference.index !== "number" || !Number.isSafeInteger(reference.index) ||
+      typeof reference.source !== "string" || reference.source.trim() === "" ||
+      (reference.skill !== null && (typeof reference.skill !== "number" || !Number.isSafeInteger(reference.skill)))
+    ) throw new ScriptError("battle.bad-handoff", "random battle enemy reference fields are invalid");
+    sources.push(reference.source);
+  }
+  return beginBattleStart(view, boardRecord.key, boardRecord.background, sources, true);
 }
 
 function dictionary(view: CommandView, members: Readonly<Record<string, Value>>): CommandResult {
@@ -1397,7 +1674,102 @@ const REMOVE_STATUS: BuiltinSpec = {
   call: (view, args) => statusRequest(view, args, "remove"),
 };
 
+const BATTLE_START_ASSET: BuiltinSpec = {
+  name: "__battle_start_enemy_asset",
+  aliases: [],
+  params: [parameter("ok"), parameter("bytes"), parameter("continuation")],
+  doc: internalDocumentation(
+    "Resume battle setup after loading an enemy.",
+    "Collects each enemy asset in order, then hydrates the encounter actors and commits the plain-data battle section.",
+    [...ASSET_REPLY_THROWS, { code: "format.enemy", when: "an enemy asset is not a valid `.ene` file" }],
+  ),
+  call: battleStartAssetContinuation,
+};
+const START_HANDOFF: BuiltinSpec = {
+  name: "__battle_start_handoff",
+  aliases: [],
+  params: [parameter("handoff")],
+  doc: internalDocumentation(
+    "Start a battle from the 5.11 random-encounter handoff.",
+    "Consumes the plain-data board and ordered enemy references without drawing again, loads each named `.ene` file and starts the built-in battle loop.",
+    [{ code: "battle.bad-handoff", when: "the handoff is missing a required board, player or enemy field" }, { code: "battle.empty-party", when: "the ordered player party is empty" }, { code: "battle.package-missing", when: "the stock battle package is not loaded" }, ...ASSET_REPLY_THROWS, { code: "format.enemy", when: "an enemy file is not a valid `.ene` file" }],
+  ),
+  call: handoffBattleStart,
+};
+
+const PREPARE_RANDOM_BATTLE: BuiltinSpec = {
+  name: "__battle_prepare_random",
+  aliases: [],
+  params: [parameter("skill"), parameter("background")],
+  doc: internalDocumentation(
+    "Prepare a seeded random battle for a custom fight program.",
+    "Draws one to four enemies from the main-file pool entries matching the skill, then loads them and creates the ordered parties and battle section without running a battle loop.",
+    [{ code: "battle.empty-party", when: "the ordered player party is empty" }, { code: "asset.missing", when: "an enemy asset is missing" }, { code: "format.enemy", when: "an enemy asset is invalid" }, { code: "builtin.bad-arg", when: "the skill or background is invalid" }],
+  ),
+  call: (view, args) => {
+    const skill = integer(args, 0, "__battle_prepare_random");
+    const background = args[1]?.value;
+    if (typeof background !== "string") throw new ScriptError("builtin.bad-arg", "__battle_prepare_random background must be a string");
+    return beginRandomBattle(view, skill, background, false);
+  },
+};
+const PREPARE_EXPLICIT_BATTLE: BuiltinSpec = {
+  name: "__battle_prepare_enemies",
+  aliases: [],
+  params: [{ name: "args", optional: true, byRef: false, variadic: true }],
+  doc: internalDocumentation(
+    "Prepare explicit enemies for a custom fight program.",
+    "Loads one to four enemy files followed by a background and creates the ordered parties and battle section without running a battle loop.",
+    [{ code: "battle.empty-party", when: "the ordered player party is empty" }, { code: "asset.missing", when: "an enemy asset is missing" }, { code: "format.enemy", when: "an enemy asset is invalid" }, { code: "builtin.bad-arg", when: "the enemy list or background is invalid" }],
+  ),
+  call: (view, args) => beginExplicitBattle(view, args, false, true),
+};
+const FIGHT: BuiltinSpec = {
+  name: "fight",
+  aliases: [],
+  params: [parameter("skill"), parameter("background")],
+  doc: {
+    summary: "Start a battle with a random group at one skill level.",
+    behaviour: "Draws a uniformly selected count of one to four enemies, then independently draws each enemy uniformly from the main-file pool entries at the requested skill. The seeded game RNG owns every draw. It loads the selected enemy files, builds party 0 in draw order and party 1 from the ordered player party (including fallen members), stores the requested background and the run permission derived from every enemy, then waits for the stock battle loop to return. An empty matching pool shows the exact “No enemies of skill level N found.” message and starts nothing.",
+    groups: [GROUP], tags: ["legacy"], waits: ASSET_WAIT,
+    throws: [
+      { code: "battle.no-board", when: "there is no loaded board" },
+      { code: "battle.empty-party", when: "the ordered player party is empty" },
+      { code: "battle.package-missing", when: "the stock battle package is not loaded" },
+      ...ASSET_REPLY_THROWS,
+      { code: "format.enemy", when: "an enemy file is not a valid `.ene` file" },
+      { code: "builtin.bad-arg", when: "the skill or background is invalid" },
+    ],
+  },
+  call: (view, args) => {
+    const skill = integer(args, 0, "fight");
+    const background = args[1]?.value;
+    if (typeof background !== "string") throw new ScriptError("builtin.bad-arg", "fight background must be a string");
+    return beginRandomBattle(view, skill, background, true);
+  },
+};
+const FIGHT_ENEMY: BuiltinSpec = {
+  name: "fightenemy",
+  aliases: [],
+  params: [{ name: "args", optional: true, byRef: false, variadic: true }],
+  doc: {
+    summary: "Start a battle with one to four named enemies.",
+    behaviour: "Treats the final argument as the background and each preceding argument as one enemy file, loads them in source order, and builds party 0 in that order and party 1 from the ordered player party (including fallen members). The saved background and run permission from all loaded enemies are passed to the stock battle loop, which this command waits for. This command consumes no enemy-selection randomness.",
+    groups: [GROUP], tags: ["legacy"], waits: ASSET_WAIT,
+    throws: [
+      { code: "battle.no-board", when: "there is no loaded board" },
+      { code: "battle.empty-party", when: "the ordered player party is empty" },
+      { code: "battle.package-missing", when: "the stock battle package is not loaded" },
+      ...ASSET_REPLY_THROWS,
+      { code: "format.enemy", when: "an enemy file is not a valid `.ene` file" },
+      { code: "builtin.bad-arg", when: "the call does not contain one to four enemy files followed by a string background" },
+    ],
+  },
+  call: (view, args) => beginExplicitBattle(view, args, true),
+};
+
 export const BATTLE_COMMANDS: readonly BuiltinSpec[] = [
+  FIGHT, FIGHT_ENEMY, BATTLE_START_ASSET, START_HANDOFF, PREPARE_RANDOM_BATTLE, PREPARE_EXPLICIT_BATTLE,
   PARTY_SIZE, FIGHTER, AI, CHARGE, ADD_CHARGE, SET_CHARGE, RELEASE_CHARGE, CHARGE_PERCENT, FINISH,
   HP, GIVE_HP, GET_HP, MAX_HP, GET_MAX_HP, SMP, GIVE_SMP, GET_SMP, MAX_SMP, GET_MAX_SMP,
   FP, GIVE_FP, GET_FP, DP, GET_DP, GIVE_EXP, APPLY_STATUS, REMOVE_STATUS, STATUS_DATA, STATUS_ASSET, GET_STATUS, STATUS_FLAGS, STATUS_FLAGS_ASSET, STATUS_DATA_ASSET,
