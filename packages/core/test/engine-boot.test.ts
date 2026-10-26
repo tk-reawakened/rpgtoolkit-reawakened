@@ -25,12 +25,13 @@ import {
   writeMainFile,
   startProgram,
 } from "../src/index.ts";
-import { resolveManifestPlugins } from "../src/engine/boot.ts";
+import { engineEffect, resolveManifestPlugins } from "../src/engine/boot.ts";
 import type { AssetIndex, AssetRoot, Engine, EffectRecord, EngineInit, GameState, InputRecord, PackageCatalogueEntry, PlainData, TickReport } from "../src/index.ts";
 import type { MainFileAudioSettings } from "../src/formats/main-file/model.ts";
 import type { AudioCue } from "../src/ports/audio.ts";
 import { BUILTIN_TRACKS } from "../src/audio/model.ts";
 import { createAudioRuntime } from "../src/audio/runtime.ts";
+import { queueNativeEvent } from "../src/events/emitter.ts";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(testDir, "..", "..", "..");
@@ -127,7 +128,10 @@ type Doubles = {
 };
 
 /** Movement-triggers and menu-party-save stand-ins: a one-player sprites owner, a presence port and a saved-game port. */
-function makeDoubles(restored = false): Doubles {
+function makeDoubles(
+  restored = false,
+  extraPhases: NonNullable<EngineInit["phaseRegistrations"]> = [],
+): Doubles {
   const players: PlainData[] = [];
   const sprites: EffectRecord[] = [];
   const triggers: EffectRecord[] = [];
@@ -156,7 +160,10 @@ function makeDoubles(restored = false): Doubles {
         { section: "audio", applier: (effect) => audio.push(effect) },
       ],
       cameraTarget: { getPlayerPosition: () => (players.length === 0 ? null : position), getEntityPosition: () => null },
-      phaseRegistrations: [{ phase: "audio", run: (state) => { latest = state; } }],
+      phaseRegistrations: [
+        { phase: "audio", run: (state) => { latest = state; } },
+        ...extraPhases,
+      ],
     },
     startup: { presence: { hasPlayer: () => players.length > 0 }, savedGame: { load: () => ({ kind: "missing" }), restored: () => restored } },
     state: () => {
@@ -244,10 +251,60 @@ test("a scripted game boots from start.prg to its first board with the ruled eff
   equal(state.vm.globals.entered, 1);
   deepEqual(doubles.sprites.map((effect) => [effect.name, ...effect.args]), [["createplayer", "chrs/hero.tem"], ["placeplayer", 64, 64, 1, "pixel"]]);
   deepEqual(doubles.triggers.map((effect) => [effect.name, ...effect.args]), [["deactivateat", 64, 64, 1, "pixel"]]);
-  deepEqual(doubles.audio.map((effect) => [effect.name, effect.kind, ...effect.args]), [["music.play", "draw-audio-cue", "media/theme.mid", true, null, "boards/start.brd"]]);
+  deepEqual(doubles.audio.map((effect) => [effect.name, effect.kind, ...effect.args]), [["music.play", "draw-audio-cue", "media/theme.mid", true, null, "board"]]);
   deepEqual({ x: state.camera.x, y: state.camera.y }, { x: 0, y: 0 });
   equal(state.vm.threads.some((thread) => thread.kind === "board" && thread.status !== "finished"), true);
 });
+test("battleEnded dispatches before boardReturned and restores active board music before audio", () => {
+  const game = authorGame({
+    startup: "start.prg",
+    initChar: "hero.tem",
+    boards: { "start.brd": { music: "theme.mid" } },
+    programs: {
+      "start.prg": [
+        'eventOrder = ""',
+        'game.on("battleEnded", (event) => {',
+        '  eventOrder = eventOrder + "B"',
+        '  battleOutcome = event.detail.outcome',
+        '})',
+        'game.on("boardReturned", (event) => {',
+        '  eventOrder = eventOrder + "R"',
+        '  returnedBoard = event.detail["boardKey"]',
+        '})',
+        "listenerReady = 1",
+        "end()",
+      ].join("\n"),
+    },
+  });
+  let queuedBattleEnd = false;
+  let doubles!: Doubles;
+  doubles = makeDoubles(false, [{
+    phase: "events",
+    run(state, postEffect) {
+      if (queuedBattleEnd || state.vm.globals.listenerready !== 1) return;
+      if (!doubles.audio.some((effect) => effect.name === "music.play" && effect.args[3] === "board")) return;
+      queuedBattleEnd = true;
+      postEffect?.("audio", engineEffect("audio", "music.play", [
+        assetKey("media/other.mid"), true, false, "battle",
+      ], "draw-audio-cue"));
+      queueNativeEvent(state.vm, state.events, "game", "battleEnded", { outcome: 0 });
+    },
+  }]);
+  const engine = bootEngine(game, doubles);
+  const result = run(engine, game.files, 8);
+  const state = doubles.state();
+  equal(queuedBattleEnd, true);
+  deepEqual(result.diagnostics, []);
+  equal(state.vm.globals.eventorder, "BR");
+  equal(state.vm.globals.battleoutcome, 0);
+  equal(state.vm.globals.returnedboard, "boards/start.brd");
+  deepEqual(doubles.audio.filter((effect) => effect.name === "music.play").map((effect) => effect.args), [
+    [assetKey("media/theme.mid"), true, null, "board"],
+    [assetKey("media/other.mid"), true, false, "battle"],
+    [assetKey("media/theme.mid"), true, null, "board"],
+  ]);
+});
+
 test("engine-backed dialogue displays through the message window and resumes on input", () => {
   const game = authorGame(SCRIPTED);
   const doubles = makeDoubles();
@@ -757,8 +814,8 @@ test("send leaves the ruled state: old board threads dead, a persistent thread a
   deepEqual(doubles.triggers.map((effect) => [effect.name, ...effect.args]).slice(-1), [["deactivateat", 30, 20, 1, "tile"]]);
   // Both boards name theme.mid and every arrival posts its music; the audio applier, not the engine, decides to carry on (E-16).
   deepEqual(doubles.audio.map((effect) => [effect.name, ...effect.args]), [
-    ["music.play", "media/theme.mid", true, null, "boards/start.brd"],
-    ["music.play", "media/theme.mid", true, null, "boards/other.brd"],
+    ["music.play", "media/theme.mid", true, null, "board"],
+    ["music.play", "media/theme.mid", true, null, "board"],
   ]);
 });
 

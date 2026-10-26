@@ -93,6 +93,7 @@ import {
   createVmState,
 } from "../script/index.ts";
 import type { Thread } from "../script/state.ts";
+import { findObject, readMember } from "../script/objects.ts";
 import type { PackageCatalogueEntry } from "../script/plugin.ts";
 import { DEFAULT_FONT } from "../script/packs/ui.ts";
 import type { WaitView } from "../ports/wait.ts";
@@ -352,6 +353,10 @@ export function createEngine(init: EngineInit): Engine {
   const media = createMediaScriptService(
     state,
     (name, args) => bus.postEffect("audio", engineEffect("audio", name, args, "draw-audio-cue")),
+    (file) => {
+      const resolved = resolveAsset(index, root, "media", file);
+      return resolved.ok ? resolved.value : null;
+    },
     (code, op, detail) => {
       const file = detail["file"];
       const text = Object.entries(detail).map(([key, value]) => `${key}=${String(value)}`).join(" ");
@@ -1071,7 +1076,35 @@ export function createEngine(init: EngineInit): Engine {
     const name = board.backgroundMusic ?? "";
     const music = name === "" ? null : resolveAsset(index, root, "media", name);
     const asset = music !== null && music.ok ? music.value : null;
-    bus.postEffect("audio", engineEffect("audio", "music.play", [asset, true, null, board.key], "draw-audio-cue"));
+    bus.postEffect("audio", engineEffect("audio", "music.play", [asset, true, null, "board"], "draw-audio-cue"));
+  }
+  function eventType(event: number): string | null {
+    const record = findObject(state.vm, event);
+    const value = record === undefined ? null : readMember(record, "type");
+    return typeof value === "string" ? value : null;
+  }
+  function hasUnreturnedBattleEnd(): boolean {
+    let unreturned = 0;
+    const dispatch = state.events.dispatch;
+    if (dispatch?.emitter === "game") {
+      const type = eventType(dispatch.event);
+      if (type === "battleEnded") unreturned += 1;
+      else if (type === "boardReturned" && unreturned > 0) unreturned -= 1;
+    }
+    for (const queued of state.events.queue) {
+      if (queued.emitter !== "game") continue;
+      const type = eventType(queued.event);
+      if (type === "battleEnded") unreturned += 1;
+      else if (type === "boardReturned" && unreturned > 0) unreturned -= 1;
+    }
+    return unreturned > 0;
+  }
+  function returnToBoardAfterBattle(): void {
+    if (!hasUnreturnedBattleEnd()) return;
+    const board = state.world.board;
+    if (board === null || board === undefined) return;
+    queueNativeEvent(state.vm, state.events, "game", "boardReturned", { boardKey: board.key });
+    postBoardMusic(board);
   }
   /** The player's position when a sprites owner supplies one, else the arrival point converted by the board's own layout (E-11). */
   function cameraAim(board: WorldBoard, arrival: Arrival): CameraPoint {
@@ -1576,6 +1609,7 @@ export function createEngine(init: EngineInit): Engine {
         expireProgramTileEdits(state);
         return;
       case "events":
+        returnToBoardAfterBattle();
         runEventsPhase(state, services, STEP_BUDGET);
         for (const registration of registrationByPhase.get(phase) ?? []) registration.run(state, (section, effect) => bus.postEffect(section, effect));
         return;
