@@ -2,7 +2,7 @@
   "scene": "loop-and-end-ticks",
   "schema": 1,
   "note": "Authored from docs/spec; expected facts are derived by tools/fixtures/audio, not by packages/core. No state or cue hashes: later entries assert those.",
-  "tick": "60 Hz fixed; phases input, waits, threads, movement, edges, triggers, animation, audio, time (AD-26). A row is the state at the end of the audio phase of its tick.",
+  "tick": "60 Hz fixed; phases input, waits, threads, events, movement, edges, triggers, animation, audio, time (AD-26). Random encounters hand off from triggers. A row is the state at the end of the audio phase of its tick.",
   "units": "ticks (1/60 s); volumes are integer percentages; seconds in scripts are whole milliseconds",
   "row": "t tick; cfg [track, configured voices] (first tick and on change); tr [track, state, flags, file, positionTicks, lengthTicks, voices] for each track with a file or a voice; voice [index, state, cueId, priority, volume, startTick, positionTicks, endTick, loop, fade [from, to, start, duration] or null]; bus [track, volume, fade]; master; sf (script bank); cues (the 12-key AudioCue records emitted this tick); ev (facts: wait, wake, finished, steal, same-file, diag, legacy, video ...)",
   "spec": [
