@@ -208,6 +208,27 @@ test("XP uses fixed and percentage branches, carries multi-level awards, exclude
   equal(percentageResult.actor.stats.fp, 25);
   equal(percentageResult.actor.stats.maxSmp, 25);
 });
+
+test("legacy battle steps carry over-threshold XP without persisting a negative remainder", () => {
+  const state = actor({
+    progression: { maxLevel: 3, levelUpType: 1, experienceIncrease: 5, legacyLevelUp: true },
+  });
+  const service = createActorService(state.section);
+  const plan = service.beginLegacyBattleExperience(state.actor.id, 30);
+  ok(plan);
+  equal(plan.remainingExperience, -20);
+  const firstStep = service.completeLegacyBattleLevelStep(state.actor.id, plan.remainingExperience);
+  ok(firstStep);
+  equal(firstStep.actor.stats.level, 2);
+  equal(firstStep.remainingExperience, -5);
+  equal(firstStep.actor.progression.remainingExperience, 0);
+  const secondStep = service.completeLegacyBattleLevelStep(state.actor.id, firstStep.remainingExperience);
+  ok(secondStep);
+  equal(secondStep.actor.stats.level, 3);
+  equal(secondStep.remainingExperience, 0);
+  equal(secondStep.actor.progression.remainingExperience, 0);
+});
+
 test("statsChanged runs only for applied core level-ups", () => {
   const state = actor();
   let calls = 0;

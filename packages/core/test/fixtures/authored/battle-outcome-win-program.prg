@@ -1,0 +1,1 @@
+winProgramCount = winProgramCount + 1

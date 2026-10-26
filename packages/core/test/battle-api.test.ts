@@ -144,7 +144,7 @@ test("battle object and legacy stat aliases resolve live actor objects from auth
   equal(state.actors.actors.find((actor) => actor.id === hero.id)?.stats.experience, 1);
   equal(state.battle?.parties[0][0]?.charge, 61.5);
   equal(state.battle?.parties[1][0]?.charge, 0);
-  equal(state.battle?.outcome, 2);
+  equal(state.battle?.outcome, 1);
 
   const expectedHero = registerActorObject(state.vm, state.events, state.actors, hero.id);
   const expectedEnemy = registerActorObject(state.vm, state.events, state.actors, enemy.id);

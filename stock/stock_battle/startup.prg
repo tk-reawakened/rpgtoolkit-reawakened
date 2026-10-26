@@ -94,8 +94,18 @@ drainall = (request) => {
 stockBattle = {
   enemyDataCache: {},
   specialDataCache: {},
+  battleBackgroundDataCache: null,
+  defeatedIds: {},
+  defeatedListeners: {},
+  defeatedListenerCount: 0,
+  livingCounts: { enemies: 0, players: 0 },
+  fighterCounts: { enemies: 0, players: 0 },
+  pendingOutcome: 0,
+  coreOutcomePending: 0,
+  decidedOutcome: 0,
+  active: 0,
+  runPending: 0,
   // Custom AI programs receive source/target actor IDs as strings. Resolve one
-  // through the active fighter lists before passing it to the action helpers.
   resolveFighter: (handle) => {
     local(wanted)
     local(party) = 0
@@ -145,6 +155,148 @@ stockBattle = {
       }
     }
     return data
+  },
+  refreshPendingOutcome: () => {
+    if (stockBattle.fighterCounts.players > 0 && stockBattle.livingCounts.players < 1) {
+      stockBattle.pendingOutcome = 4
+    } else {
+      if (stockBattle.fighterCounts.enemies > 0 && stockBattle.livingCounts.enemies < 1) {
+        stockBattle.pendingOutcome = 2
+      } else {
+        stockBattle.pendingOutcome = 0
+      }
+    }
+  },
+  recheckPendingOutcome: () => {
+    local(party) = 0
+    local(index)
+    local(size)
+    local(fighter)
+    stockBattle.livingCounts = { enemies: 0, players: 0 }
+    stockBattle.fighterCounts = { enemies: 0, players: 0 }
+    while (party < 2) {
+      size = battle.partySize(party)
+      for (index = 0; index < size; index = index + 1) {
+        fighter = battle.fighter(party, index)
+        if (fighter != null) {
+          if (party == 0) {
+            stockBattle.fighterCounts.enemies = stockBattle.fighterCounts.enemies + 1
+            if (fighter.hp > 0) {
+              stockBattle.livingCounts.enemies = stockBattle.livingCounts.enemies + 1
+            }
+          } else {
+            stockBattle.fighterCounts.players = stockBattle.fighterCounts.players + 1
+            if (fighter.hp > 0) {
+              stockBattle.livingCounts.players = stockBattle.livingCounts.players + 1
+            }
+          }
+        }
+      }
+      party = party + 1
+    }
+    stockBattle.refreshPendingOutcome()
+  },
+  watchPlayer: (fighter) => {
+    local(listener)
+    stockBattle.fighterCounts.players = stockBattle.fighterCounts.players + 1
+    if (fighter.hp > 0) {
+      stockBattle.livingCounts.players = stockBattle.livingCounts.players + 1
+    }
+    listener = (event) => {
+      stockBattle.livingCounts.players = stockBattle.livingCounts.players - 1
+      stockBattle.refreshPendingOutcome()
+    }
+    fighter.on("fallen", listener)
+    stockBattle.defeatedListeners[stockBattle.defeatedListenerCount] = {
+      fighter: fighter, listener: listener
+    }
+    stockBattle.defeatedListenerCount = stockBattle.defeatedListenerCount + 1
+  },
+  watchEnemy: (fighter) => {
+    local(id) = "" + fighter.id
+    local(listener)
+    stockBattle.fighterCounts.enemies = stockBattle.fighterCounts.enemies + 1
+    if (fighter.hp > 0) {
+      stockBattle.livingCounts.enemies = stockBattle.livingCounts.enemies + 1
+    }
+    listener = (event) => {
+      stockBattle.livingCounts.enemies = stockBattle.livingCounts.enemies - 1
+      stockBattle.refreshPendingOutcome()
+      if (stockBattle.defeatedIds[id] == null) {
+        stockBattle.defeatedIds[id] = 1
+        game.emit("stock_battle.defeated", {
+          cause: event.detail.cause,
+          source: event.detail.source
+        })
+      }
+    }
+    fighter.on("fallen", listener)
+    stockBattle.defeatedListeners[stockBattle.defeatedListenerCount] = {
+      fighter: fighter, listener: listener
+    }
+    stockBattle.defeatedListenerCount = stockBattle.defeatedListenerCount + 1
+  },
+  clearDefeatedListeners: () => {
+    local(index) = 0
+    local(record)
+    while (index < stockBattle.defeatedListenerCount) {
+      record = stockBattle.defeatedListeners[index]
+      record.fighter.off("fallen", record.listener)
+      index = index + 1
+    }
+    stockBattle.defeatedIds = {}
+    stockBattle.defeatedListeners = {}
+    stockBattle.defeatedListenerCount = 0
+    stockBattle.livingCounts = { enemies: 0, players: 0 }
+    stockBattle.fighterCounts = { enemies: 0, players: 0 }
+    stockBattle.pendingOutcome = 0
+    stockBattle.decidedOutcome = 0
+    stockBattle.coreOutcomePending = 0
+  },
+  canRun: () => {
+    local(size)
+    local(index) = 0
+    local(fighter)
+    local(data)
+    if (battle.canRun == 0) {
+      return 0
+    }
+    size = battle.partySize(0)
+    while (index < size) {
+      fighter = battle.fighter(0, index)
+      if (fighter != null) {
+        data = stockBattle.enemyData(fighter)
+        if (data == null || data.canrun == 0) {
+          return 0
+        }
+      }
+      index = index + 1
+    }
+    return 1
+  },
+  playCantDoSound: () => {
+    local(data)
+    if (stockBattle.battleBackgroundDataCache == null) {
+      stockBattle.battleBackgroundDataCache = battlebackgrounddata()
+    }
+    data = stockBattle.battleBackgroundDataCache
+    if (data != null && data.cantsound != "") {
+      mediaPlay(data.cantsound, { track: "ui", loop: 0 })
+    }
+  },
+  run: () => {
+    if (stockBattle.canRun() == 0) {
+      stockBattle.preserveCharge = 1
+      stockBattle.playCantDoSound()
+      return 0
+    }
+    if (random(5) <= 2) {
+      stockBattle.runPending = 1
+      mwin("Escaped.")
+      return 1
+    }
+    mwin("Could not escape.")
+    return 0
   },
   living: (party) => {
     local(result) = { count: 0, fighters: {} }
@@ -461,13 +613,30 @@ stockBattle = {
   },
 }
 
-// null is the unset value in RPGCode, but its literal also compares as numeric
-// 0 (LEX-9). String context distinguishes unset "" from outcome 0's "0"
-// (SEM-3 / SEM-5), so automatic escape is just as decided as every other code.
+// The owner stores a live battle's outcome as null, distinct from code zero.
 battleDecided = () => {
-  return battle.outcome != ""
+  if (stockBattle.pendingOutcome != 0) {
+    stockBattle.recheckPendingOutcome()
+  }
+  if (stockBattle.pendingOutcome == 4 ||
+      (stockBattle.coreOutcomePending != 0 && battle.outcome == 4)) {
+    stockBattle.decidedOutcome = 4
+    return 1
+  }
+  if (stockBattle.pendingOutcome == 2) {
+    stockBattle.decidedOutcome = 2
+    return 1
+  }
+  if (stockBattle.coreOutcomePending != 0) {
+    stockBattle.decidedOutcome = battle.outcome
+    return 1
+  }
+  if (stockBattle.runPending != 0) {
+    stockBattle.decidedOutcome = 0
+    return 1
+  }
+  return 0
 }
-
 // Status identity and counters belong to the actor; this package loads the
 // cached .ste data, interprets its rate flags, and ticks effects at turns.
 function battleStatusBefore(leftText, rightText) {
@@ -593,8 +762,14 @@ function battle() {
   local(position)
   local(count) = 0
   local(fighters) = {}
+  local(done) = 0
+  stockBattle.active = 1
+  stockBattle.clearDefeatedListeners()
   stockBattle.enemyDataCache = {}
   stockBattle.specialDataCache = {}
+  stockBattle.battleBackgroundDataCache = null
+  stockBattle.runPending = 0
+  stockBattle.preserveCharge = 0
   // BAT-2 fixes the battle's fighter lists. Capture their ordered references
   // and constants once, not mutable HP or status data. Restore keeps these
   // dictionaries and actor handles; it does not rebuild or reseed the battle.
@@ -603,26 +778,48 @@ function battle() {
     size = battle.partySize(party)
     for (index = 0; index < size; index = index + 1) {
       battle.setCharge(party, index, random(threshold) - 1)
-      fighters[count] = {
-        party: party, index: index, threshold: threshold,
-        fighter: battle.fighter(party, index), files: {}
+      fighter = battle.fighter(party, index)
+      if (fighter != null) {
+        fighters[count] = {
+          party: party, index: index, threshold: threshold, fighter: fighter, files: {}
+        }
+        count = count + 1
       }
-      count = count + 1
     }
   }
-  // Resolve current status assets only after every initial seeded draw.
+  // Resolve current status assets only after every initial seeded draw. Empty
+  // status sets need no status-rule load; their stock cache is the base rate.
   for (position = 0; position < count; position = position + 1) {
     cache = fighters[position]
-    if (cache.fighter != null) {
+    cache.signature = statussignature(cache.fighter)
+    if (cache.signature != "{}") {
       battleStatusRate(cache.fighter, cache)
+    } else {
+      cache.rate = 3
+      cache.disabled = 0
+      cache.statusCount = 0
+      cache.effectCount = 0
     }
   }
   threadSleep(getThreadId(), 1/60)
-  while (battleDecided() == 0) {
-    for (position = 0; position < count; position = position + 1) {
-      cache = fighters[position]
-      fighter = cache.fighter
-      if (fighter != null) {
+  // Capture current actor state and install both parties' watchers before any
+  // stock turn can run.
+  for (position = 0; position < count; position = position + 1) {
+    cache = fighters[position]
+    if (cache.party == 0) {
+      stockBattle.watchEnemy(cache.fighter)
+    } else {
+      stockBattle.watchPlayer(cache.fighter)
+    }
+  }
+  stockBattle.refreshPendingOutcome()
+  while (done == 0) {
+    while (stockBattle.pendingOutcome == 0 &&
+           stockBattle.coreOutcomePending == 0 &&
+           stockBattle.runPending == 0) {
+      for (position = 0; position < count; position = position + 1) {
+        cache = fighters[position]
+        fighter = cache.fighter
         if (fighter.hp > 0) {
           if (statussignature(fighter) != cache.signature) {
             battleStatusRate(fighter, cache)
@@ -637,19 +834,36 @@ function battle() {
               if (cache.statusCount > 0) {
                 battleStatusTurn(fighter, cache)
               }
-              stockBattle.turn(cache.party, cache.index)
-              battle.releaseCharge(cache.party, cache.index)
+              // A successful run ends at the next pass boundary: later fighters still tick statuses but do not take turns.
+              if (stockBattle.runPending == 0) {
+                if (cache.party == 1) {
+                  stockBattle.preserveCharge = 0
+                  stockBattle.turn(cache.party, cache.index)
+                  if (stockBattle.preserveCharge == 0) {
+                    battle.releaseCharge(cache.party, cache.index)
+                  }
+                } else {
+                  stockBattle.turn(cache.party, cache.index)
+                  battle.releaseCharge(cache.party, cache.index)
+                }
+              }
             } else {
               battle.addCharge(cache.party, cache.index, cache.rate)
             }
           }
         }
       }
+      // Even an idle pass must consume one simulated tick. The outcome is checked
+      // only between passes: later fighters still finish the pass that decided it.
+      threadSleep(getThreadId(), 1/60)
     }
-    // Even an idle pass must consume one simulated tick. The outcome is checked
-    // only between passes: later fighters still finish the pass that decided it.
-    threadSleep(getThreadId(), 1/60)
+    if (battleDecided() != 0) {
+      __battle_apply_outcome(stockBattle.decidedOutcome)
+      done = 1
+    }
   }
+  stockBattle.active = 0
+  stockBattle.clearDefeatedListeners()
 }
 
 registerPlugin({
