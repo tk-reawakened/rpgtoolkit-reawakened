@@ -28,7 +28,7 @@ No loop, damage, status, AI or rewards (7.4 to 7.8). No UI (7.11). It repoints t
 
 1. **Handoff is the only coupling.** The start path reads the plain-data handoff and never imports movement internals. The drawn handoff names the board, the drawn enemy records and the background; the custom request names the board, the player and the program and has no enemy records; a missing field is a located error, not a default.
 
-2. **Parties (BAT-9, R11-Q14).** Party 0 is the drawn enemies (1 to 4, each count equally likely, each drawn independently from the matching skill level, so an enemy may repeat; the draw belongs to the 5.11 handoff), hydrated with 20.5 in handoff order. Party 1 is every occupied slot of the actor store's ordered party (the order Epic 8 will use for the party menu), fallen members included and starting fallen, with each entry's charge initialised by 7.4. An empty party is a located error; a party whose members are all fallen is not, and the outcome path resolves it. `skill` is -1 on the random path.
+2. **Parties (BAT-9, R11-Q14).** Party 0 is the drawn enemies (1 to 4, each count equally likely, each drawn independently from the matching skill level, so an enemy may repeat; the draw belongs to the 5.11 handoff), hydrated with 20.5 in handoff order. Party 1 is every occupied slot of the actor store's ordered party (the order Epic 8 will use for the party menu), fallen members included and starting fallen, with each entry's charge initialised by 7.4. An empty party is a located error; a party whose members are all fallen is not, and the outcome path resolves it. `skill = -1` remains only in the legacy callback and is not part of the Reawakened battle package/start contract.
 
 3. **Background and `canRun`.** The `.bkg` background image comes from the encounter or the `Fight` argument and is recorded in the section and loaded by 7.11. `canRun` is false if any one enemy in the fight forbids running, for `Fight` and `FightEnemy` alike; their run and win programs still apply (7.8).
 
@@ -57,6 +57,8 @@ Handoff start tests (random, custom, no-enemies), `Fight`/`FightEnemy` tests, a 
 
 - 2026-10-26 (owner ruling, Jensen; applied by the director): a random encounter draws from the main file's list; a custom encounter is spelled out. Resolved without a format change: the custom request stays as 5.11 posts it (no fighters, no draw), the engine runs its `program`, and the program names its enemies with `FightEnemy`. The intent, key decisions 1, 5 and 6 and acceptance 4 are rewritten; BAT-9, E-70, the random-encounters rule, the main-loop phase paragraph and the `executeProgram` caller table are amended first, in a docs-only change. The first build of this entry (#673) left acceptance 4 unmet because the request could not run; the follow-up code change builds it.
 - 2026-10-26 (handoff to 7.12): with this ruling a program that runs its own battle loop takes its setup from the package's setup-only entry points (`stockBattle.prepareEnemies`, `stockBattle.prepareRandom`). The epic's Done-when 4 and entry 7.12 ask for that with the package absent; entry 7.12 proves the path and rules any public setup surface it needs.
+
+- 2026-10-26 (owner ruling, Jensen; applied by the director): `skill = -1` is a legacy-callback-only value; it is not part of the Reawakened battle package/start contract.
 
 ## Implementation Evidence
 

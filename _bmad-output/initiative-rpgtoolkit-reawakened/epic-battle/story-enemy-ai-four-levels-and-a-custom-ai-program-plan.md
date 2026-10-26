@@ -33,7 +33,7 @@ No damage or status application (7.5, 7.6). AI chooses; the action code applies.
 
 5. **Healing specials.** FP below 0 is healing, FP of exactly 0 is harmful. A healing special goes to the enemy's own side: at levels 0 and 1 a random living ally (possibly the enemy itself or an ally at full HP), at levels 2 and 3 the living ally with the lowest current HP. A harmful special targets the player chosen by the level's target rule.
 
-6. **Custom `useCode` (R11-Q10).** The program runs with `source` = the enemy and `target` = a random living player, and nothing else happens: it must act itself through the same API (attack, special, item) or hand over to a built-in level, and it may choose another target. A program that returns without acting spends the turn and the charge returns to 0. An error is reported and ends that turn without ending the battle.
+6. **Custom `useCode` (R11-Q10).** The program runs with `source` = the enemy and `target` = a random living player, and nothing else happens: it must act itself through the same API (attack, special, item) or hand over to a built-in level, and it may choose another target. A program that returns without acting spends the turn and the charge returns to 0. An unhandled error is reported and, per ERR-2, the program continues at its next step; the enemy's turn ends when the program returns.
 
 7. **Level input.** `ai(level)` validates 0-3 and sets the level on the acting enemy; a level outside the range is a catchable error (3.1 silently did nothing). A custom `useCode` program takes precedence over the level's table for that enemy.
 
@@ -41,7 +41,7 @@ No damage or status application (7.5, 7.6). AI chooses; the action code applies.
 
 - [x] Each of the four levels makes the ruled choices over a seeded run, including the coin, special-first and weakest-target cases. Test: `battle-ai.test.ts` — “all four AI levels follow their coin, special and target boundaries across seeds”.
 - [x] An unaffordable special falls back to a physical attack; healing specials choose the ruled allies by level; harmful specials target players. Tests: `battle-ai.test.ts` — “affordable specials are chosen equally, unaffordable moves are filtered, and no affordable move falls back to attack”; “healing specials choose living allies by level and may target an already-full ally”; “zero-FP moves are harmful and target players”.
-- [x] A custom AI program receives source/target, can act or hand off, and reports errors while battle continues; a no-op custom program spends its turn. Tests: `battle-ai.test.ts` — “custom AI receives source/target handles, can act or hand off, and ERR-2 continues after errors”; “a no-op custom AI spends its turn without an automatic attack”.
+- [x] A custom AI program receives source/target, can act or hand off, and ERR-2 continues after errors; the enemy's turn ends when the program returns; a no-op custom program spends its turn. Tests: `battle-ai.test.ts` — “custom AI receives source/target handles, can act or hand off, and ERR-2 continues after errors”; “a no-op custom AI spends its turn without an automatic attack”.
 - [x] Every draw is in the ruled order and weakest-target ties are deterministic. Tests: `battle-ai.test.ts` — “all four AI levels follow their coin, special and target boundaries across seeds”; “weak-target ties preserve earlier party position and no living player draws no RNG”.
 - [ ] `ai(level)` validates its argument and applies to the acting enemy only. The named custom-AI test asserts `ai(4)` raises `builtin.bad-arg`, but no named test proves the level change affects only the acting enemy.
 - [x] With no living player the AI skips its turn without division by zero. Test: `battle-ai.test.ts` — “weak-target ties preserve earlier party position and no living player draws no RNG”.
@@ -54,3 +54,5 @@ A seeded per-level choice test, an affordability test, a healing/harmful target 
 ## Plan Change Log
 
 - 2026-10-25: reconciled with `battle.md` BAT-7 and facts round 11: level 1 targets randomly; healing targets differ by level; the coin and draw order; skipped turn when no player is left; `ai()` rejects an out-of-range level.
+
+- 2026-10-26 (owner ruling, Jensen; applied by the director): a custom-AI error follows ERR-2, so an unhandled error is reported and the program continues; the enemy turn ends when the program returns.
