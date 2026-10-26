@@ -59,8 +59,16 @@ const testDirectory = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(testDirectory, "..", "..", "..");
 const startup = readFileSync(join(repoRoot, "stock", "stock_battle", "startup.prg"), "utf8");
 const fixture = readFileSync(join(testDirectory, "fixtures", "authored", "battle-actions.prg"), "utf8");
-const programBytes = Object.fromEntries(Object.entries({ "stock-battle.prg": startup, "battle-actions.prg": fixture }).map(
-  ([name, source]) => [assetKey(`Prg/${name}`), new TextEncoder().encode(source)]));
+const actionProgram = readFileSync(join(testDirectory, "fixtures", "authored", "battle-action-program.prg"), "utf8");
+const actionWaitProgram = readFileSync(join(testDirectory, "fixtures", "authored", "battle-action-wait.prg"), "utf8");
+const actionErrorProgram = readFileSync(join(testDirectory, "fixtures", "authored", "battle-action-error.prg"), "utf8");
+const programBytes = Object.fromEntries(Object.entries({
+  "stock-battle.prg": startup,
+  "battle-actions.prg": fixture,
+  "battle-action-program.prg": actionProgram,
+  "battle-action-wait.prg": actionWaitProgram,
+  "battle-action-error.prg": actionErrorProgram,
+}).map(([name, source]) => [assetKey(`Prg/${name}`), new TextEncoder().encode(source)]));
 const loader: ProgramLoader = {
   index: createAssetIndex(Object.keys(programBytes)),
   root: PACKAGE_ROOT,
@@ -515,6 +523,86 @@ test("an empty stance or move animation skips the hook; an empty program is not 
   });
   equal(noMove.state.vm.globals.order, `cast.anm@${ATTACKER}:20:6;`);
 });
+const nestedMoveAssets = specialAssets({ fp: 7, targetSmp: 3, cost: 4, animation: "", program: "battle-action-program.prg" });
+test("the default special-move hook runs with source and target, then restores both slots", () => {
+  const result = run({
+    scenario: "special", file: "fire.spc", hookmode: "none", attacker: { smp: 10 }, target: { hp: 20, smp: 20 },
+    assets: nestedMoveAssets,
+  });
+  const globals = result.state.vm.globals;
+  equal(globals.programCalls, 1);
+  equal(globals.programSource, "hero.tem");
+  equal(globals.programTarget, "slime.tem");
+  equal(globals.programContextSource, "hero.tem");
+  equal(globals.programContextTarget, "slime.tem");
+  equal(globals.postSource, 0);
+  equal(globals.postTarget, 0);
+  equal(stat(result.state, TARGET, "hp"), 13);
+  equal(stat(result.state, ATTACKER, "smp"), 6);
+  deepEqual(codes(result.services), []);
+});
+
+test("runProgram merges optional context data without allowing it to replace source or target", () => {
+  const result = run({
+    scenario: "programcontext", file: "battle-action-program.prg", hookmode: "none",
+    attacker: { smp: 10 }, target: { hp: 20, smp: 20 },
+  });
+  const globals = result.state.vm.globals;
+  equal(globals.programCalls, 1);
+  equal(globals.programSource, "hero.tem");
+  equal(globals.programTarget, "slime.tem");
+  equal(globals.programContextSource, "hero.tem");
+  equal(globals.programContextTarget, "slime.tem");
+  equal(globals.programContextLabel, "extra");
+  equal(globals.programContextValue, 17);
+  equal(globals.postSource, 0);
+  equal(globals.postTarget, 0);
+});
+
+test("an empty default runProgram name does nothing", () => {
+  const result = run({
+    scenario: "programcontext", file: "", hookmode: "none",
+    attacker: { smp: 10 }, target: { hp: 20, smp: 20 },
+  });
+  equal(result.state.vm.globals.programCalls, 0);
+  equal(result.state.vm.globals.postSource, 0);
+  equal(result.state.vm.globals.postTarget, 0);
+  deepEqual(codes(result.services), []);
+});
+
+test("an error in a special-move program is reported without breaking the action", () => {
+  const result = run({
+    scenario: "special", file: "fire.spc", hookmode: "none", attacker: { smp: 10 }, target: { hp: 20, smp: 20 },
+    assets: specialAssets({ fp: 7, targetSmp: 3, cost: 4, animation: "", program: "battle-action-error.prg" }),
+  });
+  equal(result.state.vm.globals.programErrorResumed, 1);
+  equal(result.state.vm.globals.postSource, 0);
+  equal(result.state.vm.globals.postTarget, 0);
+  equal(stat(result.state, TARGET, "hp"), 13);
+  equal(stat(result.state, ATTACKER, "smp"), 6);
+  ok(codes(result.services).includes("unknown.command"));
+});
+
+test("saving inside a nested special-move program restores its execution and source/target pair", () => {
+  const options = {
+    scenario: "special", seed: 19, file: "fire.spc", hookmode: "none" as const,
+    attacker: { smp: 10 }, target: { hp: 20, smp: 20 },
+    assets: specialAssets({ fp: 7, targetSmp: 3, cost: 4, animation: "", program: "battle-action-wait.prg" }),
+  };
+  const straight = run(options);
+  const parked = run({ ...options, saveWhen: (state) => state.vm.globals.programStarted === 1 });
+  equal(parked.saved, true);
+  equal(parked.state.vm.globals.programCalls, 1);
+  equal(parked.state.vm.globals.programResumed, 1);
+  equal(parked.state.vm.globals.programSource, "hero.tem");
+  equal(parked.state.vm.globals.programTarget, "slime.tem");
+  equal(parked.state.vm.globals.postSource, 0);
+  equal(parked.state.vm.globals.postTarget, 0);
+  equal(hashGameState(parked.state), hashGameState(straight.state));
+  equal(stat(parked.state, TARGET, "hp"), 13);
+  equal(stat(parked.state, ATTACKER, "smp"), 6);
+});
+
 
 test("the default animate hook draws nothing and returns without parking", () => {
   const result = run({ scenario: "special", file: "fire.spc", hookmode: "none", attacker: { smp: 10 }, target: { hp: 20, smp: 20 }, assets: fireAssets });
@@ -582,6 +670,27 @@ test("item adds clamped HP and SMP, posts exactly one consume effect and changes
   deepEqual(ledger, { "potion.itm": 2 });
   equal(stat(result.state, ATTACKER, "smp"), 10, "using an item costs the user no SMP");
 });
+test("the default item program runs with source and target, then restores both slots", () => {
+  const assets = {
+    "potion.itm": itemAsset({ hp: 5, smp: 0, animation: "", program: "battle-action-program.prg" }),
+  };
+  const result = run({
+    scenario: "item", file: "potion.itm", hookmode: "none", attacker: { smp: 10 }, target: { hp: 10, smp: 12 }, assets,
+  });
+  const globals = result.state.vm.globals;
+  equal(globals.programCalls, 1);
+  equal(globals.programSource, "hero.tem");
+  equal(globals.programTarget, "slime.tem");
+  equal(globals.programContextSource, "hero.tem");
+  equal(globals.programContextTarget, "slime.tem");
+  equal(globals.postSource, 0);
+  equal(globals.postTarget, 0);
+  equal(stat(result.state, TARGET, "hp"), 15);
+  equal(globals.usedhp, 5);
+  equal(consumeEffects(result.state).length, 1);
+  deepEqual(codes(result.services), []);
+});
+
 
 
 test("item animation runs over the target, then the item program, after the stat change", () => {

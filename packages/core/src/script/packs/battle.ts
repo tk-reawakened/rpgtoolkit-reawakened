@@ -593,6 +593,37 @@ const FIGHTER = {
     return { value: { kind: "object", handle: record.handle, className: record.className } };
   },
 } satisfies BuiltinSpec;
+const PROGRAM_CONTEXT = {
+  name: "__battle_program_context", aliases: [],
+  params: [parameter("source"), parameter("target"), parameter("extra", true)],
+  doc: internalDocumentation(
+    "Build a named program context.",
+    "Copies the optional extra dictionary's members except `source` and `target`, then writes the supplied source and target handles so extra values cannot replace them. Returns a fresh dictionary for `executeProgram` without changing the input dictionary or actor state.",
+    [{ code: "builtin.bad-arg", when: "extra is not a live dictionary" }],
+  ),
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const state = view.state;
+    if (state === undefined) throw new ScriptError("builtin.bad-arg", "program context requires live VM state");
+    const context = createObject(state.vm, null);
+    writeMember(context, "source", args[0]?.value ?? null);
+    writeMember(context, "target", args[1]?.value ?? null);
+    const extra = args[2]?.value;
+    if (extra !== undefined && extra !== null && extra !== 0) {
+      if (typeof extra !== "object" || !("kind" in extra) || extra.kind !== "object") {
+        throw new ScriptError("builtin.bad-arg", "program context extra must be a dictionary");
+      }
+      const source = state.vm.objects.find((record) => record.handle === extra.handle);
+      if (source === undefined || source.className !== "") {
+        throw new ScriptError("builtin.bad-arg", "program context extra must be a live dictionary");
+      }
+      for (const [name, value] of Object.entries(source.members)) {
+        if (name !== "source" && name !== "target") writeMember(context, name, value);
+      }
+    }
+    return { value: { kind: "object", handle: context.handle, className: context.className } };
+  },
+} satisfies BuiltinSpec;
+
 function chargeCommand(
   name: string,
   summary: string,
@@ -732,7 +763,7 @@ export const BATTLE_COMMANDS: readonly BuiltinSpec[] = [
   HP, GIVE_HP, GET_HP, MAX_HP, GET_MAX_HP, SMP, GIVE_SMP, GET_SMP, MAX_SMP, GET_MAX_SMP,
   FP, GIVE_FP, GET_FP, DP, GET_DP, GIVE_EXP, APPLY_STATUS, REMOVE_STATUS, STATUS_ASSET, GET_STATUS, STATUS_FLAGS, STATUS_FLAGS_ASSET,
   MOVE_DATA, MOVE_ASSET, ITEM_DATA, ITEM_ASSET, ANIMATION_FILE, ANIMATION_ASSET, CONSUME, UNAFFORDABLE, INTEGER_MUL_DIV,
-  STATUS_SIGNATURE,
+  STATUS_SIGNATURE, PROGRAM_CONTEXT,
 ];
 export const BATTLE_COMMAND_NAMES = new Set<string>(BATTLE_COMMANDS.flatMap((command) => [command.name, ...command.aliases]));
 export const BATTLE_PLUGIN: PluginDefinition = {

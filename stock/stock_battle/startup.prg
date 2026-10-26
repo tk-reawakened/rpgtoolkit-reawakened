@@ -235,11 +235,15 @@ stockBattle = {
     }
     return 0
   },
-  // Program step of a special move or item. NOT implemented: no ruled way
-  // exists yet to run a named program to completion with source and target
-  // set and then resume this action on the battle thread. This default runs
-  // nothing and returns at once; it is the seam an owner ruling will fill.
-  runProgram: (file, source, target) => { return 0 }
+  // Run a named battle action on this thread and restore its caller context.
+  // The optional dictionary adds program data but cannot replace source/target.
+  runProgram: (file, source, target, extra) => {
+    if (file != "") {
+      context = __battle_program_context(source.source, target.source, extra)
+      executeProgram(file, context)
+    }
+    return 0
+  }
 }
 
 // null is the unset value in RPGCode, but its literal also compares as numeric
