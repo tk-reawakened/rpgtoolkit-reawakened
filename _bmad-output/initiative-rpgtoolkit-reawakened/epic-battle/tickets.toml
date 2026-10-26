@@ -133,6 +133,7 @@ references = [
 [[entry]]
 id = 8
 tracker_id = "#511"
+tracker_status = "done"
 type = "story"
 title = "Outcomes, rewards and level-up: win, run and lose"
 description = "Implements E-77 and E-78 outcomes (BAT-8, BAT-12): `battle.finish` maps the outcome to codes 0-4 and the outcome compatibility adapter applies 0, 2 and 4 from generic core operations while 1 and 3 apply nothing. Run is blocked for the whole fight if any enemy forbids it (still listed, cancel sound, turn kept); otherwise it succeeds on a seeded 2-in-5 draw and a failed attempt spends the turn; a success runs one run program (the last enemy's that has one) and gives no rewards. A win posts the summed gold silently as one inventory effect, shows the experience message, gives every party member (fallen included) the full experience with each level-up running the level-up program, the 20.6 default stat rise and a level-gained message, shows the gold message, and runs one win program (the last enemy's that has one). A loss (every player at 0 HP, checked before the win) runs the game-over program without a reset, or shows the message and calls `reset()`. `defeated` is emitted once per enemy per battle and re-emitted on the game as `stock_battle.defeated`; the maximum-level retry of 3.1 is not reproduced."

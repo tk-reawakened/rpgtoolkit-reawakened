@@ -3,7 +3,7 @@ title: "Outcomes, rewards and level-up: win, run and lose"
 type: 'feature'
 ticket: 8
 created: '2026-10-19'
-status: draft
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "high"
 context:
@@ -41,13 +41,13 @@ No damage, status or AI (7.5 to 7.7). No inventory implementation: gold is a pla
 
 ## Acceptance
 
-1. Seeded win, run and lose paths produce the ruled outcomes, rewards and consequences, in the decision-3 order for a win.
-2. Experience is granted in full to every party member, fallen included, once; each threshold crossing follows `progression-and-levels.md` and does not refill current HP/SMP/FP; a character at maximum level never loops.
-3. Gold is posted exactly once as an inventory effect and consumed by the test double.
-4. `defeated` fires once per enemy per battle, not on a run, carries the ruled fields and is re-emitted as `stock_battle.defeated`.
-5. The game-over program runs without a reset, or the message shows and `reset()` is called when none is registered.
-6. Run is blocked when any enemy forbids it without spending the turn; an allowed run succeeds on a seeded 2-in-5 draw and a failed one spends the turn; one run program and one win program run.
-7. A simultaneous fall of both sides is a loss.
+- [x] Seeded win, run, and lose paths produce the ruled outcomes, rewards, and consequences in the win order. Tests: `packages/core/test/battle-outcomes-core.test.ts` — “the core win adapter awards XP, posts one gold effect and runs the enemy win program”; “the core run adapter grants no rewards and runs the enemy run-away program”; “the core loss adapter clears battle before the game-over program and skips reset”; “the core loss adapter uses the message and reset fallback without a game-over program”. `packages/core/test/battle-outcomes-stock.test.ts` — “a stock victory sums XP/gold, rewards fallen and living members, orders level-up growth, and runs only the last win program”; “a successful seeded run skips later turns but ticks later statuses, runs only the last program, and grants no reward”; “a simultaneous player and enemy fall selects loss before victory”.
+- [ ] Experience goes in full to every party member, fallen included, and maximum-level members do not loop. The named victory test verifies XP, levels, current HP, maximum HP, and the max-level case, but no named test proves that current SMP and FP are not refilled.
+- [ ] Gold is posted exactly once as an inventory effect and consumed by the test double. Tests verify one `inventory.gainGold` effect with the summed amount, but no named test asserts that the test double consumes/applies it. Tests: `packages/core/test/battle-outcomes-core.test.ts` — “the core win adapter awards XP, posts one gold effect and runs the enemy win program”; `packages/core/test/battle-outcomes-stock.test.ts` — “a stock victory sums XP/gold, rewards fallen and living members, orders level-up growth, and runs only the last win program”.
+- [ ] `defeated` fires once per enemy per battle, not on a run, carries the ruled fields, and is re-emitted as `stock_battle.defeated`. The named test proves one damage event, its payload/source, the re-emission, and no duplicate after revival; no named test asserts that a run emits none. Test: `packages/core/test/battle-outcomes-stock.test.ts` — “enemy defeated re-emits once with damage source and plain payload, including after event-queue restore”.
+- [x] The game-over program runs without a reset, or the message shows and `reset()` is called when none is registered. Tests: `packages/core/test/battle-outcomes-core.test.ts` — “the core loss adapter clears battle before the game-over program and skips reset”; “the core loss adapter uses the message and reset fallback without a game-over program”.
+- [x] A forbidden run keeps the turn; a seeded allowed run succeeds on a 2-in-5 result and a failed attempt spends its turn; only one run and one win program run. Tests: `packages/core/test/battle-outcomes-stock.test.ts` — “a forbidden run keeps charge and consumes no random draw”; “a successful seeded run skips later turns but ticks later statuses, runs only the last program, and grants no reward”; “a failed seeded run spends its turn; the run roll is deterministic at both sides of the 2-in-5 boundary”; “a stock victory sums XP/gold, rewards fallen and living members, orders level-up growth, and runs only the last win program”.
+- [x] A simultaneous fall of both sides is a loss. Test: `packages/core/test/battle-outcomes-stock.test.ts` — “a simultaneous player and enemy fall selects loss before victory”.
 
 ## Verification
 
