@@ -228,6 +228,10 @@ stockBattle = {
       stockBattle.refreshPendingOutcome()
       if (stockBattle.defeatedIds[id] == null) {
         stockBattle.defeatedIds[id] = 1
+        emit(fighter, "defeated", {
+          cause: event.detail.cause,
+          source: event.detail.source
+        })
         game.emit("stock_battle.defeated", {
           cause: event.detail.cause,
           source: event.detail.source
