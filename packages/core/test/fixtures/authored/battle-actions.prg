@@ -53,8 +53,8 @@ if (hookmode == "record") {
   stockBattle.animate = (file, fighter) => {
     order = order + file + "@" + fighter.id + ":" + fighter.hp + ":" + fighter.smp + ";"
   }
-  stockBattle.runProgram = (file, source, target) => {
-    order = order + "P:" + file + ":" + source.id + ">" + target.id + ":" + getstatus(target, 0) + ";"
+  executeProgram = (file, context) => {
+    order = order + "P:" + file + ":" + context.source + ">" + context.target + ":" + getstatus(target, 0) + ";"
   }
 }
 if (hookmode == "wait") {
@@ -63,7 +63,7 @@ if (hookmode == "wait") {
     threadSleep(getThreadId(), 0.05)
     order = order + "w2 " + file + ";"
   }
-  stockBattle.runProgram = (file, source, target) => {
+  executeProgram = (file, context) => {
     order = order + "p1 " + file + ";"
     threadSleep(getThreadId(), 0.05)
     order = order + "p2 " + file + ";"
@@ -94,7 +94,7 @@ if (scenario == "item") {
   usedsmp = used.smp
 }
 if (scenario == "programcontext") {
-  stockBattle.runProgram(filein, attacker, target, { source: "target", target: "source", label: "extra", value: 17 })
+  executeProgram(filein, { source: "" + attacker.id, target: "" + target.id, label: "extra", value: 17 })
 }
 if (scenario == "all") {
   on(target, "beforeDamage", (event) => { bd1 = bd1 + 1 })

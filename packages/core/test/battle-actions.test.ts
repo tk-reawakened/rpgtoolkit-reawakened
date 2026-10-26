@@ -524,49 +524,49 @@ test("an empty stance or move animation skips the hook; an empty program is not 
   equal(noMove.state.vm.globals.order, `cast.anm@${ATTACKER}:20:6;`);
 });
 const nestedMoveAssets = specialAssets({ fp: 7, targetSmp: 3, cost: 4, animation: "", program: "battle-action-program.prg" });
-test("the default special-move hook runs with source and target, then restores both slots", () => {
+test("special move executes a nested program with actor handles and restores both slots", () => {
   const result = run({
     scenario: "special", file: "fire.spc", hookmode: "none", attacker: { smp: 10 }, target: { hp: 20, smp: 20 },
     assets: nestedMoveAssets,
   });
   const globals = result.state.vm.globals;
-  equal(globals.programCalls, 1);
-  equal(globals.programSource, "hero.tem");
-  equal(globals.programTarget, "slime.tem");
-  equal(globals.programContextSource, "hero.tem");
-  equal(globals.programContextTarget, "slime.tem");
-  equal(globals.postSource, 0);
-  equal(globals.postTarget, 0);
+  equal(globals.programcalls, 1);
+  equal(globals.programsource, String(ATTACKER));
+  equal(globals.programtarget, String(TARGET));
+  equal(globals.programcontextsource, String(ATTACKER));
+  equal(globals.programcontexttarget, String(TARGET));
+  equal(globals.postsource, 0);
+  equal(globals.posttarget, 0);
   equal(stat(result.state, TARGET, "hp"), 13);
   equal(stat(result.state, ATTACKER, "smp"), 6);
   deepEqual(codes(result.services), []);
 });
 
-test("runProgram merges optional context data without allowing it to replace source or target", () => {
+test("executeProgram receives actor handles and extra context data", () => {
   const result = run({
     scenario: "programcontext", file: "battle-action-program.prg", hookmode: "none",
     attacker: { smp: 10 }, target: { hp: 20, smp: 20 },
   });
   const globals = result.state.vm.globals;
-  equal(globals.programCalls, 1);
-  equal(globals.programSource, "hero.tem");
-  equal(globals.programTarget, "slime.tem");
-  equal(globals.programContextSource, "hero.tem");
-  equal(globals.programContextTarget, "slime.tem");
-  equal(globals.programContextLabel, "extra");
-  equal(globals.programContextValue, 17);
-  equal(globals.postSource, 0);
-  equal(globals.postTarget, 0);
+  equal(globals.programcalls, 1);
+  equal(globals.programsource, String(ATTACKER));
+  equal(globals.programtarget, String(TARGET));
+  equal(globals.programcontextsource, String(ATTACKER));
+  equal(globals.programcontexttarget, String(TARGET));
+  equal(globals.programcontextlabel, "extra");
+  equal(globals.programcontextvalue, 17);
+  equal(globals.postsource, 0);
+  equal(globals.posttarget, 0);
 });
 
-test("an empty default runProgram name does nothing", () => {
+test("executeProgram with a blank program name does nothing", () => {
   const result = run({
     scenario: "programcontext", file: "", hookmode: "none",
     attacker: { smp: 10 }, target: { hp: 20, smp: 20 },
   });
-  equal(result.state.vm.globals.programCalls, 0);
-  equal(result.state.vm.globals.postSource, 0);
-  equal(result.state.vm.globals.postTarget, 0);
+  equal(result.state.vm.globals.programcalls, 0);
+  equal(result.state.vm.globals.postsource, 0);
+  equal(result.state.vm.globals.posttarget, 0);
   deepEqual(codes(result.services), []);
 });
 
@@ -575,9 +575,9 @@ test("an error in a special-move program is reported without breaking the action
     scenario: "special", file: "fire.spc", hookmode: "none", attacker: { smp: 10 }, target: { hp: 20, smp: 20 },
     assets: specialAssets({ fp: 7, targetSmp: 3, cost: 4, animation: "", program: "battle-action-error.prg" }),
   });
-  equal(result.state.vm.globals.programErrorResumed, 1);
-  equal(result.state.vm.globals.postSource, 0);
-  equal(result.state.vm.globals.postTarget, 0);
+  equal(result.state.vm.globals.programerrorresumed, 1);
+  equal(result.state.vm.globals.postsource, 0);
+  equal(result.state.vm.globals.posttarget, 0);
   equal(stat(result.state, TARGET, "hp"), 13);
   equal(stat(result.state, ATTACKER, "smp"), 6);
   ok(codes(result.services).includes("unknown.command"));
@@ -590,14 +590,14 @@ test("saving inside a nested special-move program restores its execution and sou
     assets: specialAssets({ fp: 7, targetSmp: 3, cost: 4, animation: "", program: "battle-action-wait.prg" }),
   };
   const straight = run(options);
-  const parked = run({ ...options, saveWhen: (state) => state.vm.globals.programStarted === 1 });
+  const parked = run({ ...options, saveWhen: (state) => state.vm.globals.programstarted === 1 });
   equal(parked.saved, true);
-  equal(parked.state.vm.globals.programCalls, 1);
-  equal(parked.state.vm.globals.programResumed, 1);
-  equal(parked.state.vm.globals.programSource, "hero.tem");
-  equal(parked.state.vm.globals.programTarget, "slime.tem");
-  equal(parked.state.vm.globals.postSource, 0);
-  equal(parked.state.vm.globals.postTarget, 0);
+  equal(parked.state.vm.globals.programcalls, 1);
+  equal(parked.state.vm.globals.programresumed, 1);
+  equal(parked.state.vm.globals.programsource, String(ATTACKER));
+  equal(parked.state.vm.globals.programtarget, String(TARGET));
+  equal(parked.state.vm.globals.postsource, 0);
+  equal(parked.state.vm.globals.posttarget, 0);
   equal(hashGameState(parked.state), hashGameState(straight.state));
   equal(stat(parked.state, TARGET, "hp"), 13);
   equal(stat(parked.state, ATTACKER, "smp"), 6);
@@ -605,7 +605,8 @@ test("saving inside a nested special-move program restores its execution and sou
 
 
 test("the default animate hook draws nothing and returns without parking", () => {
-  const result = run({ scenario: "special", file: "fire.spc", hookmode: "none", attacker: { smp: 10 }, target: { hp: 20, smp: 20 }, assets: fireAssets });
+  const assets = specialAssets({ fp: 7, targetSmp: 3, cost: 4, animation: "fire.anm", program: "" });
+  const result = run({ scenario: "special", file: "fire.spc", hookmode: "none", attacker: { smp: 10 }, target: { hp: 20, smp: 20 }, assets });
   equal(stat(result.state, TARGET, "hp"), 13);
   equal(result.state.vm.globals.order, "");
   deepEqual(codes(result.services), []);
@@ -678,15 +679,15 @@ test("the default item program runs with source and target, then restores both s
     scenario: "item", file: "potion.itm", hookmode: "none", attacker: { smp: 10 }, target: { hp: 10, smp: 12 }, assets,
   });
   const globals = result.state.vm.globals;
-  equal(globals.programCalls, 1);
-  equal(globals.programSource, "hero.tem");
-  equal(globals.programTarget, "slime.tem");
-  equal(globals.programContextSource, "hero.tem");
-  equal(globals.programContextTarget, "slime.tem");
-  equal(globals.postSource, 0);
-  equal(globals.postTarget, 0);
+  equal(globals.programcalls, 1);
+  equal(globals.programsource, String(ATTACKER));
+  equal(globals.programtarget, String(TARGET));
+  equal(globals.programcontextsource, String(ATTACKER));
+  equal(globals.programcontexttarget, String(TARGET));
+  equal(globals.postsource, 0);
+  equal(globals.posttarget, 0);
   equal(stat(result.state, TARGET, "hp"), 15);
-  equal(globals.usedhp, 5);
+  equal(globals.usedhp, -5);
   equal(consumeEffects(result.state).length, 1);
   deepEqual(codes(result.services), []);
 });

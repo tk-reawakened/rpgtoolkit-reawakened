@@ -185,7 +185,7 @@ stockBattle = {
     stockBattle.presentation(fighteranimationfile(source, "special move"), source)
     stockBattle.presentation(move.animation, target)
     if (move.program != "") {
-      stockBattle.runProgram(move.program, source, target)
+      executeProgram(move.program, { source: "" + source.id, target: "" + target.id })
     }
     if (move.statuseffect != "") {
       applystatus(target, move.statuseffect)
@@ -222,7 +222,7 @@ stockBattle = {
     battleconsume(file, target, data.hp, data.smp)
     stockBattle.presentation(data.animation, target)
     if (data.program != "") {
-      stockBattle.runProgram(data.program, source, target)
+      executeProgram(data.program, { source: "" + source.id, target: "" + target.id })
     }
     return result
   },
@@ -235,15 +235,6 @@ stockBattle = {
     }
     return 0
   },
-  // Run a named battle action on this thread and restore its caller context.
-  // The optional dictionary adds program data but cannot replace source/target.
-  runProgram: (file, source, target, extra) => {
-    if (file != "") {
-      context = __battle_program_context(source.source, target.source, extra)
-      executeProgram(file, context)
-    }
-    return 0
-  }
 }
 
 // null is the unset value in RPGCode, but its literal also compares as numeric
