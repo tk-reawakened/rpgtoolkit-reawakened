@@ -116,6 +116,7 @@ references = [
 [[entry]]
 id = 7
 tracker_id = "#510"
+tracker_status = "done"
 type = "story"
 title = "Enemy AI: four levels and a custom AI program"
 description = "Implements E-76 enemy AI in the stock package (BAT-7): level 0 a fair coin between an ordinary attack on a random living player and trying a special; level 1 always tries a special with random targets; levels 2 and 3 as 0 and 1 with the weakest target (lowest current HP, earlier party slot on a tie, fallen skipped). Trying a special picks with equal chances among specials the enemy can afford (the battle flag is not checked) and otherwise attacks. FP below 0 is healing and goes to a random living ally at levels 0 and 1 and the lowest-HP living ally at levels 2 and 3. A custom `useCode` program runs with `source` as the enemy and `target` as a random living player and must act itself; a program that does nothing spends the turn. The draw order is fixed; with no living player the turn is skipped; the `ai(level)` built-in sets the acting enemy's level and rejects a level outside 0-3."
