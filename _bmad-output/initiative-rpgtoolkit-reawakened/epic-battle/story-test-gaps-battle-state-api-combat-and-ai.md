@@ -14,22 +14,22 @@ risk: high
 
 ## Description
 
-Add named deterministic tests for the remaining acceptance gaps in Epic 7.2–7.7: pure battle validation and valid/out-of-battle snapshots; stable, atomic API errors and battle built-in documentation/catalogue parity; charge/action/status edge cases; and missing enemy-AI branches and draw ordering. Include the narrowly scoped static guard requested by the audit against wall-clock or unseeded randomness in the battle core/package inputs. Keep the save golden in 7.20, preserve the approved shared `battle.bad-fighter` versus `battle.bad-outcome` contract, and make no RNG or gameplay-rule changes.
+Add named deterministic behavior tests for the remaining Epic 7.2–7.7 gaps in state validation/snapshots, battle built-in catalogue/docs parity, charge/actions/status, and enemy AI. Existing tests already cover atomic `battle.bad-fighter`/`battle.bad-outcome` errors and ERR-2 custom-AI continuation; G3 ESLint covers forbidden time/random APIs in core TypeScript. Do not add duplicate tests or source-text scans; leave the battle save golden to 7.20 and make no RNG or gameplay-rule changes.
 
 ## Acceptance Criteria
 
-1. **State validation and snapshots:** The validator demonstrably leaves input unchanged; a valid restore yields no diagnostics; an out-of-battle save has `battle: null`; and the battle section contains no copied HP/SMP/status.
-2. **API and catalog:** Fighter-handle failures share `battle.bad-fighter`, invalid outcomes use `battle.bad-outcome`, and both paths are atomic. A named registration-to-catalogue/docs parity test covers every registered battle-facing built-in.
-3. **Charge/action:** Deterministic tests cover SMP-pool attack underflow, active-critical-limit `attackall`/`drainall` without critical draws, non-empty inventory immutability, unaffordable-special availability, special status application order, and exactly-once `fallen` for lethal Fight, Special, and Item actions.
-4. **Status:** Tests assert HP/SMP/program/aging order, status state belongs to the actor rather than BattleState, and signed per-round effects clamp at both bounds.
-5. **AI:** Tests cover healing at levels 0 and 2, post-target combat draw order, and AI configuration isolation to the acting enemy. A custom-AI error is reported, ERR-2 lets the program continue, and the turn ends when the program returns.
-6. **Deterministic boundary guard:** One narrowly scoped static guard rejects wall-clock and unseeded-random APIs in the battle core/package inputs; all other tests exercise named real state/output behavior, not source-text pins.
-7. **Scope:** No RNG algorithm, gameplay-rule, or golden-file changes; the battle-section save golden is owned by 7.20.
+1. **State and snapshots:** The validator leaves input unchanged; valid restore yields no diagnostics; out-of-battle save has `battle: null`; BattleState contains no copied actor HP/SMP/status.
+2. **Catalogue parity:** A named behavior test checks every registered battle-facing built-in against the catalogue and docs.
+3. **Charge/actions:** Cover SMP attack underflow, AOE actions without critical draws, non-empty inventory immutability, special availability and status ordering, and exactly-once `fallen` for lethal Fight/Special/Item.
+4. **Status:** Cover HP/SMP/program/aging order, actor-owned status state, and signed per-round effects clamped at both bounds.
+5. **AI:** Cover healing at levels 0 and 2, post-target combat draw order, and AI configuration isolation to the acting enemy.
+6. **Scope:** Existing API-error and ERR-2 behavior is already tested; do not duplicate those cases or add a static source-text guard. No RNG, gameplay-rule, or golden-file changes; 7.20 owns the battle save golden.
 
 ## References
 
 - parent — `_bmad-output/initiative-rpgtoolkit-reawakened/epic-battle/epic-battle.md`
 - issues — #505–#510 (Epic 7.2–7.7)
+- pull request — #696 (test-gap work in progress)
 - spec — `docs/spec/engine/battle.md` (BAT-2–BAT-7)
 - spec — `docs/spec/engine/rpgcode-functions.md` (battle built-ins)
 - spec — `docs/spec/engine/progression-and-levels.md`
@@ -48,4 +48,4 @@ Add named deterministic tests for the remaining acceptance gaps in Epic 7.2–7.
 ## Notes
 
 - The battle-section save golden is tracked separately by Epic 7.20.
-- The only allowed source-text guard here is the explicitly requested wall-clock/unseeded-random check; permanent behavior tests must assert real deterministic state/output.
+- Existing battle API tests prove atomic `battle.bad-fighter` and `battle.bad-outcome`; existing AI tests prove ERR-2 continuation. G3 ESLint covers forbidden time/random APIs in core TypeScript. Do not duplicate those tests or add a source-text guard.

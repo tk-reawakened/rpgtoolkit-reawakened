@@ -263,8 +263,8 @@ id = 15
 tracker_id = "#687"
 type = "story"
 title = "Actor-local defeated event from stock_battle"
-description = """Completes the stock_battle `defeated` contract (BAT-12/EMIT-13) by emitting the ruled `{ cause, source }` event on each enemy actor once on first defeat, re-emitting identical detail as `stock_battle.defeated`, preserving event-queue/save-restore deduplication, emitting nothing on run, and keeping ownership out of core."""
-verify = """Named deterministic authored-RPGCode tests prove actor-local listeners receive each cause/source once per enemy, the game-level re-emission has identical detail, event-queue restore does not duplicate it, and a run emits neither event."""
+description = """The only remaining BAT-12/EMIT-13 test gap is a lethal `script` cause in `stock_battle`: drive an enemy's first defeat through a script-originated stat update with an actor as the source, then assert the actor-local `defeated` and game-level `stock_battle.defeated` events each have exactly `{ cause: "script", source: actorId }`. PR #693 already covers damage/status causes, ordering, per-enemy deduplication after revival, event-queue restore, and run suppression; do not duplicate that coverage."""
+verify = """A named deterministic authored-RPGCode test causes an enemy's first lethal stat update with `cause: "script"` and a non-null actor source; capture actor-local and game-level event details, assert each deep-equals exactly `{ cause: "script", source: actorId }`, and assert one delivery of each. Do not repeat the damage/status, restore, revival-deduplication, or run cases covered by #693."""
 covers = ["CAP-9"]
 after = [5, 6, 8]
 hitl = false
@@ -273,6 +273,7 @@ references = [
   "issue - #511 (outcomes, rewards and level-up)",
   "spec - docs/spec/engine/battle.md#bat-12",
   "spec - docs/spec/engine/rpgcode-modules-and-objects.md#emit-13",
+  "pr - #693 (merged actor-local damage/status, queue-restore, and run coverage)",
 ]
 
 [[entry]]
@@ -280,26 +281,25 @@ id = 16
 tracker_id = "#688"
 type = "story"
 title = "Epic 7 documentation and rulings reconciliation"
-description = """Reconcile Epic 7 specifications and plans with the approved rulings without runtime changes: BAT-3 documents `battle.background`, actor-object handles, and the shared `battle.bad-fighter` code distinct from `battle.bad-outcome`; BAT-7 follows ERR-2 continuation; BAT-8 records `random(5) <= 2` and negligible modulo bias (about 1 in 10^10); BAT-9 confines `skill = -1` to the legacy callback; BAT-10 returns to the active board and saves playback in the independent audio section; BAT-11–15, E-73/E-78, R-57, the battle built-in catalog, and stale plan wording are reconciled while preserving useful historical notes."""
-verify = """The listed BAT rows, E-73/E-78, R-57, function catalog, and plans match the rulings; required BAT-11–15 evidence/OWNER markers/rejected alternatives are complete; E-73 links to battle rules; E-78 agrees with R-16; R-57 is no longer labeled open; `fp`, `givefp`, and `dp` appear in the battle catalog; and no runtime or RNG behavior changes."""
+description = """Reconcile the remaining Epic 7 specifications and plans with approved rulings without runtime changes: BAT-3 needs `battle.background`, actor-object handles, and shared `battle.bad-fighter` distinct from `battle.bad-outcome`; BAT-8 records `random(5) <= 2` and its negligible modulo bias (about 1 in 10^10); BAT-9 confines `skill = -1` to the legacy callback; BAT-11–15, E-73/E-78, R-57, battle built-in catalog rows, and stale plan wording need reconciliation. BAT-7's ERR-2 wording and BAT-10's active-board/audio-save ruling are already documented and are not duplicate work here."""
+verify = """The remaining BAT-3, BAT-8, BAT-9, and BAT-11–15 documentation matches the rulings; required evidence, OWNER markers, and rejected alternatives are present; E-73 links to battle rules; E-78 agrees with R-16; R-57 is no longer labeled open; `fp`, `givefp`, and `dp` appear in the battle catalog; stale plan wording is corrected; and no runtime or RNG behavior changes."""
 covers = ["CAP-5", "CAP-9"]
 after = [1]
 hitl = false
 risk = "medium"
 references = [
   "issue - #504 (battle rulings and BAT-1–15)",
-  "spec - docs/spec/engine/battle.md (BAT-3, BAT-7–15)",
+  "pr - #695 (documentation reconciliation in progress)",
+  "spec - docs/spec/engine/battle.md (BAT-3, BAT-8–9, BAT-11–15)",
   "spec - docs/spec/engine/plugins-and-battle.md (E-73, R-57)",
   "spec - docs/spec/engine/movement-and-collision.md#e-78",
   "spec - docs/spec/engine/progression-and-levels.md (R-16)",
   "spec - docs/spec/engine/rpgcode-functions.md (battle built-ins)",
   "spec - docs/spec/engine/rpgcode-modules-and-objects.md#emit-13",
-  "spec - docs/spec/engine/audio-media.md (saved playback section)",
   "plan - _bmad-output/initiative-rpgtoolkit-reawakened/epic-battle/story-outcomes-rewards-and-level-up-plan.md",
 ]
 notes = [
-  "Owner ruling, 2026-10-26: accept `random(5) <= 2` with negligible modulo bias (about 1 in 10^10); document it and do not change the RNG.",
-  "Owner ruling, 2026-10-26: active-board return, not `boardKey` lookup; battle audio is saved in the independent audio section, not BattleState.",
+  "Owner ruling, 2026-10-26: BAT-7 ERR-2 continuation and BAT-10 active-board/independent-audio wording are already documented; do not duplicate them.",
 ]
 
 [[entry]]
@@ -307,14 +307,15 @@ id = 17
 tracker_id = "#689"
 type = "story"
 title = "Test gaps for battle state, API, combat, and AI"
-description = """Add named deterministic tests for the remaining Epic 7.2–7.7 acceptance gaps in state validation/snapshots, API/catalogue parity, charge/actions/status, and enemy AI, including the audit-requested narrow static guard against wall-clock or unseeded randomness in battle core/package inputs, while preserving approved errors and rules and leaving the save golden to 7.20."""
-verify = """Tests prove validator input immutability, valid-restore silence, out-of-battle `battle: null`, no stat/status copies, atomic shared `battle.bad-fighter` versus `battle.bad-outcome` errors, built-in/catalogue/docs parity, SMP attack underflow, AOE no-critical draws, non-empty inventory immutability, special availability/status order, exactly-once `fallen` for lethal Fight/Special/Item, status effect order and signed clamps, level-0/2 healing AI, post-target draw order, AI ownership, and ERR-2 custom-AI report/continuation through return; one scoped static guard rejects forbidden time/unseeded-RNG APIs and all other tests assert deterministic behavior without golden changes."""
+description = """Add named deterministic behavior tests for the remaining Epic 7.2–7.7 gaps in state validation/snapshots, battle built-in catalogue/docs parity, charge/actions/status, and enemy AI. Existing tests already cover atomic `battle.bad-fighter`/`battle.bad-outcome` errors and ERR-2 custom-AI continuation; G3 ESLint already covers forbidden time/random APIs in core TypeScript. Do not add duplicate tests or source-text scans; leave the battle save golden to 7.20 and make no RNG or gameplay-rule changes."""
+verify = """Tests prove validator input immutability, valid-restore silence, out-of-battle `battle: null`, and no copied actor HP/SMP/status; a named test checks registered battle built-ins against the catalogue/docs; deterministic behavior tests cover SMP attack underflow, AOE no-critical draws, non-empty inventory immutability, special availability/status order, exactly-once `fallen` for lethal Fight/Special/Item, status effect order and signed clamps, level-0/2 healing AI, post-target draw order, and AI configuration ownership. Add no duplicate API-error/ERR-2 tests or source-text guards; make no golden changes."""
 covers = ["CAP-5", "CAP-9", "CAP-11"]
 after = [2, 3, 4, 5, 6, 7]
 hitl = false
 risk = "high"
 references = [
   "issues - #505–#510 (Epic 7.2–7.7)",
+  "pr - #696 (test-gap work in progress)",
   "spec - docs/spec/engine/battle.md (BAT-2–BAT-7)",
   "spec - docs/spec/engine/rpgcode-functions.md (battle built-ins)",
   "spec - docs/spec/engine/progression-and-levels.md",
@@ -323,7 +324,7 @@ references = [
 ]
 notes = [
   "The battle-section save golden is tracked separately by Epic 7.20.",
-  "The requested source-text guard is limited to wall-clock/unseeded-random APIs; all other permanent tests assert real deterministic behavior.",
+  "Existing battle API tests prove atomic `battle.bad-fighter` and `battle.bad-outcome`; existing AI tests prove ERR-2 continuation; the G3 ESLint rule covers forbidden time/random APIs in core TypeScript. Do not add duplicates.",
 ]
 
 [[entry]]
@@ -331,17 +332,17 @@ id = 18
 tracker_id = "#690"
 type = "story"
 title = "Test gaps for outcomes, battle starts, and custom fight programs"
-description = """Close the remaining deterministic test gaps in Epic 7.8, 7.9, and 7.12 by consuming the gold effect through an inventory double, proving SMP preservation on level-up, covering Fight/FightEnemy setup and random-handoff `canRun` including fallen HP/empty party, asserting no-enemy/no-battle and catchable `program.missing` continuation, and running the same main-file all-API custom fight through the real path with stock_battle absent and present-but-replaced."""
-verify = """A seeded victory consumes the gold action and preserves current SMP; deterministic Fight/FightEnemy tests assert ordered parties, background, `canRun`, and fallen HP, the handoff derives `canRun` without another draw, an empty party is a located error, and an empty pool shows the exact message with no active battle; catchable `program.missing` continues to a marker without starting battle; and one main-file-registered all-API program drives the real custom-fight path in paired seeded absent/replaced-package runs with equal outcome/state/draw checks, no stock internals, and `include.missing` for absent `stockBattle` access, while the approved `random(5) <= 2` boundary remains unchanged."""
+description = """Close only the remaining deterministic test gaps in Epic 7.8, 7.9, and 7.12: preserve current SMP through default level-up growth; prove full `Fight` and `FightEnemy` setup and random-handoff `canRun` without an extra draw; prove catchable `program.missing` continuation to a marker; and run the same main-file-registered all-API custom fight through the real path with `stock_battle` absent and present-but-replaced. Existing tests already cover gold through the real reward path, `include.missing`, the run boundary, empty-party failure, and no-enemy/no-battle; do not duplicate those cases."""
+verify = """A seeded victory proves living and fallen party members preserve current SMP through default level-up growth. `Fight` and `FightEnemy` tests assert ordered parties, background, `canRun` from all enemies, and starting HP including fallen members; random handoff derives `canRun` without another RNG draw. Catchable `program.missing` reaches an explicit marker and starts no battle. One main-file-registered all-API program drives the real custom-fight path in paired seeded runs with `stock_battle` absent and present-but-replaced; compare outcome/state/draw hashes and prove it reads no stock internals. Do not repeat the already-covered gold, `include.missing`, run-boundary, empty-party, or no-enemy cases."""
 covers = ["CAP-5", "CAP-9", "CAP-10"]
-after = [8, 9, 12]
+after = [8, 9, 12, 16]
 hitl = false
 risk = "high"
 references = [
   "issues - #511 (outcomes), #512 (battle starts), #515 (custom fight program)",
+  "issue - #688 (approved documentation dependency)",
   "spec - docs/spec/engine/battle.md (BAT-3, BAT-8, BAT-9, BAT-12)",
-  "spec - docs/spec/engine/plugins-and-battle.md#e-78",
-  "spec - docs/spec/engine/progression-and-levels.md",
+  "spec - docs/spec/engine/movement-and-collision.md#e-78",
   "spec - docs/spec/engine/rpgcode-functions.md (battle API)",
 ]
 notes = [
@@ -354,21 +355,24 @@ id = 19
 tracker_id = "#691"
 type = "story"
 title = "Battle combat cues through the media object"
-description = """Complete Epic 7.10 combat-cue routing and verification through the media object by emitting ruled cues, treating missing cues as silent, mixing same-tick voices over music, verifying battle-source cancellation/replacement and listener-failure rejection, comparing null/real runner cue and hash parity, exercising real battle save/load restart through the independent audio section, and returning to the active board; menu cues remain in 7.11."""
-verify = """Named real-path tests prove every combat cue uses media, a missing cue is silent, same-tick cues mix over music, source `battle` reaches `beforePlay` with cancellation/replacement and listener failure rejecting without fallback, null/real runners yield equal cue streams and state hashes, an active-battle save/load restores independent audio and restarts music once with no audio in BattleState, and outcome returns to active-board music without `boardKey` lookup; menu cues are excluded."""
+description = """Complete the remaining Epic 7.10 combat-cue routing and verification through the media object. Before implementation, determine the cue names, triggers, and battle/menu ownership only from the approved BAT-10, `.bkg`, and media contracts; do not invent a cue map. Route only the contract-supported battle cues through media, keep missing cues silent, verify same-tick voice mixing, battle-source cancellation/replacement and listener-failure rejection, compare null/real runner cue and hash parity, and exercise real battle save/load with playback in the independent audio section. Outcome music returns to the active board; menu cues stay in 7.11."""
+verify = """First record a cue inventory with the approved contract that names each cue and its trigger/ownership; do not infer names or assign menu cues to battle. For each contract-supported combat cue, named real-path tests prove media routing and silent missing cues; also prove same-tick cues mix as voices over music, source `battle` reaches `beforePlay` with cancellation/replacement and listener failure rejecting without fallback, null/real runners yield equal cue streams and state hashes, and active-battle save/load restarts music once from the independent audio section with no audio in BattleState and returns outcome music to the active board. Menu cues remain in 7.11."""
 covers = ["CAP-7", "CAP-9", "CAP-11"]
-after = [10, "21.4", "21.5"]
+after = [10, 16, "21.4", "21.5"]
 hitl = false
 risk = "medium"
 references = [
   "issue - #513 (battle music and sounds)",
+  "issue - #688 (approved documentation dependency)",
   "spec - docs/spec/engine/battle.md (BAT-10)",
+  "spec - docs/spec/formats/battle-data.md#fight-background-bkg",
   "spec - docs/spec/engine/audio-media.md#audio-save-load",
   "spec - docs/spec/engine/plugins-and-battle.md#e-71",
 ]
 notes = [
   "Menu move/confirm/cancel cue emission stays with Epic 7.11.",
   "Owner ruling, 2026-10-26: listener failure rejects start; playback is saved in the independent audio section, not BattleState; outcome returns music to the active board.",
+  "The cue inventory is doc-first: use approved contracts only; do not create or infer a cue map.",
 ]
 
 [[entry]]
