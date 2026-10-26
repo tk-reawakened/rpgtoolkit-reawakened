@@ -95,6 +95,10 @@ stockBattle = {
   enemyDataCache: {},
   specialDataCache: {},
   battleBackgroundDataCache: null,
+  // Reusable setup-only entry points for custom fight programs. They share the
+  // core setup path with Fight/FightEnemy but leave the caller's loop in charge.
+  prepareRandom: (skill, background) => __battle_prepare_random(skill, background),
+  prepareEnemies: (e1, e2, e3, e4, background) => __battle_prepare_enemies(e1, e2, e3, e4, background),
   defeatedIds: {},
   defeatedListeners: {},
   defeatedListenerCount: 0,

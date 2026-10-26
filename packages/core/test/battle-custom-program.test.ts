@@ -35,7 +35,7 @@ import {
 } from "../src/index.ts";
 
 const fixtureDirectory = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "authored");
-const customFight = readFileSync(join(fixtureDirectory, "battle-custom-fight.prg"), "utf8");
+const customFight = readFileSync(join(fixtureDirectory, "battle-custom-api.prg"), "utf8");
 const plugins = [
   { definition: CORE_PLUGIN },
   { definition: BATTLE_PLUGIN },

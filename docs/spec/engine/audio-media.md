@@ -468,7 +468,8 @@ The affected producers and validators are fixed for the later implementation:
 |---|---|---|
 | `packages/core/src/engine/engine.ts::postBoardMusic` | post one `music.play` effect for every board arrival, carrying the resolved `AssetKey` or `null` for an empty/missing request; remove the `state.engine.musicAsset` same-file early return | the applier owns Q5–Q7 and Q10; a null board request stops and clears music |
 | `packages/core/src/engine/engine.ts::runAnimationPhase` | keep posting one-shot `sfx.play` records for visible `.anm` frame sounds | animation phase order, then frame index, then effect post order |
-| Epic 7 battle producer | post a `music.play` effect with source `battle`; no second cue vocabulary | battle hand-off is a later consumer of this track rule |
+| engine-mediated Epic 7 battle-start producer | For a non-empty battle-background `.bkg` music asset, post one `music.play` effect to the built-in `music` track with `loop: true` and fixed source `battle`; post no effect when the background has no music | Use the existing `postEffect("audio", effect)` and media-applier path; a no-music battle leaves current board music unchanged; a `mediaPlay` caller cannot supply this source |
+| Epic 7 board-return audio producer | On `boardReturned`, post the active board's `bkgMusic` to the built-in `music` track as `music.play`, with fixed source `board` and `null` for a silent board | Read active board data directly, not by looking up `battle.boardKey`; the event is handled before the `audio` phase, where ordinary replacement, same-file and silence rules apply |
 | script/audio applier | post effects through `postEffect("audio", effect)` | synchronous applier order; VM audit remains bounded |
 | `packages/core/src/engine/effects.ts` | retain the bounded per-section pending queue | FIFO drain when `audio` registers; dropped records are diagnosed |
 | `packages/core/src/ports/audio.ts` | replace `AudioCueKind` and `AudioCue` with this page's generic shape | exhaustive runner switch; all fields required/null |
@@ -691,6 +692,8 @@ recreated; it adds no audio playback fields or runner state.
 **Ruling (owner; approved).** In plain terms, scripts get one chance to veto or adjust a sound before it starts, regardless of what asked for it. Technically, `beforePlay` is emitted cancelably on `media` for every attempted voice start. Its detail contains `source`, `track`, `slot`, `cueId`, `file`, `volume` and `loop`; source is exactly one of `script`, `board`, `animation`, `battle`, `menu` or `video`. Listeners may cancel the event or change `file`, `volume` and `loop`. Mutated values are validated; an invalid mutation diagnoses and leaves that field at its pre-dispatch value. Cancellation means no start, no play cue and no `cueId` consumption; a canceled script `mediaPlay` returns `null`. Accepted mutations are used by the pending start. A non-cancelable playback notification is emitted only for a start actually applied.
 
 For a script-thread start, ordinary cancelable dispatch parks that thread until listeners finish. For an engine-originated start, dispatch runs inside the originating engine phase in listener-registration order under the step budget and never waits for input, as specified by [EMIT-11](rpgcode-modules-and-objects.md#emit-11). A listener that would wait for input is a catchable runtime error; the engine phase itself does not park.
+<!-- OWNER: MEDIA-3 — Jensen, 2026-10-26; evidence: owner ruling for engine-mediated battle music and the source visible to `beforePlay`; rejected alternative: a caller-controlled `source` option on `mediaPlay`, which lets script code impersonate an engine producer. -->
+**Owner clarification (approved).** `source` identifies the producer, not the requested track or caller preference. Script-facing `mediaPlay(file[, options])` always uses source `script`; `source` is not an accepted option. Engine-owned effect producers supply their fixed source on the existing audio effect record, including `battle` for a battle-start request and `board` for board music. Their starts still pass through `beforePlay` as MEDIA-3 requires.
 
 **Evidence.** Owner source list and mutable fields in `epic-media-objects.md` Notes; engine-phase rule at `rpgcode-modules-and-objects.md#emit-11`; cancellation and shared event mutation at `rpgcode-modules-and-objects.md#emit-1` (EMIT-5/EMIT-6).
 **Rejected alternative.** A script-only wrapper cannot see board, animation, battle, menu or video starts; parking an engine phase would stop the tick and is expressly excluded by EMIT-11.
@@ -794,8 +797,8 @@ format policy are owned by Epic 6.2/6.3; they must preserve these rows.
 | Q5 | Same music name is case-insensitive; it carries on while playing and restarts when stopped | Keep the `music` same-file carry-on rule; explicitly restart by stopping the current voice before starting it again. |
 | Q6 | Missing music stops old music first, then gives silent no-error result | Keep: a null/missing board request stops and clears `music` without a runtime error. |
 | Q7 | Board entry compares against music loaded now; empty means silence; final blocks replay after failed/empty name | Follow 3.1.0 under the version rule: compare current track, empty means stop, and do not adopt the final-version replay restriction. |
-| Q8 | Battle stops board music; a fight without music has no fallback | Keep: battle hand-off uses `music` and no fallback track. |
-| Q9 | Pre-fight music restarts from the beginning; in-fight music changes are lost; game-over restores pre-fight music | Keep as the battle hand-off contract; battle owns the saved pre-fight file and posts a restart. |
+| Q8 | Battle stops board music; a fight without music has no fallback | **Reawakened owner ruling (BAT-10, 2026-10-26):** non-empty battle `.bkg` music replaces board music; when the background has no music, no effect is posted and board music continues. |
+| Q9 | Pre-fight music restarts from the beginning; in-fight music changes are lost; game-over restores pre-fight music | **Reawakened owner ruling (BAT-10, 2026-10-26):** after the board-return event, the engine-owned board/audio producer reads music from the active board and posts it; battle code stores no pre-fight filename and does not look it up by `boardKey`. The ordinary same-file rule applies. |
 | Q10 | `mediaStop` retains the name; board, battle or video later restarts it | Keep: stop rewinds but retains `file`. |
 | Q11 | Legacy saves store no audio; load plays board music; reset does not stop music | Deliberately depart for Reawakened playback save/re-emission; retain reset behavior and restart music from zero on load. |
 | Q12 | Volume clamps 0..100, starts 100, is not remembered; 3.1.0 zero is quiet-but-audible and battle starts full; final has no audible effect | Follow 3.1.0: script volumes are integer settings, initial 100, not save/reset fields; final no-op volume is treated as a regression. |
@@ -1127,7 +1130,7 @@ Technically:
 
    | Producer | Effect | Track |
    |---|---|---|
-   | board `bkgMusic` (epic 4) | `music.play`, source = board key | `music` |
+   | board `bkgMusic` (epic 4) | `music.play`, source `board` | `music` |
    | battle music (epic 7) | `music.play`, source `battle` | `music` |
    | video restart (this entry) | `music.play`, source `video` | `music` |
    | animation frame sound (epic 4) | `sfx.play` | `sfx` |
@@ -1683,29 +1686,21 @@ differ across engines); AD-14 and AD-30.
 letting a runner read a position back to "stay in sync" (device timing in core).
 
 <a id="battle-music-synthetic"></a>
-<!-- OWNER: 6.3/BM -->
-**Proposed ruling (pending owner review; BM; the synthetic battle effect for
-Done-when item 1).** In plain terms, there is no battle yet, so tests post the
-same music effects a battle will, and the music behaves as Q8 and Q9 say. The
-battle epic later posts the real ones. Technically, the synthetic producer posts
-`music.play` records with source `battle`:
+<!-- OWNER: 6.3/BM; amended under Jensen's 2026-10-26 BAT-10 ruling on battle/board audio ownership. -->
+**Owner ruling (approved; synthetic battle trace).** In plain terms, a battle with music takes over the built-in `music` track; a battle without music leaves the board track alone. The battle side announces completion, and the engine-owned board/audio side restores music when the board is shown again. Technically, the synthetic producer exercises the existing audio effect and event paths:
 
 | Moment | Effect | Expected cues |
 |---|---|---|
-| battle starts, the fight has music `A` | `music.play(A, loop, source battle)` | `media.stop` on `music` if it was playing, then `media.play` of `A` from 0 |
-| battle starts, the fight has no music | `music.play(null, source battle)` | `media.stop` only: silence (Q8); the `music` file is cleared |
-| battle ends (win, flee or game over) | `music.play(P, loop, restart, source battle)`, `P` the pre-fight file the battle producer saved | `media.stop` if playing, then `media.play` of `P` from 0 (Q9); the `restart` flag makes a same-file `P` restart too |
+| battle starts, `.bkg` music is `A` | `music.play(A, true, false, "battle")` from the engine-mediated producer | Current music is replaced by `A` from position 0 after `beforePlay` accepts it |
+| battle starts, `.bkg` has no music | no effect | No cue; current board music and its state remain unchanged |
+| outcome handling completes and the board is shown again | `battleEnded`, then `boardReturned`; the board producer posts `music.play(P, true, false, "board")` for the active board's music `P`, or a null-asset board request when none is configured | A different `P` replaces battle music and starts from 0; a same-file request follows the normal carry-on rule; a null request clears the music track |
 
-These records are test fixtures in epic 6 (entries 6.6 and 6.16); the real
-battle producer, its saved pre-fight file and the game-over case are epic 7's.
-The record's exact argument layout is entry 6.6's; the behavior above is fixed.
+These records are test fixtures in Epic 6 (entries 6.6 and 6.16); the real
+battle-start producer and return events are owned by Epic 7. They use no second
+cue vocabulary, and the battle state holds no saved pre-fight audio filename.
 
-**Evidence.** Q8, Q9, Q19 and the 6.1 ledger rows; epic envelope ("Source
-conflict (to confirm at 6.3)": Done-when item 1 asks for battle cues but no
-battle runtime exists); 6.1's producer table (battle posts `music.play` with
-source `battle`).
-**Rejected alternative.** Waiting for epic 7 (Done-when item 1 could not be
-proved); a second cue vocabulary for battle (6.1 forbids it).
+**Evidence.** Q8 and Q9 are the 3.1 facts, with their Reawakened dispositions amended by the 2026-10-26 owner ruling in [battle.md#bat-10](battle.md#bat-10); the event order is specified in [rpgcode-modules-and-objects.md#emit-13](rpgcode-modules-and-objects.md#emit-13) and [main-loop-and-startup.md#reawakened-phases](main-loop-and-startup.md#reawakened-phases). The synthetic trace retains the 6.1 producer/effect contract.
+**Rejected alternative.** Stopping music when the battle has no track, saving the board's prior track in battle state, or making the battle system restore board music by key; these contradict the owner ruling and duplicate board/audio ownership. A second cue vocabulary is also rejected by Epic 6.
 
 ### The contract epic 9 implements
 

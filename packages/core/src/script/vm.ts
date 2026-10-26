@@ -273,6 +273,7 @@ export function createScriptServices(
   observers?: ScriptObservers,
   menuPorts?: MenuOwnerPorts,
   gameOverProgram: string | null = null,
+  battleStart?: CommandView["battleStart"],
 ): ScriptServices {
   const loader = typeof loaderOrGameId === "string" ? undefined : loaderOrGameId;
   const gameId = typeof loaderOrGameId === "string" ? loaderOrGameId : explicitGameId;
@@ -350,6 +351,7 @@ export function createScriptServices(
     state: commandState,
     actors,
     battle,
+    ...(battleStart === undefined ? {} : { battleStart }),
     ...(media === undefined ? {} : { media }),
     objectMembers: (handle: number) => state.vm.objects.find((record) => record.handle === handle)?.members,
     gameOverProgram,

@@ -201,7 +201,7 @@ test("without stock packages, menu facade reports missing provider and leaves th
     ...doubles.options,
   });
   const result = run(engine, game.files, doubles);
-  deepEqual(result.diagnostics.map((diagnostic) => diagnostic.code), ["menu.provider-missing"]);
+  deepEqual(result.diagnostics.map((diagnostic) => diagnostic.code), ["battle.no-board", "battle.package-missing", "battle.package-missing", "menu.provider-missing"]);
   equal(doubles.state().vm.globals.ended, 1);
   equal(doubles.state().menu.screens.length, 0);
 });

@@ -55,6 +55,12 @@ import type { ActorHooks } from "../actors/rules.ts";
 import type { MediaScriptService } from "../audio/script.ts";
 
 import type { AssetDecoder } from "../formats/registry/decoder.ts";
+
+/** Read-only game setup data consumed by legacy battle-start commands. */
+export type BattleStartView = {
+  readonly enemies: readonly { readonly enemyFile: string; readonly skillLevel: number }[];
+  readonly stockBattleAvailable: boolean;
+};
 /**
  * The read-only view a command runs against (AD-8; decision U2). It holds game
  * state read-only plus the two injected ports a command may draw from: the
@@ -77,6 +83,8 @@ export type CommandView = {
   readonly actors?: ActorService;
   /** Owner-mediated access to the saved battle section. */
   readonly battle?: BattleOwner;
+  /** Main-file enemy pool and selected stock battle package for start commands. */
+  readonly battleStart?: BattleStartView;
   /** Stable core-derived identity used to scope host storage. */
   readonly gameId?: string;
   /** Manifest options for the layer currently handling this command. */

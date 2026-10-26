@@ -42,6 +42,12 @@ export type RandomBattleHandoff = {
   fighters: BattleFighterReference[];
 };
 
+/**
+ * Posted instead of a handoff when the main file names a custom fight program. A custom encounter is spelled
+ * out, not drawn: the request carries no fighters and the evaluator draws no enemy. The engine runs `program`
+ * with this request as its `context`; the program names its own enemies with `FightEnemy` (BAT-9 rule 2,
+ * docs/spec/engine/battle.md#bat-9).
+ */
 export type RandomBattleCustomRequest = {
   trigger: "random";
   board: { key: string; skill: number; background: string };
@@ -132,5 +138,5 @@ export function runRandomEncounterPhase(state: GameState, config: RandomEncounte
 
 /** Register the evaluator for scene-mode runners; boot mode supplies its config directly. */
 export function randomEncounterPhaseRegistration(options: RandomEncounterOptions): EnginePhaseRegistration {
-  return { phase: "battle", rank: options.rank ?? 0, run: (state, post) => runRandomEncounterPhase(state, options.config, post) };
+  return { phase: "triggers", rank: options.rank ?? 0, run: (state, post) => runRandomEncounterPhase(state, options.config, post) };
 }

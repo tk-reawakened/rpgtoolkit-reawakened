@@ -514,6 +514,16 @@ test("a simultaneous player and enemy fall selects loss before victory", () => {
   equal(rig.state.vm.effects.some((effect) => effect.patch?.section === "inventory"), false);
   equal(globals(rig).winprogramcount ?? 0, 0);
 });
+test("an all-fallen party resolves loss through the stock outcome path", () => {
+  const rig = makeRig({
+    players: 2,
+    fallenPlayers: [0, 1],
+    gameOverProgram: "battle-outcome-game-over.prg",
+  });
+  const poll = pollAssets(rig);
+  tickUntil(rig, poll, () => rig.state.battle === null && globals(rig).gameoverprogramcount === 1);
+  equal(globals(rig).winprogramcount ?? 0, 0);
+});
 
 test("enemy defeated re-emits once with damage source and plain payload, including after event-queue restore", () => {
   const rig = makeRig();

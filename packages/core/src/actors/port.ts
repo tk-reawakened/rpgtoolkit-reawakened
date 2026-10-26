@@ -1,4 +1,4 @@
-import { actorId, getActor, patchActor as patchActorModel, type ActorId, type ActorRecord, type ActorStats, type ActorsSection } from "./model.ts";
+import { addActor, actorId, getActor, patchActor as patchActorModel, type ActorCreateInput, type ActorId, type ActorRecord, type ActorStats, type ActorsSection } from "./model.ts";
 import {
   advanceStatus,
   applyActorStatus,
@@ -49,6 +49,7 @@ export type ActorOperationService = {
 };
 
 export type ActorService = StatsPort & ActorOperationService & {
+  create(input: ActorCreateInput): Readonly<ActorRecord>;
   readActor(actor: ActorId | number): Readonly<ActorRecord> | null;
   rename(actor: ActorId | number, name: string): Readonly<ActorRecord> | null;
   activeActor(): Readonly<ActorRecord> | null;
@@ -122,6 +123,9 @@ export function createActorService(
       const result = completeLegacyBattleLevelStep(section, actor, remainingExperience, hooksFor(actor));
       if (result !== null && result.transitions.length > 0) events?.({ actor: result.actor, transitions: result.transitions });
       return result;
+    },
+    create(input) {
+      return addActor(section, input);
     },
     readActor(actor) {
       return getActor(section, actorId(actor));

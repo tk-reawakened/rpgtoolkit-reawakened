@@ -221,7 +221,7 @@ test("Epic 5 reset and phase seams are section-owned and ordered", () => {
 
   const phases = [inputPhaseRegistration(), movementPhaseRegistration(), triggerPhaseRegistration()].map((registration) => registration.phase);
   deepEqual(phases, ["input", "movement", "triggers"]);
-  deepEqual(ENGINE_PHASES, ["input", "waits", "threads", "events", "movement", "edges", "triggers", "battle", "animation", "audio", "time"]);
+  deepEqual(ENGINE_PHASES, ["input", "waits", "threads", "events", "movement", "edges", "triggers", "animation", "audio", "time"]);
   equal(STEP_BUDGET, 1000);
 });
 

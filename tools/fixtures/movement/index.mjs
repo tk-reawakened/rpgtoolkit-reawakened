@@ -102,7 +102,7 @@ function sceneDocument(name, build, proposed) {
     scene: name,
     schema: 1,
     note: "Authored from docs/spec; expected facts are derived by tools/fixtures/movement, not by packages/core. No state or draw hashes: later entries assert those.",
-    tick: "60 Hz fixed; phases input, waits, threads, movement, edges, triggers, battle, animation (AD-26)",
+    tick: "60 Hz fixed; phases input, waits, threads, events, movement, edges, triggers, animation, audio, time (AD-26); random encounters hand off from triggers.",
     units: "board pixels; fractions are exact multiples of 1/256",
     spec: scene.spec,
     proposed,

@@ -10,6 +10,7 @@ import {
   EffectBus,
   enqueueDirectionMove,
   hydrateSprites,
+  nextUint32,
   randomEncounterPhaseRegistration,
   restoreGameState,
   runRandomEncounterPhase,
@@ -84,7 +85,7 @@ function setup(caseData: FixtureCase, seed: number): { state: GameState; board: 
   };
 }
 
-test("random encounter fixtures all drive movement, trigger, and battle phases", () => {
+test("random encounter fixtures drive movement, triggers, and random-encounter evaluation", () => {
   const fixture = JSON.parse(readFileSync(join(fixtureRoot, "random-encounter.json"), "utf8")) as Fixture;
   for (const caseData of fixture.cases) {
     const { state, board, config } = setup(caseData, 0x511);
@@ -172,6 +173,7 @@ test("scene registration posts a battle effect through the phase callback", () =
   const { state, config } = setup(fixture.cases[1]!, 7);
   const posted: string[] = [];
   const registration = randomEncounterPhaseRegistration({ config });
+  equal(registration.phase, "triggers");
   state.time.tick = 0;
   registration.run(state);
   state.sprites.players[0] = { ...state.sprites.players[0]!, x: 80 };
@@ -180,4 +182,26 @@ test("scene registration posts a battle effect through the phase callback", () =
   state.sprites.players[0] = { ...state.sprites.players[0]!, x: 112 };
   registration.run(state, (_section, effect) => posted.push(effect.name));
   equal(posted.includes("battle.randomEncounter"), true);
+});
+
+test("a custom encounter's request carries no fighters and the evaluator takes no draw for it beyond the chance roll", () => {
+  const fixture = JSON.parse(readFileSync(join(fixtureRoot, "random-encounter.json"), "utf8")) as Fixture;
+  const caseData = fixture.cases.find((entry) => entry.name === "custom-fight-program");
+  if (caseData === undefined) throw new Error("the custom-fight-program case is missing from the fixture");
+  for (const [label, fightType, rolls] of [["type 1 (every N tiles) rolls nothing", 1, 0], ["type 0 rolls the chance once", 0, 1]] as const) {
+    const { state, config } = setup(caseData, 0x511);
+    equal(config.enemies.length > 0, true, "the main file's pool is not empty, and still nothing is drawn from it");
+    const custom = { ...config, fightType, chances: 1 };
+    const reference = createGameState({ seed: 0x511 }).rng;
+    for (let roll = 0; roll < rolls; roll += 1) nextUint32(reference);
+    const posted: { readonly name: string; readonly args: readonly unknown[] }[] = [];
+    runRandomEncounterPhase(state, custom);
+    state.sprites.players[0] = { ...state.sprites.players[0]!, x: 80 };
+    runRandomEncounterPhase(state, custom, (_section, effect) => posted.push({ name: effect.name, args: effect.args }));
+    deepEqual(posted.map(({ name }) => name), ["battle.customFight"], label);
+    const request = posted[0]!.args[0] as Record<string, unknown>;
+    deepEqual(Object.keys(request).sort(), ["actor", "board", "program", "trigger"], `${label}: no fighters key`);
+    equal(request.program, "fight.prg", label);
+    deepEqual(state.rng, reference, label);
+  }
 });
