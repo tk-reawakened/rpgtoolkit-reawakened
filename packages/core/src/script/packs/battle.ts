@@ -14,6 +14,7 @@ import type { BattleAction, BattleOperationResult } from "../../battle/port.ts";
 import type { Value } from "../../ports/value.ts";
 import type { Arg, BuiltinDoc, BuiltinSpec, ParamSpec } from "../builtins.ts";
 import { ScriptError } from "../errors.ts";
+import { recordDiagnostic } from "../effects.ts";
 import type { CommandEffect, CommandResult, CommandView, PluginDefinition } from "../plugin.ts";
 
 const GROUP = "battle-stats-menus-33";
@@ -59,7 +60,7 @@ const STATUS_APPLY_THROWS: NonNullable<BuiltinDoc["throws"]> = [
   { code: "asset.missing", when: "the requested StatusE asset is missing" },
   { code: "request.bad-reply", when: "the host asset reply is not valid hexadecimal bytes" },
   { code: "format.status-effect", when: "the bytes are not a valid StatusE `.ste` file" },
-  { code: "builtin.bad-arg", when: "the `.ste` rounds value is not a non-negative safe integer" },
+  { code: "builtin.bad-arg", when: "the `.ste` rounds value is not a safe integer" },
 ];
 const STATUS_REMOVE_THROWS: NonNullable<BuiltinDoc["throws"]> = [
   { code: "battle.not-active", when: "there is no active battle" },
@@ -244,30 +245,40 @@ function replyBytes(args: readonly Arg[], what: string): Uint8Array {
 function statusFileReply(args: readonly Arg[]): Result<StatusEffect> {
   return readStatusEffect(new BinaryReader(replyBytes(args, "status effect")));
 }
+function diagnoseStatusDuration(view: CommandView, file: string, rounds: number): void {
+  if (rounds >= 1 || view.state === undefined) return;
+  recordDiagnostic(
+    view.state.vm, view.state.time.tick, view.thread ?? 0, "battle.status-duration", `StatusE/${file}`, 0,
+    `StatusE/${file} has fewer than one round; the status lasts until removed`,
+  );
+}
 function statusContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
   const status = statusFileReply(args);
   if (!status.ok) throw new ScriptError("format.status-effect", status.error.message);
   const operation = text(args, 2);
   const actorId = integer(args, 3, "battle status operation");
   if (operation !== "apply" && operation !== "remove") throw new ScriptError("request.bad-reply", "unknown status operation");
-  if (operation === "apply" && (!Number.isSafeInteger(status.value.rounds) || status.value.rounds < 0)) {
-    throw new ScriptError("builtin.bad-arg", "applystatus: StatusE rounds must be a non-negative safe integer");
-  }
   const sourceValue = args[4]?.value;
   const source = typeof sourceValue === "number" && Number.isSafeInteger(sourceValue) && sourceValue > 0 ? sourceValue as ActorId : null;
-  const actors = view.actors;
-  if (actors === undefined) throw new ScriptError("battle.bad-fighter", `unknown status target (party=unknown, index=unknown)`);
   const file = text(args, 5);
+  let rounds = status.value.rounds;
+  diagnoseStatusDuration(view, file, rounds);
+  if (operation === "apply") {
+    if (!Number.isSafeInteger(rounds)) throw new ScriptError("builtin.bad-arg", "applystatus: StatusE rounds must be a safe integer");
+    rounds = Math.max(rounds, 0);
+  }
+  const actors = view.actors;
+  if (actors === undefined) throw new ScriptError("battle.bad-fighter", "unknown status target (party=unknown, index=unknown)");
   const result = operation === "apply"
-    ? actors.applyStatus(actorId, file, status.value.rounds, { source })
+    ? actors.applyStatus(actorId, file, rounds, { source })
     : actors.removeStatus(actorId, file, { source });
-  if (result === null) throw new ScriptError("battle.bad-fighter", `unknown status target (party=unknown, index=unknown)`);
+  if (result === null) throw new ScriptError("battle.bad-fighter", "unknown status target (party=unknown, index=unknown)");
   return { value: null };
 }
-
 function statusFlagsContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
   const status = statusFileReply(args);
   if (!status.ok) throw new ScriptError("format.status-effect", status.error.message);
+  diagnoseStatusDuration(view, text(args, 2), status.value.rounds);
   const object = createObject(view.state!.vm, null);
   writeMember(object, "speed", status.value.speedUp !== 0 ? 1 : 0);
   writeMember(object, "slow", status.value.slowDown !== 0 ? 1 : 0);
@@ -276,7 +287,7 @@ function statusFlagsContinuation(view: CommandView, args: readonly Arg[]): Comma
 }
 
 const STATUS_FLAGS_ASSET = {
-  name: "__battle_status_flags_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
+  name: "__battle_status_flags_asset", aliases: [], params: [parameter("ok"), parameter("bytes"), parameter("file")],
   doc: internalDocumentation("Resume a StatusE flag request.", "Reads the StatusE asset and returns only its normalized speed, slow and disable values."),
   call: statusFlagsContinuation,
 } satisfies BuiltinSpec;
@@ -296,9 +307,52 @@ const STATUS_FLAGS = {
   call: (_view: CommandView, args: readonly Arg[]) => ({
     value: null,
     request: { kind: "asset", area: "statusEffects", path: statusPath(text(args, 0)) },
-    then: { command: "__battle_status_flags_asset", args: [] },
+    then: { command: "__battle_status_flags_asset", args: [statusPath(text(args, 0))] },
   }),
 } satisfies BuiltinSpec;
+function statusDataContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
+  const status = statusFileReply(args);
+  if (!status.ok) throw new ScriptError("format.status-effect", status.error.message);
+  diagnoseStatusDuration(view, text(args, 2), status.value.rounds);
+  const object = createObject(view.state!.vm, null);
+  writeMember(object, "rounds", status.value.rounds);
+  writeMember(object, "speed", status.value.speedUp !== 0 ? 1 : 0);
+  writeMember(object, "slow", status.value.slowDown !== 0 ? 1 : 0);
+  writeMember(object, "disable", status.value.disable !== 0 ? 1 : 0);
+  writeMember(object, "hp", status.value.hpEnabled !== 0 ? 1 : 0);
+  writeMember(object, "hpamount", status.value.hpPerRound);
+  writeMember(object, "smp", status.value.smpEnabled !== 0 ? 1 : 0);
+  writeMember(object, "smpamount", status.value.smpPerRound);
+  writeMember(object, "runprogram", status.value.runProgram !== 0 ? 1 : 0);
+  writeMember(object, "program", status.value.program);
+  return { value: { kind: "object", handle: object.handle, className: object.className } };
+}
+
+const STATUS_DATA_ASSET = {
+  name: "__battle_status_data_asset", aliases: [], params: [parameter("ok"), parameter("bytes"), parameter("file")],
+  doc: internalDocumentation("Resume a StatusE data request.", "Reads the `.ste` asset and returns its duration, normalized flags, signed per-round HP/SMP values and program reference."),
+  call: statusDataContinuation,
+} satisfies BuiltinSpec;
+
+const STATUS_DATA = {
+  name: "statusdata", aliases: [], params: [parameter("file")],
+  doc: {
+    summary: "Read a status file's battle-round data.",
+    behaviour: "Requests `StatusE/<file>.ste` (prefix and extension may be omitted) and returns `{ rounds, speed, slow, disable, hp, hpamount, smp, smpamount, runprogram, program }`. The six flag fields are normalized to numeric 1 or 0; rounds and signed per-round amounts are read verbatim, and program is the file reference. This reads no actor state and applies no effects.",
+    groups: [GROUP, "reawakened-additions-not-part-of-the-282-legacy-catalogue"], tags: ["experimental"], waits: STATUS_WAIT,
+    throws: [
+      { code: "asset.missing", when: "the requested StatusE asset is missing" },
+      { code: "request.bad-reply", when: "the host reply is not valid hexadecimal bytes" },
+      { code: "format.status-effect", when: "the bytes are not a valid StatusE `.ste` file" },
+    ],
+  },
+  call: (_view: CommandView, args: readonly Arg[]) => ({
+    value: null,
+    request: { kind: "asset", area: "statusEffects", path: statusPath(text(args, 0)) },
+    then: { command: "__battle_status_data_asset", args: [statusPath(text(args, 0))] },
+  }),
+} satisfies BuiltinSpec;
+
 
 function assetPath(value: string, folder: string, extension: string, command: string): string {
   let path = value.trim().replaceAll("\\", "/");
@@ -623,6 +677,62 @@ const PROGRAM_CONTEXT = {
     return { value: { kind: "object", handle: context.handle, className: context.className } };
   },
 } satisfies BuiltinSpec;
+const STATUS_DELTA = {
+  name: "__battle_status_delta", aliases: [],
+  params: [parameter("target"), parameter("field"), parameter("amount")],
+  doc: internalDocumentation(
+    "Apply one status stat amount.",
+    "Applies a signed HP or SMP amount to an active fighter through actor-owned stats, clamped by the actor owner; positive amounts subtract and can cause a `fallen` transition with cause `status`.",
+    [{ code: "battle.bad-fighter", when: "the target is not an active fighter" }, { code: "builtin.bad-arg", when: "the field is not HP or SMP, or the amount cannot be applied safely" }],
+  ),
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const actorId = activeBattleActor(view, args[0]?.value);
+    const field = text(args, 1);
+    if (field !== "hp" && field !== "smp") throw new ScriptError("builtin.bad-arg", "status delta field must be hp or smp");
+    const amount = integer(args, 2, "status effect amount");
+    if (amount === 0) return { value: null };
+    const actors = view.actors;
+    const stats = actors?.read(actorId);
+    if (actors === undefined || stats === null || stats === undefined) {
+      throw new ScriptError("battle.bad-fighter", `unknown status target (party=unknown, index=unknown)`);
+    }
+    try {
+      if (actors.updateStats(actorId, { [field]: stats[field] - amount } as Partial<ActorStats>, { cause: "status", source: null }) === null) {
+        throw new ScriptError("battle.bad-fighter", `unknown status target (party=unknown, index=unknown)`);
+      }
+    } catch (error) {
+      if (error instanceof ScriptError) throw error;
+      throw new ScriptError("builtin.bad-arg", `status effect amount: ${error instanceof Error ? error.message : "invalid amount"}`);
+    }
+    return { value: null };
+  },
+} satisfies BuiltinSpec;
+const STATUS_ADVANCE = {
+  name: "__battle_status_advance", aliases: [],
+  params: [parameter("target"), parameter("amount")],
+  doc: internalDocumentation(
+    "Advance a fighter's status counters.",
+    "Ages all actor-owned status counters through the actor owner after the stock battle has applied this turn's status effects.",
+    [{ code: "battle.bad-fighter", when: "the target is not an active fighter" }, { code: "builtin.bad-arg", when: "the age is not a non-negative safe integer" }],
+  ),
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const actorId = activeBattleActor(view, args[0]?.value);
+    const amount = integer(args, 1, "status advance");
+    if (amount < 0) throw new ScriptError("builtin.bad-arg", "status advance must not be negative");
+    const actors = view.actors;
+    if (actors === undefined) throw new ScriptError("battle.bad-fighter", "unknown status target (party=unknown, index=unknown)");
+    try {
+      if (actors.advanceStatus(actorId, amount, { source: null }) === null) {
+        throw new ScriptError("battle.bad-fighter", "unknown status target (party=unknown, index=unknown)");
+      }
+    } catch (error) {
+      if (error instanceof ScriptError) throw error;
+      throw new ScriptError("builtin.bad-arg", `status advance: ${error instanceof Error ? error.message : "invalid amount"}`);
+    }
+    return { value: null };
+  },
+} satisfies BuiltinSpec;
+
 
 function chargeCommand(
   name: string,
@@ -741,7 +851,7 @@ const APPLY_STATUS: BuiltinSpec = {
   name: "applystatus", aliases: [], params: [parameter("target"), parameter("file")],
   doc: documentation(
     "Apply a status effect to a fighter.",
-    `Loads StatusE/<file>.ste (the prefix and extension may be omitted), then starts or restarts the actor-owned counter keyed by that file name, preserving spelling and comparing ignoring case, at the file's non-negative rounds value, including zero; re-application replaces the counter and never adds rounds. The embedded name is display data only. The actor owner emits the ordinary \`statusChanged\` event with detail { status, previousRounds, rounds, expired, source }. This call waits for the asset reply but does not tick counters or apply battle-round effects. ${FIGHTER_HANDLES}`,
+    `Loads StatusE/<file>.ste (the prefix and extension may be omitted), then starts or restarts the actor-owned counter keyed by that file name, preserving spelling and comparing ignoring case. A file value below 1 is diagnosed and stored as 0, which lasts until removed; re-application replaces the counter and never adds rounds. The embedded name is display data only. The actor owner emits the ordinary \`statusChanged\` event with detail { status, previousRounds, rounds, expired, source }. This call waits for the asset reply but does not tick counters or apply battle-round effects. ${FIGHTER_HANDLES}`,
     STATUS_APPLY_THROWS,
     STATUS_WAIT,
   ),
@@ -761,9 +871,9 @@ const REMOVE_STATUS: BuiltinSpec = {
 export const BATTLE_COMMANDS: readonly BuiltinSpec[] = [
   PARTY_SIZE, FIGHTER, CHARGE, ADD_CHARGE, SET_CHARGE, RELEASE_CHARGE, CHARGE_PERCENT, FINISH,
   HP, GIVE_HP, GET_HP, MAX_HP, GET_MAX_HP, SMP, GIVE_SMP, GET_SMP, MAX_SMP, GET_MAX_SMP,
-  FP, GIVE_FP, GET_FP, DP, GET_DP, GIVE_EXP, APPLY_STATUS, REMOVE_STATUS, STATUS_ASSET, GET_STATUS, STATUS_FLAGS, STATUS_FLAGS_ASSET,
+  FP, GIVE_FP, GET_FP, DP, GET_DP, GIVE_EXP, APPLY_STATUS, REMOVE_STATUS, STATUS_DATA, STATUS_ASSET, GET_STATUS, STATUS_FLAGS, STATUS_FLAGS_ASSET, STATUS_DATA_ASSET,
   MOVE_DATA, MOVE_ASSET, ITEM_DATA, ITEM_ASSET, ANIMATION_FILE, ANIMATION_ASSET, CONSUME, UNAFFORDABLE, INTEGER_MUL_DIV,
-  STATUS_SIGNATURE, PROGRAM_CONTEXT,
+  STATUS_SIGNATURE, PROGRAM_CONTEXT, STATUS_DELTA, STATUS_ADVANCE,
 ];
 export const BATTLE_COMMAND_NAMES = new Set<string>(BATTLE_COMMANDS.flatMap((command) => [command.name, ...command.aliases]));
 export const BATTLE_PLUGIN: PluginDefinition = {

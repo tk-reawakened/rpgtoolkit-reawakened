@@ -27,6 +27,7 @@ import {
   registerActorObject,
   restoreGameState,
   runPackageStartup,
+  runEventsPhase,
   runThreadsPhase,
   runWaitsPhase,
   snapshot,
@@ -57,6 +58,9 @@ const programSources: Record<string, string> = {
   "battle-loop.prg": fixture,
   "battle-decision.prg": decisionFixture,
   "battle-decision-read.prg": decisionReadFixture,
+  "battle-status-record.prg": readFileSync(join(testDirectory, "fixtures", "authored", "battle-status-record.prg"), "utf8"),
+  "battle-status-wait.prg": readFileSync(join(testDirectory, "fixtures", "authored", "battle-status-wait.prg"), "utf8"),
+  "battle-status-error.prg": readFileSync(join(testDirectory, "fixtures", "authored", "battle-status-error.prg"), "utf8"),
 };
 const programBytes = Object.fromEntries(Object.entries(programSources).map(([name, source]) =>
   [assetKey(`Prg/${name}`), new TextEncoder().encode(source)]));
@@ -187,26 +191,54 @@ function startUntilFirstSleep(rig: BattleRig, poll?: WaitPoll): void {
   throw new Error("stock battle loop did not reach its initial tick sleep");
 }
 
-function statusBytes(speed: number, slow: number, disable: number, rounds = 0): Uint8Array {
+type StatusFixture = {
+  rounds: number;
+  speed: number;
+  slow: number;
+  disable: number;
+  hp: number;
+  hpAmount: number;
+  smp: number;
+  smpAmount: number;
+  runProgram: number;
+  program: string;
+};
+type StatusPollValues = readonly [number, number, number] | Partial<StatusFixture>;
+
+function statusBytes(
+  speedOrFields: number | Partial<StatusFixture>,
+  slow = 0,
+  disable = 0,
+  rounds = 1,
+): Uint8Array {
+  const fields: StatusFixture = typeof speedOrFields === "number"
+    ? { rounds, speed: speedOrFields, slow, disable, hp: 0, hpAmount: 0, smp: 0, smpAmount: 0, runProgram: 0, program: "" }
+    : { rounds: 1, speed: 0, slow: 0, disable: 0, hp: 0, hpAmount: 0, smp: 0, smpAmount: 0, runProgram: 0, program: "", ...speedOrFields };
   const writer = new BinaryWriter();
   writer.str(STATUS_EFFECT_MAGIC);
   writer.i16(2);
   writer.i16(2);
   writer.str("authored loop status");
-  writer.i16(rounds);
-  writer.i16(speed);
-  writer.i16(slow);
-  writer.i16(disable);
-  for (let index = 0; index < 5; index += 1) writer.i16(0);
-  writer.str("");
+  writer.i16(fields.rounds);
+  writer.i16(fields.speed);
+  writer.i16(fields.slow);
+  writer.i16(fields.disable);
+  writer.i16(fields.hp);
+  writer.i16(fields.hpAmount);
+  writer.i16(fields.smp);
+  writer.i16(fields.smpAmount);
+  writer.i16(fields.runProgram);
+  writer.str(fields.program);
   return writer.toBytes();
 }
 
-function statusPoll(state: GameState, flags: Readonly<Record<string, readonly [number, number, number]>>): WaitPoll {
-  const encodings = new Map(Object.entries(flags).map(([name, values]) => [
-    name.toLowerCase(),
-    Array.from(statusBytes(...values)).map((byte) => byte.toString(16).padStart(2, "0")).join(""),
-  ]));
+function statusPoll(state: GameState, flags: Readonly<Record<string, StatusPollValues>>): WaitPoll {
+  const encodings = new Map(Object.entries(flags).map(([name, values]) => {
+    const bytes = Array.isArray(values)
+      ? statusBytes(values[0]!, values[1]!, values[2]!)
+      : statusBytes(values as Partial<StatusFixture>);
+    return [name.toLowerCase(), Array.from(bytes).map((byte) => byte.toString(16).padStart(2, "0")).join("")];
+  }));
   return (_view, wait: Wait) => {
     if (wait.kind !== "request") return null;
     const path = state.vm.effects.find((effect) => effect.request?.reqId === wait.reqId)?.request?.path;
@@ -215,6 +247,7 @@ function statusPoll(state: GameState, flags: Readonly<Record<string, readonly [n
     return bytes === undefined ? { ok: false, value: null } : { ok: true, value: bytes };
   };
 }
+
 
 function charges(state: GameState): number[][] {
   if (state.battle === null) throw new Error("battle unexpectedly ended");
@@ -259,6 +292,121 @@ test("speed, slow, multiple status files, and zero-round counters produce the un
   deepEqual(rig.state.actors.actors.map(({ id, statuses }) => [id, { ...statuses }] as const), statusesBefore, "the loop reads status flags without ticking or expiring statuses");
   equal(rig.services.diagnostics.length, 0);
 });
+test("reapplying a case-insensitive status restarts one counter; HP and SMP effects run before each turn and expire", () => {
+  const rig = makeState({ enemyStatuses: { "burn.ste": 1 } });
+  rig.services.actors.updateStats(rig.enemies[0]!.id, { hp: 11, smp: 5 }, { cause: "script", source: null });
+  const poll = statusPoll(rig.state, {
+    "burn.ste": { rounds: 2, hp: 1, hpAmount: 4, smp: 1, smpAmount: 3 },
+  });
+  startUntilFirstSleep(rig, poll);
+  rig.services.actors.applyStatus(rig.enemies[0]!.id, "BURN.STE", 2);
+  deepEqual(rig.state.actors.actors[0]?.statuses, { "burn.ste": 2 }, "case-insensitive reapplication replaces the counter");
+
+  setCharge(rig.state, 0, 0, 123);
+  tick(rig.state, rig.services, STEP_BUDGET, poll);
+  equal(rig.state.actors.actors[0]?.stats.hp, 7);
+  equal(rig.state.actors.actors[0]?.stats.smp, 2);
+  deepEqual(rig.state.actors.actors[0]?.statuses, { "burn.ste": 1 });
+  equal(globals(rig.state).turncount, 1);
+
+  setCharge(rig.state, 0, 0, 123);
+  tick(rig.state, rig.services, STEP_BUDGET, poll);
+  equal(rig.state.actors.actors[0]?.stats.hp, 3);
+  equal(rig.state.actors.actors[0]?.stats.smp, 0);
+  deepEqual(rig.state.actors.actors[0]?.statuses, {}, "the second effect runs before its counter expires");
+  equal(globals(rig.state).turncount, 2);
+});
+
+test("status programs run in upper-case filename order with status context and restored source/target", () => {
+  const rig = makeState({ enemyStatuses: { "a.ste": 0, "B.ste": 0 } });
+  const poll = statusPoll(rig.state, {
+    "a.ste": { runProgram: 1, program: "battle-status-record.prg" },
+    "B.ste": { runProgram: 1, program: "battle-status-record.prg" },
+  });
+  startUntilFirstSleep(rig, poll);
+  setCharge(rig.state, 0, 0, 123);
+  tick(rig.state, rig.services, STEP_BUDGET, poll);
+  equal(globals(rig.state).statusprogramcount, 2);
+  equal(globals(rig.state).statusprogramorder, "a.ste;B.ste;");
+  equal(globals(rig.state).statusprogramcontext, "B.ste");
+  equal(globals(rig.state).statusprogramsource, "enemy0.tem");
+  equal(globals(rig.state).statusprogramtarget, "enemy0.tem");
+  equal(globals(rig.state).turnsource, 0);
+  equal(globals(rig.state).turntarget, 0);
+});
+
+test("a per-round program error is reported while the status turn and battle continue", () => {
+  const rig = makeState({ enemyStatuses: { "broken.ste": 0, "good.ste": 0 } });
+  const poll = statusPoll(rig.state, {
+    "broken.ste": { runProgram: 1, program: "battle-status-error.prg" },
+    "good.ste": { hp: 1, hpAmount: 2 },
+  });
+  startUntilFirstSleep(rig, poll);
+  const hpBefore = rig.state.actors.actors[0]!.stats.hp;
+  setCharge(rig.state, 0, 0, 123);
+  tick(rig.state, rig.services, STEP_BUDGET, poll);
+  equal(rig.state.actors.actors[0]?.stats.hp, hpBefore - 2, "later ordered statuses still apply after the program error");
+  equal(globals(rig.state).statuserrorcontext, "broken.ste");
+  equal(globals(rig.state).statuserrorreached, 1);
+  equal(globals(rig.state).turncount, 1);
+  ok(rig.services.diagnostics.some(({ code, file }) =>
+    code === "unknown.command" && file.includes("battle-status-error.prg")));
+});
+
+test("a status program parked mid-effect resumes identically after save and restore", () => {
+  const rig = makeState({ seed: 29, enemyStatuses: { "pause.ste": 2 } });
+  const poll = statusPoll(rig.state, {
+    "pause.ste": { runProgram: 1, program: "battle-status-wait.prg" },
+  });
+  startUntilFirstSleep(rig, poll);
+  setCharge(rig.state, 0, 0, 123);
+  tick(rig.state, rig.services, STEP_BUDGET, poll);
+  equal(globals(rig.state).statuswaitstarted, 1);
+  equal(globals(rig.state).statuswaitresumed, 0);
+
+  const restored = restoreRig(snapshot(rig.state), rig.seed);
+  const restoredPoll = statusPoll(restored.state, {
+    "pause.ste": { runProgram: 1, program: "battle-status-wait.prg" },
+  });
+  for (let elapsed = 0; elapsed < 5; elapsed += 1) {
+    tick(rig.state, rig.services, STEP_BUDGET, poll);
+    tick(restored.state, restored.services, STEP_BUDGET, restoredPoll);
+    equal(hashGameState(restored.state), hashGameState(rig.state), `saved mid-effect tick ${elapsed}`);
+  }
+  equal(globals(rig.state).statuswaitresumed, 1);
+  equal(globals(rig.state).statuswaitcontext, "pause.ste");
+  equal(globals(rig.state).statuswaitsource, "enemy0.tem");
+  equal(globals(rig.state).statuswaittarget, "enemy0.tem");
+  equal(globals(rig.state).turncount, 1);
+});
+
+test("lethal status HP fires one fallen event with cause status without cancelling the turn", () => {
+  const rig = makeState({ enemyStatuses: { "lethal.ste": 1 } });
+  rig.services.actors.updateStats(rig.enemies[0]!.id, { hp: 5 }, { cause: "script", source: null });
+  const poll = statusPoll(rig.state, { "lethal.ste": { hp: 1, hpAmount: 5 } });
+  startUntilFirstSleep(rig, poll);
+  setCharge(rig.state, 0, 0, 0);
+  startProgram(rig.state.vm, {
+    kind: "inline",
+    compiler: "2",
+    text: `global(statusFallenCount)
+global(statusFallenCause)
+on(battle.fighter(0, 0), "fallen", (event) => {
+  statusFallenCount = statusFallenCount + 1
+  statusFallenCause = event.detail.cause
+})
+`,
+  });
+  tick(rig.state, rig.services, STEP_BUDGET, poll);
+  setCharge(rig.state, 0, 0, 123);
+  tick(rig.state, rig.services, STEP_BUDGET, poll);
+  equal(rig.state.actors.actors[0]?.stats.hp, 0);
+  equal(globals(rig.state).turncount, 1);
+  runEventsPhase(rig.state, rig.services, STEP_BUDGET);
+  equal(globals(rig.state).statusfallencount, 1);
+  equal(globals(rig.state).statusfallencause, "status");
+});
+
 
 test("a nonpositive charge rate stays below threshold instead of being clamped to zero", () => {
   const rig = makeState({ enemies: 0, playerStatuses: { "slow-a.ste": 0, "slow-b.ste": 0 } });
@@ -277,9 +425,13 @@ test("disable reference-counts active status files, clamps ready charge, and res
   setCharge(rig.state, 0, 0, 0);
   setCharge(rig.state, 1, 0, 123);
   tick(rig.state, rig.services, STEP_BUDGET, poll);
+  deepEqual(rig.state.actors.actors[1]?.statuses, { "freeze-a.ste": 0, "freeze-b.ste": 2 },
+    "neither disable counter ages while the fighter is disabled");
   deepEqual(charges(rig.state), [[3], [74]]);
   rig.services.actors.removeStatus(rig.players[0]!.id, "freeze-a.ste");
   tick(rig.state, rig.services, STEP_BUDGET, poll);
+  deepEqual(rig.state.actors.actors[1]?.statuses, { "freeze-b.ste": 2 },
+    "the remaining disable stays frozen until explicitly removed");
   deepEqual(charges(rig.state), [[6], [74]], "one remaining disable still freezes the fighter");
   rig.services.actors.removeStatus(rig.players[0]!.id, "freeze-b.ste");
   tick(rig.state, rig.services, STEP_BUDGET, poll);
@@ -604,6 +756,44 @@ test("idle passes fit one real engine tick with measured headroom, with or witho
     }
   }
 });
+test("several cached statuses fit one ready loop pass inside STEP_BUDGET", () => {
+  const names = ["a.ste", "b.ste", "c.ste", "d.ste"];
+  const statuses = Object.fromEntries(names.map((name) => [name, 0]));
+  const definitions = Object.fromEntries(names.map((name) => [name, { rounds: 0 }]));
+  const rig = makeState({ seed: 71, enemies: 5, players: 4, enemyStatuses: statuses });
+  const poll = statusPoll(rig.state, definitions);
+  startUntilFirstSleep(rig, poll);
+  for (const party of [0, 1] as const) {
+    for (let index = 0; index < rig.state.battle!.parties[party].length; index += 1) setCharge(rig.state, party, index, 0);
+  }
+  setCharge(rig.state, 0, 0, 123);
+  const beforeSteps = ownerSteps(rig.state, "stock_battle");
+  tick(rig.state, rig.services, STEP_BUDGET, poll);
+  const measured = ownerSteps(rig.state, "stock_battle") - beforeSteps;
+  ok(measured <= STEP_BUDGET, `the ready pass with four cached statuses used ${measured} of ${STEP_BUDGET} stock_battle steps`);
+  ok(rig.state.vm.threads.some((thread) => thread.wait?.kind === "sleep"), "the complete pass reaches its tick sleep");
+  equal(globals(rig.state).turncount, 1);
+});
+
+test("per-round effects replay deterministically from the same seed", () => {
+  function play(seed: number): GameState {
+    const rig = makeState({ seed, enemyStatuses: { "A.ste": 2, "b.ste": 2 } });
+    const poll = statusPoll(rig.state, {
+      "A.ste": { rounds: 2, hp: 1, hpAmount: 2, smp: 1, smpAmount: 1 },
+      "b.ste": { rounds: 2, hp: 1, hpAmount: 3, smp: 1, smpAmount: 2 },
+    });
+    startUntilFirstSleep(rig, poll);
+    setCharge(rig.state, 0, 0, 123);
+    tick(rig.state, rig.services, STEP_BUDGET, poll);
+    return rig.state;
+  }
+  const first = play(719);
+  const replay = play(719);
+  const otherSeed = play(720);
+  equal(hashGameState(first), hashGameState(replay));
+  equal(hashGameState(first) === hashGameState(otherSeed), false);
+});
+
 
 test("fake-host multi-tick catch-up matches the same sequence of engine ticks and hashes", () => {
   const stepped = makeState({ seed: 441, enemies: 2, players: 2 });

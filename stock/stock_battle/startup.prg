@@ -253,41 +253,99 @@ battleDecided = () => {
   return battle.outcome != ""
 }
 
-// Charge contributions only: ticket 7.6 can extend the turn path with effects
-// and expiry. Counter presence means active, including an indefinite zero.
-// Recompute only when the actor's exact status signature changes. Both the
-// computed contribution and each file's flags live in saved VM dictionaries.
-// A failed asset read reports its located error once and caches no contribution;
-// removing/reapplying a status cannot turn that into a diagnostic every pass.
+// Status identity and counters belong to the actor; this package loads the
+// cached .ste data, interprets its rate flags, and ticks effects at turns.
+function battleStatusBefore(leftText, rightText) {
+  local(leftKey) = ucase(leftText)
+  local(rightKey) = ucase(rightText)
+  local(leftLength) = len(leftKey)
+  local(rightLength) = len(rightKey)
+  local(index) = 1
+  local(leftCode)
+  local(rightCode)
+  while (index <= leftLength && index <= rightLength) {
+    leftCode = asc(charat(leftKey, index))
+    rightCode = asc(charat(rightKey, index))
+    if (leftCode < rightCode) {
+      return 1
+    }
+    if (leftCode > rightCode) {
+      return 0
+    }
+    index = index + 1
+  }
+  return leftLength < rightLength
+}
+
 function battleStatusRate(fighter, cache) {
   local(file)
   local(index) = 0
-  local(flags)
+  local(sortIndex)
+  local(data)
   local(key)
   cache.signature = statussignature(fighter)
   cache.rate = 3
   cache.disabled = 0
-  file = getstatus(fighter, 0)
+  cache.order = {}
+  file = getstatus(fighter, index)
   while (file != "") {
     key = ucase(file)
-    flags = cache.files[key]
-    if (flags == null) {
-      flags = statusflags(file)
-      if (flags == null) {
-        flags = { speed: 0, slow: 0, disable: 0 }
+    data = cache.files[key]
+    if (data == null) {
+      data = statusdata(file)
+      if (data == null) {
+        data = {
+          rounds: 0, speed: 0, slow: 0, disable: 0,
+          hp: 0, hpamount: 0, smp: 0, smpamount: 0,
+          runprogram: 0, program: ""
+        }
       }
-      cache.files[key] = flags
+      cache.files[key] = data
     }
-    cache.rate = cache.rate + 2 * flags.speed - 2 * flags.slow
-    cache.disabled = cache.disabled + flags.disable
+    cache.rate = cache.rate + 2 * data.speed - 2 * data.slow
+    cache.disabled = cache.disabled + data.disable
+    cache.order[index] = file
     index = index + 1
     file = getstatus(fighter, index)
+  }
+  cache.statusCount = index
+  for (index = 1; index < cache.statusCount; index = index + 1) {
+    file = cache.order[index]
+    sortIndex = index - 1
+    while (sortIndex >= 0 && battleStatusBefore(file, cache.order[sortIndex])) {
+      cache.order[sortIndex + 1] = cache.order[sortIndex]
+      sortIndex = sortIndex - 1
+    }
+    cache.order[sortIndex + 1] = file
   }
   return cache.rate
 }
 
-// The battle section is supplied by the start owner (ticket 7.9). No enemies,
-// actions, outcome decisions, status rounds, presentation or clocks live here.
+function battleStatusTurn(fighter, cache) {
+  local(position) = 0
+  local(file)
+  local(data)
+  while (position < cache.statusCount) {
+    file = cache.order[position]
+    data = cache.files[ucase(file)]
+    if (data.hp != 0 && data.hpamount != 0) {
+      __battle_status_delta(fighter, "hp", data.hpamount)
+    }
+    if (data.smp != 0 && data.smpamount != 0) {
+      __battle_status_delta(fighter, "smp", data.smpamount)
+    }
+    if (data.runprogram != 0) {
+      stockBattle.runProgram(data.program, fighter, fighter, { status: file })
+    }
+    position = position + 1
+  }
+  if (cache.statusCount > 0) {
+    __battle_status_advance(fighter, 1)
+  }
+}
+
+// The battle section is supplied by the start owner (ticket 7.9). This
+// package owns charge, status rounds/effects, and the action thread's turn seam.
 // Measured steady idle cost: 75 steps/fighter + 26/pass: eight fighters 626,
 // nine 701 of STEP_BUDGET=1000, with no statuses or one cached inert status each.
 // Status changes and turns can still preempt; BAT-4 resumes the saved pass.
@@ -341,7 +399,7 @@ function battle() {
             }
           } else {
             if (charge >= cache.threshold) {
-              stockBattle.turn(cache.party, cache.index)
+              battleStatusTurn(fighter, cache)
               battle.releaseCharge(cache.party, cache.index)
             } else {
               battle.addCharge(cache.party, cache.index, cache.rate)

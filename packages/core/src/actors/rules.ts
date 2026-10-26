@@ -293,7 +293,7 @@ export function advanceStatus(section: ActorsSection, id: ActorId | number, amou
   for (const status of Object.keys(actor.statuses).sort()) {
     const previousRounds = integer(actor.statuses[status], `statuses.${status}`);
     if (previousRounds < 0) throw new RangeError(`statuses.${status} must not be negative`);
-    let rounds = Math.max(0, previousRounds - age);
+    let rounds = previousRounds === 0 ? 0 : Math.max(0, previousRounds - age);
     if (options.hooks?.statusChanged !== undefined) {
       const result = record(options.hooks.statusChanged(actor, { status, previousRounds, rounds, source }), "statusChanged");
       exactKeys(result, ["rounds"], "statusChanged");
@@ -302,7 +302,7 @@ export function advanceStatus(section: ActorsSection, id: ActorId | number, amou
         if (rounds < 0) throw new RangeError(`status ${status} rounds must not be negative`);
       }
     }
-    const expired = rounds === 0;
+    const expired = previousRounds > 0 && rounds === 0;
     if (!expired) Object.defineProperty(nextStatuses, status, { value: rounds, enumerable: true, writable: true, configurable: true });
     if (rounds !== previousRounds || expired) {
       transitions.push({ type: "statusChanged", actorId: stableId, status, previousRounds, rounds, expired, source });
