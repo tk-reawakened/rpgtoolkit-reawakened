@@ -705,6 +705,9 @@ function beginExplicitBattle(view: CommandView, args: readonly Arg[], runLoop: b
   if (names.some((value) => typeof value !== "string" || value.trim() === "")) {
     throw new ScriptError("builtin.bad-arg", "FightEnemy enemy file names must be non-empty strings");
   }
+  if (runLoop && !hasBattleHandler(view)) {
+    throw new ScriptError("battle.package-missing", "no battle handler is registered");
+  }
   const boardKey = view.state?.world.board?.key;
   if (boardKey === undefined) throw new ScriptError("battle.no-board", "FightEnemy requires a loaded board");
   return beginBattleStart(view, boardKey, background, names as string[], runLoop);
