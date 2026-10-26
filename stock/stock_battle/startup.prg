@@ -749,12 +749,12 @@ function battleStatusTurn(fighter, cache) {
   }
 }
 
-
-// The battle section is supplied by the start owner (ticket 7.9). This
-// package owns charge, status rounds/effects, and the action thread's turn seam.
-// Measured steady idle cost: 75 steps/fighter + 26/pass: eight fighters 626,
-// nine 701 of STEP_BUDGET=1000, with no statuses or one cached inert status each.
-// Status changes and turns can still preempt; BAT-4 resumes the saved pass.
+// The start command supplies the battle section. This package owns charge,
+// status rounds/effects, and the action thread's turn seam.
+// BAT-4 idle-pass ceilings are 476/626/701 steps for six/eight/nine fighters;
+// measured passes use 440/576/644 with no statuses or one cached inert status
+// per fighter, within STEP_BUDGET=1000. Status changes and turns can preempt;
+// BAT-4 resumes the saved pass.
 function battle() {
   local(party)
   local(index)
