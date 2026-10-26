@@ -345,13 +345,19 @@ export function createScriptServices(
     readActors: () => state.actors,
     commit: (section) => { state.battle = section; },
   });
+  const battleStartView = battleStart === undefined
+    ? undefined
+    : Object.freeze({
+      ...battleStart,
+      hasBattleHandler: () => battleStart.stockBattleAvailable || topLayerHandle(layers, "battle") !== undefined,
+    });
   const view = Object.freeze({
     rng,
     clock,
     state: commandState,
     actors,
     battle,
-    ...(battleStart === undefined ? {} : { battleStart }),
+    ...(battleStartView === undefined ? {} : { battleStart: battleStartView }),
     ...(media === undefined ? {} : { media }),
     objectMembers: (handle: number) => state.vm.objects.find((record) => record.handle === handle)?.members,
     gameOverProgram,

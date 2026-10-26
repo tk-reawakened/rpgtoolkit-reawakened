@@ -571,6 +571,10 @@ function seededBelow(view: CommandView, limit: number): number {
   return value % limit;
 }
 
+function hasBattleHandler(view: CommandView): boolean {
+  return view.battleStart?.hasBattleHandler?.() ?? (view.battleStart?.stockBattleAvailable === true);
+}
+
 function startBattleAssetRequest(view: CommandView, pending: BattleStartPending): CommandResult {
   const source = pending.enemySources[pending.next]!;
   return {
@@ -594,11 +598,8 @@ function pendingStart(
   boardKey: string,
   background: string,
   enemySources: readonly string[],
-  runStock: boolean,
+  runLoop: boolean,
 ): BattleStartPending {
-  if (runStock && view.battleStart?.stockBattleAvailable !== true) {
-    throw new ScriptError("battle.package-missing", 'the "stock_battle" package is not loaded');
-  }
   if (enemySources.length < 1 || enemySources.length > 4) {
     throw new ScriptError("builtin.bad-arg", "a battle must have between one and four enemies");
   }
@@ -609,18 +610,17 @@ function pendingStart(
     loadedHex: [],
     next: 0,
     playerIds: statePartyIds(view),
-    runStock,
+    runStock: runLoop,
   };
 }
 
-function stockBattleLoop(): CommandEffect {
+function registeredBattleLoop(): CommandEffect {
   return {
     kind: "vm.control",
     args: ["executeProgramRef", {
       kind: "inline",
       text: "battle()",
       compiler: COMPILER_VERSION,
-      owner: "stock_battle",
     }, null, null],
   };
 }
@@ -652,7 +652,7 @@ function finishBattleStart(view: CommandView, pending: BattleStartPending, backg
   });
   if (!started.ok) throw new ScriptError(started.error.code, started.error.message);
   if (backgroundMusic !== "") view.media?.playBattleMusic(backgroundMusic);
-  return pending.runStock ? { value: null, effects: [stockBattleLoop()] } : { value: null };
+  return pending.runStock ? { value: null, effects: [registeredBattleLoop()] } : { value: null };
 }
 
 function battleStartAssetContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
@@ -674,15 +674,15 @@ function battleStartBackgroundAssetContinuation(view: CommandView, args: readonl
   return finishBattleStart(view, pending, background.value.music);
 }
 
-function beginBattleStart(view: CommandView, boardKey: string, background: string, sources: readonly string[], runStock: boolean): CommandResult {
+function beginBattleStart(view: CommandView, boardKey: string, background: string, sources: readonly string[], runLoop: boolean): CommandResult {
   if (boardKey === "" || typeof background !== "string") throw new ScriptError("battle.bad-handoff", "battle start requires a board key and background");
-  if (runStock && view.battleStart?.stockBattleAvailable !== true) {
-    throw new ScriptError("battle.package-missing", 'the "stock_battle" package is not loaded');
+  if (runLoop && !hasBattleHandler(view)) {
+    throw new ScriptError("battle.package-missing", "no battle handler is registered");
   }
-  return startBattleAssetRequest(view, pendingStart(view, boardKey, background, sources, runStock));
+  return startBattleAssetRequest(view, pendingStart(view, boardKey, background, sources, runLoop));
 }
 
-function beginRandomBattle(view: CommandView, skill: number, background: string, runStock: boolean): CommandResult {
+function beginRandomBattle(view: CommandView, skill: number, background: string, runLoop: boolean): CommandResult {
   const state = view.state;
   const setup = view.battleStart;
   const board = state?.world.board;
@@ -695,16 +695,16 @@ function beginRandomBattle(view: CommandView, skill: number, background: string,
     const ref = { kind: "inline" as const, text: `mwin(${JSON.stringify(message)})`, compiler: COMPILER_VERSION };
     return { value: null, effects: [{ kind: "vm.control", args: ["executeProgramRef", ref, null, null] }] };
   }
-  if (runStock && setup.stockBattleAvailable !== true) {
-    throw new ScriptError("battle.package-missing", 'the "stock_battle" package is not loaded');
+  if (runLoop && !hasBattleHandler(view)) {
+    throw new ScriptError("battle.package-missing", "no battle handler is registered");
   }
   validatedPartyIds(view);
   const count = 1 + seededBelow(view, 4);
   const sources = Array.from({ length: count }, () => pool[seededBelow(view, pool.length)]!.enemyFile);
-  return beginBattleStart(view, board.key, background, sources, runStock);
+  return beginBattleStart(view, board.key, background, sources, runLoop);
 }
 
-function beginExplicitBattle(view: CommandView, args: readonly Arg[], runStock: boolean, allowEmpty = false): CommandResult {
+function beginExplicitBattle(view: CommandView, args: readonly Arg[], runLoop: boolean, allowEmpty = false): CommandResult {
   if (args.length < 2 || args.length > 5) {
     throw new ScriptError("builtin.bad-arg", "FightEnemy requires one to four enemy files followed by a background");
   }
@@ -715,17 +715,17 @@ function beginExplicitBattle(view: CommandView, args: readonly Arg[], runStock: 
     const compact = names.filter((value) => value !== 0 && value !== "");
     if (compact.some((value) => typeof value !== "string")) throw new ScriptError("builtin.bad-arg", "enemy file names must be strings");
     if (compact.length === 0) throw new ScriptError("builtin.bad-arg", "battle setup requires at least one enemy file");
-    return beginBattleStart(view, view.state?.world.board?.key ?? "", background, compact as string[], runStock);
+    return beginBattleStart(view, view.state?.world.board?.key ?? "", background, compact as string[], runLoop);
   }
   if (names.some((value) => typeof value !== "string" || value.trim() === "")) {
     throw new ScriptError("builtin.bad-arg", "FightEnemy enemy file names must be non-empty strings");
   }
-  if (runStock && view.battleStart?.stockBattleAvailable !== true) {
-    throw new ScriptError("battle.package-missing", 'the "stock_battle" package is not loaded');
+  if (runLoop && !hasBattleHandler(view)) {
+    throw new ScriptError("battle.package-missing", "no battle handler is registered");
   }
   const boardKey = view.state?.world.board?.key;
   if (boardKey === undefined) throw new ScriptError("battle.no-board", "FightEnemy requires a loaded board");
-  return beginBattleStart(view, boardKey, background, names as string[], runStock);
+  return beginBattleStart(view, boardKey, background, names as string[], runLoop);
 }
 
 function decodeHandoffJson(encoded: string): string {
@@ -1754,8 +1754,8 @@ const START_HANDOFF: BuiltinSpec = {
   params: [parameter("handoff")],
   doc: internalDocumentation(
     "Start a battle from the 5.11 random-encounter handoff.",
-    "Consumes the plain-data board and ordered enemy references without drawing again, loads each named `.ene` file and starts the built-in battle loop.",
-    [{ code: "battle.bad-handoff", when: "the handoff is missing a required board, player or enemy field" }, { code: "battle.empty-party", when: "the ordered player party is empty" }, { code: "battle.package-missing", when: "the stock battle package is not loaded" }, ...ASSET_REPLY_THROWS, { code: "format.enemy", when: "an enemy file is not a valid `.ene` file" }],
+    "Consumes the plain-data board and ordered enemy references without drawing again, loads each named `.ene` file and starts the registered battle handler.",
+    [{ code: "battle.bad-handoff", when: "the handoff is missing a required board, player or enemy field" }, { code: "battle.empty-party", when: "the ordered player party is empty" }, { code: "battle.package-missing", when: "no battle handler is registered" }, ...ASSET_REPLY_THROWS, { code: "format.enemy", when: "an enemy file is not a valid `.ene` file" }],
   ),
   call: handoffBattleStart,
 };
@@ -1804,12 +1804,12 @@ const FIGHT: BuiltinSpec = {
   params: [parameter("skill"), parameter("background")],
   doc: {
     summary: "Start a skill level fight.",
-    behaviour: "Draws a uniformly selected count of one to four enemies, then independently draws each enemy uniformly from the main-file pool entries at the requested skill. The seeded game RNG owns every draw. It loads the selected enemy files, builds party 0 in draw order and party 1 from the ordered player party (including fallen members), stores the requested background and the run permission derived from every enemy, then waits for the stock battle loop to return. An empty matching pool shows the exact “No enemies of skill level N found.” message and starts nothing.",
+    behaviour: "Draws a uniformly selected count of one to four enemies, then independently draws each enemy uniformly from the main-file pool entries at the requested skill. The seeded game RNG owns every draw. It loads the selected enemy files, builds party 0 in draw order and party 1 from the ordered player party (including fallen members), stores the requested background and the run permission derived from every enemy, then waits for the registered battle handler to return. An empty matching pool shows the exact “No enemies of skill level N found.” message and starts nothing.",
     groups: [GROUP], tags: ["legacy"], waits: ASSET_WAIT,
     throws: [
       { code: "battle.no-board", when: "there is no loaded board" },
       { code: "battle.empty-party", when: "the ordered player party is empty" },
-      { code: "battle.package-missing", when: "the stock battle package is not loaded" },
+      { code: "battle.package-missing", when: "no battle handler is registered" },
       ...ASSET_REPLY_THROWS,
       { code: "format.enemy", when: "an enemy file is not a valid `.ene` file" },
       { code: "builtin.bad-arg", when: "the skill or background is invalid" },
@@ -1828,12 +1828,12 @@ const FIGHT_ENEMY: BuiltinSpec = {
   params: [{ name: "args", optional: true, byRef: false, variadic: true }],
   doc: {
     summary: "Start a fight.",
-    behaviour: "Treats the final argument as the background and each preceding argument as one enemy file, loads them in source order, and builds party 0 in that order and party 1 from the ordered player party (including fallen members). The saved background and run permission from all loaded enemies are passed to the stock battle loop, which this command waits for. This command consumes no enemy-selection randomness.",
+    behaviour: "Treats the final argument as the background and each preceding argument as one enemy file, loads them in source order, and builds party 0 in that order and party 1 from the ordered player party (including fallen members). The saved background and run permission from all loaded enemies are passed to the registered battle handler, which this command waits for. This command consumes no enemy-selection randomness.",
     groups: [GROUP], tags: ["legacy"], waits: ASSET_WAIT,
     throws: [
       { code: "battle.no-board", when: "there is no loaded board" },
       { code: "battle.empty-party", when: "the ordered player party is empty" },
-      { code: "battle.package-missing", when: "the stock battle package is not loaded" },
+      { code: "battle.package-missing", when: "no battle handler is registered" },
       ...ASSET_REPLY_THROWS,
       { code: "format.enemy", when: "an enemy file is not a valid `.ene` file" },
       { code: "builtin.bad-arg", when: "the call does not contain one to four enemy files followed by a string background" },

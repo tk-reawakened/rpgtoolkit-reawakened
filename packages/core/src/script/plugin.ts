@@ -56,10 +56,12 @@ import type { MediaScriptService } from "../audio/script.ts";
 
 import type { AssetDecoder } from "../formats/registry/decoder.ts";
 
-/** Read-only game setup data consumed by legacy battle-start commands. */
+/** Read-only game setup data consumed by battle-start commands. */
 export type BattleStartView = {
   readonly enemies: readonly { readonly enemyFile: string; readonly skillLevel: number }[];
   readonly stockBattleAvailable: boolean;
+  /** Runtime check for a package-registered `battle()` handler. */
+  readonly hasBattleHandler?: () => boolean;
 };
 /**
  * The read-only view a command runs against (AD-8; decision U2). It holds game
@@ -83,7 +85,7 @@ export type CommandView = {
   readonly actors?: ActorService;
   /** Owner-mediated access to the saved battle section. */
   readonly battle?: BattleOwner;
-  /** Main-file enemy pool and selected stock battle package for start commands. */
+  /** Main-file enemy pool and package battle handler for start commands. */
   readonly battleStart?: BattleStartView;
   /** Stable core-derived identity used to scope host storage. */
   readonly gameId?: string;
