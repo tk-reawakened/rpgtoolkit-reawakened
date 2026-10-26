@@ -375,6 +375,7 @@ test("engine displays no-enemies handoffs, reports custom starts for owner rulin
         post("battle", {
           thread: 0,
           name,
+          kind: "state-write",
           args: [payload],
           out: {},
           result: null,

@@ -73,6 +73,9 @@ function encodeHandoff(value: unknown): string {
   }
   return encoded;
 }
+function clonePlain<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
 
 function startState(seed = 17): GameState {
   const state = createGameState({ seed });
@@ -90,17 +93,19 @@ function startState(seed = 17): GameState {
   });
   state.party.members = [hero.id, fallen.id];
   state.party.selected = hero.id;
-  state.world.board = {
-    key: assetKey("boards/field.brd"),
-    coordType: 0,
-    sizeX: 1,
-    sizeY: 1,
-    sizeL: 1,
-    width: 1,
-    height: 1,
-    background: { r: 0, g: 0, b: 0 },
-    ambient: { r: 0, g: 0, b: 0 },
-    layers: [],
+  state.world = {
+    board: {
+      key: assetKey("boards/field.brd"),
+      coordType: 0,
+      sizeX: 1,
+      sizeY: 1,
+      sizeL: 1,
+      width: 1,
+      height: 1,
+      background: { r: 0, g: 0, b: 0 },
+      ambient: { r: 0, g: 0, b: 0 },
+      layers: [],
+    },
   };
   return state;
 }
@@ -226,7 +231,7 @@ test("Fight draws one to four matching enemies deterministically from the seeded
 test("FightEnemy loads explicit enemies in order and BAT-9 includes fallen players", () => {
   const state = startState();
   const service = services(state);
-  const rngBefore = structuredClone(state.rng);
+  const rngBefore = clonePlain(state.rng);
   const first = invoke(command("fightenemy"), service.view, ["slime", "bat.ene", "night.bkg"]);
   const completed = finishRequestedEnemies(service.view, first, {
     "slime.ene": authoredEnemy("Slime", 1),
@@ -272,7 +277,7 @@ test("FightEnemy enforces one-to-four enemy boundaries and preserves order", () 
 test("random encounter handoff uses its drawn enemies without drawing again", () => {
   const state = startState(29);
   const service = services(state);
-  const rngBefore = structuredClone(state.rng);
+  const rngBefore = clonePlain(state.rng);
   const handoff = {
     trigger: "random",
     board: { key: "boards/field.brd", skill: 1, background: "night.bkg" },
@@ -302,18 +307,18 @@ test("battle setup validates party, package and enemy run permissions", () => {
   const noParty = startState(37);
   noParty.party.members = [];
   const noPartyService = services(noParty);
-  const emptyRng = structuredClone(noParty.rng);
+  const emptyRng = clonePlain(noParty.rng);
   equal(failureCode(() => invoke(command("fight"), noPartyService.view, [1, "night.bkg"])), "battle.empty-party");
   deepEqual(noParty.rng, emptyRng);
 
   const noPackage = startState(41);
   const noPackageService = services(noPackage, false);
-  const noPackageRng = structuredClone(noPackage.rng);
+  const noPackageRng = clonePlain(noPackage.rng);
   equal(failureCode(() => invoke(command("fight"), noPackageService.view, [1, "night.bkg"])), "battle.package-missing");
   deepEqual(noPackage.rng, noPackageRng);
   const noPool = startState(43);
   const noPoolService = services(noPool, false, []);
-  const noPoolRng = structuredClone(noPool.rng);
+  const noPoolRng = clonePlain(noPool.rng);
   const noPoolResult = invoke(command("fight"), noPoolService.view, [1, "night.bkg"]);
   equal(noPoolResult.effects?.[0]?.kind, "vm.control");
   const noPoolRef = noPoolResult.effects?.[0]?.args?.[1];
