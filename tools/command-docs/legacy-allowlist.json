@@ -86,7 +86,6 @@
     "catalogue/takeitem",
     "catalogue/attackall",
     "catalogue/drainall",
-    "catalogue/ai",
     "catalogue/internalmenu",
     "catalogue/fightstyle",
     "catalogue/battlespeed",
