@@ -23,12 +23,12 @@ Tests only. Do not modify runtime rules, the RNG algorithm, or save goldens; tic
 
 ## Acceptance
 
-- [ ] Validator input is unchanged; valid restore has no diagnostics; out-of-battle save has `battle: null`; BattleState contains no actor HP/SMP/status copies.
-- [ ] A named test checks every registered battle-facing built-in against the catalogue and docs.
-- [ ] Cover SMP attack underflow, AOE actions without critical draws, non-empty inventory immutability, special availability/status order, and exactly-once `fallen` for lethal Fight/Special/Item.
-- [ ] Cover status HP/SMP/program/aging order, actor-owned status state, and both signed effect bounds.
-- [ ] Cover level-0/2 healing AI, post-target draw order, and AI configuration ownership.
-- [ ] Do not duplicate the existing atomic `battle.bad-fighter`/`battle.bad-outcome` or ERR-2 continuation tests; no static source-text guard or golden changes.
+- [x] Validator input is unchanged; valid restore has no diagnostics; out-of-battle save has `battle: null`; BattleState contains no actor HP/SMP/status copies. Tests (`packages/core/test/battle-state.test.ts`): “battle validation locates malformed outcomes and non-finite charge without mutating input”; “restoring a valid battle emits no restore.battle-fighter diagnostics”; “an out-of-battle serialized snapshot contains battle: null”; “battle state snapshots preserve fighters, charge and outcome in the canonical hash” (no hp/smp/status copies; statuses stay on the actor).
+- [x] A named test checks every registered battle-facing built-in against the catalogue and docs. Test (`packages/core/test/battle-builtin-catalogue.test.ts`): “every registered public battle built-in has a catalogue row with the registered purpose” (names, aliases and purpose text against `rpgcode-functions.md`; `fp`, `givefp`, `dp` included).
+- [x] Cover SMP attack underflow, AOE actions without critical draws, non-empty inventory immutability, special availability/status order, and exactly-once `fallen` for lethal Fight/Special/Item. Tests (`packages/core/test/battle-actions.test.ts`): “attackAmount clamps an SMP-pool underflow at zero”; “attackall and drainall ignore active critical limits and consume no random draws”; “using an item leaves an existing inventory list unchanged”; “a special move applies its status after the move program runs”; “a lethal Fight fires fallen exactly once”; “a lethal Special Move fires fallen exactly once”; “a damaging item fires fallen exactly once”; “availableSpecials filters unaffordable moves…” (`battle-ai.test.ts`).
+- [x] Cover status HP/SMP/program/aging order, actor-owned status state, and both signed effect bounds. Tests (`packages/core/test/battle-loop.test.ts`): “status programs observe HP and SMP effects before the counter ages”; “signed status amounts heal and damage while clamping HP and SMP at both bounds”; actor-owned status state is asserted in the `battle-state.test.ts` snapshot test above.
+- [x] Cover level-0/2 healing AI, post-target draw order, and AI configuration ownership. Tests (`packages/core/test/battle-ai.test.ts`): “healing specials choose living allies by level and may target an already-full ally”; “enemy AI pins coin, special pick, target, and post-target combat draw order”; “ai(level) handoff leaves another enemy's level-three behavior unchanged”.
+- [x] Do not duplicate the existing atomic `battle.bad-fighter`/`battle.bad-outcome` or ERR-2 continuation tests; no static source-text guard or golden changes. Verified by absence: no new API-error, ERR-2, source-text or golden test was added.
 
 ## Verification
 
@@ -38,3 +38,4 @@ Run focused battle state/snapshot, API/catalogue, actions, loop/status, and AI t
 
 - 2026-10-26: created to cover the audit's remaining test gaps for Epic 7.2–7.7.
 - 2026-10-27: removed duplicate API-error/ERR-2 tests and the static source-text guard from the planned work.
+- 2026-10-27: reconciled against merged PR #696 plus the added catalogue-parity test; every acceptance item now cites its named test.
