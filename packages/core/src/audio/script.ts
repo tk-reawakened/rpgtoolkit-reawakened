@@ -59,6 +59,8 @@ export type MediaStart = {
 export type MediaScriptService = {
   /** Create the voice object, post the start and bind it. */
   play(file: string, options: MediaPlayOptions): MediaStart;
+  /** Start a resolved battle background on the built-in music track, without exposing a script source option. */
+  playBattleMusic(file: string): void;
   /** Fill a voice object's slot and cue id from the applier's decision. */
   bind(handle: number, result: AudioPlayResult): void;
   /** A wait that parks until a pending start binds, then applies the terminal rule. */
@@ -108,6 +110,7 @@ function mediaTrackName(record: ObjectRecord): string | null {
 export function createMediaScriptService(
   state: GameState,
   post: (name: string, args: readonly PlainData[]) => { readonly seq: number },
+  resolveMusicAsset: (file: string) => AssetKey | null,
   diagnose: (code: string, op: string, detail: Record<string, string | number | boolean | null>) => void,
 ): MediaScriptService {
   let mediaRecord: ObjectRecord | null = null;
@@ -116,6 +119,11 @@ export function createMediaScriptService(
   const results = new Map<number, AudioPlayResult>();
 
   const service: MediaScriptService = {
+    playBattleMusic(file) {
+      if (file === "") return;
+      const asset = resolveMusicAsset(file);
+      if (asset !== null) post("music.play", [asset, true, false, "battle"]);
+    },
     play(file, options) {
       const record = createHostObject(state.vm, "media.voice");
       writeMember(record, "track", options.track);

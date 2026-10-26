@@ -745,7 +745,7 @@ test("a sleeping battle hook and loop state round-trip exactly at every pass and
   }
 });
 
-test("idle passes fit one real engine tick with measured headroom, with or without cached statuses", () => {
+test("idle nine-fighter passes do not exceed the 701-step BAT-4 baseline, with or without cached statuses", () => {
   for (const [enemies, players, withStatus, expectedSteps] of [
     [5, 4, false, 701],
     [5, 4, true, 701],

@@ -4,10 +4,12 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import {
+  addActor,
   assetKey,
   collectStateGarbage,
   CORE_PLUGIN,
   createAudioRuntime,
+  createBattleOwner,
   createGameState,
   createMediaScriptService,
   createScriptServices,
@@ -61,6 +63,7 @@ function rig(lengths: Record<string, number | null | "pending">, program: string
   const media = createMediaScriptService(
     state,
     (name, args) => bus.postEffect("audio", engineEffect("audio", name, args, "draw-audio-cue")),
+    (file) => Object.hasOwn(lengths, file) ? assetKey(`media/${file}`) : null,
     (code, op, _detail) => {
       diagnostics.push({ code, message: `${op}: ${code}` });
     },
@@ -202,6 +205,72 @@ test("engine-originated starts share the script listener order and canonical mut
   deepEqual([started.file, started.volume, started.loop], ["media/battle.mid", 35, false]);
   deepEqual(world.audio.drain().filter((cue) => cue.kind === "media.play").map((cue) => [cue.asset, cue.volume, cue.loop]), [["media/battle.mid", 35, false]]);
 });
+
+test("battle music replaces board music on the built-in track with the battle source", () => {
+  const world = rig({ "board.mid": 60, "battle.mid": 90 }, 'media.on("beforePlay", (event) => { source = event.detail.source })');
+  world.tick();
+  world.postAudioEffect("music.play", [assetKey("media/board.mid"), true, false, "board"]);
+  const media = world.services.view.media;
+  if (media === undefined) throw new Error("expected the engine media service");
+  media.playBattleMusic("battle.mid");
+  equal(voice(world.state, "music", 0)?.file, "media/battle.mid");
+  equal(global(world.state, "source"), "battle");
+  equal(world.state.vm.objects.filter((record) => record.className === "media.voice").length, 0);
+});
+
+test("empty or missing battle music leaves the current board track playing", () => {
+  const world = rig({ "board.mid": 60 }, 'media.on("beforePlay", (event) => { source = event.detail.source })');
+  world.tick();
+  world.postAudioEffect("music.play", [assetKey("media/board.mid"), true, false, "board"]);
+  const media = world.services.view.media;
+  if (media === undefined) throw new Error("expected the engine media service");
+  media.playBattleMusic("");
+  media.playBattleMusic("missing.mid");
+  equal(voice(world.state, "music", 0)?.file, "media/board.mid");
+  equal(global(world.state, "source"), "board");
+});
+test("mid-battle battle music and battle state round-trip as deterministic plain data", () => {
+  const world = rig({ "battle.mid": 90 }, "");
+  world.tick();
+  const enemy = addActor(world.state.actors, {
+    kind: "enemy",
+    source: "enemy/slime.ene",
+    name: "Slime",
+    stats: { hp: 8, maxHp: 8 },
+  });
+  const hero = addActor(world.state.actors, {
+    kind: "party",
+    source: "chrs/hero.tem",
+    name: "Hero",
+    stats: { hp: 10, maxHp: 10 },
+  });
+  world.state.party.members = [hero.id];
+  world.state.party.selected = hero.id;
+  const owner = createBattleOwner({
+    readBattle: () => world.state.battle,
+    readActors: () => world.state.actors,
+    commit: (battle) => { world.state.battle = battle; },
+  });
+  const started = owner.start({
+    boardKey: assetKey("boards/field.brd"),
+    background: "night.bkg",
+    canRun: true,
+    enemies: [enemy.id],
+    players: [hero.id],
+  });
+  ok(started.ok);
+  if (world.services.view.media === undefined) throw new Error("expected the engine media service");
+  world.services.view.media.playBattleMusic("battle.mid");
+  const saved = snapshot(world.state);
+  const restored = restoreGameState(saved);
+  deepEqual(restored.battle, world.state.battle);
+  deepEqual(restored.audio, world.state.audio);
+  equal(snapshot(restored), saved);
+  equal(hashGameState(restored), hashGameState(world.state));
+  equal(Object.hasOwn(restored.battle ?? {}, "music"), false);
+  equal(restored.audio.tracks.find((track) => track.name === "music")?.file, assetKey("media/battle.mid"));
+});
+
 
 test("engine effect starts cover board, frame, battle, menu and video sources", () => {
   const board = rig({ "a.wav": 60 }, 'media.on("beforePlay", (event) => { source = event.detail.source; event.cancel() })');

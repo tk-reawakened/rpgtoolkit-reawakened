@@ -4,9 +4,11 @@ import {
   addActor,
   advanceScriptTick,
   assetKey,
+  BATTLE_BACKGROUND_MAGIC,
   BATTLE_PLUGIN,
   CORE_PLUGIN,
   createGameState,
+  createMediaScriptService,
   createScriptServices,
   replyToRequest,
   restoreGameState,
@@ -14,14 +16,21 @@ import {
   startProgram,
   readStepCounters,
   STEP_BUDGET,
+  writeBattleBackground,
   writeEnemy,
+  type BattleBackground,
   type CommandResult,
   type Enemy,
   type GameState,
   type ScriptError,
+  type ScriptServices,
 } from "../src/index.ts";
 import type { Arg, BuiltinSpec } from "../src/script/builtins.ts";
 import type { CommandView } from "../src/script/plugin.ts";
+
+type BattleStartServices = ScriptServices & {
+  readonly mediaPosts: Array<{ readonly name: string; readonly args: readonly unknown[] }>;
+};
 
 const plugins = [{ definition: CORE_PLUGIN }, { definition: BATTLE_PLUGIN }] as const;
 const enemyPool = [
@@ -57,6 +66,24 @@ function authoredEnemy(name: string, canRun: number): Uint8Array {
     residue: new Uint8Array(),
   };
   const result = writeEnemy(enemy);
+  if (!result.ok) throw new Error(result.error.message);
+  return result.value;
+}
+
+function authoredBackground(music = ""): Uint8Array {
+  const background: BattleBackground = {
+    magic: BATTLE_BACKGROUND_MAGIC,
+    major: 2,
+    minor: 2,
+    image: "",
+    music,
+    menuMoveSound: "",
+    menuChooseSound: "",
+    readySound: "",
+    cantDoSound: "",
+    residue: new Uint8Array(),
+  };
+  const result = writeBattleBackground(background);
   if (!result.ok) throw new Error(result.error.message);
   return result.value;
 }
@@ -114,8 +141,19 @@ function services(
   state: GameState,
   stockBattleAvailable = true,
   enemies: readonly { readonly enemyFile: string; readonly skillLevel: number }[] = enemyPool,
+  musicFiles: readonly string[] = ["battle.mid"],
 ) {
-  return createScriptServices(
+  const mediaPosts: Array<{ readonly name: string; readonly args: readonly unknown[] }> = [];
+  const media = createMediaScriptService(
+    state,
+    (name, args) => {
+      mediaPosts.push({ name, args });
+      return { seq: mediaPosts.length };
+    },
+    (file) => musicFiles.includes(file) ? assetKey(`media/${file}`) : null,
+    () => {},
+  );
+  const scriptServices = createScriptServices(
     state,
     plugins,
     undefined,
@@ -127,12 +165,13 @@ function services(
     undefined,
     undefined,
     false,
-    undefined,
+    media,
     undefined,
     undefined,
     null,
     { enemies, stockBattleAvailable },
   );
+  return { ...scriptServices, mediaPosts };
 }
 
 function command(name: string): BuiltinSpec {
@@ -168,20 +207,23 @@ function failureCode(action: () => unknown): string {
   throw new Error("expected battle setup to fail");
 }
 
-function finishRequestedEnemies(
+function finishRequestedBattleAssets(
   view: CommandView,
   first: CommandResult,
   assets: Readonly<Record<string, Uint8Array>>,
 ): CommandResult {
   let result = first;
   for (let guard = 0; result.request !== undefined; guard += 1) {
-    if (guard >= 4) throw new Error("battle setup requested more than four enemy files");
+    if (guard >= 8) throw new Error("battle setup requested too many assets");
     const path = result.request.path;
     const continuation = result.then?.args[0];
-    if (typeof path !== "string" || typeof continuation !== "string") throw new Error("battle setup did not preserve a plain continuation");
-    const bytes = assets[path];
-    if (bytes === undefined) throw new Error(`missing authored enemy fixture ${path}`);
-    result = invoke(command("__battle_start_enemy_asset"), view, [1, hex(bytes), continuation]);
+    const handler = result.then?.command;
+    if (typeof path !== "string" || typeof continuation !== "string" || typeof handler !== "string") {
+      throw new Error("battle setup did not preserve a plain continuation");
+    }
+    const bytes = assets[path] ?? (result.request.area === "backgrounds" ? authoredBackground() : undefined);
+    if (bytes === undefined) throw new Error(`missing authored battle asset fixture ${path}`);
+    result = invoke(command(handler), view, [1, hex(bytes), continuation]);
   }
   return result;
 }
@@ -192,10 +234,11 @@ function requestId(state: GameState): number {
   return thread.wait.reqId;
 }
 
-function resumeSavedStart(state: GameState, service: ReturnType<typeof services>, bytes: Uint8Array): void {
+function resumeSavedStart(state: GameState, service: BattleStartServices, enemyBytes: Uint8Array): void {
   for (let guard = 0; guard < 8; guard += 1) {
     const thread = state.vm.threads.find((candidate) => candidate.wait?.kind === "request");
     if (thread?.wait?.kind !== "request") return;
+    const bytes = thread.wait.then?.command === "__battle_start_background_asset" ? authoredBackground() : enemyBytes;
     replyToRequest(state.vm, thread.wait.reqId, { ok: true, value: hex(bytes) });
     advanceScriptTick(state, service);
   }
@@ -233,7 +276,7 @@ test("FightEnemy loads explicit enemies in order and BAT-9 includes fallen playe
   const service = services(state);
   const rngBefore = clonePlain(state.rng);
   const first = invoke(command("fightenemy"), service.view, ["slime", "bat.ene", "night.bkg"]);
-  const completed = finishRequestedEnemies(service.view, first, {
+  const completed = finishRequestedBattleAssets(service.view, first, {
     "slime.ene": authoredEnemy("Slime", 1),
     "bat.ene": authoredEnemy("Bat", 0),
   });
@@ -248,6 +291,31 @@ test("FightEnemy loads explicit enemies in order and BAT-9 includes fallen playe
   deepEqual(battle.parties[1]?.map((fighter) => state.actors.actors.find((actor) => actor.id === fighter.actorId)?.name), ["Hero", "Fallen"]);
   equal(battle.parties[1]?.[1]?.charge, 0);
 });
+test("battle setup starts a resolved background music asset on the battle track", () => {
+  const state = startState();
+  const service = services(state);
+  const first = invoke(command("fightenemy"), service.view, ["slime", "night.bkg"]);
+  finishRequestedBattleAssets(service.view, first, {
+    "slime.ene": authoredEnemy("Slime", 1),
+    "night.bkg": authoredBackground("battle.mid"),
+  });
+  ok(state.battle);
+  deepEqual(service.mediaPosts, [{
+    name: "music.play",
+    args: [assetKey("media/battle.mid"), true, false, "battle"],
+  }]);
+
+  const missingState = startState();
+  const missingService = services(missingState, true, enemyPool, []);
+  const missingFirst = invoke(command("fightenemy"), missingService.view, ["slime", "night.bkg"]);
+  finishRequestedBattleAssets(missingService.view, missingFirst, {
+    "slime.ene": authoredEnemy("Slime", 1),
+    "night.bkg": authoredBackground("missing.mid"),
+  });
+  equal(missingState.battle !== null, true);
+  deepEqual(missingService.mediaPosts, []);
+});
+
 test("FightEnemy enforces one-to-four enemy boundaries and preserves order", () => {
   const state = startState();
   const service = services(state);
@@ -257,13 +325,13 @@ test("FightEnemy enforces one-to-four enemy boundaries and preserves order", () 
   const oneState = startState();
   const oneService = services(oneState);
   const one = invoke(command("fightenemy"), oneService.view, ["slime", "night.bkg"]);
-  finishRequestedEnemies(oneService.view, one, { "slime.ene": authoredEnemy("Slime", 1) });
+  finishRequestedBattleAssets(oneService.view, one, { "slime.ene": authoredEnemy("Slime", 1) });
   equal(oneState.battle?.parties[0]?.length, 1);
 
   const fourState = startState();
   const fourService = services(fourState);
   const four = invoke(command("fightenemy"), fourService.view, ["slime", "bat", "slime", "bat", "night.bkg"]);
-  finishRequestedEnemies(fourService.view, four, {
+  finishRequestedBattleAssets(fourService.view, four, {
     "slime.ene": authoredEnemy("Slime", 1),
     "bat.ene": authoredEnemy("Bat", 1),
   });
@@ -289,7 +357,7 @@ test("random encounter handoff uses its drawn enemies without drawing again", ()
     ],
   };
   const first = invoke(command("__battle_start_handoff"), service.view, [encodeHandoff(handoff)]);
-  finishRequestedEnemies(service.view, first, {
+  finishRequestedBattleAssets(service.view, first, {
     "slime.ene": authoredEnemy("Slime", 1),
     "bat.ene": authoredEnemy("Bat", 0),
   });
@@ -328,7 +396,7 @@ test("battle setup validates party, package and enemy run permissions", () => {
   const runnable = startState();
   const runnableService = services(runnable);
   const first = invoke(command("fightenemy"), runnableService.view, ["slime", "night.bkg"]);
-  finishRequestedEnemies(runnableService.view, first, { "slime.ene": authoredEnemy("Slime", 2) });
+  finishRequestedBattleAssets(runnableService.view, first, { "slime.ene": authoredEnemy("Slime", 2) });
   equal(runnable.battle?.canRun, true);
 });
 
@@ -394,7 +462,8 @@ test("four-enemy battle setup stays within STEP_BUDGET across asset continuation
   for (let guard = 0; guard < 8 && thread.status !== "finished"; guard += 1) {
     const beforeSteps = readStepCounters(state.vm).stock_battle ?? 0;
     if (thread.wait?.kind === "request") {
-      replyToRequest(state.vm, thread.wait.reqId, { ok: true, value: hex(authoredEnemy("Slime", 1)) });
+      const bytes = thread.wait.then?.command === "__battle_start_background_asset" ? authoredBackground() : authoredEnemy("Slime", 1);
+      replyToRequest(state.vm, thread.wait.reqId, { ok: true, value: hex(bytes) });
     }
     advanceScriptTick(state, service, STEP_BUDGET);
     const used = (readStepCounters(state.vm).stock_battle ?? 0) - beforeSteps;
