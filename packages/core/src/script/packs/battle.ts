@@ -476,7 +476,6 @@ const STATUS_DATA_ASSET = {
   }),
 } satisfies BuiltinSpec;
 
-
 const STATUS_DATA = {
   name: "statusdata", aliases: [], params: [parameter("file")],
   doc: {
