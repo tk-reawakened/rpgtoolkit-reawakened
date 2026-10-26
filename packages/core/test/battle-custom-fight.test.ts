@@ -67,6 +67,8 @@ const stockManifest = JSON.parse(readFileSync(join(repoRoot, "stock", "stock_bat
   readonly requests: PackageCatalogueEntry["requests"];
 };
 const fightSource = readFileSync(join(testDirectory, "fixtures", "authored", "battle-custom-fight.prg"), "utf8");
+const replacementBattleSource = readFileSync(join(testDirectory, "fixtures", "authored", "battle-replacement-package.prg"), "utf8");
+const replacementStartSource = readFileSync(join(testDirectory, "fixtures", "authored", "battle-replacement-start.prg"), "utf8");
 const encoder = new TextEncoder();
 
 function unwrap<T>(result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } }): T {
@@ -213,6 +215,8 @@ function actorSources(state: GameState, entries: readonly { readonly actorId: nu
 const scriptBytes: Record<string, Uint8Array> = {
   [assetKey("Prg/stock-battle.prg")]: encoder.encode(stockSource),
   [assetKey("Prg/fight.prg")]: encoder.encode(fightSource),
+  [assetKey("Prg/replacement-battle.prg")]: encoder.encode(replacementBattleSource),
+  [assetKey("Prg/replacement-start.prg")]: encoder.encode(replacementStartSource),
 };
 const loader: ProgramLoader = {
   index: createAssetIndex(Object.keys(scriptBytes)),
@@ -232,11 +236,21 @@ const stockBattlePlugin: ResolvedPlugin = {
   definition: { id: "stock_battle", version: "1.0.0", commands: [] },
 };
 const startupRef = { ...fileProgramRef(loader, "stock-battle.prg"), owner: "stock_battle" };
+const replacementBattlePlugin: ResolvedPlugin = {
+  namespace: "replacement_battle",
+  definition: { id: "replacement_battle", version: "1.0.0", commands: [] },
+};
+const replacementStartupRef = { ...fileProgramRef(loader, "replacement-battle.prg"), owner: "replacement_battle" };
 // A non-empty pool the custom path must never read: a drawn fight would request one of these files.
 const enemyPool = [
   { enemyFile: "pool-a.ene", skillLevel: 1 },
   { enemyFile: "pool-b.ene", skillLevel: 1 },
 ] as const;
+type EnemyPoolEntry = { readonly enemyFile: string; readonly skillLevel: number };
+const replacementEnemyPool: readonly EnemyPoolEntry[] = [
+  { enemyFile: "slime.ene", skillLevel: 1 },
+  { enemyFile: "bat.ene", skillLevel: 1 },
+];
 
 type Rig = {
   readonly state: GameState;
@@ -244,13 +258,25 @@ type Rig = {
   readonly layers: PluginLayers;
   readonly seed: number;
   readonly stock: boolean;
+  readonly replacement: boolean;
+  readonly pool: readonly EnemyPoolEntry[];
   readonly players: readonly number[];
 };
 
-function servicesFor(state: GameState, layers: PluginLayers, stock: boolean): ScriptServices {
+function servicesFor(
+  state: GameState,
+  layers: PluginLayers,
+  stock: boolean,
+  replacement = false,
+  pool: readonly EnemyPoolEntry[] = enemyPool,
+): ScriptServices {
+  const battlePlugins = [
+    ...(stock ? [stockBattlePlugin] : []),
+    ...(replacement ? [replacementBattlePlugin] : []),
+  ];
   return createScriptServices(
     state,
-    stock ? [...plugins, stockBattlePlugin] : plugins,
+    [...plugins, ...battlePlugins],
     undefined,
     undefined,
     loader,
@@ -264,13 +290,22 @@ function servicesFor(state: GameState, layers: PluginLayers, stock: boolean): Sc
     undefined,
     undefined,
     null,
-    { enemies: enemyPool, stockBattleAvailable: stock },
+    { enemies: pool, stockBattleAvailable: stock },
   );
 }
 
-function makeRig(options: { readonly mode: string; readonly seed?: number; readonly players?: number; readonly stock?: boolean }): Rig {
+function makeRig(options: {
+  readonly mode: string;
+  readonly seed?: number;
+  readonly players?: number;
+  readonly stock?: boolean;
+  readonly replacement?: boolean;
+  readonly pool?: readonly EnemyPoolEntry[];
+}): Rig {
   const seed = options.seed ?? 17;
   const stock = options.stock ?? true;
+  const replacement = options.replacement ?? false;
+  const pool = options.pool ?? enemyPool;
   const state = createGameState({ seed });
   const players = Array.from({ length: options.players ?? 1 }, (_, index) => {
     const actor = addActor(state.actors, {
@@ -299,16 +334,31 @@ function makeRig(options: { readonly mode: string; readonly seed?: number; reado
     },
   };
   const layers = createPluginLayers();
-  const services = servicesFor(state, layers, stock);
-  if (stock) runPackageStartup(state, services, [startupRef], [stockBattlePlugin]);
+  const battlePlugins = [
+    ...(stock ? [stockBattlePlugin] : []),
+    ...(replacement ? [replacementBattlePlugin] : []),
+  ];
+  const startupRefs = [
+    ...(stock ? [startupRef] : []),
+    ...(replacement ? [replacementStartupRef] : []),
+  ];
+  const services = servicesFor(state, layers, stock, replacement, pool);
+  if (startupRefs.length > 0) runPackageStartup(state, services, startupRefs, battlePlugins);
   Object.assign(state.vm.globals, { custommode: options.mode, customcalls: 0, afterfight: 0, turncount: 0 });
-  return { state, services, layers, seed, stock, players };
+  return { state, services, layers, seed, stock, replacement, pool, players };
 }
 
 /** Start the custom request the way the engine's battle applier does: one blocking thread, the encoded request. */
 function startCustomRequest(rig: Rig, request: unknown): void {
   startThread(rig.state.vm, {
     ref: { kind: "inline", text: `__battle_custom_fight(${JSON.stringify(encodeRequest(request))})`, compiler: COMPILER_VERSION },
+    kind: "blocking",
+    owner: "script",
+  });
+}
+function startReplacementProgram(rig: Rig): void {
+  startThread(rig.state.vm, {
+    ref: fileProgramRef(loader, "replacement-start.prg"),
     kind: "blocking",
     owner: "script",
   });
@@ -483,6 +533,20 @@ test("without the stock_battle package a custom program still runs and its Fight
   ok(rig.services.diagnostics.some(({ code }) => code === "battle.package-missing"));
   equal(globals(rig).afterfight, 1, "the program carried on after the reported error");
   equal(rig.state.battle, null);
+});
+test("FightEnemy starts a core-prepared battle through a replacement loop without stock_battle", () => {
+  const rig = makeRig({ mode: "replacement", stock: false, replacement: true });
+  globals(rig).replacementstart = "explicit";
+  globals(rig).replacementoutcome = 2;
+  startReplacementProgram(rig);
+  runToEnd(rig);
+  equal(globals(rig).replacementbattlecalls, 1, `globals=${JSON.stringify(globals(rig))} diagnostics=${JSON.stringify(rig.services.diagnostics)} battle=${JSON.stringify(rig.state.battle)}`);
+  equal(globals(rig).replacementfightcalls, 0, "FightEnemy does not dispatch through the fight wrapper");
+  equal(globals(rig).replacementenemycount, 1);
+  equal(globals(rig).replacementplayercount, 1);
+  equal(globals(rig).replacementafter, 1);
+  equal(rig.state.battle?.outcome, 2);
+  deepEqual(rig.services.diagnostics, []);
 });
 
 test("the same seed and program reproduce the same state, diagnostics and hash", () => {
