@@ -193,9 +193,9 @@ test("applystatus restarts the case-insensitive file identity and diagnoses inde
     : null;
   run(state, 'applystatus(battle.fighter(1, 0), "test.ste")', poll);
   run(state, 'applystatus(battle.fighter(1, 0), "TEST.STE")', poll);
-  deepEqual(actor.statuses, { "test.ste": 3 });
+  deepEqual(state.actors.actors[0]?.statuses, { "test.ste": 3 });
   run(state, 'removestatus(battle.fighter(1, 0), "TEST.STE")', poll);
-  equal(Object.hasOwn(actor.statuses, "test.ste"), false);
+  equal(Object.hasOwn(state.actors.actors[0]?.statuses ?? {}, "test.ste"), false);
 
   const indefiniteBytes = statusEffectBytes({ rounds: 0 });
   run(state, 'applystatus(battle.fighter(1, 0), "forever.ste")', (_view, wait) =>
@@ -203,7 +203,7 @@ test("applystatus restarts the case-insensitive file identity and diagnoses inde
       ? { value: Array.from(indefiniteBytes).map((byte) => byte.toString(16).padStart(2, "0")).join(""), ok: true }
       : null,
   );
-  equal(actor.statuses["forever.ste"], 0);
+  equal(state.actors.actors[0]?.statuses["forever.ste"], 0);
   ok(state.vm.effects.some((effect) =>
     effect.name === "vm.diagnostic" && effect.args[0] === "battle.status-duration" &&
     effect.args[1] === "StatusE/forever.ste" && String(effect.args[3]).includes("lasts until removed")));

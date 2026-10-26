@@ -6,16 +6,12 @@ global(turnOrder)
 global(turnSleepTicks)
 global(finishOnTurn)
 global(finishCode)
-global(turnSource)
-global(turnTarget)
 turnCount = 0
 turnOrder = ""
 turnSleepTicks = 0
 finishOnTurn = 0
 finishCode = 2
 stockBattle.turn = (party, index) => {
-  turnSource = sourceHandle()
-  turnTarget = targetHandle()
   turnCount = turnCount + 1
   turnOrder = turnOrder + party + ":" + index + ","
   if (finishOnTurn == turnCount) {

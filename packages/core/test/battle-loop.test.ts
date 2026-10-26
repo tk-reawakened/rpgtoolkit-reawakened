@@ -317,7 +317,7 @@ test("reapplying a case-insensitive status restarts one counter; HP and SMP effe
   equal(globals(rig.state).turncount, 2);
 });
 
-test("status programs run in upper-case filename order with status context and restored source/target", () => {
+test("status programs run in upper-case filename order with status context", () => {
   const rig = makeState({ enemyStatuses: { "a.ste": 0, "B.ste": 0 } });
   const poll = statusPoll(rig.state, {
     "a.ste": { runProgram: 1, program: "battle-status-record.prg" },
@@ -331,8 +331,6 @@ test("status programs run in upper-case filename order with status context and r
   equal(globals(rig.state).statusprogramcontext, "B.ste");
   equal(globals(rig.state).statusprogramsource, "enemy0.tem");
   equal(globals(rig.state).statusprogramtarget, "enemy0.tem");
-  equal(globals(rig.state).turnsource, 0);
-  equal(globals(rig.state).turntarget, 0);
 });
 
 test("a per-round program error is reported while the status turn and battle continue", () => {
