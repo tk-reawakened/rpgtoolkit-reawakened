@@ -464,7 +464,7 @@ test("enemy AI pins coin, special pick, target, and post-target combat draw orde
     "move-a.spc": specialMoveAsset({ fp: 7, smp: 1 }),
     "move-b.spc": specialMoveAsset({ fp: 13, smp: 1 }),
   };
-  const specialSeed = findSeed((draws) => draws[0]! % 2 === 1);
+  const specialSeed = findSeed((draws) => draws[0]! % 2 === 1 && draws[1]! % 2 !== draws[2]! % 2);
   const specialDraws = drawValues(specialSeed, 3);
   const pickedDamage = [7, 13][specialDraws[1]! % 2]!;
   const specialTarget = specialDraws[2]! % 2;
@@ -479,17 +479,17 @@ test("enemy AI pins coin, special pick, target, and post-target combat draw orde
   deepEqual(special.state.rng, expectedRngAfter(specialSeed, 3),
     "the coin, move pick and target each draw once; the special action adds no combat draws");
 
-  const attackSeed = findSeed((draws) => draws[0]! % 2 === 0);
+  const attackSeed = findSeed((draws) => draws[0]! % 2 === 0 && draws[1]! % 2 !== draws[2]! % 2 && draws[1]! % 20 !== draws[2]! % 20);
   const attackDraws = drawValues(attackSeed, 3);
   const attackTarget = attackDraws[1]! % 2;
-  const attackDamage = Math.max(1, Math.trunc(5 * (100 + attackDraws[2]! % 20 - 10) / 100));
+  const attackDamage = Math.trunc(100 * (100 + attackDraws[2]! % 20 - 10) / 100);
   const attack = runScenario({
     seed: attackSeed,
-    enemies: [{ aiLevel: 0, fp: 5 }],
-    players: [{ hp: 100 }, { hp: 100 }],
+    enemies: [{ aiLevel: 0, fp: 100 }],
+    players: [{ hp: 200, maxHp: 200 }, { hp: 200, maxHp: 200 }],
   });
-  equal(stat(attack.state, attack.players[attackTarget]!.record.id, "hp"), 100 - attackDamage);
-  equal(stat(attack.state, attack.players[1 - attackTarget]!.record.id, "hp"), 100);
+  equal(stat(attack.state, attack.players[attackTarget]!.record.id, "hp"), 200 - attackDamage);
+  equal(stat(attack.state, attack.players[1 - attackTarget]!.record.id, "hp"), 200);
   deepEqual(attack.state.rng, expectedRngAfter(attackSeed, 3),
     "the coin and target draws precede the attack's one luck draw");
 });
@@ -548,29 +548,30 @@ test("healing specials choose living allies by level and may target an already-f
   });
   equal(stat(level1Random.state, level1Random.enemies[0]!.record.id, "hp"), 40, "levels 0/1 may choose any living ally, including self");
 
-  const level0Seed = findSeed((draws) => draws[0]! % 2 === 1 && draws[2]! % 2 === 0);
+  const level0Seed = findSeed((draws) => draws[0]! % 2 === 1 && draws[2]! % 2 === 1);
   const level0 = runScenario({
     seed: level0Seed,
     enemies: [
       { aiLevel: 0, hp: 30, maxHp: 100, specialMoves: ["heal.spc"] },
-      { hp: 100, maxHp: 100 },
-    ],
-    extraAssets,
-  });
-  equal(stat(level0.state, level0.enemies[0]!.record.id, "hp"), 40, "level 0 may randomly select the wounded ally");
-  equal(stat(level0.state, level0.enemies[1]!.record.id, "hp"), 100);
-
-  const level2Seed = findSeed((draws) => draws[0]! % 2 === 1);
-  const level2 = runScenario({
-    seed: level2Seed,
-    enemies: [
-      { aiLevel: 2, hp: 30, maxHp: 100, specialMoves: ["heal.spc"] },
       { hp: 50, maxHp: 100 },
     ],
     extraAssets,
   });
-  equal(stat(level2.state, level2.enemies[0]!.record.id, "hp"), 40, "level 2 heals the lowest-HP ally");
-  equal(stat(level2.state, level2.enemies[1]!.record.id, "hp"), 50);
+  equal(stat(level0.state, level0.enemies[0]!.record.id, "hp"), 30, "level 0 may randomly choose an ally other than itself");
+  equal(stat(level0.state, level0.enemies[1]!.record.id, "hp"), 60, "the randomly selected non-caster ally is healed");
+  equal(stat(level0.state, level0.enemies[0]!.record.id, "smp"), 19, "the move is used even though another ally receives its healing");
+
+  const level2Seed = findSeed((draws) => draws[0]! % 2 === 1 && draws[2]! % 2 === 0);
+  const level2 = runScenario({
+    seed: level2Seed,
+    enemies: [
+      { aiLevel: 2, hp: 50, maxHp: 100, specialMoves: ["heal.spc"] },
+      { hp: 30, maxHp: 100 },
+    ],
+    extraAssets,
+  });
+  equal(stat(level2.state, level2.enemies[0]!.record.id, "hp"), 50, "the caster is not healed over the lower-HP ally");
+  equal(stat(level2.state, level2.enemies[1]!.record.id, "hp"), 40, "level 2 heals the lowest-HP ally");
 
   const level3Weakest = runScenario({
     seed: targetFull,

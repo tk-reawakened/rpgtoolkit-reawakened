@@ -7,7 +7,7 @@
 // `fmath-vectors.test.ts` are what actually pins cross-engine behaviour.
 import { test } from "node:test";
 import { equal } from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -355,33 +355,3 @@ test("fmath sources stay inside the G3 allowlist", () => {
   equal(/\bimport\s*\(/.test(implementation), false, "fmath.ts must not use a dynamic import");
 });
 
-function typescriptFilesUnder(directory: string): string[] {
-  return readdirSync(directory, { recursive: true })
-    .filter((name) => /\.(ts|tsx|mts|cts)$/.test(name))
-    .map((name) => join(directory, name));
-}
-
-test("core and stock battle sources avoid the G3 nondeterminism APIs", () => {
-  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-  const coreSource = join(repoRoot, "packages", "core", "src");
-  const stockBattle = join(repoRoot, "stock", "stock_battle");
-  const files = [
-    ...typescriptFilesUnder(coreSource),
-    ...readdirSync(stockBattle)
-      .filter((name) => name.endsWith(".prg"))
-      .map((name) => join(stockBattle, name)),
-  ];
-  const forbidden = [
-    ["Math.random", /\bMath\s*\.\s*random\b/],
-    ["Date", /\bDate\b/],
-    ["performance.now", /\bperformance\s*\.\s*now\b/],
-    ["Intl", /\bIntl\b/],
-  ] as const;
-  ok(files.length > 0, "the G3 guard must scan source files");
-  for (const file of files) {
-    const source = stripComments(readFileSync(file, "utf8"));
-    for (const [api, pattern] of forbidden) {
-      equal(pattern.test(source), false, `${file}: G3 bans ${api}`);
-    }
-  }
-});

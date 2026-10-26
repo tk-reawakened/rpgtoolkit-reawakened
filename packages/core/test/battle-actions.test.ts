@@ -770,18 +770,20 @@ test("using an item leaves an existing inventory list unchanged", () => {
     ...createGameState({ seed: 2 }).inventory,
     nextId: 3,
     items: [
-      { id: 1, source: "items/potion.itm", handle: "Potion", quantity: 2 },
+      { id: 1, source: "item/potion.itm", handle: "Potion", quantity: 2 },
       { id: 2, source: "items/ether.itm", handle: "Ether", quantity: 1 },
     ],
     gold: 45,
   };
   const expectedInventory = JSON.parse(JSON.stringify(inventory)) as GameState["inventory"];
   const result = run({
-    scenario: "item", seed: 2, file: "potion.itm", inventory,
+    scenario: "item", seed: 2, file: "item/potion.itm", inventory,
     attacker: { smp: 10 }, target: { hp: 10, maxHp: 20, smp: 12 },
     assets: { "potion.itm": itemAsset({ hp: 5, smp: 0, animation: "" }) },
   });
   deepEqual(result.state.inventory, expectedInventory);
+  equal(consumeEffects(result.state)[0]!.item, "item/potion.itm");
+  equal(result.state.inventory.items.find(({ source }) => source === "item/potion.itm")?.quantity, 2);
 });
 test("the default item program runs with source and target, then restores both slots", () => {
   const assets = {
