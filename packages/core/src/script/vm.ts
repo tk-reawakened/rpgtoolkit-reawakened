@@ -98,7 +98,6 @@ import {
   type ProgramRef,
   type StatementRange,
 } from "./program.ts";
-import { resolveProgram } from "./loader.ts";
 import {
   assembleCommands,
   bindingOf,
@@ -1515,6 +1514,23 @@ function deleteVariable(vm: VmState, thread: Thread, frameIndex: number, target:
   }
 }
 
+function programRootContext(
+  thread: Thread,
+  frameIndex: number,
+): { readonly frameIndex: number; readonly slot: LocalSlot } | undefined {
+  const detachedRoot = thread.detached.reduce(
+    (root, index) => index <= frameIndex ? Math.max(root, index) : root,
+    0,
+  );
+  for (let index = frameIndex; index >= detachedRoot; index--) {
+    const frame = thread.frames[index];
+    if (frame?.programRoot === undefined) continue;
+    const slot = frame.locals.context;
+    return slot === undefined ? undefined : { frameIndex: index, slot };
+  }
+  return undefined;
+}
+
 function loadArg(
   vm: VmState,
   thread: Thread,
@@ -1544,6 +1560,17 @@ function loadArg(
     const val = readRef(vm, thread, frameIndex, slot.ref, services);
     return { value: val, ref: slot.ref };
   }
+  if (scope === undefined && name === "context") {
+    const rootContext = programRootContext(thread, frameIndex);
+    if (rootContext !== undefined) {
+      const { slot } = rootContext;
+      const value = slot.ref === localRef(name)
+        ? slot.value ?? 0
+        : readRef(vm, thread, rootContext.frameIndex, slot.ref, services);
+      return { value, ref: slot.ref };
+    }
+  }
+
   const virtVal = services === undefined ? undefined : readVirtual(services, name);
   if (virtVal !== undefined) return { value: virtVal, ref: virtualRef(name) };
   if (Object.hasOwn(vm.globals, name)) return { value: vm.globals[name] ?? 0, ref: globalRef(name) };
@@ -2115,6 +2142,124 @@ function postResolution(
   }, thread);
 }
 
+type ThreadPair = { readonly source: string | null; readonly target: string | null };
+type ProgramContextPlan = {
+  readonly pair: ThreadPair;
+  readonly context: ObjectValue | null;
+  readonly members: Readonly<Record<string, Value>>;
+};
+
+function foldedEntityHandle(value: string): string {
+  return value.replaceAll("\\", "/").trim().toLowerCase();
+}
+
+function hasLiveEntityHandle(state: GameState | undefined, handle: string): boolean {
+  if (state === undefined) return false;
+  const wanted = foldedEntityHandle(handle);
+  if (state.sprites.players.some((sprite) =>
+    foldedEntityHandle(sprite.id) === wanted || foldedEntityHandle(sprite.source) === wanted
+  )) return true;
+  if (state.sprites.items.some((sprite) =>
+    foldedEntityHandle(sprite.id) === wanted || foldedEntityHandle(sprite.source) === wanted
+  )) return true;
+  return state.actors.actors.some((actor) =>
+    foldedEntityHandle(String(actor.id)) === wanted ||
+    foldedEntityHandle(actor.name) === wanted ||
+    foldedEntityHandle(actor.source) === wanted
+  );
+}
+
+function suppliedEntityHandle(
+  value: Value,
+  command: "executeProgram" | "replaceProgram",
+  slot: "source" | "target",
+  callerPair: ThreadPair,
+  state: GameState | undefined,
+  pos: SourcePos,
+): string | null {
+  if (value === null || value === 0) return null;
+  if (typeof value !== "string") {
+    throw new ScriptError("builtin.bad-arg", `${command}: ${slot} must be a live entity handle, "source", "target", null or 0`, pos);
+  }
+  const special = foldedEntityHandle(value);
+  const handle = special === "source" ? callerPair.source : special === "target" ? callerPair.target : value;
+  if (handle === null) return null;
+  if (!hasLiveEntityHandle(state, handle)) {
+    throw new ScriptError("builtin.bad-arg", `${command}: ${slot} handle "${value}" does not name a live entity`, pos);
+  }
+  return handle;
+}
+
+function prepareProgramContext(
+  vm: VmState,
+  services: ScriptServices,
+  command: "executeProgram" | "replaceProgram",
+  mode: unknown,
+  contextValue: unknown,
+  sourceValue: unknown,
+  targetValue: unknown,
+  callerPair: ThreadPair,
+  pos: SourcePos,
+): ProgramContextPlan {
+  let context: ObjectValue | null = null;
+  let members: Readonly<Record<string, Value>> = {};
+  let source: Value | undefined;
+  let target: Value | undefined;
+  if (mode === "object") {
+    if (!isObjectValue(contextValue as Value)) {
+      throw new ScriptError("builtin.bad-arg", "program context must be a dictionary", pos);
+    }
+    const record = findObject(vm, (contextValue as ObjectValue).handle);
+    if (record === undefined || !isDictionary(record)) {
+      throw new ScriptError("builtin.bad-arg", "program context must be a live dictionary", pos);
+    }
+    context = contextValue as ObjectValue;
+    if (Object.hasOwn(record.members, "source")) source = record.members.source!;
+    if (Object.hasOwn(record.members, "target")) target = record.members.target!;
+  } else if (mode === "positional") {
+    if (sourceValue === undefined || targetValue === undefined) {
+      throw new ScriptError("builtin.bad-arg", `${command}: positional source and target are required`, pos);
+    }
+    source = sourceValue as Value;
+    target = targetValue as Value;
+    members = { source, target };
+  } else if (mode !== "default") {
+    throw new ScriptError("builtin.bad-arg", "invalid program context form", pos);
+  }
+  const pair = {
+    source: source === undefined ? callerPair.source : suppliedEntityHandle(source, command, "source", callerPair, services.view.state, pos),
+    target: target === undefined ? callerPair.target : suppliedEntityHandle(target, command, "target", callerPair, services.view.state, pos),
+  };
+  return { pair, context, members };
+}
+
+function materializeProgramContext(vm: VmState, plan: ProgramContextPlan): ObjectValue {
+  if (plan.context !== null) return plan.context;
+  const record = createObject(vm, null);
+  for (const [name, value] of Object.entries(plan.members)) writeMember(record, name, value);
+  return { kind: "object", handle: record.handle, className: DICTIONARY_CLASS };
+}
+
+function finishProgramRoot(thread: Thread, rootIndex: number): boolean {
+  const root = thread.frames[rootIndex];
+  if (root?.programRoot === undefined) return false;
+  const restore = root.programRoot.restore;
+  if (restore !== null) {
+    thread.frames.length = rootIndex;
+    thread.detached = thread.detached.filter((index) => index < rootIndex);
+    thread.source = restore.source;
+    thread.target = restore.target;
+    thread.status = "ready";
+    return false;
+  }
+  thread.frames = [];
+  thread.status = "finished";
+  thread.wait = null;
+  thread.detached = [];
+  thread.collect = null;
+  return true;
+}
+
 /**
  * Dispatch one resolved call. `advance` is false for a request continuation;
  * `observed` is true when the source call site already reported its resolution.
@@ -2315,40 +2460,81 @@ function dispatchResolved(
         }
       }
       if (action === "end") {
-        thread.frames = [];
-        thread.status = "finished";
-        thread.wait = null;
-        thread.detached = [];
-        thread.collect = null;
-        return "yield";
-      }
-      if (action === "run") {
-        const rawTarget = effect.args?.[1] as ProgramRef;
-        let newRef: ProgramRef;
-        if (
-          rawTarget.kind === "inline" &&
-          services.loader !== undefined &&
-          resolveProgram(services.loader, rawTarget.text) !== undefined
-        ) {
-          newRef = fileProgramRef(services.loader, rawTarget.text, vm.redirects);
-        } else {
-          newRef = withRedirects(rawTarget, vm.redirects);
+        let rootIndex = -1;
+        for (let index = thread.frames.length - 1; index >= 0; index--) {
+          if (thread.frames[index]?.programRoot !== undefined) {
+            rootIndex = index;
+            break;
+          }
         }
-        thread.frames = [
-          {
+        if (rootIndex >= 0) {
+          if (finishProgramRoot(thread, rootIndex)) return "yield";
+          controlApplied = true;
+        } else {
+          thread.frames = [];
+          thread.status = "finished";
+          thread.wait = null;
+          thread.detached = [];
+          thread.collect = null;
+          return "yield";
+        }
+      }
+      if (action === "executeProgram" || action === "replaceProgram") {
+        const file = effect.args?.[1];
+        if (typeof file !== "string") {
+          throw new ScriptError("builtin.bad-arg", `${action}: program name must be a string`, pos);
+        }
+        if (file !== "") {
+          const callerPair = { source: thread.source, target: thread.target };
+          const mode = effect.args?.[2];
+          const contextValue = mode === "object" ? effect.args?.[3] : undefined;
+          const sourceValue = mode === "positional" ? effect.args?.[3] : undefined;
+          const targetValue = mode === "positional" ? effect.args?.[4] : undefined;
+          const plan = prepareProgramContext(
+            vm,
+            services,
+            action,
+            mode,
+            contextValue,
+            sourceValue,
+            targetValue,
+            callerPair,
+            pos,
+          );
+          if (services.loader === undefined) {
+            throw new ScriptError("program.missing", `no program "${file}" is in the asset index`, pos);
+          }
+          const newRef = fileProgramRef(services.loader, file, vm.redirects);
+          services.programs.get(newRef);
+          const context = materializeProgramContext(vm, plan);
+          const rootFrame: Frame = {
             program: newRef,
             ip: 0,
             locals: {},
             operands: [],
             errorHandler: null,
             autoLocal: false,
-          },
-        ];
-        thread.status = "ready";
-        thread.wait = null;
-        thread.detached = [];
-        thread.collect = null;
-        return "yield";
+            programRoot: {
+              restore: action === "executeProgram" ? callerPair : null,
+            },
+          };
+          setOwnSlot(rootFrame.locals, "context", { value: context, ref: localRef("context") });
+          if (action === "executeProgram") {
+            thread.source = plan.pair.source;
+            thread.target = plan.pair.target;
+            frame.operands.push({ value: 0, ref: null });
+            thread.frames.push(rootFrame);
+          } else {
+            thread.source = plan.pair.source;
+            thread.target = plan.pair.target;
+            thread.frames = [rootFrame];
+            thread.status = "ready";
+            thread.wait = null;
+            thread.detached = [];
+            thread.collect = null;
+          }
+          controlApplied = true;
+        }
       }
       if (action === "jump") {
         const labelName = effect.args?.[1] as string;
@@ -2869,6 +3055,10 @@ export function stepThread(
     const program = services.programs.get(frame.program);
     const op = program.ops[frame.ip];
     if (op === undefined) {
+      if (frame.programRoot !== undefined) {
+        if (finishProgramRoot(thread, frameIndex)) return finish();
+        continue;
+      }
       thread.status = "finished";
       return finish();
     }
@@ -3498,6 +3688,10 @@ export function stepThread(
         break;
       }
       case "return": {
+        if (frame.programRoot !== undefined) {
+          if (finishProgramRoot(thread, frameIndex)) return finish();
+          break;
+        }
         const returnArg =
           frame.returnValue !== undefined
             ? { value: frame.returnValue, ref: null }

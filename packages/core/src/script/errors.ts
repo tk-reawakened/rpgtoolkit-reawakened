@@ -112,6 +112,7 @@ const CATCHABLE: { readonly [code: string]: FailureClass } = {
   [HANDLER_UNKNOWN_LABEL]: "handler",
   [HANDLER_NOT_HANDLING]: "handler",
   [INCLUDE_MISSING]: "call",
+  "program.missing": "call",
   [INCLUDE_REFUSED]: "call",
   [CALLABLE_NOT_CALLABLE]: "call",
   [CALLABLE_UNKNOWN_DEF]: "call",

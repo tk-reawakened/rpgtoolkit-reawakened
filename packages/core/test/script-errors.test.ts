@@ -62,7 +62,7 @@ test("the failure table marks runtime failures catchable and load-time failures 
     "unknown.command",
     "arity.mismatch",
     "builtin.bad-arg",
-    "builtin.obsolete",
+    "program.missing",
     "object.invalid",
     "object.abstract-class",
     "object.inaccessible-member",

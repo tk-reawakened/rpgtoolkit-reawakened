@@ -11,12 +11,11 @@ import {
   tan,
 } from "../../fmath/index.ts";
 import { TICKS_PER_SECOND, secondsToTicks } from "../../time/time.ts";
-import type { Arg, BuiltinSpec } from "../builtins.ts";
+import type { Arg, BuiltinDoc, BuiltinSpec } from "../builtins.ts";
 import {
   CALLABLE_NOT_CALLABLE,
   ScriptError,
 } from "../errors.ts";
-import { COMPILER_VERSION } from "../program.ts";
 import type { CommandEffect } from "../plugin.ts";
 import { isCallableValue, toNumberValue, toStringValue, truthy } from "../values.ts";
 
@@ -161,26 +160,90 @@ const MATH_SPECS: readonly BuiltinSpec[] = [
   }),
 ];
 
-function control(args: readonly Arg[], action: "run" | "jump"): CommandEffect {
-  if (action === "run") {
+function programControl(args: readonly Arg[], action: "executeProgram" | "replaceProgram"): CommandEffect {
+  const file = toStringValue(args[0]?.value ?? "");
+  if (action === "executeProgram" && args.length === 3) {
+    const source = args[1]?.value;
+    const target = args[2]?.value;
     return {
       kind: "vm.control",
-      args: [
-        "run",
-        { kind: "inline", text: toStringValue(args[0]?.value ?? 0), compiler: COMPILER_VERSION },
-      ],
+      args: [action, file, "positional", source === undefined ? 0 : source, target === undefined ? 0 : target],
     };
   }
+  if (args.length === 2) {
+    return { kind: "vm.control", args: [action, file, "object", args[1]!.value] };
+  }
+  return { kind: "vm.control", args: [action, file, "default"] };
+}
+
+function control(args: readonly Arg[], action: "run" | "jump"): CommandEffect {
+  if (action === "run") return programControl(args, "replaceProgram");
   return { kind: "vm.control", args: ["jump", toStringValue(args[0]?.value ?? 0)] };
 }
+
+function programDoc(summary: string, behaviour: string, see: string): BuiltinDoc {
+  return {
+    summary,
+    behaviour,
+    groups: ["reawakened-additions-not-part-of-the-282-legacy-catalogue", "core-runtime"],
+    waits: { kind: "other", summary: "Runs on the calling thread; a wait in the program parks that thread." },
+    see: [`docs/spec/engine/rpgcode-functions.md#${see}`],
+  };
+}
+
+const EXECUTE_PROGRAM_DOC = programDoc(
+  "Run Prg/<file> as a nested call and return 0 when it finishes.",
+  "Runs a named file as a nested frame on this thread, with fresh locals and shared globals. It returns 0 when the nested program ends; a blank filename also returns 0, and a missing file raises catchable `program.missing` without starting it. The optional dictionary (or positional source and target) is bound to the called program's root variable `context`, not `this`. Supplied source and target handles apply only during the call; omitted values inherit the caller's pair, and the pair is restored when the called program ends.",
+  "reawakened-executeprogram",
+);
+
+const REPLACE_PROGRAM_DOC = programDoc(
+  "End the calling program's frame chain and start Prg/<file> on the same thread without returning.",
+  "Discards every frame on this thread, including pending `executeProgram` returns and source/target restorations, then starts the named file with fresh locals and shared globals. The optional dictionary is bound to the new program's root variable `context`, not `this`. A blank filename leaves the current program unchanged; a missing file raises catchable `program.missing` without discarding the current frames.",
+  "reawakened-replaceprogram",
+);
+
+
+const PROGRAM_CALL_SPECS: readonly BuiltinSpec[] = [
+  {
+    name: "executeprogram",
+    aliases: [],
+    params: [
+      { name: "program", optional: false, byRef: false, variadic: false },
+      { name: "contextOrSource", optional: true, byRef: false, variadic: false },
+      { name: "target", optional: true, byRef: false, variadic: false },
+    ],
+    doc: EXECUTE_PROGRAM_DOC,
+    call: (_view, args) => ({ value: 0, effects: [programControl(args, "executeProgram")] }),
+  },
+  {
+    name: "replaceprogram",
+    aliases: [],
+    params: [
+      { name: "program", optional: false, byRef: false, variadic: false },
+      { name: "context", optional: true, byRef: false, variadic: false },
+    ],
+    doc: REPLACE_PROGRAM_DOC,
+    call: (_view, args) => ({ value: null, effects: [programControl(args, "replaceProgram")] }),
+  },
+];
 
 const FLOW_SPECS: readonly BuiltinSpec[] = [
   {
     name: "run",
     aliases: [],
-    params: [{ name: "program", optional: false, byRef: false, variadic: false }],
+    params: [
+      { name: "program", optional: false, byRef: false, variadic: false },
+      { name: "context", optional: true, byRef: false, variadic: false },
+    ],
+    doc: programDoc(
+      "Transfer control to a different program.",
+      "Legacy alias of `replaceProgram`: discards every frame on this thread and starts the named file. The optional context dictionary is passed to the replacement program.",
+      "reawakened-replaceprogram",
+    ),
     call: (_view, args) => ({ value: null, effects: [control(args, "run")] }),
   },
+  ...PROGRAM_CALL_SPECS,
   {
     name: "change",
     aliases: [],
