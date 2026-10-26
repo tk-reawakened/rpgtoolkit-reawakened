@@ -39,11 +39,12 @@ No loop (7.4), no status round effects (7.6), no AI (7.7), no rewards (7.8), no 
 
 ## Acceptance
 
-- [x] The seeded damage table reproduces the ruled values at the edges; a critical bypasses DP; the minimum is 1; SMP damage clamps.
+- [ ] The seeded damage table reproduces the ruled values at the edges; a critical bypasses DP; the minimum is 1; SMP damage clamps. The merged PR body describes the seeded damage and critical rules, but does not demonstrate the edge-table acceptance item.
 - [x] A special's FP/SMP drain and SMP cost are applied and clamp; an unaffordable special is unavailable and a direct call raises a stable error.
 - [x] An item posts exactly one inventory consume effect through the test double and never edits the item list.
 - [x] `attackall`/`drainall` apply to every target without criticals.
-- [ ] A lethal hit through any of the three actions fires the actor's `fallen` once; for an enemy the package then emits `defeated` once (7.8). The merged PRs confirm `fallen` once, but do not establish the 7.8 `defeated` behavior for this ticket.
+- [x] A lethal hit through any of the three actions fires the actor's `fallen` once.
+- [ ] For an enemy hit, the package then emits `defeated` once (7.8). The merged PR bodies do not establish this behavior for this ticket.
 - [x] No wall clock or unseeded randomness is used; the same seed and action stream reproduce the same damage.
 
 ## Verification

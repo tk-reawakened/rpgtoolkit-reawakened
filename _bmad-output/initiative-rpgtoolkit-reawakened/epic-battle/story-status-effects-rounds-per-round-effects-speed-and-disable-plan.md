@@ -40,7 +40,8 @@ No damage formulas (7.5) and no AI (7.7). The core owns the status data, lifetim
 - [ ] Apply, re-apply, remove and expire behave as ruled; re-apply restarts the rounds and does not duplicate the entry. The merged PR body does not establish apply/re-apply/remove behavior.
 - [ ] A per-round HP, SMP and program effect runs exactly once per round, at the fighter's charged boundary. The merged PR body confirms ordered HP/SMP/program effects before aging counters, but does not establish the once-per-round boundary.
 - [ ] Speed and slow stack per active effect; disable freezes only while at least one disable is active and unfreezes on the last removal. The merged PR body notes cached speed/slow and disable contributions, but does not establish this full behavior.
-- [ ] A lethal status fires `fallen` once with cause `status`; for an enemy the package then emits `defeated` once (7.8). The merged PR body confirms `fallen` with cause `status` and explicitly says it does not emit `defeated`, following the issue and spec.
+- [x] A lethal status fires `fallen` once with cause `status`.
+- [ ] For an enemy, the package then emits `defeated` once (7.8). The merged PR body explicitly says it does not emit `defeated`, following the issue and spec.
 - [ ] Status state is saved with the actor and a save/restore replays identically; statuses are absent from the `battle` section. The merged PR body confirms plain package state and snapshot/restore tests, but does not establish this exact storage boundary.
 - [ ] A program error in a per-round effect is reported and does not abort the battle. The merged PR body does not address program-error handling.
 
