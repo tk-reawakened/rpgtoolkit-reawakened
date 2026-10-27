@@ -297,3 +297,39 @@ test("five party members (E-85 maximum 5) render without clipping and each membe
   ok(frame.w === 640 && frame.h === 480, "rendered at 640x480");
   deepEqual(rig.diagnostics, []);
 });
+
+// WIP cadence regressions (entry 7.11). These fail against the current screen: measured refresh cadence is ~4 ticks
+// because one loop iteration still costs more than the 1,000-step budget, so a one-tick animation aliases.
+test("stance animation frames advance on the real screen every tick at a one-tick delay, idle and during an action", () => {
+  const rig = bootUiRig({ stanceDelayTicks: 1 });
+  awaitMenu(rig);
+  const hashAt = (): string => fnv1a64(rig.frame().rgba);
+  const first = hashAt();
+  rig.tick(1);
+  const second = hashAt();
+  ok(first !== second, "one-tick stance animation advances between consecutive idle ticks");
+  rig.press("ENTER", 4);
+  const acting = hashAt();
+  rig.tick(1);
+  ok(hashAt() !== acting, "stance animation advances during the action result");
+  deepEqual(rig.diagnostics, []);
+});
+
+test("a two-tick stance animation advances every second tick on the real screen", () => {
+  const rig = bootUiRig({ stanceDelayTicks: 2 });
+  awaitMenu(rig);
+  const hashAt = (): string => fnv1a64(rig.frame().rgba);
+  const start = hashAt();
+  rig.tick(2);
+  ok(hashAt() !== start, "after two ticks the two-tick animation has advanced");
+});
+
+test("a selection change redraws the screen", () => {
+  const rig = bootUiRig();
+  awaitMenu(rig);
+  const before = fnv1a64(rig.frame().rgba);
+  rig.press("DOWN", 3);
+  equal(ui(rig)["cursor"], 1, "the cursor moved");
+  ok(fnv1a64(rig.frame().rgba) !== before, "the highlighted command changed the rendered frame");
+  deepEqual(rig.diagnostics, []);
+});

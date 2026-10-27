@@ -1,0 +1,14 @@
+import { writeFileSync } from "node:fs";
+import { bootUiRig, encodePng } from "/Users/jensen/.omp/wt/514/packages/core/test/battle-ui-rig.ts";
+const rig = bootUiRig();
+const t0 = performance.now();
+rig.until(() => { const ui = rig.ui(); return ui !== null && ui.mode === "command"; }, 1500);
+const shot = (name: string) => { rig.tick(8); const f = rig.frame(); writeFileSync(`/tmp/probe/${name}.png`, encodePng(f.w, f.h, f.rgba)); };
+const log = (label: string) => { const ui = rig.ui()!; console.log(label, "mode", ui.mode, "cursor", ui.cursor, "list", ui.listCursor, "target", ui.targetCursor, "cues", rig.cues.map(c => c.asset?.split("/").pop()).join(","), "diag", JSON.stringify(rig.diagnostics.map(d=>d.code+":"+d.message).slice(0,3)), Math.round(performance.now()-t0)); };
+log("start");
+rig.press("DOWN", 14); log("down");
+rig.press("ENTER", 14); log("enter-special"); shot("frame-special");
+rig.press("ENTER", 14); log("enter-fire(unaffordable)");
+rig.press("ESC", 14); log("esc");
+rig.press("ESC", 14); log("esc-top");
+rig.press("ENTER", 14); log("enter-fight(cursor1?)");

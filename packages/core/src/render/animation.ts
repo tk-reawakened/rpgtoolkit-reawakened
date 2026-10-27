@@ -83,10 +83,13 @@ export function animationFrameAtTick(
   resolver: ImageResolver,
   tick: number,
   loop = true,
+  explicitFrame?: number,
 ): { readonly gif: { readonly w: number; readonly h: number; readonly rgba: Uint8Array } | null; readonly frame: AnimationFrameState } | null {
   const loaded = animationFrames(bytes, path, sourceAsset, resolver);
   if (loaded === null || loaded.frames.length === 0) return null;
-  const index = frameAt(0, tick, loaded.delayTicks, loaded.frames.length, loop);
+  const index = explicitFrame === undefined
+    ? frameAt(0, tick, loaded.delayTicks, loaded.frames.length, loop)
+    : Math.max(0, Math.min(loaded.frames.length - 1, Math.trunc(explicitFrame)));
   if (index < 0) return null;
   const frame = loaded.frames[index];
   if (frame === undefined) return null;

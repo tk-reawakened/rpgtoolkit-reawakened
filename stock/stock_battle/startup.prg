@@ -908,6 +908,13 @@ stockBattleUi = {
   target: 0,
   layout: {},
   files: {},
+  anim: {},
+  spriteCanvas: {},
+  staticBuf: 0,
+  staticSig: "",
+  lastPaintTick: -1,
+  barScan: 0,
+  sigProbe: "",
   preload: {},
   preloadCount: 0,
   chars: {},
@@ -1018,6 +1025,11 @@ stockBattleUi = {
     local(w)
     local(h)
     local(screen)
+    local(meta)
+    local(frameCount)
+    local(frameIndex)
+    local(frameKey)
+    local(frameCanvas)
     local(party)
     local(index)
     local(size)
@@ -1047,6 +1059,12 @@ stockBattleUi = {
     stockBattleUi.h = h
     stockBattleUi.layout = stockBattleUi.makeLayout(w, h)
     stockBattleUi.files = {}
+    stockBattleUi.anim = {}
+    stockBattleUi.spriteCanvas = {}
+    stockBattleUi.staticSig = ""
+    stockBattleUi.lastPaintTick = -1
+    stockBattleUi.barScan = 0
+    stockBattleUi.sigProbe = ""
     stockBattleUi.preload = {}
     stockBattleUi.preloadCount = 0
     stockBattleUi.chars = {}
@@ -1102,6 +1120,12 @@ stockBattleUi = {
     // Pictures are fetched and decoded by the host, and a first use only queues the fetch. Draw every picture the
     // screen will use once into a one-pixel scratch canvas and wait a few ticks, so that by the first real frame each
     // is cached and every later `bitmap` / `drawenemy` lands in the order the screen draws it.
+    for (slot = 0; slot < stockBattleUi.preloadCount; slot = slot + 1) {
+      file = stockBattleUi.preload[slot]
+      if (stockBattleUi.anim[file] == null) {
+        stockBattleUi.anim[file] = animationframes(file)
+      }
+    }
     scratch = createcanvas(1, 1)
     // `bitmap` decodes PNG, JPEG, BMP and GIF; a tile bitmap (.tbm) background cannot be drawn yet, so the screen
     // shows its flat colour instead.
@@ -1118,12 +1142,31 @@ stockBattleUi = {
     for (slot = 0; slot < stockBattleUi.preloadCount; slot = slot + 1) {
       drawenemy(stockBattleUi.preload[slot], 0, 0, scratch)
     }
+    for (slot = 0; slot < stockBattleUi.preloadCount; slot = slot + 1) {
+      file = stockBattleUi.preload[slot]
+      meta = stockBattleUi.anim[file]
+      frameCount = 1
+      if (meta != null && meta.frames > 0) {
+        frameCount = meta.frames
+      }
+      frameIndex = 0
+      while (frameIndex < frameCount) {
+        frameKey = file + "#" + frameIndex
+        if (stockBattleUi.spriteCanvas[frameKey] == null) {
+          frameCanvas = createcanvas(stockBattleUi.layout.sprite, stockBattleUi.layout.sprite)
+          drawenemy(file, 0, 0, frameCanvas, 1, frameIndex)
+          stockBattleUi.spriteCanvas[frameKey] = frameCanvas
+        }
+        frameIndex = frameIndex + 1
+      }
+    }
     stockBattleUi.hold(4)
     killcanvas(scratch)
     rendernow(1)
     stockBattleUi.screen = cnvrendernow
     stockBattleUi.target = stockBattleUi.screen
     stockBattleUi.buffer = createcanvas(w, h)
+    stockBattleUi.staticBuf = createcanvas(w, h)
     stockBattleUi.on = 1
     stockBattleUi.refresh()
     return 1
@@ -1133,6 +1176,7 @@ stockBattleUi = {
       return 0
     }
     stockBattleUi.on = 0
+    killcanvas(stockBattleUi.staticBuf)
     killcanvas(stockBattleUi.buffer)
     killcanvas(stockBattleUi.screen)
     rendernow(0)
@@ -1261,7 +1305,13 @@ stockBattleUi = {
     y = stockBattleUi.slotY(party, index)
     sprite = stockBattleUi.fighterSprite(fighter)
     if (sprite.file != "") {
-      drawenemy(sprite.file, x, y, stockBattleUi.target, sprite.loop)
+      local(frameKey) = sprite.file + "#" + stockBattleUi.frameIndex(sprite.file, battletick(), sprite.loop)
+      local(frameRef) = stockBattleUi.spriteCanvas[frameKey]
+      if (frameRef != null) {
+        drawcanvas(frameRef, x, y, size, size, stockBattleUi.target)
+      } else {
+        drawenemy(sprite.file, x, y, stockBattleUi.target, sprite.loop)
+      }
     } else {
       stockBattleUi.frame(x, y, x + size - 1, y + size - 1, 120, 120, 130)
     }
@@ -1475,15 +1525,15 @@ stockBattleUi = {
   // The signature is every value the full redraw shows. A redraw happens only when one of them changes; the charge
   // bars repaint on their own. While a menu or an action hold is on screen the engine tick is sampled (quantised to
   // three ticks) so the stance frames advance during interaction as well as in idle passes.
-  currentSignature: () => {
+  chromeSignature: () => {
     local(index)
     local(fighter)
-    local(tickNow) = 0
-    if (stockBattleUi.mode != "idle" || stockBattleUi.acting != null || stockBattleUi.numberCount > 0) {
-      local(t) = battletick()
-      tickNow = t - (t % 3)
+    local(text) = "" + stockBattleUi.mode + "|" + stockBattleUi.cursor + "|" + stockBattleUi.listCursor + "|" + stockBattleUi.listTop + "|" + stockBattleUi.targetCursor + "|" + stockBattleUi.targetParty + "|" + stockBattleUi.numberCount + "|" + stockBattleUi.message + "|" + stockBattleUi.actingStance + "|" + stockBattleUi.listCount
+    if (stockBattleUi.acting == null) {
+      text = text + "|acting:none"
+    } else {
+      text = text + "|acting:" + stockBattleUi.acting
     }
-    local(text) = stockBattleUi.mode + ":" + stockBattleUi.cursor + ":" + stockBattleUi.listCursor + ":" + stockBattleUi.listTop + ":" + stockBattleUi.targetCursor + ":" + stockBattleUi.targetParty + ":" + stockBattleUi.numberCount + ":" + stockBattleUi.message + ":" + stockBattleUi.acting + ":" + stockBattleUi.actingStance + ":" + stockBattleUi.listCount + ":" + tickNow
     for (index = 0; index < stockBattleUi.rosterCount; index = index + 1) {
       fighter = stockBattleUi.roster[index]
       stockBattleUi.seen["" + index] = fighter.hp + "," + fighter.smp
@@ -1491,24 +1541,85 @@ stockBattleUi = {
     }
     return text
   },
+  frameIndex: (file, tick, loop) => {
+    local(meta) = stockBattleUi.anim[file]
+    local(count) = 1
+    local(delay) = 1
+    local(frame)
+    if (meta != null) {
+      if (meta.frames > 0) {
+        count = meta.frames
+      }
+      if (meta.delayticks > 0) {
+        delay = meta.delayticks
+      }
+    }
+    if (tick < 0) {
+      tick = 0
+    }
+    frame = integerMulDiv(tick, 1, delay)
+    if (loop != 0) {
+      return frame % count
+    }
+    if (frame > count - 1) {
+      return count - 1
+    }
+    return frame
+  },
   refresh: () => {
-    local(signature) = stockBattleUi.currentSignature()
+    local(chrome) = stockBattleUi.chromeSignature()
+    local(tickNow) = battletick()
     local(size)
     local(index)
     local(fill)
     local(layout) = stockBattleUi.layout
-    if (signature != stockBattleUi.signature) {
+    // Probe: remember what differed between the last two calls (single line, no cost).
+    stockBattleUi.sigProbe = "" + len(chrome) + "/" + len(stockBattleUi.staticSig) + "/" + (chrome == stockBattleUi.staticSig ? "same" : "diff") + "/t" + tickNow + "/p" + stockBattleUi.lastPaintTick
+    if (chrome != stockBattleUi.staticSig) {
+      stockBattleUi.staticSig = chrome
       stockBattleUi.draw()
-      stockBattleUi.signature = signature
       return 1
     }
+    if (tickNow != stockBattleUi.lastPaintTick) {
+      stockBattleUi.paintFighters()
+    }
     size = battle.partySize(1)
-    for (index = 0; index < size; index = index + 1) {
+    if (size > 0) {
+      index = stockBattleUi.barScan
+      if (index >= size) {
+        index = 0
+      }
       fill = integerMulDiv(battle.chargePercent(1, index), layout.chargeW - 2, 100)
       if (stockBattleUi.bars["" + index] != fill) {
         stockBattleUi.drawChargeBar(index, battle.fighter(1, index))
       }
+      stockBattleUi.barScan = (index + 1) % size
     }
+    return 0
+  },
+  paintFighters: () => {
+    local(layout) = stockBattleUi.layout
+    local(party)
+    local(index)
+    local(size)
+    local(selected)
+    stockBattleUi.lastPaintTick = battletick()
+    stockBattleUi.target = stockBattleUi.buffer
+    drawcanvas(stockBattleUi.staticBuf, 0, 0, layout.w, layout.h, stockBattleUi.buffer)
+    for (party = 0; party < 2; party = party + 1) {
+      size = battle.partySize(party)
+      for (index = 0; index < size; index = index + 1) {
+        selected = 0
+        if (stockBattleUi.mode == "target" && stockBattleUi.targetParty == party) {
+          if (stockBattleUi.targets[stockBattleUi.targetCursor] == index) {
+            selected = 1
+          }
+        }
+        stockBattleUi.drawFighter(party, index, selected)
+      }
+    }
+    drawcanvas(stockBattleUi.buffer, 0, 0, layout.w, layout.h, stockBattleUi.screen)
+    stockBattleUi.target = stockBattleUi.screen
     return 0
   },
   draw: () => {
@@ -1524,18 +1635,6 @@ stockBattleUi = {
       bitmap(stockBattleUi.picture, stockBattleUi.target)
     } else {
       stockBattleUi.box(0, 0, layout.w - 1, layout.h - 1, 20, 28, 56)
-    }
-    for (party = 0; party < 2; party = party + 1) {
-      size = battle.partySize(party)
-      for (index = 0; index < size; index = index + 1) {
-        selected = 0
-        if (stockBattleUi.mode == "target" && stockBattleUi.targetParty == party) {
-          if (stockBattleUi.targets[stockBattleUi.targetCursor] == index) {
-            selected = 1
-          }
-        }
-        stockBattleUi.drawFighter(party, index, selected)
-      }
     }
     // If command mode is inactive, draw an empty framed command box on the bottom-left as placeholder
     if (stockBattleUi.mode != "command") {
@@ -1560,7 +1659,21 @@ stockBattleUi = {
     if (stockBattleUi.mode == "list") {
       stockBattleUi.drawList()
     }
+    drawcanvas(stockBattleUi.buffer, 0, 0, layout.w, layout.h, stockBattleUi.staticBuf)
+    for (party = 0; party < 2; party = party + 1) {
+      size = battle.partySize(party)
+      for (index = 0; index < size; index = index + 1) {
+        selected = 0
+        if (stockBattleUi.mode == "target" && stockBattleUi.targetParty == party) {
+          if (stockBattleUi.targets[stockBattleUi.targetCursor] == index) {
+            selected = 1
+          }
+        }
+        stockBattleUi.drawFighter(party, index, selected)
+      }
+    }
     stockBattleUi.drawNumbers()
+    stockBattleUi.lastPaintTick = battletick()
     drawcanvas(stockBattleUi.buffer, 0, 0, layout.w, layout.h, stockBattleUi.screen)
     stockBattleUi.target = stockBattleUi.screen
     return 0

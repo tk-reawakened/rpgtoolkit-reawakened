@@ -1,0 +1,34 @@
+import { TextEncoder } from "node:util";
+import { readFileSync } from "node:fs";
+import { assetKey, createAssetIndex, createEmptyBoard, createEmptyMainFile, createEngine, PACKAGE_ROOT, writeBoard, writeMainFile } from "/Users/jensen/.omp/wt/514/packages/core/src/index.ts";
+import type { GameState } from "/Users/jensen/.omp/wt/514/packages/core/src/index.ts";
+const unwrap = <T>(r: any): T => { if (!r.ok) throw new Error(r.error.message); return r.value; };
+const program = process.argv[2] ?? "";
+const empty = createEmptyBoard();
+const board = unwrap<Uint8Array>(writeBoard({ ...empty, sizeX: 40, sizeY: 30, sizeL: 1, tileMatrix: Array.from({ length: 1200 }, () => 0), tileRuns: [{ lutIndex: 0, count: 1200, marker: true }], layerTitles: ["", ""], properties: { ...empty.properties, start: { x: 64, y: 64, layer: 1 } } }));
+const files = new Map<string, Uint8Array>();
+const main = { ...createEmptyMainFile(), major: 2, minor: 9, startupPrg: "start.prg", initBoard: "start.brd", initChar: "hero.tem" };
+files.set(assetKey("main.gam"), unwrap(writeMainFile(main)));
+files.set(assetKey("boards/start.brd"), board);
+files.set(assetKey("chrs/hero.tem"), new Uint8Array([0]));
+files.set(assetKey("prg/start.prg"), new TextEncoder().encode(program));
+let latest: GameState | null = null;
+const engine = createEngine({ seed: 1, assetIndex: createAssetIndex(["main.gam","Boards/start.brd","Chrs/hero.tem","Prg/start.prg"]), assetRoot: PACKAGE_ROOT, mainFile: "main.gam", startup: { presence: { hasPlayer: () => true }, savedGame: { load: () => ({ kind: "missing" }), restored: () => false } }, width: 64, height: 64, maxTicks: 100, bundled: new Map([[assetKey("media/fonts/tkr-8x8.fnt"), new Uint8Array(readFileSync("/Users/jensen/.omp/wt/514/media/fonts/tkr-8x8.fnt"))]]), phaseRegistrations: [{ phase: "audio", run: (s) => { latest = s; } }] });
+let replies: any[] = [];
+for (let i = 0; i < 40; i++) {
+  const r = engine.advance(1, replies); replies = [];
+  if (r.diagnostics.length) console.log("diag", JSON.stringify(r.diagnostics));
+  if (r.loading) replies = r.requests.flatMap((q: any) => q.kind === "asset" ? [{ tick: r.tickAfter, event: { kind: "asset", reqId: q.reqId, bytes: files.get(q.key) ?? null } }] : []);
+}
+const s = latest as any;
+const rn = s.surfaces.renderNow;
+console.log("renderNow", rn);
+import { readSurfacePixels } from "/Users/jensen/.omp/wt/514/packages/core/src/raster/surfaces.ts";
+const px = (id: number, x: number, y: number) => { const e = s.surfaces.entries[String(id)]; const p = readSurfacePixels(s.surfaces, id, e.rev)!; const at = (y * p.w + x) * 4; return [...p.rgba.slice(at, at + 4)]; };
+console.log("canvas px", px(rn, 10, 10), px(rn, 40, 10), px(rn,60,60));
+engine.surfacePixels(0 as any, -1);
+const rev0 = s.surfaces.entries["0"].rev;
+const frame = engine.surfacePixels(0 as any, rev0)!;
+const fp = (x: number, y: number) => [...frame.rgba.slice((y*frame.w+x)*4, (y*frame.w+x)*4+4)];
+console.log("frame px", fp(10,10), fp(40,10), fp(60,60));
+let lit=0; for(let y=24;y<40;y++)for(let x=0;x<64;x++){const p=fp(x,y); if(p[0]+p[1]+p[2]>0) lit++;} console.log("lit text pixels",lit);

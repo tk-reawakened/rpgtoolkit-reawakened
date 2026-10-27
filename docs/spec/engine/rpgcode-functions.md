@@ -419,7 +419,7 @@ run("nextChapter.prg")                                         // legacy Toolkit
 | `abilitiesmenu` | `void abilitiesmenu()` | Open the abilities menu. | Reawakened facade; invokes the `abilities` menu provider immediately and blocks the calling thread until it closes. |
 | `applystatus` | `void applystatus(string target, string file)` | Apply a status effect to a fighter. |  |
 | `removestatus` | `void removestatus(string target, string file)` | Remove a status effect from a fighter. |  |
-| `drawenemy` | `void drawenemy(string file, int x, int y, [canvas cnv, bool loop = true])` | Draw an enemy. | Draws the active animation frame at logical pixel coordinates without changing battle state or consuming RNG. The asset is an animation file (`.anm` or animated GIF), for example one a fighter's stance names. The optional loop flag controls continuous playback (default true; false holds the final frame). |
+| `drawenemy` | `void drawenemy(string file, int x, int y, [canvas cnv, bool loop = true, int frame = -1])` | Draw an enemy. | Draws the active animation frame at logical pixel coordinates without changing battle state or consuming RNG. The asset is an animation file (`.anm` or animated GIF), for example one a fighter's stance names. The optional loop flag controls continuous playback (default true; false holds the final frame); an optional sixth argument selects one explicit frame (0-based, clamped), so a screen can pre-render each frame into its own canvas once and then only blit them. |
 | `giveexp` | `void giveexp(string handle, int amount)` | Give experience to a player. |  |
 
 ### Reawakened actor-stat aliases (not part of the 282 legacy catalogue)

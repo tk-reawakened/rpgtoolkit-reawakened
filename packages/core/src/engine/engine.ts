@@ -875,7 +875,8 @@ export function createEngine(init: EngineInit): Engine {
    * that is not cached yet is requested and the effect stays queued, in order, until it arrives.
    */
   function drawEnemyFrame(effect: EffectRecord): boolean {
-    const [file, rawX, rawY, rawCanvas, rawLoop] = effect.args;
+    const [file, rawX, rawY, rawCanvas, rawLoop, rawFrame] = effect.args;
+    const wantedFrame = typeof rawFrame === "number" && Number.isFinite(rawFrame) ? Math.trunc(rawFrame) : -1;
     const x = typeof rawX === "number" ? rawX : 0;
     const y = typeof rawY === "number" ? rawY : 0;
     const canvas = (typeof rawCanvas === "number" ? rawCanvas : 0) as SurfaceId;
@@ -890,7 +891,11 @@ export function createEngine(init: EngineInit): Engine {
       request(key, "animation");
       return false;
     }
-    const frameData = animationFrameAtTick(bytes, String(file), key, resolveAnimationImage, state.time.tick, Boolean(loop));
+    // An explicit frame (sixth argument) draws that frame; otherwise the frame shown at this tick.
+    const frameData = animationFrameAtTick(
+      bytes, String(file), key, resolveAnimationImage,
+      state.time.tick, Boolean(loop), wantedFrame >= 0 ? wantedFrame : undefined,
+    );
     if (frameData === null) {
       imageDiagnostic(file, `drawenemy: cannot decode animation "${String(file)}"`);
       return true;
