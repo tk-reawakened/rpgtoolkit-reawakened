@@ -9,7 +9,7 @@ permissions:
 # Ubuntu 26 on 2026-10-19, and the golden/oracle checks are validated on 24.04.
 # Moving to a new image should be its own deliberate change.
 jobs:
-  typecheck:
+  checks:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -19,43 +19,60 @@ jobs:
           node-version: 24.21.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # `typecheck` starts with `tsc -b`, so subsequent checks reuse the built output.
       - run: pnpm typecheck
-  lint:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.21.0
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
       - run: pnpm lint
-  unit:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.21.0
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test
-      - run: pnpm coverage
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: node-test-coverage
-          path: coverage/lcov.info
-          if-no-files-found: error
+      - run: pnpm audit --prod
+      - run: pnpm licence:test
+      - run: pnpm licence
+      - run: pnpm provenance:test
+      - run: pnpm provenance
+      - run: pnpm graph:test
+      - run: pnpm graph
       - run: pnpm fixtures:test
       - run: pnpm catalogue:check
       # Command metadata is checked after the TypeScript build; docs remain outside VM state.
       - run: pnpm command-docs:test
-      - run: pnpm command-docs:check
+      - run: node tools/command-docs/check.mjs
       - run: pnpm no-skips:test
+      - run: node tools/no-skips/run.mjs --verify-groups
       - run: pnpm icons:test
+  unit:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        group:
+          - core-formats
+          - core-script
+          - core-engine
+          - synth
+          - plugin-tk2-compat
+          - runner-harness
+          - runner-headless
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@v6
+        with:
+          path: fixtures/legacy
+          key: legacy-games-${{ hashFiles('tools/fixtures/sources.json') }}
+      - run: pnpm fixtures:fetch
+      - run: pnpm build
+      # Every shard runs once with legacy fixtures present, under the no-skips guard
+      # and with V8 coverage enabled. `gate` merges the shard LCOV files and checks
+      # the repository-wide line and branch thresholds.
+      - run: node tools/no-skips/run.mjs --group ${{ matrix.group }} --lcov coverage/lcov-${{ matrix.group }}.info
+      - uses: actions/upload-artifact@v6
+        with:
+          name: lcov-${{ matrix.group }}
+          path: coverage/lcov-${{ matrix.group }}.info
+          if-no-files-found: error
   golden:
     runs-on: ubuntu-24.04
     steps:
@@ -72,61 +89,20 @@ jobs:
           key: legacy-games-${{ hashFiles('tools/fixtures/sources.json') }}
       - run: pnpm fixtures:fetch
       - run: pnpm fixtures:check
-      # The format tests skip their sample-game cases when `fixtures/` is absent,
-      # which is the case in the `unit` job. Run the whole suite again here, after
-      # the fetch, under the no-skips guard (`pnpm test:strict`), so a sample-game
-      # case can never pass by skipping.
-      - run: pnpm test:strict
-      - run: pnpm golden
+      - run: pnpm build
+      - run: node packages/runner-headless/dist/cli.js golden
       # The closing suite boots every fetched sample game through the real engine and compares frames, hashes and
       # diagnostics with the committed regression baselines (ticket 4.28).
-      - run: pnpm closing
+      - run: node packages/runner-headless/dist/cli.js closing
       # Independent-oracle drift checks (Pillow is a CI-only dev tool, HPND, never shipped).
       - run: python3 -m pip install Pillow
       - run: pnpm oracle:check
-      # The corpus gate (epic 2 Done-when 1): `pnpm dump:check` re-runs the dump
+      # The corpus gate (epic 2 Done-when 1): `dump --check` re-runs the dump
       # over both sample games and compares its JSON report with the committed
       # `golden/legacy-corpus.json`. A parser or decoder that drifts fails there,
       # naming the file. Regenerating the expectation is deliberate
       # (`pnpm dump:record`), like a golden (G5).
-      - run: pnpm dump:check
-  licence:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.21.0
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm audit --prod
-      - run: pnpm licence:test
-      - run: pnpm licence
-  provenance:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.21.0
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm provenance:test
-      - run: pnpm provenance
-  graph:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.21.0
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm graph:test
-      - run: pnpm graph
+      - run: node packages/runner-headless/dist/cli.js dump --check golden/legacy-corpus.json fixtures/legacy && node packages/runner-headless/dist/cli.js dump --check golden/spec-examples.json docs/spec/examples
   golden-bun:
     runs-on: ubuntu-24.04
     steps:
@@ -149,7 +125,7 @@ jobs:
       - run: pnpm fixtures:fetch
       - run: pnpm golden:bun
   gate:
-    needs: [typecheck, lint, unit, golden, golden-bun, licence, provenance, graph]
+    needs: [checks, unit, golden, golden-bun]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -162,3 +138,19 @@ jobs:
           [ -n "$RESULTS" ] || { echo "no results"; exit 1; }
           for r in $RESULTS; do [ "$r" = success ] || { echo "gate failed: $NEEDS"; exit 1; }; done
           echo "all required jobs succeeded: $RESULTS"
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.21.0
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: lcov-*
+          path: coverage/shards
+          merge-multiple: true
+      - run: node tools/no-skips/run.mjs --merge-lcov coverage/lcov.info coverage/shards/lcov-*.info
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: node-test-coverage
+          path: coverage/lcov.info
+          if-no-files-found: error

@@ -181,25 +181,25 @@ Run them from the repository root, in this order, before you open a pull request
 ```sh
 pnpm install --frozen-lockfile   # install from the committed lockfile
 pnpm build                       # tsc -b: a quick incremental build
-pnpm typecheck                   # tsc -b, then each package's tsconfig.test.json [typecheck]
-pnpm lint                        # the core dependency check, then ESLint [lint]
-pnpm test                        # tsc -b, then node --test; sample-game cases skip without fixtures [unit]
+pnpm typecheck                   # tsc -b, then each package's tsconfig.test.json [checks]
+pnpm lint                        # the core dependency check, then ESLint [checks]
+pnpm test                        # tsc -b, then node --test; sample-game cases skip without fixtures
 pnpm fixtures:fetch              # fetch the legacy sample games (network, cached)
 pnpm fixtures:check              # fail if anything under fixtures/ is tracked [golden]
-pnpm test:strict                 # as `test`, but any skipped test fails; needs fixtures:fetch [golden]
+pnpm test:strict                 # as `test`, but any skipped test fails; needs fixtures:fetch [unit]
 pnpm golden                      # the headless golden suite (G5) [golden]
 pnpm closing                     # boot every fetched sample game through the real engine; needs fixtures:fetch [golden]
 pnpm dump:check                  # compare the dump of the sample games and the spec examples with the committed digests; needs fixtures:fetch [golden]
 pnpm oracle:check                # independent-reference drift checks; needs python3 with Pillow [golden]
-pnpm graph:test && pnpm graph    # the dependency-edge tool's tests, then the check (G2, G4) [graph]
-pnpm licence:test && pnpm licence  # the licence tool's tests, then the licence gate (G6) [licence]
-pnpm audit --prod                # dependency vulnerability audit (network) [licence]
-pnpm provenance:test && pnpm provenance  # the scan's tests, then the clean-room provenance scan (G7) [provenance]
-pnpm fixtures:test               # the fixture tools' own tests [unit]
-pnpm catalogue:check             # the generated catalogue stubs match the catalogue [unit]
-pnpm command-docs:test && pnpm command-docs:check  # command documentation tool tests, then the check [unit]
-pnpm no-skips:test               # the no-skips guard's own tests [unit]
-pnpm icons:test                  # the icon builder's own tests [unit]
+pnpm graph:test && pnpm graph    # the dependency-edge tool's tests, then the check (G2, G4) [checks]
+pnpm licence:test && pnpm licence  # the licence tool's tests, then the licence gate (G6) [checks]
+pnpm audit --prod                # dependency vulnerability audit (network) [checks]
+pnpm provenance:test && pnpm provenance  # the scan's tests, then the clean-room provenance scan (G7) [checks]
+pnpm fixtures:test               # the fixture tools' own tests [checks]
+pnpm catalogue:check             # the generated catalogue stubs match the catalogue [checks]
+pnpm command-docs:test && pnpm command-docs:check  # command documentation tool tests, then the check [checks]
+pnpm no-skips:test               # the no-skips guard's own tests [checks]
+pnpm icons:test                  # the icon builder's own tests [checks]
 pnpm golden:bun                  # replay the golden and closing suites under Bun against the committed output; needs Bun and fixtures:fetch [golden-bun]
 ```
 
@@ -236,8 +236,8 @@ Run `pnpm build` first because packages import each other's built output. Only `
 ## Open the pull request, review and merge
 
 1. Push your branch and open a pull request **against `tk-reawakened/rpgtoolkit-reawakened:main`**. Collaborators with write access can use `git push -u origin <branch>`; everyone else should use [a fork](#contribute-through-a-fork). Fill in [the template](.github/pull_request_template.md): the guard-rail checklist, the spec sections you implement, and any golden changes with the reason.
-2. **CI.** [.github/workflows/ci.yml](.github/workflows/ci.yml) defines nine jobs: `typecheck`, `lint`, `unit`, `golden`, `golden-bun`, `licence`, `provenance`, `graph`, and `gate`. `gate` fails unless the other eight all succeeded, so a skipped or cancelled job cannot pass. Each job installs with `pnpm install --frozen-lockfile`. The sample-game fetch and `fixtures:check` run inside `golden` (there is no separate `fixtures` job), and the fixture, catalogue, command-docs, no-skips and icon tool tests run in `unit`. `pnpm test` there runs without the sample games, where the format tests skip their sample-game cases, so `golden` runs the whole suite again after the fetch as `pnpm test:strict`: those cases run against the real files, and any skipped test fails the job, so a sample-game case cannot pass by skipping. Renaming a job id means updating the `gate` job and the ruleset's required checks in the same change.
-3. **Green before merge.** All required checks, including `gate`, must pass. The ruleset requires `gate` and the individual jobs, including `golden-bun`; `gate` also lists `golden-bun` in its `needs`, so a failed, skipped or cancelled Bun replay blocks the merge twice. Every change goes through a reviewed pull request; never push changes straight to `main`.
+2. **CI.** [.github/workflows/ci.yml](.github/workflows/ci.yml) defines five jobs: `checks` (typecheck, lint, licence, provenance, dependency graph, catalogue, command-docs, and tool self-tests), `unit` (a seven-shard matrix over `core-formats`, `core-script`, `core-engine`, `synth`, `plugin-tk2-compat`, `runner-harness`, and `runner-headless` that fetches the sample games and runs each shard once under the no-skips guard with V8 coverage), `golden`, `golden-bun`, and `gate`. `gate` fails unless all upstream jobs succeeded, merges the seven shard LCOV reports into `coverage/lcov.info`, and enforces the repository line and branch coverage thresholds.
+3. **Green before merge.** All required checks, gated by `gate`, must pass. The repository ruleset requires `gate`, which lists `checks`, `unit`, `golden`, and `golden-bun` in its `needs`, so any failed, skipped, or cancelled job blocks the merge. Every change goes through a reviewed pull request; never push changes straight to `main`.
 4. **Independent review.** Someone other than the author reviews the diff. They read it against the checklist, run the commands that matter for the change, and check that any changed golden is explained. A reviewer who is an AI agent must not be the session that wrote the change.
 5. **Behind `main`?** If GitHub says the branch can merge cleanly and checks are green, do not rebase or force-push just to catch up. Merge `origin/main` into your branch only when there is a conflict or `main` changed something your change depends on. Pull requests are merged with a merge commit, which keeps history intact.
 
