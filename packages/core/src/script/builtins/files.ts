@@ -106,7 +106,7 @@ const SAVE_NAME_PARAMS = [{ name: "file", optional: false, byRef: false, variadi
 const FILE_COMMANDS: BuiltinSpec[] = [
   {
     name: "save", aliases: [], params: SAVE_NAME_PARAMS,
-    doc: { summary: "Save the current canonical game state.", behaviour: "Writes Saved/<name>.sav through the game's sandboxed save area and blocks until the host confirms the write. Does nothing on boards that disable saving.", groups: ["game-state"] },
+    doc: { summary: "Save the current game state to a file.", behaviour: "Writes Saved/<name>.sav through the game's sandboxed save area and blocks until the host confirms the write. Does nothing on boards that disable saving.", groups: ["files-saves-os-15"] },
     call: (view, args) => {
       const board = view.state?.world.board;
       if ((board?.disableSaving ?? 0) !== 0) return { value: null };
@@ -116,7 +116,7 @@ const FILE_COMMANDS: BuiltinSpec[] = [
   },
   {
     name: "load", aliases: [], params: SAVE_NAME_PARAMS,
-    doc: { summary: "Restore a canonical game state.", behaviour: "Loads Saved/<name>.sav through the game's sandboxed save area; a valid save replaces the live game state and resumes its saved VM threads.", groups: ["game-state"] },
+    doc: { summary: "Load the game state from a file.", behaviour: "Loads Saved/<name>.sav through the game's sandboxed save area; a valid save replaces the live game state and resumes its saved VM threads.", groups: ["files-saves-os-15"] },
     call: (view, args) => {
       const info = fileInfo(view, [{ value: `${toStringValue(args[0]?.value as never)}.sav` }, { value: "saved" }]);
       return { value: null, request: { kind: "loadBlob", gameLoad: true, blob: { area: info.area, path: info.path } } };

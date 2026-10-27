@@ -120,8 +120,6 @@
     "media/playavi",
     "media/playavismall",
     "catalogue/autocommand",
-    "catalogue/save",
-    "catalogue/load",
     "catalogue/dirsav",
     "gsmisc/getdirection",
     "gsmisc/getplayercoords",
