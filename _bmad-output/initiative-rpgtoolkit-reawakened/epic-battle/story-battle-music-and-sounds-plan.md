@@ -57,3 +57,4 @@ Media-object fake tests for start/outcome ordering, `beforePlay` replace/cancel/
 
 - 2026-10-26 (scope clarification, per Main): “start” in the owner ruling above refers to the separate battle music-start request. `battle.ts` starts the battle before making that request, and the failed-dispatch test proves rejection of the audio request only; it does not reject or undo battle start.
 - 2026-10-27 (reconcile metadata after #701/#704 merge): marked save/load acceptance criterion checked with evidence from #701 (eee4e919) and #704 (ff6ea234) in `packages/core/test/battle-cues-engine.test.ts`.
+- 2026-10-27 (owner ruling, Jensen): owner explicitly approved routing battle-ready and action-unavailable sounds as UI voices separate from music, allowing overlap; ratified in BAT-10.
