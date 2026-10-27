@@ -965,8 +965,10 @@ stockBattleUi = {
     layout.sprite = 64
     layout.playerX = w - 40 - 64
     layout.playerY = 24
-    // Up to five party fighters fit vertically on the right side without clipping: 5 * 52 = 260px <= 324px
-    layout.playerDY = 52
+    // Party pictures: three down the right edge and the fourth and fifth in a second column to their left, so all five
+    // 64-pixel pictures sit clear of each other (pitch 76 >= 64) without overlapping the enemies' grid.
+    layout.playerDY = 76
+    layout.playerDX = 76
     // Adjacent bottom panels: command panel on the left (x = 8..152), party status panel on the right (x = 160..w-8).
     layout.cmdX = 8
     layout.cmdW = 144
@@ -1225,10 +1227,15 @@ stockBattleUi = {
     }
     return { file: file, loop: loop }
   },
+  // Enemies sit in a two-column grid; the party fills one right-hand column, and a fifth member starts a second
+  // column further left, so no two 64-pixel pictures overlap at the five-member maximum.
   slotX: (party, index) => {
     local(layout) = stockBattleUi.layout
     if (party == 0) {
       return layout.enemyX + (index % 2) * layout.enemyDX
+    }
+    if (index > 2) {
+      return layout.playerX - layout.playerDX
     }
     return layout.playerX
   },
@@ -1237,7 +1244,7 @@ stockBattleUi = {
     if (party == 0) {
       return layout.enemyY + ((index - (index % 2)) / 2) * layout.enemyDY
     }
-    return layout.playerY + index * layout.playerDY
+    return layout.playerY + (index % 3) * layout.playerDY
   },
   drawFighter: (party, index, selected) => {
     local(layout) = stockBattleUi.layout

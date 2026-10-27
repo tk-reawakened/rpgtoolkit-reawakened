@@ -256,7 +256,7 @@ Menu and battle cues are voices on their configured tracks, so they mix over mus
 |---|---|
 | Background | the `.bkg` picture stretched to the whole screen; a flat dark blue when it names none |
 | Enemy slot *i* (0 to 3) | top-left corner at x = 40 + 120 × (*i* mod 2), y = 40 + 112 × ⌊*i* / 2⌋, a 64 × 64 picture; its name (8 px font) 3 px below, then a 64 × 6 HP bar; no SMP, no charge |
-| Player slot *i* (0 to 4) | top-left corner at x = width − 104, y = 24 + 52 × *i*, a 64 × 64 picture; name, HP, SMP and charge are in the panel only |
+| Player slot *i* (0 to 4) | a 64 × 64 picture; the first three fill the right edge, top-left corner at x = width − 104, y = 24 + 76 × *i*; members four and five start a second column 76 px further left at y = 24 + 76 × (*i* − 3), so no two pictures — and none against the enemy grid — overlap at the five-member maximum. Name, HP, SMP and charge are in the panel only |
 | Command panel | the bottom-left 144 px (x = 8..151, y = height − 132..height − 1), four vertical options (Fight, Special, Items, Run) 26 px high; active command has `>` and a highlighted background |
 | Party status panel | the bottom-right panel adjacent to the command box (x = 160..width − 9, y = height − 132..height − 1); row *i* is 24 px high starting 8 px below its top, so **five** members — [E-85](plugins-and-battle.md#e-85)'s maximum — fit without clipping: name (16 px font), HP bar 112 × 14 at x = 276 with `HP cur/max` inside, SMP bar 96 × 14 at x = 396 with `SP cur/max` inside, charge bar 112 × 14 at x = 500 (whole percent of threshold). The active member's row background is highlighted; a fallen member's name is grey |
 | Message line | a 20 px strip at height − 132 − 24, full width; empty (not drawn) unless an action is being shown |
