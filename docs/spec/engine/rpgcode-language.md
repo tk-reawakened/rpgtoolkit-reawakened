@@ -264,7 +264,7 @@ The engine exposes 44 read-only variables that mirror engine state (R-37):
 | `music` | the music file playing |
 | `gametime` | seconds played |
 | `boardbackground`, `boardskill` | the current board's battle background and skill |
-| `cnvrendernow` | canvas handle of the script overlay |
+| `cnvrendernow` | canvas handle of the script overlay: 0 until `rendernow(true)` first creates it, then the same handle whether or not it is switched on |
 
 **Compatibility note (legacy fact):** assigning to a virtual variable in the original engine breaks its link to the engine for the rest of the session.
 
