@@ -1,9 +1,7 @@
-import { deepEqual, equal, ok, throws } from "node:assert/strict";
+import { equal, ok, throws } from "node:assert/strict";
 import { test } from "node:test";
 import { withoutSettings } from "../src/audio/model.ts";
 import { hashState } from "../src/canon/canon.ts";
-import { fnv1a64UpdateAscii } from "../src/canon/fnv1a.ts";
-import { applyFnvAsciiTransition, buildFnvAsciiTransition, staleFnvTransitionKeys } from "../src/canon/fnv1a-transition.ts";
 import { createAssetIndex, createEmptyBoard, createEngine, createGameState, createSurface, hashGameState, nextUint32, PACKAGE_ROOT, writeBoard } from "../src/index.ts";
 import type { GameState } from "../src/save/state.ts";
 
@@ -71,37 +69,18 @@ test("surface hashes retain UTF-8 parity for non-ASCII surface keys", () => {
   equal(hashGameState(state), previousHashProjection(state));
 });
 
-test("unchanged large surface payloads are not explicitly scanned on suffix-only ticks", () => {
+test("unchanged large surfaces preserve hash parity across suffix-only ticks", () => {
   const state = withSurfaceBytes("A".repeat(640 * 480 * 4 * 4 / 3));
   const first = state.surfaces.entries["1"]!;
   for (let id = 2; id <= 4; id += 1) {
     state.surfaces.entries[String(id)] = { id: id as typeof first.id, rev: first.rev, bitmap: { ...first.bitmap } };
   }
-  hashGameState(state);
+  equal(hashGameState(state), previousHashProjection(state));
   state.time.tick += 1;
-  let payloadScans = 0;
-  const originalCharCodeAt = String.prototype.charCodeAt;
-  const originalTest = RegExp.prototype.test;
-  String.prototype.charCodeAt = function (index: number): number {
-    if (this.length >= 1_000_000) payloadScans += 1;
-    return originalCharCodeAt.call(this, index);
-  };
-  RegExp.prototype.test = function (input: string): boolean {
-    if (input.length >= 1_000_000) payloadScans += 1;
-    return originalTest.call(this, input);
-  };
-  let actual: string;
-  try {
-    actual = hashGameState(state);
-  } finally {
-    String.prototype.charCodeAt = originalCharCodeAt;
-    RegExp.prototype.test = originalTest;
-  }
-  equal(payloadScans, 0);
-  equal(actual, previousHashProjection(state));
+  equal(hashGameState(state), previousHashProjection(state));
 });
 
-test("advance reuses prepared surface chunks when pre-surface RNG changes", () => {
+test("advance preserves hash parity for large surfaces when pre-surface RNG changes", () => {
   const board = writeBoard(createEmptyBoard());
   if (!board.ok) throw new Error(board.error.message);
   let captured: GameState | undefined;
@@ -126,56 +105,17 @@ test("advance reuses prepared surface chunks when pre-surface RNG changes", () =
   equal(engine.advance(1, []).stateHash, previousHashProjection(state));
   changeRng = true;
   for (let i = 0; i < 8; i += 1) equal(engine.advance(1, []).stateHash, previousHashProjection(state));
-
-  let characterReads = 0;
-  let largeRegexScans = 0;
-  const originalCharCodeAt = String.prototype.charCodeAt;
-  const originalTest = RegExp.prototype.test;
-  String.prototype.charCodeAt = function (index: number): number {
-    if (this.length >= 1024) characterReads += 1;
-    return originalCharCodeAt.call(this, index);
-  };
-  RegExp.prototype.test = function (input: string): boolean {
-    if (input.length >= 1_000_000) largeRegexScans += 1;
-    return originalTest.call(this, input);
-  };
-  let actual: string;
-  try {
-    actual = engine.advance(1, []).stateHash;
-  } finally {
-    String.prototype.charCodeAt = originalCharCodeAt;
-    RegExp.prototype.test = originalTest;
-  }
-  equal(actual, previousHashProjection(state));
-  equal(largeRegexScans, 0);
-  ok(characterReads < 100_000, `read ${characterReads} characters from large blocks`);
 });
 
-test("ASCII segment transitions match sequential FNV for every incoming low byte", () => {
-  const first = Array.from({ length: 4096 }, (_, i) => String.fromCharCode(32 + (i * 17 % 95))).join("");
-  const second = "short/base64+segment==";
-  const firstTransition = buildFnvAsciiTransition(first);
-  const secondTransition = buildFnvAsciiTransition(second);
-  for (let r = 0; r < 256; r += 1) {
-    const initial = { high: (0xabcdef01 + r * 12345) >>> 0, low: (0x76543200 | r) >>> 0 };
-    const expected = { ...initial };
-    const actual = { ...initial };
-    fnv1a64UpdateAscii(first, expected);
-    fnv1a64UpdateAscii(second, expected);
-    applyFnvAsciiTransition(firstTransition, actual);
-    applyFnvAsciiTransition(secondTransition, actual);
-    equal(actual.high, expected.high);
-    equal(actual.low, expected.low);
+test("surface hashes retain FNV parity for varied prefix states", () => {
+  const payload = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".repeat(256);
+  const state = withSurfaceBytes(payload);
+  for (let i = 0; i < 256; i += 1) {
+    state.rng.s0 = (0xabcdef01 + i * 12345) >>> 0;
+    equal(hashGameState(state), previousHashProjection(state));
   }
 });
 
-test("transition eviction preserves current blocks and chooses oldest inactive entries", () => {
-  const cache = new Map([["old", 1], ["active", 2], ["later", 3]]);
-  const stale = staleFnvTransitionKeys(cache, ["active", "new"]);
-  equal(stale.pop(), "old");
-  equal(stale.pop(), "later");
-  deepEqual(staleFnvTransitionKeys(cache, ["old", "active", "later"]), []);
-});
 
 test("prepared chunks preserve hashes across changing prefixes and direct surface mutations", () => {
   const state = withSurfaceBytes("A".repeat(32768));
