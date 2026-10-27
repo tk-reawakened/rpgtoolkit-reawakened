@@ -76,3 +76,43 @@ risk = "medium"
 references = ["repo policy — AGENTS.md, GitHub Project is the primary interface", "contributor process — CONTRIBUTING.md, Pick and claim an issue"]
 notes = ["Observation: The requested safety review covers tools/sync-issue-bodies.py, tools/migrate-tickets-to-github.py, and tools/link-epics-subissues.py.", "Observation: The owner-reported Epic 19 ticket-17 collision names _bmad-output/initiative-rpgtoolkit-reawakened/epic-rpgcode-platform/story-implement-package-catalogue-loader-and-startup-runtime-plan.md and _bmad-output/initiative-rpgtoolkit-reawakened/epic-rpgcode-platform/story-package-catalogue-loader-runtime-and-package-startup-lifecycle-plan.md; both have status done in the owner checkout. The origin/main worktree has the second plan and a similarly named first-path story leaf (id 17, tracker #562), not the first -plan.md. Reconcile the affected revision before resolving the duplicate; preserve both unless evidence identifies the real plan.", "Observation: The main checkout has an uncommitted one-line change in _bmad/method/scripts/tickets.py that sets a loaded entry's tracker_id to empty instead of reading its tickets.toml value.", "Open question: Should the owner's tracker_id change be retained, revised, or reverted, and what was its intended contract? Record this disposition separately from the ticket-17 plan decision.", "Open question: What planning content stays in the repository, and what becomes generated, a thin pointer, or is retired?", "Open question: How should status and acceptance changes remain auditable when they no longer land through repository PRs?", "Open question: What offline-work and clean-room provenance requirements must the design preserve?", "Open question: How should existing epics and ticket data migrate to the chosen source of truth?", "Open question: Which bmad skills and workflows must change because they currently read tickets.toml or plan files?", "Risk rationale: a poor source-of-truth or write-safety design could lose ticket history or change the wrong GitHub issues."]
 done_checkpoint = true
+
+
+[[entry]]
+id = 6
+tracker_id = "#710"
+type = "story"
+title = "Split core-battle tests into a dedicated parallel CI shard"
+description = "Move packages/core/test/battle-*.test.ts out of core-engine into a dedicated core-battle group in tools/no-skips/run.mjs and the CI unit matrix, keeping every package test file in exactly one of the eight CI shards and preserving the shared coverage merge."
+verify = "node tools/no-skips/run.mjs --verify-groups confirms a non-empty, exact partition of every packages/*/test/*.test.ts file across the eight groups; core-battle matches only packages/core/test/battle-*.test.ts and core-engine excludes them. The no-skips test asserts these routes and the CI unit matrix includes core-battle."
+covers = []
+after = []
+hitl = false
+risk = "low"
+references = ["issue - #710", "epic - #639", "guardrails - docs/guardrails.md (G5)", "follow-up - #705 / PR #706"]
+
+[[entry]]
+id = 7
+tracker_id = "#711"
+type = "story"
+title = "Cache surface pixels and use scanline fills and blits"
+description = "Keep decoded raster surface Uint8Array buffers live across mutations outside plain GameState, synchronize Base64 lazily or at a serialization boundary, use bounded scanline fills for rectangles and copy scanlines for eligible 1:1 opaque blits, and reuse the decoded raster asset map for canvas text within a tick while preserving exact pixel output."
+verify = "Focused surface tests prove bit-identical pixels, revision increments, JSON snapshot/restore parity, and correct scanline behavior; repeated large-canvas operations avoid per-mutation Base64 decode/encode. Core remains free of DOM and Node APIs, and all G1/G3/G5 invariants hold."
+covers = []
+after = []
+hitl = false
+risk = "high"
+references = ["issue - #711", "epic - #639", "ADR - docs/adr/0002-core-pixels-and-deterministic-maths.md", "architecture - AD-27", "spec - docs/spec/engine/rpgcode-functions.md#e-56 and #e-58", "spec - docs/spec/engine/main-loop-and-startup.md#e-57"]
+
+[[entry]]
+id = 8
+tracker_id = "#712"
+type = "story"
+title = "Avoid rescanning unchanged surfaces in state hashing"
+description = "Avoid re-encoding and rescanning unchanged megabyte surface payloads on every engine.advance() by caching canonical surface fragments or content hashes by surface identity and revision, or materializing Base64 only after a surface revision changes, without changing canonical snapshots or replay hashes."
+verify = "Tests with multiple large surfaces show that advance() cost does not scale linearly with unchanged surface byte count; pixel and non-surface state changes still change stateHash, while identical input/seed replays retain identical per-tick hashes and JSON/save snapshots remain complete and canonical."
+covers = []
+after = [7]
+hitl = false
+risk = "high"
+references = ["issue - #712", "epic - #639", "architecture - AD-1, AD-11, AD-27", "guardrails - docs/guardrails.md (G1, G3, G5)"]

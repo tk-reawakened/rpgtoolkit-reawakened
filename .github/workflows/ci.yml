@@ -46,6 +46,7 @@ jobs:
           - core-formats
           - core-script
           - core-engine
+          - core-battle
           - synth
           - plugin-tk2-compat
           - runner-harness

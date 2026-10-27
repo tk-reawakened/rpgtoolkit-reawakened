@@ -184,7 +184,7 @@ test("the tool fails saying no test ran when a directory holds none", () => {
 
 // ====================================================== groups & LCOV merge
 
-test("verifyGroups confirms that the repository's 7 groups partition every package test file", () => {
+test("verifyGroups confirms that the repository's 8 groups partition every package test file", () => {
   const report = verifyGroups(repoRoot);
   equal(report.ok, true, JSON.stringify(report));
   equal(report.emptyGroups.length, 0);
@@ -195,7 +195,10 @@ test("verifyGroups confirms that the repository's 7 groups partition every packa
   }
   const result = runTool(repoRoot, ["--verify-groups"]);
   equal(result.status, 0, result.output);
-  match(result.stdout, /verified 7 test groups: \d+ files/);
+  match(result.stdout, /verified 8 test groups: \d+ files/);
+  ok(report.byGroup["core-battle"].length > 0, "core-battle is non-empty");
+  ok(report.byGroup["core-battle"].every((file) => /^packages\/core\/test\/battle-.*\.test\.ts$/.test(file)), "core-battle contains only battle-*.test.ts files");
+  ok(report.byGroup["core-engine"].every((file) => !/^packages\/core\/test\/battle-.*\.test\.ts$/.test(file)), "core-engine excludes battle-*.test.ts files");
 });
 
 test("verifyGroups fails when an unmapped package has test files or a group is empty", () => {
@@ -206,6 +209,7 @@ test("verifyGroups fails when an unmapped package has test files or a group is e
   writeFileSync(join(root, "packages/core/test/format-one.test.ts"), "");
   writeFileSync(join(root, "packages/core/test/script-one.test.ts"), "");
   writeFileSync(join(root, "packages/core/test/engine-one.test.ts"), "");
+  writeFileSync(join(root, "packages/core/test/battle-one.test.ts"), "");
   writeFileSync(join(root, "packages/synth/test/synth.test.ts"), "");
   writeFileSync(join(root, "packages/plugin-tk2-compat/test/plugin.test.ts"), "");
   writeFileSync(join(root, "packages/runner-harness/test/harness.test.ts"), "");
