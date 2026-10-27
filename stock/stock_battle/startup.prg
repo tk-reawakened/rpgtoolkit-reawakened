@@ -1760,6 +1760,10 @@ stockBattleUi.perform = (fighter) => {
     stockBattle.special(fighter, target, entry.file)
   }
   if (kind == "item") {
+    if (entry.quantity < 1 || itemcount(entry.file) < 1) {
+      stockBattleUi.cue("cant")
+      return 0
+    }
     stockBattleUi.actingStance = "rest"
     stockBattleUi.message = fighter.name + " uses " + entry.label + " on " + target.name
     stockBattleUi.refresh()
