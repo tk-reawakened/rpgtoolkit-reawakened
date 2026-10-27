@@ -842,6 +842,7 @@ function battle() {
           if (cache.disabled > 0) {
             if (charge >= cache.threshold) {
               battle.setCharge(cache.party, cache.index, cache.threshold - 1)
+              cache.ready = 0
             }
           } else {
             if (charge >= cache.threshold) {

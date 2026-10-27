@@ -22,6 +22,7 @@ import {
   BATTLE_BACKGROUND_MAGIC,
   BATTLE_PLUGIN,
   BinaryWriter,
+  STATUS_EFFECT_MAGIC,
   CATALOGUE_RESPONDERS_PLUGIN,
   CATALOGUE_STUBS_PLUGIN,
   collectStateGarbage,
@@ -193,6 +194,21 @@ function authoredBackground(scenario: Scenario): Uint8Array {
 }
 
 /** A minimal character file: the win outcome reads the hero's source asset for its level-up data. */
+function statusBytes(disable = 1): Uint8Array {
+  const writer = new BinaryWriter();
+  writer.str(STATUS_EFFECT_MAGIC);
+  writer.i16(2);
+  writer.i16(2);
+  writer.str("disable");
+  writer.i16(1);
+  writer.i16(0);
+  writer.i16(0);
+  writer.i16(disable);
+  for (let i = 0; i < 5; i += 1) writer.i16(0);
+  writer.str("");
+  return writer.toBytes();
+}
+
 function authoredCharacter(): Uint8Array {
   const writer = new BinaryWriter();
   writer.str("RPGTLKIT CHAR");
@@ -355,6 +371,7 @@ function serveAssets(rig: Rig): void {
     if (request.area === "enemies") bytes = authoredEnemy(rig.scenario.canRun ?? 1);
     else if (request.area === "backgrounds") bytes = authoredBackground(rig.scenario);
     else if (request.area === "characters") bytes = authoredCharacter();
+    else if (request.area === "statusEffects") bytes = statusBytes(1);
     else throw new Error(`the scenario serves no ${String(request.area)} asset (${String(request.path)})`);
     replyToRequest(rig.state.vm, wait.reqId, { ok: true, value: hex(bytes) });
   }
@@ -465,6 +482,35 @@ test("readySound plays as one ui voice each time a fighter's bar is found full, 
   ok(ready.every((cue) => cue.loop === false), "a ready cue is a one-shot");
   equal(plays(rig.cues, "ui").length, ready.length, "no other ui cue: menu cues belong to 7.11");
   deepEqual(rig.diagnostics, []);
+});
+
+test("a disabling status clamps a held full charge below threshold and resets ready, so readySound plays again when charge refills", () => {
+  const rig = cueRig({ ready: "ready.wav", music: "battle.mid", script: [
+    "stockBattle.turn = (party, index) => {",
+    "  turns = turns + 1",
+    "  if (party == 1) {",
+    "    stockBattle.preserveCharge = 1",
+    "  }",
+    "  return 0",
+    "}",
+  ].join("\n") });
+  untilBattleRuns(rig);
+  rig.cues.length = 0;
+  const heroId = rig.state.party.members[0]!;
+  setCharge(rig.state, 1, 0, 75);
+  rig.run(2);
+  equal(plays(rig.cues, "ui", "ready.wav").length, 1, "readySound played once on initial fill");
+  rig.run(2);
+  equal(plays(rig.cues, "ui", "ready.wav").length, 1, "charge held full; readySound not replayed");
+
+  rig.services.actors.applyStatus(heroId, "freeze.ste", 1);
+  rig.run(2);
+  equal(rig.state.battle?.parties[1]?.[0]?.charge, 74, "disable clamped charge to threshold - 1");
+
+  rig.services.actors.removeStatus(heroId, "freeze.ste");
+  setCharge(rig.state, 1, 0, 75);
+  rig.run(2);
+  equal(plays(rig.cues, "ui", "ready.wav").length, 2, "readySound played again once the bar refilled after unfreezing");
 });
 
 test("two bars filling in the same pass start two ui voices that mix over the continuing battle music", () => {
