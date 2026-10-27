@@ -13,6 +13,8 @@ import {
   getPixel,
   killSurface,
   readSurfacePixels,
+  renderNowCanvas,
+  renderNowEnabled,
   replaceSurface,
   restoreGameState,
   saveScreen,
@@ -68,6 +70,20 @@ test("screen capture and slots round-trip through the save shape", () => {
   equal(replaceSurface(state, destination, 2, 1, new Uint8Array([0, 0, 0, 255, 0, 0, 0, 255])), 2);
   equal((saved as SurfaceId) > source, true);
   equal(destination !== saved, true);
+});
+
+test("the reserved overlay's handle and on/off flag round-trip through the save shape", () => {
+  const state = createSurfacesSection(4, 4);
+  const canvas = createSurface(state, 4, 4);
+  state.renderNow = canvas;
+  state.renderNowOn = false;
+  const restored = restoreGameState(snapshot({ ...createGameState({ seed: 1 }), surfaces: state }));
+  equal(restored.surfaces.renderNow, canvas, "the handle persists while it is switched off");
+  equal(restored.surfaces.renderNowOn, false, "and so does the flag");
+  equal(renderNowCanvas(restored.surfaces), canvas);
+  equal(renderNowEnabled(restored.surfaces), false);
+  state.renderNowOn = true;
+  equal(renderNowEnabled(restoreGameState(snapshot({ ...createGameState({ seed: 1 }), surfaces: state })).surfaces), true);
 });
 
 test("decoded image blits preserve keys, alpha, scaling and one revision", () => {

@@ -1,5 +1,6 @@
 import { assetKey } from "../formats/resolver/resolver.ts";
 import type { DrawCommand, FontRef, Rgb } from "../ports/draw.ts";
+import { renderNowEnabled } from "../raster/surfaces.ts";
 import type { InputSection } from "../save/sections/input.ts";
 import type { SurfacesSection } from "../save/sections/surfaces.ts";
 import type { UiCursorImage, UiSection } from "../save/sections/ui.ts";
@@ -151,12 +152,11 @@ function drawCursor(commands: DrawCommand[], ui: UiSection, input: InputSection 
 /**
  * The E-57 render-now overlay: while `rendernow(true)` has enabled the reserved canvas, one blit of that canvas at
  * (0,0), 1:1, above the board, sprites and animations. Pixels with zero alpha leave what is below visible. Null while it
- * is disabled (handle 0) or its handle is no longer live.
+ * is switched off or its canvas is no longer live.
  */
 export function renderNowBlit(surfaces: SurfacesSection): DrawCommand | null {
-  const handle = surfaces.renderNow;
-  if (typeof handle !== "number" || handle <= 0) return null;
-  const current = surfaces.entries[String(handle)];
+  if (!renderNowEnabled(surfaces)) return null;
+  const current = surfaces.entries[String(surfaces.renderNow)];
   if (current === undefined) return null;
   return {
     kind: "blit",

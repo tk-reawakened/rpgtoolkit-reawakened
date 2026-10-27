@@ -329,6 +329,8 @@ export type RigOptions = {
   readonly extraItems?: number;
   /** How many fights the fight program runs back to back (default one); each ends when its enemies are gone or the party runs. */
   readonly fights?: number;
+  /** A game HUD already on the reserved overlay before the first fight: drawn and switched on, drawn and switched off, or none. */
+  readonly hud?: "on" | "off";
   readonly party?: readonly { readonly key: "hero" | "mage" | "rogue"; readonly hp: number; readonly smp: number }[];
   readonly inventory?: readonly { readonly source: string; readonly handle: string; readonly quantity: number }[];
 };
@@ -367,7 +369,8 @@ export function gameFiles(options: RigOptions = {}): { readonly files: Map<strin
   };
   put("main.gam", unwrap(writeMainFile(main)));
   put("Boards/start.brd", fieldBoard());
-  put("Prg/start.prg", encoder.encode("ready = 1\nafterfight = 0\nend()\n"));
+  const hud = options.hud === undefined ? "" : `rendernow(1)\nhud = cnvrendernow\ncolorrgb(200,30,30)\nfillrect(4,4,60,20,hud)\n${options.hud === "off" ? "rendernow(0)\n" : ""}`;
+  put("Prg/start.prg", encoder.encode(`${hud}ready = 1\nafterfight = 0\nend()\n`));
   const enemies = options.enemies ?? ["slime", "bat", "slime"];
   const fightCall = `fightenemy(${enemies.map((name) => `"${name}"`).join(", ")}, "meadow")`;
   const fights = Array.from({ length: options.fights ?? 1 }, (_, index) => `${fightCall}\nafterfight = ${index + 1}\n`).join("");
@@ -480,6 +483,7 @@ export function bootUiRig(options: RigOptions = {}): UiRig {
     assetIndex: createAssetIndex(game.paths),
     assetRoot: PACKAGE_ROOT,
     mainFile: "main.gam",
+    gameIdentity: "battle-ui-test",
     startup: { presence: { hasPlayer: () => true }, savedGame: { load: () => ({ kind: "missing" }), restored: () => false } },
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT,

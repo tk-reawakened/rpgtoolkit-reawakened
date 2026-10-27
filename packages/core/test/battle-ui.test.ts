@@ -9,7 +9,7 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { canon, decodeTexture, fnv1a64, hashDrawList, type ActorRecord } from "../src/index.ts";
+import { canon, decodeTexture, fnv1a64, hashDrawList, readSurfacePixels, type ActorRecord } from "../src/index.ts";
 import { bootUiRig, encodePng, type UiRig } from "./battle-ui-rig.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -475,10 +475,54 @@ test("a second battle in the same game starts a working screen with live canvase
   const at = (348 * frame.w + 160) * 4;
   deepEqual([...frame.rgba.subarray(at, at + 3)], [180, 190, 255], "the second battle's party panel frame is on screen");
   ok(countColour(rig, { x1: 8, y1: 348, x2: 151, y2: 479 }, [40, 64, 140]).count > 200, "the command panel's highlight is drawn");
-  const fullSize = Object.values(rig.state().surfaces.entries).filter((entry) => entry.id !== (0 as never) && entry.bitmap.w === 640 && entry.bitmap.h === 480).length;
-  equal(fullSize, 2, "only this battle's overlay and its off-screen buffer exist: the first battle's canvases were released");
+  // The reserved overlay is the one from the first battle (it persists), plus this battle's buffer and the copy of the
+  // overlay taken to restore it afterwards; nothing of the first battle's screen is left over.
+  const fullSize = Object.values(rig.state().surfaces.entries).filter((entry) => entry.id !== (0 as never) && entry.bitmap.w === 640 && entry.bitmap.h === 480).map((entry) => entry.id);
+  equal(fullSize.length, 3, `the overlay, the buffer and the overlay back-up (${fullSize.join(",")})`);
+  equal(rig.state().surfaces.renderNow as number, 2, "the second battle draws on the reserved canvas the first one used");
+  const buffer = rig.ui()?.["buffer"] as number;
+  ok(fullSize.map((id) => id as number).includes(buffer), "the buffer of the second battle is one of the three");
+  rig.press("ENTER", 6);
+  rig.press("ENTER", 6);
+  rig.until((state) => state.vm.globals.afterfight === 2, 3000);
+  rig.tick(10);
+  const left = Object.values(rig.state().surfaces.entries).filter((entry) => entry.id !== (0 as never) && entry.bitmap.w === 640 && entry.bitmap.h === 480);
+  deepEqual(left.map((entry) => entry.id as number), [rig.state().surfaces.renderNow as number], "between and after battles only the reserved overlay is left");
+  equal(rig.state().surfaces.renderNowOn, false, "the game had no HUD, so the overlay is switched off again");
   deepEqual(rig.diagnostics, []);
 });
+
+function overlayPixel(rig: UiRig, x: number, y: number): number[] {
+  const surfaces = rig.state().surfaces;
+  const handle = surfaces.renderNow as number;
+  const pixels = readSurfacePixels(surfaces, handle as never, surfaces.entries[String(handle)]!.rev);
+  if (pixels === null) throw new Error("the overlay is not readable");
+  return [...pixels.rgba.subarray((y * pixels.w + x) * 4, (y * pixels.w + x) * 4 + 4)];
+}
+
+for (const hud of ["on", "off", undefined] as const) {
+  test(`a battle borrows the game's overlay and hands it back: the HUD's pixels and flag survive (${hud ?? "no HUD"})`, () => {
+    const rig = bootUiRig({ enemies: ["slime"], slimeHp: 1, ...(hud === undefined ? {} : { hud }) });
+    awaitMenu(rig);
+    const handle = rig.state().surfaces.renderNow as number;
+    if (hud !== undefined) equal(handle, rig.state().vm.globals.hud, "the battle drew on the game's own reserved canvas");
+    ok(overlayPixel(rig, 10, 10)[0] !== 200, "during the battle the screen owns the overlay");
+    rig.press("ENTER", 6);
+    rig.press("ENTER", 6);
+    rig.until((state) => state.vm.globals.afterfight === 1, 3000);
+    rig.tick(10);
+    const surfaces = rig.state().surfaces;
+    equal(surfaces.renderNow, handle, "the reserved canvas persisted");
+    equal(surfaces.renderNowOn, hud === "on", "the on/off flag is what the game had (off when there was no HUD)");
+    deepEqual(overlayPixel(rig, 10, 10), hud === undefined ? [0, 0, 0, 0] : [200, 30, 30, 255], hud === undefined ? "a canvas the battle created is left clear" : "the HUD's pixels are back");
+    deepEqual(overlayPixel(rig, 300, 200), [0, 0, 0, 0], "nothing of the battle screen is left on it");
+    const frame = rig.frame();
+    const at = (10 * frame.w + 10) * 4;
+    const shown = frame.rgba[at] === 200 && frame.rgba[at + 1] === 30 && frame.rgba[at + 2] === 30;
+    equal(shown, hud === "on", "the HUD shows on the real screen only when the game had it on");
+    deepEqual(rig.diagnostics, []);
+  });
+}
 
 test("a selection change is on the real screen within six ticks (a tenth of a second)", () => {
   const rig = bootUiRig();

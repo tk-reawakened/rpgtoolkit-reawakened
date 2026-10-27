@@ -906,6 +906,8 @@ stockBattleUi = {
   picture: "",
   screen: 0,
   buffer: 0,
+  hudCopy: 0,
+  hudOn: 0,
   target: 0,
   layout: {},
   files: {},
@@ -1130,6 +1132,14 @@ stockBattleUi = {
     // Nothing is drawn yet: the canvases below do not exist until the wait is over.
     threadSleep(getThreadId(), 4/60)
     killcanvas(scratch)
+    // The overlay is the game's, which may already show its own HUD on it: keep its on/off flag and its pixels so
+    // `finish` can put them back (BAT-11 item 10).
+    stockBattleUi.hudOn = rendernowenabled()
+    stockBattleUi.hudCopy = 0
+    if (cnvrendernow != 0) {
+      stockBattleUi.hudCopy = createcanvas(w, h)
+      drawcanvas(cnvrendernow, 0, 0, w, h, stockBattleUi.hudCopy)
+    }
     rendernow(1)
     stockBattleUi.screen = cnvrendernow
     stockBattleUi.target = stockBattleUi.screen
@@ -1146,10 +1156,19 @@ stockBattleUi = {
     stockBattleUi.endSprites()
     killcanvas(stockBattleUi.buffer)
     stockBattleUi.buffer = 0
+    // Hand the overlay back as it was: the game's pixels (clear when it had none) and its on/off flag. The canvas
+    // itself stays, as the reserved canvas always does.
+    clear(stockBattleUi.screen)
+    if (stockBattleUi.hudCopy != 0) {
+      drawcanvas(stockBattleUi.hudCopy, 0, 0, stockBattleUi.w, stockBattleUi.h, stockBattleUi.screen)
+      killcanvas(stockBattleUi.hudCopy)
+      stockBattleUi.hudCopy = 0
+    }
+    if (stockBattleUi.hudOn == 0) {
+      rendernow(0)
+    }
     stockBattleUi.screen = 0
     stockBattleUi.target = 0
-    // Switching the overlay off releases its canvas.
-    rendernow(0)
     return 0
   },
   // The idle battle loop calls this once per pass, and it must stay a small fraction of the pass's step budget, so it

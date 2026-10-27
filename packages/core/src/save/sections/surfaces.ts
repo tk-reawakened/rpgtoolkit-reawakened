@@ -24,6 +24,8 @@ export type SurfacesSection = {
   entries: Record<string, SurfaceState>;
   slots: Record<string, SurfaceId>;
   colours: Record<string, SurfaceId>;
-  /** Reserved `renderNow` overlay canvas handle; zero means disabled. */
+  /** Reserved `renderNow` overlay canvas handle: 0 or absent until `rendernow(true)` first creates it, then persistent (E-57). */
   renderNow?: SurfaceId;
+  /** Whether the reserved canvas is drawn. Absent in a save written before the flag existed, where a named handle meant "on". */
+  renderNowOn?: boolean;
 };

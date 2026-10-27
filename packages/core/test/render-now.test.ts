@@ -14,6 +14,7 @@ import {
   createEngine,
   PACKAGE_ROOT,
   readSurfacePixels,
+  renderNowEnabled,
   writeAnimation,
   writeBoard,
   writeMainFile,
@@ -58,6 +59,7 @@ function boot(program: string, extra: Readonly<Record<string, Uint8Array>> = {})
     assetIndex: createAssetIndex(paths),
     assetRoot: PACKAGE_ROOT,
     mainFile: "main.gam",
+    gameIdentity: "battle-ui-test",
     startup: { presence: { hasPlayer: () => true }, savedGame: { load: () => ({ kind: "missing" }), restored: () => false } },
     width: SIZE,
     height: SIZE,
@@ -123,28 +125,37 @@ test("an enabled render-now canvas is composed above the board and a disabled on
   equal(off.engine.drawList().commands.some((command) => command.kind === "blit" && "surface" in command.source), false);
 });
 
-test("rendernow can be switched off and on again and the second canvas is live and composed", () => {
-  const game = boot("rendernow(1)\nfirst = cnvrendernow\nrendernow(0)\noff = cnvrendernow\nrendernow(1)\nsecond = cnvrendernow\ncolorrgb(0,0,255)\nfillrect(0,0,20,20,second)\nend()\n");
-  const globals = game.state().vm.globals;
-  ok(typeof globals.first === "number" && globals.first > 0, "the first canvas is a canvas");
-  equal(globals.off, 0, "switched off it is 0");
-  ok(typeof globals.second === "number" && globals.second > 0 && globals.second !== globals.first, "switching on again makes a new canvas, not the screen handle 0");
-  deepEqual(pixel(game.frame(), 10, 10), [0, 0, 255, 255], "the second canvas is composed");
-});
-
 function bigSurfaces(game: Game): number {
   const surfaces = game.state().surfaces;
   return Object.values(surfaces.entries).filter((entry) => entry.id !== (0 as never) && entry.bitmap.w === SIZE && entry.bitmap.h === SIZE).length;
 }
 
-test("rendernow(false) releases the canvas, so toggling does not accumulate surfaces, and rendernow(true) keeps an enabled canvas", () => {
-  const toggled = boot("rendernow(1)\nfirst = cnvrendernow\ncolorrgb(255,0,0)\nfillrect(0,0,20,20,first)\nrendernow(1)\nagain = cnvrendernow\nn = 0\nwhile (n < 5) {\n  rendernow(0)\n  rendernow(1)\n  n = n + 1\n}\nend()\n");
-  const globals = toggled.state().vm.globals;
-  equal(globals.again, globals.first, "rendernow(1) while enabled keeps the same canvas");
-  equal(bigSurfaces(toggled), 1, "five off/on toggles leave exactly one screen-sized canvas");
-  const off = boot("rendernow(1)\nrendernow(0)\nend()\n");
-  equal(bigSurfaces(off), 0, "switching off releases the canvas");
-  equal(off.state().surfaces.renderNow, 0);
+test("rendernow(false) only switches drawing off: the reserved canvas, its handle and its pixels persist, and rendernow(true) shows it as it was", () => {
+  const game = boot("rendernow(1)\nfirst = cnvrendernow\non1 = rendernowenabled()\ncolorrgb(255,0,0)\nfillrect(0,0,20,20,first)\nrendernow(0)\noff = cnvrendernow\non2 = rendernowenabled()\nrendernow(1)\nsecond = cnvrendernow\non3 = rendernowenabled()\nn = 0\nwhile (n < 5) {\n  rendernow(0)\n  rendernow(1)\n  n = n + 1\n}\nend()\n");
+  const globals = game.state().vm.globals;
+  ok(typeof globals.first === "number" && globals.first > 0);
+  equal(globals.off, globals.first, "the handle persists while drawing is off");
+  equal(globals.second, globals.first, "switching on again keeps the same canvas");
+  deepEqual([globals.on1, globals.on2, globals.on3], [1, 0, 1], "rendernowenabled follows the flag");
+  equal(bigSurfaces(game), 1, "five more off/on toggles still leave exactly one screen-sized canvas");
+  deepEqual(canvasPixel(game, globals.first as number, 10, 10), [255, 0, 0, 255], "its pixels survived the toggles");
+  deepEqual(pixel(game.frame(), 10, 10), [255, 0, 0, 255], "and it is drawn again");
+  const off = boot("rendernow(1)\ncolorrgb(0,0,255)\nfillrect(0,0,20,20,cnvrendernow)\nrendernow(0)\nend()\n");
+  equal(bigSurfaces(off), 1, "switched off, the canvas is still allocated");
+  equal(off.state().surfaces.renderNowOn, false, "the saved state records the flag");
+  deepEqual(pixel(off.frame(), 10, 10), [0, 0, 0, 255], "an off canvas adds nothing to the frame");
+  deepEqual(canvasPixel(off, off.state().surfaces.renderNow as number, 10, 10), [0, 0, 255, 255], "its pixels are still there");
+});
+
+test("a killed reserved canvas is made again by rendernow(true), and an older save that names a handle without the flag means on", () => {
+  const game = boot("rendernow(1)\nfirst = cnvrendernow\nkillcanvas(first)\nafterkill = cnvrendernow\nrendernow(1)\nsecond = cnvrendernow\ncolorrgb(0,255,0)\nfillrect(0,0,20,20,second)\nend()\n");
+  const globals = game.state().vm.globals;
+  equal(globals.afterkill, 0, "a killed canvas is no canvas");
+  ok(typeof globals.second === "number" && globals.second > 0 && globals.second !== globals.first);
+  deepEqual(pixel(game.frame(), 10, 10), [0, 255, 0, 255]);
+  const legacy = game.state().surfaces;
+  delete legacy.renderNowOn;
+  ok(renderNowEnabled(legacy), "no flag and a live handle: on, as older saves meant");
 });
 
 test("text and pixelText with a canvas draw into that canvas, not the screen text layer", () => {

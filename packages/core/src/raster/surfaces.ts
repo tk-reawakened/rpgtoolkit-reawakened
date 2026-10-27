@@ -173,6 +173,18 @@ export function replaceSurface(state: SurfacesSection, id: SurfaceId, width: num
   return current.rev;
 }
 
+/** The live reserved render-now canvas, or null when none was created or the script killed it (E-57). Handle 0 is the screen, never a canvas. */
+export function renderNowCanvas(state: SurfacesSection): SurfaceId | null {
+  const handle = state.renderNow;
+  if (typeof handle !== "number" || handle <= 0 || !Object.hasOwn(state.entries, String(handle))) return null;
+  return handle;
+}
+
+/** Whether the reserved canvas is switched on and live. An absent flag (an older save) means on whenever a handle is named. */
+export function renderNowEnabled(state: SurfacesSection): boolean {
+  return renderNowCanvas(state) !== null && (state.renderNowOn ?? true);
+}
+
 /** Delete a surface. The allocation counter remains untouched. Surface 0 is permanent. */
 export function killSurface(state: SurfacesSection, id: SurfaceId): boolean {
   if (id === (0 as SurfaceId) || !Object.hasOwn(state.entries, String(id))) return false;
