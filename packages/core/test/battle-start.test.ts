@@ -6,6 +6,7 @@ import {
   assetKey,
   BATTLE_BACKGROUND_MAGIC,
   BATTLE_PLUGIN,
+  COMPILER_VERSION,
   CORE_PLUGIN,
   createGameState,
   createMediaScriptService,
@@ -322,7 +323,8 @@ test("Fight completes setup with ordered parties, the background, canRun from ev
     const first = invoke(command("fight"), service.view, [1, "night.bkg"]);
     const drawn = parsePending(String(first.then?.args[0])).enemySources;
     const rngAfterDraw = clonePlain(state.rng);
-    finishRequestedBattleAssets(service.view, first, assets);
+    const completed = finishRequestedBattleAssets(service.view, first, assets);
+    deepEqual(completed.effects?.map(({ kind, args }) => [kind, args?.[0], args?.[1]]), [["vm.control", "executeProgramRef", { kind: "inline", text: "battle()", compiler: COMPILER_VERSION }]], `seed ${seed}: completion starts the registered battle handler`);
     deepEqual(state.rng, rngAfterDraw, `seed ${seed}: setup after the draw takes no further random number`);
     const battle = state.battle;
     ok(battle, `seed ${seed}: a battle exists`);

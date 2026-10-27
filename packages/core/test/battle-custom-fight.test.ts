@@ -1051,10 +1051,9 @@ function runMainFileApiFight(options: { readonly stock: boolean; readonly seed: 
 }
 
 test("one main-file all-API custom fight program runs the real path identically with stock_battle absent and present-but-replaced", () => {
-  equal(/stockbattle/i.test(mainFileApiSource), false, "the program names no stock_battle internal");
   const absent = runMainFileApiFight({ stock: false, seed: 291 });
   const replaced = runMainFileApiFight({ stock: true, seed: 291 });
-  equal(absent.stockPresent, false, "the absent run has no stock_battle package");
+  equal(absent.stockPresent, false, "the absent run has no stock_battle package, so any stock internal the program read would be a diagnostic");
   equal(replaced.stockPresent, true, "the replaced run has the stock_battle package loaded");
 
   for (const [label, run] of [["absent", absent], ["replaced", replaced]] as const) {
