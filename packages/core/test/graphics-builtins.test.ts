@@ -3,11 +3,16 @@ import { test } from "node:test";
 import {
   createGameState,
   createSurfacesSection,
+  decodeSurfaceBytes,
+  encodeSurfaceBytes,
   getPixel,
   GRAPHICS_PLUGIN,
+  readSurfacePixels,
   type Arg,
   type CommandView,
 } from "../src/index.ts";
+import { beginSurfaceBatch, endSurfaceBatch, flushSurfaceBatch } from "../src/raster/surfaces.ts";
+import type { SurfacesSection } from "../src/save/sections/surfaces.ts";
 
 function arg(value: unknown, ref: string | null = null): Arg {
   return { value: value as never, ref: ref as never };
@@ -58,4 +63,135 @@ test("canvas blits, screen capture and numbered screen restore use surface revis
   command("clear").call(commandView, [], () => ({ value: null }));
   command("restorescreen").call(commandView, [arg(2)], () => ({ value: null }));
   equal(getPixel(state.surfaces, 0 as never, 2, 2)?.r, 255);
+});
+
+type Section = SurfacesSection;
+
+/** The saved snapshot must be the canonical encoding of the pixels commands and readers see. */
+function assertSnapshotMatchesPixels(surfaces: Section, id: number, label: string): void {
+  const entry = surfaces.entries[String(id)]!;
+  const pixels = readSurfacePixels(surfaces, id as never, entry.rev)!.rgba;
+  equal(entry.bitmap.b64, encodeSurfaceBytes(pixels), `${label}: b64 is stale or non-canonical`);
+  deepEqual(decodeSurfaceBytes(entry.bitmap.b64), pixels, `${label}: b64 does not decode to the live pixels`);
+}
+
+const NONE = () => ({ value: null });
+
+for (const mode of ["eager", "batched", "batched with a flush after every command"] as const) {
+  test(`drawing commands handle offscreen, reversed, fractional and infinite inputs: ${mode}`, () => {
+    const { state, commandView } = view();
+    const run = (name: string, ...values: number[]) => {
+      const result = command(name).call(commandView, values.map((value) => arg(value)), NONE);
+      if (mode === "batched with a flush after every command") flushSurfaceBatch(state.surfaces);
+      return result;
+    };
+    const canvas = command("createcanvas").call(commandView, [arg(8), arg(8)], NONE).value as number;
+    if (mode !== "eager") beginSurfaceBatch(state.surfaces);
+    try {
+      run("setpixel", 2.8, 3.2, canvas);
+      run("setpixel", -1.5, 3, canvas);
+      run("setpixel", 10, 3, canvas);
+      run("setpixel", Number.POSITIVE_INFINITY, 3, canvas);
+      run("setpixel", Number.NaN, 3, canvas);
+      run("fillrect", 6.7, 5.9, 4.1, 4.2, canvas); // reversed and fractional
+      run("drawrect", 7, 7, 0, 0, canvas);
+      run("drawline", 7.9, 0.1, 0.2, 7.8, canvas);
+      run("fillcircle", 0.4, 0.4, 2.8, canvas); // partly offscreen
+      run("drawcircle", -20.5, -20.5, 5.2, canvas); // wholly offscreen
+      run("fillcircle", Number.NaN, 3, 2, canvas);
+      run("fillcircle", Number.POSITIVE_INFINITY, 3, 2, canvas);
+      // An infinite edge clips to the surface: this fills columns 5..7 of rows 1..2.
+      run("fillrect", 5, 1, Number.POSITIVE_INFINITY, 2, canvas);
+      run("fillrect", Number.NEGATIVE_INFINITY, 6, 1, 6, canvas);
+      run("fillrect", Number.NaN, 0, 3, 3, canvas);
+      if (mode === "eager") assertSnapshotMatchesPixels(state.surfaces, canvas, mode);
+    } finally {
+      if (mode !== "eager") endSurfaceBatch(state.surfaces);
+    }
+    const at = (x: number, y: number) => getPixel(state.surfaces, canvas as never, x, y)?.r;
+    equal(at(2, 3), 255);
+    equal(at(4, 4), 255);
+    equal(at(6, 5), 255);
+    equal(at(7, 5), 255); // on the drawrect outline's right edge
+    equal(at(3, 5), 0);
+    equal(at(0, 0), 255);
+    equal(at(7, 7), 255);
+    equal(at(7, 0), 255);
+    equal(at(0, 7), 255);
+    equal(at(1, 1), 255);
+    equal(at(7, 1), 255);
+    equal(at(7, 2), 255);
+    equal(at(4, 1), 0);
+    equal(at(0, 6), 255);
+    equal(at(1, 6), 255);
+    equal(at(2, 6), 0);
+    assertSnapshotMatchesPixels(state.surfaces, canvas, `${mode} final`);
+  });
+}
+
+test("random drawing, blit and clear commands keep every snapshot canonical and eager/batched states identical (seeded)", () => {
+  let seed = 0x9f3a11;
+  const next = (): number => {
+    seed = (seed ^ (seed << 13)) >>> 0;
+    seed = (seed ^ (seed >>> 17)) >>> 0;
+    seed = (seed ^ (seed << 5)) >>> 0;
+    return seed / 4294967296;
+  };
+  function pick<T>(items: readonly T[]): T {
+    return items[Math.floor(next() * items.length)]!;
+  }
+  const SIZES = [[1, 1], [2, 2], [3, 1], [5, 7], [8, 8], [13, 5], [16, 16]] as const;
+  for (let trial = 0; trial < 250; trial += 1) {
+    const eager = view();
+    const batched = view();
+    const sizes = [pick(SIZES), pick(SIZES), pick(SIZES)];
+    const canvases: number[] = [0];
+    for (const [w, h] of sizes) {
+      for (const side of [eager, batched]) {
+        const id = command("createcanvas").call(side.commandView, [arg(w), arg(h)], NONE).value as number;
+        if (side === eager) canvases.push(id);
+      }
+    }
+    beginSurfaceBatch(batched.state.surfaces);
+    try {
+      for (let step = 0; step < 1 + Math.floor(next() * 14); step += 1) {
+        const target = pick(canvases);
+        const size = eager.state.surfaces.entries[String(target)]!.bitmap;
+        const c = (extent: number, nonFinite = true): number => {
+          const t = next();
+          if (nonFinite && t < 0.07) return pick([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN]);
+          if (t < 0.5) return Math.floor(next() * (extent + 10)) - 5;
+          if (t < 0.85) return next() * (extent + 10) - 5;
+          return pick([0, extent - 1, extent, -1, 0.5]);
+        };
+        const colour = { r: Math.floor(next() * 256), g: Math.floor(next() * 256), b: Math.floor(next() * 256) };
+        const name = pick(["setpixel", "fillrect", "drawrect", "drawline", "fillcircle", "drawcircle", "clear", "drawcanvas", "drawcanvas", "drawcanvastransparent", "canvasdrawpart", "canvasgetscreen"]);
+        const finite = name === "drawrect" || name === "drawline";
+        const source = pick(canvases);
+        const args: number[] = name === "setpixel" ? [c(size.w), c(size.h), target]
+          : name === "clear" ? [target]
+          : name === "drawcircle" || name === "fillcircle" ? [c(size.w), c(size.h), pick([0, 1, 2.5, 4, 9, -1, 30]), target]
+          : name === "drawcanvas" ? [source, c(size.w, false), c(size.h, false), pick([0, 1, 3, 9]), pick([0, 1, 3, 9]), target]
+          : name === "drawcanvastransparent" ? [source, c(size.w, false), c(size.h, false), 7, 7, 7, pick([2, 4, 9]), pick([2, 4, 9]), target]
+          : name === "canvasdrawpart" ? [source, c(size.w, false), c(size.h, false), pick([0, 1, 2]), pick([0, 1]), pick([1, 3, 8]), pick([1, 3, 8]), target]
+          : name === "canvasgetscreen" ? [target]
+          : [c(size.w, !finite), c(size.h, !finite), c(size.w, !finite), c(size.h, !finite), target];
+        for (const side of [eager, batched]) {
+          (side.state.ui as { colour?: unknown }).colour = colour;
+          command(name).call(side.commandView, args.map((value) => arg(value)), NONE);
+        }
+        if (next() < 0.25) {
+          flushSurfaceBatch(batched.state.surfaces);
+          for (const id of canvases) assertSnapshotMatchesPixels(batched.state.surfaces, id, `trial ${trial} step ${step} ${name} flush`);
+        }
+      }
+    } finally {
+      endSurfaceBatch(batched.state.surfaces);
+    }
+    for (const id of canvases) {
+      assertSnapshotMatchesPixels(eager.state.surfaces, id, `trial ${trial} eager`);
+      assertSnapshotMatchesPixels(batched.state.surfaces, id, `trial ${trial} batched`);
+    }
+    equal(JSON.stringify(batched.state.surfaces), JSON.stringify(eager.state.surfaces), `trial ${trial}: batched state differs from the eager state`);
+  }
 });

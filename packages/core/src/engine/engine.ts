@@ -75,6 +75,7 @@ import {
   defaultWaitPoll,
   drainDiagnostics,
   ENGINE_DEFAULT_MANIFEST,
+  ENGINE_PLUGIN_TABLE,
   endBoardThreads,
   endItemThreads,
   fileProgramRef,
@@ -102,11 +103,13 @@ import {
 } from "../script/index.ts";
 import type { Thread } from "../script/state.ts";
 import { findObject, readMember } from "../script/objects.ts";
-import type { PackageCatalogueEntry } from "../script/plugin.ts";
+import type { PackageCatalogueEntry, PluginDefinition } from "../script/plugin.ts";
 import { DEFAULT_FONT } from "../script/packs/ui.ts";
 import type { WaitView } from "../ports/wait.ts";
 import { runTimePhase } from "../time/time.ts";
 import { blitTexture, rasterize, readSurfacePixels, replaceSurface, surfaceTextures, createSurfacesSection, type RasterAsset, type SurfacePixelCache } from "../raster/index.ts";
+import { beginSurfaceBatch, endSurfaceBatch, flushSurfaceBatch } from "../raster/surfaces.ts";
+import { guardExternalPlugins } from "./surface-guard.ts";
 
 /** AD-26's immutable phase order. */
 export const ENGINE_PHASES = [
@@ -235,6 +238,8 @@ type BlobReplyResult = "ignored" | "consumed" | "loaded";
 type Arrival = { readonly x: number; readonly y: number; readonly layer: number; readonly unit: "pixel" | "tile" };
 
 const DEFAULT_ENGINE_PLUGINS: readonly ResolvedPlugin[] = resolveManifestPlugins(ENGINE_DEFAULT_MANIFEST).plugins;
+/** The engine's own packs: the only plugin definitions that may run mid-thread without a surface flush. */
+const FIRST_PARTY_PLUGINS: ReadonlySet<PluginDefinition> = new Set(Object.values(ENGINE_PLUGIN_TABLE));
 const SCRIPT_REQUEST_BASE = 0x40000000;
 const SCRIPT_ASSET_AREAS: Readonly<Record<string, { readonly folder: string; readonly kind: "script-character" | "script-item" | "script-asset" }>> = {
   characters: { folder: "characters", kind: "script-character" },
@@ -605,6 +610,10 @@ export function createEngine(init: EngineInit): Engine {
   let pluginLayers = createPluginLayers();
   const packageStartupLifecycle = { active: false, packageName: undefined as string | undefined };
   let startupServicesReady = false;
+  /** Make batched surface drawing visible in the state tree; a no-op outside a thread phase or when nothing is dirty. */
+  function flushSurfaces(): void {
+    flushSurfaceBatch(state.surfaces);
+  }
   function makeServices(
     plugins: readonly ResolvedPlugin[],
     programLoader?: ProgramLoader,
@@ -615,7 +624,7 @@ export function createEngine(init: EngineInit): Engine {
     audioDecoders = assembleAudioDecoders(plugins.map((plugin) => plugin.definition), decoderLogger);
     const nextServices = createScriptServices(
       state,
-      plugins,
+      guardExternalPlugins(plugins, FIRST_PARTY_PLUGINS, flushSurfaces),
       undefined,
       undefined,
       programLoader,
@@ -1794,6 +1803,31 @@ export function createEngine(init: EngineInit): Engine {
       bus.postEffect("audio", engineEffect("audio", "sfx.play", [resolved.value, false, null, "frame"], "draw-audio-cue"));
     }
   }
+  // Script drawing inside runThreadsPhase is held in working buffers (withSurfaceBatch) and written
+  // into the canonical `bitmap.b64` snapshots when the phase ends, including after a thrown command
+  // or a breakpoint pause. Only code that can observe the state tree mid-command defeats that:
+  //  - effectAppliers and scriptObservers are host callbacks the engine cannot vouch for, so
+  //    batching is off whenever either is installed and every edit materialises immediately;
+  //  - package, catalogue and main-file plugins, and their listeners and host-object hooks, are handed
+  //    `view.state`; guardExternalPlugins flushes the batch before any of that code runs (see
+  //    makeServices), so they see exactly what an eager engine would show;
+  //  - the engine's own packs read pixels through the surface API, which sees the working buffers, and
+  //    never trigger a flush;
+  //  - phaseRegistrations run outside the threads phase, and resetRegistrations run after reset has
+  //    installed a fresh, unbatched surfaces section.
+  const canBatchSurfaces = (init.effectAppliers?.length ?? 0) === 0
+    && init.scriptObservers === undefined;
+  function withSurfaceBatch<T>(run: () => T): T {
+    if (!canBatchSurfaces) return run();
+    const surfaces = state.surfaces;
+    beginSurfaceBatch(surfaces);
+    try {
+      return run();
+    } finally {
+      endSurfaceBatch(surfaces);
+    }
+  }
+
   function runPhase(phase: EnginePhase, consumed: InputRecord[]): void {
     state.engine.phase = phase;
     switch (phase) {
@@ -1836,7 +1870,7 @@ export function createEngine(init: EngineInit): Engine {
         pruneClaimed(state.input, state.engine.claims ?? []);
         return;
       case "threads":
-        runThreadsPhase(state.vm, services, STEP_BUDGET);
+        withSurfaceBatch(() => runThreadsPhase(state.vm, services, STEP_BUDGET));
         expireProgramTileEdits(state);
         return;
       case "events":
@@ -2062,7 +2096,7 @@ export function createEngine(init: EngineInit): Engine {
     return null;
   }
   function finishOpenTick(consumed: InputRecord[], mode: ResumeMode): Paused | null {
-    const paused = runOpenThreads(mode);
+    const paused = withSurfaceBatch(() => runOpenThreads(mode));
     if (paused !== null || state.engine.openTick !== undefined) return paused;
     for (const phase of ENGINE_PHASES) {
       if (phase !== "input" && phase !== "waits" && phase !== "threads") runPhase(phase, consumed);

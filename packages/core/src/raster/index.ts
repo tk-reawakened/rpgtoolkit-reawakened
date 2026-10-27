@@ -1,3 +1,9 @@
 export * from "./raster.ts";
-export * from "./surfaces.ts";
+export {
+  encodeSurfaceBytes, decodeSurfaceBytes, createSurfacesSection, createSurface,
+  replaceSurface, killSurface, readSurfacePixels, surfaceTextures, colourSurface,
+  saveScreen, getPixel, canvasGetScreen, restoreScreen, editSurface, surfaceSize,
+  drawSurfaceLine, drawSurfaceRect, drawSurfaceCircle, blitSurface, blitTexture,
+} from "./surfaces.ts";
+export type { SurfacePixelCache, SurfaceEditor, RgbaSnapshot, SurfaceState } from "./surfaces.ts";
 export * from "./glyph.ts";
