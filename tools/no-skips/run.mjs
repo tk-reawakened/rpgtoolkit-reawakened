@@ -141,6 +141,7 @@ export function mergeLcov(texts) {
   for (const text of texts) {
     let current = null;
     let currentBrda = new Map();
+    let currentDa = new Map();
     let fnOrder = [];
     for (const rawLine of text.split(/\r?\n/)) {
       const line = rawLine.trim();
@@ -148,10 +149,11 @@ export function mergeLcov(texts) {
         const sf = line.slice(3);
         current = files.get(sf);
         if (!current) {
-          current = { sf, fns: new Map(), brda: new Map(), da: new Map() };
+          current = { sf, fns: new Map(), shards: [], da: new Map() };
           files.set(sf, current);
         }
         currentBrda = new Map();
+        currentDa = new Map();
         fnOrder = [];
       } else if (current !== null && line.startsWith("FN:")) {
         const comma = line.indexOf(",");
@@ -178,19 +180,10 @@ export function mergeLcov(texts) {
         const comma = line.indexOf(",");
         const ln = Number(line.slice(3, comma));
         const count = Number(line.slice(comma + 1));
+        currentDa.set(ln, count);
         current.da.set(ln, (current.da.get(ln) ?? 0) + count);
       } else if (current !== null && line === "end_of_record") {
-        for (const [ln, arr] of currentBrda) {
-          const existing = current.brda.get(ln);
-          if (existing === undefined) {
-            current.brda.set(ln, [...arr]);
-          } else {
-            const longer = existing.length >= arr.length ? [...existing] : [...arr];
-            const shorter = existing.length >= arr.length ? arr : existing;
-            for (let index = 0; index < shorter.length; index += 1) longer[index] += shorter[index];
-            current.brda.set(ln, longer);
-          }
-        }
+        current.shards.push({ brda: currentBrda, da: currentDa });
         current = null;
       }
     }
@@ -218,16 +211,56 @@ export function mergeLcov(texts) {
     fnh += fileFnh;
     outLines.push(`FNF:${fnEntries.length}`, `FNH:${fileFnh}`);
 
-    const brLines = [...file.brda.entries()].sort((a, b) => a[0] - b[0]);
+    const brLineSet = new Set();
+    for (const shard of file.shards) {
+      for (const ln of shard.brda.keys()) brLineSet.add(ln);
+    }
+    const brLines = [...brLineSet].sort((a, b) => a - b);
     let blockId = 0;
     let fileBrf = 0;
     let fileBrh = 0;
-    for (const [ln, counts] of brLines) {
-      for (const count of counts) {
-        outLines.push(`BRDA:${ln},${blockId},0,${count}`);
-        blockId += 1;
-        fileBrf += 1;
-        if (count > 0) fileBrh += 1;
+    for (const ln of brLines) {
+      let counts = null;
+      let minZerosWhenExecuted = Infinity;
+      let maxDaWhenMinZeros = 0;
+      for (const shard of file.shards) {
+        const arr = shard.brda.get(ln);
+        const da = shard.da.get(ln) ?? 0;
+        if (da > 0) {
+          // V8 never collapses an untaken (count=0) branch into an executed (DA>0) parent range,
+          // whereas taken branches whose count equals the parent range are collapsed by V8.
+          const zeros = (arr ?? []).filter((c) => c === 0).length;
+          if (zeros < minZerosWhenExecuted || (zeros === minZerosWhenExecuted && da > maxDaWhenMinZeros)) {
+            minZerosWhenExecuted = zeros;
+            maxDaWhenMinZeros = da;
+          }
+        }
+        if (arr === undefined) continue;
+        if (counts === null) {
+          counts = [...arr];
+        } else {
+          const longer = counts.length >= arr.length ? [...counts] : [...arr];
+          const shorter = counts.length >= arr.length ? arr : counts;
+          for (let index = 0; index < shorter.length; index += 1) longer[index] += shorter[index];
+          counts = longer;
+        }
+      }
+      if (counts !== null) {
+        if (minZerosWhenExecuted < Infinity) {
+          let currentZeros = counts.filter((c) => c === 0).length;
+          for (let index = 0; index < counts.length && currentZeros > minZerosWhenExecuted; index += 1) {
+            if (counts[index] === 0) {
+              counts[index] = maxDaWhenMinZeros;
+              currentZeros -= 1;
+            }
+          }
+        }
+        for (const count of counts) {
+          outLines.push(`BRDA:${ln},${blockId},0,${count}`);
+          blockId += 1;
+          fileBrf += 1;
+          if (count > 0) fileBrh += 1;
+        }
       }
     }
     brf += fileBrf;

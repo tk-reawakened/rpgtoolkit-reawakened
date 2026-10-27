@@ -297,3 +297,38 @@ test("mergeLcov aggregates line, branch, and function counts and --merge-lcov en
   match(failResult.stderr, /coverage below threshold/);
   equal(readFileSync(join(root, "out2.info"), "utf8").includes("SF:packages/core/src/example.ts"), true);
 });
+
+test("mergeLcov reconciles V8 collapsed branch ranges when another shard executed the line without untaken branches", () => {
+  const unexecutedShard = [
+    "TN:",
+    "SF:packages/core/src/sprites/model.ts",
+    "BRDA:326,0,0,0",
+    "BRDA:326,1,0,0",
+    "BRF:2",
+    "BRH:0",
+    "DA:326,0",
+    "LH:0",
+    "LF:1",
+    "end_of_record",
+    "",
+  ].join("\n");
+
+  const executedCollapsedShard = [
+    "TN:",
+    "SF:packages/core/src/sprites/model.ts",
+    "BRF:0",
+    "BRH:0",
+    "DA:326,88",
+    "LH:1",
+    "LF:1",
+    "end_of_record",
+    "",
+  ].join("\n");
+
+  const merged = mergeLcov([unexecutedShard, executedCollapsedShard]);
+  equal(merged.totals.lf, 1);
+  equal(merged.totals.lh, 1);
+  equal(merged.totals.brf, 2);
+  equal(merged.totals.brh, 2);
+  equal(merged.totals.branchPct, 100);
+});
