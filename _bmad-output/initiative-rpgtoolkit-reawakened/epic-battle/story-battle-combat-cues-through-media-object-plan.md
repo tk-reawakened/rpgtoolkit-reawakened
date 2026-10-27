@@ -3,7 +3,7 @@ title: "Battle combat cues through the media object"
 type: 'feature'
 ticket: 19
 created: '2026-10-26'
-status: built
+status: done
 risk: "medium"
 context:
   - "spec - docs/spec/engine/battle.md (BAT-10)"
@@ -44,3 +44,4 @@ Use named tests on the real battle/media/save path, plus a paired null/real-runn
 - 2026-10-27 (review gap closure): addressed ReviewAudio findings: added paired real PCM-rendering runner battle test in `packages/synth/test/battle-lifecycle.test.ts`; documented `.anm` frame sound ownership in `docs/spec/engine/battle.md`; fixed `cache.ready` reset when disabling status clamps full charge (`stock/stock_battle/startup.prg`); replaced stale commit reference with `468cd29f`; kept save/load-to-board-return AC unchecked and documented exact missing runtime engine-level save/load prerequisite.
 - 2026-10-27 (reconcile metadata after #701/#704 merge): marked the real battle save/load acceptance criterion checked; merged #701 (eee4e919) and #704 (ff6ea234) complete the full-engine `saveBlob`/`loadBlob` runtime path and test `packages/core/test/battle-cues-engine.test.ts` proves an active battle save resumes its parked thread and returns to active-board music after a real load; noted that real PCM rendering after a load remains uncombined; marked plan status as built.
 - 2026-10-27 (owner ruling, Jensen): owner explicitly approved routing battle-ready (`readySound`) and action-unavailable (`cantDoSound`) sounds as UI voices separate from music, allowing overlap; BAT-10 in `docs/spec/engine/battle.md` updated from proposed ruling to ratified Reawakened rule.
+- 2026-10-27 (completed): marked ticket done following merge of PR #701 (`eee4e919`), PR #704 (`ff6ea234`), PR #707 (`79fcee68`), and PR #708 (`53c8ff95`); all acceptance criteria verified (real PCM rendering after load remains uncombined and not claimed covered).
