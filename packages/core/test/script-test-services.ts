@@ -13,7 +13,7 @@ import {
   type VirtualVariablePort,
 } from "../src/index.ts";
 
-const FILE_COMMANDS = new Set(["openfileinput", "openfileoutput", "openfileappend", "openfilebinary", "fileinput", "fileprint", "fileget", "fileput"]);
+const FILE_COMMANDS = new Set(["save", "load", "openfileinput", "openfileoutput", "openfileappend", "openfilebinary", "fileinput", "fileprint", "fileget", "fileput"]);
 const TEST_CORE_PLUGIN: PluginDefinition = {
   ...CORE_PLUGIN,
   commands: CORE_PLUGIN.commands.filter((command) => !FILE_COMMANDS.has(command.name)),

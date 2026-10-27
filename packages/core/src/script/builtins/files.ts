@@ -102,7 +102,26 @@ const OPEN_PARAMS = [
   { name: "folder", optional: false, byRef: false, variadic: false },
 ] as const;
 
+const SAVE_NAME_PARAMS = [{ name: "file", optional: false, byRef: false, variadic: false }] as const;
 const FILE_COMMANDS: BuiltinSpec[] = [
+  {
+    name: "save", aliases: [], params: SAVE_NAME_PARAMS,
+    doc: { summary: "Save the current canonical game state.", behaviour: "Writes Saved/<name>.sav through the game's sandboxed save area and blocks until the host confirms the write. Does nothing on boards that disable saving.", groups: ["game-state"] },
+    call: (view, args) => {
+      const board = view.state?.world.board;
+      if (board !== undefined && board !== null && board.properties.disableSaving !== 0) return { value: null };
+      const info = fileInfo(view, [{ value: `${toStringValue(args[0]?.value as never)}.sav` }, { value: "saved" }]);
+      return { value: null, request: { kind: "saveBlob", gameSave: true, blob: { area: info.area, path: info.path }, hex: "" } };
+    },
+  },
+  {
+    name: "load", aliases: [], params: SAVE_NAME_PARAMS,
+    doc: { summary: "Restore a canonical game state.", behaviour: "Loads Saved/<name>.sav through the game's sandboxed save area; a valid save replaces the live game state and resumes its saved VM threads.", groups: ["game-state"] },
+    call: (view, args) => {
+      const info = fileInfo(view, [{ value: `${toStringValue(args[0]?.value as never)}.sav` }, { value: "saved" }]);
+      return { value: null, request: { kind: "loadBlob", gameLoad: true, blob: { area: info.area, path: info.path } } };
+    },
+  },
   { name: "openfileinput", aliases: [], params: OPEN_PARAMS, call: (view, args) => openInput(view, args, "input") },
   { name: "openfilebinary", aliases: [], params: OPEN_PARAMS, call: (view, args) => openInput(view, args, "binary") },
   {

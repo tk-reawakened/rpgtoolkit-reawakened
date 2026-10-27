@@ -58,3 +58,47 @@ export function utf8Encode(value: string): Uint8Array {
   }
   return bytes;
 }
+
+/** Decode strict UTF-8 bytes without relying on host codecs. */
+export function utf8Decode(bytes: Uint8Array): string {
+  let result = "";
+  for (let offset = 0; offset < bytes.length;) {
+    const first = bytes[offset++]!;
+    if (first < 0x80) {
+      result += String.fromCharCode(first);
+      continue;
+    }
+    if (first >= 0xc2 && first <= 0xdf) {
+      const second = bytes[offset++]!;
+      if ((second & 0xc0) !== 0x80) throw new TypeError("utf8Decode: invalid UTF-8 sequence");
+      result += String.fromCharCode(((first & 0x1f) << 6) | (second & 0x3f));
+      continue;
+    }
+    if (first >= 0xe0 && first <= 0xef) {
+      const second = bytes[offset++]!;
+      const third = bytes[offset++]!;
+      if ((second & 0xc0) !== 0x80 || (third & 0xc0) !== 0x80 ||
+          (first === 0xe0 && second < 0xa0) || (first === 0xed && second >= 0xa0)) {
+        throw new TypeError("utf8Decode: invalid UTF-8 sequence");
+      }
+      const point = ((first & 0x0f) << 12) | ((second & 0x3f) << 6) | (third & 0x3f);
+      result += String.fromCharCode(point);
+      continue;
+    }
+    if (first >= 0xf0 && first <= 0xf4) {
+      const second = bytes[offset++]!;
+      const third = bytes[offset++]!;
+      const fourth = bytes[offset++]!;
+      if ((second & 0xc0) !== 0x80 || (third & 0xc0) !== 0x80 || (fourth & 0xc0) !== 0x80 ||
+          (first === 0xf0 && second < 0x90) || (first === 0xf4 && second > 0x8f)) {
+        throw new TypeError("utf8Decode: invalid UTF-8 sequence");
+      }
+      const point = ((first & 0x07) << 18) | ((second & 0x3f) << 12) | ((third & 0x3f) << 6) | (fourth & 0x3f);
+      const scalar = point - 0x10000;
+      result += String.fromCharCode(0xd800 | (scalar >> 10), 0xdc00 | (scalar & 0x3ff));
+      continue;
+    }
+    throw new TypeError("utf8Decode: invalid UTF-8 sequence");
+  }
+  return result;
+}

@@ -510,7 +510,7 @@ const CATALOGUE_OWNED_NAMES = new Set([
   ...INVENTORY_COMMAND_NAMES,
   ...BATTLE_COMMAND_NAMES,
 ]);
-const CORE_FILE_COMMANDS = new Set(["openfileinput", "openfileoutput", "openfileappend", "openfilebinary", "fileinput", "fileprint", "fileget", "fileput"]);
+const CORE_FILE_COMMANDS = new Set(["save", "load", "openfileinput", "openfileoutput", "openfileappend", "openfilebinary", "fileinput", "fileprint", "fileget", "fileput"]);
 const MOVEMENT_PACK_NAMES: Record<string, true> = {
   push: true, pushitem: true, playerstep: true, itemstep: true, playerpath: true, itempath: true,
   playerlocation: true, itemlocation: true, playergetpath: true, itemgetpath: true, activeplayer: true,
