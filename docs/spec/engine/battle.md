@@ -114,7 +114,7 @@ The legacy stat built-ins (`hp`, `givehp`, `smp`, `givesmp`, `fp`, `givefp`, `dp
 
 **Reawakened departure (OWNER; Jensen, 2026-10-25).** 3.1 lets a move with negative FP or negative target SMP raise a stat above its maximum. The actor owner clamps every stat to `[0, max]`, so a heal stops at the maximum. Departure recorded; the rule is that no stat leaves its range.
 
-**Legacy and Reawakened rule — items (R11-Q7).** The item's battle HP and SMP values are added to the target and the result is kept between 0 and the target's maximum. No luck, critical or DP. One copy leaves the inventory through a posted consume effect (never by editing the list), and the item's battle program runs after its animation.
+**Legacy and Reawakened rule — items (R11-Q7).** The item's battle HP and SMP values are added to the target and the result is kept between 0 and the target's maximum. No luck, critical or DP. One copy leaves the inventory through a posted consume effect (never by editing the list), applied by the inventory owner before the item's animation and program; successful consumption routes through the stable entry id and emits one `itemRemoved` event. The battle program runs after its animation.
 
 `attackall` and `drainall` deal their amount to each living target without a critical test. Damage and heals go through the actor's `damage` operation, so `fallen` fires once per lethal hit; before it, the package sends the cancelable `beforeDamage` on the battle thread ([BAT-12](#bat-12), entry 7.14).
 

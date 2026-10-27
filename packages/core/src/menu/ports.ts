@@ -305,7 +305,22 @@ export function applyMenuStateEffect(ports: MenuOwnerPorts, effect: EffectRecord
     }
   }
   if (section === "inventory" && effect.kind === "state-write" && effect.args.length === 1 && actionRecord(effect.args[0])?.kind === "inventory.consume") {
-    // Battle consumption posts the request as plain data; a later inventory owner decides it, so this port changes nothing.
+    const payload = actionRecord(effect.args[0]);
+    if (payload === null) throw new ScriptError("menu.state-invalid", "inventory.consume: expected a payload object");
+    const error = validateActionFields(payload, ["kind", "item", "target", "hp", "smp"], "inventory.consume");
+    if (error !== null) throw new ScriptError("menu.state-invalid", `${error.path}: ${error.message}`);
+    if (payload.kind !== "inventory.consume" || typeof payload.item !== "string" || payload.item.trim() === "") {
+      throw new ScriptError("menu.state-invalid", "inventory.consume: expected a non-empty item source");
+    }
+    if (typeof payload.target !== "number" || !Number.isSafeInteger(payload.target) || payload.target < 1) {
+      throw new ScriptError("menu.state-invalid", "inventory.consume: expected a positive target actor id");
+    }
+    if (typeof payload.hp !== "number" || !Number.isSafeInteger(payload.hp) ||
+        typeof payload.smp !== "number" || !Number.isSafeInteger(payload.smp)) {
+      throw new ScriptError("menu.state-invalid", "inventory.consume: expected safe-integer HP and SMP values");
+    }
+    const result = ports.inventory.apply({ type: "consumeBattleItem", item: payload.item, target: payload.target });
+    if (result.error !== null) throw new ScriptError("menu.state-invalid", `${result.error.path}: ${result.error.message}`);
     return;
   }
   if (effect.name !== "state" && effect.name !== "menu.state" && !(section === "inventory" && effect.kind === "state-write")) return;

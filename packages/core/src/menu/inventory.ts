@@ -15,6 +15,7 @@ import {
 export type InventoryAction =
   | { readonly type: "addItem"; readonly source: string; readonly handle: string; readonly amount: number }
   | { readonly type: "removeItem"; readonly entryId: number; readonly amount: number }
+  | { readonly type: "consumeBattleItem"; readonly item: string; readonly target: number }
   | { readonly type: "equip"; readonly actorId: number; readonly slot: string; readonly entryId: number }
   | { readonly type: "unequip"; readonly actorId: number; readonly slot: string }
   | { readonly type: "buyItem"; readonly source: string; readonly amount: number }
@@ -217,6 +218,41 @@ export function applyInventoryAction(
         event = { type: "itemAdded", detail: { entryId: old.id, source: old.source, handle: old.handle, amount: action.amount, previousQuantity, currentQuantity } };
       }
       break;
+    }
+    case "consumeBattleItem": {
+      keys = ["type", "item", "target"];
+      const error = exactAction(action, keys);
+      if (error !== null) return { result: { ok: false, error }, events: [] };
+      if (typeof action.item !== "string" || action.item.trim() === "") {
+        return { result: rejected("inventory.consume.item", "expected an item asset source"), events: [] };
+      }
+      if (!safeAmount(action.target)) {
+        return { result: rejected("inventory.consume.target", "expected a positive actor id"), events: [] };
+      }
+      const relative = action.item.replaceAll("\\", "/").replace(/^item\//i, "");
+      if (!relative.toLowerCase().endsWith(".itm")) {
+        return { result: rejected("inventory.consume.item", "expected an .itm asset source"), events: [] };
+      }
+      const source = assetKey(`item/${relative}`);
+      const definition = runtime?.item(source);
+      if (definition === undefined) {
+        return { result: rejected("inventory.consume.item", "item definition is unavailable"), events: [] };
+      }
+      if (!state.actors.actors.some((actor) => actor.id === action.target)) {
+        return { result: rejected("inventory.consume.target", "target actor is unavailable"), events: [] };
+      }
+      const sourceEntries = current.items.filter((entry) => entry.source === source);
+      const canonical = sourceEntries.find((entry) => entry.handle === definition.name);
+      const entry = canonical ?? (sourceEntries.length === 1 ? sourceEntries[0] : undefined);
+      if (entry === undefined) {
+        return {
+          result: rejected("inventory.consume.entry", sourceEntries.length === 0
+            ? "no inventory stack matches the item source"
+            : "item source matches multiple non-canonical inventory stacks"),
+          events: [],
+        };
+      }
+      return applyInventoryAction(state, { type: "removeItem", entryId: entry.id, amount: 1 }, runtime);
     }
     case "removeItem": {
       keys = ["type", "entryId", "amount"];

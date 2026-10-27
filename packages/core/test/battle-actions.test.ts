@@ -13,6 +13,7 @@ import { TextEncoder } from "node:util";
 import { test } from "node:test";
 import {
   addActor,
+  applyMenuStateEffect,
   assetKey,
   BATTLE_PLUGIN,
   BinaryWriter,
@@ -24,6 +25,7 @@ import {
   createEmptyItem,
   createEmptySpecialMove,
   createGameState,
+  createMenuOwnerPorts,
   createPluginLayers,
   createScriptServices as coreCreateScriptServices,
   defaultWaitPoll,
@@ -135,6 +137,8 @@ function itemAsset(values: { hp: number; smp: number; animation: string; program
   })));
 }
 
+const battlePotionDefinition = { ...createEmptyItem(), name: "Potion", battleUsable: 1 };
+
 function statusEffectAsset(rounds: number): string {
   const writer = new BinaryWriter();
   writer.str(STATUS_EFFECT_MAGIC);
@@ -208,6 +212,7 @@ type RunOptions = {
   readonly assets?: Readonly<Record<string, string>>;
   readonly saveWhen?: (state: GameState) => boolean;
   readonly inventory?: GameState["inventory"];
+  readonly applyInventoryOwner?: boolean;
   readonly watchFallen?: boolean;
 };
 
@@ -217,6 +222,14 @@ type RunResult = {
   readonly steps: number;
   readonly saved: boolean;
   readonly requested: readonly string[];
+  readonly inventoryEvents: readonly InventoryEventObservation[];
+};
+
+type InventoryEventObservation = {
+  readonly type: string;
+  readonly detail: unknown;
+  readonly targetStats: { readonly hp: number; readonly smp: number } | null;
+  readonly scriptOrder: string;
 };
 
 function makeActor(state: GameState, spec: ActorSpec, fallbackSource: string) {
@@ -234,7 +247,25 @@ function makeActor(state: GameState, spec: ActorSpec, fallbackSource: string) {
   return { record, value: { kind: "object" as const, handle: object.handle, className: object.className } };
 }
 
-function servicesFor(state: GameState, layers: PluginLayers): ScriptServices {
+function servicesFor(
+  state: GameState,
+  layers: PluginLayers,
+  inventoryEvents?: InventoryEventObservation[],
+): ScriptServices {
+  const menuPorts = createMenuOwnerPorts(state, undefined, {
+    item: (source) => source === "item/potion.itm" ? battlePotionDefinition : undefined,
+    character: () => undefined,
+    applyEquipment: () => true,
+  }, (event) => {
+    inventoryEvents?.push({
+      type: event.type,
+      detail: event.detail,
+      targetStats: state.actors.actors.some((actor) => actor.id === TARGET)
+        ? { hp: stat(state, TARGET, "hp"), smp: stat(state, TARGET, "smp") }
+        : null,
+      scriptOrder: String(state.vm.globals.order),
+    });
+  });
   return coreCreateScriptServices(
     state,
     [
@@ -245,7 +276,11 @@ function servicesFor(state: GameState, layers: PluginLayers): ScriptServices {
       { definition: BATTLE_PLUGIN },
       stockBattle,
     ],
-    undefined, undefined, loader, "default", undefined, undefined, layers,
+    undefined, undefined, loader, "default",
+    inventoryEvents === undefined ? undefined : (section, effect) => {
+      if (section === "inventory" && effect.name === "battleconsume") applyMenuStateEffect(menuPorts, effect);
+    },
+    undefined, layers, [], false, undefined, undefined, menuPorts,
   );
 }
 
@@ -256,6 +291,8 @@ function totalSteps(state: GameState): number {
 function run(options: RunOptions): RunResult {
   const seed = options.seed ?? 5;
   const assets = options.assets ?? {};
+  const inventoryEvents: InventoryEventObservation[] = [];
+  const applyInventoryOwner = options.applyInventoryOwner === true;
   const requested: string[] = [];
   let state = createGameState({ seed });
   if (options.inventory !== undefined) state.inventory = options.inventory;
@@ -280,7 +317,7 @@ function run(options: RunOptions): RunResult {
     };
   }
   const layers = createPluginLayers();
-  let services = servicesFor(state, layers);
+  let services = servicesFor(state, layers, applyInventoryOwner ? inventoryEvents : undefined);
   runPackageStartup(state, services, [startupRef], [stockBattle]);
   const globals = state.vm.globals;
   globals.scenario = options.scenario;
@@ -317,11 +354,11 @@ function run(options: RunOptions): RunResult {
       const scratch = createGameState({ seed });
       runPackageStartup(scratch, servicesFor(scratch, scratchLayers), [startupRef], [stockBattle]);
       state = restoreGameState(json);
-      services = servicesFor(state, scratchLayers);
+      services = servicesFor(state, scratchLayers, applyInventoryOwner ? inventoryEvents : undefined);
       verifyRestoredHandles(state.vm, services);
       saved = true;
     }
-    if (state.vm.globals.ended === 1) return { state, services, steps: totalSteps(state) - before, saved, requested };
+    if (state.vm.globals.ended === 1) return { state, services, steps: totalSteps(state) - before, saved, requested, inventoryEvents };
   }
   throw new Error(`scenario ${options.scenario} did not finish; order=${String(state.vm.globals.order)}`);
 }
@@ -732,7 +769,7 @@ function consumeEffects(state: GameState): Effect[] {
   return found;
 }
 
-test("item adds clamped HP and SMP, posts exactly one consume effect and changes no inventory", () => {
+test("battle helper applies clamped HP and SMP and posts one consume request without editing inventory", () => {
   const assets = { "potion.itm": itemAsset({ hp: 15, smp: -30, animation: "" }) };
   const inventoryBefore = JSON.stringify(createGameState({ seed: 2 }).inventory);
   const result = run({ scenario: "item", seed: 2, file: "potion.itm", attacker: { smp: 10 }, target: { hp: 10, maxHp: 20, smp: 12 }, assets });
@@ -748,10 +785,6 @@ test("item adds clamped HP and SMP, posts exactly one consume effect and changes
   equal(effects[0]!.item, "potion.itm");
   equal(effects[0]!.target, TARGET);
   equal(JSON.stringify(result.state.inventory), inventoryBefore, "the helper edits no inventory list");
-  // The consuming owner is a test double: it applies the posted payload to its own ledger.
-  const ledger: Record<string, number> = { "potion.itm": 3 };
-  for (const effect of effects) ledger[effect.item] = (ledger[effect.item] ?? 0) - 1;
-  deepEqual(ledger, { "potion.itm": 2 });
   equal(stat(result.state, ATTACKER, "smp"), 10, "using an item costs the user no SMP");
 });
 
@@ -765,13 +798,13 @@ test("a damaging item fires fallen exactly once", () => {
   equal(result.state.vm.globals.fallen1, 1);
 });
 
-test("using an item leaves an existing inventory list unchanged", () => {
+test("battle helper leaves inventory quantity changes to the owner", () => {
   const inventory: GameState["inventory"] = {
     ...createGameState({ seed: 2 }).inventory,
     nextId: 3,
     items: [
       { id: 1, source: "item/potion.itm", handle: "Potion", quantity: 2 },
-      { id: 2, source: "items/ether.itm", handle: "Ether", quantity: 1 },
+      { id: 2, source: "item/ether.itm", handle: "Ether", quantity: 1 },
     ],
     gold: 45,
   };
@@ -785,6 +818,62 @@ test("using an item leaves an existing inventory list unchanged", () => {
   equal(consumeEffects(result.state)[0]!.item, "item/potion.itm");
   equal(result.state.inventory.items.find(({ source }) => source === "item/potion.itm")?.quantity, 2);
 });
+
+test("battle consume routes one selected canonical stack through the owner before animation and program", () => {
+  const inventory: GameState["inventory"] = {
+    ...createGameState({ seed: 2 }).inventory,
+    nextId: 3,
+    items: [
+      { id: 1, source: "item/potion.itm", handle: "Potion alias", quantity: 1 },
+      { id: 2, source: "item/potion.itm", handle: "Potion", quantity: 1 },
+    ],
+  };
+  const result = run({
+    scenario: "item",
+    file: "potion.itm",
+    hookmode: "wait",
+    inventory,
+    applyInventoryOwner: true,
+    attacker: { smp: 10 },
+    target: { hp: 10, smp: 12 },
+    saveWhen: (state) => state.vm.globals.order === "w1 heal.anm;",
+    assets: { "potion.itm": itemAsset({ hp: 5, smp: 0, animation: "heal.anm", program: "heal.prg" }) },
+  });
+  equal(result.saved, true, "saved after consumption while the animation is parked");
+  equal(consumeEffects(result.state).length, 1);
+  deepEqual(result.state.inventory.items, [
+    { id: 1, source: "item/potion.itm", handle: "Potion alias", quantity: 1 },
+  ]);
+  deepEqual(result.inventoryEvents, [
+    {
+      type: "itemRemoved",
+      detail: { entryId: 2, source: "item/potion.itm", handle: "Potion", amount: 1, previousQuantity: 1, currentQuantity: 0 },
+      targetStats: { hp: 15, smp: 12 },
+      scriptOrder: "",
+    },
+  ]);
+  equal(result.state.vm.globals.order, "w1 heal.anm;w2 heal.anm;p1 heal.prg;p2 heal.prg;");
+});
+
+test("an item use with no live target neither posts consumption nor changes inventory", () => {
+  const inventory: GameState["inventory"] = {
+    ...createGameState({ seed: 2 }).inventory,
+    nextId: 2,
+    items: [{ id: 1, source: "item/potion.itm", handle: "Potion", quantity: 1 }],
+  };
+  const result = run({
+    scenario: "item",
+    file: "potion.itm",
+    target: null,
+    inventory,
+    applyInventoryOwner: true,
+    assets: { "potion.itm": itemAsset({ hp: 5, smp: 0, animation: "" }) },
+  });
+  equal(consumeEffects(result.state).length, 0);
+  deepEqual(result.state.inventory, inventory);
+  deepEqual(result.inventoryEvents, []);
+});
+
 test("the default item program runs with source and target, then restores both slots", () => {
   const assets = {
     "potion.itm": itemAsset({ hp: 5, smp: 0, animation: "", program: "battle-action-program.prg" }),
