@@ -911,9 +911,11 @@ export function createEngine(init: EngineInit): Engine {
     return true;
   }
   function retryDrawEnemies(): void {
-    for (let at = 0; at < pendingDrawEnemies.length;) {
-      if (drawEnemyFrame(pendingDrawEnemies[at]!)) pendingDrawEnemies.splice(at, 1);
-      else at += 1;
+    // Preserve call order strictly across asynchronous asset resolutions: if an earlier sprite is waiting on an
+    // asset reply, do not let a later already-cached sprite draw on top first, which would invert layering.
+    while (pendingDrawEnemies.length > 0) {
+      if (!drawEnemyFrame(pendingDrawEnemies[0]!)) break;
+      pendingDrawEnemies.shift();
     }
   }
   /** E-56 `text` / `pixelText` with a canvas: draw the glyphs into that canvas with the active font, colour and underline. */

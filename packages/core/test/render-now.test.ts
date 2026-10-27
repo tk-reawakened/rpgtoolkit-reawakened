@@ -154,6 +154,39 @@ test("drawenemy draws frame 0 of the named animation with its transparent colour
   deepEqual(canvasPixel(game, handle, 5, 6), [0, 0, 0, 0], "the transparent colour is skipped");
 });
 
+test("drawenemy preserves FIFO call order when an earlier sprite waits on asset loading and a later sprite is already cached", () => {
+  // First sprite: red 16x16. Second sprite: blue 16x16, drawn at the same coordinates (0,0).
+  // The first sprite requires loading `red.anm` and `red.png`. The second sprite uses already-cached assets.
+  // FIFO order guarantees the later blue sprite blits on top of the red sprite once the earlier red arrives.
+  const redPic = new Uint8Array(16 * 16 * 4);
+  for (let at = 0; at < redPic.length; at += 4) redPic.set([255, 0, 0, 255], at);
+  const bluePic = new Uint8Array(16 * 16 * 4);
+  for (let at = 0; at < bluePic.length; at += 4) bluePic.set([0, 0, 255, 255], at);
+
+  const redAnm = unwrap(writeAnimation({
+    magic: "RPGTLKIT ANIM", major: 2, minor: 3, width: 16, height: 16,
+    frames: [{ image: "red.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" }],
+    delay: 0.1, residue: new Uint8Array(),
+  }));
+  const blueAnm = unwrap(writeAnimation({
+    magic: "RPGTLKIT ANIM", major: 2, minor: 3, width: 16, height: 16,
+    frames: [{ image: "blue.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" }],
+    delay: 0.1, residue: new Uint8Array(),
+  }));
+
+  const program = "rendernow(1)\nc = cnvrendernow\ndrawenemy(\"red.anm\", 0, 0, c)\ndrawenemy(\"blue.anm\", 0, 0, c)\nend()\n";
+  const game = boot(program, {
+    "Misc/red.anm": redAnm,
+    "Bitmap/red.png": encodePng(16, 16, redPic),
+    "Misc/blue.anm": blueAnm,
+    "Bitmap/blue.png": encodePng(16, 16, bluePic),
+  });
+
+  const handle = game.state().surfaces.renderNow ?? 0;
+  // If order inverted, red would draw last over blue. FIFO requires blue to end up on top.
+  deepEqual(canvasPixel(game, handle, 4, 4), [0, 0, 255, 255], "the later-called sprite blits on top of the earlier one");
+});
+
 test("get() returns a pressed key once and never again, and clearbuffer() empties the queue", () => {
   const game = boot("count = 0\nloops = 0\nwhile (loops < 100) {\n  k = get()\n  if (k != \"\") {\n    count = count + 1\n  }\n  loops = loops + 1\n  threadSleep(getThreadId(), 1/60)\n}\ndone = 1\nend()\n");
   game.advance(2, ["DOWN"]);
