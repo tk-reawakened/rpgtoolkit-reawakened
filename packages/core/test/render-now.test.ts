@@ -123,6 +123,15 @@ test("an enabled render-now canvas is composed above the board and a disabled on
   equal(off.engine.drawList().commands.some((command) => command.kind === "blit" && "surface" in command.source), false);
 });
 
+test("rendernow can be switched off and on again and the second canvas is live and composed", () => {
+  const game = boot("rendernow(1)\nfirst = cnvrendernow\nrendernow(0)\noff = cnvrendernow\nrendernow(1)\nsecond = cnvrendernow\ncolorrgb(0,0,255)\nfillrect(0,0,20,20,second)\nend()\n");
+  const globals = game.state().vm.globals;
+  ok(typeof globals.first === "number" && globals.first > 0, "the first canvas is a canvas");
+  equal(globals.off, 0, "switched off it is 0");
+  ok(typeof globals.second === "number" && globals.second > 0 && globals.second !== globals.first, "switching on again makes a new canvas, not the screen handle 0");
+  deepEqual(pixel(game.frame(), 10, 10), [0, 0, 255, 255], "the second canvas is composed");
+});
+
 test("text and pixelText with a canvas draw into that canvas, not the screen text layer", () => {
   const game = boot('rendernow(1)\nc = cnvrendernow\ncolorrgb(255,255,255)\npixelText(2,24,"HI",c)\ntext(1,5,"A",c)\nend()\n');
   const handle = game.state().surfaces.renderNow ?? 0;

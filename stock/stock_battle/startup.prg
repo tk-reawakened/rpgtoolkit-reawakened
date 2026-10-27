@@ -990,10 +990,10 @@ stockBattleUi = {
     layout.chargeW = 112
     layout.barH = 14
     layout.menuRowH = 24
-    layout.listRowH = 22
-    layout.listRows = 6
-    layout.listW = 320
-    layout.numberTicks = 12
+    layout.listRows = 8
+    layout.listCapacity = 16
+    layout.listRowH = 30
+    layout.numberTicks = 36
     return layout
   },
   // Menu cues come from the .bkg: cursor move, choose, and "cannot" (the existing cantDoSound).
@@ -1124,7 +1124,8 @@ stockBattleUi = {
       bitmap(stockBattleUi.picture, scratch)
     }
     stockBattleUi.syncSprites()
-    stockBattleUi.hold(4)
+    // Nothing is drawn yet: the canvases below do not exist until the wait is over.
+    threadSleep(getThreadId(), 4/60)
     killcanvas(scratch)
     rendernow(1)
     stockBattleUi.screen = cnvrendernow
@@ -1142,6 +1143,9 @@ stockBattleUi = {
     stockBattleUi.endSprites()
     killcanvas(stockBattleUi.buffer)
     killcanvas(stockBattleUi.screen)
+    stockBattleUi.buffer = 0
+    stockBattleUi.screen = 0
+    stockBattleUi.target = 0
     rendernow(0)
     return 0
   },
@@ -1266,6 +1270,10 @@ stockBattleUi = {
       if (fighter != null) {
         sprite = stockBattleUi.fighterSprite(fighter)
         key = sprite.file + "|" + sprite.loop
+        if (stockBattleUi.mode == "list") {
+          sprite = { file: "", loop: 0 }
+          key = "hidden"
+        }
         if (key != stockBattleUi.spriteKey[position]) {
           stockBattleUi.spriteKey[position] = key
           if (stockBattleUi.spriteId[position] != 0) {
@@ -1443,36 +1451,47 @@ stockBattleUi = {
     if (selectedEntry != null && selectedEntry.desc != "") {
       desc = selectedEntry.desc
     }
+    // The page that holds the cursor: sixteen entries at most, eight to a column.
+    local(capacity) = layout.listCapacity
+    local(first) = stockBattleUi.listTop
+    local(last) = first + capacity
+    local(pages) = integerMulDiv(rows + capacity - 1, 1, capacity)
+    if (last > rows) {
+      last = rows
+    }
     // Top description box across the list panel
     stockBattleUi.box(x, y, x + width - 1, y + 36, 16, 20, 48)
     stockBattleUi.frame(x, y, x + width - 1, y + 36, 180, 190, 255)
     stockBattleUi.words(x + 12, y + 6, title, 8, 180, 190, 255)
+    if (pages > 1) {
+      stockBattleUi.words(x + width - 64, y + 6, "" + (integerMulDiv(first, 1, capacity) + 1) + "/" + pages, 8, 180, 190, 255)
+    }
     if (desc != "") {
       stockBattleUi.words(x + 12, y + 18, desc, 8, 255, 255, 255)
     }
-    // Two-column list box: up to 8 entries per column (16 total visible), sized to fit content dynamically
+    // Two-column list box: up to 8 entries per column, sized to fit the entries of this page
     local(listY) = y + 42
-    local(listRows) = rows
-    if (listRows > 8) {
-      listRows = 8
+    local(listRows) = last - first
+    if (listRows > layout.listRows) {
+      listRows = layout.listRows
     }
     if (listRows < 3) {
       listRows = 3
     }
-    local(listH) = listRows * 30 + 16
+    local(listH) = listRows * layout.listRowH + 16
     stockBattleUi.box(x, listY, x + width - 1, listY + listH - 1, 12, 16, 40)
     stockBattleUi.frame(x, listY, x + width - 1, listY + listH - 1, 180, 190, 255)
     local(colW) = (width - 16) / 2
-    for (row = 0; row < rows; row = row + 1) {
+    for (row = first; row < last; row = row + 1) {
       entry = stockBattleUi.list[row]
       local(col) = 0
-      local(itemRow) = row
-      if (row >= 8) {
+      local(itemRow) = row - first
+      if (itemRow >= layout.listRows) {
         col = 1
-        itemRow = row - 8
+        itemRow = itemRow - layout.listRows
       }
       local(itemX) = x + 8 + col * colW
-      local(itemY) = listY + 8 + itemRow * 30
+      local(itemY) = listY + 8 + itemRow * layout.listRowH
       if (row == stockBattleUi.listCursor) {
         stockBattleUi.box(itemX, itemY - 2, itemX + colW - 8, itemY + 26, 40, 64, 140)
         stockBattleUi.words(itemX + 4, itemY + 4, ">", 16, 255, 224, 64)
@@ -1589,6 +1608,7 @@ stockBattleUi = {
     if (stockBattleUi.mode == "list") {
       stockBattleUi.drawList()
     }
+    // The list covers the field, so the labels and pictures of the fighters are left out while it is open.
     for (party = 0; party < 2; party = party + 1) {
       size = battle.partySize(party)
       for (index = 0; index < size; index = index + 1) {
@@ -1598,7 +1618,9 @@ stockBattleUi = {
             selected = 1
           }
         }
-        stockBattleUi.drawFighter(party, index, selected)
+        if (stockBattleUi.mode != "list") {
+          stockBattleUi.drawFighter(party, index, selected)
+        }
       }
     }
     stockBattleUi.drawNumbers()
@@ -1666,11 +1688,8 @@ stockBattleUi.collectNumbers = (before) => {
 }
 
 stockBattleUi.hold = (ticks) => {
-  local(tick)
-  for (tick = 0; tick < ticks; tick = tick + 1) {
-    stockBattleUi.refresh()
-    threadSleep(getThreadId(), 1/60)
-  }
+  stockBattleUi.refresh()
+  threadSleep(getThreadId(), ticks/60)
   return 0
 }
 
@@ -1944,12 +1963,7 @@ stockBattleUi.handleKey = (fighter, key) => {
   if (mode == "list") {
     if (step != 0 && (key == "UP" || key == "DOWN")) {
       stockBattleUi.listCursor = (stockBattleUi.listCursor + step + stockBattleUi.listCount) % stockBattleUi.listCount
-      if (stockBattleUi.listCursor < stockBattleUi.listTop) {
-        stockBattleUi.listTop = stockBattleUi.listCursor
-      }
-      if (stockBattleUi.listCursor >= stockBattleUi.listTop + stockBattleUi.layout.listRows) {
-        stockBattleUi.listTop = stockBattleUi.listCursor - stockBattleUi.layout.listRows + 1
-      }
+      stockBattleUi.listTop = stockBattleUi.listCursor - (stockBattleUi.listCursor % stockBattleUi.layout.listCapacity)
       stockBattleUi.cue("select")
       return 0
     }

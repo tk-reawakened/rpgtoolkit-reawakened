@@ -325,6 +325,10 @@ export type RigOptions = {
   readonly slimeHp?: number;
   /** Authored stance animations use this frame delay in whole ticks and two frames (default: one frame, 0.2 s). */
   readonly stanceDelayTicks?: number;
+  /** Extra battle-usable item stacks ("Gem 01" ...), each with a quantity of 1, appended to the default inventory. */
+  readonly extraItems?: number;
+  /** How many fights the fight program runs back to back (default one); each ends when its enemies are gone or the party runs. */
+  readonly fights?: number;
   readonly party?: readonly { readonly key: "hero" | "mage" | "rogue"; readonly hp: number; readonly smp: number }[];
   readonly inventory?: readonly { readonly source: string; readonly handle: string; readonly quantity: number }[];
 };
@@ -365,7 +369,9 @@ export function gameFiles(options: RigOptions = {}): { readonly files: Map<strin
   put("Boards/start.brd", fieldBoard());
   put("Prg/start.prg", encoder.encode("ready = 1\nafterfight = 0\nend()\n"));
   const enemies = options.enemies ?? ["slime", "bat", "slime"];
-  put("Prg/fight.prg", encoder.encode(`fightenemy(${enemies.map((name) => `"${name}"`).join(", ")}, "meadow")\nafterfight = 1\nend()\n`));
+  const fightCall = `fightenemy(${enemies.map((name) => `"${name}"`).join(", ")}, "meadow")`;
+  const fights = Array.from({ length: options.fights ?? 1 }, (_, index) => `${fightCall}\nafterfight = ${index + 1}\n`).join("");
+  put("Prg/fight.prg", encoder.encode(`${fights}end()\n`));
   put("Bkrounds/meadow.bkg", backgroundBytes());
   const background = backdrop();
   put("Bitmap/meadow.png", encodePng(background.w, background.h, background.rgba));
@@ -405,6 +411,9 @@ export function gameFiles(options: RigOptions = {}): { readonly files: Map<strin
   put("SpcMove/blaze.spc", moveBytes("Blaze", { fp: 30, cost: 30, desc: "A raging inferno that consumes all targets in its path." }));
   put("Item/potion.itm", itemBytes("Potion", { hp: 20, smp: 0, battle: 1, desc: "Restores 20 HP to one ally, living or fallen." }));
   put("Item/ether.itm", itemBytes("Ether", { hp: 0, smp: 8, battle: 1, desc: "Restores 8 SMP to one party member." }));
+  for (let gem = 1; gem <= (options.extraItems ?? 0); gem += 1) {
+    put(`Item/gem${String(gem).padStart(2, "0")}.itm`, itemBytes(`Gem ${String(gem).padStart(2, "0")}`, { hp: 1, smp: 0, battle: 1, desc: `Gem number ${gem}.` }));
+  }
   put("Item/key.itm", itemBytes("Brass Key", { hp: 0, smp: 0, battle: 0 }));
   for (const sound of ["move.wav", "choose.wav", "cant.wav"]) put(`Media/${sound}`, wavBytes());
   return { files, paths };
@@ -458,7 +467,11 @@ const KEY_CODES: Record<string, string> = { UP: "ArrowUp", DOWN: "ArrowDown", LE
 export function bootUiRig(options: RigOptions = {}): UiRig {
   const game = gameFiles(options);
   const party = options.party ?? DEFAULT_PARTY;
-  const stock = options.inventory ?? [{ source: "item/potion.itm", handle: "Potion", quantity: 3 }, { source: "item/ether.itm", handle: "Ether", quantity: 1 }, { source: "item/key.itm", handle: "Brass Key", quantity: 1 }];
+  const gems = Array.from({ length: options.extraItems ?? 0 }, (_, index) => {
+    const name = `Gem ${String(index + 1).padStart(2, "0")}`;
+    return { source: `item/gem${String(index + 1).padStart(2, "0")}.itm`, handle: name, quantity: 1 };
+  });
+  const stock = options.inventory ?? [{ source: "item/potion.itm", handle: "Potion", quantity: 3 }, { source: "item/ether.itm", handle: "Ether", quantity: 1 }, { source: "item/key.itm", handle: "Brass Key", quantity: 1 }, ...gems];
   let latest: GameState | null = null;
   let seeded = false;
   const font = new Uint8Array(readFileSync(join(repoRoot, "media", "fonts", "tkr-8x8.fnt")));

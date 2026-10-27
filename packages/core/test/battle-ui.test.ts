@@ -372,6 +372,100 @@ test("each pinned animation's frame is the pure function of its start tick, dela
   }
 });
 
+function pinnedCount(rig: UiRig): number {
+  return rig.state().fx.animations.filter((animation) => animation.pinned === true).length;
+}
+
+function countColour(rig: UiRig, box: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }, colour: readonly [number, number, number]): { readonly count: number; readonly minY: number; readonly maxY: number } {
+  const frame = rig.frame();
+  let count = 0;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (let y = box.y1; y <= box.y2; y += 1) {
+    for (let x = box.x1; x <= box.x2; x += 1) {
+      const at = (y * frame.w + x) * 4;
+      if (frame.rgba[at] === colour[0] && frame.rgba[at + 1] === colour[1] && frame.rgba[at + 2] === colour[2]) {
+        count += 1;
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+    }
+  }
+  return { count, minY, maxY };
+}
+
+const LIST_FIELD = { x1: 16, y1: 28, x2: 623, y2: 329 };
+const LIST_HIGHLIGHT: readonly [number, number, number] = [40, 64, 140];
+const ENEMY_BAR_RED: readonly [number, number, number] = [220, 64, 56];
+
+test("an item list longer than sixteen entries pages inside its box, and the fighters' pictures and labels stay off it while it is open", () => {
+  const rig = bootUiRig({ extraItems: 20 });
+  awaitMenu(rig);
+  ok(pinnedCount(rig) > 0, "the fighters' pictures are showing before the list opens");
+  ok(countColour(rig, LIST_FIELD, ENEMY_BAR_RED).count > 0, "an enemy's HP bar shows on the field before the list opens");
+  const press = (name: string): void => rig.press(name, 6);
+  press("DOWN");
+  press("DOWN");
+  press("ENTER");
+  equal(ui(rig)["listkind"], "item");
+  equal(ui(rig)["listcount"], 22, "Potion, Ether and twenty gems; the key is not usable in a fight");
+  rig.tick(6);
+  equal(pinnedCount(rig), 0, "no picture is drawn over the open list");
+  equal(countColour(rig, LIST_FIELD, ENEMY_BAR_RED).count, 0, "no enemy label is drawn over the open list");
+  // Each move redraws the list, which takes the turn loop several ticks, so presses queue up behind it; none is lost.
+  for (let step = 0; step < 17; step += 1) press("DOWN");
+  rig.until(() => ui(rig)["listcursor"] === 17, 120);
+  rig.tick(8);
+  equal(ui(rig)["listcursor"], 17);
+  equal(ui(rig)["listtop"], 16, "the second page starts at entry 16");
+  const highlight = countColour(rig, LIST_FIELD, LIST_HIGHLIGHT);
+  ok(highlight.count > 200, `the selected row is drawn (${highlight.count} pixels)`);
+  ok(highlight.minY >= 70 && highlight.maxY <= 326, `the selected row stays inside the list box (y ${highlight.minY}..${highlight.maxY})`);
+  press("ENTER");
+  equal(ui(rig)["mode"], "target");
+  equal((ui(rig)["pendingentry"] as { label: string }).label, "Gem 16", "entry 17 is the sixteenth gem");
+  press("ESC");
+  press("ESC");
+  rig.tick(8);
+  equal(ui(rig)["mode"], "command");
+  equal(pinnedCount(rig), 6, "the pictures return when the list is closed");
+  deepEqual(rig.diagnostics, []);
+});
+
+test("damage numbers are on the real screen for 36 ticks after they are drawn, plus the redraw that clears them", () => {
+  const rig = bootUiRig({ slimeHp: 60 });
+  awaitMenu(rig);
+  rig.press("ENTER", 6);
+  rig.press("ENTER", 1);
+  // The first contiguous run of ticks on which the damage colour is on the field; a later action has its own run.
+  let shown = 0;
+  for (let step = 0; step < 100; step += 1) {
+    rig.tick(1);
+    const visible = countColour(rig, { x1: 0, y1: 0, x2: 639, y2: 340 }, [255, 96, 96]).count > 0;
+    if (visible) shown += 1;
+    else if (shown > 0) break;
+  }
+  ok(shown >= 36 && shown <= 44, `the number was on screen for ${shown} ticks`);
+  deepEqual(rig.diagnostics, []);
+});
+
+test("a second battle in the same game starts a working screen with live canvases and its own pictures", () => {
+  const rig = bootUiRig({ enemies: ["slime"], slimeHp: 1, fights: 2 });
+  awaitMenu(rig);
+  rig.press("ENTER", 6);
+  rig.press("ENTER", 6);
+  rig.until((state) => state.vm.globals.afterfight === 1, 3000);
+  rig.until(() => ui(rig)["mode"] === "command", 3000);
+  rig.tick(8);
+  equal(rig.state().vm.globals.afterfight, 1, "the first fight is over and the second is on");
+  equal(pinnedCount(rig), 4, "three party pictures and one enemy picture of the second battle");
+  const frame = rig.frame();
+  const at = (348 * frame.w + 160) * 4;
+  deepEqual([...frame.rgba.subarray(at, at + 3)], [180, 190, 255], "the second battle's party panel frame is on screen");
+  ok(countColour(rig, { x1: 8, y1: 348, x2: 151, y2: 479 }, [40, 64, 140]).count > 200, "the command panel's highlight is drawn");
+  deepEqual(rig.diagnostics, []);
+});
+
 test("a selection change is on the real screen within six ticks (a tenth of a second)", () => {
   const rig = bootUiRig();
   awaitMenu(rig);

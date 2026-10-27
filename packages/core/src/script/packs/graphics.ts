@@ -245,7 +245,8 @@ const RENDER_NOW = command("rendernow", [], params(["draw"]), docs("Show or hide
   const enabled = Boolean(args[0]?.value);
   const surfaces = current.surfaces;
   if (enabled) {
-    if (surfaces.renderNow === undefined || surfaceSize(surfaces, surfaces.renderNow) === null) {
+    // Handle 0 is the screen, not "no canvas": a disabled overlay is 0, so it is created again here.
+    if (surfaces.renderNow === undefined || surfaces.renderNow === 0 || surfaceSize(surfaces, surfaces.renderNow) === null) {
       const size = surfaceSize(surfaces, SCREEN);
       surfaces.renderNow = createSurface(surfaces, size?.w ?? 0, size?.h ?? 0);
     }
