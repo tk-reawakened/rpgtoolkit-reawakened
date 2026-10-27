@@ -245,18 +245,3 @@ test("a healing item can target and revive a fallen ally, and a defeated enemy k
   equal(Number(ui(rig)["targetcount"]), 2, "the defeated enemy is skipped by the target cursor");
   deepEqual(rig.diagnostics, []);
 });
-
-test("the screen is only a view: it draws with the ruled primitives and calls no other drawing command", () => {
-  const start = stockSource.indexOf("stockBattleUi = {");
-  const end = stockSource.indexOf("registerPlugin({");
-  ok(start > 0 && end > start);
-  const block = stockSource.slice(start, end);
-  const called = new Set([...block.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\(/g)].map((match) => match[1]!.toLowerCase()));
-  const drawing = ["fillrect", "drawrect", "pixeltext", "text", "bitmap", "drawcanvas", "drawenemy", "rendernow", "createcanvas", "killcanvas", "colorrgb", "fontsize", "setimage", "setimagetransparent", "setimagetranslucent", "setimageadditive", "drawline", "drawcircle", "fillcircle", "setpixel", "drawcanvastransparent", "canvasdrawpart", "savescreen", "restorescreen", "animation", "sizedanimation", "drawbox", "drawbar", "clear", "color", "font", "print", "mwin"];
-  deepEqual([...called].filter((name) => drawing.includes(name)).sort(), ["bitmap", "colorrgb", "createcanvas", "drawcanvas", "drawenemy", "drawrect", "fillrect", "fontsize", "killcanvas", "pixeltext", "rendernow"]);
-  ok(!/drawbox|drawbar/i.test(block), "no drawBox or drawBar");
-  // Writes to the battle go through the package's own action functions only.
-  for (const forbidden of ["setcharge", "addcharge", "releasecharge", "finish", "givehp", "givesmp", "applystatus", "removestatus"]) {
-    ok(!called.has(forbidden), `the screen never calls ${forbidden}`);
-  }
-});

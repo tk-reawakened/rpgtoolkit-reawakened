@@ -76,17 +76,31 @@ function animationFrames(
  * transparent colour, or an `.anm` frame's image reference with its size and transparent colour. Null when the bytes
  * hold no usable frame.
  */
+export function animationFrameAtTick(
+  bytes: Uint8Array,
+  path: string,
+  sourceAsset: AssetKey,
+  resolver: ImageResolver,
+  tick: number,
+  loop = true,
+): { readonly gif: { readonly w: number; readonly h: number; readonly rgba: Uint8Array } | null; readonly frame: AnimationFrameState } | null {
+  const loaded = animationFrames(bytes, path, sourceAsset, resolver);
+  if (loaded === null || loaded.frames.length === 0) return null;
+  const index = frameAt(0, tick, loaded.delayTicks, loaded.frames.length, loop);
+  if (index < 0) return null;
+  const frame = loaded.frames[index];
+  if (frame === undefined) return null;
+  const pixels = loaded.gifPixels?.[index];
+  return { gif: pixels === undefined ? null : { w: loaded.width, h: loaded.height, rgba: pixels }, frame };
+}
+
 export function firstAnimationFrame(
   bytes: Uint8Array,
   path: string,
   sourceAsset: AssetKey,
   resolver: ImageResolver,
 ): { readonly gif: { readonly w: number; readonly h: number; readonly rgba: Uint8Array } | null; readonly frame: AnimationFrameState } | null {
-  const loaded = animationFrames(bytes, path, sourceAsset, resolver);
-  const frame = loaded?.frames[0];
-  if (loaded === null || frame === undefined) return null;
-  const pixels = loaded.gifPixels?.[0];
-  return { gif: pixels === undefined ? null : { w: loaded.width, h: loaded.height, rgba: pixels }, frame };
+  return animationFrameAtTick(bytes, path, sourceAsset, resolver, 0, false);
 }
 
 /** Decode a fetched `.anm` or GIF into saveable frame metadata. */

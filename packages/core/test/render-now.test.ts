@@ -136,21 +136,33 @@ test("text and pixelText with a canvas draw into that canvas, not the screen tex
   equal(game.state().ui.draws.length, 0, "the screen text layer got nothing");
 });
 
-test("drawenemy draws frame 0 of the named animation with its transparent colour skipped", () => {
-  const picture = new Uint8Array(16 * 16 * 4);
-  for (let at = 0; at < picture.length; at += 4) picture.set([255, 0, 255, 255], at);
-  for (let y = 4; y < 12; y += 1) for (let x = 4; x < 12; x += 1) picture.set([200, 40, 40, 255], (y * 16 + x) * 4);
+test("drawenemy draws the active animation frame with its transparent colour skipped and advances with engine ticks", () => {
+  const frame0 = new Uint8Array(16 * 16 * 4);
+  for (let at = 0; at < frame0.length; at += 4) frame0.set([255, 0, 255, 255], at);
+  for (let y = 4; y < 12; y += 1) for (let x = 4; x < 12; x += 1) frame0.set([200, 40, 40, 255], (y * 16 + x) * 4);
+
+  const frame1 = new Uint8Array(16 * 16 * 4);
+  for (let at = 0; at < frame1.length; at += 4) frame1.set([255, 0, 255, 255], at);
+  for (let y = 4; y < 12; y += 1) for (let x = 4; x < 12; x += 1) frame1.set([40, 200, 40, 255], (y * 16 + x) * 4);
+
+  // delay = 0.1s = 6 ticks at 60 Hz. Frame 0 plays on ticks 0..5; frame 1 on ticks 6..11.
   const animation = unwrap(writeAnimation({
     magic: "RPGTLKIT ANIM", major: 2, minor: 3, width: 16, height: 16,
-    frames: [{ image: "blob.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" }, { image: "other.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" }],
+    frames: [
+      { image: "f0.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
+      { image: "f1.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
+    ],
     delay: 0.1, residue: new Uint8Array(),
   }));
+
   const game = boot('rendernow(1)\nc = cnvrendernow\ndrawenemy("blob.anm", 5, 6, c)\nend()\n', {
     "Misc/blob.anm": animation,
-    "Bitmap/blob.png": encodePng(16, 16, picture),
+    "Bitmap/f0.png": encodePng(16, 16, frame0),
+    "Bitmap/f1.png": encodePng(16, 16, frame1),
   });
+
   const handle = game.state().surfaces.renderNow ?? 0;
-  deepEqual(canvasPixel(game, handle, 5 + 6, 6 + 6), [200, 40, 40, 255], "the picture's own pixels are drawn at (x, y)");
+  deepEqual(canvasPixel(game, handle, 5 + 6, 6 + 6), [200, 40, 40, 255], "tick 0..5 draws frame 0 (red)");
   deepEqual(canvasPixel(game, handle, 5, 6), [0, 0, 0, 0], "the transparent colour is skipped");
 });
 

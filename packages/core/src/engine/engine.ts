@@ -48,7 +48,7 @@ import { composeBoard, type BoardBlit, type SpriteDraw } from "../render/compose
 import { composeUi, composeUiCursor, renderNowBlit } from "../render/ui.ts";
 import { emitText, layoutText } from "../render/text.ts";
 import { applyFxDrawList, advanceFx, applyFxEffect } from "../render/fx.ts";
-import { advanceAnimations, firstAnimationFrame, loadAnimation } from "../render/animation.ts";
+import { advanceAnimations, animationFrameAtTick, firstAnimationFrame, loadAnimation } from "../render/animation.ts";
 import { hydrateBoard } from "../world/hydrate.ts";
 import { coordLayout, tileToPixel } from "../world/coords.ts";
 import { boardEmitterKey, type WorldBoard } from "../world/model.ts";
@@ -880,11 +880,15 @@ export function createEngine(init: EngineInit): Engine {
       request(key, "animation");
       return false;
     }
-    const first = firstAnimationFrame(bytes, String(file), key, resolveAnimationImage);
-    if (first === null) {
+    // If the animation is one of the fighter's active stances or a continuous stance, frameAtTick selects its
+    // current playback frame from the engine tick (and loop=false holds the last frame for a single-shot death stance).
+    const loop = !String(file).toLowerCase().includes("die");
+    const frameData = animationFrameAtTick(bytes, String(file), key, resolveAnimationImage, state.time.tick, loop);
+    if (frameData === null) {
       imageDiagnostic(file, `drawenemy: cannot decode animation "${String(file)}"`);
       return true;
     }
+    const first = frameData;
     const keyColour = { r: first.frame.transparent.r, g: first.frame.transparent.g, b: first.frame.transparent.b };
     if (first.gif !== null) {
       if (!blitTexture(state.surfaces, first.gif, canvas, x, y, undefined, undefined, keyColour)) imageDiagnostic(file, "drawenemy: destination surface is not live");
