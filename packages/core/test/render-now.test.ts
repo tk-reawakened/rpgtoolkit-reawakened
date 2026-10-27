@@ -199,6 +199,35 @@ test("drawenemy preserves FIFO call order when an earlier sprite waits on asset 
   deepEqual(canvasPixel(game, handle, 4, 4), [0, 0, 255, 255], "the later-called sprite blits on top of the earlier one");
 });
 
+test("drawenemy respects the explicit loop=0 argument and clamps to the last frame", () => {
+  const frame0 = new Uint8Array(16 * 16 * 4);
+  for (let at = 0; at < frame0.length; at += 4) frame0.set([255, 0, 0, 255], at);
+  const frame1 = new Uint8Array(16 * 16 * 4);
+  for (let at = 0; at < frame1.length; at += 4) frame1.set([0, 255, 0, 255], at);
+
+  const animation = unwrap(writeAnimation({
+    magic: "RPGTLKIT ANIM", major: 2, minor: 3, width: 16, height: 16,
+    frames: [
+      { image: "f0.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
+      { image: "f1.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
+    ],
+    delay: 0.1, residue: new Uint8Array(),
+  }));
+
+  // Passing loop=0 (5th argument) clamps playback to frame 1 even across long tick advances
+  // Start at tick 0 so advance(30) runs tick 0 through 29, well past frame 0 (ticks 0..5).
+  // The command takes canvas and loop as arguments.
+  const program = "rendernow(1)\nc = cnvrendernow\nthreadSleep(getThreadId(), 0.2)\ndrawenemy(\"blob.anm\", 0, 0, c, 0)\nend()\n";
+  const game = boot(program, {
+    "Misc/blob.anm": animation,
+    "Bitmap/f0.png": encodePng(16, 16, frame0),
+    "Bitmap/f1.png": encodePng(16, 16, frame1),
+  });
+  game.advance(30); // 30 ticks is past frame 1 (6 ticks); loop=0 holds frame 1 (green)
+  const handle = game.state().surfaces.renderNow ?? 0;
+  deepEqual(canvasPixel(game, handle, 4, 4), [0, 255, 0, 255], "loop=0 holds the final frame");
+});
+
 test("get() returns a pressed key once and never again, and clearbuffer() empties the queue", () => {
   const game = boot("count = 0\nloops = 0\nwhile (loops < 100) {\n  k = get()\n  if (k != \"\") {\n    count = count + 1\n  }\n  loops = loops + 1\n  threadSleep(getThreadId(), 1/60)\n}\ndone = 1\nend()\n");
   game.advance(2, ["DOWN"]);

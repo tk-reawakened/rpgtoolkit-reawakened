@@ -261,7 +261,7 @@ const GET_RES = command("getres", [], [
   return { value: size.w, out: [[0, size.w], [1, size.h]], effects: [] };
 });
 const VIEW_BRD = image("viewbrd", [], params(["file", "x", "y", "canvas"], 1), "by previewing a board through composeBoard");
-const DRAW_ENEMY = command("drawenemy", [], params(["file", "x", "y", "canvas"], 3), docs(
+const DRAW_ENEMY = command("drawenemy", [], params(["file", "x", "y", "canvas", "loop"], 3), docs(
   "Draw a battle fighter's first animation frame.",
   "Draws frame 0 of the named battle animation (a `.anm` or animated GIF, for example the file a fighter's stance names) with its top-left corner at logical pixel x,y on the screen or the optional canvas, skipping the animation's transparent colour. Technically it reads no battle state, takes no random number and does not wait; the asset is fetched and decoded by the asset owner, so the pixels appear when the effect is applied at the end of the tick, after any immediate drawing of the same tick. An asset that is missing or cannot be decoded is reported through the ordinary asset diagnostic.",
 ), (view, args) => {
@@ -270,7 +270,16 @@ const DRAW_ENEMY = command("drawenemy", [], params(["file", "x", "y", "canvas"],
     const target = canvasArg(args, 3);
     if (surfaceSize(state(view).surfaces, target) === null) throw new ScriptError("surface.unknown", `drawenemy: no canvas ${String(target)}`);
   }
-  return { value: null, effects: effects(args, "mixed") };
+  const loopArg = args[4]?.value;
+  const loop = loopArg === undefined || (loopArg !== 0 && loopArg !== false);
+  const normalizedArgs: Arg[] = [
+    args[0]!,
+    args[1] ?? { value: 0, ref: null },
+    args[2] ?? { value: 0, ref: null },
+    args[3] ?? { value: 0, ref: null },
+    { value: loop ? 1 : 0, ref: null },
+  ];
+  return { value: null, effects: effects(normalizedArgs, "mixed") };
 });
 
 export const GRAPHICS_COMMANDS: readonly BuiltinSpec[] = [

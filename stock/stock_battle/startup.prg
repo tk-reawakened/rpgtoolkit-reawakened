@@ -903,6 +903,7 @@ stockBattleUi = {
   w: 0,
   h: 0,
   picture: "",
+  stepCount: 0,
   screen: 0,
   buffer: 0,
   target: 0,
@@ -1138,6 +1139,7 @@ stockBattleUi = {
     if (stockBattleUi.on == 0) {
       return 0
     }
+    stockBattleUi.stepCount = stockBattleUi.stepCount + 1
     fighter = stockBattleUi.roster[stockBattleUi.scan]
     if (fighter.hp + "," + fighter.smp != stockBattleUi.seen["" + stockBattleUi.scan]) {
       stockBattleUi.refresh()
@@ -1193,8 +1195,10 @@ stockBattleUi = {
     local(stance) = "rest"
     local(file)
     local(source) = "" + fighter.source
+    local(loop) = 1
     if (fighter.hp < 1) {
       stance = "die"
+      loop = 0
     } else {
       if (stockBattleUi.acting != null) {
         if (stockBattleUi.acting == fighter.id) {
@@ -1205,11 +1209,12 @@ stockBattleUi = {
     file = stockBattleUi.files[source + "|" + stance]
     if (file == null || file == "") {
       file = stockBattleUi.files[source + "|rest"]
+      loop = 1
     }
     if (file == null) {
       file = ""
     }
-    return file
+    return { file: file, loop: loop }
   },
   slotX: (party, index) => {
     local(layout) = stockBattleUi.layout
@@ -1235,11 +1240,12 @@ stockBattleUi = {
     if (fighter == null) {
       return 0
     }
+    local(sprite)
     x = stockBattleUi.slotX(party, index)
     y = stockBattleUi.slotY(party, index)
-    file = stockBattleUi.fighterSprite(fighter)
-    if (file != "") {
-      drawenemy(file, x, y, stockBattleUi.target)
+    sprite = stockBattleUi.fighterSprite(fighter)
+    if (sprite.file != "") {
+      drawenemy(sprite.file, x, y, stockBattleUi.target, sprite.loop)
     } else {
       stockBattleUi.frame(x, y, x + size - 1, y + size - 1, 120, 120, 130)
     }
@@ -1413,12 +1419,13 @@ stockBattleUi = {
     return 0
   },
   // The signature is every value the full redraw shows. A pass redraws only when it changed; the charge bars repaint
-  // on their own, because a bar's width changes nearly every pass. It is a cache of what is on screen and never an
-  // input to any rule.
+  // on their own, because a bar's width changes nearly every pass. It includes the animation quantum (every 6 ticks)
+  // so looping stance animation frames refresh continuously across time.
   currentSignature: () => {
     local(index)
     local(fighter)
-    local(text) = stockBattleUi.mode + ":" + stockBattleUi.cursor + ":" + stockBattleUi.listCursor + ":" + stockBattleUi.listTop + ":" + stockBattleUi.targetCursor + ":" + stockBattleUi.targetParty + ":" + stockBattleUi.numberCount + ":" + stockBattleUi.message + ":" + stockBattleUi.acting + ":" + stockBattleUi.actingStance + ":" + stockBattleUi.listCount
+    local(frameQuantum) = (stockBattleUi.stepCount - (stockBattleUi.stepCount % 6))
+    local(text) = stockBattleUi.mode + ":" + stockBattleUi.cursor + ":" + stockBattleUi.listCursor + ":" + stockBattleUi.listTop + ":" + stockBattleUi.targetCursor + ":" + stockBattleUi.targetParty + ":" + stockBattleUi.numberCount + ":" + stockBattleUi.message + ":" + stockBattleUi.acting + ":" + stockBattleUi.actingStance + ":" + stockBattleUi.listCount + ":" + frameQuantum
     for (index = 0; index < stockBattleUi.rosterCount; index = index + 1) {
       fighter = stockBattleUi.roster[index]
       stockBattleUi.seen["" + index] = fighter.hp + "," + fighter.smp
@@ -1659,7 +1666,7 @@ stockBattleUi.prepareLists = (fighter) => {
     if (item != null) {
       if (item.usable == 1) {
         stockBattleUi.items[stockBattleUi.itemCount] = {
-          label: stack.handle, detail: "x" + stack.quantity, file: stack.source, data: item, affordable: 1
+          label: stack.handle, detail: "x" + stack.quantity, file: stack.source, quantity: stack.quantity, data: item, affordable: 1
         }
         stockBattleUi.itemCount = stockBattleUi.itemCount + 1
       }
@@ -1744,6 +1751,16 @@ stockBattleUi.perform = (fighter) => {
   local(before) = stockBattleUi.snapshot()
   local(kind) = stockBattleUi.pendingKind
   local(entry) = stockBattleUi.pendingEntry
+  if (kind == "item") {
+    if (entry.quantity < 1 || itemcount(entry.file) < 1) {
+      stockBattleUi.cue("cant")
+      stockBattleUi.acting = null
+      stockBattleUi.actingStance = ""
+      stockBattleUi.mode = "target"
+      stockBattleUi.refresh()
+      return 0
+    }
+  }
   stockBattleUi.cue("choose")
   stockBattleUi.acting = fighter.id
   stockBattleUi.mode = "act"
@@ -1760,10 +1777,6 @@ stockBattleUi.perform = (fighter) => {
     stockBattle.special(fighter, target, entry.file)
   }
   if (kind == "item") {
-    if (entry.quantity < 1 || itemcount(entry.file) < 1) {
-      stockBattleUi.cue("cant")
-      return 0
-    }
     stockBattleUi.actingStance = "rest"
     stockBattleUi.message = fighter.name + " uses " + entry.label + " on " + target.name
     stockBattleUi.refresh()
@@ -1892,6 +1905,7 @@ stockBattleUi.playerTurn = (index) => {
   stockBattleUi.cursor = 0
   stockBattleUi.mode = "command"
   while (done == 0) {
+    stockBattleUi.stepCount = stockBattleUi.stepCount + 1
     stockBattleUi.refresh()
     threadSleep(getThreadId(), 1/60)
     key = get()

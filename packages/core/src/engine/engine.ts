@@ -866,10 +866,11 @@ export function createEngine(init: EngineInit): Engine {
    * that is not cached yet is requested and the effect stays queued, in order, until it arrives.
    */
   function drawEnemyFrame(effect: EffectRecord): boolean {
-    const [file, rawX, rawY, rawCanvas] = effect.args;
+    const [file, rawX, rawY, rawCanvas, rawLoop] = effect.args;
     const x = typeof rawX === "number" ? rawX : 0;
     const y = typeof rawY === "number" ? rawY : 0;
     const canvas = (typeof rawCanvas === "number" ? rawCanvas : 0) as SurfaceId;
+    const loop = rawLoop === undefined || (rawLoop !== 0 && rawLoop !== false);
     const key = typeof file === "string" ? resolveAnimationFile(file) : null;
     if (key === null) {
       imageDiagnostic(file, `drawenemy: animation is not in the asset index`);
@@ -880,10 +881,7 @@ export function createEngine(init: EngineInit): Engine {
       request(key, "animation");
       return false;
     }
-    // If the animation is one of the fighter's active stances or a continuous stance, frameAtTick selects its
-    // current playback frame from the engine tick (and loop=false holds the last frame for a single-shot death stance).
-    const loop = !String(file).toLowerCase().includes("die");
-    const frameData = animationFrameAtTick(bytes, String(file), key, resolveAnimationImage, state.time.tick, loop);
+    const frameData = animationFrameAtTick(bytes, String(file), key, resolveAnimationImage, state.time.tick, Boolean(loop));
     if (frameData === null) {
       imageDiagnostic(file, `drawenemy: cannot decode animation "${String(file)}"`);
       return true;
