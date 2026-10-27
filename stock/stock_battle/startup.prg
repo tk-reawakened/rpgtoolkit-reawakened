@@ -957,28 +957,34 @@ stockBattleUi = {
     layout.panelY = h - 128
     layout.messageY = h - 128 - 24
     layout.messageH = 20
-    layout.enemyX = 24
-    layout.enemyY = 32
+    // Visual reference layout: prominent unobstructed upper battlefield with enemies left, player sprites right.
+    layout.enemyX = 40
+    layout.enemyY = 40
     layout.enemyDX = 120
     layout.enemyDY = 112
     layout.sprite = 64
-    layout.playerX = w - 24 - 64
-    layout.playerY = 16
-    layout.playerDY = 58
-    layout.rowX = 16
+    layout.playerX = w - 40 - 64
+    layout.playerY = 32
+    layout.playerDY = 64
+    // Adjacent bottom panels: command panel on the left (x = 8..152), party status panel on the right (x = 160..w-8).
+    layout.cmdX = 8
+    layout.cmdW = 144
+    layout.partyX = 160
+    layout.partyW = w - 168
+    layout.rowX = 172
     layout.rowY = h - 128 + 10
     layout.rowDY = 22
-    layout.hpX = 152
-    layout.hpW = 128
-    layout.smpX = 296
-    layout.smpW = 104
-    layout.chargeX = 416
-    layout.chargeW = 104
+    layout.hpX = 276
+    layout.hpW = 112
+    layout.smpX = 396
+    layout.smpW = 96
+    layout.chargeX = 500
+    layout.chargeW = 112
     layout.barH = 14
     layout.menuRowH = 24
     layout.listRowH = 22
     layout.listRows = 6
-    layout.listW = 296
+    layout.listW = 320
     layout.numberTicks = 12
     return layout
   },
@@ -1287,7 +1293,8 @@ stockBattleUi = {
       stockBattleUi.words(layout.rowX, y, left(fighter.name, 8), 16, 130, 130, 140)
     } else {
       if (stockBattleUi.menuIndex == index && (stockBattleUi.mode == "command" || stockBattleUi.mode == "list" || stockBattleUi.mode == "target")) {
-        // The member whose turn it is.
+        // The member whose turn it is: highlight entire row background like reference screenshot
+        stockBattleUi.box(layout.partyX + 4, y - 2, layout.w - 13, y + 18, 30, 60, 90)
         stockBattleUi.words(layout.rowX, y, left(fighter.name, 8), 16, 255, 224, 64)
       } else {
         stockBattleUi.words(layout.rowX, y, left(fighter.name, 8), 16, 255, 255, 255)
@@ -1333,24 +1340,26 @@ stockBattleUi = {
         longest = len(labels[row])
       }
     }
-    width = longest * 16 + 44
-    x = (layout.w - width) / 2
-    y = (layout.messageY - 4 * layout.menuRowH - 16) / 2
-    stockBattleUi.box(x, y, x + width - 1, y + 4 * layout.menuRowH + 15, 12, 16, 40)
-    stockBattleUi.frame(x, y, x + width - 1, y + 4 * layout.menuRowH + 15, 180, 190, 255)
+    // Visual reference alignment: vertical command panel sits in the bottom-left alongside the wider party status panel.
+    x = layout.cmdX
+    width = layout.cmdW
+    y = layout.panelY
+    stockBattleUi.box(x, y, x + width - 1, y + layout.panelH - 1, 12, 16, 40)
+    stockBattleUi.frame(x, y, x + width - 1, y + layout.panelH - 1, 180, 190, 255)
     for (row = 0; row < 4; row = row + 1) {
+      local(itemY) = y + 10 + row * 26
       if (row == stockBattleUi.cursor) {
-        stockBattleUi.box(x + 4, y + 8 + row * layout.menuRowH, x + width - 5, y + 8 + row * layout.menuRowH + layout.menuRowH - 2, 40, 64, 140)
-        stockBattleUi.words(x + 8, y + 12 + row * layout.menuRowH, ">", 16, 255, 224, 64)
+        stockBattleUi.box(x + 4, itemY - 2, x + width - 5, itemY + 22, 40, 64, 140)
+        stockBattleUi.words(x + 6, itemY + 2, ">", 16, 255, 224, 64)
       }
       if (dim[row] != 0) {
-        stockBattleUi.words(x + 32, y + 12 + row * layout.menuRowH, labels[row], 16, 110, 110, 120)
+        stockBattleUi.words(x + 22, itemY + 2, labels[row], 16, 110, 110, 120)
         if (row == 3) {
           // A blocked Run is still listed, drawn dim and struck through.
-          stockBattleUi.box(x + 32, y + 12 + row * layout.menuRowH + 7, x + 32 + len(labels[row]) * 16, y + 12 + row * layout.menuRowH + 8, 110, 110, 120)
+          stockBattleUi.box(x + 22, itemY + 9, x + 22 + len(labels[row]) * 12, itemY + 10, 110, 110, 120)
         }
       } else {
-        stockBattleUi.words(x + 32, y + 12 + row * layout.menuRowH, labels[row], 16, 255, 255, 255)
+        stockBattleUi.words(x + 22, itemY + 2, labels[row], 16, 255, 255, 255)
       }
     }
     return 0
@@ -1358,18 +1367,28 @@ stockBattleUi = {
   drawList: () => {
     local(layout) = stockBattleUi.layout
     local(fighter) = battle.fighter(1, stockBattleUi.menuIndex)
-    local(x) = (layout.w - layout.listW) / 2
     local(rows) = stockBattleUi.listCount
     local(row)
     local(entry)
-    local(y)
+    local(data) = stockBattleUi.chars["" + fighter.id]
     local(title)
     local(detail)
-    local(data) = stockBattleUi.chars["" + fighter.id]
+    local(x) = layout.cmdX
+    local(width) = layout.cmdW
+    local(y) = layout.panelY
     if (rows > layout.listRows) {
       rows = layout.listRows
     }
-    y = (layout.messageY - rows * layout.listRowH - 28) / 2
+    // Sub-lists (Special moves or Items) open aligned on the bottom panel: horizontally spanning cmd panel
+    // or pop over bottom-left with enough width for items and details (x = cmdX, width = listW)
+    width = layout.listW
+    if (x + width > layout.w - 8) {
+      width = layout.w - 16
+    }
+    y = layout.panelY - 24
+    if (y < 40) {
+      y = 40
+    }
     title = "Items"
     if (stockBattleUi.listKind == "special") {
       title = "Special"
@@ -1379,21 +1398,22 @@ stockBattleUi = {
         }
       }
     }
-    stockBattleUi.box(x, y, x + layout.listW - 1, y + rows * layout.listRowH + 27, 12, 16, 40)
-    stockBattleUi.frame(x, y, x + layout.listW - 1, y + rows * layout.listRowH + 27, 180, 190, 255)
+    stockBattleUi.box(x, y, x + width - 1, y + layout.panelH + 23, 12, 16, 40)
+    stockBattleUi.frame(x, y, x + width - 1, y + layout.panelH + 23, 180, 190, 255)
     stockBattleUi.words(x + 8, y + 6, title, 8, 180, 190, 255)
     for (row = 0; row < rows; row = row + 1) {
       entry = stockBattleUi.list[stockBattleUi.listTop + row]
+      local(rowY) = y + 20 + row * layout.listRowH
       if (stockBattleUi.listTop + row == stockBattleUi.listCursor) {
-        stockBattleUi.box(x + 4, y + 20 + row * layout.listRowH, x + layout.listW - 5, y + 20 + row * layout.listRowH + layout.listRowH - 2, 40, 64, 140)
-        stockBattleUi.words(x + 8, y + 23 + row * layout.listRowH, ">", 16, 255, 224, 64)
+        stockBattleUi.box(x + 4, rowY, x + width - 5, rowY + layout.listRowH - 2, 40, 64, 140)
+        stockBattleUi.words(x + 8, rowY + 3, ">", 16, 255, 224, 64)
       }
       if (entry.affordable == 0) {
-        stockBattleUi.words(x + 28, y + 23 + row * layout.listRowH, left(entry.label, 10), 16, 110, 110, 120)
-        stockBattleUi.words(x + layout.listW - 8 - len(entry.detail) * 8, y + 27 + row * layout.listRowH, entry.detail, 8, 110, 110, 120)
+        stockBattleUi.words(x + 28, rowY + 3, left(entry.label, 12), 16, 110, 110, 120)
+        stockBattleUi.words(x + width - 8 - len(entry.detail) * 8, rowY + 7, entry.detail, 8, 110, 110, 120)
       } else {
-        stockBattleUi.words(x + 28, y + 23 + row * layout.listRowH, left(entry.label, 10), 16, 255, 255, 255)
-        stockBattleUi.words(x + layout.listW - 8 - len(entry.detail) * 8, y + 27 + row * layout.listRowH, entry.detail, 8, 200, 220, 255)
+        stockBattleUi.words(x + 28, rowY + 3, left(entry.label, 12), 16, 255, 255, 255)
+        stockBattleUi.words(x + width - 8 - len(entry.detail) * 8, rowY + 7, entry.detail, 8, 200, 220, 255)
       }
     }
     return 0
@@ -1489,8 +1509,14 @@ stockBattleUi = {
         stockBattleUi.drawFighter(party, index, selected)
       }
     }
-    stockBattleUi.box(0, layout.panelY, layout.w - 1, layout.h - 1, 12, 16, 40)
-    stockBattleUi.frame(0, layout.panelY, layout.w - 1, layout.h - 1, 180, 190, 255)
+    // If command mode is inactive, draw an empty framed command box on the bottom-left as placeholder
+    if (stockBattleUi.mode != "command") {
+      stockBattleUi.box(layout.cmdX, layout.panelY, layout.cmdX + layout.cmdW - 1, layout.h - 1, 12, 16, 40)
+      stockBattleUi.frame(layout.cmdX, layout.panelY, layout.cmdX + layout.cmdW - 1, layout.h - 1, 140, 150, 200)
+    }
+    // Wider party status panel on the bottom-right adjacent to the command panel
+    stockBattleUi.box(layout.partyX, layout.panelY, layout.w - 9, layout.h - 1, 12, 16, 40)
+    stockBattleUi.frame(layout.partyX, layout.panelY, layout.w - 9, layout.h - 1, 180, 190, 255)
     size = battle.partySize(1)
     for (index = 0; index < size; index = index + 1) {
       stockBattleUi.drawRow(index)

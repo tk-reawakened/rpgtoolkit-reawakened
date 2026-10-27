@@ -8,8 +8,8 @@
   "frames": {
     "command": {
       "keys": [],
-      "pixels": "d077094d97bfaa97",
-      "drawList": "8ddf6fe345572bec"
+      "pixels": "7ad8487e7c2c3a7a",
+      "drawList": "f9ae201e9e0a5903"
     },
     "revive": {
       "keys": [
@@ -20,8 +20,8 @@
         "RIGHT",
         "RIGHT"
       ],
-      "pixels": "46a8d3fefba593a7",
-      "drawList": "146cb106d446adfe"
+      "pixels": "84f1495312744fea",
+      "drawList": "5c0a307401f8cc3a"
     },
     "defeated": {
       "keys": [
@@ -35,8 +35,8 @@
         "ENTER",
         "ENTER"
       ],
-      "pixels": "8cf1b37cb3f78663",
-      "drawList": "2da38e9ad5a957eb"
+      "pixels": "4a01179f5becf82a",
+      "drawList": "7818fd0568852d6c"
     },
     "special": {
       "keys": [
@@ -48,8 +48,8 @@
         "UP",
         "ENTER"
       ],
-      "pixels": "aa1985f78016c53b",
-      "drawList": "572c33dd63bf22ce"
+      "pixels": "031b6d406a4eed72",
+      "drawList": "82f8e0748d51e683"
     },
     "target": {
       "keys": [
@@ -74,8 +74,8 @@
         "RIGHT",
         "DOWN"
       ],
-      "pixels": "bd5768f9b8c92545",
-      "drawList": "cb3d298d602a4c4e"
+      "pixels": "15db8f71cbf7d449",
+      "drawList": "9740471e8234ae57"
     }
   }
 }

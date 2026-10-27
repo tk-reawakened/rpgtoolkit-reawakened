@@ -255,12 +255,12 @@ Menu and battle cues are voices on their configured tracks, so they mix over mus
 | Part | Position and size |
 |---|---|
 | Background | the `.bkg` picture stretched to the whole screen; a flat dark blue when it names none |
-| Enemy slot *i* (0 to 3) | top-left corner at x = 24 + 120 × (*i* mod 2), y = 32 + 112 × ⌊*i* / 2⌋, a 64 × 64 picture; its name (8 px font) 3 px below, then a 64 × 6 HP bar; no SMP, no charge |
-| Player slot *i* (0 to 4) | top-left corner at x = width − 88, y = 16 + 58 × *i*, a 64 × 64 picture; name, HP, SMP and charge are in the panel only |
-| Status panel | the bottom 128 px, a dark box with a light border; row *i* is 22 px high starting 10 px below its top: name (16 px font), HP bar 128 × 14 at x = 152 with `HP cur/max` inside, SMP bar 104 × 14 at x = 296 with `SP cur/max` inside, charge bar 104 × 14 at x = 416 (the charge as a whole percent of the fighter's threshold, [BAT-3](#bat-3)); a fallen member's name is drawn grey |
+| Enemy slot *i* (0 to 3) | top-left corner at x = 40 + 120 × (*i* mod 2), y = 40 + 112 × ⌊*i* / 2⌋, a 64 × 64 picture; its name (8 px font) 3 px below, then a 64 × 6 HP bar; no SMP, no charge |
+| Player slot *i* (0 to 4) | top-left corner at x = width − 104, y = 32 + 64 × *i*, a 64 × 64 picture; name, HP, SMP and charge are in the panel only |
+| Command panel | the bottom-left 144 px (x = 8..151, y = height − 128..height − 1), four vertical options (Fight, Special, Items, Run) 26 px high; active command has `>` and highlighted background |
+| Party status panel | the bottom-right panel adjacent to the command box (x = 160..width − 9, y = height − 128..height − 1); row *i* is 22 px high: name (16 px font), HP bar 112 × 14 at x = 276 with `HP cur/max` inside, SMP bar 96 × 14 at x = 396 with `SP cur/max` inside, charge bar 112 × 14 at x = 500 (whole percent of threshold); the active member's row background is highlighted |
 | Message line | a 20 px strip at height − 128 − 24, full width; empty (not drawn) unless an action is being shown |
-| Command box | centred horizontally, centred vertically in the area above the message line; four rows 24 px high, label in the 16 px font, a `>` and a highlight on the cursor row |
-| Special / Item list | centred like the command box, 296 px wide, up to six rows of 22 px (it scrolls beyond six); the entry label on the left (the move's file name without folder or extension, or the item's handle) and its cost (`SP 4`) or count (`x3`) on the right |
+| Special / Item list | opens over the bottom-left command area (320 px wide, y = height − 152), up to six rows of 22 px; entry label on the left and cost (`SP 4`) or count (`x3`) on the right |
 | Target cursor | a two-pixel yellow rectangle around the chosen fighter's picture |
 | Damage numbers | the amount over the fighter's picture: HP lost in red, HP gained as `+n` in green, SMP changed as `SP n` in blue |
 
