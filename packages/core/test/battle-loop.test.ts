@@ -128,6 +128,10 @@ function makeState(options: {
   const services = servicesFor(state, layers);
   runPackageStartup(state, services, [startupRef], [stockBattle]);
   startProgram(state.vm, { ...fileProgramRef(loader, "battle-loop.prg"), owner: "battle-loop-test" });
+  // The loop reads its fight background once, at start (BAT-10 cue inventory), and parks on that request. Park it
+  // here, outside the clock, so each test's first tick is still the tick that seeds the charges and sleeps.
+  tick(state, services);
+  state.time.tick = 0;
   return { state, services, enemies, players, seed };
 }
 
@@ -172,10 +176,26 @@ function setCharge(state: GameState, party: 0 | 1, index: number, charge: number
   if (!result.ok) throw new Error(result.error.message);
 }
 
+/** A fight background with no music and no cue files: the loop reads it once at start (BAT-10 cue inventory). */
+const EMPTY_BACKGROUND_HEX = (() => {
+  const writer = new BinaryWriter();
+  writer.str("RPGTLKIT BKG");
+  writer.i16(2);
+  writer.i16(3);
+  for (let field = 0; field < 6; field += 1) writer.str("");
+  return Array.from(writer.toBytes(), (byte) => byte.toString(16).padStart(2, "0")).join("");
+})();
+
 function tick(state: GameState, services: ScriptServices, budget = STEP_BUDGET, poll?: WaitPoll): number {
   const before = Object.values(readStepCounters(state.vm)).reduce((total, count) => total + count, 0);
   runWaitsPhase(state.vm, { tick: state.time.tick, events: state.events },
-    (view, wait) => wait.kind === "request" && poll !== undefined ? poll(view, wait) : defaultWaitPoll(view, wait),
+    (view, wait) => {
+      if (wait.kind !== "request") return defaultWaitPoll(view, wait);
+      if (state.vm.effects.find((effect) => effect.request?.reqId === wait.reqId)?.request?.area === "backgrounds") {
+        return { ok: true, value: EMPTY_BACKGROUND_HEX };
+      }
+      return poll !== undefined ? poll(view, wait) : defaultWaitPoll(view, wait);
+    },
     undefined, services);
   runThreadsPhase(state.vm, services, budget);
   state.time.tick += 1;
