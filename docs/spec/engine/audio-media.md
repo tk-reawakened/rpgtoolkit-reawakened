@@ -1151,6 +1151,11 @@ Technically:
    voice count in the game's audio-settings block (MEDIA-4); allocation remains
    deterministic by the lowest-free rule.
    Menu and battle-menu sounds go to `ui`, so `wavstop` does not stop them.
+   The battle background's `readySound` and `cantDoSound` are started by the
+   `stock_battle` package through `mediaPlay` on `ui` (source `script`, not an
+   engine `ui` record); [BAT-10](battle.md#bat-10-cue-inventory) is their
+   inventory, and the menu cues `selectSound`, `chooseSound` and the cursor
+   sounds stay with entries 7.11 and Epic 8.
    Frame-0 per-case timing stays unruled (Q14's missing breakdown).
 5. Missing runner audio is silence plus a diagnostic and never alters game
    state (6.1 R-59 text).

@@ -157,7 +157,14 @@ export function runEngineCancelableEventOutcome(
   const event = queueNativeEvent(state.vm, state.events, emitter, type, detail, true);
   const queued = state.events.queue.filter((item) => item.event !== event);
   state.events.queue = [];
-  runEventsPhase(state, services, budget, { emitter, event });
+  // An engine-originated event can fire from inside a command (a battle start posting its music), and the listener's
+  // own step re-points the command thread; the command's thread owns the rest of that command.
+  const callerThread = services.view.thread;
+  try {
+    runEventsPhase(state, services, budget, { emitter, event });
+  } finally {
+    services.setCommandThread(callerThread);
+  }
   const generated = state.events.queue;
   state.events.queue = [...queued, ...generated];
   const active = state.events.dispatch as unknown as DispatchCursor | null;
