@@ -1420,15 +1420,18 @@ stockBattleUi = {
   // on their own, because a bar's width changes nearly every pass. It samples the engine tick (`battletick()`) modulo 2
   // so that animation frames (which can advance as fast as every 2 to 4 ticks for fast stances) refresh continuously
   // across passes, menus, and hold/action sequences without guessing frame delays.
+  // The signature captures all visible battle state. To support arbitrary animation delays (including 1, 2, 3, 5+ ticks)
+  // accurately across idle passes, player menus, and action hold sequences without guessing fixed quanta, the signature
+  // samples the authoritative engine tick counter `battletick()` during every active interaction and action hold,
+  // matching the exact per-animation playback frame.
   currentSignature: () => {
     local(index)
     local(fighter)
-    local(animStep) = 0
-    if (stockBattleUi.acting != null || stockBattleUi.numberCount > 0) {
-      // Action sequence or holding damage numbers: refresh animation frames across the hold
-      animStep = battletick() - (battletick() % 4)
+    local(tickNow) = 0
+    if (stockBattleUi.mode != "idle" || stockBattleUi.acting != null || stockBattleUi.numberCount > 0) {
+      tickNow = battletick()
     }
-    local(text) = stockBattleUi.mode + ":" + stockBattleUi.cursor + ":" + stockBattleUi.listCursor + ":" + stockBattleUi.listTop + ":" + stockBattleUi.targetCursor + ":" + stockBattleUi.targetParty + ":" + stockBattleUi.numberCount + ":" + stockBattleUi.message + ":" + stockBattleUi.acting + ":" + stockBattleUi.actingStance + ":" + stockBattleUi.listCount + ":" + animStep
+    local(text) = stockBattleUi.mode + ":" + stockBattleUi.cursor + ":" + stockBattleUi.listCursor + ":" + stockBattleUi.listTop + ":" + stockBattleUi.targetCursor + ":" + stockBattleUi.targetParty + ":" + stockBattleUi.numberCount + ":" + stockBattleUi.message + ":" + stockBattleUi.acting + ":" + stockBattleUi.actingStance + ":" + stockBattleUi.listCount + ":" + tickNow
     for (index = 0; index < stockBattleUi.rosterCount; index = index + 1) {
       fighter = stockBattleUi.roster[index]
       stockBattleUi.seen["" + index] = fighter.hp + "," + fighter.smp
