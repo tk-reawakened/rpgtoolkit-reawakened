@@ -8,6 +8,8 @@ declare module "node:fs" {
   export function readFileSync(path: string, encoding: "utf8"): string;
   export function readFileSync(path: string): Uint8Array;
   export function existsSync(path: string): boolean;
+  export function mkdirSync(path: string, options?: { recursive?: boolean }): void;
+  export function writeFileSync(path: string, data: string | Uint8Array): void;
 }
 
 declare module "node:path" {
@@ -46,7 +48,7 @@ declare module "node:perf_hooks" {
   export const performance: { now(): number };
 }
 
-declare const process: { execPath: string };
+declare const process: { execPath: string; env: Record<string, string | undefined> };
 
 // `lib: ["ES2022"]` has no `ImportMeta.url` (that lives in the DOM lib), so
 // the tests' `import.meta.url` needs it declared here.
