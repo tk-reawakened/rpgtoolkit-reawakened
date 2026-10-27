@@ -10,8 +10,11 @@
  * not in state (AD-7), so a restored host recompiles lazily through its own
  * program memo.
  *
- * Two errors are pinned: a different `schema.compiler` is
- * `restore.compiler-mismatch`, and a missing section is `restore.shape`.
+ * Two errors are pinned: a different `schema.compiler`, or any program reference
+ * naming another compiler, is `restore.compiler-mismatch` and refuses the whole
+ * save (owner ruling 2026-10-27); a missing section is `restore.shape`. Only a
+ * file-backed program whose source changed restarts its thread, and that is the
+ * program cache's `restore.source-changed`, not a snapshot error.
  *
  * **Callable handles and closure cells (FUN-8; entry 18.6).** `restoreGameState`
  * also checks, with no program to hand, that every callable is a whole record,
@@ -334,7 +337,18 @@ function validateProgramRef(value: unknown, path: string): void {
   const ref = recordAt(value, path);
   const kind = stringAt(ref.kind, `${path}.kind`);
   if (kind !== "inline" && kind !== "file") return shapeError(`the snapshot's ${path}.kind is invalid`);
-  stringAt(ref.compiler, `${path}.compiler`);
+  const compiler = stringAt(ref.compiler, `${path}.compiler`);
+  // A program compiled by another compiler has instruction positions this one
+  // cannot honour: the whole save is refused (owner ruling 2026-10-27,
+  // docs/spec/formats/save-game.md#compiler-mismatch-refuse-the-whole-save-owner-ruling).
+  // Only a changed *source* restarts a thread, and that is decided later, by the
+  // program cache, not here.
+  if (compiler !== COMPILER_VERSION) {
+    throw new ScriptError(
+      "restore.compiler-mismatch",
+      `the snapshot's ${path}.compiler ${compiler} does not match ${COMPILER_VERSION}`,
+    );
+  }
   if (kind === "inline") stringAt(ref.text, `${path}.text`);
   else {
     stringAt(ref.path, `${path}.path`);
