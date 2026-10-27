@@ -12,6 +12,7 @@ import {
   createEmptyMainFile,
   COMPILER_VERSION,
   createEngine,
+  fileProgramRef,
   startThread,
   writeBoard,
   writeMainFile,
@@ -30,7 +31,11 @@ type Game = { readonly files: Map<AssetKey, Uint8Array>; readonly engine: Return
  * as an inline thread once the game is running. An inline program has no source
  * hash, so it is never subject to the per-thread source-changed restart.
  */
-function boot(program: string, startPrg = "end()\n"): Game {
+function boot(
+  program: string,
+  startPrg = "end()\n",
+  options: { readonly extra?: Readonly<Record<string, string>>; readonly fileThread?: string } = {},
+): Game {
   const main = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, startupPrg: "start.prg", initBoard: "start.brd" });
   if (!main.ok) throw new Error(main.error.message);
   const empty = createEmptyBoard();
@@ -41,11 +46,17 @@ function boot(program: string, startPrg = "end()\n"): Game {
     [assetKey("boards/start.brd"), board.value],
     [assetKey("prg/start.prg"), encoder.encode(startPrg)],
   ]);
+  const paths = [...PATHS];
+  for (const [name, text] of Object.entries(options.extra ?? {})) {
+    paths.push(`prg/${name}`);
+    files.set(assetKey(`prg/${name}`), encoder.encode(text));
+  }
+  const programLoader = { index: createAssetIndex(paths), root: { kind: "package" as const }, read: (key: AssetKey) => files.get(key) ?? new Uint8Array() };
   let latest: GameState | null = null;
   let started = false;
   const engine = createEngine({
     seed: 5,
-    assetIndex: createAssetIndex(PATHS),
+    assetIndex: createAssetIndex(paths),
     assetRoot: { kind: "package" },
     mainFile: "main.gam",
     gameIdentity: "compiler-refusal-test",
@@ -62,7 +73,10 @@ function boot(program: string, startPrg = "end()\n"): Game {
         latest = state;
         if (started || state.engine.boot?.stage !== "running") return;
         started = true;
-        startThread(state.vm, { ref: { kind: "inline", text: program, compiler: COMPILER_VERSION }, kind: "board", owner: "script" });
+        const ref = options.fileThread === undefined
+          ? { kind: "inline" as const, text: program, compiler: COMPILER_VERSION }
+          : fileProgramRef(programLoader, options.fileThread);
+        startThread(state.vm, { ref, kind: "board", owner: "script" });
       },
     }],
   });
@@ -153,4 +167,33 @@ test("a changed file source is not a compiler mismatch: the save loads and only 
   equal(codes.includes("restore.compiler-mismatch"), false, JSON.stringify(codes));
   equal(globals.after, undefined, "the load was accepted and replaced the loader's continuation");
   equal(globals.marker, 7, "the saved thread restarted from the current start.prg source");
+});
+
+test("a save whose thread names a program file the game no longer has is refused whole, with no later throw", () => {
+  // The saved thread is a file-backed program with no callables in the save, so
+  // the callable check alone would compile nothing. The load must still fail up
+  // front: committing it would throw program.missing from the next tick.
+  const { saved } = run(boot("", "end()\n", { extra: { "other.prg": SAVER }, fileThread: "other.prg" }), null);
+  ok(saved !== null, "the saver produced a save");
+  const loader = boot(LOADER);
+  const { codes } = run(loader, saved);
+  const state = loader.state()!;
+  const globals = state.vm.globals as Record<string, unknown>;
+
+  ok(codes.includes("program.missing"), `diagnostics: ${JSON.stringify(codes)}`);
+  equal(globals.marker, 9, "no part of the save was applied");
+  equal(globals.after, 9, "the calling thread kept running after Load failed");
+  equal(state.vm.threads.some((thread) => thread.frames.some((frame) => frame.program.kind === "file" && frame.program.path === "other.prg")), false, "the saved thread was not installed");
+});
+
+test("a compiler mismatch is reported as such even when the audio projection is also malformed", () => {
+  const loader = boot(LOADER);
+  const bytes = tamper(capturedSave(), (json) => {
+    json.schema.compiler = "1";
+    (json as unknown as { audio: unknown }).audio = { tick: 0, cueId: 1, tracks: 5 };
+  });
+  const { codes } = run(loader, bytes);
+  ok(codes.includes("restore.compiler-mismatch"), `diagnostics: ${JSON.stringify(codes)}`);
+  equal(codes.includes("restore.shape"), false, `diagnostics: ${JSON.stringify(codes)}`);
+  equal((loader.state()!.vm.globals as Record<string, unknown>).after, 9);
 });

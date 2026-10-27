@@ -79,6 +79,7 @@ import {
   endItemThreads,
   fileProgramRef,
   runPackageStartup,
+  compileRestoredPrograms,
   verifyRestoredHandles,
   runThreadsPhase,
   runWaitsPhase,
@@ -729,6 +730,7 @@ export function createEngine(init: EngineInit): Engine {
       pluginLayers = restoredLayers;
       const restoredServices = makeServices(activePlugins, loader ?? undefined, false, restoredLayers);
       runPackageStartup(state, restoredServices, [], activePlugins, restoredServices.listenersBeforePackageStartup);
+      compileRestoredPrograms(state.vm, restoredServices);
       verifyRestoredHandles(state.vm, restoredServices, state.events);
       services = restoredServices;
       startupServicesReady = true;

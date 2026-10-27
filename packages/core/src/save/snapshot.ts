@@ -794,6 +794,20 @@ function validateShape(record: Record<string, unknown>): void {
   validateSurfacesShape(record.surfaces);
 }
 
+/**
+ * Refuse a save made by another compiler. It is the first check on every restore
+ * path, ahead of any section or audio validation, so a save from another compiler
+ * is always reported as `restore.compiler-mismatch` whatever else is malformed.
+ */
+export function refuseOtherCompiler(compiler: unknown): void {
+  if (compiler !== COMPILER_VERSION) {
+    throw new ScriptError(
+      "restore.compiler-mismatch",
+      `the snapshot's compiler ${String(compiler)} does not match ${COMPILER_VERSION}`,
+    );
+  }
+}
+
 /** Parse and check a snapshot's canonical form (see the file header). */
 export function restoreGameState(json: string, diagnostics: Diagnostic[] = []): GameState {
   let parsed: unknown;
@@ -811,13 +825,7 @@ export function restoreGameState(json: string, diagnostics: Diagnostic[] = []): 
   if (typeof schema !== "object" || schema === null || Array.isArray(schema)) {
     throw new ScriptError("restore.shape", "the snapshot has no `schema` section");
   }
-  const compiler = (schema as Record<string, unknown>).compiler;
-  if (compiler !== COMPILER_VERSION) {
-    throw new ScriptError(
-      "restore.compiler-mismatch",
-      `the snapshot's compiler ${String(compiler)} does not match ${COMPILER_VERSION}`,
-    );
-  }
+  refuseOtherCompiler((schema as Record<string, unknown>).compiler);
 
   migrateEvents(record, schema as Record<string, unknown>);
   migrateActors(record, schema as Record<string, unknown>);

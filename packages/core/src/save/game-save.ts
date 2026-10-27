@@ -3,7 +3,7 @@ import { audioSaveProjection, type AudioSaveProjection } from "../audio/save.ts"
 import { AUDIO_SCHEMA_VERSION, createAudioSection, createTrack, type AudioStateV2 } from "../audio/model.ts";
 import { ScriptError } from "../script/errors.ts";
 import type { Diagnostic } from "../ports/engine.ts";
-import { restoreGameState } from "./snapshot.ts";
+import { refuseOtherCompiler, restoreGameState } from "./snapshot.ts";
 import type { GameState } from "./state.ts";
 
 export type RestoredGameSave = {
@@ -68,6 +68,9 @@ export function restoreGameSave(json: string, currentAudio: AudioStateV2): Resto
     throw new ScriptError("restore.shape", "a saved game must be valid UTF-8 JSON");
   }
   const root = record(parsed, "root");
+  // The compiler check comes first (owner ruling 2026-10-27): a save from another
+  // compiler is refused as such before any audio or section shape is examined.
+  refuseOtherCompiler(record(root.schema, "schema").compiler);
   let projection: Record<string, unknown>;
   let tick: number;
   let cueId: number;

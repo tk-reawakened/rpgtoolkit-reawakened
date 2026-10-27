@@ -34,7 +34,7 @@ export {
   toDiagnostic,
 } from "./errors.ts";
 export type { FailureClass } from "./errors.ts";
-export { verifyRestoredHandles } from "./restore-check.ts";
+export { compileRestoredPrograms, verifyRestoredHandles } from "./restore-check.ts";
 export type { RestoreCheckServices } from "./restore-check.ts";
 export type { BinaryOp, SourcePos, StepOp, UnaryOp } from "./ops.ts";
 export type {
