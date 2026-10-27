@@ -192,6 +192,8 @@ Ambient light (board ambient colour plus script changes) is applied as a gamma r
 <a id="e-57"></a>
 **E-57 Render-now overlay.** A script-owned canvas, composited over the game every frame while it is enabled — the mechanism behind script-drawn HUDs and custom screens ([rpgcode-language.md](rpgcode-language.md#virtual-variables)).
 
+**Reawakened rule (entry 7.11 corrects a gap; the placement follows the E-57 line above).** *In plain terms:* once a script calls `rendernow(true)`, whatever it draws on the canvas `cnvRenderNow` shows on screen above the board, the sprites and the animations, and below the message window and screen text; clear pixels let the game show through. *Precisely:* the composed frame appends one 1:1 blit of the enabled canvas at (0, 0) after the board, effects and animations and before the debug overlays, the text layer, the message window and the cursor; a disabled canvas (handle 0) or one that is no longer live adds nothing. The blit references the canvas's revision, so the draw-list hash changes with every edit of the canvas.
+
 ## Shutdown and reset
 
 - **Exit** (window closed, or script `windows()` / its alias `dos()`): plugins are shut down first, then threads, graphics, audio and fonts; the frame-rate estimate is saved and any PAK temporary folder is deleted.
