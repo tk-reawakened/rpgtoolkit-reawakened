@@ -13,6 +13,7 @@ import type { PlainData } from "../ports/plain-data.ts";
 import type { Value } from "../ports/value.ts";
 import type { Arg, BuiltinDoc } from "./builtins.ts";
 import { ScriptError } from "./errors.ts";
+import { requireGameId } from "./game-id.ts";
 import type { PluginManifestDiagnostic } from "./manifest.ts";
 import type { CommandEffect, CommandRequest, CommandResult, CommandView, PluginDefinition } from "./plugin.ts";
 import { toStringValue } from "./values.ts";
@@ -860,8 +861,7 @@ function fileSaveRequest(view: CommandView, args: readonly Arg[], isAppend: bool
   if (cleanSubdir.includes("..") || cleanFilename.includes("..")) {
     throw new ScriptError("builtin.bad-arg", "file path escapes game sandbox");
   }
-  const gameId = view.gameId ?? "default";
-  const path = `${gameId}/${cleanSubdir ? `${cleanSubdir}/` : ""}${cleanFilename}`;
+  const path = `${requireGameId(view)}/${cleanSubdir ? `${cleanSubdir}/` : ""}${cleanFilename}`;
   const lines: string[] = [];
   for (let i = 2; i < args.length; i += 1) {
     lines.push(toStringValue(args[i]?.value as never));
@@ -944,8 +944,7 @@ export const FILEREADWRITE_PLUGIN: PluginDefinition = {
         if (cleanSubdir.includes("..") || cleanFilename.includes("..")) {
           throw new ScriptError("builtin.bad-arg", "file path escapes game sandbox");
         }
-        const gameId = view.gameId ?? "default";
-        const path = `${gameId}/${cleanSubdir ? `${cleanSubdir}/` : ""}${cleanFilename}`;
+        const path = `${requireGameId(view)}/${cleanSubdir ? `${cleanSubdir}/` : ""}${cleanFilename}`;
         const request: CommandRequest = {
           kind: "loadBlob",
           blob: { area: "saves", path },

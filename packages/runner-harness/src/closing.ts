@@ -16,6 +16,7 @@ import {
   createAssetIndex,
   createEmptyMainFile,
   createEngine,
+  derivePackageIdentity,
   fnv1a64,
   hashDrawList,
   PACKAGE_ROOT,
@@ -244,7 +245,7 @@ function capture(engine: Engine, label: string, tick: number, stateHash: string)
 }
 
 /** Boot one game and play the plan with `batch` ticks per `advance` call. */
-function runOnce(plan: ClosingPlan, files: ClosingFiles, bundled: ClosingFiles, index: AssetIndex, mainKey: string, batch: number, options: ClosingRunOptions = {}): Trace {
+function runOnce(plan: ClosingPlan, files: ClosingFiles, bundled: ClosingFiles, index: AssetIndex, mainKey: string, gameIdentity: string, batch: number, options: ClosingRunOptions = {}): Trace {
   const bundledFiles = new Map<AssetKey, Uint8Array>();
   for (const [path, bytes] of bundled) bundledFiles.set(assetKey(path), bytes);
   const doubles = createBootDoubles(options);
@@ -254,6 +255,7 @@ function runOnce(plan: ClosingPlan, files: ClosingFiles, bundled: ClosingFiles, 
     assetIndex: index,
     assetRoot: PACKAGE_ROOT,
     mainFile: mainKey,
+    gameIdentity,
     startup: doubles.startup,
     width: plan.width,
     height: plan.height,
@@ -393,12 +395,14 @@ function traceDifferences(batch: number, reference: Trace, other: Trace): string
 /** Run one game for every batch size of the plan and return the reference record with any batching disagreement. */
 export function runClosingGame(plan: ClosingPlan, game: ClosingGamePlan, files: ClosingFiles, bundled: ClosingFiles, options: ClosingRunOptions = {}): ClosingGameRun {
   const { all, index, mainKey } = gameFiles(game, files);
+  // AD-17: the host owns the game identity; here it is the package's content digest.
+  const gameIdentity = derivePackageIdentity([...all].map(([path, bytes]) => ({ path, bytes })));
   const plainOptions = { ...options, trace: false };
-  const traces = plan.batches.map((batch) => runOnce(plan, all, bundled, index, mainKey, batch, plainOptions));
+  const traces = plan.batches.map((batch) => runOnce(plan, all, bundled, index, mainKey, gameIdentity, batch, plainOptions));
   const reference = traces[0];
   if (reference === undefined) throw new Error("the plan has no batch sizes");
   const batchProblems = plan.batches.flatMap((batch, position) => (position === 0 || traces[position] === undefined ? [] : traceDifferences(batch, reference, traces[position] as Trace)));
-  const traced = options.trace === true ? runOnce(plan, all, bundled, index, mainKey, 1, options) : undefined;
+  const traced = options.trace === true ? runOnce(plan, all, bundled, index, mainKey, gameIdentity, 1, options) : undefined;
   if (traced !== undefined) batchProblems.push(...traceDifferences(1, reference, traced).map((problem) => `trace changed execution: ${problem}`));
   const images = new Map<string, DecodedTexture>();
   const frames: ClosingFrameRecord[] = [];

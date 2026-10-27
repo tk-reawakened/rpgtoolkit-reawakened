@@ -263,7 +263,7 @@ export function createScriptServices(
   logger: Logger = NULL_LOGGER,
   virtuals?: VirtualVariablePort,
   loaderOrGameId?: ProgramLoader | string,
-  explicitGameId = "default",
+  explicitGameId?: string | null,
   postEffect?: (section: SectionKey, effect: EffectRecord) => void,
   postRequest?: (request: CommandRequest) => void,
   layers: PluginLayers = createPluginLayers(),
@@ -276,7 +276,7 @@ export function createScriptServices(
   battleStart?: CommandView["battleStart"],
 ): ScriptServices {
   const loader = typeof loaderOrGameId === "string" ? undefined : loaderOrGameId;
-  const gameId = typeof loaderOrGameId === "string" ? loaderOrGameId : explicitGameId;
+  const gameId = typeof loaderOrGameId === "string" ? loaderOrGameId : explicitGameId ?? null;
   const runtimeRng = createRngPort(state.rng);
   const runtimeClock = createClockPort(state.time);
   const lifecycle: PackageStartupLifecycle = typeof packageStartup === "boolean" ? { active: packageStartup, packageName: undefined } : packageStartup;

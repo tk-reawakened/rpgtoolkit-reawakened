@@ -10,6 +10,7 @@
 import { decodeCp1252, encodeCp1252 } from "../../formats/binary/cp1252.ts";
 import type { BuiltinSpec } from "../builtins.ts";
 import { ScriptError } from "../errors.ts";
+import { requireGameId } from "../game-id.ts";
 import type { CommandRequest, CommandResult, CommandView } from "../plugin.ts";
 import type { FileHandle } from "../state.ts";
 import { toStringValue, truthy } from "../values.ts";
@@ -42,8 +43,7 @@ function fileInfo(view: CommandView, args: readonly { value: unknown }[]): FileI
     throw new ScriptError("builtin.bad-arg", "file paths must stay inside the game sandbox");
   }
   const area = folder === "saved" ? "saves" : "files";
-  const gameId = view.gameId ?? "default";
-  const path = `${gameId}/${folder}/${file}`;
+  const path = `${requireGameId(view)}/${folder}/${file}`;
   return { file, path, area };
 }
 
@@ -215,7 +215,7 @@ const FILE_COMMANDS: BuiltinSpec[] = [
   },
   {
     name: "apppath", aliases: [], params: [{ name: "path", optional: true, byRef: true, variadic: false }],
-    call: (view, args) => { const path = view.gameId ?? "default"; return { value: path, ...(byRef(args, 0) ? { out: [[0, path] as [number, string]] } : {}) }; },
+    call: (view, args) => { const path = requireGameId(view); return { value: path, ...(byRef(args, 0) ? { out: [[0, path] as [number, string]] } : {}) }; },
   },
   {
     name: `${INTERNAL}open_save`, aliases: [],

@@ -1,5 +1,6 @@
 import { fnv1a64, hashDrawList, utf8Decode, utf8Encode } from "../canon/index.ts";
 import { restoreGameSave, snapshotGameSave } from "../save/game-save.ts";
+import { deriveGameId } from "../save/game-id.ts";
 import { restoreGameState, snapshot } from "../save/snapshot.ts";
 import { createPluginLayers, type PluginLayers } from "../script/layers.ts";
 import { actorEmitterKey, actorId } from "../actors/model.ts";
@@ -187,23 +188,32 @@ type EngineCommonInit = {
 /**
  * Scene mode: load one board and optionally run one program, with no start-up
  * sequence. The tracer bullet, the golden scenes and the editor previews use it.
+ * There is no main file, so there is no game identity: every save-area operation
+ * fails with a located `save.no-game-identity` error rather than borrowing one.
  */
 export type SceneInit = EngineCommonInit & {
   readonly initialBoard: string;
   readonly program?: string | ProgramRef;
   readonly mainFile?: never;
   readonly startup?: never;
+  readonly gameIdentity?: never;
 };
 
 /**
  * Boot mode: run E-02 from the main file at the index path `mainFile`
  * (docs/spec/engine/main-loop-and-startup.md#reawakened-boot-sequence).
+ *
+ * `gameIdentity` is the host's AD-17 identity for the game — `derivePackageIdentity`
+ * for a package, a host-chosen stable string for a folder. Core hashes it with the
+ * main file's bytes into the `GameId` that prefixes every save-area path; there is
+ * no default.
  */
 export type BootInit = EngineCommonInit & {
   readonly mainFile: string;
   readonly startup: StartupPorts;
   readonly initialBoard?: never;
   readonly program?: never;
+  readonly gameIdentity: string;
 };
 
 export type EngineInit = SceneInit | BootInit;
@@ -256,27 +266,6 @@ function encodeHex(bytes: Uint8Array): string {
   let text = "";
   for (const byte of bytes) text += byte.toString(16).padStart(2, "0");
   return text;
-}
-
-/**
- * AD-17's `GameId`: the deterministic core-side identity of a game's save area.
- *
- * It is a hash of the main file's actual bytes plus the package identity, so
- * two games that ship a same-named main file get separate save areas, and so
- * do two packages whose main file is identical. A game folder's identity is its
- * `projectPath`. A package's identity is the host-supplied
- * `PackageAssetRoot.identity` (its archive name and version, or a content
- * digest) together with the package's canonical sorted asset tree; core never
- * reads every file, so only the host can distinguish two packages whose paths
- * match but whose contents differ. With no host identity the tree is all core
- * has, and two such packages share one save area.
- */
-export function deriveGameId(mainBytes: Uint8Array, root: AssetRoot, index: AssetIndex): string {
-  const tree = [...index.keys].sort().join("\u0000");
-  const packageIdentity = root.kind === "game"
-    ? `game\u0000${root.projectPath}`
-    : `package\u0000${root.identity ?? ""}\u0000${tree}`;
-  return fnv1a64(`${packageIdentity}\u0000${fnv1a64(mainBytes)}`);
 }
 
 /** Create the deterministic fixed-tick engine; host assets arrive only as AD-14 replies. */
@@ -572,6 +561,9 @@ export function createEngine(init: EngineInit): Engine {
     ...(init.sprites === undefined ? {} : { sprites: init.sprites }),
     ...(init.globalAmbient === undefined ? {} : { globalAmbient: init.globalAmbient }),
   };
+  // Read before the branch narrows `init`: a JavaScript caller can omit the
+  // boot-mode identity even though the type requires it, and that must fail loudly.
+  const hostGameIdentity: string | undefined = init.gameIdentity;
   if (init.mainFile === undefined) {
     const resolved = resolveAsset(index, root, "boards", init.initialBoard);
     if (resolved.ok) sceneBoardKey = resolved.value;
@@ -586,13 +578,28 @@ export function createEngine(init: EngineInit): Engine {
       mainKey = found;
       state.engine.boot = { stage: "main", main: found, fonts: [] };
     }
+    if (hostGameIdentity === undefined) {
+      diagnostics.push({
+        code: "startup.no-game-identity",
+        file: init.mainFile,
+        line: 0,
+        message: "boot needs the host's AD-17 game identity; a scene engine has none (docs/spec/formats/save-game.md#reawakened-full-engine-save-and-load)",
+      });
+      failed = true;
+      state.engine.boot = { stage: "stopped", main: "", fonts: [] };
+    }
   }
   let activePlugins: readonly ResolvedPlugin[] = init.plugins ?? DEFAULT_ENGINE_PLUGINS;
-  let currentGameId: string = mainKey ?? sceneBoardKey ?? assetKey(init.mainFile ?? init.initialBoard ?? "");
-  /** Recompute AD-17's `GameId` once the main file's bytes are known. */
+  /**
+   * AD-17's `GameId`, or `null` until it can be derived. Boot mode has the host's
+   * `gameIdentity`; scene mode never has one, so every save-area operation there
+   * fails explicitly (never a borrowed or path-derived identity).
+   */
+  let currentGameId: string | null = null;
+  /** Recompute the `GameId` once the main file's bytes are known. */
   function refreshGameId(): void {
     const bytes = mainKey === null ? undefined : cache.get(mainKey);
-    if (bytes !== undefined) currentGameId = deriveGameId(bytes, root, index);
+    if (bytes !== undefined && hostGameIdentity !== undefined) currentGameId = deriveGameId(bytes, hostGameIdentity);
   }
   let pluginLayers = createPluginLayers();
   const packageStartupLifecycle = { active: false, packageName: undefined as string | undefined };
@@ -620,6 +627,22 @@ export function createEngine(init: EngineInit): Engine {
             typeof request.blob === "object" && request.blob !== null && !Array.isArray(request.blob)) {
           const rawBlob = request.blob as Record<string, unknown>;
           if ((rawBlob.area === "saves" || rawBlob.area === "files") && typeof rawBlob.path === "string" && rawBlob.path !== "") {
+            // AD-17: no identity means no save area. Refuse at the seam as well as
+            // in the builtins, so a future command cannot publish a shared path.
+            if (currentGameId === null) {
+              diagnostics.push({
+                code: "save.no-game-identity",
+                file: mainKey ?? "",
+                line: 0,
+                message: `${request.kind} refused: this engine has no game identity (docs/spec/formats/save-game.md#reawakened-full-engine-save-and-load)`,
+              });
+              try {
+                replyToRequest(state.vm, request.reqId, { ok: false, value: "this game has no save area" });
+              } catch (error) {
+                if (error instanceof ScriptError) diagnostics.push(toDiagnostic(error));
+              }
+              return;
+            }
             const reqId = SCRIPT_REQUEST_BASE + request.reqId;
             const gameSave = request.kind === "saveBlob" && request.gameSave === true;
             const gameLoad = request.kind === "loadBlob" && request.gameLoad === true;

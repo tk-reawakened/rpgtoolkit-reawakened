@@ -15,15 +15,30 @@ In the Reawakened runtime, `Save(name)` and `Load(name)` use the sandboxed
 never accesses the filesystem. A board with `disableSaving` set does not issue a
 save request.
 
-Blob paths are prefixed with the AD-17 `GameId`, which core derives as a
-deterministic hash of the main file's actual bytes plus the package identity. A
-game folder's identity is its project path. A package's identity is the host
-supplied `PackageAssetRoot.identity` — the archive name and version, or a digest
-over the package's contents — together with the package's canonical sorted asset
-tree. Core never reads the whole package, so only the host can distinguish two
-packages whose paths and main file match but whose other files differ; without
-that identity those two share one save area. The identity is stable across
-`reset()` and a `mainFile` reboot of the same game.
+Blob paths are prefixed with the AD-17 `GameId`, which core derives as
+`fnv1a64(host game identity, fnv1a64(main-file bytes))`. The identity is a
+required engine-init value: a boot-mode engine refuses to start without one, and
+a scene engine (which has no main file) has none, so every save-area operation
+there fails with a located `save.no-game-identity` error instead of writing into
+a shared area. There is no fallback identity.
+
+Core exports the canonical derivation for the host to use, so every runner
+computes the same value from bytes it already holds:
+
+- `derivePackageIdentity(files)` hashes a package's sorted `(path, bytes)`
+  entries with length-prefixed fields, so it is injective — no path or content
+  can collide with another package's encoding. A package game passes its result
+  as the engine's game identity; two packages whose paths and main file match
+  but whose other files differ therefore get separate save areas.
+- `deriveGameId(mainBytes, gameIdentity)` folds the main file's actual bytes
+  into that identity, so two games with a same-named main file but different
+  bytes also stay separate.
+
+The identity is stable across `reset()` and a `mainFile` reboot of the same
+game. For a game folder the host chooses the identity (its project path is the
+natural one); nothing in core makes that choice relocation-proof, so a host that
+moves a folder and keeps its old identity keeps its saves, and one that changes
+the identity starts a new save area.
 
 `Save` captures the complete canonical game state only after its calling VM
 thread has parked on the host request. The save records that thread as resumed

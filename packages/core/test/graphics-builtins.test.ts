@@ -22,7 +22,7 @@ function command(name: string) {
 function view() {
   const state = createGameState({ seed: 1 });
   state.surfaces = createSurfacesSection(8, 8);
-  const commandView: CommandView = { state, rng: { nextUint32: () => 0 }, clock: { tick: () => 0 } };
+  const commandView: CommandView = { state, rng: { nextUint32: () => 0 }, clock: { tick: () => 0 }, gameId: "test-game" };
   return { state, commandView };
 }
 

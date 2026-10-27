@@ -20,18 +20,9 @@ import type { AssetKey } from "../../ports/keys.ts";
  */
 export type AssetRoot = PackageAssetRoot | GameAssetRoot;
 
-/** A package root: the index's paths are the package's, and `projectPath` is ignored(docs/spec/formats/packaging-and-paths.md). */
+/** A package root: the index's paths are the package's, and `projectPath` is ignored(docs/spec/formats/packaging-and-paths.md). Resolution never needs a save identity; the engine takes that as its own init value. */
 export interface PackageAssetRoot {
   readonly kind: "package";
-  /**
-   * The host's canonical identity for the package: its archive name and version,
-   * or a digest over the package's contents (AD-17). `deriveGameId` hashes it, so
-   * two packages whose paths and main file match but whose other files differ
-   * still get separate save areas. Core never reads the whole package, so only
-   * the host can supply this; omit it only when the host cannot tell such
-   * packages apart.
-   */
-  readonly identity?: string;
 }
 
 /** A game-folder root: references resolve under `<root>/Game/<projectPath>/`(docs/spec/formats/README.md#paths-inside-files). */

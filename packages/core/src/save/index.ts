@@ -11,6 +11,8 @@ export type { GameState, GameStateIsPlainData, SchemaState, SectionKey } from ".
 export { restoreGameState, snapshot } from "./snapshot.ts";
 export { snapshotGameSave, restoreGameSave } from "./game-save.ts";
 export type { RestoredGameSave } from "./game-save.ts";
+export { deriveGameId, derivePackageIdentity } from "./game-id.ts";
+export type { PackageIdentityFile } from "./game-id.ts";
 export { hashGameState } from "./hash.ts";
 export {
   createFxSection,

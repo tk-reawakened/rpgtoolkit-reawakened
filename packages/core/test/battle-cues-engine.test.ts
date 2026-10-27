@@ -207,6 +207,7 @@ function play(ticks: number, device: boolean): Played {
     assetIndex: createAssetIndex(paths),
     assetRoot: PACKAGE_ROOT,
     mainFile: "main.gam",
+    gameIdentity: "battle-cues-test",
     width: 320,
     height: 240,
     maxTicks: ticks + 600,
@@ -285,6 +286,7 @@ function hostedEngine(game: AuthoredGameFiles): HostedEngine {
     assetIndex: createAssetIndex(game.paths),
     assetRoot: PACKAGE_ROOT,
     mainFile: "main.gam",
+    gameIdentity: "battle-cues-test",
     width: 320,
     height: 240,
     maxTicks: 1000,
@@ -380,18 +382,14 @@ test("a full-engine save during battle resumes its parked thread and returns to 
     }
     if (savedBytes !== null) break;
     if (report.loading) {
-      replies = report.requests.flatMap((request) => request.kind === "asset"
-        ? [{ tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: savingGame.files.get(request.key) ?? null } }]
+      replies = report.requests.flatMap((request): InputRecord[] => request.kind === "asset"
+        ? [{ tick: report.tickAfter, event: { kind: "asset", reqId: request.reqId, bytes: savingGame.files.get(request.key) ?? null } }]
         : []);
     }
   }
   ok(savedBytes !== null, "the real engine issued a saveBlob request during the fight");
   equal(savedArea, "saves");
-  const expectedGameId = deriveGameId(
-    savingGame.files.get(assetKey("main.gam")) ?? new Uint8Array(),
-    PACKAGE_ROOT,
-    createAssetIndex(savingGame.paths),
-  );
+  const expectedGameId = deriveGameId(savingGame.files.get(assetKey("main.gam")) ?? new Uint8Array(), "battle-cues-test");
   equal(savedPath, `${expectedGameId}/saved/slot.sav`, "the save area is keyed by the AD-17 GameId");
   const bytes = savedBytes as Uint8Array;
   const saved = JSON.parse(new TextDecoder().decode(bytes)) as {
@@ -413,14 +411,14 @@ test("a full-engine save during battle resumes its parked thread and returns to 
     replies = [];
     cues.push(...report.audioCues);
     if (report.loading) {
-      replies = report.requests.flatMap((request) => {
-        if (request.kind === "asset") return [{ tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: loadingGame.files.get(request.key) ?? null } }];
+      replies = report.requests.flatMap((request): InputRecord[] => {
+        if (request.kind === "asset") return [{ tick: report.tickAfter, event: { kind: "asset", reqId: request.reqId, bytes: loadingGame.files.get(request.key) ?? null } }];
         if (request.kind === "loadBlob") {
           loadedPath = request.blob.path;
           loadedArea = request.blob.area;
           return [{ tick: report.tickAfter, event: { kind: "blob.loaded" as const, reqId: request.reqId, bytes: new Uint8Array(bytes) } }];
         }
-        if (request.kind === "saveBlob") return [{ tick: report.tickAfter, event: { kind: "blob.saved" as const, reqId: request.reqId, ok: true } }];
+        if (request.kind === "saveBlob") return [{ tick: report.tickAfter, event: { kind: "blob.saved", reqId: request.reqId, ok: true } }];
         return [];
       });
     }
@@ -481,8 +479,8 @@ test("same-tick setimage before Save waits for the asset reply so the saved stat
       break;
     }
     if (report.loading) {
-      replies = report.requests.flatMap((r) => r.kind === "asset"
-        ? [{ tick: report.tickAfter, event: { kind: "asset" as const, reqId: r.reqId, bytes: game.files.get(r.key) ?? null } }]
+      replies = report.requests.flatMap((r): InputRecord[] => r.kind === "asset"
+        ? [{ tick: report.tickAfter, event: { kind: "asset", reqId: r.reqId, bytes: game.files.get(r.key) ?? null } }]
         : []);
     }
   }
@@ -500,9 +498,9 @@ test("same-tick setimage before Save waits for the asset reply so the saved stat
     const report = loaded.engine.advance(1, replies);
     replies = [];
     if (report.loading) {
-      replies = report.requests.flatMap((request) => {
-        if (request.kind === "asset") return [{ tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: loadingGame.files.get(request.key) ?? null } }];
-        if (request.kind === "loadBlob") return [{ tick: report.tickAfter, event: { kind: "blob.loaded" as const, reqId: request.reqId, bytes: new Uint8Array(savedBytes) } }];
+      replies = report.requests.flatMap((request): InputRecord[] => {
+        if (request.kind === "asset") return [{ tick: report.tickAfter, event: { kind: "asset", reqId: request.reqId, bytes: loadingGame.files.get(request.key) ?? null } }];
+        if (request.kind === "loadBlob") return [{ tick: report.tickAfter, event: { kind: "blob.loaded", reqId: request.reqId, bytes: new Uint8Array(savedBytes) } }];
         return [];
       });
     }
