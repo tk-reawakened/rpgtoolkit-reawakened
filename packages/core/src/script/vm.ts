@@ -91,6 +91,7 @@ import type { CommandResult, CommandRequest, CommandView, ResolvedPlugin, MenuPr
 import {
   COMPILER_VERSION,
   fileProgramRef,
+  restartProgramRef,
   withRedirects,
   type ProgramLoader,
   type FunctionInfo,
@@ -2948,25 +2949,7 @@ function sourceChanged(error: unknown): boolean {
 function restartThreadFromSource(thread: Thread, vm: VmState, services: ScriptServices): void {
   const stale = thread.frames[0]?.program;
   if (stale === undefined) throw new ScriptError("restore.shape", `thread ${thread.id} has no program frame`);
-  let ref: ProgramRef;
-  if (stale.kind === "file") {
-    if (services.loader === undefined) {
-      throw new ScriptError("program.file-unsupported", `cannot restart "${stale.path}" without a source loader`);
-    }
-    const fresh = fileProgramRef(services.loader, stale.path, stale.redirects ?? vm.redirects);
-    ref = {
-      ...fresh,
-      ...(stale.includes === undefined ? {} : { includes: [...stale.includes] }),
-      ...(stale.dialect === undefined ? {} : { dialect: stale.dialect }),
-      ...(stale.owner === undefined ? {} : { owner: stale.owner }),
-    };
-  } else {
-    ref = {
-      ...stale,
-      ...(stale.includes === undefined ? {} : { includes: [...stale.includes] }),
-      ...(stale.dialect === undefined ? {} : { dialect: stale.dialect }),
-    };
-  }
+  const ref = restartProgramRef(stale, services.loader, vm.redirects);
   services.programs.get(ref);
   thread.frames = [
     {

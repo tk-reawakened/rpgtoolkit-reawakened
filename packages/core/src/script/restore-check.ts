@@ -19,7 +19,7 @@ import { eachRootValue, isCallableRecord } from "./cells.ts";
 import { RESTORE_CALLABLE_CAPTURES, RESTORE_CALLABLE_RECEIVER, RESTORE_CALLABLE_UNKNOWN_DEF, ScriptError } from "./errors.ts";
 import { isLayerDef } from "./layers.ts";
 import { parseHostMethodDef } from "./host.ts";
-import { COMPILER_VERSION, programKey, type Program, type ProgramRef } from "./program.ts";
+import { COMPILER_VERSION, programKey, restartProgramRef, type Program, type ProgramLoader, type ProgramRef } from "./program.ts";
 import type { CommandLookup } from "./registry.ts";
 import type { VmState } from "./state.ts";
 import type { EventsSection } from "../events/model.ts";
@@ -40,34 +40,53 @@ function describeProgram(ref: ProgramRef): string {
 }
 
 /**
- * Compile every program a restored state names: each thread's frames, then each
- * `vm.defOwners` entry. `verifyRestoredHandles` only does this when the state holds
- * a callable, so a game load calls this as well; otherwise a frame naming a program
+ * Compile every program a restored state names, and prove every thread restart
+ * will compile. `verifyRestoredHandles` only compiles when the state holds a
+ * callable, so a game load calls this as well; otherwise a frame naming a program
  * file or include the game no longer has would load and then throw from the next
- * tick, after the live game was already replaced. A changed source
- * (`restore.source-changed`) is tolerated, because that one thread restarts from
- * source; any other failure (`program.missing`, a bad include) refuses the load. A
- * program from another compiler never reaches here: the save is refused whole first.
+ * tick, after the live game was already replaced.
+ *
+ * A changed source (`restore.source-changed`) is tolerated because that one thread
+ * restarts from source, but the restart is exactly what will run next, so it is
+ * built the way `restartThreadFromSource` builds it (`restartProgramRef`) and
+ * compiled here: a syntax error in the new file, a missing literal include, or a
+ * saved run-time include that was removed refuses the load now. Any other failure
+ * (`program.missing`, a bad include) also refuses it. A program from another
+ * compiler never reaches here: the save is refused whole first.
  */
-export function compileRestoredPrograms(vm: VmState, services: Pick<RestoreCheckServices, "programs">): void {
-  const refs = new Map<string, ProgramRef>();
+export function compileRestoredPrograms(
+  vm: VmState,
+  services: Pick<RestoreCheckServices, "programs"> & { readonly loader?: ProgramLoader },
+): void {
   for (const thread of vm.threads) {
-    for (const frame of thread.frames) refs.set(programKey(frame.program), frame.program);
-  }
-  for (const owner of Object.values(vm.defOwners ?? {})) refs.set(programKey(owner), owner);
-  for (const ref of refs.values()) {
-    if (ref.compiler !== COMPILER_VERSION) {
-      throw new ScriptError(
-        "restore.compiler-mismatch",
-        `the snapshot's program "${describeProgram(ref)}" was compiled by ${ref.compiler}, not ${COMPILER_VERSION}`,
-      );
+    let restarts = false;
+    for (const frame of thread.frames) {
+      if (frame.program.compiler !== COMPILER_VERSION) throw otherCompiler(frame.program);
+      try {
+        services.programs.get(frame.program);
+      } catch (error) {
+        if (!(error instanceof ScriptError) || error.code !== "restore.source-changed") throw error;
+        restarts = true;
+      }
     }
+    const root = thread.frames[0]?.program;
+    if (restarts && root !== undefined) services.programs.get(restartProgramRef(root, services.loader, vm.redirects));
+  }
+  for (const owner of Object.values(vm.defOwners ?? {})) {
+    if (owner.compiler !== COMPILER_VERSION) throw otherCompiler(owner);
     try {
-      services.programs.get(ref);
+      services.programs.get(owner);
     } catch (error) {
       if (!(error instanceof ScriptError) || error.code !== "restore.source-changed") throw error;
     }
   }
+}
+
+function otherCompiler(ref: ProgramRef): ScriptError {
+  return new ScriptError(
+    "restore.compiler-mismatch",
+    `the snapshot's program "${describeProgram(ref)}" was compiled by ${ref.compiler}, not ${COMPILER_VERSION}`,
+  );
 }
 
 /**

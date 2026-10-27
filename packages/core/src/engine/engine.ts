@@ -712,6 +712,7 @@ export function createEngine(init: EngineInit): Engine {
     const previousLayers = pluginLayers;
     const previousStartupServicesReady = startupServicesReady;
     const previousFailed = failed;
+    const previousNextRequestId = nextRequestId;
     const restoredLayers = createPluginLayers();
     try {
       Object.assign(state, createGameState({ seed: init.seed }));
@@ -743,6 +744,7 @@ export function createEngine(init: EngineInit): Engine {
       pluginLayers = previousLayers;
       startupServicesReady = previousStartupServicesReady;
       failed = previousFailed;
+      nextRequestId = previousNextRequestId;
       throw error;
     }
   }

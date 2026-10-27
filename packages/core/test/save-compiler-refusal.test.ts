@@ -2,7 +2,7 @@
 // a save made by another compiler is refused whole and the live game is left
 // unchanged. This drives the real engine's `Load` against a captured save whose
 // compiler version has been altered, and against the untouched save as a control.
-import { equal, ok } from "node:assert/strict";
+import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { TextDecoder, TextEncoder } from "node:util";
 import {
@@ -196,4 +196,52 @@ test("a compiler mismatch is reported as such even when the audio projection is 
   ok(codes.includes("restore.compiler-mismatch"), `diagnostics: ${JSON.stringify(codes)}`);
   equal(codes.includes("restore.shape"), false, `diagnostics: ${JSON.stringify(codes)}`);
   equal((loader.state()!.vm.globals as Record<string, unknown>).after, 9);
+});
+
+for (const [label, source, saverExtra, loaderExtra] of [
+  ["a syntax error", "marker = (\n", {}, {}],
+  // `include()` at run time adds helper.prg to the saved program's include list; the
+  // restart copies that list, and a removed file is an error, not skipped (MOD-3).
+  ["a saved run-time include that was removed", "marker = 7\nend()\n", { "helper.prg": "y = 1\n" }, {}],
+] as const) {
+  test(`a changed source with ${label} refuses the load instead of throwing from the next tick`, () => {
+    // The saved thread's file changed, so it would restart from source. That restart
+    // is exactly what runs next, so it must be proven to compile before the load commits.
+    const includesFirst = Object.keys(saverExtra).length > 0 ? 'include("helper.prg")\n' : "";
+    const { saved } = run(boot("", "end()\n", { extra: { "other.prg": includesFirst + SAVER, ...saverExtra }, fileThread: "other.prg" }), null);
+    ok(saved !== null, "the saver produced a save");
+    if (includesFirst !== "") {
+      ok(new TextDecoder().decode(saved).includes("helper.prg"), "the save records the run-time include");
+    }
+    const loader = boot(LOADER, "end()\n", { extra: { "other.prg": source, ...loaderExtra } });
+    const { codes } = run(loader, saved);
+    const state = loader.state()!;
+    const globals = state.vm.globals as Record<string, unknown>;
+
+    ok(codes.length > 0 && !codes.includes("restore.source-changed"), `diagnostics: ${JSON.stringify(codes)}`);
+    equal(globals.marker, 9, "no part of the save was applied");
+    equal(globals.after, 9, "the calling thread kept running after Load failed");
+    equal(state.vm.threads.some((thread) => thread.frames.some((frame) => frame.program.kind === "file" && frame.program.path === "other.prg")), false, "the saved thread was not installed");
+  });
+}
+
+test("a load that fails after the counter was adopted leaves the game and its request counter exactly as a refused-for-absence load does", () => {
+  // Both loads fail and change nothing, so the two games must end in the same engine
+  // state. A load rewound to the save's request counter would diverge, and would
+  // re-issue request ids this session already used.
+  const { saved } = run(boot("", "end()\n", { extra: { "other.prg": SAVER }, fileThread: "other.prg" }), null);
+  ok(saved !== null, "the saver produced a save");
+  const missing = boot(LOADER);
+  const absent = boot(LOADER);
+  const missingRun = run(missing, saved);
+  run(absent, null);
+
+  ok(missingRun.codes.includes("program.missing"), `diagnostics: ${JSON.stringify(missingRun.codes)}`);
+  const left = missing.state()!;
+  const right = absent.state()!;
+  ok(left.engine.nextRequestId !== undefined && left.engine.nextRequestId > 1);
+  equal(left.engine.nextRequestId, right.engine.nextRequestId, "the request counter was not rewound");
+  deepEqual(left.engine, right.engine);
+  deepEqual(left.vm.globals, right.vm.globals);
+  deepEqual(left.time, right.time);
 });
