@@ -11,9 +11,17 @@ Legacy header text: `RPGTLKIT SAVE`. Toolkit 3.1.0 writes major **3**, minor **4
 ### Reawakened full-engine save and load
 
 In the Reawakened runtime, `Save(name)` and `Load(name)` use the sandboxed
-`saveBlob` and `loadBlob` host requests for `Saved/<name>.sav`; the host owns
-storage and the engine never accesses the filesystem. A board with
-`disableSaving` set does not issue a save request.
+`saveBlob` and `loadBlob` host requests; the host owns storage and the engine
+never accesses the filesystem. A board with `disableSaving` set does not issue a
+save request.
+
+Blob paths are prefixed with the AD-17 `GameId`, which core derives as a
+deterministic hash of the main file's actual bytes plus the package identity —
+a game folder's project path, or a package's canonical sorted asset tree. Two
+games that share a main-file path but ship different bytes, and two packages
+that carry the same main-file bytes, therefore read and write separate save
+areas. The identity is stable across `reset()` and a `mainFile` reboot of the
+same game.
 
 `Save` captures the complete canonical game state only after its calling VM
 thread has parked on the host request. The save records that thread as resumed

@@ -258,6 +258,23 @@ function encodeHex(bytes: Uint8Array): string {
   return text;
 }
 
+/**
+ * AD-17's `GameId`: the deterministic core-side identity of a game's save area.
+ *
+ * It is a hash of the main file's actual bytes plus the package identity, so
+ * two games that ship a same-named main file, and two packages that carry the
+ * same main file bytes, both get separate save areas. The package identity is
+ * the game folder's `projectPath`, or the package's canonical (case-folded,
+ * sorted) asset tree when the game arrived as a package — core holds no package
+ * name in that case, and the tree is the identity the package actually has.
+ */
+export function deriveGameId(mainBytes: Uint8Array, root: AssetRoot, index: AssetIndex): string {
+  const packageIdentity = root.kind === "game"
+    ? `game\u0000${root.projectPath}`
+    : `package\u0000${[...index.keys].sort().join("\u0000")}`;
+  return fnv1a64(`${packageIdentity}\u0000${fnv1a64(mainBytes)}`);
+}
+
 /** Create the deterministic fixed-tick engine; host assets arrive only as AD-14 replies. */
 const DEFAULT_GAME_AUDIO_SETTINGS = {
   tracks: BUILTIN_TRACKS.map(([name, voiceCount]) => ({ name, voiceCount })),
@@ -567,7 +584,12 @@ export function createEngine(init: EngineInit): Engine {
     }
   }
   let activePlugins: readonly ResolvedPlugin[] = init.plugins ?? DEFAULT_ENGINE_PLUGINS;
-  let currentGameId = mainKey ?? sceneBoardKey ?? assetKey(init.mainFile ?? init.initialBoard ?? "");
+  let currentGameId: string = mainKey ?? sceneBoardKey ?? assetKey(init.mainFile ?? init.initialBoard ?? "");
+  /** Recompute AD-17's `GameId` once the main file's bytes are known. */
+  function refreshGameId(): void {
+    const bytes = mainKey === null ? undefined : cache.get(mainKey);
+    if (bytes !== undefined) currentGameId = deriveGameId(bytes, root, index);
+  }
   let pluginLayers = createPluginLayers();
   const packageStartupLifecycle = { active: false, packageName: undefined as string | undefined };
   let startupServicesReady = false;
@@ -1180,7 +1202,7 @@ export function createEngine(init: EngineInit): Engine {
         diagnostics.push({ code: "asset.invalid", file: nextMain, line: 0, message: `main file "${nextMain}" is not in the asset index` });
       } else {
         mainKey = found;
-        currentGameId = found;
+        refreshGameId();
         mainFileAudioNeedsApply = true;
         state.engine.boot = { stage: "main", main: found, fonts: [] };
       }
@@ -1536,6 +1558,7 @@ export function createEngine(init: EngineInit): Engine {
       }
       mainFile = parsed.value;
       if (root.kind === "game") root = { kind: "game", projectPath: mainFile.projectPath };
+      refreshGameId();
       for (const key of [...privateFontKeys(index, root), ...programKeys(index, root)]) request(key, key.endsWith(".ttf") ? "font" : "program");
       boot.stage = "assets";
       return true;

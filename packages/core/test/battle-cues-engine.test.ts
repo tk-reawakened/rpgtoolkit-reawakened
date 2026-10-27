@@ -17,6 +17,7 @@ import {
   createEmptyBoard,
   createEmptyMainFile,
   createEngine,
+  deriveGameId,
   PACKAGE_ROOT,
   registerActorObject,
   writeBattleBackground,
@@ -386,7 +387,12 @@ test("a full-engine save during battle resumes its parked thread and returns to 
   }
   ok(savedBytes !== null, "the real engine issued a saveBlob request during the fight");
   equal(savedArea, "saves");
-  equal(savedPath, "main.gam/saved/slot.sav");
+  const expectedGameId = deriveGameId(
+    savingGame.files.get(assetKey("main.gam")) ?? new Uint8Array(),
+    PACKAGE_ROOT,
+    createAssetIndex(savingGame.paths),
+  );
+  equal(savedPath, `${expectedGameId}/saved/slot.sav`, "the save area is keyed by the AD-17 GameId");
   const bytes = savedBytes as Uint8Array;
   const saved = JSON.parse(new TextDecoder().decode(bytes)) as {
     readonly battle: { readonly outcome: number | null } | null;
