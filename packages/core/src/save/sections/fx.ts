@@ -25,6 +25,8 @@ export type AnimationState = {
   width: number;
   height: number;
   loop: boolean;
+  /** `pinnedanimation`: drawn above the render-now canvas and a one-shot holds its last frame until ended. Absent for the ordinary commands. */
+  pinned?: true;
   originTick: number;
   delayTicks: number;
   frame: number;

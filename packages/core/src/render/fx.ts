@@ -176,7 +176,7 @@ function zoomCommand(command: DrawCommand, scale: number, cx: number, cy: number
 
 /** Apply a recorded `fx` command to saveable state. */
 export function applyFxEffect(state: GameState, effect: EffectRecord): void {
-  if (effect.name === "animation" || effect.name === "sizedanimation" || effect.name === "endanimation") {
+  if (effect.name === "animation" || effect.name === "sizedanimation" || effect.name === "pinnedanimation" || effect.name === "endanimation") {
     applyAnimationEffect(state, effect);
     return;
   }
@@ -273,7 +273,7 @@ export function applyFxDrawList(list: DrawList, fx: FxSection): DrawList {
   const cx = list.width / 2;
   const cy = list.height / 2;
   const commands = list.commands.map((command) => zoom === 1 ? command : zoomCommand(command, zoom, cx, cy));
-  commands.push(...animationBlits(normalized));
+  commands.push(...animationBlits(normalized, false));
   commands.push(...wipeCommands(normalized, list.width, list.height));
   commands.push(...fadeCommands(normalized, list.width, list.height));
   return { ...list, commands };

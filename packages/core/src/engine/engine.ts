@@ -48,7 +48,7 @@ import { composeBoard, type BoardBlit, type SpriteDraw } from "../render/compose
 import { composeUi, composeUiCursor, renderNowBlit } from "../render/ui.ts";
 import { emitText, layoutText } from "../render/text.ts";
 import { applyFxDrawList, advanceFx, applyFxEffect } from "../render/fx.ts";
-import { advanceAnimations, animationFrameAtTick, firstAnimationFrame, loadAnimation } from "../render/animation.ts";
+import { advanceAnimations, animationBlits, loadAnimation } from "../render/animation.ts";
 import { hydrateBoard } from "../world/hydrate.ts";
 import { coordLayout, tileToPixel } from "../world/coords.ts";
 import { boardEmitterKey, type WorldBoard } from "../world/model.ts";
@@ -244,7 +244,6 @@ const SCRIPT_ASSET_AREAS: Readonly<Record<string, { readonly folder: string; rea
   specialMoves: { folder: "spcmove", kind: "script-asset" },
   statusEffects: { folder: "statuse", kind: "script-asset" },
   backgrounds: { folder: "bkrounds", kind: "script-asset" },
-  animations: { folder: "misc", kind: "script-asset" },
 };
 
 function encodeInlineScriptString(value: string): string {
@@ -297,7 +296,6 @@ export function createEngine(init: EngineInit): Engine {
   const pending = new Map<number, RequestEntry>();
   const pendingBlobs = new Map<number, PendingBlobRequest>();
   const pendingImageEffects: Array<{ readonly key: AssetKey; readonly effect: EffectRecord }> = [];
-  const pendingDrawEnemies: EffectRecord[] = [];
   const pendingBoardPreviews: Array<{ readonly key: AssetKey; readonly effect: EffectRecord }> = [];
   const queuedInputs: InputRecord[] = [];
   const requestsOut: RunnerRequest[] = [];
@@ -668,14 +666,6 @@ export function createEngine(init: EngineInit): Engine {
           }
         }
         const scriptArea = request.kind === "asset" && typeof request.area === "string" && Object.hasOwn(SCRIPT_ASSET_AREAS, request.area) ? SCRIPT_ASSET_AREAS[request.area] : undefined;
-        // A script may only ask for the areas the engine knows how to resolve. An unknown area is reported and refused
-        // rather than dropped: dropping it left the calling thread waiting on a request nobody had been given.
-        if (request.kind === "asset" && scriptArea === undefined &&
-            typeof request.reqId === "number" && Number.isSafeInteger(request.reqId) && request.reqId > 0 && request.reqId < SCRIPT_REQUEST_BASE) {
-          diagnostics.push({ code: "request.bad-area", file: typeof request.path === "string" ? request.path : "", line: 0, message: `script asset area "${String(request.area)}" is not one the engine resolves` });
-          replyToRequest(state.vm, request.reqId, { ok: false, value: `unknown script asset area: ${String(request.area)}` });
-          return;
-        }
         if (request.kind === "asset" && scriptArea !== undefined &&
             typeof request.path === "string" && typeof request.reqId === "number" &&
             Number.isSafeInteger(request.reqId) && request.reqId > 0 && request.reqId < SCRIPT_REQUEST_BASE) {
@@ -870,70 +860,6 @@ export function createEngine(init: EngineInit): Engine {
     failed = true;
     if (state.engine.boot !== undefined) state.engine.boot.stage = "stopped";
   }
-  /**
-   * `drawEnemy(file, x, y[, canvas])`: frame 0 of the named animation, blitted with its transparent colour. A needed asset
-   * that is not cached yet is requested and the effect stays queued, in order, until it arrives.
-   */
-  function drawEnemyFrame(effect: EffectRecord): boolean {
-    const [file, rawX, rawY, rawCanvas, rawLoop, rawFrame] = effect.args;
-    const wantedFrame = typeof rawFrame === "number" && Number.isFinite(rawFrame) ? Math.trunc(rawFrame) : -1;
-    const x = typeof rawX === "number" ? rawX : 0;
-    const y = typeof rawY === "number" ? rawY : 0;
-    const canvas = (typeof rawCanvas === "number" ? rawCanvas : 0) as SurfaceId;
-    const loop = rawLoop === undefined || (rawLoop !== 0 && rawLoop !== false);
-    const key = typeof file === "string" ? resolveAnimationFile(file) : null;
-    if (key === null) {
-      imageDiagnostic(file, `drawenemy: animation is not in the asset index`);
-      return true;
-    }
-    const bytes = cache.get(key);
-    if (bytes === undefined) {
-      request(key, "animation");
-      return false;
-    }
-    // An explicit frame (sixth argument) draws that frame; otherwise the frame shown at this tick.
-    const frameData = animationFrameAtTick(
-      bytes, String(file), key, resolveAnimationImage,
-      state.time.tick, Boolean(loop), wantedFrame >= 0 ? wantedFrame : undefined,
-    );
-    if (frameData === null) {
-      imageDiagnostic(file, `drawenemy: cannot decode animation "${String(file)}"`);
-      return true;
-    }
-    const first = frameData;
-    const keyColour = { r: first.frame.transparent.r, g: first.frame.transparent.g, b: first.frame.transparent.b };
-    if (first.gif !== null) {
-      if (!blitTexture(state.surfaces, first.gif, canvas, x, y, undefined, undefined, keyColour)) imageDiagnostic(file, "drawenemy: destination surface is not live");
-      return true;
-    }
-    const asset = first.frame.asset;
-    if (asset === null) {
-      imageDiagnostic(file, `drawenemy: animation "${String(file)}" has no usable first frame`);
-      return true;
-    }
-    const isTile = first.frame.tile !== null;
-    const texture = isTile ? tileTexture(asset) : imageTexture(asset);
-    if (texture === null) {
-      if (failed) return true;
-      request(asset, isTile || !isBitmapKey(asset) ? "tile" : "image");
-      return false;
-    }
-    const width = first.frame.srcWidth;
-    const height = first.frame.srcHeight;
-    const rect = isTile
-      ? { x: ((first.frame.tile ?? 1) - 1) * (asset.toLowerCase().endsWith(".iso") ? 64 : 32), y: 0, w: width, h: height }
-      : { x: 0, y: 0, w: width, h: height };
-    if (!blitTexture(state.surfaces, texture, canvas, x, y, width, height, keyColour, 255, false, rect)) imageDiagnostic(file, "drawenemy: destination surface is not live");
-    return true;
-  }
-  function retryDrawEnemies(): void {
-    // Preserve call order strictly across asynchronous asset resolutions: if an earlier sprite is waiting on an
-    // asset reply, do not let a later already-cached sprite draw on top first, which would invert layering.
-    while (pendingDrawEnemies.length > 0) {
-      if (!drawEnemyFrame(pendingDrawEnemies[0]!)) break;
-      pendingDrawEnemies.shift();
-    }
-  }
   /** E-56 `text` / `pixelText` with a canvas: draw the glyphs into that canvas with the active font, colour and underline. */
   function applyCanvasText(cells: boolean, args: readonly PlainData[]): void {
     const canvas = args[3] as SurfaceId;
@@ -1000,11 +926,6 @@ export function createEngine(init: EngineInit): Engine {
   }
   function applySurfaceEffect(effect: EffectRecord): void {
     if (!IMAGE_EFFECTS[effect.name]) {
-      if (effect.name === "drawenemy") {
-        pendingDrawEnemies.push(effect);
-        retryDrawEnemies();
-        return;
-      }
       if (effect.name === "viewbrd") {
         const key = typeof effect.args[0] === "string" ? resolveAsset(index, root, "boards", effect.args[0]) : null;
         if (key === null || !key.ok) {
@@ -1131,7 +1052,6 @@ export function createEngine(init: EngineInit): Engine {
     } else if (entry.kind === "tile") {
       tileTexture(entry.key);
     }
-    if (pendingDrawEnemies.length > 0) retryDrawEnemies();
   }
   function consumeBlob(record: InputRecord, consumed: InputRecord[]): BlobReplyResult {
     const event = record.event;
@@ -1888,6 +1808,20 @@ export function createEngine(init: EngineInit): Engine {
       if (!loadAnimation(state, animation, bytes, resolveAnimationImage)) {
         animation.finished = true;
         diagnostics.push({ code: "asset.invalid", file: key, line: 0, message: `cannot decode animation "${animation.file}"` });
+        continue;
+      }
+      // A frame's picture is a separate asset. The animation starts playing, and its frame clock starts, only once every
+      // picture is in the cache, so the first drawn frame is never a missing texture and the frames are on the same
+      // ticks on every run.
+      let waiting = false;
+      for (const frame of animation.frames) {
+        if (frame.asset === null || frame.surface !== undefined || cache.has(frame.asset)) continue;
+        request(frame.asset, requestKindFor(frame.asset));
+        waiting = true;
+      }
+      if (waiting) {
+        animation.loaded = false;
+        animation.frames = [];
       }
     }
   }
@@ -2100,7 +2034,8 @@ export function createEngine(init: EngineInit): Engine {
     const withFx = applyFxDrawList(base, state.fx);
     // E-57: the enabled render-now canvas sits above the board, sprites and animations and below UI text and the message window.
     const overlay = renderNowBlit(state.surfaces);
-    const withOverlay = overlay === null ? withFx : { ...withFx, commands: [...withFx.commands, overlay] };
+    // Pinned animations (`pinnedanimation`) are engine-owned pictures that sit directly above that canvas.
+    const withOverlay = { ...withFx, commands: [...withFx.commands, ...(overlay === null ? [] : [overlay]), ...animationBlits({ ...state.fx, animations: (state.fx as Partial<FxSection>).animations ?? [] }, true)] };
     const withUi = { ...withOverlay, commands: [...withOverlay.commands, ...debugCommands(), ...composeUi(state.ui, init.width, init.height, state.input, false, cursorSelection)] };
     return { ...withUi, commands: [...withUi.commands, ...composeUiCursor(state.ui, state.input, cursorSelection)] };
   }

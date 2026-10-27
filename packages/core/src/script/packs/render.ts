@@ -112,8 +112,9 @@ const BORDER_COLOR: BuiltinSpec = {
   },
 };
 
-function animationCommand(name: "animation" | "sizedanimation"): BuiltinSpec {
+function animationCommand(name: "animation" | "sizedanimation" | "pinnedanimation"): BuiltinSpec {
   const sized = name === "sizedanimation";
+  const pinned = name === "pinnedanimation";
   const params = sized
     ? [
         { name: "file", optional: false, byRef: false, variadic: false },
@@ -134,17 +135,21 @@ function animationCommand(name: "animation" | "sizedanimation"): BuiltinSpec {
     aliases: [],
     params,
     doc: {
-      summary: sized
+      summary: pinned
+        ? "Play an animation as a fixed picture the engine keeps animating, drawn above the render-now canvas."
+        : sized
         ? "Play a resized animation at pixel x,y. If sizedAnimation() is called in a thread, it may be looped using the last parameter and returns an id that can be used to end..."
         : "Play an animation at pixel x,y. If animation() is called in a thread, it may be looped using the last parameter and returns an id that can be used to end the animation.",
-      behaviour: sized
+      behaviour: pinned
+        ? "Starts the named .anm or animated GIF at the given pixel position exactly like animation, with two differences: it is drawn above the render-now canvas (after it, before the debug overlays and the text layer), and a one-shot one keeps showing its last frame until endAnimation instead of disappearing. Technically, the frame shown is a pure function of the start tick, the frame delay and the current tick, so a one-tick delay shows every frame on its own tick regardless of how busy the script is, and the call returns the same deterministic animation id as animation without waiting."
+        : sized
         ? "Starts the named .anm or animated GIF at the given pixel position and size. Technically, height precedes width as in the legacy call, the first-page GIF delay is used, a true loop flag keeps the animation running until endAnimation, and the call returns a deterministic animation id without waiting."
         : "Starts the named .anm or animated GIF at the given pixel position. Technically, frames advance every fixed delay tick, a true loop flag keeps the animation running until endAnimation, and the call returns a deterministic animation id without waiting.",
       returns: { summary: "The animation id.", unit: "integer" },
       groups: ["graphics-canvases-animation-video-31"],
       waits: { kind: "never", summary: "Starts playback without waiting." },
       effects: ["fx"],
-      see: ["docs/spec/engine/plugins-and-battle.md#e-54"],
+      see: pinned ? ["docs/spec/engine/rpgcode-functions.md#reawakened-pinnedanimation"] : ["docs/spec/engine/plugins-and-battle.md#e-54"],
     },
     call: (view, args) => {
       const values = args.map((arg) => arg.value as PlainData);
@@ -171,6 +176,7 @@ function animationCommand(name: "animation" | "sizedanimation"): BuiltinSpec {
 
 const ANIMATION = animationCommand("animation");
 const SIZED_ANIMATION = animationCommand("sizedanimation");
+const PINNED_ANIMATION = animationCommand("pinnedanimation");
 const END_ANIMATION: BuiltinSpec = {
   name: "endanimation",
   aliases: [],
@@ -200,5 +206,6 @@ export const RENDER_PLUGIN = pack("render", "Deterministic rendering, camera, UI
   ...GRAPHICS_COMMANDS,
   ANIMATION,
   SIZED_ANIMATION,
+  PINNED_ANIMATION,
   END_ANIMATION,
 ]);

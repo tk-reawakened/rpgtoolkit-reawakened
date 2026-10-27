@@ -894,10 +894,11 @@ function battle() {
 
 // ---- The default battle screen (BAT-11, entry 7.11) -------------------------------------------------------------
 // Everything below only reads the battle and the actors and draws with the ruled primitives: `fillrect`, `drawrect`,
-// `pixelText`, `drawenemy` (a fighter's stance frame), `drawcanvas` and `bitmap` (the .bkg picture), into the
-// render-now canvas. It owns no rule: the only writes are the package's own `stockBattle.attack`, `special`, `item`
-// and `run` calls that the player's choice makes, and the key queue it reads. The screen is on only when the host
-// has a screen surface; a headless run keeps the old behaviour (a player's turn is skipped).
+// `pixelText`, `drawcanvas` and `bitmap` (the .bkg picture), into the render-now canvas, and it shows each fighter's
+// stance with `pinnedanimation`, which the engine keeps animating by itself (BAT-11 item 4). It owns no rule: the
+// only writes are the package's own `stockBattle.attack`, `special`, `item` and `run` calls that the player's choice
+// makes, and the key queue it reads. The screen is on only when the host has a screen surface; a headless run keeps
+// the old behaviour (a player's turn is skipped).
 stockBattleUi = {
   on: 0,
   w: 0,
@@ -908,18 +909,15 @@ stockBattleUi = {
   target: 0,
   layout: {},
   files: {},
-  anim: {},
-  spriteCanvas: {},
-  staticBuf: 0,
   staticSig: "",
-  lastPaintTick: -1,
-  barScan: 0,
-  preload: {},
-  preloadCount: 0,
   chars: {},
   itemData: {},
   signature: "",
   roster: {},
+  rosterParty: {},
+  rosterIndex: {},
+  spriteKey: {},
+  spriteId: {},
   rosterCount: 0,
   seen: {},
   scan: 0,
@@ -1024,11 +1022,6 @@ stockBattleUi = {
     local(w)
     local(h)
     local(screen)
-    local(meta)
-    local(frameCount)
-    local(frameIndex)
-    local(frameKey)
-    local(frameCanvas)
     local(party)
     local(index)
     local(size)
@@ -1058,17 +1051,15 @@ stockBattleUi = {
     stockBattleUi.h = h
     stockBattleUi.layout = stockBattleUi.makeLayout(w, h)
     stockBattleUi.files = {}
-    stockBattleUi.anim = {}
-    stockBattleUi.spriteCanvas = {}
     stockBattleUi.staticSig = ""
-    stockBattleUi.lastPaintTick = -1
-    stockBattleUi.barScan = 0
-    stockBattleUi.preload = {}
-    stockBattleUi.preloadCount = 0
     stockBattleUi.chars = {}
     stockBattleUi.itemData = {}
     stockBattleUi.signature = ""
     stockBattleUi.roster = {}
+    stockBattleUi.rosterParty = {}
+    stockBattleUi.rosterIndex = {}
+    stockBattleUi.spriteKey = {}
+    stockBattleUi.spriteId = {}
     stockBattleUi.rosterCount = 0
     stockBattleUi.seen = {}
     stockBattleUi.scan = 0
@@ -1092,6 +1083,10 @@ stockBattleUi = {
         fighter = battle.fighter(party, index)
         if (fighter != null) {
           stockBattleUi.roster[stockBattleUi.rosterCount] = fighter
+          stockBattleUi.rosterParty[stockBattleUi.rosterCount] = party
+          stockBattleUi.rosterIndex[stockBattleUi.rosterCount] = index
+          stockBattleUi.spriteKey[stockBattleUi.rosterCount] = ""
+          stockBattleUi.spriteId[stockBattleUi.rosterCount] = 0
           stockBattleUi.rosterCount = stockBattleUi.rosterCount + 1
           source = "" + fighter.source
           for (slot = 0; slot < 4; slot = slot + 1) {
@@ -1103,10 +1098,6 @@ stockBattleUi = {
                 file = ""
               }
               stockBattleUi.files[key] = file
-              if (file != "") {
-                stockBattleUi.preload[stockBattleUi.preloadCount] = file
-                stockBattleUi.preloadCount = stockBattleUi.preloadCount + 1
-              }
             }
           }
           if (party == 1) {
@@ -1115,15 +1106,10 @@ stockBattleUi = {
         }
       }
     }
-    // Pictures are fetched and decoded by the host, and a first use only queues the fetch. Draw every picture the
-    // screen will use once into a one-pixel scratch canvas and wait a few ticks, so that by the first real frame each
-    // is cached and every later `bitmap` / `drawenemy` lands in the order the screen draws it.
-    for (slot = 0; slot < stockBattleUi.preloadCount; slot = slot + 1) {
-      file = stockBattleUi.preload[slot]
-      if (stockBattleUi.anim[file] == null) {
-        stockBattleUi.anim[file] = animationframes(file)
-      }
-    }
+    // The background picture is fetched and decoded by the host, and a first use only queues the fetch. Draw it once
+    // into a one-pixel scratch canvas and wait a few ticks, so that by the first real frame it is cached and every
+    // later `bitmap` lands in the order the screen draws it. Fighter pictures are requested and loaded by the
+    // engine itself when their animations start, below.
     scratch = createcanvas(1, 1)
     // `bitmap` decodes PNG, JPEG, BMP and GIF; a tile bitmap (.tbm) background cannot be drawn yet, so the screen
     // shows its flat colour instead.
@@ -1137,34 +1123,13 @@ stockBattleUi = {
     if (stockBattleUi.picture != "") {
       bitmap(stockBattleUi.picture, scratch)
     }
-    for (slot = 0; slot < stockBattleUi.preloadCount; slot = slot + 1) {
-      drawenemy(stockBattleUi.preload[slot], 0, 0, scratch)
-    }
-    for (slot = 0; slot < stockBattleUi.preloadCount; slot = slot + 1) {
-      file = stockBattleUi.preload[slot]
-      meta = stockBattleUi.anim[file]
-      frameCount = 1
-      if (meta != null && meta.frames > 0) {
-        frameCount = meta.frames
-      }
-      frameIndex = 0
-      while (frameIndex < frameCount) {
-        frameKey = file + "#" + frameIndex
-        if (stockBattleUi.spriteCanvas[frameKey] == null) {
-          frameCanvas = createcanvas(stockBattleUi.layout.sprite, stockBattleUi.layout.sprite)
-          drawenemy(file, 0, 0, frameCanvas, 1, frameIndex)
-          stockBattleUi.spriteCanvas[frameKey] = frameCanvas
-        }
-        frameIndex = frameIndex + 1
-      }
-    }
+    stockBattleUi.syncSprites()
     stockBattleUi.hold(4)
     killcanvas(scratch)
     rendernow(1)
     stockBattleUi.screen = cnvrendernow
     stockBattleUi.target = stockBattleUi.screen
     stockBattleUi.buffer = createcanvas(w, h)
-    stockBattleUi.staticBuf = createcanvas(w, h)
     stockBattleUi.on = 1
     stockBattleUi.refresh()
     return 1
@@ -1174,7 +1139,7 @@ stockBattleUi = {
       return 0
     }
     stockBattleUi.on = 0
-    killcanvas(stockBattleUi.staticBuf)
+    stockBattleUi.endSprites()
     killcanvas(stockBattleUi.buffer)
     killcanvas(stockBattleUi.screen)
     rendernow(0)
@@ -1288,29 +1253,60 @@ stockBattleUi = {
     }
     return layout.playerY + (index % 3) * layout.playerDY
   },
+  // Each fighter's picture is one engine-owned pinned animation (BAT-11 item 4): started here, ended and restarted only
+  // when the stance file changes, and otherwise left alone, so its frames advance on the engine's own ticks whatever
+  // the script is doing. The picture sits above the render-now canvas; this canvas never draws a fighter's picture.
+  syncSprites: () => {
+    local(position)
+    local(fighter)
+    local(sprite)
+    local(key)
+    for (position = 0; position < stockBattleUi.rosterCount; position = position + 1) {
+      fighter = battle.fighter(stockBattleUi.rosterParty[position], stockBattleUi.rosterIndex[position])
+      if (fighter != null) {
+        sprite = stockBattleUi.fighterSprite(fighter)
+        key = sprite.file + "|" + sprite.loop
+        if (key != stockBattleUi.spriteKey[position]) {
+          stockBattleUi.spriteKey[position] = key
+          if (stockBattleUi.spriteId[position] != 0) {
+            endanimation(stockBattleUi.spriteId[position])
+            stockBattleUi.spriteId[position] = 0
+          }
+          if (sprite.file != "") {
+            stockBattleUi.spriteId[position] = pinnedanimation(sprite.file, stockBattleUi.slotX(stockBattleUi.rosterParty[position], stockBattleUi.rosterIndex[position]), stockBattleUi.slotY(stockBattleUi.rosterParty[position], stockBattleUi.rosterIndex[position]), sprite.loop)
+          }
+        }
+      }
+    }
+    return 0
+  },
+  endSprites: () => {
+    local(position)
+    for (position = 0; position < stockBattleUi.rosterCount; position = position + 1) {
+      if (stockBattleUi.spriteId[position] != 0) {
+        endanimation(stockBattleUi.spriteId[position])
+        stockBattleUi.spriteId[position] = 0
+      }
+      stockBattleUi.spriteKey[position] = ""
+    }
+    return 0
+  },
+  // What the canvas draws for a fighter: the target cursor around its slot, a grey outline when it has no animation
+  // at all, and, for an enemy, its name and HP bar beneath.
   drawFighter: (party, index, selected) => {
     local(layout) = stockBattleUi.layout
     local(fighter) = battle.fighter(party, index)
     local(x)
     local(y)
-    local(file)
     local(size) = layout.sprite
+    local(sprite)
     if (fighter == null) {
       return 0
     }
-    local(sprite)
     x = stockBattleUi.slotX(party, index)
     y = stockBattleUi.slotY(party, index)
     sprite = stockBattleUi.fighterSprite(fighter)
-    if (sprite.file != "") {
-      local(frameKey) = sprite.file + "#" + stockBattleUi.frameIndex(sprite.file, battletick(), sprite.loop)
-      local(frameRef) = stockBattleUi.spriteCanvas[frameKey]
-      if (frameRef != null) {
-        drawcanvas(frameRef, x, y, size, size, stockBattleUi.target)
-      } else {
-        drawenemy(sprite.file, x, y, stockBattleUi.target, sprite.loop)
-      }
-    } else {
+    if (sprite.file == "") {
       stockBattleUi.frame(x, y, x + size - 1, y + size - 1, 120, 120, 130)
     }
     if (selected != 0) {
@@ -1501,28 +1497,20 @@ stockBattleUi = {
       x = stockBattleUi.slotX(entry.party, entry.index)
       y = stockBattleUi.slotY(entry.party, entry.index)
       if (entry.kind == "damage") {
-        stockBattleUi.words(x + 8, y - 4, entry.text, 16, 255, 96, 96)
+        stockBattleUi.words(x + 2, y - 10, entry.text, 8, 255, 96, 96)
       }
       if (entry.kind == "heal") {
-        stockBattleUi.words(x + 8, y - 4, entry.text, 16, 96, 255, 112)
+        stockBattleUi.words(x + 2, y - 10, entry.text, 8, 96, 255, 112)
       }
       if (entry.kind == "smp") {
-        stockBattleUi.words(x + 8, y + 12, entry.text, 8, 120, 170, 255)
+        stockBattleUi.words(x + 34, y - 10, entry.text, 8, 120, 170, 255)
       }
     }
     return 0
   },
   // The signature is every value the full redraw shows. A pass redraws only when it changed; the charge bars repaint
-  // on their own, because a bar's width changes nearly every pass. It samples the engine tick (`battletick()`) modulo 2
-  // so that animation frames (which can advance as fast as every 2 to 4 ticks for fast stances) refresh continuously
-  // across passes, menus, and hold/action sequences without guessing frame delays.
-  // The signature captures all visible battle state. To support arbitrary animation delays (including 1, 2, 3, 5+ ticks)
-  // accurately across idle passes, player menus, and action hold sequences without guessing fixed quanta, the signature
-  // samples the authoritative engine tick counter `battletick()` at every check (idle, menu, hold, action),
-  // matching the exact per-animation playback frame so idle fighters animate continuously across time.
-  // The signature is every value the full redraw shows. A redraw happens only when one of them changes; the charge
-  // bars repaint on their own. While a menu or an action hold is on screen the engine tick is sampled (quantised to
-  // three ticks) so the stance frames advance during interaction as well as in idle passes.
+  // on their own, because a bar's width changes nearly every pass. Fighter animation is not part of it: the engine
+  // plays the pinned animations by itself.
   chromeSignature: () => {
     local(index)
     local(fighter)
@@ -1539,34 +1527,8 @@ stockBattleUi = {
     }
     return text
   },
-  frameIndex: (file, tick, loop) => {
-    local(meta) = stockBattleUi.anim[file]
-    local(count) = 1
-    local(delay) = 1
-    local(frame)
-    if (meta != null) {
-      if (meta.frames > 0) {
-        count = meta.frames
-      }
-      if (meta.delayticks > 0) {
-        delay = meta.delayticks
-      }
-    }
-    if (tick < 0) {
-      tick = 0
-    }
-    frame = integerMulDiv(tick, 1, delay)
-    if (loop != 0) {
-      return frame % count
-    }
-    if (frame > count - 1) {
-      return count - 1
-    }
-    return frame
-  },
   refresh: () => {
     local(chrome) = stockBattleUi.chromeSignature()
-    local(tickNow) = battletick()
     local(size)
     local(index)
     local(fill)
@@ -1575,9 +1537,6 @@ stockBattleUi = {
       stockBattleUi.staticSig = chrome
       stockBattleUi.draw()
       return 1
-    }
-    if (tickNow != stockBattleUi.lastPaintTick) {
-      stockBattleUi.paintFighters()
     }
     size = battle.partySize(1)
     if (size > 0) {
@@ -1591,31 +1550,6 @@ stockBattleUi = {
       }
       stockBattleUi.barScan = (index + 1) % size
     }
-    return 0
-  },
-  paintFighters: () => {
-    local(layout) = stockBattleUi.layout
-    local(party)
-    local(index)
-    local(size)
-    local(selected)
-    stockBattleUi.lastPaintTick = battletick()
-    stockBattleUi.target = stockBattleUi.buffer
-    drawcanvas(stockBattleUi.staticBuf, 0, 0, layout.w, layout.h, stockBattleUi.buffer)
-    for (party = 0; party < 2; party = party + 1) {
-      size = battle.partySize(party)
-      for (index = 0; index < size; index = index + 1) {
-        selected = 0
-        if (stockBattleUi.mode == "target" && stockBattleUi.targetParty == party) {
-          if (stockBattleUi.targets[stockBattleUi.targetCursor] == index) {
-            selected = 1
-          }
-        }
-        stockBattleUi.drawFighter(party, index, selected)
-      }
-    }
-    drawcanvas(stockBattleUi.buffer, 0, 0, layout.w, layout.h, stockBattleUi.screen)
-    stockBattleUi.target = stockBattleUi.screen
     return 0
   },
   draw: () => {
@@ -1655,7 +1589,6 @@ stockBattleUi = {
     if (stockBattleUi.mode == "list") {
       stockBattleUi.drawList()
     }
-    drawcanvas(stockBattleUi.buffer, 0, 0, layout.w, layout.h, stockBattleUi.staticBuf)
     for (party = 0; party < 2; party = party + 1) {
       size = battle.partySize(party)
       for (index = 0; index < size; index = index + 1) {
@@ -1669,9 +1602,9 @@ stockBattleUi = {
       }
     }
     stockBattleUi.drawNumbers()
-    stockBattleUi.lastPaintTick = battletick()
     drawcanvas(stockBattleUi.buffer, 0, 0, layout.w, layout.h, stockBattleUi.screen)
     stockBattleUi.target = stockBattleUi.screen
+    stockBattleUi.syncSprites()
     return 0
   },
 }

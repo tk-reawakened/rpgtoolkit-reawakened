@@ -71,41 +71,6 @@ function animationFrames(
   };
 }
 
-/**
- * The first frame of a fetched `.anm` or GIF, for `drawEnemy` (frame 0): a GIF's first page as pixels with its
- * transparent colour, or an `.anm` frame's image reference with its size and transparent colour. Null when the bytes
- * hold no usable frame.
- */
-export function animationFrameAtTick(
-  bytes: Uint8Array,
-  path: string,
-  sourceAsset: AssetKey,
-  resolver: ImageResolver,
-  tick: number,
-  loop = true,
-  explicitFrame?: number,
-): { readonly gif: { readonly w: number; readonly h: number; readonly rgba: Uint8Array } | null; readonly frame: AnimationFrameState } | null {
-  const loaded = animationFrames(bytes, path, sourceAsset, resolver);
-  if (loaded === null || loaded.frames.length === 0) return null;
-  const index = explicitFrame === undefined
-    ? frameAt(0, tick, loaded.delayTicks, loaded.frames.length, loop)
-    : Math.max(0, Math.min(loaded.frames.length - 1, Math.trunc(explicitFrame)));
-  if (index < 0) return null;
-  const frame = loaded.frames[index];
-  if (frame === undefined) return null;
-  const pixels = loaded.gifPixels?.[index];
-  return { gif: pixels === undefined ? null : { w: loaded.width, h: loaded.height, rgba: pixels }, frame };
-}
-
-export function firstAnimationFrame(
-  bytes: Uint8Array,
-  path: string,
-  sourceAsset: AssetKey,
-  resolver: ImageResolver,
-): { readonly gif: { readonly w: number; readonly h: number; readonly rgba: Uint8Array } | null; readonly frame: AnimationFrameState } | null {
-  return animationFrameAtTick(bytes, path, sourceAsset, resolver, 0, false);
-}
-
 /** Decode a fetched `.anm` or GIF into saveable frame metadata. */
 export function loadAnimation(state: GameState, animation: AnimationState, bytes: Uint8Array, resolver: ImageResolver): boolean {
   const sourceAsset = animation.asset ?? (animation.file as AssetKey);
@@ -150,7 +115,7 @@ export function advanceAnimations(state: GameState): readonly { readonly file: s
       const sound = animation.frames[frame]?.sound ?? "";
       if (sound !== "") sounds.push({ file: animation.file, sound });
     }
-    if (!animation.loop && state.time.tick - animation.originTick >= animation.delayTicks * animation.frames.length) {
+    if (animation.pinned !== true && !animation.loop && state.time.tick - animation.originTick >= animation.delayTicks * animation.frames.length) {
       animation.finished = true;
     } else {
       kept.push(animation);
@@ -164,10 +129,11 @@ function rect(animation: AnimationState, frame: AnimationFrameState): Rect {
   return { x: animation.x, y: animation.y, w: animation.width > 0 ? animation.width : frame.srcWidth, h: animation.height > 0 ? animation.height : frame.srcHeight };
 }
 
-/** Append active script animations above the composed board in creation order. */
-export function animationBlits(fx: FxSection): DrawCommand[] {
+/** Active script animations in creation order: the ordinary ones sit above the composed board, the pinned ones above the render-now canvas. */
+export function animationBlits(fx: FxSection, pinned: boolean): DrawCommand[] {
   const commands: DrawCommand[] = [];
   for (const animation of fx.animations) {
+    if ((animation.pinned === true) !== pinned) continue;
     if (!animation.loaded || animation.finished || animation.frames.length === 0) continue;
     const frame = animation.frames[animation.frame];
     if (frame === undefined || (frame.surface === undefined && frame.asset === null)) continue;
@@ -198,7 +164,7 @@ export function applyAnimationEffect(state: GameState, effect: { readonly name: 
     state.fx = { ...createAnimationDefaults(fx), animations: current.filter((animation) => animation.id !== id) };
     return;
   }
-  if (effect.name !== "animation" && effect.name !== "sizedanimation") return;
+  if (effect.name !== "animation" && effect.name !== "sizedanimation" && effect.name !== "pinnedanimation") return;
   const args = effect.args ?? [];
   const file = typeof args[0] === "string" ? args[0] : "";
   const x = typeof args[1] === "number" ? Math.trunc(args[1]) : 0;
@@ -212,7 +178,7 @@ export function applyAnimationEffect(state: GameState, effect: { readonly name: 
   const id = resultId > 0 ? resultId : (fx.nextAnimationId ?? 1);
   const nextAnimationId = Math.max(fx.nextAnimationId ?? 1, id + 1);
   const animation: AnimationState = {
-    id, file, asset: null, x, y, width, height, loop, originTick: state.time.tick,
+    id, file, asset: null, x, y, width, height, loop, ...(effect.name === "pinnedanimation" ? { pinned: true as const } : {}), originTick: state.time.tick,
     delayTicks: 1, frame: 0, frames: [], loaded: false, finished: false, soundFrame: -1,
   };
   state.fx = { ...createAnimationDefaults(fx), animations: [...current, animation], nextAnimationId };

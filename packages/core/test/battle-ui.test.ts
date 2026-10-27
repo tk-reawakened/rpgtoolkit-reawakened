@@ -298,37 +298,90 @@ test("five party members (E-85 maximum 5) render without clipping and each membe
   deepEqual(rig.diagnostics, []);
 });
 
-// Frame-cadence regressions (entry 7.11, BAT-11): a stance animation must advance on the rendered screen at the frame
-// delay the animation file stores, at idle and during an action, and a selection change must redraw at once.
-test("stance animation frames advance on the real screen every tick at a one-tick delay, idle and during an action", () => {
-  const rig = bootUiRig({ stanceDelayTicks: 1 });
-  awaitMenu(rig);
-  const hashAt = (): string => fnv1a64(rig.frame().rgba);
-  const first = hashAt();
-  rig.tick(1);
-  const second = hashAt();
-  ok(first !== second, "one-tick stance animation advances between consecutive idle ticks");
-  rig.press("ENTER", 4);
-  const acting = hashAt();
-  rig.tick(1);
-  ok(hashAt() !== acting, "stance animation advances during the action result");
-  deepEqual(rig.diagnostics, []);
-});
+// Frame cadence (entry 7.11, BAT-11 item 4): every fighter is one engine-owned pinned animation, so each picture on the
+// real screen must change on exactly the ticks its animation's frame index changes, at the stored frame delay, idle and
+// during an action. The comparison is per animation id, so a stance switch (a new animation) is not mistaken for a skip.
+type Sample = { readonly id: number; readonly frame: number; readonly picture: string };
 
-test("a two-tick stance animation advances every second tick on the real screen", () => {
+function samplePictures(rig: UiRig): Map<number, Sample> {
+  const frame = rig.frame();
+  const result = new Map<number, Sample>();
+  for (const animation of rig.state().fx.animations) {
+    if (animation.pinned !== true || !animation.loaded) continue;
+    const crop = new Uint8Array(64 * 64 * 4);
+    for (let row = 0; row < 64; row += 1) {
+      const from = ((animation.y + row) * frame.w + animation.x) * 4;
+      crop.set(frame.rgba.subarray(from, from + 64 * 4), row * 64 * 4);
+    }
+    result.set(animation.id, { id: animation.id, frame: animation.frame, picture: fnv1a64(crop) });
+  }
+  return result;
+}
+
+function cadenceViolations(rig: UiRig, ticks: number): { readonly compared: number; readonly changed: number; readonly violations: string[] } {
+  const violations: string[] = [];
+  let compared = 0;
+  let changed = 0;
+  let previous = samplePictures(rig);
+  for (let step = 0; step < ticks; step += 1) {
+    rig.tick(1);
+    const current = samplePictures(rig);
+    for (const [id, now] of current) {
+      const before = previous.get(id);
+      if (before === undefined) continue;
+      compared += 1;
+      const frameMoved = now.frame !== before.frame;
+      const pictureMoved = now.picture !== before.picture;
+      if (frameMoved) changed += 1;
+      if (frameMoved !== pictureMoved) violations.push(`tick ${rig.state().time.tick} animation ${id}: frame ${before.frame}->${now.frame} but picture ${pictureMoved ? "changed" : "did not change"}`);
+    }
+    previous = current;
+  }
+  return { compared, changed, violations };
+}
+
+for (const delay of [1, 2, 3]) {
+  test(`every stance picture on the real screen advances exactly at a ${delay}-tick frame delay, idle and during an action`, () => {
+    const rig = bootUiRig({ stanceDelayTicks: delay });
+    awaitMenu(rig);
+    const idle = cadenceViolations(rig, 12);
+    ok(idle.compared >= 12 * 3, `fighters were compared every tick (${idle.compared})`);
+    ok(idle.changed >= Math.floor(12 / delay), `frames moved (${idle.changed})`);
+    deepEqual(idle.violations, [], "idle cadence");
+    rig.press("ENTER", 4);
+    const acting = cadenceViolations(rig, 24);
+    ok(acting.compared > 0);
+    deepEqual(acting.violations, [], "cadence during the action");
+    deepEqual(rig.diagnostics, []);
+  });
+}
+
+test("each pinned animation's frame is the pure function of its start tick, delay and the tick it was advanced on", () => {
   const rig = bootUiRig({ stanceDelayTicks: 2 });
   awaitMenu(rig);
-  const hashAt = (): string => fnv1a64(rig.frame().rgba);
-  const start = hashAt();
-  rig.tick(2);
-  ok(hashAt() !== start, "after two ticks the two-tick animation has advanced");
+  for (let step = 0; step < 9; step += 1) {
+    rig.tick(1);
+    // The animation phase of tick T runs before the engine counts the tick, so the state read now holds the frame of tick - 1.
+    const tick = rig.state().time.tick - 1;
+    for (const animation of rig.state().fx.animations) {
+      if (animation.pinned !== true || !animation.loaded) continue;
+      const elapsed = Math.max(0, tick - animation.originTick);
+      const raw = Math.floor(elapsed / animation.delayTicks);
+      equal(animation.frame, animation.loop ? raw % animation.frames.length : Math.min(raw, animation.frames.length - 1), `animation ${animation.id} at tick ${tick}`);
+    }
+  }
 });
 
-test("a selection change redraws the screen", () => {
+test("a selection change is on the real screen within six ticks (a tenth of a second)", () => {
   const rig = bootUiRig();
   awaitMenu(rig);
   const before = fnv1a64(rig.frame().rgba);
-  rig.press("DOWN", 3);
+  rig.press("DOWN", 1);
+  let waited = 1;
+  while (waited < 6 && fnv1a64(rig.frame().rgba) === before) {
+    rig.tick(1);
+    waited += 1;
+  }
   equal(ui(rig)["cursor"], 1, "the cursor moved");
   ok(fnv1a64(rig.frame().rgba) !== before, "the highlighted command changed the rendered frame");
   deepEqual(rig.diagnostics, []);

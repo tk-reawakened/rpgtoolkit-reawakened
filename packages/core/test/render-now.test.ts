@@ -1,5 +1,5 @@
 // Engine-level checks of the drawing seams the default battle screen stands on (docs/spec/engine/main-loop-and-startup.md#e-57,
-// docs/spec/engine/rpgcode-functions.md#e-56, #reawakened-drawenemy, docs/spec/engine/display-input-audio.md#e-110).
+// docs/spec/engine/rpgcode-functions.md#e-56, #reawakened-pinnedanimation, docs/spec/engine/display-input-audio.md#e-110).
 import { test } from "node:test";
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -136,139 +136,64 @@ test("text and pixelText with a canvas draw into that canvas, not the screen tex
   equal(game.state().ui.draws.length, 0, "the screen text layer got nothing");
 });
 
-test("drawenemy draws the active animation frame with its transparent colour skipped and advances with engine ticks", () => {
-  const frame0 = new Uint8Array(16 * 16 * 4);
-  for (let at = 0; at < frame0.length; at += 4) frame0.set([255, 0, 255, 255], at);
-  for (let y = 4; y < 12; y += 1) for (let x = 4; x < 12; x += 1) frame0.set([200, 40, 40, 255], (y * 16 + x) * 4);
+function solid(r: number, g: number, b: number): Uint8Array {
+  const pixels = new Uint8Array(16 * 16 * 4);
+  for (let at = 0; at < pixels.length; at += 4) pixels.set([r, g, b, 255], at);
+  return pixels;
+}
 
-  const frame1 = new Uint8Array(16 * 16 * 4);
-  for (let at = 0; at < frame1.length; at += 4) frame1.set([255, 0, 255, 255], at);
-  for (let y = 4; y < 12; y += 1) for (let x = 4; x < 12; x += 1) frame1.set([40, 200, 40, 255], (y * 16 + x) * 4);
-
-  // delay = 0.1s = 6 ticks at 60 Hz. Frame 0 plays on ticks 0..5; frame 1 on ticks 6..11.
+/** A two-frame 16 x 16 animation (red then green) whose delay is `delay` seconds. */
+function redGreen(delay: number): Record<string, Uint8Array> {
   const animation = unwrap(writeAnimation({
     magic: "RPGTLKIT ANIM", major: 2, minor: 3, width: 16, height: 16,
     frames: [
-      { image: "f0.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
-      { image: "f1.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
+      { image: "red.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
+      { image: "green.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
     ],
-    delay: 0.1, residue: new Uint8Array(),
+    delay, residue: new Uint8Array(),
   }));
+  return { "Misc/blink.anm": animation, "Bitmap/red.png": encodePng(16, 16, solid(255, 0, 0)), "Bitmap/green.png": encodePng(16, 16, solid(0, 255, 0)) };
+}
 
-  const game = boot('rendernow(1)\nc = cnvrendernow\ndrawenemy("blob.anm", 5, 6, c)\nend()\n', {
-    "Misc/blob.anm": animation,
-    "Bitmap/f0.png": encodePng(16, 16, frame0),
-    "Bitmap/f1.png": encodePng(16, 16, frame1),
-  });
+const PAINT_CANVAS_WHITE = "rendernow(1)\nc = cnvrendernow\ncolorrgb(255,255,255)\nfillrect(0,0,40,40,c)\n";
 
-  const handle = game.state().surfaces.renderNow ?? 0;
-  deepEqual(canvasPixel(game, handle, 5 + 6, 6 + 6), [200, 40, 40, 255], "tick 0..5 draws frame 0 (red)");
-  deepEqual(canvasPixel(game, handle, 5, 6), [0, 0, 0, 0], "the transparent colour is skipped");
+test("a pinned animation shows every frame of a one-tick delay on its own tick while the script is busy, above the render-now canvas", () => {
+  // 0.017 s is one 60 Hz tick. The loop burns the whole step budget every tick, so a script that had to draw the
+  // frames itself could not keep up; the engine plays the animation.
+  const game = boot(`${PAINT_CANVAS_WHITE}id = pinnedanimation("blink.anm", 4, 4, 1)\nn = 0\nwhile (1) {\n  n = n + 1\n}\n`, redGreen(0.017));
+  const seen: string[] = [];
+  for (let step = 0; step < 8; step += 1) {
+    game.advance(1);
+    const frame = game.frame();
+    const colour = pixel(frame, 10, 10);
+    seen.push(colour[0] === 255 && colour[1] === 0 ? "red" : colour[1] === 255 && colour[0] === 0 ? "green" : `other ${colour.join(",")}`);
+    deepEqual(pixel(frame, 30, 30), [255, 255, 255, 255], "the canvas still shows outside the picture");
+  }
+  ok(seen.every((name, index) => name === (index === 0 ? seen[0] : seen[index - 1] === "red" ? "green" : "red")), `alternates every tick: ${seen.join(" ")}`);
+  ok(seen[0] === "red" || seen[0] === "green", `a frame shows above the canvas: ${seen[0]}`);
 });
 
-test("drawenemy preserves FIFO call order when an earlier sprite waits on asset loading and a later sprite is already cached", () => {
-  // First sprite: red 16x16. Second sprite: blue 16x16, drawn at the same coordinates (0,0).
-  // The first sprite requires loading `red.anm` and `red.png`. The second sprite uses already-cached assets.
-  // FIFO order guarantees the later blue sprite blits on top of the red sprite once the earlier red arrives.
-  const redPic = new Uint8Array(16 * 16 * 4);
-  for (let at = 0; at < redPic.length; at += 4) redPic.set([255, 0, 0, 255], at);
-  const bluePic = new Uint8Array(16 * 16 * 4);
-  for (let at = 0; at < bluePic.length; at += 4) bluePic.set([0, 0, 255, 255], at);
-
-  const redAnm = unwrap(writeAnimation({
-    magic: "RPGTLKIT ANIM", major: 2, minor: 3, width: 16, height: 16,
-    frames: [{ image: "red.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" }],
-    delay: 0.1, residue: new Uint8Array(),
-  }));
-  const blueAnm = unwrap(writeAnimation({
-    magic: "RPGTLKIT ANIM", major: 2, minor: 3, width: 16, height: 16,
-    frames: [{ image: "blue.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" }],
-    delay: 0.1, residue: new Uint8Array(),
-  }));
-
-  const program = "rendernow(1)\nc = cnvrendernow\ndrawenemy(\"red.anm\", 0, 0, c)\ndrawenemy(\"blue.anm\", 0, 0, c)\nend()\n";
-  const game = boot(program, {
-    "Misc/red.anm": redAnm,
-    "Bitmap/red.png": encodePng(16, 16, redPic),
-    "Misc/blue.anm": blueAnm,
-    "Bitmap/blue.png": encodePng(16, 16, bluePic),
-  });
-
-  const handle = game.state().surfaces.renderNow ?? 0;
-  // If order inverted, red would draw last over blue. FIFO requires blue to end up on top.
-  deepEqual(canvasPixel(game, handle, 4, 4), [0, 0, 255, 255], "the later-called sprite blits on top of the earlier one");
+test("an ordinary animation still draws below the render-now canvas and is saved without the pinned flag", () => {
+  const game = boot(`${PAINT_CANVAS_WHITE}id = animation("blink.anm", 4, 4, 1)\nthreadSleep(getThreadId(), 5)\nend()\n`, redGreen(0.017));
+  deepEqual(pixel(game.frame(), 10, 10), [255, 255, 255, 255], "the canvas covers an ordinary animation");
+  const animations = game.state().fx.animations;
+  equal(animations.length, 1);
+  equal(animations[0]!.pinned, undefined, "an ordinary animation records no pinned flag");
+  const bare = boot("id = animation(\"blink.anm\", 4, 4, 1)\nthreadSleep(getThreadId(), 5)\nend()\n", redGreen(0.017));
+  const colour = pixel(bare.frame(), 10, 10);
+  ok(colour[3] === 255 && (colour[0] === 255 || colour[1] === 255), `with no canvas the animation's picture shows (${colour.join(",")})`);
 });
 
-test("drawenemy advances frame cadence at unequal delays: 3 ticks (0.05s) and 5 ticks (0.0833s)", () => {
-  const frame0 = new Uint8Array(16 * 16 * 4);
-  for (let at = 0; at < frame0.length; at += 4) frame0.set([255, 0, 0, 255], at); // red
-  const frame1 = new Uint8Array(16 * 16 * 4);
-  for (let at = 0; at < frame1.length; at += 4) frame1.set([0, 255, 0, 255], at); // green
-  const frame2 = new Uint8Array(16 * 16 * 4);
-  for (let at = 0; at < frame2.length; at += 4) frame2.set([0, 0, 255, 255], at); // blue
-
-  // Animation A: 3-tick delay (0.05s). Frame 0 is ticks 0..2, frame 1 is ticks 3..5, frame 2 is ticks 6..8.
-  const anim3 = unwrap(writeAnimation({
-    magic: "RPGTLKIT ANIM", major: 2, minor: 3, width: 16, height: 16,
-    frames: [
-      { image: "f0.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
-      { image: "f1.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
-      { image: "f2.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
-    ],
-    delay: 0.05, residue: new Uint8Array(),
-  }));
-
-  // Animation B: 5-tick delay (0.0833s). Frame 0 is ticks 0..4, frame 1 is ticks 5..9.
-  const anim5 = unwrap(writeAnimation({
-    magic: "RPGTLKIT ANIM", major: 2, minor: 3, width: 16, height: 16,
-    frames: [
-      { image: "f0.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
-      { image: "f1.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
-    ],
-    delay: 0.0833, residue: new Uint8Array(),
-  }));
-
-  // At tick 3: anim3 should be frame 1 (green), anim5 should still be frame 0 (red)
-  const program = 'rendernow(1)\nc = cnvrendernow\nthreadSleep(getThreadId(), 3/60)\ndrawenemy("anim3.anm", 0, 0, c)\ndrawenemy("anim5.anm", 16, 0, c)\nend()\n';
-  const game = boot(program, {
-    "Misc/anim3.anm": anim3,
-    "Misc/anim5.anm": anim5,
-    "Bitmap/f0.png": encodePng(16, 16, frame0),
-    "Bitmap/f1.png": encodePng(16, 16, frame1),
-    "Bitmap/f2.png": encodePng(16, 16, frame2),
-  });
-  const handle = game.state().surfaces.renderNow ?? 0;
-  deepEqual(canvasPixel(game, handle, 4, 4), [0, 255, 0, 255], "at tick 3, 3-tick animation is frame 1 (green)");
-  deepEqual(canvasPixel(game, handle, 20, 4), [255, 0, 0, 255], "at tick 3, 5-tick animation is still frame 0 (red)");
-});
-
-test("drawenemy respects the explicit loop=0 argument and clamps to the last frame", () => {
-  const frame0 = new Uint8Array(16 * 16 * 4);
-  for (let at = 0; at < frame0.length; at += 4) frame0.set([255, 0, 0, 255], at);
-  const frame1 = new Uint8Array(16 * 16 * 4);
-  for (let at = 0; at < frame1.length; at += 4) frame1.set([0, 255, 0, 255], at);
-
-  const animation = unwrap(writeAnimation({
-    magic: "RPGTLKIT ANIM", major: 2, minor: 3, width: 16, height: 16,
-    frames: [
-      { image: "f0.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
-      { image: "f1.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
-    ],
-    delay: 0.1, residue: new Uint8Array(),
-  }));
-
-  // Passing loop=0 (5th argument) clamps playback to frame 1 even across long tick advances
-  // Start at tick 0 so advance(30) runs tick 0 through 29, well past frame 0 (ticks 0..5).
-  // The command takes canvas and loop as arguments.
-  const program = "rendernow(1)\nc = cnvrendernow\nthreadSleep(getThreadId(), 0.2)\ndrawenemy(\"blob.anm\", 0, 0, c, 0)\nend()\n";
-  const game = boot(program, {
-    "Misc/blob.anm": animation,
-    "Bitmap/f0.png": encodePng(16, 16, frame0),
-    "Bitmap/f1.png": encodePng(16, 16, frame1),
-  });
-  game.advance(30); // 30 ticks is past frame 1 (6 ticks); loop=0 holds frame 1 (green)
-  const handle = game.state().surfaces.renderNow ?? 0;
-  deepEqual(canvasPixel(game, handle, 4, 4), [0, 255, 0, 255], "loop=0 holds the final frame");
+test("a one-shot pinned animation holds its last frame until endanimation, which an ordinary one-shot does not", () => {
+  const pinned = boot(`${PAINT_CANVAS_WHITE}id = pinnedanimation("blink.anm", 4, 4, 0)\nthreadSleep(getThreadId(), 1)\nendanimation(id)\nthreadSleep(getThreadId(), 5)\nend()\n`, redGreen(0.1));
+  // The animation lasts 12 ticks; boot has run 40, so a pinned one has held its last frame (green) for a while.
+  deepEqual(pixel(pinned.frame(), 10, 10), [0, 255, 0, 255], "the last frame is still shown after the one-shot ended");
+  equal(pinned.state().fx.animations[0]!.pinned, true, "the saved animation records that it is pinned");
+  pinned.advance(40);
+  deepEqual(pixel(pinned.frame(), 10, 10), [255, 255, 255, 255], "endanimation removes it and the canvas shows again");
+  equal(pinned.state().fx.animations.length, 0);
+  const ordinary = boot("id = animation(\"blink.anm\", 4, 4, 0)\nthreadSleep(getThreadId(), 5)\nend()\n", redGreen(0.1));
+  equal(ordinary.state().fx.animations.length, 0, "an ordinary one-shot is removed when it ends");
 });
 
 test("get() returns a pressed key once and never again, and clearbuffer() empties the queue", () => {

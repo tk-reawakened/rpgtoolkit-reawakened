@@ -22,8 +22,6 @@ import type { CommandEffect, CommandResult, CommandView, PluginDefinition } from
 import { COMPILER_VERSION } from "../program.ts";
 import type { PlainData } from "../../ports/plain-data.ts";
 import { surfaceSize } from "../../raster/surfaces.ts";
-import { readAnimation } from "../../formats/animation/reader.ts";
-import { secondsToTicks } from "../../time/time.ts";
 import type { SurfaceId } from "../../ports/keys.ts";
 
 const GROUP = "battle-stats-menus-33";
@@ -1377,45 +1375,6 @@ const CONSUME = {
   },
 } satisfies BuiltinSpec;
 
-const ANIMATION_FRAMES_ASSET = {
-  name: "__battle_animation_frames_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
-  doc: internalDocumentation("Resume an animation-header request for `animationframes`.", "Reads the `.anm` bytes and returns the frame count and the frame delay in whole ticks.", [...ASSET_REPLY_THROWS, { code: "format.animation", when: "the bytes are not a valid animation file" }]),
-  call: (_view: CommandView, args: readonly Arg[]): CommandResult => {
-    const parsed = readAnimation(new BinaryReader(replyBytes(args, "animation")));
-    if (!parsed.ok) throw new ScriptError("format.animation", parsed.error.message);
-    const frames = parsed.value.frames.filter((frame) => frame.image.trim() !== "").length;
-    return dictionary(_view, { frames, delayticks: secondsToTicks(parsed.value.delay) ?? 1 });
-  },
-} satisfies BuiltinSpec;
-
-const ANIMATION_FRAMES = {
-  name: "animationframes", aliases: [], params: [parameter("file")],
-  doc: {
-    summary: "Read an animation file's frame count and frame delay.",
-    behaviour: "Loads an animation and returns `{ frames, delayticks }`, the number of non-empty frames and the stored delay in whole engine ticks.",
-    groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
-    throws: [...ASSET_REPLY_THROWS, { code: "format.animation", when: "the bytes are not a valid animation file" }, { code: "builtin.bad-arg", when: "the file name is empty" }],
-  },
-  call: (_view: CommandView, args: readonly Arg[]) => requestDataAsset(
-    "animations",
-    assetPath(text(args, 0), "Misc", ".anm", "animationframes"),
-    "__battle_animation_frames_asset",
-  ),
-} satisfies BuiltinSpec;
-
-const BATTLE_TICK = {
-  name: "battletick", aliases: [], params: [],
-  doc: {
-    summary: "Read the engine's current tick counter during a battle.",
-    behaviour: "Returns the non-negative integer engine tick (`state.time.tick`) from the live engine context. It does not wait and mutates nothing. This gives battle UI scripts access to the authoritative frame clock for deterministic animation cadence without relying on local counters.",
-    groups: REAWAKENED, tags: ["experimental"], waits: NO_WAIT,
-  },
-  call: (view: CommandView): CommandResult => {
-    const tick = view.state?.time.tick ?? 0;
-    return { value: tick };
-  },
-} satisfies BuiltinSpec;
-
 const BATTLE_SCREEN = {
   name: "battlescreensize", aliases: [], params: [],
   doc: {
@@ -1972,7 +1931,7 @@ export const BATTLE_COMMANDS: readonly BuiltinSpec[] = [
   PARTY_SIZE, FIGHTER, AI, CHARGE, ADD_CHARGE, SET_CHARGE, RELEASE_CHARGE, CHARGE_PERCENT, FINISH,
   HP, GIVE_HP, GET_HP, MAX_HP, GET_MAX_HP, SMP, GIVE_SMP, GET_SMP, MAX_SMP, GET_MAX_SMP,
   FP, GIVE_FP, GET_FP, DP, GET_DP, GIVE_EXP, APPLY_STATUS, REMOVE_STATUS, STATUS_DATA, STATUS_ASSET, GET_STATUS, STATUS_FLAGS, STATUS_FLAGS_ASSET, STATUS_DATA_ASSET,
-  MOVE_DATA, MOVE_ASSET, ITEM_DATA, ITEM_ASSET, ENEMY_DATA, ENEMY_DATA_ASSET, CHARACTER_DATA, CHARACTER_DATA_ASSET, BACKGROUND_DATA, BACKGROUND_DATA_ASSET, ANIMATION_FILE, ANIMATION_ASSET, CONSUME, BATTLE_INVENTORY, BATTLE_SCREEN, BATTLE_TICK, ANIMATION_FRAMES, ANIMATION_FRAMES_ASSET, UNAFFORDABLE, INTEGER_MUL_DIV,
+  MOVE_DATA, MOVE_ASSET, ITEM_DATA, ITEM_ASSET, ENEMY_DATA, ENEMY_DATA_ASSET, CHARACTER_DATA, CHARACTER_DATA_ASSET, BACKGROUND_DATA, BACKGROUND_DATA_ASSET, ANIMATION_FILE, ANIMATION_ASSET, CONSUME, BATTLE_INVENTORY, BATTLE_SCREEN, UNAFFORDABLE, INTEGER_MUL_DIV,
   STATUS_SIGNATURE, PROGRAM_CONTEXT, STATUS_DELTA, STATUS_ADVANCE,
   OUTCOME_REWARDS, GAME_OVER_PROGRAM, END_LOSS, GAIN_GOLD, BATTLE_ACTOR_REF, EXPERIENCE_BEGIN,
   EXPERIENCE_STEP_READY, LEVELUP_CONTEXT, EXPERIENCE_STEP, APPLY_OUTCOME,

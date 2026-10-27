@@ -325,8 +325,6 @@ export type RigOptions = {
   readonly slimeHp?: number;
   /** Authored stance animations use this frame delay in whole ticks and two frames (default: one frame, 0.2 s). */
   readonly stanceDelayTicks?: number;
-  /** Observation hooks for probes; they never change script execution. */
-  readonly observers?: import("../src/index.ts").ScriptObservers;
   readonly party?: readonly { readonly key: "hero" | "mage" | "rogue"; readonly hp: number; readonly smp: number }[];
   readonly inventory?: readonly { readonly source: string; readonly handle: string; readonly quantity: number }[];
 };
@@ -474,7 +472,6 @@ export function bootUiRig(options: RigOptions = {}): UiRig {
     height: SCREEN_HEIGHT,
     maxTicks: 100000,
     bundled: new Map([[assetKey("media/fonts/tkr-8x8.fnt"), font]]),
-    ...(options.observers === undefined ? {} : { scriptObservers: options.observers }),
     packageCatalogue: catalogue(),
     phaseRegistrations: [{
       phase: "triggers",
