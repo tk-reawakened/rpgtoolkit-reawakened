@@ -769,13 +769,19 @@ function battle() {
   local(cache)
   local(position)
   local(count) = 0
+  local(readySound) = ""
   local(fighters) = {}
   local(done) = 0
   stockBattle.active = 1
   stockBattle.clearDefeatedListeners()
   stockBattle.enemyDataCache = {}
   stockBattle.specialDataCache = {}
-  stockBattle.battleBackgroundDataCache = null
+  // BAT-10 cue inventory: the fight background's cue files are read once, here,
+  // so a pass never parks on a file request. An empty field is silent.
+  stockBattle.battleBackgroundDataCache = battlebackgrounddata()
+  if (stockBattle.battleBackgroundDataCache != null) {
+    readySound = stockBattle.battleBackgroundDataCache.readysound
+  }
   stockBattle.runPending = 0
   stockBattle.preserveCharge = 0
   // BAT-2 fixes the battle's fighter lists. Capture their ordered references
@@ -789,7 +795,7 @@ function battle() {
       fighter = battle.fighter(party, index)
       if (fighter != null) {
         fighters[count] = {
-          party: party, index: index, threshold: threshold, fighter: fighter, files: {}
+          party: party, index: index, threshold: threshold, fighter: fighter, files: {}, ready: 0
         }
         count = count + 1
       }
@@ -836,6 +842,7 @@ function battle() {
           if (cache.disabled > 0) {
             if (charge >= cache.threshold) {
               battle.setCharge(cache.party, cache.index, cache.threshold - 1)
+              cache.ready = 0
             }
           } else {
             if (charge >= cache.threshold) {
@@ -844,15 +851,23 @@ function battle() {
               }
               // A successful run ends at the next pass boundary: later fighters still tick statuses but do not take turns.
               if (stockBattle.runPending == 0) {
+                if (cache.ready == 0) {
+                  cache.ready = 1
+                  if (readySound != "") {
+                    mediaPlay(readySound, { track: "ui", loop: 0 })
+                  }
+                }
                 if (cache.party == 1) {
                   stockBattle.preserveCharge = 0
                   stockBattle.turn(cache.party, cache.index)
                   if (stockBattle.preserveCharge == 0) {
                     battle.releaseCharge(cache.party, cache.index)
+                    cache.ready = 0
                   }
                 } else {
                   stockBattle.turn(cache.party, cache.index)
                   battle.releaseCharge(cache.party, cache.index)
+                  cache.ready = 0
                 }
               }
             } else {
