@@ -54,9 +54,17 @@ function specLinkDiagnostics(documentation) {
   return diagnostics;
 }
 
+/** Every public battle-facing command and alias needs a row in the native command tables (legacy or Reawakened addition). */
+function battleRowDiagnostics(documentation, rows) {
+  const names = new Set(rows.map((row) => row.name.toLowerCase()));
+  return documentation
+    .filter((entry) => entry.pluginId === "battle" && entry.access === "public" && !names.has(entry.name.toLowerCase()))
+    .map((entry) => ({ code: "native.row-missing", pluginId: entry.pluginId, name: entry.name, key: `${entry.pluginId}/${entry.name}`, message: `${entry.pluginId}/${entry.name} is a public battle built-in with no row in docs/spec/engine/rpgcode-functions.md` }));
+}
+
 export function check({ plugins = defaultPlugins(), rows = parseSpecTable(readFileSync(specPath, "utf8")), allowlist = readAllowlist() } = {}) {
   const documentation = commandDocumentation(plugins);
-  const diagnostics = [...validateCommandDocumentation(plugins, rows, allowlist), ...specLinkDiagnostics(documentation)];
+  const diagnostics = [...validateCommandDocumentation(plugins, rows, allowlist), ...specLinkDiagnostics(documentation), ...battleRowDiagnostics(documentation, rows)];
   return { diagnostics, documentation };
 }
 

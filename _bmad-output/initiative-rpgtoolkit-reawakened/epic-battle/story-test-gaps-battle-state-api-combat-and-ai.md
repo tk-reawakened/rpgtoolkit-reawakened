@@ -19,7 +19,7 @@ Add named deterministic behavior tests for the remaining Epic 7.2–7.7 gaps in 
 ## Acceptance Criteria
 
 1. **State and snapshots:** The validator leaves input unchanged; valid restore yields no diagnostics; out-of-battle save has `battle: null`; BattleState contains no copied actor HP/SMP/status.
-2. **Catalogue parity:** A named behavior test checks every registered battle-facing built-in against the catalogue and docs.
+2. **Catalogue parity:** A named command-docs check (`pnpm command-docs:check`: `doc.required`, `native.summary-mismatch`, `native.row-missing`) rather than a named core test (amended 2026-10-27 under delegated decision, not a direct owner ruling: permanent tests must not assert source text or duplicate existing tooling) checks every registered battle-facing built-in against the catalogue and docs. Original wording: "A named behavior test checks every registered battle-facing built-in against the catalogue and docs."
 3. **Charge/actions:** Cover SMP attack underflow, AOE actions without critical draws, non-empty inventory immutability, special availability and status ordering, and exactly-once `fallen` for lethal Fight/Special/Item.
 4. **Status:** Cover HP/SMP/program/aging order, actor-owned status state, and signed per-round effects clamped at both bounds.
 5. **AI:** Cover healing at levels 0 and 2, post-target combat draw order, and AI configuration isolation to the acting enemy.
