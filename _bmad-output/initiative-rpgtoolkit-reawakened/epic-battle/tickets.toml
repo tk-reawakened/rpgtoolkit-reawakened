@@ -371,6 +371,7 @@ references = [
 ]
 notes = [
   "Full-engine runtime save/load prerequisite delivered in #704 (commit ff6ea234); combat cues through media delivered in #701 (commit eee4e919).",
+  "Owner ruling, 2026-10-27: explicitly approved routing battle-ready (`readySound`) and action-unavailable (`cantDoSound`) sounds as UI voices separate from music, allowing overlap.",
   "Menu move/confirm/cancel cue emission stays with Epic 7.11.",
   "Owner ruling, 2026-10-26: listener failure rejects start; playback is saved in the independent audio section, not BattleState; outcome returns music to the active board.",
   "The cue inventory is doc-first: use approved contracts only; do not create or infer a cue map.",
