@@ -262,16 +262,20 @@ function encodeHex(bytes: Uint8Array): string {
  * AD-17's `GameId`: the deterministic core-side identity of a game's save area.
  *
  * It is a hash of the main file's actual bytes plus the package identity, so
- * two games that ship a same-named main file, and two packages that carry the
- * same main file bytes, both get separate save areas. The package identity is
- * the game folder's `projectPath`, or the package's canonical (case-folded,
- * sorted) asset tree when the game arrived as a package — core holds no package
- * name in that case, and the tree is the identity the package actually has.
+ * two games that ship a same-named main file get separate save areas, and so
+ * do two packages whose main file is identical. A game folder's identity is its
+ * `projectPath`. A package's identity is the host-supplied
+ * `PackageAssetRoot.identity` (its archive name and version, or a content
+ * digest) together with the package's canonical sorted asset tree; core never
+ * reads every file, so only the host can distinguish two packages whose paths
+ * match but whose contents differ. With no host identity the tree is all core
+ * has, and two such packages share one save area.
  */
 export function deriveGameId(mainBytes: Uint8Array, root: AssetRoot, index: AssetIndex): string {
+  const tree = [...index.keys].sort().join("\u0000");
   const packageIdentity = root.kind === "game"
     ? `game\u0000${root.projectPath}`
-    : `package\u0000${[...index.keys].sort().join("\u0000")}`;
+    : `package\u0000${root.identity ?? ""}\u0000${tree}`;
   return fnv1a64(`${packageIdentity}\u0000${fnv1a64(mainBytes)}`);
 }
 

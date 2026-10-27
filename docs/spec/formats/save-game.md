@@ -16,12 +16,14 @@ never accesses the filesystem. A board with `disableSaving` set does not issue a
 save request.
 
 Blob paths are prefixed with the AD-17 `GameId`, which core derives as a
-deterministic hash of the main file's actual bytes plus the package identity —
-a game folder's project path, or a package's canonical sorted asset tree. Two
-games that share a main-file path but ship different bytes, and two packages
-that carry the same main-file bytes, therefore read and write separate save
-areas. The identity is stable across `reset()` and a `mainFile` reboot of the
-same game.
+deterministic hash of the main file's actual bytes plus the package identity. A
+game folder's identity is its project path. A package's identity is the host
+supplied `PackageAssetRoot.identity` — the archive name and version, or a digest
+over the package's contents — together with the package's canonical sorted asset
+tree. Core never reads the whole package, so only the host can distinguish two
+packages whose paths and main file match but whose other files differ; without
+that identity those two share one save area. The identity is stable across
+`reset()` and a `mainFile` reboot of the same game.
 
 `Save` captures the complete canonical game state only after its calling VM
 thread has parked on the host request. The save records that thread as resumed

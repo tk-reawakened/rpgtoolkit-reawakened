@@ -17,6 +17,7 @@ import {
   writeBoard,
   writeMainFile,
   type AssetKey,
+  type AssetRoot,
   type InputRecord,
 } from "../src/index.ts";
 
@@ -47,13 +48,13 @@ function board(start: string): Uint8Array {
 }
 
 /** Boot the real engine and return the save area the `Save("slot")` call used. */
-function savePathFor(main: Uint8Array, extra: Files, paths: readonly string[]): string {
+function savePathFor(main: Uint8Array, extra: Files, paths: readonly string[], root: AssetRoot = PACKAGE_ROOT): string {
   const files: Files = new Map(extra);
   files.set(assetKey("main.gam"), main);
   const engine = createEngine({
     seed: 3,
     assetIndex: createAssetIndex([...paths]),
-    assetRoot: PACKAGE_ROOT,
+    assetRoot: root,
     mainFile: "main.gam",
     width: 64,
     height: 64,
@@ -100,6 +101,22 @@ test("the GameId hashes the main file bytes and the package identity, determinis
     deriveGameId(main, { kind: "game", projectPath: "two" }, index),
     "two game folders with the same files are distinct games",
   );
+
+  notEqual(
+    deriveGameId(main, { kind: "package", identity: "demo-1.0.0" }, index),
+    deriveGameId(main, { kind: "package", identity: "demo-2.0.0" }, index),
+    "the host package identity separates packages with identical paths and main bytes",
+  );
+  equal(
+    deriveGameId(main, { kind: "package", identity: "demo-1.0.0" }, index),
+    deriveGameId(main, { kind: "package", identity: "demo-1.0.0" }, reordered),
+    "the host identity is stable across index order",
+  );
+  equal(
+    deriveGameId(main, { kind: "package" }, index),
+    deriveGameId(main, PACKAGE_ROOT, index),
+    "an absent host identity falls back to the tree alone",
+  );
 });
 
 test("two games with the same main-file path and different content save into different areas", () => {
@@ -124,6 +141,21 @@ test("two packages carrying identical main bytes save into different areas", () 
   const plain = savePathFor(main, extra, ["main.gam", "boards/start.brd", "prg/start.prg"]);
   const withMedia = savePathFor(main, extra, ["main.gam", "boards/start.brd", "prg/start.prg", "media/theme.mid"]);
   notEqual(plain, withMedia, "the package identity separates the two save areas");
+});
+
+test("two packages with identical paths and main bytes but different contents save into different areas", () => {
+  const main = savingMain("start.brd");
+  const paths = ["main.gam", "boards/start.brd", "prg/start.prg"];
+  const extra: Files = new Map([
+    [assetKey("boards/start.brd"), board("start")],
+    [assetKey("prg/start.prg"), START],
+  ]);
+  // Identical file names and identical main bytes; the board and program bytes
+  // differ, which only the host can see, so it supplies the package identity.
+  const first = savePathFor(main, extra, paths, { kind: "package", identity: "demo-1.0.0" });
+  const second = savePathFor(main, extra, paths, { kind: "package", identity: "demo-1.0.0+patched" });
+  notEqual(first, second, "the host package identity separates same-tree packages");
+  equal(first, `${deriveGameId(main, { kind: "package", identity: "demo-1.0.0" }, createAssetIndex(paths))}/saved/slot.sav`);
 });
 
 test("reset keeps the game's save area", () => {
