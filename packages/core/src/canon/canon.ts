@@ -30,7 +30,7 @@ export type CanonRootSplit = {
   readonly hasSelected: boolean;
 };
 
-export function canonSplitRoot(value: PlainData, splitKey: string): CanonRootSplit {
+export function canonSplitRoot(value: PlainData, splitKey: string, cachedSelected?: (value: unknown) => string | undefined): CanonRootSplit {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new TypeError("canon: only plain objects are plain data");
   }
@@ -56,7 +56,8 @@ export function canonSplitRoot(value: PlainData, splitKey: string): CanonRootSpl
     if (descriptor.get !== undefined || descriptor.set !== undefined) {
       throw new TypeError("canon: accessor properties are not plain data");
     }
-    const field = serializeString(key) + ":" + serialize(descriptor.value, seen, 1);
+    const field = (key === splitKey ? cachedSelected?.(descriptor.value) : undefined)
+      ?? serializeString(key) + ":" + serialize(descriptor.value, seen, 1);
     if (key === splitKey) {
       selected.push(field);
       hasSelected = true;
