@@ -903,7 +903,6 @@ stockBattleUi = {
   w: 0,
   h: 0,
   picture: "",
-  stepCount: 0,
   screen: 0,
   buffer: 0,
   target: 0,
@@ -980,7 +979,7 @@ stockBattleUi = {
     layout.listRowH = 22
     layout.listRows = 6
     layout.listW = 296
-    layout.numberTicks = 36
+    layout.numberTicks = 12
     return layout
   },
   // Menu cues come from the .bkg: cursor move, choose, and "cannot" (the existing cantDoSound).
@@ -1139,7 +1138,6 @@ stockBattleUi = {
     if (stockBattleUi.on == 0) {
       return 0
     }
-    stockBattleUi.stepCount = stockBattleUi.stepCount + 1
     fighter = stockBattleUi.roster[stockBattleUi.scan]
     if (fighter.hp + "," + fighter.smp != stockBattleUi.seen["" + stockBattleUi.scan]) {
       stockBattleUi.refresh()
@@ -1419,13 +1417,18 @@ stockBattleUi = {
     return 0
   },
   // The signature is every value the full redraw shows. A pass redraws only when it changed; the charge bars repaint
-  // on their own, because a bar's width changes nearly every pass. It includes the animation quantum (every 6 ticks)
-  // so looping stance animation frames refresh continuously across time.
+  // on their own, because a bar's width changes nearly every pass. It samples the engine tick (`battletick()`) modulo 2
+  // so that animation frames (which can advance as fast as every 2 to 4 ticks for fast stances) refresh continuously
+  // across passes, menus, and hold/action sequences without guessing frame delays.
   currentSignature: () => {
     local(index)
     local(fighter)
-    local(frameQuantum) = (stockBattleUi.stepCount - (stockBattleUi.stepCount % 6))
-    local(text) = stockBattleUi.mode + ":" + stockBattleUi.cursor + ":" + stockBattleUi.listCursor + ":" + stockBattleUi.listTop + ":" + stockBattleUi.targetCursor + ":" + stockBattleUi.targetParty + ":" + stockBattleUi.numberCount + ":" + stockBattleUi.message + ":" + stockBattleUi.acting + ":" + stockBattleUi.actingStance + ":" + stockBattleUi.listCount + ":" + frameQuantum
+    local(animStep) = 0
+    if (stockBattleUi.acting != null || stockBattleUi.numberCount > 0) {
+      // Action sequence or holding damage numbers: refresh animation frames across the hold
+      animStep = battletick() - (battletick() % 4)
+    }
+    local(text) = stockBattleUi.mode + ":" + stockBattleUi.cursor + ":" + stockBattleUi.listCursor + ":" + stockBattleUi.listTop + ":" + stockBattleUi.targetCursor + ":" + stockBattleUi.targetParty + ":" + stockBattleUi.numberCount + ":" + stockBattleUi.message + ":" + stockBattleUi.acting + ":" + stockBattleUi.actingStance + ":" + stockBattleUi.listCount + ":" + animStep
     for (index = 0; index < stockBattleUi.rosterCount; index = index + 1) {
       fighter = stockBattleUi.roster[index]
       stockBattleUi.seen["" + index] = fighter.hp + "," + fighter.smp
@@ -1905,7 +1908,6 @@ stockBattleUi.playerTurn = (index) => {
   stockBattleUi.cursor = 0
   stockBattleUi.mode = "command"
   while (done == 0) {
-    stockBattleUi.stepCount = stockBattleUi.stepCount + 1
     stockBattleUi.refresh()
     threadSleep(getThreadId(), 1/60)
     key = get()

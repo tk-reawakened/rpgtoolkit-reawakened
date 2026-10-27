@@ -1,7 +1,7 @@
 // Tests of the data commands added for the default battle UI (docs/spec/engine/battle.md#bat-11):
 // `battlecharacterdata` special-move availability, `battleinventory`, `battleitemdata` usable byte, `battlescreensize`.
 import { test } from "node:test";
-import { deepEqual, equal } from "node:assert/strict";
+import { deepEqual, equal, ok } from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TextEncoder } from "node:util";
@@ -164,6 +164,15 @@ test("battleinventory returns available stacks and battleitemdata exposes usable
   equal(potion["usable"], 1);
   const key = readDict(state, state.vm.globals.key) as Record<string, unknown>;
   equal(key["usable"], 0);
+});
+
+test("battletick returns the engine time tick", () => {
+  const game = runRig('t0 = battletick()\nthreadSleep(getThreadId(), 4/60)\nt1 = battletick()\ndone = 1\nend()\n', (s) => {
+    s.battle = { id: 1, boardKey: "b", background: "bg", canRun: true, outcome: null, parties: [[], []] };
+  });
+  equal(typeof game.vm.globals.t0, "number");
+  equal(typeof game.vm.globals.t1, "number");
+  ok((game.vm.globals.t1 as number) >= (game.vm.globals.t0 as number) + 4, "battletick advances with engine ticks");
 });
 
 test("battlescreensize reports logical pixel size with surfaces and null without", () => {

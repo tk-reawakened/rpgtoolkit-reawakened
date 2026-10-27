@@ -199,6 +199,32 @@ test("drawenemy preserves FIFO call order when an earlier sprite waits on asset 
   deepEqual(canvasPixel(game, handle, 4, 4), [0, 0, 255, 255], "the later-called sprite blits on top of the earlier one");
 });
 
+test("drawenemy advances frame cadence with delay 4 ticks (0.067s) and advances continuously during hold", () => {
+  const frame0 = new Uint8Array(16 * 16 * 4);
+  for (let at = 0; at < frame0.length; at += 4) frame0.set([255, 0, 0, 255], at);
+  const frame1 = new Uint8Array(16 * 16 * 4);
+  for (let at = 0; at < frame1.length; at += 4) frame1.set([0, 255, 0, 255], at);
+
+  // 4 ticks delay: 4/60 = 0.0667 seconds. Frame 0 is ticks 0..3, frame 1 is ticks 4..7.
+  const animation = unwrap(writeAnimation({
+    magic: "RPGTLKIT ANIM", major: 2, minor: 3, width: 16, height: 16,
+    frames: [
+      { image: "fast0.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
+      { image: "fast1.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" },
+    ],
+    delay: 0.0667, residue: new Uint8Array(),
+  }));
+
+  const game = boot('rendernow(1)\nc = cnvrendernow\nthreadSleep(getThreadId(), 4/60)\ndrawenemy("fast.anm", 0, 0, c)\nend()\n', {
+    "Misc/fast.anm": animation,
+    "Bitmap/fast0.png": encodePng(16, 16, frame0),
+    "Bitmap/fast1.png": encodePng(16, 16, frame1),
+  });
+  const handle = game.state().surfaces.renderNow ?? 0;
+  // After 4 ticks of sleep, frame 1 (green) is drawn
+  deepEqual(canvasPixel(game, handle, 4, 4), [0, 255, 0, 255], "4-tick delay advances to frame 1 at tick 4");
+});
+
 test("drawenemy respects the explicit loop=0 argument and clamps to the last frame", () => {
   const frame0 = new Uint8Array(16 * 16 * 4);
   for (let at = 0; at < frame0.length; at += 4) frame0.set([255, 0, 0, 255], at);

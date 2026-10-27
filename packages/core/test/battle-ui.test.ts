@@ -248,19 +248,18 @@ test("a healing item can target and revive a fallen ally, and a defeated enemy k
   equal(ui(rig)["mode"], "target");
   equal(Number(ui(rig)["targetcount"]), 2, "the defeated enemy is skipped by the target cursor");
   deepEqual(rig.diagnostics, []);
-  press("ENTER"); // complete the attack so the turn finishes cleanly
 
-  // Defect 3 regression: with Items selected, an item chosen whose inventory stack has become 0 is refused cleanly
+  // Defect 3 regression: with target mode active, selecting an item whose inventory stack is 0 is refused cleanly
   // without trapping the UI in `mode: "act"`. It plays the cancel sound and restores `mode: "target"`.
-  awaitMenu(rig);
+  press("ESC"); // back to command box
   press("DOWN");
   press("DOWN");
-  press("ENTER"); // opens Items list
+  press("ENTER"); // open Items list
   equal(ui(rig)["listkind"], "item");
-  press("ENTER"); // opens target selection for Potion
+  press("ENTER"); // open target selection for Potion
   equal(ui(rig)["mode"], "target");
-  rig.state().inventory.items = []; // all stacks removed before target confirm
-  press("ENTER"); // confirm target -> perform runs item preflight
-  equal(ui(rig)["mode"], "target", "refused item restores target selection mode");
-  equal(cueNames(rig).slice(-1)[0], "cant.wav", "and plays the cancel sound");
+  rig.state().inventory.items = []; // inventory stack zeroed out before confirm
+  press("ENTER"); // perform preflight fails
+  equal(ui(rig)["mode"], "target", "refused item restores target mode");
+  equal(cueNames(rig).slice(-1)[0], "cant.wav", "and plays cancel sound");
 });
