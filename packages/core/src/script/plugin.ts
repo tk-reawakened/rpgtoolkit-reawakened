@@ -87,8 +87,12 @@ export type CommandView = {
   readonly battle?: BattleOwner;
   /** Main-file enemy pool and package battle handler for start commands. */
   readonly battleStart?: BattleStartView;
-  /** Stable core-derived identity used to scope host storage. */
-  readonly gameId?: string;
+  /**
+   * The AD-17 `GameId` that scopes host storage, or `null` when the engine has
+   * none (a scene engine): save-area commands then fail with
+   * `save.no-game-identity` instead of inventing a namespace.
+   */
+  readonly gameId: string | null;
   /** Manifest options for the layer currently handling this command. */
   readonly options?: PlainData;
   /** True only while package startup is running; exposed read-only to lifecycle-aware built-ins. */

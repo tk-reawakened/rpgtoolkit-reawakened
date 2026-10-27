@@ -20,7 +20,7 @@ import type { AssetKey } from "../../ports/keys.ts";
  */
 export type AssetRoot = PackageAssetRoot | GameAssetRoot;
 
-/** A package root: the index's paths are the package's, and `projectPath` is ignored(docs/spec/formats/packaging-and-paths.md). */
+/** A package root: the index's paths are the package's, and `projectPath` is ignored(docs/spec/formats/packaging-and-paths.md). Resolution never needs a save identity; the engine takes that as its own init value. */
 export interface PackageAssetRoot {
   readonly kind: "package";
 }

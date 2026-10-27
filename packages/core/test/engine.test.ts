@@ -195,6 +195,7 @@ test("createEngine preserves manifest package behaviours and actor operations ac
       assetIndex: createAssetIndex([...files.keys()]),
       assetRoot: PACKAGE_ROOT,
       mainFile: "main.gam",
+      gameIdentity: "engine-test",
       plugins: [resolvedPlugin],
       startup: { presence: { hasPlayer: () => true }, savedGame: { load: () => ({ kind: "missing" }), restored: () => false } },
       width: 32,

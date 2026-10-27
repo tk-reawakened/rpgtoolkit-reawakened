@@ -10,6 +10,7 @@
 import { decodeCp1252, encodeCp1252 } from "../../formats/binary/cp1252.ts";
 import type { BuiltinSpec } from "../builtins.ts";
 import { ScriptError } from "../errors.ts";
+import { requireGameId } from "../game-id.ts";
 import type { CommandRequest, CommandResult, CommandView } from "../plugin.ts";
 import type { FileHandle } from "../state.ts";
 import { toStringValue, truthy } from "../values.ts";
@@ -42,8 +43,7 @@ function fileInfo(view: CommandView, args: readonly { value: unknown }[]): FileI
     throw new ScriptError("builtin.bad-arg", "file paths must stay inside the game sandbox");
   }
   const area = folder === "saved" ? "saves" : "files";
-  const gameId = view.gameId ?? "default";
-  const path = `${gameId}/${folder}/${file}`;
+  const path = `${requireGameId(view)}/${folder}/${file}`;
   return { file, path, area };
 }
 
@@ -102,7 +102,26 @@ const OPEN_PARAMS = [
   { name: "folder", optional: false, byRef: false, variadic: false },
 ] as const;
 
+const SAVE_NAME_PARAMS = [{ name: "file", optional: false, byRef: false, variadic: false }] as const;
 const FILE_COMMANDS: BuiltinSpec[] = [
+  {
+    name: "save", aliases: [], params: SAVE_NAME_PARAMS,
+    doc: { summary: "Save the current game state to a file.", behaviour: "Writes Saved/<name>.sav through the game's sandboxed save area and blocks until the host confirms the write. Does nothing on boards that disable saving.", groups: ["files-saves-os-15"] },
+    call: (view, args) => {
+      const board = view.state?.world.board;
+      if ((board?.disableSaving ?? 0) !== 0) return { value: null };
+      const info = fileInfo(view, [{ value: `${toStringValue(args[0]?.value as never)}.sav` }, { value: "saved" }]);
+      return { value: null, request: { kind: "saveBlob", gameSave: true, blob: { area: info.area, path: info.path }, hex: "" } };
+    },
+  },
+  {
+    name: "load", aliases: [], params: SAVE_NAME_PARAMS,
+    doc: { summary: "Load the game state from a file.", behaviour: "Loads Saved/<name>.sav through the game's sandboxed save area; a valid save replaces the live game state and resumes its saved VM threads.", groups: ["files-saves-os-15"] },
+    call: (view, args) => {
+      const info = fileInfo(view, [{ value: `${toStringValue(args[0]?.value as never)}.sav` }, { value: "saved" }]);
+      return { value: null, request: { kind: "loadBlob", gameLoad: true, blob: { area: info.area, path: info.path } } };
+    },
+  },
   { name: "openfileinput", aliases: [], params: OPEN_PARAMS, call: (view, args) => openInput(view, args, "input") },
   { name: "openfilebinary", aliases: [], params: OPEN_PARAMS, call: (view, args) => openInput(view, args, "binary") },
   {
@@ -196,7 +215,7 @@ const FILE_COMMANDS: BuiltinSpec[] = [
   },
   {
     name: "apppath", aliases: [], params: [{ name: "path", optional: true, byRef: true, variadic: false }],
-    call: (view, args) => { const path = view.gameId ?? "default"; return { value: path, ...(byRef(args, 0) ? { out: [[0, path] as [number, string]] } : {}) }; },
+    call: (view, args) => { const path = requireGameId(view); return { value: path, ...(byRef(args, 0) ? { out: [[0, path] as [number, string]] } : {}) }; },
   },
   {
     name: `${INTERNAL}open_save`, aliases: [],

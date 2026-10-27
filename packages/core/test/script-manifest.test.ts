@@ -117,13 +117,13 @@ test("resolved layer options are injected only into the owning command view", ()
     { definition: { id: "game", version: "1", commands: [] }, options: { speed: 2 } },
   ], logger);
   const resolved = registry.get("probe")!;
-  resolved.spec.call({ rng: { nextUint32: () => 0 }, clock: { tick: () => 0 } }, [], resolved.next);
+  resolved.spec.call({ rng: { nextUint32: () => 0 }, clock: { tick: () => 0 }, gameId: "test-game" }, [], resolved.next);
   equal(seen, undefined);
 
   const configured = assembleCommands([
     { definition: { id: "core", version: "1", commands: [base] }, options: { core: true } },
   ], logger).get("probe")!;
-  configured.spec.call({ rng: { nextUint32: () => 0 }, clock: { tick: () => 0 } }, [], configured.next);
+  configured.spec.call({ rng: { nextUint32: () => 0 }, clock: { tick: () => 0 }, gameId: "test-game" }, [], configured.next);
   deepEqual(seen, { core: true });
 });
 

@@ -91,6 +91,7 @@ import type { CommandResult, CommandRequest, CommandView, ResolvedPlugin, MenuPr
 import {
   COMPILER_VERSION,
   fileProgramRef,
+  restartProgramRef,
   withRedirects,
   type ProgramLoader,
   type FunctionInfo,
@@ -263,7 +264,7 @@ export function createScriptServices(
   logger: Logger = NULL_LOGGER,
   virtuals?: VirtualVariablePort,
   loaderOrGameId?: ProgramLoader | string,
-  explicitGameId = "default",
+  explicitGameId?: string | null,
   postEffect?: (section: SectionKey, effect: EffectRecord) => void,
   postRequest?: (request: CommandRequest) => void,
   layers: PluginLayers = createPluginLayers(),
@@ -276,7 +277,7 @@ export function createScriptServices(
   battleStart?: CommandView["battleStart"],
 ): ScriptServices {
   const loader = typeof loaderOrGameId === "string" ? undefined : loaderOrGameId;
-  const gameId = typeof loaderOrGameId === "string" ? loaderOrGameId : explicitGameId;
+  const gameId = typeof loaderOrGameId === "string" ? loaderOrGameId : explicitGameId ?? null;
   const runtimeRng = createRngPort(state.rng);
   const runtimeClock = createClockPort(state.time);
   const lifecycle: PackageStartupLifecycle = typeof packageStartup === "boolean" ? { active: packageStartup, packageName: undefined } : packageStartup;
@@ -1813,7 +1814,7 @@ function findDefinition(
     try {
       owner = services.programs.get(recorded);
     } catch (error) {
-      if (mismatchCode(error) === null) throw error;
+      if (!sourceChanged(error)) throw error;
     }
   }
   const infos = owner === undefined ? undefined : owner.functions[def];
@@ -2941,34 +2942,14 @@ function continuationArg(value: PlainData, pos: SourcePos): Arg {
   throw new ScriptError("request.bad-reply", "a request continuation argument must be a number, a string or null", pos);
 }
 
-function mismatchCode(error: unknown): "restore.source-changed" | "restore.compiler-mismatch" | null {
-  if (!(error instanceof ScriptError)) return null;
-  return error.code === "restore.source-changed" || error.code === "restore.compiler-mismatch" ? error.code : null;
+function sourceChanged(error: unknown): boolean {
+  return error instanceof ScriptError && error.code === "restore.source-changed";
 }
 
 function restartThreadFromSource(thread: Thread, vm: VmState, services: ScriptServices): void {
   const stale = thread.frames[0]?.program;
   if (stale === undefined) throw new ScriptError("restore.shape", `thread ${thread.id} has no program frame`);
-  let ref: ProgramRef;
-  if (stale.kind === "file") {
-    if (services.loader === undefined) {
-      throw new ScriptError("program.file-unsupported", `cannot restart "${stale.path}" without a source loader`);
-    }
-    const fresh = fileProgramRef(services.loader, stale.path, stale.redirects ?? vm.redirects);
-    ref = {
-      ...fresh,
-      ...(stale.includes === undefined ? {} : { includes: [...stale.includes] }),
-      ...(stale.dialect === undefined ? {} : { dialect: stale.dialect }),
-      ...(stale.owner === undefined ? {} : { owner: stale.owner }),
-    };
-  } else {
-    ref = {
-      ...stale,
-      compiler: COMPILER_VERSION,
-      ...(stale.includes === undefined ? {} : { includes: [...stale.includes] }),
-      ...(stale.dialect === undefined ? {} : { dialect: stale.dialect }),
-    };
-  }
+  const ref = restartProgramRef(stale, services.loader, vm.redirects);
   services.programs.get(ref);
   thread.frames = [
     {
@@ -2990,16 +2971,12 @@ function restartThreadFromSource(thread: Thread, vm: VmState, services: ScriptSe
 function ensureCurrentProgram(thread: Thread, vm: VmState, services: ScriptServices): void {
   const frame = thread.frames[thread.frames.length - 1];
   if (frame === undefined) return;
+  // Only a changed source restarts a thread. A compiler mismatch cannot reach
+  // here: restoreGameState refuses the whole save for it (owner ruling 2026-10-27).
   try {
-    if (frame.program.compiler !== COMPILER_VERSION) {
-      throw new ScriptError(
-        "restore.compiler-mismatch",
-        `thread ${thread.id} was compiled by ${frame.program.compiler}, not ${COMPILER_VERSION}`,
-      );
-    }
     services.programs.get(frame.program);
   } catch (error) {
-    if (mismatchCode(error) === null) throw error;
+    if (!sourceChanged(error)) throw error;
     restartThreadFromSource(thread, vm, services);
   }
 }

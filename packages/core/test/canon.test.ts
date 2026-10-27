@@ -17,6 +17,7 @@ import {
   hashState,
   reviveNonFinite,
   tagNonFinite,
+  utf8Decode,
   utf8Encode,
 } from "../src/index.ts";
 import type { DrawList, PlainData, PortData, SurfaceId } from "../src/index.ts";
@@ -356,6 +357,22 @@ test("utf8Encode matches TextEncoder across all scalar values and boundaries", (
       equal(actual[j], expected[j]);
     }
   }
+});
+
+test("utf8Decode round-trips scalar values and rejects malformed or incomplete sequences", () => {
+  const sample = "ascii \u0080 \u07ff \u0800 \ud7ff \ue000 \uffff \ud83d\ude00";
+  deepEqual(utf8Decode(utf8Encode(sample)), sample);
+  for (const invalid of [
+    [0x80],
+    [0xc0, 0x80],
+    [0xe0, 0x80, 0x80],
+    [0xed, 0xa0, 0x80],
+    [0xf0, 0x80, 0x80, 0x80],
+    [0xf4, 0x90, 0x80, 0x80],
+    [0xf5, 0x80, 0x80, 0x80],
+    [0xe2, 0x82],
+    [0xf0, 0x9f, 0x98],
+  ]) throws(() => utf8Decode(new Uint8Array(invalid)), TypeError);
 });
 
 test("fnv1a64 matches the FNV-1a 64-bit vectors", () => {

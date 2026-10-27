@@ -17,6 +17,8 @@ import {
   awardExperience,
   queueNativeEvent,
   registerEmitter,
+  restoreGameSave,
+  snapshotGameSave,
   restoreGameState,
   SCHEMA_VERSIONS,
   snapshot,
@@ -235,4 +237,46 @@ test("restore refuses malformed native event detail metadata", () => {
   const failure = errorOf(() => restoreGameState(JSON.stringify(json)));
   equal(failure.code, "restore.shape");
   ok(failure.message.includes(`events.nativeDetails.${event}`), failure.message);
+});
+
+test("game saves persist only playback projection and restore with current audio configuration", () => {
+  const state = createGameState({ seed: 7 });
+  state.time.tick = 17;
+  state.audio.settings.masterVolume = 42;
+  state.audio.tracks[0]!.voiceCount = 2;
+  const json = snapshotGameSave(state);
+  const saved = JSON.parse(json) as { readonly audio: { readonly [key: string]: unknown; readonly tracks: readonly Record<string, unknown>[] } };
+  deepEqual(Object.keys(saved.audio).sort(), ["cueId", "tick", "tracks"]);
+  ok(!Object.hasOwn(saved.audio.tracks[0]!, "voiceCount"));
+
+  const current = createGameState({ seed: 9 });
+  current.audio.settings.masterVolume = 73;
+  current.audio.tracks[0]!.voiceCount = 3;
+  const restored = restoreGameSave(json, current.audio);
+  equal(restored.state.time.tick, 17);
+  equal(restored.audio.tick, 17);
+  equal(restored.state.audio.settings.masterVolume, 73);
+  equal(restored.state.audio.tracks[0]!.voiceCount, 3);
+  deepEqual(restored.state.audio.tracks[0]!.voices, []);
+
+  const mismatch = JSON.parse(json) as { audio: { tick: number } };
+  mismatch.audio.tick += 1;
+  throws(() => restoreGameSave(JSON.stringify(mismatch), current.audio), /audio\.tick must match time\.tick/);
+});
+
+test("game saves from prior audio schema migrate to current schema with empty projection", () => {
+  const state = createGameState({ seed: 7 });
+  state.time.tick = 10;
+  const raw = JSON.parse(snapshotGameSave(state)) as {
+    schema: { audio: number };
+    audio: Record<string, unknown>;
+  };
+  raw.schema.audio = 1;
+  raw.audio = {};
+  const current = createGameState({ seed: 9 });
+  const restored = restoreGameSave(JSON.stringify(raw), current.audio);
+  equal(restored.state.schema.audio, SCHEMA_VERSIONS.audio);
+  equal(restored.audio.tracks.length, 0);
+  equal(restored.audio.tick, 10);
+  deepEqual(restored.state.audio.tracks, current.audio.tracks);
 });

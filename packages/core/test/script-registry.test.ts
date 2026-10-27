@@ -33,7 +33,7 @@ import { advanceOrFail } from "./script-failures.ts";
 import { createScriptServices } from "./script-test-services.ts";
 
 /** A view that draws nothing, so a test can prove a command used no port. */
-const FIXTURE_VIEW: CommandView = { rng: { nextUint32: () => 0 }, clock: { tick: () => 0 } };
+const FIXTURE_VIEW: CommandView = { rng: { nextUint32: () => 0 }, clock: { tick: () => 0 }, gameId: "test-game" };
 
 function makeState(program: string): GameState {
   const state = createGameState({ seed: 0 });
@@ -231,6 +231,7 @@ test("a command that uses neither port is pure over the same view and args", () 
         return 3;
       },
     },
+    gameId: "test-game",
   };
   const pure: BuiltinSpec = {
     name: "pure",

@@ -1,6 +1,6 @@
 // The save tree, canonical form and restore checks (AD-7, AD-10, AD-11, AD-23):
 // the 20-section shape, a mid-yield round-trip and the two pinned restore errors.
-import { deepEqual, equal, throws } from "node:assert/strict";
+import { deepEqual, equal, ok, throws } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -91,19 +91,37 @@ test("restore rejects a compiler: 1 snapshot fixture before reading payload", ()
   equal(errorOf(() => restoreGameState(fixture)).code, "restore.compiler-mismatch");
 });
 
-test("a restored thread with a stale compiler restarts its source", () => {
+test("a save whose frame program names another compiler is refused whole, not restarted", () => {
+  // schema.compiler is current, so only the per-program check can catch this.
   const state = createGameState({ seed: 7 });
   startProgram(state.vm, { kind: "inline", text: "value = 42\nend()\n", compiler: "2" });
-  const thread = state.vm.threads[0]!;
-  const frame = thread.frames[0]!;
-  frame.program = { ...frame.program, compiler: "1" };
-  const services = createScriptServices(state);
+  const json = JSON.parse(snapshot(state)) as { vm: { threads: { frames: { program: { compiler: string } }[] }[] } };
+  json.vm.threads[0]!.frames[0]!.program.compiler = "1";
 
-  advanceScriptTick(state, services);
+  const error = errorOf(() => restoreGameState(JSON.stringify(json)));
+  equal(error.code, "restore.compiler-mismatch");
+  ok(error.message.includes("vm.threads[0].frames[0].program.compiler"), error.message);
+  // The refusal is a whole-save decision: nothing was built to run.
+  equal(state.vm.threads[0]!.frames[0]!.program.compiler, "2");
+});
 
-  equal(state.vm.globals.value, 42);
-  equal(thread.status, "finished");
-  equal(thread.frames.length, 0);
+test("a file-backed owner program from another compiler is refused whole, not restarted", () => {
+  const bytes = Uint8Array.from([...`value = 42\nend()\n`].map((char) => char.charCodeAt(0)));
+  const loader = { index: createAssetIndex(["Prg/main.prg"]), root: PACKAGE_ROOT, read: () => bytes };
+  const state = createGameState({ seed: 9 });
+  startThread(state.vm, { ref: withOwner(fileProgramRef(loader, "main.prg"), "alpha"), kind: "blocking", owner: "script" });
+  const json = JSON.parse(snapshot(state)) as { vm: { threads: { frames: { program: { compiler: string } }[] }[] } };
+  json.vm.threads[0]!.frames[0]!.program.compiler = "1";
+
+  equal(errorOf(() => restoreGameState(JSON.stringify(json))).code, "restore.compiler-mismatch");
+});
+
+test("a vm.defOwners entry from another compiler is refused whole", () => {
+  const state = createGameState({ seed: 3 });
+  state.vm.defOwners = { f: { kind: "inline", text: "function f() { return 1 }\n", compiler: "1" } };
+  const error = errorOf(() => restoreGameState(JSON.stringify(JSON.parse(snapshot(state)))));
+  equal(error.code, "restore.compiler-mismatch");
+  ok(error.message.includes("vm.defOwners.f.compiler"), error.message);
 });
 
 test("restore rejects malformed nested VM state", () => {
@@ -150,28 +168,6 @@ test("a changed unowned file source remains unowned", () => {
   equal(state.vm.globals.value, 7);
   equal(thread.status, "finished");
   equal(Object.keys(readStepCounters(state.vm)).length, 0);
-});
-
-test("a compiler-mismatched owner file thread restarts with package attribution", () => {
-  const bytes = Uint8Array.from([...`value = 42\nend()\n`].map((char) => char.charCodeAt(0)));
-  const loader = {
-    index: createAssetIndex(["Prg/main.prg"]),
-    root: PACKAGE_ROOT,
-    read: () => bytes,
-  };
-  const state = createGameState({ seed: 9 });
-  const ref = withOwner(fileProgramRef(loader, "main.prg"), "alpha");
-  const thread = startThread(state.vm, { ref, kind: "blocking", owner: "script" });
-  thread.frames[0]!.program = { ...thread.frames[0]!.program, compiler: "1" };
-  const services = createScriptServices(state, [], undefined, undefined, loader);
-
-  advanceScriptTick(state, services);
-
-  equal(state.vm.globals.value, 42);
-  equal(thread.status, "finished");
-  const counters = readStepCounters(state.vm);
-  equal(Object.keys(counters).join(","), "alpha");
-  equal(counters.alpha! > 0, true);
 });
 
 test("snapshot rejects script-created nesting at the deterministic bound", () => {

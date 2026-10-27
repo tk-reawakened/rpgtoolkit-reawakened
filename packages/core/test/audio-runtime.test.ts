@@ -471,3 +471,21 @@ test("playback load preserves the game's definitions, cap and bank and ignores u
   target.runtime.load(saved);
   equal(target.runtime.drain()[0]?.asset, key("game.sf2"), "load preserves the authored default bank");
 });
+
+test("playback load matches saved tracks against differently cased current configuration", () => {
+  const source = rig({ "x.wav": 100 });
+  source.runtime.configureTrack("weather", 1);
+  source.runtime.play({ track: "weather", asset: key("x.wav"), loop: false });
+  const saved = audioSaveProjection(source.state.audio, 0);
+
+  const target = rig({ "x.wav": 100 });
+  target.runtime.configureTrack("weather", 1);
+  target.state.audio.tracks[5]!.name = "WEATHER";
+  target.runtime.load(saved);
+
+  equal(target.state.audio.tracks[5]!.name, "WEATHER");
+  equal(target.state.audio.tracks[5]!.voices.length, 1);
+  const play = target.runtime.drain().find((cue) => cue.kind === "media.play" && cue.track === "WEATHER");
+  ok(play);
+  equal(play.asset, key("x.wav"));
+});

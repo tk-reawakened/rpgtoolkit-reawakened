@@ -206,6 +206,7 @@ function bootEngine(game: AuthoredGame, doubles: Doubles, packageCatalogue?: rea
     assetIndex: game.index,
     assetRoot: game.root,
     mainFile: game.main,
+    gameIdentity: "engine-boot-test",
     startup: doubles.startup,
     width: 320,
     height: 240,
@@ -898,6 +899,7 @@ for (const name of ["demo", "Basic"]) {
       assetIndex: sample.index,
       assetRoot: PACKAGE_ROOT,
       mainFile: "main.gam",
+      gameIdentity: "engine-boot-sample",
       startup: doubles.startup,
       width: 640,
       height: 480,
@@ -925,7 +927,7 @@ test("a Toolkit 2 sample's start.prg reports a located syntax diagnostic instead
   const sample = sampleGame("Caoquest");
   if (sample === null) throw new Error("fixtures/legacy/Caoquest has no start program, board and character");
   const doubles = makeDoubles();
-  const engine = createEngine({ seed: 3, assetIndex: sample.index, assetRoot: PACKAGE_ROOT, mainFile: "main.gam", startup: doubles.startup, width: 640, height: 480, maxTicks: 600, ...doubles.options });
+  const engine = createEngine({ seed: 3, assetIndex: sample.index, assetRoot: PACKAGE_ROOT, mainFile: "main.gam", gameIdentity: "engine-boot-tk2", startup: doubles.startup, width: 640, height: 480, maxTicks: 600, ...doubles.options });
   const result = run(engine, sample.files, 5);
   const syntax = result.diagnostics.find((diagnostic) => diagnostic.code === "syntax.error");
   equal(syntax?.file, "prg/start.prg");
@@ -949,7 +951,7 @@ type ResetRun = NonNullable<EngineInit["resetRegistrations"]>[number]["reset"];
 function audioBoot(game: AuthoredGame, onAudioPhase?: AudioPhaseRun, onReset?: ResetRun, replacementIndex: AssetIndex = game.index): { engine: Engine; state(): GameState } {
   let latest: GameState | null = null;
   const engine = createEngine({
-    seed: 11, assetIndex: replacementIndex, assetRoot: game.root, mainFile: game.main, maxTicks: 10,
+    seed: 11, assetIndex: replacementIndex, assetRoot: game.root, mainFile: game.main, gameIdentity: "engine-boot-audio", maxTicks: 10,
     width: 320, height: 240,
     startup: { presence: { hasPlayer: () => true }, savedGame: { load: () => ({ kind: "missing" }), restored: () => false } },
     defaultSoundFont: assetKey("media/ignored.sf2"),

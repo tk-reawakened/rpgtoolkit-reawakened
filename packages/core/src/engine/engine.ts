@@ -1,5 +1,10 @@
-import { hashDrawList } from "../canon/index.ts";
+import { fnv1a64, hashDrawList, utf8Decode, utf8Encode } from "../canon/index.ts";
+import { restoreGameSave, snapshotGameSave } from "../save/game-save.ts";
+import { deriveGameId } from "../save/game-id.ts";
+import { restoreGameState, snapshot } from "../save/snapshot.ts";
+import { createPluginLayers, type PluginLayers } from "../script/layers.ts";
 import { actorEmitterKey, actorId } from "../actors/model.ts";
+import type { AudioSaveProjection } from "../audio/save.ts";
 import { updateActorStats, type ActorTransition } from "../actors/rules.ts";
 import { queueActorTransition, registerActorObject } from "../actors/object.ts";
 import { resolveAsset, assetKey, resolveTileReference } from "../formats/resolver/resolver.ts";
@@ -26,6 +31,7 @@ import type { Value } from "../ports/value.ts";
 import type { RunnerRequest } from "../ports/requests.ts";
 import type { StartupPorts } from "../ports/startup.ts";
 import type { AssetKey, SurfaceId } from "../ports/keys.ts";
+import type { BlobKey } from "../ports/requests.ts";
 import { createGameState, type GameState, type SectionKey } from "../save/state.ts";
 import { applyMenuStateEffect, createMenuOwnerPorts } from "../menu/index.ts";
 import { createShopSessionRuntime } from "./shop-session.ts";
@@ -73,6 +79,8 @@ import {
   endItemThreads,
   fileProgramRef,
   runPackageStartup,
+  compileRestoredPrograms,
+  verifyRestoredHandles,
   runThreadsPhase,
   runWaitsPhase,
   layerRoots,
@@ -181,29 +189,49 @@ type EngineCommonInit = {
 /**
  * Scene mode: load one board and optionally run one program, with no start-up
  * sequence. The tracer bullet, the golden scenes and the editor previews use it.
+ * There is no main file, so there is no game identity: every save-area operation
+ * fails with a located `save.no-game-identity` error rather than borrowing one.
  */
 export type SceneInit = EngineCommonInit & {
   readonly initialBoard: string;
   readonly program?: string | ProgramRef;
   readonly mainFile?: never;
   readonly startup?: never;
+  readonly gameIdentity?: never;
 };
 
 /**
  * Boot mode: run E-02 from the main file at the index path `mainFile`
  * (docs/spec/engine/main-loop-and-startup.md#reawakened-boot-sequence).
+ *
+ * `gameIdentity` is the host's AD-17 identity for the game — `derivePackageIdentity`
+ * for a package, a host-chosen stable string for a folder. Core hashes it with the
+ * main file's bytes into the `GameId` that prefixes every save-area path; there is
+ * no default.
  */
 export type BootInit = EngineCommonInit & {
   readonly mainFile: string;
   readonly startup: StartupPorts;
   readonly initialBoard?: never;
   readonly program?: never;
+  readonly gameIdentity: string;
 };
 
 export type EngineInit = SceneInit | BootInit;
 type RequestEntry = { readonly reqId: number; readonly key: AssetKey; readonly kind: EngineRequestKind };
+type PendingBlobRequest = {
+  readonly reqId: number;
+  readonly vmReqId: number;
+  readonly kind: "loadBlob" | "saveBlob";
+  readonly blob: BlobKey;
+  readonly gameSave: boolean;
+  readonly gameLoad: boolean;
+  readonly hex: string | null;
+  published: boolean;
+};
 type SourceLocation = { file: string; line: number };
 type Paused = { thread: number; frame: number; line: number };
+type BlobReplyResult = "ignored" | "consumed" | "loaded";
 type Arrival = { readonly x: number; readonly y: number; readonly layer: number; readonly unit: "pixel" | "tile" };
 
 const DEFAULT_ENGINE_PLUGINS: readonly ResolvedPlugin[] = resolveManifestPlugins(ENGINE_DEFAULT_MANIFEST).plugins;
@@ -223,6 +251,22 @@ function encodeInlineScriptString(value: string): string {
     codeUnits.push(value.charCodeAt(index).toString(16).padStart(4, "0"));
   }
   return codeUnits.join("");
+}
+function decodeHex(value: string): Uint8Array | null {
+  if (value.length % 2 !== 0) return null;
+  const bytes = new Uint8Array(value.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    const high = Number.parseInt(value.slice(index * 2, index * 2 + 1), 16);
+    const low = Number.parseInt(value.slice(index * 2 + 1, index * 2 + 2), 16);
+    if (!Number.isInteger(high) || !Number.isInteger(low)) return null;
+    bytes[index] = high * 16 + low;
+  }
+  return bytes;
+}
+function encodeHex(bytes: Uint8Array): string {
+  let text = "";
+  for (const byte of bytes) text += byte.toString(16).padStart(2, "0");
+  return text;
 }
 
 /** Create the deterministic fixed-tick engine; host assets arrive only as AD-14 replies. */
@@ -249,6 +293,7 @@ export function createEngine(init: EngineInit): Engine {
   const decodedTiles = new Map<AssetKey, DecodedTexture>();
   const decodedBundled = new Map<AssetKey, RasterAsset | null>();
   const pending = new Map<number, RequestEntry>();
+  const pendingBlobs = new Map<number, PendingBlobRequest>();
   const pendingImageEffects: Array<{ readonly key: AssetKey; readonly effect: EffectRecord }> = [];
   const pendingBoardPreviews: Array<{ readonly key: AssetKey; readonly effect: EffectRecord }> = [];
   const queuedInputs: InputRecord[] = [];
@@ -517,6 +562,9 @@ export function createEngine(init: EngineInit): Engine {
     ...(init.sprites === undefined ? {} : { sprites: init.sprites }),
     ...(init.globalAmbient === undefined ? {} : { globalAmbient: init.globalAmbient }),
   };
+  // Read before the branch narrows `init`: a JavaScript caller can omit the
+  // boot-mode identity even though the type requires it, and that must fail loudly.
+  const hostGameIdentity: string | undefined = init.gameIdentity;
   if (init.mainFile === undefined) {
     const resolved = resolveAsset(index, root, "boards", init.initialBoard);
     if (resolved.ok) sceneBoardKey = resolved.value;
@@ -531,14 +579,37 @@ export function createEngine(init: EngineInit): Engine {
       mainKey = found;
       state.engine.boot = { stage: "main", main: found, fonts: [] };
     }
+    if (typeof hostGameIdentity !== "string" || hostGameIdentity === "") {
+      diagnostics.push({
+        code: "startup.no-game-identity",
+        file: init.mainFile,
+        line: 0,
+        message: "boot needs the host's AD-17 game identity; a scene engine has none (docs/spec/formats/save-game.md#reawakened-full-engine-save-and-load)",
+      });
+      failed = true;
+      state.engine.boot = { stage: "stopped", main: "", fonts: [] };
+    }
   }
   let activePlugins: readonly ResolvedPlugin[] = init.plugins ?? DEFAULT_ENGINE_PLUGINS;
+  /**
+   * AD-17's `GameId`, or `null` until it can be derived. Boot mode has the host's
+   * `gameIdentity`; scene mode never has one, so every save-area operation there
+   * fails explicitly (never a borrowed or path-derived identity).
+   */
+  let currentGameId: string | null = null;
+  /** Recompute the `GameId` once the main file's bytes are known. */
+  function refreshGameId(): void {
+    const bytes = mainKey === null ? undefined : cache.get(mainKey);
+    if (bytes !== undefined && hostGameIdentity !== undefined) currentGameId = deriveGameId(bytes, hostGameIdentity);
+  }
+  let pluginLayers = createPluginLayers();
   const packageStartupLifecycle = { active: false, packageName: undefined as string | undefined };
   let startupServicesReady = false;
   function makeServices(
     plugins: readonly ResolvedPlugin[],
     programLoader?: ProgramLoader,
     runStartups = true,
+    layers: PluginLayers = pluginLayers,
   ): ScriptServices {
     const listenersBeforeStartup = [...state.events.listeners];
     audioDecoders = assembleAudioDecoders(plugins.map((plugin) => plugin.definition), decoderLogger);
@@ -548,9 +619,44 @@ export function createEngine(init: EngineInit): Engine {
       undefined,
       undefined,
       programLoader,
-      "engine",
+      currentGameId,
       (section, effect) => bus.dispatchRecorded(section, effect),
       (request) => {
+        if ((request.kind === "loadBlob" || request.kind === "saveBlob") &&
+            typeof request.reqId === "number" && Number.isSafeInteger(request.reqId) &&
+            request.reqId > 0 && request.reqId < SCRIPT_REQUEST_BASE &&
+            typeof request.blob === "object" && request.blob !== null && !Array.isArray(request.blob)) {
+          const rawBlob = request.blob as Record<string, unknown>;
+          if ((rawBlob.area === "saves" || rawBlob.area === "files") && typeof rawBlob.path === "string" && rawBlob.path !== "") {
+            // AD-17: no identity means no save area. Refuse at the seam as well as
+            // in the builtins, so a future command cannot publish a shared path.
+            if (currentGameId === null) {
+              diagnostics.push({
+                code: "save.no-game-identity",
+                file: mainKey ?? "",
+                line: 0,
+                message: `${request.kind} refused: this engine has no game identity (docs/spec/formats/save-game.md#reawakened-full-engine-save-and-load)`,
+              });
+              try {
+                replyToRequest(state.vm, request.reqId, { ok: false, value: "this game has no save area" });
+              } catch (error) {
+                if (error instanceof ScriptError) diagnostics.push(toDiagnostic(error));
+              }
+              return;
+            }
+            const reqId = SCRIPT_REQUEST_BASE + request.reqId;
+            const gameSave = request.kind === "saveBlob" && request.gameSave === true;
+            const gameLoad = request.kind === "loadBlob" && request.gameLoad === true;
+            const hex = typeof request.hex === "string" ? request.hex : "";
+            const bytes = request.kind === "saveBlob" && !gameSave ? decodeHex(hex) : null;
+            const published = request.kind === "loadBlob" || (!gameSave && bytes !== null);
+            const blob: BlobKey = { area: rawBlob.area, path: rawBlob.path };
+            pendingBlobs.set(reqId, { reqId, vmReqId: request.reqId, kind: request.kind, blob, gameSave, gameLoad, hex, published });
+            if (request.kind === "loadBlob") requestsOut.push({ kind: "loadBlob", reqId, blob });
+            else if (bytes !== null) requestsOut.push({ kind: "saveBlob", reqId, blob, bytes });
+            return;
+          }
+        }
         const scriptArea = request.kind === "asset" && typeof request.area === "string" && Object.hasOwn(SCRIPT_ASSET_AREAS, request.area) ? SCRIPT_ASSET_AREAS[request.area] : undefined;
         if (request.kind === "asset" && scriptArea !== undefined &&
             typeof request.path === "string" && typeof request.reqId === "number" &&
@@ -567,7 +673,7 @@ export function createEngine(init: EngineInit): Engine {
         state.engine.video = { reqId: request.reqId, key: request.key as AssetKey, presentation: request.presentation, ended: false };
         requestsOut.push({ kind: "playVideo", reqId: request.reqId, key: request.key as AssetKey, presentation: request.presentation });
       },
-      undefined,
+      layers,
       undefined,
       packageStartupLifecycle,
       media,
@@ -599,6 +705,48 @@ export function createEngine(init: EngineInit): Engine {
     }
     startupServicesReady = runStartups;
     return nextServices;
+  }
+  function applyLoadedGame(candidate: GameState, projection: AudioSaveProjection): void {
+    const previous = restoreGameState(snapshot(state));
+    const previousServices = services;
+    const previousLayers = pluginLayers;
+    const previousStartupServicesReady = startupServicesReady;
+    const previousFailed = failed;
+    const previousNextRequestId = nextRequestId;
+    const restoredLayers = createPluginLayers();
+    try {
+      Object.assign(state, createGameState({ seed: init.seed }));
+      makeServices(activePlugins, loader ?? undefined, true, restoredLayers);
+      if (failed) throw new ScriptError("restore.shape", "installed package start-up failed during restore");
+      Object.assign(state, previous);
+      services = previousServices;
+      pluginLayers = previousLayers;
+      startupServicesReady = previousStartupServicesReady;
+      failed = previousFailed;
+
+      Object.assign(state, candidate);
+      if (typeof candidate.engine.nextRequestId === "number" && Number.isSafeInteger(candidate.engine.nextRequestId) && candidate.engine.nextRequestId >= 1) {
+        nextRequestId = candidate.engine.nextRequestId;
+      }
+      pluginLayers = restoredLayers;
+      const restoredServices = makeServices(activePlugins, loader ?? undefined, false, restoredLayers);
+      runPackageStartup(state, restoredServices, [], activePlugins, restoredServices.listenersBeforePackageStartup);
+      compileRestoredPrograms(state.vm, restoredServices);
+      verifyRestoredHandles(state.vm, restoredServices, state.events);
+      services = restoredServices;
+      startupServicesReady = true;
+      audio.load(projection);
+      clearPathfindingCache();
+      surfaceCache.clear();
+    } catch (error) {
+      Object.assign(state, previous);
+      services = previousServices;
+      pluginLayers = previousLayers;
+      startupServicesReady = previousStartupServicesReady;
+      failed = previousFailed;
+      nextRequestId = previousNextRequestId;
+      throw error;
+    }
   }
   services = init.mainFile === undefined
     ? makeServices(activePlugins, undefined, true)
@@ -789,6 +937,42 @@ export function createEngine(init: EngineInit): Engine {
     if (state.engine.transition !== undefined) next.transition = state.engine.transition;
     state.engine = next;
   }
+  function finalizeBlobRequests(): void {
+    for (const entry of pendingBlobs.values()) {
+      if (entry.published) continue;
+      if (entry.gameSave) {
+        // A save may not capture a thread parked on a host request that has no
+        // answer yet: restoring it would drop the request and strand the thread.
+        // Assets, deferred image effects and every other in-flight blob request
+        // are therefore answered (or applied) before the snapshot is taken.
+        const otherBlob = [...pendingBlobs.values()].some((other) => other !== entry);
+        if (pending.size > 0 || pendingImageEffects.length > 0 || pendingBoardPreviews.length > 0 || otherBlob) continue;
+        try {
+          const savedState = restoreGameState(snapshot(state));
+          replyToRequest(savedState.vm, entry.vmReqId, { ok: true, value: null });
+          const bytes = utf8Encode(snapshotGameSave(savedState));
+          requestsOut.push({ kind: "saveBlob", reqId: entry.reqId, blob: entry.blob, bytes });
+          entry.published = true;
+        } catch (error) {
+          pendingBlobs.delete(entry.reqId);
+          const message = error instanceof Error ? error.message : String(error);
+          try {
+            replyToRequest(state.vm, entry.vmReqId, { ok: false, value: message });
+          } catch (replyError) {
+            if (replyError instanceof ScriptError) diagnostics.push(toDiagnostic(replyError));
+          }
+          if (error instanceof ScriptError) diagnostics.push(toDiagnostic(error));
+        }
+      } else if (entry.kind === "saveBlob") {
+        pendingBlobs.delete(entry.reqId);
+        try {
+          replyToRequest(state.vm, entry.vmReqId, { ok: false, value: "file data is not valid hexadecimal" });
+        } catch (error) {
+          if (error instanceof ScriptError) diagnostics.push(toDiagnostic(error));
+        }
+      }
+    }
+  }
   /** Learn an audio file's length from its reply and drop the bytes; no bytes, or bytes no decoder accepts, is an unknown length. */
   function rememberAudio(key: AssetKey, bytes: Uint8Array | null): void {
     if (bytes === null) {
@@ -838,6 +1022,46 @@ export function createEngine(init: EngineInit): Engine {
     } else if (entry.kind === "tile") {
       tileTexture(entry.key);
     }
+  }
+  function consumeBlob(record: InputRecord, consumed: InputRecord[]): BlobReplyResult {
+    const event = record.event;
+    if (event.kind !== "blob.loaded" && event.kind !== "blob.saved") return "ignored";
+    const entry = pendingBlobs.get(event.reqId);
+    if (entry === undefined ||
+        (entry.kind === "loadBlob" && event.kind !== "blob.loaded") ||
+        (entry.kind === "saveBlob" && event.kind !== "blob.saved")) return "ignored";
+    pendingBlobs.delete(entry.reqId);
+    consumed.push(record);
+    if (entry.gameLoad && event.kind === "blob.loaded") {
+      if (event.bytes === null) {
+        replyToRequest(state.vm, entry.vmReqId, { ok: false, value: "saved game was not found" });
+        return "consumed";
+      }
+      try {
+        const restored = restoreGameSave(utf8Decode(event.bytes), state.audio);
+        diagnostics.push(...restored.diagnostics);
+        applyLoadedGame(restored.state, restored.audio);
+        pending.clear();
+        pendingBlobs.clear();
+        pendingImageEffects.length = 0;
+        pendingBoardPreviews.length = 0;
+        return "loaded";
+      } catch (error) {
+        if (error instanceof ScriptError) diagnostics.push(toDiagnostic(error));
+        else diagnostics.push({ code: "restore.shape", file: "", line: 0, message: error instanceof Error ? error.message : String(error) });
+        replyToRequest(state.vm, entry.vmReqId, { ok: false, value: error instanceof Error ? error.message : String(error) });
+        return "consumed";
+      }
+    }
+    if (event.kind === "blob.loaded") {
+      replyToRequest(state.vm, entry.vmReqId, {
+        ok: event.bytes !== null,
+        value: event.bytes === null ? "" : encodeHex(event.bytes),
+      });
+    } else {
+      replyToRequest(state.vm, entry.vmReqId, { ok: event.ok, value: null });
+    }
+    return "consumed";
   }
   function bundledAsset(key: AssetKey, bytes: Uint8Array): RasterAsset | null {
     const lower = key.toLowerCase();
@@ -1014,6 +1238,7 @@ export function createEngine(init: EngineInit): Engine {
         diagnostics.push({ code: "asset.invalid", file: nextMain, line: 0, message: `main file "${nextMain}" is not in the asset index` });
       } else {
         mainKey = found;
+        refreshGameId();
         mainFileAudioNeedsApply = true;
         state.engine.boot = { stage: "main", main: found, fonts: [] };
       }
@@ -1369,6 +1594,7 @@ export function createEngine(init: EngineInit): Engine {
       }
       mainFile = parsed.value;
       if (root.kind === "game") root = { kind: "game", projectPath: mainFile.projectPath };
+      refreshGameId();
       for (const key of [...privateFontKeys(index, root), ...programKeys(index, root)]) request(key, key.endsWith(".ttf") ? "font" : "program");
       boot.stage = "assets";
       return true;
@@ -1470,7 +1696,7 @@ export function createEngine(init: EngineInit): Engine {
    */
   function drive(): void {
     for (let guard = 0; guard < 64; guard += 1) {
-      if (failed || pending.size > 0 || state.engine.openTick !== undefined) return;
+      if (failed || pending.size > 0 || pendingBlobs.size > 0 || state.engine.openTick !== undefined) return;
       if (pendingBoardPreviews.length > 0 && !prepareBoardPreviews()) return;
       const boot = state.engine.boot;
       const transition = state.engine.transition;
@@ -1483,7 +1709,7 @@ export function createEngine(init: EngineInit): Engine {
   }
   /** Ticks run once nothing is outstanding: a scene needs its board, boot needs the start-up program or the main loop. */
   function canTick(): boolean {
-    if (failed || pending.size > 0 || state.engine.transition !== undefined) return false;
+    if (failed || pending.size > 0 || pendingBlobs.size > 0 || state.engine.transition !== undefined) return false;
     if (state.engine.video !== undefined && !state.engine.video.ended) return false;
     const boot = state.engine.boot;
     if (boot === undefined) return state.world.board !== undefined && state.world.board !== null;
@@ -1672,9 +1898,20 @@ export function createEngine(init: EngineInit): Engine {
   function processPreTickEvents(consumed: InputRecord[]): void {
     const records = takeQueuedInputs(state.time.tick);
     const deferred: InputRecord[] = [];
-    for (const record of records) {
+    for (let index = 0; index < records.length; index += 1) {
+      const record = records[index]!;
       if (record.event.kind === "asset") {
         consumeAsset(record, consumed);
+      } else if (record.event.kind === "blob.loaded" || record.event.kind === "blob.saved") {
+        const result = consumeBlob(record, consumed);
+        if (result === "ignored") deferred.push(record);
+        if (result === "loaded") {
+          for (const queued of records.slice(index + 1)) {
+            if (queued.event.kind === "asset" || queued.event.kind === "blob.loaded" || queued.event.kind === "blob.saved") continue;
+            deferred.push({ ...queued, tick: state.time.tick });
+          }
+          break;
+        }
       } else if (record.event.kind === "video.ended") {
         if (state.engine.video?.reqId === record.event.reqId) state.engine.video = { ...state.engine.video, ended: true };
         consumed.push(record);
@@ -1867,6 +2104,7 @@ export function createEngine(init: EngineInit): Engine {
         drive();
       }
       syncEngineState();
+      finalizeBlobRequests();
       const reportDiagnostics = [...diagnostics.splice(0), ...drainDiagnostics(services)];
       return {
         ticksRun,
@@ -1875,7 +2113,7 @@ export function createEngine(init: EngineInit): Engine {
         audioCues: audio.drain(),
         requests: [...requestsOut],
         diagnostics: reportDiagnostics,
-        loading: !failed && pending.size > 0,
+        loading: !failed && (pending.size > 0 || pendingBlobs.size > 0),
         paused,
         stateHash: hashGameState(state),
       };

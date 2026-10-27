@@ -836,6 +836,7 @@ function bootGame(mode: string, program = "fight.prg", extra: Readonly<Record<st
     assetIndex: createAssetIndex(game.paths),
     assetRoot: PACKAGE_ROOT,
     mainFile: "main.gam",
+    gameIdentity: "battle-custom-fight-test",
     startup: { presence: { hasPlayer: () => true }, savedGame: { load: () => ({ kind: "missing" }), restored: () => false } },
     width: 320,
     height: 240,

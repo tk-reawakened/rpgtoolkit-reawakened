@@ -162,6 +162,36 @@ export function fileProgramRef(
   return withRedirects(ref, redirects);
 }
 
+/**
+ * The reference a thread restarts from when its saved source has changed: the
+ * file's current source under the saved redirects, include list, dialect and
+ * owner. A thread restart (`restartThreadFromSource`) and the load-time check that
+ * the restart will compile both build it here, so they cannot disagree.
+ */
+export function restartProgramRef(
+  stale: ProgramRef,
+  loader: ProgramLoader | undefined,
+  vmRedirects: RedirectPairs,
+): ProgramRef {
+  if (stale.kind !== "file") {
+    return {
+      ...stale,
+      ...(stale.includes === undefined ? {} : { includes: [...stale.includes] }),
+      ...(stale.dialect === undefined ? {} : { dialect: stale.dialect }),
+    };
+  }
+  if (loader === undefined) {
+    throw new ScriptError("program.file-unsupported", `cannot restart "${stale.path}" without a source loader`);
+  }
+  const fresh = fileProgramRef(loader, stale.path, stale.redirects ?? vmRedirects);
+  return {
+    ...fresh,
+    ...(stale.includes === undefined ? {} : { includes: [...stale.includes] }),
+    ...(stale.dialect === undefined ? {} : { dialect: stale.dialect }),
+    ...(stale.owner === undefined ? {} : { owner: stale.owner }),
+  };
+}
+
 /** One parsed source file in the order it was added to the program. */
 type Unit = {
   readonly name: string;

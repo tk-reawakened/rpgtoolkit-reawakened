@@ -183,6 +183,7 @@ test("null and real PCM-rendering runners produce identical battle cue streams a
       assetIndex: createAssetIndex(paths),
       assetRoot: PACKAGE_ROOT,
       mainFile: "main.gam",
+      gameIdentity: "synth-battle-lifecycle",
       width: 320,
       height: 240,
       maxTicks: 300,

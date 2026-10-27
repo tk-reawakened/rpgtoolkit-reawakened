@@ -1,12 +1,118 @@
 # Saved game (`.sav`)
 
-The only binary game file the engine writes. RPGCode `Save(name)` writes `Saved\<name>.sav` (relative to the Toolkit folder) and `Load(name)` reads it. It captures every script global, the party, inventory, equipment, position, the current board's items and threads (including each running script's full execution state), and a few display settings.
+The legacy Toolkit format is binary. Legacy RPGCode `Save(name)` writes `Saved\<name>.sav` (relative to the Toolkit folder) and `Load(name)` reads it. The Reawakened runtime does not write this binary format; its canonical JSON `.sav` contract is described below. The legacy layout captures every script global, the party, inventory, equipment, position, the current board's items and threads (including each running script's full execution state), and a few display settings.
 
-Header text: `RPGTLKIT SAVE`. The engine writes major **3**, minor **4** (Toolkit 3.1.0). Readers handle minors below 4 (Toolkit 3.0) as noted.
+Legacy header text: `RPGTLKIT SAVE`. Toolkit 3.1.0 writes major **3**, minor **4**; readers handle minors below 4 (Toolkit 3.0) as noted.
 
 **Counts here are exact counts** (not upper bounds), except the thread list.
 
-**Our own save format — Reawakened rule (R-13).** A rebuild may use its own save format; this project's canonical Reawakened format is the save/load contract. Epic 8 implements that format only; legacy `.sav` import (E-122) is deferred. Restore a thread from its serialized execution state only when saved source and compiler compatibility match current source/compiler; otherwise that thread restarts from source rather than resuming an incompatible instruction position. Restore still validates every saved callable and definition owner: if a changed or incompatible program leaves an unresolved callable reference, reject the save with the existing located restore error rather than repairing or silently dropping callable state (see [rpgcode-language.md](../engine/rpgcode-language.md), “Saving, loading and tidying up closures”). The split into separate lists — numeric globals, object-handle globals and string globals, then redirects, party, inventory, equipment and the miscellany — documents legacy import behavior only.
+**Our own save format — Reawakened rule (R-13).** A rebuild may use its own save format; this project's canonical Reawakened format is the save/load contract. Epic 8 implements that format only; legacy `.sav` import (E-122) is deferred. Restore a thread from its serialized execution state only when the save's compiler version matches the running compiler: a save made by a different compiler is refused whole with `restore.compiler-mismatch`, before any payload is used, and the current game is left unchanged (OWNER: Jensen, 2026-10-27). A thread whose saved *source* no longer matches the current source (`restore.source-changed`) is a separate, per-thread rule: that thread restarts from source rather than resuming an incompatible instruction position, and the rest of the save still loads. Restore still validates every saved callable and definition owner: if a changed or incompatible program leaves an unresolved callable reference, reject the save with the existing located restore error rather than repairing or silently dropping callable state (see [rpgcode-language.md](../engine/rpgcode-language.md), “Saving, loading and tidying up closures”). The split into separate lists — numeric globals, object-handle globals and string globals, then redirects, party, inventory, equipment and the miscellany — documents legacy import behavior only.
+
+### Reawakened full-engine save and load
+
+In the Reawakened runtime, `Save(name)` and `Load(name)` use the sandboxed
+`saveBlob` and `loadBlob` host requests; the host owns storage and the engine
+never accesses the filesystem. A board with `disableSaving` set does not issue a
+save request.
+
+Blob paths are prefixed with the AD-17 `GameId`, which core derives as
+`fnv1a64(host game identity, fnv1a64(main-file bytes))`. The identity is a
+required engine-init value: a boot-mode engine refuses to start without one, and
+a scene engine (which has no main file) has none, so every save-area operation
+there fails with a located `save.no-game-identity` error instead of writing into
+a shared area. There is no fallback identity.
+
+Core exports the canonical derivation for the host to use, so every runner
+computes the same value from bytes it already holds:
+
+- `derivePackageIdentity(files)` hashes a package's sorted `(path, bytes)`
+  entries with length-prefixed fields. The *encoding* is unambiguous — no path
+  or content can be re-split into another package's record (`["ab", "c"]` never
+  encodes as `["a", "bc"]`), so two packages whose paths and main file match but
+  whose other files differ are distinct inputs. A package game passes that result
+  as the engine's game identity.
+- `deriveGameId(mainBytes, gameIdentity)` folds the main file's actual bytes
+  into that identity, so two games with a same-named main file but different
+  bytes are distinct inputs too.
+
+**Collision limit.** Both steps digest with `fnv1a64` — the project's one hash
+(AD-11), 64 bits and non-cryptographic. Distinct inputs are *expected* to map to
+distinct identities, but 64 bits cannot guarantee it: two packages meet the
+birthday bound at roughly 2^32 distinct packages, so a collision is unlikely in
+any real library and still possible in principle. This is save-slot separation in
+a single-player runtime, not a security boundary. A host that needs collision
+resistance supplies its own stronger identity (a SHA-256 of the archive, say) as
+`gameIdentity`, which the derivation folds in unchanged.
+
+**Identity validation.** `deriveGameId` rejects a missing, empty or non-string
+identity with a `TypeError` (a programmer error), and boot reports a
+`startup.no-game-identity` diagnostic when the init value is absent, empty or not
+a string — a JavaScript caller passing `null` gets that located failure rather
+than a crash.
+
+The identity is stable across `reset()` and a `mainFile` reboot of the same
+game. For a game folder the host chooses the identity (its project path is the
+natural one); nothing in core makes that choice relocation-proof, so a host that
+moves a folder and keeps its old identity keeps its saves, and one that changes
+the identity starts a new save area.
+
+`Save` captures the complete canonical game state only after its calling VM
+thread has parked on the host request. The save records that thread as resumed
+after a successful `Save`, so loading it continues the original script at its
+next instruction. `Load` validates the full save and the current package/source
+compatibility before replacing the live state; a missing or invalid save
+returns failure to the calling thread without replacing the current game.
+Successful restoration rebuilds package layers, hydrates saved actors and
+verifies restored VM handles before continuing the saved thread set.
+
+**In-flight requests.** A game save is serialized only once every other host
+request it would capture has been answered: outstanding asset requests, deferred
+image effects and other in-flight blob requests all settle first. A save
+therefore never records a thread parked on a request the host has not answered,
+which a restore would drop and strand.
+
+### Compiler mismatch: refuse the whole save (owner ruling)
+
+**Ruling (OWNER: Jensen, 2026-10-27).** A compiler version that differs from the
+running compiler makes a saved instruction position meaningless, so the save is
+refused as a whole and the live game is not changed. Two distinct rules follow
+and must not be merged:
+
+| Situation | Outcome |
+|---|---|
+| The save's `schema.compiler`, or any program reference inside it (every frame's `program`, every object record's `program`, every `vm.defOwners` entry), names a compiler other than the running one | The whole save is refused with `restore.compiler-mismatch`, located at the first offending field, before the `vm` payload is used. `Load` returns failure to the calling thread, raises the diagnostic, and replaces nothing. |
+| The compiler matches but a file-backed program's current source no longer matches the saved `sourceHash` (`restore.source-changed`) | That one thread restarts from source on its next turn; the rest of the save loads. Callable and owner validation still rejects the save when a changed program leaves a saved callable unresolved. |
+
+The compiler check is the first one a load makes: a save from another compiler
+reports `restore.compiler-mismatch` even when other parts of it (its audio
+projection, its sections) are also malformed. After it, a game load compiles every
+program the save names, with or without callables, so a save whose thread names a
+program file or include the game no longer has fails the load up front
+(`program.missing`) and leaves the live game unchanged.
+A thread whose file source changed (`restore.source-changed`) still restarts from
+source, and the load proves that restart will work before it commits: the current
+source is compiled together with the saved run-time include list, so a syntax error
+in the new file, or a saved `include()` whose file was removed
+(`program.include-missing`), refuses the load rather than throwing from a later
+tick. A literal include of a file the game lacks is not an error (it is ignored
+silently, R2-Q21), so it does not refuse a load. A refused load restores every
+engine counter it touched, including the request-id counter, so the unchanged game
+keeps issuing fresh request ids and keeps the same state hash. (The callable check
+`verifyRestoredHandles` itself still compiles nothing for a state with no
+callable, [rpgcode-language.md](../engine/rpgcode-language.md); the engine's load
+adds this compile pass.)
+
+This resolves the earlier disagreement between the whole-snapshot refusal
+(`restoreGameState`; the hardening plan; `script-state.test.ts`) and the
+per-thread clause that said "compiler or source mismatch restarts the thread":
+the per-thread restart is for changed source only. There is no `restore.restarted`
+diagnostic.
+
+Audio game saves add only the playback projection defined in
+[audio-media.md](../engine/audio-media.md#audio-save-load), not runtime audio
+configuration or script volume settings. The saved cue is restored through
+the current audio configuration.
+
 ### Reawakened canonical actor state
 
 The Reawakened runtime uses its canonical state snapshot for its own save/load
