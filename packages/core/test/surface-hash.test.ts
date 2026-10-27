@@ -2,7 +2,7 @@ import { equal, ok, throws } from "node:assert/strict";
 import { test } from "node:test";
 import { withoutSettings } from "../src/audio/model.ts";
 import { hashState } from "../src/canon/canon.ts";
-import { createAssetIndex, createEmptyBoard, createEngine, createGameState, createSurface, hashGameState, nextUint32, PACKAGE_ROOT, writeBoard } from "../src/index.ts";
+import { canon, fnv1a64, createAssetIndex, createEmptyBoard, createEngine, createGameState, createSurface, hashGameState, nextUint32, PACKAGE_ROOT, writeBoard } from "../src/index.ts";
 import type { GameState } from "../src/save/state.ts";
 
 function previousHashProjection(state: GameState): string {
@@ -107,13 +107,27 @@ test("advance preserves hash parity for large surfaces when pre-surface RNG chan
   for (let i = 0; i < 8; i += 1) equal(engine.advance(1, []).stateHash, previousHashProjection(state));
 });
 
-test("surface hashes retain FNV parity for varied prefix states", () => {
-  const payload = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".repeat(256);
-  const state = withSurfaceBytes(payload);
-  for (let i = 0; i < 256; i += 1) {
-    state.rng.s0 = (0xabcdef01 + i * 12345) >>> 0;
+test("surface hashes match legacy FNV for all incoming low-byte lanes", () => {
+  const state = withSurfaceBytes("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".repeat(256));
+  const counts = new Uint8Array(256);
+  let covered = 0;
+  let seed = 0x12345678;
+  for (let i = 0; i < 10000 && covered < 256; i += 1) {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    state.rng.s0 = seed >>> 0;
+    const { stepCounters: _stepCounters, ...vm } = state.vm;
+    const text = canon({ ...state, vm, audio: withoutSettings(state.audio) });
+    const position = text.indexOf(',"surfaces":');
+    ok(position >= 0);
+    const lane = Number.parseInt(fnv1a64(text.slice(0, position + 1)).slice(-2), 16);
+    if (counts[lane]! >= 2) continue;
+    counts[lane] = counts[lane]! + 1;
     equal(hashGameState(state), previousHashProjection(state));
+    if (counts[lane] === 2) covered += 1;
   }
+  equal(covered, 256);
 });
 
 
@@ -176,9 +190,25 @@ test("distinct ASCII chunks stay exact while incrementally preparing transitions
   }
 });
 
+test("very large distinct surfaces preserve hashes after prefix and bitmap edits", () => {
+  const payload = Array.from({ length: 2050 }, (_, i) => i.toString(36).padStart(6, "0") + "A".repeat(4090)).join("");
+  const state = withSurfaceBytes(payload);
+  equal(hashGameState(state), previousHashProjection(state));
+  state.rng.s0 ^= 12345;
+  equal(hashGameState(state), previousHashProjection(state));
+  const bitmap = state.surfaces.entries["1"]!.bitmap as { b64: string };
+  bitmap.b64 = "B" + bitmap.b64.slice(1);
+  equal(hashGameState(state), previousHashProjection(state));
+});
+
 test("surface canonical cache falls back for extra fields and rejects accessors", () => {
   const state = withSurfaceBytes("A".repeat(10000));
   equal(hashGameState(state), previousHashProjection(state));
+  Object.assign(state.surfaces, { renderNowOn: true });
+  equal(hashGameState(state), previousHashProjection(state));
+  Object.assign(state.surfaces, { renderNowOn: false });
+  equal(hashGameState(state), previousHashProjection(state));
+  delete (state.surfaces as { renderNowOn?: boolean }).renderNowOn;
   Object.assign(state.surfaces.entries["1"]!, { extra: "visible" });
   equal(hashGameState(state), previousHashProjection(state));
   delete (state.surfaces.entries["1"]! as { extra?: string }).extra;

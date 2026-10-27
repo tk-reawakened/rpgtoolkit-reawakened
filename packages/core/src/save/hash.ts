@@ -11,7 +11,7 @@ import {
   fnv1a64UpdateAscii,
   type Fnv1a64State,
 } from "../canon/fnv1a.ts";
-import { applyFnvAsciiTransition, buildFnvAsciiTransition, staleFnvTransitionKeys, type FnvAsciiTransition } from "../canon/fnv1a-transition.ts";
+import { applyFnvAsciiTransition, createFnvAsciiTransition, staleFnvTransitionKeys, type FnvAsciiTransition } from "../canon/fnv1a-transition.ts";
 import type { PlainData } from "../ports/plain-data.ts";
 import { withoutSettings } from "../audio/model.ts";
 import type { GameState } from "./state.ts";
@@ -29,70 +29,21 @@ const surfaceHashCaches = new WeakMap<GameState, SurfaceHashCache>();
 
 const TRANSITION_BLOCK_SIZE = 4096;
 const MAX_TRANSITION_TABLES = 2048;
-type TransitionPlan = { readonly blocks: readonly string[]; cursor: number; remaining: number; evictable: string[] | null };
+type TransitionPlan = { readonly blocks: readonly string[]; evictable: string[] | null };
 
-/** Split only once an existing surface needs hashing again. */
-function transitionPlan(text: string, ascii: boolean | undefined, requireReuse: boolean, transitions: ReadonlyMap<string, FnvAsciiTransition>): TransitionPlan | false {
+/** Split ASCII canonical text into reusable fixed-size segments. */
+function transitionPlan(text: string, ascii: boolean | undefined): TransitionPlan | false {
   if (text.length < TRANSITION_BLOCK_SIZE * 2 || ascii === false || (ascii === undefined && /[^\x00-\x7f]/.test(text))) return false;
-  const blockCount = Math.ceil(text.length / TRANSITION_BLOCK_SIZE);
-  // Warm common chunks first: a HUD often leaves long unchanged/blank areas
-  // while its first chunk changes every frame. During canvas churn, do not
-  // build tables for high-entropy data with no apparent reusable blocks.
-  const samples = Math.min(16, blockCount);
-  const counts = new Map<string, { count: number; index: number }>();
-  let cursor = 0;
-  let best = 1;
-  let hasReusable = false;
-  for (let i = 0; i < samples; i += 1) {
-    const index = Math.floor((i + 0.5) * blockCount / samples);
-    const block = text.slice(index * TRANSITION_BLOCK_SIZE, (index + 1) * TRANSITION_BLOCK_SIZE);
-    if (transitions.has(block)) hasReusable = true;
-    const record = counts.get(block);
-    if (record === undefined) counts.set(block, { count: 1, index });
-    else {
-      record.count += 1;
-      if (record.count > best) {
-        best = record.count;
-        cursor = record.index;
-      }
-    }
-  }
-  if (requireReuse && best === 1 && !hasReusable) return false;
   const blocks: string[] = [];
   for (let at = 0; at < text.length; at += TRANSITION_BLOCK_SIZE) blocks.push(text.slice(at, at + TRANSITION_BLOCK_SIZE));
-  return { blocks, cursor, remaining: blocks.length, evictable: null };
+  return { blocks, evictable: null };
 }
 
-/** Rebuild a short ASCII key from codes, not a slice of a giant state string. */
+/** Copy a short cache key rather than storing the original field slice. */
 function transitionKey(block: string): string {
-  const bytes = new Uint8Array(block.length);
-  for (let i = 0; i < block.length; i += 1) bytes[i] = block.charCodeAt(i);
-  let result = "";
-  for (let i = 0; i < bytes.length; i += 1024) result += String.fromCharCode(...bytes.subarray(i, i + 1024));
-  return result;
+  return (" " + block).slice(1);
 }
 
-/** Incremental bounded preparation avoids a multi-second cold table build. */
-function prepareTransition(cache: SurfaceHashCache): void {
-  const plan = cache.plan;
-  if (plan === null || plan === false) return;
-  while (plan.remaining > 0) {
-    const block = plan.blocks[plan.cursor]!;
-    plan.cursor = (plan.cursor + 1) % plan.blocks.length;
-    plan.remaining -= 1;
-    if (cache.transitions.has(block)) continue;
-    if (cache.transitions.size >= MAX_TRANSITION_TABLES) {
-      plan.evictable ??= staleFnvTransitionKeys(cache.transitions, plan.blocks);
-      const stale = plan.evictable.pop();
-      // Every retained table is used by the current plan; keep it intact.
-      if (stale === undefined) return;
-      cache.transitions.delete(stale);
-    }
-    const key = transitionKey(block);
-    cache.transitions.set(key, buildFnvAsciiTransition(block));
-    return;
-  }
-}
 
 function updateSurfaceHash(cache: SurfaceHashCache, text: string, ascii: boolean | undefined): void {
   if (cache.plan === false) {
@@ -106,9 +57,20 @@ function updateSurfaceHash(cache: SurfaceHashCache, text: string, ascii: boolean
     return;
   }
   for (const block of cache.plan.blocks) {
-    const transition = cache.transitions.get(block);
+    let transition = cache.transitions.get(block);
+    if (transition === undefined) {
+      if (cache.transitions.size >= MAX_TRANSITION_TABLES) {
+        cache.plan.evictable ??= staleFnvTransitionKeys(cache.transitions, cache.plan.blocks);
+        const stale = cache.plan.evictable.pop();
+        if (stale !== undefined) cache.transitions.delete(stale);
+      }
+      if (cache.transitions.size < MAX_TRANSITION_TABLES) {
+        transition = createFnvAsciiTransition(block.length);
+        cache.transitions.set(transitionKey(block), transition);
+      }
+    }
     if (transition === undefined) fnv1a64UpdateAscii(block, cache.afterSurface);
-    else applyFnvAsciiTransition(transition, cache.afterSurface);
+    else applyFnvAsciiTransition(transition, block, cache.afterSurface);
   }
 }
 
@@ -253,8 +215,8 @@ export function hashGameState(state: GameState): string {
 
   const surfaceChanged = cache.surface !== parts.selected;
   const prefixChanged = cache.before !== parts.before;
-  if (surfaceChanged) cache.plan = cache.surface === "" ? null : transitionPlan(parts.selected, ascii, true, cache.transitions);
-  else if (prefixChanged && (cache.plan === null || (cache.plan === false && ascii === true))) cache.plan = transitionPlan(parts.selected, ascii, false, cache.transitions);
+  if (surfaceChanged) cache.plan = transitionPlan(parts.selected, ascii);
+  else if (prefixChanged && cache.plan === null) cache.plan = transitionPlan(parts.selected, ascii);
   if (prefixChanged || surfaceChanged) {
     cache.before = parts.before;
     cache.surface = parts.selected;
@@ -273,7 +235,6 @@ export function hashGameState(state: GameState): string {
     fnv1a64Update(",", cache.working);
     fnv1a64Update(parts.after, cache.working);
   }
-  if (prefixChanged || surfaceChanged) prepareTransition(cache);
   fnv1a64Update("}", cache.working);
   return fnv1a64Finish(cache.working);
 }

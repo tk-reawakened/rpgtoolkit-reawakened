@@ -1,7 +1,8 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { TextEncoder } from "node:util";
 import { test } from "node:test";
-import { addActor, applyEmitterOp, COMPILER_VERSION, createAssetIndex, createEmptyBoard, createEmptyMainFile, createEngine, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, PACKAGE_ROOT, writeBoard, writeMainFile, type Board, type EffectRecord, type GameState, type PluginDefinition, type ResolvedPlugin, type SurfaceId } from "../src/index.ts";
+import { addActor, applyEmitterOp, COMPILER_VERSION, createAssetIndex, createEmptyBoard, createEmptyMainFile, createEngine, decodeSurfaceBytes, ENGINE_DEFAULT_MANIFEST, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, encodeSurfaceBytes, hashGameState, PACKAGE_ROOT, readSurfacePixels, writeBoard, writeMainFile, type Board, type CommandView, type EffectRecord, type EnginePhaseRegistration, type GameState, type PackageCatalogueEntry, type PluginDefinition, type ResolvedPlugin, type SurfaceId } from "../src/index.ts";
+import { resolveManifestPlugins } from "../src/engine/boot.ts";
 
 function boardBytes(board: Board): Uint8Array {
   const encoded = writeBoard(board);
@@ -497,24 +498,235 @@ test("an authored RPGCode program executes through the engine VM", () => {
   equal(resumed.diagnostics.length, 0);
 });
 
-test("batched script canvas drawing matches the eager path at the tick boundary", () => {
-  const program = `createcanvas(16, 16, c)\n${Array.from({ length: 60 }, (_, i) => `fillrect(${i % 16}, ${i % 16}, 15, 15, c)`).join("\n")}\nend()\n`;
-  function run(withHook: boolean) {
-    const engine = createEngine({
-      seed: 7, assetIndex: createAssetIndex(["Boards/test.brd"]), assetRoot: PACKAGE_ROOT,
-      initialBoard: "test.brd", width: 16, height: 16, maxTicks: 1, program,
-      ...(withHook ? { phaseRegistrations: [{ phase: "input" as const, run: () => {} }] } : {}),
-    });
-    const request = engine.advance(0, []).requests[0];
-    if (request?.kind !== "asset") throw new Error("expected board request");
-    const report = engine.advance(1, [{ tick: 0, event: { kind: "asset", reqId: request.reqId, bytes: boardBytes(createEmptyBoard()) } }]);
-    equal(report.ticksRun, 1);
-    equal(report.diagnostics.length, 0);
-    const pixels = engine.surfacePixels(1 as SurfaceId, 60);
-    if (pixels === null) throw new Error("expected canvas at revision 60");
-    return { hash: report.stateHash, rgba: pixels.rgba };
+/** The hook that makes the engine materialise every surface edit eagerly (batching is off with an effect applier). */
+const EAGER = { effectAppliers: [{ section: "surfaces" as const, applier: () => {} }] };
+
+/** The engine options these tests vary; the rest is fixed by each helper. */
+type EngineExtras = {
+  readonly plugins?: readonly ResolvedPlugin[];
+  readonly packageCatalogue?: readonly PackageCatalogueEntry[];
+  readonly phaseRegistrations?: readonly EnginePhaseRegistration[];
+  readonly effectAppliers?: typeof EAGER.effectAppliers;
+};
+
+/**
+ * Counts how many times the engine assigns a new snapshot to the screen surface's `bitmap` during the
+ * threads phase of each tick. Eager drawing assigns one per edit; a batch assigns one per materialisation.
+ * The accessor is plain data again in the events phase, and inside `plain` for code that hashes the state.
+ */
+function screenSnapshotWrites() {
+  let writes = 0;
+  let tracked: GameState["surfaces"]["entries"][string] | undefined;
+  let held: GameState["surfaces"]["entries"][string]["bitmap"] | undefined;
+  const states: GameState[] = [];
+  const track = (): void => {
+    if (tracked === undefined || held === undefined) return;
+    Object.defineProperty(tracked, "bitmap", { configurable: true, enumerable: true, get: () => held, set: (next) => { writes += 1; held = next; } });
+  };
+  const untrack = (): void => {
+    if (tracked === undefined || held === undefined) return;
+    Object.defineProperty(tracked, "bitmap", { value: held, writable: true, enumerable: true, configurable: true });
+  };
+  const registrations: EnginePhaseRegistration[] = [
+    {
+      phase: "input",
+      run: (state) => {
+        tracked = state.surfaces.entries["0"]!;
+        held = tracked.bitmap;
+        track();
+      },
+    },
+    {
+      phase: "events",
+      run: (state) => {
+        untrack();
+        states.push(state);
+      },
+    },
+  ];
+  const plain = <T>(read: () => T): T => {
+    untrack();
+    try {
+      return read();
+    } finally {
+      track();
+    }
+  };
+  return { registrations, writes: () => writes, states, plain };
+}
+
+/** Sixty primitives on the screen and a canvas, plus reads, self-blits and an infinite edge. */
+function heavyDrawingProgram(): { program: string; screenEdits: number } {
+  const lines = ["createcanvas(16, 16, c)"];
+  let screenEdits = 0;
+  for (let i = 0; i < 60; i += 1) {
+    switch (i % 6) {
+      case 0: lines.push(`fillrect(${i % 16}, ${i % 16}, 15, 15)`); screenEdits += 1; break;
+      case 1: lines.push(`drawline(0, ${i % 16}, 15, ${15 - (i % 16)})`); screenEdits += 1; break;
+      case 2: lines.push(`fillcircle(8, 8, ${i % 7})`); screenEdits += 1; break;
+      case 3: lines.push(`setpixel(${i % 16}, 3)`); screenEdits += 1; break;
+      case 4: lines.push("drawrect(1, 1, 14, 14, c)"); break;
+      default: lines.push(`fillrect(${i % 5}, 2, 1/0, ${3 + (i % 4)}, c)`); break;
+    }
+    if (i === 30) lines.push("getpixel(3, 3, gr, gg, gb)", "getpixel(2, 3, gr, gg, gb, c)");
   }
-  deepEqual(run(false), run(true));
+  lines.push("drawcanvas(c, 1, 1, c)", "drawcanvas(c, -2, 0, c)", "canvasdrawpart(c, 0, 0, 2, 2, 9, 9, c)", "drawcanvas(c, 0, 0)", "end()");
+  screenEdits += 1;
+  return { program: `${lines.join("\n")}\n`, screenEdits };
+}
+
+function bootAndAdvance(extra: EngineExtras, program: string, ticks = 1) {
+  const engine = createEngine({
+    seed: 7, assetIndex: createAssetIndex(["Boards/test.brd"]), assetRoot: PACKAGE_ROOT,
+    initialBoard: "test.brd", width: 16, height: 16, maxTicks: ticks, program, ...extra,
+  });
+  const request = engine.advance(0, []).requests[0];
+  if (request?.kind !== "asset") throw new Error("expected board request");
+  const report = engine.advance(ticks, [{ tick: 0, event: { kind: "asset", reqId: request.reqId, bytes: boardBytes(createEmptyBoard()) } }]);
+  equal(report.diagnostics.length, 0, JSON.stringify(report.diagnostics));
+  equal(report.ticksRun, ticks);
+  return { engine, report };
+}
+
+/** After the threads phase every snapshot must be exactly the canonical encoding of the pixels a reader sees. */
+function assertStateSnapshotsCanonical(state: GameState): void {
+  for (const entry of Object.values(state.surfaces.entries)) {
+    const pixels = readSurfacePixels(state.surfaces, entry.id, entry.rev);
+    if (pixels === null) throw new Error(`expected pixels for surface ${entry.id}`);
+    equal(entry.bitmap.b64, encodeSurfaceBytes(pixels.rgba), `surface ${entry.id}: b64 is stale`);
+    deepEqual(decodeSurfaceBytes(entry.bitmap.b64), pixels.rgba);
+  }
+}
+
+test("a heavy tick of script drawing materialises one snapshot, matches the eager engine and leaves canonical state", () => {
+  const { program, screenEdits } = heavyDrawingProgram();
+  const batched = screenSnapshotWrites();
+  const eager = screenSnapshotWrites();
+  const withBatching = bootAndAdvance({ phaseRegistrations: batched.registrations }, program);
+  const withoutBatching = bootAndAdvance({ ...EAGER, phaseRegistrations: eager.registrations }, program);
+
+  // The behavioural proof that batching engaged: 61 screen edits cost one snapshot write, not 61.
+  equal(eager.writes(), screenEdits);
+  equal(batched.writes(), 1);
+
+  equal(withBatching.report.stateHash, withoutBatching.report.stateHash);
+  const [state] = batched.states;
+  const [eagerState] = eager.states;
+  if (state === undefined || eagerState === undefined) throw new Error("expected the events phase to capture state");
+  assertStateSnapshotsCanonical(state);
+  assertStateSnapshotsCanonical(eagerState);
+  equal(JSON.stringify(state.surfaces), JSON.stringify(eagerState.surfaces));
+  equal(state.surfaces.entries["1"]?.rev, eagerState.surfaces.entries["1"]?.rev);
+  deepEqual(withBatching.engine.surfacePixels(1 as SurfaceId, state.surfaces.entries["1"]!.rev)?.rgba, withoutBatching.engine.surfacePixels(1 as SurfaceId, eagerState.surfaces.entries["1"]!.rev)?.rgba);
+});
+
+/** One observation a package made of the state tree from inside a running thread. */
+type Observation = {
+  readonly label: string;
+  readonly hash: string;
+  readonly surfaces: readonly { readonly id: number; readonly rev: number; readonly b64: string; readonly pixels: string }[];
+};
+
+function observingPackage(log: Observation[], plain: <T>(read: () => T) => T): ResolvedPlugin {
+  const observe = (view: CommandView, label: string): void => {
+    const state = view.state;
+    if (state === undefined) throw new Error("expected command state");
+    log.push({
+      label,
+      hash: plain(() => hashGameState(state)),
+      surfaces: Object.values(state.surfaces.entries).map((entry) => ({
+        id: entry.id, rev: entry.rev, b64: entry.bitmap.b64,
+        pixels: encodeSurfaceBytes(readSurfacePixels(state.surfaces, entry.id, entry.rev)!.rgba),
+      })),
+    });
+  };
+  const coordinates = [
+    { name: "x", optional: false, byRef: false, variadic: false },
+    { name: "y", optional: false, byRef: false, variadic: false },
+    { name: "canvas", optional: true, byRef: false, variadic: false },
+  ];
+  return {
+    definition: {
+      id: "observing-package",
+      version: "1.0.0",
+      commands: [
+        { name: "peek", aliases: [], params: [], call: (view) => { observe(view, "peek"); return { value: null }; } },
+        // A wrapper over the built-in: it reads the state right after the layer below has drawn.
+        { name: "setpixel", aliases: [], params: coordinates, call: (view, args, next) => { const result = next(view, args, next); observe(view, "after setpixel"); return result; } },
+        { name: "onping", aliases: [], params: [{ name: "event", optional: false, byRef: false, variadic: false }], call: (view) => { observe(view, "listener"); return { value: null }; } },
+      ],
+      listeners: [{ emitter: "game", type: "ping", command: "onping" }],
+    },
+  };
+}
+
+test("package code that reads the state mid-thread sees exactly what the eager engine shows", () => {
+  const lines = ["createcanvas(8, 4, c)", "setpixel(1, 0, c)"];
+  let screenEdits = 0;
+  for (let i = 0; i < 20; i += 1) { lines.push(`fillrect(${i % 8}, ${i % 4}, 15, 15)`); screenEdits += 1; }
+  lines.push("peek()", "setpixel(2, 0, c)", 'game.emit("ping")', "fillrect(1, 1, 5, 2)", "peek()", "end()");
+  screenEdits += 1;
+  const program = `${lines.join("\n")}\n`;
+  const defaults = resolveManifestPlugins(ENGINE_DEFAULT_MANIFEST).plugins;
+
+  const batchedLog: Observation[] = [];
+  const eagerLog: Observation[] = [];
+  const batched = screenSnapshotWrites();
+  const eager = screenSnapshotWrites();
+  const catalogueEntry: PackageCatalogueEntry = { name: "unused-package", version: "1.0.0", requests: [], definition: { id: "unused-package", version: "1.0.0", commands: [] } };
+  bootAndAdvance({ plugins: [...defaults, observingPackage(batchedLog, batched.plain)], packageCatalogue: [catalogueEntry], phaseRegistrations: batched.registrations }, program, 2);
+  bootAndAdvance({ ...EAGER, plugins: [...defaults, observingPackage(eagerLog, eager.plain)], phaseRegistrations: eager.registrations }, program, 2);
+
+  // The listener runs in the events phase, after the threads phase has closed its batch.
+  deepEqual(batchedLog.map((observation) => observation.label), ["after setpixel", "peek", "after setpixel", "peek", "listener"]);
+  deepEqual(batchedLog, eagerLog);
+  for (const observation of batchedLog) {
+    for (const surface of observation.surfaces) equal(surface.b64, surface.pixels, `${observation.label}: surface ${surface.id} snapshot was stale`);
+  }
+  // Package code is the only thing that forces a write, once per observation of a dirty screen:
+  // two peeks here, instead of one write per edit.
+  equal(eager.writes(), screenEdits);
+  equal(batched.writes(), 2);
+  const [state] = batched.states;
+  if (state === undefined) throw new Error("expected the events phase to capture state");
+  assertStateSnapshotsCanonical(state);
+});
+
+test("batching stays on for a main-file game with a package catalogue and phase registrations", () => {
+  const { program, screenEdits } = heavyDrawingProgram();
+  const main = writeMainFile({
+    ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "", plugins: [],
+    startupPrg: "start.prg", initBoard: "start.brd", initChar: "hero.tem",
+  });
+  if (!main.ok) throw new Error(main.error.message);
+  const files = new Map<string, Uint8Array>([
+    ["main.gam", main.value],
+    ["prg/start.prg", new TextEncoder().encode(program)],
+    ["boards/start.brd", boardBytes(createEmptyBoard())],
+    ["chrs/hero.tem", new Uint8Array([0])],
+  ]);
+  const catalogueEntry: PackageCatalogueEntry = { name: "unused-package", version: "1.0.0", requests: [], definition: { id: "unused-package", version: "1.0.0", commands: [] } };
+  function boot(extra: EngineExtras) {
+    const engine = createEngine({
+      seed: 7, assetIndex: createAssetIndex([...files.keys()]), assetRoot: PACKAGE_ROOT, mainFile: "main.gam", gameIdentity: "engine-test",
+      startup: { presence: { hasPlayer: () => true }, savedGame: { load: () => ({ kind: "missing" }), restored: () => false } },
+      width: 16, height: 16, maxTicks: 8, ...extra,
+    });
+    let report = engine.advance(0, []);
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const replies = report.requests.flatMap((request) => request.kind !== "asset" ? [] : [{ tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: files.get(request.key) ?? null } }]);
+      report = engine.advance(report.loading ? 0 : 1, replies);
+    }
+    return report;
+  }
+  const batched = screenSnapshotWrites();
+  const eager = screenSnapshotWrites();
+  const withBatching = boot({ packageCatalogue: [catalogueEntry], phaseRegistrations: batched.registrations });
+  const withoutBatching = boot({ ...EAGER, packageCatalogue: [catalogueEntry], phaseRegistrations: eager.registrations });
+  equal(eager.writes(), screenEdits);
+  equal(batched.writes(), 1);
+  equal(withBatching.stateHash, withoutBatching.stateHash);
+  for (const state of batched.states) assertStateSnapshotsCanonical(state);
 });
 
 function breakpointEngine(program: string, seed = 7) {
