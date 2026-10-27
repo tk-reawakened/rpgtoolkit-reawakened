@@ -6,6 +6,7 @@ import {
   assetKey,
   BATTLE_BACKGROUND_MAGIC,
   BATTLE_PLUGIN,
+  COMPILER_VERSION,
   CORE_PLUGIN,
   createGameState,
   createMediaScriptService,
@@ -174,6 +175,10 @@ function services(
   return { ...scriptServices, mediaPosts };
 }
 
+function startingHp(state: GameState, party: readonly { readonly actorId: number }[] | undefined): (number | undefined)[] {
+  return (party ?? []).map(({ actorId }) => state.actors.actors.find((actor) => actor.id === actorId)?.stats.hp);
+}
+
 function command(name: string): BuiltinSpec {
   const spec = BATTLE_PLUGIN.commands.find((candidate) => candidate.name === name);
   if (spec === undefined) throw new Error(`missing battle builtin ${name}`);
@@ -290,6 +295,46 @@ test("FightEnemy loads explicit enemies in order and BAT-9 includes fallen playe
   deepEqual(battle.parties[0]?.map((fighter) => state.actors.actors.find((actor) => actor.id === fighter.actorId)?.source), ["slime.ene", "bat.ene"]);
   deepEqual(battle.parties[1]?.map((fighter) => state.actors.actors.find((actor) => actor.id === fighter.actorId)?.name), ["Hero", "Fallen"]);
   equal(battle.parties[1]?.[1]?.charge, 0);
+  deepEqual(startingHp(state, battle.parties[0]), [6, 6], "the enemies start at their file's HP");
+  deepEqual(startingHp(state, battle.parties[1]), [9, 0], "the party keeps its current HP and the fallen member starts fallen");
+});
+
+test("Fight completes setup with ordered parties, the background, canRun from every drawn enemy and starting HP including fallen members", () => {
+  const assets = { "slime.ene": authoredEnemy("Slime", 1), "bat.ene": authoredEnemy("Bat", 0) };
+  const sourcesFor = (seed: number): string[] => {
+    const state = startState(seed);
+    const first = invoke(command("fight"), services(state).view, [1, "night.bkg"]);
+    const continuation = first.then?.args[0];
+    if (typeof continuation !== "string") throw new Error("Fight must save its asset continuation as plain data");
+    return parsePending(continuation).enemySources;
+  };
+  let withBat: number | null = null;
+  let slimeOnly: number | null = null;
+  for (let seed = 1; seed <= 64 && (withBat === null || slimeOnly === null); seed += 1) {
+    const sources = sourcesFor(seed);
+    if (withBat === null && sources.includes("bat.ene")) withBat = seed;
+    if (slimeOnly === null && sources.every((source) => source === "slime.ene")) slimeOnly = seed;
+  }
+  if (withBat === null || slimeOnly === null) throw new Error("no seed in range draws both a forbidding and an all-runnable group");
+
+  for (const [seed, canRun] of [[withBat, false], [slimeOnly, true]] as const) {
+    const state = startState(seed);
+    const service = services(state);
+    const first = invoke(command("fight"), service.view, [1, "night.bkg"]);
+    const drawn = parsePending(String(first.then?.args[0])).enemySources;
+    const rngAfterDraw = clonePlain(state.rng);
+    const completed = finishRequestedBattleAssets(service.view, first, assets);
+    deepEqual(completed.effects?.map(({ kind, args }) => [kind, args?.[0], args?.[1]]), [["vm.control", "executeProgramRef", { kind: "inline", text: "battle()", compiler: COMPILER_VERSION }]], `seed ${seed}: completion starts the registered battle handler`);
+    deepEqual(state.rng, rngAfterDraw, `seed ${seed}: setup after the draw takes no further random number`);
+    const battle = state.battle;
+    ok(battle, `seed ${seed}: a battle exists`);
+    equal(battle.background, "night.bkg");
+    equal(battle.canRun, canRun, `seed ${seed}: canRun is false when any drawn enemy forbids running`);
+    deepEqual(battle.parties[0]?.map((fighter) => state.actors.actors.find((actor) => actor.id === fighter.actorId)?.source), drawn, `seed ${seed}: the enemies are the drawn ones in drawn order`);
+    deepEqual(battle.parties[1]?.map((fighter) => state.actors.actors.find((actor) => actor.id === fighter.actorId)?.name), ["Hero", "Fallen"]);
+    deepEqual(startingHp(state, battle.parties[0]), drawn.map(() => 6));
+    deepEqual(startingHp(state, battle.parties[1]), [9, 0], `seed ${seed}: the fallen member starts fallen`);
+  }
 });
 test("battle setup starts a resolved background music asset on the battle track", () => {
   const state = startState();
@@ -369,6 +414,18 @@ test("random encounter handoff uses its drawn enemies without drawing again", ()
     ["slime.ene", "bat.ene"],
   );
   equal(typeof JSON.stringify(state.battle), "string");
+  equal(state.battle?.canRun, false, "canRun comes from the drawn enemy that forbids running");
+
+  const runnableState = startState(29);
+  const runnableService = services(runnableState);
+  const runnableRng = clonePlain(runnableState.rng);
+  const runnableFirst = invoke(command("__battle_start_handoff"), runnableService.view, [encodeHandoff(handoff)]);
+  finishRequestedBattleAssets(runnableService.view, runnableFirst, {
+    "slime.ene": authoredEnemy("Slime", 1),
+    "bat.ene": authoredEnemy("Bat", 1),
+  });
+  deepEqual(runnableState.rng, runnableRng, "deriving canRun draws nothing");
+  equal(runnableState.battle?.canRun, true, "canRun is true when every drawn enemy allows running");
 });
 
 test("battle setup validates party, package and enemy run permissions", () => {

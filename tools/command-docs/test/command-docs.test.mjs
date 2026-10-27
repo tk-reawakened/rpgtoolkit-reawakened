@@ -78,3 +78,13 @@ test("check rejects duplicate and stale allowlist keys", () => {
   equal(result.diagnostics.some((item) => item.code === "allowlist.duplicate"), true);
   equal(result.diagnostics.some((item) => item.code === "allowlist.stale" && item.key === "fixture/missing"), true);
 });
+
+test("check requires every public battle built-in and alias to have a spec row", () => {
+  const doc = { summary: "Set it.", behaviour: "No wait." };
+  const battle = [{ ...command("known", doc), aliases: ["knownalias"] }, command("fixturemissing", doc), command("__internal", { ...doc, access: "internal" })];
+  const result = check({ plugins: [plugin("battle", battle)], rows: [{ name: "known", purpose: "Set it." }], allowlist: [] });
+  const missing = result.diagnostics.filter((item) => item.code === "native.row-missing").map((item) => item.key).sort();
+  deepEqual(missing, ["battle/fixturemissing", "battle/knownalias"]);
+  const other = check({ plugins: [plugin("fixture", [command("norow", doc)])], rows: [], allowlist: [] });
+  equal(other.diagnostics.some((item) => item.code === "native.row-missing"), false);
+});

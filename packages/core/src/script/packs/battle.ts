@@ -1681,10 +1681,12 @@ const SMP = statCommand("smp", "Set a fighter's smp.", "smp", "set");
 const GET_SMP = statCommand("getsmp", "Get a fighter's smp.", "smp", "get");
 const MAX_SMP = statCommand("maxsmp", "Set a fighter's max smp.", "maxSmp", "set");
 const GET_MAX_SMP = statCommand("getmaxsmp", "Get a fighter's max smp.", "maxSmp", "get");
-const FP = statCommand("fp", "Set a fighter's fp.", "fp", "set");
-const GIVE_FP = statCommand("givefp", "Increase a fighter's fp.", "fp", "add");
+// `fp`, `givefp` and `dp` are Reawakened actor-stat aliases, not legacy 3.1 names (rpgcode-functions.md).
+const reawakenedStat = (spec: BuiltinSpec): BuiltinSpec => ({ ...spec, doc: { ...spec.doc!, groups: REAWAKENED, tags: ["experimental"] } });
+const FP = reawakenedStat(statCommand("fp", "Set a fighter's fp.", "fp", "set"));
+const GIVE_FP = reawakenedStat(statCommand("givefp", "Increase a fighter's fp.", "fp", "add"));
 const GET_FP = statCommand("getfp", "Get a fighter's fp.", "fp", "get");
-const DP = statCommand("dp", "Set a fighter's dp.", "dp", "set");
+const DP = reawakenedStat(statCommand("dp", "Set a fighter's dp.", "dp", "set"));
 const GET_DP = statCommand("getdp", "Get a fighter's dp.", "dp", "get");
 const GIVE_EXP: BuiltinSpec = {
   name: "giveexp", aliases: [], params: [parameter("handle"), parameter("amount")],
