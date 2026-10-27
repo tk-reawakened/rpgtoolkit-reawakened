@@ -176,7 +176,7 @@ function zoomCommand(command: DrawCommand, scale: number, cx: number, cy: number
 
 /** Apply a recorded `fx` command to saveable state. */
 export function applyFxEffect(state: GameState, effect: EffectRecord): void {
-  if (effect.name === "animation" || effect.name === "sizedanimation" || effect.name === "pinnedanimation" || effect.name === "endanimation") {
+  if (effect.name === "animation" || effect.name === "sizedanimation" || effect.name === "pinnedanimation" || effect.name === "showpinnedanimation" || effect.name === "endanimation") {
     applyAnimationEffect(state, effect);
     return;
   }

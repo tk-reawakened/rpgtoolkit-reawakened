@@ -6,7 +6,7 @@ import { BinaryReader } from "../formats/binary/reader.ts";
 import { frameAt, secondsToTicks } from "../time/time.ts";
 import type { AssetKey } from "../ports/keys.ts";
 import type { DrawCommand, Rect, Rgb } from "../ports/draw.ts";
-import { createSurface } from "../raster/surfaces.ts";
+import { createSurface, killSurface } from "../raster/surfaces.ts";
 import type { AnimationFrameState, AnimationState, FxSection } from "../save/sections/fx.ts";
 import type { GameState } from "../save/state.ts";
 
@@ -95,6 +95,12 @@ export function loadAnimation(state: GameState, animation: AnimationState, bytes
   return true;
 }
 
+/** Release the surfaces the engine decoded for an animation (an animated GIF's frames) once nothing draws it any more. */
+export function releaseAnimationSurfaces(state: GameState, animation: AnimationState): void {
+  if (state.surfaces.entries === undefined) return;
+  for (const frame of animation.frames) if (frame.surface !== undefined) killSurface(state.surfaces, frame.surface);
+}
+
 /** Advance active animation frames and return newly-entered frame sounds. */
 export function advanceAnimations(state: GameState): readonly { readonly file: string; readonly sound: string }[] {
   const fx = state.fx as Partial<FxSection>;
@@ -117,6 +123,7 @@ export function advanceAnimations(state: GameState): readonly { readonly file: s
     }
     if (animation.pinned !== true && !animation.loop && state.time.tick - animation.originTick >= animation.delayTicks * animation.frames.length) {
       animation.finished = true;
+      releaseAnimationSurfaces(state, animation);
     } else {
       kept.push(animation);
     }
@@ -133,7 +140,7 @@ function rect(animation: AnimationState, frame: AnimationFrameState): Rect {
 export function animationBlits(fx: FxSection, pinned: boolean): DrawCommand[] {
   const commands: DrawCommand[] = [];
   for (const animation of fx.animations) {
-    if ((animation.pinned === true) !== pinned) continue;
+    if ((animation.pinned === true) !== pinned || animation.hidden === true) continue;
     if (!animation.loaded || animation.finished || animation.frames.length === 0) continue;
     const frame = animation.frames[animation.frame];
     if (frame === undefined || (frame.surface === undefined && frame.asset === null)) continue;
@@ -161,7 +168,21 @@ export function applyAnimationEffect(state: GameState, effect: { readonly name: 
   const current = fx.animations ?? [];
   if (effect.name === "endanimation") {
     const id = typeof effect.args?.[0] === "number" ? Math.trunc(effect.args[0]) : -1;
+    for (const animation of current) if (animation.id === id) releaseAnimationSurfaces(state, animation);
     state.fx = { ...createAnimationDefaults(fx), animations: current.filter((animation) => animation.id !== id) };
+    return;
+  }
+  if (effect.name === "showpinnedanimation") {
+    const id = typeof effect.args?.[0] === "number" ? Math.trunc(effect.args[0]) : -1;
+    const show = effect.args?.[1] === true || effect.args?.[1] === 1;
+    state.fx = {
+      ...createAnimationDefaults(fx),
+      animations: current.map((animation) => {
+        if (animation.id !== id || animation.pinned !== true) return animation;
+        const { hidden: _hidden, ...rest } = animation;
+        return show ? rest : { ...rest, hidden: true as const };
+      }),
+    };
     return;
   }
   if (effect.name !== "animation" && effect.name !== "sizedanimation" && effect.name !== "pinnedanimation") return;

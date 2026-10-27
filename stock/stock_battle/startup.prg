@@ -918,6 +918,7 @@ stockBattleUi = {
   rosterIndex: {},
   spriteKey: {},
   spriteId: {},
+  spriteHidden: {},
   rosterCount: 0,
   seen: {},
   scan: 0,
@@ -1060,6 +1061,7 @@ stockBattleUi = {
     stockBattleUi.rosterIndex = {}
     stockBattleUi.spriteKey = {}
     stockBattleUi.spriteId = {}
+    stockBattleUi.spriteHidden = {}
     stockBattleUi.rosterCount = 0
     stockBattleUi.seen = {}
     stockBattleUi.scan = 0
@@ -1087,6 +1089,7 @@ stockBattleUi = {
           stockBattleUi.rosterIndex[stockBattleUi.rosterCount] = index
           stockBattleUi.spriteKey[stockBattleUi.rosterCount] = ""
           stockBattleUi.spriteId[stockBattleUi.rosterCount] = 0
+          stockBattleUi.spriteHidden[stockBattleUi.rosterCount] = 0
           stockBattleUi.rosterCount = stockBattleUi.rosterCount + 1
           source = "" + fighter.source
           for (slot = 0; slot < 4; slot = slot + 1) {
@@ -1142,10 +1145,10 @@ stockBattleUi = {
     stockBattleUi.on = 0
     stockBattleUi.endSprites()
     killcanvas(stockBattleUi.buffer)
-    killcanvas(stockBattleUi.screen)
     stockBattleUi.buffer = 0
     stockBattleUi.screen = 0
     stockBattleUi.target = 0
+    // Switching the overlay off releases its canvas.
     rendernow(0)
     return 0
   },
@@ -1265,23 +1268,33 @@ stockBattleUi = {
     local(fighter)
     local(sprite)
     local(key)
+    local(want)
     for (position = 0; position < stockBattleUi.rosterCount; position = position + 1) {
       fighter = battle.fighter(stockBattleUi.rosterParty[position], stockBattleUi.rosterIndex[position])
       if (fighter != null) {
         sprite = stockBattleUi.fighterSprite(fighter)
         key = sprite.file + "|" + sprite.loop
-        if (stockBattleUi.mode == "list") {
-          sprite = { file: "", loop: 0 }
-          key = "hidden"
-        }
         if (key != stockBattleUi.spriteKey[position]) {
           stockBattleUi.spriteKey[position] = key
           if (stockBattleUi.spriteId[position] != 0) {
             endanimation(stockBattleUi.spriteId[position])
             stockBattleUi.spriteId[position] = 0
           }
+          stockBattleUi.spriteHidden[position] = 0
           if (sprite.file != "") {
             stockBattleUi.spriteId[position] = pinnedanimation(sprite.file, stockBattleUi.slotX(stockBattleUi.rosterParty[position], stockBattleUi.rosterIndex[position]), stockBattleUi.slotY(stockBattleUi.rosterParty[position], stockBattleUi.rosterIndex[position]), sprite.loop)
+          }
+        }
+        // An open list covers the field: hide the pictures without touching their timelines, so a fallen fighter's
+        // die pose stays held and the rest frames resume on their own ticks when the list closes.
+        if (stockBattleUi.spriteId[position] != 0) {
+          want = 0
+          if (stockBattleUi.mode == "list") {
+            want = 1
+          }
+          if (want != stockBattleUi.spriteHidden[position]) {
+            stockBattleUi.spriteHidden[position] = want
+            showpinnedanimation(stockBattleUi.spriteId[position], 1 - want)
           }
         }
       }

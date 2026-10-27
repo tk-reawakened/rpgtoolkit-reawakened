@@ -48,7 +48,7 @@ import { composeBoard, type BoardBlit, type SpriteDraw } from "../render/compose
 import { composeUi, composeUiCursor, renderNowBlit } from "../render/ui.ts";
 import { emitText, layoutText } from "../render/text.ts";
 import { applyFxDrawList, advanceFx, applyFxEffect } from "../render/fx.ts";
-import { advanceAnimations, animationBlits, loadAnimation } from "../render/animation.ts";
+import { advanceAnimations, animationBlits, loadAnimation, releaseAnimationSurfaces } from "../render/animation.ts";
 import { hydrateBoard } from "../world/hydrate.ts";
 import { coordLayout, tileToPixel } from "../world/coords.ts";
 import { boardEmitterKey, type WorldBoard } from "../world/model.ts";
@@ -1820,6 +1820,7 @@ export function createEngine(init: EngineInit): Engine {
         waiting = true;
       }
       if (waiting) {
+        releaseAnimationSurfaces(state, animation);
         animation.loaded = false;
         animation.frames = [];
       }

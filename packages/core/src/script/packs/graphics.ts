@@ -250,7 +250,11 @@ const RENDER_NOW = command("rendernow", [], params(["draw"]), docs("Show or hide
       const size = surfaceSize(surfaces, SCREEN);
       surfaces.renderNow = createSurface(surfaces, size?.w ?? 0, size?.h ?? 0);
     }
-  } else surfaces.renderNow = 0 as SurfaceId;
+  } else {
+    // Disabling releases the canvas with its pixels; leaving it allocated would leak one screen-sized surface per toggle.
+    if (surfaces.renderNow !== undefined && surfaces.renderNow !== 0) killSurface(surfaces, surfaces.renderNow);
+    surfaces.renderNow = 0 as SurfaceId;
+  }
   return { value: null, effects: effects(args, "state-write", "engine") };
 });
 

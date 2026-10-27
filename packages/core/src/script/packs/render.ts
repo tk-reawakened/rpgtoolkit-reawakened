@@ -177,6 +177,28 @@ function animationCommand(name: "animation" | "sizedanimation" | "pinnedanimatio
 const ANIMATION = animationCommand("animation");
 const SIZED_ANIMATION = animationCommand("sizedanimation");
 const PINNED_ANIMATION = animationCommand("pinnedanimation");
+const SHOW_PINNED_ANIMATION: BuiltinSpec = {
+  name: "showpinnedanimation",
+  aliases: [],
+  params: [
+    { name: "id", optional: false, byRef: false, variadic: false },
+    { name: "show", optional: false, byRef: false, variadic: false },
+  ],
+  doc: {
+    summary: "Show or hide a pinned animation without restarting it.",
+    behaviour: "Hides or shows the pinned animation with the supplied id. A hidden animation is not drawn but keeps its clock, frame and hold, so showing it again displays the frame its timeline has reached. Technically, an unknown id or an animation that is not pinned is ignored, and the call completes immediately.",
+    groups: ["graphics-canvases-animation-video-31"],
+    waits: { kind: "never", summary: "Does not wait." },
+    effects: ["fx"],
+    see: ["docs/spec/engine/rpgcode-functions.md#reawakened-pinnedanimation"],
+  },
+  call: (_view, args) => {
+    const values = args.map((arg) => arg.value as PlainData);
+    if (typeof values[0] !== "number" || !Number.isFinite(values[0]) || !Number.isInteger(values[0])) throw new ScriptError("builtin.bad-arg", "showpinnedanimation requires an integer animation id");
+    if (values[1] !== true && values[1] !== false && values[1] !== 0 && values[1] !== 1) throw new ScriptError("builtin.bad-arg", "showpinnedanimation show must be 0 or 1");
+    return { value: null, effects: [{ kind: "state-write", section: "fx", args: values }] };
+  },
+};
 const END_ANIMATION: BuiltinSpec = {
   name: "endanimation",
   aliases: [],
@@ -207,5 +229,6 @@ export const RENDER_PLUGIN = pack("render", "Deterministic rendering, camera, UI
   ANIMATION,
   SIZED_ANIMATION,
   PINNED_ANIMATION,
+  SHOW_PINNED_ANIMATION,
   END_ANIMATION,
 ]);

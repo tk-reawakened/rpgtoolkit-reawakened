@@ -372,8 +372,13 @@ test("each pinned animation's frame is the pure function of its start tick, dela
   }
 });
 
+/** Pinned pictures that are being drawn (not hidden). */
 function pinnedCount(rig: UiRig): number {
-  return rig.state().fx.animations.filter((animation) => animation.pinned === true).length;
+  return rig.state().fx.animations.filter((animation) => animation.pinned === true && animation.hidden !== true).length;
+}
+
+function pinnedTimelines(rig: UiRig): { readonly id: number; readonly originTick: number; readonly loop: boolean }[] {
+  return rig.state().fx.animations.filter((animation) => animation.pinned === true).map((animation) => ({ id: animation.id, originTick: animation.originTick, loop: animation.loop }));
 }
 
 function countColour(rig: UiRig, box: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }, colour: readonly [number, number, number]): { readonly count: number; readonly minY: number; readonly maxY: number } {
@@ -399,9 +404,11 @@ const LIST_HIGHLIGHT: readonly [number, number, number] = [40, 64, 140];
 const ENEMY_BAR_RED: readonly [number, number, number] = [220, 64, 56];
 
 test("an item list longer than sixteen entries pages inside its box, and the fighters' pictures and labels stay off it while it is open", () => {
-  const rig = bootUiRig({ extraItems: 20 });
+  const rig = bootUiRig({ extraItems: 20, stanceDelayTicks: 2 });
   awaitMenu(rig);
   ok(pinnedCount(rig) > 0, "the fighters' pictures are showing before the list opens");
+  const timelines = pinnedTimelines(rig);
+  equal(timelines.length, 6, "three party members and three enemies");
   ok(countColour(rig, LIST_FIELD, ENEMY_BAR_RED).count > 0, "an enemy's HP bar shows on the field before the list opens");
   const press = (name: string): void => rig.press(name, 6);
   press("DOWN");
@@ -411,6 +418,7 @@ test("an item list longer than sixteen entries pages inside its box, and the fig
   equal(ui(rig)["listcount"], 22, "Potion, Ether and twenty gems; the key is not usable in a fight");
   rig.tick(6);
   equal(pinnedCount(rig), 0, "no picture is drawn over the open list");
+  deepEqual(pinnedTimelines(rig), timelines, "the pictures are hidden, not ended: the same animations on the same timelines");
   equal(countColour(rig, LIST_FIELD, ENEMY_BAR_RED).count, 0, "no enemy label is drawn over the open list");
   // Each move redraws the list, which takes the turn loop several ticks, so presses queue up behind it; none is lost.
   for (let step = 0; step < 17; step += 1) press("DOWN");
@@ -429,6 +437,10 @@ test("an item list longer than sixteen entries pages inside its box, and the fig
   rig.tick(8);
   equal(ui(rig)["mode"], "command");
   equal(pinnedCount(rig), 6, "the pictures return when the list is closed");
+  deepEqual(pinnedTimelines(rig), timelines, "the same animations, none restarted");
+  const dying = rig.state().fx.animations.filter((animation) => animation.pinned === true && !animation.loop);
+  equal(dying.length, 1, "the fallen Rogue's die animation");
+  equal(dying[0]!.frame, dying[0]!.frames.length - 1, "its die pose is still held on the last frame, not replayed");
   deepEqual(rig.diagnostics, []);
 });
 
@@ -463,6 +475,8 @@ test("a second battle in the same game starts a working screen with live canvase
   const at = (348 * frame.w + 160) * 4;
   deepEqual([...frame.rgba.subarray(at, at + 3)], [180, 190, 255], "the second battle's party panel frame is on screen");
   ok(countColour(rig, { x1: 8, y1: 348, x2: 151, y2: 479 }, [40, 64, 140]).count > 200, "the command panel's highlight is drawn");
+  const fullSize = Object.values(rig.state().surfaces.entries).filter((entry) => entry.id !== (0 as never) && entry.bitmap.w === 640 && entry.bitmap.h === 480).length;
+  equal(fullSize, 2, "only this battle's overlay and its off-screen buffer exist: the first battle's canvases were released");
   deepEqual(rig.diagnostics, []);
 });
 

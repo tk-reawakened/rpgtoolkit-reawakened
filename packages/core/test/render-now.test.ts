@@ -132,6 +132,21 @@ test("rendernow can be switched off and on again and the second canvas is live a
   deepEqual(pixel(game.frame(), 10, 10), [0, 0, 255, 255], "the second canvas is composed");
 });
 
+function bigSurfaces(game: Game): number {
+  const surfaces = game.state().surfaces;
+  return Object.values(surfaces.entries).filter((entry) => entry.id !== (0 as never) && entry.bitmap.w === SIZE && entry.bitmap.h === SIZE).length;
+}
+
+test("rendernow(false) releases the canvas, so toggling does not accumulate surfaces, and rendernow(true) keeps an enabled canvas", () => {
+  const toggled = boot("rendernow(1)\nfirst = cnvrendernow\ncolorrgb(255,0,0)\nfillrect(0,0,20,20,first)\nrendernow(1)\nagain = cnvrendernow\nn = 0\nwhile (n < 5) {\n  rendernow(0)\n  rendernow(1)\n  n = n + 1\n}\nend()\n");
+  const globals = toggled.state().vm.globals;
+  equal(globals.again, globals.first, "rendernow(1) while enabled keeps the same canvas");
+  equal(bigSurfaces(toggled), 1, "five off/on toggles leave exactly one screen-sized canvas");
+  const off = boot("rendernow(1)\nrendernow(0)\nend()\n");
+  equal(bigSurfaces(off), 0, "switching off releases the canvas");
+  equal(off.state().surfaces.renderNow, 0);
+});
+
 test("text and pixelText with a canvas draw into that canvas, not the screen text layer", () => {
   const game = boot('rendernow(1)\nc = cnvrendernow\ncolorrgb(255,255,255)\npixelText(2,24,"HI",c)\ntext(1,5,"A",c)\nend()\n');
   const handle = game.state().surfaces.renderNow ?? 0;
@@ -203,6 +218,37 @@ test("a one-shot pinned animation holds its last frame until endanimation, which
   equal(pinned.state().fx.animations.length, 0);
   const ordinary = boot("id = animation(\"blink.anm\", 4, 4, 0)\nthreadSleep(getThreadId(), 5)\nend()\n", redGreen(0.1));
   equal(ordinary.state().fx.animations.length, 0, "an ordinary one-shot is removed when it ends");
+});
+
+test("a hidden pinned animation keeps its timeline: a held last frame is not replayed when it is shown again", () => {
+  const game = boot(`${PAINT_CANVAS_WHITE}id = pinnedanimation("blink.anm", 4, 4, 0)\nthreadSleep(getThreadId(), 1)\nshowpinnedanimation(id, 0)\nthreadSleep(getThreadId(), 1)\nshowpinnedanimation(id, 1)\nthreadSleep(getThreadId(), 5)\nend()\n`, redGreen(0.1));
+  const origin = game.state().fx.animations[0]!.originTick;
+  deepEqual(pixel(game.frame(), 10, 10), [0, 255, 0, 255], "the one-shot has played and holds green");
+  game.advance(30);
+  deepEqual(pixel(game.frame(), 10, 10), [255, 255, 255, 255], "hidden, it is not drawn and the canvas shows");
+  const hidden = game.state().fx.animations[0]!;
+  equal(hidden.hidden, true, "the saved animation records that it is hidden");
+  equal(hidden.originTick, origin, "hiding did not restart it");
+  equal(hidden.frame, 1, "its timeline kept its last frame");
+  game.advance(60);
+  deepEqual(pixel(game.frame(), 10, 10), [0, 255, 0, 255], "shown again it is still on the held last frame, not replaying from red");
+  const shown = game.state().fx.animations[0]!;
+  equal(shown.hidden, undefined);
+  equal(shown.originTick, origin);
+});
+
+test("ending and finishing animations releases the surfaces decoded for an animated GIF", () => {
+  const gif = new Uint8Array(readFileSync(join(here, "fixtures", "authored", "gif-anim89a.gif")));
+  const extra = { "Bitmap/spin.gif": gif };
+  const baseline = Object.keys(boot("end()\n", extra).state().surfaces.entries).length;
+  const restarted = boot("n = 0\nwhile (n < 4) {\n  id = pinnedanimation(\"spin.gif\", 0, 0, 1)\n  threadSleep(getThreadId(), 6/60)\n  endanimation(id)\n  n = n + 1\n}\nend()\n", extra);
+  restarted.advance(10);
+  equal(restarted.state().fx.animations.length, 0);
+  equal(Object.keys(restarted.state().surfaces.entries).length, baseline, "four start/end cycles leave no GIF frame surface behind");
+  const finished = boot("id = animation(\"spin.gif\", 0, 0, 0)\nthreadSleep(getThreadId(), 3)\nend()\n", extra);
+  finished.advance(150);
+  equal(finished.state().fx.animations.length, 0, "the one-shot finished and was removed");
+  equal(Object.keys(finished.state().surfaces.entries).length, baseline, "its frame surfaces were released when it finished");
 });
 
 test("get() returns a pressed key once and never again, and clearbuffer() empties the queue", () => {
