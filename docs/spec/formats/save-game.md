@@ -83,6 +83,16 @@ and must not be merged:
 | The save's `schema.compiler`, or any program reference inside it (every frame's `program`, every object record's `program`, every `vm.defOwners` entry), names a compiler other than the running one | The whole save is refused with `restore.compiler-mismatch`, located at the first offending field, before the `vm` payload is used. `Load` returns failure to the calling thread, raises the diagnostic, and replaces nothing. |
 | The compiler matches but a file-backed program's current source no longer matches the saved `sourceHash` (`restore.source-changed`) | That one thread restarts from source on its next turn; the rest of the save loads. Callable and owner validation still rejects the save when a changed program leaves a saved callable unresolved. |
 
+The compiler check is the first one a load makes: a save from another compiler
+reports `restore.compiler-mismatch` even when other parts of it (its audio
+projection, its sections) are also malformed. After it, a game load compiles every
+program the save names, with or without callables, so a save whose thread names a
+program file or include the game no longer has fails the load up front
+(`program.missing`) and leaves the live game unchanged. (The callable check
+`verifyRestoredHandles` itself still compiles nothing for a state with no
+callable, [rpgcode-language.md](../engine/rpgcode-language.md); the engine's load
+adds this compile pass.)
+
 This resolves the earlier disagreement between the whole-snapshot refusal
 (`restoreGameState`; the hardening plan; `script-state.test.ts`) and the
 per-thread clause that said "compiler or source mismatch restarts the thread":
