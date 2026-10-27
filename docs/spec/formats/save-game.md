@@ -1,12 +1,34 @@
 # Saved game (`.sav`)
 
-The only binary game file the engine writes. RPGCode `Save(name)` writes `Saved\<name>.sav` (relative to the Toolkit folder) and `Load(name)` reads it. It captures every script global, the party, inventory, equipment, position, the current board's items and threads (including each running script's full execution state), and a few display settings.
+The legacy Toolkit format is binary. Legacy RPGCode `Save(name)` writes `Saved\<name>.sav` (relative to the Toolkit folder) and `Load(name)` reads it. The Reawakened runtime does not write this binary format; its canonical JSON `.sav` contract is described below. The legacy layout captures every script global, the party, inventory, equipment, position, the current board's items and threads (including each running script's full execution state), and a few display settings.
 
-Header text: `RPGTLKIT SAVE`. The engine writes major **3**, minor **4** (Toolkit 3.1.0). Readers handle minors below 4 (Toolkit 3.0) as noted.
+Legacy header text: `RPGTLKIT SAVE`. Toolkit 3.1.0 writes major **3**, minor **4**; readers handle minors below 4 (Toolkit 3.0) as noted.
 
 **Counts here are exact counts** (not upper bounds), except the thread list.
 
 **Our own save format — Reawakened rule (R-13).** A rebuild may use its own save format; this project's canonical Reawakened format is the save/load contract. Epic 8 implements that format only; legacy `.sav` import (E-122) is deferred. Restore a thread from its serialized execution state only when saved source and compiler compatibility match current source/compiler; otherwise that thread restarts from source rather than resuming an incompatible instruction position. Restore still validates every saved callable and definition owner: if a changed or incompatible program leaves an unresolved callable reference, reject the save with the existing located restore error rather than repairing or silently dropping callable state (see [rpgcode-language.md](../engine/rpgcode-language.md), “Saving, loading and tidying up closures”). The split into separate lists — numeric globals, object-handle globals and string globals, then redirects, party, inventory, equipment and the miscellany — documents legacy import behavior only.
+
+### Reawakened full-engine save and load
+
+In the Reawakened runtime, `Save(name)` and `Load(name)` use the sandboxed
+`saveBlob` and `loadBlob` host requests for `Saved/<name>.sav`; the host owns
+storage and the engine never accesses the filesystem. A board with
+`disableSaving` set does not issue a save request.
+
+`Save` captures the complete canonical game state only after its calling VM
+thread has parked on the host request. The save records that thread as resumed
+after a successful `Save`, so loading it continues the original script at its
+next instruction. `Load` validates the full save and the current package/source
+compatibility before replacing the live state; a missing or invalid save
+returns failure to the calling thread without replacing the current game.
+Successful restoration rebuilds package layers, hydrates saved actors and
+verifies restored VM handles before continuing the saved thread set.
+
+Audio game saves add only the playback projection defined in
+[audio-media.md](../engine/audio-media.md#audio-save-load), not runtime audio
+configuration or script volume settings. The saved cue is restored through
+the current audio configuration.
+
 ### Reawakened canonical actor state
 
 The Reawakened runtime uses its canonical state snapshot for its own save/load
