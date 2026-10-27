@@ -578,7 +578,7 @@ export function createEngine(init: EngineInit): Engine {
       mainKey = found;
       state.engine.boot = { stage: "main", main: found, fonts: [] };
     }
-    if (hostGameIdentity === undefined) {
+    if (typeof hostGameIdentity !== "string" || hostGameIdentity === "") {
       diagnostics.push({
         code: "startup.no-game-identity",
         file: init.mainFile,
@@ -937,7 +937,12 @@ export function createEngine(init: EngineInit): Engine {
     for (const entry of pendingBlobs.values()) {
       if (entry.published) continue;
       if (entry.gameSave) {
-        if (pending.size > 0 || pendingImageEffects.length > 0 || pendingBoardPreviews.length > 0) continue;
+        // A save may not capture a thread parked on a host request that has no
+        // answer yet: restoring it would drop the request and strand the thread.
+        // Assets, deferred image effects and every other in-flight blob request
+        // are therefore answered (or applied) before the snapshot is taken.
+        const otherBlob = [...pendingBlobs.values()].some((other) => other !== entry);
+        if (pending.size > 0 || pendingImageEffects.length > 0 || pendingBoardPreviews.length > 0 || otherBlob) continue;
         try {
           const savedState = restoreGameState(snapshot(state));
           replyToRequest(savedState.vm, entry.vmReqId, { ok: true, value: null });

@@ -84,7 +84,7 @@ function savePathFor(main: Uint8Array, extra: Files, paths: readonly string[], g
 const START = encoder.encode('Save("slot")\nend()\n');
 const PATHS = ["main.gam", "boards/start.brd", "prg/start.prg"];
 
-test("the package identity hashes sorted path/content records injectively", () => {
+test("the package identity hashes sorted path/content records unambiguously before the digest", () => {
   const a = new Uint8Array([1]);
   const b = new Uint8Array([2]);
   const one = derivePackageIdentity([{ path: "Boards/a.brd", bytes: a }, { path: "Prg/b.prg", bytes: b }]);
@@ -94,6 +94,8 @@ test("the package identity hashes sorted path/content records injectively", () =
     one,
     "archive order does not change the identity",
   );
+  // 64-bit digests cannot be collision-free in principle (docs/spec/formats/save-game.md#reawakened-full-engine-save-and-load);
+  // these assertions pin that distinct inputs are distinguished as designed, not a mathematical guarantee.
   ok(derivePackageIdentity([{ path: "Boards/a.brd", bytes: b }, { path: "Prg/b.prg", bytes: a }]) !== one, "swapped contents differ");
   ok(derivePackageIdentity([{ path: "Boards/a.brd", bytes: a }, { path: "Prg/b.prg", bytes: b }, { path: "Media/c.mid", bytes: a }]) !== one, "an extra file differs");
 
@@ -101,7 +103,7 @@ test("the package identity hashes sorted path/content records injectively", () =
   ok(
     derivePackageIdentity([{ path: "ab", bytes: a }, { path: "c", bytes: a }]) !==
       derivePackageIdentity([{ path: "a", bytes: a }, { path: "bc", bytes: a }]),
-    "re-splitting a path at a different point is a different package",
+    "re-splitting a path at a different point is a different pre-hash record",
   );
 });
 
@@ -268,14 +270,13 @@ test("a boot engine's save area is stable across reset and a load", () => {
   equal(loadedPaths[0], expected, "a load reads the same area");
 });
 
-test("a boot engine refuses to start when a caller omits the identity at runtime", () => {
+test("a boot engine refuses a missing, null, empty or non-string identity at runtime", () => {
   const main = savingMain("start.brd");
   const files: Files = new Map([
     [assetKey("main.gam"), main],
     [assetKey("boards/start.brd"), board(0)],
     [assetKey("prg/start.prg"), START],
   ]);
-  // A JavaScript caller can omit a required field; the engine must fail loudly.
   const init = {
     seed: 3,
     assetIndex: createAssetIndex(PATHS),
@@ -289,18 +290,27 @@ test("a boot engine refuses to start when a caller omits the identity at runtime
       savedGame: { load: () => ({ kind: "missing" as const }), restored: () => false },
     },
   };
-  const engine = createEngine(init as unknown as Parameters<typeof createEngine>[0]);
-  let replies: InputRecord[] = [];
-  const diagnostics: { readonly code: string }[] = [];
-  for (let guard = 0; guard < 20; guard += 1) {
-    const report = engine.advance(2, replies);
-    replies = [];
-    diagnostics.push(...report.diagnostics);
-    if (report.loading) {
-      replies = report.requests.flatMap((request) => request.kind === "asset"
-        ? [{ tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: files.get(request.key) ?? null } }]
-        : []);
+  // A JavaScript caller can pass any of these. Each must be a located startup
+  // refusal, never a crash inside the derivation (the earlier `null` case threw
+  // `Cannot read properties of null (reading 'length')`).
+  for (const bad of [undefined, null, "", 7]) {
+    const engine = createEngine({ ...init, gameIdentity: bad } as unknown as Parameters<typeof createEngine>[0]);
+    let replies: InputRecord[] = [];
+    const diagnostics: { readonly code: string }[] = [];
+    let advanced = 0;
+    for (let guard = 0; guard < 20; guard += 1) {
+      const report = engine.advance(2, replies);
+      advanced += report.ticksRun;
+      replies = [];
+      diagnostics.push(...report.diagnostics);
+      if (report.loading) {
+        replies = report.requests.flatMap((request): InputRecord[] => request.kind === "asset"
+          ? [{ tick: report.tickAfter, event: { kind: "asset", reqId: request.reqId, bytes: files.get(request.key) ?? null } }]
+          : []);
+      }
+      if (diagnostics.some((diagnostic) => diagnostic.code === "startup.no-game-identity")) break;
     }
+    equal(diagnostics.some((diagnostic) => diagnostic.code === "startup.no-game-identity"), true, `identity ${JSON.stringify(bad)} is refused`);
+    equal(advanced, 0, `identity ${JSON.stringify(bad)} never starts a tick`);
   }
-  equal(diagnostics.some((diagnostic) => diagnostic.code === "startup.no-game-identity"), true);
 });

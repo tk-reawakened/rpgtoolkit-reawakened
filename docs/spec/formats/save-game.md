@@ -26,13 +26,29 @@ Core exports the canonical derivation for the host to use, so every runner
 computes the same value from bytes it already holds:
 
 - `derivePackageIdentity(files)` hashes a package's sorted `(path, bytes)`
-  entries with length-prefixed fields, so it is injective — no path or content
-  can collide with another package's encoding. A package game passes its result
-  as the engine's game identity; two packages whose paths and main file match
-  but whose other files differ therefore get separate save areas.
+  entries with length-prefixed fields. The *encoding* is unambiguous — no path
+  or content can be re-split into another package's record (`["ab", "c"]` never
+  encodes as `["a", "bc"]`), so two packages whose paths and main file match but
+  whose other files differ are distinct inputs. A package game passes that result
+  as the engine's game identity.
 - `deriveGameId(mainBytes, gameIdentity)` folds the main file's actual bytes
   into that identity, so two games with a same-named main file but different
-  bytes also stay separate.
+  bytes are distinct inputs too.
+
+**Collision limit.** Both steps digest with `fnv1a64` — the project's one hash
+(AD-11), 64 bits and non-cryptographic. Distinct inputs are *expected* to map to
+distinct identities, but 64 bits cannot guarantee it: two packages meet the
+birthday bound at roughly 2^32 distinct packages, so a collision is unlikely in
+any real library and still possible in principle. This is save-slot separation in
+a single-player runtime, not a security boundary. A host that needs collision
+resistance supplies its own stronger identity (a SHA-256 of the archive, say) as
+`gameIdentity`, which the derivation folds in unchanged.
+
+**Identity validation.** `deriveGameId` rejects a missing, empty or non-string
+identity with a `TypeError` (a programmer error), and boot reports a
+`startup.no-game-identity` diagnostic when the init value is absent, empty or not
+a string — a JavaScript caller passing `null` gets that located failure rather
+than a crash.
 
 The identity is stable across `reset()` and a `mainFile` reboot of the same
 game. For a game folder the host chooses the identity (its project path is the
@@ -48,6 +64,36 @@ compatibility before replacing the live state; a missing or invalid save
 returns failure to the calling thread without replacing the current game.
 Successful restoration rebuilds package layers, hydrates saved actors and
 verifies restored VM handles before continuing the saved thread set.
+
+**In-flight requests.** A game save is serialized only once every other host
+request it would capture has been answered: outstanding asset requests, deferred
+image effects and other in-flight blob requests all settle first. A save
+therefore never records a thread parked on a request the host has not answered,
+which a restore would drop and strand.
+
+### Known conflict: compiler mismatch, whole save or one thread
+
+Two normative rules disagree and this runtime follows the first:
+
+- `restoreGameState` refuses a snapshot whose `schema.compiler` differs from the
+  running compiler (`restore.compiler-mismatch`) before reading any payload.
+  This is pinned by `story-snapshot-and-restore-hardening-state-shape-hashstate-bounds-plan.md`
+  ("Refused before VM payload is used") and by `script-state.test.ts`. It also
+  matches "our own save format" rule R-13 only when the *compiler* moved, because
+  a compiler change makes every remembered instruction position suspect.
+- [rpgcode-language.md](../engine/rpgcode-language.md) (restore compatibility)
+  and R-13's per-thread clause say a thread whose saved source hash or compiler
+  version no longer matches restarts from source while the save still loads. That
+  is implemented for *individual file programs* inside a compatible snapshot
+  (`ensureCurrentProgram` restarts the thread from its source; it emits no
+  diagnostic today, although the AD-7 note names `restore.restarted`), not for a
+  snapshot compiled by another compiler version.
+
+The open question is whether a whole-save compiler bump should load with every
+thread restarted instead of being refused. Resolving it needs an owner ruling
+that names the file-program positions a compiler change invalidates; until then
+the refusal is the documented behaviour and the per-thread restart path covers
+changed sources only.
 
 Audio game saves add only the playback projection defined in
 [audio-media.md](../engine/audio-media.md#audio-save-load), not runtime audio
