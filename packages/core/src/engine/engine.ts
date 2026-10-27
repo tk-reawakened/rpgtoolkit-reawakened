@@ -888,6 +888,7 @@ export function createEngine(init: EngineInit): Engine {
     for (const entry of pendingBlobs.values()) {
       if (entry.published) continue;
       if (entry.gameSave) {
+        if (pending.size > 0 || pendingImageEffects.length > 0 || pendingBoardPreviews.length > 0) continue;
         try {
           const savedState = restoreGameState(snapshot(state));
           replyToRequest(savedState.vm, entry.vmReqId, { ok: true, value: null });

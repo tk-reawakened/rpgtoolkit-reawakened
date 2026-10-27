@@ -433,3 +433,81 @@ test("a full-engine save during battle resumes its parked thread and returns to 
   deepEqual(musicStarts(cues), ["media/battle.mid", "media/board.mid"], "load restarts battle music and battle completion restores board music");
   equal(resumed.audio.tracks.find((track) => track.name === "music")?.file, "media/board.mid");
 });
+
+function authoredBmp(): Uint8Array {
+  const bytes = new Uint8Array(62);
+  bytes[0] = 0x42; bytes[1] = 0x4d;
+  const put32 = (at: number, value: number): void => {
+    bytes[at] = value & 255; bytes[at + 1] = (value >>> 8) & 255; bytes[at + 2] = (value >>> 16) & 255; bytes[at + 3] = (value >>> 24) & 255;
+  };
+  const put16 = (at: number, value: number): void => { bytes[at] = value & 255; bytes[at + 1] = (value >>> 8) & 255; };
+  put32(2, 62); put32(10, 54); put32(14, 40); put32(18, 2); put32(22, 1); put16(26, 1); put16(28, 24); put32(34, 8);
+  bytes.set([0, 0, 255, 0, 255, 0, 0, 0], 54);
+  return bytes;
+}
+
+test("same-tick setimage before Save waits for the asset reply so the saved state includes the applied image", () => {
+  const prg = [
+    "createcanvas(4, 2, c)",
+    'setimage("pixel.bmp", 0, 0, 2, 1, c)',
+    'Save("slot")',
+    "end()",
+  ].join("\n");
+  const game = authoredGame(prg);
+  game.paths.push("Bitmap/pixel.bmp");
+  game.files.set(assetKey("bitmap/pixel.bmp"), authoredBmp());
+  const host = hostedEngine(game);
+  let replies: InputRecord[] = [];
+  let assetReq: { reqId: number } | undefined;
+  let saveReq2: { kind: "saveBlob"; bytes: Uint8Array } | undefined;
+  for (let guard = 0; guard < 20; guard += 1) {
+    const report = host.engine.advance(1, replies);
+    replies = [];
+    const pixelReq = report.requests.find((r) => r.kind === "asset" && r.key === "bitmap/pixel.bmp");
+    if (pixelReq) {
+      assetReq = { reqId: pixelReq.reqId };
+      const prematureSave = report.requests.find((r) => r.kind === "saveBlob");
+      equal(prematureSave, undefined, "saveBlob is NOT emitted while asset is pending");
+    }
+    const saveReq = report.requests.find((r) => r.kind === "saveBlob");
+    if (saveReq && saveReq.kind === "saveBlob") {
+      saveReq2 = saveReq;
+      break;
+    }
+    if (report.loading) {
+      replies = report.requests.flatMap((r) => r.kind === "asset"
+        ? [{ tick: report.tickAfter, event: { kind: "asset" as const, reqId: r.reqId, bytes: game.files.get(r.key) ?? null } }]
+        : []);
+    }
+  }
+  ok(assetReq, "pixel.bmp was requested");
+  ok(saveReq2, "saveBlob IS emitted once asset reply settles");
+  const savedBytes = saveReq2.bytes;
+
+  // Inspect the captured save bytes: surfaces section must have the image applied!
+  const loadingGame = authoredGame(prg, 'Load("slot")\nend()\n');
+  loadingGame.paths.push("Bitmap/pixel.bmp");
+  loadingGame.files.set(assetKey("bitmap/pixel.bmp"), authoredBmp());
+  const loaded = hostedEngine(loadingGame);
+  replies = [];
+  for (let guard = 0; guard < 20; guard += 1) {
+    const report = loaded.engine.advance(1, replies);
+    replies = [];
+    if (report.loading) {
+      replies = report.requests.flatMap((request) => {
+        if (request.kind === "asset") return [{ tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: loadingGame.files.get(request.key) ?? null } }];
+        if (request.kind === "loadBlob") return [{ tick: report.tickAfter, event: { kind: "blob.loaded" as const, reqId: request.reqId, bytes: new Uint8Array(savedBytes) } }];
+        return [];
+      });
+    }
+    const state = loaded.latest();
+    if (state && state.surfaces.entries["1"]) break;
+  }
+  const finalState = loaded.latest();
+  ok(finalState, "loaded state exists");
+  const surfaceEntry = finalState.surfaces.entries["1"];
+  ok(surfaceEntry, "canvas 1 surface exists in restored state");
+  const surface = loaded.engine.surfacePixels(1 as never, surfaceEntry.rev);
+  ok(surface !== null, "surface pixels exist");
+  equal(surface.rgba[0], 255, "red channel is 255 from pixel.bmp");
+});
