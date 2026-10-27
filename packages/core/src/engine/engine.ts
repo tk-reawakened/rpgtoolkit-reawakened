@@ -1,4 +1,4 @@
-import { hashDrawList, utf8Decode, utf8Encode } from "../canon/index.ts";
+import { fnv1a64, hashDrawList, utf8Decode, utf8Encode } from "../canon/index.ts";
 import { restoreGameSave, snapshotGameSave } from "../save/game-save.ts";
 import { restoreGameState, snapshot } from "../save/snapshot.ts";
 import { createPluginLayers, type PluginLayers } from "../script/layers.ts";
@@ -567,7 +567,7 @@ export function createEngine(init: EngineInit): Engine {
     }
   }
   let activePlugins: readonly ResolvedPlugin[] = init.plugins ?? DEFAULT_ENGINE_PLUGINS;
-  const gameId = mainKey ?? sceneBoardKey ?? assetKey(init.mainFile ?? init.initialBoard ?? "");
+  let currentGameId = mainKey ?? sceneBoardKey ?? assetKey(init.mainFile ?? init.initialBoard ?? "");
   let pluginLayers = createPluginLayers();
   const packageStartupLifecycle = { active: false, packageName: undefined as string | undefined };
   let startupServicesReady = false;
@@ -585,7 +585,7 @@ export function createEngine(init: EngineInit): Engine {
       undefined,
       undefined,
       programLoader,
-      gameId,
+      currentGameId,
       (section, effect) => bus.dispatchRecorded(section, effect),
       (request) => {
         if ((request.kind === "loadBlob" || request.kind === "saveBlob") &&
@@ -674,6 +674,9 @@ export function createEngine(init: EngineInit): Engine {
       failed = previousFailed;
 
       Object.assign(state, candidate);
+      if (typeof candidate.engine.nextRequestId === "number" && Number.isSafeInteger(candidate.engine.nextRequestId) && candidate.engine.nextRequestId >= 1) {
+        nextRequestId = candidate.engine.nextRequestId;
+      }
       pluginLayers = restoredLayers;
       const restoredServices = makeServices(activePlugins, loader ?? undefined, false, restoredLayers);
       runPackageStartup(state, restoredServices, [], activePlugins, restoredServices.listenersBeforePackageStartup);
@@ -1176,6 +1179,7 @@ export function createEngine(init: EngineInit): Engine {
         diagnostics.push({ code: "asset.invalid", file: nextMain, line: 0, message: `main file "${nextMain}" is not in the asset index` });
       } else {
         mainKey = found;
+        currentGameId = found;
         mainFileAudioNeedsApply = true;
         state.engine.boot = { stage: "main", main: found, fonts: [] };
       }

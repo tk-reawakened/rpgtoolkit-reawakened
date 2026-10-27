@@ -1,6 +1,6 @@
 import { canon, reviveNonFinite, tagNonFinite } from "../canon/index.ts";
 import { audioSaveProjection, type AudioSaveProjection } from "../audio/save.ts";
-import { AUDIO_SCHEMA_VERSION, createTrack, type AudioStateV2 } from "../audio/model.ts";
+import { AUDIO_SCHEMA_VERSION, createAudioSection, createTrack, type AudioStateV2 } from "../audio/model.ts";
 import { ScriptError } from "../script/errors.ts";
 import type { Diagnostic } from "../ports/engine.ts";
 import { restoreGameState } from "./snapshot.ts";
@@ -68,14 +68,27 @@ export function restoreGameSave(json: string, currentAudio: AudioStateV2): Resto
     throw new ScriptError("restore.shape", "a saved game must be valid UTF-8 JSON");
   }
   const root = record(parsed, "root");
-  const projection = record(root.audio, "audio projection");
-  exactKeys(projection, ["tick", "cueId", "tracks"], "audio projection");
-  const tick = number(projection.tick, "audio.tick", 0);
-  const cueId = number(projection.cueId, "audio.cueId", 1);
-  if (!Array.isArray(projection.tracks)) shape("audio.tracks must be an array");
+  let projection: Record<string, unknown>;
+  let tick: number;
+  let cueId: number;
+  let tracks: unknown[];
+  if (root.audio !== undefined && root.audio !== null && typeof root.audio === "object" && Object.hasOwn(root.audio, "tracks")) {
+    projection = record(root.audio, "audio projection");
+    exactKeys(projection, ["tick", "cueId", "tracks"], "audio projection");
+    tick = number(projection.tick, "audio.tick", 0);
+    cueId = number(projection.cueId, "audio.cueId", 1);
+    if (!Array.isArray(projection.tracks)) shape("audio.tracks must be an array");
+    tracks = projection.tracks as unknown[];
+  } else {
+    const defaultSection = createAudioSection();
+    projection = { tick: number(record(root.time, "time").tick, "time.tick", 0), cueId: defaultSection.cueId, tracks: [] };
+    tick = projection.tick as number;
+    cueId = defaultSection.cueId;
+    tracks = [];
+  }
   const currentByName = new Map(currentAudio.tracks.map((track) => [asciiFold(track.name), track]));
   const seen = new Set<string>();
-  const tracks = (projection.tracks as unknown[]).map((value, index) => {
+  const migratedTracks = tracks.map((value, index) => {
     const track = record(value, `audio.tracks[${index}]`);
     exactKeys(track, ["name", "state", "flags", "file", "voices", "positionTicks", "lengthTicks", "fade"], `audio.tracks[${index}]`);
     if (typeof track.name !== "string" || track.name === "") shape(`audio.tracks[${index}].name must be a non-empty string`);
@@ -91,12 +104,13 @@ export function restoreGameSave(json: string, currentAudio: AudioStateV2): Resto
     return { ...track, voiceCount: configured?.voiceCount ?? 1 };
   });
   const schema = record(root.schema, "schema");
-  if (schema.audio !== AUDIO_SCHEMA_VERSION) shape(`schema.audio must be ${AUDIO_SCHEMA_VERSION}`);
+  const audioVersion = number(schema.audio, "schema.audio", 1);
+  if (audioVersion > AUDIO_SCHEMA_VERSION) shape(`schema.audio must be no greater than ${AUDIO_SCHEMA_VERSION}`);
   root.audio = {
     schema: AUDIO_SCHEMA_VERSION,
     cueId,
     soundFont: currentAudio.soundFont,
-    tracks,
+    tracks: migratedTracks,
     settings: currentAudio.settings,
   };
   const diagnostics: Diagnostic[] = [];

@@ -263,3 +263,20 @@ test("game saves persist only playback projection and restore with current audio
   mismatch.audio.tick += 1;
   throws(() => restoreGameSave(JSON.stringify(mismatch), current.audio), /audio\.tick must match time\.tick/);
 });
+
+test("game saves from prior audio schema migrate to current schema with empty projection", () => {
+  const state = createGameState({ seed: 7 });
+  state.time.tick = 10;
+  const raw = JSON.parse(snapshotGameSave(state)) as {
+    schema: { audio: number };
+    audio: Record<string, unknown>;
+  };
+  raw.schema.audio = 1;
+  raw.audio = {};
+  const current = createGameState({ seed: 9 });
+  const restored = restoreGameSave(JSON.stringify(raw), current.audio);
+  equal(restored.state.schema.audio, SCHEMA_VERSIONS.audio);
+  equal(restored.audio.tracks.length, 0);
+  equal(restored.audio.tick, 10);
+  deepEqual(restored.state.audio.tracks, current.audio.tracks);
+});
