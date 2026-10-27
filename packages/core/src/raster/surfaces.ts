@@ -33,21 +33,52 @@ function byteCount(width: number, height: number): number {
   return width * height * 4;
 }
 
-/** Encode bytes without relying on host `btoa`/`Buffer` APIs (G2). */
+const BASE64_CODES = new Uint8Array(64);
+const BASE64_VALUES = new Int8Array(128).fill(-1);
+for (let i = 0; i < 64; i += 1) {
+  BASE64_CODES[i] = BASE64.charCodeAt(i);
+  BASE64_VALUES[BASE64_CODES[i]!] = i;
+}
+const ENCODE_CHUNK = 8192;
+
+/**
+ * Encode bytes without relying on host `btoa`/`Buffer` APIs (G2). A whole-surface edit encodes the full canvas, so
+ * this writes character codes into a byte buffer and builds the string in large chunks instead of one character at a
+ * time; the output is the same canonical padded base64.
+ */
 export function encodeSurfaceBytes(bytes: Uint8Array): string {
-  let output = "";
-  for (let i = 0; i < bytes.length; i += 3) {
-    const a = bytes[i] ?? 0;
-    const hasB = i + 1 < bytes.length;
-    const hasC = i + 2 < bytes.length;
-    const b = hasB ? bytes[i + 1]! : 0;
-    const c = hasC ? bytes[i + 2]! : 0;
-    output += BASE64[a >> 2];
-    output += BASE64[((a & 3) << 4) | (b >> 4)];
-    output += hasB ? BASE64[((b & 15) << 2) | (c >> 6)] : "=";
-    output += hasC ? BASE64[c & 63] : "=";
+  const length = bytes.length;
+  const whole = length - (length % 3);
+  const out = new Uint8Array(Math.ceil(length / 3) * 4);
+  let at = 0;
+  let i = 0;
+  for (; i < whole; i += 3) {
+    const a = bytes[i]!;
+    const b = bytes[i + 1]!;
+    const c = bytes[i + 2]!;
+    out[at++] = BASE64_CODES[a >> 2]!;
+    out[at++] = BASE64_CODES[((a & 3) << 4) | (b >> 4)]!;
+    out[at++] = BASE64_CODES[((b & 15) << 2) | (c >> 6)]!;
+    out[at++] = BASE64_CODES[c & 63]!;
   }
-  return output;
+  if (i < length) {
+    const a = bytes[i]!;
+    const hasB = i + 1 < length;
+    const b = hasB ? bytes[i + 1]! : 0;
+    out[at++] = BASE64_CODES[a >> 2]!;
+    out[at++] = BASE64_CODES[((a & 3) << 4) | (b >> 4)]!;
+    out[at++] = hasB ? BASE64_CODES[(b & 15) << 2]! : 61;
+    out[at++] = 61;
+  }
+  const parts: string[] = [];
+  for (let start = 0; start < out.length; start += ENCODE_CHUNK) {
+    parts.push(String.fromCharCode.apply(null, out.subarray(start, Math.min(out.length, start + ENCODE_CHUNK)) as unknown as number[]));
+  }
+  return parts.join("");
+}
+
+function base64Value(code: number): number {
+  return code < 128 ? BASE64_VALUES[code]! : -1;
 }
 
 /** Decode a canonical base64 surface payload, rejecting malformed input. */
@@ -59,24 +90,24 @@ export function decodeSurfaceBytes(value: string): Uint8Array {
   const output = new Uint8Array((value.length / 4) * 3 - padding);
   let at = 0;
   for (let i = 0; i < value.length; i += 4) {
-    const a = value[i]!;
-    const b = value[i + 1]!;
-    const c = value[i + 2]!;
-    const d = value[i + 3]!;
-    const ai = BASE64.indexOf(a);
-    const bi = BASE64.indexOf(b);
-    const ci = c === "=" ? 0 : BASE64.indexOf(c);
-    const di = d === "=" ? 0 : BASE64.indexOf(d);
-    if (ai < 0 || bi < 0 || ci < 0 || di < 0 || (c === "=" && d !== "=") || (i + 4 < value.length && (c === "=" || d === "="))) {
+    const cCode = value.charCodeAt(i + 2);
+    const dCode = value.charCodeAt(i + 3);
+    const cPad = cCode === 61;
+    const dPad = dCode === 61;
+    const ai = base64Value(value.charCodeAt(i));
+    const bi = base64Value(value.charCodeAt(i + 1));
+    const ci = cPad ? 0 : base64Value(cCode);
+    const di = dPad ? 0 : base64Value(dCode);
+    if (ai < 0 || bi < 0 || ci < 0 || di < 0 || (cPad && !dPad) || (i + 4 < value.length && (cPad || dPad))) {
       throw new TypeError("invalid surface base64 payload");
     }
     const first = (ai << 2) | (bi >> 4);
     if (at < output.length) output[at++] = first;
-    if (c !== "=") {
+    if (!cPad) {
       const second = ((bi & 15) << 4) | (ci >> 2);
       if (at < output.length) output[at++] = second;
     }
-    if (d !== "=") {
+    if (!dPad) {
       const third = ((ci & 3) << 6) | di;
       if (at < output.length) output[at++] = third;
     }
@@ -161,10 +192,14 @@ export function readSurfacePixels(state: SurfacesSection, id: SurfaceId, rev: nu
 
 export function surfaceTextures(state: SurfacesSection, cache: SurfacePixelCache = new Map()): ReadonlyMap<SurfaceId, DecodedTexture> {
   const textures = new Map<SurfaceId, DecodedTexture>();
+  const live = new Set<string>();
   for (const raw of Object.keys(state.entries)) {
     const current = state.entries[raw]!;
+    live.add(key(current.id, current.rev));
     textures.set(current.id, { w: current.bitmap.w, h: current.bitmap.h, rgba: decode(current, cache) });
   }
+  // A script that redraws a canvas every tick would otherwise keep one decoded copy of every past revision.
+  for (const cached of [...cache.keys()]) if (!live.has(cached)) cache.delete(cached);
   return textures;
 }
 

@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "seed": 291,
+  "size": [
+    640,
+    480
+  ],
+  "frames": {
+    "command": {
+      "keys": [],
+      "pixels": "d077094d97bfaa97",
+      "drawList": "b0ffe2864eea6722"
+    },
+    "revive": {
+      "keys": [
+        "DOWN",
+        "DOWN",
+        "ENTER",
+        "ENTER",
+        "RIGHT",
+        "RIGHT"
+      ],
+      "pixels": "46a8d3fefba593a7",
+      "drawList": "95dfc359455baf63"
+    },
+    "defeated": {
+      "keys": [
+        "DOWN",
+        "DOWN",
+        "ENTER",
+        "ENTER",
+        "RIGHT",
+        "RIGHT",
+        "ENTER",
+        "ENTER",
+        "ENTER"
+      ],
+      "pixels": "8cf1b37cb3f78663",
+      "drawList": "f904e088027789da"
+    },
+    "special": {
+      "keys": [
+        "UP",
+        "DOWN",
+        "UP",
+        "ENTER",
+        "UP",
+        "UP",
+        "ENTER"
+      ],
+      "pixels": "aa1985f78016c53b",
+      "drawList": "915057de1baf5847"
+    },
+    "target": {
+      "keys": [
+        "UP",
+        "DOWN",
+        "UP",
+        "ENTER",
+        "UP",
+        "UP",
+        "ENTER",
+        "ENTER",
+        "ESC",
+        "ESC",
+        "DOWN",
+        "ENTER",
+        "ESC",
+        "UP",
+        "UP",
+        "ENTER",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "DOWN"
+      ],
+      "pixels": "338d2f858bda18da",
+      "drawList": "274117806d18ba62"
+    }
+  }
+}

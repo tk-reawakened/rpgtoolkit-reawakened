@@ -1,6 +1,9 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { test } from "node:test";
 import {
+  decodeSurfaceBytes,
+  encodeSurfaceBytes,
+  surfaceTextures,
   blitTexture,
   canvasGetScreen,
   colourSurface,
@@ -78,4 +81,42 @@ test("decoded image blits preserve keys, alpha, scaling and one revision", () =>
   equal(state.entries["0"]?.rev, 1);
   deepEqual(getPixel(state, 0 as SurfaceId, 0, 0), { r: 0, g: 0, b: 0 });
   deepEqual(getPixel(state, 0 as SurfaceId, 2, 0), { r: 20, g: 40, b: 60 });
+});
+
+test("surface bytes are canonical padded base64 for every length remainder and malformed payloads are rejected", () => {
+  const table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const reference = (bytes: Uint8Array): string => {
+    let out = "";
+    for (let i = 0; i < bytes.length; i += 3) {
+      const a = bytes[i]!;
+      const b = bytes[i + 1];
+      const c = bytes[i + 2];
+      out += table[a >> 2]! + table[((a & 3) << 4) | ((b ?? 0) >> 4)]!;
+      out += b === undefined ? "=" : table[((b & 15) << 2) | ((c ?? 0) >> 6)]!;
+      out += c === undefined ? "=" : table[c & 63]!;
+    }
+    return out;
+  };
+  for (const length of [0, 1, 2, 3, 4, 5, 100, 8191, 8192, 8193, 40000]) {
+    const bytes = new Uint8Array(length).map((_, index) => (index * 37 + length) & 255);
+    const text = encodeSurfaceBytes(bytes);
+    equal(text, reference(bytes), `length ${length}`);
+    deepEqual(decodeSurfaceBytes(text), bytes);
+  }
+  for (const bad of ["ab", "a===", "ab=c", "!!!!", "QUJD\u00e9AAA", "QQ==QQ=="]) {
+    let threw = false;
+    try { decodeSurfaceBytes(bad); } catch { threw = true; }
+    equal(threw, true, JSON.stringify(bad));
+  }
+});
+
+test("decoded-surface cache entries of replaced revisions are dropped", () => {
+  const state = createSurfacesSection(2, 1);
+  const id = createSurface(state, 2, 1);
+  const cache = new Map<string, Uint8Array>();
+  surfaceTextures(state, cache);
+  editSurface(state, id, (rgba) => { rgba[0] = 9; });
+  editSurface(state, id, (rgba) => { rgba[1] = 9; });
+  surfaceTextures(state, cache);
+  deepEqual([...cache.keys()].sort(), [`0:0`, `${id}:2`], "only the current revision of each surface stays cached");
 });

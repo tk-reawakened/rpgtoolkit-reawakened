@@ -827,6 +827,7 @@ function battle() {
     }
   }
   stockBattle.refreshPendingOutcome()
+  stockBattleUi.begin()
   while (done == 0) {
     while (stockBattle.pendingOutcome == 0 &&
            stockBattle.coreOutcomePending == 0 &&
@@ -878,6 +879,7 @@ function battle() {
       }
       // Even an idle pass must consume one simulated tick. The outcome is checked
       // only between passes: later fighters still finish the pass that decided it.
+      stockBattleUi.pass()
       threadSleep(getThreadId(), 1/60)
     }
     if (battleDecided() != 0) {
@@ -885,8 +887,1045 @@ function battle() {
       done = 1
     }
   }
+  stockBattleUi.finish()
   stockBattle.active = 0
   stockBattle.clearDefeatedListeners()
+}
+
+// ---- The default battle screen (BAT-11, entry 7.11) -------------------------------------------------------------
+// Everything below only reads the battle and the actors and draws with the ruled primitives: `fillrect`, `drawrect`,
+// `pixelText`, `drawenemy` (a fighter's stance frame), `drawcanvas` and `bitmap` (the .bkg picture), into the
+// render-now canvas. It owns no rule: the only writes are the package's own `stockBattle.attack`, `special`, `item`
+// and `run` calls that the player's choice makes, and the key queue it reads. The screen is on only when the host
+// has a screen surface; a headless run keeps the old behaviour (a player's turn is skipped).
+stockBattleUi = {
+  on: 0,
+  w: 0,
+  h: 0,
+  picture: "",
+  screen: 0,
+  buffer: 0,
+  target: 0,
+  layout: {},
+  files: {},
+  preload: {},
+  preloadCount: 0,
+  chars: {},
+  itemData: {},
+  signature: "",
+  roster: {},
+  rosterCount: 0,
+  seen: {},
+  scan: 0,
+  barScan: 0,
+  bars: {},
+  mode: "idle",
+  cursor: 0,
+  top: 0,
+  message: "",
+  numbers: {},
+  numberCount: 0,
+  acting: null,
+  actingStance: "",
+  menuIndex: 0,
+  pendingKind: "",
+  pendingEntry: null,
+  specials: {},
+  specialCount: 0,
+  items: {},
+  itemCount: 0,
+  specialsEmpty: 0,
+  itemsEmpty: 0,
+  targets: {},
+  targetCount: 0,
+  targetCursor: 0,
+  targetParty: 0,
+  listKind: "",
+  list: {},
+  listCount: 0,
+  listCursor: 0,
+  listTop: 0,
+  frames: 0,
+  baseTurn: null,
+  // One table of layout values so the owner can review the screen as numbers. Everything is derived from the screen
+  // size: enemies stay in the upper left, players in the upper right, and the status panel on the bottom edge.
+  makeLayout: (w, h) => {
+    local(layout) = {}
+    layout.w = w
+    layout.h = h
+    layout.panelH = 128
+    layout.panelY = h - 128
+    layout.messageY = h - 128 - 24
+    layout.messageH = 20
+    layout.enemyX = 24
+    layout.enemyY = 32
+    layout.enemyDX = 120
+    layout.enemyDY = 112
+    layout.sprite = 64
+    layout.playerX = w - 24 - 64
+    layout.playerY = 16
+    layout.playerDY = 58
+    layout.rowX = 16
+    layout.rowY = h - 128 + 10
+    layout.rowDY = 22
+    layout.hpX = 152
+    layout.hpW = 128
+    layout.smpX = 296
+    layout.smpW = 104
+    layout.chargeX = 416
+    layout.chargeW = 104
+    layout.barH = 14
+    layout.menuRowH = 24
+    layout.listRowH = 22
+    layout.listRows = 6
+    layout.listW = 296
+    layout.numberTicks = 36
+    return layout
+  },
+  // Menu cues come from the .bkg: cursor move, choose, and "cannot" (the existing cantDoSound).
+  cue: (kind) => {
+    local(data)
+    local(file) = ""
+    data = stockBattle.battleBackgroundDataCache
+    if (data == null) {
+      return 0
+    }
+    if (kind == "select") {
+      file = data.selectsound
+    }
+    if (kind == "choose") {
+      file = data.choosesound
+    }
+    if (kind == "cant") {
+      file = data.cantsound
+    }
+    if (file != "") {
+      mediaPlay(file, { track: "ui", loop: 0 })
+    }
+    return 0
+  },
+  begin: () => {
+    local(w)
+    local(h)
+    local(screen)
+    local(party)
+    local(index)
+    local(size)
+    local(fighter)
+    local(source)
+    local(stance)
+    local(stances) = {}
+    local(slot)
+    local(key)
+    local(file)
+    local(scratch)
+    stances[0] = "rest"
+    stances[1] = "die"
+    stances[2] = "fight"
+    stances[3] = "special move"
+    stockBattleUi.on = 0
+    screen = battlescreensize()
+    if (screen == null) {
+      return 0
+    }
+    w = screen.width
+    h = screen.height
+    if (w < 1 || h < 1) {
+      return 0
+    }
+    stockBattleUi.w = w
+    stockBattleUi.h = h
+    stockBattleUi.layout = stockBattleUi.makeLayout(w, h)
+    stockBattleUi.files = {}
+    stockBattleUi.preload = {}
+    stockBattleUi.preloadCount = 0
+    stockBattleUi.chars = {}
+    stockBattleUi.itemData = {}
+    stockBattleUi.signature = ""
+    stockBattleUi.roster = {}
+    stockBattleUi.rosterCount = 0
+    stockBattleUi.seen = {}
+    stockBattleUi.scan = 0
+    stockBattleUi.barScan = 0
+    stockBattleUi.bars = {}
+    stockBattleUi.mode = "idle"
+    stockBattleUi.message = ""
+    stockBattleUi.numbers = {}
+    stockBattleUi.numberCount = 0
+    stockBattleUi.acting = null
+    stockBattleUi.targets = {}
+    stockBattleUi.targetCount = 0
+    stockBattleUi.list = {}
+    stockBattleUi.listCount = 0
+    if (stockBattle.battleBackgroundDataCache == null) {
+      stockBattle.battleBackgroundDataCache = battlebackgrounddata()
+    }
+    for (party = 0; party < 2; party = party + 1) {
+      size = battle.partySize(party)
+      for (index = 0; index < size; index = index + 1) {
+        fighter = battle.fighter(party, index)
+        if (fighter != null) {
+          stockBattleUi.roster[stockBattleUi.rosterCount] = fighter
+          stockBattleUi.rosterCount = stockBattleUi.rosterCount + 1
+          source = "" + fighter.source
+          for (slot = 0; slot < 4; slot = slot + 1) {
+            stance = stances[slot]
+            key = source + "|" + stance
+            if (stockBattleUi.files[key] == null) {
+              file = fighteranimationfile(fighter, stance)
+              if (file == null) {
+                file = ""
+              }
+              stockBattleUi.files[key] = file
+              if (file != "") {
+                stockBattleUi.preload[stockBattleUi.preloadCount] = file
+                stockBattleUi.preloadCount = stockBattleUi.preloadCount + 1
+              }
+            }
+          }
+          if (party == 1) {
+            stockBattleUi.chars["" + fighter.id] = battlecharacterdata(fighter)
+          }
+        }
+      }
+    }
+    // Pictures are fetched and decoded by the host, and a first use only queues the fetch. Draw every picture the
+    // screen will use once into a one-pixel scratch canvas and wait a few ticks, so that by the first real frame each
+    // is cached and every later `bitmap` / `drawenemy` lands in the order the screen draws it.
+    scratch = createcanvas(1, 1)
+    // `bitmap` decodes PNG, JPEG, BMP and GIF; a tile bitmap (.tbm) background cannot be drawn yet, so the screen
+    // shows its flat colour instead.
+    stockBattleUi.picture = ""
+    if (stockBattle.battleBackgroundDataCache != null) {
+      stockBattleUi.picture = stockBattle.battleBackgroundDataCache.image
+      if (lcase(right(stockBattleUi.picture, 4)) == ".tbm") {
+        stockBattleUi.picture = ""
+      }
+    }
+    if (stockBattleUi.picture != "") {
+      bitmap(stockBattleUi.picture, scratch)
+    }
+    for (slot = 0; slot < stockBattleUi.preloadCount; slot = slot + 1) {
+      drawenemy(stockBattleUi.preload[slot], 0, 0, scratch)
+    }
+    stockBattleUi.hold(4)
+    killcanvas(scratch)
+    rendernow(1)
+    stockBattleUi.screen = cnvrendernow
+    stockBattleUi.target = stockBattleUi.screen
+    stockBattleUi.buffer = createcanvas(w, h)
+    stockBattleUi.on = 1
+    stockBattleUi.refresh()
+    return 1
+  },
+  finish: () => {
+    if (stockBattleUi.on == 0) {
+      return 0
+    }
+    stockBattleUi.on = 0
+    killcanvas(stockBattleUi.buffer)
+    killcanvas(stockBattleUi.screen)
+    rendernow(0)
+    return 0
+  },
+  // The idle battle loop calls this once per pass, and it must stay a small fraction of the pass's step budget, so it
+  // looks at one fighter and one charge bar per pass instead of the whole screen. A change it finds is drawn in full;
+  // the turn loops call `refresh` themselves, which looks at everything.
+  pass: () => {
+    local(fighter)
+    local(fill)
+    local(size)
+    if (stockBattleUi.on == 0) {
+      return 0
+    }
+    fighter = stockBattleUi.roster[stockBattleUi.scan]
+    if (fighter.hp + "," + fighter.smp != stockBattleUi.seen["" + stockBattleUi.scan]) {
+      stockBattleUi.refresh()
+    }
+    stockBattleUi.scan = (stockBattleUi.scan + 1) % stockBattleUi.rosterCount
+    size = battle.partySize(1)
+    if (size > 0) {
+      fill = integerMulDiv(battle.chargePercent(1, stockBattleUi.barScan), stockBattleUi.layout.chargeW - 2, 100)
+      if (stockBattleUi.bars["" + stockBattleUi.barScan] != fill) {
+        stockBattleUi.drawChargeBar(stockBattleUi.barScan, null)
+      }
+      stockBattleUi.barScan = (stockBattleUi.barScan + 1) % size
+    }
+    return 0
+  },
+  box: (x1, y1, x2, y2, r, g, b) => {
+    colorrgb(r, g, b)
+    fillrect(x1, y1, x2, y2, stockBattleUi.target)
+    return 0
+  },
+  frame: (x1, y1, x2, y2, r, g, b) => {
+    colorrgb(r, g, b)
+    drawrect(x1, y1, x2, y2, stockBattleUi.target)
+    return 0
+  },
+  words: (x, y, text, size, r, g, b) => {
+    colorrgb(r, g, b)
+    fontsize(size)
+    pixelText(x, y, text, stockBattleUi.target)
+    return 0
+  },
+  // A bar is a dark track, a coloured fill of value/max, and a light border. It keeps no state.
+  bar: (x, y, width, height, value, max, r, g, b) => {
+    local(fill) = 0
+    local(v) = value
+    if (v < 0) {
+      v = 0
+    }
+    if (v > max) {
+      v = max
+    }
+    if (max > 0) {
+      fill = integerMulDiv(v, width - 2, max)
+    }
+    stockBattleUi.box(x, y, x + width - 1, y + height - 1, 32, 32, 40)
+    if (fill > 0) {
+      stockBattleUi.box(x + 1, y + 1, x + fill, y + height - 2, r, g, b)
+    }
+    stockBattleUi.frame(x, y, x + width - 1, y + height - 1, 200, 200, 210)
+    return fill
+  },
+  fighterSprite: (fighter) => {
+    local(stance) = "rest"
+    local(file)
+    local(source) = "" + fighter.source
+    if (fighter.hp < 1) {
+      stance = "die"
+    } else {
+      if (stockBattleUi.acting != null) {
+        if (stockBattleUi.acting == fighter.id) {
+          stance = stockBattleUi.actingStance
+        }
+      }
+    }
+    file = stockBattleUi.files[source + "|" + stance]
+    if (file == null || file == "") {
+      file = stockBattleUi.files[source + "|rest"]
+    }
+    if (file == null) {
+      file = ""
+    }
+    return file
+  },
+  slotX: (party, index) => {
+    local(layout) = stockBattleUi.layout
+    if (party == 0) {
+      return layout.enemyX + (index % 2) * layout.enemyDX
+    }
+    return layout.playerX
+  },
+  slotY: (party, index) => {
+    local(layout) = stockBattleUi.layout
+    if (party == 0) {
+      return layout.enemyY + ((index - (index % 2)) / 2) * layout.enemyDY
+    }
+    return layout.playerY + index * layout.playerDY
+  },
+  drawFighter: (party, index, selected) => {
+    local(layout) = stockBattleUi.layout
+    local(fighter) = battle.fighter(party, index)
+    local(x)
+    local(y)
+    local(file)
+    local(size) = layout.sprite
+    if (fighter == null) {
+      return 0
+    }
+    x = stockBattleUi.slotX(party, index)
+    y = stockBattleUi.slotY(party, index)
+    file = stockBattleUi.fighterSprite(fighter)
+    if (file != "") {
+      drawenemy(file, x, y, stockBattleUi.target)
+    } else {
+      stockBattleUi.frame(x, y, x + size - 1, y + size - 1, 120, 120, 130)
+    }
+    if (selected != 0) {
+      stockBattleUi.frame(x - 4, y - 4, x + size + 3, y + size + 3, 255, 224, 64)
+      stockBattleUi.frame(x - 5, y - 5, x + size + 4, y + size + 4, 255, 224, 64)
+    }
+    if (party == 0) {
+      if (fighter.hp < 1) {
+        stockBattleUi.words(x, y + size + 3, left(fighter.name, 8), 8, 130, 130, 140)
+      } else {
+        stockBattleUi.words(x, y + size + 3, left(fighter.name, 8), 8, 255, 255, 255)
+      }
+      stockBattleUi.bar(x, y + size + 14, size, 6, fighter.hp, fighter.maxhp, 220, 64, 56)
+    }
+    return 0
+  },
+  drawChargeBar: (index, fighter) => {
+    local(layout) = stockBattleUi.layout
+    local(y) = layout.rowY + index * layout.rowDY
+    local(fill)
+    fill = stockBattleUi.bar(layout.chargeX, y, layout.chargeW, layout.barH, battle.chargePercent(1, index), 100, 240, 200, 40)
+    stockBattleUi.bars["" + index] = fill
+    return 0
+  },
+  drawRow: (index) => {
+    local(layout) = stockBattleUi.layout
+    local(fighter) = battle.fighter(1, index)
+    local(y) = layout.rowY + index * layout.rowDY
+    local(fallen) = 0
+    if (fighter == null) {
+      return 0
+    }
+    if (fighter.hp < 1) {
+      fallen = 1
+    }
+    if (fallen != 0) {
+      stockBattleUi.words(layout.rowX, y, left(fighter.name, 8), 16, 130, 130, 140)
+    } else {
+      if (stockBattleUi.menuIndex == index && (stockBattleUi.mode == "command" || stockBattleUi.mode == "list" || stockBattleUi.mode == "target")) {
+        // The member whose turn it is.
+        stockBattleUi.words(layout.rowX, y, left(fighter.name, 8), 16, 255, 224, 64)
+      } else {
+        stockBattleUi.words(layout.rowX, y, left(fighter.name, 8), 16, 255, 255, 255)
+      }
+    }
+    stockBattleUi.bar(layout.hpX, y, layout.hpW, layout.barH, fighter.hp, fighter.maxhp, 64, 200, 80)
+    stockBattleUi.words(layout.hpX + 4, y + 3, "HP " + fighter.hp + "/" + fighter.maxhp, 8, 255, 255, 255)
+    stockBattleUi.bar(layout.smpX, y, layout.smpW, layout.barH, fighter.smp, fighter.maxsmp, 72, 132, 255)
+    stockBattleUi.words(layout.smpX + 4, y + 3, "SP " + fighter.smp + "/" + fighter.maxsmp, 8, 255, 255, 255)
+    stockBattleUi.drawChargeBar(index, fighter)
+    return 0
+  },
+  drawCommands: () => {
+    local(layout) = stockBattleUi.layout
+    local(fighter) = battle.fighter(1, stockBattleUi.menuIndex)
+    local(labels) = {}
+    local(dim) = {}
+    local(longest) = 4
+    local(row)
+    local(x)
+    local(y)
+    local(width)
+    local(data) = stockBattleUi.chars["" + fighter.id]
+    local(special) = "Special"
+    labels[0] = "Fight"
+    if (data != null) {
+      if (data.specialname != "") {
+        special = data.specialname
+      }
+    }
+    labels[1] = special
+    labels[2] = "Items"
+    labels[3] = "Run"
+    dim[0] = 0
+    dim[1] = stockBattleUi.specialsEmpty
+    dim[2] = stockBattleUi.itemsEmpty
+    dim[3] = 0
+    if (stockBattle.canRun() == 0) {
+      dim[3] = 1
+    }
+    for (row = 0; row < 4; row = row + 1) {
+      if (len(labels[row]) > longest) {
+        longest = len(labels[row])
+      }
+    }
+    width = longest * 16 + 44
+    x = (layout.w - width) / 2
+    y = (layout.messageY - 4 * layout.menuRowH - 16) / 2
+    stockBattleUi.box(x, y, x + width - 1, y + 4 * layout.menuRowH + 15, 12, 16, 40)
+    stockBattleUi.frame(x, y, x + width - 1, y + 4 * layout.menuRowH + 15, 180, 190, 255)
+    for (row = 0; row < 4; row = row + 1) {
+      if (row == stockBattleUi.cursor) {
+        stockBattleUi.box(x + 4, y + 8 + row * layout.menuRowH, x + width - 5, y + 8 + row * layout.menuRowH + layout.menuRowH - 2, 40, 64, 140)
+        stockBattleUi.words(x + 8, y + 12 + row * layout.menuRowH, ">", 16, 255, 224, 64)
+      }
+      if (dim[row] != 0) {
+        stockBattleUi.words(x + 32, y + 12 + row * layout.menuRowH, labels[row], 16, 110, 110, 120)
+        if (row == 3) {
+          // A blocked Run is still listed, drawn dim and struck through.
+          stockBattleUi.box(x + 32, y + 12 + row * layout.menuRowH + 7, x + 32 + len(labels[row]) * 16, y + 12 + row * layout.menuRowH + 8, 110, 110, 120)
+        }
+      } else {
+        stockBattleUi.words(x + 32, y + 12 + row * layout.menuRowH, labels[row], 16, 255, 255, 255)
+      }
+    }
+    return 0
+  },
+  drawList: () => {
+    local(layout) = stockBattleUi.layout
+    local(fighter) = battle.fighter(1, stockBattleUi.menuIndex)
+    local(x) = (layout.w - layout.listW) / 2
+    local(rows) = stockBattleUi.listCount
+    local(row)
+    local(entry)
+    local(y)
+    local(title)
+    local(detail)
+    local(data) = stockBattleUi.chars["" + fighter.id]
+    if (rows > layout.listRows) {
+      rows = layout.listRows
+    }
+    y = (layout.messageY - rows * layout.listRowH - 28) / 2
+    title = "Items"
+    if (stockBattleUi.listKind == "special") {
+      title = "Special"
+      if (data != null) {
+        if (data.specialname != "") {
+          title = data.specialname
+        }
+      }
+    }
+    stockBattleUi.box(x, y, x + layout.listW - 1, y + rows * layout.listRowH + 27, 12, 16, 40)
+    stockBattleUi.frame(x, y, x + layout.listW - 1, y + rows * layout.listRowH + 27, 180, 190, 255)
+    stockBattleUi.words(x + 8, y + 6, title, 8, 180, 190, 255)
+    for (row = 0; row < rows; row = row + 1) {
+      entry = stockBattleUi.list[stockBattleUi.listTop + row]
+      if (stockBattleUi.listTop + row == stockBattleUi.listCursor) {
+        stockBattleUi.box(x + 4, y + 20 + row * layout.listRowH, x + layout.listW - 5, y + 20 + row * layout.listRowH + layout.listRowH - 2, 40, 64, 140)
+        stockBattleUi.words(x + 8, y + 23 + row * layout.listRowH, ">", 16, 255, 224, 64)
+      }
+      if (entry.affordable == 0) {
+        stockBattleUi.words(x + 28, y + 23 + row * layout.listRowH, left(entry.label, 10), 16, 110, 110, 120)
+        stockBattleUi.words(x + layout.listW - 8 - len(entry.detail) * 8, y + 27 + row * layout.listRowH, entry.detail, 8, 110, 110, 120)
+      } else {
+        stockBattleUi.words(x + 28, y + 23 + row * layout.listRowH, left(entry.label, 10), 16, 255, 255, 255)
+        stockBattleUi.words(x + layout.listW - 8 - len(entry.detail) * 8, y + 27 + row * layout.listRowH, entry.detail, 8, 200, 220, 255)
+      }
+    }
+    return 0
+  },
+  drawNumbers: () => {
+    local(index)
+    local(entry)
+    local(x)
+    local(y)
+    for (index = 0; index < stockBattleUi.numberCount; index = index + 1) {
+      entry = stockBattleUi.numbers[index]
+      x = stockBattleUi.slotX(entry.party, entry.index)
+      y = stockBattleUi.slotY(entry.party, entry.index)
+      if (entry.kind == "damage") {
+        stockBattleUi.words(x + 8, y - 4, entry.text, 16, 255, 96, 96)
+      }
+      if (entry.kind == "heal") {
+        stockBattleUi.words(x + 8, y - 4, entry.text, 16, 96, 255, 112)
+      }
+      if (entry.kind == "smp") {
+        stockBattleUi.words(x + 8, y + 12, entry.text, 8, 120, 170, 255)
+      }
+    }
+    return 0
+  },
+  // The signature is every value the full redraw shows. A pass redraws only when it changed; the charge bars repaint
+  // on their own, because a bar's width changes nearly every pass. It is a cache of what is on screen and never an
+  // input to any rule.
+  currentSignature: () => {
+    local(index)
+    local(fighter)
+    local(text) = stockBattleUi.mode + ":" + stockBattleUi.cursor + ":" + stockBattleUi.listCursor + ":" + stockBattleUi.listTop + ":" + stockBattleUi.targetCursor + ":" + stockBattleUi.targetParty + ":" + stockBattleUi.numberCount + ":" + stockBattleUi.message + ":" + stockBattleUi.acting + ":" + stockBattleUi.actingStance + ":" + stockBattleUi.listCount
+    for (index = 0; index < stockBattleUi.rosterCount; index = index + 1) {
+      fighter = stockBattleUi.roster[index]
+      stockBattleUi.seen["" + index] = fighter.hp + "," + fighter.smp
+      text = text + "|" + stockBattleUi.seen["" + index]
+    }
+    return text
+  },
+  refresh: () => {
+    local(signature) = stockBattleUi.currentSignature()
+    local(size)
+    local(index)
+    local(fill)
+    local(layout) = stockBattleUi.layout
+    if (signature != stockBattleUi.signature) {
+      stockBattleUi.draw()
+      stockBattleUi.signature = signature
+      return 1
+    }
+    size = battle.partySize(1)
+    for (index = 0; index < size; index = index + 1) {
+      fill = integerMulDiv(battle.chargePercent(1, index), layout.chargeW - 2, 100)
+      if (stockBattleUi.bars["" + index] != fill) {
+        stockBattleUi.drawChargeBar(index, battle.fighter(1, index))
+      }
+    }
+    return 0
+  },
+  draw: () => {
+    local(layout) = stockBattleUi.layout
+    local(party)
+    local(index)
+    local(size)
+    local(selected)
+    local(width)
+    // A redraw takes several ticks of script steps, so it is composed off screen and shown in one blit.
+    stockBattleUi.target = stockBattleUi.buffer
+    if (stockBattleUi.picture != "") {
+      bitmap(stockBattleUi.picture, stockBattleUi.target)
+    } else {
+      stockBattleUi.box(0, 0, layout.w - 1, layout.h - 1, 20, 28, 56)
+    }
+    for (party = 0; party < 2; party = party + 1) {
+      size = battle.partySize(party)
+      for (index = 0; index < size; index = index + 1) {
+        selected = 0
+        if (stockBattleUi.mode == "target" && stockBattleUi.targetParty == party) {
+          if (stockBattleUi.targets[stockBattleUi.targetCursor] == index) {
+            selected = 1
+          }
+        }
+        stockBattleUi.drawFighter(party, index, selected)
+      }
+    }
+    stockBattleUi.box(0, layout.panelY, layout.w - 1, layout.h - 1, 12, 16, 40)
+    stockBattleUi.frame(0, layout.panelY, layout.w - 1, layout.h - 1, 180, 190, 255)
+    size = battle.partySize(1)
+    for (index = 0; index < size; index = index + 1) {
+      stockBattleUi.drawRow(index)
+    }
+    if (stockBattleUi.message != "") {
+      stockBattleUi.box(0, layout.messageY, layout.w - 1, layout.messageY + layout.messageH - 1, 12, 16, 40)
+      stockBattleUi.frame(0, layout.messageY, layout.w - 1, layout.messageY + layout.messageH - 1, 180, 190, 255)
+      stockBattleUi.words(8, layout.messageY + 6, stockBattleUi.message, 8, 255, 255, 255)
+    }
+    if (stockBattleUi.mode == "command") {
+      stockBattleUi.drawCommands()
+    }
+    if (stockBattleUi.mode == "list") {
+      stockBattleUi.drawList()
+    }
+    stockBattleUi.drawNumbers()
+    drawcanvas(stockBattleUi.buffer, 0, 0, layout.w, layout.h, stockBattleUi.screen)
+    stockBattleUi.target = stockBattleUi.screen
+    return 0
+  },
+}
+
+// ---- the interaction half of the screen: key mapping, the player's turn and the numbers after an action ----------
+stockBattleUi.snapshot = () => {
+  local(party)
+  local(index)
+  local(size)
+  local(fighter)
+  local(result) = {}
+  for (party = 0; party < 2; party = party + 1) {
+    size = battle.partySize(party)
+    for (index = 0; index < size; index = index + 1) {
+      fighter = battle.fighter(party, index)
+      if (fighter != null) {
+        result["" + party + "_" + index] = { hp: fighter.hp, smp: fighter.smp }
+      }
+    }
+  }
+  return result
+}
+
+// Compare the battle with the snapshot taken before an action and list what changed as damage numbers: HP lost is
+// red, HP gained green, SMP changed blue. Nothing is written to the battle.
+stockBattleUi.collectNumbers = (before) => {
+  local(party)
+  local(index)
+  local(size)
+  local(fighter)
+  local(was)
+  local(delta)
+  stockBattleUi.numbers = {}
+  stockBattleUi.numberCount = 0
+  for (party = 0; party < 2; party = party + 1) {
+    size = battle.partySize(party)
+    for (index = 0; index < size; index = index + 1) {
+      fighter = battle.fighter(party, index)
+      was = before["" + party + "_" + index]
+      if (fighter != null && was != null) {
+        delta = fighter.hp - was.hp
+        if (delta < 0) {
+          stockBattleUi.numbers[stockBattleUi.numberCount] = { party: party, index: index, kind: "damage", text: "" + (0 - delta) }
+          stockBattleUi.numberCount = stockBattleUi.numberCount + 1
+        }
+        if (delta > 0) {
+          stockBattleUi.numbers[stockBattleUi.numberCount] = { party: party, index: index, kind: "heal", text: "+" + delta }
+          stockBattleUi.numberCount = stockBattleUi.numberCount + 1
+        }
+        delta = fighter.smp - was.smp
+        if (delta != 0) {
+          stockBattleUi.numbers[stockBattleUi.numberCount] = { party: party, index: index, kind: "smp", text: "SP " + delta }
+          stockBattleUi.numberCount = stockBattleUi.numberCount + 1
+        }
+      }
+    }
+  }
+  return stockBattleUi.numberCount
+}
+
+stockBattleUi.hold = (ticks) => {
+  local(tick)
+  for (tick = 0; tick < ticks; tick = tick + 1) {
+    stockBattleUi.refresh()
+    threadSleep(getThreadId(), 1/60)
+  }
+  return 0
+}
+
+// After an action: show its numbers (and the message, when there is one) for a fixed number of ticks, then clear
+// them with the message and the stance. An action that changed nothing and says nothing costs no ticks.
+stockBattleUi.settle = (before, label) => {
+  stockBattleUi.mode = "act"
+  stockBattleUi.collectNumbers(before)
+  if (stockBattleUi.numberCount > 0 && label != "") {
+    stockBattleUi.message = label
+  }
+  if (stockBattleUi.numberCount > 0 || stockBattleUi.message != "") {
+    stockBattleUi.hold(stockBattleUi.layout.numberTicks)
+  }
+  stockBattleUi.numbers = {}
+  stockBattleUi.numberCount = 0
+  stockBattleUi.message = ""
+  stockBattleUi.acting = null
+  stockBattleUi.actingStance = ""
+  stockBattleUi.mode = "idle"
+  stockBattleUi.refresh()
+  return 0
+}
+
+stockBattleUi.base = (path) => {
+  local(name) = path
+  local(slash) = instr(name, "/")
+  while (slash > 0) {
+    name = mid(name, slash + 1, len(name) - slash)
+    slash = instr(name, "/")
+  }
+  slash = instr(name, "\\")
+  while (slash > 0) {
+    name = mid(name, slash + 1, len(name) - slash)
+    slash = instr(name, "\\")
+  }
+  name = replace(name, ".spc", "")
+  name = replace(name, ".SPC", "")
+  name = replace(name, ".itm", "")
+  name = replace(name, ".ITM", "")
+  return name
+}
+
+// The player's Special list: the learned moves whose own battle byte says usable (0), with their SMP cost; one the
+// player cannot afford stays listed but dim. The Item list: the available stacks whose item says usable in battle.
+stockBattleUi.prepareLists = (fighter) => {
+  local(data) = stockBattleUi.chars["" + fighter.id]
+  local(slot)
+  local(move)
+  local(file)
+  local(inventory)
+  local(index)
+  local(stack)
+  local(item)
+  local(key)
+  stockBattleUi.specials = {}
+  stockBattleUi.specialCount = 0
+  stockBattleUi.items = {}
+  stockBattleUi.itemCount = 0
+  if (data != null) {
+    if (data.hasspecial == 1) {
+      for (index = 0; index < data.specialcount; index = index + 1) {
+        slot = data.specialmoves[index]
+        if (slot.available == 1) {
+          file = slot.file
+          move = stockBattle.specialDataCache[file]
+          if (move == null) {
+            move = battlemovedata(file)
+            if (move != null) {
+              stockBattle.specialDataCache[file] = move
+            }
+          }
+          if (move != null) {
+            if (move.battle == 0) {
+              stockBattleUi.specials[stockBattleUi.specialCount] = {
+                label: stockBattleUi.base(file), detail: "SP " + move.smp, file: file, data: move, affordable: 1
+              }
+              if (move.smp > fighter.smp) {
+                stockBattleUi.specials[stockBattleUi.specialCount].affordable = 0
+              }
+              stockBattleUi.specialCount = stockBattleUi.specialCount + 1
+            }
+          }
+        }
+      }
+    }
+  }
+  inventory = battleinventory()
+  for (index = 0; index < inventory.count; index = index + 1) {
+    stack = inventory.items[index]
+    key = lcase(stack.source)
+    item = stockBattleUi.itemData[key]
+    if (item == null) {
+      item = battleitemdata(stack.source)
+      if (item != null) {
+        stockBattleUi.itemData[key] = item
+      }
+    }
+    if (item != null) {
+      if (item.usable == 1) {
+        stockBattleUi.items[stockBattleUi.itemCount] = {
+          label: stack.handle, detail: "x" + stack.quantity, file: stack.source, data: item, affordable: 1
+        }
+        stockBattleUi.itemCount = stockBattleUi.itemCount + 1
+      }
+    }
+  }
+  stockBattleUi.specialsEmpty = 0
+  if (stockBattleUi.specialCount < 1) {
+    stockBattleUi.specialsEmpty = 1
+  }
+  stockBattleUi.itemsEmpty = 0
+  if (stockBattleUi.itemCount < 1) {
+    stockBattleUi.itemsEmpty = 1
+  }
+  return 0
+}
+
+// Targets, as indexes into one party: living enemies for Fight and Special (a defeated enemy keeps its slot but is
+// skipped); every party member, fallen ones included, for Item so a healing item can revive.
+stockBattleUi.collectTargets = (kind) => {
+  local(party) = 0
+  local(index)
+  local(size)
+  local(fighter)
+  stockBattleUi.targets = {}
+  stockBattleUi.targetCount = 0
+  if (kind == "item") {
+    party = 1
+  }
+  size = battle.partySize(party)
+  for (index = 0; index < size; index = index + 1) {
+    fighter = battle.fighter(party, index)
+    if (fighter != null) {
+      if (kind == "item" || fighter.hp > 0) {
+        stockBattleUi.targets[stockBattleUi.targetCount] = index
+        stockBattleUi.targetCount = stockBattleUi.targetCount + 1
+      }
+    }
+  }
+  stockBattleUi.targetParty = party
+  stockBattleUi.targetCursor = 0
+  return stockBattleUi.targetCount
+}
+
+stockBattleUi.openTargets = (kind) => {
+  if (stockBattleUi.collectTargets(kind) < 1) {
+    stockBattleUi.cue("cant")
+    return 0
+  }
+  stockBattleUi.pendingKind = kind
+  stockBattleUi.mode = "target"
+  stockBattleUi.cue("choose")
+  return 1
+}
+
+stockBattleUi.openList = (kind) => {
+  if (kind == "special") {
+    if (stockBattleUi.specialCount < 1) {
+      stockBattleUi.cue("cant")
+      return 0
+    }
+    stockBattleUi.list = stockBattleUi.specials
+    stockBattleUi.listCount = stockBattleUi.specialCount
+  } else {
+    if (stockBattleUi.itemCount < 1) {
+      stockBattleUi.cue("cant")
+      return 0
+    }
+    stockBattleUi.list = stockBattleUi.items
+    stockBattleUi.listCount = stockBattleUi.itemCount
+  }
+  stockBattleUi.listKind = kind
+  stockBattleUi.listCursor = 0
+  stockBattleUi.listTop = 0
+  stockBattleUi.mode = "list"
+  stockBattleUi.cue("choose")
+  return 1
+}
+
+// Perform the chosen action on the chosen target through the package's own action functions, then show the numbers.
+stockBattleUi.perform = (fighter) => {
+  local(target) = battle.fighter(stockBattleUi.targetParty, stockBattleUi.targets[stockBattleUi.targetCursor])
+  local(before) = stockBattleUi.snapshot()
+  local(kind) = stockBattleUi.pendingKind
+  local(entry) = stockBattleUi.pendingEntry
+  stockBattleUi.cue("choose")
+  stockBattleUi.acting = fighter.id
+  stockBattleUi.mode = "act"
+  if (kind == "fight") {
+    stockBattleUi.actingStance = "fight"
+    stockBattleUi.message = fighter.name + " attacks " + target.name
+    stockBattleUi.refresh()
+    stockBattle.attack(fighter, target)
+  }
+  if (kind == "special") {
+    stockBattleUi.actingStance = "special move"
+    stockBattleUi.message = fighter.name + " uses " + entry.label + " on " + target.name
+    stockBattleUi.refresh()
+    stockBattle.special(fighter, target, entry.file)
+  }
+  if (kind == "item") {
+    stockBattleUi.actingStance = "rest"
+    stockBattleUi.message = fighter.name + " uses " + entry.label + " on " + target.name
+    stockBattleUi.refresh()
+    stockBattle.item(fighter, target, entry.file)
+  }
+  stockBattleUi.settle(before, "")
+  return 1
+}
+
+stockBattleUi.isConfirm = (key) => {
+  if (key == "ENTER" || key == "SPACE") {
+    return 1
+  }
+  return 0
+}
+
+// One key. Returns 1 when the player's turn is over. Up/Down (and Left/Right in targets) move one step; Enter or
+// Space confirms; Esc goes back one level and does nothing at the top.
+stockBattleUi.handleKey = (fighter, key) => {
+  local(mode) = stockBattleUi.mode
+  local(entry)
+  local(step) = 0
+  if (key == "UP" || key == "LEFT") {
+    step = -1
+  }
+  if (key == "DOWN" || key == "RIGHT") {
+    step = 1
+  }
+  if (mode == "command") {
+    if (step != 0 && (key == "UP" || key == "DOWN")) {
+      stockBattleUi.cursor = (stockBattleUi.cursor + step + 4) % 4
+      stockBattleUi.cue("select")
+      return 0
+    }
+    if (stockBattleUi.isConfirm(key) == 1) {
+      if (stockBattleUi.cursor == 0) {
+        stockBattleUi.openTargets("fight")
+        return 0
+      }
+      if (stockBattleUi.cursor == 1) {
+        stockBattleUi.openList("special")
+        return 0
+      }
+      if (stockBattleUi.cursor == 2) {
+        stockBattleUi.openList("item")
+        return 0
+      }
+      if (stockBattle.canRun() == 0) {
+        // Run is listed but blocked: the cancel sound, and the player keeps the turn and stays in the menu.
+        stockBattleUi.cue("cant")
+        return 0
+      }
+      stockBattleUi.cue("choose")
+      stockBattle.run()
+      return 1
+    }
+    return 0
+  }
+  if (mode == "list") {
+    if (step != 0 && (key == "UP" || key == "DOWN")) {
+      stockBattleUi.listCursor = (stockBattleUi.listCursor + step + stockBattleUi.listCount) % stockBattleUi.listCount
+      if (stockBattleUi.listCursor < stockBattleUi.listTop) {
+        stockBattleUi.listTop = stockBattleUi.listCursor
+      }
+      if (stockBattleUi.listCursor >= stockBattleUi.listTop + stockBattleUi.layout.listRows) {
+        stockBattleUi.listTop = stockBattleUi.listCursor - stockBattleUi.layout.listRows + 1
+      }
+      stockBattleUi.cue("select")
+      return 0
+    }
+    if (stockBattleUi.isConfirm(key) == 1) {
+      entry = stockBattleUi.list[stockBattleUi.listCursor]
+      if (stockBattleUi.listKind == "special") {
+        // A special the player cannot afford is refused here: nothing is spent, and the player stays in the menu.
+        if (entry.data.smp > fighter.smp) {
+          stockBattleUi.cue("cant")
+          return 0
+        }
+        stockBattleUi.pendingEntry = entry
+        stockBattleUi.openTargets("special")
+        return 0
+      }
+      stockBattleUi.pendingEntry = entry
+      stockBattleUi.openTargets("item")
+      return 0
+    }
+    if (key == "ESC") {
+      stockBattleUi.mode = "command"
+      stockBattleUi.cue("select")
+    }
+    return 0
+  }
+  if (mode == "target") {
+    if (step != 0) {
+      stockBattleUi.targetCursor = (stockBattleUi.targetCursor + step + stockBattleUi.targetCount) % stockBattleUi.targetCount
+      stockBattleUi.cue("select")
+      return 0
+    }
+    if (stockBattleUi.isConfirm(key) == 1) {
+      return stockBattleUi.perform(fighter)
+    }
+    if (key == "ESC") {
+      if (stockBattleUi.pendingKind == "fight") {
+        stockBattleUi.mode = "command"
+      } else {
+        stockBattleUi.mode = "list"
+      }
+      stockBattleUi.cue("select")
+    }
+    return 0
+  }
+  return 0
+}
+
+stockBattleUi.playerTurn = (index) => {
+  local(fighter) = battle.fighter(1, index)
+  local(key)
+  local(done) = 0
+  if (fighter == null) {
+    return 0
+  }
+  clearbuffer()
+  stockBattleUi.menuIndex = index
+  stockBattleUi.message = ""
+  stockBattleUi.prepareLists(fighter)
+  stockBattleUi.cursor = 0
+  stockBattleUi.mode = "command"
+  while (done == 0) {
+    stockBattleUi.refresh()
+    threadSleep(getThreadId(), 1/60)
+    key = get()
+    if (key != "") {
+      done = stockBattleUi.handleKey(fighter, key)
+    }
+  }
+  stockBattleUi.mode = "idle"
+  stockBattleUi.refresh()
+  return 0
+}
+
+// An enemy's turn is the package's own AI. The screen shows the fighter's fight stance while it acts and the numbers
+// of whatever changed afterwards.
+stockBattleUi.enemyTurn = (index) => {
+  local(fighter) = battle.fighter(0, index)
+  local(before)
+  local(result)
+  if (fighter == null) {
+    return stockBattleUi.baseTurn(0, index)
+  }
+  before = stockBattleUi.snapshot()
+  stockBattleUi.acting = fighter.id
+  stockBattleUi.actingStance = "fight"
+  result = stockBattleUi.baseTurn(0, index)
+  stockBattleUi.settle(before, fighter.name + " acts")
+  return result
+}
+
+stockBattleUi.baseTurn = stockBattle.turn
+stockBattle.turn = (party, index) => {
+  if (stockBattleUi.on == 0) {
+    return stockBattleUi.baseTurn(party, index)
+  }
+  if (party == 1) {
+    return stockBattleUi.playerTurn(index)
+  }
+  return stockBattleUi.enemyTurn(index)
 }
 
 registerPlugin({
