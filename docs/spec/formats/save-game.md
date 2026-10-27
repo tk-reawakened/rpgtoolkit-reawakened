@@ -88,7 +88,16 @@ reports `restore.compiler-mismatch` even when other parts of it (its audio
 projection, its sections) are also malformed. After it, a game load compiles every
 program the save names, with or without callables, so a save whose thread names a
 program file or include the game no longer has fails the load up front
-(`program.missing`) and leaves the live game unchanged. (The callable check
+(`program.missing`) and leaves the live game unchanged.
+A thread whose file source changed (`restore.source-changed`) still restarts from
+source, and the load proves that restart will work before it commits: the current
+source is compiled together with the saved run-time include list, so a syntax error
+in the new file, or a saved `include()` whose file was removed
+(`program.include-missing`), refuses the load rather than throwing from a later
+tick. A literal include of a file the game lacks is not an error (it is ignored
+silently, R2-Q21), so it does not refuse a load. A refused load restores every
+engine counter it touched, including the request-id counter, so the unchanged game
+keeps issuing fresh request ids and keeps the same state hash. (The callable check
 `verifyRestoredHandles` itself still compiles nothing for a state with no
 callable, [rpgcode-language.md](../engine/rpgcode-language.md); the engine's load
 adds this compile pass.)
