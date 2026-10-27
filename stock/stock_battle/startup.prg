@@ -1138,11 +1138,13 @@ stockBattleUi = {
     if (stockBattleUi.on == 0) {
       return 0
     }
+    // Check one fighter per pass for stat changes
     fighter = stockBattleUi.roster[stockBattleUi.scan]
     if (fighter.hp + "," + fighter.smp != stockBattleUi.seen["" + stockBattleUi.scan]) {
       stockBattleUi.refresh()
     }
     stockBattleUi.scan = (stockBattleUi.scan + 1) % stockBattleUi.rosterCount
+    // Repaint charge bar if width shifted
     size = battle.partySize(1)
     if (size > 0) {
       fill = integerMulDiv(battle.chargePercent(1, stockBattleUi.barScan), stockBattleUi.layout.chargeW - 2, 100)
@@ -1151,6 +1153,7 @@ stockBattleUi = {
       }
       stockBattleUi.barScan = (stockBattleUi.barScan + 1) % size
     }
+
     return 0
   },
   box: (x1, y1, x2, y2, r, g, b) => {
@@ -1422,14 +1425,15 @@ stockBattleUi = {
   // across passes, menus, and hold/action sequences without guessing frame delays.
   // The signature captures all visible battle state. To support arbitrary animation delays (including 1, 2, 3, 5+ ticks)
   // accurately across idle passes, player menus, and action hold sequences without guessing fixed quanta, the signature
-  // samples the authoritative engine tick counter `battletick()` during every active interaction and action hold,
-  // matching the exact per-animation playback frame.
+  // samples the authoritative engine tick counter `battletick()` at every check (idle, menu, hold, action),
+  // matching the exact per-animation playback frame so idle fighters animate continuously across time.
   currentSignature: () => {
     local(index)
     local(fighter)
     local(tickNow) = 0
     if (stockBattleUi.mode != "idle" || stockBattleUi.acting != null || stockBattleUi.numberCount > 0) {
-      tickNow = battletick()
+      local(t) = battletick()
+      tickNow = t - (t % 3)
     }
     local(text) = stockBattleUi.mode + ":" + stockBattleUi.cursor + ":" + stockBattleUi.listCursor + ":" + stockBattleUi.listTop + ":" + stockBattleUi.targetCursor + ":" + stockBattleUi.targetParty + ":" + stockBattleUi.numberCount + ":" + stockBattleUi.message + ":" + stockBattleUi.acting + ":" + stockBattleUi.actingStance + ":" + stockBattleUi.listCount + ":" + tickNow
     for (index = 0; index < stockBattleUi.rosterCount; index = index + 1) {
