@@ -271,7 +271,7 @@ const DRAW_ENEMY = command("drawenemy", [], params(["file", "x", "y", "canvas", 
     if (surfaceSize(state(view).surfaces, target) === null) throw new ScriptError("surface.unknown", `drawenemy: no canvas ${String(target)}`);
   }
   const loopArg = args[4]?.value;
-  const loop = loopArg === undefined || (loopArg !== 0 && loopArg !== false);
+  const loop = loopArg === undefined || (Number(loopArg) !== 0 && String(loopArg) !== "false");
   const normalizedArgs: Arg[] = [
     args[0]!,
     args[1] ?? { value: 0, ref: null },

@@ -9,7 +9,7 @@
     "command": {
       "keys": [],
       "pixels": "d077094d97bfaa97",
-      "drawList": "8fe22a58d6c0239e"
+      "drawList": "93c7c1d41de9c317"
     },
     "revive": {
       "keys": [
@@ -21,7 +21,7 @@
         "RIGHT"
       ],
       "pixels": "46a8d3fefba593a7",
-      "drawList": "3ac7fa422a02cfa4"
+      "drawList": "bac50c47aeb467a5"
     },
     "defeated": {
       "keys": [
@@ -36,7 +36,7 @@
         "ENTER"
       ],
       "pixels": "8cf1b37cb3f78663",
-      "drawList": "e0b8c9ef757db4fb"
+      "drawList": "1366bb233e90b960"
     },
     "special": {
       "keys": [
@@ -49,7 +49,7 @@
         "ENTER"
       ],
       "pixels": "aa1985f78016c53b",
-      "drawList": "c32ce026c487146c"
+      "drawList": "cd1f6451c3aeb892"
     },
     "target": {
       "keys": [
@@ -75,7 +75,7 @@
         "DOWN"
       ],
       "pixels": "338d2f858bda18da",
-      "drawList": "d12113f0704e706c"
+      "drawList": "89f5458b625a18e7"
     }
   }
 }

@@ -224,6 +224,10 @@ test("a healing item can target and revive a fallen ally, and a defeated enemy k
   press("ENTER");
   rig.until(() => rig.charges()[1]![MAGE]! < THRESHOLD, 400);
   equal(actor(rig, "rogue.tem").stats.hp, potionHp, "the Potion raised the fallen Rogue above 0");
+  // PR #703 real inventory owner integration: exactly one Potion unit was consumed from inventory (quantity 3 -> 2).
+  const potionStack = rig.state().inventory.items.find((item) => item.source.toLowerCase().includes("potion"));
+  ok(potionStack !== undefined, "potion stack exists");
+  equal(potionStack.quantity, 2, "the actual inventory owner decremented the potion count by 1");
   deepEqual(rig.diagnostics, []);
 
   // The next charged player attacks the first Slime, whose 5 HP one hit takes.
