@@ -48,6 +48,10 @@ declare module "node:perf_hooks" {
   export const performance: { now(): number };
 }
 
+declare module "node:buffer" {
+  export const Buffer: { from(bytes: Uint8Array): { toString(encoding: "base64"): string } };
+}
+
 declare const process: { execPath: string; env: Record<string, string | undefined> };
 
 // `lib: ["ES2022"]` has no `ImportMeta.url` (that lives in the DOM lib), so

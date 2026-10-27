@@ -26,6 +26,7 @@ export const GROUPS = Object.freeze([
   "core-formats",
   "core-script",
   "core-engine",
+  "core-battle",
   "synth",
   "plugin-tk2-compat",
   "runner-harness",
@@ -34,6 +35,7 @@ export const GROUPS = Object.freeze([
 
 const CORE_FORMATS_FILE = /^(?:format-|audio-|canon\.|contracts\.|fmath|lint-rules\.|rng\.|save-migration\.|validate\.)/;
 const CORE_SCRIPT_FILE = /^(?:script-|step-budget-spike\.|program-call-vm\.|events-|actor|stock-|media-objects\.|menu-state\.)/;
+const CORE_BATTLE_FILE = /^battle-.*\.test\.ts$/;
 
 const SUMMARY = /^# (tests|pass|fail|cancelled|skipped|todo) (\d+)\s*$/;
 const SKIP_OR_TODO = /^\s*(?:not )?ok \d+ - (.*?)\s+#\s+(SKIP|TODO)\b\s*(.*?)\s*$/;
@@ -76,23 +78,25 @@ function listPackageTestFiles(rootPath, pkgName) {
 
 /**
  * Resolves a named CI test group to its sorted list of relative test file paths
- * (`packages/<pkg>/test/<file>.test.ts`). `core` is partitioned into three
- * exhaustive groups (`core-formats`, `core-script`, and `core-engine` as the
- * complement); each other workspace package has its own group.
+ * (`packages/<pkg>/test/<file>.test.ts`). `core` is partitioned into four
+ * exhaustive groups (`core-formats`, `core-script`, `core-engine`, and
+ * `core-battle`); each other workspace package has its own group.
  */
 export function resolveGroup(root, group) {
   if (!GROUPS.includes(group)) {
     throw new Error(`unknown group "${group}" (expected one of: ${GROUPS.join(", ")})`);
   }
   const rootPath = resolve(root);
-  if (group === "core-formats" || group === "core-script" || group === "core-engine") {
+  if (group === "core-formats" || group === "core-script" || group === "core-engine" || group === "core-battle") {
     const files = listPackageTestFiles(rootPath, "core");
     const matched = files.filter((name) => {
       const inFormats = CORE_FORMATS_FILE.test(name);
       if (group === "core-formats") return inFormats;
       const inScript = !inFormats && CORE_SCRIPT_FILE.test(name);
       if (group === "core-script") return inScript;
-      return !inFormats && !inScript;
+      const inBattle = !inFormats && !inScript && CORE_BATTLE_FILE.test(name);
+      if (group === "core-battle") return inBattle;
+      return !inFormats && !inScript && !inBattle;
     });
     return matched.map((name) => posix.join("packages", "core", "test", name));
   }

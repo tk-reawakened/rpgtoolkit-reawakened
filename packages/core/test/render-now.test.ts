@@ -41,7 +41,7 @@ type Game = {
 };
 
 /** A tiny game whose start program is `program`; `extra` are more authored files by path. */
-function boot(program: string, extra: Readonly<Record<string, Uint8Array>> = {}): Game {
+function boot(program: string, extra: Readonly<Record<string, Uint8Array>> = {}, eager = false): Game {
   const empty = createEmptyBoard();
   const files = new Map<string, Uint8Array>();
   const paths = ["main.gam", "Boards/start.brd", "Chrs/hero.tem", "Prg/start.prg", ...Object.keys(extra)];
@@ -65,6 +65,7 @@ function boot(program: string, extra: Readonly<Record<string, Uint8Array>> = {})
     height: SIZE,
     maxTicks: 1000,
     bundled: new Map([[assetKey("media/fonts/tkr-8x8.fnt"), font]]),
+    ...(eager ? { scriptObservers: {} } : {}),
     phaseRegistrations: [{ phase: "audio", run: (state) => { latest = state; } }],
   });
   let replies: { readonly tick: number; readonly event: { readonly kind: "asset"; readonly reqId: number; readonly bytes: Uint8Array | null } | { readonly kind: "key"; readonly name: string; readonly code: string; readonly char: null; readonly down: boolean } }[] = [];
@@ -169,6 +170,19 @@ test("text and pixelText with a canvas draw into that canvas, not the screen tex
   for (let y = 32; y < 40; y += 1) for (let x = 0; x < 8; x += 1) if (canvasPixel(game, handle, x, y)[3] === 255) cell += 1;
   ok(cell > 3, "text(1,5) lands in the fifth cell row of the canvas");
   equal(game.state().ui.draws.length, 0, "the screen text layer got nothing");
+});
+
+test("canvas text interleaved with graphics and rendernow has eager and batched pixel parity", () => {
+  const program = 'rendernow(1)\nc = cnvrendernow\ncolorrgb(10,20,30)\nfillrect(0,0,63,63,c)\ncolorrgb(255,255,255)\npixelText(2,8,"HI",c)\nsetpixel(63,63,c)\ntext(1,4,"A",c)\nrendernow(0)\nrendernow(1)\nend()\n';
+  const batched = boot(program);
+  const eager = boot(program, {}, true);
+  const a = batched.state().surfaces;
+  const b = eager.state().surfaces;
+  const id = a.renderNow!;
+  deepEqual(a.entries[String(id)], b.entries[String(b.renderNow!)]);
+  deepEqual(batched.frame().rgba, eager.frame().rgba);
+  equal(a.renderNowOn, true);
+  deepEqual(canvasPixel(batched, id, 63, 63), [255, 255, 255, 255]);
 });
 
 function solid(r: number, g: number, b: number): Uint8Array {

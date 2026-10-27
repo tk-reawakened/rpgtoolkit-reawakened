@@ -19,13 +19,17 @@ import {
   drawSurfaceCircle,
   drawSurfaceLine,
   drawSurfaceRect,
-  editSurface,
+  editSurfaceWithBounds,
   getPixel,
   killSurface,
   renderNowCanvas,
   renderNowEnabled,
   restoreScreen,
   saveScreen,
+  surfaceCircleBounds,
+  surfaceLineBounds,
+  surfacePixelBounds,
+  surfaceRectBounds,
   surfaceSize,
 } from "../../raster/surfaces.ts";
 
@@ -115,17 +119,24 @@ function command(name: string, aliases: readonly string[], commandParams: ParamS
 
 const CLEAR = command("clear", [], [{ name: "canvas", optional: true, byRef: false, variadic: false }], docs("Clear a screen or canvas.", "Blanks every pixel of the selected surface to transparent black immediately; without a canvas argument it clears the screen surface."), (view, args) => {
   const target = canvasArg(args, 0);
-  const ok = editSurface(state(view).surfaces, target, (rgba) => rgba.fill(0));
+  const surfaces = state(view).surfaces;
+  const size = surfaceSize(surfaces, target);
+  const bounds = size === null ? undefined : { first: 0, last: size.w * size.h - 1 };
+  const ok = editSurfaceWithBounds(surfaces, target, (rgba) => rgba.fill(0), bounds);
   if (!ok) throw new ScriptError("surface.unknown", `clear: no canvas ${String(target)}`);
   return { value: null, effects: effects(args) };
 });
 
 const SET_PIXEL = command("setpixel", [], params(["x", "y", "canvas"], 2), docs("Set one pixel to the current colour.", "Writes the current RGB colour at integer pixel coordinates, clipping outside the selected surface; the optional canvas defaults to the screen."), (view, args) => {
   const target = canvasArg(args, 2);
+  const surfaces = state(view).surfaces;
+  const rawX = numberArg(args, 0);
+  const rawY = numberArg(args, 1);
+  const bounds = surfacePixelBounds(surfaces, target, rawX, rawY);
   const rgb = colour(view);
-  const ok = editSurface(state(view).surfaces, target, (rgba, width, height) => {
-    const x = Math.trunc(numberArg(args, 0));
-    const y = Math.trunc(numberArg(args, 1));
+  const ok = editSurfaceWithBounds(surfaces, target, (rgba, width, height) => {
+    const x = Math.trunc(rawX);
+    const y = Math.trunc(rawY);
     if (x >= 0 && y >= 0 && x < width && y < height) {
       const at = (y * width + x) * 4;
       rgba[at] = Math.max(0, Math.min(255, Math.trunc(rgb.r)));
@@ -133,7 +144,7 @@ const SET_PIXEL = command("setpixel", [], params(["x", "y", "canvas"], 2), docs(
       rgba[at + 2] = Math.max(0, Math.min(255, Math.trunc(rgb.b)));
       rgba[at + 3] = 255;
     }
-  });
+  }, bounds);
   if (!ok) throw new ScriptError("surface.unknown", `setpixel: no canvas ${String(target)}`);
   return { value: null, effects: effects(args) };
 });
@@ -142,11 +153,19 @@ function primitive(name: string, filled: boolean, circle: boolean): BuiltinSpec 
   const commandParams = circle ? params(["x", "y", "radius", "canvas"], 3) : params(["x1", "y1", "x2", "y2", "canvas"], 4);
   return command(name, [], commandParams, docs(`${filled ? "Fill" : "Draw"} a ${circle ? "circle" : "rectangle"}.`, "Rasterises the integer primitive using the current colour on the screen or optional canvas, clipping to the target bounds and returning immediately."), (view, args) => {
     const target = canvasArg(args, circle ? 3 : 4);
+    const surfaces = state(view).surfaces;
     const rgb = colour(view);
-    const ok = editSurface(state(view).surfaces, target, (rgba, width, height) => {
-      if (circle) drawSurfaceCircle(rgba, width, height, numberArg(args, 0), numberArg(args, 1), numberArg(args, 2), rgb, filled);
-      else drawSurfaceRect(rgba, width, height, numberArg(args, 0), numberArg(args, 1), numberArg(args, 2), numberArg(args, 3), rgb, filled);
-    });
+    const a0 = numberArg(args, 0);
+    const a1 = numberArg(args, 1);
+    const a2 = numberArg(args, 2);
+    const a3 = circle ? 0 : numberArg(args, 3);
+    const bounds = circle
+      ? surfaceCircleBounds(surfaces, target, a0, a1, a2)
+      : surfaceRectBounds(surfaces, target, a0, a1, a2, a3);
+    const ok = editSurfaceWithBounds(surfaces, target, (rgba, width, height) => {
+      if (circle) drawSurfaceCircle(rgba, width, height, a0, a1, a2, rgb, filled);
+      else drawSurfaceRect(rgba, width, height, a0, a1, a2, a3, rgb, filled);
+    }, bounds);
     if (!ok) throw new ScriptError("surface.unknown", `${name}: no canvas ${String(target)}`);
     return { value: null, effects: effects(args) };
   });
@@ -154,8 +173,14 @@ function primitive(name: string, filled: boolean, circle: boolean): BuiltinSpec 
 
 const DRAW_LINE = command("drawline", [], params(["x1", "y1", "x2", "y2", "canvas"], 4), docs("Draw a line in the current colour.", "Rasterises an inclusive integer Bresenham line on the screen or optional canvas and clips it to the surface."), (view, args) => {
   const target = canvasArg(args, 4);
+  const surfaces = state(view).surfaces;
+  const x1 = numberArg(args, 0);
+  const y1 = numberArg(args, 1);
+  const x2 = numberArg(args, 2);
+  const y2 = numberArg(args, 3);
+  const bounds = surfaceLineBounds(surfaces, target, x1, y1, x2, y2);
   const rgb = colour(view);
-  const ok = editSurface(state(view).surfaces, target, (rgba, width, height) => drawSurfaceLine(rgba, width, height, numberArg(args, 0), numberArg(args, 1), numberArg(args, 2), numberArg(args, 3), rgb));
+  const ok = editSurfaceWithBounds(surfaces, target, (rgba, width, height) => drawSurfaceLine(rgba, width, height, x1, y1, x2, y2, rgb), bounds);
   if (!ok) throw new ScriptError("surface.unknown", `drawline: no canvas ${String(target)}`);
   return { value: null, effects: effects(args) };
 });
