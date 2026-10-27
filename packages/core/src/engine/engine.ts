@@ -244,6 +244,7 @@ const SCRIPT_ASSET_AREAS: Readonly<Record<string, { readonly folder: string; rea
   specialMoves: { folder: "spcmove", kind: "script-asset" },
   statusEffects: { folder: "statuse", kind: "script-asset" },
   backgrounds: { folder: "bkrounds", kind: "script-asset" },
+  animations: { folder: "misc", kind: "script-asset" },
 };
 
 function encodeInlineScriptString(value: string): string {
@@ -667,6 +668,14 @@ export function createEngine(init: EngineInit): Engine {
           }
         }
         const scriptArea = request.kind === "asset" && typeof request.area === "string" && Object.hasOwn(SCRIPT_ASSET_AREAS, request.area) ? SCRIPT_ASSET_AREAS[request.area] : undefined;
+        // A script may only ask for the areas the engine knows how to resolve. An unknown area is reported and refused
+        // rather than dropped: dropping it left the calling thread waiting on a request nobody had been given.
+        if (request.kind === "asset" && scriptArea === undefined &&
+            typeof request.reqId === "number" && Number.isSafeInteger(request.reqId) && request.reqId > 0 && request.reqId < SCRIPT_REQUEST_BASE) {
+          diagnostics.push({ code: "request.bad-area", file: typeof request.path === "string" ? request.path : "", line: 0, message: `script asset area "${String(request.area)}" is not one the engine resolves` });
+          replyToRequest(state.vm, request.reqId, { ok: false, value: `unknown script asset area: ${String(request.area)}` });
+          return;
+        }
         if (request.kind === "asset" && scriptArea !== undefined &&
             typeof request.path === "string" && typeof request.reqId === "number" &&
             Number.isSafeInteger(request.reqId) && request.reqId > 0 && request.reqId < SCRIPT_REQUEST_BASE) {

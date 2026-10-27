@@ -182,15 +182,17 @@ const STANCE_FILES: Record<string, Record<Stance, string>> = {
   rogue: { rest: "rogue_rest.anm", fight: "rogue_fight.anm", special: "rogue_rest.anm", die: "rogue_die.anm" },
 };
 
-function animationBytes(image: string): Uint8Array {
+function animationBytes(image: string, secondImage: string | null = null, delaySeconds = 0.2): Uint8Array {
+  const frames = [{ image, transparent: { r: KEY[0], g: KEY[1], b: KEY[2] }, sound: "" }];
+  if (secondImage !== null) frames.push({ image: secondImage, transparent: { r: KEY[0], g: KEY[1], b: KEY[2] }, sound: "" });
   return unwrap(writeAnimation({
     magic: "RPGTLKIT ANIM",
     major: 2,
     minor: 3,
     width: 64,
     height: 64,
-    frames: [{ image, transparent: { r: KEY[0], g: KEY[1], b: KEY[2] }, sound: "" }],
-    delay: 0.2,
+    frames,
+    delay: delaySeconds,
     residue: new Uint8Array(),
   }));
 }
@@ -321,6 +323,10 @@ export type RigOptions = {
   readonly enemies?: readonly ("slime" | "bat")[];
   /** The slime's HP (default 30); a small value lets one attack defeat it. */
   readonly slimeHp?: number;
+  /** Authored stance animations use this frame delay in whole ticks and two frames (default: one frame, 0.2 s). */
+  readonly stanceDelayTicks?: number;
+  /** Observation hooks for probes; they never change script execution. */
+  readonly observers?: import("../src/index.ts").ScriptObservers;
   readonly party?: readonly { readonly key: "hero" | "mage" | "rogue"; readonly hp: number; readonly smp: number }[];
   readonly inventory?: readonly { readonly source: string; readonly handle: string; readonly quantity: number }[];
 };
@@ -385,7 +391,16 @@ export function gameFiles(options: RigOptions = {}): { readonly files: Map<strin
       if (files.has(assetKey(`Misc/${anm}`))) continue;
       const picture = art(stance);
       put(`Bitmap/${png}`, encodePng(picture.w, picture.h, picture.rgba));
-      put(`Misc/${anm}`, animationBytes(png));
+      const ticks = options.stanceDelayTicks;
+      if (ticks === undefined) {
+        put(`Misc/${anm}`, animationBytes(png));
+      } else {
+        // A second, visibly different frame so a frame change is observable in rendered pixels.
+        const second = art(stance === "die" ? "die" : "fight");
+        const secondPng = anm.replace(".anm", "_b.png");
+        put(`Bitmap/${secondPng}`, encodePng(second.w, second.h, second.rgba));
+        put(`Misc/${anm}`, animationBytes(png, secondPng, ticks / 60));
+      }
     }
   }
   put("SpcMove/fire.spc", moveBytes("Fire", { fp: 12, cost: 4, desc: "A concentrated fiery blast that burns a single foe." }));
@@ -459,6 +474,7 @@ export function bootUiRig(options: RigOptions = {}): UiRig {
     height: SCREEN_HEIGHT,
     maxTicks: 100000,
     bundled: new Map([[assetKey("media/fonts/tkr-8x8.fnt"), font]]),
+    ...(options.observers === undefined ? {} : { scriptObservers: options.observers }),
     packageCatalogue: catalogue(),
     phaseRegistrations: [{
       phase: "triggers",
