@@ -19,6 +19,61 @@ export const CANON_MAX_DEPTH = 256;
 export function canon(value: PlainData): string {
   return serialize(value, new Set<object>(), 0);
 }
+/**
+ * The canonical root-object fields split around `splitKey`. Each segment is
+ * serialized with the same depth and shared cycle set as one `canon` call.
+ */
+export type CanonRootSplit = {
+  readonly before: string;
+  readonly selected: string;
+  readonly after: string;
+  readonly hasSelected: boolean;
+};
+
+export function canonSplitRoot(value: PlainData, splitKey: string): CanonRootSplit {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("canon: only plain objects are plain data");
+  }
+
+  const record = value as object;
+  const prototype = Object.getPrototypeOf(record);
+  if (prototype !== null && prototype !== Object.prototype) {
+    throw new TypeError("canon: only plain objects are plain data");
+  }
+  const seen = new Set<object>();
+  seen.add(record);
+
+  const before: string[] = [];
+  const selected: string[] = [];
+  const after: string[] = [];
+  let hasSelected = false;
+  const keys = Object.keys(record).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  for (const key of keys) {
+    const descriptor = Object.getOwnPropertyDescriptor(record, key);
+    if (descriptor === undefined) {
+      throw new TypeError("canon: missing property descriptor");
+    }
+    if (descriptor.get !== undefined || descriptor.set !== undefined) {
+      throw new TypeError("canon: accessor properties are not plain data");
+    }
+    const field = serializeString(key) + ":" + serialize(descriptor.value, seen, 1);
+    if (key === splitKey) {
+      selected.push(field);
+      hasSelected = true;
+    } else if (key < splitKey) {
+      before.push(field);
+    } else {
+      after.push(field);
+    }
+  }
+  return {
+    before: before.join(","),
+    selected: selected.join(","),
+    after: after.join(","),
+    hasSelected,
+  };
+}
+
 
 /** Tags non-finite numbers ({ t: 'nan' | 'inf' | '-inf' }) for PlainData state (AD-7, AD-11). */
 export function tagNonFinite(value: unknown): unknown {
@@ -115,6 +170,9 @@ function serializeNumber(value: number): string {
 }
 
 function serializeString(value: string): string {
+  // Large base64 snapshots contain no JSON escapes. A native character-class
+  // search avoids constructing a rope one character at a time.
+  if (value.length >= 128 && !/[^\x20-\x21\x23-\x5b\x5d-\x7e]/.test(value)) return '"' + value + '"';
   let out = '"';
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i);

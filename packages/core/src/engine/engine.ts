@@ -107,6 +107,7 @@ import { DEFAULT_FONT } from "../script/packs/ui.ts";
 import type { WaitView } from "../ports/wait.ts";
 import { runTimePhase } from "../time/time.ts";
 import { blitTexture, rasterize, readSurfacePixels, replaceSurface, surfaceTextures, createSurfacesSection, type RasterAsset, type SurfacePixelCache } from "../raster/index.ts";
+import { beginSurfaceBatch, endSurfaceBatch } from "../raster/surfaces.ts";
 
 /** AD-26's immutable phase order. */
 export const ENGINE_PHASES = [
@@ -1794,6 +1795,28 @@ export function createEngine(init: EngineInit): Engine {
       bus.postEffect("audio", engineEffect("audio", "sfx.play", [resolved.value, false, null, "frame"], "draw-audio-cue"));
     }
   }
+  // Externally supplied hooks and plugins can retain state and inspect it during
+  // a command. In that case keep each surface mutation fully materialized.
+  const canBatchSurfaces = init.mainFile === undefined
+    && (init.plugins?.length ?? 0) === 0
+    && (init.packageCatalogue?.length ?? 0) === 0
+    && (init.phaseRegistrations?.length ?? 0) === 0
+    && (init.resetRegistrations?.length ?? 0) === 0
+    && (init.effectAppliers?.length ?? 0) === 0
+    && init.scriptObservers === undefined
+    && init.spriteRuntime === undefined
+    && init.cameraTarget === undefined;
+  function withSurfaceBatch<T>(run: () => T): T {
+    if (!canBatchSurfaces) return run();
+    const surfaces = state.surfaces;
+    beginSurfaceBatch(surfaces);
+    try {
+      return run();
+    } finally {
+      endSurfaceBatch(surfaces);
+    }
+  }
+
   function runPhase(phase: EnginePhase, consumed: InputRecord[]): void {
     state.engine.phase = phase;
     switch (phase) {
@@ -1836,7 +1859,7 @@ export function createEngine(init: EngineInit): Engine {
         pruneClaimed(state.input, state.engine.claims ?? []);
         return;
       case "threads":
-        runThreadsPhase(state.vm, services, STEP_BUDGET);
+        withSurfaceBatch(() => runThreadsPhase(state.vm, services, STEP_BUDGET));
         expireProgramTileEdits(state);
         return;
       case "events":
@@ -2062,7 +2085,7 @@ export function createEngine(init: EngineInit): Engine {
     return null;
   }
   function finishOpenTick(consumed: InputRecord[], mode: ResumeMode): Paused | null {
-    const paused = runOpenThreads(mode);
+    const paused = withSurfaceBatch(() => runOpenThreads(mode));
     if (paused !== null || state.engine.openTick !== undefined) return paused;
     for (const phase of ENGINE_PHASES) {
       if (phase !== "input" && phase !== "waits" && phase !== "threads") runPhase(phase, consumed);

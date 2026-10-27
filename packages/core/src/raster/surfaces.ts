@@ -1,9 +1,9 @@
 /**
  * Core-owned persistent RGBA surfaces (AD-27).
  *
- * Surface pixels live in save state as a small tagged snapshot rather than a
- * `Uint8Array`, so snapshots remain canonical JSON.  The decoded byte cache is
- * deliberately supplied by the caller and is never part of `GameState`.
+ * Surface pixels live in save state as a tagged base64 snapshot rather than a
+ * `Uint8Array`, so snapshots remain canonical JSON. Decoded bytes are held
+ * outside the state and discarded whenever their snapshot no longer matches.
  */
 
 import type { DecodedTexture } from "../formats/image/model.ts";
@@ -13,13 +13,20 @@ import type { SurfaceId } from "../ports/keys.ts";
 import type { SurfacesSection, SurfaceState, RgbaSnapshot } from "../save/sections/surfaces.ts";
 
 const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const BASE64_VALUES = new Int16Array(128).fill(-1);
+for (let i = 0; i < BASE64.length; i += 1) BASE64_VALUES[BASE64.charCodeAt(i)] = i;
+
+type DecodedRecord = { rev: number; bitmap: RgbaSnapshot; b64: string; w: number; h: number; rgba: Uint8Array; canonical: boolean };
+type BatchEntry = { entry: SurfaceState; bitmap: RgbaSnapshot; b64: string; rev: number; w: number; h: number; rgba: Uint8Array };
+type SurfaceBatch = { depth: number; entries: Map<SurfaceState, BatchEntry> };
+const decodedRecords = new WeakMap<SurfaceState, DecodedRecord>();
+const pendingEntries = new WeakMap<SurfaceState, BatchEntry>();
+const batches = new WeakMap<SurfacesSection, SurfaceBatch>();
+const BASE64_PAIRS = Array.from({ length: 4096 }, (_, i) => BASE64[i >> 6]! + BASE64[i & 63]!);
 
 /** A decoded-pixel cache owned by a runner/core facade, never by save state. */
 export type SurfacePixelCache = Map<string, Uint8Array>;
 
-function key(id: SurfaceId, rev: number): string {
-  return `${id}:${rev}`;
-}
 
 function idOf(value: number): SurfaceId {
   return value as SurfaceId;
@@ -35,19 +42,26 @@ function byteCount(width: number, height: number): number {
 
 /** Encode bytes without relying on host `btoa`/`Buffer` APIs (G2). */
 export function encodeSurfaceBytes(bytes: Uint8Array): string {
+  const chunks: string[] = [];
   let output = "";
-  for (let i = 0; i < bytes.length; i += 3) {
-    const a = bytes[i] ?? 0;
-    const hasB = i + 1 < bytes.length;
-    const hasC = i + 2 < bytes.length;
-    const b = hasB ? bytes[i + 1]! : 0;
-    const c = hasC ? bytes[i + 2]! : 0;
-    output += BASE64[a >> 2];
-    output += BASE64[((a & 3) << 4) | (b >> 4)];
-    output += hasB ? BASE64[((b & 15) << 2) | (c >> 6)] : "=";
-    output += hasC ? BASE64[c & 63] : "=";
+  let i = 0;
+  const limit = bytes.length - (bytes.length % 3);
+  for (; i < limit; i += 3) {
+    const bits = (bytes[i]! << 16) | (bytes[i + 1]! << 8) | bytes[i + 2]!;
+    output += BASE64_PAIRS[bits >>> 12]! + BASE64_PAIRS[bits & 4095]!;
+    if (output.length >= 8192) {
+      chunks.push(output);
+      output = "";
+    }
   }
-  return output;
+  if (i < bytes.length) {
+    const a = bytes[i]!;
+    const b = bytes[i + 1];
+    output += BASE64[a >> 2]! + BASE64[((a & 3) << 4) | ((b ?? 0) >> 4)]!;
+    output += b === undefined ? "==" : BASE64[(b & 15) << 2]! + "=";
+  }
+  chunks.push(output);
+  return chunks.join("");
 }
 
 /** Decode a canonical base64 surface payload, rejecting malformed input. */
@@ -59,24 +73,24 @@ export function decodeSurfaceBytes(value: string): Uint8Array {
   const output = new Uint8Array((value.length / 4) * 3 - padding);
   let at = 0;
   for (let i = 0; i < value.length; i += 4) {
-    const a = value[i]!;
-    const b = value[i + 1]!;
-    const c = value[i + 2]!;
-    const d = value[i + 3]!;
-    const ai = BASE64.indexOf(a);
-    const bi = BASE64.indexOf(b);
-    const ci = c === "=" ? 0 : BASE64.indexOf(c);
-    const di = d === "=" ? 0 : BASE64.indexOf(d);
-    if (ai < 0 || bi < 0 || ci < 0 || di < 0 || (c === "=" && d !== "=") || (i + 4 < value.length && (c === "=" || d === "="))) {
+    const a = value.charCodeAt(i);
+    const b = value.charCodeAt(i + 1);
+    const c = value.charCodeAt(i + 2);
+    const d = value.charCodeAt(i + 3);
+    const ai = BASE64_VALUES[a] ?? -1;
+    const bi = BASE64_VALUES[b] ?? -1;
+    const ci = c === 61 ? 0 : BASE64_VALUES[c] ?? -1;
+    const di = d === 61 ? 0 : BASE64_VALUES[d] ?? -1;
+    if (ai < 0 || bi < 0 || ci < 0 || di < 0 || (c === 61 && d !== 61) || (i + 4 < value.length && (c === 61 || d === 61))) {
       throw new TypeError("invalid surface base64 payload");
     }
     const first = (ai << 2) | (bi >> 4);
     if (at < output.length) output[at++] = first;
-    if (c !== "=") {
+    if (c !== 61) {
       const second = ((bi & 15) << 4) | (ci >> 2);
       if (at < output.length) output[at++] = second;
     }
-    if (d !== "=") {
+    if (d !== 61) {
       const third = ((ci & 3) << 6) | di;
       if (at < output.length) output[at++] = third;
     }
@@ -88,14 +102,72 @@ function snapshot(width: number, height: number, rgba: Uint8Array): RgbaSnapshot
   return { t: "rgba", w: width, h: height, b64: encodeSurfaceBytes(rgba) };
 }
 
+/** Rewrite only the changed, three-byte-aligned span of a canonical bitmap. */
+type PixelBounds = { first: number; last: number };
+function editedSnapshot(bitmap: RgbaSnapshot, before: Uint8Array, after: Uint8Array, bounds?: PixelBounds): RgbaSnapshot {
+  const oldWords = new Uint32Array(before.buffer, before.byteOffset, before.byteLength / 4);
+  const newWords = new Uint32Array(after.buffer, after.byteOffset, after.byteLength / 4);
+  let first = bounds?.first ?? 0;
+  const limit = bounds?.last ?? oldWords.length - 1;
+  while (first <= limit && oldWords[first] === newWords[first]) first += 1;
+  if (first > limit) return { ...bitmap };
+  let last = limit;
+  while (last > first && oldWords[last] === newWords[last]) last -= 1;
+  const start = Math.floor(first * 4 / 3) * 3;
+  const end = Math.min(after.length, Math.ceil((last + 1) * 4 / 3) * 3);
+  const b64 = bitmap.b64.slice(0, start / 3 * 4)
+    + encodeSurfaceBytes(after.subarray(start, end))
+    + bitmap.b64.slice(Math.ceil(end / 3) * 4);
+  return { t: "rgba", w: bitmap.w, h: bitmap.h, b64 };
+}
+
+/** An internal blit can only write pixels within this clipped destination. */
+function blitBounds(bitmap: RgbaSnapshot, x: number, y: number, width: number, height: number): PixelBounds | undefined {
+  if (![x, y, width, height, x + width, y + height].every(Number.isSafeInteger) || width < 0 || height < 0) return undefined;
+  const left = Math.max(0, x);
+  const top = Math.max(0, y);
+  const right = Math.min(bitmap.w, x + width);
+  const bottom = Math.min(bitmap.h, y + height);
+  if (left >= right || top >= bottom) return { first: 0, last: -1 };
+  return { first: top * bitmap.w + left, last: (bottom - 1) * bitmap.w + right - 1 };
+}
+
 function decode(entry: SurfaceState, cache?: SurfacePixelCache): Uint8Array {
-  const cacheKey = key(entry.id, entry.rev);
-  const cached = cache?.get(cacheKey);
-  if (cached !== undefined) return cached;
-  const rgba = decodeSurfaceBytes(entry.bitmap.b64);
-  if (rgba.length !== byteCount(entry.bitmap.w, entry.bitmap.h)) throw new TypeError("surface pixel length does not match dimensions");
-  cache?.set(cacheKey, rgba);
+  // A caller's id:rev cache cannot distinguish different restored states.
+  // The entry association also checks the snapshot itself, not just its rev.
+  void cache;
+  const pending = pendingEntries.get(entry);
+  if (pending !== undefined && pending.rev === entry.rev && pending.bitmap === entry.bitmap && pending.b64 === entry.bitmap.b64 && pending.w === entry.bitmap.w && pending.h === entry.bitmap.h) return pending.rgba;
+  const record = decodedRecords.get(entry);
+  const bitmap = entry.bitmap;
+  if (record !== undefined && record.rev === entry.rev && record.bitmap === bitmap && record.b64 === bitmap.b64 && record.w === bitmap.w && record.h === bitmap.h) return record.rgba;
+  const rgba = decodeSurfaceBytes(bitmap.b64);
+  if (rgba.length !== byteCount(bitmap.w, bitmap.h)) throw new TypeError("surface pixel length does not match dimensions");
+  decodedRecords.set(entry, { rev: entry.rev, bitmap, b64: bitmap.b64, w: bitmap.w, h: bitmap.h, rgba, canonical: false });
   return rgba;
+}
+
+/** Internal synchronous batch; callers must flush before exposing or saving state. */
+export function beginSurfaceBatch(state: SurfacesSection): void {
+  const batch = batches.get(state);
+  if (batch !== undefined) batch.depth += 1;
+  else batches.set(state, { depth: 1, entries: new Map() });
+}
+
+/** Materialize every dirty bitmap, including on a thrown command. */
+export function endSurfaceBatch(state: SurfacesSection): void {
+  const batch = batches.get(state);
+  if (batch === undefined) throw new Error("surface batch is not active");
+  batch.depth -= 1;
+  if (batch.depth !== 0) return;
+  batches.delete(state);
+  for (const pending of batch.entries.values()) {
+    pendingEntries.delete(pending.entry);
+    const current = pending.entry;
+    if (state.entries[String(current.id)] !== current || current.rev !== pending.rev || current.bitmap !== pending.bitmap || current.bitmap.b64 !== pending.b64 || current.bitmap.w !== pending.w || current.bitmap.h !== pending.h) continue;
+    current.bitmap = snapshot(current.bitmap.w, current.bitmap.h, pending.rgba);
+    decodedRecords.set(current, { rev: current.rev, bitmap: current.bitmap, b64: current.bitmap.b64, w: current.bitmap.w, h: current.bitmap.h, rgba: new Uint8Array(pending.rgba), canonical: true });
+  }
 }
 
 function entry(state: SurfacesSection, id: SurfaceId): SurfaceState | null {
@@ -112,8 +184,11 @@ export function createSurfacesSection(width?: number, height?: number): Surfaces
   const state: SurfacesSection = { nextId: 1, entries: {}, slots: {}, colours: {} };
   if (width !== undefined || height !== undefined) {
     if (width === undefined || height === undefined) throw new RangeError("surface frame dimensions must be supplied together");
-    checkedRgba(width, height, new Uint8Array(byteCount(width, height)));
-    state.entries["0"] = { id: 0 as SurfaceId, rev: 0, bitmap: snapshot(width, height, new Uint8Array(byteCount(width, height))) };
+    const pixels = new Uint8Array(byteCount(width, height));
+    checkedRgba(width, height, pixels);
+    const current: SurfaceState = { id: 0 as SurfaceId, rev: 0, bitmap: snapshot(width, height, pixels) };
+    state.entries["0"] = current;
+    decodedRecords.set(current, { rev: 0, bitmap: current.bitmap, b64: current.bitmap.b64, w: width, h: height, rgba: pixels, canonical: true });
   }
   return state;
 }
@@ -124,7 +199,9 @@ export function createSurface(state: SurfacesSection, width: number, height: num
   checkedRgba(width, height, pixels);
   const id = idOf(state.nextId);
   state.nextId += 1;
-  state.entries[String(id)] = { id, rev: 0, bitmap: snapshot(width, height, pixels) };
+  const current: SurfaceState = { id, rev: 0, bitmap: snapshot(width, height, pixels) };
+  state.entries[String(id)] = current;
+  decodedRecords.set(current, { rev: 0, bitmap: current.bitmap, b64: current.bitmap.b64, w: width, h: height, rgba: pixels, canonical: true });
   return id;
 }
 
@@ -139,6 +216,9 @@ export function replaceSurface(state: SurfacesSection, id: SurfaceId, width: num
   }
   current.rev += 1;
   current.bitmap = snapshot(width, height, pixels);
+  pendingEntries.delete(current);
+  batches.get(state)?.entries.delete(current);
+  decodedRecords.set(current, { rev: current.rev, bitmap: current.bitmap, b64: current.bitmap.b64, w: width, h: height, rgba: pixels, canonical: true });
   return current.rev;
 }
 
@@ -163,7 +243,7 @@ export function surfaceTextures(state: SurfacesSection, cache: SurfacePixelCache
   const textures = new Map<SurfaceId, DecodedTexture>();
   for (const raw of Object.keys(state.entries)) {
     const current = state.entries[raw]!;
-    textures.set(current.id, { w: current.bitmap.w, h: current.bitmap.h, rgba: decode(current, cache) });
+    textures.set(current.id, { w: current.bitmap.w, h: current.bitmap.h, rgba: new Uint8Array(decode(current, cache)) });
   }
   return textures;
 }
@@ -258,12 +338,29 @@ export type SurfaceEditor = (rgba: Uint8Array, width: number, height: number) =>
 
 /** Mutate a surface in place, bumping its revision exactly once. */
 export function editSurface(state: SurfacesSection, id: SurfaceId, editor: SurfaceEditor): boolean {
+  return editSurfaceWithBounds(state, id, editor);
+}
+
+function editSurfaceWithBounds(state: SurfacesSection, id: SurfaceId, editor: SurfaceEditor, bounds?: PixelBounds): boolean {
   const current = entry(state, id);
   if (current === null) return false;
-  const rgba = decode(current);
+  // The editor may retain or throw after mutating its argument. Keep the cache
+  // owned and leave the previous revision intact if it throws.
+  const before = decode(current);
+  const canonical = decodedRecords.get(current)?.canonical === true;
+  const rgba = new Uint8Array(before);
   editor(rgba, current.bitmap.w, current.bitmap.h);
   current.rev += 1;
-  current.bitmap = snapshot(current.bitmap.w, current.bitmap.h, rgba);
+  const batch = batches.get(state);
+  if (batch === undefined) {
+    current.bitmap = canonical ? editedSnapshot(current.bitmap, before, rgba, bounds) : snapshot(current.bitmap.w, current.bitmap.h, rgba);
+    before.set(rgba);
+    decodedRecords.set(current, { rev: current.rev, bitmap: current.bitmap, b64: current.bitmap.b64, w: current.bitmap.w, h: current.bitmap.h, rgba: before, canonical: true });
+  } else {
+    const pending: BatchEntry = { entry: current, bitmap: current.bitmap, b64: current.bitmap.b64, rev: current.rev, w: current.bitmap.w, h: current.bitmap.h, rgba };
+    pendingEntries.set(current, pending);
+    batch.entries.set(current, pending);
+  }
   for (const colour of Object.keys(state.colours)) {
     if (state.colours[colour] === id) delete state.colours[colour];
   }
@@ -336,7 +433,22 @@ export function drawSurfaceRect(
   const top = Math.min(Math.trunc(y1), Math.trunc(y2));
   const bottom = Math.max(Math.trunc(y1), Math.trunc(y2));
   if (filled) {
-    for (let y = top; y <= bottom; y += 1) for (let x = left; x <= right; x += 1) plot(rgba, width, height, x, y, rgb);
+    const x0 = Math.max(0, left);
+    const x1 = Math.min(width - 1, right);
+    const y0 = Math.max(0, top);
+    const y1 = Math.min(height - 1, bottom);
+    if (!(x0 <= x1 && y0 <= y1)) return;
+    const row = new Uint8Array((x1 - x0 + 1) * 4);
+    const red = Math.max(0, Math.min(255, Math.trunc(rgb.r)));
+    const green = Math.max(0, Math.min(255, Math.trunc(rgb.g)));
+    const blue = Math.max(0, Math.min(255, Math.trunc(rgb.b)));
+    for (let at = 0; at < row.length; at += 4) {
+      row[at] = red;
+      row[at + 1] = green;
+      row[at + 2] = blue;
+      row[at + 3] = 255;
+    }
+    for (let y = y0; y <= y1; y += 1) rgba.set(row, (y * width + x0) * 4);
     return;
   }
   drawSurfaceLine(rgba, width, height, left, top, right, top, rgb);
@@ -368,6 +480,29 @@ export function drawSurfaceCircle(
     }
   }
 }
+/** Copy clipped scanlines only when every copied source pixel is opaque. */
+function copyOpaqueRows(
+  source: Uint8Array, sourceWidth: number, cropX: number, cropY: number,
+  target: Uint8Array, targetWidth: number, targetHeight: number,
+  dx: number, dy: number, width: number, height: number,
+): boolean {
+  if (![cropX, cropY, dx, dy, width, height].every(Number.isSafeInteger) || width < 0 || height < 0) return false;
+  const left = Math.max(0, -dx);
+  const top = Math.max(0, -dy);
+  const right = Math.min(width, targetWidth - dx);
+  const bottom = Math.min(height, targetHeight - dy);
+  for (let row = top; row < bottom; row += 1) {
+    const start = ((cropY + row) * sourceWidth + cropX + left) * 4;
+    const end = start + Math.max(0, right - left) * 4;
+    for (let alpha = start + 3; alpha < end; alpha += 4) if (source[alpha] !== 255) return false;
+  }
+  for (let row = top; row < bottom && left < right; row += 1) {
+    const start = ((cropY + row) * sourceWidth + cropX + left) * 4;
+    target.set(source.subarray(start, start + (right - left) * 4), ((dy + row) * targetWidth + dx + left) * 4);
+  }
+  return true;
+}
+
 
 /** Copy a source surface into a destination with optional key and alpha. */
 export function blitSurface(
@@ -386,7 +521,7 @@ export function blitSurface(
   const sourceEntry = entry(state, source);
   const destinationEntry = entry(state, destination);
   if (sourceEntry === null || destinationEntry === null) return false;
-  const sourcePixels = new Uint8Array(decode(sourceEntry));
+  const sourcePixels = decode(sourceEntry);
   const sourceWidth = sourceEntry.bitmap.w;
   const sourceHeight = sourceEntry.bitmap.h;
   const cropX = sourceRect === undefined ? 0 : Math.max(0, Math.trunc(sourceRect.x));
@@ -398,7 +533,9 @@ export function blitSurface(
   if (outWidth === 0 || outHeight === 0 || cropWidth === 0 || cropHeight === 0) return true;
   const dx = Math.trunc(x);
   const dy = Math.trunc(y);
-  return editSurface(state, destination, (target, targetWidth, targetHeight) => {
+  return editSurfaceWithBounds(state, destination, (target, targetWidth, targetHeight) => {
+    if (outWidth === cropWidth && outHeight === cropHeight && key === undefined && !additive && alpha === 255
+      && copyOpaqueRows(sourcePixels, sourceWidth, cropX, cropY, target, targetWidth, targetHeight, dx, dy, cropWidth, cropHeight)) return;
     for (let row = 0; row < outHeight; row += 1) {
       const sourceY = cropY + Math.min(cropHeight - 1, Math.floor(row * cropHeight / outHeight));
       for (let column = 0; column < outWidth; column += 1) {
@@ -434,7 +571,7 @@ export function blitSurface(
         }
       }
     }
-  });
+  }, blitBounds(destinationEntry.bitmap, dx, dy, outWidth, outHeight));
 }
 /** Copy decoded image pixels into a persistent surface without allocating a source handle. */
 export function blitTexture(
@@ -461,7 +598,9 @@ export function blitTexture(
   if (outWidth === 0 || outHeight === 0 || cropWidth === 0 || cropHeight === 0) return true;
   const dx = Math.trunc(x);
   const dy = Math.trunc(y);
-  return editSurface(state, destination, (target, targetWidth, targetHeight) => {
+  return editSurfaceWithBounds(state, destination, (target, targetWidth, targetHeight) => {
+    if (outWidth === cropWidth && outHeight === cropHeight && key === undefined && !additive && alpha === 255
+      && copyOpaqueRows(texture.rgba, texture.w, cropX, cropY, target, targetWidth, targetHeight, dx, dy, cropWidth, cropHeight)) return;
     for (let row = 0; row < outHeight; row += 1) {
       const sourceY = cropY + Math.min(cropHeight - 1, Math.floor(row * cropHeight / outHeight));
       for (let column = 0; column < outWidth; column += 1) {
@@ -497,5 +636,5 @@ export function blitTexture(
         }
       }
     }
-  });
+  }, blitBounds(destinationEntry.bitmap, dx, dy, outWidth, outHeight));
 }

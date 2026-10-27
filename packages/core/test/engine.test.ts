@@ -1,7 +1,7 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { TextEncoder } from "node:util";
 import { test } from "node:test";
-import { addActor, applyEmitterOp, COMPILER_VERSION, createAssetIndex, createEmptyBoard, createEmptyMainFile, createEngine, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, PACKAGE_ROOT, writeBoard, writeMainFile, type Board, type EffectRecord, type GameState, type PluginDefinition, type ResolvedPlugin } from "../src/index.ts";
+import { addActor, applyEmitterOp, COMPILER_VERSION, createAssetIndex, createEmptyBoard, createEmptyMainFile, createEngine, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, PACKAGE_ROOT, writeBoard, writeMainFile, type Board, type EffectRecord, type GameState, type PluginDefinition, type ResolvedPlugin, type SurfaceId } from "../src/index.ts";
 
 function boardBytes(board: Board): Uint8Array {
   const encoded = writeBoard(board);
@@ -495,6 +495,26 @@ test("an authored RPGCode program executes through the engine VM", () => {
   const resumed = engine.advance(1, []);
   equal(resumed.ticksRun, 1);
   equal(resumed.diagnostics.length, 0);
+});
+
+test("batched script canvas drawing matches the eager path at the tick boundary", () => {
+  const program = `createcanvas(16, 16, c)\n${Array.from({ length: 60 }, (_, i) => `fillrect(${i % 16}, ${i % 16}, 15, 15, c)`).join("\n")}\nend()\n`;
+  function run(withHook: boolean) {
+    const engine = createEngine({
+      seed: 7, assetIndex: createAssetIndex(["Boards/test.brd"]), assetRoot: PACKAGE_ROOT,
+      initialBoard: "test.brd", width: 16, height: 16, maxTicks: 1, program,
+      ...(withHook ? { phaseRegistrations: [{ phase: "input" as const, run: () => {} }] } : {}),
+    });
+    const request = engine.advance(0, []).requests[0];
+    if (request?.kind !== "asset") throw new Error("expected board request");
+    const report = engine.advance(1, [{ tick: 0, event: { kind: "asset", reqId: request.reqId, bytes: boardBytes(createEmptyBoard()) } }]);
+    equal(report.ticksRun, 1);
+    equal(report.diagnostics.length, 0);
+    const pixels = engine.surfacePixels(1 as SurfaceId, 60);
+    if (pixels === null) throw new Error("expected canvas at revision 60");
+    return { hash: report.stateHash, rgba: pixels.rgba };
+  }
+  deepEqual(run(false), run(true));
 });
 
 function breakpointEngine(program: string, seed = 7) {
