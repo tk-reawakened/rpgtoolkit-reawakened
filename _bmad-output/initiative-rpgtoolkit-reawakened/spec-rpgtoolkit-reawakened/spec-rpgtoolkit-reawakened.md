@@ -54,7 +54,7 @@ A vision to realize. RPG Toolkit 3 (final release 2007) is a Windows-only, GPL-2
   - **success:** Scripted play-throughs exercise use, equip, drop, buy, sell, party swap and save-gating with the expected state.
 - **CAP-11**
   - **intent:** Players can save and load the complete game state, including running threads, board live item list and RNG state, using the Reawakened canonical format (E-120, E-121, E-123).
-  - **success:** A compatible save restored mid-script finishes with identical state hashes and subsequent behavior. On source/compiler mismatch the affected thread restarts from source; if restore validation finds an unresolved saved callable/owner reference, the save is rejected with a located restore error rather than silently repaired.
+  - **success:** A compatible save restored mid-script finishes with identical state hashes and subsequent behavior. On a compiler mismatch the whole save is refused and the live game is left unchanged; on a source mismatch the affected thread restarts from source; if restore validation finds an unresolved saved callable/owner reference, the save is rejected with a located restore error rather than silently repaired.
 - **CAP-12**
   - **intent:** The same core runs in a web runner, a headless runner, a desktop runner and a mobile runner, and games can be packaged for distribution (E-130…E-132).
   - **success:** The sample games play in browser and under the headless runner from the same core build; a packaged single-file game loads.

@@ -70,7 +70,7 @@ The synthetic program of Design Notes is the deliverable proof: deep recursion, 
 | Unset read (SEM-5) | `y = never` then `y` | 0 for arithmetic, the empty string when a string is wanted; **the read creates the variable** | none |
 | Index (SEM-5, EXP-6, 14 corpus sites) | `a[1]`, `a["1"]`, `a[1.0]`, `m["Key"]` vs `m["key"]`, `a[1][2]`, `f(x)[i]` | `a[1]`, `a["1"]` and `a[1.0]` are one element; a string key keeps its case; an index chain names one variable; the key is the six-significant-digit format | none |
 | Snapshot mid-operand-stack | `result = 1 + sleep(2) + 3` snapshotted during the wait | `Frame.operands` holds the partial stack; the restored VM finishes with the identical state hash | none |
-| Previous-version snapshot (AD-7) | a `compiler: "1"` save in `fixtures/save/` | refused before its `vm` payload is read | `restore.compiler-mismatch`; AD-7's policy is restart-the-thread (entry 11) |
+| Previous-version snapshot (AD-7) | a `compiler: "1"` save in `fixtures/save/` | refused before its `vm` payload is read | `restore.compiler-mismatch`; owner ruling 2026-10-27: a compiler mismatch refuses the whole save, only a source mismatch restarts a thread (entry 11) |
 | `break` / `continue` | `break` inside a loop | not 3.1 syntax: the spec's keyword list has no break/continue | `syntax.unsupported`, naming the spec, with the line |
 
 </frozen-after-approval>

@@ -6,7 +6,7 @@ Legacy header text: `RPGTLKIT SAVE`. Toolkit 3.1.0 writes major **3**, minor **4
 
 **Counts here are exact counts** (not upper bounds), except the thread list.
 
-**Our own save format — Reawakened rule (R-13).** A rebuild may use its own save format; this project's canonical Reawakened format is the save/load contract. Epic 8 implements that format only; legacy `.sav` import (E-122) is deferred. Restore a thread from its serialized execution state only when saved source and compiler compatibility match current source/compiler; otherwise that thread restarts from source rather than resuming an incompatible instruction position. Restore still validates every saved callable and definition owner: if a changed or incompatible program leaves an unresolved callable reference, reject the save with the existing located restore error rather than repairing or silently dropping callable state (see [rpgcode-language.md](../engine/rpgcode-language.md), “Saving, loading and tidying up closures”). The split into separate lists — numeric globals, object-handle globals and string globals, then redirects, party, inventory, equipment and the miscellany — documents legacy import behavior only.
+**Our own save format — Reawakened rule (R-13).** A rebuild may use its own save format; this project's canonical Reawakened format is the save/load contract. Epic 8 implements that format only; legacy `.sav` import (E-122) is deferred. Restore a thread from its serialized execution state only when the save's compiler version matches the running compiler: a save made by a different compiler is refused whole with `restore.compiler-mismatch`, before any payload is used, and the current game is left unchanged (OWNER: Jensen, 2026-10-27). A thread whose saved *source* no longer matches the current source (`restore.source-changed`) is a separate, per-thread rule: that thread restarts from source rather than resuming an incompatible instruction position, and the rest of the save still loads. Restore still validates every saved callable and definition owner: if a changed or incompatible program leaves an unresolved callable reference, reject the save with the existing located restore error rather than repairing or silently dropping callable state (see [rpgcode-language.md](../engine/rpgcode-language.md), “Saving, loading and tidying up closures”). The split into separate lists — numeric globals, object-handle globals and string globals, then redirects, party, inventory, equipment and the miscellany — documents legacy import behavior only.
 
 ### Reawakened full-engine save and load
 
@@ -71,29 +71,23 @@ image effects and other in-flight blob requests all settle first. A save
 therefore never records a thread parked on a request the host has not answered,
 which a restore would drop and strand.
 
-### Known conflict: compiler mismatch, whole save or one thread
+### Compiler mismatch: refuse the whole save (owner ruling)
 
-Two normative rules disagree and this runtime follows the first:
+**Ruling (OWNER: Jensen, 2026-10-27).** A compiler version that differs from the
+running compiler makes a saved instruction position meaningless, so the save is
+refused as a whole and the live game is not changed. Two distinct rules follow
+and must not be merged:
 
-- `restoreGameState` refuses a snapshot whose `schema.compiler` differs from the
-  running compiler (`restore.compiler-mismatch`) before reading any payload.
-  This is pinned by `story-snapshot-and-restore-hardening-state-shape-hashstate-bounds-plan.md`
-  ("Refused before VM payload is used") and by `script-state.test.ts`. It also
-  matches "our own save format" rule R-13 only when the *compiler* moved, because
-  a compiler change makes every remembered instruction position suspect.
-- [rpgcode-language.md](../engine/rpgcode-language.md) (restore compatibility)
-  and R-13's per-thread clause say a thread whose saved source hash or compiler
-  version no longer matches restarts from source while the save still loads. That
-  is implemented for *individual file programs* inside a compatible snapshot
-  (`ensureCurrentProgram` restarts the thread from its source; it emits no
-  diagnostic today, although the AD-7 note names `restore.restarted`), not for a
-  snapshot compiled by another compiler version.
+| Situation | Outcome |
+|---|---|
+| The save's `schema.compiler`, or any program reference inside it (every frame's `program`, every object record's `program`, every `vm.defOwners` entry), names a compiler other than the running one | The whole save is refused with `restore.compiler-mismatch`, located at the first offending field, before the `vm` payload is used. `Load` returns failure to the calling thread, raises the diagnostic, and replaces nothing. |
+| The compiler matches but a file-backed program's current source no longer matches the saved `sourceHash` (`restore.source-changed`) | That one thread restarts from source on its next turn; the rest of the save loads. Callable and owner validation still rejects the save when a changed program leaves a saved callable unresolved. |
 
-The open question is whether a whole-save compiler bump should load with every
-thread restarted instead of being refused. Resolving it needs an owner ruling
-that names the file-program positions a compiler change invalidates; until then
-the refusal is the documented behaviour and the per-thread restart path covers
-changed sources only.
+This resolves the earlier disagreement between the whole-snapshot refusal
+(`restoreGameState`; the hardening plan; `script-state.test.ts`) and the
+per-thread clause that said "compiler or source mismatch restarts the thread":
+the per-thread restart is for changed source only. There is no `restore.restarted`
+diagnostic.
 
 Audio game saves add only the playback projection defined in
 [audio-media.md](../engine/audio-media.md#audio-save-load), not runtime audio
