@@ -78,6 +78,7 @@ import {
   endItemThreads,
   fileProgramRef,
   runPackageStartup,
+  verifyRestoredHandles,
   runThreadsPhase,
   runWaitsPhase,
   layerRoots,

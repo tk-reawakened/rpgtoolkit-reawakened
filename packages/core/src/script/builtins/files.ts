@@ -109,7 +109,7 @@ const FILE_COMMANDS: BuiltinSpec[] = [
     doc: { summary: "Save the current canonical game state.", behaviour: "Writes Saved/<name>.sav through the game's sandboxed save area and blocks until the host confirms the write. Does nothing on boards that disable saving.", groups: ["game-state"] },
     call: (view, args) => {
       const board = view.state?.world.board;
-      if (board !== undefined && board !== null && board.properties.disableSaving !== 0) return { value: null };
+      if ((board?.disableSaving ?? 0) !== 0) return { value: null };
       const info = fileInfo(view, [{ value: `${toStringValue(args[0]?.value as never)}.sav` }, { value: "saved" }]);
       return { value: null, request: { kind: "saveBlob", gameSave: true, blob: { area: info.area, path: info.path }, hex: "" } };
     },

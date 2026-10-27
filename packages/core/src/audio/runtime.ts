@@ -1218,7 +1218,7 @@ export function createAudioRuntime(host: AudioHost, options: AudioRuntimeOptions
         const tracks: AudioTrackState[] = [];
         for (const configured of host.audio.tracks) {
           const track = createTrack(configured.name, configured.voiceCount);
-          const savedTrack = savedByName.get(configured.name);
+          const savedTrack = savedByName.get(asciiFold(configured.name));
           if (savedTrack === undefined) {
             tracks.push(track);
             continue;
