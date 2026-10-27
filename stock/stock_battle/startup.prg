@@ -914,7 +914,6 @@ stockBattleUi = {
   staticSig: "",
   lastPaintTick: -1,
   barScan: 0,
-  sigProbe: "",
   preload: {},
   preloadCount: 0,
   chars: {},
@@ -1064,7 +1063,6 @@ stockBattleUi = {
     stockBattleUi.staticSig = ""
     stockBattleUi.lastPaintTick = -1
     stockBattleUi.barScan = 0
-    stockBattleUi.sigProbe = ""
     stockBattleUi.preload = {}
     stockBattleUi.preloadCount = 0
     stockBattleUi.chars = {}
@@ -1573,8 +1571,6 @@ stockBattleUi = {
     local(index)
     local(fill)
     local(layout) = stockBattleUi.layout
-    // Probe: remember what differed between the last two calls (single line, no cost).
-    stockBattleUi.sigProbe = "" + len(chrome) + "/" + len(stockBattleUi.staticSig) + "/" + (chrome == stockBattleUi.staticSig ? "same" : "diff") + "/t" + tickNow + "/p" + stockBattleUi.lastPaintTick
     if (chrome != stockBattleUi.staticSig) {
       stockBattleUi.staticSig = chrome
       stockBattleUi.draw()

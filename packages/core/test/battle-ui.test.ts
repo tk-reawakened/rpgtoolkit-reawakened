@@ -298,8 +298,8 @@ test("five party members (E-85 maximum 5) render without clipping and each membe
   deepEqual(rig.diagnostics, []);
 });
 
-// WIP cadence regressions (entry 7.11). These fail against the current screen: measured refresh cadence is ~4 ticks
-// because one loop iteration still costs more than the 1,000-step budget, so a one-tick animation aliases.
+// Frame-cadence regressions (entry 7.11, BAT-11): a stance animation must advance on the rendered screen at the frame
+// delay the animation file stores, at idle and during an action, and a selection change must redraw at once.
 test("stance animation frames advance on the real screen every tick at a one-tick delay, idle and during an action", () => {
   const rig = bootUiRig({ stanceDelayTicks: 1 });
   awaitMenu(rig);
