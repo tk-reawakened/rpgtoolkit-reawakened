@@ -953,9 +953,9 @@ stockBattleUi = {
     local(layout) = {}
     layout.w = w
     layout.h = h
-    layout.panelH = 128
-    layout.panelY = h - 128
-    layout.messageY = h - 128 - 24
+    layout.panelH = 132
+    layout.panelY = h - 132
+    layout.messageY = h - 132 - 24
     layout.messageH = 20
     // Visual reference layout: prominent unobstructed upper battlefield with enemies left, player sprites right.
     layout.enemyX = 40
@@ -964,16 +964,18 @@ stockBattleUi = {
     layout.enemyDY = 112
     layout.sprite = 64
     layout.playerX = w - 40 - 64
-    layout.playerY = 32
-    layout.playerDY = 64
+    layout.playerY = 24
+    // Up to five party fighters fit vertically on the right side without clipping: 5 * 52 = 260px <= 324px
+    layout.playerDY = 52
     // Adjacent bottom panels: command panel on the left (x = 8..152), party status panel on the right (x = 160..w-8).
     layout.cmdX = 8
     layout.cmdW = 144
     layout.partyX = 160
     layout.partyW = w - 168
     layout.rowX = 172
-    layout.rowY = h - 128 + 10
-    layout.rowDY = 22
+    layout.rowY = h - 132 + 8
+    // Up to five party members (E-85 maximum 5) fit cleanly inside the 132px panel: 5 * 24 = 120px + 8 = 128px
+    layout.rowDY = 24
     layout.hpX = 276
     layout.hpW = 112
     layout.smpX = 396
@@ -1364,56 +1366,72 @@ stockBattleUi = {
     }
     return 0
   },
+  // Visual reference direction (`clipboard-2026-10-26-222322-7E56F8E8.png`): when browsing Special moves or Items,
+  // show a prominent contextual description header bar across the top of the list, a broad overlay across the field
+  // with selection highlight and cost/count, while the bottom command and party panels remain visible below.
   drawList: () => {
     local(layout) = stockBattleUi.layout
     local(fighter) = battle.fighter(1, stockBattleUi.menuIndex)
     local(rows) = stockBattleUi.listCount
     local(row)
     local(entry)
+    local(selectedEntry) = stockBattleUi.list[stockBattleUi.listCursor]
     local(data) = stockBattleUi.chars["" + fighter.id]
-    local(title)
-    local(detail)
-    local(x) = layout.cmdX
-    local(width) = layout.cmdW
-    local(y) = layout.panelY
-    if (rows > layout.listRows) {
-      rows = layout.listRows
-    }
-    // Sub-lists (Special moves or Items) open aligned on the bottom panel: horizontally spanning cmd panel
-    // or pop over bottom-left with enough width for items and details (x = cmdX, width = listW)
-    width = layout.listW
-    if (x + width > layout.w - 8) {
-      width = layout.w - 16
-    }
-    y = layout.panelY - 24
-    if (y < 40) {
-      y = 40
-    }
-    title = "Items"
+    local(title) = "Items"
+    local(desc) = ""
+    local(x) = 16
+    local(width) = layout.w - 32
+    local(y) = 28
+    local(h) = layout.panelY - 44
     if (stockBattleUi.listKind == "special") {
-      title = "Special"
-      if (data != null) {
-        if (data.specialname != "") {
-          title = data.specialname
-        }
+      title = "Special Moves"
+      if (data != null && data.specialname != "") {
+        title = data.specialname
       }
     }
-    stockBattleUi.box(x, y, x + width - 1, y + layout.panelH + 23, 12, 16, 40)
-    stockBattleUi.frame(x, y, x + width - 1, y + layout.panelH + 23, 180, 190, 255)
-    stockBattleUi.words(x + 8, y + 6, title, 8, 180, 190, 255)
+    if (selectedEntry != null && selectedEntry.desc != "") {
+      desc = selectedEntry.desc
+    }
+    // Top description box across the list panel
+    stockBattleUi.box(x, y, x + width - 1, y + 36, 16, 20, 48)
+    stockBattleUi.frame(x, y, x + width - 1, y + 36, 180, 190, 255)
+    stockBattleUi.words(x + 12, y + 6, title, 8, 180, 190, 255)
+    if (desc != "") {
+      stockBattleUi.words(x + 12, y + 18, desc, 8, 255, 255, 255)
+    }
+    // Two-column list box: up to 8 entries per column (16 total visible), sized to fit content dynamically
+    local(listY) = y + 42
+    local(listRows) = rows
+    if (listRows > 8) {
+      listRows = 8
+    }
+    if (listRows < 3) {
+      listRows = 3
+    }
+    local(listH) = listRows * 30 + 16
+    stockBattleUi.box(x, listY, x + width - 1, listY + listH - 1, 12, 16, 40)
+    stockBattleUi.frame(x, listY, x + width - 1, listY + listH - 1, 180, 190, 255)
+    local(colW) = (width - 16) / 2
     for (row = 0; row < rows; row = row + 1) {
-      entry = stockBattleUi.list[stockBattleUi.listTop + row]
-      local(rowY) = y + 20 + row * layout.listRowH
-      if (stockBattleUi.listTop + row == stockBattleUi.listCursor) {
-        stockBattleUi.box(x + 4, rowY, x + width - 5, rowY + layout.listRowH - 2, 40, 64, 140)
-        stockBattleUi.words(x + 8, rowY + 3, ">", 16, 255, 224, 64)
+      entry = stockBattleUi.list[row]
+      local(col) = 0
+      local(itemRow) = row
+      if (row >= 8) {
+        col = 1
+        itemRow = row - 8
+      }
+      local(itemX) = x + 8 + col * colW
+      local(itemY) = listY + 8 + itemRow * 30
+      if (row == stockBattleUi.listCursor) {
+        stockBattleUi.box(itemX, itemY - 2, itemX + colW - 8, itemY + 26, 40, 64, 140)
+        stockBattleUi.words(itemX + 4, itemY + 4, ">", 16, 255, 224, 64)
       }
       if (entry.affordable == 0) {
-        stockBattleUi.words(x + 28, rowY + 3, left(entry.label, 12), 16, 110, 110, 120)
-        stockBattleUi.words(x + width - 8 - len(entry.detail) * 8, rowY + 7, entry.detail, 8, 110, 110, 120)
+        stockBattleUi.words(itemX + 24, itemY + 4, left(entry.label, 14), 16, 110, 110, 120)
+        stockBattleUi.words(itemX + 260, itemY + 8, entry.detail, 8, 110, 110, 120)
       } else {
-        stockBattleUi.words(x + 28, rowY + 3, left(entry.label, 12), 16, 255, 255, 255)
-        stockBattleUi.words(x + width - 8 - len(entry.detail) * 8, rowY + 7, entry.detail, 8, 200, 220, 255)
+        stockBattleUi.words(itemX + 24, itemY + 4, left(entry.label, 14), 16, 255, 255, 255)
+        stockBattleUi.words(itemX + 260, itemY + 8, entry.detail, 8, 200, 220, 255)
       }
     }
     return 0
@@ -1447,6 +1465,9 @@ stockBattleUi = {
   // accurately across idle passes, player menus, and action hold sequences without guessing fixed quanta, the signature
   // samples the authoritative engine tick counter `battletick()` at every check (idle, menu, hold, action),
   // matching the exact per-animation playback frame so idle fighters animate continuously across time.
+  // The signature is every value the full redraw shows. A redraw happens only when one of them changes; the charge
+  // bars repaint on their own. While a menu or an action hold is on screen the engine tick is sampled (quantised to
+  // three ticks) so the stance frames advance during interaction as well as in idle passes.
   currentSignature: () => {
     local(index)
     local(fighter)
@@ -1676,7 +1697,7 @@ stockBattleUi.prepareLists = (fighter) => {
           if (move != null) {
             if (move.battle == 0) {
               stockBattleUi.specials[stockBattleUi.specialCount] = {
-                label: stockBattleUi.base(file), detail: "SP " + move.smp, file: file, data: move, affordable: 1
+                label: stockBattleUi.base(file), detail: "SP " + move.smp, desc: "" + move.description, file: file, data: move, affordable: 1
               }
               if (move.smp > fighter.smp) {
                 stockBattleUi.specials[stockBattleUi.specialCount].affordable = 0
@@ -1702,7 +1723,7 @@ stockBattleUi.prepareLists = (fighter) => {
     if (item != null) {
       if (item.usable == 1) {
         stockBattleUi.items[stockBattleUi.itemCount] = {
-          label: stack.handle, detail: "x" + stack.quantity, file: stack.source, quantity: stack.quantity, data: item, affordable: 1
+          label: stack.handle, detail: "x" + stack.quantity, desc: "" + item.description, file: stack.source, quantity: stack.quantity, data: item, affordable: 1
         }
         stockBattleUi.itemCount = stockBattleUi.itemCount + 1
       }

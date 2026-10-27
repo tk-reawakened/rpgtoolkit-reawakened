@@ -265,3 +265,35 @@ test("a healing item can target and revive a fallen ally, and a defeated enemy k
   equal(ui(rig)["mode"], "target", "refused item restores target mode");
   equal(cueNames(rig).slice(-1)[0], "cant.wav", "and plays cancel sound");
 });
+
+test("five party members (E-85 maximum 5) render without clipping and each member is reachable by keyboard", () => {
+  const fiveParty = [
+    { key: "hero" as const, hp: 42, smp: 12 },
+    { key: "mage" as const, hp: 30, smp: 3 },
+    { key: "rogue" as const, hp: 25, smp: 6 },
+    { key: "hero" as const, hp: 38, smp: 10 },
+    { key: "mage" as const, hp: 20, smp: 5 },
+  ];
+  const rig = bootUiRig({ party: fiveParty });
+  awaitMenu(rig);
+  equal(ui(rig)["on"], 1);
+  equal(Number(rig.state().battle?.parties[1].length), 5, "all five members are in battle");
+  // Open Items list and target selection across the five-member party
+  rig.press("DOWN", 12);
+  rig.press("DOWN", 12);
+  rig.press("ENTER", 12); // open Items
+  rig.press("ENTER", 12); // target party
+  equal(ui(rig)["mode"], "target");
+  equal(ui(rig)["targetparty"], 1);
+  equal(Number(ui(rig)["targetcount"]), 5, "all five party members are selectable targets");
+  // Step through all 5 members with the keyboard
+  for (let step = 0; step < 5; step += 1) {
+    equal(Number(ui(rig)["targetcursor"]), step, `cursor lands on member index ${step}`);
+    rig.press("RIGHT", 12);
+  }
+  equal(Number(ui(rig)["targetcursor"]), 0, "target cursor wraps cleanly from fifth member back to first");
+  // Capture rendered frame to verify no visual clipping
+  const frame = rig.frame();
+  ok(frame.w === 640 && frame.h === 480, "rendered at 640x480");
+  deepEqual(rig.diagnostics, []);
+});

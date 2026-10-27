@@ -1116,6 +1116,7 @@ const MOVE_ASSET = {
     fp: move.damage, smp: move.smpCost, targetsmp: move.targetSmpDrain,
     animation: move.animation, program: move.program, statuseffect: move.statusEffect,
     battle: move.usableInBattle, menu: move.usableFromMenu,
+    description: move.description,
   })),
 } satisfies BuiltinSpec;
 
@@ -1140,6 +1141,7 @@ const ITEM_ASSET = {
   call: dataAssetContinuation("item", "format.item", readItem, (view, _args, item) => dictionary(view, {
     hp: item.battleUseHp, smp: item.battleUseSmp, animation: item.battleAnimation, program: item.battleUseProgram,
     usable: item.battleUsable,
+    description: item.description,
   })),
 } satisfies BuiltinSpec;
 

@@ -244,11 +244,11 @@ function characterBytes(name: string, key: string, specials: readonly string[], 
   }));
 }
 
-function moveBytes(name: string, values: { fp: number; cost: number }): Uint8Array {
-  return unwrap(writeSpecialMove({ ...createEmptySpecialMove(), minor: 3, name, damage: values.fp, smpCost: values.cost, usableInBattle: 0 }));
+function moveBytes(name: string, values: { fp: number; cost: number; desc?: string }): Uint8Array {
+  return unwrap(writeSpecialMove({ ...createEmptySpecialMove(), minor: 3, name, damage: values.fp, smpCost: values.cost, description: values.desc ?? "", usableInBattle: 0 }));
 }
 
-function itemBytes(name: string, values: { hp: number; smp: number; battle: number }): Uint8Array {
+function itemBytes(name: string, values: { hp: number; smp: number; battle: number; desc?: string }): Uint8Array {
   return unwrap(writeItem({
     ...createEmptyItem(),
     minor: 4,
@@ -257,6 +257,7 @@ function itemBytes(name: string, values: { hp: number; smp: number; battle: numb
     reservedAnimation: "",
     customStances: [],
     name,
+    description: values.desc ?? "",
     battleUsable: values.battle,
     battleUseHp: values.hp,
     battleUseSmp: values.smp,
@@ -387,10 +388,10 @@ export function gameFiles(options: RigOptions = {}): { readonly files: Map<strin
       put(`Misc/${anm}`, animationBytes(png));
     }
   }
-  put("SpcMove/fire.spc", moveBytes("Fire", { fp: 12, cost: 4 }));
-  put("SpcMove/blaze.spc", moveBytes("Blaze", { fp: 30, cost: 30 }));
-  put("Item/potion.itm", itemBytes("Potion", { hp: 20, smp: 0, battle: 1 }));
-  put("Item/ether.itm", itemBytes("Ether", { hp: 0, smp: 8, battle: 1 }));
+  put("SpcMove/fire.spc", moveBytes("Fire", { fp: 12, cost: 4, desc: "A concentrated fiery blast that burns a single foe." }));
+  put("SpcMove/blaze.spc", moveBytes("Blaze", { fp: 30, cost: 30, desc: "A raging inferno that consumes all targets in its path." }));
+  put("Item/potion.itm", itemBytes("Potion", { hp: 20, smp: 0, battle: 1, desc: "Restores 20 HP to one ally, living or fallen." }));
+  put("Item/ether.itm", itemBytes("Ether", { hp: 0, smp: 8, battle: 1, desc: "Restores 8 SMP to one party member." }));
   put("Item/key.itm", itemBytes("Brass Key", { hp: 0, smp: 0, battle: 0 }));
   for (const sound of ["move.wav", "choose.wav", "cant.wav"]) put(`Media/${sound}`, wavBytes());
   return { files, paths };
