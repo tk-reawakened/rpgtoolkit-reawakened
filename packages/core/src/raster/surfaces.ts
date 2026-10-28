@@ -51,6 +51,7 @@ function byteCount(width: number, height: number): number {
   return width * height * 4;
 }
 
+
 /** Encode bytes without relying on host `btoa`/`Buffer` APIs (G2). */
 export function encodeSurfaceBytes(bytes: Uint8Array): string {
   const chunks: string[] = [];
@@ -381,6 +382,18 @@ export function replaceSurface(state: SurfacesSection, id: SurfaceId, width: num
   batches.get(state)?.entries.delete(current);
   decodedRecords.set(current, { rev: current.rev, bitmap: current.bitmap, b64: current.bitmap.b64, w: width, h: height, rgba: pixels, canonical: true });
   return current.rev;
+}
+
+/** The live reserved render-now canvas, or null when none was created or the script killed it (E-57). Handle 0 is the screen, never a canvas. */
+export function renderNowCanvas(state: SurfacesSection): SurfaceId | null {
+  const handle = state.renderNow;
+  if (typeof handle !== "number" || handle <= 0 || !Object.hasOwn(state.entries, String(handle))) return null;
+  return handle;
+}
+
+/** Whether the reserved canvas is switched on and live. An absent flag (an older save) means on whenever a handle is named. */
+export function renderNowEnabled(state: SurfacesSection): boolean {
+  return renderNowCanvas(state) !== null && (state.renderNowOn ?? true);
 }
 
 /** Delete a surface. The allocation counter remains untouched. Surface 0 is permanent. */

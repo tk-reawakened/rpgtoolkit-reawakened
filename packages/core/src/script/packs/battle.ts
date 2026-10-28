@@ -21,6 +21,8 @@ import { recordDiagnostic } from "../effects.ts";
 import type { CommandEffect, CommandResult, CommandView, PluginDefinition } from "../plugin.ts";
 import { COMPILER_VERSION } from "../program.ts";
 import type { PlainData } from "../../ports/plain-data.ts";
+import { surfaceSize } from "../../raster/surfaces.ts";
+import type { SurfaceId } from "../../ports/keys.ts";
 
 const GROUP = "battle-stats-menus-33";
 const NO_WAIT = { kind: "never", summary: "Completes in the current script turn." } as const;
@@ -1114,6 +1116,7 @@ const MOVE_ASSET = {
     fp: move.damage, smp: move.smpCost, targetsmp: move.targetSmpDrain,
     animation: move.animation, program: move.program, statuseffect: move.statusEffect,
     battle: move.usableInBattle, menu: move.usableFromMenu,
+    description: move.description,
   })),
 } satisfies BuiltinSpec;
 
@@ -1134,9 +1137,11 @@ const MOVE_DATA = {
 
 const ITEM_ASSET = {
   name: "__battle_item_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
-  doc: internalDocumentation("Resume an item asset request for battle data.", "Reads the `.itm` bytes and returns only the battle-use HP, SMP, animation and program as a dictionary with lowercase keys.", [...ASSET_REPLY_THROWS, { code: "format.item", when: "the bytes are not a valid item `.itm` file" }]),
+  doc: internalDocumentation("Resume an item asset request for battle data.", "Reads the `.itm` bytes and returns only the battle-use HP, SMP, animation, program and usable flag as a dictionary with lowercase keys.", [...ASSET_REPLY_THROWS, { code: "format.item", when: "the bytes are not a valid item `.itm` file" }]),
   call: dataAssetContinuation("item", "format.item", readItem, (view, _args, item) => dictionary(view, {
     hp: item.battleUseHp, smp: item.battleUseSmp, animation: item.battleAnimation, program: item.battleUseProgram,
+    usable: item.battleUsable,
+    description: item.description,
   })),
 } satisfies BuiltinSpec;
 
@@ -1144,7 +1149,7 @@ const ITEM_DATA = {
   name: "battleitemdata", aliases: [], params: [parameter("file")],
   doc: {
     summary: "Read an item file's battle-use numbers and references.",
-    behaviour: "Loads Item/<file>.itm (the prefix and extension may be omitted) and returns a dictionary of its stored battle-use values without changing any actor, inventory or battle state: `hp` and `smp` (the amounts the item restores when used in battle), `animation` and `program` (file names, possibly empty). It does not check that the item is battle-usable or owned. Failures raise the ordinary asset and format errors, which the standard script error policy turns into a null result.",
+    behaviour: "Loads Item/<file>.itm (the prefix and extension may be omitted) and returns a dictionary of its stored battle-use values without changing any actor, inventory or battle state: `hp` and `smp` (the amounts the item restores when used in battle), `animation` and `program` (file names, possibly empty), and `usable`, the stored used-in-a-fight byte (1 = usable in battle, 0 = not). It does not itself refuse an item that is not battle-usable and does not check that it is owned; a menu that lists only usable items compares `usable`. Failures raise the ordinary asset and format errors, which the standard script error policy turns into a null result.",
     groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
     throws: [...ASSET_REPLY_THROWS, { code: "format.item", when: "the bytes are not a valid item `.itm` file" }, { code: "builtin.bad-arg", when: "the file name is empty" }],
   },
@@ -1281,18 +1286,55 @@ const ENEMY_DATA = {
   },
 } satisfies BuiltinSpec;
 
+/**
+ * One special-move slot is available to its character when at least one configured condition succeeds
+ * (progression-and-levels.md#special-moves): experience at least `minExp`, level at least `minLevel`, or the named
+ * script variable equal to the required value (compared as text, or as numbers when both read as finite numbers).
+ */
+function specialAvailable(view: CommandView, actorId: number, slot: { readonly minExp: number; readonly minLevel: number; readonly condVar: string; readonly condValue: string }): boolean {
+  const actor = actorRecord(view, actorId);
+  if (actor !== null && (actor.stats.experience >= slot.minExp || actor.stats.level >= slot.minLevel)) return true;
+  if (slot.condVar === "") return false;
+  const raw = view.state?.vm.globals[slot.condVar.toLowerCase()];
+  if (raw === undefined || raw === null || typeof raw === "object") return false;
+  const have = String(raw);
+  if (have === slot.condValue) return true;
+  const a = Number(have);
+  const b = Number(slot.condValue);
+  return have.trim() !== "" && slot.condValue.trim() !== "" && Number.isFinite(a) && Number.isFinite(b) && a === b;
+}
+
 const CHARACTER_DATA_ASSET = {
-  name: "__battle_character_data_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
-  doc: internalDocumentation("Resume a character asset request.", "Reads the `.cha` bytes and returns the level-up program reference as a plain-data dictionary.", [...ASSET_REPLY_THROWS, { code: "format.character", when: "the bytes are not a valid character `.cha` file" }]),
-  call: dataAssetContinuation("character", "format.character", readCharacter, (view, _args, character) =>
-    dictionary(view, { levelupprogram: character.levelUpProgram })),
+  name: "__battle_character_data_asset", aliases: [], params: [parameter("ok"), parameter("bytes"), parameter("actor")],
+  doc: internalDocumentation("Resume a character asset request.", "Reads the `.cha` bytes and returns the level-up program reference and the special-move list as a plain-data dictionary.", [...ASSET_REPLY_THROWS, { code: "format.character", when: "the bytes are not a valid character `.cha` file" }]),
+  call: dataAssetContinuation("character", "format.character", readCharacter, (view, args, character) => {
+    const state = view.state;
+    if (state === undefined) throw new ScriptError("builtin.bad-arg", "battlecharacterdata requires live VM state");
+    const moves = createObject(state.vm, null);
+    let count = 0;
+    for (const slot of character.specialMoves) {
+      if (slot.file === "") continue;
+      writeMember(moves, String(count), dictionaryValue(view, {
+        file: slot.file, minexp: slot.minExp, minlevel: slot.minLevel,
+        available: specialAvailable(view, numeric(args, 2), slot) ? 1 : 0,
+      }));
+      count += 1;
+    }
+    return dictionary(view, {
+      levelupprogram: character.levelUpProgram,
+      specialname: character.specialMoveCategory,
+      hasspecial: character.hasSpecialMoves === 0 ? 1 : 0,
+      specialcount: count,
+      specialmoves: { kind: "object", handle: moves.handle, className: moves.className },
+    });
+  }),
 } satisfies BuiltinSpec;
 
 const CHARACTER_DATA = {
   name: "battlecharacterdata", aliases: [], params: [parameter("fighter")],
   doc: {
-    summary: "Read a character's level-up program.",
-    behaviour: "Reads the `.cha` file named by a party fighter's source and returns `{ levelupprogram }` without changing actor, inventory or battle state. Fallen party fighters still in the battle are accepted. A blank program reference is returned unchanged. Member names are matched ignoring case.",
+    summary: "Read a character's level-up program and special-move list.",
+    behaviour: "Reads the `.cha` file named by a party fighter's source and returns `{ levelupprogram, specialname, hasspecial, specialcount, specialmoves }` without changing actor, inventory or battle state. `specialname` is the character's menu label for its special moves (for example \"Magic\"), `hasspecial` is 1 when the character has special moves and 0 when its file says it has none, and `specialmoves` is a dictionary indexed from 0 through `specialcount - 1` of the non-empty slots in slot order, each `{ file, minexp, minlevel, available }`. `available` is 1 when at least one learn condition holds now (experience at least `minexp`, level at least `minlevel`, or the slot's condition variable equals its required value) and 0 otherwise; it does not check the move's own battle flag, cost or file. Fallen party fighters still in the battle are accepted. A blank program reference is returned unchanged. Member names are matched ignoring case.",
     groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
     throws: [
       { code: "battle.not-active", when: "there is no active battle" },
@@ -1303,8 +1345,11 @@ const CHARACTER_DATA = {
   },
   call: (view: CommandView, args: readonly Arg[]) => {
     const actor = battleActorFromHandle(view, 1, args[0]?.value);
-    if (actor.source === "") return dictionary(view, { levelupprogram: "" });
-    return requestDataAsset("characters", actor.source, "__battle_character_data_asset");
+    if (actor.source === "") {
+      const none = createObject(view.state!.vm, null);
+      return dictionary(view, { levelupprogram: "", specialname: "", hasspecial: 0, specialcount: 0, specialmoves: { kind: "object", handle: none.handle, className: none.className } });
+    }
+    return requestDataAsset("characters", actor.source, "__battle_character_data_asset", [actor.id]);
   },
 } satisfies BuiltinSpec;
 
@@ -1327,6 +1372,43 @@ const CONSUME = {
     if (item === "") throw new ScriptError("builtin.bad-arg", "battleconsume: the item name must not be empty");
     const target = referenceActor(view, args[1]?.value);
     return { value: null, effects: [inventoryConsumeEffect(item, target, integer(args, 2, "battleconsume"), integer(args, 3, "battleconsume"))] };
+  },
+} satisfies BuiltinSpec;
+
+const BATTLE_SCREEN = {
+  name: "battlescreensize", aliases: [], params: [],
+  doc: {
+    summary: "Read the size of the screen a battle screen would draw on.",
+    behaviour: "Returns `{ width, height }`, the logical-pixel size of the screen surface, or null when the host has no screen surface (a headless run with no composed frame). It changes nothing and does not wait. A battle package draws its screen only when this is not null, so a headless run needs no drawing commands at all.",
+    groups: REAWAKENED, tags: ["experimental"], waits: NO_WAIT,
+  },
+  call: (view: CommandView): CommandResult => {
+    const surfaces = view.state?.surfaces;
+    const size = surfaces === undefined || surfaces.entries === undefined ? null : surfaceSize(surfaces, 0 as SurfaceId);
+    return size === null ? { value: null } : dictionary(view, { width: size.w, height: size.h });
+  },
+} satisfies BuiltinSpec;
+
+const BATTLE_INVENTORY = {
+  name: "battleinventory", aliases: [], params: [],
+  doc: {
+    summary: "List the available inventory stacks a battle menu can offer.",
+    behaviour: "Returns `{ count, items }` where `items` is a dictionary indexed from 0 through `count - 1` of the inventory stacks that have at least one available unit, in inventory order, each `{ source, handle, quantity }` (the `.itm` file name as stored, the item's handle and the available count). It is a read-only view: it changes no inventory list, quantity or actor stat, loads no item file and does not say whether a stack is usable in battle (read `battleitemdata(source).usable` for that). It reads the same stacks as `itemcount`.",
+    groups: REAWAKENED, tags: ["experimental"], waits: NO_WAIT,
+    throws: [{ code: "battle.not-active", when: "there is no active battle" }],
+  },
+  call: (view: CommandView): CommandResult => {
+    const state = view.state;
+    if (state === undefined) throw new ScriptError("builtin.bad-arg", "battleinventory requires live VM state");
+    if (state.battle === undefined || state.battle === null) throw new ScriptError("battle.not-active", "there is no active battle");
+    const items = createObject(state.vm, null);
+    let count = 0;
+    for (const stack of state.inventory.items) {
+      if (stack.quantity < 1) continue;
+      writeMember(items, String(count), dictionaryValue(view, { source: stack.source, handle: stack.handle, quantity: stack.quantity }));
+      count += 1;
+    }
+    return dictionary(view, { count, items: { kind: "object", handle: items.handle, className: items.className } });
   },
 } satisfies BuiltinSpec;
 
@@ -1849,7 +1931,7 @@ export const BATTLE_COMMANDS: readonly BuiltinSpec[] = [
   PARTY_SIZE, FIGHTER, AI, CHARGE, ADD_CHARGE, SET_CHARGE, RELEASE_CHARGE, CHARGE_PERCENT, FINISH,
   HP, GIVE_HP, GET_HP, MAX_HP, GET_MAX_HP, SMP, GIVE_SMP, GET_SMP, MAX_SMP, GET_MAX_SMP,
   FP, GIVE_FP, GET_FP, DP, GET_DP, GIVE_EXP, APPLY_STATUS, REMOVE_STATUS, STATUS_DATA, STATUS_ASSET, GET_STATUS, STATUS_FLAGS, STATUS_FLAGS_ASSET, STATUS_DATA_ASSET,
-  MOVE_DATA, MOVE_ASSET, ITEM_DATA, ITEM_ASSET, ENEMY_DATA, ENEMY_DATA_ASSET, CHARACTER_DATA, CHARACTER_DATA_ASSET, BACKGROUND_DATA, BACKGROUND_DATA_ASSET, ANIMATION_FILE, ANIMATION_ASSET, CONSUME, UNAFFORDABLE, INTEGER_MUL_DIV,
+  MOVE_DATA, MOVE_ASSET, ITEM_DATA, ITEM_ASSET, ENEMY_DATA, ENEMY_DATA_ASSET, CHARACTER_DATA, CHARACTER_DATA_ASSET, BACKGROUND_DATA, BACKGROUND_DATA_ASSET, ANIMATION_FILE, ANIMATION_ASSET, CONSUME, BATTLE_INVENTORY, BATTLE_SCREEN, UNAFFORDABLE, INTEGER_MUL_DIV,
   STATUS_SIGNATURE, PROGRAM_CONTEXT, STATUS_DELTA, STATUS_ADVANCE,
   OUTCOME_REWARDS, GAME_OVER_PROGRAM, END_LOSS, GAIN_GOLD, BATTLE_ACTOR_REF, EXPERIENCE_BEGIN,
   EXPERIENCE_STEP_READY, LEVELUP_CONTEXT, EXPERIENCE_STEP, APPLY_OUTCOME,

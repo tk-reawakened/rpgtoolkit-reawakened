@@ -201,6 +201,28 @@ test("very large distinct surfaces preserve hashes after prefix and bitmap edits
   equal(hashGameState(state), previousHashProjection(state));
 });
 
+test("surface hashes preserve renderNowOn presence, values and direct mutations", () => {
+  const state = withSurfaceBytes("A".repeat(10000));
+  const surfaces = state.surfaces as typeof state.surfaces & { renderNowOn?: boolean };
+  const absentHash = hashGameState(state);
+  equal(absentHash, previousHashProjection(state));
+
+  surfaces.renderNowOn = true;
+  const trueHash = hashGameState(state);
+  equal(trueHash, previousHashProjection(state));
+  ok(trueHash !== absentHash);
+
+  surfaces.renderNowOn = false;
+  const falseHash = hashGameState(state);
+  equal(falseHash, previousHashProjection(state));
+  ok(falseHash !== trueHash);
+
+  surfaces.renderNowOn = true;
+  equal(hashGameState(state), trueHash);
+  delete surfaces.renderNowOn;
+  equal(hashGameState(state), absentHash);
+});
+
 test("aliased program owners preserve canonical hashes through direct edits and evolving prefixes", () => {
   const state = withSurfaceBytes("A".repeat(10000));
   const ref = { kind: "inline" as const, text: "x".repeat(9000), compiler: "2", owner: "pack" };
@@ -253,11 +275,10 @@ test("a large definition table hashes without exceeding call argument limits", (
 test("surface canonical cache falls back for extra fields and rejects accessors", () => {
   const state = withSurfaceBytes("A".repeat(10000));
   equal(hashGameState(state), previousHashProjection(state));
-  Object.assign(state.surfaces, { renderNowOn: true });
+  const surfaces = state.surfaces as unknown as { renderNowOn?: unknown };
+  surfaces.renderNowOn = "yes";
   equal(hashGameState(state), previousHashProjection(state));
-  Object.assign(state.surfaces, { renderNowOn: false });
-  equal(hashGameState(state), previousHashProjection(state));
-  delete (state.surfaces as { renderNowOn?: boolean }).renderNowOn;
+  delete surfaces.renderNowOn;
   Object.assign(state.surfaces.entries["1"]!, { extra: "visible" });
   equal(hashGameState(state), previousHashProjection(state));
   delete (state.surfaces.entries["1"]! as { extra?: string }).extra;

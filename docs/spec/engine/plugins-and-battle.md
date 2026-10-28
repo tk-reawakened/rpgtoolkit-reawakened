@@ -263,7 +263,7 @@ Plugins reach the engine through the 140 methods below. Native plugins receive t
 Notable conventions: `CBCanvasDrawText` positions text in **character cells**, `CBDrawTextAbsolute` in pixels; `CBGetBracketElement` is **1-based**; the element-value callbacks only work during an RPGCode plugin call.
 
 <a id="e-54"></a>
-**E-54 Animations.** `.anm` files and animated GIFs: a per-frame image (a picture, a tile or a tile bitmap), a per-frame transparent colour, a per-frame sound and a frame delay in seconds. They are used for sprites, battle effects and stand-alone screen animations (`Animation`, `SizedAnimation`, and persistent ones that keep running until `EndAnimation`), and frames are shared and cached between sprites that use the same file ([../formats/animation.md](../formats/animation.md)). Callbacks 105 to 113 below create, draw and query them.
+**E-54 Animations.** `.anm` files and animated GIFs: a per-frame image (a picture, a tile or a tile bitmap), a per-frame transparent colour, a per-frame sound and a frame delay in seconds. They are used for sprites, battle effects and stand-alone screen animations (`Animation`, `SizedAnimation`, and persistent ones that keep running until `EndAnimation`; the Reawakened [`pinnedanimation`](rpgcode-functions.md#reawakened-pinnedanimation) is the same animation drawn above the render-now canvas that holds its last frame), and frames are shared and cached between sprites that use the same file ([../formats/animation.md](../formats/animation.md)). Callbacks 105 to 113 below create, draw and query them.
 
 | # | Method | Purpose |
 |---|---|---|

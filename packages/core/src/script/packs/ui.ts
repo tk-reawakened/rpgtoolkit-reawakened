@@ -2,7 +2,8 @@ import { dosPaletteEntry } from "../../formats/tileset/dos-palette.ts";
 import { assetKey } from "../../formats/resolver/resolver.ts";
 import type { PlainData } from "../../ports/plain-data.ts";
 import type { Rgb } from "../../ports/draw.ts";
-import { colourSurface } from "../../raster/surfaces.ts";
+import { colourSurface, surfaceSize } from "../../raster/surfaces.ts";
+import type { SurfaceId } from "../../ports/keys.ts";
 import type { Arg, BuiltinDoc, BuiltinSpec, ParamSpec } from "../builtins.ts";
 import { ScriptError } from "../errors.ts";
 import type { CommandEffect, CommandResult, CommandView, PluginDefinition } from "../plugin.ts";
@@ -66,6 +67,19 @@ function uiCommand(
 }
 function plainDoc(summary: string, behaviour: string, waits: BuiltinDoc["waits"] = { kind: "never", summary: "Completes in the current script turn." }): BuiltinDoc {
   return { summary, behaviour, groups: ["message-window-text-fonts-30"], waits };
+}
+
+/**
+ * The optional canvas argument of `text` and `pixelText` (E-56): absent or the screen handle 0 keeps the screen text layer;
+ * a live canvas handle is passed on as a fourth effect argument so the engine draws the glyphs into that canvas.
+ */
+function canvasTarget(view: CommandView, args: readonly Arg[], index: number, name: string): readonly PlainData[] {
+  if (args[index] === undefined) return [];
+  const handle = Math.trunc(number(args, index));
+  if (handle === 0) return [];
+  const surfaces = view.state?.surfaces;
+  if (surfaces === undefined || surfaceSize(surfaces, handle as SurfaceId) === null) throw new ScriptError("surface.unknown", `${name}: no canvas ${String(handle)}`);
+  return [handle];
 }
 
 const textParam: ParamSpec = { name: "text", optional: false, byRef: false, variadic: false };
@@ -171,8 +185,8 @@ export const UI_COMMANDS: readonly BuiltinSpec[] = [
   uiCommand("getTextWidth", [{ name: "text", optional: false, byRef: false, variadic: false }, { name: "ret", optional: true, byRef: true, variadic: false }], plainDoc("Measure text width in pixels.", "Measures the spliced string using the active FontRef metrics, writes the optional result reference and does not wait."), (view, args) => { const ui = (view.state?.ui as UiSection | undefined); const ref = ui?.font ?? { asset: DEFAULT_FONT as never, size: 8, bold: false, italic: false }; const value = spliceVariables(text(args, 0), view); const result = layoutText(value, ref).width; return { value: result, out: byRef(args, 1, result), effects: [effect([value, result], "pure")] }; }),
   uiCommand("getTextHeight", [{ name: "text", optional: false, byRef: false, variadic: false }, { name: "ret", optional: true, byRef: true, variadic: false }], plainDoc("Measure text height in pixels.", "Measures the spliced string using the active FontRef line height, writes the optional result reference and does not wait."), (view, args) => { const ui = (view.state?.ui as UiSection | undefined); const ref = ui?.font ?? { asset: DEFAULT_FONT as never, size: 8, bold: false, italic: false }; const value = spliceVariables(text(args, 0), view); const result = layoutText(value, ref).height; return { value: result, out: byRef(args, 1, result), effects: [effect([value, result], "pure")] }; }),
   uiCommand("print", [textParam], plainDoc("Print one line below the previous text.", "Draws the spliced text at the UI cursor, then advances the cursor by one active-font line; the call does not wait."), (view, args) => ({ value: null, effects: [effect([spliceVariables(text(args, 0), view)], "draw-audio-cue")] })),
-  uiCommand("text", [{ name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, textParam, { name: "canvas", optional: true, byRef: false, variadic: false }], plainDoc("Draw text in square cells.", "Truncates 1-based cell coordinates and maps them to `((x - 1) × fontSize, (y - 1) × fontSize)`; newlines advance one cell row, glyphs are clipped and the call does not wait."), (view, args) => ({ value: null, effects: [effect([Math.trunc(number(args, 0)), Math.trunc(number(args, 1)), spliceVariables(text(args, 2), view)])] })),
-  uiCommand("pixelText", [{ name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, textParam, { name: "canvas", optional: true, byRef: false, variadic: false }], plainDoc("Draw text at pixel coordinates.", "Uses the supplied logical-pixel origin, the active FontRef metrics and clipping; the call does not wait."), (view, args) => ({ value: null, effects: [effect([Math.trunc(number(args, 0)), Math.trunc(number(args, 1)), spliceVariables(text(args, 2), view)], "draw-audio-cue")] })),
+  uiCommand("text", [{ name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, textParam, { name: "canvas", optional: true, byRef: false, variadic: false }], plainDoc("Draw text in square cells.", "Truncates 1-based cell coordinates and maps them to `((x - 1) × fontSize, (y - 1) × fontSize)`; newlines advance one cell row, glyphs are clipped and the call does not wait. With a canvas handle the glyphs are drawn into that canvas's pixels (and so are redrawn by clearing the canvas), not onto the screen's text layer; an unknown canvas raises `surface.unknown`."), (view, args) => ({ value: null, effects: [effect([Math.trunc(number(args, 0)), Math.trunc(number(args, 1)), spliceVariables(text(args, 2), view), ...canvasTarget(view, args, 3, "text")])] })),
+  uiCommand("pixelText", [{ name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, textParam, { name: "canvas", optional: true, byRef: false, variadic: false }], plainDoc("Draw text at pixel coordinates.", "Uses the supplied logical-pixel origin, the active FontRef metrics and clipping; the call does not wait. With a canvas handle the glyphs are drawn into that canvas's pixels (and so are redrawn by clearing the canvas), not onto the screen's text layer; an unknown canvas raises `surface.unknown`."), (view, args) => ({ value: null, effects: [effect([Math.trunc(number(args, 0)), Math.trunc(number(args, 1)), spliceVariables(text(args, 2), view), ...canvasTarget(view, args, 3, "pixelText")], "draw-audio-cue")] })),
   uiCommand("staticText", [{ name: "args", optional: true, byRef: false, variadic: true }], { summary: "Obsolete.", behaviour: "Raises the catchable obsolete-command error and skips the statement.", groups: [DIALOGUE], tags: ["obsolete"], waits: { kind: "never", summary: "Does not wait." } }, () => { throw new ScriptError("builtin.obsolete", '"statictext" is obsolete: the statement is skipped'); }),
   uiCommand("prompt", [{ name: "question", optional: false, byRef: false, variadic: false }, { name: "ret", optional: true, byRef: true, variadic: false }], { summary: "Ask the player for text.", behaviour: "Shows a modal prompt and yields until the UI supplies a typed value; the value is returned and written to the optional reference.", groups: [DIALOGUE], waits: { kind: "until-input", summary: "Yields until the prompt is answered." } }, (view, args) => ({ value: null, effects: [effect([spliceVariables(text(args, 0), view)])], wait: { kind: "render.msgbox", global: true, id: "prompt", payload: [spliceVariables(text(args, 0), view)], resumeRefs: args[1]?.ref === null || args[1]?.ref === undefined ? [] : [args[1].ref] } })),
   uiCommand("msgBox", [{ name: "text", optional: false, byRef: false, variadic: false }, { name: "title", optional: true, byRef: false, variadic: false }, { name: "style", optional: true, byRef: false, variadic: false }, { name: "textColor", optional: true, byRef: false, variadic: false }, { name: "backColor", optional: true, byRef: false, variadic: false }, { name: "bitmap", optional: true, byRef: false, variadic: false }], { summary: "Ask a question with buttons.", behaviour: "Shows a centred wrapped panel, merges the title as its first body line, then yields until the first OK or Yes/No button is selected; it returns 1, 6 or 7.", groups: [DIALOGUE], waits: { kind: "until-input", summary: "Yields until a button is selected." } }, (_view, args) => { const style = Math.trunc(number(args, 2)); if (style !== 0 && style !== 1) throw new ScriptError("builtin.bad-arg", "msgbox: style must be 0 (OK) or 1 (Yes/No)"); return { value: 0, effects: [effect(values(args))], wait: { kind: "render.msgbox", global: true, id: "msgbox", payload: values(args), resumeRefs: [] } }; }),
@@ -221,6 +235,8 @@ export function applyUiEffect(state: { ui: UiSection; surfaces?: SurfacesSection
     case "color": ui.color = dosPaletteEntry(numberArg(first)); ui.message = { ...ui.message, color: ui.color }; return;
     case "colorrgb": ui.color = { r: numberArg(args[0]), g: numberArg(args[1]), b: numberArg(args[2]) }; ui.message = { ...ui.message, color: ui.color }; return;
     case "text": {
+      // A canvas target (fourth argument) is drawn into that canvas by the engine, never onto the screen text layer.
+      if (numberArg(args[3]) !== 0) return;
       const x = (numberArg(args[0]) - 1) * ui.font.size;
       const y = (numberArg(args[1]) - 1) * ui.font.size;
       ui.draws = [...ui.draws, { x, y, cell: true, text: stringArg(args[2]), font: ui.font, rgb: ui.color, underline: ui.underline }];
@@ -228,6 +244,7 @@ export function applyUiEffect(state: { ui: UiSection; surfaces?: SurfacesSection
       return;
     }
     case "pixeltext": {
+      if (numberArg(args[3]) !== 0) return;
       ui.draws = [...ui.draws, { x: numberArg(args[0]), y: numberArg(args[1]), cell: false, text: stringArg(args[2]), font: ui.font, rgb: ui.color, underline: ui.underline }];
       ui.cursorX = numberArg(args[0]); ui.cursorY = numberArg(args[1]);
       return;

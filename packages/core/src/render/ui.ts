@@ -1,6 +1,8 @@
 import { assetKey } from "../formats/resolver/resolver.ts";
 import type { DrawCommand, FontRef, Rgb } from "../ports/draw.ts";
+import { renderNowEnabled } from "../raster/surfaces.ts";
 import type { InputSection } from "../save/sections/input.ts";
+import type { SurfacesSection } from "../save/sections/surfaces.ts";
 import type { UiCursorImage, UiSection } from "../save/sections/ui.ts";
 import { emitText, layoutText } from "./text.ts";
 
@@ -145,6 +147,28 @@ function drawCursor(commands: DrawCommand[], ui: UiSection, input: InputSection 
   if (point === null) return;
   const hand = ui.cursorHand ?? { asset: "media/cursors/tkr-hand.png", stretch: true, width: 32, height: 32 };
   commands.push(cursorCommand({ asset: hand.asset, x: point.x - 40, y: point.y - 10, hotspotX: 0, hotspotY: 0, transparent: { r: 255, g: 0, b: 255 }, width: hand.width, height: hand.height }, { x: point.x - 40, y: point.y - 10 }));
+}
+
+/**
+ * The E-57 render-now overlay: while `rendernow(true)` has enabled the reserved canvas, one blit of that canvas at
+ * (0,0), 1:1, above the board, sprites and animations. Pixels with zero alpha leave what is below visible. Null while it
+ * is switched off or its canvas is no longer live.
+ */
+export function renderNowBlit(surfaces: SurfacesSection): DrawCommand | null {
+  if (!renderNowEnabled(surfaces)) return null;
+  const current = surfaces.entries[String(surfaces.renderNow)];
+  if (current === undefined) return null;
+  return {
+    kind: "blit",
+    source: { surface: current.id, rev: current.rev },
+    src: { x: 0, y: 0, w: current.bitmap.w, h: current.bitmap.h },
+    dst: { x: 0, y: 0, w: current.bitmap.w, h: current.bitmap.h },
+    key: null,
+    tint: { r: 0, g: 0, b: 0 },
+    alpha: 255,
+    blend: "normal",
+    iso2d: false,
+  };
 }
 
 /** Append the deterministic UI overlay after board composition (E-55/E-60). */

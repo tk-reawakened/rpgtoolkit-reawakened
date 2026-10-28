@@ -7,6 +7,8 @@ import { GAME_EMITTER } from "../events/model.ts";
 import { registerEmitter } from "../events/emitter.ts";
 import { createActorService, type ActorService } from "../actors/port.ts";
 import type { ActorStats } from "../actors/model.ts";
+import { renderNowCanvas } from "../raster/surfaces.ts";
+import type { SurfacesSection } from "../save/sections/surfaces.ts";
 import type { GameState } from "../save/state.ts";
 import { TICKS_PER_SECOND } from "../time/time.ts";
 import { createBattleOwner, type BattleOwner } from "../battle/port.ts";
@@ -120,7 +122,7 @@ export function createDefaultVirtuals(
     if (name === "boardbackground") return typeof board?.battleBackground === "string" ? board.battleBackground : typeof board?.background === "string" ? board.background : "";
     if (name === "boardskill") return typeof board?.battleSkill === "number" ? board.battleSkill : typeof board?.skill === "number" ? board.skill : 0;
     const surfaces = asRecord(state.surfaces);
-    if (name === "cnvrendernow") return typeof surfaces?.renderNow === "number" ? surfaces.renderNow : 0;
+    if (name === "cnvrendernow") return surfaces === undefined ? 0 : renderNowCanvas(surfaces as unknown as SurfacesSection) ?? 0;
     const ambient = asRecord(board?.ambient);
     if (name === "ambientred") return typeof ambient?.r === "number" ? ambient.r : 0;
     if (name === "ambientgreen") return typeof ambient?.g === "number" ? ambient.g : 0;

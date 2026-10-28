@@ -45,9 +45,10 @@ import type { AssetDecoder } from "../formats/registry/decoder.ts";
 import { BUILTIN_TRACKS, MAX_VOICES } from "../audio/model.ts";
 import type { Logger } from "../ports/logger.ts";
 import { composeBoard, type BoardBlit, type SpriteDraw } from "../render/compose.ts";
-import { composeUi, composeUiCursor } from "../render/ui.ts";
+import { composeUi, composeUiCursor, renderNowBlit } from "../render/ui.ts";
+import { emitText, layoutText } from "../render/text.ts";
 import { applyFxDrawList, advanceFx, applyFxEffect } from "../render/fx.ts";
-import { advanceAnimations, loadAnimation } from "../render/animation.ts";
+import { advanceAnimations, animationBlits, loadAnimation, releaseAnimationSurfaces } from "../render/animation.ts";
 import { hydrateBoard } from "../world/hydrate.ts";
 import { coordLayout, tileToPixel } from "../world/coords.ts";
 import { boardEmitterKey, type WorldBoard } from "../world/model.ts";
@@ -297,6 +298,7 @@ export function createEngine(init: EngineInit): Engine {
   const decodedImages = new Map<AssetKey, DecodedTexture>();
   const decodedTiles = new Map<AssetKey, DecodedTexture>();
   const decodedBundled = new Map<AssetKey, RasterAsset | null>();
+  const canvasTextAssets = new Map<AssetKey, RasterAsset>();
   const pending = new Map<number, RequestEntry>();
   const pendingBlobs = new Map<number, PendingBlobRequest>();
   const pendingImageEffects: Array<{ readonly key: AssetKey; readonly effect: EffectRecord }> = [];
@@ -416,7 +418,14 @@ export function createEngine(init: EngineInit): Engine {
   );
   bus.register("world", (effect) => applyWorldEffect(state, effect));
   bus.register("camera", (effect) => applyCameraEffect(state, effect));
-  bus.register("ui", (effect) => applyUiEffect(state, effect.name, effect.args));
+  bus.register("ui", (effect) => {
+    const lower = effect.name.toLowerCase();
+    if ((lower === "text" || lower === "pixeltext") && typeof effect.args[3] === "number" && effect.args[3] !== 0) {
+      applyCanvasText(lower === "text", effect.args);
+      return;
+    }
+    applyUiEffect(state, effect.name, effect.args);
+  });
   bus.register("fx", (effect) => applyFxEffect(state, effect));
   bus.register("surfaces", (effect) => applySurfaceEffect(effect));
   bus.register("engine", (effect) => applyEngineEffect(effect));
@@ -861,6 +870,28 @@ export function createEngine(init: EngineInit): Engine {
     failed = true;
     if (state.engine.boot !== undefined) state.engine.boot.stage = "stopped";
   }
+  /** E-56 `text` / `pixelText` with a canvas: draw the glyphs into that canvas with the active font, colour and underline. */
+  function applyCanvasText(cells: boolean, args: readonly PlainData[]): void {
+    const canvas = args[3] as SurfaceId;
+    const value = typeof args[2] === "string" ? args[2] : "";
+    const font = state.ui.font;
+    const x = typeof args[0] === "number" ? (cells ? (args[0] - 1) * font.size : args[0]) : 0;
+    const y = typeof args[1] === "number" ? (cells ? (args[1] - 1) * font.size : args[1]) : 0;
+    const layout = layoutText(value, font);
+    const width = Math.ceil(layout.width);
+    const height = Math.ceil(layout.height);
+    if (width <= 0 || height <= 0) return;
+    const commands = emitText(value, 0, 0, state.ui.color, font, { underline: state.ui.underline });
+    const assets = rasterAssets(canvasTextAssets);
+    const fallbackFont = assets.get(defaultFontAsset);
+    if (fallbackFont !== undefined && !assets.has(font.asset)) assets.set(font.asset, fallbackFont);
+    const rendered = rasterize({ tick: state.time.tick, width, height, commands }, assets);
+    if (rendered.error !== null) {
+      diagnostics.push({ code: "render.failed", file: "", line: 0, message: `text: ${rendered.error}` });
+      return;
+    }
+    blitTexture(state.surfaces, { w: rendered.width, h: rendered.height, rgba: rendered.rgba }, canvas, x, y);
+  }
   function applySurfaceImage(effect: EffectRecord, texture: DecodedTexture): void {
     const args = effect.args;
     let destination = 0 as SurfaceId;
@@ -1089,7 +1120,7 @@ export function createEngine(init: EngineInit): Engine {
     }
     return null;
   }
-  function rasterAssets(): ReadonlyMap<AssetKey, RasterAsset> {
+  function rasterAssets(assets = new Map<AssetKey, RasterAsset>()): Map<AssetKey, RasterAsset> {
     for (const key of cache.keys()) {
       if (isBitmapKey(key)) imageTexture(key);
       else {
@@ -1097,7 +1128,7 @@ export function createEngine(init: EngineInit): Engine {
         if (lower.endsWith(".tst") || lower.endsWith(".iso") || lower.endsWith(".gph")) tileTexture(key);
       }
     }
-    const assets = new Map<AssetKey, RasterAsset>();
+    assets.clear();
     for (const [key, bytes] of init.bundled ?? []) {
       if (!decodedBundled.has(key)) decodedBundled.set(key, bundledAsset(key, bytes));
       const asset = decodedBundled.get(key);
@@ -1787,6 +1818,21 @@ export function createEngine(init: EngineInit): Engine {
       if (!loadAnimation(state, animation, bytes, resolveAnimationImage)) {
         animation.finished = true;
         diagnostics.push({ code: "asset.invalid", file: key, line: 0, message: `cannot decode animation "${animation.file}"` });
+        continue;
+      }
+      // A frame's picture is a separate asset. The animation starts playing, and its frame clock starts, only once every
+      // picture is in the cache, so the first drawn frame is never a missing texture and the frames are on the same
+      // ticks on every run.
+      let waiting = false;
+      for (const frame of animation.frames) {
+        if (frame.asset === null || frame.surface !== undefined || cache.has(frame.asset)) continue;
+        request(frame.asset, requestKindFor(frame.asset));
+        waiting = true;
+      }
+      if (waiting) {
+        releaseAnimationSurfaces(state, animation);
+        animation.loaded = false;
+        animation.frames = [];
       }
     }
   }
@@ -1849,6 +1895,9 @@ export function createEngine(init: EngineInit): Engine {
         for (const thread of state.vm.threads) {
           if (thread.wait?.kind === "input.key" && thread.wait.parkSeq === undefined) thread.wait.parkSeq = state.input.nextSeq;
         }
+        // `get()` and `clearBuffer()` claim keys during the threads phase; remove those records before the claim list is
+        // rebuilt for the waiting threads, or the key would be returned again on the next tick.
+        pruneClaimed(state.input, state.engine.claims ?? []);
         state.engine.claims = [];
         const videoBefore = state.engine.video;
         runWaitsPhase(state.vm, phaseView(), defaultWaitPoll, (seq) => {
@@ -2019,7 +2068,11 @@ export function createEngine(init: EngineInit): Engine {
       : state.vm.threads.find((thread) => thread.wait?.kind === "input.key" && thread.wait.cursorMap === cursorMap);
     const cursorSelection = waitingCursor?.wait?.kind === "input.key" ? waitingCursor.wait.cursorSelection : undefined;
     const withFx = applyFxDrawList(base, state.fx);
-    const withUi = { ...withFx, commands: [...withFx.commands, ...debugCommands(), ...composeUi(state.ui, init.width, init.height, state.input, false, cursorSelection)] };
+    // E-57: the enabled render-now canvas sits above the board, sprites and animations and below UI text and the message window.
+    const overlay = renderNowBlit(state.surfaces);
+    // Pinned animations (`pinnedanimation`) are engine-owned pictures that sit directly above that canvas.
+    const withOverlay = { ...withFx, commands: [...withFx.commands, ...(overlay === null ? [] : [overlay]), ...animationBlits({ ...state.fx, animations: (state.fx as Partial<FxSection>).animations ?? [] }, true)] };
+    const withUi = { ...withOverlay, commands: [...withOverlay.commands, ...debugCommands(), ...composeUi(state.ui, init.width, init.height, state.input, false, cursorSelection)] };
     return { ...withUi, commands: [...withUi.commands, ...composeUiCursor(state.ui, state.input, cursorSelection)] };
   }
   function refreshFrame(): void {

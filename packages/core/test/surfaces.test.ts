@@ -17,6 +17,8 @@ import {
   getPixel,
   killSurface,
   readSurfacePixels,
+  renderNowCanvas,
+  renderNowEnabled,
   replaceSurface,
   restoreGameState,
   saveScreen,
@@ -75,6 +77,20 @@ test("screen capture and slots round-trip through the save shape", () => {
   equal(destination !== saved, true);
 });
 
+test("the reserved overlay's handle and on/off flag round-trip through the save shape", () => {
+  const state = createSurfacesSection(4, 4);
+  const canvas = createSurface(state, 4, 4);
+  state.renderNow = canvas;
+  state.renderNowOn = false;
+  const restored = restoreGameState(snapshot({ ...createGameState({ seed: 1 }), surfaces: state }));
+  equal(restored.surfaces.renderNow, canvas, "the handle persists while it is switched off");
+  equal(restored.surfaces.renderNowOn, false, "and so does the flag");
+  equal(renderNowCanvas(restored.surfaces), canvas);
+  equal(renderNowEnabled(restored.surfaces), false);
+  state.renderNowOn = true;
+  equal(renderNowEnabled(restoreGameState(snapshot({ ...createGameState({ seed: 1 }), surfaces: state })).surfaces), true);
+});
+
 test("decoded image blits preserve keys, alpha, scaling and one revision", () => {
   const state = createSurfacesSection(3, 2);
   const image = {
@@ -86,6 +102,47 @@ test("decoded image blits preserve keys, alpha, scaling and one revision", () =>
   equal(state.entries["0"]?.rev, 1);
   deepEqual(getPixel(state, 0 as SurfaceId, 0, 0), { r: 0, g: 0, b: 0 });
   deepEqual(getPixel(state, 0 as SurfaceId, 2, 0), { r: 20, g: 40, b: 60 });
+});
+
+test("surface bytes are canonical padded base64 for every length remainder and malformed payloads are rejected", () => {
+  const table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const reference = (bytes: Uint8Array): string => {
+    let out = "";
+    for (let i = 0; i < bytes.length; i += 3) {
+      const a = bytes[i]!;
+      const b = bytes[i + 1];
+      const c = bytes[i + 2];
+      out += table[a >> 2]! + table[((a & 3) << 4) | ((b ?? 0) >> 4)]!;
+      out += b === undefined ? "=" : table[((b & 15) << 2) | ((c ?? 0) >> 6)]!;
+      out += c === undefined ? "=" : table[c & 63]!;
+    }
+    return out;
+  };
+  for (const length of [0, 1, 2, 3, 4, 5, 100, 8191, 8192, 8193, 40000]) {
+    const bytes = new Uint8Array(length).map((_, index) => (index * 37 + length) & 255);
+    const text = encodeSurfaceBytes(bytes);
+    equal(text, reference(bytes), `length ${length}`);
+    deepEqual(decodeSurfaceBytes(text), bytes);
+  }
+  for (const bad of ["ab", "a===", "ab=c", "!!!!", "QUJD\u00e9AAA", "QQ==QQ=="]) {
+    let threw = false;
+    try { decodeSurfaceBytes(bad); } catch { threw = true; }
+    equal(threw, true, JSON.stringify(bad));
+  }
+});
+
+test("surface textures remain independent across revisions", () => {
+  const state = createSurfacesSection(2, 1);
+  const id = createSurface(state, 2, 1);
+  const cache = new Map<string, Uint8Array>();
+  const first = surfaceTextures(state, cache).get(id)!;
+  editSurface(state, id, (rgba) => { rgba[0] = 9; });
+  editSurface(state, id, (rgba) => { rgba[1] = 9; });
+  const current = surfaceTextures(state, cache).get(id)!;
+  deepEqual([...first.rgba], [0, 0, 0, 0, 0, 0, 0, 0]);
+  deepEqual([...current.rgba], [9, 9, 0, 0, 0, 0, 0, 0]);
+  current.rgba[0] = 77;
+  equal(surfaceTextures(state, cache).get(id)!.rgba[0], 9);
 });
 
 test("base64 is byte-identical for all remainder lengths", () => {

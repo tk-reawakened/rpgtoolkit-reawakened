@@ -138,8 +138,15 @@ function cachedSurfaceField(value: unknown): string | undefined {
   const fields = dataFields(value);
   if (fields === null || value === null || typeof value !== "object") return undefined;
   const keys = Object.keys(fields).sort().join(",");
-  if (keys !== "colours,entries,nextId,slots" && keys !== "colours,entries,nextId,renderNow,slots") return undefined;
-  if (!finite(fields["nextId"]) || (Object.hasOwn(fields, "renderNow") && !finite(fields["renderNow"]))) return undefined;
+  if (![
+    "colours,entries,nextId,slots",
+    "colours,entries,nextId,renderNow,slots",
+    "colours,entries,nextId,renderNowOn,slots",
+    "colours,entries,nextId,renderNow,renderNowOn,slots",
+  ].includes(keys)) return undefined;
+  if (!finite(fields["nextId"])
+    || (Object.hasOwn(fields, "renderNow") && !finite(fields["renderNow"]))
+    || (Object.hasOwn(fields, "renderNowOn") && typeof fields["renderNowOn"] !== "boolean")) return undefined;
   const entries = dataFields(fields["entries"]);
   const slots = numberEntries(fields["slots"]);
   const colours = numberEntries(fields["colours"]);
@@ -160,7 +167,16 @@ function cachedSurfaceField(value: unknown): string | undefined {
     bitmaps.push(bitmap["b64"]);
     metadataEntries.push([key, entry["id"], entry["rev"], bitmap["w"], bitmap["h"], bitmap["t"]]);
   }
-  const metadata = JSON.stringify([fields["nextId"], Object.hasOwn(fields, "renderNow"), fields["renderNow"] ?? null, metadataEntries, slots, colours]);
+  const metadata = JSON.stringify([
+    fields["nextId"],
+    Object.hasOwn(fields, "renderNow"),
+    fields["renderNow"] ?? null,
+    Object.hasOwn(fields, "renderNowOn"),
+    fields["renderNowOn"] ?? null,
+    metadataEntries,
+    slots,
+    colours,
+  ]);
   const cached = canonicalSurfaces.get(value);
   if (cached !== undefined && cached.metadata === metadata && cached.bitmaps.length === bitmaps.length
     && bitmaps.every((bitmap, index) => bitmap === cached.bitmaps[index])) return cached.field;
@@ -175,9 +191,10 @@ function cachedSurfaceField(value: unknown): string | undefined {
       + ',"rev":' + canon(entry["rev"] as number) + '}';
   });
   const renderNow = Object.hasOwn(fields, "renderNow") ? ',"renderNow":' + canon(fields["renderNow"] as number) : "";
+  const renderNowOn = Object.hasOwn(fields, "renderNowOn") ? ',"renderNowOn":' + canon(fields["renderNowOn"] as boolean) : "";
   const field = '"surfaces":{"colours":' + canon(fields["colours"] as PlainData)
     + ',"entries":{' + entryFields.join(",") + '},"nextId":' + canon(fields["nextId"] as number)
-    + renderNow + ',"slots":' + canon(fields["slots"] as PlainData) + '}';
+    + renderNow + renderNowOn + ',"slots":' + canon(fields["slots"] as PlainData) + '}';
   canonicalSurfaces.set(value, { metadata, bitmaps, field, ascii });
   return field;
 }

@@ -22,6 +22,8 @@ import {
   editSurfaceWithBounds,
   getPixel,
   killSurface,
+  renderNowCanvas,
+  renderNowEnabled,
   restoreScreen,
   saveScreen,
   surfaceCircleBounds,
@@ -265,18 +267,19 @@ const RESTORE_SCREEN = command("restorescreen", [], params(["slot", "x1", "y1", 
 });
 const RESTORE_ARRAY = command("restorescreenarray", ["restorearrayscreen"], params(["slot", "x1", "y1", "x2", "y2", "xdest", "ydest"], 0), docs("Restore a numbered screen-array slot.", "Alias of restoreScreen: copies the selected saved slot or region into the screen immediately."), (view, args) => ({ value: restoreScreen(state(view).surfaces, Math.max(0, Math.trunc(numberArg(args, 0))), SCREEN) ?? 0, effects: effects(args) }));
 
-const RENDER_NOW = command("rendernow", [], params(["draw"]), docs("Show or hide the render-now overlay canvas.", "When draw is true, creates the reserved canvas and enables it above board content; false disables it while retaining no old pixels after reset."), (view, args) => {
+const RENDER_NOW = command("rendernow", [], params(["draw"]), docs("Show or hide the render-now overlay canvas.", "When draw is true, creates the reserved canvas (cleared, screen-sized) if it does not exist or was killed and turns drawing on above board content; an existing canvas keeps its pixels. When draw is false it only turns drawing off: the canvas, its handle and its pixels persist."), (view, args) => {
   const current = state(view);
   const enabled = Boolean(args[0]?.value);
   const surfaces = current.surfaces;
-  if (enabled) {
-    if (surfaces.renderNow === undefined || surfaceSize(surfaces, surfaces.renderNow) === null) {
-      const size = surfaceSize(surfaces, SCREEN);
-      surfaces.renderNow = createSurface(surfaces, size?.w ?? 0, size?.h ?? 0);
-    }
-  } else surfaces.renderNow = 0 as SurfaceId;
+  if (enabled && renderNowCanvas(surfaces) === null) {
+    const size = surfaceSize(surfaces, SCREEN);
+    surfaces.renderNow = createSurface(surfaces, size?.w ?? 0, size?.h ?? 0);
+  }
+  surfaces.renderNowOn = enabled;
   return { value: null, effects: effects(args, "state-write", "engine") };
 });
+
+const RENDER_NOW_ENABLED = command("rendernowenabled", [], [], docs("Read whether the render-now overlay canvas is drawn.", "Returns 1 while rendernow(true) is in effect and the reserved canvas is live, otherwise 0. It changes nothing and does not wait."), (view) => ({ value: renderNowEnabled(state(view).surfaces) ? 1 : 0, effects: [] }));
 
 const GET_RES = command("getres", [], [
   { name: "x", optional: false, byRef: true, variadic: false },
@@ -291,7 +294,7 @@ const DRAW_ENEMY = image("drawenemy", [], params(["file", "x", "y"], 3), "as a b
 export const GRAPHICS_COMMANDS: readonly BuiltinSpec[] = [
   CLEAR, SET_PIXEL, DRAW_LINE, DRAW_RECT, FILL_RECT, DRAW_CIRCLE, FILL_CIRCLE,
   BITMAP, SET_IMAGE, SET_IMAGE_TRANSPARENT, SET_IMAGE_TRANSLUCENT, SET_IMAGE_ADDITIVE,
-  GET_PIXEL, SAVE_SCREEN, RESTORE_SCREEN, RESTORE_ARRAY, RENDER_NOW, VIEW_BRD, GET_RES, DRAW_ENEMY,
+  GET_PIXEL, SAVE_SCREEN, RESTORE_SCREEN, RESTORE_ARRAY, RENDER_NOW, RENDER_NOW_ENABLED, VIEW_BRD, GET_RES, DRAW_ENEMY,
   CREATE_CANVAS, KILL_CANVAS, DRAW_CANVAS, DRAW_CANVAS_TRANSPARENT, CANVAS_DRAW_PART, CANVAS_GET_SCREEN,
 ];
 export const GRAPHICS_PLUGIN: PluginDefinition = { id: "graphics", version: "1.0.0", doc: { summary: "Deterministic canvases, drawing, image and screen-save commands.", groups: [] }, commands: GRAPHICS_COMMANDS };

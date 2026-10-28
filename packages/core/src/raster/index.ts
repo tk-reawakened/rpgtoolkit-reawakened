@@ -1,7 +1,7 @@
 export * from "./raster.ts";
 export {
   encodeSurfaceBytes, decodeSurfaceBytes, createSurfacesSection, createSurface,
-  replaceSurface, killSurface, readSurfacePixels, surfaceTextures, colourSurface,
+  replaceSurface, killSurface, readSurfacePixels, surfaceTextures, colourSurface, renderNowCanvas, renderNowEnabled,
   saveScreen, getPixel, canvasGetScreen, restoreScreen, editSurface, surfaceSize,
   drawSurfaceLine, drawSurfaceRect, drawSurfaceCircle, blitSurface, blitTexture,
 } from "./surfaces.ts";

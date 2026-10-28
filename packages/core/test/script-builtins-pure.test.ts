@@ -5,6 +5,8 @@ import {
   addActor,
   advanceScriptTick,
   createGameState,
+  createSurface,
+  createSurfacesSection,
   hashState,
   restoreGameState,
   snapshot,
@@ -626,7 +628,10 @@ test("E-92 virtual variables read engine state sections", () => {
     skill: 5,
     constants: { 0: 42, 1: 100 },
   };
-  (state.surfaces as { renderNow?: number }).renderNow = 7;
+  // A live surface, because `cnvRenderNow` names a canvas: handle 0 is the screen and a killed canvas is not a canvas.
+  state.surfaces = createSurfacesSection(4, 4);
+  const overlay = createSurface(state.surfaces, 1, 1);
+  state.surfaces.renderNow = overlay;
   const hero = addActor(state.actors, { kind: "party", source: "hero.tem", name: "Hero" });
   state.sprites.players = [{ actorId: hero.id, x: 12, y: 34, layer: 2 } as never];
   state.party.members = [hero.id];
@@ -653,7 +658,7 @@ test("E-92 virtual variables read engine state sections", () => {
   equal(state.vm.globals.m, "media/town.mid");
   equal(state.vm.globals.bg, "forest.png");
   equal(state.vm.globals.sk, 5);
-  equal(state.vm.globals.cnv, 7);
+  equal(state.vm.globals.cnv, overlay);
   equal(state.vm.globals.px, 12);
   equal(state.vm.globals.py, 34);
   equal(state.vm.globals.pl, 2);

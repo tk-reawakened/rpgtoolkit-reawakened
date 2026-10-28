@@ -200,7 +200,6 @@ type Played = {
 function play(ticks: number, device: boolean): Played {
   const { files, paths } = authoredGame();
   let latest = null as GameState | null;
-  let hasPlayer = false;
   let seeded = false;
   const engine: Engine = createEngine({
     seed: 23,
@@ -212,8 +211,8 @@ function play(ticks: number, device: boolean): Played {
     height: 240,
     maxTicks: ticks + 600,
     packageCatalogue: stockBattleCatalogue(),
-    startup: { presence: { hasPlayer: () => hasPlayer }, savedGame: { load: () => ({ kind: "missing" }), restored: () => false } },
-    effectAppliers: [{ section: "sprites", applier: (effect) => { if (effect.name === "createplayer") hasPlayer = true; } }],
+    // The authored main.gam has initChar; avoid an effect applier so surfaces remain batchable.
+    startup: { presence: { hasPlayer: () => true }, savedGame: { load: () => ({ kind: "missing" }), restored: () => false } },
     phaseRegistrations: [{
       phase: "events",
       run: (state) => {
@@ -265,6 +264,8 @@ function play(ticks: number, device: boolean): Played {
         ? [{ tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: files.get(request.key) ?? null } }]
         : []));
     }
+    // The handoff is complete once the third music start is reported; later ticks are unrelated to these assertions.
+    if (musicStarts(cues).length >= 3) break;
   }
   if (latest === null) throw new Error("the engine never ran a tick");
   return { cues, hashes, state: latest, cueTicks };
