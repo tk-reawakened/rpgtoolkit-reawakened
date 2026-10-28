@@ -23,10 +23,11 @@ export function canon(value: PlainData): string {
  * The canonical root-object fields split around `splitKey`. Each segment is
  * serialized with the same depth and shared cycle set as one `canon` call.
  */
+export type CanonReusableSegment = { readonly text: string; readonly ascii: boolean };
 export type CanonRootSplit = {
   readonly before: string;
   readonly selected: string;
-  readonly after: string;
+  readonly after: readonly (string | CanonReusableSegment)[];
   readonly hasSelected: boolean;
 };
 
@@ -45,7 +46,7 @@ export function canonSplitRoot(value: PlainData, splitKey: string, cachedSelecte
 
   const before: string[] = [];
   const selected: string[] = [];
-  const after: string[] = [];
+  const after: (string | CanonReusableSegment)[] = [];
   let hasSelected = false;
   const keys = Object.keys(record).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   for (const key of keys) {
@@ -56,23 +57,122 @@ export function canonSplitRoot(value: PlainData, splitKey: string, cachedSelecte
     if (descriptor.get !== undefined || descriptor.set !== undefined) {
       throw new TypeError("canon: accessor properties are not plain data");
     }
-    const field = (key === splitKey ? cachedSelected?.(descriptor.value) : undefined)
-      ?? serializeString(key) + ":" + serialize(descriptor.value, seen, 1);
-    if (key === splitKey) {
-      selected.push(field);
-      hasSelected = true;
-    } else if (key < splitKey) {
-      before.push(field);
+    if (key > splitKey) {
+      after.push(",");
+      const vm = key === "vm" ? splitVm(descriptor.value, seen) : undefined;
+      if (vm !== undefined) {
+        after.push(serializeString(key) + ":");
+        for (const segment of vm) after.push(segment);
+      } else {
+        after.push(serializeString(key) + ":" + serialize(descriptor.value, seen, 1));
+      }
     } else {
-      after.push(field);
+      const field = (key === splitKey ? cachedSelected?.(descriptor.value) : undefined)
+        ?? serializeString(key) + ":" + serialize(descriptor.value, seen, 1);
+      if (key === splitKey) {
+        selected.push(field);
+        hasSelected = true;
+      } else {
+        before.push(field);
+      }
     }
   }
   return {
     before: before.join(","),
     selected: selected.join(","),
-    after: after.join(","),
+    after,
     hasSelected,
   };
+}
+
+type CachedFlatObject = {
+  readonly keys: readonly string[];
+  readonly values: readonly unknown[];
+  readonly segment: CanonReusableSegment;
+};
+const flatObjects = new WeakMap<object, CachedFlatObject>();
+
+/** Only flat plain objects qualify: nested or unusual shapes use the normal serializer. */
+function flatObject(value: unknown): CanonReusableSegment | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== null && proto !== Object.prototype) return undefined;
+  const keys = Object.keys(value).sort();
+  const values: unknown[] = [];
+  for (const key of keys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || descriptor.get !== undefined || descriptor.set !== undefined) return undefined;
+    const item: unknown = descriptor.value;
+    if (item !== null && typeof item !== "string" && typeof item !== "boolean"
+      && !(typeof item === "number" && Number.isFinite(item))) return undefined;
+    values.push(item);
+  }
+  const cached = flatObjects.get(value);
+  if (cached !== undefined && cached.keys.length === keys.length
+    && keys.every((key, index) => key === cached.keys[index] && values[index] === cached.values[index])) return cached.segment;
+  let text: string;
+  try {
+    text = serialize(value, new Set<object>(), 0);
+  } catch {
+    // Preserve the normal serializer's error order for invalid state.
+    return undefined;
+  }
+  const segment = { text, ascii: !/[^\x00-\x7f]/.test(text) };
+  flatObjects.set(value, { keys, values, segment });
+  return segment;
+}
+
+/** Split a VM's aliased flat program refs without materialising their repeated canonical text. */
+function splitVm(value: unknown, ancestors: Set<object>): (string | CanonReusableSegment)[] | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value) || ancestors.has(value)) return undefined;
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== null && proto !== Object.prototype) return undefined;
+  const ownersDescriptor = Object.getOwnPropertyDescriptor(value, "defOwners");
+  if (ownersDescriptor === undefined || !ownersDescriptor.enumerable || ownersDescriptor.get !== undefined || ownersDescriptor.set !== undefined) return undefined;
+  const owners: unknown = ownersDescriptor.value;
+  if (owners === null || typeof owners !== "object" || Array.isArray(owners) || owners === value || ancestors.has(owners)) return undefined;
+  const ownerProto = Object.getPrototypeOf(owners);
+  if (ownerProto !== null && ownerProto !== Object.prototype) return undefined;
+  const ownerKeys = Object.keys(owners).sort();
+  const ownerSegments: CanonReusableSegment[] = [];
+  const local = new Map<object, CanonReusableSegment>();
+  for (const key of ownerKeys) {
+    const descriptor = Object.getOwnPropertyDescriptor(owners, key);
+    if (descriptor === undefined || descriptor.get !== undefined || descriptor.set !== undefined) return undefined;
+    const ref: unknown = descriptor.value;
+    if (ref === null || typeof ref !== "object" || ref === value || ref === owners || ancestors.has(ref)) return undefined;
+    let segment = local.get(ref);
+    if (segment === undefined) {
+      segment = flatObject(ref);
+      if (segment === undefined) return undefined;
+      local.set(ref, segment);
+    }
+    ownerSegments.push(segment);
+  }
+  const keys = Object.keys(value).sort();
+  const result: (string | CanonReusableSegment)[] = ["{"];
+  ancestors.add(value);
+  for (let i = 0; i < keys.length; i += 1) {
+    const key = keys[i]!;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || descriptor.get !== undefined || descriptor.set !== undefined) {
+      ancestors.delete(value);
+      return undefined;
+    }
+    result.push((i === 0 ? "" : ",") + serializeString(key) + ":");
+    if (key === "defOwners") {
+      result.push("{");
+      for (let j = 0; j < ownerKeys.length; j += 1) {
+        result.push((j === 0 ? "" : ",") + serializeString(ownerKeys[j]!) + ":", ownerSegments[j]!);
+      }
+      result.push("}");
+    } else {
+      result.push(serialize(descriptor.value, ancestors, 2));
+    }
+  }
+  ancestors.delete(value);
+  result.push("}");
+  return result;
 }
 
 
