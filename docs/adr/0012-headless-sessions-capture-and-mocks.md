@@ -73,7 +73,8 @@ JSON-RPC 2.0 over **stdio** first; WebSocket later, over the same methods. Group
 
 * The harness looks for an `ffmpeg` executable on `PATH`, or at a path given in configuration, and starts it as a **separate process**. It sends raw RGBA frames and PCM through pipes and passes command-line arguments. It never links FFmpeg libraries and never loads `ffmpeg.wasm`.
 * FFmpeg is **never** a package dependency, never vendored, never downloaded by our tooling, and never included in anything we ship (npm packages, installers, images, extensions).
-* Without FFmpeg, MP4 export fails with one clear diagnostic that says to install FFmpeg. Screenshots and masters still work.
+* Without FFmpeg, MP4 export fails with one clear diagnostic that says how to install FFmpeg. Screenshots and masters still work.
+* **Helping the user install it.** The diagnostic and the reference page link to the official download page (<https://ffmpeg.org/download.html>) and give the usual one-line install for each platform: `brew install ffmpeg` (macOS, Homebrew), `winget install ffmpeg` (Windows), and the system package manager on Linux (for example `sudo apt install ffmpeg`). They also say how to point the harness at a copy that isn't on `PATH`. We only *point* the user there; our tooling never downloads or installs FFmpeg itself.
 
 *Reason:* G6 bans copyleft dependencies. FFmpeg is LGPL, or GPL when built with encoders such as x264, as most ready-made builds are. Running a separately installed program at arm's length, over pipes and arguments, does not combine it with our code, and we do not distribute it, so neither G6's purpose nor the licence is engaged. Distributing an H.264/AAC encoder would also carry patent questions; a copy the user installs is not ours to distribute.
 
