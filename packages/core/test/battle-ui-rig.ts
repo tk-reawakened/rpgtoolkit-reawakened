@@ -6,6 +6,7 @@ import { TextEncoder } from "node:util";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { equal, ok } from "node:assert/strict";
 import {
   addActor,
   assetKey,
@@ -18,6 +19,7 @@ import {
   createEmptyMainFile,
   createEmptySpecialMove,
   createEngine,
+  fnv1a64,
   PACKAGE_ROOT,
   registerActorObject,
   writeAnimation,
@@ -28,6 +30,7 @@ import {
   writeItem,
   writeMainFile,
   writeSpecialMove,
+  type ActorRecord,
   type AudioCue,
   type Engine,
   type GameState,
@@ -621,3 +624,101 @@ export function bootUiRig(options: RigOptions = {}): UiRig {
   };
   return rig;
 }
+
+export const MAGE = 1;
+export const THRESHOLD = 75;
+
+export function actor(rig: UiRig, source: string): ActorRecord {
+  const found = rig.state().actors.actors.find((candidate) => candidate.source === source);
+  if (found === undefined) throw new Error(`no actor ${source}`);
+  return found;
+}
+
+export function ui(rig: UiRig): Record<string, unknown> {
+  const dictionary = rig.ui();
+  if (dictionary === null) throw new Error("the screen is not up");
+  return dictionary;
+}
+
+export function entries(value: unknown, count: number): Record<string, unknown>[] {
+  const dictionary = value as Record<string, Record<string, unknown>>;
+  return Array.from({ length: count }, (_, index) => dictionary[String(index)]!);
+}
+
+export function cueNames(rig: UiRig): string[] {
+  return rig.cues.filter((cue) => cue.kind === "media.play").map((cue) => String(cue.asset).split("/").pop() ?? "");
+}
+
+export function awaitMenu(rig: UiRig): void {
+  rig.until(() => {
+    const dictionary = rig.ui();
+    return dictionary !== null && dictionary["mode"] === "command";
+  }, 2000);
+  rig.tick(8);
+}
+
+/** Pinned pictures that are being drawn (not hidden). */
+export function pinnedCount(rig: UiRig): number {
+  return rig.state().fx.animations.filter((animation) => animation.pinned === true && animation.hidden !== true).length;
+}
+
+export function pinnedTimelines(rig: UiRig): { readonly id: number; readonly originTick: number; readonly loop: boolean }[] {
+  return rig.state().fx.animations.filter((animation) => animation.pinned === true).map((animation) => ({ id: animation.id, originTick: animation.originTick, loop: animation.loop }));
+}
+
+
+export function countColour(rig: UiRig, box: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }, colour: readonly [number, number, number]): { readonly count: number; readonly minX: number; readonly maxX: number; readonly minY: number; readonly maxY: number } {
+  const frame = rig.frame();
+  let count = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (let y = box.y1; y <= box.y2; y += 1) {
+    for (let x = box.x1; x <= box.x2; x += 1) {
+      const at = (y * frame.w + x) * 4;
+      if (frame.rgba[at] === colour[0] && frame.rgba[at + 1] === colour[1] && frame.rgba[at + 2] === colour[2]) {
+        count += 1;
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+    }
+  }
+  return { count, minX, maxX, minY, maxY };
+}
+
+
+/** Sample label glyphs only (not the separate > cursor), alongside the active Mage's name. */
+export function assertCommandLabelYellow(rig: UiRig, y: number): void {
+  const label = { x1: 32, y1: y, x2: 112, y2: y + 17 };
+  const activeName = { x1: 175, y1: 382, x2: 259, y2: 400 };
+  ok(countColour(rig, label, SELECTION_YELLOW).count > 30, "selected command label is exact highlight yellow");
+  equal(countColour(rig, label, [255, 255, 255]).count, 0, "selected command label is not white");
+  ok(countColour(rig, activeName, SELECTION_YELLOW).count > 30, "active character name uses the same yellow");
+}
+
+
+export function regionHash(rig: UiRig, box: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }): string {
+  const frame = rig.frame();
+  const pixels = new Uint8Array((box.x2 - box.x1 + 1) * (box.y2 - box.y1 + 1) * 4);
+  let offset = 0;
+  for (let y = box.y1; y <= box.y2; y += 1) {
+    const start = (y * frame.w + box.x1) * 4;
+    const end = (y * frame.w + box.x2 + 1) * 4;
+    pixels.set(frame.rgba.subarray(start, end), offset);
+    offset += end - start;
+  }
+  return fnv1a64(pixels);
+}
+
+
+export const LIST_FIELD = { x1: 16, y1: 28, x2: 623, y2: 329 };
+export const ENEMY_BAR_RED: readonly [number, number, number] = [220, 64, 56];
+export const COMMAND_FIELD = { x1: 8, y1: 348, x2: 151, y2: 479 };
+export const PARTY_FIELD = { x1: 160, y1: 348, x2: 631, y2: 479 };
+export const LIST_HIGHLIGHT: readonly [number, number, number] = [40, 64, 140];
+export const SELECTION_YELLOW: readonly [number, number, number] = [255, 224, 64];
+export const TARGET_PICKER_FIELD = { x1: 8, y1: 255, x2: 151, y2: 323 };
+export const TARGET_MESSAGE_FIELD = { x1: 0, y1: 324, x2: 639, y2: 343 };
