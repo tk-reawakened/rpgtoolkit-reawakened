@@ -201,10 +201,8 @@ function makeActor(state: GameState, kind: "party" | "enemy", name: string, sour
   return { record, value: { kind: "object" as const, handle: object.handle, className: object.className } };
 }
 
-// All rigs use this file's stable loader/plugin set; reuse compiled IR, never VM state.
-let sharedPrograms: ScriptServices["programs"] | undefined;
 function servicesFor(state: GameState, layers: PluginLayers): ScriptServices {
-  const services = coreCreateScriptServices(
+  return coreCreateScriptServices(
     state,
     [
       { definition: CORE_PLUGIN },
@@ -216,9 +214,6 @@ function servicesFor(state: GameState, layers: PluginLayers): ScriptServices {
     ],
     undefined, undefined, loader, "default", undefined, undefined, layers,
   );
-  const programs = sharedPrograms ?? services.programs;
-  sharedPrograms = programs;
-  return programs === services.programs ? services : { ...services, programs };
 }
 
 function makeRig(options: RunOptions): Rig {

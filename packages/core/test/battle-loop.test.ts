@@ -135,10 +135,8 @@ function makeState(options: {
   return { state, services, enemies, players, seed };
 }
 
-// All rigs use this file's stable loader/plugin set; reuse compiled IR, never VM state.
-let sharedPrograms: ScriptServices["programs"] | undefined;
 function servicesFor(state: GameState, layers: PluginLayers): ScriptServices {
-  const services = coreCreateScriptServices(
+  return coreCreateScriptServices(
     state,
     [
       { definition: CORE_PLUGIN },
@@ -156,9 +154,6 @@ function servicesFor(state: GameState, layers: PluginLayers): ScriptServices {
     undefined,
     layers,
   );
-  const programs = sharedPrograms ?? services.programs;
-  sharedPrograms = programs;
-  return programs === services.programs ? services : { ...services, programs };
 }
 
 function restoreRig(json: string, seed: number): { readonly state: GameState; readonly services: ScriptServices } {
