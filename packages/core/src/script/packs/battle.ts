@@ -1111,7 +1111,7 @@ const REAWAKENED = [GROUP, "reawakened-additions-not-part-of-the-282-legacy-cata
 
 const MOVE_ASSET = {
   name: "__battle_move_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
-  doc: internalDocumentation("Resume a special-move asset request.", "Reads the `.spc` bytes and returns only the normalized battle fields as a dictionary with lowercase keys.", [...ASSET_REPLY_THROWS, { code: "format.special-move", when: "the bytes are not a valid special move `.spc` file" }]),
+  doc: internalDocumentation("Resume a special-move asset request.", "Reads the `.spc` bytes and returns only the normalized battle fields and the description as a dictionary with lowercase keys.", [...ASSET_REPLY_THROWS, { code: "format.special-move", when: "the bytes are not a valid special move `.spc` file" }]),
   call: dataAssetContinuation("special move", "format.special-move", readSpecialMove, (view, _args, move) => dictionary(view, {
     fp: move.damage, smp: move.smpCost, targetsmp: move.targetSmpDrain,
     animation: move.animation, program: move.program, statuseffect: move.statusEffect,
@@ -1123,8 +1123,8 @@ const MOVE_ASSET = {
 const MOVE_DATA = {
   name: "battlemovedata", aliases: [], params: [parameter("file")],
   doc: {
-    summary: "Read a special move file's battle numbers and references.",
-    behaviour: "Loads SpcMove/<file>.spc (the prefix and extension may be omitted) and returns a dictionary of its stored values without changing any actor, inventory or battle state: `fp` (damage), `smp` (cost to the user), `targetsmp` (SMP drained from the target), `animation`, `program`, `statuseffect` (file names, possibly empty), and `battle` / `menu`, the stored usability bytes passed through unchanged. The stored byte is 0 for usable and non-zero (1, or -1 in old files) for not usable; comparing it is left to the calling script. Member names are matched ignoring case. It makes no rules about damage, cost or affordability. Failures raise the ordinary asset and format errors, which the standard script error policy turns into a null result.",
+    summary: "Read a special move file's battle numbers, references and description.",
+    behaviour: "Loads SpcMove/<file>.spc (the prefix and extension may be omitted) and returns a dictionary of its stored values without changing any actor, inventory or battle state: `fp` (damage), `smp` (cost to the user), `targetsmp` (SMP drained from the target), `animation`, `program`, `statuseffect` (file names, possibly empty), and `battle` / `menu`, the stored usability bytes passed through unchanged, and `description`, the move's description text exactly as stored (an empty string when the file stores none). The stored byte is 0 for usable and non-zero (1, or -1 in old files) for not usable; comparing it is left to the calling script. Member names are matched ignoring case. It makes no rules about damage, cost or affordability. Failures raise the ordinary asset and format errors, which the standard script error policy turns into a null result.",
     groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
     throws: [...ASSET_REPLY_THROWS, { code: "format.special-move", when: "the bytes are not a valid special move `.spc` file" }, { code: "builtin.bad-arg", when: "the file name is empty" }],
   },
@@ -1137,7 +1137,7 @@ const MOVE_DATA = {
 
 const ITEM_ASSET = {
   name: "__battle_item_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
-  doc: internalDocumentation("Resume an item asset request for battle data.", "Reads the `.itm` bytes and returns only the battle-use HP, SMP, animation, program and usable flag as a dictionary with lowercase keys.", [...ASSET_REPLY_THROWS, { code: "format.item", when: "the bytes are not a valid item `.itm` file" }]),
+  doc: internalDocumentation("Resume an item asset request for battle data.", "Reads the `.itm` bytes and returns only the battle-use HP, SMP, animation, program, usable flag and description as a dictionary with lowercase keys.", [...ASSET_REPLY_THROWS, { code: "format.item", when: "the bytes are not a valid item `.itm` file" }]),
   call: dataAssetContinuation("item", "format.item", readItem, (view, _args, item) => dictionary(view, {
     hp: item.battleUseHp, smp: item.battleUseSmp, animation: item.battleAnimation, program: item.battleUseProgram,
     usable: item.battleUsable,
@@ -1148,8 +1148,8 @@ const ITEM_ASSET = {
 const ITEM_DATA = {
   name: "battleitemdata", aliases: [], params: [parameter("file")],
   doc: {
-    summary: "Read an item file's battle-use numbers and references.",
-    behaviour: "Loads Item/<file>.itm (the prefix and extension may be omitted) and returns a dictionary of its stored battle-use values without changing any actor, inventory or battle state: `hp` and `smp` (the amounts the item restores when used in battle), `animation` and `program` (file names, possibly empty), and `usable`, the stored used-in-a-fight byte (1 = usable in battle, 0 = not). It does not itself refuse an item that is not battle-usable and does not check that it is owned; a menu that lists only usable items compares `usable`. Failures raise the ordinary asset and format errors, which the standard script error policy turns into a null result.",
+    summary: "Read an item file's battle-use numbers, references and description.",
+    behaviour: "Loads Item/<file>.itm (the prefix and extension may be omitted) and returns a dictionary of its stored battle-use values without changing any actor, inventory or battle state: `hp` and `smp` (the amounts the item restores when used in battle), `animation` and `program` (file names, possibly empty), `usable`, the stored used-in-a-fight byte (1 = usable in battle, 0 = not), and `description`, the item's description text exactly as stored (an empty string when the file stores none). It does not itself refuse an item that is not battle-usable and does not check that it is owned; a menu that lists only usable items compares `usable`. Failures raise the ordinary asset and format errors, which the standard script error policy turns into a null result.",
     groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
     throws: [...ASSET_REPLY_THROWS, { code: "format.item", when: "the bytes are not a valid item `.itm` file" }, { code: "builtin.bad-arg", when: "the file name is empty" }],
   },
