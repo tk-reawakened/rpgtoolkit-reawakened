@@ -6,7 +6,7 @@ import { awaitMenu, bootUiRig, type UiRig } from "./battle-ui-rig.ts";
 // Frame cadence (entry 7.11, BAT-11 item 4): every fighter is one engine-owned pinned animation, so each picture on the
 // real screen must change on exactly the ticks its animation's frame index changes, at the stored frame delay, idle and
 // during an action. The comparison is per animation id, so a stance switch (a new animation) is not mistaken for a skip.
-type Sample = { readonly id: number; readonly frame: number; readonly picture: string };
+type Sample = { readonly id: number; readonly frame: number; readonly picture: string; readonly delay: number };
 
 function samplePictures(rig: UiRig): Map<number, Sample> {
   const frame = rig.frame();
@@ -18,15 +18,15 @@ function samplePictures(rig: UiRig): Map<number, Sample> {
       const from = ((animation.y + row) * frame.w + animation.x) * 4;
       crop.set(frame.rgba.subarray(from, from + 64 * 4), row * 64 * 4);
     }
-    result.set(animation.id, { id: animation.id, frame: animation.frame, picture: fnv1a64(crop) });
+    result.set(animation.id, { id: animation.id, frame: animation.frame, picture: fnv1a64(crop), delay: animation.delayTicks });
   }
   return result;
 }
 
-function cadenceViolations(rig: UiRig, ticks: number): { readonly compared: number; readonly changed: number; readonly violations: string[] } {
+function cadenceViolations(rig: UiRig, ticks: number): { readonly compared: number[]; readonly changed: number[]; readonly violations: string[] } {
   const violations: string[] = [];
-  let compared = 0;
-  let changed = 0;
+  const compared = [0, 0, 0, 0];
+  const changed = [0, 0, 0, 0];
   let previous = samplePictures(rig);
   for (let step = 0; step < ticks; step += 1) {
     rig.tick(1);
@@ -34,10 +34,10 @@ function cadenceViolations(rig: UiRig, ticks: number): { readonly compared: numb
     for (const [id, now] of current) {
       const before = previous.get(id);
       if (before === undefined) continue;
-      compared += 1;
+      compared[now.delay]! += 1;
       const frameMoved = now.frame !== before.frame;
       const pictureMoved = now.picture !== before.picture;
-      if (frameMoved) changed += 1;
+      if (frameMoved) changed[now.delay]! += 1;
       if (frameMoved !== pictureMoved) violations.push(`tick ${rig.state().time.tick} animation ${id}: frame ${before.frame}->${now.frame} but picture ${pictureMoved ? "changed" : "did not change"}`);
     }
     previous = current;
@@ -45,21 +45,24 @@ function cadenceViolations(rig: UiRig, ticks: number): { readonly compared: numb
   return { compared, changed, violations };
 }
 
-for (const delay of [1, 2, 3]) {
-  test(`every stance picture on the real screen advances exactly at a ${delay}-tick frame delay, idle and during an action`, () => {
-    const rig = bootUiRig({ stanceDelayTicks: delay });
-    awaitMenu(rig);
-    const idle = cadenceViolations(rig, 12);
-    ok(idle.compared >= 12 * 3, `fighters were compared every tick (${idle.compared})`);
-    ok(idle.changed >= Math.floor(12 / delay), `frames moved (${idle.changed})`);
-    deepEqual(idle.violations, [], "idle cadence");
-    rig.press("ENTER", 4);
-    const acting = cadenceViolations(rig, 24);
-    ok(acting.compared > 0);
-    deepEqual(acting.violations, [], "cadence during the action");
-    deepEqual(rig.diagnostics, []);
-  });
-}
+test("every stance picture advances at its own 1-, 2- or 3-tick frame delay, idle and during an action", () => {
+  const rig = bootUiRig({ stanceDelays: { slime: 1, bat: 2, hero: 3, mage: 2, rogue: 3 } });
+  awaitMenu(rig);
+  const idle = cadenceViolations(rig, 12);
+  for (const delay of [1, 2, 3]) {
+    ok(idle.compared[delay]! >= 12, `delay ${delay} compared each idle tick`);
+    ok(idle.changed[delay]! >= Math.floor(12 / delay), `delay ${delay} frames moved`);
+  }
+  deepEqual(idle.violations, [], "idle cadence");
+  rig.press("ENTER", 4);
+  const acting = cadenceViolations(rig, 24);
+  for (const delay of [1, 2, 3]) {
+    ok(acting.compared[delay]! > 0, `delay ${delay} compared during action`);
+    ok(acting.changed[delay]! > 0, `delay ${delay} advanced during action`);
+  }
+  deepEqual(acting.violations, [], "cadence during the action");
+  deepEqual(rig.diagnostics, []);
+});
 
 test("each pinned animation's frame is the pure function of its start tick, delay and the tick it was advanced on", () => {
   const rig = bootUiRig({ stanceDelayTicks: 2 });
