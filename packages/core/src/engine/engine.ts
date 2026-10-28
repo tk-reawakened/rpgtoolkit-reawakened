@@ -52,7 +52,7 @@ import { advanceAnimations, animationBlits, loadAnimation, releaseAnimationSurfa
 import { hydrateBoard } from "../world/hydrate.ts";
 import { coordLayout, tileToPixel } from "../world/coords.ts";
 import { boardEmitterKey, type WorldBoard } from "../world/model.ts";
-import type { FxSection } from "../save/sections.ts";
+import type { AnimationState, FxSection } from "../save/sections.ts";
 import { applyInputEvent, createInputSection, inputView, processGamepadEvents, pruneClaimed } from "../input/index.ts";
 import { applyWorldEffect, expireProgramTileEdits } from "../world/effects.ts";
 import { applyCameraEffect, createCameraSection, initCameraForBoard, positionAt, realignCamera, updateCamera } from "../world/camera.ts";
@@ -1735,6 +1735,7 @@ export function createEngine(init: EngineInit): Engine {
    * `send`, the scene board) until one waits for a host reply or a tick.
    */
   function drive(): void {
+    requestRestoredAnimationAssets();
     for (let guard = 0; guard < 64; guard += 1) {
       if (failed || pending.size > 0 || pendingBlobs.size > 0 || state.engine.openTick !== undefined) return;
       if (pendingBoardPreviews.length > 0 && !prepareBoardPreviews()) return;
@@ -1799,6 +1800,32 @@ export function createEngine(init: EngineInit): Engine {
     const resolved = resolveAsset(index, root, "bitmaps", reference.kind === "picture" || reference.kind === "tileBitmap" ? reference.path : image);
     return resolved.ok ? { asset: resolved.value, tile: null } : null;
   }
+  /** Ask the host for every picture the frames of a loaded animation draw that is not in the cache yet; true if any was asked for. */
+  function requestFrameAssets(animation: AnimationState): boolean {
+    let waiting = false;
+    for (const frame of animation.frames) {
+      if (frame.asset === null || frame.surface !== undefined || cache.has(frame.asset)) continue;
+      request(frame.asset, requestKindFor(frame.asset));
+      waiting = true;
+    }
+    return waiting;
+  }
+  /**
+   * A game loaded into an engine that never played its animations holds them already loaded, with no pictures cached.
+   * Ask for those pictures, leaving each animation's frame and origin tick as saved; ticks wait for the replies, so the
+   * frame clock continues on the same ticks as in the saved run.
+   */
+  function requestRestoredAnimationAssets(): void {
+    for (const animation of (state.fx as Partial<FxSection>).animations ?? []) {
+      if (animation.loaded && !animation.finished) requestFrameAssets(animation);
+    }
+  }
+  /** The effects to draw: an animation whose pictures are still being fetched (a game just loaded) is left out until they arrive. */
+  function drawableFx(): FxSection {
+    const animations = (state.fx as Partial<FxSection>).animations ?? [];
+    const ready = animations.filter((animation) => animation.frames.every((frame) => frame.asset === null || frame.surface !== undefined || cache.has(frame.asset)));
+    return { ...state.fx, animations: ready };
+  }
   function prepareAnimations(): void {
     const animations = (state.fx as Partial<FxSection>).animations ?? [];
     for (const animation of animations) {
@@ -1823,12 +1850,7 @@ export function createEngine(init: EngineInit): Engine {
       // A frame's picture is a separate asset. The animation starts playing, and its frame clock starts, only once every
       // picture is in the cache, so the first drawn frame is never a missing texture and the frames are on the same
       // ticks on every run.
-      let waiting = false;
-      for (const frame of animation.frames) {
-        if (frame.asset === null || frame.surface !== undefined || cache.has(frame.asset)) continue;
-        request(frame.asset, requestKindFor(frame.asset));
-        waiting = true;
-      }
+      const waiting = requestFrameAssets(animation);
       if (waiting) {
         releaseAnimationSurfaces(state, animation);
         animation.loaded = false;
@@ -2067,11 +2089,12 @@ export function createEngine(init: EngineInit): Engine {
       ? undefined
       : state.vm.threads.find((thread) => thread.wait?.kind === "input.key" && thread.wait.cursorMap === cursorMap);
     const cursorSelection = waitingCursor?.wait?.kind === "input.key" ? waitingCursor.wait.cursorSelection : undefined;
-    const withFx = applyFxDrawList(base, state.fx);
+    const fx = drawableFx();
+    const withFx = applyFxDrawList(base, fx);
     // E-57: the enabled render-now canvas sits above the board, sprites and animations and below UI text and the message window.
     const overlay = renderNowBlit(state.surfaces);
     // Pinned animations (`pinnedanimation`) are engine-owned pictures that sit directly above that canvas.
-    const withOverlay = { ...withFx, commands: [...withFx.commands, ...(overlay === null ? [] : [overlay]), ...animationBlits({ ...state.fx, animations: (state.fx as Partial<FxSection>).animations ?? [] }, true)] };
+    const withOverlay = { ...withFx, commands: [...withFx.commands, ...(overlay === null ? [] : [overlay]), ...animationBlits(fx, true)] };
     const withUi = { ...withOverlay, commands: [...withOverlay.commands, ...debugCommands(), ...composeUi(state.ui, init.width, init.height, state.input, false, cursorSelection)] };
     return { ...withUi, commands: [...withUi.commands, ...composeUiCursor(state.ui, state.input, cursorSelection)] };
   }
