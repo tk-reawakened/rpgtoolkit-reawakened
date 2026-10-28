@@ -3,7 +3,7 @@
 // compiled for one rig answer a handle lookup in another and routed the one-time compile diagnostics
 // of a shared program to whichever rig compiled it first. Each rig now owns its cache; these tests
 // pin that behaviour for the services every rig is built from.
-import { deepEqual, equal, notEqual } from "node:assert/strict";
+import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -74,7 +74,7 @@ const cycles = (records: readonly LogRecord[]): number => records.filter((record
 test("two rigs over one loader own separate program caches", () => {
   const a = rig();
   const b = rig();
-  notEqual(a.services.programs, b.services.programs);
+  ok(a.services.programs !== b.services.programs);
   run(a, "other.prg");
   equal(a.services.programs.compiles, 1);
   equal(b.services.programs.compiles, 0);
