@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- The proposed battle screen keeps the selected command visible while choosing a move, item, or target and highlights list entries across their column. The owner approved choosing a revive target by name; the remaining screen presentation remains proposed.
+- Jensen approved the complete battle screen on 2026-10-28, including by-name revive targeting. It keeps the selected command visible while choosing a move, item, or target and highlights list entries across their column.
 - Battle selection keeps the command label and active member name at exactly the same yellow; selected unavailable moves remain visibly dimmed with improved contrast, and the description header no longer exposes the background beneath its label.
 
 - Script drawing (`setpixel`, `drawline`, `drawrect`, `fillrect`, `drawcircle`, `fillcircle`, `clear`, canvas blits) edits live pixel buffers kept outside saved state, and each command re-encodes only the span it can touch. Inside a thread phase the edits are held and written into the plain-JSON base64 snapshots when the phase ends, including after a thrown command or a debugger pause. Opaque, unscaled copies use clipped scanlines; translucent pixels keep their existing blend behavior, and a surface blitted onto itself reads its pre-blit pixels.

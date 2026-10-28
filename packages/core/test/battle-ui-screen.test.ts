@@ -2,7 +2,7 @@
 //
 // A whole seeded game boots the real stock_battle package with a screen, answers every asset request from authored
 // files (battle-ui-rig.ts), presses real keys through the engine's key queue and reads back the battle, the actors, the
-// audio cues and the composed frame. The golden frames in golden/battle-ui/ are PROPOSED for the owner's approval; they
+// audio cues and the composed frame. Jensen approved the golden frames in golden/battle-ui/ on 2026-10-28; they
 // are compared pixel for pixel and rewritten only with BATTLE_UI_GOLDEN=record (G5).
 import { test } from "node:test";
 import { deepEqual, equal, ok } from "node:assert/strict";
