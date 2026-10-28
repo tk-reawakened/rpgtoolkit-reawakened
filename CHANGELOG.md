@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The proposed battle screen keeps the selected command visible while choosing a move, item, or target, highlights list entries across their column, and lets the player choose a revive target by name. The by-name revive presentation remains proposed pending owner confirmation.
+
 - Script drawing (`setpixel`, `drawline`, `drawrect`, `fillrect`, `drawcircle`, `fillcircle`, `clear`, canvas blits) edits live pixel buffers kept outside saved state, and each command re-encodes only the span it can touch. Inside a thread phase the edits are held and written into the plain-JSON base64 snapshots when the phase ends, including after a thrown command or a debugger pause. Opaque, unscaled copies use clipped scanlines; translucent pixels keep their existing blend behavior, and a surface blitted onto itself reads its pre-blit pixels.
 - Bounds are never narrower than what the draw routine can write: an infinite `fillrect` edge clips to the surface like the pixels it draws, and an unknown extent covers the whole surface. An unbounded edit is never narrowed by a later bounded one.
 - Batching is off when effect appliers or script observers are installed, and stays on with a main file, package catalogue or phase registrations. Package, catalogue and main-file plugin code (commands, listeners and host-object hooks) is handed the state tree, so pending drawing is written out before any of it runs, and again when a layer it called through `next` returns; built-in commands never trigger that. Such code therefore sees exactly the snapshots eager drawing would give it.

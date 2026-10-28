@@ -381,9 +381,11 @@ function pinnedTimelines(rig: UiRig): { readonly id: number; readonly originTick
   return rig.state().fx.animations.filter((animation) => animation.pinned === true).map((animation) => ({ id: animation.id, originTick: animation.originTick, loop: animation.loop }));
 }
 
-function countColour(rig: UiRig, box: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }, colour: readonly [number, number, number]): { readonly count: number; readonly minY: number; readonly maxY: number } {
+function countColour(rig: UiRig, box: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }, colour: readonly [number, number, number]): { readonly count: number; readonly minX: number; readonly maxX: number; readonly minY: number; readonly maxY: number } {
   const frame = rig.frame();
   let count = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
   let minY = Infinity;
   let maxY = -Infinity;
   for (let y = box.y1; y <= box.y2; y += 1) {
@@ -391,17 +393,138 @@ function countColour(rig: UiRig, box: { readonly x1: number; readonly y1: number
       const at = (y * frame.w + x) * 4;
       if (frame.rgba[at] === colour[0] && frame.rgba[at + 1] === colour[1] && frame.rgba[at + 2] === colour[2]) {
         count += 1;
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
         minY = Math.min(minY, y);
         maxY = Math.max(maxY, y);
       }
     }
   }
-  return { count, minY, maxY };
+  return { count, minX, maxX, minY, maxY };
+}
+
+function regionHash(rig: UiRig, box: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }): string {
+  const frame = rig.frame();
+  const pixels = new Uint8Array((box.x2 - box.x1 + 1) * (box.y2 - box.y1 + 1) * 4);
+  let offset = 0;
+  for (let y = box.y1; y <= box.y2; y += 1) {
+    const start = (y * frame.w + box.x1) * 4;
+    const end = (y * frame.w + box.x2 + 1) * 4;
+    pixels.set(frame.rgba.subarray(start, end), offset);
+    offset += end - start;
+  }
+  return fnv1a64(pixels);
 }
 
 const LIST_FIELD = { x1: 16, y1: 28, x2: 623, y2: 329 };
-const LIST_HIGHLIGHT: readonly [number, number, number] = [40, 64, 140];
 const ENEMY_BAR_RED: readonly [number, number, number] = [220, 64, 56];
+const COMMAND_FIELD = { x1: 8, y1: 348, x2: 151, y2: 479 };
+const PARTY_FIELD = { x1: 160, y1: 348, x2: 631, y2: 479 };
+const LIST_HIGHLIGHT: readonly [number, number, number] = [40, 64, 140];
+const SELECTION_YELLOW: readonly [number, number, number] = [255, 224, 64];
+const TARGET_PICKER_FIELD = { x1: 8, y1: 255, x2: 151, y2: 323 };
+const TARGET_MESSAGE_FIELD = { x1: 0, y1: 324, x2: 639, y2: 343 };
+
+
+test("the selected list row highlights both columns across long labels and details", () => {
+  const rig = bootUiRig({
+    extraItems: 18,
+    extraItemLabelPrefix: "Gem with an exceptionally long label ",
+    extraItemQuantity: 987654321,
+  });
+  awaitMenu(rig);
+  const press = (name: string): void => rig.press(name, 12);
+  press("DOWN");
+  press("DOWN");
+  press("ENTER");
+  equal(ui(rig)["listkind"], "item");
+  press("DOWN");
+  press("DOWN");
+  rig.tick(24);
+  const firstColumn = countColour(rig, LIST_FIELD, LIST_HIGHLIGHT);
+  ok(firstColumn.count > 200, `highlight covers the selected row (${firstColumn.count} pixels)`);
+  ok(firstColumn.minX <= 24 && firstColumn.maxX >= 300, `highlight spans the first column's label and detail (${firstColumn.minX}..${firstColumn.maxX})`);
+  ok(firstColumn.minY >= 130 && firstColumn.maxY <= 170, `first selected row stays within its row bounds (${firstColumn.minY}..${firstColumn.maxY})`);
+  for (let step = 0; step < 6; step += 1) press("DOWN");
+  rig.tick(24);
+  equal(ui(rig)["listcursor"], 8);
+  const secondColumn = countColour(rig, LIST_FIELD, LIST_HIGHLIGHT);
+  ok(secondColumn.minX >= 320 && secondColumn.maxX >= 600, `highlight spans the second column's label and detail (${secondColumn.minX}..${secondColumn.maxX})`);
+  ok(secondColumn.minY >= 70 && secondColumn.maxY <= 110, `second selected row stays within its row bounds (${secondColumn.minY}..${secondColumn.maxY})`);
+  deepEqual(rig.diagnostics, []);
+});
+
+test("the selected command stays yellow beside the open target list and matches the active party name", () => {
+  const rig = bootUiRig();
+  awaitMenu(rig);
+  rig.press("ENTER", 8);
+  equal(ui(rig)["mode"], "target");
+  rig.tick(8);
+  const commandHighlight = countColour(rig, COMMAND_FIELD, SELECTION_YELLOW);
+  ok(commandHighlight.count > 20, `the selected command remains yellow (${commandHighlight.count} pixels)`);
+  const partyHighlight = countColour(rig, PARTY_FIELD, SELECTION_YELLOW);
+  ok(partyHighlight.count > 0, "the active party member's name uses the same yellow highlight");
+  const pickerHighlight = countColour(rig, TARGET_PICKER_FIELD, SELECTION_YELLOW);
+  ok(pickerHighlight.count > 20, "the selected target name is yellow in the compact picker");
+  ok(countColour(rig, TARGET_PICKER_FIELD, LIST_HIGHLIGHT).count > 200, "the target row highlight fills the compact picker row");
+  ok(countColour(rig, TARGET_MESSAGE_FIELD, [255, 255, 255]).count > 0, "the selected target name is shown in the message strip");
+  ok(pinnedCount(rig) > 0, "fighter animations remain visible while the target picker is open");
+  ok(commandHighlight.minY >= COMMAND_FIELD.y1 && commandHighlight.maxY <= COMMAND_FIELD.y2);
+  deepEqual(rig.diagnostics, []);
+});
+
+test("revive confirmation follows the fallen ally's displayed name, not its current cursor index", () => {
+  const rig = bootUiRig();
+  awaitMenu(rig);
+  const rogue = actor(rig, "rogue.tem");
+  equal(rogue.stats.hp, 0);
+  rogue.name = "Fallen Rogue";
+  const press = (name: string): void => rig.press(name, 12);
+  press("DOWN");
+  press("DOWN");
+  press("ENTER");
+  press("ENTER");
+  equal(ui(rig)["mode"], "target");
+  const firstTargetName = regionHash(rig, TARGET_MESSAGE_FIELD);
+  press("RIGHT");
+  press("RIGHT");
+  equal(ui(rig)["targetcursor"], 2);
+  ok(regionHash(rig, TARGET_MESSAGE_FIELD) !== firstTargetName, "the message strip changes to the selected Fallen Rogue name");
+  ok(countColour(rig, TARGET_PICKER_FIELD, SELECTION_YELLOW).count > 0, "Fallen Rogue is highlighted by name in the target picker");
+  equal(rogue.stats.hp, 0, "opening and selecting the named target does not revive it yet");
+  press("ENTER");
+  rig.until(() => rig.charges()[1]![MAGE]! < THRESHOLD, 400);
+  equal(actor(rig, "rogue.tem").stats.hp, 20, "confirming Fallen Rogue applies the Potion to that named ally");
+  deepEqual(rig.diagnostics, []);
+});
+
+test("duplicate party names remain distinguishable in the target list and revive the selected actor", () => {
+  const rig = bootUiRig();
+  awaitMenu(rig);
+  const hero = actor(rig, "hero.tem");
+  const rogue = actor(rig, "rogue.tem");
+  hero.name = "Ally";
+  rogue.name = "Ally";
+  const press = (name: string): void => rig.press(name, 12);
+  press("DOWN");
+  press("DOWN");
+  press("ENTER");
+  press("ENTER");
+  equal(ui(rig)["mode"], "target");
+  rig.tick(8);
+  const firstTargetName = regionHash(rig, TARGET_MESSAGE_FIELD);
+  ok(countColour(rig, TARGET_PICKER_FIELD, SELECTION_YELLOW).count > 0, "the duplicated-name target row is yellow in the compact picker");
+  press("RIGHT");
+  press("RIGHT");
+  equal(ui(rig)["targetcursor"], 2);
+  ok(regionHash(rig, TARGET_MESSAGE_FIELD) !== firstTargetName, "the message strip distinguishes the selected duplicate-name target");
+  press("ENTER");
+  rig.until(() => rig.charges()[1]![MAGE]! < THRESHOLD, 400);
+  equal(actor(rig, "hero.tem").stats.hp, 42, "the living same-named Ally was not revived");
+  equal(actor(rig, "rogue.tem").stats.hp, 20, "the selected fallen same-named Ally was revived");
+  deepEqual(rig.diagnostics, []);
+});
+
 
 test("an item list longer than sixteen entries pages inside its box, and the fighters' pictures and labels stay off it while it is open", () => {
   const rig = bootUiRig({ extraItems: 20, stanceDelayTicks: 2 });
@@ -474,14 +597,13 @@ test("a second battle in the same game starts a working screen with live canvase
   const frame = rig.frame();
   const at = (348 * frame.w + 160) * 4;
   deepEqual([...frame.rgba.subarray(at, at + 3)], [180, 190, 255], "the second battle's party panel frame is on screen");
-  ok(countColour(rig, { x1: 8, y1: 348, x2: 151, y2: 479 }, [40, 64, 140]).count > 200, "the command panel's highlight is drawn");
-  // The reserved overlay is the one from the first battle (it persists), plus this battle's buffer and the copy of the
-  // overlay taken to restore it afterwards; nothing of the first battle's screen is left over.
+  ok(countColour(rig, { x1: 8, y1: 348, x2: 151, y2: 479 }, SELECTION_YELLOW).count > 0, "the command panel's selected label is yellow");
+  // The reserved overlay persists, while the battle owns its buffer, target scratch and HUD backup.
   const fullSize = Object.values(rig.state().surfaces.entries).filter((entry) => entry.id !== (0 as never) && entry.bitmap.w === 640 && entry.bitmap.h === 480).map((entry) => entry.id);
-  equal(fullSize.length, 3, `the overlay, the buffer and the overlay back-up (${fullSize.join(",")})`);
+  equal(fullSize.length, 4, `the overlay, buffer, target scratch and overlay back-up (${fullSize.join(",")})`);
   equal(rig.state().surfaces.renderNow as number, 2, "the second battle draws on the reserved canvas the first one used");
   const buffer = rig.ui()?.["buffer"] as number;
-  ok(fullSize.map((id) => id as number).includes(buffer), "the buffer of the second battle is one of the three");
+  ok(fullSize.map((id) => id as number).includes(buffer), "the buffer of the second battle is live");
   rig.press("ENTER", 6);
   rig.press("ENTER", 6);
   rig.until((state) => state.vm.globals.afterfight === 2, 3000);

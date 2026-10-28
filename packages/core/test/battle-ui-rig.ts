@@ -325,8 +325,12 @@ export type RigOptions = {
   readonly slimeHp?: number;
   /** Authored stance animations use this frame delay in whole ticks and two frames (default: one frame, 0.2 s). */
   readonly stanceDelayTicks?: number;
-  /** Extra battle-usable item stacks ("Gem 01" ...), each with a quantity of 1, appended to the default inventory. */
+  /** Extra battle-usable item stacks appended to the default inventory. */
   readonly extraItems?: number;
+  /** Prefix for generated extra-item labels, useful for clipping tests. */
+  readonly extraItemLabelPrefix?: string;
+  /** Quantity shown for generated extra items. */
+  readonly extraItemQuantity?: number;
   /** How many fights the fight program runs back to back (default one); each ends when its enemies are gone or the party runs. */
   readonly fights?: number;
   /** A game HUD already on the reserved overlay before the first fight: drawn and switched on, drawn and switched off, or none. */
@@ -415,7 +419,9 @@ export function gameFiles(options: RigOptions = {}): { readonly files: Map<strin
   put("Item/potion.itm", itemBytes("Potion", { hp: 20, smp: 0, battle: 1, desc: "Restores 20 HP to one ally, living or fallen." }));
   put("Item/ether.itm", itemBytes("Ether", { hp: 0, smp: 8, battle: 1, desc: "Restores 8 SMP to one party member." }));
   for (let gem = 1; gem <= (options.extraItems ?? 0); gem += 1) {
-    put(`Item/gem${String(gem).padStart(2, "0")}.itm`, itemBytes(`Gem ${String(gem).padStart(2, "0")}`, { hp: 1, smp: 0, battle: 1, desc: `Gem number ${gem}.` }));
+    const suffix = String(gem).padStart(2, "0");
+    const label = `${options.extraItemLabelPrefix ?? "Gem "}${suffix}`;
+    put(`Item/gem${suffix}.itm`, itemBytes(label, { hp: 1, smp: 0, battle: 1, desc: `Gem number ${gem}.` }));
   }
   put("Item/key.itm", itemBytes("Brass Key", { hp: 0, smp: 0, battle: 0 }));
   for (const sound of ["move.wav", "choose.wav", "cant.wav"]) put(`Media/${sound}`, wavBytes());
@@ -471,8 +477,9 @@ export function bootUiRig(options: RigOptions = {}): UiRig {
   const game = gameFiles(options);
   const party = options.party ?? DEFAULT_PARTY;
   const gems = Array.from({ length: options.extraItems ?? 0 }, (_, index) => {
-    const name = `Gem ${String(index + 1).padStart(2, "0")}`;
-    return { source: `item/gem${String(index + 1).padStart(2, "0")}.itm`, handle: name, quantity: 1 };
+    const suffix = String(index + 1).padStart(2, "0");
+    const name = `${options.extraItemLabelPrefix ?? "Gem "}${suffix}`;
+    return { source: `item/gem${suffix}.itm`, handle: name, quantity: options.extraItemQuantity ?? 1 };
   });
   const stock = options.inventory ?? [{ source: "item/potion.itm", handle: "Potion", quantity: 3 }, { source: "item/ether.itm", handle: "Ether", quantity: 1 }, { source: "item/key.itm", handle: "Brass Key", quantity: 1 }, ...gems];
   let latest: GameState | null = null;
