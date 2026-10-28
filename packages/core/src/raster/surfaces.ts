@@ -263,6 +263,15 @@ function pendingValid(pending: BatchEntry): boolean {
     && pending.w === current.bitmap.w && pending.h === current.bitmap.h;
 }
 
+/**
+ * Drop `pending` from the entry index, but only while the index still points at it: the index is one
+ * slot per entry and two batches can hold buffers for the same shared entry (two sections whose entries
+ * reference one surface), so a closing older batch must not unindex the newer buffer.
+ */
+function dropPending(pending: BatchEntry): void {
+  if (pendingEntries.get(pending.entry) === pending) pendingEntries.delete(pending.entry);
+}
+
 function decode(entry: SurfaceState, cache?: SurfacePixelCache): Uint8Array {
   // A caller's id:rev cache cannot distinguish different restored states.
   // The entry association also checks the snapshot itself, not just its rev.
@@ -327,7 +336,7 @@ export function endSurfaceBatch(state: SurfacesSection): void {
   if (batch.depth !== 0) return;
   batches.delete(state);
   for (const pending of batch.entries.values()) {
-    pendingEntries.delete(pending.entry);
+    dropPending(pending);
     materialize(state, pending);
   }
 }
@@ -516,7 +525,7 @@ function livePending(batch: SurfaceBatch, current: SurfaceState): BatchEntry | u
   if (existing === undefined) return undefined;
   if (pendingValid(existing)) return existing;
   batch.entries.delete(current);
-  pendingEntries.delete(current);
+  dropPending(existing);
   return undefined;
 }
 
