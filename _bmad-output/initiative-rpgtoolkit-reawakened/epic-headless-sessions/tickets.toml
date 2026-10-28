@@ -1,0 +1,139 @@
+# Planned entries of Epic 24. IDs are stable; table order is build order.
+# All entries are backlog/no sprint. GitHub is the primary tracker.
+# Design: docs/adr/0012-headless-sessions-capture-and-mocks.md. No core change.
+
+[[entry]]
+id = 1
+tracker_id = "#719"
+type = "story"
+title = "Write the session protocol, manifest and capture reference"
+description = "Write the reference in docs/ before any code (G7): the session manifest, start modes, typed fixtures and the RPGCode built-ins each compiles to, mock responders, capture options, the tick-to-sample rule, and the JSON-RPC methods and events."
+verify = "1. A docs page defines the manifest schema (game, seed, start, fixtures, mocks, inputs, capture) and the resolved-manifest output, with a worked example.\n2. Each typed fixture names the documented docs/spec built-ins it compiles to; any fixture without a documented route is listed as out of scope, not guessed.\n3. Each mock lists its options per request kind (asset, loadBlob, saveBlob, listBlobs, playVideo, extension.call, quit, openUrl).\n4. Capture options define screenshot, masters (PNG frames, WAV) and MP4, including the exact integer rule that maps ticks to audio sample positions.\n5. Every option and method has help text: a plain explanation first, then units, ticks, order and whether it waits.\n6. States the FFmpeg rule: MP4 export needs an FFmpeg the user installs; we never bundle, link or ship it.\n7. Includes an 'Installing FFmpeg' section: a link to https://ffmpeg.org/download.html, the one-line install per platform (brew install ffmpeg on macOS, winget install ffmpeg on Windows, the system package manager on Linux), how to check it works (ffmpeg -version), and how to point the harness at a copy not on PATH."
+covers = ["CAP-12", "CAP-13"]
+after = []
+hitl = true
+refine = true
+risk = "medium"
+plan_checkpoint = true
+done_checkpoint = true
+references = ["docs/adr/0012-headless-sessions-capture-and-mocks.md", "docs/spec/engine/rpgcode-functions.md", "docs/guardrails.md"]
+notes = ["Kind: specification. Backlog; no Sprint.", "Harness only; no core change."]
+
+[[entry]]
+id = 2
+tracker_id = "#720"
+type = "story"
+title = "Session manifest and mockable responders"
+description = "Load a session manifest in runner-headless and answer every engine request through configurable mock responders, logging each answer."
+verify = "1. The manifest loads and validates with clear diagnostics; the resolved manifest is written at session end.\n2. Responders cover asset overlay, placeholder and failing assets; in-memory, pre-filled and read-only saves; fixed and scripted extension.call; playVideo skip or end after N ticks; quit and openUrl recorded and ignored or stopping the session.\n3. A mock log lists each request answered and how.\n4. Tests show the same manifest gives the same state and draw-list hashes on repeated runs.\n5. core unchanged; goldens unchanged."
+covers = ["CAP-12", "CAP-13"]
+after = [1]
+hitl = false
+refine = true
+risk = "medium"
+plan_checkpoint = true
+done_checkpoint = true
+references = ["docs/adr/0012-headless-sessions-capture-and-mocks.md#3-mocks-are-swapped-responders"]
+notes = ["Kind: implementation. Backlog; no Sprint.", "Harness only; no core change."]
+
+[[entry]]
+id = 3
+tracker_id = "#721"
+type = "story"
+title = "Start states and typed fixtures"
+description = "Start a session in boot, scene, save or prefix mode, and apply typed fixtures (placePlayer, giveItem, setVariable and the others in the reference) compiled to an RPGCode setup program."
+verify = "1. boot, scene, save (served through the mocked loadBlob) and prefix (fast-forwarded input log) all start and reach the expected state hash in tests.\n2. Fixtures compile only to built-ins documented in docs/spec; the generated program is written out with the session for inspection.\n3. Scene mode runs it as the scene program; boot mode runs it through an asset-overlay wrapper around the game's start-up program. If the boot route proves impossible, stop and record a separate ticket for the snapshot fallback (ADR 0012 Decision 2) instead of changing core.\n4. Fixtures never edit state JSON.\n5. core unchanged; goldens unchanged."
+covers = ["CAP-12", "CAP-13"]
+after = [2]
+hitl = false
+refine = true
+risk = "high"
+plan_checkpoint = true
+done_checkpoint = true
+references = ["docs/adr/0012-headless-sessions-capture-and-mocks.md#2-start-state", "docs/spec/engine/rpgcode-functions.md"]
+notes = ["Kind: implementation. Backlog; no Sprint.", "Exposing Engine snapshot/restore is out of scope and needs its own decision."]
+
+[[entry]]
+id = 4
+tracker_id = "#722"
+type = "story"
+title = "Screenshots: PNG writer, capture and hash sidecar"
+description = "Capture one frame from core/raster at logical resolution as PNG, with scale, region and cursor options and a sidecar of hashes."
+verify = "1. A small PNG encoder in the harness (deflate via fflate) writes RGBA; a decode round-trip test matches the source pixels.\n2. Options: integer nearest-neighbour scale, region crop, cursor on or off.\n3. The sidecar JSON records tick, stateHash, drawListHash and the manifest hash.\n4. A screenshot of a golden run equals the golden bitmap.\n5. Capturing does not change stateHash. core unchanged; goldens unchanged."
+covers = ["CAP-12", "CAP-13"]
+after = [2]
+hitl = false
+refine = true
+risk = "low"
+plan_checkpoint = false
+done_checkpoint = true
+references = ["docs/adr/0012-headless-sessions-capture-and-mocks.md#4-captures", "docs/adr/0002-core-pixels-and-deterministic-maths.md"]
+notes = ["Kind: implementation. Backlog; no Sprint.", "No new dependency; fflate is already allowlisted."]
+
+[[entry]]
+id = 5
+tracker_id = "#723"
+type = "story"
+title = "Masters: tick-scheduled frames and offline WAV"
+description = "Record lossless masters: PNG frames captured every n ticks, and a WAV rendered offline from synth in step with the same ticks."
+verify = "1. Frames are captured on a tick schedule (every n ticks) into a numbered PNG folder; never on wall-clock time.\n2. Audio is rendered offline by synth and written as WAV, with sample positions derived from ticks by the documented integer rule.\n3. A manifest of the recording is written next to the masters.\n4. Replaying the manifest reproduces every frame and the WAV byte for byte.\n5. core unchanged; goldens unchanged."
+covers = ["CAP-12", "CAP-13"]
+after = [4]
+hitl = false
+refine = true
+risk = "medium"
+plan_checkpoint = true
+done_checkpoint = true
+references = ["docs/adr/0012-headless-sessions-capture-and-mocks.md#4-captures"]
+notes = ["Kind: implementation. Backlog; no Sprint."]
+
+[[entry]]
+id = 6
+tracker_id = "#724"
+type = "story"
+title = "MP4 export through a user-installed FFmpeg"
+description = "Produce MP4 (H.264 video, AAC audio) from the masters by starting a user-installed FFmpeg as a separate process. Video export needs FFmpeg, installed by the user."
+verify = "1. FFmpeg is found on PATH or at a configured path, started as a separate process, fed raw frames and PCM through pipes or the master files, and never linked, vendored, downloaded or shipped.\n2. The harness checks ffmpeg -version and the needed encoders, and reports exactly what is missing.\n3. Without FFmpeg, MP4 export fails with one clear diagnostic that tells the user how to install it: the link to https://ffmpeg.org/download.html, the one-line install for their platform, and how to set a custom FFmpeg path. Screenshots and masters still work. The harness never downloads or installs FFmpeg itself.\n4. The licence gate shows no FFmpeg in any dependency or shipped tree.\n5. MP4 output is never compared in tests; tests compare masters. core unchanged; goldens unchanged."
+covers = ["CAP-12"]
+after = [5]
+hitl = true
+refine = true
+risk = "medium"
+plan_checkpoint = true
+done_checkpoint = true
+references = ["docs/adr/0012-headless-sessions-capture-and-mocks.md#6-ffmpeg-is-an-optional-external-tool-not-a-dependency-g6-clarification", "docs/guardrails.md"]
+notes = ["Kind: implementation. Backlog; no Sprint.", "Waits for ADR 0012 to be accepted (G6 clarification)."]
+
+[[entry]]
+id = 7
+tracker_id = "#725"
+type = "story"
+title = "JSON-RPC session protocol over stdio"
+description = "Drive a session live over JSON-RPC 2.0 on stdio: session, time, input, capture, state and mock methods, plus diagnostic, request, paused and throttled frame events."
+verify = "1. Every method and event in the reference is implemented and tested over stdio.\n2. Live inputs go through the canonical input log and appear in the resolved manifest.\n3. Replaying the resolved manifest of a live session reproduces its hashes and masters.\n4. Frame events throttle or skip when the client falls behind; this never changes state.\n5. core unchanged; goldens unchanged."
+covers = ["CAP-12", "CAP-13"]
+after = [3, 5]
+hitl = false
+refine = true
+risk = "medium"
+plan_checkpoint = true
+done_checkpoint = true
+references = ["docs/adr/0012-headless-sessions-capture-and-mocks.md#5-protocol"]
+notes = ["Kind: implementation. Backlog; no Sprint.", "WebSocket transport is later work."]
+
+[[entry]]
+id = 8
+tracker_id = "#726"
+type = "story"
+title = "Verify replayability, isolation and guard-rails"
+description = "Close the epic only with evidence that sessions replay exactly, the core is untouched and the guard-rails hold."
+verify = "1. A requirement-to-entry-to-evidence table covers manifest, start modes, fixtures, mocks, screenshots, masters, MP4 and protocol.\n2. An end-to-end test starts from a fixture state with mocks, records a screenshot and masters, replays the resolved manifest and gets identical bytes and hashes.\n3. The diff shows no change under packages/core; golden, closing and dump output do not move.\n4. Licence, provenance, graph, typecheck, lint, unit and golden checks pass; FFmpeg appears in no dependency tree.\n5. The docs reference matches the shipped behaviour."
+covers = ["CAP-12", "CAP-13"]
+after = [6, 7]
+hitl = false
+refine = true
+risk = "medium"
+plan_checkpoint = true
+done_checkpoint = true
+references = ["docs/adr/0012-headless-sessions-capture-and-mocks.md", "docs/guardrails.md", "CONTRIBUTING.md"]
+notes = ["Kind: acceptance. Backlog; no Sprint."]
