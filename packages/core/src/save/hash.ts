@@ -23,12 +23,17 @@ type SurfaceHashCache = {
   working: Fnv1a64State;
   plan: TransitionPlan | null | false;
   transitions: Map<string, FnvAsciiTransition>;
+  vmTransitions: Map<string, FnvAsciiTransition>;
 };
 
 const surfaceHashCaches = new WeakMap<GameState, SurfaceHashCache>();
 
 const TRANSITION_BLOCK_SIZE = 4096;
 const MAX_TRANSITION_TABLES = 2048;
+// Bound retained canonical program text to at most 8 Mi characters per state.
+const MIN_VM_TRANSITION_SIZE = 8192;
+const MAX_VM_TRANSITION_SIZE = 262144;
+const MAX_VM_TRANSITIONS = 32;
 type TransitionPlan = { readonly blocks: readonly string[]; evictable: string[] | null };
 
 /** Split ASCII canonical text into reusable fixed-size segments. */
@@ -209,6 +214,7 @@ export function hashGameState(state: GameState): string {
       working: createFnv1a64State(),
       plan: null,
       transitions: new Map(),
+      vmTransitions: new Map(),
     };
     surfaceHashCaches.set(state, cache);
   }
@@ -231,9 +237,32 @@ export function hashGameState(state: GameState): string {
 
   cache.working.high = cache.afterSurface.high;
   cache.working.low = cache.afterSurface.low;
-  if (parts.after !== "") {
-    fnv1a64Update(",", cache.working);
-    fnv1a64Update(parts.after, cache.working);
+  let prunedVmTransitions = false;
+  for (const segment of parts.after) {
+    if (typeof segment === "string") {
+      if (/[^\x00-\x7f]/.test(segment)) fnv1a64Update(segment, cache.working);
+      else fnv1a64UpdateAscii(segment, cache.working);
+    } else if (!segment.ascii) {
+      fnv1a64Update(segment.text, cache.working);
+    } else if (segment.text.length < MIN_VM_TRANSITION_SIZE || segment.text.length > MAX_VM_TRANSITION_SIZE) {
+      fnv1a64UpdateAscii(segment.text, cache.working);
+    } else {
+      let transition = cache.vmTransitions.get(segment.text);
+      if (transition === undefined && cache.vmTransitions.size >= MAX_VM_TRANSITIONS && !prunedVmTransitions) {
+        const active = new Set(parts.after.flatMap((part) =>
+          typeof part !== "string" && part.ascii ? [part.text] : []));
+        for (const text of cache.vmTransitions.keys()) {
+          if (!active.has(text)) cache.vmTransitions.delete(text);
+        }
+        prunedVmTransitions = true;
+      }
+      if (transition === undefined && cache.vmTransitions.size < MAX_VM_TRANSITIONS) {
+        transition = createFnvAsciiTransition(segment.text.length);
+        cache.vmTransitions.set(segment.text, transition);
+      }
+      if (transition === undefined) fnv1a64UpdateAscii(segment.text, cache.working);
+      else applyFnvAsciiTransition(transition, segment.text, cache.working);
+    }
   }
   fnv1a64Update("}", cache.working);
   return fnv1a64Finish(cache.working);
