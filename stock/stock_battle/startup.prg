@@ -632,8 +632,8 @@ stockBattle = {
 
 // The owner stores a live battle's outcome as null, distinct from code zero.
 battleDecided = () => {
-  if (stockBattle.pendingOutcome != 0) {
   stockBattle.noteRecordedOutcome()
+  if (stockBattle.pendingOutcome != 0) {
     stockBattle.recheckPendingOutcome()
   }
   if (stockBattle.pendingOutcome == 4 ||
@@ -960,8 +960,8 @@ stockBattleUi = {
   targetCount: 0,
   targetCursor: 0,
   targetParty: 0,
-  sceneBaseValid: 0,
   labelParty: -1,
+  sceneBaseValid: 0,
   sceneBaseSig: "",
   targetLabels: {},
   targetFullLabels: {},
@@ -1004,9 +1004,9 @@ stockBattleUi = {
     // Up to five party members (E-85 maximum 5) fit cleanly inside the 132px panel: 5 * 24 = 120px + 8 = 128px
     layout.rowDY = 24
     layout.hpX = 276
-    layout.hpW = 112
     // Party names are drawn 16 pixels per letter and must stop before the HP bar (4 pixels clear of it).
     layout.nameChars = integerMulDiv(276 - 172 - 4, 1, 16)
+    layout.hpW = 112
     layout.smpX = 396
     layout.smpW = 96
     layout.chargeX = 500
@@ -1418,11 +1418,11 @@ stockBattleUi = {
     }
     if (party == 0) {
       label = left(fighter.name, 8)
-      if (fighter.hp < 1) {
       // Target mode draws the scene itself with the duplicate-aware names, so no label is ever drawn over another.
       if (stockBattleUi.labelParty == party) {
         label = stockBattleUi.targetLabel(party, index, 8)
       }
+      if (fighter.hp < 1) {
         stockBattleUi.words(x, y + size + 3, label, 8, 130, 130, 140)
       } else {
         stockBattleUi.words(x, y + size + 3, label, 8, 255, 255, 255)
@@ -1797,11 +1797,11 @@ stockBattleUi = {
     local(fighter)
     local(entry)
     local(text) = "" + stockBattleUi.menuIndex + "|" + stockBattleUi.numberCount + "|" + stockBattleUi.message + "|" + stockBattleUi.actingStance
-    if (stockBattleUi.acting == null) {
     // Target mode draws duplicate-aware names into the scene itself, so entering or leaving it is a new scene.
     if (stockBattleUi.mode == "target") {
       text = text + "|target-names:" + stockBattleUi.targetParty
     }
+    if (stockBattleUi.acting == null) {
       text = text + "|acting:none"
     } else {
       text = text + "|acting:" + stockBattleUi.acting
@@ -1883,12 +1883,12 @@ stockBattleUi = {
     local(index)
     local(size)
     // Build a mode-independent battle scene so list and target overlays can be swapped in a single quick blit.
-    stockBattleUi.target = stockBattleUi.buffer
     // The party being aimed at is drawn with its duplicate-aware names; no party otherwise.
     stockBattleUi.labelParty = -1
     if (stockBattleUi.mode == "target") {
       stockBattleUi.labelParty = stockBattleUi.targetParty
     }
+    stockBattleUi.target = stockBattleUi.buffer
     if (stockBattleUi.picture != "") {
       bitmap(stockBattleUi.picture, stockBattleUi.target)
     } else {
@@ -2044,12 +2044,12 @@ stockBattleUi.prepareLists = (fighter) => {
   local(stack)
   local(item)
   local(key)
-  stockBattleUi.specials = {}
   // BAT-11: the list shows what is available now, so the character's file is read again for every turn.
   if (data != null) {
     data = battlecharacterdata(fighter)
     stockBattleUi.chars["" + fighter.id] = data
   }
+  stockBattleUi.specials = {}
   stockBattleUi.specialCount = 0
   stockBattleUi.items = {}
   stockBattleUi.itemCount = 0
@@ -2352,6 +2352,10 @@ stockBattleUi.playerTurn = (index) => {
   if (fighter == null) {
     return 0
   }
+  // The battle may have been ended from outside since this pass began: no menu is opened for it.
+  if (stockBattle.noteRecordedOutcome() != 0) {
+    return 0
+  }
   clearbuffer()
   stockBattleUi.menuIndex = index
   stockBattleUi.message = ""
@@ -2365,15 +2369,16 @@ stockBattleUi.playerTurn = (index) => {
     if (key != "") {
       done = stockBattleUi.handleKey(fighter, key)
     }
+    // An outcome recorded from outside unwinds the command, list and target menus; the battle loop then runs
+    // its normal finish, which hands the screen back.
+    if (done == 0 && stockBattle.noteRecordedOutcome() != 0) {
+      done = 1
+    }
   }
   stockBattleUi.mode = "idle"
   stockBattleUi.refresh()
   return 0
 }
-  // The battle may have been ended from outside since this pass began: no menu is opened for it.
-  if (stockBattle.noteRecordedOutcome() != 0) {
-    return 0
-  }
 
 // An enemy's turn is the package's own AI. The screen shows the fighter's fight stance while it acts and the numbers
 // of whatever changed afterwards.
@@ -2387,11 +2392,6 @@ stockBattleUi.enemyTurn = (index) => {
   before = stockBattleUi.snapshot()
   stockBattleUi.acting = fighter.id
   stockBattleUi.actingStance = "fight"
-    // An outcome recorded from outside unwinds the command, list and target menus; the battle loop then runs
-    // its normal finish, which hands the screen back.
-    if (done == 0 && stockBattle.noteRecordedOutcome() != 0) {
-      done = 1
-    }
   result = stockBattleUi.baseTurn(0, index)
   stockBattleUi.settle(before, fighter.name + " acts")
   return result
