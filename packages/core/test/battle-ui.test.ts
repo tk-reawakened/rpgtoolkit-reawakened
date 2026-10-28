@@ -136,6 +136,11 @@ test("a seeded battle opens the command box for the first charged player, and ev
   const specials = entries(ui(rig)["list"], Number(ui(rig)["listcount"]));
   deepEqual(specials.map((entry) => [entry["label"], entry["affordable"]]), [["fire", 0], ["blaze", 0]], "both moves cost more than the Mage's 3 SMP");
   goldenFrame(rig, "special", keys);
+  assertCommandLabelYellow(rig, 386);
+  const headerGap = { x1: 93, y1: 65, x2: 147, y2: 69 };
+  equal(countColour(rig, headerGap, [16, 20, 48]).count, 55 * 5, "the header covers the old background gap under the selected label");
+  ok(countColour(rig, { x1: 48, y1: 82, x2: 112, y2: 100 }, [180, 180, 190]).count > 0, "selected unaffordable move uses readable dim text");
+  equal(countColour(rig, { x1: 48, y1: 82, x2: 112, y2: 100 }, [110, 110, 120]).count, 0, "selected unavailable text does not use low-contrast grey");
   const smpBefore = mage.stats.smp;
   const hashBefore = ruleHash(rig);
   const cuesBefore = cueNames(rig).length;
@@ -181,6 +186,7 @@ test("a seeded battle opens the command box for the first charged player, and ev
   press("DOWN");
   equal(ui(rig)["targetcursor"], 1);
   goldenFrame(rig, "target", keys);
+  assertCommandLabelYellow(rig, 360);
 
   // The menu and target selection are drawn from state: while they wait, no rule value moves.
   const idleHash = ruleHash(rig);
@@ -401,6 +407,15 @@ function countColour(rig: UiRig, box: { readonly x1: number; readonly y1: number
     }
   }
   return { count, minX, maxX, minY, maxY };
+}
+
+/** Sample label glyphs only (not the separate > cursor), alongside the active Mage's name. */
+function assertCommandLabelYellow(rig: UiRig, y: number): void {
+  const label = { x1: 32, y1: y, x2: 112, y2: y + 17 };
+  const activeName = { x1: 175, y1: 382, x2: 259, y2: 400 };
+  ok(countColour(rig, label, SELECTION_YELLOW).count > 30, "selected command label is exact highlight yellow");
+  equal(countColour(rig, label, [255, 255, 255]).count, 0, "selected command label is not white");
+  ok(countColour(rig, activeName, SELECTION_YELLOW).count > 30, "active character name uses the same yellow");
 }
 
 function regionHash(rig: UiRig, box: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }): string {

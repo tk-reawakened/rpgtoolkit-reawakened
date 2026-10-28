@@ -1569,8 +1569,8 @@ stockBattleUi = {
       titleLimit = integerMulDiv(width - 88, 1, 8)
     }
     // Top description box across the list panel; clip authored text inside the frame.
-    stockBattleUi.box(x, y, x + width - 1, y + 36, 16, 20, 48)
-    stockBattleUi.frame(x, y, x + width - 1, y + 36, 180, 190, 255)
+    stockBattleUi.box(x, y, x + width - 1, y + 42, 16, 20, 48)
+    stockBattleUi.frame(x, y, x + width - 1, y + 42, 180, 190, 255)
     stockBattleUi.words(x + 12, y + 6, left(title, titleLimit), 8, 180, 190, 255)
     if (pages > 1) {
       stockBattleUi.words(x + width - 64, y + 6, "" + (integerMulDiv(first, 1, capacity) + 1) + "/" + pages, 8, 180, 190, 255)
@@ -1646,10 +1646,20 @@ stockBattleUi = {
         textR = 110
         textG = 110
         textB = 120
+        if (row == stockBattleUi.listCursor) {
+          // Dim unavailable moves without losing contrast against the selection band.
+          textR = 180
+          textG = 180
+          textB = 190
+        }
       }
       stockBattleUi.words(itemX + 24, itemY + 4, labelText, 16, textR, textG, textB)
       if (entry.affordable == 0) {
-        stockBattleUi.words(detailX, itemY + 8, detailText, 8, 110, 110, 120)
+        if (row == stockBattleUi.listCursor) {
+          stockBattleUi.words(detailX, itemY + 8, detailText, 8, 180, 180, 190)
+        } else {
+          stockBattleUi.words(detailX, itemY + 8, detailText, 8, 110, 110, 120)
+        }
       } else {
         stockBattleUi.words(detailX, itemY + 8, detailText, 8, 200, 220, 255)
       }

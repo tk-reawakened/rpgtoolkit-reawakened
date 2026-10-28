@@ -3,6 +3,7 @@
 ## Unreleased
 
 - The proposed battle screen keeps the selected command visible while choosing a move, item, or target, highlights list entries across their column, and lets the player choose a revive target by name. The by-name revive presentation remains proposed pending owner confirmation.
+- Battle selection keeps the command label and active member name at exactly the same yellow; selected unavailable moves remain visibly dimmed with improved contrast, and the description header no longer exposes the background beneath its label.
 
 - Script drawing (`setpixel`, `drawline`, `drawrect`, `fillrect`, `drawcircle`, `fillcircle`, `clear`, canvas blits) edits live pixel buffers kept outside saved state, and each command re-encodes only the span it can touch. Inside a thread phase the edits are held and written into the plain-JSON base64 snapshots when the phase ends, including after a thrown command or a debugger pause. Opaque, unscaled copies use clipped scanlines; translucent pixels keep their existing blend behavior, and a surface blitted onto itself reads its pre-blit pixels.
 - Bounds are never narrower than what the draw routine can write: an infinite `fillrect` edge clips to the surface like the pixels it draws, and an unknown extent covers the whole surface. An unbounded edit is never narrowed by a later bounded one.
