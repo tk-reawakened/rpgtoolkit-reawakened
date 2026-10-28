@@ -586,9 +586,10 @@ stockBattle = {
   },
   // BAT-5 item. The item's battle HP and SMP are added to the target (clamped
   // 0..max by the actor owner), then exactly one consume effect goes to the
-  // inventory port, then the item's animation and program. The item list is
-  // never read or edited here.
-  item: (source, target, file) => {
+  // inventory port, naming the stack (`handle`, null when the caller knows only
+  // the file), then the item's animation and program. The item list is never
+  // read or edited here.
+  item: (source, target, file, handle) => {
     local(data)
     local(result)
     result = { hp: 0, smp: 0 }
@@ -611,7 +612,7 @@ stockBattle = {
     if (data.smp != 0) {
       result.smp = drain({ source: source, target: target, amount: 0 - data.smp })
     }
-    battleconsume(file, target, data.hp, data.smp)
+    battleconsume(file, target, data.hp, data.smp, handle)
     stockBattle.presentation(data.animation, target)
     if (data.program != "") {
       executeProgram(data.program, { source: "" + source.id, target: "" + target.id })
@@ -2094,7 +2095,7 @@ stockBattleUi.prepareLists = (fighter) => {
     if (item != null) {
       if (item.usable == 1) {
         stockBattleUi.items[stockBattleUi.itemCount] = {
-          label: stack.handle, detail: "x" + stack.quantity, desc: "" + item.description, file: stack.source, quantity: stack.quantity, data: item, affordable: 1
+          label: stack.handle, handle: stack.handle, detail: "x" + stack.quantity, desc: "" + item.description, file: stack.source, quantity: stack.quantity, data: item, affordable: 1
         }
         stockBattleUi.itemCount = stockBattleUi.itemCount + 1
       }
@@ -2186,6 +2187,23 @@ stockBattleUi.openList = (kind) => {
   return 1
 }
 
+// True when the stack the player chose (item file and handle) still has a unit. Checked before anything is applied, so a
+// vanished stack refuses the use instead of changing a stat the consume request could not pay for.
+stockBattleUi.stackHeld = (entry) => {
+  local(inventory) = battleinventory()
+  local(index)
+  local(stack)
+  for (index = 0; index < inventory.count; index = index + 1) {
+    stack = inventory.items[index]
+    if (lcase(stack.source) == lcase(entry.file)) {
+      if (stack.handle == entry.handle) {
+        return 1
+      }
+    }
+  }
+  return 0
+}
+
 // Perform the chosen action on the chosen target through the package's own action functions, then show the numbers.
 stockBattleUi.perform = (fighter) => {
   local(target) = battle.fighter(stockBattleUi.targetParty, stockBattleUi.targets[stockBattleUi.targetCursor])
@@ -2193,7 +2211,7 @@ stockBattleUi.perform = (fighter) => {
   local(kind) = stockBattleUi.pendingKind
   local(entry) = stockBattleUi.pendingEntry
   if (kind == "item") {
-    if (entry.quantity < 1 || itemcount(entry.file) < 1) {
+    if (stockBattleUi.stackHeld(entry) == 0) {
       stockBattleUi.cue("cant")
       stockBattleUi.acting = null
       stockBattleUi.actingStance = ""
@@ -2221,7 +2239,7 @@ stockBattleUi.perform = (fighter) => {
     stockBattleUi.actingStance = "rest"
     stockBattleUi.message = fighter.name + " uses " + entry.label + " on " + target.name
     stockBattleUi.refresh()
-    stockBattle.item(fighter, target, entry.file)
+    stockBattle.item(fighter, target, entry.file, entry.handle)
   }
   stockBattleUi.settle(before, "")
   return 1

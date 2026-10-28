@@ -15,7 +15,7 @@ import {
 export type InventoryAction =
   | { readonly type: "addItem"; readonly source: string; readonly handle: string; readonly amount: number }
   | { readonly type: "removeItem"; readonly entryId: number; readonly amount: number }
-  | { readonly type: "consumeBattleItem"; readonly item: string; readonly target: number }
+  | { readonly type: "consumeBattleItem"; readonly item: string; readonly target: number; readonly handle: string | null }
   | { readonly type: "equip"; readonly actorId: number; readonly slot: string; readonly entryId: number }
   | { readonly type: "unequip"; readonly actorId: number; readonly slot: string }
   | { readonly type: "buyItem"; readonly source: string; readonly amount: number }
@@ -220,7 +220,7 @@ export function applyInventoryAction(
       break;
     }
     case "consumeBattleItem": {
-      keys = ["type", "item", "target"];
+      keys = ["type", "item", "target", "handle"];
       const error = exactAction(action, keys);
       if (error !== null) return { result: { ok: false, error }, events: [] };
       if (typeof action.item !== "string" || action.item.trim() === "") {
@@ -241,14 +241,21 @@ export function applyInventoryAction(
       if (!state.actors.actors.some((actor) => actor.id === action.target)) {
         return { result: rejected("inventory.consume.target", "target actor is unavailable"), events: [] };
       }
+      if (action.handle !== null && (typeof action.handle !== "string" || action.handle === "")) {
+        return { result: rejected("inventory.consume.handle", "expected null or a non-empty stack handle"), events: [] };
+      }
       const sourceEntries = current.items.filter((entry) => entry.source === source);
-      const canonical = sourceEntries.find((entry) => entry.handle === definition.name);
-      const entry = canonical ?? (sourceEntries.length === 1 ? sourceEntries[0] : undefined);
+      // A named stack is exact: never fall back to the canonical or sole stack of the source.
+      const entry = action.handle !== null
+        ? sourceEntries.find((candidate) => candidate.handle === action.handle)
+        : sourceEntries.find((candidate) => candidate.handle === definition.name) ?? (sourceEntries.length === 1 ? sourceEntries[0] : undefined);
       if (entry === undefined) {
         return {
-          result: rejected("inventory.consume.entry", sourceEntries.length === 0
-            ? "no inventory stack matches the item source"
-            : "item source matches multiple non-canonical inventory stacks"),
+          result: rejected("inventory.consume.entry", action.handle !== null
+            ? "no inventory stack matches the item source and handle"
+            : sourceEntries.length === 0
+              ? "no inventory stack matches the item source"
+              : "item source matches multiple non-canonical inventory stacks"),
           events: [],
         };
       }

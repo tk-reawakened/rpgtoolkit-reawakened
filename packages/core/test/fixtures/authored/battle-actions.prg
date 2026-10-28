@@ -94,7 +94,7 @@ if (scenario == "special") {
   movedcost = moved.cost
 }
 if (scenario == "item") {
-  used = stockBattle.item(attacker, target, filein)
+  used = stockBattle.item(attacker, target, filein, null)
   usedhp = used.hp
   usedsmp = used.smp
 }

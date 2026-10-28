@@ -1355,23 +1355,29 @@ const CHARACTER_DATA = {
 
 
 /** The one plain-data inventory request `battleconsume` posts; tests and the inventory owner read it from the effect log. */
-export function inventoryConsumeEffect(item: string, target: number, hp: number, smp: number): CommandEffect {
-  return { kind: "state-write", section: "inventory", args: [{ kind: "inventory.consume", item, target, hp, smp }] };
+export function inventoryConsumeEffect(item: string, target: number, hp: number, smp: number, handle: string | null): CommandEffect {
+  return { kind: "state-write", section: "inventory", args: [{ kind: "inventory.consume", item, target, hp, smp, handle }] };
 }
 
 const CONSUME = {
-  name: "battleconsume", aliases: [], params: [parameter("item"), parameter("target"), parameter("hp"), parameter("smp")],
+  name: "battleconsume", aliases: [], params: [parameter("item"), parameter("target"), parameter("hp"), parameter("smp"), parameter("handle", true)],
   doc: {
     summary: "Ask the inventory to consume one battle item.",
-    behaviour: `Posts exactly one inventory request, \`{ kind: "inventory.consume", item, target, hp, smp }\`, where \`item\` is the item file name as given (backslashes become forward slashes), \`target\` is the numeric actor id and \`hp\` / \`smp\` are the safe-integer amounts the item gave. It changes no inventory list, quantity or actor stat itself; the inventory owner decides what the request does. ${FIGHTER_HANDLES}`,
+    behaviour: `Posts exactly one inventory request, \`{ kind: "inventory.consume", item, target, hp, smp, handle }\`, where \`item\` is the item file name as given (backslashes become forward slashes), \`target\` is the numeric actor id, \`hp\` / \`smp\` are the safe-integer amounts the item gave and \`handle\` is the optional name of the one inventory stack to use. \`handle\` names no stack when it is omitted, null, 0 (an unset parameter) or empty, and the request then carries \`handle: null\`. With a \`handle\` the inventory owner consumes exactly that stack and refuses when it is missing or empty; without one it picks the stack from the item file and refuses when that is ambiguous. It changes no inventory list, quantity or actor stat itself; the inventory owner decides what the request does. ${FIGHTER_HANDLES}`,
     groups: REAWAKENED, tags: ["experimental"], waits: NO_WAIT,
-    throws: [...STAT_READ_THROWS, { code: "builtin.bad-arg", when: "the item name is empty or hp / smp is not a safe integer" }],
+    throws: [...STAT_READ_THROWS, { code: "builtin.bad-arg", when: "the item name is empty, handle is neither a string nor one of the no-stack values, or hp / smp is not a safe integer" }],
   },
   call: (view: CommandView, args: readonly Arg[]) => {
     const item = text(args, 0).trim().replaceAll("\\", "/");
     if (item === "") throw new ScriptError("builtin.bad-arg", "battleconsume: the item name must not be empty");
     const target = referenceActor(view, args[1]?.value);
-    return { value: null, effects: [inventoryConsumeEffect(item, target, integer(args, 2, "battleconsume"), integer(args, 3, "battleconsume"))] };
+    const given = args[4]?.value;
+    const noStack = given === undefined || given === null || given === 0 || given === "";
+    if (!noStack && typeof given !== "string") {
+      throw new ScriptError("builtin.bad-arg", "battleconsume: handle must be a stack name string when given");
+    }
+    const handle = typeof given === "string" && given !== "" ? given : null;
+    return { value: null, effects: [inventoryConsumeEffect(item, target, integer(args, 2, "battleconsume"), integer(args, 3, "battleconsume"), handle)] };
   },
 } satisfies BuiltinSpec;
 
