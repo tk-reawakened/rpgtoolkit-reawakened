@@ -908,11 +908,15 @@ stockBattleUi = {
   screen: 0,
   buffer: 0,
   overlayScratch: 0,
+  background: {},
+  backgroundCount: 0,
   hudCopy: 0,
   hudOn: 0,
   target: 0,
   layout: {},
   files: {},
+  controlSig: "",
+  nextControlSig: "",
   staticSig: "",
   chars: {},
   itemData: {},
@@ -924,10 +928,16 @@ stockBattleUi = {
   spriteId: {},
   spriteHidden: {},
   rosterCount: 0,
-  seen: {},
+  cachedStats: {},
+  changedSlot: {},
+  changedName: {},
+  changedCount: 0,
+  statsRevision: 0,
   scan: 0,
   barScan: 0,
   bars: {},
+  playerCount: 0,
+  chargeInner: 0,
   mode: "idle",
   cursor: 0,
   top: 0,
@@ -1061,6 +1071,8 @@ stockBattleUi = {
     stockBattleUi.layout = stockBattleUi.makeLayout(w, h)
     stockBattleUi.files = {}
     stockBattleUi.staticSig = ""
+    stockBattleUi.controlSig = ""
+    stockBattleUi.nextControlSig = ""
     stockBattleUi.sceneBaseValid = 0
     stockBattleUi.sceneBaseSig = ""
     stockBattleUi.chars = {}
@@ -1073,10 +1085,16 @@ stockBattleUi = {
     stockBattleUi.spriteId = {}
     stockBattleUi.spriteHidden = {}
     stockBattleUi.rosterCount = 0
-    stockBattleUi.seen = {}
+    stockBattleUi.cachedStats = {}
+    stockBattleUi.changedSlot = {}
+    stockBattleUi.changedName = {}
+    stockBattleUi.changedCount = 0
+    stockBattleUi.statsRevision = 0
     stockBattleUi.scan = 0
     stockBattleUi.barScan = 0
     stockBattleUi.bars = {}
+    stockBattleUi.playerCount = battle.partySize(1)
+    stockBattleUi.chargeInner = stockBattleUi.layout.chargeW - 2
     stockBattleUi.mode = "idle"
     stockBattleUi.message = ""
     stockBattleUi.numbers = {}
@@ -1100,6 +1118,7 @@ stockBattleUi = {
           stockBattleUi.spriteKey[stockBattleUi.rosterCount] = ""
           stockBattleUi.spriteId[stockBattleUi.rosterCount] = 0
           stockBattleUi.spriteHidden[stockBattleUi.rosterCount] = 0
+          stockBattleUi.cachedStats[stockBattleUi.rosterCount] = { name: fighter.name, hp: fighter.hp, maxhp: fighter.maxhp, smp: fighter.smp, maxsmp: fighter.maxsmp }
           stockBattleUi.rosterCount = stockBattleUi.rosterCount + 1
           source = "" + fighter.source
           for (slot = 0; slot < 4; slot = slot + 1) {
@@ -1136,7 +1155,7 @@ stockBattleUi = {
     if (stockBattleUi.picture != "") {
       bitmap(stockBattleUi.picture, scratch)
     }
-    stockBattleUi.syncSprites()
+    stockBattleUi.syncSprites(0, stockBattleUi.rosterCount)
     // Nothing is drawn yet: the canvases below do not exist until the wait is over.
     threadSleep(getThreadId(), 4/60)
     killcanvas(scratch)
@@ -1152,12 +1171,15 @@ stockBattleUi = {
     stockBattleUi.screen = cnvrendernow
     stockBattleUi.target = stockBattleUi.screen
     stockBattleUi.buffer = createcanvas(w, h)
+    stockBattleUi.background = {}
+    stockBattleUi.backgroundCount = 0
     stockBattleUi.overlayScratch = createcanvas(w, h)
     stockBattleUi.on = 1
     stockBattleUi.refresh()
     return 1
   },
   finish: () => {
+    local(index)
     if (stockBattleUi.on == 0) {
       return 0
     }
@@ -1166,6 +1188,11 @@ stockBattleUi = {
     killcanvas(stockBattleUi.buffer)
     stockBattleUi.buffer = 0
     killcanvas(stockBattleUi.overlayScratch)
+    for (index = 0; index < stockBattleUi.backgroundCount; index = index + 1) {
+      killcanvas(stockBattleUi.background[index])
+    }
+    stockBattleUi.background = {}
+    stockBattleUi.backgroundCount = 0
     stockBattleUi.overlayScratch = 0
     // Hand the overlay back as it was: the game's pixels (clear when it had none) and its on/off flag. The canvas
     // itself stays, as the reserved canvas always does.
@@ -1182,32 +1209,58 @@ stockBattleUi = {
     stockBattleUi.target = 0
     return 0
   },
-  // The idle battle loop calls this once per pass, and it must stay a small fraction of the pass's step budget, so it
-  // looks at one fighter and one charge bar per pass instead of the whole screen. A change it finds is drawn in full;
-  // the turn loops call `refresh` themselves, which looks at everything.
+  // The idle battle loop calls this once per pass, inside the pass's step budget (BAT-4), so it looks at two fighters
+  // and one charge bar per pass: with nine fighters every one is compared within five passes, and a changed fighter
+  // is repainted as a small patch (patchFighter) rather than redrawn in full. A bar whose charge only grew paints
+  // just its new columns, so its cache holds the whole percent last drawn (the width is a pure function of it).
   pass: () => {
-    local(fighter)
-    local(fill)
-    local(size)
     if (stockBattleUi.on == 0) {
       return 0
     }
-    // Check one fighter per pass for stat changes
-    fighter = stockBattleUi.roster[stockBattleUi.scan]
-    if (fighter.hp + "," + fighter.smp != stockBattleUi.seen["" + stockBattleUi.scan]) {
-      stockBattleUi.refresh()
-    }
-    stockBattleUi.scan = (stockBattleUi.scan + 1) % stockBattleUi.rosterCount
-    // Repaint charge bar if width shifted
-    size = battle.partySize(1)
-    if (size > 0) {
-      fill = integerMulDiv(battle.chargePercent(1, stockBattleUi.barScan), stockBattleUi.layout.chargeW - 2, 100)
-      if (stockBattleUi.bars["" + stockBattleUi.barScan] != fill) {
-        stockBattleUi.drawChargeBar(stockBattleUi.barScan, null)
+    local(ui) = stockBattleUi
+    local(roster) = ui.roster
+    local(cached) = ui.cachedStats
+    local(count) = ui.rosterCount
+    local(position) = ui.scan
+    local(last) = position + 2
+    local(slot)
+    local(fighter)
+    local(previous)
+    local(percent)
+    local(bar)
+    local(from)
+    local(to)
+    local(y)
+    for (position = position; position < last; position = position + 1) {
+      slot = position % count
+      fighter = roster[slot]
+      previous = cached[slot]
+      if (fighter.hp != previous.hp || fighter.smp != previous.smp || fighter.maxhp != previous.maxhp || fighter.maxsmp != previous.maxsmp || fighter.name != previous.name) {
+        cached[slot] = { name: fighter.name, hp: fighter.hp, maxhp: fighter.maxhp, smp: fighter.smp, maxsmp: fighter.maxsmp }
+        ui.patchFighter(slot)
       }
-      stockBattleUi.barScan = (stockBattleUi.barScan + 1) % size
     }
-
+    ui.scan = position % count
+    if (ui.playerCount > 0) {
+      bar = ui.barScan
+      percent = battle.chargePercent(1, bar)
+      previous = ui.bars[bar]
+      if (previous != percent) {
+        if (percent > previous) {
+          from = (previous * ui.chargeInner - (previous * ui.chargeInner) % 100) / 100
+          to = (percent * ui.chargeInner - (percent * ui.chargeInner) % 100) / 100
+          if (to > from) {
+            y = ui.layout.rowY + bar * ui.layout.rowDY
+            colorrgb(240, 200, 40)
+            fillrect(ui.layout.chargeX + 1 + from, y + 1, ui.layout.chargeX + to, y + ui.layout.barH - 2, ui.target)
+          }
+          ui.bars[bar] = percent
+        } else {
+          ui.drawChargeBar(bar, null)
+        }
+      }
+      ui.barScan = (bar + 1) % ui.playerCount
+    }
     return 0
   },
   box: (x1, y1, x2, y2, r, g, b) => {
@@ -1293,13 +1346,13 @@ stockBattleUi = {
   // Each fighter's picture is one engine-owned pinned animation (BAT-11 item 4): started here, ended and restarted only
   // when the stance file changes, and otherwise left alone, so its frames advance on the engine's own ticks whatever
   // the script is doing. The picture sits above the render-now canvas; this canvas never draws a fighter's picture.
-  syncSprites: () => {
+  syncSprites: (first, last) => {
     local(position)
     local(fighter)
     local(sprite)
     local(key)
     local(want)
-    for (position = 0; position < stockBattleUi.rosterCount; position = position + 1) {
+    for (position = first; position < last; position = position + 1) {
       fighter = battle.fighter(stockBattleUi.rosterParty[position], stockBattleUi.rosterIndex[position])
       if (fighter != null) {
         sprite = stockBattleUi.fighterSprite(fighter)
@@ -1417,8 +1470,9 @@ stockBattleUi = {
     local(layout) = stockBattleUi.layout
     local(y) = layout.rowY + index * layout.rowDY
     local(fill)
-    fill = stockBattleUi.bar(layout.chargeX, y, layout.chargeW, layout.barH, battle.chargePercent(1, index), 100, 240, 200, 40)
-    stockBattleUi.bars["" + index] = fill
+    fill = battle.chargePercent(1, index)
+    stockBattleUi.bar(layout.chargeX, y, layout.chargeW, layout.barH, fill, 100, 240, 200, 40)
+    stockBattleUi.bars[index] = fill
     return 0
   },
   drawRow: (index) => {
@@ -1722,6 +1776,39 @@ stockBattleUi = {
     }
     return 0
   },
+  // A rename can change duplicate suffixes on every target, so erase the old
+  // glyphs before drawing the newly computed labels.
+  clearTargetNames: () => {
+    local(layout) = stockBattleUi.layout
+    local(party) = stockBattleUi.targetParty
+    local(size) = battle.partySize(party)
+    local(index)
+    local(x)
+    local(y)
+    local(patch)
+    local(fighter)
+    for (index = 0; index < size; index = index + 1) {
+      fighter = battle.fighter(party, index)
+      if (fighter != null) {
+        if (party == 0) {
+          x = stockBattleUi.slotX(0, index)
+          y = stockBattleUi.slotY(0, index) + layout.sprite + 3
+          patch = createcanvas(layout.sprite, 8)
+          drawcanvas(stockBattleUi.background[index], 0, 0, layout.sprite, 17, patch)
+          drawcanvas(patch, x, y, layout.sprite, 8, stockBattleUi.target)
+          killcanvas(patch)
+        } else {
+          y = layout.rowY + index * layout.rowDY
+          if (fighter.hp > 0 && stockBattleUi.menuIndex == index) {
+            stockBattleUi.box(layout.rowX, y, layout.hpX - 1, y + 15, 30, 60, 90)
+          } else {
+            stockBattleUi.box(layout.rowX, y, layout.hpX - 1, y + 15, 12, 16, 40)
+          }
+        }
+      }
+    }
+    return 0
+  },
   drawTargetCursor: () => {
     local(layout) = stockBattleUi.layout
     local(x) = layout.cmdX
@@ -1783,6 +1870,7 @@ stockBattleUi = {
     local(fighter)
     local(entry)
     local(target)
+    local(previous)
     local(text) = "" + stockBattleUi.mode + "|" + stockBattleUi.menuIndex + "|" + stockBattleUi.cursor + "|" + stockBattleUi.listCursor + "|" + stockBattleUi.listTop + "|" + stockBattleUi.targetCursor + "|" + stockBattleUi.targetParty + "|" + stockBattleUi.numberCount + "|" + stockBattleUi.message + "|" + stockBattleUi.actingStance + "|" + stockBattleUi.listCount
     if (stockBattleUi.mode == "list") {
       entry = stockBattleUi.list[stockBattleUi.listCursor]
@@ -1793,7 +1881,7 @@ stockBattleUi = {
     if (stockBattleUi.mode == "target" && stockBattleUi.targetCount > 0) {
       target = battle.fighter(stockBattleUi.targetParty, stockBattleUi.targets[stockBattleUi.targetCursor])
       if (target != null) {
-        text = text + "|target:" + target.id + "|" + target.name + "|" + target.hp
+        text = text + "|target:" + target.id
       }
     }
     if (stockBattleUi.acting == null) {
@@ -1801,12 +1889,29 @@ stockBattleUi = {
     } else {
       text = text + "|acting:" + stockBattleUi.acting
     }
+    stockBattleUi.nextControlSig = text
+    stockBattleUi.changedCount = 0
+    if (stockBattleUi.staticSig == "") {
+      // The first call is followed by a full draw of every value, so there is nothing to compare yet.
+      return text + "|stats:" + stockBattleUi.statsRevision
+    }
     for (index = 0; index < stockBattleUi.rosterCount; index = index + 1) {
       fighter = stockBattleUi.roster[index]
-      stockBattleUi.seen["" + index] = fighter.hp + "," + fighter.smp
-      text = text + "|" + stockBattleUi.seen["" + index]
+      previous = stockBattleUi.cachedStats[index]
+      if (fighter.hp != previous.hp || fighter.smp != previous.smp || fighter.maxhp != previous.maxhp || fighter.maxsmp != previous.maxsmp || fighter.name != previous.name) {
+        stockBattleUi.changedSlot[stockBattleUi.changedCount] = index
+        stockBattleUi.changedName[stockBattleUi.changedCount] = 0
+        if (fighter.name != previous.name) {
+          stockBattleUi.changedName[stockBattleUi.changedCount] = 1
+        }
+        stockBattleUi.cachedStats[index] = { name: fighter.name, hp: fighter.hp, maxhp: fighter.maxhp, smp: fighter.smp, maxsmp: fighter.maxsmp }
+        stockBattleUi.changedCount = stockBattleUi.changedCount + 1
+      }
     }
-    return text
+    if (stockBattleUi.changedCount > 0) {
+      stockBattleUi.statsRevision = stockBattleUi.statsRevision + 1
+    }
+    return text + "|stats:" + stockBattleUi.statsRevision
   },
   // The canonical battle scene is independent of list and target cursors so they can be composited quickly.
   backdropSignature: () => {
@@ -1846,23 +1951,106 @@ stockBattleUi = {
       stockBattleUi.drawList()
     }
     if (stockBattleUi.mode == "target") {
+      for (index = 0; index < stockBattleUi.targetCount; index = index + 1) {
+        stockBattleUi.targetLabels[index] = stockBattleUi.targetLabel(stockBattleUi.targetParty, stockBattleUi.targets[index], 8)
+        stockBattleUi.targetFullLabels[index] = stockBattleUi.targetLabel(stockBattleUi.targetParty, stockBattleUi.targets[index], 0)
+      }
       stockBattleUi.drawTargetNames()
       stockBattleUi.drawTargetBase()
       stockBattleUi.drawTargetCursor()
     }
     drawcanvas(stockBattleUi.overlayScratch, 0, 0, layout.w, layout.h, stockBattleUi.screen)
     stockBattleUi.target = stockBattleUi.screen
-    stockBattleUi.syncSprites()
+    stockBattleUi.syncSprites(0, stockBattleUi.rosterCount)
+    return 0
+  },
+  // Publish a small rectangle from the cached scene using clipped canvas blits.
+  patchFighter: (position) => {
+    local(layout) = stockBattleUi.layout
+    local(party) = stockBattleUi.rosterParty[position]
+    local(index) = stockBattleUi.rosterIndex[position]
+    local(x)
+    local(y)
+    local(width)
+    local(height)
+    local(patch)
+    local(destination) = stockBattleUi.screen
+    if (stockBattleUi.mode == "target") {
+      destination = stockBattleUi.overlayScratch
+    }
+    if (party == 1) {
+      x = layout.partyX + 4
+      y = layout.rowY + index * layout.rowDY - 2
+      width = layout.w - 13 - x + 1
+      height = 21
+      stockBattleUi.target = stockBattleUi.buffer
+      stockBattleUi.box(x, y, x + width - 1, y + height - 1, 12, 16, 40)
+      stockBattleUi.drawRow(index)
+    } else {
+      x = stockBattleUi.slotX(0, index)
+      y = stockBattleUi.slotY(0, index) + layout.sprite + 3
+      width = layout.sprite
+      height = 17
+      drawcanvas(stockBattleUi.background[index], x, y, width, height, stockBattleUi.buffer)
+      stockBattleUi.target = stockBattleUi.buffer
+      stockBattleUi.drawFighter(0, index, 0)
+    }
+    patch = createcanvas(width, height)
+    drawcanvas(stockBattleUi.buffer, 0 - x, 0 - y, layout.w, layout.h, patch)
+    if (party == 1 || stockBattleUi.mode != "list") {
+      drawcanvas(patch, x, y, width, height, destination)
+    }
+    killcanvas(patch)
+    stockBattleUi.target = stockBattleUi.screen
+    stockBattleUi.sceneBaseValid = 0
+    stockBattleUi.syncSprites(position, position + 1)
     return 0
   },
   refresh: () => {
     local(chrome) = stockBattleUi.chromeSignature()
     local(size)
     local(index)
+    local(slot)
     local(fill)
     local(layout) = stockBattleUi.layout
+    local(targetChanged) = 0
+    local(nameChanged) = 0
     if (chrome != stockBattleUi.staticSig) {
       stockBattleUi.staticSig = chrome
+      if (stockBattleUi.controlSig == stockBattleUi.nextControlSig) {
+        if (stockBattleUi.mode == "target") {
+          drawcanvas(stockBattleUi.screen, 0, 0, layout.w, layout.h, stockBattleUi.overlayScratch)
+        }
+        for (index = 0; index < stockBattleUi.changedCount; index = index + 1) {
+          slot = stockBattleUi.changedSlot[index]
+          if (stockBattleUi.mode == "target" && stockBattleUi.rosterParty[slot] == stockBattleUi.targetParty) {
+            targetChanged = 1
+            if (stockBattleUi.changedName[index] != 0) {
+              nameChanged = 1
+            }
+          }
+          stockBattleUi.patchFighter(slot)
+        }
+        if (stockBattleUi.mode == "target") {
+          stockBattleUi.target = stockBattleUi.overlayScratch
+          if (targetChanged != 0) {
+            stockBattleUi.clearTargetNames()
+            stockBattleUi.drawTargetNames()
+          }
+          if (nameChanged != 0) {
+            for (index = 0; index < stockBattleUi.targetCount; index = index + 1) {
+              stockBattleUi.targetLabels[index] = stockBattleUi.targetLabel(stockBattleUi.targetParty, stockBattleUi.targets[index], 8)
+              stockBattleUi.targetFullLabels[index] = stockBattleUi.targetLabel(stockBattleUi.targetParty, stockBattleUi.targets[index], 0)
+            }
+            stockBattleUi.drawTargetBase()
+            stockBattleUi.drawTargetCursor()
+          }
+          drawcanvas(stockBattleUi.overlayScratch, 0, 0, layout.w, layout.h, stockBattleUi.screen)
+          stockBattleUi.target = stockBattleUi.screen
+        }
+        return 1
+      }
+      stockBattleUi.controlSig = stockBattleUi.nextControlSig
       if (stockBattleUi.sceneBaseValid != 0 && stockBattleUi.backdropSignature() == stockBattleUi.sceneBaseSig) {
         if (stockBattleUi.mode == "command" || stockBattleUi.mode == "list" || stockBattleUi.mode == "target") {
           stockBattleUi.drawOverlay()
@@ -1878,8 +2066,8 @@ stockBattleUi = {
       if (index >= size) {
         index = 0
       }
-      fill = integerMulDiv(battle.chargePercent(1, index), layout.chargeW - 2, 100)
-      if (stockBattleUi.bars["" + index] != fill) {
+      fill = battle.chargePercent(1, index)
+      if (stockBattleUi.bars[index] != fill) {
         if (stockBattleUi.mode == "command" || stockBattleUi.mode == "list" || stockBattleUi.mode == "target") {
           stockBattleUi.target = stockBattleUi.buffer
           stockBattleUi.drawChargeBar(index, battle.fighter(1, index))
@@ -1902,6 +2090,19 @@ stockBattleUi = {
       bitmap(stockBattleUi.picture, stockBattleUi.target)
     } else {
       stockBattleUi.box(0, 0, layout.w - 1, layout.h - 1, 20, 28, 56)
+    }
+    if (stockBattleUi.backgroundCount == 0) {
+      // One clean strip under each enemy's name and HP bar (the slot arithmetic of slotX/slotY, inlined).
+      local(strips) = stockBattleUi.background
+      local(copy) = stockBattleUi.buffer
+      local(odd)
+      size = battle.partySize(0)
+      for (index = 0; index < size; index = index + 1) {
+        odd = index % 2
+        strips[index] = createcanvas(layout.sprite, 17)
+        drawcanvas(copy, 0 - layout.enemyX - odd * layout.enemyDX, 0 - layout.enemyY - (index - odd) / 2 * layout.enemyDY - layout.sprite - 3, layout.w, layout.h, strips[index])
+      }
+      stockBattleUi.backgroundCount = size
     }
     stockBattleUi.box(layout.partyX, layout.panelY, layout.w - 9, layout.h - 1, 12, 16, 40)
     stockBattleUi.frame(layout.partyX, layout.panelY, layout.w - 9, layout.h - 1, 180, 190, 255)
@@ -1933,7 +2134,7 @@ stockBattleUi = {
     } else {
       drawcanvas(stockBattleUi.buffer, 0, 0, layout.w, layout.h, stockBattleUi.screen)
       stockBattleUi.target = stockBattleUi.screen
-      stockBattleUi.syncSprites()
+      stockBattleUi.syncSprites(0, stockBattleUi.rosterCount)
     }
     return 0
   },
