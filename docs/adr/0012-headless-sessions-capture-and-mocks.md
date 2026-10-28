@@ -16,7 +16,7 @@ The headless harness (`runner-headless`, built on `runner-harness`) grows from a
 
 All of this lives in the harness. **The core does not change.** The harness drives the existing `Engine` API from the outside, as the golden tests already do.
 
-> **Thou shalt install FFmpeg if thou must have video.**
+> **Video export needs FFmpeg, installed by the user.**
 > MP4 export runs an FFmpeg the user installed. We never bundle, link or ship it. Without it, the harness still records the exact frames and sound, and says plainly that MP4 export is unavailable.
 
 ## Context
@@ -69,7 +69,7 @@ JSON-RPC 2.0 over **stdio** first; WebSocket later, over the same methods. Group
 
 ### 6. FFmpeg is an optional external tool, not a dependency (G6 clarification)
 
-**Thou shalt install FFmpeg if thou must have video.**
+**Video export needs FFmpeg, installed by the user.**
 
 * The harness looks for an `ffmpeg` executable on `PATH`, or at a path given in configuration, and starts it as a **separate process**. It sends raw RGBA frames and PCM through pipes and passes command-line arguments. It never links FFmpeg libraries and never loads `ffmpeg.wasm`.
 * FFmpeg is **never** a package dependency, never vendored, never downloaded by our tooling, and never included in anything we ship (npm packages, installers, images, extensions).

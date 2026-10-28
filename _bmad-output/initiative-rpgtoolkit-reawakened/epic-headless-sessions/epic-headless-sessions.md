@@ -17,7 +17,7 @@ inputDocuments: ["docs/adr/0012-headless-sessions-capture-and-mocks.md", "docs/a
 
 Anyone (an author, a reviewer, CI or an AI agent) can start a game headlessly from a chosen state, with the outside world mocked, and get exact screenshots and short videos with sound out of it. Every session is described by one manifest, so it can be replayed byte for byte. The design is [ADR 0012](../../../docs/adr/0012-headless-sessions-capture-and-mocks.md).
 
-> **Thou shalt install FFmpeg if thou must have video.** MP4 export starts an FFmpeg the user installed. We never bundle, link or ship it. Without it, the lossless PNG frames and WAV masters still work.
+> **Video export needs FFmpeg, installed by the user.** MP4 export starts an FFmpeg the user installed. We never bundle, link or ship it. Without it, the lossless PNG frames and WAV masters still work.
 
 ## Boundaries and ownership
 
@@ -68,5 +68,5 @@ All entries start in **Backlog (no Sprint)**. 24.1 is first and gates the rest (
 
 ## Notes
 
-* Decision: 2026-10-28, owner: the harness, not the core, owns capture, mocks and the protocol; MP4 with sound is required; typed fixtures are wanted; stdio first, WebSocket later; "Thou shalt install FFmpeg if thou must have video."
+* Decision: 2026-10-28, owner: the harness, not the core, owns capture, mocks and the protocol; MP4 with sound is required; typed fixtures are wanted; stdio first, WebSocket later; video export needs a user-installed FFmpeg.
 * When ADR 0012 is accepted, `docs/guardrails.md` G6 gains the external-tool clarification (ADR 0012 Decision 6) in the same change.
