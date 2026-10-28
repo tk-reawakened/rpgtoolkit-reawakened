@@ -230,11 +230,11 @@ function enemyBytes(name: string, key: string, values: { hp: number; canRun: num
   }));
 }
 
-function characterBytes(name: string, key: string, specials: readonly string[], category: string): Uint8Array {
+function characterBytes(name: string, key: string, specials: readonly string[], category: string, learnAt: { readonly minExp: number; readonly minLevel: number }): Uint8Array {
   const files = STANCE_FILES[key]!;
   const base = createEmptyCharacter();
   const slots = base.specialMoves.map((slot, index) => index < specials.length
-    ? { file: specials[index]!, minExp: 0, minLevel: 1, condVar: "", condValue: "" }
+    ? { file: specials[index]!, minExp: learnAt.minExp, minLevel: learnAt.minLevel, condVar: "", condValue: "" }
     : slot);
   return unwrap(writeCharacter({
     ...base,
@@ -340,6 +340,8 @@ export type RigOptions = {
   readonly fights?: number;
   /** A game HUD already on the reserved overlay before the first fight: drawn and switched on, drawn and switched off, or none. */
   readonly hud?: "on" | "off";
+  /** The experience and level at which the party's special moves are learned (default: from the start). */
+  readonly learnSpecialsAt?: { readonly minExp: number; readonly minLevel: number };
   readonly party?: readonly { readonly key: "hero" | "mage" | "rogue"; readonly hp: number; readonly smp: number }[];
   readonly inventory?: readonly { readonly source: string; readonly handle: string; readonly quantity: number }[];
 };
@@ -391,7 +393,7 @@ export function gameFiles(options: RigOptions = {}): { readonly files: Map<strin
   // The bat forbids running, so any fight that includes one has a blocked Run.
   put("Enemy/bat.ene", enemyBytes("Bat", "bat", { hp: 18, canRun: 0 }));
   for (const key of ["hero", "mage", "rogue"] as const) {
-    put(`Chrs/${key}.tem`, characterBytes(NAMES[key], key, SPECIALS[key]!.specials, SPECIALS[key]!.category));
+    put(`Chrs/${key}.tem`, characterBytes(NAMES[key], key, SPECIALS[key]!.specials, SPECIALS[key]!.category, options.learnSpecialsAt ?? { minExp: 0, minLevel: 1 }));
   }
   const arts: Record<string, (stance: Stance) => Picture> = {
     slime,

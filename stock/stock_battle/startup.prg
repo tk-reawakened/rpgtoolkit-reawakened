@@ -244,6 +244,14 @@ stockBattle = {
     }
     stockBattle.defeatedListenerCount = stockBattle.defeatedListenerCount + 1
   },
+  // A script outside the loop may record the battle's outcome (`battle.finish`). Note it, so the loop, and any menu
+  // waiting on the player, end instead of carrying on.
+  noteRecordedOutcome: () => {
+    if (battle.outcome != null) {
+      stockBattle.coreOutcomePending = 1
+    }
+    return stockBattle.coreOutcomePending
+  },
   clearDefeatedListeners: () => {
     local(index) = 0
     local(record)
@@ -624,6 +632,7 @@ stockBattle = {
 // The owner stores a live battle's outcome as null, distinct from code zero.
 battleDecided = () => {
   if (stockBattle.pendingOutcome != 0) {
+  stockBattle.noteRecordedOutcome()
     stockBattle.recheckPendingOutcome()
   }
   if (stockBattle.pendingOutcome == 4 ||
@@ -831,7 +840,8 @@ function battle() {
   while (done == 0) {
     while (stockBattle.pendingOutcome == 0 &&
            stockBattle.coreOutcomePending == 0 &&
-           stockBattle.runPending == 0) {
+           stockBattle.runPending == 0 &&
+           battle.outcome == null) {
       for (position = 0; position < count; position = position + 1) {
         cache = fighters[position]
         fighter = cache.fighter
@@ -950,6 +960,7 @@ stockBattleUi = {
   targetCursor: 0,
   targetParty: 0,
   sceneBaseValid: 0,
+  labelParty: -1,
   sceneBaseSig: "",
   targetLabels: {},
   targetFullLabels: {},
@@ -993,6 +1004,8 @@ stockBattleUi = {
     layout.rowDY = 24
     layout.hpX = 276
     layout.hpW = 112
+    // Party names are drawn 16 pixels per letter and must stop before the HP bar (4 pixels clear of it).
+    layout.nameChars = integerMulDiv(276 - 172 - 4, 1, 16)
     layout.smpX = 396
     layout.smpW = 96
     layout.chargeX = 500
@@ -1405,6 +1418,10 @@ stockBattleUi = {
     if (party == 0) {
       label = left(fighter.name, 8)
       if (fighter.hp < 1) {
+      // Target mode draws the scene itself with the duplicate-aware names, so no label is ever drawn over another.
+      if (stockBattleUi.labelParty == party) {
+        label = stockBattleUi.targetLabel(party, index, 8)
+      }
         stockBattleUi.words(x, y + size + 3, label, 8, 130, 130, 140)
       } else {
         stockBattleUi.words(x, y + size + 3, label, 8, 255, 255, 255)
@@ -1429,16 +1446,19 @@ stockBattleUi = {
     if (fighter == null) {
       return 0
     }
-    name = fighter.name
+    name = left(fighter.name, layout.nameChars)
+    if (stockBattleUi.labelParty == 1) {
+      name = stockBattleUi.targetLabel(1, index, layout.nameChars)
+    }
     if (fighter.hp < 1) {
-      stockBattleUi.words(layout.rowX, y, left(name, 8), 16, 130, 130, 140)
+      stockBattleUi.words(layout.rowX, y, name, 16, 130, 130, 140)
     } else {
       if (stockBattleUi.menuIndex == index && (stockBattleUi.mode == "command" || stockBattleUi.mode == "list" || stockBattleUi.mode == "target")) {
         // The active member row spans every status column, including the complete name.
         stockBattleUi.box(layout.partyX + 4, y - 2, layout.w - 13, y + 18, 30, 60, 90)
-        stockBattleUi.words(layout.rowX, y, left(name, 8), 16, stockBattleUi.highlight.r, stockBattleUi.highlight.g, stockBattleUi.highlight.b)
+        stockBattleUi.words(layout.rowX, y, name, 16, stockBattleUi.highlight.r, stockBattleUi.highlight.g, stockBattleUi.highlight.b)
       } else {
-        stockBattleUi.words(layout.rowX, y, left(name, 8), 16, 255, 255, 255)
+        stockBattleUi.words(layout.rowX, y, name, 16, 255, 255, 255)
       }
     }
     stockBattleUi.bar(layout.hpX, y, layout.hpW, layout.barH, fighter.hp, fighter.maxhp, 64, 200, 80)
@@ -1684,44 +1704,6 @@ stockBattleUi = {
     }
     return 0
   },
-  // In target mode, overlay duplicate-aware names on the canonical unsuffixed scene before the selected frame.
-  drawTargetNames: () => {
-    local(layout) = stockBattleUi.layout
-    local(party) = stockBattleUi.targetParty
-    local(size) = battle.partySize(party)
-    local(index)
-    local(fighter)
-    local(label)
-    local(x)
-    local(y)
-    for (index = 0; index < size; index = index + 1) {
-      fighter = battle.fighter(party, index)
-      if (fighter != null) {
-        label = stockBattleUi.targetLabel(party, index, 8)
-        if (party == 0) {
-          x = stockBattleUi.slotX(party, index)
-          y = stockBattleUi.slotY(party, index)
-          if (fighter.hp < 1) {
-            stockBattleUi.words(x, y + layout.sprite + 3, label, 8, 130, 130, 140)
-          } else {
-            stockBattleUi.words(x, y + layout.sprite + 3, label, 8, 255, 255, 255)
-          }
-        } else {
-          y = layout.rowY + index * layout.rowDY
-          if (fighter.hp < 1) {
-            stockBattleUi.words(layout.rowX, y, label, 16, 130, 130, 140)
-          } else {
-            if (stockBattleUi.menuIndex == index) {
-              stockBattleUi.words(layout.rowX, y, label, 16, stockBattleUi.highlight.r, stockBattleUi.highlight.g, stockBattleUi.highlight.b)
-            } else {
-              stockBattleUi.words(layout.rowX, y, label, 16, 255, 255, 255)
-            }
-          }
-        }
-      }
-    }
-    return 0
-  },
   drawTargetCursor: () => {
     local(layout) = stockBattleUi.layout
     local(x) = layout.cmdX
@@ -1815,6 +1797,10 @@ stockBattleUi = {
     local(entry)
     local(text) = "" + stockBattleUi.menuIndex + "|" + stockBattleUi.numberCount + "|" + stockBattleUi.message + "|" + stockBattleUi.actingStance
     if (stockBattleUi.acting == null) {
+    // Target mode draws duplicate-aware names into the scene itself, so entering or leaving it is a new scene.
+    if (stockBattleUi.mode == "target") {
+      text = text + "|target-names:" + stockBattleUi.targetParty
+    }
       text = text + "|acting:none"
     } else {
       text = text + "|acting:" + stockBattleUi.acting
@@ -1846,7 +1832,6 @@ stockBattleUi = {
       stockBattleUi.drawList()
     }
     if (stockBattleUi.mode == "target") {
-      stockBattleUi.drawTargetNames()
       stockBattleUi.drawTargetBase()
       stockBattleUi.drawTargetCursor()
     }
@@ -1898,6 +1883,11 @@ stockBattleUi = {
     local(size)
     // Build a mode-independent battle scene so list and target overlays can be swapped in a single quick blit.
     stockBattleUi.target = stockBattleUi.buffer
+    // The party being aimed at is drawn with its duplicate-aware names; no party otherwise.
+    stockBattleUi.labelParty = -1
+    if (stockBattleUi.mode == "target") {
+      stockBattleUi.labelParty = stockBattleUi.targetParty
+    }
     if (stockBattleUi.picture != "") {
       bitmap(stockBattleUi.picture, stockBattleUi.target)
     } else {
@@ -2054,6 +2044,11 @@ stockBattleUi.prepareLists = (fighter) => {
   local(item)
   local(key)
   stockBattleUi.specials = {}
+  // BAT-11: the list shows what is available now, so the character's file is read again for every turn.
+  if (data != null) {
+    data = battlecharacterdata(fighter)
+    stockBattleUi.chars["" + fighter.id] = data
+  }
   stockBattleUi.specialCount = 0
   stockBattleUi.items = {}
   stockBattleUi.itemCount = 0
@@ -2357,6 +2352,10 @@ stockBattleUi.playerTurn = (index) => {
   stockBattleUi.refresh()
   return 0
 }
+  // The battle may have been ended from outside since this pass began: no menu is opened for it.
+  if (stockBattle.noteRecordedOutcome() != 0) {
+    return 0
+  }
 
 // An enemy's turn is the package's own AI. The screen shows the fighter's fight stance while it acts and the numbers
 // of whatever changed afterwards.
@@ -2370,6 +2369,11 @@ stockBattleUi.enemyTurn = (index) => {
   before = stockBattleUi.snapshot()
   stockBattleUi.acting = fighter.id
   stockBattleUi.actingStance = "fight"
+    // An outcome recorded from outside unwinds the command, list and target menus; the battle loop then runs
+    // its normal finish, which hands the screen back.
+    if (done == 0 && stockBattle.noteRecordedOutcome() != 0) {
+      done = 1
+    }
   result = stockBattleUi.baseTurn(0, index)
   stockBattleUi.settle(before, fighter.name + " acts")
   return result
