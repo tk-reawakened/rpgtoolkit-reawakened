@@ -41,6 +41,8 @@ Quick independent review: no findings.
 
 Director review requested an authored B and real transition instead of cloning the active board; applied and focused proof passed. An alternative beforePlay-listener approach exposed a separate audio binding TypeError and was not retained.
 
+That audio binding TypeError is tracked as issue #758 — "fix(core/audio): media.voice bind dereferences a null ref after a canceled board music start" — and is not part of this ticket.
+
 ## Verification
 
 Run a focused test and the required project gates, measuring their runtime; avoid repeated lengthy runs.
