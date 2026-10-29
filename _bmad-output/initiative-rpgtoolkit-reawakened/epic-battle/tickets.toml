@@ -396,6 +396,7 @@ references = [
 [[entry]]
 id = 21
 tracker_id = "#741"
+tracker_status = "done"
 type = "bug"
 title = "Statuses remain after a stock battle ends"
 description = """Battle participant statuses remain after outcome handlers finish, contrary to BAT-6; cover every BAT-8 outcome code, including the observed handled outcomes 1 and 3, and clear statuses only after final outcome selection."""
