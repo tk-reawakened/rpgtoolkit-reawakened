@@ -61,6 +61,8 @@ Read only (the 3.x editor upgrades and re-saves as minor 4). Fields after the ve
 | 23 | × thread | string | minor 3 only |
 | 24 | coordType | **byte** | minor 3 (the engine); the editor also reads it for minor 2 |
 
+**Overlong final runs.** When a tile run exceeds the remaining cells, fill only the remaining grid cells and continue reading the following fields. The 3.1.0 editor and engine silently discarded the excess repetitions. Reawakened also reports a warning so a damaged board can be noticed; the warning is not legacy behavior. This pre-vector rule differs from the vector-layout rule that retains extra cells. Evidence: [owner-relayed extraction round 13](../../../provenance/facts-round-13.md).
+
 **Minor-2 `coordType` — Reawakened rule (R-04).** For a minor-3 file the byte is read as written. For a **minor-2** file the byte is absent from the layout, and the two original programs disagree (the engine never reads it and keeps the previous board's value; the editor reads a byte). Our reader follows the editor: **when exactly one byte remains after the sprite list, that byte is `coordType`; otherwise `coordType` is 0 (2D)**. *Evidence:* a corpus sweep found 616 boards ending exactly there and 12 ending with one `0x00` byte (value 0, i.e. 2D); the docs/spec-authored `board_minor2.brd` example has no trailing byte, which is why the rule is "read it only when exactly one byte remains" rather than "always read it". The reader is `packages/core/src/formats/board/pre-vector-reader.ts:696-711`.
 
 **Upgrade rules applied on load.** A pre-vector board converts to the [vector model](../board.md#vector-layout-minor-4-and-later) (minor 4), keeping the source's `coordType`, by these rules:

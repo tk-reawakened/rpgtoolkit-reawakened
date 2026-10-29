@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Documented and tested how pre-vector boards handle oversized final tile runs: excess repetitions are discarded, following fields remain readable, and Reawakened warns about the overrun. The original applications did not issue that warning.
 - Jensen approved the complete battle screen on 2026-10-28, including by-name revive targeting. It keeps the selected command visible while choosing a move, item, or target and highlights list entries across their column.
 - Battle selection keeps the command label and active member name at exactly the same yellow; selected unavailable moves remain visibly dimmed with improved contrast, and the description header no longer exposes the background beneath its label.
 - Using a stack in the battle Items list now spends that stack. Before, the "Special Potion" row spent the canonical "Potion" stack, and two non-canonical stacks of one item file healed the target but spent neither. `battleconsume` takes an optional stack `handle` (the `inventory.consume` request carries `handle`, `null` when none is named); the owner consumes exactly the named stack, and the battle screen checks the chosen stack still has a unit before it changes any stat.
