@@ -2,6 +2,7 @@
 # Table order is the build order; ids are stable names. Entry 1 is the owner-approved docs checkpoint.
 # Lanes: A docs/state (1, 2), B API (3), C package rules (4-8), D starts and media (9, 10), E UI and custom-program proof (11, 12), F battle-thread event seam (14); 13 reconciles seams and closes the epic.
 # The 2026-10-19 owner re-slice: core owns actor data and the battle section (fighter references and charge), the stock_battle RPGCode package owns the loop, rules, AI and UI.
+next_id = 39
 
 [[entry]]
 id = 1
@@ -583,41 +584,3 @@ hitl = false
 risk = "medium"
 references = ["epic - _bmad-output/initiative-rpgtoolkit-reawakened/epic-battle/epic-battle.md", "tracker - _bmad-output/initiative-rpgtoolkit-reawakened/epic-battle/tickets.toml", "issue - #503"]
 
-[[entry]]
-id = 34
-tracker_id = "#777"
-type = "spike"
-title = "Define battle restart from the saved game ledger"
-description = "Rule how a battle restarts from saved ledger data when its continuation cannot be reconstructed, without silently rolling back game progress."
-verify = "Owner-approved rules specify encounter data, fighter status, items, rewards, custom battle systems, failure handling and player notification; unresolved tradeoffs are presented to the owner."
-covers = ["CAP-9", "CAP-11"]
-after = ["8.15"]
-hitl = true
-risk = "high"
-references = ["issue - #776", "spec - docs/spec/engine/battle.md#bat-13"]
-
-[[entry]]
-id = 35
-tracker_id = "#779"
-type = "story"
-title = "Resume or restart battle from the saved ledger"
-description = "Resume a saved battle where possible; otherwise restart from the saved ledger under the approved rules, without silent rollback or duplicate rewards."
-verify = "Behavioral tests cover continuation and restart, consumed items, defeated enemies, rewards, custom battle systems and the approved notification and failure semantics."
-covers = ["CAP-9", "CAP-11"]
-after = [34, "8.16"]
-hitl = false
-risk = "high"
-references = ["issue - #777", "issue - #778", "spec - docs/spec/engine/battle.md#bat-13"]
-
-[[entry]]
-id = 36
-tracker_id = "#780"
-type = "story"
-title = "Reconcile BAT-13 save contract and Epic 7 closure evidence"
-description = "Record the approved ledger and battle-continuity contract in BAT-13, distinguish implemented behavior from fallback, and reconcile Epic 7 closure evidence alongside 7.33."
-verify = "BAT-13 reflects owner-approved rules and actual implementation; closure evidence and child issue status are checked without rewriting historical audit records."
-covers = ["CAP-9", "CAP-11"]
-after = [33, 35]
-hitl = false
-risk = "medium"
-references = ["issue - #753", "issue - #779", "spec - docs/spec/engine/battle.md#bat-13"]
