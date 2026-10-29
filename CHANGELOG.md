@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The compiled-program cache remembers the program it answered for each reference object, so a repeated request no longer rebuilds that reference's cache key. An inline reference carries the whole program text and the VM asks for its frame's program on every instruction, so the battle rigs rebuilt an about 95 KB key per step. References are immutable, so a changed program still arrives as a new reference and compiles afresh, and each cache keeps its own memos, so separate caches and test rigs never share a compiled program. Measured on Node 24.21.0: the core-battle shard 108.8 s to 51.3 s, and 300 single-tick advances of a real battle 19.4 to 12.7 ms per tick.
 - Battle UI refresh tests reuse one real battle per screen mode, restoring each changed value and checking its pixels before the next case. The six-tick refresh checks and duplicate-name pixel comparisons remain intact.
 - Documented and tested how pre-vector boards handle oversized final tile runs: excess repetitions are discarded, following fields remain readable, and Reawakened warns about the overrun. The original applications did not issue that warning.
 - Jensen approved the complete battle screen on 2026-10-28, including by-name revive targeting. It keeps the selected command visible while choosing a move, item, or target and highlights list entries across their column.

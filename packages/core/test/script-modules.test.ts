@@ -9,6 +9,7 @@ import {
   advanceScriptTick,
   assetKey,
   compileProgram,
+  COMPILER_VERSION,
   createAssetIndex,
   createCollectingSink,
   createGameState,
@@ -308,6 +309,38 @@ test("the cache compiles a source hash once and recompiles when includes or redi
   equal(cache.compiles, 3);
   equal(cache.get({ ...ref, redirects: [["a", "b"]] }).ref.redirects?.[0]?.[1], "b");
   equal(cache.compiles, 3);
+});
+
+test("a reference is answered from memory, and equal content still shares one compile", () => {
+  const cache = createProgramCache({});
+  const text = "x = 1\ny = 2\n";
+  const ref: ProgramRef = { kind: "inline", text, compiler: COMPILER_VERSION, dialect: "tk3" };
+  const first = cache.get(ref);
+  equal(cache.get(ref), first, "the same reference is answered from the cache");
+  equal(cache.compiles, 1, "a repeated request compiles nothing");
+  // The key is the content, not the object: a distinct reference with the same content is the same program.
+  const copy: ProgramRef = { kind: "inline", text, compiler: COMPILER_VERSION, dialect: "tk3" };
+  equal(cache.get(copy), first, "an equal-content reference reuses the compile");
+  equal(cache.compiles, 1);
+  // A changed program arrives as a new reference and is compiled on its own key.
+  const changed = cache.get({ ...ref, text: "x = 2\n" });
+  equal(cache.compiles, 2, "changed content is a new program");
+  equal(changed === first, false);
+});
+
+test("the cache never writes to a reference: a frozen ref caches normally and a change arrives as a new object", () => {
+  const loader = loaderOf({ "main.prg": "x = 1\n", "lib.prg": "function f() { return 1 }\n" });
+  const cache = createProgramCache({ loader });
+  const includes = ["lib.prg"];
+  Object.freeze(includes);
+  const ref: ProgramRef = Object.freeze({ ...fileProgramRef(loader, "main.prg"), includes });
+  const first = cache.get(ref);
+  equal(cache.get(ref), first, "the frozen reference is served from its own entry");
+  equal(cache.compiles, 1);
+  // Invalidation is a new reference: the memo never answers for content it was not asked about.
+  const without = cache.get({ ...ref, includes: [] });
+  equal(cache.compiles, 2, "dropping the include compiles the plain program again");
+  equal(Object.hasOwn(without.functions, "f"), false);
 });
 
 test("a compiled program is refused with the re-save message and no binary parser runs", () => {
