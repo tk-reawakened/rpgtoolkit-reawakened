@@ -72,8 +72,8 @@ A fighter handle in a script is `source`, `target`, a party-member name, the can
 |---|---|---|
 | 114 | party size | `battle.partySize` |
 | 115–120 | fighter HP, max HP, SMP, max SMP, FP, DP | the actor's stat reads (`gethp`, `getmaxhp`, `getsmp`, `getmaxsmp`, `getfp`, `getdp` over the handle) |
-| 121 | fighter name | the actor's display name |
-| 122 | fighter animation for a stance | the actor's animation for that stance (presentation) |
+| 121 | fighter name | the actor object's read-only `name` member |
+| 122 | fighter animation for a stance | `fighteranimationfile(fighter, stance)`, which reads the file name the source asset stores for that stance ([functions](rpgcode-functions.md)): characters store FIGHT, DEFEND, SPECIAL MOVE, DIE, REST; enemies store REST, FIGHT, DEFEND, SPECIAL MOVE, DIE. `attack` is an alias of `fight`, stance names are matched ignoring case, spaces and punctuation, and a missing slot is `""` |
 | 123 | charge percent | `battle.chargePercent` |
 | 124 | advance one tick | **no operation**: the package's loop is the tick ([BAT-4](#bat-4)) |
 | 125 | draw text at a pixel position | the existing `pixelText` primitive |
