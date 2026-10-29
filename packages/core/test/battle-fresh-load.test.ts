@@ -2,6 +2,13 @@
 // restored already loaded, so the brand-new engine holds none of their picture files. It must ask the host for them,
 // keep each animation's saved frame and origin tick, and never draw a frame whose picture it does not have.
 // The save is the real thing: the engine's own `Save` request issued by a script during the fight.
+//
+// The same walk is the save/resume lifecycle evidence of docs/spec/engine/battle.md#bat-13: the run that continues
+// without saving and the run loaded through the game's own `Load` path must reach the same ticks with the same state
+// hash. The save holds no active audio, because active music deliberately restarts at position zero on load
+// (docs/spec/engine/audio-media.md#audio-save-load) and the two runs would then diverge by contract.
+// The last test is the reset half of that lifecycle: `reset()` during a live battle clears the battle and the script
+// that was fighting it.
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -10,11 +17,15 @@ import { TextDecoder, TextEncoder } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
   assetKey,
+  COMPILER_VERSION,
   createAssetIndex,
   createEngine,
+  createSurfacesSection,
   fnv1a64,
   frameAt,
+  hashGameState,
   PACKAGE_ROOT,
+  startThread,
   type Engine,
   type GameState,
   type InputRecord,
@@ -53,12 +64,23 @@ type SavedAnimation = {
   readonly frame: number;
   readonly frames: readonly { readonly asset: string | null; readonly surface?: number }[];
 };
-type SavedGame = { readonly time: { readonly tick: number }; readonly battle: { readonly outcome: number | null } | null; readonly fx: { readonly animations: readonly SavedAnimation[] } };
+type SavedTrack = { readonly name: string; readonly state: string; readonly voices: readonly unknown[] };
+type SavedGame = {
+  readonly time: { readonly tick: number };
+  readonly battle: { readonly outcome: number | null } | null;
+  readonly fx: { readonly animations: readonly SavedAnimation[] };
+  readonly audio: { readonly tracks: readonly SavedTrack[] };
+};
 
 type Saved = { readonly bytes: Uint8Array; readonly tick: number; readonly game: SavedGame };
 
+/** The engine's state hash at one tick: the same value `advance` reports and a snapshot reproduces. */
+type HashPoint = { readonly tick: number; readonly hash: string };
+
+type SavedRun = { readonly rig: UiRig; readonly saved: Saved };
+
 /** Play a battle rig until the script's `Save` reaches the host, answering it so the fight carries on. */
-function saveMidBattle(): { readonly rig: UiRig; readonly saved: Saved } {
+function saveMidBattle(): SavedRun {
   const rig = bootUiRig(RIG);
   rig.files.set(assetKey("prg/fight.prg"), encoder.encode(FIGHT));
   const engine = rig.engine as { advance: Engine["advance"] };
@@ -85,7 +107,7 @@ type FreshHost = {
   readonly engine: Engine;
   readonly diagnostics: { readonly code: string; readonly message: string }[];
   readonly requested: string[];
-  readonly hashes: string[];
+  readonly hashes: HashPoint[];
   state(): GameState;
   /** One tick (or none while the host still owes the engine an asset), answering what the engine asks for. */
   step(): void;
@@ -133,7 +155,7 @@ function freshLoad(saved: Uint8Array): FreshHost {
   });
   const diagnostics: { code: string; message: string }[] = [];
   const requested: string[] = [];
-  const hashes: string[] = [];
+  const hashes: HashPoint[] = [];
   let replies: InputRecord[] = [];
   const host: FreshHost = {
     engine,
@@ -148,7 +170,7 @@ function freshLoad(saved: Uint8Array): FreshHost {
       const report = engine.advance(1, replies);
       replies = [];
       diagnostics.push(...report.diagnostics);
-      if (report.ticksRun > 0) hashes.push(report.stateHash);
+      if (report.ticksRun > 0) hashes.push({ tick: report.tickAfter, hash: report.stateHash });
       for (const request of report.requests) {
         if (request.kind === "asset") {
           requested.push(request.key);
@@ -183,6 +205,32 @@ function pinned(animations: readonly SavedAnimation[]): readonly SavedAnimation[
   return animations.filter((animation) => animation.pinned === true);
 }
 
+/** The threads still running, or parked, inside the game's fight program: a live battle's continuation. */
+function fightThreads(state: GameState): readonly number[] {
+  const fighting = state.vm.threads.filter((thread) => thread.frames.some((frame) => frame.program.kind === "file" && frame.program.path.toLowerCase().endsWith("fight.prg")));
+  return fighting.map((thread) => thread.id);
+}
+
+/**
+ * Everything a battle owns, as one state hash, for comparing a run with a loaded copy of itself
+ * (docs/spec/engine/battle.md#bat-13). Three host-side things a load moves are pinned out, and nothing else is: the
+ * host request-id counter and its outstanding requests, because a restored engine holds none of the pictures its state
+ * names and re-requests them (that is what this whole file tests), spending ids the uninterrupted run never spent; the
+ * audio cue counter, which a load keeps at the greater of the live and saved values
+ * (docs/spec/engine/audio-media.md#audio-save-load); and the script canvases, because a canvas the restored engine
+ * redraws from a re-fetched picture keeps different stale pixels off-screen — the composed frame is compared instead,
+ * pixel for pixel, at the same ticks. Fighters, charge, actors, party, inventory, triggers, world, sprites, VM threads
+ * and globals, ui, fx, events, RNG and time are all in the compared hash.
+ */
+function battleStateHash(state: GameState): string {
+  return hashGameState({
+    ...state,
+    surfaces: createSurfacesSection(SCREEN_WIDTH, SCREEN_HEIGHT),
+    engine: { ...state.engine, nextRequestId: 0, pending: [] },
+    audio: { ...state.audio, cueId: 0 },
+  });
+}
+
 test("the save holds loaded, pinned stance animations and no picture surfaces", () => {
   const { saved } = saveMidBattle();
   ok(saved.game.battle !== null && saved.game.battle.outcome === null, "the save is mid-battle");
@@ -195,9 +243,17 @@ test("the save holds loaded, pinned stance animations and no picture surfaces", 
   }
 });
 
-test("a mid-battle save loaded into a brand-new engine asks for the animation pictures and draws them", () => {
+test("a mid-battle save loaded into a brand-new engine asks for the animation pictures, draws the saved frames and keeps the saved run's state", () => {
   const { rig, saved } = saveMidBattle();
   const stances = pinned(saved.game.fx.animations);
+  // The mandated music restart (audio-media.md#audio-save-load) makes a save taken with a voice playing a
+  // deliberately different playthrough, so the hash comparison below is made with silent playback: the save, the
+  // uninterrupted run and the loaded run then project the same ticks. #691 owns the restart rule itself.
+  deepEqual(
+    saved.game.audio.tracks.filter((track) => track.state !== "stopped" || track.voices.length > 0).map((track) => track.name),
+    [],
+    "no audio track is playing at the save",
+  );
   const host = freshLoad(saved.bytes);
   runUntilTick(host, saved.tick + 1);
 
@@ -213,7 +269,10 @@ test("a mid-battle save loaded into a brand-new engine asks for the animation pi
     equal(animation.frame, frameAt(was.originTick, host.state().time.tick - 1, was.delayTicks, was.frames.length, was.loop), "the frame follows the saved origin (the animation phase runs before the tick advances)");
   }
 
-  // The loaded battle draws exactly what the saved run draws, tick for tick.
+  // The loaded battle draws exactly what the saved run draws, tick for tick, and everything the battle owns is the
+  // same state.
+  // Comparison starts one tick after the save: the saving thread's wait is live in the uninterrupted run and already
+  // resumed in the file, so only the ticks after the save are expected to agree.
   const seen = new Set<string>();
   for (let step = 0; step < 12; step += 1) {
     const tick = host.state().time.tick;
@@ -222,12 +281,16 @@ test("a mid-battle save loaded into a brand-new engine asks for the animation pi
     const frame = host.frame();
     equal(frame, fnv1a64(rig.frame().rgba), `the frame at tick ${tick} matches the saved run`);
     seen.add(frame);
+    const point = host.hashes.at(-1);
+    ok(point !== undefined && point.tick === tick, `the loaded run hashed tick ${tick}`);
+    equal(battleStateHash(host.state()), battleStateHash(rig.state()), `the battle state at tick ${tick} matches the uninterrupted run`);
     host.step();
   }
   ok(seen.size >= 2, "the stance pictures change between ticks, so the comparison sees the frame clock");
   deepEqual(host.diagnostics.filter((entry) => entry.code === "render.failed"), []);
   deepEqual(host.diagnostics.map((entry) => entry.code), []);
 });
+
 
 test("a frame drawn while the animation pictures are still on their way is not a render failure", () => {
   const { saved } = saveMidBattle();
@@ -251,4 +314,30 @@ test("two brand-new engines loading the same mid-battle save run the same state 
   deepEqual(first.hashes, second.hashes);
   ok(first.hashes.length >= 30);
   deepEqual(first.diagnostics, []);
+});
+
+// docs/spec/engine/battle.md#bat-13: `reset()` closes an active battle. The stock battle loop, its screen, the pinned
+// stance animations and the game's own fight program are all live when a script calls it, so this proves the battle
+// section and that continuation are both gone, not just the section (docs/spec/engine/main-loop-and-startup.md#reawakened-reset-sections).
+test("resetting during a live battle clears the battle and the fight program that was running it", () => {
+  const rig = bootUiRig(RIG);
+  // Wait until the screen really is drawing the fight: a live battle, not just a started one.
+  rig.until((state) => state.battle !== null && (("animations" in state.fx ? state.fx.animations : []).some((animation) => animation.pinned === true)), 400);
+  const live = rig.state();
+  ok(live.battle !== null && live.battle.outcome === null, "the fight is live");
+  equal(rig.charges().length, 2, "both parties are in the fight");
+  equal(fightThreads(live).length, 1, "the game's fight program is parked inside the battle");
+
+  // A script calls `reset()` the way a game program does; the call posts the engine's lifecycle reset.
+  startThread(live.vm, { ref: { kind: "inline", text: "reset()\nend()", compiler: COMPILER_VERSION }, kind: "persistent", owner: "script" });
+
+  for (let step = 0; step < 5; step += 1) {
+    rig.tick(1);
+    const state = rig.state();
+    equal(state.battle, null, "the battle is gone");
+    deepEqual(fightThreads(state), [], "nothing of the fight program continues");
+    const animations = "animations" in state.fx ? state.fx.animations : [];
+    equal(animations.filter((animation) => animation.pinned === true).length, 0, "no pinned stance animation survives");
+    deepEqual(rig.diagnostics, []);
+  }
 });
