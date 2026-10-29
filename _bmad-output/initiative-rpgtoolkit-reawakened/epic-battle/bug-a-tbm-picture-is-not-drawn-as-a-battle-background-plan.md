@@ -1,9 +1,9 @@
 ---
 title: 'A .tbm picture is drawn as a battle background'
-type: 'bugfix'
-ticket: 'bug-a-tbm-picture-is-not-drawn-as-a-battle-background'
+type: 'chore'
+ticket: 23
 created: '2026-10-29'
-status: 'built'
+status: done
 baseline_revision: 'bb7519ba'
 route: 'full'
 route_source: 'auto'
@@ -103,6 +103,9 @@ An animated-tile (`.tan`) cell takes frame 0: the texture is decoded once and ca
   `.tbm` and its `.tst` both requested, and no diagnostic; the new test takes about 0.9 s (a rig boot is about 0.9 s).
 
 ## Plan Change Log
+
+- 2026-10-29 (ledger chore): frontmatter repaired after the build — `type: 'bugfix'` → `type: 'chore'` and `ticket: 'bug-a-tbm-picture-is-not-drawn-as-a-battle-background'` → `ticket: 23` (bare entry id); plan content unchanged. `tickets.py status` reported entry 23 as `review`/`built` with no `problems` or `drift` both before and after the repair.
+- 2026-10-29 (completed): marked done after PR #767 (`22cd80a4`) merged; issue #743 closed 2026-10-29T16:24:50Z. The picture-composition rule (`e08687fc`, spec-first in `docs/spec/formats/tiles.md` and `images.md`) and the engine `.tbm` composition (`d23e5bfd`) are recorded there; no golden frame changed.
 
 ## Review Triage Log
 

@@ -1,9 +1,9 @@
 ---
 title: 'Battle identifiers are never reused within one run'
-type: 'bugfix'
-ticket: '24'
+type: 'chore'
+ticket: 24
 created: '2026-10-29'
-status: 'built'
+status: done
 baseline_revision: '0174eb5f'
 route: 'full'
 route_source: 'auto'
@@ -105,3 +105,8 @@ Dated decision (2026-10-29, this ticket): **a run is the engine's lifetime.** `r
 **Commands:**
 - `pnpm test` (or `node --test packages/core/test/battle-*.test.ts`) -- expected: the new tests pass, the probe deleted.
 - `pnpm typecheck`, `pnpm lint`, `pnpm test:strict`, `pnpm golden`, `pnpm golden:bun`, `pnpm graph`, `pnpm licence`, `pnpm provenance`, `pnpm catalogue:check`, `pnpm command-docs:check` -- expected: all green.
+
+## Plan Change Log
+
+- 2026-10-29 (ledger chore): frontmatter repaired after the build — `type: 'bugfix'` → `type: 'chore'` and `ticket: '24'` → `ticket: 24` (bare entry id); plan content unchanged. `tickets.py status` reported entry 24 as `review`/`built` with no `problems` or `drift` both before and after the repair.
+- 2026-10-29 (completed): marked done after PR #765 (`40e62db5`) merged; issue #744 closed 2026-10-29T16:24:48Z. The run-scoped `engine.nextBattleId` counter, the BAT-2 rule (`a2adcff5`, spec-first) and the one deliberate G5 golden regeneration of `fixtures/save/battle-v2-mid.json` (only `/engine/nextBattleId` added) are recorded in the PR; `unit (core-battle)` was green.
