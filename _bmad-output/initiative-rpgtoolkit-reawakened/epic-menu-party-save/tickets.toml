@@ -198,3 +198,29 @@ hitl = false
 risk = "high"
 plan_checkpoint = true
 references = ["spec - docs/spec/engine/plugins-and-battle.md#e-80 to E-87, E-123", "spec - docs/spec/formats/save-game.md", "Epic 7 battle item-use contract"]
+
+[[entry]]
+id = 15
+tracker_id = "#776"
+type = "spike"
+title = "Audit and define the saved game ledger and hash"
+description = "Define and audit the validated game-owned save ledger and hash boundary, distinguishing runtime and presentation reconstruction. Coordinate with 8.10 rather than duplicating its implementation."
+verify = "An owner-reviewed ledger and hash contract identifies existing coverage, gaps and migrations, preserving existing script continuation and distinguishing historical evidence from product requirements."
+covers = ["CAP-11"]
+after = [1]
+hitl = true
+risk = "high"
+references = ["issue - #593", "spec - docs/spec/formats/save-game.md"]
+
+[[entry]]
+id = 16
+tracker_id = "#778"
+type = "story"
+title = "Implement validated save ledger and hash gaps"
+description = "Implement gaps identified by the approved ledger audit, coordinating with 8.10 and adding migrations where needed."
+verify = "Approved ledger values survive load, invalid data is handled per contract, and applicable migrations and hash boundaries are covered by behavioral tests."
+covers = ["CAP-11"]
+after = [10, 15]
+hitl = false
+risk = "high"
+references = ["issue - #776", "issue - #593", "spec - docs/spec/formats/save-game.md"]
