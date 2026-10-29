@@ -120,7 +120,7 @@ function authoredBackground(): Uint8Array {
   return unwrap(writeBattleBackground(background));
 }
 
-function authoredBoard(): Uint8Array {
+function authoredBoard(music = "board.mid", enterPrg = "enter.prg"): Uint8Array {
   const empty = createEmptyBoard();
   return unwrap(writeBoard({
     ...empty,
@@ -130,7 +130,7 @@ function authoredBoard(): Uint8Array {
     tileMatrix: Array.from({ length: 40 * 30 }, () => 0),
     tileRuns: [{ lutIndex: 0, count: 40 * 30, marker: true }],
     layerTitles: ["", ""],
-    properties: { ...empty.properties, backgroundMusic: "board.mid", enterPrg: "enter.prg", start: { x: 64, y: 64, layer: 1 } },
+    properties: { ...empty.properties, backgroundMusic: music, enterPrg, start: { x: 64, y: 64, layer: 1 } },
   }));
 }
 
@@ -168,7 +168,7 @@ const ENTER_PROGRAM = [
 
 function authoredGame(enterProgram = ENTER_PROGRAM, startupProgram = "end()\n"): AuthoredGameFiles {
   const files: Files = new Map();
-  const paths: string[] = ["main.gam", "Boards/start.brd", "Chrs/hero.tem", "Prg/start.prg", "Prg/enter.prg", "Media/board.mid", "Media/battle.mid", "Media/ready.wav"];
+  const paths: string[] = ["main.gam", "Boards/start.brd", "Boards/other.brd", "Chrs/hero.tem", "Prg/start.prg", "Prg/enter.prg", "Prg/other.prg", "Media/board.mid", "Media/other.mid", "Media/battle.mid", "Media/ready.wav"];
   const main = {
     ...createEmptyMainFile(),
     major: 2,
@@ -180,10 +180,14 @@ function authoredGame(enterProgram = ENTER_PROGRAM, startupProgram = "end()\n"):
   };
   files.set(assetKey("main.gam"), unwrap(writeMainFile(main)));
   files.set(assetKey("boards/start.brd"), authoredBoard());
+  files.set(assetKey("boards/other.brd"), authoredBoard("other.mid", "other.prg"));
   files.set(assetKey("chrs/hero.tem"), new Uint8Array([0]));
   files.set(assetKey("prg/start.prg"), encoder.encode(startupProgram));
+  // Restore battle music after B's normal entry cue, so the later return must start B's track again.
+  files.set(assetKey("prg/other.prg"), encoder.encode('mediaPlay("battle.mid", { track: "music", loop: 1 })\nend()'));
   files.set(assetKey("prg/enter.prg"), encoder.encode(enterProgram));
   files.set(assetKey("media/board.mid"), midi());
+  files.set(assetKey("media/other.mid"), midi());
   files.set(assetKey("media/battle.mid"), midi());
   files.set(assetKey("media/ready.wav"), wav());
   files.set(assetKey("enemy/slime.ene"), authoredEnemy());
@@ -204,10 +208,12 @@ type Played = {
  * `device` models a real runner: it answers each finished one-shot with the advisory `audio.ended` input. A null
  * runner records the same cues and never replies (docs/spec/engine/audio-media.md#audio-headless).
  */
-function play(ticks: number, device: boolean): Played {
+function play(ticks: number, device: boolean, switchBoard = false): Played {
   const { files, paths } = authoredGame();
   let latest = null as GameState | null;
   let seeded = false;
+  let switched = false;
+  let observedOutcome = false;
   const engine: Engine = createEngine({
     seed: 23,
     assetIndex: createAssetIndex(paths),
@@ -224,6 +230,19 @@ function play(ticks: number, device: boolean): Played {
       phase: "events",
       run: (state) => {
         latest = state;
+        if (switchBoard && !switched && state.battle !== null && state.battle.outcome === null && state.world.board) {
+          equal(state.battle.boardKey, "boards/start.brd");
+          equal(state.world.board.key, "boards/start.brd");
+          // Schedule the engine's normal send transition, including hydration of the authored board B.
+          state.engine.transition = { board: "other.brd", x: 2, y: 2, layer: 1 };
+          equal(state.battle.boardKey, "boards/start.brd");
+          switched = true;
+        }
+        if (switchBoard && state.battle !== null && state.battle.outcome !== null) {
+          equal(state.battle.boardKey, "boards/start.brd", "the battle retains board A through its outcome");
+          equal(state.world.board?.key, "boards/other.brd");
+          observedOutcome = true;
+        }
         if (seeded || state.engine.boot?.stage !== "running") return;
         seeded = true;
         const hero = addActor(state.actors, {
@@ -271,10 +290,11 @@ function play(ticks: number, device: boolean): Played {
         ? [{ tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: files.get(request.key) ?? null } }]
         : []));
     }
-    // The handoff is complete once the third music start is reported; later ticks are unrelated to these assertions.
-    if (musicStarts(cues).length >= 3) break;
+    // Stop after return music; the transition case also produces an entry cue.
+    if (musicStarts(cues).length >= (switchBoard ? 5 : 3)) break;
   }
   if (latest === null) throw new Error("the engine never ran a tick");
+  if (switchBoard) ok(observedOutcome, "board B is active while the won battle still names board A");
   return { cues, hashes, state: latest, cueTicks };
 }
 
@@ -360,6 +380,16 @@ test("a won fight returns the active board's music after the battle music, throu
   equal(ready.length, Number(globals.turns), "one readySound voice per full bar through the real engine");
   ok(ready.length >= 3);
   ok(!JSON.stringify(played.state.battle).match(/audio|music|media|\.mid|\.wav/i), "no audio in BattleState");
+});
+
+test("battle return chooses the active board music instead of the battle's saved board", () => {
+  const played = play(400, false, true);
+  equal(played.state.vm.globals.fightreturned, 1);
+  equal(played.state.vm.globals.endedoutcome, 2);
+  equal(played.state.vm.globals.returnedboard, "boards/other.brd");
+  equal(played.state.battle?.boardKey, "boards/start.brd", "battle retains board A after return");
+  deepEqual(musicStarts(played.cues), ["media/board.mid", "media/battle.mid", "media/other.mid", "media/battle.mid", "media/other.mid"]);
+  equal(played.state.audio.tracks.find((track) => track.name === "music")?.file, "media/other.mid");
 });
 
 test("the null runner and a runner that answers audio.ended see equal cue streams and state hashes", () => {
