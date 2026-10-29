@@ -3,11 +3,10 @@ title: 'Rule wrong-kind actor references in restored battles'
 type: 'chore'
 ticket: 25
 created: '2026-10-29'
-status: blocked
+status: in-progress
 baseline_revision: '82d30c5e'
 risk: 'medium'
 review: 'quick'
-blocked_reason: 'awaiting the owner ruling on the proposal recorded here'
 context:
   - 'docs/spec/engine/battle.md'
   - 'docs/spec/formats/save-game.md'
@@ -19,13 +18,13 @@ context:
 
 **Approach:** Record the observed cases, the alternatives and one recommended rule in this plan; the owner reviews and decides, the rule is then written at BAT-2, and any implementation is scoped separately.
 
-## Proposed ruling (pending owner review)
+## Proposal and owner decision
 
 **Question:** When a restored `battle` section holds an actor whose kind does not match its party — a `party` actor in party 0, an `enemy` actor in party 1 — is that valid as saved, repaired, or a load error?
 
 **Recommended wording** (an addition to BAT-2's diagnostic sentence): "An `actorId` whose actor is missing, whose kind does not match its party (party 0 is `enemy`, party 1 is `party`), or which repeats within its party is a located, recoverable load diagnostic; the entry is kept and marked unusable so a later script can repair it, and the loop skips it as not living. Restore never refuses the save for a fighter reference and never rewrites the entry."
 
-**Status:** proposed only. No owner ruling, approval or date is claimed here; ticket 25 stays `blocked` and issue #745 stays open until the owner decides.
+**Decision (Jensen, 2026-10-29):** Warn and preserve the entry in its original position, marking it unusable rather than moving it automatically. The owner selected this after considering the effect of moving a fighter on turn order and script references.
 
 ## Evidence
 
@@ -40,10 +39,9 @@ context:
 
 ## Consequences
 
-- If the owner accepts the wording: one new recoverable `restore.battle-fighter` case, raised once per wrong-kind entry and located at `battle.parties[party][index].actorId`; the entry is retained, so party indices and any script repair are preserved; no save is refused for a fighter reference.
-- Implementation (a separate ticket, not this one): `isBattleFighterUsable` and `validateBattleSection` gain the kind check over the actor section. No runtime change is made by this plan.
-- Tests: add a restore case asserting exactly one diagnostic and an unusable fighter; the existing dangling/duplicate counts stay as they are (`packages/core/test/battle-state.test.ts:68-85`).
-- Docs: the rule text lands at BAT-2 only after the owner approves it; `docs/spec/` is untouched by this plan.
+- A recoverable `restore.battle-fighter` diagnostic identifies each wrong-kind entry; its position and charge are retained and it is unusable.
+- `isBattleFighterUsable` and `validateBattleSection` implement the kind check, with restore tests for both party directions.
+- The approved rule is recorded in BAT-2.
 
 ## Verified defect facts
 

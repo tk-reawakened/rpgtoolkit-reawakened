@@ -3,11 +3,10 @@ title: 'Rule E-74 equal-probability wording against random()'
 type: 'chore'
 ticket: 26
 created: '2026-10-29'
-status: blocked
+status: in-progress
 baseline_revision: '82d30c5e'
 risk: 'medium'
 review: 'quick'
-blocked_reason: 'awaiting the owner ruling on the proposal recorded here'
 context:
   - 'docs/spec/engine/plugins-and-battle.md'
   - 'docs/spec/engine/rpgcode-functions.md'
@@ -20,13 +19,13 @@ context:
 
 **Approach:** Derive the exact bucket counts from the full draw domain, compare them with the already-accepted BAT-8 `random(5)` rule, and record one recommended wording plus the rejected alternative here for the owner.
 
-## Proposed ruling (pending owner review)
+## Proposal and owner decision
 
 **Question:** Does E-74's "each equally likely" require exactly equal probability for every `random(20)` result, or should the spec describe the modulo mapping the engine ships?
 
 **Recommended wording** (replacing "each equally likely" at E-74 steps 2 and 3): "each value being one `random` result over the seeded 32-bit draw, `1 + draw % n` ([rpgcode-functions.md](rpgcode-functions.md) `random(max)`); the buckets differ by at most one draw in 2^32 (for `random(20)`, values 1–16 have 214,748,365 draws and 17–20 have 214,748,364). The outcomes are treated as equally likely for design purposes; exact uniformity is not required." The existing "a limit of *n* gives a 1-in-(*n* + 1) chance from that side" sentence stays.
 
-**Status:** proposed only. No owner ruling, approval or date is claimed here; ticket 26 stays `blocked` and issue #746 stays open until the owner decides.
+**Decision (Jensen, 2026-10-29):** Keep the existing random-number behavior and correct the wording; the small bias is normal.
 
 ## Evidence
 
@@ -38,11 +37,11 @@ context:
 
 ## Rejected alternative
 
-**Require exactly equal likelihood and change the runtime to rejection sampling.** It would change every affected draw sequence, invalidating G5 replay hashes and goldens and the documented `random(max)` contract (`docs/spec/engine/rpgcode-functions.md:17`), for a 4.7e-9 deviation no game can observe — and it would contradict BAT-8's accepted `random(5)` bias. Any such change needs its own owner decision and ticket.
+**Require exactly equal likelihood and change the runtime to rejection sampling.** It would change affected draw sequences and the documented `random(max)` contract (`docs/spec/engine/rpgcode-functions.md:17`), for an extremely small difference between buckets, and would be inconsistent with BAT-8's accepted `random(5)` bias. Any such change needs its own owner decision and ticket.
 
 ## Consequences
 
-- Docs only: E-74's two "each equally likely" phrases are restated as the mapping plus the bucket counts; the 1-in-(*n* + 1) statement and the draw order are unchanged.
+- Docs only: E-74 describes the existing mapping and bucket counts; the nominal 1-in-(*n* + 1) statement is qualified for modulo bias and the draw order is unchanged.
 - No test changes: distribution-sensitive expectations are sequence-based and stay identical; goldens and state hashes do not move.
 - A later owner decision for exact uniformity would need a separate ticket that names the goldens and replay hashes it re-records.
 

@@ -92,6 +92,43 @@ test("restoring a valid battle emits no restore.battle-fighter diagnostics", () 
   equal(diagnostics.filter(({ code }) => code === "restore.battle-fighter").length, 0);
 });
 
+test("a wrong-team fighter loads with a diagnostic and stays unusable in its original position", () => {
+  const state = createGameState({ seed: 2 });
+  const battle = makeBattle(state);
+  const player = battle.parties[1][0]!;
+  battle.parties[0][0] = { party: 0, actorId: player.actorId, charge: 37 };
+  state.battle = battle;
+  const saved = snapshot(state);
+  const diagnostics: Diagnostic[] = [];
+  const restored = restoreGameState(saved, diagnostics);
+  deepEqual(restored.battle, battle, "the original positions and charge are preserved");
+  equal(diagnostics.length, 1);
+  equal(diagnostics[0]?.code, "restore.battle-fighter");
+  ok(diagnostics[0]?.message.includes("battle.parties[0][0].actorId"));
+  ok(restored.battle !== null);
+  equal(isBattleFighterUsable(restored.battle, 0, 0, restored.actors), false);
+  equal(isBattleFighterUsable(restored.battle, 1, 0, restored.actors), true);
+  equal(hashGameState(restored), hashGameState(restoreGameState(saved)));
+});
+
+test("wrong-team fighters in both parties remain in place and each gets a located diagnostic", () => {
+  const state = createGameState({ seed: 3 });
+  const battle = makeBattle(state);
+  const enemy = battle.parties[0][0]!;
+  const player = battle.parties[1][0]!;
+  battle.parties = [[{ ...player, party: 0 }], [{ ...enemy, party: 1 }]];
+  state.battle = battle;
+  const diagnostics: Diagnostic[] = [];
+  const restored = restoreGameState(snapshot(state), diagnostics);
+  deepEqual(restored.battle, battle);
+  deepEqual(diagnostics.map(({ code }) => code), ["restore.battle-fighter", "restore.battle-fighter"]);
+  ok(diagnostics[0]?.message.includes("battle.parties[0][0].actorId"));
+  ok(diagnostics[1]?.message.includes("battle.parties[1][0].actorId"));
+  ok(restored.battle !== null);
+  equal(isBattleFighterUsable(restored.battle, 0, 0, restored.actors), false);
+  equal(isBattleFighterUsable(restored.battle, 1, 0, restored.actors), false);
+});
+
 test("battle validation locates malformed outcomes and non-finite charge without mutating input", () => {
   const state = createGameState({ seed: 1 });
   const battle = makeBattle(state);
