@@ -509,6 +509,7 @@ notes = ["Audit evidence: packages/core/test/random-encounter.test.ts:88-185 cov
 [[entry]]
 id = 29
 tracker_id = "#749"
+tracker_status = "done"
 type = "story"
 title = "Cover omitted E-79 fighter queries in a custom battle"
 description = """Add a focused custom-fight regression for the E-79 fighter-name and stance-animation queries not exercised by the otherwise comprehensive 7.12 program."""
