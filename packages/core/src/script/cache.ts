@@ -32,21 +32,41 @@ export type ProgramCache = {
  * Build a cache over `context`. `report` receives the notices of each compile
  * exactly once, when the compile happens, so a clash or cycle is raised once
  * however many threads share the program.
+ *
+ * Answers are also memoized per reference object. The VM asks for the current
+ * frame's program on every instruction (`ensureCurrentProgram` and `stepThread`
+ * in `vm.ts`), and an inline reference carries the whole program text, so
+ * rebuilding the cache key per step costs more than the step it guards. That
+ * memo rests on `ProgramRef` being immutable: every field is `readonly`, and
+ * every producer (`fileProgramRef`, `withOwner`, `withRedirects`, restore and
+ * the include/redirect re-pointing in `modules.ts`) builds a new object rather
+ * than editing one. Editing a reference in place after its first request is a
+ * contract violation, because this cache would keep answering for the content
+ * it saw first; a changed program arrives as a new reference, whose key misses
+ * and compiles afresh. Each cache keeps its own memo, so caches over different
+ * contexts and separate rigs never share a compiled program.
  */
 export function createProgramCache(
   context: CompileContext,
   report: (notices: readonly ProgramNotice[]) => void = () => {},
 ): ProgramCache {
   const programs = new Map<string, Program>();
+  const byRef = new WeakMap<ProgramRef, Program>();
   let compiles = 0;
   return {
     get(ref) {
+      const memoized = byRef.get(ref);
+      if (memoized !== undefined) return memoized;
       const key = programKey(ref);
       const hit = programs.get(key);
-      if (hit !== undefined) return hit;
+      if (hit !== undefined) {
+        byRef.set(ref, hit);
+        return hit;
+      }
       const compiled = compileProgram(ref, context);
       compiles += 1;
       programs.set(key, compiled);
+      byRef.set(ref, compiled);
       if (compiled.notices.length > 0) report(compiled.notices);
       return compiled;
     },

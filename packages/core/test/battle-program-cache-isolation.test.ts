@@ -105,6 +105,19 @@ test("a compile diagnostic is routed to its own rig, however many rigs compile t
   equal(a.services.diagnostics.length, 0);
 });
 
+test("one reference object is memoized per rig, so no compiled program crosses caches", () => {
+  const a = rig();
+  const b = rig();
+  // The same object handed to both caches: the per-reference memo belongs to each cache, not to the module.
+  const ref = fileProgramRef(loader, "other.prg");
+  const firstA = a.services.programs.get(ref);
+  equal(a.services.programs.get(ref), firstA);
+  equal(a.services.programs.compiles, 1);
+  const firstB = b.services.programs.get(ref);
+  equal(b.services.programs.compiles, 1, "the second rig compiles the reference itself");
+  equal(firstB === firstA, false, "each rig holds its own compiled program");
+});
+
 test("the battle rig helpers build a fresh program cache per rig", () => {
   for (const name of ["battle-actions", "battle-ai", "battle-loop"]) {
     const source = readFileSync(join(testDirectory, `${name}.test.ts`), "utf8");
