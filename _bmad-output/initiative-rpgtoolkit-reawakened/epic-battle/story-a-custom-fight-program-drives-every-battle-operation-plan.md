@@ -3,7 +3,7 @@ title: "A custom fight program drives every battle operation"
 type: 'feature'
 ticket: 12
 created: '2026-10-19'
-status: in-progress
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "high"
 context:
@@ -46,3 +46,7 @@ No new API. If the fixture needs an operation the spec does not rule, the gap is
 ## Verification
 
 The coverage assertion, a no-package run, a replaced-package run, a seeded hash/draw-list test, an outcome test, and an internals-access test. Full suite, typecheck and lint.
+
+## Plan Change Log
+
+- 2026-10-28 (completed): marked done after PR #679 (`b82ae88c`, "[7.12] Custom fight program exercises battle API"), follow-ups #682 (`ceb57b70`) and #685 (`cb0c3014`) merged; issue #515 stayed open on `Refs` bookkeeping and is closed by this ledger PR. Acceptance is carried by `packages/core/test/battle-custom-program.test.ts` (4 tests: the all-API program with no internals access, and outcomes 0/2/4 against 1/3) and the `battle-custom-fight.test.ts` cases that run one main-file all-API custom fight program absent and present-but-replaced.

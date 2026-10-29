@@ -3,7 +3,7 @@ title: "Player actions and damage: attacks, criticals, specials and items"
 type: 'feature'
 ticket: 5
 created: '2026-10-19'
-status: in-progress
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "high"
 context:
@@ -51,3 +51,7 @@ No loop (7.4), no status round effects (7.6), no AI (7.7), no rewards (7.8), no 
 ## Verification
 
 A seeded damage table test, a critical/DP test, a pool/clamp test, a special affordability test, an item-port test with the double, an all-target test, and a `fallen`-once test. Full suite, typecheck and lint.
+
+## Plan Change Log
+
+- 2026-10-28 (completed): marked done after PR #656 (`e4465930`, "feat(stock_battle): player actions and damage") and closing chore PR #661 (`9ddaa036`) merged; issue #508 was left open because both PRs used `Refs`, not `Fixes`, so this ledger PR closes it. Acceptance is carried by `packages/core/test/battle-actions.test.ts` (37 tests): luck −10/+9 bounds, DP floor 1, critical order, `attackall`/`drainall` with no random draws and one `beforeDamage` per target, unaffordable specials refused, and `fallen` exactly once per lethal hit.

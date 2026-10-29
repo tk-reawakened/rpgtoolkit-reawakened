@@ -3,7 +3,7 @@ title: "Battle music and sounds through the media object"
 type: 'feature'
 ticket: 10
 created: '2026-10-19'
-status: in-progress
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "medium"
 context:
@@ -58,3 +58,4 @@ Media-object fake tests for start/outcome ordering, `beforePlay` replace/cancel/
 - 2026-10-26 (scope clarification, per Main): “start” in the owner ruling above refers to the separate battle music-start request. `battle.ts` starts the battle before making that request, and the failed-dispatch test proves rejection of the audio request only; it does not reject or undo battle start.
 - 2026-10-27 (reconcile metadata after #701/#704 merge): marked save/load acceptance criterion checked with evidence from #701 (eee4e919) and #704 (ff6ea234) in `packages/core/test/battle-cues-engine.test.ts`.
 - 2026-10-27 (owner ruling, Jensen): owner explicitly approved routing battle-ready and action-unavailable sounds as UI voices separate from music, allowing overlap; ratified in BAT-10.
+- 2026-10-28 (completed): marked done after PR #683 (`e0af3954`, "[7.10] Battle music and board-return handoff") merged; issue #513 stayed open on `Refs` bookkeeping and is closed by this ledger PR. Acceptance is carried by `packages/core/test/battle-cues.test.ts` (15 tests, including `beforePlay` cancel/replace/failure, ready and cantDo routed as `ui` voices, and music restarting once across save/load) and `packages/core/test/battle-cues-engine.test.ts` (4 tests).

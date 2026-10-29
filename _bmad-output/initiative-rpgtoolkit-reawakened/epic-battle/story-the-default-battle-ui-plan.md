@@ -3,7 +3,7 @@ title: "The default battle UI"
 type: 'feature'
 ticket: 11
 created: '2026-10-19'
-status: draft
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "medium"
 context:
@@ -50,3 +50,7 @@ No new drawing primitives. No new input device abstraction. The UI never mutates
 ## Verification
 
 Golden-frame test with a fixed input script, an input-mapping test, a no-mutation test (state hash before/after drawing), a primitives grep, and the draw-list diff check. Full suite, typecheck and lint. Owner approval recorded in the spec's `status` and the PR.
+
+## Plan Change Log
+
+- 2026-10-28 (completed): marked ticket done following PR #702 (`02acda68`, "[7.11] Default battle UI and seeded golden frames (Fixes #514)", merged 2026-10-28T12:21:25Z); issue #514 was already closed COMPLETED at the merge of PR #701 (`eee4e919`), whose combat-cue routing landed the BAT-10 work 7.11 depends on. The default UI is the draw-call layer of `stock/stock_battle/startup.prg` against `docs/spec/engine/battle.md#bat-11` (owner-approved 2026-10-28), covered by `packages/core/test/battle-ui-screen.test.ts`, `battle-ui-cadence.test.ts`, `battle-ui-data.test.ts`, `battle-ui-ended.test.ts`, `battle-ui-lists.test.ts`, `battle-ui-overlays.test.ts`, `battle-ui-refresh.test.ts` and the shared `battle-ui-rig.ts`.

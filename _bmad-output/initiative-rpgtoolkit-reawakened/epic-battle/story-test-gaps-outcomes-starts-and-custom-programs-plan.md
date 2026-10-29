@@ -3,7 +3,7 @@ title: "Test gaps for outcomes, battle starts, and custom fight programs"
 type: 'feature'
 ticket: 18
 created: '2026-10-26'
-status: draft
+status: done
 risk: "high"
 context:
   - "spec - docs/spec/engine/battle.md (BAT-3, BAT-8, BAT-9, BAT-12)"
@@ -40,3 +40,4 @@ Run focused level-up, `Fight`/`FightEnemy` setup, handoff, missing-program conti
 
 - 2026-10-26: created as an Epic 7 follow-up to audit gaps in 7.8, 7.9, and 7.12.
 - 2026-10-27: narrowed the ticket to outstanding tests and added the doc-first dependency on 7.16.
+- 2026-10-28: marked done after PR #700 (`07f17469`) merged and closed #690 COMPLETED; tests plus one authored fixture, no runtime change — default level-up growth, Fight setup from every drawn enemy and the custom-fight paths in `battle-custom-fight.test.ts`, `battle-custom-program.test.ts`, `battle-outcomes-core.test.ts` and `battle-outcomes-stock.test.ts`.

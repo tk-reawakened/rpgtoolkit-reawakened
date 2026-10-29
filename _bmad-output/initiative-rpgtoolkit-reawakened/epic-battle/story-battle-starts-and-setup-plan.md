@@ -3,7 +3,7 @@ title: "Battle starts and setup: random encounters, Fight and FightEnemy"
 type: 'feature'
 ticket: 9
 created: '2026-10-19'
-status: in-progress
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "high"
 context:
@@ -64,3 +64,4 @@ Handoff start tests (random, custom, no-enemies), `Fight`/`FightEnemy` tests, a 
 
 - Acceptance 4 (2026-10-26). The engine's `battle` applier turns `battle.customFight` into a thread that runs the internal `__battle_custom_fight` command (`packages/core/src/script/packs/battle.ts`), which decodes and validates the request, loads no enemy, takes no random number and runs the named program through `executeProgram` with the request as `context` and `source`/`target` null. A request that carries fighters, a blank program or a malformed field is a located `battle.bad-handoff`; a program name that matches no file is the catchable `program.missing`. `Fight` and `FightEnemy` never start the program.
 - Tests, all in `packages/core/test/battle-custom-fight.test.ts` unless named: the program runs with the request as its `context`, no enemy loaded and the RNG untouched; bad requests (fighters, blank or absent program, absent board, wrong trigger); `FightEnemy` from the program gives the written enemies in the written order and a complete stock battle through outcome 2 with the loop's first seeded charges equal to the game's first draws; one to four enemies accepted, none and five refused; determinism across runs; save and restore at seven points from the enemy-file waits to the outcome adapter; `program.missing`; no `stock_battle` package (the program runs, its `FightEnemy` is `battle.package-missing`); the same through a booted engine (program runs on a new thread, `program.missing` is reported and the game carries on, `FightEnemy` reaches the stock loop with the written enemies and no draw). `random-encounter.test.ts`: the evaluator's custom request has exactly `trigger`, `board`, `actor` and `program`, and takes only the chance roll (none for type 1). `engine.test.ts`: the custom request in a scene without programs reports `program.missing`.
+- 2026-10-28 (completed): marked done after PR #673 (`a342a24b`, "[7.9] Battle starts and setup") and #677 (`5957b484`) merged; issue #512 stayed open on `Refs` bookkeeping and is closed by this ledger PR. Acceptance is carried by `packages/core/test/battle-start.test.ts` (10 tests: the 1-4 enemy draw, fallen players, `canRun` from every drawn enemy, the no-enemies message, and no redraw on handoff) together with the custom-fight cases listed above.

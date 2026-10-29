@@ -3,7 +3,7 @@ title: "Enemy AI: four levels and a custom AI program"
 type: 'feature'
 ticket: 7
 created: '2026-10-19'
-status: in-progress
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "medium"
 context:
@@ -56,3 +56,4 @@ A seeded per-level choice test, an affordability test, a healing/harmful target 
 - 2026-10-25: reconciled with `battle.md` BAT-7 and facts round 11: level 1 targets randomly; healing targets differ by level; the coin and draw order; skipped turn when no player is left; `ai()` rejects an out-of-range level.
 
 - 2026-10-26 (owner ruling, Jensen; applied by the director): a custom-AI error follows ERR-2, so an unhandled error is reported and the program continues; the enemy turn ends when the program returns.
+- 2026-10-28 (completed): marked done after PR #660 (`4e66ddf9`, "feat(battle): add enemy AI levels and custom program") and closing chore PR #663 (`db4f470a`) merged; issue #510 stayed open on `Refs` bookkeeping and is closed by this ledger PR. Acceptance is carried by `packages/core/test/battle-ai.test.ts` (13 tests: the four levels, draw order, level-based healing targets, no living player means no draw, and the custom AI program).

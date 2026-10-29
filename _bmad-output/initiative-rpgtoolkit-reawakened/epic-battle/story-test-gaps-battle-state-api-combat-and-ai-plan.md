@@ -3,7 +3,7 @@ title: "Test gaps for battle state, API, combat, and AI"
 type: 'feature'
 ticket: 17
 created: '2026-10-26'
-status: in-progress
+status: done
 risk: "high"
 context:
   - "spec - docs/spec/engine/battle.md (BAT-2–BAT-7)"
@@ -40,3 +40,4 @@ Run focused battle state/snapshot, API/catalogue, actions, loop/status, and AI t
 - 2026-10-27: removed duplicate API-error/ERR-2 tests and the static source-text guard from the planned work.
 - 2026-10-27: reconciled against merged PR #696; every acceptance item cites a named test or check (the catalogue item via the amended command-docs check, below).
 - 2026-10-27: catalogue criterion amended (test -> command-docs check) under delegated decision; metadata fix: `fp`, `givefp`, `dp` were tagged `legacy` in `packages/core/src/script/packs/battle.ts` while the spec lists them as Reawakened additions; they now carry the Reawakened-additions group and `experimental` tag.
+- 2026-10-28 (completed): marked done after PR #696 (`7c3f2202`, "test: cover Epic 7 battle acceptance gaps") and PR #699 (`300639d7`, "Reconcile #688/#689: command-docs battle row check and plan evidence") merged; issue #689 stayed open on `Refs` bookkeeping and is closed by this ledger PR. Acceptance is carried by `packages/core/test/battle-state.test.ts` (validator input immutability, silence on a valid restore, `battle: null` out of battle, no hp/smp/status/stats inside the saved battle), `tools/command-docs/check.mjs` plus `command-docs.test.mjs` for the native row and `doc.required`/`summary-mismatch` checks, and the damage, all-target and AI cases named in the plan's Verification.
