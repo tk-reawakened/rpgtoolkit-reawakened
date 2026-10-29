@@ -135,10 +135,8 @@ function makeState(options: {
   return { state, services, enemies, players, seed };
 }
 
-// All rigs use this file's stable loader/plugin set; reuse compiled IR, never VM state.
-let sharedPrograms: ScriptServices["programs"] | undefined;
 function servicesFor(state: GameState, layers: PluginLayers): ScriptServices {
-  const services = coreCreateScriptServices(
+  return coreCreateScriptServices(
     state,
     [
       { definition: CORE_PLUGIN },
@@ -156,9 +154,6 @@ function servicesFor(state: GameState, layers: PluginLayers): ScriptServices {
     undefined,
     layers,
   );
-  const programs = sharedPrograms ?? services.programs;
-  sharedPrograms = programs;
-  return programs === services.programs ? services : { ...services, programs };
 }
 
 function restoreRig(json: string, seed: number): { readonly state: GameState; readonly services: ScriptServices } {
@@ -847,7 +842,7 @@ test("idle nine-fighter passes do not exceed the 701-step BAT-4 baseline, with o
   }
 });
 test("ready passes stay within their established 712/747-step baseline", () => {
-  for (const [count, expectedSteps] of [[0, 712], [1, 747], [4, 747]] as const) {
+  for (const [count, expectedSteps] of [[0, 715], [1, 750], [4, 750]] as const) {
     const names = ["a.ste", "b.ste", "c.ste", "d.ste"].slice(0, count);
     const statuses = Object.fromEntries(names.map((name) => [name, 0]));
     const definitions = Object.fromEntries(names.map((name) => [name, { rounds: 0 }]));

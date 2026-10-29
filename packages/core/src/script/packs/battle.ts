@@ -1111,7 +1111,7 @@ const REAWAKENED = [GROUP, "reawakened-additions-not-part-of-the-282-legacy-cata
 
 const MOVE_ASSET = {
   name: "__battle_move_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
-  doc: internalDocumentation("Resume a special-move asset request.", "Reads the `.spc` bytes and returns only the normalized battle fields as a dictionary with lowercase keys.", [...ASSET_REPLY_THROWS, { code: "format.special-move", when: "the bytes are not a valid special move `.spc` file" }]),
+  doc: internalDocumentation("Resume a special-move asset request.", "Reads the `.spc` bytes and returns only the normalized battle fields and the description as a dictionary with lowercase keys.", [...ASSET_REPLY_THROWS, { code: "format.special-move", when: "the bytes are not a valid special move `.spc` file" }]),
   call: dataAssetContinuation("special move", "format.special-move", readSpecialMove, (view, _args, move) => dictionary(view, {
     fp: move.damage, smp: move.smpCost, targetsmp: move.targetSmpDrain,
     animation: move.animation, program: move.program, statuseffect: move.statusEffect,
@@ -1123,8 +1123,8 @@ const MOVE_ASSET = {
 const MOVE_DATA = {
   name: "battlemovedata", aliases: [], params: [parameter("file")],
   doc: {
-    summary: "Read a special move file's battle numbers and references.",
-    behaviour: "Loads SpcMove/<file>.spc (the prefix and extension may be omitted) and returns a dictionary of its stored values without changing any actor, inventory or battle state: `fp` (damage), `smp` (cost to the user), `targetsmp` (SMP drained from the target), `animation`, `program`, `statuseffect` (file names, possibly empty), and `battle` / `menu`, the stored usability bytes passed through unchanged. The stored byte is 0 for usable and non-zero (1, or -1 in old files) for not usable; comparing it is left to the calling script. Member names are matched ignoring case. It makes no rules about damage, cost or affordability. Failures raise the ordinary asset and format errors, which the standard script error policy turns into a null result.",
+    summary: "Read a special move file's battle numbers, references and description.",
+    behaviour: "Loads SpcMove/<file>.spc (the prefix and extension may be omitted) and returns a dictionary of its stored values without changing any actor, inventory or battle state: `fp` (damage), `smp` (cost to the user), `targetsmp` (SMP drained from the target), `animation`, `program`, `statuseffect` (file names, possibly empty), and `battle` / `menu`, the stored usability bytes passed through unchanged, and `description`, the move's description text exactly as stored (an empty string when the file stores none). The stored byte is 0 for usable and non-zero (1, or -1 in old files) for not usable; comparing it is left to the calling script. Member names are matched ignoring case. It makes no rules about damage, cost or affordability. Failures raise the ordinary asset and format errors, which the standard script error policy turns into a null result.",
     groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
     throws: [...ASSET_REPLY_THROWS, { code: "format.special-move", when: "the bytes are not a valid special move `.spc` file" }, { code: "builtin.bad-arg", when: "the file name is empty" }],
   },
@@ -1137,7 +1137,7 @@ const MOVE_DATA = {
 
 const ITEM_ASSET = {
   name: "__battle_item_asset", aliases: [], params: [parameter("ok"), parameter("bytes")],
-  doc: internalDocumentation("Resume an item asset request for battle data.", "Reads the `.itm` bytes and returns only the battle-use HP, SMP, animation, program and usable flag as a dictionary with lowercase keys.", [...ASSET_REPLY_THROWS, { code: "format.item", when: "the bytes are not a valid item `.itm` file" }]),
+  doc: internalDocumentation("Resume an item asset request for battle data.", "Reads the `.itm` bytes and returns only the battle-use HP, SMP, animation, program, usable flag and description as a dictionary with lowercase keys.", [...ASSET_REPLY_THROWS, { code: "format.item", when: "the bytes are not a valid item `.itm` file" }]),
   call: dataAssetContinuation("item", "format.item", readItem, (view, _args, item) => dictionary(view, {
     hp: item.battleUseHp, smp: item.battleUseSmp, animation: item.battleAnimation, program: item.battleUseProgram,
     usable: item.battleUsable,
@@ -1148,8 +1148,8 @@ const ITEM_ASSET = {
 const ITEM_DATA = {
   name: "battleitemdata", aliases: [], params: [parameter("file")],
   doc: {
-    summary: "Read an item file's battle-use numbers and references.",
-    behaviour: "Loads Item/<file>.itm (the prefix and extension may be omitted) and returns a dictionary of its stored battle-use values without changing any actor, inventory or battle state: `hp` and `smp` (the amounts the item restores when used in battle), `animation` and `program` (file names, possibly empty), and `usable`, the stored used-in-a-fight byte (1 = usable in battle, 0 = not). It does not itself refuse an item that is not battle-usable and does not check that it is owned; a menu that lists only usable items compares `usable`. Failures raise the ordinary asset and format errors, which the standard script error policy turns into a null result.",
+    summary: "Read an item file's battle-use numbers, references and description.",
+    behaviour: "Loads Item/<file>.itm (the prefix and extension may be omitted) and returns a dictionary of its stored battle-use values without changing any actor, inventory or battle state: `hp` and `smp` (the amounts the item restores when used in battle), `animation` and `program` (file names, possibly empty), `usable`, the stored used-in-a-fight byte (1 = usable in battle, 0 = not), and `description`, the item's description text exactly as stored (an empty string when the file stores none). It does not itself refuse an item that is not battle-usable and does not check that it is owned; a menu that lists only usable items compares `usable`. Failures raise the ordinary asset and format errors, which the standard script error policy turns into a null result.",
     groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
     throws: [...ASSET_REPLY_THROWS, { code: "format.item", when: "the bytes are not a valid item `.itm` file" }, { code: "builtin.bad-arg", when: "the file name is empty" }],
   },
@@ -1355,23 +1355,29 @@ const CHARACTER_DATA = {
 
 
 /** The one plain-data inventory request `battleconsume` posts; tests and the inventory owner read it from the effect log. */
-export function inventoryConsumeEffect(item: string, target: number, hp: number, smp: number): CommandEffect {
-  return { kind: "state-write", section: "inventory", args: [{ kind: "inventory.consume", item, target, hp, smp }] };
+export function inventoryConsumeEffect(item: string, target: number, hp: number, smp: number, handle: string | null): CommandEffect {
+  return { kind: "state-write", section: "inventory", args: [{ kind: "inventory.consume", item, target, hp, smp, handle }] };
 }
 
 const CONSUME = {
-  name: "battleconsume", aliases: [], params: [parameter("item"), parameter("target"), parameter("hp"), parameter("smp")],
+  name: "battleconsume", aliases: [], params: [parameter("item"), parameter("target"), parameter("hp"), parameter("smp"), parameter("handle", true)],
   doc: {
     summary: "Ask the inventory to consume one battle item.",
-    behaviour: `Posts exactly one inventory request, \`{ kind: "inventory.consume", item, target, hp, smp }\`, where \`item\` is the item file name as given (backslashes become forward slashes), \`target\` is the numeric actor id and \`hp\` / \`smp\` are the safe-integer amounts the item gave. It changes no inventory list, quantity or actor stat itself; the inventory owner decides what the request does. ${FIGHTER_HANDLES}`,
+    behaviour: `Posts exactly one inventory request, \`{ kind: "inventory.consume", item, target, hp, smp, handle }\`, where \`item\` is the item file name as given (backslashes become forward slashes), \`target\` is the numeric actor id, \`hp\` / \`smp\` are the safe-integer amounts the item gave and \`handle\` is the optional name of the one inventory stack to use. \`handle\` names no stack when it is omitted, null, 0 (an unset parameter) or empty, and the request then carries \`handle: null\`. With a \`handle\` the inventory owner consumes exactly that stack and refuses when it is missing or empty; without one it picks the stack from the item file and refuses when that is ambiguous. It changes no inventory list, quantity or actor stat itself; the inventory owner decides what the request does. ${FIGHTER_HANDLES}`,
     groups: REAWAKENED, tags: ["experimental"], waits: NO_WAIT,
-    throws: [...STAT_READ_THROWS, { code: "builtin.bad-arg", when: "the item name is empty or hp / smp is not a safe integer" }],
+    throws: [...STAT_READ_THROWS, { code: "builtin.bad-arg", when: "the item name is empty, handle is neither a string nor one of the no-stack values, or hp / smp is not a safe integer" }],
   },
   call: (view: CommandView, args: readonly Arg[]) => {
     const item = text(args, 0).trim().replaceAll("\\", "/");
     if (item === "") throw new ScriptError("builtin.bad-arg", "battleconsume: the item name must not be empty");
     const target = referenceActor(view, args[1]?.value);
-    return { value: null, effects: [inventoryConsumeEffect(item, target, integer(args, 2, "battleconsume"), integer(args, 3, "battleconsume"))] };
+    const given = args[4]?.value;
+    const noStack = given === undefined || given === null || given === 0 || given === "";
+    if (!noStack && typeof given !== "string") {
+      throw new ScriptError("builtin.bad-arg", "battleconsume: handle must be a stack name string when given");
+    }
+    const handle = typeof given === "string" && given !== "" ? given : null;
+    return { value: null, effects: [inventoryConsumeEffect(item, target, integer(args, 2, "battleconsume"), integer(args, 3, "battleconsume"), handle)] };
   },
 } satisfies BuiltinSpec;
 

@@ -244,6 +244,14 @@ stockBattle = {
     }
     stockBattle.defeatedListenerCount = stockBattle.defeatedListenerCount + 1
   },
+  // A script outside the loop may record the battle's outcome (`battle.finish`). Note it, so the loop, and any menu
+  // waiting on the player, end instead of carrying on.
+  noteRecordedOutcome: () => {
+    if (battle.outcome != null) {
+      stockBattle.coreOutcomePending = 1
+    }
+    return stockBattle.coreOutcomePending
+  },
   clearDefeatedListeners: () => {
     local(index) = 0
     local(record)
@@ -578,9 +586,10 @@ stockBattle = {
   },
   // BAT-5 item. The item's battle HP and SMP are added to the target (clamped
   // 0..max by the actor owner), then exactly one consume effect goes to the
-  // inventory port, then the item's animation and program. The item list is
-  // never read or edited here.
-  item: (source, target, file) => {
+  // inventory port, naming the stack (`handle`, null when the caller knows only
+  // the file), then the item's animation and program. The item list is never
+  // read or edited here.
+  item: (source, target, file, handle) => {
     local(data)
     local(result)
     result = { hp: 0, smp: 0 }
@@ -603,7 +612,7 @@ stockBattle = {
     if (data.smp != 0) {
       result.smp = drain({ source: source, target: target, amount: 0 - data.smp })
     }
-    battleconsume(file, target, data.hp, data.smp)
+    battleconsume(file, target, data.hp, data.smp, handle)
     stockBattle.presentation(data.animation, target)
     if (data.program != "") {
       executeProgram(data.program, { source: "" + source.id, target: "" + target.id })
@@ -623,6 +632,7 @@ stockBattle = {
 
 // The owner stores a live battle's outcome as null, distinct from code zero.
 battleDecided = () => {
+  stockBattle.noteRecordedOutcome()
   if (stockBattle.pendingOutcome != 0) {
     stockBattle.recheckPendingOutcome()
   }
@@ -831,7 +841,8 @@ function battle() {
   while (done == 0) {
     while (stockBattle.pendingOutcome == 0 &&
            stockBattle.coreOutcomePending == 0 &&
-           stockBattle.runPending == 0) {
+           stockBattle.runPending == 0 &&
+           battle.outcome == null) {
       for (position = 0; position < count; position = position + 1) {
         cache = fighters[position]
         fighter = cache.fighter
@@ -959,6 +970,7 @@ stockBattleUi = {
   targetCount: 0,
   targetCursor: 0,
   targetParty: 0,
+  labelParty: -1,
   sceneBaseValid: 0,
   sceneBaseSig: "",
   targetLabels: {},
@@ -1002,6 +1014,8 @@ stockBattleUi = {
     // Up to five party members (E-85 maximum 5) fit cleanly inside the 132px panel: 5 * 24 = 120px + 8 = 128px
     layout.rowDY = 24
     layout.hpX = 276
+    // Party names are drawn 16 pixels per letter and must stop before the HP bar (4 pixels clear of it).
+    layout.nameChars = integerMulDiv(276 - 172 - 4, 1, 16)
     layout.hpW = 112
     layout.smpX = 396
     layout.smpW = 96
@@ -1217,6 +1231,9 @@ stockBattleUi = {
     if (stockBattleUi.on == 0) {
       return 0
     }
+    if (stockBattleUi.mode == "target") {
+      return 0
+    }
     local(ui) = stockBattleUi
     local(roster) = ui.roster
     local(cached) = ui.cachedStats
@@ -1383,6 +1400,21 @@ stockBattleUi = {
     }
     return 0
   },
+  // Visibility follows the published canvas, not a mode whose redraw is still
+  // being composed. Keep this pass separate from the more expensive stance walk.
+  setSpritesHidden: (hidden) => {
+    local(ids) = stockBattleUi.spriteId
+    local(flags) = stockBattleUi.spriteHidden
+    local(count) = stockBattleUi.rosterCount
+    local(position)
+    for (position = 0; position < count; position = position + 1) {
+      if (ids[position] != 0 && flags[position] != hidden) {
+        flags[position] = hidden
+        showpinnedanimation(ids[position], 1 - hidden)
+      }
+    }
+    return 0
+  },
   endSprites: () => {
     local(position)
     for (position = 0; position < stockBattleUi.rosterCount; position = position + 1) {
@@ -1457,6 +1489,9 @@ stockBattleUi = {
     }
     if (party == 0) {
       label = left(fighter.name, 8)
+      if (stockBattleUi.labelParty == party) {
+        label = stockBattleUi.targetLabel(party, index, 8)
+      }
       if (fighter.hp < 1) {
         stockBattleUi.words(x, y + size + 3, label, 8, 130, 130, 140)
       } else {
@@ -1483,16 +1518,19 @@ stockBattleUi = {
     if (fighter == null) {
       return 0
     }
-    name = fighter.name
+    name = left(fighter.name, layout.nameChars)
+    if (stockBattleUi.labelParty == 1) {
+      name = stockBattleUi.targetLabel(1, index, layout.nameChars)
+    }
     if (fighter.hp < 1) {
-      stockBattleUi.words(layout.rowX, y, left(name, 8), 16, 130, 130, 140)
+      stockBattleUi.words(layout.rowX, y, name, 16, 130, 130, 140)
     } else {
       if (stockBattleUi.menuIndex == index && (stockBattleUi.mode == "command" || stockBattleUi.mode == "list" || stockBattleUi.mode == "target")) {
         // The active member row spans every status column, including the complete name.
         stockBattleUi.box(layout.partyX + 4, y - 2, layout.w - 13, y + 18, 30, 60, 90)
-        stockBattleUi.words(layout.rowX, y, left(name, 8), 16, stockBattleUi.highlight.r, stockBattleUi.highlight.g, stockBattleUi.highlight.b)
+        stockBattleUi.words(layout.rowX, y, name, 16, stockBattleUi.highlight.r, stockBattleUi.highlight.g, stockBattleUi.highlight.b)
       } else {
-        stockBattleUi.words(layout.rowX, y, left(name, 8), 16, 255, 255, 255)
+        stockBattleUi.words(layout.rowX, y, name, 16, 255, 255, 255)
       }
     }
     stockBattleUi.bar(layout.hpX, y, layout.hpW, layout.barH, fighter.hp, fighter.maxhp, 64, 200, 80)
@@ -1738,7 +1776,7 @@ stockBattleUi = {
     }
     return 0
   },
-  // In target mode, overlay duplicate-aware names on the canonical unsuffixed scene before the selected frame.
+  // Refresh duplicate-aware target names after a fighter changes.
   drawTargetNames: () => {
     local(layout) = stockBattleUi.layout
     local(party) = stockBattleUi.targetParty
@@ -1761,6 +1799,7 @@ stockBattleUi = {
             stockBattleUi.words(x, y + layout.sprite + 3, label, 8, 255, 255, 255)
           }
         } else {
+          label = stockBattleUi.targetLabel(party, index, layout.nameChars)
           y = layout.rowY + index * layout.rowDY
           if (fighter.hp < 1) {
             stockBattleUi.words(layout.rowX, y, label, 16, 130, 130, 140)
@@ -1919,6 +1958,9 @@ stockBattleUi = {
     local(fighter)
     local(entry)
     local(text) = "" + stockBattleUi.menuIndex + "|" + stockBattleUi.numberCount + "|" + stockBattleUi.message + "|" + stockBattleUi.actingStance
+    if (stockBattleUi.mode == "target") {
+      text = text + "|target-names:" + stockBattleUi.targetParty
+    }
     if (stockBattleUi.acting == null) {
       text = text + "|acting:none"
     } else {
@@ -1951,16 +1993,31 @@ stockBattleUi = {
       stockBattleUi.drawList()
     }
     if (stockBattleUi.mode == "target") {
-      for (index = 0; index < stockBattleUi.targetCount; index = index + 1) {
-        stockBattleUi.targetLabels[index] = stockBattleUi.targetLabel(stockBattleUi.targetParty, stockBattleUi.targets[index], 8)
-        stockBattleUi.targetFullLabels[index] = stockBattleUi.targetLabel(stockBattleUi.targetParty, stockBattleUi.targets[index], 0)
+      // A rename and cursor move can share this path, bypassing the stat-only
+      // patch. Ordinary cursor moves keep their already-current labels.
+      local(nameChanged) = 0
+      for (index = 0; index < stockBattleUi.changedCount; index = index + 1) {
+        if (stockBattleUi.changedName[index] != 0 && stockBattleUi.rosterParty[stockBattleUi.changedSlot[index]] == stockBattleUi.targetParty) {
+          nameChanged = 1
+        }
       }
-      stockBattleUi.drawTargetNames()
+      if (nameChanged != 0) {
+        for (index = 0; index < stockBattleUi.targetCount; index = index + 1) {
+          stockBattleUi.targetLabels[index] = stockBattleUi.targetLabel(stockBattleUi.targetParty, stockBattleUi.targets[index], 8)
+          stockBattleUi.targetFullLabels[index] = stockBattleUi.targetLabel(stockBattleUi.targetParty, stockBattleUi.targets[index], 0)
+        }
+      }
       stockBattleUi.drawTargetBase()
       stockBattleUi.drawTargetCursor()
     }
+    if (stockBattleUi.mode == "list") {
+      stockBattleUi.setSpritesHidden(1)
+    }
     drawcanvas(stockBattleUi.overlayScratch, 0, 0, layout.w, layout.h, stockBattleUi.screen)
     stockBattleUi.target = stockBattleUi.screen
+    if (stockBattleUi.mode != "list") {
+      stockBattleUi.setSpritesHidden(0)
+    }
     stockBattleUi.syncSprites(0, stockBattleUi.rosterCount)
     return 0
   },
@@ -2085,6 +2142,10 @@ stockBattleUi = {
     local(index)
     local(size)
     // Build a mode-independent battle scene so list and target overlays can be swapped in a single quick blit.
+    stockBattleUi.labelParty = -1
+    if (stockBattleUi.mode == "target") {
+      stockBattleUi.labelParty = stockBattleUi.targetParty
+    }
     stockBattleUi.target = stockBattleUi.buffer
     if (stockBattleUi.picture != "") {
       bitmap(stockBattleUi.picture, stockBattleUi.target)
@@ -2121,6 +2182,7 @@ stockBattleUi = {
         stockBattleUi.drawFighter(party, index, 0)
       }
     }
+    stockBattleUi.labelParty = -1
     stockBattleUi.drawCommandBase()
     stockBattleUi.drawNumbers()
     stockBattleUi.sceneBaseSig = stockBattleUi.backdropSignature()
@@ -2134,6 +2196,7 @@ stockBattleUi = {
     } else {
       drawcanvas(stockBattleUi.buffer, 0, 0, layout.w, layout.h, stockBattleUi.screen)
       stockBattleUi.target = stockBattleUi.screen
+      stockBattleUi.setSpritesHidden(0)
       stockBattleUi.syncSprites(0, stockBattleUi.rosterCount)
     }
     return 0
@@ -2254,6 +2317,11 @@ stockBattleUi.prepareLists = (fighter) => {
   local(stack)
   local(item)
   local(key)
+  // BAT-11: the list shows what is available now, so the character's file is read again for every turn.
+  if (data != null) {
+    data = battlecharacterdata(fighter)
+    stockBattleUi.chars["" + fighter.id] = data
+  }
   stockBattleUi.specials = {}
   stockBattleUi.specialCount = 0
   stockBattleUi.items = {}
@@ -2300,7 +2368,7 @@ stockBattleUi.prepareLists = (fighter) => {
     if (item != null) {
       if (item.usable == 1) {
         stockBattleUi.items[stockBattleUi.itemCount] = {
-          label: stack.handle, detail: "x" + stack.quantity, desc: "" + item.description, file: stack.source, quantity: stack.quantity, data: item, affordable: 1
+          label: stack.handle, handle: stack.handle, detail: "x" + stack.quantity, desc: "" + item.description, file: stack.source, quantity: stack.quantity, data: item, affordable: 1
         }
         stockBattleUi.itemCount = stockBattleUi.itemCount + 1
       }
@@ -2392,6 +2460,23 @@ stockBattleUi.openList = (kind) => {
   return 1
 }
 
+// True when the stack the player chose (item file and handle) still has a unit. Checked before anything is applied, so a
+// vanished stack refuses the use instead of changing a stat the consume request could not pay for.
+stockBattleUi.stackHeld = (entry) => {
+  local(inventory) = battleinventory()
+  local(index)
+  local(stack)
+  for (index = 0; index < inventory.count; index = index + 1) {
+    stack = inventory.items[index]
+    if (lcase(stack.source) == lcase(entry.file)) {
+      if (stack.handle == entry.handle) {
+        return 1
+      }
+    }
+  }
+  return 0
+}
+
 // Perform the chosen action on the chosen target through the package's own action functions, then show the numbers.
 stockBattleUi.perform = (fighter) => {
   local(target) = battle.fighter(stockBattleUi.targetParty, stockBattleUi.targets[stockBattleUi.targetCursor])
@@ -2399,7 +2484,7 @@ stockBattleUi.perform = (fighter) => {
   local(kind) = stockBattleUi.pendingKind
   local(entry) = stockBattleUi.pendingEntry
   if (kind == "item") {
-    if (entry.quantity < 1 || itemcount(entry.file) < 1) {
+    if (stockBattleUi.stackHeld(entry) == 0) {
       stockBattleUi.cue("cant")
       stockBattleUi.acting = null
       stockBattleUi.actingStance = ""
@@ -2427,7 +2512,7 @@ stockBattleUi.perform = (fighter) => {
     stockBattleUi.actingStance = "rest"
     stockBattleUi.message = fighter.name + " uses " + entry.label + " on " + target.name
     stockBattleUi.refresh()
-    stockBattle.item(fighter, target, entry.file)
+    stockBattle.item(fighter, target, entry.file, entry.handle)
   }
   stockBattleUi.settle(before, "")
   return 1
@@ -2540,6 +2625,10 @@ stockBattleUi.playerTurn = (index) => {
   if (fighter == null) {
     return 0
   }
+  // The battle may have been ended from outside since this pass began: no menu is opened for it.
+  if (stockBattle.noteRecordedOutcome() != 0) {
+    return 0
+  }
   clearbuffer()
   stockBattleUi.menuIndex = index
   stockBattleUi.message = ""
@@ -2552,6 +2641,11 @@ stockBattleUi.playerTurn = (index) => {
     key = get()
     if (key != "") {
       done = stockBattleUi.handleKey(fighter, key)
+    }
+    // An outcome recorded from outside unwinds the command, list and target menus; the battle loop then runs
+    // its normal finish, which hands the screen back.
+    if (done == 0 && stockBattle.noteRecordedOutcome() != 0) {
+      done = 1
     }
   }
   stockBattleUi.mode = "idle"

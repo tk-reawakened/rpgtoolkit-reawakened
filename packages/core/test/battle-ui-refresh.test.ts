@@ -168,3 +168,23 @@ test("renaming a duplicate target removes the other target's obsolete suffix gly
   deepEqual(changed.diagnostics, []);
   deepEqual(reference.diagnostics, []);
 });
+
+test("renaming a target while its cursor moves refreshes every duplicate label and the message", () => {
+  const changed = ready("target");
+  const reference = bootUiRig();
+  awaitMenu(reference);
+  actor(reference, "bat.ene").name = "Slime";
+  reference.press("ENTER", 20);
+  reference.press("RIGHT", 20);
+  reference.tick(8);
+  actor(changed, "bat.ene").name = "Slime";
+  changed.press("RIGHT", 1);
+  changed.tick(20);
+  equal(ui(changed)["targetcursor"], 1, "the renamed fighter is selected");
+  const picker = { x1: 8, y1: 255, x2: 151, y2: 323 };
+  const message = { x1: 0, y1: 324, x2: 639, y2: 343 };
+  equal(regionHash(changed, picker), regionHash(reference, picker), "all three Slime suffixes match a fresh target screen");
+  equal(regionHash(changed, message), regionHash(reference, message), "the selected target message uses the new duplicate-aware name");
+  deepEqual(changed.diagnostics, []);
+  deepEqual(reference.diagnostics, []);
+});

@@ -247,8 +247,6 @@ function makeActor(state: GameState, spec: ActorSpec, fallbackSource: string) {
   return { record, value: { kind: "object" as const, handle: object.handle, className: object.className } };
 }
 
-// All rigs use this file's stable loader/plugin set; reuse compiled IR, never VM state.
-let sharedPrograms: ScriptServices["programs"] | undefined;
 function servicesFor(
   state: GameState,
   layers: PluginLayers,
@@ -268,7 +266,7 @@ function servicesFor(
       scriptOrder: String(state.vm.globals.order),
     });
   });
-  const services = coreCreateScriptServices(
+  return coreCreateScriptServices(
     state,
     [
       { definition: CORE_PLUGIN },
@@ -284,9 +282,6 @@ function servicesFor(
     },
     undefined, layers, [], false, undefined, undefined, menuPorts,
   );
-  const programs = sharedPrograms ?? services.programs;
-  sharedPrograms = programs;
-  return programs === services.programs ? services : { ...services, programs };
 }
 
 function totalSteps(state: GameState): number {

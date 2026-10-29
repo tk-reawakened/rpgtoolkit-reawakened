@@ -307,7 +307,7 @@ export function applyMenuStateEffect(ports: MenuOwnerPorts, effect: EffectRecord
   if (section === "inventory" && effect.kind === "state-write" && effect.args.length === 1 && actionRecord(effect.args[0])?.kind === "inventory.consume") {
     const payload = actionRecord(effect.args[0]);
     if (payload === null) throw new ScriptError("menu.state-invalid", "inventory.consume: expected a payload object");
-    const error = validateActionFields(payload, ["kind", "item", "target", "hp", "smp"], "inventory.consume");
+    const error = validateActionFields(payload, ["kind", "item", "target", "hp", "smp", "handle"], "inventory.consume");
     if (error !== null) throw new ScriptError("menu.state-invalid", `${error.path}: ${error.message}`);
     if (payload.kind !== "inventory.consume" || typeof payload.item !== "string" || payload.item.trim() === "") {
       throw new ScriptError("menu.state-invalid", "inventory.consume: expected a non-empty item source");
@@ -319,7 +319,10 @@ export function applyMenuStateEffect(ports: MenuOwnerPorts, effect: EffectRecord
         typeof payload.smp !== "number" || !Number.isSafeInteger(payload.smp)) {
       throw new ScriptError("menu.state-invalid", "inventory.consume: expected safe-integer HP and SMP values");
     }
-    const result = ports.inventory.apply({ type: "consumeBattleItem", item: payload.item, target: payload.target });
+    if (payload.handle !== null && (typeof payload.handle !== "string" || payload.handle === "")) {
+      throw new ScriptError("menu.state-invalid", "inventory.consume: expected a null or non-empty stack handle");
+    }
+    const result = ports.inventory.apply({ type: "consumeBattleItem", item: payload.item, target: payload.target, handle: payload.handle });
     if (result.error !== null) throw new ScriptError("menu.state-invalid", `${result.error.path}: ${result.error.message}`);
     return;
   }

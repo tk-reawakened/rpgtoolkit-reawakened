@@ -161,3 +161,38 @@ test("an item list longer than sixteen entries pages inside its box, and the fig
   equal(dying[0]!.frame, dying[0]!.frames.length - 1, "its die pose is still held on the last frame, not replayed");
   deepEqual(rig.diagnostics, []);
 });
+
+test("queued target and list exits never draw fighter pictures over the published list", () => {
+  const rig = bootUiRig({ extraItems: 20, stanceDelayTicks: 2 });
+  awaitMenu(rig);
+  const timelines = pinnedTimelines(rig);
+  rig.press("DOWN", 12);
+  rig.press("DOWN", 12);
+  rig.press("ENTER", 1);
+  rig.tick(40);
+  equal(ui(rig)["mode"], "list");
+  equal(pinnedCount(rig), 0);
+  const watch = (ticks: number): void => {
+    for (let tick = 0; tick < ticks; tick += 1) {
+      rig.tick(1);
+      const frame = rig.frame();
+      // A blank part of the description header identifies the published canvas,
+      // not the mode the script has already begun composing off screen.
+      const at = (30 * frame.w + 20) * 4;
+      const listIsPublished = frame.rgba[at] === 16 && frame.rgba[at + 1] === 20 && frame.rgba[at + 2] === 48;
+      if (listIsPublished) equal(pinnedCount(rig), 0, `no pictures over the list at tick ${rig.state().time.tick}`);
+    }
+  };
+  rig.press("ENTER", 1);
+  watch(24);
+  equal(ui(rig)["mode"], "target");
+  equal(pinnedCount(rig), 6);
+  // Both keys arrive before the intermediate list redraw can finish.
+  rig.press("ESC", 1);
+  rig.press("ESC", 1);
+  watch(26);
+  equal(ui(rig)["mode"], "command", "both queued exits were read");
+  equal(pinnedCount(rig), 6);
+  deepEqual(pinnedTimelines(rig), timelines, "visibility changes never restart an animation");
+  deepEqual(rig.diagnostics, []);
+});
