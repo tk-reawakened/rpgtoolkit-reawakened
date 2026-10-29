@@ -1,9 +1,9 @@
 ---
 title: 'Complete battle event-contract regression coverage (7.30, #750)'
 type: 'chore'
-ticket: '30'
+ticket: 30
 created: '2026-10-29'
-status: 'built'
+status: done
 baseline_revision: '802772f92a77611346cb1aa1385d1411a9ea5205'
 route: 'oneshot'
 route_source: 'auto'
@@ -60,3 +60,8 @@ Oneshot route: this is a test-only change confined to the battle test files and 
 **Commands:**
 - `node --test packages/core/test/battle-outcomes-stock.test.ts packages/core/test/battle-custom-fight.test.ts packages/core/test/battle-damage.test.ts packages/core/test/battle-actions.test.ts` -- expected: all four files pass.
 - `pnpm typecheck`, `pnpm lint`, `pnpm test:strict`, `pnpm golden`, `pnpm golden:bun`, `pnpm graph`, `pnpm licence`, `pnpm provenance`, `pnpm catalogue:check`, `pnpm command-docs:check` -- expected: all green.
+
+## Plan Change Log
+
+- 2026-10-29 (ledger chore): `ticket: '30'` → `ticket: 30` (bare entry id); the `chore` type was already correct. Frontmatter only, content unchanged.
+- 2026-10-29 (completed): marked done after PR #768 (`b014d142`) merged; issue #750 closed 2026-10-29T16:36:24Z. Test-only: the stock outcome test now asserts the exact `cause`/`source` keys on the actor-local `defeated` and its `stock_battle.defeated` re-emission, the authored custom fight program is corrected to `{ cause: 'script', source: heroId }` and proves nothing re-emits it, and the damage tests cover `beforeDamage`'s exact detail, the owner's HP/SMP clamp after listener mutation, and one item-origin dispatch. `CHANGELOG.md` records the same. No spec change. PR #768 CI green with `unit (core-battle)` 6m30s.
