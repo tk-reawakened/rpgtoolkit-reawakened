@@ -313,6 +313,30 @@ test("a run marker wraps a row end and one wraps a layer boundary", () => {
   equal(board.tileMatrix[5]?.lutIndex, board.tileMatrix[6]?.lutIndex);
 });
 
+test("pre-vector final runs clamp to the grid, warn, and leave following fields aligned", () => {
+  // The authored minor-3 example has 24 cells: a run of 12, one literal,
+  // then an 11-cell run. Replace only its final run marker with -17.
+  // These bytes are not produced by the board writer under test.
+  const original = new Uint8Array(readFileSync(join(repoRoot, "docs/spec/examples/versions/board/board_minor3.brd")));
+  equal(original[0x55], 0xf5);
+  equal(original[0x56], 0xff);
+  const overflow = original.slice();
+  overflow[0x55] = 0xef;
+  const exact = readPreVectorBoard(new BinaryReader(original));
+  const result = readPreVectorBoard(new BinaryReader(overflow));
+  equal(exact.ok, true);
+  equal(result.ok, true);
+  if (!exact.ok || !result.ok) return;
+  equal(result.value.tileMatrix.length, 24);
+  deepEqual(result.value.tileMatrix, exact.value.tileMatrix);
+  equal(result.value.backgroundImage, "sky.png", "the field after the run stays aligned");
+  equal(exact.warnings.some((warning) => warning.includes("tile matrix run covers")), false);
+  equal(result.warnings.some((warning) => warning.includes("tile matrix run covers 17 cells but only 11 remained")), true);
+  const converted = unwrap(convertPreVectorBoard(result.value));
+  equal(converted.tileMatrix.length, 24);
+  deepEqual(converted.tileMatrix, result.value.tileMatrix.map((cell) => cell.lutIndex));
+});
+
 test("each legacy tile type vectorizes to the pre-vector shape", () => {
   // One 5 × 1 layer: two solid tiles, one under tile, one stair to layer 3 and
   // one normal tile, which emits no vector at all.
