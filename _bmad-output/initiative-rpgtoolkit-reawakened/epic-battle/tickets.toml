@@ -426,6 +426,7 @@ notes = ["Audit evidence: stock/stock_battle/startup.prg:449-480 returns at hp <
 [[entry]]
 id = 23
 tracker_id = "#743"
+tracker_status = "done"
 type = "bug"
 title = "A .tbm picture is not drawn as a battle background"
 description = """A valid tile-bitmap picture named by a battle background is silently replaced by the flat fallback colour in the stock battle screen instead of being rendered."""
@@ -440,6 +441,7 @@ notes = ["Audit evidence: stock/stock_battle/startup.prg:1155-1171 deliberately 
 [[entry]]
 id = 24
 tracker_id = "#744"
+tracker_status = "done"
 type = "bug"
 title = "Battle identifiers are reused after loss cleanup"
 description = """A later battle in the same run can receive an identifier already used by a battle whose loss path cleared the battle section, contrary to BAT-2's never-reused identifier rule."""
