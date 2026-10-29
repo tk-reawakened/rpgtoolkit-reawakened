@@ -551,6 +551,7 @@ notes = ["Audit evidence: packages/core/test/battle-fresh-load.test.ts:216-227 c
 [[entry]]
 id = 32
 tracker_id = "#752"
+tracker_status = "done"
 type = "story"
 title = "Verify active-board return music after battle"
 description = """Verify the full-engine return path selects the active board's music when it differs from the battle's saved board key."""
