@@ -78,6 +78,7 @@ after = [{ epic = 2, needs = "the character, enemy, item and battle-data readers
 
 [[epic]]
 id = 7
+tracker_id = "#503"
 slug = "epic-battle"
 title = "Battles run on core rules with a default UI"
 covers = ["CAP-9"]
