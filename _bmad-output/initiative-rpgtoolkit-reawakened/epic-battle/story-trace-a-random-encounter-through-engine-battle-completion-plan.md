@@ -36,6 +36,9 @@ The authored board and main file enable a seeded chance-based encounter. A queue
 ## Review Triage Log
 
 - Medium, patched: the reviewer noted that string replacement could leave a direct fight in the fixture. The test now uses an explicit program without a fight command and checks the battle's initial player position after crossing the tile boundary.
+- Director review: removed the turn override; actual stock UI and attack path now receive deterministic Enter input. The test checks enemy source, background, can-run and all diagnostics.
+
+Profiling: the real stock path took 20.06 seconds for two replays with one tick per advance. Batching three ticks per advance reduced it to 7.27 seconds while retaining real movement, keyboard events, stock outcome and replay comparisons. This full-engine integration test necessarily runs the stock UI and both seeded replays; it exceeds the ordinary unit-test budget.
 
 ## Verification
 
