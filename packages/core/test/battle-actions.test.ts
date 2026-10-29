@@ -209,6 +209,8 @@ type RunOptions = {
   readonly pool?: string;
   readonly file?: string;
   readonly rounds?: number;
+  readonly itemMutate?: number;
+  readonly itemCancel?: number;
   readonly assets?: Readonly<Record<string, string>>;
   readonly saveWhen?: (state: GameState) => boolean;
   readonly inventory?: GameState["inventory"];
@@ -330,6 +332,8 @@ function run(options: RunOptions): RunResult {
   globals.poolin = options.pool ?? "hp";
   globals.filein = options.file ?? "";
   globals.rounds = options.rounds ?? 0;
+  globals.itemmutate = options.itemMutate ?? 0;
+  globals.itemcancel = options.itemCancel ?? 0;
   globals.watchfallen = options.watchFallen === true ? 1 : 0;
   startProgram(state.vm, { ...fileProgramRef(loader, "battle-actions.prg"), owner: "battle-actions-test" });
   const before = totalSteps(state);
@@ -361,6 +365,16 @@ function run(options: RunOptions): RunResult {
     if (state.vm.globals.ended === 1) return { state, services, steps: totalSteps(state) - before, saved, requested, inventoryEvents };
   }
   throw new Error(`scenario ${options.scenario} did not finish; order=${String(state.vm.globals.order)}`);
+}
+
+/** The own keys of a real event detail a script listener kept, in the order the emitter wrote them. */
+function detailKeys(state: GameState, value: unknown): string[] {
+  if (typeof value !== "object" || value === null || !("kind" in value) || value.kind !== "object" || !("handle" in value) || typeof value.handle !== "number") {
+    throw new Error("the global did not hold an event detail");
+  }
+  const record = state.vm.objects.find((object) => object.handle === value.handle);
+  if (record === undefined) throw new Error("the event detail handle is dangling");
+  return [...record.keys];
 }
 
 function stat(state: GameState, id: number, field: "hp" | "smp"): number {
@@ -812,6 +826,31 @@ test("battle helper applies clamped HP and SMP and posts one consume request wit
   equal(effects[0]!.target, TARGET);
   equal(JSON.stringify(result.state.inventory), inventoryBefore, "the helper edits no inventory list");
   equal(stat(result.state, ATTACKER, "smp"), 10, "using an item costs the user no SMP");
+});
+
+test("item damage sends exactly one cancelable beforeDamage with the ruled detail and clamps at the owner maximum", () => {
+  const options: RunOptions = { scenario: "itemdispatch", seed: 2, file: "potion.itm", attacker: { smp: 10 }, target: { hp: 10, maxHp: 20, smp: 12 }, assets: { "potion.itm": itemAsset({ hp: 5, smp: 0, animation: "" }) } };
+  const straight = run(options);
+  const view = straight.state.vm.globals;
+  equal(view.bd1, 1, "an item action dispatches exactly one cancelable beforeDamage");
+  deepEqual(detailKeys(straight.state, view.itemdetail), ["source", "target", "damage"], "the item's dispatch carries exactly the ruled detail keys");
+  equal(view.itemdetailsource, ATTACKER, "the detail's source is the item's user");
+  equal(view.itemdetailtarget, TARGET, "the detail's target is the recipient");
+  equal(view.itemdetaildamage, -5, "the item's HP gain is the negative damage the package dispatches");
+  equal(Math.abs(Number(view.usedhp)), 5, "the package reports the item's HP change");
+  equal(stat(straight.state, TARGET, "hp"), 15);
+
+  const mutated = run({ ...options, itemMutate: 1 });
+  equal(mutated.state.vm.globals.bd1, 1, "a listener mutation does not add a second dispatch");
+  equal(mutated.state.vm.globals.itemdetaildamage, -5, "the captured detail is the amount before mutation");
+  equal(mutated.state.vm.globals.itemmutateddamage, -45, "the listener wrote the mutated amount into the detail");
+  equal(stat(mutated.state, TARGET, "hp"), 20, "the mutated heal stops at the owner maximum");
+  equal(Math.abs(Number(mutated.state.vm.globals.usedhp)), 10, "the package reports only the clamped amount that moved");
+
+  const canceled = run({ ...options, itemCancel: 1 });
+  equal(canceled.state.vm.globals.bd1, 1, "a cancelled item action still dispatched once");
+  equal(canceled.state.vm.globals.usedhp, 0, "a cancelled item damage applies nothing");
+  equal(stat(canceled.state, TARGET, "hp"), 10);
 });
 
 test("a damaging item fires fallen exactly once", () => {

@@ -78,6 +78,16 @@ function objectValue(handle: number, className: string) {
   return { kind: "object" as const, handle, className };
 }
 
+/** The VM record a script global holds, so a test can read a real event detail's own keys. */
+function objectRecord(state: GameState, value: unknown) {
+  if (typeof value !== "object" || value === null || !("kind" in value) || value.kind !== "object" || !("handle" in value) || typeof value.handle !== "number") {
+    throw new Error("the global does not hold an object handle");
+  }
+  const record = state.vm.objects.find((object) => object.handle === value.handle);
+  if (record === undefined) throw new Error("the object handle is dangling");
+  return record;
+}
+
 function makeState(): GameState {
   const state = createGameState({ seed: 11 });
   const source = makeActor(state);
@@ -92,7 +102,9 @@ function makeState(): GameState {
   const plainTarget = makeActor(state);
   const lethalPhysical = makeActor(state, 5);
   const lethalSpecial = makeActor(state, 5);
-  const actors = { source, mutationTarget, cancelTarget, specialTarget, smpTarget, allFirst, allSecond, drainFirst, saveTarget, plainTarget, lethalPhysical, lethalSpecial };
+  const clampHp = makeActor(state, 5);
+  const clampSmp = makeActor(state, 20, 8);
+  const actors = { source, mutationTarget, cancelTarget, specialTarget, smpTarget, allFirst, allSecond, drainFirst, saveTarget, plainTarget, lethalPhysical, lethalSpecial, clampHp, clampSmp };
   for (const actor of Object.values(actors)) {
     const object = registerActorObject(state.vm, state.events, state.actors, actor.id);
     if (object === null) throw new Error(`actor ${actor.id} did not hydrate`);
@@ -141,6 +153,13 @@ test("stock battle sends one cancelable beforeDamage for every damage path", () 
   const state = result.state;
   equal(state.vm.globals.order, "m1m2c1c21s1s2");
   equal(state.vm.globals.sourcedetail, 1, "source actor ids are carried in the detail");
+  equal(state.vm.globals.targetdetail, 2);
+  const detail = objectRecord(state, state.vm.globals.mutationdetail);
+  deepEqual([...detail.keys], ["source", "target", "damage"], "beforeDamage carries exactly its ruled detail keys");
+  equal(detail.members.source, 1, "the detail's source is the attacking actor id");
+  equal(detail.members.target, 2, "the detail's target is the damaged actor id");
+  equal(state.vm.globals.mutationinitialdamage, 10, "the detail's damage is the request amount before a listener mutates it");
+  equal(detail.members.damage, 5, "a listener mutation is written into the same detail the owner then applies");
   equal(state.vm.globals.nullsourcedetail, 0, "source-null uses the engine's zero actor-id sentinel");
   equal(state.vm.globals.mutationtaken, 5);
   equal(state.vm.globals.canceltaken, 0);
@@ -156,8 +175,14 @@ test("stock battle sends one cancelable beforeDamage for every damage path", () 
   equal(state.vm.globals.lethalphysicalsource, 1);
   equal(state.vm.globals.lethalspecialcause, "damage");
   equal(state.vm.globals.lethalspecialsource, 1);
+  equal(state.vm.globals.clamphpmutated, 45, "a listener pushed the HP amount past the target's remaining HP");
+  equal(state.vm.globals.clamphptaken, 5, "the owner clamps HP at zero and the package reports only the amount that moved");
+  equal(state.vm.globals.clampsmpmutated, 42, "a listener pushed the SMP amount past the target's remaining SMP");
+  equal(state.vm.globals.clampsmptaken, 8, "the owner clamps SMP at zero and the package reports only the amount that moved");
   equal(state.actors.actors.find((actor) => actor.id === 11)?.stats.hp, 0);
   equal(state.actors.actors.find((actor) => actor.id === 12)?.stats.hp, 0);
+  equal(state.actors.actors.find((actor) => actor.id === 13)?.stats.hp, 0, "the mutated HP amount stops at zero");
+  equal(state.actors.actors.find((actor) => actor.id === 14)?.stats.smp, 0, "the mutated SMP amount stops at zero");
   equal(state.actors.actors.find((actor) => actor.id === 3)?.stats.hp, 5, "cancellation prevents HP and fallen transitions");
   equal(state.actors.actors.find((actor) => actor.id === 4)?.stats.hp, 13);
   equal(state.actors.actors.find((actor) => actor.id === 5)?.stats.smp, 13);

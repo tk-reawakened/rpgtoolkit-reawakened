@@ -17,6 +17,8 @@ global(amountin)
 global(poolin)
 global(filein)
 global(rounds)
+global(itemMutate)
+global(itemCancel)
 global(watchFallen)
 global(postSource)
 global(postTarget)
@@ -94,6 +96,25 @@ if (scenario == "special") {
   movedcost = moved.cost
 }
 if (scenario == "item") {
+  used = stockBattle.item(attacker, target, filein, null)
+  usedhp = used.hp
+  usedsmp = used.smp
+}
+if (scenario == "itemdispatch") {
+  on(target, "beforeDamage", (event) => {
+    bd1 = bd1 + 1
+    itemDetail = event.detail
+    itemDetailSource = event.detail.source
+    itemDetailTarget = event.detail.target
+    itemDetailDamage = event.detail.damage
+    if (itemMutate == 1) {
+      event.detail.damage = event.detail.damage - 40
+      itemMutatedDamage = event.detail.damage
+    }
+    if (itemCancel == 1) {
+      event.cancel()
+    }
+  })
   used = stockBattle.item(attacker, target, filein, null)
   usedhp = used.hp
   usedsmp = used.smp

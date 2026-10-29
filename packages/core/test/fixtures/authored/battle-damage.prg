@@ -23,6 +23,8 @@ cancelFallen = 0
 
 on(mutationTarget, "beforeDamage", (event) => {
   order = order + "m1"
+  mutationDetail = event.detail
+  mutationInitialDamage = event.detail.damage
   event.detail.damage = event.detail.damage / 2
 })
 on(mutationTarget, "beforeDamage", (event) => {
@@ -64,6 +66,18 @@ on(lethalSpecial, "fallen", (event) => {
 })
 lethalPhysicalTaken = physical({ source: source, target: lethalPhysical, amount: 10 })
 lethalSpecialTaken = special({ source: source, target: lethalSpecial, amount: 10 })
+
+on(clampHp, "beforeDamage", (event) => {
+  event.detail.damage = event.detail.damage + 40
+  clampHpMutated = event.detail.damage
+})
+clampHpTaken = physical({ source: source, target: clampHp, amount: 5 })
+
+on(clampSmp, "beforeDamage", (event) => {
+  event.detail.damage = event.detail.damage + 40
+  clampSmpMutated = event.detail.damage
+})
+clampSmpTaken = drain({ source: source, target: clampSmp, amount: 2 })
 
 on(allFirst, "beforeDamage", (event) => { event.detail.damage = event.detail.damage - 1 })
 on(allSecond, "beforeDamage", (event) => { event.detail.damage = event.detail.damage + 1 })
