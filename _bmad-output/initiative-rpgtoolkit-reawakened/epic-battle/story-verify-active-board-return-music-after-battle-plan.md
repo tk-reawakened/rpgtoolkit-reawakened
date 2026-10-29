@@ -43,4 +43,6 @@ Director review requested an authored B and real transition instead of cloning t
 
 Run a focused test and the required project gates, measuring their runtime; avoid repeated lengthy runs.
 
-Focused smoke passed in 0.81 seconds. Typecheck (1.02s), lint (4.82s), dependency graph (1.11s), provenance (0.50s) and licence (0.24s) passed. After the owner clarified that G5.4 and G7.3 permit fetching sample-game data and the fetcher was checked for sparse game-only checkout, fixtures fetched (5.06s), strict suite passed with 2262 tests and no skips (87.40s), Node golden passed (9.92s), and Bun golden plus closing passed (21.11s).
+After rebasing onto main with #755 merged, the whole battle-cues-engine file passed (6 tests, 10.50s) and all gates were re-run: focused proof 0.75s; typecheck 1.10s; lint 4.55s; graph 1.19s; provenance 0.50s; licence 0.24s; test:strict 63.03s (2263 passed, no skips); golden 9.51s; golden:bun 20.75s.
+
+On the original baseline, focused smoke passed in 0.81 seconds. Typecheck (1.02s), lint (4.82s), dependency graph (1.11s), provenance (0.50s) and licence (0.24s) passed. After the owner clarified that G5.4 and G7.3 permit fetching sample-game data and the fetcher was checked for sparse game-only checkout, fixtures fetched (5.06s), strict suite passed with 2262 tests and no skips (87.40s), Node golden passed (9.92s), and Bun golden plus closing passed (21.11s).
