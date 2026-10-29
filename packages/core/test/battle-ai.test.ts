@@ -33,6 +33,7 @@ import {
   runWaitsPhase,
   snapshot,
   startProgram,
+  STATUS_EFFECT_MAGIC,
   STEP_BUDGET,
   verifyRestoredHandles,
   WORLD_PLUGIN,
@@ -83,6 +84,7 @@ type EnemyDefinition = {
   readonly maxSmp?: number;
   readonly fp?: number;
   readonly dp?: number;
+  readonly statuses?: Readonly<Record<string, number>>;
 };
 type PlayerDefinition = {
   readonly hp?: number;
@@ -183,6 +185,7 @@ function makeActor(state: GameState, kind: "party" | "enemy", name: string, sour
     kind,
     source,
     name,
+    statuses: "statuses" in spec ? spec.statuses ?? {} : {},
     stats: {
       experience: 0,
       hp: spec.hp ?? 100,
@@ -199,6 +202,26 @@ function makeActor(state: GameState, kind: "party" | "enemy", name: string, sour
   const object = registerActorObject(state.vm, state.events, state.actors, record.id);
   if (object === null || object.className === null) throw new Error(`could not hydrate ${name}`);
   return { record, value: { kind: "object" as const, handle: object.handle, className: object.className } };
+}
+
+// A one-round status whose per-round HP amount is its only effect (BAT-6).
+function statusAsset(hpAmount: number): string {
+  const writer = new BinaryWriter();
+  writer.str(STATUS_EFFECT_MAGIC);
+  writer.i16(2);
+  writer.i16(2);
+  writer.str("Authored lethal status");
+  writer.i16(1);
+  writer.i16(0);
+  writer.i16(0);
+  writer.i16(0);
+  writer.i16(1);
+  writer.i16(hpAmount);
+  writer.i16(0);
+  writer.i16(0);
+  writer.i16(0);
+  writer.str("");
+  return hex(writer.toBytes());
 }
 
 function servicesFor(state: GameState, layers: PluginLayers): ScriptServices {
@@ -728,6 +751,51 @@ test("a no-op custom AI spends its turn without an automatic attack", () => {
   }
   equal(completed, true, "the battle loop released enemy charge after the no-op program returned");
   equal(stat(rig.state, rig.players[0]!.record.id, "hp"), 100);
+});
+
+// BAT-6: a status that takes a fighter to 0 HP does not stop the turn, so a
+// fallen enemy still runs its custom AI program, while its attacks, moves and
+// items do nothing. A fallen enemy without a custom program still does nothing.
+test("a lethal status still runs the enemy's custom AI turn, whose attack has no effect", () => {
+  const runChargedPass = (definition: EnemyDefinition, extraAssets: Readonly<Record<string, string>>) => {
+    const rig = makeRig({
+      enemies: [{ customAi: 1, aiProgram: "battle-ai-custom.prg", ...definition }],
+      script: "battle-ai-loop.prg",
+      customMode: "attack",
+      extraAssets,
+    });
+    for (let elapsed = 0; elapsed < 32; elapsed += 1) {
+      tick(rig.state, rig.services, pollAssets(rig));
+      if (rig.state.vm.threads.some((thread) => thread.wait?.kind === "sleep")) break;
+    }
+    setCharge(rig.state, 0, 0, 123);
+    setCharge(rig.state, 1, 0, 0);
+    const poll = pollAssets(rig);
+    for (let elapsed = 0; elapsed < 32; elapsed += 1) tick(rig.state, rig.services, poll);
+    return rig;
+  };
+
+  const lethal = runChargedPass(
+    { hp: 5, statuses: { "lethal.ste": 1 } },
+    { "lethal.ste": statusAsset(5) },
+  );
+  equal(stat(lethal.state, lethal.enemies[0]!.record.id, "hp"), 0, "the status takes the enemy to zero HP at its charged boundary");
+  equal(lethal.state.vm.globals.customcalls, 1, "the fallen enemy still runs its custom AI program once");
+  equal(stat(lethal.state, lethal.players[0]!.record.id, "hp"), 100, "the fallen attacker's attack has no effect");
+
+  const control = runChargedPass(
+    { hp: 20, statuses: { "lethal.ste": 1 } },
+    { "lethal.ste": statusAsset(5) },
+  );
+  equal(control.state.vm.globals.customcalls, 1, "the living control runs its custom AI program once");
+  equal(stat(control.state, control.players[0]!.record.id, "hp"), 99, "the same program damages a player while its source is living");
+
+  const level = runChargedPass(
+    { customAi: 0, aiProgram: "", aiLevel: 3, specialMoves: ["hit.spc"], fp: 5, hp: 5, statuses: { "lethal.ste": 1 } },
+    { "lethal.ste": statusAsset(5), "hit.spc": specialMoveAsset({ fp: 9, smp: 1 }) },
+  );
+  equal(stat(level.state, level.players[0]!.record.id, "hp"), 100, "a fallen enemy with a normal AI level still does nothing");
+  equal(stat(level.state, level.enemies[0]!.record.id, "smp"), 20, "no special move is spent by a fallen enemy");
 });
 
 test("a normal enemy turn stays below STEP_BUDGET", () => {
