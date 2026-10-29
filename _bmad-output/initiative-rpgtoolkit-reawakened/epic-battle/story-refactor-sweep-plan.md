@@ -3,7 +3,7 @@ title: "Refactor sweep"
 type: 'feature'
 ticket: 13
 created: '2026-10-19'
-status: built
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "low"
 context:
@@ -51,3 +51,4 @@ The gates above, a link/anchor checker, a grep for the removed placeholder and d
 ## Plan Change Log
 
 - 2026-10-26 (owner ruling, Jensen; applied by the director): “placeholder gone” refers to the live empty placeholder and stale comment; the schema-v1 empty-placeholder migration and its fixture remain.
+- 2026-10-28 (completed): marked done. The behaviour-preserving sweep merged as PR #684 (`52817559`) and the seams verify on `main` (`ENGINE_PHASES` has no `battle` phase in `packages/core/src/engine/engine.ts`, `engine.test.ts` asserts that, and the `BATTLE` section is exported through `packages/core/src/save/sections.ts`). The acceptance item "each Done-when item is checked with a test or fixture named in the PR" is satisfied by the Done-when evidence table in `epic-battle.md` (audit 2026-10-28), which names the test or fixture for all eight epic criteria. Issue #516 is closed by the ledger PR that carries this change.
