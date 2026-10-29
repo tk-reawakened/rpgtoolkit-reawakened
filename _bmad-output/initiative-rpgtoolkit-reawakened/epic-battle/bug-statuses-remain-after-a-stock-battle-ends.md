@@ -7,7 +7,7 @@ tracker_id: "#741"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/741"
 covers: [CAP-9]
 after: [6, 8, 12]
-refined: false
+refined: true
 hitl: false
 risk: medium
 severity: P2
@@ -18,6 +18,10 @@ severity: P2
 ## Description
 
 A battle participant's status remains on its actor after the battle outcome handler finishes. BAT-6 says all statuses end with the battle. BAT-8 includes both automatic and package-handled outcomes; cleanup must wait until the final outcome is selected, preserving same-pass status ticks after a successful run.
+
+## Boundaries
+
+Do not clear statuses before a successful run finishes the current pass and final outcome selection. Keep nonparticipant statuses unchanged. This ticket covers the stock battle package, not new status rules for custom battle programs.
 
 ## Reproduction
 
@@ -36,11 +40,11 @@ The exercised battle outcome paths finish or clear the battle state without remo
 1. **Participant statuses end with the battle**
    **Given** a participant with a lasting or indefinite status
    **When** a battle terminates through BAT-8 outcome codes 0, 1, 2, 3, or 4
-   **Then** all participant statuses are cleared only after final outcome selection; a code-0 successful run still lets later charged players tick statuses in that pass, and if those ticks leave every player at 0 HP, loss is selected rather than escape
+   **Then** all participant statuses are cleared after outcome handling completes. A code-0 successful run still lets later charged players tick statuses in that pass, and if those ticks leave every player at 0 HP, loss is selected rather than escape.
 2. **Tests cover the condition found and fixed**
    **Given** the battle test suite
    **When** deterministic cases exercise all five outcomes, with handled codes 1 and 3 as well as automatic codes 0, 2, and 4
-   **Then** regression tests prove statuses end after the final outcome and a nonparticipant's statuses are unchanged, while the run-to-loss precedence remains intact
+   **Then** regression tests prove statuses end after outcome handling, a nonparticipant's statuses are unchanged, and run-to-loss precedence remains intact
 3. **Or: no change is needed, with proof**
    **Given** the reproduction
    **When** it is run on the current code
