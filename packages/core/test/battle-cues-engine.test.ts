@@ -18,6 +18,11 @@ import {
   createEmptyMainFile,
   createEngine,
   deriveGameId,
+  enqueueDirectionMove,
+  hashGameState,
+  hydrateSprites,
+  movementPhaseRegistration,
+  nextUint32,
   PACKAGE_ROOT,
   registerActorObject,
   writeBattleBackground,
@@ -437,6 +442,80 @@ test("a full-engine save during battle resumes its parked thread and returns to 
   equal(resumed.vm.globals.returnedboard, "boards/start.brd");
   deepEqual(musicStarts(cues), ["media/battle.mid", "media/board.mid"], "load restarts battle music and battle completion restores board music");
   equal(resumed.audio.tracks.find((track) => track.name === "music")?.file, "media/board.mid");
+});
+
+// The full engine, movement, and stock battle run twice for replay, so this integration test exceeds one second.
+test("seeded tile movement reaches a stock random encounter outcome and replays", () => {
+  const run = () => {
+    const program = [
+      "stockBattle.turn = (party, index) => {",
+      "  if (party == 1) {",
+      "    i = 0",
+      "    while (i < battle.partySize(0)) { physical({ source: battle.fighter(1, index), target: battle.fighter(0, i), amount: 99 }); i = i + 1 }",
+      "  }",
+      "  return 0",
+      "}",
+      'game.on("battleEnded", (event) => { endedOutcome = event.detail.outcome })',
+      "end()",
+    ].join("\n");
+    const game = authoredGame(program);
+    const main = { ...createEmptyMainFile(), major: 2, minor: 9, startupPrg: "start.prg", initBoard: "start.brd", initChar: "hero.tem",
+      packagePlugins: ["stock_battle"], enemies: [{ enemyFile: "slime.ene", skillLevel: 1 }], fightType: 0, chances: 1 };
+    game.files.set(assetKey("main.gam"), unwrap(writeMainFile(main)));
+    const board = createEmptyBoard();
+    game.files.set(assetKey("boards/start.brd"), unwrap(writeBoard({ ...board, sizeX: 40, sizeY: 30, sizeL: 1,
+      tileMatrix: Array.from({ length: 1200 }, () => 0), tileRuns: [{ lutIndex: 0, count: 1200, marker: true }], layerTitles: ["", ""],
+      properties: { ...board.properties, enterPrg: "enter.prg", allowBattles: 1, battleSkill: 1, battleBackground: "night.bkg", start: { x: 48, y: 63, layer: 1 } } })));
+    game.paths.push("Enemy/slime.ene", "Bkrounds/night.bkg");
+    let state: GameState | null = null;
+    let seeded = false;
+    let moved = false;
+    let battleFighters: number[] | null = null;
+    let battleStartX: number | null = null;
+    const engine = createEngine({
+      seed: 23, assetIndex: createAssetIndex(game.paths), assetRoot: PACKAGE_ROOT, mainFile: "main.gam",
+      gameIdentity: "random-encounter-test", width: 320, height: 240, maxTicks: 600,
+      packageCatalogue: stockBattleCatalogue(),
+      startup: { presence: { hasPlayer: () => true }, savedGame: { load: () => ({ kind: "missing" }), restored: () => false } },
+      phaseRegistrations: [
+        { phase: "events", run: (current) => {
+          state = current;
+          if (current.battle !== null && battleFighters === null) {
+            battleFighters = current.battle.parties.map((party) => party.length);
+            battleStartX = current.sprites.players[0]?.x ?? null;
+          }
+          if (!seeded && current.engine.boot?.stage === "running" && current.world.board != null) {
+            seeded = true;
+            const hero = addActor(current.actors, { kind: "party", source: "hero.tem", name: "Hero", stats: { hp: 20, maxHp: 20, smp: 4, maxSmp: 4, dp: 2, fp: 4, level: 1 } });
+            registerActorObject(current.vm, current.events, current.actors, hero.id);
+            current.party.members = [hero.id];
+            current.party.selected = hero.id;
+            current.sprites = hydrateSprites({ board: current.world.board, players: [{ id: "hero", kind: "player", source: "hero.tem", x: 48, y: 63, layer: 1, controlled: true }] });
+          }
+          if (seeded && !moved && current.time.tick >= 20) {
+            moved = true;
+            enqueueDirectionMove(current.sprites, "hero", "E", 0);
+          }
+        } },
+        movementPhaseRegistration(),
+      ],
+    });
+    let replies: InputRecord[] = [];
+    for (let guard = 0; guard < 10000; guard += 1) {
+      const report = engine.advance(1, replies);
+      replies = report.requests.flatMap((request): InputRecord[] => request.kind === "asset"
+        ? [{ tick: report.tickAfter, event: { kind: "asset", reqId: request.reqId, bytes: game.files.get(request.key) ?? null } }] : []);
+      if (state !== null && (state as GameState).vm.globals.endedoutcome === 2) break;
+    }
+    ok(state !== null);
+    const result = state as GameState;
+    ok(battleFighters !== null && battleFighters[0]! > 0 && battleFighters[1] === 1, "the real handoff started a battle with enemies and the player");
+    equal(result.vm.globals.endedoutcome, 2, "stock battle reported victory");
+    ok(battleStartX !== null && battleStartX >= 64, "the battle began after crossing the tile boundary");
+    const rng = { ...result.rng };
+    return { tick: result.time.tick, hash: hashGameState(result), rng: result.rng, nextDraws: [nextUint32(rng), nextUint32(rng), nextUint32(rng)] };
+  };
+  deepEqual(run(), run(), "same input and seed replay at the same simulation tick");
 });
 
 function authoredBmp(): Uint8Array {
