@@ -393,3 +393,183 @@ references = [
   "spec - docs/spec/engine/battle.md (BAT-2, BAT-13)",
   "spec - docs/spec/formats/save-game.md",
 ]
+[[entry]]
+id = 21
+tracker_id = "#741"
+type = "bug"
+title = "Statuses remain after a stock battle ends"
+description = """Battle participant statuses remain after outcome handlers finish, contrary to BAT-6; cover every BAT-8 outcome code, including the observed handled outcomes 1 and 3, and clear statuses only after final outcome selection."""
+verify = """Given a participant with a lasting status, when a battle terminates by BAT-8 codes 0, 1, 2, 3, or 4, then statuses are cleared after final outcome selection; handled outcomes 1 and 3 are explicitly tested, nonparticipant statuses stay unchanged, and a code-0 successful run still allows later charged-player status ticks to make loss outrank escape."""
+covers = ["CAP-9"]
+after = [6, 8, 12]
+hitl = false
+risk = "medium"
+references = ["spec - docs/spec/engine/battle.md#bat-6", "spec - docs/spec/engine/battle.md#bat-8"]
+notes = ["Audit evidence: stock/stock_battle/startup.prg:849-904 exits without clearing actor statuses. The owner review explicitly observed retained statuses for handled BAT-8 outcomes 1 and 3 as well as automatic terminal paths. BAT-8 requires later charged-player status ticks after a successful run; startup.prg:864-885,896-899 processes them before loss-before-run outcome selection."]
+
+[[entry]]
+id = 22
+tracker_id = "#742"
+type = "bug"
+title = "A lethal status skips the enemy custom AI turn"
+description = """An enemy whose status effect lowers HP to zero immediately before its charged turn does not run its custom AI, although BAT-6 requires that AI turn to run."""
+verify = """Given a living enemy with custom AI and a status that lowers it to zero HP at its charged boundary, when the stock loop processes the turn, then the custom AI program runs once while its attacks, moves, and items have no effect; a living control also runs once."""
+covers = ["CAP-9"]
+after = [6, 7]
+hitl = false
+risk = "medium"
+references = ["spec - docs/spec/engine/battle.md#bat-6", "spec - docs/spec/engine/battle.md#bat-7"]
+notes = ["Audit evidence: stock/stock_battle/startup.prg:449-480 returns at hp < 1 before custom AI; the isolated probe observed zero custom-AI calls for the lethal case and one for a living control."]
+
+[[entry]]
+id = 23
+tracker_id = "#743"
+type = "bug"
+title = "A .tbm picture is not drawn as a battle background"
+description = """A valid tile-bitmap picture named by a battle background is silently replaced by the flat fallback colour in the stock battle screen instead of being rendered."""
+verify = """Given a screen-enabled stock battle whose .bkg picture names a valid .tbm asset, when the battle screen opens, then the decoded picture is visible behind the UI; an authored fixture proves the .tbm path while existing supported background formats keep their behavior."""
+covers = ["CAP-6", "CAP-9"]
+after = [2, 11]
+hitl = false
+risk = "medium"
+references = ["spec - docs/spec/formats/battle-data.md#fight-background-bkg", "spec - docs/spec/formats/tiles.md"]
+notes = ["Audit evidence: stock/stock_battle/startup.prg:1155-1171 deliberately blanks a .tbm picture; packages/core/src/engine/engine.ts:1148-1154 excludes .tbm from the image path."]
+
+[[entry]]
+id = 24
+tracker_id = "#744"
+type = "bug"
+title = "Battle identifiers are reused after loss cleanup"
+description = """A later battle in the same run can receive an identifier already used by a battle whose loss path cleared the battle section, contrary to BAT-2's never-reused identifier rule."""
+verify = """Given a battle with identifier N that ends through loss cleanup, when another battle starts in the same run, then its identifier differs from every identifier already used in that run; a deterministic regression test covers the game-over-program path without requiring monotonically increasing IDs."""
+covers = ["CAP-9", "CAP-11"]
+after = [2, 8]
+hitl = false
+risk = "medium"
+references = ["spec - docs/spec/engine/battle.md#bat-2", "spec - docs/spec/engine/battle.md#bat-8"]
+notes = ["Audit evidence: packages/core/src/battle/port.ts:123-124 derives the next identifier from the current battle or zero, while endLoss clears the battle section at :176-181; the isolated probe observed identifier 1 reused after loss."]
+
+[[entry]]
+id = 25
+tracker_id = "#745"
+type = "spike"
+title = "Rule wrong-kind actor references in restored battles"
+description = """BAT-2 assigns party 0 to enemies and party 1 to players, while restore accepts any extant actor in either slot; the owner must decide whether a role mismatch is valid, recoverable, or a load error before behavior changes."""
+verify = """A source-based comparison of BAT-2, new-start validation, and restore behavior records the role-mismatch cases and alternatives; the owner-approved rule is written in the battle spec with rationale and rejected alternatives, and this ticket makes no runtime change."""
+covers = ["CAP-9", "CAP-11"]
+after = [2]
+hitl = true
+risk = "medium"
+references = ["spec - docs/spec/engine/battle.md#bat-2", "spec - docs/spec/formats/save-game.md"]
+notes = ["Open question: Should a restored fighter whose actor kind conflicts with its party be rejected with a diagnostic, retained as unusable, or accepted? Owner decision required; do not infer a contract from new-start validation. Audit evidence: packages/core/src/battle/model.ts:23-31,58-64 validates actor existence; packages/core/src/battle/port.ts:103-122 checks actor kind only on new starts."]
+
+[[entry]]
+id = 26
+tracker_id = "#746"
+type = "spike"
+title = "Rule E-74 equal-probability wording against random()"
+description = """E-74 calls each random variance and critical-draw value equally likely, while random(max) currently uses a one-based modulo mapping; the owner must decide whether wording or runtime contract changes, and no behavior change is implied."""
+verify = """The actual random(max) mapping and exact random(20) bucket counts are derived from the 32-bit draw domain and compared with the approved BAT-8 random(5) rule; the owner-approved choice, consequences, and rejected alternative are recorded at E-74, while any runtime change is left to a separate ticket."""
+covers = ["CAP-9"]
+after = [1, 16]
+hitl = true
+risk = "medium"
+references = ["spec - docs/spec/engine/plugins-and-battle.md#e-74", "spec - docs/spec/engine/rpgcode-functions.md (random(max) edge cases)", "spec - docs/spec/engine/battle.md#bat-8"]
+notes = ["Open question: Is E-74's \"equally likely\" requirement exact for each random(20) result, or should the spec describe the current one-based modulo mapping? The BAT-8 random(5) contract was separately accepted; do not generalize it or change runtime behavior here. Audit evidence: packages/core/src/script/builtins/pure.ts:97-105 returns 1 + nextUint32() % range; stock/stock_battle/startup.prg:309 uses random(5) <= 2 and :513 uses random(20) for the physical-attack draw."]
+
+[[entry]]
+id = 27
+tracker_id = "#747"
+type = "spike"
+title = "Resolve the custom battle-handler contract conflict"
+description = """Preserve the owner-approved E-79 independent custom battle loop without stock_battle. Clarify the narrow BAT-9/BAT-14 text conflict: BAT-9 §3 and BAT-14 say Fight/FightEnemy report battle.package-missing without stock, while BAT-9 §4 describes own-loop setup-only entry points; do not reopen the settled capability or change runtime behavior."""
+verify = """The precise BAT-9 §3/§4 and BAT-14 conflict is recorded; the already-approved independent E-79 loop remains supported; owner-reviewed wording distinguishes an absent handler from a registered replacement loop, and no runtime behavior changes."""
+covers = ["CAP-5", "CAP-9"]
+after = [1, 12, 16]
+hitl = true
+risk = "medium"
+references = ["spec - docs/spec/engine/battle.md#bat-9", "spec - docs/spec/engine/battle.md#bat-14", "spec - docs/spec/engine/plugins-and-battle.md#e-79"]
+notes = ["Open question: How should BAT-9/BAT-14 distinguish the no-registered-handler battle.package-missing path from the registered replacement loop without changing the owner-approved independent E-79 capability? Audit evidence: docs/spec/engine/battle.md:201-202,318; docs/spec/engine/plugins-and-battle.md:182; completed 7.12 plan _bmad-output/initiative-rpgtoolkit-reawakened/epic-battle/story-a-custom-fight-program-drives-every-battle-operation-plan.md:17,29,33; packages/core/test/battle-custom-fight.test.ts:556-577 distinguishes absent-handler error from registered replacement, and :579-604 covers outcomes 0–4."]
+
+[[entry]]
+id = 28
+tracker_id = "#748"
+type = "story"
+title = "Trace a random encounter through engine battle completion"
+description = """Add a deterministic full-engine check from an ordinary tile-triggered random encounter through the stock battle and outcome without changing encounter rules."""
+verify = """A seeded, noncustom movement-triggered encounter passes through the real engine handoff, starts stock_battle, reaches a checked outcome, and matches replay at the same simulation point; the test does not inject a prebuilt handoff or repeat direct Fight/no-enemy cases already covered by 7.9 and 7.18."""
+covers = ["CAP-4", "CAP-9"]
+after = ["5.11", 9]
+hitl = false
+risk = "low"
+references = ["spec - docs/spec/engine/battle.md#bat-9", "spec - docs/spec/engine/plugins-and-battle.md#e-70"]
+notes = ["Audit evidence: packages/core/test/random-encounter.test.ts:88-185 covers movement/phase/handoff separately; packages/core/test/engine.test.ts:337-400 injects a handoff rather than driving a real random encounter."]
+
+[[entry]]
+id = 29
+tracker_id = "#749"
+type = "story"
+title = "Cover omitted E-79 fighter queries in a custom battle"
+description = """Add a focused custom-fight regression for the E-79 fighter-name and stance-animation queries not exercised by the otherwise comprehensive 7.12 program."""
+verify = """A main-file-registered custom fight with stock_battle absent reads fighter names and queries the ruled stance/animation operations through the public E-79 surface, with deterministic assertions for the returned values and no stock-package access."""
+covers = ["CAP-5", "CAP-9"]
+after = [12, 17]
+hitl = false
+risk = "low"
+references = ["spec - docs/spec/engine/battle.md#bat-3", "spec - docs/spec/engine/plugins-and-battle.md#e-79"]
+notes = ["Audit evidence: packages/core/test/battle-custom-fight.test.ts:1054-1105 covers the main-file custom path but omits the fighter-name and stance-animation queries; the broader 7.12 API comparison remains covered by #690."]
+
+[[entry]]
+id = 30
+tracker_id = "#750"
+type = "story"
+title = "Complete battle event-contract regression coverage"
+description = """Close the remaining event assertions for beforeDamage and defeated, including exact detail keys, known actor-source values, damage-boundary mutation, item-origin damage, and the absent-stock custom-event boundary."""
+verify = """Stock defeated tests assert exactly cause and source with a known actor id as source and prove one local event plus one stock_battle.defeated game event; an absent-stock custom fixture emits the valid ruled detail and proves no automatic stock-package re-emission; beforeDamage tests assert its exact source/target/damage detail, actor HP/SMP clamping, and one cancelable dispatch for item-origin damage."""
+covers = ["CAP-9"]
+after = [17]
+hitl = false
+risk = "medium"
+references = ["spec - docs/spec/engine/battle.md#bat-12", "spec - docs/spec/engine/rpgcode-modules-and-objects.md#emit-13"]
+notes = ["Audit evidence: packages/core/test/battle-outcomes-stock.test.ts currently reads cause/source but not exact keys; packages/core/test/fixtures/authored/battle-main-file-custom-fight.prg:96-101 emits {actorId}; packages/core/test/battle-damage.test.ts:138+ covers physical, special, drain and multi-target paths but not the actor-owner clamp boundary or item-origin dispatch. The absent-stock assertion must not be generalized to custom handlers while stock_battle is loaded."]
+
+[[entry]]
+id = 31
+tracker_id = "#751"
+type = "story"
+title = "Complete battle save, resume, and reset lifecycle evidence"
+description = """Compare game-state hashes from uninterrupted and real game Load/resumed battle runs at aligned simulation points, retain the existing frame comparison, and verify reset clears active battle state; use no active audio for full-state hash equality."""
+verify = """A real game Load/resume path and an uninterrupted no-active-audio run reach the same fixed points with identical game-state hashes; existing frame comparison is not duplicated; resetting an active battle leaves battle null and no battle continuation; generic audio parity and restart remain covered by #691."""
+covers = ["CAP-9", "CAP-11"]
+after = [2, 20]
+hitl = false
+risk = "medium"
+references = ["spec - docs/spec/engine/battle.md#bat-13", "spec - docs/spec/engine/audio-media.md#audio-save-load", "spec - docs/spec/formats/save-game.md"]
+notes = ["Audit evidence: packages/core/test/battle-fresh-load.test.ts:216-227 compares frames from uninterrupted and saved/resumed runs; :244-251 compares state hashes between two restored engines, not against an uninterrupted continuation. Reset clears the section at packages/core/src/engine/engine.ts:1239-1252. Generic audio runner parity/restart is already covered by #691.", "Exclusion: #593 is the Epic 8 generic load-validation, restore-order, and thread-continuation umbrella; this story covers only battle-specific state-hash parity and reset lifecycle evidence."]
+
+[[entry]]
+id = 32
+tracker_id = "#752"
+type = "story"
+title = "Verify active-board return music after battle"
+description = """Verify the full-engine return path selects the active board's music when it differs from the battle's saved board key."""
+verify = """A deterministic battle starts on board A, then board B becomes active while battle.boardKey remains A; after a win returns from battle, distinguishable music proves B's track, not A's, is selected; generic audio runner parity is not duplicated."""
+covers = ["CAP-7", "CAP-9"]
+after = [8, 19]
+hitl = false
+risk = "low"
+references = ["spec - docs/spec/engine/battle.md#bat-10", "spec - docs/spec/engine/audio-media.md"]
+notes = ["Audit evidence: packages/core/test/battle-cues-engine.test.ts:341-347 verifies win-return only. The additional fixture must make board B active while battle.boardKey remains A and give the boards distinguishable music; #691's generic audio parity is excluded."]
+
+[[entry]]
+id = 33
+tracker_id = "#753"
+type = "story"
+title = "Refactor sweep: reconcile Epic 7 review evidence"
+description = """After tickets 7.21–7.32 land, add current evidence and gaps to the Epic 7 closure record while preserving historical ticket statuses and completed plan checkboxes; prior Done-when labels are not proof that the full criteria were satisfied."""
+verify = """Each review finding in 7.21–7.32 is reconciled against merged evidence or an owner-approved rule; the Done-when record labels the 2026-10-28 "met" entries as historical and separately states what remains unproven; original 7.1–7.20 ticket statuses and completed plan checkboxes are not rewritten; #503 remains open until all actual criteria and follow-up child issue closures are verified."""
+covers = ["CAP-9"]
+after = [21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+hitl = false
+risk = "medium"
+references = ["epic - _bmad-output/initiative-rpgtoolkit-reawakened/epic-battle/epic-battle.md", "tracker - _bmad-output/initiative-rpgtoolkit-reawakened/epic-battle/tickets.toml", "issue - #503"]
