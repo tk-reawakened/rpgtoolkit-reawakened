@@ -411,6 +411,7 @@ notes = ["Audit evidence: stock/stock_battle/startup.prg:849-904 exits without c
 [[entry]]
 id = 22
 tracker_id = "#742"
+tracker_status = "done"
 type = "bug"
 title = "A lethal status skips the enemy custom AI turn"
 description = """An enemy whose status effect lowers HP to zero immediately before its charged turn does not run its custom AI, although BAT-6 requires that AI turn to run."""
