@@ -2,6 +2,7 @@
 # Table order is the build order; ids are stable names. Entry 1 is the owner-approved docs checkpoint.
 # Lanes: A docs/state (1, 2), B API (3), C package rules (4-8), D starts and media (9, 10), E UI and custom-program proof (11, 12), F battle-thread event seam (14); 13 reconciles seams and closes the epic.
 # The 2026-10-19 owner re-slice: core owns actor data and the battle section (fighter references and charge), the stock_battle RPGCode package owns the loop, rules, AI and UI.
+next_id = 39
 
 [[entry]]
 id = 1
@@ -583,67 +584,3 @@ hitl = false
 risk = "medium"
 references = ["epic - _bmad-output/initiative-rpgtoolkit-reawakened/epic-battle/epic-battle.md", "tracker - _bmad-output/initiative-rpgtoolkit-reawakened/epic-battle/tickets.toml", "issue - #503"]
 
-[[entry]]
-id = 34
-tracker_id = "#777"
-type = "spike"
-title = "Define coherent interruption recovery checkpoints"
-description = "Define stable checkpoint eligibility and interruption recovery ordering from the owner direction, without assuming a mid-battle ledger restarts combat; preserve normal VM snapshots."
-verify = "Owner-approved rules cover safe boundaries, unresolved transactions and requests, battle, signaling, fallback, board entry and pause sequencing; unresolved choices are presented rather than assumed."
-covers = ["CAP-9", "CAP-11"]
-after = ["8.15"]
-hitl = true
-risk = "high"
-references = ["issue - #776", "planning - recovery-direction.md", "spec - docs/spec/engine/battle.md#bat-13"]
-
-[[entry]]
-id = 37
-tracker_id = "#782"
-type = "story"
-title = "Capture stable interruption checkpoints on host signals"
-description = "Implement best-effort host interruption signaling and checkpoint capture at approved stable boundaries, retaining the previous validated checkpoint when capture is unsafe or unavailable."
-verify = "Tests cover signal timing, blocked requests, transitions and battle, and demonstrate safe fallback without assuming battle restart."
-covers = ["CAP-9", "CAP-11"]
-after = [34, "8.16"]
-hitl = false
-risk = "high"
-references = ["issue - #777", "issue - #776", "planning - recovery-direction.md"]
-
-[[entry]]
-id = 38
-tracker_id = "#783"
-type = "story"
-title = "Promote validated recovery candidates atomically"
-description = "Write and read-validate separate recovery candidates before atomic pointer promotion, preserving the previous validated generation through failures."
-verify = "Host-specific tests inject write, read, validation, pointer and interruption failures and prove selection never exposes an unvalidated candidate."
-covers = ["CAP-9", "CAP-11"]
-after = [34, "8.16"]
-hitl = false
-risk = "high"
-references = ["issue - #777", "issue - #776", "planning - recovery-direction.md"]
-
-[[entry]]
-id = 35
-tracker_id = "#779"
-type = "story"
-title = "Recover paused after ledger-first board re-entry"
-description = "Restore the validated ledger before reopening its board and running its entry program, with explicit player-controlled resume; preserve normal snapshot continuation."
-verify = "Tests prove flags are restored before board loading and entry, one-time game logic is guarded by game flags, recovery remains paused until player resume, and normal save/load remains unchanged."
-covers = ["CAP-9", "CAP-11"]
-after = [34, 37, 38, "8.16"]
-hitl = false
-risk = "high"
-references = ["issue - #777", "issue - #778", "planning - recovery-direction.md"]
-
-[[entry]]
-id = 36
-tracker_id = "#780"
-type = "story"
-title = "Reconcile BAT-13 save contract and Epic 7 closure evidence"
-description = "Reconcile BAT-13 with the approved recovery contract and implemented snapshot behavior; coordinate evidence with the sole Epic 7 closure sweep 7.33."
-verify = "BAT-13 distinguishes actual snapshot continuation from interruption recovery and makes no ledger battle-restart promise; 7.33 owns the closure record and historical audit records remain intact."
-covers = ["CAP-9", "CAP-11"]
-after = [33, 35]
-hitl = false
-risk = "medium"
-references = ["issue - #753", "issue - #779", "planning - recovery-direction.md", "spec - docs/spec/engine/battle.md#bat-13"]
