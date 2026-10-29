@@ -1,9 +1,9 @@
 ---
 title: 'Complete battle save, resume, and reset lifecycle evidence'
 type: 'feature'
-ticket: '31'
+ticket: 31
 created: '2026-10-29'
-status: 'built'
+status: done
 baseline_revision: '22cd80a4c54dbe2f9c62cdf5e45ae587233101ee'
 route: 'oneshot'
 route_source: 'auto'
@@ -56,3 +56,8 @@ Decisions:
 - `node --test packages/core/test/battle-fresh-load.test.ts` — all tests pass, including the two new assertions.
 - Gates from the worktree root: `pnpm fixtures:fetch`, `typecheck`, `lint`, `test:strict`, `golden`, `golden:bun`, `graph`, `licence`, `provenance`, `catalogue:check`, `command-docs:check`.
 - Expected: the new assertions fail if the restored engine diverges from the uninterrupted run at any compared tick, or if any fight-program thread or battle state survives the reset.
+
+## Plan Change Log
+
+- 2026-10-29 (ledger chore): `ticket: '31'` → `ticket: 31` (bare entry id); the `feature` type is unchanged because it is the folder's dominant plan type and parses as a plan. Frontmatter only, content unchanged.
+- 2026-10-29 (completed): marked done after PR #771 (`82d30c5e`, "test(battle): complete the battle save, resume and reset lifecycle evidence") merged; issue #751 closed 2026-10-29T17:07:05Z. Test commit `f53d26a0` adds the per-tick game-state hash comparison against the real `Load` path and the reset-during-battle case in `packages/core/test/battle-fresh-load.test.ts`; the docs-first commit `8194cd35` corrects the BAT-13 attribution and adds the separate scope paragraph attributed to entry 7.31 as an implementation clarification pending owner confirmation. No production code and no golden change. PR #771 CI green with `unit (core-battle)` 6m38s.
