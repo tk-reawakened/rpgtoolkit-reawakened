@@ -5,7 +5,7 @@ import { actor, awaitMenu, bootUiRig, regionHash, ui, type UiRig } from "./battl
 
 type Box = { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number };
 type Context = "idle" | "command" | "list" | "target";
-type Change = { readonly name: string; readonly box: Box; readonly mutate: (rig: UiRig) => void };
+type Change = { readonly name: string; readonly box: Box; readonly mutate: (rig: UiRig) => () => void };
 
 const nameBox = { x1: 172, y1: 356, x2: 275, y2: 371 };
 const hpBox = { x1: 276, y1: 356, x2: 387, y2: 369 };
@@ -15,17 +15,37 @@ const enemyName = { x1: 40, y1: 107, x2: 103, y2: 114 };
 const enemyHp = { x1: 40, y1: 118, x2: 103, y2: 123 };
 
 const changes: readonly Change[] = [
-  { name: "party name", box: nameBox, mutate: (rig) => { actor(rig, "hero.tem").name = "Zelda"; } },
-  { name: "party HP", box: hpBox, mutate: (rig) => { actor(rig, "hero.tem").stats.hp = 13; } },
-  { name: "party maximum HP", box: hpBox, mutate: (rig) => { actor(rig, "hero.tem").stats.maxHp = 80; } },
-  { name: "party SMP", box: smpBox, mutate: (rig) => { actor(rig, "hero.tem").stats.smp = 2; } },
-  { name: "party maximum SMP", box: smpBox, mutate: (rig) => { actor(rig, "hero.tem").stats.maxSmp = 40; } },
-  { name: "fallen status", box: nameBox, mutate: (rig) => { actor(rig, "hero.tem").stats.hp = 0; } },
-  { name: "enemy name", box: enemyName, mutate: (rig) => { actor(rig, "slime.ene").name = "Dragon"; } },
-  { name: "enemy HP", box: enemyHp, mutate: (rig) => { actor(rig, "slime.ene").stats.hp = 10; } },
-  { name: "enemy maximum HP", box: enemyHp, mutate: (rig) => { actor(rig, "slime.ene").stats.maxHp = 60; } },
+  { name: "party name", box: nameBox, mutate: (rig) => {
+    const hero = actor(rig, "hero.tem"); const before = hero.name; hero.name = "Zelda"; return () => { hero.name = before; };
+  } },
+  { name: "party HP", box: hpBox, mutate: (rig) => {
+    const stats = actor(rig, "hero.tem").stats; const before = stats.hp; stats.hp = 13; return () => { stats.hp = before; };
+  } },
+  { name: "party maximum HP", box: hpBox, mutate: (rig) => {
+    const stats = actor(rig, "hero.tem").stats; const before = stats.maxHp; stats.maxHp = 80; return () => { stats.maxHp = before; };
+  } },
+  { name: "party SMP", box: smpBox, mutate: (rig) => {
+    const stats = actor(rig, "hero.tem").stats; const before = stats.smp; stats.smp = 2; return () => { stats.smp = before; };
+  } },
+  { name: "party maximum SMP", box: smpBox, mutate: (rig) => {
+    const stats = actor(rig, "hero.tem").stats; const before = stats.maxSmp; stats.maxSmp = 40; return () => { stats.maxSmp = before; };
+  } },
+  { name: "enemy name", box: enemyName, mutate: (rig) => {
+    const enemy = actor(rig, "slime.ene"); const before = enemy.name; enemy.name = "Dragon"; return () => { enemy.name = before; };
+  } },
+  { name: "enemy HP", box: enemyHp, mutate: (rig) => {
+    const stats = actor(rig, "slime.ene").stats; const before = stats.hp; stats.hp = 10; return () => { stats.hp = before; };
+  } },
+  { name: "enemy maximum HP", box: enemyHp, mutate: (rig) => {
+    const stats = actor(rig, "slime.ene").stats; const before = stats.maxHp; stats.maxHp = 60; return () => { stats.maxHp = before; };
+  } },
   // The fallen Rogue does not accumulate charge in idle, so only this mutation can change its bar.
-  { name: "party charge", box: chargeBox, mutate: (rig) => { rig.state().battle!.parties[1][2]!.charge = 60; } },
+  { name: "party charge", box: chargeBox, mutate: (rig) => {
+    const fighter = rig.state().battle!.parties[1][2]!; const before = fighter.charge; fighter.charge = 60; return () => { fighter.charge = before; };
+  } },
+  { name: "fallen status", box: nameBox, mutate: (rig) => {
+    const stats = actor(rig, "hero.tem").stats; const before = stats.hp; stats.hp = 0; return () => { stats.hp = before; };
+  } },
 ];
 
 function ready(context: Context): UiRig {
@@ -51,20 +71,63 @@ function ready(context: Context): UiRig {
 }
 
 for (const context of ["idle", "command", "list", "target"] as const) {
-  for (const change of changes) {
-    // The full-screen list obscures battlefield labels and bars.
-    if (context === "list" && change.name.startsWith("enemy ")) continue;
-    test(`${context}: ${change.name} updates its pixels without input within six ticks`, () => {
-      const rig = ready(context);
-      const before = regionHash(rig, change.box);
-      change.mutate(rig);
-      rig.tick(6);
-      equal(ui(rig)["mode"], context, "no key or action changed the UI mode");
-      ok(regionHash(rig, change.box) !== before, `${change.name} remained stale`);
-      deepEqual(rig.diagnostics, []);
-    });
-  }
+  // Reuse real-engine setup, restoring each field and its affected pixels between cases.
+  // Fallen is last because its animation history is not restored by restoring HP.
+  // The parent deliberately exceeds one second: it includes real battle setup and all
+  // cross-layer cases. To select a mode, run:
+  // node --test --test-name-pattern='^target: fighter data updates its pixels' packages/core/test/battle-ui-refresh.test.ts
+  // This selects the parent and all its cases; old per-case top-level filters no longer apply.
+  test(`${context}: fighter data updates its pixels without input within six ticks`, async (t) => {
+    let shared: UiRig | null = ready(context);
+    for (const change of changes) {
+      // The full-screen list obscures battlefield labels and bars.
+      if (context === "list" && change.name.startsWith("enemy ")) continue;
+      // A failed case may leave arbitrary engine state behind. Reboot before continuing.
+      if (shared === null) shared = ready(context);
+      const rig = shared;
+      let failed = false;
+      await t.test(change.name, () => {
+        try {
+          if (context === "idle") {
+            // Prevent turns while the shared idle rig advances through the cases.
+            for (const party of rig.state().battle!.parties) for (const fighter of party) fighter.charge = 0;
+            rig.tick(6);
+          }
+          equal(ui(rig)["mode"], context);
+          const before = regionHash(rig, change.box);
+          const restore = change.mutate(rig);
+          rig.tick(6);
+          equal(ui(rig)["mode"], context, "no key or action changed the UI mode");
+          ok(regionHash(rig, change.box) !== before, `${change.name} remained stale`);
+          deepEqual(rig.diagnostics, []);
+          restore();
+          rig.tick(6);
+          equal(ui(rig)["mode"], context);
+          equal(regionHash(rig, change.box), before, `${change.name} was not restored`);
+          deepEqual(rig.diagnostics, []);
+        } catch (error) {
+          failed = true;
+          throw error;
+        }
+      });
+      if (failed) shared = null;
+    }
+  });
 }
+
+test("charge refresh covers every bar scan phase and repeated charge changes", () => {
+  const rig = ready("command");
+  const fighter = rig.state().battle!.parties[1][2]!;
+  for (const [phase, charge] of [[0, 60], [1, 0], [2, 30]] as const) {
+    rig.until(() => ui(rig)["barscan"] === phase, 120);
+    const before = regionHash(rig, chargeBox);
+    fighter.charge = charge;
+    rig.tick(6);
+    equal(ui(rig)["mode"], "command");
+    ok(regionHash(rig, chargeBox) !== before, `charge at bar scan phase ${phase} remained stale`);
+    deepEqual(rig.diagnostics, []);
+  }
+});
 
 test("target picker and message update a renamed target without cursor movement", () => {
   const rig = ready("target");
