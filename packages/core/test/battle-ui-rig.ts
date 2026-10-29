@@ -590,8 +590,10 @@ export function bootUiRig(options: RigOptions = {}): UiRig {
     tick(count = 1) {
       for (let remaining = count; remaining > 0;) {
         // One advance computes one state hash, and with canvases in the state a hash is expensive: run in chunks
-        // while nothing is loading, a tick at a time while the host answers asset requests.
-        const chunk = replies.length > 0 ? 1 : Math.min(remaining, 8);
+        // while nothing is loading, a tick at a time while the host answers asset requests. Nothing in `tick` reads
+        // the state between ticks, so a wider chunk is the same sequence of ticks with fewer hashes; `until` keeps its
+        // own smaller chunk because its predicate must be checked often.
+        const chunk = replies.length > 0 ? 1 : Math.min(remaining, 24);
         advance([], chunk);
         remaining -= chunk;
       }
