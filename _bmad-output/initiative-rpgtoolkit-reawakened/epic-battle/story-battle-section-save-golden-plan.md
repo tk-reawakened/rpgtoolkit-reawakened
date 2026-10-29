@@ -3,7 +3,7 @@ title: "Battle-section save golden"
 type: 'feature'
 ticket: 20
 created: '2026-10-26'
-status: draft
+status: done
 risk: "medium"
 context:
   - "spec - docs/spec/engine/battle.md (BAT-2, BAT-13)"
@@ -33,3 +33,4 @@ Run the focused save golden and migration tests; inspect the golden diff to ensu
 ## Plan Change Log
 
 - 2026-10-26: created to close the save-golden acceptance gap for Epic 7.2.
+- 2026-10-28: marked done after PR #697 (`ed5f3ff8`) merged and closed #692 COMPLETED; `packages/core/test/battle-save-golden.test.ts` with `packages/core/test/fixtures/save/battle-v2-out.json` captures the out-of-battle and mid-battle snapshots, the diff is confined to the root `battle` section, and the schema-v1 placeholder migration fixture and unrelated goldens are untouched.

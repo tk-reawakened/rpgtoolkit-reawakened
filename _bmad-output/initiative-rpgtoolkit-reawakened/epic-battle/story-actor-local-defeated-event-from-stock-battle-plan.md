@@ -3,7 +3,7 @@ title: "Actor-local defeated event from stock_battle"
 type: 'feature'
 ticket: 15
 created: '2026-10-26'
-status: in-progress
+status: done
 risk: "high"
 context:
   - "spec - docs/spec/engine/battle.md#bat-12"
@@ -35,3 +35,4 @@ Run the focused actor-event test and stock outcome tests. The new test uses the 
 
 - 2026-10-26: created as Epic 7 follow-up to BAT-12/EMIT-13 and issue #511 acceptance gaps.
 - 2026-10-27: narrowed the acceptance after merged PR #693; only the script-cause event path remains.
+- 2026-10-28: marked done after PR #698 (`541bfeff`) merged and closed #687 COMPLETED; the authored `hp(battle.fighter(0,0), 0)` test asserts one actor-local and one game-level `stock_battle.defeated` event with cause `script` and a null source, and event ownership stays in `stock/stock_battle/startup.prg`.
