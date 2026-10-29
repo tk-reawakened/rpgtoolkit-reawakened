@@ -3,7 +3,7 @@ title: "Epic 7 documentation and rulings reconciliation"
 type: 'feature'
 ticket: 16
 created: '2026-10-26'
-status: in-progress
+status: done
 risk: "medium"
 context:
   - "spec - docs/spec/engine/battle.md (BAT-3, BAT-8–9, BAT-11–15)"
@@ -45,3 +45,4 @@ Review the remaining BAT-3, BAT-8, BAT-9, and BAT-11–15 rows, E-73/E-78, R-57,
 - 2026-10-26: created from the Epic 7 acceptance audit and owner-approved rulings.
 - 2026-10-27: removed BAT-7 and BAT-10 as duplicate documentation work; those rulings are already present in the current docs.
 - 2026-10-27: reconciled against merged PR #695; every acceptance item verified against the current docs.
+- 2026-10-28 (completed): marked done after PR #739 (`2d26afef`, "docs(spec): state the random() draw domain and its modulo bias", Fixes #688) merged. That was the last gap: Ruling 3 in `docs/spec/engine/rpgcode-functions.md:17` now states the draw domain (`0 … 2^32 − 1` via `RngPort.nextUint32`, verified in `packages/core/src/ports/rng.ts` and the `>>> 0` masking in `packages/core/src/rng/xoshiro.ts`), the `2^32 = 5 × 858,993,459 + 1` residue split and the `1,717,986,919 / 4,294,967,296 = 0.4 + 1.39698 × 10^-10` result that BAT-8 records at `docs/spec/engine/battle.md:184`; the arithmetic was re-derived for this audit. Every other acceptance item verified on `main` as listed in the plan (BAT-3, BAT-9, BAT-11–15, E-73→BAT-5, R-57, E-78 vs R-16, the `fp`/`givefp`/`dp` rows).
