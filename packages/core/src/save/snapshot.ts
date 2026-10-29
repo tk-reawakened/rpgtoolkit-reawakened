@@ -770,6 +770,14 @@ function validateAudioShape(value: unknown): void {
     validateAudioFade(entry.fade, `${path}.fade`);
   }
 }
+/** The `engine` section's battle counter, when a save carries one (BAT-2 "battle numbers"). */
+function validateEngineShape(value: unknown): void {
+  const engine = recordAt(value, "engine");
+  if (engine.nextBattleId === undefined) return;
+  if (typeof engine.nextBattleId !== "number" || !Number.isSafeInteger(engine.nextBattleId) || engine.nextBattleId < 1) {
+    shapeError("the snapshot's engine.nextBattleId must be a positive whole number");
+  }
+}
 function validateShape(record: Record<string, unknown>): void {
   const schema = recordAt(record.schema, "schema");
   for (const key of Object.keys(SCHEMA_VERSIONS)) numberAt(schema[key], `schema.${key}`);
@@ -781,6 +789,7 @@ function validateShape(record: Record<string, unknown>): void {
       continue;
     }
     recordAt(record[key], key);
+    if (key === "engine") validateEngineShape(record[key]);
     if (key === "sprites") validateSpritesShape(record[key]);
     if (key === "actors") validateActorsShape(record[key]);
     if (key === "triggers") validateTriggersShape(record[key]);

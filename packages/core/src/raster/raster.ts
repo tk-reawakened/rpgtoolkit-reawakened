@@ -2,6 +2,7 @@ import type { DecodedTexture } from "../formats/image/model.ts";
 import type { LegacyFont } from "../formats/font/model.ts";
 import { readTrueTypeFont, trueTypeFontMetrics, type TrueTypeFont } from "../formats/font/truetype.ts";
 import { getGlyphRaster } from "./glyph.ts";
+import { tintChannel } from "./tint.ts";
 import type {
   BlitCommand,
   DrawCommand,
@@ -188,9 +189,9 @@ function blend(
   const [sr, sg, sb, sa] = source;
   const tint = command.tint;
   const tinted = tint.r !== 0 || tint.g !== 0 || tint.b !== 0;
-  const r = clampByte((tinted && sr === 255 ? 245 : tinted && sr === 0 ? 10 : sr) + tint.r);
-  const g = clampByte((tinted && sg === 255 ? 245 : tinted && sg === 0 ? 10 : sg) + tint.g);
-  const b = clampByte((tinted && sb === 255 ? 245 : tinted && sb === 0 ? 10 : sb) + tint.b);
+  const r = tintChannel(sr, tint.r, tinted);
+  const g = tintChannel(sg, tint.g, tinted);
+  const b = tintChannel(sb, tint.b, tinted);
   const alpha = Math.max(0, Math.min(255, command.alpha));
   if (command.blend === "normal") {
     target.rgba[at] = r;

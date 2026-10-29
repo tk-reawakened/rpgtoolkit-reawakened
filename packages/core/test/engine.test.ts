@@ -1,7 +1,7 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { TextEncoder } from "node:util";
 import { test } from "node:test";
-import { addActor, applyEmitterOp, COMPILER_VERSION, createAssetIndex, createEmptyBoard, createEmptyMainFile, createEngine, decodeSurfaceBytes, ENGINE_DEFAULT_MANIFEST, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, encodeSurfaceBytes, hashGameState, PACKAGE_ROOT, readSurfacePixels, writeBoard, writeMainFile, type Board, type CommandView, type EffectRecord, type EnginePhaseRegistration, type GameState, type PackageCatalogueEntry, type PluginDefinition, type ResolvedPlugin, type SurfaceId } from "../src/index.ts";
+import { addActor, applyEmitterOp, assetKey, COMPILER_VERSION, createAssetIndex, createEmptyBoard, createEmptyMainFile, createEngine, decodeSurfaceBytes, ENGINE_DEFAULT_MANIFEST, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, encodeSurfaceBytes, hashGameState, PACKAGE_ROOT, readSurfacePixels, TILE_BITMAP_MAGIC, writeBoard, writeMainFile, writeTileBitmap, writeTileset, type Board, type CommandView, type EffectRecord, type Engine, type EnginePhaseRegistration, type GameState, type PackageCatalogueEntry, type PluginDefinition, type ResolvedPlugin, type SurfaceId } from "../src/index.ts";
 import { resolveManifestPlugins } from "../src/engine/boot.ts";
 
 function boardBytes(board: Board): Uint8Array {
@@ -883,6 +883,69 @@ test("engine classifies .tbm board-image dependencies as tile requests", () => {
   const imageRequest = loaded.requests[0];
   if (imageRequest?.kind !== "asset") throw new Error("expected tile bitmap request");
   equal(imageRequest.key, "bitmap/tiles.tbm");
+});
+
+/** A one-tile 32×32 tileset plus a 2 × 2 tile bitmap over it, for the image path's tile-bitmap decode. */
+function tileBitmapFiles(cellTile: string): Map<string, Uint8Array> {
+  const pixels = new Uint8Array(32 * 32 * 3);
+  for (let at = 0; at < pixels.length; at += 3) {
+    pixels[at] = 100;
+    pixels[at + 1] = 100;
+    pixels[at + 2] = 100;
+  }
+  const tileset = writeTileset({ version: 20, detail: { code: 1, size: 32, bytesPerPixel: 3, isometric: false }, tiles: [{ pixels }], residue: new Uint8Array() });
+  if (!tileset.ok) throw new Error(tileset.error.message);
+  const cells = [];
+  for (let x = 0; x <= 2; x += 1) for (let y = 0; y <= 2; y += 1) cells.push({ tile: x < 2 && y < 2 ? cellTile : "", r: 10, g: 20, b: 30 });
+  const bitmap = writeTileBitmap({ magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 2, height: 2, cells, residue: new Uint8Array() });
+  if (!bitmap.ok) throw new Error(bitmap.error.message);
+  return new Map([[assetKey("Tiles/tiles.tst"), tileset.value], [assetKey("Bitmap/tiles.tbm"), bitmap.value], [assetKey("Boards/test.brd"), authoredBoard()]]);
+}
+
+/** Run `bitmap("tiles.tbm", c)` into a 64 × 64 canvas, answering every request from `files`, and report the run. */
+function tileBitmapRun(cellTile: string): { readonly engine: Engine; readonly diagnostics: { readonly code: string; readonly file: string; readonly message: string }[] } {
+  const files = tileBitmapFiles(cellTile);
+  const engine = createEngine({
+    seed: 19,
+    assetIndex: createAssetIndex(["Boards/test.brd", "Bitmap/tiles.tbm", "Tiles/tiles.tst"]),
+    assetRoot: PACKAGE_ROOT,
+    initialBoard: "test.brd",
+    width: 64,
+    height: 64,
+    maxTicks: 20,
+    program: 'createcanvas(64, 64, c)\nbitmap("tiles.tbm", c)\nend()\n',
+  });
+  const diagnostics: { code: string; file: string; message: string }[] = [];
+  let result = engine.advance(0, []);
+  diagnostics.push(...result.diagnostics);
+  for (let step = 0; step < 12 && (result.requests.length > 0 || result.loading); step += 1) {
+    const events = result.requests
+      .filter((request) => request.kind === "asset")
+      .map((request) => ({ tick: result.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: files.get(request.key) ?? null } }));
+    result = engine.advance(1, events);
+    diagnostics.push(...result.diagnostics);
+  }
+  return { engine, diagnostics };
+}
+
+test("bitmap draws a tile bitmap's cells, tinted, through the image path", () => {
+  const { engine, diagnostics } = tileBitmapRun("tiles.tst1");
+  deepEqual(diagnostics, [], "the tile bitmap decodes without a diagnostic");
+  const surface = engine.surfacePixels(1 as never, 1) ?? engine.surfacePixels(1 as never, 0);
+  if (surface === null) throw new Error("expected the composed tile bitmap");
+  equal(surface.w, 64);
+  equal(surface.h, 64);
+  deepEqual([...surface.rgba.slice(0, 4)], [110, 120, 130, 255], "cell (0, 0): the tile colour plus its cell tint");
+  deepEqual([...surface.rgba.slice(surface.rgba.length - 4)], [110, 120, 130, 255], "cell (1, 1) is drawn too");
+  deepEqual([...surface.rgba.slice(32 * 4, 32 * 4 + 4)], [110, 120, 130, 255], "the second column starts at x = 32");
+});
+
+test("bitmap reports a tile bitmap cell whose tile index is out of range", () => {
+  const { diagnostics } = tileBitmapRun("tiles.tst9");
+  const diagnostic = diagnostics.find((entry) => entry.code === "asset.invalid" && entry.file === "bitmap/tiles.tbm");
+  if (diagnostic === undefined) throw new Error(`expected an invalid-asset diagnostic, got ${JSON.stringify(diagnostics)}`);
+  equal(diagnostic.message.includes("out of range"), true);
+  equal(diagnostic.message.includes("tiles.tst9"), true);
 });
 
 test("engine classifies .tan tile-animation dependencies as tile requests", () => {

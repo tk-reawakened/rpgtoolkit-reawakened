@@ -345,6 +345,8 @@ export function createScriptServices(
     readBattle: () => state.battle,
     readActors: () => state.actors,
     commit: (section) => { state.battle = section; },
+    readBattleCounter: () => state.engine.nextBattleId,
+    commitBattleCounter: (next) => { state.engine = { ...state.engine, nextBattleId: next }; },
   });
   const battleStartView = battleStart === undefined
     ? undefined

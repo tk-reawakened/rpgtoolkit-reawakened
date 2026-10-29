@@ -49,6 +49,10 @@ Status effects, HP, SMP, FP and DP stay on the actor and are never copied here. 
 
 *Evidence:* AD-10; [actors.md](actors.md#actor-data-and-identity). *Rejected:* a battle-local copy of stats, which needs a merge rule and breaks the one-owner rule of ACT-3.
 
+**Battle numbers.** The counter behind `id` is not the live section, because loss cleanup sets `battle` back to `null` before a game-over program runs ([BAT-8](#bat-8)): it is an optional whole number, `nextBattleId`, in the saved `engine` section. `start` takes `max(nextBattleId, active battle id + 1)`, or `1` when neither exists, writes it as the new battle's `id`, and stores one more as `nextBattleId`; a start that is refused consumes no number, and a counter that lags a live section can never reuse that section's `id`. A run is the engine's lifetime (decision, 2026-10-29, issue #744): `reset()` and any lifecycle restart that rebuilds the engine section end a run, so numbering restarts at `1`; a save/restore does not end a run, because the counter is ordinary save data, so a restored game continues its numbering with or without an active battle. A save written before this counter existed carries none, and its next battle takes one past the active battle's `id`, or `1` when no battle is active — the best older data allows. A `nextBattleId` that is not a positive whole number is a located `restore.shape` refusal. Uniqueness within the run is the contract, not monotonicity.
+
+*Evidence:* [BAT-8](#bat-8) clears `battle` before a game-over program runs; issue #744's reproduction shows the second battle receiving the first battle's `id` on the section-derived numbering. *Rejected:* deriving the number from the live section, which cannot survive that cleanup.
+
 <a id="bat-3"></a>
 ## BAT-3 — The facing API and the callback mapping (OWNER)
 

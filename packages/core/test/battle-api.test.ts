@@ -72,11 +72,7 @@ test("battle owner starts ordered parties with fallen players and a fresh battle
     stats: { hp: 0, maxHp: 20 },
   });
   state.party.members = [hero.id, fallen.id];
-  const owner = createBattleOwner({
-    readBattle: () => state.battle,
-    readActors: () => state.actors,
-    commit: (battle) => { state.battle = battle; },
-  });
+  const owner = ownerFor(state);
   const result = owner.start({
     boardKey: "boards/field.brd",
     background: "night.bkg",
@@ -360,4 +356,65 @@ restoredOutcome = battle.outcome
   const expected = registerActorObject(restored.vm, restored.events, restored.actors, first.hero.id);
   ok(expected !== null);
   equal(handleOf(restored.vm.globals.restoredfighter), expected.handle);
+});
+
+function ownerFor(state: GameState) {
+  return createBattleOwner({
+    readBattle: () => state.battle,
+    readActors: () => state.actors,
+    commit: (section) => { state.battle = section; },
+    readBattleCounter: () => state.engine.nextBattleId,
+    commitBattleCounter: (next) => { state.engine = { ...state.engine, nextBattleId: next }; },
+  });
+}
+
+test("loss cleanup keeps the run's battle number so the next start is unused", () => {
+  const { state, enemy, hero } = makeState();
+  state.battle = null;
+  const owner = ownerFor(state);
+  const input = { boardKey: "boards/test.brd", background: "night.bkg", canRun: true, enemies: [enemy.id], players: [hero.id] };
+  const first = owner.start(input);
+  ok(first.ok);
+  equal(first.value.id, 1);
+  equal(state.engine.nextBattleId, 2);
+  ok(owner.apply({ type: "finish", code: 4 }).ok);
+  ok(owner.endLoss().ok);
+  equal(state.battle, null);
+
+  const second = owner.start(input);
+  ok(second.ok);
+  ok(second.value.id !== first.value.id, `battle identifier ${second.value.id} reuses ${first.value.id} in one run`);
+  equal(state.engine.nextBattleId, second.value.id + 1);
+});
+
+test("a refused start consumes no battle number", () => {
+  const { state, enemy, hero } = makeState();
+  state.battle = null;
+  const owner = ownerFor(state);
+  const refused = owner.start({ boardKey: "boards/test.brd", background: "night.bkg", canRun: true, enemies: [enemy.id], players: [] });
+  equal(refused.ok, false);
+  equal(state.engine.nextBattleId, undefined, "a rejected party leaves the counter untouched");
+
+  const started = owner.start({ boardKey: "boards/test.brd", background: "night.bkg", canRun: true, enemies: [enemy.id], players: [hero.id] });
+  ok(started.ok);
+  equal(started.value.id, 1, "the refused attempt did not consume 1");
+});
+
+test("a save without a battle counter takes one past the active battle id", () => {
+  const { state, enemy, hero } = makeState();
+  state.battle = { ...state.battle!, id: 7 };
+  equal(state.engine.nextBattleId, undefined);
+  const next = ownerFor(state).start({ boardKey: "boards/test.brd", background: "night.bkg", canRun: true, enemies: [enemy.id], players: [hero.id] });
+  ok(next.ok);
+  equal(next.value.id, 8);
+  equal(state.engine.nextBattleId, 9);
+});
+
+test("a counter that lags the live section never reuses that section's identifier", () => {
+  const { state, enemy, hero } = makeState();
+  state.battle = { ...state.battle!, id: 5 };
+  state.engine = { ...state.engine, nextBattleId: 3 };
+  const next = ownerFor(state).start({ boardKey: "boards/test.brd", background: "night.bkg", canRun: true, enemies: [enemy.id], players: [hero.id] });
+  ok(next.ok);
+  equal(next.value.id, 6);
 });

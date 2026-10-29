@@ -13,6 +13,9 @@ import { decodeTexture, type DecodedTexture } from "../formats/image/index.ts";
 import { expandSingleTileToRgba, readSingleTile } from "../formats/single-tile/index.ts";
 import { expandTileToRgba, readTileset, tileDimensions } from "../formats/tileset/index.ts";
 import { BinaryReader } from "../formats/binary/reader.ts";
+import { compositeTileBitmap, readTileBitmap, tileBitmapCell, type TileBitmapTile } from "../formats/tile-bitmap/index.ts";
+import { readTileAnimation } from "../formats/tile-animation/reader.ts";
+import { err, ok, type Result } from "../formats/result.ts";
 import { readCharacter } from "../formats/actor/character.ts";
 import { readItem } from "../formats/actor/item.ts";
 import type { Character, Item } from "../formats/actor/model.ts";
@@ -793,6 +796,10 @@ export function createEngine(init: EngineInit): Engine {
   function imageTexture(key: AssetKey): DecodedTexture | null {
     const cached = decodedImages.get(key);
     if (cached !== undefined) return cached;
+    // A tile bitmap is an image like any other for `bitmap` and the `setimage*` family
+    // (docs/spec/formats/tiles.md#tile-bitmap-tbm: "can be used wherever an image file is accepted"), but its pixels
+    // are tiles from other files, so it is composed from the tile decoders rather than the picture decoders.
+    if (key.toLowerCase().endsWith(".tbm")) return tileBitmapTexture(key);
     const bytes = cache.get(key);
     if (bytes === undefined) return null;
     const decoded = decodeTexture(bytes, key);
@@ -803,6 +810,123 @@ export function createEngine(init: EngineInit): Engine {
     }
     decodedImages.set(key, decoded.value);
     return decoded.value;
+  }
+  /**
+   * Decode a tile bitmap to one texture (docs/spec/formats/tiles.md#tile-bitmap-tbm), or null while one of its tiles
+   * is still being fetched — the caller keeps the effect queued and the picture lands when the reply arrives.
+   *
+   * The cells name tiles from other files (a tileset, a single tile, an animated tile), so each reference is resolved
+   * through the same resolver and decoded through the same readers the boards use
+   * (docs/spec/formats/README.md#tile-references). An animated-tile cell takes frame 0: the texture is decoded once
+   * and cached, so the picture is the board's frame at tick 0.
+   */
+  function tileBitmapTexture(key: AssetKey): DecodedTexture | null {
+    const bytes = cache.get(key);
+    if (bytes === undefined) {
+      request(key, "image");
+      return null;
+    }
+    const parsed = readTileBitmap(new BinaryReader(bytes, key));
+    if (!parsed.ok) {
+      diagnostics.push({ code: "asset.invalid", file: key, line: parsed.error.offset, message: parsed.error.message });
+      failed = true;
+      return null;
+    }
+    const tiles = new Map<string, TileBitmapTile>();
+    const columns = Math.max(0, parsed.value.width);
+    const rows = Math.max(0, parsed.value.height);
+    for (let x = 0; x < columns; x += 1) {
+      for (let y = 0; y < rows; y += 1) {
+        const cell = tileBitmapCell(parsed.value, x, y);
+        if (cell === undefined || cell.tile === "" || tiles.has(cell.tile)) continue;
+        const tile = tileCellPixels(cell.tile);
+        if (tile === null) return null;
+        if (!tile.ok) {
+          diagnostics.push({ code: "asset.invalid", file: key, line: tile.error.offset, message: tile.error.message });
+          failed = true;
+          return null;
+        }
+        tiles.set(cell.tile, tile.value);
+      }
+    }
+    const composed = compositeTileBitmap(parsed.value, tiles);
+    if (!composed.ok) {
+      diagnostics.push({ code: "asset.invalid", file: key, line: composed.error.offset, message: composed.error.message });
+      failed = true;
+      return null;
+    }
+    decodedImages.set(key, composed.value);
+    return composed.value;
+  }
+  /**
+   * The row-major pixels of one tile reference of a tile bitmap (docs/spec/formats/README.md#tile-references), or null
+   * when its file is not in the cache yet (the request is made here).
+   *
+   * The tile is taken out of the texture `tileTexture` builds for the same file, so a tile bitmap and a board decode a
+   * tileset once, through one expander, and share the cache. `tileTexture` lays a tileset out as one strip of tiles
+   * `sourceOffset` (core/raster) steps through, which is 32 pixels per tile (16×16 details doubled) or 64 for the
+   * diamonds of an `.iso` tileset; tile references are 1-based, so `name.tst8` is the eighth slice.
+   */
+  function tileCellPixels(reference: string): Result<TileBitmapTile> | null {
+    const resolved = resolveTileReference(index, root, reference);
+    if (!resolved.ok) return resolved;
+    let kind = resolved.value;
+    if (kind.kind === "empty") {
+      return err({
+        offset: 0,
+        section: "docs/spec/formats/README.md#tile-references",
+        message: `tile bitmap cell reference "${reference}" is empty`,
+      });
+    }
+    if (kind.kind === "animatedTile") {
+      const animationBytes = cache.get(kind.asset);
+      if (animationBytes === undefined) {
+        request(kind.asset, requestKindFor(kind.asset));
+        return null;
+      }
+      const animation = readTileAnimation(new BinaryReader(animationBytes, kind.asset));
+      if (!animation.ok) return animation;
+      const first = animation.value.frames[0] ?? "";
+      if (first === "") {
+        return err({
+          offset: 0,
+          section: "docs/spec/formats/tiles.md#animated-tile-tan",
+          message: `animated tile "${kind.path}" has no first frame`,
+        });
+      }
+      const frame = resolveTileReference(index, root, first);
+      if (!frame.ok) return frame;
+      if (frame.value.kind !== "tileset" && frame.value.kind !== "isometric" && frame.value.kind !== "singleTile") {
+        return err({
+          offset: 0,
+          section: "docs/spec/formats/tiles.md#animated-tile-tan",
+          message: `animated tile "${kind.path}" names "${first}", which is not a tile`,
+        });
+      }
+      kind = frame.value;
+    }
+    if (!cache.has(kind.asset)) {
+      request(kind.asset, requestKindFor(kind.asset));
+      return null;
+    }
+    const strip = tileTexture(kind.asset);
+    if (strip === null) return null;
+    if (kind.kind === "singleTile") return ok({ w: strip.w, h: strip.h, rgba: strip.rgba });
+    const tileWidth = kind.kind === "isometric" ? strip.h * 2 : strip.h;
+    const left = (kind.tile - 1) * tileWidth;
+    if (kind.tile < 1 || left + tileWidth > strip.w) {
+      return err({
+        offset: 0,
+        section: "docs/spec/formats/README.md#tile-references",
+        message: `tile "${reference}" is out of range: ${kind.asset} holds ${strip.w / tileWidth} tile(s)`,
+      });
+    }
+    const rgba = new Uint8Array(tileWidth * strip.h * 4);
+    for (let y = 0; y < strip.h; y += 1) {
+      const from = (y * strip.w + left) * 4;
+      rgba.set(strip.rgba.subarray(from, from + tileWidth * 4), y * tileWidth * 4);
+    }
+    return ok({ w: tileWidth, h: strip.h, rgba });
   }
   function tileTexture(key: AssetKey): DecodedTexture | null {
     const cached = decodedTiles.get(key);
@@ -963,6 +1087,7 @@ export function createEngine(init: EngineInit): Engine {
   function syncEngineState(): void {
     const next: EngineSection = {
       nextRequestId,
+      ...(state.engine.nextBattleId === undefined ? {} : { nextBattleId: state.engine.nextBattleId }),
       pending: Array.from(pending.values(), (entry) => ({ reqId: entry.reqId, key: entry.key, kind: entry.kind })),
       failed,
       claims: state.engine.claims ?? [],
@@ -1055,12 +1180,28 @@ export function createEngine(init: EngineInit): Engine {
     cache.set(entry.key, new Uint8Array(record.event.bytes));
     if (entry.kind === "image") {
       imageTexture(entry.key);
-      const waiting = pendingImageEffects.filter((item) => item.key === entry.key);
-      pendingImageEffects.splice(0, pendingImageEffects.length, ...pendingImageEffects.filter((item) => item.key !== entry.key));
-      const texture = decodedImages.get(entry.key);
-      if (texture !== undefined) for (const item of waiting) applySurfaceImage(item.effect, texture);
     } else if (entry.kind === "tile") {
       tileTexture(entry.key);
+    }
+    // An image effect waits for a texture, and a tile bitmap's texture waits for its tiles, so every arriving asset
+    // may complete one. A texture that is still not ready keeps its effect queued for the next reply.
+    retryPendingImageEffects();
+  }
+  /** Apply every queued image effect whose texture is now ready, in the order they were queued. */
+  function retryPendingImageEffects(): void {
+    if (pendingImageEffects.length === 0 || failed) return;
+    for (let index = 0; index < pendingImageEffects.length;) {
+      const item = pendingImageEffects[index]!;
+      const texture = imageTexture(item.key);
+      if (texture === null) {
+        // A picture that cannot be decoded is reported once and its effect is dropped, as before; one that is only
+        // waiting for another asset stays queued.
+        if (failed) pendingImageEffects.splice(index, 1);
+        else index += 1;
+        continue;
+      }
+      pendingImageEffects.splice(index, 1);
+      applySurfaceImage(item.effect, texture);
     }
   }
   function consumeBlob(record: InputRecord, consumed: InputRecord[]): BlobReplyResult {
