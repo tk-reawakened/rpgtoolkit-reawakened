@@ -29,13 +29,15 @@ context: []
 
 Oneshot: a focused test-only change reuses the existing authored game and real stock battle.
 
-The test switches the active world board during the unresolved real stock fight; it asserts the saved battle key remains the original board and checks return event, cues, and audio state.
+The engine's normal transition hydrates an authored board B during the unresolved real stock fight. B's enter program restores battle music so its return music produces a distinct cue. The test asserts the saved battle key remains A during the outcome and after return, and checks the return event, cues, and audio state.
 
 ## Plan Change Log
 
 ## Review Triage Log
 
 Quick independent review: no findings.
+
+Director review requested an authored B and real transition instead of cloning the active board; applied and focused proof passed. An alternative beforePlay-listener approach exposed a separate audio binding TypeError and was not retained.
 
 ## Verification
 
