@@ -510,7 +510,7 @@ test("seeded tile movement reaches a stock random encounter outcome and replays"
         replies.push({ tick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } });
         replies.push({ tick: tick + 1, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: false } });
       }
-      const report = engine.advance(3, replies);
+      const report = engine.advance(12, replies);
       diagnostics.push(...report.diagnostics.map((item) => item.code));
       replies = report.requests.flatMap((request): InputRecord[] => request.kind === "asset"
         ? [{ tick: report.tickAfter, event: { kind: "asset", reqId: request.reqId, bytes: game.files.get(request.key) ?? null } }] : []);

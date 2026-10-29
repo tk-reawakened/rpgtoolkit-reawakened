@@ -40,6 +40,8 @@ The authored board and main file enable a seeded chance-based encounter. A queue
 
 Profiling: the real stock path took 20.06 seconds for two replays with one tick per advance. Batching three ticks per advance reduced it to 7.27 seconds while retaining real movement, keyboard events, stock outcome and replay comparisons. This full-engine integration test necessarily runs the stock UI and both seeded replays; it exceeds the ordinary unit-test budget.
 
+CPU profile of the three-tick run (`node --cpu-prof`, 6,755 samples): `fnv1a64UpdateAscii` 2,252 samples, garbage collection 1,167, `hashGameState` 909, `serializeString` 576 and `serializeObject` 443. State hashing and serialization dominate. Batching 12 ticks per advance, matching the existing key cadence, reduced the focused test to 2.62 seconds without dropping either real stock replay or any assertions. It remains above one second because both replays still run real stock UI, asset loading, combat and state hashing; bypassing those would weaken the requested end-to-end check.
+
 ## Verification
 
 Focused test passed (1.48 seconds); complete battle-cues engine file passed (8.46 seconds). `pnpm typecheck` passed (2.81 seconds); lint, graph, provenance and licence passed together (7.10 seconds). Remaining CI gates run on the pull request.
