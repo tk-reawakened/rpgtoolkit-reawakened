@@ -1,6 +1,6 @@
 # Game images (`.bmp`, `.gif`)
 
-Games ship pictures in `Bitmap/` (and a few elsewhere) in one of four kinds: PNG, JPEG, Windows bitmap or GIF. PNG and JPEG are third-party formats read as-is; a Windows bitmap and a GIF are the same. The engine reads every one of them in one place and turns it into pixels; this page records the Windows bitmap and GIF layouts so the readers have a specification to work from, since [README.md](README.md) previously called these third-party formats with no page of their own.
+Games ship pictures in `Bitmap/` (and a few elsewhere) in one of four kinds: PNG, JPEG, Windows bitmap or GIF. PNG and JPEG are third-party formats read as-is; a Windows bitmap and a GIF are the same. A **tile bitmap** (`.tbm`) also lives in `Bitmap/` but is not one of these kinds: its cells are composed from tiles as [tiles.md](tiles.md#tile-bitmap-tbm) describes, and the composed picture follows the shared decode contract below. The engine reads every one of them in one place and turns it into pixels; this page records the Windows bitmap and GIF layouts so the readers have a specification to work from, since [README.md](README.md) previously called these third-party formats with no page of their own.
 
 The layouts below are public formats — the Microsoft bitmap layout and the CompuServe GIF layout — written here in the byte order of this spec ([README.md](README.md#primitive-encoding): `short` is signed 16-bit little-endian, `int` is signed 32-bit little-endian). No RPG Toolkit file format is involved.
 
