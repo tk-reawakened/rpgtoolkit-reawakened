@@ -156,6 +156,13 @@ function makeState(): GameState {
 }
 
 
+/** `makeState` with no battle section: the fight has to start through the owner. */
+function idleState(): GameState {
+  const state = makeState();
+  state.battle = null;
+  return state;
+}
+
 function runOutcome(state: GameState, source: string, options: { readonly gameOverProgram?: string | null; readonly enemy?: Uint8Array } = {}) {
   const services = createScriptServices(
     state, plugins, undefined, undefined, loader, "default", undefined, undefined,
@@ -238,7 +245,7 @@ test("the core loss adapter uses the message and reset fallback without a game-o
 });
 
 test("a game-over program that starts another battle after a loss takes an unused identifier", () => {
-  const state = makeState();
+  const state = idleState();
   state.world = {
     board: {
       key: assetKey("boards/test.brd"), coordType: 0, sizeX: 1, sizeY: 1, sizeL: 1, width: 1, height: 1,
@@ -249,8 +256,7 @@ test("a game-over program that starts another battle after a loss takes an unuse
   const hero = state.actors.actors.find((actor) => actor.kind === "party");
   if (enemy === undefined || hero === undefined) throw new Error("actors missing");
   // Start the first battle through the owner so the run's counter is set, exactly as
-  // `fightenemy` does; the hand-made section in `makeState` skips it.
-  state.battle = null;
+  // `fightenemy` does; a hand-made section in `makeState` would skip it.
   const owner = createBattleOwner({
     readBattle: () => state.battle,
     readActors: () => state.actors,
@@ -261,6 +267,7 @@ test("a game-over program that starts another battle after a loss takes an unuse
   const first = owner.start({ boardKey: "boards/test.brd", background: "night.bkg", canRun: true, enemies: [enemy.id], players: [hero.id] });
   ok(first.ok);
   const firstId = first.value.id;
+  equal(state.engine.nextBattleId, firstId + 1);
 
   const result = runOutcome(state, fixture("battle-outcome-lose.prg"), { gameOverProgram: "battle-outcome-game-over-restart.prg" });
 
@@ -268,7 +275,7 @@ test("a game-over program that starts another battle after a loss takes an unuse
   deepEqual(result.services.diagnostics.map(({ code }) => code), []);
   equal(state.vm.globals.gameoverrestartcount, 1);
   const remaining = state.battle;
-  ok(remaining !== null, "the game-over program's battle is the remaining section");
+  if (remaining === null) throw new Error("the game-over program's battle is the remaining section");
   equal(remaining.outcome, null);
   ok(remaining.id !== firstId, `battle identifier ${remaining.id} reuses the earlier ${firstId} in one run`);
   equal(state.engine.nextBattleId, remaining.id + 1);
