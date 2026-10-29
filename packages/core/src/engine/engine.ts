@@ -963,6 +963,7 @@ export function createEngine(init: EngineInit): Engine {
   function syncEngineState(): void {
     const next: EngineSection = {
       nextRequestId,
+      ...(state.engine.nextBattleId === undefined ? {} : { nextBattleId: state.engine.nextBattleId }),
       pending: Array.from(pending.values(), (entry) => ({ reqId: entry.reqId, key: entry.key, kind: entry.kind })),
       failed,
       claims: state.engine.claims ?? [],

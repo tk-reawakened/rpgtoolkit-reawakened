@@ -5,14 +5,24 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import {
   addActor,
+  assetKey,
+  createAssetIndex,
+  createBattleOwner,
+  createEmptyBoard,
+  createEngine,
   createGameState,
   hashGameState,
   isBattleFighterUsable,
+  PACKAGE_ROOT,
   restoreGameState,
   SCHEMA_VERSIONS,
   snapshot,
+  writeBoard,
+  type AssetKey,
   type BattleState,
   type Diagnostic,
+  type Engine,
+  type GameState,
   validateBattleSection,
 } from "../src/index.ts";
 const fixturePath = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "save", "battle-v1.json");
@@ -116,4 +126,124 @@ test("a fresh game state has no active battle", () => {
 test("an out-of-battle serialized snapshot contains battle: null", () => {
   const saved = JSON.parse(snapshot(createGameState({ seed: 1 }))) as { battle: unknown };
   equal(saved.battle, null);
+});
+
+function ownerFor(state: GameState) {
+  return createBattleOwner({
+    readBattle: () => state.battle,
+    readActors: () => state.actors,
+    commit: (section) => { state.battle = section; },
+    readBattleCounter: () => state.engine.nextBattleId,
+    commitBattleCounter: (next) => { state.engine = { ...state.engine, nextBattleId: next }; },
+  });
+}
+
+function partyState(): { readonly state: GameState; readonly enemy: number; readonly player: number } {
+  const state = createGameState({ seed: 5 });
+  const enemy = addActor(state.actors, { kind: "enemy", source: "enemy", name: "enemy" });
+  const player = addActor(state.actors, { kind: "party", source: "player", name: "player", stats: { hp: 10, maxHp: 10 } });
+  state.party.members = [player.id];
+  state.party.selected = player.id;
+  return { state, enemy: enemy.id, player: player.id };
+}
+
+test("a save restored with no active battle keeps the run's battle numbering", () => {
+  const { state, enemy, player } = partyState();
+  const owner = ownerFor(state);
+  const first = owner.start({ boardKey: "boards/castle.brd", background: "night.bkg", canRun: true, enemies: [enemy], players: [player] });
+  ok(first.ok);
+  equal(first.value.id, 1);
+  ok(owner.apply({ type: "finish", code: 4 }).ok);
+  ok(owner.endLoss().ok);
+  equal(state.battle, null, "loss cleanup leaves no active battle");
+
+  const restored = restoreGameState(snapshot(state));
+  equal(restored.engine.nextBattleId, 2, "the counter is ordinary save data");
+  const second = ownerFor(restored).start({ boardKey: "boards/castle.brd", background: "night.bkg", canRun: true, enemies: [enemy], players: [player] });
+  ok(second.ok);
+  equal(second.value.id, 2, "a restored game continues its numbering");
+});
+
+test("a battle counter that is not a positive whole number is refused at restore", () => {
+  const saved = JSON.parse(snapshot(createGameState({ seed: 1 }))) as { engine: unknown };
+  for (const nextBattleId of [0, -1, 1.5, "2", null, true]) {
+    throws(
+      () => restoreGameState(JSON.stringify({ ...saved, engine: { nextBattleId } })),
+      (error: unknown) => (error as { code?: string }).code === "restore.shape",
+      `${JSON.stringify(nextBattleId)} must be refused`,
+    );
+  }
+  equal(restoreGameState(JSON.stringify({ ...saved, engine: { nextBattleId: 3 } })).engine.nextBattleId, 3);
+});
+
+/** Boot the real engine on one authored board; `run` sees every audio-phase tick and its state. */
+function bootEngine(program: string, run: (state: GameState) => void): { readonly engine: Engine; readonly files: Map<AssetKey, Uint8Array> } {
+  const board = writeBoard(createEmptyBoard());
+  if (!board.ok) throw new Error(board.error.message);
+  const files = new Map<AssetKey, Uint8Array>([[assetKey("Boards/a.brd"), board.value]]);
+  const engine = createEngine({
+    seed: 7,
+    assetIndex: createAssetIndex(["Boards/a.brd"]),
+    assetRoot: PACKAGE_ROOT,
+    initialBoard: "a.brd",
+    width: 32,
+    height: 32,
+    maxTicks: 20,
+    program,
+    phaseRegistrations: [{ phase: "audio", run }],
+  });
+  return { engine, files };
+}
+
+/** Answer every asset request from `files` and tick once at a time until `done` holds. */
+function drive(engine: Engine, files: Map<AssetKey, Uint8Array>, done: () => boolean): void {
+  let replies: Parameters<Engine["advance"]>[1] = [];
+  for (let guard = 0; guard < 60 && !done(); guard += 1) {
+    const report = engine.advance(1, replies);
+    replies = report.requests.flatMap((request) => request.kind === "asset"
+      ? [{ tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: files.get(request.key) ?? null } }]
+      : []);
+  }
+}
+
+/** Add one enemy and one party member, then start a battle through the real owner. */
+function startBattle(state: GameState): number {
+  const enemy = addActor(state.actors, { kind: "enemy", source: "enemy", name: "enemy" });
+  const player = addActor(state.actors, { kind: "party", source: "player", name: "player" });
+  state.party.members = [player.id];
+  state.party.selected = player.id;
+  const result = ownerFor(state).start({ boardKey: "boards/a.brd", background: "", canRun: true, enemies: [enemy.id], players: [player.id] });
+  ok(result.ok);
+  return result.value.id;
+}
+
+test("an explicit engine reset restarts battle numbering at 1", () => {
+  const started: number[] = [];
+  const { engine, files } = bootEngine("sleep(2)\nreset()\nend()\n", (state) => {
+  if (started.length === 0) {
+    started.push(startBattle(state));
+    return;
+  }
+  // After `reset()` the engine section is rebuilt, so the run's counter is gone.
+  if (started.length === 1 && state.engine.nextBattleId === undefined && state.actors.actors.length === 0) {
+    started.push(startBattle(state));
+  }
+});
+  drive(engine, files, () => started.length === 2);
+  deepEqual(started, [1, 1], "a new run numbers its first battle 1");
+});
+
+test("the engine keeps the run's battle counter in its own section across ticks", () => {
+  const seen: (number | undefined)[] = [];
+  let ticks = 0;
+  const { engine, files } = bootEngine("sleep(12)\nend()\n", (state) => {
+    ticks += 1;
+    if (ticks === 1) {
+      equal(startBattle(state), 1);
+      return;
+    }
+    if (ticks <= 4) seen.push(state.engine.nextBattleId);
+  });
+  drive(engine, files, () => ticks >= 4);
+  deepEqual(seen, [2, 2, 2], "the engine's section sync keeps the counter a save must carry");
 });

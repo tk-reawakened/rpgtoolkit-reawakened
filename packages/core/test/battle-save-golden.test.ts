@@ -1,9 +1,12 @@
 // Epic 7.2 save golden (#692, BAT-2/BAT-13): the same deterministic game saved
-// out of battle and mid-battle differs only under the root `battle` section. The mid-battle
-// section is produced by the real battle owner (`start`, `setCharge`, `addCharge`)
-// over pre-created actors: it isolates the saved section, not a full engine start.
+// out of battle and mid-battle differs only under the root `battle` section, plus
+// (since #744) the `engine` section's run-scoped `nextBattleId` counter the mid-battle
+// start advances. The mid-battle section is produced by the real battle owner (`start`,
+// `setCharge`, `addCharge`) over pre-created actors: it isolates the saved section, not a full engine start.
 // Fixtures: fixtures/save/battle-v2-{out,mid}.json. Regenerate deliberately by
 // writing `build()` output to the files; the schema-v1 migration fixture `battle-v1.json` is untouched.
+// #744 regenerated `battle-v2-mid.json` once, for the added `engine.nextBattleId: 2`; no section
+// schema version moved and no other key changed.
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -24,6 +27,8 @@ function build(inBattle: boolean): string {
       readBattle: () => state.battle,
       readActors: () => state.actors,
       commit: (section) => { state.battle = section; },
+      readBattleCounter: () => state.engine.nextBattleId,
+      commitBattleCounter: (next) => { state.engine = { ...state.engine, nextBattleId: next }; },
     });
     const started = owner.start({ boardKey: "boards/castle.brd", background: "night.bkg", canRun: false, enemies: [enemy.id], players: [player.id] });
     ok(started.ok);
@@ -40,7 +45,12 @@ function golden(name: string, actual: string): string {
   return actual;
 }
 
-test("save golden: out-of-battle and mid-battle saves differ only under `battle`", () => {
+function nextBattleIdOf(root: Record<string, unknown>): unknown {
+  const engine = root.engine;
+  return typeof engine === "object" && engine !== null && "nextBattleId" in engine ? engine.nextBattleId : undefined;
+}
+
+test("save golden: out-of-battle and mid-battle saves differ only under `battle` and the engine run counter", () => {
   const out = golden("battle-v2-out.json", build(false));
   const mid = golden("battle-v2-mid.json", build(true));
   equal(build(false), out);
@@ -50,7 +60,11 @@ test("save golden: out-of-battle and mid-battle saves differ only under `battle`
   const midRoot = JSON.parse(mid) as Record<string, unknown>;
   deepEqual(Object.keys(midRoot), Object.keys(outRoot));
   const changed = Object.keys(midRoot).filter((key) => JSON.stringify(midRoot[key]) !== JSON.stringify(outRoot[key]));
-  deepEqual(changed, ["battle"]);
+  // #744: a start advances the run's battle counter in `engine`, so a mid-battle save now differs
+  // there too (`nextBattleId`); the section schema version does not move.
+  deepEqual(changed, ["battle", "engine"]);
+  equal(nextBattleIdOf(outRoot), undefined);
+  equal(nextBattleIdOf(midRoot), 2);
   equal(outRoot.battle, null);
   equal((midRoot.schema as { battle: number }).battle, SCHEMA_VERSIONS.battle);
 
