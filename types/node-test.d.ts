@@ -2,6 +2,10 @@
 // whose tsconfig.test.json includes this file. Those configs keep `types: []`
 // (G2), so @types/node is absent; these declarations add no globals.
 declare module "node:test" {
+  export interface TestContext {
+    test(name: string, fn: () => void | Promise<void>): Promise<void>;
+  }
+  export function test(name: string, fn: (context: TestContext) => void | Promise<void>): void;
   export function test(name: string, fn: () => void | Promise<void>): void;
   export function test(
     name: string,

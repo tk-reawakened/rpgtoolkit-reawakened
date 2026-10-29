@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Battle UI refresh tests reuse one real battle per screen mode, restoring each changed value and checking its pixels before the next case. The six-tick refresh checks and duplicate-name pixel comparisons remain intact.
 - Documented and tested how pre-vector boards handle oversized final tile runs: excess repetitions are discarded, following fields remain readable, and Reawakened warns about the overrun. The original applications did not issue that warning.
 - Jensen approved the complete battle screen on 2026-10-28, including by-name revive targeting. It keeps the selected command visible while choosing a move, item, or target and highlights list entries across their column.
 - Battle selection keeps the command label and active member name at exactly the same yellow; selected unavailable moves remain visibly dimmed with improved contrast, and the description header no longer exposes the background beneath its label.
