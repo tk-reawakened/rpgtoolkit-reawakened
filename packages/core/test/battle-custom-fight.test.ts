@@ -22,6 +22,7 @@ import {
   CORE_PLUGIN,
   createAssetIndex,
   createEmptyBoard,
+  createEmptyCharacter,
   createEmptyMainFile,
   createEngine,
   createInitialPlayer,
@@ -51,6 +52,8 @@ import {
   writeBattleBackground,
   WORLD_PLUGIN,
   writeBoard,
+  writeCharacter,
+  writeEnemy,
   writeMainFile,
   type Engine,
   type GameState,
@@ -78,6 +81,7 @@ const replacementBattleSource = readFileSync(join(testDirectory, "fixtures", "au
 const replacementStartSource = readFileSync(join(testDirectory, "fixtures", "authored", "battle-replacement-start.prg"), "utf8");
 const gameOverSource = readFileSync(join(testDirectory, "fixtures", "authored", "battle-outcome-game-over.prg"), "utf8");
 const mainFileApiSource = readFileSync(join(testDirectory, "fixtures", "authored", "battle-main-file-custom-fight.prg"), "utf8");
+const mainFileQueriesSource = readFileSync(join(testDirectory, "fixtures", "authored", "battle-main-file-custom-fight-queries.prg"), "utf8");
 const encoder = new TextEncoder();
 
 function unwrap<T>(result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } }): T {
@@ -206,6 +210,56 @@ const authoredAssets: Readonly<Record<string, Uint8Array>> = {
   "player0.tem": characterBytes(),
   "player1.tem": characterBytes(),
 };
+
+// ---- E-79 name and stance queries (Epic 7.29) ----------------------------------------------------------------
+
+/**
+ * An enemy whose five ruled stance slots hold distinct animation files, so a query that reads the wrong slot cannot
+ * pass: the enemy order is REST, FIGHT, DEFEND, SPECIAL MOVE, DIE
+ * (docs/spec/engine/rpgcode-functions.md#fighteranimationfile, BAT-3 callback 122).
+ */
+function stanceEnemyBytes(name: string): Uint8Array {
+  return unwrap(writeEnemy({
+    magic: "RPGTLKIT ENEMY",
+    major: 2,
+    minor: 1,
+    name,
+    hp: 8,
+    smp: 3,
+    fp: 3,
+    dp: 2,
+    canRun: 1,
+    criticalOn: -1,
+    criticalBy: -1,
+    specialMoves: [],
+    weaknesses: [],
+    strengths: [],
+    aiLevel: 0,
+    customAi: 0,
+    aiProgram: "",
+    experienceReward: 0,
+    goldReward: 0,
+    defeatProgram: "",
+    runAwayProgram: "",
+    stances: ["enemy-rest.anm", "enemy-fight.anm", "enemy-defend.anm", "enemy-special.anm", "enemy-die.anm", ""],
+    customStances: [],
+    residue: new Uint8Array(),
+  }));
+}
+
+/**
+ * A minor-5 character whose battle stances hold distinct animation files in the character order, which differs from
+ * the enemy order: FIGHT, DEFEND, SPECIAL MOVE, DIE, REST (docs/spec/formats/character.md#layout slot 29).
+ */
+function stanceCharacterBytes(): Uint8Array {
+  return unwrap(writeCharacter({
+    ...createEmptyCharacter(),
+    minor: 5,
+    name: "Hero",
+    movementAnimations: Array.from({ length: 8 }, () => ""),
+    battleStances: ["hero-fight.anm", "hero-defend.anm", "hero-special.anm", "hero-die.anm", "hero-rest.anm", ""],
+  }));
+}
 
 /** The 5.11 custom request the evaluator posts: the board, the player and the program's name, and no fighters. */
 function customRequest(program: string): Record<string, unknown> {
@@ -767,6 +821,11 @@ type GameOptions = {
   readonly encounter?: boolean;
   /** The main file's custom fight program (default "fight.prg"). */
   readonly customFight?: string;
+  /**
+   * Replace authored game files by their lower-case game path (`chrs/hero.tem`, `enemy/slime.ene`). A test that needs
+   * different source data — distinct battle-stance animation names, for example — supplies it here.
+   */
+  readonly assets?: Readonly<Record<string, Uint8Array>>;
 };
 
 function authorGame(programs: Readonly<Record<string, string>>, options: GameOptions = {}): { readonly files: GameFiles; readonly paths: readonly string[] } {
@@ -795,6 +854,7 @@ function authorGame(programs: Readonly<Record<string, string>>, options: GameOpt
     paths.push(`Prg/${name}`);
     files.set(assetKey(`Prg/${name}`), encoder.encode(text));
   }
+  for (const [path, bytes] of Object.entries(options.assets ?? {})) files.set(assetKey(path), bytes);
   return { files, paths };
 }
 
@@ -1104,4 +1164,55 @@ test("one main-file all-API custom fight program runs the real path identically 
   ok(otherSeed.stateHash !== absent.stateHash, "and the state hash");
   ok(otherSeed.drawHash !== absent.drawHash, "and the drawn text, which carries the roll");
   equal(otherSeed.recorded.apicoverage, absent.recorded.apicoverage, "while the program still covers the same operations");
+});
+
+// ---- 7.29: the E-79 queries that 7.12 leaves unasserted -----------------------------------------------------
+
+test("a main-file custom fight with stock_battle absent reads fighter names and every stance animation through E-79", () => {
+  // The main file names the focused query program as its custom fight program, no stock_battle package is loaded,
+  // and both source assets store distinct names per stance, so a query that reads the wrong slot cannot pass.
+  const booted = bootGame("queries", "queries.prg", { "queries.prg": mainFileQueriesSource }, {
+    stock: false,
+    seed: 307,
+    heroes: 2,
+    encounter: true,
+    customFight: "queries.prg",
+    assets: {
+      "chrs/hero.tem": stanceCharacterBytes(),
+      "enemy/slime.ene": stanceEnemyBytes("Slime"),
+      "enemy/bat.ene": stanceEnemyBytes("Bat"),
+    },
+  });
+  const press = (event: typeof ARROW_RIGHT): void => {
+    booted.engine.advance(0, [{ tick: booted.engine.advance(0, []).tickAfter, event }]);
+  };
+  play(booted, (state) => state.vm.globals.ready === 1 && state.party.members.length === 2);
+  press(ARROW_RIGHT);
+  play(booted, (state) => state.vm.globals.queryafterfight === 1);
+  press(ARROW_RIGHT_UP);
+
+  const state = booted.state();
+  const seen = state.vm.globals;
+  equal(seen.stockbattle, undefined, "the main file loaded no stock_battle package");
+  equal(seen.querycalls, 1, "the program's own battle handler ran once");
+  equal(seen.queryafterfight, 1, "FightEnemy returned to the program");
+  equal(state.battle?.outcome, 2, "the program's finish(2) took the BAT-8 outcome path with no package");
+  deepEqual(booted.diagnostics.map(({ code, message }) => `${code}: ${message}`), [], "no query reached a missing package or asset");
+
+  equal(seen.queryenemyname, "Slime", "callback 121 returns the first enemy's own display name");
+  equal(seen.queryenemy2name, "Bat", "and the second enemy's, from its own record");
+  equal(seen.queryheroname, "Hero", "and the first party member's actor name");
+  equal(seen.queryhero2name, "Hero 2", "and the second party member's");
+
+  equal(seen.queryenemyfight, "enemy-fight.anm", "callback 122 returns the enemy's FIGHT slot (slot 1 in the enemy order)");
+  equal(seen.queryenemydefend, "enemy-defend.anm", "the enemy's DEFEND slot (2)");
+  equal(seen.queryenemyspecial, "enemy-special.anm", "the enemy's SPECIAL MOVE slot (3)");
+  equal(seen.queryenemydie, "enemy-die.anm", "the enemy's DIE slot (4)");
+  equal(seen.queryenemyrest, "enemy-rest.anm", "the enemy's REST slot (0)");
+  equal(seen.queryherofight, "hero-fight.anm", "and the character's FIGHT slot (0 in the character order)");
+  equal(seen.queryherodefend, "hero-defend.anm", "the character's DEFEND slot (1)");
+  equal(seen.queryherospecial, "hero-special.anm", "the character's SPECIAL MOVE slot (2)");
+  equal(seen.queryherodie, "hero-die.anm", "the character's DIE slot (3)");
+  equal(seen.queryherorest, "hero-rest.anm", "the character's REST slot (4)");
+  equal(seen.queryenemyattackalias, "enemy-fight.anm", "the `attack` alias, matched ignoring case and punctuation, names the FIGHT slot");
 });

@@ -396,6 +396,7 @@ references = [
 [[entry]]
 id = 21
 tracker_id = "#741"
+tracker_status = "done"
 type = "bug"
 title = "Statuses remain after a stock battle ends"
 description = """Battle participant statuses remain after outcome handlers finish, contrary to BAT-6; cover every BAT-8 outcome code, including the observed handled outcomes 1 and 3, and clear statuses only after final outcome selection."""
@@ -509,6 +510,7 @@ notes = ["Audit evidence: packages/core/test/random-encounter.test.ts:88-185 cov
 [[entry]]
 id = 29
 tracker_id = "#749"
+tracker_status = "done"
 type = "story"
 title = "Cover omitted E-79 fighter queries in a custom battle"
 description = """Add a focused custom-fight regression for the E-79 fighter-name and stance-animation queries not exercised by the otherwise comprehensive 7.12 program."""
