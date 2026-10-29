@@ -408,13 +408,15 @@ export function gameFiles(options: RigOptions = {}): { readonly files: Map<strin
       const png = anm.replace(".anm", ".png");
       if (files.has(assetKey(`Misc/${anm}`))) continue;
       const picture = art(stance);
-      put(`Bitmap/${png}`, encodePng(picture.w, picture.h, picture.rgba));
       const ticks = options.stanceDelays?.[key] ?? options.stanceDelayTicks;
+      if (ticks !== undefined) picture.rect(30, 38, 4, 4, [255, 255, 255]);
+      put(`Bitmap/${png}`, encodePng(picture.w, picture.h, picture.rgba));
       if (ticks === undefined) {
         put(`Misc/${anm}`, animationBytes(png));
       } else {
         // A second, visibly different frame so a frame change is observable in rendered pixels.
         const second = art(stance === "die" ? "die" : "fight");
+        second.rect(30, 38, 4, 4, [0, 0, 0]);
         const secondPng = anm.replace(".anm", "_b.png");
         put(`Bitmap/${secondPng}`, encodePng(second.w, second.h, second.rgba));
         put(`Misc/${anm}`, animationBytes(png, secondPng, ticks / 60));

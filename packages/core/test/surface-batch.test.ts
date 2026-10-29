@@ -424,3 +424,20 @@ test("editing an interned colour surface inside a batch still releases its colou
   equal(getPixel(state, replacement, 0, 0)?.r, 255);
   assertCanonical(state, red, "edited colour surface");
 });
+
+test("closing one batch keeps a newer buffer indexed when two sections share an entry", () => {
+  const first = createSurfacesSection(1, 1);
+  // Not a shape the engine builds itself, but two sections can reference one surface state (a host
+  // that shares subobjects, or a restored state reusing a member), and the index is per entry.
+  const second: Surfaces = { ...first, entries: { ...first.entries } };
+  beginSurfaceBatch(first);
+  editSurfaceWithBounds(first, SCREEN, (rgba) => { rgba.set([10, 0, 0, 255], 0); }, { first: 0, last: 0 });
+  beginSurfaceBatch(second);
+  editSurfaceWithBounds(second, SCREEN, (rgba) => { rgba.set([20, 0, 0, 255], 0); }, { first: 0, last: 0 });
+  equal(getPixel(second, SCREEN, 0, 0)?.r, 20, "a reader sees the newer working buffer");
+  endSurfaceBatch(first);
+  equal(getPixel(second, SCREEN, 0, 0)?.r, 20, "closing the older batch must not unindex the newer buffer");
+  endSurfaceBatch(second);
+  deepEqual([...live(second, SCREEN)], [20, 0, 0, 255]);
+  assertCanonical(second, SCREEN, "shared entry");
+});

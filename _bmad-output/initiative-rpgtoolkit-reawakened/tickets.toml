@@ -160,3 +160,11 @@ tracker_id = "#639"
 slug = "epic-deferred-work"
 title = "Deferred work: hardening and carry-forward"
 after = [{ epic = 2, needs = "legacy format and conversion contracts" }, { epic = 4, needs = "rendering and surface contracts" }, { epic = 3, needs = "VM and state contracts" }]
+
+[[epic]]
+id = 24
+tracker_id = "#727"
+slug = "epic-headless-sessions"
+title = "Headless sessions: screenshots, short videos, start state and mocks"
+covers = ["CAP-12", "CAP-13"]
+after = [{ epic = 1, needs = "the headless runner, golden harness, licence gate and fixture fetch" }, { epic = 4, needs = "the draw list, core/raster and surfaces that screenshots and frames come from" }, { epic = 6, needs = "synth PCM rendering for the offline WAV master" }]

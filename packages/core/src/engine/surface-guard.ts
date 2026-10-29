@@ -5,12 +5,21 @@
  * (`state.surfaces.entries[id].bitmap.b64`) are stale. The engine's own packs read pixels through the
  * surface API, which sees the buffers; a package or host plugin is handed `view.state` and can read the
  * snapshots, hash or serialise the state directly. Every entry point that runs such code
- * (a command handler, a listener's command, a host-object member hook) therefore flushes first, and
- * flushes again whenever control comes back from a lower layer it called through `next`, because that
- * layer may have drawn. First-party packs are returned untouched so built-in drawing never flushes.
+ * (a command handler, a listener's command, a host-object member hook, an emitter key) therefore
+ * flushes first, and flushes again whenever control comes back from a lower layer it called through
+ * `next`, because that layer may have drawn. First-party packs are returned untouched so built-in
+ * drawing never flushes.
+ *
+ * External code may keep the `view` or a host-object `record` it was handed and read through it later,
+ * from a callback the engine invokes at an arbitrary point in a thread. `emitterKey` is such a
+ * callback: it runs on the first emitter method of a host object, mid-thread, and the plugin can read
+ * the state it retained. Menu providers and actor behaviour hooks are the other externally supplied
+ * callbacks, but neither is offered a state or surface view (menu ports expose only the party,
+ * inventory and menu sections), so they have nothing to flush for.
  */
 
 import type { HostObjectType } from "../script/host.ts";
+import type { ObjectRecord } from "../script/state.ts";
 import type { BuiltinSpec } from "../script/builtins.ts";
 import type { CommandHandler, PluginDefinition, ResolvedPlugin } from "../script/plugin.ts";
 
@@ -28,9 +37,10 @@ function guardHandler(call: CommandHandler, flush: () => void): CommandHandler {
 }
 
 function guardHostType(type: HostObjectType, flush: () => void): HostObjectType {
-  const { read, write, remove } = type;
+  const { emitterKey, read, write, remove } = type;
   return {
     ...type,
+    ...(emitterKey === undefined ? {} : { emitterKey: (record: ObjectRecord) => { flush(); return emitterKey(record); } }),
     ...(read === undefined ? {} : { read: (context, name) => { flush(); return read(context, name); } }),
     ...(write === undefined ? {} : { write: (context, name, value) => { flush(); return write(context, name, value); } }),
     ...(remove === undefined ? {} : { remove: (context, name) => { flush(); return remove(context, name); } }),

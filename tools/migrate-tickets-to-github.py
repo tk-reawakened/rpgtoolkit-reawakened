@@ -58,6 +58,7 @@ EPIC_AREA_MAP = {
     "epic-actors": "core",
     "epic-media-objects": "synth",
     "epic-battle": "core",
+    "epic-headless-sessions": "tooling",
 }
 
 EPIC_LABEL_MAP = {
