@@ -90,6 +90,8 @@ export function createDefaultVirtuals(
     readBattle: () => state.battle,
     readActors: () => state.actors,
     commit: (section) => { state.battle = section; },
+    readBattleCounter: () => state.engine.nextBattleId,
+    commitBattleCounter: (next) => { state.engine = { ...state.engine, nextBattleId: next }; },
   }),
 ): VirtualVariablePort {
   const read = (rawName: string): Value | undefined => {

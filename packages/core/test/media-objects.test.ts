@@ -250,6 +250,8 @@ test("mid-battle battle music and battle state round-trip as deterministic plain
     readBattle: () => world.state.battle,
     readActors: () => world.state.actors,
     commit: (battle) => { world.state.battle = battle; },
+    readBattleCounter: () => world.state.engine.nextBattleId,
+    commitBattleCounter: (next) => { world.state.engine = { ...world.state.engine, nextBattleId: next }; },
   });
   const started = owner.start({
     boardKey: assetKey("boards/field.brd"),

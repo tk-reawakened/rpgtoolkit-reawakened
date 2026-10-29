@@ -45,6 +45,8 @@ export type BoardTransition = {
 
 export type EngineSection = {
   readonly nextRequestId?: number;
+  /** The run's next battle number (BAT-2 "battle numbers"); absent before the first battle. */
+  readonly nextBattleId?: number;
   readonly pending?: { readonly reqId: number; readonly key: string; readonly kind: EngineRequestKind }[];
   readonly failed?: boolean;
   phase?: EnginePhase;

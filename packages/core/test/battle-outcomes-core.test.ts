@@ -13,6 +13,7 @@ import {
   BinaryWriter,
   CORE_PLUGIN,
   createAssetIndex,
+  createBattleOwner,
   createGameState,
   createScriptServices,
   defaultWaitPoll,
@@ -31,6 +32,7 @@ const programSources = {
   "battle-outcome-run-program.prg": fixture("battle-outcome-run-program.prg"),
   "battle-outcome-win-program.prg": fixture("battle-outcome-win-program.prg"),
   "battle-outcome-game-over.prg": fixture("battle-outcome-game-over.prg"),
+  "battle-outcome-game-over-restart.prg": fixture("battle-outcome-game-over-restart.prg"),
 };
 const programBytes = Object.fromEntries(Object.entries(programSources).map(([name, source]) =>
   [assetKey(`Prg/${name}`), new TextEncoder().encode(source)]));
@@ -159,7 +161,7 @@ function runOutcome(state: GameState, source: string, options: { readonly gameOv
   const character = Array.from(characterBytes(), (byte) => byte.toString(16).padStart(2, "0")).join("");
   const poll: WaitPoll = (view, wait) => {
     if (wait.kind !== "request") return defaultWaitPoll(view, wait);
-    const bytes = wait.then?.command === "__battle_enemy_data_asset" ? enemy : character;
+    const bytes = wait.then?.command === "__battle_enemy_data_asset" || wait.then?.command === "__battle_start_enemy_asset" ? enemy : character;
     return { ok: true, value: bytes };
   };
   let finished = false;
@@ -226,4 +228,41 @@ test("the core loss adapter uses the message and reset fallback without a game-o
   equal(state.battle, null);
   ok(state.vm.effects.some((effect) => effect.name === "mwin" && effect.args[0] === "Game over."));
   equal(state.vm.effects.some((effect) => effect.kind === "state-write" && effect.patch?.section === "engine" && effect.args[0] === "reset"), true);
+});
+
+test("a game-over program that starts another battle after a loss takes an unused identifier", () => {
+  const state = makeState();
+  state.world = {
+    board: {
+      key: assetKey("boards/test.brd"), coordType: 0, sizeX: 1, sizeY: 1, sizeL: 1, width: 1, height: 1,
+      background: { r: 0, g: 0, b: 0 }, ambient: { r: 0, g: 0, b: 0 }, layers: [],
+    },
+  };
+  const enemy = state.actors.actors.find((actor) => actor.kind === "enemy");
+  const hero = state.actors.actors.find((actor) => actor.kind === "party");
+  if (enemy === undefined || hero === undefined) throw new Error("actors missing");
+  // Start the first battle through the owner so the run's counter is set, exactly as
+  // `fightenemy` does; the hand-made section in `makeState` skips it.
+  state.battle = null;
+  const owner = createBattleOwner({
+    readBattle: () => state.battle,
+    readActors: () => state.actors,
+    commit: (section) => { state.battle = section; },
+    readBattleCounter: () => state.engine.nextBattleId,
+    commitBattleCounter: (next) => { state.engine = { ...state.engine, nextBattleId: next }; },
+  });
+  const first = owner.start({ boardKey: "boards/test.brd", background: "night.bkg", canRun: true, enemies: [enemy.id], players: [hero.id] });
+  ok(first.ok);
+  const firstId = first.value.id;
+
+  const result = runOutcome(state, fixture("battle-outcome-lose.prg"), { gameOverProgram: "battle-outcome-game-over-restart.prg" });
+
+  equal(result.finished, true);
+  deepEqual(result.services.diagnostics.map(({ code }) => code), []);
+  equal(state.vm.globals.gameoverrestartcount, 1);
+  const remaining = state.battle;
+  ok(remaining !== null, "the game-over program's battle is the remaining section");
+  equal(remaining.outcome, null);
+  ok(remaining.id !== firstId, `battle identifier ${remaining.id} reuses the earlier ${firstId} in one run`);
+  equal(state.engine.nextBattleId, remaining.id + 1);
 });

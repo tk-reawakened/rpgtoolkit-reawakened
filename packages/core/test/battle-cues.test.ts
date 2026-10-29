@@ -428,6 +428,8 @@ function setCharge(state: GameState, party: 0 | 1, index: number, charge: number
     readBattle: () => state.battle,
     readActors: () => state.actors,
     commit: (section) => { state.battle = section; },
+    readBattleCounter: () => state.engine.nextBattleId,
+    commitBattleCounter: (next) => { state.engine = { ...state.engine, nextBattleId: next }; },
   });
   const result = owner.apply({ type: "setCharge", party, index, charge });
   if (!result.ok) throw new Error(result.error.message);

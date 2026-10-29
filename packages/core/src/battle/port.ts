@@ -51,6 +51,9 @@ export type BattleOwnerStore = {
   readonly readBattle: () => BattleSection;
   readonly readActors: () => ActorsSection;
   readonly commit: (battle: BattleSection) => void;
+  /** The run's next battle number (`engine.nextBattleId`); survives loss cleanup (BAT-2 "battle numbers"). */
+  readonly readBattleCounter: () => number | undefined;
+  readonly commitBattleCounter: (next: number) => void;
 };
 
 const PARTY_THRESHOLDS: Readonly<Record<BattleParty, number>> = { 0: 123, 1: 75 };
@@ -120,8 +123,10 @@ export function createBattleOwner(store: BattleOwnerStore): BattleOwner {
       if (!enemies.ok) return enemies;
       const players = party(input.players, 1, "party");
       if (!players.ok) return players;
-      const id = (store.readBattle()?.id ?? 0) + 1;
-      if (!Number.isSafeInteger(id)) return failure("builtin.bad-arg", "battle id counter exceeds the safe-integer range");
+      const id = Math.max(store.readBattleCounter() ?? 1, (store.readBattle()?.id ?? 0) + 1);
+      if (!Number.isSafeInteger(id) || !Number.isSafeInteger(id + 1)) {
+        return failure("builtin.bad-arg", "battle id counter exceeds the safe-integer range");
+      }
       const battle: BattleState = {
         id,
         boardKey: input.boardKey,
@@ -130,6 +135,7 @@ export function createBattleOwner(store: BattleOwnerStore): BattleOwner {
         outcome: null,
         parties: [enemies.value, players.value],
       };
+      store.commitBattleCounter(id + 1);
       store.commit(battle);
       return success(battle);
     },
