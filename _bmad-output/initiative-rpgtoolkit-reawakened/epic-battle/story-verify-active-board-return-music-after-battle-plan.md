@@ -3,7 +3,7 @@ title: 'Verify active-board return music after battle'
 type: 'chore'
 ticket: 32
 created: '2026-10-29'
-status: 'built'
+status: 'done'
 baseline_revision: 'ef986e6c8b86614de5f6dfb8687b30e8bd846253'
 route: 'oneshot'
 route_source: 'auto'
@@ -32,6 +32,8 @@ Oneshot: a focused test-only change reuses the existing authored game and real s
 The engine's normal transition hydrates an authored board B during the unresolved real stock fight. B's enter program restores battle music so its return music produces a distinct cue. The test asserts the saved battle key remains A during the outcome and after return, and checks the return event, cues, and audio state.
 
 ## Plan Change Log
+
+- 2026-10-29 (completed): marked done after PR #756 (`b8dca9a9`, "test: verify active board music after battle") merged; issue #752 closed 2026-10-29T15:10:16Z. Acceptance is carried by the full-engine return-music test in `packages/core/test/battle-cues-engine.test.ts`.
 
 ## Review Triage Log
 
