@@ -3,7 +3,7 @@ title: "Outcomes, rewards and level-up: win, run and lose"
 type: 'feature'
 ticket: 8
 created: '2026-10-19'
-status: in-progress
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "high"
 context:
@@ -62,3 +62,4 @@ Seeded win/run/lose tests, an ordering test for the win sequence, a per-member e
 
 - 2026-10-26 (evidence wording clarification, per Main): acceptance item 2 describes the inventory payload `{ type: "addGold", amount }`; the named tests assert its shape and summed amount but do not demonstrate consumption by an inventory owner.
 - 2026-10-26 (BAT-10 scope clarification, per Main): after outcome, active-board music is requested after `boardReturned` from current board data or `null` for silence; ordinary audio replacement and clear rules apply, not an unconditional track stop.
+- 2026-10-28 (completed): marked done after PR #670 (`d7dc1ff7`, "feat: resolve stock battle outcomes and rewards") and the gold-effect follow-up #678 (`5b692dec`) merged; issue #511 stayed open on `Refs` bookkeeping and is closed by this ledger PR. Acceptance is carried by `packages/core/test/battle-outcomes-stock.test.ts` (12 tests: the 2-in-5 run roll on both sides, a blocked run keeping the turn, simultaneous falls, reward order, `defeated` once) and `packages/core/test/battle-outcomes-core.test.ts` (4 tests).

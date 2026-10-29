@@ -3,7 +3,7 @@ title: "Status effects: rounds, per-round effects, speed and disable"
 type: 'feature'
 ticket: 6
 created: '2026-10-19'
-status: in-progress
+status: done
 baseline_revision: '4255ec6f520af495d3aa2db8ed2553cb685ea3ab'
 risk: "high"
 context:
@@ -49,3 +49,7 @@ No damage formulas (7.5) and no AI (7.7). The core owns the status data, lifetim
 ## Verification
 
 Unit tests for apply/re-apply/expire, a round-boundary test including a disabled fighter, a stacking test, a program-error test, a lethal-status test, and a save/replay test. Full suite, typecheck and lint.
+
+## Plan Change Log
+
+- 2026-10-28 (completed): marked done after PR #659 (`3139282a`, "feat(stock_battle): implement status effects") and closing chore PR #661 (`9ddaa036`) merged; issue #509 stayed open for the same `Refs`-instead-of-`Fixes` reason and is closed by this ledger PR. Acceptance is carried by the status suite in `packages/core/test/battle-loop.test.ts` (rate, re-apply, filename order, signed clamps, disable refcount, lethal `fallen`) and by `packages/core/test/battle-status-flags.test.ts` (13 tests).
