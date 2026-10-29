@@ -41,7 +41,9 @@ Decisions:
 - BAT-13 claimed the *engine's* per-tick state hash matches across a load. Verdict: medium — the engine hash also
   carries the host request-id counter, outstanding requests, the cue counter and the script canvases, which a load
   necessarily moves. Patched: the rule now names the state the game owns, lists those three host-side exceptions with
-  their reasons, and says the composed frame is compared instead of the canvases.
+  their reasons, and says the composed frame is compared instead of the canvases. Follow-up (owner direction): the
+  owner's original sentence is restored verbatim and the scope now sits in its own paragraph attributed to entry 7.31
+  as an implementation clarification pending owner confirmation — never inside the owner-attributed text.
 - `saveMidBattle` recorded the uninterrupted run's engine hashes that the walk never compared. Verdict: medium —
   dead data that suggested a comparison it did not make. Patched: the recording is gone; the walk compares the
   game-state hash at each tick and the composed frame, and the surviving `HashPoint` list is the loaded host's.
