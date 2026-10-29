@@ -13,13 +13,17 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BinaryReader,
+  compositeTileBitmap,
   readTileBitmap,
+  TILE_BITMAP_CELL_SIZE,
   tileBitmapCell,
   TILE_BITMAP_MAGIC,
   TILE_BITMAP_SECTION,
   writeTileBitmap,
   type Result,
+  type TileBitmap,
   type TileBitmapCell,
+  type TileBitmapTile,
 } from "../src/index.ts";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
@@ -498,4 +502,128 @@ test("forest.tbm parses to the last byte and round-trips", () => {
   deepEqual(unwrap(writeTileBitmap(result.value)), bytes);
   deepEqual(tileBitmapCell(result.value, 0, 0), plainCell("village.tst6"));
   deepEqual(tileBitmapCell(result.value, 0, 1), plainCell("village.tst7"));
+});
+
+// ---- compositing the cells into one picture ----------------------------------------------------------------
+//
+// A `.tbm` "can be used wherever an image file is accepted" (docs/spec/formats/tiles.md#tile-bitmap-tbm), so the
+// compositor paints the drawn cells at the picture's own size: 32 pixels per cell, the tile at its own size at the
+// cell's corner, its tint added to every non-transparent pixel (docs/spec/formats/tiles.md#shading, R-15).
+
+/** A solid row-major tile, with one pixel optionally left transparent or given a distinct colour. */
+function solidTile(size: number, colour: readonly [number, number, number]): TileBitmapTile {
+  const rgba = new Uint8Array(size * size * 4);
+  for (let at = 0; at < rgba.length; at += 4) {
+    rgba[at] = colour[0];
+    rgba[at + 1] = colour[1];
+    rgba[at + 2] = colour[2];
+    rgba[at + 3] = 255;
+  }
+  return { w: size, h: size, rgba };
+}
+
+/** The RGBA of one pixel of a composed picture. */
+function at(picture: { readonly w: number; readonly rgba: Uint8Array }, x: number, y: number): number[] {
+  const from = (y * picture.w + x) * 4;
+  return [picture.rgba[from]!, picture.rgba[from + 1]!, picture.rgba[from + 2]!, picture.rgba[from + 3]!];
+}
+
+test("compositing paints the drawn cells at 32 pixels each and leaves the padding row and column out", () => {
+  const bitmap = unwrap(readTileBitmap(new BinaryReader(buildBytes({
+    width: 2,
+    height: 1,
+    cells: [
+      ["a.tst1", 0, 0, 0],
+      ["", 0, 0, 0],
+      ["a.tst2", 0, 0, 0],
+      ["", 0, 0, 0],
+      ["padding.tst1", 0, 0, 0],
+      ["padding.tst1", 0, 0, 0],
+    ],
+  }))));
+  const tiles = new Map<string, TileBitmapTile>([
+    ["a.tst1", solidTile(32, [0, 255, 128])],
+    ["a.tst2", solidTile(32, [40, 50, 60])],
+  ]);
+  const picture = unwrap(compositeTileBitmap(bitmap, tiles));
+  equal(TILE_BITMAP_CELL_SIZE, 32);
+  equal(picture.w, 64);
+  equal(picture.h, 32);
+  deepEqual(at(picture, 0, 0), [0, 255, 128, 255], "the first cell's tile, with a zero tint keeping pure black and white");
+  deepEqual(at(picture, 31, 31), [0, 255, 128, 255]);
+  deepEqual(at(picture, 32, 0), [40, 50, 60, 255], "the second cell starts at x = 32");
+  deepEqual(at(picture, 63, 31), [40, 50, 60, 255]);
+  deepEqual(at(picture, 32, 31), [40, 50, 60, 255]);
+});
+
+test("compositing adds each cell's tint, with R-15's white and black substitution and one clamp", () => {
+  const bitmap = unwrap(readTileBitmap(new BinaryReader(buildBytes({
+    width: 2,
+    height: 1,
+    cells: [
+      ["white.tst1", 3, -20, 0],
+      ["", 0, 0, 0],
+      ["edge.tst1", 5, 0, 0],
+      ["", 0, 0, 0],
+      ["", 0, 0, 0],
+      ["", 0, 0, 0],
+    ],
+  }))));
+  const white = solidTile(32, [255, 255, 255]);
+  const edge = solidTile(32, [0, 0, 250]);
+  // A transparent pixel in the first cell must stay untouched: the picture starts at alpha 0 there.
+  white.rgba[3] = 0;
+  const picture = unwrap(compositeTileBitmap(bitmap, new Map([["white.tst1", white], ["edge.tst1", edge]])));
+  deepEqual(at(picture, 1, 0), [248, 225, 245, 255], "pure white becomes 245 before the tint is added");
+  deepEqual(at(picture, 0, 0), [0, 0, 0, 0], "a transparent pixel is not tinted");
+  deepEqual(at(picture, 32, 0), [15, 10, 250, 255], "pure black becomes 10 before the tint is added, and 250 keeps its value");
+});
+
+test("compositing refuses a cell whose tile was not resolved and a picture with no drawn cells", () => {
+  const bitmap = unwrap(readTileBitmap(new BinaryReader(buildBytes({
+    width: 2,
+    height: 1,
+    cells: [
+      ["a.tst1", 0, 0, 0],
+      ["", 0, 0, 0],
+      ["missing.tst4", 0, 0, 0],
+      ["", 0, 0, 0],
+      ["", 0, 0, 0],
+      ["", 0, 0, 0],
+    ],
+  }))));
+  const refused = compositeTileBitmap(bitmap, new Map([["a.tst1", solidTile(32, [1, 2, 3])]]));
+  equal(refused.ok, false);
+  if (!refused.ok) {
+    equal(refused.error.section, TILE_BITMAP_SECTION);
+    equal(refused.error.message.includes("missing.tst4"), true);
+    equal(refused.error.message.includes("(1, 0)"), true);
+  }
+  const empty = unwrap(readTileBitmap(new BinaryReader(buildBytes({ width: -1, height: -1 }))));
+  const none = compositeTileBitmap(empty, new Map());
+  equal(none.ok, false, "a picture with no drawn cells is an error, not an empty image");
+});
+
+test("a 16-pixel tile sits at its cell's corner and the rest of the cell stays transparent", () => {
+  const bitmap = unwrap(readTileBitmap(new BinaryReader(buildBytes({
+    width: 1,
+    height: 1,
+    cells: [
+      ["small.gph", 0, 0, 0],
+      ["", 0, 0, 0],
+      ["", 0, 0, 0],
+      ["", 0, 0, 0],
+    ],
+  }))));
+  const picture = unwrap(compositeTileBitmap(bitmap, new Map([["small.gph", solidTile(16, [7, 8, 9])]])));
+  equal(picture.w, 32);
+  deepEqual(at(picture, 15, 15), [7, 8, 9, 255]);
+  deepEqual(at(picture, 16, 16), [0, 0, 0, 0], "outside the tile, inside the cell");
+});
+
+test("compositing refuses a picture over the shared decode contract's pixel ceiling", () => {
+  const huge: TileBitmap = { magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 3500, height: 3500, cells: [], residue: new Uint8Array() };
+  const refused = compositeTileBitmap(huge, new Map());
+  equal(refused.ok, false, "3500 x 3500 cells is 112000 x 112000 pixels");
+  if (!refused.ok) equal(refused.error.message.includes("112000"), true);
 });

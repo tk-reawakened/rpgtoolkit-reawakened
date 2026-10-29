@@ -22,6 +22,7 @@ import {
   fnv1a64,
   PACKAGE_ROOT,
   registerActorObject,
+  TILE_BITMAP_MAGIC,
   writeAnimation,
   writeBattleBackground,
   writeBoard,
@@ -30,6 +31,8 @@ import {
   writeItem,
   writeMainFile,
   writeSpecialMove,
+  writeTileBitmap,
+  writeTileset,
   type ActorRecord,
   type AudioCue,
   type Engine,
@@ -291,12 +294,12 @@ function wavBytes(): Uint8Array {
   return bytes;
 }
 
-function backgroundBytes(): Uint8Array {
+function backgroundBytes(image: string): Uint8Array {
   return unwrap(writeBattleBackground({
     magic: BATTLE_BACKGROUND_MAGIC,
     major: 2,
     minor: 3,
-    image: "meadow.png",
+    image,
     music: "",
     menuMoveSound: "move.wav",
     menuChooseSound: "choose.wav",
@@ -304,6 +307,73 @@ function backgroundBytes(): Uint8Array {
     cantDoSound: "cant.wav",
     residue: new Uint8Array(),
   }));
+}
+
+// ---- the authored .tbm battle background ------------------------------------------------------------------------
+//
+// A 20 × 15 grid of 32-pixel tiles is exactly the 640 × 480 screen, so the composed picture is a 1:1 copy of the art
+// below (docs/spec/formats/tiles.md#tile-bitmap-tbm, docs/spec/formats/battle-data.md#fight-background-bkg). Five
+// three-row bands of one solid tile each; the third band's cells carry a tint, so a background that ignores the
+// per-cell tint cannot pass.
+export const TBM_COLUMNS = 20;
+export const TBM_ROWS = 15;
+
+export type TbmBand = {
+  /** The tile's stored colour. */
+  readonly colour: Rgb;
+  /** The cell tint added to that colour. */
+  readonly tint: Rgb;
+  /** The colour the screen must show where the band is not covered by the UI. */
+  readonly shown: Rgb;
+};
+
+export const TBM_BANDS: readonly TbmBand[] = [
+  { colour: [40, 90, 60], tint: [0, 0, 0], shown: [40, 90, 60] },
+  { colour: [120, 70, 40], tint: [20, 10, 0], shown: [140, 80, 40] },
+  { colour: [70, 80, 130], tint: [0, 0, 0], shown: [70, 80, 130] },
+  { colour: [150, 130, 40], tint: [-10, -10, 0], shown: [140, 120, 40] },
+  { colour: [90, 40, 90], tint: [0, 0, 0], shown: [90, 40, 90] },
+];
+
+/** The band a tile row belongs to: three rows of tiles each. */
+export function tbmBand(row: number): TbmBand {
+  return TBM_BANDS[Math.min(TBM_BANDS.length - 1, Math.floor(row / 3))]!;
+}
+
+/** The colour the battle background must show at a screen pixel, before the UI draws over it. */
+export function tbmColourAt(x: number, y: number): readonly [number, number, number] {
+  const row = Math.min(TBM_ROWS - 1, Math.floor(y / 32));
+  return tbmBand(row).shown;
+}
+
+/** One solid 32 × 32 tile per band, detail 1 (24-bit RGB, column-major; docs/spec/formats/tiles.md#tileset-tst-and-isometric-tileset-iso). */
+function tilesetBytes(): Uint8Array {
+  const tiles = TBM_BANDS.map((band) => {
+    const pixels = new Uint8Array(32 * 32 * 3);
+    for (let at = 0; at < pixels.length; at += 3) {
+      pixels[at] = band.colour[0];
+      pixels[at + 1] = band.colour[1];
+      pixels[at + 2] = band.colour[2];
+    }
+    return { pixels };
+  });
+  return unwrap(writeTileset({ version: 20, detail: { code: 1, size: 32, bytesPerPixel: 3, isometric: false }, tiles, residue: new Uint8Array() }));
+}
+
+/** The 20 × 15 tile picture, stored with its padding row and column (x outer, y inner). */
+function tileBitmapBytes(): Uint8Array {
+  const cells = [];
+  for (let x = 0; x <= TBM_COLUMNS; x += 1) {
+    for (let y = 0; y <= TBM_ROWS; y += 1) {
+      if (x >= TBM_COLUMNS || y >= TBM_ROWS) {
+        cells.push({ tile: "", r: 0, g: 0, b: 0 });
+        continue;
+      }
+      const band = tbmBand(y);
+      cells.push({ tile: `meadow.tst${TBM_BANDS.indexOf(band) + 1}`, r: band.tint[0], g: band.tint[1], b: band.tint[2] });
+    }
+  }
+  return unwrap(writeTileBitmap({ magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: TBM_COLUMNS, height: TBM_ROWS, cells, residue: new Uint8Array() }));
 }
 
 function fieldBoard(): Uint8Array {
@@ -344,6 +414,11 @@ export type RigOptions = {
   readonly learnSpecialsAt?: { readonly minExp: number; readonly minLevel: number };
   readonly party?: readonly { readonly key: "hero" | "mage" | "rogue"; readonly hp: number; readonly smp: number }[];
   readonly inventory?: readonly { readonly source: string; readonly handle: string; readonly quantity: number }[];
+  /**
+   * The battle background picture the `.bkg` names: the authored PNG (default, the golden frames), the authored
+   * 20 × 15 tile bitmap, or none (the stock screen's flat fallback colour).
+   */
+  readonly background?: "png" | "tbm" | "none";
 };
 
 const DEFAULT_PARTY = [
@@ -386,9 +461,15 @@ export function gameFiles(options: RigOptions = {}): { readonly files: Map<strin
   const fightCall = `fightenemy(${enemies.map((name) => `"${name}"`).join(", ")}, "meadow")`;
   const fights = Array.from({ length: options.fights ?? 1 }, (_, index) => `${fightCall}\nafterfight = ${index + 1}\n`).join("");
   put("Prg/fight.prg", encoder.encode(`${fights}end()\n`));
-  put("Bkrounds/meadow.bkg", backgroundBytes());
-  const background = backdrop();
-  put("Bitmap/meadow.png", encodePng(background.w, background.h, background.rgba));
+  const backgroundKind = options.background ?? "png";
+  put("Bkrounds/meadow.bkg", backgroundBytes(backgroundKind === "none" ? "" : backgroundKind === "tbm" ? "meadow.tbm" : "meadow.png"));
+  if (backgroundKind === "png") {
+    const background = backdrop();
+    put("Bitmap/meadow.png", encodePng(background.w, background.h, background.rgba));
+  } else if (backgroundKind === "tbm") {
+    put("Tiles/meadow.tst", tilesetBytes());
+    put("Bitmap/meadow.tbm", tileBitmapBytes());
+  }
   put("Enemy/slime.ene", enemyBytes("Slime", "slime", { hp: options.slimeHp ?? 30, canRun: 1 }));
   // The bat forbids running, so any fight that includes one has a blocked Run.
   put("Enemy/bat.ene", enemyBytes("Bat", "bat", { hp: 18, canRun: 0 }));

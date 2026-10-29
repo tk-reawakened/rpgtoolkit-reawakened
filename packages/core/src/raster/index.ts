@@ -1,4 +1,5 @@
 export * from "./raster.ts";
+export { tintChannel } from "./tint.ts";
 export {
   encodeSurfaceBytes, decodeSurfaceBytes, createSurfacesSection, createSurface,
   replaceSurface, killSurface, readSurfacePixels, surfaceTextures, colourSurface, renderNowCanvas, renderNowEnabled,

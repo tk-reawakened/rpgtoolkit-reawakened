@@ -1157,14 +1157,11 @@ stockBattleUi = {
     // later `bitmap` lands in the order the screen draws it. Fighter pictures are requested and loaded by the
     // engine itself when their animations start, below.
     scratch = createcanvas(1, 1)
-    // `bitmap` decodes PNG, JPEG, BMP and GIF; a tile bitmap (.tbm) background cannot be drawn yet, so the screen
-    // shows its flat colour instead.
+    // `bitmap` decodes PNG, JPEG, BMP, GIF and tile bitmaps (.tbm, whose cells the engine composes from their tiles),
+    // so every picture a background can name is drawn.
     stockBattleUi.picture = ""
     if (stockBattle.battleBackgroundDataCache != null) {
       stockBattleUi.picture = stockBattle.battleBackgroundDataCache.image
-      if (lcase(right(stockBattleUi.picture, 4)) == ".tbm") {
-        stockBattleUi.picture = ""
-      }
     }
     if (stockBattleUi.picture != "") {
       bitmap(stockBattleUi.picture, scratch)
