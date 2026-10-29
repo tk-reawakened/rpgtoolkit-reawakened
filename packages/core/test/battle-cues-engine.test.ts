@@ -168,7 +168,7 @@ const ENTER_PROGRAM = [
 
 function authoredGame(enterProgram = ENTER_PROGRAM, startupProgram = "end()\n"): AuthoredGameFiles {
   const files: Files = new Map();
-  const paths: string[] = ["main.gam", "Boards/start.brd", "Chrs/hero.tem", "Prg/start.prg", "Prg/enter.prg", "Media/board.mid", "Media/battle.mid", "Media/ready.wav"];
+  const paths: string[] = ["main.gam", "Boards/start.brd", "Chrs/hero.tem", "Prg/start.prg", "Prg/enter.prg", "Media/board.mid", "Media/other.mid", "Media/battle.mid", "Media/ready.wav"];
   const main = {
     ...createEmptyMainFile(),
     major: 2,
@@ -184,6 +184,7 @@ function authoredGame(enterProgram = ENTER_PROGRAM, startupProgram = "end()\n"):
   files.set(assetKey("prg/start.prg"), encoder.encode(startupProgram));
   files.set(assetKey("prg/enter.prg"), encoder.encode(enterProgram));
   files.set(assetKey("media/board.mid"), midi());
+  files.set(assetKey("media/other.mid"), midi());
   files.set(assetKey("media/battle.mid"), midi());
   files.set(assetKey("media/ready.wav"), wav());
   files.set(assetKey("enemy/slime.ene"), authoredEnemy());
@@ -204,10 +205,11 @@ type Played = {
  * `device` models a real runner: it answers each finished one-shot with the advisory `audio.ended` input. A null
  * runner records the same cues and never replies (docs/spec/engine/audio-media.md#audio-headless).
  */
-function play(ticks: number, device: boolean): Played {
+function play(ticks: number, device: boolean, switchBoard = false): Played {
   const { files, paths } = authoredGame();
   let latest = null as GameState | null;
   let seeded = false;
+  let switched = false;
   const engine: Engine = createEngine({
     seed: 23,
     assetIndex: createAssetIndex(paths),
@@ -224,6 +226,13 @@ function play(ticks: number, device: boolean): Played {
       phase: "events",
       run: (state) => {
         latest = state;
+        if (switchBoard && !switched && state.battle !== null && state.battle.outcome === null && state.world.board) {
+          equal(state.battle.boardKey, "boards/start.brd");
+          equal(state.world.board.key, "boards/start.brd");
+          state.world = { ...state.world, board: { ...state.world.board, key: assetKey("boards/other.brd"), backgroundMusic: "other.mid" } };
+          equal(state.battle.boardKey, "boards/start.brd");
+          switched = true;
+        }
         if (seeded || state.engine.boot?.stage !== "running") return;
         seeded = true;
         const hero = addActor(state.actors, {
@@ -360,6 +369,15 @@ test("a won fight returns the active board's music after the battle music, throu
   equal(ready.length, Number(globals.turns), "one readySound voice per full bar through the real engine");
   ok(ready.length >= 3);
   ok(!JSON.stringify(played.state.battle).match(/audio|music|media|\.mid|\.wav/i), "no audio in BattleState");
+});
+
+test("battle return chooses the active board music instead of the battle's saved board", () => {
+  const played = play(400, false, true);
+  equal(played.state.vm.globals.fightreturned, 1);
+  equal(played.state.vm.globals.endedoutcome, 2);
+  equal(played.state.vm.globals.returnedboard, "boards/other.brd");
+  deepEqual(musicStarts(played.cues), ["media/board.mid", "media/battle.mid", "media/other.mid"]);
+  equal(played.state.audio.tracks.find((track) => track.name === "music")?.file, "media/other.mid");
 });
 
 test("the null runner and a runner that answers audio.ended see equal cue streams and state hashes", () => {
