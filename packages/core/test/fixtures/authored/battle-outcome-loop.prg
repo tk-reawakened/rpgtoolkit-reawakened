@@ -7,6 +7,9 @@ global(levelProgramCount)
 global(levelProgramContinuation)
 global(levelProgramLog)
 global(outcomeSequence)
+global(outcomeHandledCode)
+global(outcomeBattleEndedCount)
+global(outcomeBattleEndedCode)
 outcomeMode = ""
 outcomeTurnCount = 0
 outcomeEventCount = 0
@@ -16,6 +19,13 @@ levelProgramCount = 0
 levelProgramContinuation = 0
 levelProgramLog = ""
 outcomeSequence = ""
+outcomeHandledCode = 0
+outcomeBattleEndedCount = 0
+outcomeBattleEndedCode = -1
+on(game, "battleEnded", (event) => {
+  outcomeBattleEndedCount = outcomeBattleEndedCount + 1
+  outcomeBattleEndedCode = event.detail.outcome
+})
 on(game, "stock_battle.defeated", (event) => {
   outcomeEventCount = outcomeEventCount + 1
   outcomeEventCause = event.detail.cause
@@ -44,6 +54,9 @@ stockBattle.turn = (party, index) => {
     }
     if (outcomeMode == "run") {
       stockBattle.run()
+    }
+    if (outcomeMode == "handled") {
+      battle.finish(outcomeHandledCode)
     }
   }
   return 0

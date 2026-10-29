@@ -86,6 +86,7 @@ type EnemyOptions = {
   readonly gold?: number;
   readonly winProgram?: string;
   readonly runProgram?: string;
+  readonly lastingStatus?: boolean;
 };
 
 type Rig = {
@@ -94,6 +95,7 @@ type Rig = {
   readonly seed: number;
   readonly enemies: readonly number[];
   readonly players: readonly number[];
+  readonly bystander: number | null;
   readonly enemyAssets: Readonly<Record<string, Uint8Array>>;
   readonly characterAssets: Readonly<Record<string, Uint8Array>>;
   readonly background: Uint8Array;
@@ -207,6 +209,11 @@ function makeRig(options: {
   readonly players?: number;
   readonly fallenPlayers?: readonly number[];
   readonly statusPlayerIndex?: number;
+  /** Player indexes that start with an indefinite `late.ste` counter, which lasts until removed. */
+  readonly lastingStatusPlayers?: readonly number[];
+  /** Adds a party-kind actor the battle does not include, carrying an indefinite `late.ste`. */
+  readonly bystander?: boolean;
+  readonly playerHp?: readonly number[];
   /** Every member grows by the built-in rule: no legacy level-up program, and each may reach level 3. */
   readonly defaultLevelUp?: boolean;
   readonly startingSmp?: readonly number[];
@@ -220,6 +227,7 @@ function makeRig(options: {
       kind: "enemy",
       source: `enemy${index}.ene`,
       name: `Enemy${index}`,
+      statuses: options.enemyOptions?.[index]?.lastingStatus === true ? { "late.ste": 0 } : {},
       stats: { hp: 20, maxHp: 20, smp: 10, maxSmp: 10, fp: 5, dp: 0, criticalOn: -1, criticalBy: -1 },
     });
     registerActorObject(state.vm, state.events, state.actors, enemy.id);
@@ -231,10 +239,12 @@ function makeRig(options: {
       kind: "party",
       source: `player${index}.tem`,
       name: `Player${index}`,
-      statuses: options.statusPlayerIndex === index ? { "late.ste": 1 } : {},
+      statuses: options.statusPlayerIndex === index
+        ? { "late.ste": 1 }
+        : options.lastingStatusPlayers?.includes(index) === true ? { "late.ste": 0 } : {},
       stats: {
         experience: 0,
-        hp: options.fallenPlayers?.includes(index) ? 0 : 20,
+        hp: options.fallenPlayers?.includes(index) ? 0 : options.playerHp?.[index] ?? 20,
         maxHp: 20,
         smp: options.startingSmp?.[index] ?? 6,
         maxSmp: 10,
@@ -261,6 +271,15 @@ function makeRig(options: {
     registerActorObject(state.vm, state.events, state.actors, player.id);
     return player.id;
   });
+  const bystander = options.bystander === true
+    ? addActor(state.actors, {
+      kind: "party",
+      source: "bystander.tem",
+      name: "Bystander",
+      statuses: { "late.ste": 0 },
+      stats: { hp: 10, maxHp: 10, smp: 0, maxSmp: 0, fp: 0, dp: 0 },
+    }).id
+    : null;
   state.party.members = players;
   state.party.selected = players[0] ?? null;
   state.battle = {
@@ -300,7 +319,7 @@ function makeRig(options: {
     `player${index}.tem`, characterBytes(options.defaultLevelUp !== true && index === 0 ? "battle-outcome-levelup.prg" : ""),
   ]));
   return {
-    state, services, seed, enemies, players, enemyAssets, characterAssets,
+    state, services, seed, enemies, players, bystander, enemyAssets, characterAssets,
     background: backgroundBytes(""),
     status: outcomeStatusBytes(),
     messages: [],
@@ -573,6 +592,68 @@ test("a successful seeded run skips later turns but ticks later statuses, runs o
   equal(globals(rig).defeatedgamecount, 0, "a successful run emits no game-level defeated event");
   equal(seededRunValue(seed, 4), 2, "the upper successful result of random(5)");
   ok(rig.messages.includes("Escaped."));
+});
+
+function actorStatuses(rig: Rig, id: number | null | undefined): Record<string, number> {
+  if (id === null || id === undefined) throw new Error("the test rig did not create this actor");
+  const actor = rig.state.actors.actors.find((candidate) => candidate.id === id);
+  if (actor === undefined) throw new Error(`actor ${String(id)} is missing from the actor section`);
+  return { ...actor.statuses };
+}
+
+test("participant statuses end with the battle for every BAT-8 outcome code", () => {
+  const outcomes = [
+    { code: 0, mode: "run" },
+    { code: 1, mode: "handled" },
+    { code: 2, mode: "win" },
+    { code: 3, mode: "handled" },
+    { code: 4, mode: "simultaneous" },
+  ] as const;
+  for (const { code, mode } of outcomes) {
+    const rig = makeRig({
+      seed: code === 0 ? seedForRunValue(2, 2) : 17,
+      enemyOptions: [{ lastingStatus: true }],
+      lastingStatusPlayers: [0],
+      bystander: true,
+      gameOverProgram: "battle-outcome-game-over.prg",
+    });
+    const poll = pollAssets(rig);
+    start(rig, poll);
+    deepEqual(actorStatuses(rig, rig.players[0]), { "late.ste": 0 }, `outcome ${code} starts with the status on its fighter`);
+    globals(rig).outcomemode = mode;
+    globals(rig).outcomehandledcode = code;
+    setCharge(rig, 1, 0, 75);
+    setCharge(rig, 0, 0, 0);
+    tickUntil(rig, poll, () => globals(rig).outcomebattleendedcount === 1);
+    equal(globals(rig).outcomebattleendedcode, code, `outcome ${code} announces itself`);
+    deepEqual(actorStatuses(rig, rig.players[0]), {}, `outcome ${code} clears a player participant's statuses`);
+    deepEqual(actorStatuses(rig, rig.enemies[0]), {}, `outcome ${code} clears an enemy participant's statuses`);
+    deepEqual(actorStatuses(rig, rig.bystander), { "late.ste": 0 }, `outcome ${code} keeps a nonparticipant's statuses`);
+  }
+});
+
+test("a successful run's same-pass status ticks still make a fallen party lose instead of escape", () => {
+  const rig = makeRig({
+    seed: seedForRunValue(2, 3),
+    players: 2,
+    playerHp: [2, 2],
+    lastingStatusPlayers: [0, 1],
+    gameOverProgram: "battle-outcome-game-over.prg",
+  });
+  const poll = pollAssets(rig);
+  start(rig, poll);
+  globals(rig).outcomemode = "run";
+  setCharge(rig, 1, 0, 75);
+  setCharge(rig, 1, 1, 75);
+  setCharge(rig, 0, 0, 0);
+  tickUntil(rig, poll, () => globals(rig).outcomebattleendedcount === 1);
+  equal(globals(rig).outcomebattleendedcode, 4, "the later status ticks make the escape a loss");
+  equal(globals(rig).outcometurncount, 1, "the pass still stops taking turns after a successful run");
+  equal(globals(rig).gameoverprogramcount, 1);
+  equal(globals(rig).runprogramcount ?? 0, 0, "a lost run runs no run program");
+  ok(rig.messages.includes("Escaped."));
+  deepEqual(actorStatuses(rig, rig.players[0]), {}, "the loss still ends the fallen players' statuses");
+  deepEqual(actorStatuses(rig, rig.players[1]), {}, "the loss still ends the fallen players' statuses");
 });
 
 test("a failed seeded run spends its turn; the run roll is deterministic at both sides of the 2-in-5 boundary", () => {

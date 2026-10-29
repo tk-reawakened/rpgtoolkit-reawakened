@@ -112,10 +112,12 @@ function makeState(): GameState {
   const state = createGameState({ seed: 11 });
   const enemy = addActor(state.actors, {
     kind: "enemy", source: "slime.ene", name: "Slime",
+    statuses: { "late.ste": 0 },
     stats: { hp: 8, maxHp: 8, smp: 3, maxSmp: 3, dp: 2, fp: 3 },
   });
   const hero = addActor(state.actors, {
     kind: "party", source: "hero.tem", name: "Hero",
+    statuses: { "late.ste": 0 },
     stats: { experience: 0, hp: 10, maxHp: 20, smp: 4, maxSmp: 8, dp: 3, fp: 2, level: 1 },
     progression: {
       levelType: 10,
@@ -129,6 +131,11 @@ function makeState(): GameState {
       levelSm: 0,
       levelUpType: 1,
     },
+  });
+  addActor(state.actors, {
+    kind: "party", source: "bystander.tem", name: "Bystander",
+    statuses: { "late.ste": 0 },
+    stats: { hp: 10, maxHp: 10, smp: 0, maxSmp: 0, dp: 0, fp: 0 },
   });
   state.party.members = [hero.id];
   state.party.selected = hero.id;
@@ -226,4 +233,29 @@ test("the core loss adapter uses the message and reset fallback without a game-o
   equal(state.battle, null);
   ok(state.vm.effects.some((effect) => effect.name === "mwin" && effect.args[0] === "Game over."));
   equal(state.vm.effects.some((effect) => effect.kind === "state-write" && effect.patch?.section === "engine" && effect.args[0] === "reset"), true);
+});
+
+function statusesNamed(state: GameState, name: string): Record<string, number> {
+  const actor = state.actors.actors.find((candidate) => candidate.name === name);
+  if (actor === undefined) throw new Error(`actor ${name} is missing from the actor section`);
+  return { ...actor.statuses };
+}
+
+test("the core outcome adapter ends every participant's statuses for codes 0 through 4, including handled 1 and 3", () => {
+  const cases = [
+    { name: "automatic run", program: fixture("battle-outcome-run.prg"), code: 0 },
+    { name: "handled run", program: "battle.finish(1)", code: 1 },
+    { name: "automatic win", program: fixture("battle-outcome-win.prg"), code: 2 },
+    { name: "handled win", program: "battle.finish(3)", code: 3 },
+    { name: "loss", program: fixture("battle-outcome-lose.prg"), code: 4 },
+  ] as const;
+  for (const entry of cases) {
+    const state = makeState();
+    const result = runOutcome(state, entry.program, { gameOverProgram: "battle-outcome-game-over.prg" });
+    equal(result.finished, true, entry.name);
+    deepEqual(result.services.diagnostics.map(({ code }) => code), [], entry.name);
+    deepEqual(statusesNamed(state, "Hero"), {}, `${entry.name} clears the player participant's statuses`);
+    deepEqual(statusesNamed(state, "Slime"), {}, `${entry.name} clears the enemy participant's statuses`);
+    deepEqual(statusesNamed(state, "Bystander"), { "late.ste": 0 }, `${entry.name} keeps a nonparticipant's statuses`);
+  }
 });

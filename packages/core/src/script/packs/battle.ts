@@ -111,6 +111,13 @@ function internalDocumentation(summary: string, behaviour: string, throws: NonNu
 
 const BATTLE_OUTCOME_ADAPTER = `
 local(outcome) = battle.outcome
+// BAT-6: every participant's statuses end with the battle. Capture both parties
+// before outcome handling, because a loss discards the battle section.
+local(clearSide)
+local(clearIndex)
+local(clearSize)
+local(clearCount) = 0
+local(clearActors) = {}
 local(gameOver)
 local(size)
 local(index)
@@ -128,6 +135,17 @@ local(step)
 local(context)
 local(levels)
 local(stepFailed)
+clearSide = 0
+while (clearSide < 2) {
+  clearSize = battle.partySize(clearSide)
+  clearIndex = 0
+  while (clearIndex < clearSize) {
+    clearActors[clearCount] = __battle_actor_ref(clearSide, clearIndex)
+    clearCount = clearCount + 1
+    clearIndex = clearIndex + 1
+  }
+  clearSide = clearSide + 1
+}
 if (outcome == 4) {
   __battle_end_loss()
   gameOver = __battle_game_over_program()
@@ -216,6 +234,11 @@ if (outcome == 2) {
   if (runProgram != "") {
     executeProgram(runProgram, { source: null, target: null })
   }
+}
+clearIndex = 0
+while (clearIndex < clearCount) {
+  __battle_clear_statuses(clearActors[clearIndex])
+  clearIndex = clearIndex + 1
 }
 game.emit("battleEnded", { outcome: outcome })
 `;
@@ -1086,6 +1109,24 @@ const EXPERIENCE_STEP = {
   },
 } satisfies BuiltinSpec;
 
+const CLEAR_STATUSES = {
+  name: "__battle_clear_statuses", aliases: [], params: [parameter("fighter")],
+  doc: internalDocumentation(
+    "End every status counter on one battle participant.",
+    "Removes each actor-owned status counter through the actor owner in file-name order, emitting the ordinary statusChanged transition for each. Reads no StatusE asset and runs no status program. The outcome adapter calls it for every fighter of both parties so statuses end with the battle (BAT-6).",
+    [{ code: "battle.bad-fighter", when: "the fighter is not an existing actor id" }],
+  ),
+  call: (view: CommandView, args: readonly Arg[]) => {
+    const id = Number(text(args, 0));
+    const actors = view.actors;
+    if (actors === undefined || !Number.isSafeInteger(id) || id <= 0) return badFighter(args[0]?.value);
+    const actor = actors.readActor(id);
+    if (actor === null || actor === undefined) return badFighter(args[0]?.value);
+    for (const status of Object.keys(actor.statuses).sort()) actors.removeStatus(actor.id, status, { source: null });
+    return { value: null };
+  },
+} satisfies BuiltinSpec;
+
 const APPLY_OUTCOME = {
   name: "__battle_apply_outcome", aliases: [], params: [parameter("code")],
   doc: internalDocumentation("Apply one battle outcome.", "Records the automatic outcome if the package did not already do so, permits a recorded win or run to be corrected to a simultaneous loss, then completes the core outcome adapter and battle-ended notification."),
@@ -1940,7 +1981,7 @@ export const BATTLE_COMMANDS: readonly BuiltinSpec[] = [
   MOVE_DATA, MOVE_ASSET, ITEM_DATA, ITEM_ASSET, ENEMY_DATA, ENEMY_DATA_ASSET, CHARACTER_DATA, CHARACTER_DATA_ASSET, BACKGROUND_DATA, BACKGROUND_DATA_ASSET, ANIMATION_FILE, ANIMATION_ASSET, CONSUME, BATTLE_INVENTORY, BATTLE_SCREEN, UNAFFORDABLE, INTEGER_MUL_DIV,
   STATUS_SIGNATURE, PROGRAM_CONTEXT, STATUS_DELTA, STATUS_ADVANCE,
   OUTCOME_REWARDS, GAME_OVER_PROGRAM, END_LOSS, GAIN_GOLD, BATTLE_ACTOR_REF, EXPERIENCE_BEGIN,
-  EXPERIENCE_STEP_READY, LEVELUP_CONTEXT, EXPERIENCE_STEP, APPLY_OUTCOME,
+  EXPERIENCE_STEP_READY, LEVELUP_CONTEXT, EXPERIENCE_STEP, CLEAR_STATUSES, APPLY_OUTCOME,
 ];
 export const BATTLE_COMMAND_NAMES = new Set<string>(BATTLE_COMMANDS.flatMap((command) => [command.name, ...command.aliases]));
 export const BATTLE_PLUGIN: PluginDefinition = {
