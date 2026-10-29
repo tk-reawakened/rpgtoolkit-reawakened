@@ -18,13 +18,14 @@ refine = true
 id = 2
 tracker_id = "#641"
 type = "story"
-status = "ready-for-dev"
+status = "done"
 title = "Pin pre-vector board run-overrun behavior"
 description = "Add a hard-coded regression fixture for a pre-vector run that exceeds the remaining board cells and assert the documented warning and resulting cells without relying on the writer to construct the same bytes."
 verify = "The focused test fails if the overrun is silently truncated, over-allocates cells, or omits the documented warning, while the existing negative-LUT refusal remains covered."
 covers = ["CAP-1"]
 hitl = false
 risk = "low"
+notes = ["Delivered by PR #729 (`4ff93c93`), CI green. `packages/core/test/format-board-pre-vector.test.ts:316` asserts clamped cells, the overrun warning and following-field alignment from hand-authored bytes; the negative-LUT refusal stays at `packages/core/test/format-board.test.ts:722`. The rule landed doc-first in `docs/spec/formats/legacy/older-binary-versions.md#board-minor-2-and-3-pre-vector` from extraction round 13."]
 
 [[entry]]
 id = 3
