@@ -20,10 +20,12 @@ export type BattleIssue = { path: string; message: string; recoverable?: boolean
 
 export function createBattleSection(): BattleSection { return null; }
 
-/** A missing actor or repeated party/id pair makes a fighter unusable without altering saved data. */
+/** A missing, wrong-kind or repeated actor makes a fighter unusable without altering saved data. */
 export function isBattleFighterUsable(battle: BattleState, party: BattleParty, index: number, actors: ActorsSection): boolean {
   const fighter = battle.parties[party][index];
-  if (!fighter || !actors.actors.some((actor) => actor.id === fighter.actorId)) return false;
+  if (!fighter) return false;
+  const actor = actors.actors.find((candidate) => candidate.id === fighter.actorId);
+  if (!actor || actor.kind !== (party === 0 ? "enemy" : "party")) return false;
   const partyEntries = battle.parties[party];
   for (let previous = 0; previous < index; previous += 1) {
     if (partyEntries[previous]?.actorId === fighter.actorId) return false;
@@ -60,7 +62,11 @@ export function validateBattleSection(value: unknown, actors: ActorsSection): Ba
         if (seen.has(key)) issue(`${path}.actorId`, "duplicates an actor reference in this party", true);
         else {
           seen.add(key);
-          if (!actors.actors.some((actor) => actor.id === entry.actorId)) issue(`${path}.actorId`, "references a missing actor", true);
+          const actor = actors.actors.find((candidate) => candidate.id === entry.actorId);
+          if (!actor) issue(`${path}.actorId`, "references a missing actor", true);
+          else if (actor.kind !== (partyIndex === 0 ? "enemy" : "party")) {
+            issue(`${path}.actorId`, "references an actor of the wrong kind for this party", true);
+          }
         }
       }
     });

@@ -3,11 +3,10 @@ title: 'Resolve the custom battle-handler contract conflict'
 type: 'chore'
 ticket: 27
 created: '2026-10-29'
-status: blocked
+status: in-progress
 baseline_revision: '82d30c5e'
 risk: 'medium'
 review: 'quick'
-blocked_reason: 'awaiting the owner review of the wording proposal recorded here'
 context:
   - 'docs/spec/engine/battle.md'
   - 'docs/spec/engine/plugins-and-battle.md'
@@ -19,13 +18,13 @@ context:
 
 **Approach:** State the precise conflict, propose one clarification that preserves E-79, and leave the capability and the runtime untouched for the owner to review.
 
-## Proposed ruling (pending owner review)
+## Proposal and owner decision
 
 **Question:** How should the no-handler `battle.package-missing` error be worded so it does not contradict the approved registered replacement-loop path?
 
 **Recommended wording** (BAT-14): "When **no battle handler is registered** — neither the `stock_battle` package nor a replacement loop registered as the `battle` command — a battle start ends at once with a diagnostic instead of hanging: a drawn encounter reports `battle.package-missing` and starts nothing, a custom encounter still runs its program, and a program's `Fight` or `FightEnemy` call is the catchable `battle.package-missing`. With a replacement loop registered, `Fight` and `FightEnemy` prepare the battle and hand it to that loop ([E-79](plugins-and-battle.md#e-79), [BAT-9](#bat-9) §§3–4); the error applies only when no handler exists." At BAT-9 §4, name the setup-only entry points as the core prepare operations that build the section without dispatching a loop.
 
-**Status:** proposed only. No owner ruling, approval or date is claimed here; ticket 27 stays `blocked` and issue #747 stays open until the owner reviews the wording.
+**Decision (Jensen, 2026-10-29):** A battle system introduced through the plugin hook or the game file should let `FightEnemy` work. If none exists, report a warning and document how an author can resolve it.
 
 ## Evidence
 
@@ -40,9 +39,9 @@ context:
 
 ## Consequences
 
-- Docs only: BAT-14's condition becomes "no battle handler is registered", and BAT-9 §4 names what the setup-only entry points are. No runtime, test, or golden change.
+- Docs only: BAT-14's condition becomes "no battle handler is registered", and BAT-9 §4 explains how a replacement loop uses the public start commands. No runtime, test, or golden change.
 - The no-handler case keeps its current, tested behavior, so no author loses an error they rely on.
-- Wording lands in `docs/spec/engine/battle.md` only after the owner reviews it; this plan touches no normative file.
+- The wording and troubleshooting guidance are recorded in BAT-14; no runtime change is made.
 
 ## Verified defect facts
 
