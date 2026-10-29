@@ -494,6 +494,7 @@ notes = ["Open question: How should BAT-9/BAT-14 distinguish the no-registered-h
 [[entry]]
 id = 28
 tracker_id = "#748"
+tracker_status = "done"
 type = "story"
 title = "Trace a random encounter through engine battle completion"
 description = """Add a deterministic full-engine check from an ordinary tile-triggered random encounter through the stock battle and outcome without changing encounter rules."""

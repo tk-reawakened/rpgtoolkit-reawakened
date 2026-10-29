@@ -3,7 +3,7 @@ title: 'Trace a random encounter through engine battle completion'
 type: 'feature'
 ticket: 28
 created: '2026-10-29'
-status: 'built'
+status: 'done'
 baseline_revision: 'ef986e6c8b86614de5f6dfb8687b30e8bd846253'
 route: 'oneshot'
 route_source: 'auto'
