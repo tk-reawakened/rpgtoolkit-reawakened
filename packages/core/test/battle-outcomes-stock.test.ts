@@ -391,14 +391,17 @@ function observeDefeatedEvents(rig: Rig): void {
 global(defeatedActor${index}Count)
 global(defeatedActor${index}Cause)
 global(defeatedActor${index}Source)
+global(defeatedActor${index}Detail)
 defeatedActor${index}Count = 0
 defeatedActor${index}Cause = ""
 defeatedActor${index}Source = null
+defeatedActor${index}Detail = null
 local(enemy${index}) = battle.fighter(0, ${index})
 on(enemy${index}, "defeated", (event) => {
   defeatedActor${index}Count = defeatedActor${index}Count + 1
   defeatedActor${index}Cause = event.detail.cause
   defeatedActor${index}Source = event.detail.source
+  defeatedActor${index}Detail = event.detail
   defeatedEventOrder = defeatedEventOrder + "A${index}"
 })
 `).join("\n");
@@ -413,12 +416,16 @@ global(defeatedGameCause0)
 global(defeatedGameSource0)
 global(defeatedGameCause1)
 global(defeatedGameSource1)
+global(defeatedGameDetail0)
+global(defeatedGameDetail1)
 defeatedEventOrder = ""
 defeatedGameCount = 0
 defeatedGameCause0 = ""
 defeatedGameSource0 = null
 defeatedGameCause1 = ""
 defeatedGameSource1 = null
+defeatedGameDetail0 = null
+defeatedGameDetail1 = null
 ${actorListeners}
 on(game, "stock_battle.defeated", (event) => {
   defeatedGameCount = defeatedGameCount + 1
@@ -426,10 +433,12 @@ on(game, "stock_battle.defeated", (event) => {
   if (defeatedGameCount == 1) {
     defeatedGameCause0 = event.detail.cause
     defeatedGameSource0 = event.detail.source
+    defeatedGameDetail0 = event.detail
   }
   if (defeatedGameCount == 2) {
     defeatedGameCause1 = event.detail.cause
     defeatedGameSource1 = event.detail.source
+    defeatedGameDetail1 = event.detail
   }
 })
 `,
@@ -443,6 +452,17 @@ on(game, "stock_battle.defeated", (event) => {
 
 function globals(rig: Rig): Record<string, unknown> {
   return rig.state.vm.globals;
+}
+
+/** The own keys of the real event detail a script listener kept, in the order the emitter wrote them. */
+function detailKeys(rig: Rig, name: string): string[] {
+  const value = rig.state.vm.globals[name];
+  if (typeof value !== "object" || value === null || !("kind" in value) || value.kind !== "object" || !("handle" in value) || typeof value.handle !== "number") {
+    throw new Error(`${name} did not hold an event detail`);
+  }
+  const record = rig.state.vm.objects.find((object) => object.handle === value.handle);
+  if (record === undefined) throw new Error(`${name} held a dangling object handle`);
+  return [...record.keys];
 }
 
 function setCharge(rig: Rig, party: 0 | 1, index: number, charge: number): void {
@@ -736,14 +756,18 @@ test("enemy defeated emits once locally before game re-emission for each enemy, 
     equal(globals(observed).defeatedactor0count, 1);
     equal(globals(observed).defeatedactor0cause, "damage");
     equal(globals(observed).defeatedactor0source, rig.players[0]);
+    deepEqual(detailKeys(observed, "defeatedactor0detail"), ["cause", "source"], "the local defeated detail carries exactly its ruled keys");
     equal(globals(observed).defeatedactor1count, 1);
     equal(globals(observed).defeatedactor1cause, "damage");
     equal(globals(observed).defeatedactor1source, rig.players[0]);
+    deepEqual(detailKeys(observed, "defeatedactor1detail"), ["cause", "source"]);
     equal(globals(observed).defeatedgamecount, 2);
     equal(globals(observed).defeatedgamecause0, "damage");
     equal(globals(observed).defeatedgamesource0, rig.players[0]);
     equal(globals(observed).defeatedgamecause1, "damage");
     equal(globals(observed).defeatedgamesource1, rig.players[0]);
+    deepEqual(detailKeys(observed, "defeatedgamedetail0"), ["cause", "source"], "the game re-emission carries exactly the same ruled keys");
+    deepEqual(detailKeys(observed, "defeatedgamedetail1"), ["cause", "source"]);
     equal(globals(observed).defeatedeventorder, "A0GA1G", "each actor event is delivered before its game re-emission");
   }
   equal(globals(rig).outcomeeventcount, 2, "the original game listener receives both defeated events");

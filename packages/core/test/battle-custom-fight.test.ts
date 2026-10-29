@@ -1047,6 +1047,8 @@ type MainFileApiRun = {
   readonly gold: number;
   readonly diagnostics: readonly string[];
   readonly drewCustomText: boolean;
+  readonly heroActorId: number | null;
+  readonly enemyDefeatedDetailKeys: readonly (readonly string[])[];
 };
 
 const ARROW_RIGHT = { kind: "key" as const, name: "ArrowRight", code: "ArrowRight", char: "", down: true };
@@ -1086,10 +1088,21 @@ function runMainFileApiFight(options: { readonly stock: boolean; readonly seed: 
 
   press(ENTER);
   play(booted, (state) => state.vm.globals.apiafterfight === 1);
-  // Let the events the program queued (status changes, the two defeated emits) drain.
+  // Drain the event queue the program filled (status changes and the two defeated emits) before reading any count.
   for (let tick = 0; tick < 5; tick += 1) booted.engine.advance(1, []);
   const state = booted.state();
-  const recorded = Object.fromEntries(Object.entries(state.vm.globals).filter(([name]) => name.startsWith("api")));
+  const detailKeys = (name: string): string[] => {
+    const value = state.vm.globals[name];
+    if (typeof value !== "object" || value === null || !("kind" in value) || value.kind !== "object" || !("handle" in value) || typeof value.handle !== "number") {
+      throw new Error(`${name} did not hold an event detail`);
+    }
+    const record = state.vm.objects.find((object) => object.handle === value.handle);
+    if (record === undefined) throw new Error(`${name} held a dangling object handle`);
+    return [...record.keys];
+  };
+  // The event-detail globals hold VM object handles, whose numbers legitimately differ when the stock package is loaded;
+  // their exact key sets are asserted from the live records above, so they stay out of the comparable state.
+  const recorded = Object.fromEntries(Object.entries(state.vm.globals).filter(([name]) => name.startsWith("api") && !name.endsWith("detail")));
   // The comparable core state: everything the battle touches, without the clock or the package's own VM objects.
   const projection = clonePlain({
     battle: state.battle,
@@ -1108,6 +1121,8 @@ function runMainFileApiFight(options: { readonly stock: boolean; readonly seed: 
     gold: state.inventory.gold,
     diagnostics: booted.diagnostics.map(({ code, message }) => `${code}: ${message}`),
     drewCustomText: state.ui.draws.some((draw) => draw.text.startsWith("Custom fight ")),
+    heroActorId: state.battle?.parties[1][0]?.actorId ?? null,
+    enemyDefeatedDetailKeys: [detailKeys("apienemydefeateddetail"), detailKeys("apienemy2defeateddetail")],
   };
 }
 
@@ -1144,6 +1159,14 @@ test("one main-file all-API custom fight program runs the real path identically 
     equal(seen.apienemy2damage, 8);
     equal(seen.apienemydefeated, 1);
     equal(seen.apienemy2defeated, 1);
+    ok(run.heroActorId !== null && run.heroActorId > 0, `${label}: the fight has a real hero actor id`);
+    equal(seen.apienemydefeatedcause, "script", `${label}: the custom loop states the ruled cause`);
+    equal(seen.apienemydefeatedsource, run.heroActorId, `${label}: the known hero actor id is the source`);
+    deepEqual(run.enemyDefeatedDetailKeys[0], ["cause", "source"], `${label}: the first local detail carries exactly the ruled keys`);
+    deepEqual(run.enemyDefeatedDetailKeys[1], ["cause", "source"], `${label}: the second local detail carries exactly the ruled keys`);
+    equal(seen.apienemy2defeatedcause, "script");
+    equal(seen.apienemy2defeatedsource, run.heroActorId);
+    equal(seen.apigamedefeatedcount, 0, `${label}: no stock package re-emits the custom loop's defeated event on the game`);
     equal(typeof seen.apiseededroll, "number");
     equal(seen.apipressed, "Enter", `${label}: the program read the delivered key`);
     equal(run.outcome, 2, `${label}: the program's finish(2) took the BAT-8 outcome path`);

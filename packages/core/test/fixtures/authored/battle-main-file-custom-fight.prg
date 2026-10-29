@@ -2,8 +2,9 @@
 // (Epic 7.12, BAT-9 rule 4). The main file names it, the engine runs it for a custom encounter, and it
 //   1. registers its own `battle` handler with registerPlugin, then
 //   2. spells its enemies out with the public FightEnemy, which prepares the core state and runs that handler.
-// The handler exercises every ruled battle-facing operation and finishes the fight. The program touches no stock
-// package name: with `stock_battle` absent or present-but-replaced it must behave identically.
+// The handler exercises every ruled battle-facing operation and finishes the fight. The program calls nothing of the
+// stock package; its only mention of it is a listener for `stock_battle.defeated`, which proves a custom loop's own
+// `defeated` event is not re-emitted there. With `stock_battle` absent or present-but-replaced it behaves identically.
 global(apiCoverage)
 global(apiCalls)
 global(apiAfterFight)
@@ -29,6 +30,14 @@ global(apiEnemyDamage)
 global(apiEnemy2Damage)
 global(apiEnemyDefeated)
 global(apiEnemy2Defeated)
+global(apiEnemyDefeatedCause)
+global(apiEnemyDefeatedSource)
+global(apiEnemyDefeatedDetail)
+global(apiEnemy2DefeatedCause)
+global(apiEnemy2DefeatedSource)
+global(apiEnemy2DefeatedDetail)
+global(apiGameDefeatedCount)
+global(apiHeroId)
 global(apiSeededRoll)
 global(apiPressed)
 
@@ -38,6 +47,7 @@ apiAfterFight = 0
 apiStatusChanges = 0
 apiEnemyDefeated = 0
 apiEnemy2Defeated = 0
+apiGameDefeatedCount = 0
 
 function mainFileBattleLoop() {
   local(enemy)
@@ -93,12 +103,26 @@ function mainFileBattleLoop() {
   removestatus("Hero", "custom-fight")
   apiCoverage = apiCoverage + "status;"
 
-  enemy.on("defeated", (event) => { apiEnemyDefeated = apiEnemyDefeated + 1 })
-  enemy2.on("defeated", (event) => { apiEnemy2Defeated = apiEnemy2Defeated + 1 })
+  // `defeated` carries the ruled `{ cause, source }` detail (BAT-12, EMIT-13). A custom loop emits it itself; with no
+  // stock package loaded there is nothing that re-emits it on the game as `stock_battle.defeated`.
+  enemy.on("defeated", (event) => {
+    apiEnemyDefeated = apiEnemyDefeated + 1
+    apiEnemyDefeatedCause = event.detail.cause
+    apiEnemyDefeatedSource = event.detail.source
+    apiEnemyDefeatedDetail = event.detail
+  })
+  enemy2.on("defeated", (event) => {
+    apiEnemy2Defeated = apiEnemy2Defeated + 1
+    apiEnemy2DefeatedCause = event.detail.cause
+    apiEnemy2DefeatedSource = event.detail.source
+    apiEnemy2DefeatedDetail = event.detail
+  })
+  on(game, "stock_battle.defeated", (event) => { apiGameDefeatedCount = apiGameDefeatedCount + 1 })
+  apiHeroId = hero.id
   apiEnemyDamage = enemy.damage(8, hero.id, "hp")
   apiEnemy2Damage = enemy2.damage(8, hero.id, "hp")
-  enemy.emit("defeated", { actorId: enemy.id })
-  enemy2.emit("defeated", { actorId: enemy2.id })
+  enemy.emit("defeated", { cause: "script", source: hero.id })
+  enemy2.emit("defeated", { cause: "script", source: hero.id })
   apiCoverage = apiCoverage + "damage-defeated;"
 
   apiSeededRoll = random(100)
