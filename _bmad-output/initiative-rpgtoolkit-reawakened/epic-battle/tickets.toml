@@ -543,6 +543,7 @@ notes = ["Audit evidence: packages/core/test/battle-outcomes-stock.test.ts curre
 [[entry]]
 id = 31
 tracker_id = "#751"
+tracker_status = "done"
 type = "story"
 title = "Complete battle save, resume, and reset lifecycle evidence"
 description = """Compare game-state hashes from uninterrupted and real game Load/resumed battle runs at aligned simulation points, retain the existing frame comparison, and verify reset clears active battle state; use no active audio for full-state hash equality."""
