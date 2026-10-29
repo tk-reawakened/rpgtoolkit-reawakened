@@ -485,6 +485,32 @@ test("no attacker, no target or a fallen attacker changes nothing, reports 0 and
     if (options.target !== null) equal(stat(result.state, options.attacker === null ? ATTACKER : TARGET, "hp"), 1000);
     deepEqual(codes(result.services), []);
   }
+
+  // BAT-6: a fallen attacker's moves and items do nothing either. The assets are
+  // present, so only the source guard can keep the target unchanged.
+  const move = run({
+    scenario: "special", seed: 3, file: "fire.spc",
+    attacker: { hp: 0, smp: 10 }, target: { hp: 1000, smp: 20 },
+    assets: { "fire.spc": moveAsset({ fp: 7, targetSmp: 3, cost: 2, animation: "" }) },
+  });
+  equal(move.state.vm.globals.movedhp, 0, "a fallen attacker's move deals no HP damage");
+  equal(move.state.vm.globals.movedsmp, 0, "a fallen attacker's move drains no SMP");
+  equal(move.state.vm.globals.movedcost, 0, "a fallen attacker's move costs no SMP");
+  equal(stat(move.state, TARGET, "hp"), 1000);
+  equal(stat(move.state, TARGET, "smp"), 20);
+  equal(stat(move.state, ATTACKER, "smp"), 10);
+  deepEqual({ ...move.state.rng }, freshRng(3), "no draw");
+
+  const item = run({
+    scenario: "item", seed: 3, file: "potion.itm",
+    attacker: { hp: 0 }, target: { hp: 10, maxHp: 20, smp: 12 },
+    assets: { "potion.itm": itemAsset({ hp: 5, smp: 3, animation: "" }) },
+  });
+  equal(item.state.vm.globals.usedhp, 0, "a fallen attacker's item heals nothing");
+  equal(item.state.vm.globals.usedsmp, 0);
+  equal(stat(item.state, TARGET, "hp"), 10);
+  equal(stat(item.state, TARGET, "smp"), 12);
+  deepEqual({ ...item.state.rng }, freshRng(3), "no draw");
 });
 
 test("attackAmount supplies the base: pool selects SMP, and a product beyond 32 bits stays exact", () => {

@@ -458,9 +458,6 @@ stockBattle = {
     if (fighter == null) {
       return 0
     }
-    if (fighter.hp < 1) {
-      return 0
-    }
     players = stockBattle.living(1)
     if (players.count < 1) {
       return 0
@@ -469,6 +466,10 @@ stockBattle = {
     if (data == null) {
       return 0
     }
+    // BAT-6: a status that takes a fighter to 0 HP does not stop the turn, so a
+    // fallen enemy with a custom AI program still runs it. Its attacks, moves
+    // and items are refused by their source guards below, and performAi refuses
+    // a fallen fighter for the built-in levels.
     if (data.customai != 0) {
       target = stockBattle.randomLiving(players)
       if (target != null) {
