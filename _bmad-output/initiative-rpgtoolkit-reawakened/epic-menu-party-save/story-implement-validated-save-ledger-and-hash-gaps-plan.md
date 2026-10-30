@@ -162,4 +162,11 @@ These are explicit gates, not assumptions to paper over:
 5. **Equipment derivation seam:** current #593 restore work does not reconcile actor equipment against live assets/hooks. #778 must identify or coordinate a non-mutating owner projection for inventory assignment → equipped references/bonuses before hashing; do not claim successful candidate validation without it.
 6. **Asset-source ownership:** the owner contract forbids resetting changed-source mutable values. For each durable sprite/world field, prove current candidate source compatibility and its saved-value authority; otherwise report unsafe rather than substituting new defaults. The 3.1 audit cannot close this proof.
 
+### Research updates
+
+- Current board item records carry authored slot defaults; live sprite positions are separate mutable state. Different positions alone are not a conflict. Repeated item filenames need instance identity by slot and handle.
+- The current equipment action path may invoke game hooks and change stats or emit events; never use it as a load validator. Existing saves do not record individual equipment-asset fingerprints, and v1 inventory migration does not reconstruct a nonempty actor equipment projection. A pure, asset-aware reconciliation contract and behavior-hook compatibility policy remain unproved; #593 remains open.
+- `expireProgramTileEdits` discards active owners' edit records when another owner finishes; #790 tracks this defect separately. Do not claim the edit journal is sufficient for ledger recovery until its lifecycle is corrected and verified.
+- Globals are a known persistent graph root, but actor wrapper bindings, runtime-registered event listeners and plugin layers require separate reconstruction proofs. Runtime garbage collection roots include frames and events and must not be reused wholesale as the ledger root set.
+
 No additional player-facing decision is inferred. Checkpoint eligibility, listener reconstruction/handoff, paused-program recovery and battle behavior remain governed by their owning #777/#779/#783 work, not this plan or the ledger hash.
