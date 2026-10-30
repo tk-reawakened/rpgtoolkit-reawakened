@@ -1126,9 +1126,10 @@ const recoveryBattlePlugin: ResolvedPlugin = {
         });
         state.party.members = [player.id];
         state.party.selected = player.id;
-        const selected = state.sprites.players.find((sprite) => sprite.id === state.sprites.selectedPlayer);
-        if (selected === undefined) return { value: 0 };
-        selected.actorId = player.id;
+        const selectedIndex = state.sprites.players.findIndex((sprite) => sprite.id === state.sprites.selectedPlayer);
+        const selected = state.sprites.players[selectedIndex];
+        if (selectedIndex < 0 || selected === undefined) return { value: 0 };
+        state.sprites.players[selectedIndex] = { ...selected, actorId: player.id };
         const started = battle.start({
           boardKey: state.world.board?.key ?? "boards/start.brd",
           background: "",
