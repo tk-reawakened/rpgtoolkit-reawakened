@@ -1,6 +1,6 @@
 import { deepEqual, equal, throws } from "node:assert/strict";
 import { test } from "node:test";
-import { assetKey, createActorService, createGameState, createScriptServices, createDefaultVirtuals, ScriptError, type Arg, type GameState, type WorldBoard } from "../src/index.ts";
+import { assetKey, COMPILER_VERSION, createActorService, createGameState, createScriptServices, createDefaultVirtuals, runThreadsPhase, ScriptError, STEP_BUDGET, type Arg, type GameState, type WorldBoard } from "../src/index.ts";
 import { applyWorldEffect, expireProgramTileEdits } from "../src/world/effects.ts";
 import type { EffectRecord } from "../src/script/effects.ts";
 import { startThread } from "../src/script/state.ts";
@@ -177,6 +177,38 @@ test("board-scoped LayerPut survives overlapping program Put expiry", () => {
 
   finishThread(state, earlier);
   expireProgramTileEdits(state);
+  equal(state.world.board?.layers[0]?.tiles[0]?.asset, "tiles/board.tst");
+  deepEqual(state.world.board?.runtime?.tileEdits.map((edit) => [edit.scope, edit.owner, edit.previous?.asset]), [["board", undefined, "tiles/a.tst"]]);
+});
+
+test("a killed highest-id Put owner expires before same-phase id reuse", () => {
+  const state = stateWithBoard();
+  const killer = startThread(state.vm, {
+    ref: {
+      kind: "inline",
+      text: 'killthread(2)\nreplacement = thread("end()", 0)\nend()',
+      compiler: COMPILER_VERSION,
+    },
+    kind: "persistent",
+    owner: "script",
+  }).id;
+  const killed = programThread(state);
+  equal(killer, 1);
+  equal(killed, 2);
+  applyTileEdit(state, killer, "layerput", [1, 1, 1, "tiles/board.tst"]);
+  putTile(state, killer, 1, 1, "tiles/earlier.tst");
+  putTile(state, killed, 1, 1, "tiles/killed.tst");
+  equal(state.world.board?.layers[0]?.tiles[0]?.asset, "tiles/killed.tst");
+
+  const services = {
+    ...createScriptServices(state, [{ definition: WORLD_PLUGIN }]),
+    onThreadRemoved: () => expireProgramTileEdits(state),
+  };
+  runThreadsPhase(state.vm, services, STEP_BUDGET);
+  equal(state.vm.globals.replacement, killed);
+  equal(state.vm.threads.some((thread) => thread.id === killed && thread.kind === "board"), true);
+  expireProgramTileEdits(state);
+
   equal(state.world.board?.layers[0]?.tiles[0]?.asset, "tiles/board.tst");
   deepEqual(state.world.board?.runtime?.tileEdits.map((edit) => [edit.scope, edit.owner, edit.previous?.asset]), [["board", undefined, "tiles/a.tst"]]);
 });

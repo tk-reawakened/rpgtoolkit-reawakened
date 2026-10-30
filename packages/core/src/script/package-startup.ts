@@ -78,15 +78,15 @@ export function runPackageStartup(
           location,
         );
       }
-      killThread(state.vm, id);
+      if (killThread(state.vm, id)) services.onThreadRemoved?.(id);
       activeThread = undefined;
     }
   } catch (error) {
     for (const thread of [...state.vm.threads]) {
-      if (!initialThreadIds.has(thread.id)) killThread(state.vm, thread.id);
+      if (killThread(state.vm, thread.id)) services.onThreadRemoved?.(thread.id);
     }
     if (activeThread !== undefined) {
-      killThread(state.vm, activeThread);
+      if (killThread(state.vm, activeThread)) services.onThreadRemoved?.(activeThread);
       activeThread = undefined;
     }
     restorePluginLayers(services.layers, layers);

@@ -162,18 +162,26 @@ export function applyWorldEffect(state: GameState, effect: EffectRecord): void {
   }
 }
 
-/** Remove `put` edits when their calling program has finished. */
+/** Expire `put` edits whose program thread has finished or been removed. */
 export function expireProgramTileEdits(state: GameState): void {
   const board = boardOrNull(state);
   if (board === null || board.runtime === undefined || board.runtime.tileEdits.length === 0) return;
   const edits = board.runtime.tileEdits;
-  const finished = new Set<number>();
+  let hasProgramEdits = false;
+  for (const edit of edits) {
+    if (edit.scope === "program") {
+      hasProgramEdits = true;
+      break;
+    }
+  }
+  if (!hasProgramEdits) return;
+  const activeOwners = new Set<number>();
   for (const thread of state.vm.threads) {
-    if (thread.status === "finished") finished.add(thread.id);
+    if (thread.status !== "finished") activeOwners.add(thread.id);
   }
   let hasExpired = false;
   for (const edit of edits) {
-    if (edit.scope === "program" && (edit.owner === undefined || finished.has(edit.owner))) {
+    if (edit.scope === "program" && (edit.owner === undefined || !activeOwners.has(edit.owner))) {
       hasExpired = true;
       break;
     }
@@ -185,7 +193,7 @@ export function expireProgramTileEdits(state: GameState): void {
   const retained: WorldTileEdit[] = [];
   for (const edit of edits) {
     if (!baseline.has(edit.index)) baseline.set(edit.index, edit.previous);
-    if (edit.scope === "program" && (edit.owner === undefined || finished.has(edit.owner))) continue;
+    if (edit.scope === "program" && (edit.owner === undefined || !activeOwners.has(edit.owner))) continue;
 
     const previous = visible.has(edit.index) ? visible.get(edit.index)! : baseline.get(edit.index)!;
     retained.push(previous === edit.previous ? edit : { ...edit, previous });

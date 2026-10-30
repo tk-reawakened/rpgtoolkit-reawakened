@@ -466,6 +466,7 @@ export function createEngine(init: EngineInit): Engine {
       return;
     }
     applySpriteEffect(state, effect.name, values);
+    if (effect.name === "hideitem" || effect.name === "removeitem") expireProgramTileEdits(state);
   });
   bus.register("triggers", (effect) => applyTriggerEffect(state, effect));
   /**
@@ -705,6 +706,7 @@ export function createEngine(init: EngineInit): Engine {
         enemies: mainFile?.enemies ?? [],
         stockBattleAvailable: plugins.some((plugin) => plugin.definition.id === "stock_battle"),
       },
+      () => expireProgramTileEdits(state),
     );
     media.activateDeclared();
     if (runStartups) {
@@ -1568,6 +1570,7 @@ export function createEngine(init: EngineInit): Engine {
       const source = item.handle === null ? item.id : `item:${item.source}`;
       endItemThreads(state.vm, source);
     }
+    expireProgramTileEdits(state);
   }
 
   /** Emit the board lifecycle notification on the shared queued bus. */
