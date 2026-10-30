@@ -29,11 +29,11 @@ context: []
 
 One-shot documentary reconciliation; preserve original statuses and historical audit rows. #780 owns subsequent BAT-13-specific reconciliation.
 
-Appended the baseline-pinned inventory to the epic record, retaining the historical audit. All twelve follow-up issues were observed closed; #758 and #503 remain open. The director will arrange independent review; no review is claimed here.
+Appended the baseline-pinned inventory to the epic record, retaining the historical audit. All twelve follow-up issues were observed closed; #758 and #503 remain open. Independent review subsequently identified the #746 documentation gap and the need to distinguish BAT-13's approved comparison scope from the literal #751 and parent requirement.
 
-Focused documentary checks: `git diff --check` passed; inspected the historical table, cited tests for outcomes, AI, background, identifiers, custom fights, encounter, audio and save/load, and the owner rulings in BAT-2, E-74 and BAT-14. PR-to-issue associations were collected from GitHub search. The complete detailed assertion-by-assertion audit remains for independent review.
+Focused documentary checks before independent review: `git diff --check` passed; inspected the historical table, cited tests for outcomes, AI, background, identifiers, custom fights, encounter, audio and save/load, and the owner rulings in BAT-2, E-74 and BAT-14. PR-to-issue associations were collected from GitHub search.
 
-Subsequent documentary audit compared all twelve issue acceptance criteria with the cited source, regression assertions and owner decisions. The matrix names scope limits, including #751's normalized rather than literal whole-state hash comparison, #742's separately tested fallen moves/items, and #743's control not covering every other format. Parent criteria not fully revalidated are explicitly listed. Independent review remains pending.
+The subsequent documentary audit compared all twelve issue acceptance criteria with the cited source, regression assertions and owner decisions. The matrix records scope limits and unresolved parent criteria. Independent review found that the #746 rejected alternative was absent from E-74 itself; the owner-approved alternative is now recorded there in doc-only commit `0093ba19`.
 
 ## Plan Change Log
 
@@ -49,7 +49,11 @@ Subsequent documentary audit compared all twelve issue acceptance criteria with 
 | #503 criterion 8 named `battle.boardKey` | Corrected live parent to active-board music using the explicit 2026-10-26 BAT-10 owner ruling; #758 remains open for the separate audio defect. |
 | Parent-wide criteria and closure ordering | #503 closure owner must revalidate its criteria and relevant children, including #805, #806, #758 and later #780. #753 records gaps and does not wait on #780. |
 | #743 other-format coverage | The authored PNG UI golden and .tbm/fallback cases provide partial coverage; the #503 closure audit owns the remaining supported-format evidence. |
+| #746 rejected alternative missing from E-74 | Fixed doc-first in `0093ba19` using the approved spike decision; no runtime or RNG change. |
+| BAT-13 normalized comparison versus literal #751 and parent equality | Clarified: BAT-13 approves the bounded normalized comparison, while #805 owns the distinct literal full-state requirement. |
 
 ## Verification
+
+The full local gate was run at `4343828a`: typecheck, lint, test:strict (2,374 passed, none skipped), golden, golden:bun, graph, catalogue:check, command-docs:check, licence, provenance and dump:check all passed. The Bun closing check matched eight baselines, including six expected TK2-support failures. After the E-74 doc-only clarification, `git diff --check 4343828a` and `pnpm command-docs:check` passed.
 
 Inspect each evidence citation against the baseline and current issue status; check the historical rows and prior checkboxes remain intact.
