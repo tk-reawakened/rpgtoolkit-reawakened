@@ -22,7 +22,7 @@ const STANDARD_SLOTS: Readonly<Record<string, number>> = {
   legs: 6,
 };
 
-/** The trans3 location for a canonical slot token, or null when it is unknown. */
+/** The editor's equipment location for a canonical slot token, or null when it is unknown. */
 export function slotLocation(slot: string): number | null {
   const standard = STANDARD_SLOTS[slot];
   if (standard !== undefined) return standard;
