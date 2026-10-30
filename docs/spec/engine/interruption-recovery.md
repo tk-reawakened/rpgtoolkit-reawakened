@@ -18,7 +18,7 @@ Write a separate candidate, read the stored bytes back and validate identity, ve
 
 The layout below is the reference used by core's `save/recovery-store` promotion and selection functions. **It is optional for hosts**: a host may store candidates any way it likes provided it offers the same observable guarantees — complete game-scoped generations, read-back validation before an atomic pointer switch, and the current plus one previous validated generation retained. A host that cannot make the pointer switch atomic and durable must not advertise durable interruption recovery.
 
-Paths are `gameId`-relative below the game's durable save area and use `/` separators. The `gameId` is one path segment and cannot be empty or contain `/`, `\`, NUL, `.` or `..`.
+Paths are `gameId`-relative below the game's durable save area and use `/` separators. The `gameId` is one path segment: it cannot be empty, cannot contain `/`, `\` or NUL, and cannot be `.` or `..`.
 
 | Path | Contents |
 |---|---|
