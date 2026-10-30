@@ -896,7 +896,7 @@ export function refuseOtherCompiler(compiler: unknown): void {
  * compiler mismatch ruling covers references in frames, object records and `vm.defOwners`,
  * even when another payload section is malformed.
  */
-function refuseOtherProgramCompilers(record: Record<string, unknown>): void {
+export function refuseOtherProgramCompilers(record: Record<string, unknown>): void {
   const vm = record.vm;
   if (!isRecord(vm)) return;
   const check = (value: unknown, path: string): void => {

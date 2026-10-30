@@ -27,7 +27,7 @@ Use authored current/prior-version, malformed, compiler-mismatch, missing-progra
 
 ## Implementation map
 
-Compose section migrations, `loadBlob`, package startup and actor hydration; validate every saved program reference before committing restored state. For each changed file-backed thread, compile only the current source as its restart target and refuse the whole load if that source or its includes do not compile. Do not save compiler-owned instruction offsets as portable positions unless entry 1 explicitly rules their compatibility.
+Preflight the schema and every saved program compiler reference before any payload parsing, including the game-save audio projection wrapper; then compose section migrations, `loadBlob`, package startup and actor hydration. For each changed file-backed thread, compile only the current source as its restart target and refuse the whole load if that source or its includes do not compile. Do not save compiler-owned instruction offsets as portable positions unless entry 1 explicitly rules their compatibility.
 
 ## Accepted ledger handoff (2026-10-29)
 
