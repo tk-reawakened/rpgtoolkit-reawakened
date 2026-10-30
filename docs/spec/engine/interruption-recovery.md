@@ -1,6 +1,6 @@
 # Interruption recovery
 
-**Owner-approved rule, not yet implemented** (#777). Interruption recovery is distinct from normal `Save`/`Load` and saveable VM snapshots; it does not weaken [G1](../../guardrails.md) or change existing mid-battle snapshot continuation. The approved contract and source evidence are in [the recovery decision](../../../_bmad-output/initiative-rpgtoolkit-reawakened/epic-menu-party-save/recovery-checkpoint-proposal.md). Ledger fields, identity, migrations and validation belong to #776.
+**Owner-approved rule, partially implemented (#777).** The reference recovery store's promotion and selection are implemented in core (#783); capture eligibility (#782) and paused ledger-first re-entry (#779) remain. Interruption recovery is distinct from normal `Save`/`Load` and saveable VM snapshots; it does not weaken [G1](../../guardrails.md) or change existing mid-battle snapshot continuation. The approved contract and source evidence are in [the recovery decision](../../../_bmad-output/initiative-rpgtoolkit-reawakened/epic-menu-party-save/recovery-checkpoint-proposal.md). Ledger fields, identity, migrations and validation belong to #776.
 
 ## Stable checkpoint
 
@@ -34,7 +34,7 @@ A **generation** is a positive integer written as twelve zero-padded decimal dig
 2. Write the new generation's `candidate.bin`, read those bytes back and validate the read-back; its tick and ledger hash must equal the first validation exactly.
 3. Write `meta.json`, read it back and confirm it records the validated generation, then replace `current.json` with an atomic write.
 4. Read the pointer back and require it to name the new generation with exactly the validated tick and ledger hash. A pointer read-back failure restores the previous pointer when it was readable and reports promotion failure. The previous validated generation stays usable until this step succeeds.
-5. Best-effort prune older generations, retaining the promoted generation and one preceding validated generation. A host without removal keeps the extra generations; selection still validates whichever it reads.
+5. Best-effort prune older generations, retaining the promoted generation and the newest older generation that revalidates. If no older generation validates, the newest remaining generation is kept so a transient read or validation failure does not delete the only fallback. A host without removal keeps the extra generations; selection still validates whichever it reads.
 
 Promotion is synchronous and creates no cross-process lock, so a host serializes competing promotions as the contract requires. Candidate and pointer bytes are opaque to the store: identity, version, integrity, completeness and ledger consistency are the injected validator's responsibility.
 
