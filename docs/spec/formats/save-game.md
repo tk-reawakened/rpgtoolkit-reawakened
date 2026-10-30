@@ -113,6 +113,73 @@ Audio game saves add only the playback projection defined in
 configuration or script volume settings. The saved cue is restored through
 the current audio configuration.
 
+### Game ledger and savable continuation
+
+<!-- OWNER: Jensen, 2026-10-29: accepted #776 ledger recommendations. -->
+The **game ledger** is the validated, game-owned progress subset of **savable
+state**. Savable state also includes the continuation needed for ordinary
+Save/Load. A ledger is not a replacement for the complete VM snapshot: normal
+saves retain running threads, waits, frames, locals and their references under
+G1 and the compiler/source compatibility rules above. Interruption recovery is
+separate from normal Load and does not promise to restart a battle.
+
+This ruling is a required contract for future work, not a claim that the
+separate ledger or its hash already exists. The current game save remains the
+canonical state snapshot with the audio projection described above. The
+[accepted field mapping](../../../_bmad-output/initiative-rpgtoolkit-reawakened/epic-menu-party-save/discovery/save-ledger-776-proposal.md)
+records its detailed classifications, evidence and unresolved engineering
+proofs. The 3.1 baseline is context, not a claim that every proposed field has
+been independently verified against the historical engine.
+
+The ledger includes party membership, selection and steps; all live actor
+identities and game values, including stats, statuses and progression; inventory
+items, equipment assignments and gold; script globals and redirects; current
+board identity, placements, items, board edits and trigger progress; encounter
+progress, RNG and tick. Preserve identity allocation and order where they
+affect future behavior. Inventory equipment assignments are authoritative;
+actor equipment bonuses and references are derived and must be validated or
+rebuilt consistently. Conflicting board-item and sprite placement data must be
+resolved by a documented authority rule, not silently discarded.
+
+Game-owned objects and closure cells reachable from persistent roots belong
+with their transitive references; foreground-local-only data must not turn the
+ledger into a mid-program snapshot. The persistent roots, traversal, cycles,
+identity/counter handling and declaration restoration require engineering
+proof. Until that proof exists, do not claim the ledger is complete or permit a
+recovery that can lose referenced game values. Normal saves continue to retain
+the whole VM continuation.
+
+Game-modified values such as sprite speed, geometry, stance and program settings
+may be lasting progress. A continuation or derived label does not authorize
+resetting them from a changed asset. Establish mutation and ownership semantics
+for each such field and preserve game-owned changes, or treat that recovery
+candidate as unsafe. Likewise, script-visible surfaces, listeners, movement,
+effects and other continuation state must not be discarded merely because they
+appear to be presentation or runtime details. Use simple field labels or a
+registry; no decorator mechanism is required.
+
+Capture a coherent candidate at one state boundary. That candidate is the
+single authoritative state: on readback validate it, derive its ledger and
+recompute the hash from that same readback. A separately persisted projection
+may only be immutable derived data and must match exactly or be rejected. A hash
+match never replaces schema, reference, asset or source validation. Recovery
+promotion and stable checkpoint eligibility remain separate requirements.
+
+The ledger hash uses the existing canonical tagged JSON and FNV-1a 64-bit over
+a domain-separated, versioned envelope containing the ledger. Compare hashes
+only for the same ledger domain, version and compatible game identity. This is
+a non-cryptographic progress comparison and accidental-change detector, not
+authentication, a security boundary, collision-proof equality, the existing
+runtime replay hash, or a checksum of the entire save. A version change requires
+an explicit migration and comparison policy.
+
+Implementation must validate field shapes, identities and cross-references,
+handle old saves and incompatible assets without silent progress loss, and
+test changed asset defaults, mutable properties, reachability and cycles,
+projection/readback mismatches, deterministic continuation and failure
+atomicity. The existing normal save request gate and rollback behavior remain
+in force; checkpoint safety and battle treatment are not ruled here.
+
 ### Reawakened canonical actor state
 
 The Reawakened runtime uses its canonical state snapshot for its own save/load
