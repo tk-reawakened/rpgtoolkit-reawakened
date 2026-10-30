@@ -15,9 +15,11 @@
  * game-scoped pointer. A failure before the pointer switch leaves the previous
  * pointer selected; a pointer read-back failure restores the previous pointer
  * when it was readable. Selection never returns bytes that did not just pass
- * the validator, falls back newest-first to an older validated generation when
- * the pointer or the pointed generation is unusable, and repairs the pointer
- * best-effort.
+ * the validator, and falls back newest-first to an older validated generation
+ * when the pointer or the pointed generation is absent or corrupt. A throwing
+ * host read is unreadable rather than corrupt: selection may still return an
+ * older validated generation, but it does not demote the pointer past a read
+ * that may be transiently failing.
  *
  * The path layout, generation naming, pointer and metadata shapes are the
  * reference layout in the spec. Hosts may store the same guarantees differently
@@ -219,15 +221,33 @@ function readBytes(store: RecoveryStorage, path: string): Uint8Array | null {
   return bytes instanceof Uint8Array ? bytes : null;
 }
 
-/** Selection tolerates a host read failure on one path by treating it as absent. */
-function maybeReadBytes(store: RecoveryStorage, path: string): Uint8Array | null {
+/**
+ * A selection read distinguishes a host failure from absent data: `missing` is
+ * a `null` read (absent), while `unreadable` is a thrown read or a malformed
+ * return. Only absent data may be treated as corrupt and demoted.
+ */
+type ReadOutcome =
+  | { readonly status: "ok"; readonly bytes: Uint8Array }
+  | { readonly status: "missing" }
+  | { readonly status: "unreadable" };
+
+function readForLoad(store: RecoveryStorage, path: string): ReadOutcome {
+  let bytes: Uint8Array | null;
   try {
-    return readBytes(store, path);
+    bytes = store.read(path);
   } catch {
-    // A failed read is not proof of a valid candidate; selection falls back.
-    return null;
+    return { status: "unreadable" };
   }
+  if (bytes === null) return { status: "missing" };
+  if (!(bytes instanceof Uint8Array)) return { status: "unreadable" };
+  return { status: "ok", bytes };
 }
+
+/** A loaded value, or why it cannot be used: absent/corrupt (`invalid`) or a host read failure (`unreadable`). */
+type LoadOutcome<T> =
+  | { readonly status: "valid"; readonly value: T }
+  | { readonly status: "invalid" }
+  | { readonly status: "unreadable" };
 
 function generationOf(prefix: string, path: string): number | null {
   if (!path.startsWith(prefix)) return null;
@@ -281,27 +301,32 @@ function validateBytes(validate: RecoveryValidate, bytes: Uint8Array, label: str
   return { tick: result.tick, ledgerHash: result.ledgerHash };
 }
 
-function readPointer(store: RecoveryStorage, gameId: string): RecoveryPointer | null {
-  const bytes = maybeReadBytes(store, pointerPath(gameId));
-  return bytes === null ? null : asPointer(decodeJson(bytes));
+function readPointer(store: RecoveryStorage, gameId: string): LoadOutcome<RecoveryPointer> {
+  const read = readForLoad(store, pointerPath(gameId));
+  if (read.status === "unreadable") return { status: "unreadable" };
+  if (read.status === "missing") return { status: "invalid" };
+  const pointer = asPointer(decodeJson(read.bytes));
+  return pointer === null ? { status: "invalid" } : { status: "valid", value: pointer };
 }
 
-function loadGeneration(store: RecoveryStorage, gameId: string, generation: number, validate: RecoveryValidate): ValidatedRecovery | null {
-  const bytes = maybeReadBytes(store, candidatePath(gameId, generation));
-  if (bytes === null) return null;
-  const metadataBytes = maybeReadBytes(store, metadataPath(gameId, generation));
-  if (metadataBytes === null) return null;
-  const meta = asMetadata(decodeJson(metadataBytes));
-  if (meta === null || meta.generation !== generation) return null;
+function loadGeneration(store: RecoveryStorage, gameId: string, generation: number, validate: RecoveryValidate): LoadOutcome<ValidatedRecovery> {
+  const candidate = readForLoad(store, candidatePath(gameId, generation));
+  if (candidate.status === "unreadable") return { status: "unreadable" };
+  if (candidate.status === "missing") return { status: "invalid" };
+  const metadata = readForLoad(store, metadataPath(gameId, generation));
+  if (metadata.status === "unreadable") return { status: "unreadable" };
+  if (metadata.status === "missing") return { status: "invalid" };
+  const meta = asMetadata(decodeJson(metadata.bytes));
+  if (meta === null || meta.generation !== generation) return { status: "invalid" };
   let validation: RecoveryValidation;
   try {
-    validation = validateBytes(validate, bytes, `recovery generation ${generation}`);
+    validation = validateBytes(validate, candidate.bytes, `recovery generation ${generation}`);
   } catch {
     // A refused, malformed or throwing validation makes this generation unusable.
-    return null;
+    return { status: "invalid" };
   }
-  if (validation.tick !== meta.tick || validation.ledgerHash !== meta.ledgerHash) return null;
-  return { generation, tick: validation.tick, ledgerHash: validation.ledgerHash, bytes };
+  if (validation.tick !== meta.tick || validation.ledgerHash !== meta.ledgerHash) return { status: "invalid" };
+  return { status: "valid", value: { generation, tick: validation.tick, ledgerHash: validation.ledgerHash, bytes: candidate.bytes } };
 }
 
 function repairPointer(store: RecoveryStorage, gameId: string, recovery: ValidatedRecovery): void {
@@ -349,7 +374,7 @@ function pruneGenerations(store: RecoveryStorage, gameId: string, current: numbe
   for (const generation of listed) {
     if (generation === current) continue;
     if (newestOlder === null) newestOlder = generation;
-    if (loadGeneration(store, gameId, generation, validate) !== null) {
+    if (loadGeneration(store, gameId, generation, validate).status === "valid") {
       keep.add(generation);
       break;
     }
@@ -460,16 +485,25 @@ export function promoteRecovery(store: RecoveryStorage, options: RecoveryPromote
  *
  * The pointed generation is used only when its candidate and metadata
  * revalidate and agree with the pointer exactly. Otherwise every generation is
- * scanned newest-first and the newest fully valid one is returned after a
- * best-effort pointer repair. Bytes that did not just pass the validator are
- * never returned.
+ * scanned newest-first and the newest fully valid one is returned. The pointer
+ * is repaired best-effort only when the pointer read succeeded, the pointed
+ * generation was readable, and every generation newer than the selected one was
+ * readable; a transient host read failure never demotes the pointer. Bytes that
+ * did not just pass the validator are never returned.
  */
 export function selectRecovery(store: RecoveryStorage, options: RecoverySelectOptions, validate: RecoveryValidate): ValidatedRecovery | null {
   const gameId = gameDirectory(options.gameId);
-  const pointer = readPointer(store, gameId);
-  if (pointer !== null && pointer.gameId === gameId) {
-    const selected = loadGeneration(store, gameId, pointer.generation, validate);
-    if (selected !== null && selected.tick === pointer.tick && selected.ledgerHash === pointer.ledgerHash) return selected;
+  const pointerRead = readPointer(store, gameId);
+  const pointer = pointerRead.status === "valid" && pointerRead.value.gameId === gameId ? pointerRead.value : null;
+  let pointedUnreadable = false;
+  if (pointer !== null) {
+    const pointed = loadGeneration(store, gameId, pointer.generation, validate);
+    if (pointed.status === "valid" && pointed.value.tick === pointer.tick && pointed.value.ledgerHash === pointer.ledgerHash) {
+      return pointed.value;
+    }
+    // An unreadable pointed generation is a transient host failure, not proof
+    // that the intact pointer selected the wrong generation: never demote it.
+    pointedUnreadable = pointed.status === "unreadable";
   }
 
   let generations: number[];
@@ -480,11 +514,21 @@ export function selectRecovery(store: RecoveryStorage, options: RecoverySelectOp
     return null;
   }
   generations.sort((left, right) => right - left);
+  let newerUnreadable = false;
   for (const generation of generations) {
-    const selected = loadGeneration(store, gameId, generation, validate);
-    if (selected === null) continue;
-    repairPointer(store, gameId, selected);
-    return selected;
+    const loaded = loadGeneration(store, gameId, generation, validate);
+    if (loaded.status === "unreadable") {
+      newerUnreadable = true;
+      continue;
+    }
+    if (loaded.status === "invalid") continue;
+    // Repair only when every generation newer than the selected one was
+    // readable and corrupt; a transient read failure must not demote the
+    // pointer past a generation that may still be intact.
+    if (!newerUnreadable && !pointedUnreadable && pointerRead.status !== "unreadable") {
+      repairPointer(store, gameId, loaded.value);
+    }
+    return loaded.value;
   }
   return null;
 }

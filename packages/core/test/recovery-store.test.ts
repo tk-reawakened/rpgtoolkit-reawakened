@@ -338,6 +338,77 @@ test("a stale pointer is repaired to the newest valid generation", () => {
   deepEqual(pointerOf(store), { version: 1, gameId: GAME, generation: 2, tick: 6, ledgerHash: "hash-6" });
 });
 
+test("an unreadable pointed candidate falls back without demoting the pointer", () => {
+  const store = new MemoryStore();
+  const previous = candidate(5);
+  promoted(store, previous);
+  promoted(store, candidate(6));
+  store.readOverride = (path) => {
+    if (path === generationFile(2, "candidate.bin")) throw new Error("candidate read failed");
+    return undefined;
+  };
+
+  const recovery = selected(store);
+  equal(recovery.generation, 1);
+  deepEqual(recovery.bytes, previous.bytes);
+  store.readOverride = null;
+  equal(pointerOf(store).generation, 2);
+
+  // The same generation being genuinely corrupt (a readable but invalid candidate) does repair.
+  store.files.set(generationFile(2, "candidate.bin"), candidate(6, "hash-6", true).bytes);
+  equal(selected(store).generation, 1);
+  equal(pointerOf(store).generation, 1);
+});
+
+test("an unreadable pointed metadata falls back without demoting the pointer", () => {
+  const store = new MemoryStore();
+  const previous = candidate(5);
+  promoted(store, previous);
+  promoted(store, candidate(6));
+  store.readOverride = (path) => {
+    if (path === generationFile(2, "meta.json")) throw new Error("metadata read failed");
+    return undefined;
+  };
+
+  const recovery = selected(store);
+  equal(recovery.generation, 1);
+  deepEqual(recovery.bytes, previous.bytes);
+  store.readOverride = null;
+  equal(pointerOf(store).generation, 2);
+});
+
+test("a throwing pointer read selects a fallback without repairing the pointer", () => {
+  const store = new MemoryStore();
+  promoted(store, candidate(5));
+  promoted(store, candidate(6));
+  store.files.set(pointerPath(), utf8Encode(JSON.stringify({ version: 1, gameId: GAME, generation: 1, tick: 5, ledgerHash: "hash-5" })));
+  store.readOverride = (path) => {
+    if (path === pointerPath()) throw new Error("pointer read failed");
+    return undefined;
+  };
+
+  equal(selected(store).generation, 2);
+  store.readOverride = null;
+  equal(pointerOf(store).generation, 1);
+});
+
+test("an unreadable newer generation during a scan prevents pointer repair", () => {
+  const store = new MemoryStore();
+  promoted(store, candidate(5));
+  promoted(store, candidate(6));
+  promoted(store, candidate(7));
+  const corruptPointer = utf8Encode("{ not a pointer");
+  store.files.set(pointerPath(), corruptPointer);
+  store.readOverride = (path) => {
+    if (path === generationFile(3, "candidate.bin")) throw new Error("candidate read failed");
+    return undefined;
+  };
+
+  equal(selected(store).generation, 2);
+  store.readOverride = null;
+  deepEqual(store.read(pointerPath()), corruptPointer);
+});
+
 test("promotion retains the current and one previous generation", () => {
   const store = new MemoryStore();
   promoted(store, candidate(5));
