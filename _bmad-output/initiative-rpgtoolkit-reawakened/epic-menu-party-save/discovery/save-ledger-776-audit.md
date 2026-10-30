@@ -2,6 +2,8 @@
 
 **Status: discussion draft, not an approved field contract.** Audit baseline: `origin/main` at `05309c31`. This is a planning artifact, not a normative spec or implementation. Candidate labels below are proposals for review, not owner-approved classifications. Source citations use repository paths and line numbers at that baseline. No legacy GPL source was consulted.
 
+**Historical audit:** the owner accepted the subsequent [ledger recommendations](save-ledger-776-proposal.md) on 2026-10-29. The candidate labels and open-decision language below describe this earlier audit, not the current ruling. Engineering proof and implementation remain outstanding.
+
 ## Direction and boundaries
 
 - **Savable state is the umbrella**: it must retain the game ledger *and* any continuation needed to resume supported execution. The **ledger is a subset**, not a replacement for the save or for a runnable snapshot. Exact contents and hash projection remain open.
