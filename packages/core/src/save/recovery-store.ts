@@ -390,8 +390,10 @@ export function promoteRecovery(store: RecoveryStorage, options: RecoveryPromote
   const gameId = gameDirectory(options.gameId);
   const first = validateBytes(validate, options.bytes, "recovery candidate");
 
-  const generation = nextGeneration(listGenerations(store, gameId));
+  const generations = listGenerations(store, gameId);
   const previousPointerBytes = readBytes(store, pointerPath(gameId));
+  const previous = previousGeneration(gameId, previousPointerBytes);
+  const generation = nextGeneration(previous === null ? generations : [...generations, previous]);
 
   store.write(candidatePath(gameId, generation), options.bytes);
   const readBack = readBytes(store, candidatePath(gameId, generation));
@@ -443,7 +445,7 @@ export function promoteRecovery(store: RecoveryStorage, options: RecoveryPromote
     throw new RecoveryStoreError("recovery.pointer", `recovery pointer did not read back as generation ${generation}`);
   }
 
-  pruneGenerations(store, gameId, generation, previousGeneration(gameId, previousPointerBytes));
+  pruneGenerations(store, gameId, generation, previous);
   return { generation, tick: second.tick, ledgerHash: second.ledgerHash, bytes: readBack };
 }
 
