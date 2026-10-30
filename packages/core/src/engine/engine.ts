@@ -623,12 +623,12 @@ export function createEngine(init: EngineInit): Engine {
     const bytes = mainKey === null ? undefined : cache.get(mainKey);
     if (bytes !== undefined && hostGameIdentity !== undefined) currentGameId = deriveGameId(bytes, hostGameIdentity);
   }
-  function recoveryCaptureEligible(): boolean {
+  function recoveryCaptureEligible(allowOpenTick = false): boolean {
     const selectedPlayer = state.sprites.selectedPlayer;
     return !failed &&
       state.engine.failed !== true &&
       state.engine.boot?.stage === "running" &&
-      state.engine.openTick === undefined &&
+      (allowOpenTick || state.engine.openTick === undefined) &&
       pending.size === 0 &&
       pendingBlobs.size === 0 &&
       pendingImageEffects.length === 0 &&
@@ -651,7 +651,8 @@ export function createEngine(init: EngineInit): Engine {
     }
   }
   function capturePreBattleRecoveryCandidate(): void {
-    if (!recoveryCaptureEligible()) return;
+    // Script-issued battle starts run inside an open tick; this is the coherent pre-commit boundary.
+    if (!recoveryCaptureEligible(true)) return;
     const candidate = serializeRecoveryCandidate();
     if (candidate !== null) preBattleRecoveryCandidate = candidate;
   }

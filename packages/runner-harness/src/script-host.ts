@@ -6,12 +6,14 @@
  * logic and no world. `advance` runs one whole `advanceScriptTick` per
  * requested tick (clamped by `maxTicks` exactly as the test double is) and
  * reports the state hash; `drawList` is `{ tick, 320×240, commands: [] }`,
- * `surfacePixels` is `null`, and the report's `consumed`/`requests`/`audioCues`
- * are empty with `loading: false`, `paused: null`. `diagnostics` carries the
- * located runtime failures the VM collected during the batch (AD-24), so the
- * golden `runLog` driver accepts it. It stays beside `createEngine` as the
- * script-only host for VM, corpus and restore tests that need no world or
- * renderer; the full-engine golden path uses `createEngine`.
+ * `surfacePixels` and `recoveryCandidate()` are `null`: this script-only host
+ * has no world state to capture as a canonical game save. The report's
+ * `consumed`/`requests`/`audioCues` are empty; `loading` is false and `paused`
+ * is null. `diagnostics` carries the located runtime failures the VM collected
+ * during the batch (AD-24), so the golden `runLog` driver accepts it. It stays
+ * beside `createEngine` as the script-only host for VM, corpus and restore
+ * tests that need no world or renderer; the full-engine golden path uses
+ * `createEngine`.
  */
 
 import {
@@ -287,6 +289,10 @@ function createHost(
     },
 
     surfacePixels(_id: SurfaceId, _rev: number): SurfacePixels | null {
+      return null;
+    },
+
+    recoveryCandidate() {
       return null;
     },
 

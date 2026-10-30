@@ -1184,10 +1184,16 @@ test("an outstanding ordinary save transaction blocks recovery capture", () => {
   equal(engine.recoveryCandidate(), null);
 });
 
-test("the pre-battle candidate survives battle start and is returned once", () => {
+test("the pre-battle candidate survives battle start during an open tick and is returned once", () => {
   const { engine, state } = recoveryFixture([recoveryBattlePlugin]);
   startRecoveryProgram(state, "checkpoint()\nstartrecoverybattle()\nend()");
-  const report = engine.advance(1, []);
+  let report = engine.advance(1, [], undefined, "step");
+  equal(state.battle, null);
+  ok(state.engine.openTick !== undefined);
+  for (let step = 0; step < 20 && state.battle === null; step += 1) {
+    report = engine.advance(1, [], undefined, "step");
+    ok(state.engine.openTick !== undefined);
+  }
   equal(report.diagnostics.length, 0);
   ok(state.battle !== null);
 
@@ -1198,6 +1204,7 @@ test("the pre-battle candidate survives battle start and is returned once", () =
   equal(restored.state.time.tick, candidate.tick);
   equal(engine.recoveryCandidate(), null);
 
+  engine.advance(1, []);
   startRecoveryProgram(state, "checkpoint()\nend()");
   engine.advance(1, []);
   equal(engine.recoveryCandidate(), null);
