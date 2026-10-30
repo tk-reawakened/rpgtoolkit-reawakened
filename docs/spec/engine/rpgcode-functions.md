@@ -293,7 +293,7 @@ run("nextChapter.prg")                                         // legacy Toolkit
 
 <a id="reawakened-tile-edit-lifetimes"></a>
 
-**Reawakened rule — tile edit lifetimes and order.** `Put` and `LayerPut` take effect in command/effect order. For each layer and cell, the most recent edit whose lifetime is still active supplies the visible tile. When a program thread finishes or is killed, only that thread's `Put` edits expire; a kill expires its edits at the kill command boundary, before a replacement thread can reuse its numeric id. Edits owned by active threads and board-scoped `LayerPut` edits remain, so the latest remaining edit is visible. If no edit remains, restore the tile from the board before runtime edits. `LayerPut` lasts until the board is left.
+**Reawakened rule — tile edit lifetimes and order.** `Put` and `LayerPut` take effect in command/effect order. For each layer and cell, the most recent edit whose lifetime is still active supplies the visible tile. When a program thread finishes, its `Put` edits expire during end-of-thread-phase cleanup. When the engine removes a thread early—including `killThread`, event-thread teardown, or board/item lifecycle cleanup—only that thread's `Put` edits expire, synchronously before subsequent script work can reuse its numeric id. Edits owned by active threads and board-scoped `LayerPut` edits remain, so the latest remaining edit is visible. If no edit remains, restore the tile from the board before runtime edits. `LayerPut` lasts until the board is left.
 
 <a id="e-59"></a>
 **E-59 Transitions and effects.** Fades of several types, wipes with an image (several effects and speeds), zoom, earthquake shake, and the border colour.

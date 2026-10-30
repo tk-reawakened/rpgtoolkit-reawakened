@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- Program `Put` edits now expire only with their finished or killed owner; a kill expires its edits at the command boundary before a replacement can reuse its numeric thread id. Overlapping edits keep the latest still-live program or board edit visible and restore the original board tile when none remain; `LayerPut` keeps its board lifetime.
+- Program `Put` edits now expire only with their owner: finished threads are cleaned up at end-of-thread-phase, while `killThread`, event-thread teardown, and board/item lifecycle removals expire edits synchronously before the numeric thread id can be reused. Overlapping edits keep the latest still-live program or board edit visible and restore the original board tile when none remain; `LayerPut` keeps its board lifetime.
 
 
 - Loading a battle save now warns when a fighter is on the wrong team. The entry stays in its original position and is skipped rather than silently fighting for the wrong side.
