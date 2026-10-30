@@ -574,6 +574,7 @@ notes = ["Audit evidence: packages/core/test/battle-cues-engine.test.ts:341-347 
 [[entry]]
 id = 33
 tracker_id = "#753"
+tracker_status = "done"
 type = "story"
 title = "Refactor sweep: reconcile Epic 7 review evidence"
 description = """After tickets 7.21–7.32 land, add current evidence and gaps to the Epic 7 closure record while preserving historical ticket statuses and completed plan checkboxes; prior Done-when labels are not proof that the full criteria were satisfied."""
