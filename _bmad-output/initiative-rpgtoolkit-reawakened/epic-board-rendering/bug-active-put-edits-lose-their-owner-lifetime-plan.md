@@ -1,6 +1,6 @@
 ---
 ticket: 36
-status: built
+status: done
 ---
 
 # Active Put edits lose their owner lifetime
@@ -22,4 +22,6 @@ The active owner remains visible after another finishes; overlapping writes rest
 
 ## Verification
 
-Regression tests cover reported, overlapping, and same-phase killed-owner reuse cases but were not run, as requested. The coordinator will run repository checks once after this workstream lands.
+Regression tests cover reported, overlapping, and same-phase killed-owner reuse cases.
+
+Merged PR #795 as `240af5f43926bed8d1d7851a3ef80ab6eac465f9`. Focused board and thread tests passed 34/34; the full strict suite passed 2305 tests with no skips, together with typecheck, lint, goldens, graph, catalogue, command-docs, licence, provenance and corpus checks. GitHub CI and the required gate passed on `d5faeb83`.
