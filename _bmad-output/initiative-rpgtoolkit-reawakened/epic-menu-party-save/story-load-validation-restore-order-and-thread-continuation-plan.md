@@ -28,3 +28,7 @@ Use authored valid, old-version, malformed and identity-mismatch fixtures; snaps
 ## Implementation map
 
 Compose section migrations, `loadBlob`, package startup and actor hydration; do not save compiler-owned instruction offsets as portable positions unless entry 1 explicitly rules their compatibility.
+
+## Accepted ledger handoff (2026-10-29)
+
+#593 owns validation, migrations, atomic load/rollback, hydration order and the existing compiler/source thread compatibility rule. Apply the accepted `docs/spec/formats/save-game.md#game-ledger-and-savable-continuation` without replacing normal VM snapshots with ledger-only recovery. #778 owns the ledger projection and hash gaps; coordinate the validation boundary rather than implementing it twice. Invalid or conflicting derived data must not silently discard progress. Preserve old saves and thread continuation; prove candidate/readback consistency, references, compatibility failures and replay behavior in the owning tests. This note is a requirement handoff, not evidence that those changes are implemented or that this story is complete.
