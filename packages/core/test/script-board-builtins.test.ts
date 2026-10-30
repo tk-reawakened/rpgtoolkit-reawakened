@@ -1,6 +1,6 @@
 import { deepEqual, equal, throws } from "node:assert/strict";
 import { test } from "node:test";
-import { assetKey, COMPILER_VERSION, createActorService, createGameState, createScriptServices, createDefaultVirtuals, runThreadsPhase, ScriptError, STEP_BUDGET, type Arg, type GameState, type WorldBoard } from "../src/index.ts";
+import { assetKey, COMPILER_VERSION, CORE_PLUGIN, createActorService, createGameState, createScriptServices, createDefaultVirtuals, runThreadsPhase, ScriptError, STEP_BUDGET, type Arg, type GameState, type WorldBoard } from "../src/index.ts";
 import { applyWorldEffect, expireProgramTileEdits } from "../src/world/effects.ts";
 import type { EffectRecord } from "../src/script/effects.ts";
 import { startThread } from "../src/script/state.ts";
@@ -201,7 +201,7 @@ test("a killed highest-id Put owner expires before same-phase id reuse", () => {
   equal(state.world.board?.layers[0]?.tiles[0]?.asset, "tiles/killed.tst");
 
   const services = {
-    ...createScriptServices(state, [{ definition: WORLD_PLUGIN }]),
+    ...createScriptServices(state, [{ definition: CORE_PLUGIN }, { definition: WORLD_PLUGIN }]),
     onThreadRemoved: () => expireProgramTileEdits(state),
   };
   runThreadsPhase(state.vm, services, STEP_BUDGET);
