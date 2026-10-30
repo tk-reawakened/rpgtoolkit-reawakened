@@ -270,6 +270,22 @@ references = [
 ]
 
 [[entry]]
+id = 36
+tracker_id = "#790"
+type = "bug"
+title = "[4.36] Active Put edits lose their owner lifetime"
+description = "End-of-phase cleanup can discard another program's `Put` history; a killed highest-id owner may also be mistaken for a new same-phase thread that reuses its id."
+verify = "Tests prove an active owner's `Put` survives expiry on a different cell, both same-cell completion orders restore the latest live edit, and a killed highest-id owner's edit expires before same-phase id reuse while a board-scoped `LayerPut` remains."
+covers = ["CAP-2"]
+after = [12]
+hitl = false
+risk = "medium"
+refine = true
+references = [
+  "reference - docs/spec/engine/rpgcode-functions.md#e-14 and #reawakened-tile-edit-lifetimes; docs/spec/engine/rpgcode-language.md#e-93",
+]
+
+[[entry]]
 id = 13
 tracker_id = "#396"
 type = "story"

@@ -197,6 +197,9 @@ export type ScriptServices = ScriptObservers & {
   readonly menuProviders: ReadonlyMap<string, MenuProvider>;
   readonly menuProviderIdentityExists: (id: string) => boolean;
   readonly menuOwners: MenuOwnerPorts;
+  /** Synchronous engine cleanup after a thread is removed, before the command resumes. */
+  readonly onThreadRemoved?: (threadId: number) => void;
+  /** Engine-owned synchronous dispatch for recorded command effects. */
   readonly postEffect?: (section: SectionKey, effect: EffectRecord) => void;
   /** Engine-owned synchronous host-request dispatch hook. */
   readonly postRequest?: (request: CommandRequest) => void;
@@ -275,6 +278,7 @@ export function createScriptServices(
   menuPorts?: MenuOwnerPorts,
   gameOverProgram: string | null = null,
   battleStart?: CommandView["battleStart"],
+  onThreadRemoved?: (threadId: number) => void,
 ): ScriptServices {
   const loader = typeof loaderOrGameId === "string" ? undefined : loaderOrGameId;
   const gameId = typeof loaderOrGameId === "string" ? loaderOrGameId : explicitGameId ?? null;
@@ -465,6 +469,7 @@ export function createScriptServices(
     ...(loader === undefined ? {} : { loader }),
     ...(postEffect === undefined ? {} : { postEffect }),
     ...(postRequest === undefined ? {} : { postRequest }),
+    ...(onThreadRemoved === undefined ? {} : { onThreadRemoved }),
     ...(media === undefined ? {} : { media }),
     ...observers,
     ...(observers?.postCall === undefined ? {} : {
@@ -2757,6 +2762,7 @@ function dispatchResolved(
         if (!killThread(vm, id)) {
           throw new ScriptError("thread.unknown", `killThread: no thread ${id} is registered`, pos);
         }
+        services.onThreadRemoved?.(id);
         if (id === thread.id) return "yield";
       }
       if (action === "threadSleep") {

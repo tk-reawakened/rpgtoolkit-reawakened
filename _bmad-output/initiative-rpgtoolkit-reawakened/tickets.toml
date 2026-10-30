@@ -31,6 +31,7 @@ after = [{ epic = 1, needs = "G1 lint and type rules, ADR 0007 and the engine-fe
 id = 4
 slug = "epic-board-rendering"
 title = "Boards render through draw lists in 2D and both iso modes"
+tracker_id = "#794"
 covers = ["CAP-2", "CAP-6"]
 after = [{ epic = 1, needs = "the licence gate, contract types, the headless runner and golden job, and the fixture fetch (1.5, 1.7, 1.8, 1.9)" }, { epic = 2, needs = "loaded boards, the pre-vector converter, tilesets, texture decoders, animations, actors, tile bitmaps, the asset resolver, the registry and the examples dump gate (2.2, 2.3, 2.4, 2.5, 2.6, 2.8, 2.9, 2.10, 2.11, 2.13, 2.16, 2.22, 2.25, 2.26)" }, { epic = 3, needs = "the GameState shell, the plugin registry and default manifest, the catalogue responders, the wait registry, the TK2 dialect plugin, the tick rename and hashState in advance (3.2, 3.3, 3.9, 3.11, 3.15, 3.21, 3.22, 3.25, 3.26, 3.27)" }, { epic = 16, needs = "the TK2 text board reader, the animated-tile and bitmap font readers, the BMP and GIF decoders, the TK2 decoder registration and the TK2 corpus gate (16.4, 16.7, 16.8, 16.9, 16.11, 16.12)" }]
 

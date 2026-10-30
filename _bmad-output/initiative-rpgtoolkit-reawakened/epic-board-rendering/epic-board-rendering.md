@@ -5,6 +5,7 @@ parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-2", "CAP-6"]
 assignee: ""
 risk: high
+status: in-progress
 ---
 
 # Boards render through draw lists in 2D and both iso modes
