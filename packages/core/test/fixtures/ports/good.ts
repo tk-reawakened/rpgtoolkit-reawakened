@@ -593,6 +593,12 @@ export const conformingEngine: Engine = {
   recoveryCandidate() {
     return null;
   },
+  resumeRecovery(): boolean {
+    return false;
+  },
+  recoveryStatus() {
+    return "none";
+  },
   setBreakpoints(_breakpoints: readonly Breakpoint[]): void {
     // no-op
   },

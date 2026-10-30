@@ -40,6 +40,8 @@ export type Breakpoint = {
 
 /** How an `advance` call resumes an open breakpoint tick. */
 export type ResumeMode = "continue" | "step";
+/** Host-visible lifecycle of a recovery launch supplied to BootInit. */
+export type RecoveryStatus = "none" | "loading" | "paused" | "resumed" | "failed";
 
 /**
  * A persistent surface's pixels. Outputs never alias state: `rgba` owns its
@@ -102,7 +104,11 @@ export interface Engine {
    * when no candidate is pending or the current state is ineligible.
    */
   recoveryCandidate(): { readonly bytes: Uint8Array; readonly tick: number } | null;
+  /** Whether a recovery launch is loading, paused for host Resume, resumed, or refused. */
+  recoveryStatus(): RecoveryStatus;
 
+  /** Resume a paused recovery launch. Returns true only for the first successful resume. */
+  resumeRecovery(): boolean;
   /** Set source breakpoints as data; a hit stops mid-tick (AD-1). */
   setBreakpoints(breakpoints: readonly Breakpoint[]): void;
 }

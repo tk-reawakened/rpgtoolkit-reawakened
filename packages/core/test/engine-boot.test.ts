@@ -6,7 +6,7 @@
 // movement-triggers (first player, presence, camera target) and menu-party-save (saved games)
 // until those epics register the real owners.
 import { test } from "node:test";
-import { deepEqual, equal, ok } from "node:assert/strict";
+import { deepEqual, equal, ok, throws } from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,21 +16,28 @@ import {
   addActor,
   assetKey,
   createAssetIndex,
+  createSpriteRuntime,
   createEmptyBoard,
   COMPILER_VERSION,
   createEmptyMainFile,
   ENGINE_DEFAULT_MANIFEST,
   hashGameLedger,
+  hashGameState,
+  nextUint32,
   createEngine,
   PACKAGE_ROOT,
   writeBoard,
   writeMainFile,
+  promoteRecovery,
+  selectRecovery,
   projectGameLedger,
-  restoreGameSave,
+  registerActorObject,
+  restoreRecoveryCandidate,
+  snapshotGameSave,
   startProgram,
 } from "../src/index.ts";
 import { engineEffect, resolveManifestPlugins } from "../src/engine/boot.ts";
-import type { AssetIndex, AssetRoot, Engine, EffectRecord, EngineInit, GameState, InputRecord, PackageCatalogueEntry, PlainData, ResolvedPlugin, TickReport } from "../src/index.ts";
+import type { AssetIndex, AssetRoot, Engine, EffectRecord, EngineInit, GameState, InputRecord, PackageCatalogueEntry, PlainData, ResolvedPlugin, SpriteRuntime, TickReport } from "../src/index.ts";
 import type { MainFileAudioSettings } from "../src/formats/main-file/model.ts";
 import type { AudioCue } from "../src/ports/audio.ts";
 import { BUILTIN_TRACKS } from "../src/audio/model.ts";
@@ -128,6 +135,7 @@ type Doubles = {
   readonly audio: EffectRecord[];
   readonly options: Pick<EngineInit, "effectAppliers" | "cameraTarget" | "phaseRegistrations">;
   readonly startup: { readonly presence: { hasPlayer(): boolean }; readonly savedGame: { load(): { readonly kind: "missing" }; restored(): boolean } };
+  readonly stageHistory: string[];
   state(): GameState;
 };
 
@@ -136,6 +144,7 @@ function makeDoubles(
   restored = false,
   extraPhases: NonNullable<EngineInit["phaseRegistrations"]> = [],
 ): Doubles {
+  const stageHistory: string[] = [];
   const players: PlainData[] = [];
   const sprites: EffectRecord[] = [];
   const triggers: EffectRecord[] = [];
@@ -165,11 +174,12 @@ function makeDoubles(
       ],
       cameraTarget: { getPlayerPosition: () => (players.length === 0 ? null : position), getEntityPosition: () => null },
       phaseRegistrations: [
-        { phase: "audio", run: (state) => { latest = state; } },
+        { phase: "audio", run: (state) => { latest = state; stageHistory.push(state.engine.boot?.stage ?? "scene"); } },
         ...extraPhases,
       ],
     },
     startup: { presence: { hasPlayer: () => players.length > 0 }, savedGame: { load: () => ({ kind: "missing" }), restored: () => restored } },
+    stageHistory,
     state: () => {
       if (latest === null) throw new Error("no tick has run yet");
       return latest;
@@ -204,7 +214,7 @@ function run(engine: Engine, files: Files, ticks: number, inputs: readonly Input
   throw new Error("the host loop did not settle");
 }
 
-function bootEngine(game: AuthoredGame, doubles: Doubles, packageCatalogue?: readonly PackageCatalogueEntry[], plugins?: readonly ResolvedPlugin[]): Engine {
+function bootEngine(game: AuthoredGame, doubles: Doubles, packageCatalogue?: readonly PackageCatalogueEntry[], plugins?: readonly ResolvedPlugin[], recoveryCandidate?: Uint8Array, spriteRuntime?: SpriteRuntime): Engine {
   return createEngine({
     seed: 11,
     assetIndex: game.index,
@@ -217,6 +227,8 @@ function bootEngine(game: AuthoredGame, doubles: Doubles, packageCatalogue?: rea
     maxTicks: 600,
     ...(packageCatalogue === undefined ? {} : { packageCatalogue }),
     ...(plugins === undefined ? {} : { plugins: [...resolveManifestPlugins(ENGINE_DEFAULT_MANIFEST).plugins, ...plugins] }),
+    ...(recoveryCandidate === undefined ? {} : { recoveryCandidate }),
+    ...(spriteRuntime === undefined ? {} : { spriteRuntime }),
     ...doubles.options,
   });
 }
@@ -1057,13 +1069,16 @@ test("boot diagnoses a missing authored bank once and emits null without refusin
   deepEqual(result.cues.filter((cue) => cue.kind === "soundfont.set").map((cue) => cue.asset), [null]);
 });
 
-function recoveryFixture(plugins: readonly ResolvedPlugin[] = []): { readonly engine: Engine; readonly state: GameState } {
-  const game = authorGame({
+function recoveryFixture(
+  plugins: readonly ResolvedPlugin[] = [],
+  spec: GameSpec = {
     startup: "start.prg",
     initChar: "hero.tem",
     boards: { "start.brd": {} },
     programs: { "start.prg": "end()\n" },
-  });
+  },
+): { readonly engine: Engine; readonly state: GameState; readonly game: AuthoredGame; readonly doubles: Doubles } {
+  const game = authorGame(spec);
   const doubles = makeDoubles();
   const engine = bootEngine(game, doubles, undefined, plugins);
   const result = run(engine, game.files, 30);
@@ -1093,11 +1108,79 @@ function recoveryFixture(plugins: readonly ResolvedPlugin[] = []): { readonly en
   equal(state.engine.boot?.stage, "running");
   equal(state.world.board?.key, "boards/start.brd");
   ok(state.sprites.players.some((player) => player.id === state.sprites.selectedPlayer));
-  return { engine, state };
+  return { engine, state, game, doubles };
 }
 
 function startRecoveryProgram(state: GameState, text: string): void {
   startProgram(state.vm, { kind: "inline", text: `${text}\n`, compiler: COMPILER_VERSION });
+}
+
+const PAUSED_RECOVERY_GAME: GameSpec = {
+  startup: "start.prg",
+  initChar: "hero.tem",
+  boards: { "start.brd": { enter: "enter.prg", threads: ["board.prg"] } },
+  programs: {
+    "start.prg": 'startupvalue = 1\nentryCount = 0\nboardCount = 0\nitemCount = 0\ngame.on("startupNotice", (event) => { startupListener = 1 })\nend()\n',
+    "enter.prg": "entrySeen = recoveryflag\nentryCount = entryCount + 1\nend()\n",
+    "board.prg": "boardCount = boardCount + 1\nend()\n",
+    "item.prg": "itemCount = itemCount + 1\nend()\n",
+  },
+};
+
+function recoveryCandidateWithDurableState(spec: GameSpec = PAUSED_RECOVERY_GAME, plugins: readonly ResolvedPlugin[] = [], beforeCapture?: (state: GameState) => void): { readonly game: AuthoredGame; readonly state: GameState; readonly candidate: Uint8Array; readonly savedTick: number } {
+  const { engine, state, game } = recoveryFixture(plugins, spec);
+  const board = state.world.board;
+  if (board == null) throw new Error("recovery test fixture has no board");
+  const itemPlacement = {
+    slot: 0,
+    itemFile: "token.itm",
+    activationPrg: "",
+    multitaskPrg: "item.prg",
+    initialVar: "",
+    initialValue: "",
+    finalVar: "",
+    finalValue: "",
+    loadingVar: "",
+    loadingValue: "",
+    activate: 0,
+    activationType: 0,
+    x: 20,
+    y: 30,
+    layer: 1,
+    reserved: 0,
+  };
+  if (board.rawItems === undefined || board.items === undefined) throw new Error("recovery test fixture has no item collections");
+  board.rawItems.push(itemPlacement);
+  board.items.push(itemPlacement);
+  state.vm.globals.recoveryflag = 73;
+  state.vm.globals.startupvalue = 42;
+  state.vm.globals.entrycount = 0;
+  state.vm.globals.boardcount = 0;
+  state.vm.globals.itemcount = 0;
+  state.triggers.fired.progress = true;
+  state.triggers.repeat.progress = 3;
+  state.triggers.suppressed = ["suppressed-trigger"];
+  state.triggers.deactivated = ["deactivated-trigger"];
+  state.triggers.deactivateAt = { x: 7, y: 8, layer: 1 };
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, x: 123, y: 231 }));
+  const item = actorFromSource({
+    id: "items/token.itm",
+    kind: "item",
+    source: "token.itm",
+    x: 20,
+    y: 30,
+    layer: 1,
+    sourceSlot: 0,
+    handle: 7,
+  }, board, 0, 7);
+  state.sprites.items = [{ ...item, multitaskProgram: "item.prg", visible: true }];
+  state.sprites.nextItemHandle = 8;
+  beforeCapture?.(state);
+  startRecoveryProgram(state, 'game.on("candidateOnly", (event) => { candidateListener = 1 })\ncheckpoint()\nend()');
+  engine.advance(1, []);
+  const saved = engine.recoveryCandidate();
+  if (saved == null) throw new Error("recovery candidate was not captured");
+  return { game, state, candidate: new Uint8Array(saved.bytes), savedTick: state.time.tick };
 }
 
 const recoveryBattlePlugin: ResolvedPlugin = {
@@ -1154,7 +1237,7 @@ function stepRecoveryBattleStart(engine: Engine, state: GameState): void {
   ok(state.battle !== null);
 }
 
-test("checkpoint requests one canonical candidate at the host's settled signal and consumes it once", () => {
+test("checkpoint requests one recovery candidate at the host's settled signal and consumes it once", () => {
   const { engine, state } = recoveryFixture();
   equal(engine.recoveryCandidate(), null);
   startRecoveryProgram(state, "checkpoint()\nend()");
@@ -1164,7 +1247,7 @@ test("checkpoint requests one canonical candidate at the host's settled signal a
   const candidate = engine.recoveryCandidate();
   ok(candidate !== null);
   equal(candidate.tick, report.tickAfter);
-  const restored = restoreGameSave(new TextDecoder().decode(candidate.bytes), state.audio);
+  const restored = restoreRecoveryCandidate(new TextDecoder().decode(candidate.bytes), state.audio);
   equal(hashGameLedger(projectGameLedger(restored.state)), hashGameLedger(projectGameLedger(state)));
   equal(engine.recoveryCandidate(), null);
 });
@@ -1203,7 +1286,7 @@ test("the pre-battle candidate survives battle start during an open tick and is 
 
   const candidate = engine.recoveryCandidate();
   ok(candidate !== null);
-  const restored = restoreGameSave(new TextDecoder().decode(candidate.bytes), state.audio);
+  const restored = restoreRecoveryCandidate(new TextDecoder().decode(candidate.bytes), state.audio);
   equal(restored.state.battle, null);
   equal(restored.state.time.tick, candidate.tick);
   equal(engine.recoveryCandidate(), null);
@@ -1233,7 +1316,7 @@ test("a later explicit checkpoint supersedes the queued pre-battle candidate", (
   ok(candidate !== null);
   equal(candidate.tick, report.tickAfter);
   ok(candidate.tick > preBattleTick);
-  const restored = restoreGameSave(new TextDecoder().decode(candidate.bytes), state.audio);
+  const restored = restoreRecoveryCandidate(new TextDecoder().decode(candidate.bytes), state.audio);
   equal(restored.state.vm.globals.recoveryMarker, "newer");
   equal(engine.recoveryCandidate(), null);
 });
@@ -1247,4 +1330,421 @@ test("serialization failure returns null and consumes the explicit checkpoint re
   equal(engine.recoveryCandidate(), null);
   delete globals.unserializable;
   equal(engine.recoveryCandidate(), null);
+});
+test("recovery boots startup first, stages durable state paused, and resumes entry exactly once", () => {
+  const { game, candidate, savedTick } = recoveryCandidateWithDurableState();
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles, undefined, undefined, candidate);
+  equal(engine.recoveryStatus(), "loading");
+  equal(engine.resumeRecovery(), false);
+
+  const result = run(engine, game.files, 30);
+  deepEqual(result.diagnostics, []);
+  equal(engine.recoveryStatus(), "paused");
+  const state = doubles.state();
+  equal(state.engine.boot?.stage, "recovery-paused");
+  equal(state.time.tick, savedTick, "ledger time is restored before the recovered board is exposed");
+  ok(doubles.stageHistory.includes("startup"), "the normal startup phase must run before recovery");
+  ok(state.events.listeners.some((listener) => listener.type === "startupNotice"), "startup listeners survive recovery");
+  equal(state.events.listeners.some((listener) => listener.type === "candidateOnly"), false, "candidate event listeners are not restored");
+  equal(state.vm.globals.startupvalue, 42, "ledger values replace startup values after startup");
+  equal(state.vm.globals.recoveryflag, 73);
+  equal(state.world.board?.key, "boards/start.brd");
+  deepEqual(
+    state.sprites.players.map(({ x, y }) => ({ x, y })),
+    [{ x: 123, y: 231 }],
+    "the saved player placement must not be replaced by the board start position",
+  );
+  equal(state.triggers.fired.progress, true);
+  equal(state.triggers.repeat.progress, 3);
+  deepEqual(state.triggers.suppressed, ["suppressed-trigger"]);
+  deepEqual(state.triggers.deactivated, ["deactivated-trigger"]);
+  deepEqual(state.triggers.deactivateAt, { x: 7, y: 8, layer: 1 });
+  equal(state.sprites.items[0]?.multitaskThread, null, "item multitask waits for explicit Resume");
+  equal(state.vm.globals.entrycount, 0);
+  equal(state.vm.globals.boardcount, 0);
+  equal(state.vm.globals.itemcount, 0);
+  equal(state.vm.threads.some((thread) => thread.kind === "board" && thread.status !== "finished"), false);
+  equal(state.vm.threads.some((thread) => thread.kind === "blocking" && thread.status !== "finished"), false);
+
+  const pausedTick = state.time.tick;
+  equal(engine.advance(4, []).ticksRun, 0);
+  equal(pausedTick, savedTick);
+  equal(state.time.tick, pausedTick);
+  equal(engine.advance(0, [{ tick: pausedTick, event: { kind: "focus", state: "gained" } }]).ticksRun, 0);
+  equal(engine.recoveryStatus(), "paused", "focus gain must not resume recovery");
+
+  equal(engine.resumeRecovery(), true);
+  equal(engine.recoveryStatus(), "resumed");
+  equal(state.engine.boot?.stage, "running");
+  equal(engine.resumeRecovery(), false, "Resume is one-shot");
+  equal(state.time.tick, savedTick);
+  ok(state.sprites.items[0]?.multitaskThread != null);
+  equal(state.vm.threads.filter((thread) => thread.kind === "board" && thread.status !== "finished").length, 1);
+  equal(state.vm.threads.filter((thread) => thread.kind === "blocking" && thread.status !== "finished").length, 1);
+  const boardThread = state.vm.threads.find((thread) => thread.kind === "board" && thread.status !== "finished");
+  const entryThread = state.vm.threads.find((thread) => thread.kind === "blocking" && thread.status !== "finished");
+  ok(boardThread !== undefined);
+  ok(entryThread !== undefined);
+  ok(boardThread.id < entryThread.id, "ordinary board threads start before the entry program");
+  equal(state.vm.globals.entrycount, 0, "Resume starts but does not execute entry instructions");
+  equal(engine.advance(0, []).ticksRun, 0, "zero-tick advancement must not execute entry instructions");
+  equal(state.vm.globals.entrycount, 0);
+  equal(engine.advance(1, []).ticksRun, 1);
+  equal(state.vm.globals.entryseen, 73);
+  equal(state.vm.globals.entrycount, 1);
+  equal(state.vm.globals.boardcount, 1);
+  equal(state.vm.globals.itemcount, 1);
+  equal(state.time.tick, savedTick + 1);
+});
+
+test("declining recovery by supplying no candidate follows ordinary boot", () => {
+  const game = authorGame(PAUSED_RECOVERY_GAME);
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles);
+  const result = run(engine, game.files, 30);
+  deepEqual(result.diagnostics, []);
+  equal(engine.recoveryStatus(), "none");
+  equal(engine.resumeRecovery(), false);
+  equal(doubles.state().engine.boot?.stage, "running");
+  equal(doubles.state().vm.globals.entrycount, 1);
+  equal(doubles.state().vm.globals.boardcount, 1);
+});
+
+test("missing or changed required board and entry assets fail without partial state", () => {
+  const { game, candidate } = recoveryCandidateWithDurableState();
+  const scenarios: { readonly name: string; readonly edit: (files: Files) => void; readonly omitFromIndex?: string; readonly failsDuringAssetSetup?: boolean }[] = [
+    {
+      name: "changed board",
+      edit: (files) => files.set(assetKey("boards/start.brd"), boardBytes({ enter: "enter.prg", threads: ["board.prg"], start: [96, 96] })),
+    },
+    {
+      name: "missing board",
+      edit: (files) => { files.delete(assetKey("boards/start.brd")); },
+    },
+    {
+      name: "changed entry program",
+      edit: (files) => files.set(assetKey("prg/enter.prg"), encoder.encode("entrySeen = -1\nend()\n")),
+    },
+    {
+      name: "missing indexed entry program",
+      edit: (files) => { files.delete(assetKey("prg/enter.prg")); },
+      failsDuringAssetSetup: true,
+    },
+    {
+      name: "entry program absent from index",
+      edit: (files) => { files.delete(assetKey("prg/enter.prg")); },
+      omitFromIndex: "prg/enter.prg",
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const files = new Map(game.files);
+    scenario.edit(files);
+    const doubles = makeDoubles();
+    const index = scenario.omitFromIndex === undefined
+      ? game.index
+      : createAssetIndex(game.index.paths.filter((path) => assetKey(path) !== scenario.omitFromIndex));
+    const engine = bootEngine({ ...game, index }, doubles, undefined, undefined, candidate);
+    run(engine, files, 30);
+    equal(engine.recoveryStatus(), "failed", scenario.name);
+    if (scenario.failsDuringAssetSetup === true) continue;
+    equal(doubles.state().engine.boot?.stage, "stopped", scenario.name);
+    equal(doubles.state().world.board, undefined, `${scenario.name}: recovered board must not be partially visible`);
+    equal(doubles.state().vm.globals.recoveryflag, undefined, `${scenario.name}: ledger globals must not be partially restored`);
+    equal(doubles.state().vm.globals.startupvalue, 1, `${scenario.name}: normal startup state remains visible`);
+  }
+});
+
+test("pre-manifest checkpoints are refused without changing normal save bytes", () => {
+  const { engine, state } = recoveryFixture();
+  const ordinary = snapshotGameSave(state);
+  throws(() => restoreRecoveryCandidate(ordinary, state.audio), /no asset fingerprint manifest/);
+  equal(snapshotGameSave(state), ordinary);
+  startRecoveryProgram(state, "checkpoint()\nend()");
+  engine.advance(1, []);
+  const beforeCapture = snapshotGameSave(state);
+  const hashBeforeCapture = hashGameState(state);
+  const candidate = engine.recoveryCandidate();
+  ok(candidate !== null);
+  equal(snapshotGameSave(state), beforeCapture);
+  equal(hashGameState(state), hashBeforeCapture);
+  const candidateRoot = JSON.parse(new TextDecoder().decode(candidate.bytes)) as Record<string, unknown>;
+  delete candidateRoot.recoveryAssets;
+  deepEqual(candidateRoot, JSON.parse(beforeCapture));
+  const recovered = restoreRecoveryCandidate(new TextDecoder().decode(candidate.bytes), state.audio);
+  equal(recovered.recoveryAssets.version, 1);
+  ok(recovered.recoveryAssets.board.key === "boards/start.brd");
+});
+
+test("a pre-battle candidate ignores transient program-scope tile assets", () => {
+  const { engine, state, game } = recoveryFixture([recoveryBattlePlugin]);
+  startRecoveryProgram(state, "startrecoverybattle()\nend()");
+  const thread = state.vm.threads.find((entry) => entry.kind === "blocking" && entry.status !== "finished");
+  ok(thread !== undefined);
+  const board = state.world.board;
+  ok(board?.runtime !== undefined);
+  board.runtime.tileEdits.push({
+    index: 0, tile: { asset: assetKey("tiles/transient.tst"), tile: 0 }, previous: null, scope: "program", owner: thread.id,
+  });
+  stepRecoveryBattleStart(engine, state);
+  const candidate = engine.recoveryCandidate();
+  ok(candidate !== null);
+  const parsed = restoreRecoveryCandidate(new TextDecoder().decode(candidate.bytes), state.audio);
+  equal(parsed.recoveryAssets.boardDependencies.some(({ key }) => key === "tiles/transient.tst"), false);
+  const doubles = makeDoubles();
+  const recovered = bootEngine(game, doubles, undefined, [recoveryBattlePlugin], candidate.bytes);
+  deepEqual(run(recovered, game.files, 30).diagnostics, []);
+  equal(recovered.recoveryStatus(), "paused");
+});
+
+test("startup Send runs its temporary board threads, then stops them before the saved board is staged", () => {
+  let temporaryExecutions = 0;
+  const plugin: ResolvedPlugin = {
+    namespace: "startup-board-test",
+    definition: {
+      id: "startup-board-test",
+      version: "1.0.0",
+      commands: [{ name: "markstartupboard", aliases: [], params: [], call: () => { temporaryExecutions += 1; return { value: null }; } }],
+    },
+  };
+  const spec: GameSpec = {
+    ...PAUSED_RECOVERY_GAME,
+    boards: { "start.brd": { enter: "enter.prg", threads: ["board.prg"] }, "other.brd": { threads: ["temporary.prg"] } },
+    programs: {
+      ...PAUSED_RECOVERY_GAME.programs,
+      "start.prg": 'send("other.brd", 20, 20, 1)\nthreadsleep(getthreadid(), 0.05)\nstartupdone = 1\nend()\n',
+      "temporary.prg": "markstartupboard()\nthreadsleep(getthreadid(), 1)\nend()\n",
+    },
+  };
+  const { game, candidate } = recoveryCandidateWithDurableState(spec, [plugin]);
+  temporaryExecutions = 0;
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles, undefined, [plugin], candidate);
+  const result = run(engine, game.files, 80);
+  deepEqual(result.diagnostics, []);
+  equal(engine.recoveryStatus(), "paused");
+  equal(doubles.state().vm.globals.startupdone, 1);
+  equal(temporaryExecutions, 1, "normal startup may execute a temporary board's threads");
+  equal(doubles.state().vm.threads.some((thread) => thread.kind === "board" && thread.status !== "finished"), false, "temporary board threads stop before the saved board is staged");
+  equal(doubles.state().vm.globals.entrycount, 0, "the saved board's entry program does not run while paused");
+  equal(doubles.state().world.board?.key, "boards/start.brd");
+});
+
+const recoveryActorPlugin: ResolvedPlugin = {
+  namespace: "recovery-actor-test",
+  definition: {
+    id: "recovery-actor-test",
+    version: "1.0.0",
+    commands: [{
+      name: "setuprecoveryactor", aliases: [], params: [],
+      call: (view) => {
+        const state = view.state;
+        if (state === undefined) return { value: 0 };
+        const actor = addActor(state.actors, { kind: "party", source: "hero.tem", stats: { hp: 12, maxHp: 12, smp: 4, maxSmp: 4, dp: 2, fp: 3, level: 1 } });
+        const object = registerActorObject(state.vm, state.events, state.actors, actor.id);
+        if (object === null) throw new Error("actor object not registered");
+        return { value: { kind: "object", handle: object.handle, className: object.className } };
+      },
+    }],
+  },
+};
+
+const recoveryEmitterSpec: GameSpec = {
+  ...PAUSED_RECOVERY_GAME,
+  programs: {
+    ...PAUSED_RECOVERY_GAME.programs,
+    "start.prg": 'notifier = {}\nnoticed = 0\nnotifier.on("ping", (e) => { noticed = noticed + 1 })\nend()\n',
+    "enter.prg": 'notifier.emit("ping")\nend()\n',
+  },
+};
+
+test("recovery reattaches a startup listener on a durable ordinary object to its startup object", () => {
+  const { game, candidate, state: captured } = recoveryCandidateWithDurableState(recoveryEmitterSpec, [], (state) => {
+    state.vm.globals.noticed = 0;
+  });
+  const anchor = JSON.parse(new TextDecoder().decode(candidate)).recoveryAssets.listenerAnchors as { readonly handle: number; readonly ordinal: number }[];
+  equal(anchor.length, 1, "the durable object with a startup listener is anchored");
+  equal(anchor[0]?.handle, stateHandleOf(captured, "notifier"));
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles, undefined, undefined, candidate);
+  deepEqual(run(engine, game.files, 30).diagnostics, []);
+  equal(engine.recoveryStatus(), "paused");
+  const resumed = doubles.state();
+  const handle = stateHandleOf(resumed, "notifier");
+  ok(handle !== null);
+  ok(resumed.events.listeners.some((listener) => listener.emitter === `object:${handle}`), "the startup listener names the restored object's handle");
+  equal(engine.resumeRecovery(), true);
+  deepEqual(run(engine, game.files, 5).diagnostics, []);
+  equal(resumed.vm.globals.noticed, 1, "the startup listener still runs for the restored object");
+});
+
+test("a look-alike record rebuilt at a startup listener's handle refuses capture instead of misattaching", () => {
+  const { engine, state } = recoveryFixture([], recoveryEmitterSpec);
+  const handle = stateHandleOf(state, "notifier");
+  ok(handle !== null);
+  ok(state.events.listeners.some((listener) => listener.emitter === `object:${handle}`), "startup installed the listener");
+  // A host that rebuilds the object table (restoring a save, re-entering a world) can leave a
+  // structurally identical record at the same handle. Only the startup lifetime may decide, so the
+  // association is refused rather than pointed at the look-alike.
+  state.vm.objects = state.vm.objects.map((record) =>
+    record.handle === handle ? { ...record, members: { ...record.members } } : record);
+  startRecoveryProgram(state, "checkpoint()\nend()");
+  engine.advance(1, []);
+  equal(state.engine.boot?.stage, "running");
+  ok(engine.recoveryCandidate() === null, "capture refuses a listener whose startup object identity is gone");
+});
+
+test("a startup listener freed with its object is not anchored to a later object", () => {
+  const spec: GameSpec = {
+    ...PAUSED_RECOVERY_GAME,
+    programs: {
+      ...PAUSED_RECOVERY_GAME.programs,
+      "start.prg": 'spare = {}\nspare.on("ping", (e) => { ignored = 1 })\nstartupvalue = 1\nentryCount = 0\nboardCount = 0\nitemCount = 0\nend()\n',
+      "board.prg": "spare = null\nthreadsleep(getthreadid(), 0.05)\nfresh = {}\nend()\n",
+    },
+  };
+  const { engine, state } = recoveryFixture([], spec);
+  ok(stateHandleOf(state, "fresh") !== null, "the later object exists");
+  ok(!state.events.listeners.some((listener) => listener.emitter.startsWith("object:")), "the freed object took its listener with it");
+  startRecoveryProgram(state, "checkpoint()\nend()");
+  engine.advance(1, []);
+  equal(state.engine.boot?.stage, "running");
+  const candidate = engine.recoveryCandidate();
+  ok(candidate !== null, "capture still succeeds: there is no startup listener left to misattach");
+  const anchors = JSON.parse(new TextDecoder().decode(candidate.bytes)).recoveryAssets.listenerAnchors as unknown[];
+  deepEqual(anchors, [], "a later object is never anchored by handle or global name");
+});
+
+test("a listener installed after startup never anchors its durable object", () => {
+  const spec: GameSpec = {
+    ...PAUSED_RECOVERY_GAME,
+    programs: {
+      ...PAUSED_RECOVERY_GAME.programs,
+      "start.prg": 'notifier = {}\nnoticed = 0\nentryCount = 0\nboardCount = 0\nitemCount = 0\nend()\n',
+      "board.prg": 'notifier.on("ping", (e) => { noticed = noticed + 1 })\nboardCount = boardCount + 1\nend()\n',
+    },
+  };
+  const { engine, state, game } = recoveryFixture([], spec);
+  const handle = stateHandleOf(state, "notifier");
+  ok(handle !== null);
+  ok(state.events.listeners.some((listener) => listener.emitter === `object:${handle}`), "the board program installed a listener after startup");
+  startRecoveryProgram(state, "checkpoint()\nend()");
+  engine.advance(1, []);
+  equal(state.engine.boot?.stage, "running");
+  const candidate = engine.recoveryCandidate();
+  ok(candidate !== null, "capture succeeds: a post-startup listener is not startup state");
+  const anchors = JSON.parse(new TextDecoder().decode(candidate.bytes)).recoveryAssets.listenerAnchors as unknown[];
+  deepEqual(anchors, [], "only listeners present when startup finished can anchor an object");
+  // Refusing here would strand a perfectly recoverable game: a fresh startup has no such listener to reattach.
+  const relaunch = bootEngine(game, makeDoubles(), undefined, undefined, candidate.bytes);
+  deepEqual(run(relaunch, game.files, 30).diagnostics, []);
+  equal(relaunch.recoveryStatus(), "paused", "the durable object still recovers without its post-startup listener");
+});
+
+function stateHandleOf(state: GameState, name: string): number | null {
+  const value = state.vm.globals[name];
+  return typeof value === "object" && value !== null && "handle" in value && typeof value.handle === "number" ? value.handle : null;
+}
+
+test("recovery keeps live RNG, clock, actor services and startup emitter listeners coherent", () => {
+  const spec: GameSpec = {
+    ...PAUSED_RECOVERY_GAME,
+    programs: {
+      ...PAUSED_RECOVERY_GAME.programs,
+      "start.prg": 'hero = setuprecoveryactor()\nref = game\ngamehits = 0\nactorhits = 0\nfallhits = 0\nref.on("ping", (e) => { gamehits = gamehits + 1 })\nhero.on("ping", (e) => { actorhits = actorhits + 1 })\nhero.on("fallen", (e) => { fallhits = fallhits + 1 })\nend()\n',
+      "enter.prg": 'draw = random(1000)\nhero.hp = 0\nhero.hp = 7\nref.emit("ping")\nhero.emit("ping")\nthreadsleep(getthreadid(), 0.05)\nwoke = 1\nend()\n',
+    },
+  };
+  const { game, candidate, state: source } = recoveryCandidateWithDurableState(spec, [recoveryActorPlugin], (state) => {
+    state.vm.globals.gamehits = 0;
+    state.vm.globals.actorhits = 0;
+    state.vm.globals.fallhits = 0;
+    state.vm.globals.woke = 0;
+  });
+  const expectedRng = { ...source.rng };
+  const expectedDraw = 1 + nextUint32(expectedRng) % 1000;
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles, undefined, [recoveryActorPlugin], candidate);
+  deepEqual(run(engine, game.files, 30).diagnostics, []);
+  equal(engine.recoveryStatus(), "paused");
+  const state = doubles.state();
+  equal(engine.resumeRecovery(), true);
+  const result = run(engine, game.files, 12);
+  deepEqual(result.diagnostics, []);
+  equal(state.vm.globals.draw, expectedDraw);
+  deepEqual(state.rng, expectedRng);
+  equal(state.actors.actors[0]?.stats.hp, 7);
+  equal(state.vm.globals.gamehits, 1);
+  equal(state.vm.globals.actorhits, 1);
+  equal(state.vm.globals.fallhits, 1);
+  equal(state.vm.globals.woke, 1);
+});
+
+test("throwing external sprite install rolls back its board and sprites", () => {
+  const { game, candidate } = recoveryCandidateWithDurableState();
+  const runtime = createSpriteRuntime();
+  const originalSection = { ...runtime.section };
+  const throwing: SpriteRuntime = {
+    ...runtime,
+    prepareRecovery(board, sprites) {
+      const transaction = runtime.prepareRecovery(board, sprites);
+      return {
+        commit() { transaction.commit(); throw new Error("sprite install failed"); },
+        rollback() { transaction.rollback(); },
+      };
+    },
+  };
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles, undefined, undefined, candidate, throwing);
+  const result = run(engine, game.files, 30);
+  equal(engine.recoveryStatus(), "failed");
+  ok(result.diagnostics.some(({ message }) => message.includes("sprite install failed")));
+  deepEqual(runtime.section, originalSection);
+  equal(runtime.applyEffect({ name: "createplayer", args: ["test"], origin: 0, order: 0, phase: "sprites", delivery: "immediate" } as never), false);
+  equal(doubles.state().world.board, undefined);
+  equal(doubles.state().vm.globals.recoveryflag, undefined);
+});
+
+test("successful recovery installs the saved sprites into the external runtime", () => {
+  const { game, candidate } = recoveryCandidateWithDurableState();
+  const runtime = createSpriteRuntime();
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles, undefined, undefined, candidate, runtime);
+  deepEqual(run(engine, game.files, 30).diagnostics, []);
+  equal(engine.recoveryStatus(), "paused");
+  deepEqual(runtime.getPlayerPosition(), { x: 123, y: 231 });
+  equal(runtime.section.items[0]?.multitaskThread, null);
+  equal(engine.resumeRecovery(), true);
+  ok(runtime.section.items[0]?.multitaskThread != null);
+  equal(run(engine, game.files, 3).diagnostics.length, 0);
+});
+
+test("smoke: promote, select, pause and explicitly resume a recovery candidate", () => {
+  const { game, candidate, state: captured } = recoveryCandidateWithDurableState();
+  const files = new Map<string, Uint8Array>();
+  const store = {
+    read: (path: string) => files.get(path)?.slice() ?? null,
+    write: (path: string, bytes: Uint8Array) => { files.set(path, bytes.slice()); },
+    writeAtomic: (path: string, bytes: Uint8Array) => { files.set(path, bytes.slice()); },
+    list: (prefix: string) => [...files.keys()].filter((path) => path.startsWith(prefix)),
+  };
+  const validate = (bytes: Uint8Array) => {
+    const restored = restoreRecoveryCandidate(new TextDecoder().decode(bytes), captured.audio);
+    return { tick: restored.state.time.tick, ledgerHash: hashGameLedger(projectGameLedger(restored.state)) };
+  };
+  const promoted = promoteRecovery(store, { gameId: "smoke", bytes: candidate }, validate);
+  const selected = selectRecovery(store, { gameId: "smoke" }, validate);
+  ok(selected !== null);
+  equal(selected.ledgerHash, promoted.ledgerHash);
+  throws(() => promoteRecovery(store, { gameId: "smoke", bytes: encoder.encode(snapshotGameSave(captured)) }, validate));
+  equal(selectRecovery(store, { gameId: "smoke" }, validate)?.generation, selected.generation);
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles, undefined, undefined, selected.bytes);
+  deepEqual(run(engine, game.files, 30).diagnostics, []);
+  equal(engine.recoveryStatus(), "paused");
+  equal(doubles.state().vm.globals.entrycount, 0);
+  equal(engine.resumeRecovery(), true);
+  deepEqual(run(engine, game.files, 3).diagnostics, []);
+  equal(doubles.state().vm.globals.entrycount, 1);
 });
