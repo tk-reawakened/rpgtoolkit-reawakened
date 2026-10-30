@@ -167,15 +167,37 @@ export function expireProgramTileEdits(state: GameState): void {
   const board = boardOrNull(state);
   if (board === null || board.runtime === undefined || board.runtime.tileEdits.length === 0) return;
   const edits = board.runtime.tileEdits;
-  const layers = board.layers.map((layer) => ({ ...layer, tiles: [...layer.tiles] }));
-  const finished = new Set(state.vm.threads.filter((thread) => thread.status === "finished").map((thread) => thread.id));
-  const temporary = edits.filter((edit) => edit.scope === "program" && (edit.owner === undefined || finished.has(edit.owner)));
-  if (temporary.length === 0) return;
-  for (const edit of [...temporary].reverse()) {
-    const layerIndex = Math.floor(edit.index / (board.sizeX * board.sizeY));
-    const index = edit.index % (board.sizeX * board.sizeY);
-    const layer = layers[layerIndex];
-    if (layer !== undefined) layer.tiles[index] = edit.previous;
+  const finished = new Set<number>();
+  for (const thread of state.vm.threads) {
+    if (thread.status === "finished") finished.add(thread.id);
   }
-  state.world = { ...state.world, board: { ...board, layers, runtime: { ...board.runtime, tileEdits: edits.filter((edit) => edit.scope !== "program") } } };
+  let hasExpired = false;
+  for (const edit of edits) {
+    if (edit.scope === "program" && (edit.owner === undefined || finished.has(edit.owner))) {
+      hasExpired = true;
+      break;
+    }
+  }
+  if (!hasExpired) return;
+
+  const baseline = new Map<number, WorldTile | null>();
+  const visible = new Map<number, WorldTile | null>();
+  const retained: WorldTileEdit[] = [];
+  for (const edit of edits) {
+    if (!baseline.has(edit.index)) baseline.set(edit.index, edit.previous);
+    if (edit.scope === "program" && (edit.owner === undefined || finished.has(edit.owner))) continue;
+
+    const previous = visible.has(edit.index) ? visible.get(edit.index)! : baseline.get(edit.index)!;
+    retained.push(previous === edit.previous ? edit : { ...edit, previous });
+    visible.set(edit.index, edit.tile);
+  }
+
+  const layers = board.layers.map((layer) => ({ ...layer, tiles: [...layer.tiles] }));
+  for (const [flatIndex, original] of baseline) {
+    const layerIndex = Math.floor(flatIndex / (board.sizeX * board.sizeY));
+    const index = flatIndex % (board.sizeX * board.sizeY);
+    const layer = layers[layerIndex];
+    if (layer !== undefined) layer.tiles[index] = visible.has(flatIndex) ? visible.get(flatIndex)! : original;
+  }
+  state.world = { ...state.world, board: { ...board, layers, runtime: { ...board.runtime, tileEdits: retained } } };
 }
