@@ -488,8 +488,9 @@ function restoreError(code: string, message: string): never {
 
 /**
  * Check one script value at `path`: a number, string, null, a whole callable or an
- * object value whose handle and class tag agree with the saved handle table.
- * Callable captures must name cells that exist. Malformed callables use
+ * object value whose handle and class tag agree when that handle remains live.
+ * A released object's value remains meaningful for handle comparison. Callable
+ * captures must name cells that exist. Malformed callables use
  * `restore.callable-malformed`; missing cells use `restore.cell-missing`; any
  * other invalid value is `restore.shape`.
  */
@@ -513,8 +514,9 @@ function checkValue(
     ) {
       shapeError(`the snapshot's ${path} is not a whole object handle`);
     }
-    if (!objects.has(value.handle) || objects.get(value.handle) !== value.className) {
-      shapeError(`the snapshot's ${path} does not name a matching live object handle`);
+    const liveClass = objects.get(value.handle);
+    if (liveClass !== undefined && liveClass !== value.className) {
+      shapeError(`the snapshot's ${path} class tag does not match its live object`);
     }
     return;
   }
@@ -575,7 +577,10 @@ function checkReference(
   }
 }
 
-/** A frame's object receiver and destructor handle must name live objects; dispatch class text may be an ancestor. */
+/**
+ * A frame may retain a released method receiver; a pending destructor handle
+ * must still name its live object.
+ */
 function validateVmFrames(vm: Record<string, unknown>, objects: ReadonlyMap<number, string>): void {
   for (const [threadIndex, threadValue] of arrayAt(vm.threads, "vm.threads").entries()) {
     const thread = recordAt(threadValue, `vm.threads[${threadIndex}]`);
@@ -587,8 +592,8 @@ function validateVmFrames(vm: Record<string, unknown>, objects: ReadonlyMap<numb
       if (hasHandle !== hasClass) shapeError(`the snapshot's ${path} must carry objectHandle and objectClass together`);
       if (hasHandle) {
         const handle = numberAt(frame.objectHandle, `${path}.objectHandle`);
-        if (!Number.isSafeInteger(handle) || handle < 1 || !objects.has(handle)) {
-          shapeError(`the snapshot's ${path}.objectHandle names no live object`);
+        if (!Number.isSafeInteger(handle) || handle < 1) {
+          shapeError(`the snapshot's ${path}.objectHandle must be a positive safe integer`);
         }
         stringAt(frame.objectClass, `${path}.objectClass`);
       }
@@ -604,8 +609,9 @@ function validateVmFrames(vm: Record<string, unknown>, objects: ReadonlyMap<numb
 /**
  * The script-reference and closure-cell check (FUN-8/OOP-10; entry 18.6), which
  * needs no compiled program: `vm.cells` and `vm.cellSeq` agree, every script
- * value and callable is whole, and every cell or object handle a value, reference
- * or frame names is live. Program-aware callable-definition checks run in
+ * value and callable is whole, and every cell or object handle a member reference
+ * or callable receiver names is live. Object values and method frames may retain
+ * handles after explicit release. Program-aware callable-definition checks run in
  * `verifyRestoredHandles`.
  */
 function validateVmHandles(vm: Record<string, unknown>, objects: ReadonlyMap<number, string>): void {

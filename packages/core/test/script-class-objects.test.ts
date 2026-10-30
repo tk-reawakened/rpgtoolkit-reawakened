@@ -581,19 +581,36 @@ test("a save with a record that is not the one object shape is refused, naming t
   first("vm.objects[0].className", (objects) => void delete objects[0]!.className);
 });
 
-test("a saved object value must name a live object with its exact class tag", () => {
+test("a saved object value with a live handle must carry its exact class tag", () => {
   const json = snapshot(runOnce("class A { public: var x }\na = A()\n"));
-  const dangling = restoreShapeRefusal(json, (vm) => {
-    rawRecord(rawRecord(vm.globals).a).handle = 99;
-  });
-  equal(dangling.includes("vm.globals.a"), true);
   const mismatched = restoreShapeRefusal(json, (vm) => {
     rawRecord(rawRecord(vm.globals).a).className = "other";
   });
   equal(mismatched.includes("vm.globals.a"), true);
 });
 
-test("a saved object-member reference and frame receiver must name live objects", () => {
+test("released object values survive save and restore and remain comparable by handle", () => {
+  const state = makeState(`
+class A { public: method A() {} }
+a = A()
+b = a
+a->release()
+sleep(1)
+same = a == b
+`);
+  const services = createScriptServices(state);
+  advanceOrFail(state, services);
+  const releasedHandle = rawRecord(state.vm.globals.a).handle;
+  equal(state.vm.objects.some((object) => object.handle === releasedHandle), false);
+  const { state: restored, services: restoredServices } = restoreChecked(snapshot(state));
+  runToRest(state, services);
+  runToRest(restored, restoredServices);
+  equal(rawRecord(restored.vm.globals.a).handle, releasedHandle);
+  equal(restored.vm.globals.same, 1);
+  equal(hashState(restored), hashState(state));
+});
+
+test("a saved object-member reference must name a live object", () => {
   const state = makeState(`
 class A { public: var x }
 function setLater(&r) { sleep(2) }
@@ -610,19 +627,51 @@ setLater(a->x)
     rawRecord(locals.r).ref = "object:99:x";
   });
   equal(danglingReference.includes(".ref"), true);
+});
 
+test("a suspended method continuation survives after its receiver was released", () => {
+  const state = makeState(`
+class A {
+  public:
+  method wait() {
+    this->release()
+    sleep(1)
+    after = this
+    same = after == original
+  }
+}
+original = A()
+original->wait()
+`);
+  const services = createScriptServices(state);
+  advanceOrFail(state, services);
+  const frame = state.vm.threads.flatMap((thread) => thread.frames).find((entry) => entry.objectHandle !== undefined);
+  if (frame === undefined || frame.objectHandle === undefined) throw new Error("expected a suspended method frame");
+  const releasedHandle = frame.objectHandle;
+  equal(state.vm.objects.some((object) => object.handle === releasedHandle), false);
+  const { state: restored, services: restoredServices } = restoreChecked(snapshot(state));
+  const restoredFrame = restored.vm.threads.flatMap((thread) => thread.frames).find((entry) => entry.objectHandle !== undefined);
+  equal(restoredFrame?.objectHandle, releasedHandle);
+  runToRest(state, services);
+  runToRest(restored, restoredServices);
+  equal(rawRecord(restored.vm.globals.after).handle, releasedHandle);
+  equal(restored.vm.globals.same, 1);
+  equal(hashState(restored), hashState(state));
+});
+
+test("a method frame receiver handle must be positive and safe", () => {
   const method = makeState(`
 class A { public: method wait() { sleep(2) } }
 a = A()
 a->wait()
 `);
   advanceOrFail(method, createScriptServices(method));
-  const danglingReceiver = restoreShapeRefusal(snapshot(method), (vm) => {
+  const malformedReceiver = restoreShapeRefusal(snapshot(method), (vm) => {
     const thread = rawRecord(rawArray(vm.threads)[0]);
     const frames = rawArray(thread.frames);
-    rawRecord(frames[1]).objectHandle = 99;
+    rawRecord(frames[1]).objectHandle = 0;
   });
-  equal(danglingReceiver.includes(".objectHandle"), true);
+  equal(malformedReceiver.includes(".objectHandle"), true);
 });
 
 

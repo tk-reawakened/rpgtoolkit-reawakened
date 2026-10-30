@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Save restoration now preserves valid object values and suspended method continuations whose receivers were explicitly released. Released values retain their handles for equality; live object values still require a matching class tag, object-member references and callable receivers still require live objects, and destructor continuations still require a live release handle.
+
 - Loading a battle save now warns when a fighter is on the wrong team. The entry stays in its original position and is skipped rather than silently fighting for the wrong side.
 
 - The battle event contract is now regression-tested at its exact shape. The stock outcome test asserts that the actor-local `defeated` and its game-level `stock_battle.defeated` re-emission carry exactly the keys `cause` and `source`, with the attacking actor's id as the source; the authored no-stock custom fight program emits the same ruled detail and proves nothing re-emits it on the game; and the damage tests assert `beforeDamage`'s exact `source`, `target` and `damage` detail, that a listener's mutated amount is clamped at the owner's HP/SMP boundary, and that an item-origin action dispatches exactly one cancelable `beforeDamage`.
