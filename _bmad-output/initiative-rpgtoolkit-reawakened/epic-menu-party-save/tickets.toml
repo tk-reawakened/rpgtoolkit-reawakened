@@ -315,3 +315,16 @@ after = [9]
 hitl = false
 risk = "high"
 references = ["issue - #593", "issue - #776", "spec - docs/spec/engine/plugins-and-battle.md#e-81", "spec - docs/spec/formats/save-game.md#game-ledger-and-savable-continuation"]
+
+[[entry]]
+id = 24
+tracker_id = "#809"
+type = "spike"
+title = "Rule save compatibility across compiler versions"
+description = "The owner directs that normal save files reliably migrate versions and that compatibility follow compatible assets and format rather than strict version equality, while the current normal-save contract refuses any differing compiler version whole before migrations run. Record the conflict, alternatives and one recommended policy for owner review; no runtime change."
+verify = "Evidence names the ruling, both refusal paths, the bypassed section migrations and the tests that lock current behavior; the spike states the observable limit, presents alternatives with consequences, and records the owner-approved policy doc-first in its own commit before any implementation follow-up."
+covers = ["CAP-11"]
+after = [10]
+hitl = true
+risk = "high"
+references = ["issue - #593", "issue - #791", "spec - docs/spec/formats/save-game.md"]
