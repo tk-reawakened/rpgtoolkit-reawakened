@@ -15,6 +15,7 @@ import {
   createAudioSection,
   createGameState,
   createSurface,
+  createSurfacesSection,
   awardExperience,
   queueNativeEvent,
   registerEmitter,
@@ -119,6 +120,7 @@ test("snapshot restoration rejects malformed or dimension-mismatched surface bas
 
 test("producer-created zero-area surfaces with unsafe integer dimensions survive snapshot restore", () => {
   const state = createGameState({ seed: 0 });
+  state.surfaces = createSurfacesSection();
   const width = 2 ** 53;
   const id = createSurface(state.surfaces, width, 0);
 
@@ -131,6 +133,7 @@ test("producer-created zero-area surfaces with unsafe integer dimensions survive
 
 test("snapshot restoration accepts decoder-compatible noncanonical surface base64", () => {
   const state = createGameState({ seed: 0 });
+  state.surfaces = createSurfacesSection();
   const id = createSurface(state.surfaces, 1, 1);
   const surface = state.surfaces.entries[String(id)]!;
   surface.bitmap = { ...surface.bitmap, b64: "AAAAAB==" };
