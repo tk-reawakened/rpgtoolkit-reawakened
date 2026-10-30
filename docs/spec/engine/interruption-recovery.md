@@ -1,6 +1,6 @@
 # Interruption recovery
 
-**Owner-approved rule, not yet implemented** (#777). Interruption recovery is distinct from normal `Save`/`Load` and saveable VM snapshots; it does not weaken [G1](../../guardrails.md) or change existing mid-battle snapshot continuation. The approved contract and source evidence are in [the recovery decision](../../../_bmad-output/initiative-rpgtoolkit-reawakened/epic-menu-party-save/recovery-checkpoint-proposal.md). Ledger fields, identity, migrations and validation belong to #776.
+**Owner-approved rule, partially implemented (#777).** The reference recovery store's promotion and selection are implemented in core (#783); capture eligibility (#782) and paused ledger-first re-entry (#779) remain. Interruption recovery is distinct from normal `Save`/`Load` and saveable VM snapshots; it does not weaken [G1](../../guardrails.md) or change existing mid-battle snapshot continuation. The approved contract and source evidence are in [the recovery decision](../../../_bmad-output/initiative-rpgtoolkit-reawakened/epic-menu-party-save/recovery-checkpoint-proposal.md). Ledger fields, identity, migrations and validation belong to #776.
 
 ## Stable checkpoint
 
@@ -13,6 +13,36 @@ Without a declaration or trusted policy establishing equivalent safety, do not c
 Capture opportunistically at eligible points during play, and try on host interruption signals while time and platform permit; never force gameplay forward or promise success after abrupt termination. If capture or publication fails, preserve the last validated checkpoint; if none exists, recovery is unavailable.
 
 Write a separate candidate, read the stored bytes back and validate identity, version, integrity, completeness and ledger consistency before atomically switching the durable recovery pointer. Serialize competing promotions. Keep the previous validated generation usable until promotion completes. Retain the current and one previous validated generation per game/profile; candidates in progress are separate. Revalidate before recovery and use an earlier generation only if it also validates. Hosts must define their atomicity and durability guarantees; unsupported guarantees must not be advertised. Normal save slots are not overwritten.
+
+## Reference recovery store layout
+
+The layout below is the reference used by core's `save/recovery-store` promotion and selection functions. **It is optional for hosts**: a host may store candidates any way it likes provided it offers the same observable guarantees — complete game-scoped generations, read-back validation before an atomic pointer switch, and the current plus one previous validated generation retained. A host that cannot make the pointer switch atomic and durable must not advertise durable interruption recovery.
+
+Paths are `gameId`-relative below the game's durable save area and use `/` separators. The `gameId` is one path segment: it cannot be empty, cannot contain `/`, `\` or NUL, and cannot be `.` or `..`.
+
+| Path | Contents |
+|---|---|
+| `<gameId>/recovery/current.json` | The durable pointer, replaced only by an atomic write. |
+| `<gameId>/recovery/generations/<generation>/candidate.bin` | The candidate bytes exactly as captured. |
+| `<gameId>/recovery/generations/<generation>/meta.json` | The read-back validation result for that generation. |
+
+A **generation** is a positive integer written as twelve zero-padded decimal digits, so lexical path order is numeric order. Promotion uses the highest existing generation plus one and never reuses a generation. The pointer is canonical JSON with exactly the keys `version`, `gameId`, `generation`, `tick` and `ledgerHash`: `version` is the pointer version, `generation` names the selected generation, and `tick` and `ledgerHash` are the validated candidate's tick and ledger hash. `meta.json` is canonical JSON with exactly the keys `version`, `generation`, `tick` and `ledgerHash`; it records completeness and equality for that generation and never substitutes for revalidating the candidate bytes.
+
+### Promotion
+
+1. Validate the captured candidate bytes first. A refused candidate writes nothing and leaves the pointer untouched.
+2. Write the new generation's `candidate.bin`, read those bytes back and validate the read-back; its tick and ledger hash must equal the first validation exactly.
+3. Write `meta.json`, read it back and confirm it records the validated generation, then replace `current.json` with an atomic write.
+4. Read the pointer back and require it to name the new generation with exactly the validated tick and ledger hash. A pointer read-back failure restores the previous pointer when it was readable and reports promotion failure. The previous validated generation stays usable until this step succeeds.
+5. Best-effort prune older generations, retaining the promoted generation and the newest older generation that revalidates. If no older generation validates, the newest remaining generation is kept so a transient read or validation failure does not delete the only fallback. A host without removal keeps the extra generations; selection still validates whichever it reads.
+
+Promotion is synchronous and creates no cross-process lock, so a host serializes competing promotions as the contract requires. Candidate and pointer bytes are opaque to the store: identity, version, integrity, completeness and ledger consistency are the injected validator's responsibility.
+
+### Selection
+
+Selection reads and shape-checks the pointer, then reads the pointed generation's candidate and metadata, revalidates the bytes and requires its tick and ledger hash to match both the pointer and the metadata. A missing or corrupt pointer, a missing or malformed candidate or metadata, a mismatched result or a validator refusal is never returned. In that case selection scans generation directories newest first, fully revalidates each candidate, returns the newest valid one and atomically repairs the pointer best-effort; a failed repair does not make the already-validated candidate invalid. If no generation validates, recovery is unavailable and selection returns nothing. Selected bytes are always the bytes that just passed validation.
+
+A host read that throws is **unreadable**, not corrupt: selection may still return an older validated generation, but it does not repair or demote the pointer when the pointer read threw, when the pointed generation was unreadable, or when any generation newer than the selected one was unreadable. Only an absent or corrupt pointer, candidate or metadata, or a content mismatch, may be repaired to a selected generation.
 
 ## Recovery and pause
 
