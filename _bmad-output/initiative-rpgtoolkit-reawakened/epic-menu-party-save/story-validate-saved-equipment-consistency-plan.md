@@ -2,7 +2,7 @@
 title: "Validate saved equipment consistency against compatible assets"
 type: 'feature'
 ticket: 23
-status: in-progress
+status: done
 created: '2026-10-30'
 risk: "high"
 context:
@@ -40,6 +40,8 @@ Compatible assets with a consistent projection validate without side effects. Ch
 ## Verification
 
 `node --test packages/core/test/save-equipment-check.test.ts` plus the existing menu-state, save-migration and engine suites, `typecheck`, `lint`, `graph`, `golden` and the provenance scan. The focused test must stay under the one-second owner rule.
+
+Merged PR #799 as `a9b22b85117bee4622348a6a0a828431d51206dd`. Focused tests passed 44/44; the full strict suite passed 2323 tests with no skips, and all repository checks passed. Independent reviews verified extraction fidelity and found the mutable-name rejection, fixed with a regression.
 
 ## Unresolved
 

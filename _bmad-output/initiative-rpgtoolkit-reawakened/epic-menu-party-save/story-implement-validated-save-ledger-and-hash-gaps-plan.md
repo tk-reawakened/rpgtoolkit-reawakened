@@ -2,7 +2,7 @@
 title: "Validated game-ledger projection and hash"
 type: 'feature'
 ticket: 16
-status: in-progress
+status: done
 created: '2026-10-29'
 risk: "high"
 context:
@@ -134,6 +134,10 @@ Use the existing located restore diagnostics at the #593 boundary where applicab
 - Hash vectors prove the exact domain/version envelope and use existing canonical tagging/FNV-1a. Each accepted L-field mutation changes the projection/hash; changes to explicitly excluded continuation/metadata fields do not, while normal `hashGameState` behavior remains unchanged.
 - A current save and supported prior-version full save derive only after #593 migration/validation; exact bytes read back to the same validated candidate give the same ledger/hash; altered ledger-bearing readback fails equality. Legacy saves need no invented ledger migration because none is persisted.
 - Invalid candidates fail with precise paths and leave current state atomic; ordinary Save/Load retains threads, waits, locals, listeners and normal compiler/source compatibility.
+
+## Completion evidence
+
+Merged PR #800 as `4ee91cac7fe8475ed4a7c571e4fff5344cc53e48`. The v1 projection and its domain-separated hash are implemented and exported. Focused ledger tests passed 19/19; the full strict suite passed 2324 tests with no skips; typecheck, lint, goldens, graph, catalogue, command docs, licence, provenance and corpus checks passed. Independent reviews found and prompted fixes for stale sprite indexes, program-scope tile-edit leakage and lagging encounter/trigger board names.
 
 ## Required tests
 
