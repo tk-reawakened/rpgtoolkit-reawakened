@@ -1,7 +1,6 @@
 ---
 ticket: 36
-type: bug
-status: in-progress
+status: built
 ---
 
 # Active Put edits lose their owner lifetime
