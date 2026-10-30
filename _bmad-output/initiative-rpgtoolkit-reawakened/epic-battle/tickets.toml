@@ -584,3 +584,31 @@ hitl = false
 risk = "medium"
 references = ["epic - _bmad-output/initiative-rpgtoolkit-reawakened/epic-battle/epic-battle.md", "tracker - _bmad-output/initiative-rpgtoolkit-reawakened/epic-battle/tickets.toml", "issue - #503"]
 
+[[entry]]
+id = 34
+tracker_id = "#805"
+type = "spike"
+title = "Resolve literal battle load full-state hash equality"
+description = """Resolve whether the literal full-state hash equality required by #751 and parent criterion 6 is achievable across an uninterrupted battle and a real Load under the approved save/load contracts. If it conflicts with those contracts, obtain an owner ruling rather than silently changing acceptance."""
+verify = """Compare unmodified full-state hashes at aligned points with no active audio; account for request state, cue IDs and surfaces. Prove literal equality on the real path, or present evidence and alternatives for an owner ruling and record the approved decision doc-first. Keep ordinary mid-battle continuation separate from interruption recovery."""
+covers = ["CAP-9", "CAP-11"]
+after = [31]
+hitl = true
+risk = "medium"
+references = ["issue - #751", "issue - #503", "issue - #780", "spec - docs/spec/engine/battle.md#bat-13", "spec - docs/spec/engine/audio-media.md#audio-save-load", "spec - docs/spec/formats/save-game.md"]
+notes = ["Evidence: packages/core/test/battle-fresh-load.test.ts:214-231,246-291 normalizes surfaces, request state and audio cue ID; no behavior defect is asserted. #780 follows #779 and #753; neither it nor this follow-up blocks the #753 evidence sweep."]
+
+[[entry]]
+id = 35
+tracker_id = "#806"
+type = "story"
+title = "Verify lethal-status custom AI moves and items"
+description = """Close #742's combined-scenario evidence gap: a status kills an enemy at its charged boundary and its custom AI attempts attack, move and item in that same turn."""
+verify = """A deterministic real stock-loop scenario proves the fallen enemy's custom AI runs once and its attempted attack, move and item have no effect on applicable targets, resources and inventory; a living control proves those actions otherwise work. Fix any proven BAT-6 defect without changing the contract."""
+covers = ["CAP-9"]
+after = [22]
+hitl = false
+risk = "medium"
+references = ["issue - #742", "issue - #503", "spec - docs/spec/engine/battle.md#bat-6", "spec - docs/spec/engine/battle.md#bat-7"]
+notes = ["Evidence: packages/core/test/battle-ai.test.ts:761-793 covers lethal-status custom AI and attack; battle-actions.test.ts:486-527 tests fallen moves and items separately. This is a coverage gap, not a proven bug."]
+

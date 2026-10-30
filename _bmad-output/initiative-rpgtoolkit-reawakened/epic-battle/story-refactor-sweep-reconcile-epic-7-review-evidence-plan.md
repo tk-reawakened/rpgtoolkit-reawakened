@@ -37,7 +37,18 @@ Subsequent documentary audit compared all twelve issue acceptance criteria with 
 
 ## Plan Change Log
 
+- 2026-10-30: Review triage added #805 / 7.34 for #751's unmodified full-state comparison and any required owner ruling; #806 / 7.35 owns #742's lethal-status custom AI attack/move/item combined evidence. Both are Epic 7 children, not prerequisites for this evidence sweep. Parent #503 remains open until all relevant children and actual criteria are verified.
+- Corrected live #503 criterion 8 to active-board music under the existing BAT-10 owner ruling (2026-10-26); preserved historical audit rows and all original ticket statuses and plan checkboxes. #780 follows #779 and #753 and is not a prerequisite of this sweep.
+
 ## Review Triage Log
+
+| Finding | Disposition and owner |
+|---|---|
+| #751 normalizes three full-state components | Open: #805 / 7.34 compares unmodified hashes and seeks the owner's decision if contracts conflict. No acceptance criterion was silently changed. |
+| #742 tests lethal attack but moves/items separately | Open: #806 / 7.35 owns the real combined-scenario proof; current evidence establishes a coverage gap, not a defect. |
+| #503 criterion 8 named `battle.boardKey` | Corrected live parent to active-board music using the explicit 2026-10-26 BAT-10 owner ruling; #758 remains open for the separate audio defect. |
+| Parent-wide criteria and closure ordering | #503 closure owner must revalidate its criteria and relevant children, including #805, #806, #758 and later #780. #753 records gaps and does not wait on #780. |
+| #743 other-format coverage | The authored PNG UI golden and .tbm/fallback cases provide partial coverage; the #503 closure audit owns the remaining supported-format evidence. |
 
 ## Verification
 
