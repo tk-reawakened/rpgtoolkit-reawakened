@@ -295,6 +295,12 @@ function createHost(
     recoveryCandidate() {
       return null;
     },
+    resumeRecovery() {
+      return false;
+    },
+    recoveryStatus() {
+      return "none";
+    },
 
     setBreakpoints(next: readonly Breakpoint[]): void {
       breakpoints = next;

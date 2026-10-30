@@ -1,10 +1,12 @@
 import { fnv1a64, hashDrawList, utf8Decode, utf8Encode } from "../canon/index.ts";
-import { restoreGameSave, snapshotGameSave } from "../save/game-save.ts";
+import { restoreGameSave, snapshotGameSave, restoreRecoveryCandidate, snapshotRecoveryCandidate, type RecoveryAssetManifest, type RecoveryListenerAnchor, type RestoredRecoveryCandidate } from "../save/game-save.ts";
 import { deriveGameId } from "../save/game-id.ts";
 import { restoreGameState, snapshot } from "../save/snapshot.ts";
 import { createPluginLayers, type PluginLayers } from "../script/layers.ts";
 import { actorEmitterKey, actorId } from "../actors/model.ts";
 import type { AudioSaveProjection } from "../audio/save.ts";
+import { projectGameLedger, type GameLedgerV1, type LedgerProgramRef, type LedgerTile } from "../save/ledger.ts";
+import { applyRecoveryLedger, installRecoveryBoard } from "./recovery.ts";
 import { updateActorStats, type ActorTransition } from "../actors/rules.ts";
 import { queueActorTransition, registerActorObject } from "../actors/object.ts";
 import { resolveAsset, assetKey, resolveTileReference } from "../formats/resolver/resolver.ts";
@@ -27,7 +29,7 @@ import type { AssetKind } from "../formats/main-file/layout.ts";
 import type { AssetIndex, AssetRoot } from "../formats/resolver/model.ts";
 import type { DrawList, Rgb, Tint } from "../ports/draw.ts";
 import type { InputRecord } from "../ports/input.ts";
-import type { Engine, Diagnostic, Breakpoint, DrawListInclude, ResumeMode, SurfacePixels } from "../ports/engine.ts";
+import type { Engine, Diagnostic, Breakpoint, DrawListInclude, RecoveryStatus, ResumeMode, SurfacePixels } from "../ports/engine.ts";
 import type { InputConfig } from "../input/input.ts";
 import type { PlainData } from "../ports/plain-data.ts";
 import type { Value } from "../ports/value.ts";
@@ -54,7 +56,7 @@ import { applyFxDrawList, advanceFx, applyFxEffect } from "../render/fx.ts";
 import { advanceAnimations, animationBlits, loadAnimation, releaseAnimationSurfaces } from "../render/animation.ts";
 import { hydrateBoard } from "../world/hydrate.ts";
 import { coordLayout, tileToPixel } from "../world/coords.ts";
-import { boardEmitterKey, type WorldBoard } from "../world/model.ts";
+import { boardEmitterKey, type WorldBoard, type WorldTile } from "../world/model.ts";
 import type { AnimationState, FxSection } from "../save/sections.ts";
 import { applyInputEvent, createInputSection, inputView, processGamepadEvents, pruneClaimed } from "../input/index.ts";
 import { applyWorldEffect, expireProgramTileEdits } from "../world/effects.ts";
@@ -105,7 +107,7 @@ import {
   type ScriptServices,
   createVmState,
 } from "../script/index.ts";
-import type { Thread } from "../script/state.ts";
+import type { ObjectRecord, Thread, VmState } from "../script/state.ts";
 import { findObject, readMember } from "../script/objects.ts";
 import type { PackageCatalogueEntry, PluginDefinition } from "../script/plugin.ts";
 import { DEFAULT_FONT } from "../script/packs/ui.ts";
@@ -205,6 +207,7 @@ export type SceneInit = EngineCommonInit & {
   readonly mainFile?: never;
   readonly startup?: never;
   readonly gameIdentity?: never;
+  readonly recoveryCandidate?: never;
 };
 
 /**
@@ -219,6 +222,8 @@ export type SceneInit = EngineCommonInit & {
 export type BootInit = EngineCommonInit & {
   readonly mainFile: string;
   readonly startup: StartupPorts;
+  /** Host-validated candidate bytes for an explicit recovery launch; omitted or null means ordinary boot. */
+  readonly recoveryCandidate?: Uint8Array | null;
   readonly initialBoard?: never;
   readonly program?: never;
   readonly gameIdentity: string;
@@ -237,6 +242,18 @@ type PendingBlobRequest = {
   published: boolean;
 };
 type RecoveryCandidate = { readonly bytes: Uint8Array; readonly tick: number };
+type RecoveryLaunch = {
+  readonly candidate: RestoredRecoveryCandidate;
+  readonly ledger: GameLedgerV1;
+  readonly staged: GameState;
+  readonly boardKey: AssetKey;
+};
+type PreparedRecovery = {
+  readonly board: WorldBoard;
+  readonly boardPrograms: ProgramRef[];
+  readonly entryProgram: ProgramRef | null;
+  readonly itemPrograms: Map<string, ProgramRef>;
+};
 type SourceLocation = { file: string; line: number };
 type Paused = { thread: number; frame: number; line: number };
 type BlobReplyResult = "ignored" | "consumed" | "loaded";
@@ -286,6 +303,10 @@ const DEFAULT_GAME_AUDIO_SETTINGS = {
 };
 export function createEngine(init: EngineInit): Engine {
   const index = init.assetIndex;
+  let recoveryCandidateBytes = init.mainFile === undefined || init.recoveryCandidate == null
+    ? null
+    : new Uint8Array(init.recoveryCandidate);
+  const recoveryLaunchRequested = recoveryCandidateBytes !== null;
   const state: GameState = createGameState({ seed: init.seed });
   state.input = createInputSection(init.input);
   state.engine = { claims: [] };
@@ -311,6 +332,10 @@ export function createEngine(init: EngineInit): Engine {
   const requestsOut: RunnerRequest[] = [];
   let recoveryCaptureRequested = false;
   let preBattleRecoveryCandidate: RecoveryCandidate | null = null;
+  let recoveryLaunch: RecoveryLaunch | null = null;
+  let preparedRecovery: PreparedRecovery | null = null;
+  let recoveryInitialized = false;
+  let recoveryResumed = false;
   const diagnostics: Diagnostic[] = [];
   const registrations = [...(init.phaseRegistrations ?? [])].sort((left, right) => (left.rank ?? 0) - (right.rank ?? 0));
   const registrationByPhase = new Map<EnginePhase, EnginePhaseRegistration[]>();
@@ -623,6 +648,133 @@ export function createEngine(init: EngineInit): Engine {
     const bytes = mainKey === null ? undefined : cache.get(mainKey);
     if (bytes !== undefined && hostGameIdentity !== undefined) currentGameId = deriveGameId(bytes, hostGameIdentity);
   }
+  function recoveryAssetManifest(): RecoveryAssetManifest | null {
+    const board = state.world.board;
+    if (board === null || board === undefined || loader === null) return null;
+    const ledger = projectGameLedger(state);
+    const boardBytes = cache.get(board.key);
+    if (boardBytes === undefined) return null;
+    const hydrated = hydrateBoard(board.key, boardBytes, index, root, cache, state.time.tick);
+    if (hydrated.error !== null || hydrated.missing !== null || hydrated.value === null) return null;
+    const boardDependencies: RecoveryAssetManifest["boardDependencies"] = [];
+    const dependencyKeys = new Set<AssetKey>();
+    const addBoardDependency = (key: AssetKey): boolean => {
+      if (dependencyKeys.has(key)) return true;
+      const bytes = cache.get(key);
+      if (bytes === undefined) return false;
+      dependencyKeys.add(key);
+      boardDependencies.push({ key, hash: fnv1a64(bytes) });
+      return true;
+    };
+    for (const key of hydrated.value.dependencies) if (!addBoardDependency(key)) return null;
+    const fingerprintTile = (tile: LedgerTile): boolean => {
+      const resolved = resolveTileReference(index, root, tile.asset);
+      if (!resolved.ok) return false;
+      if (resolved.value.kind !== "empty" && !addBoardDependency(resolved.value.asset)) return false;
+      if (tile.animation !== null) {
+        for (const frame of tile.animation.frames) if (!fingerprintTile(frame)) return false;
+      }
+      return true;
+    };
+    const savedBoard = ledger.world.board;
+    if (savedBoard.state !== "present") return null;
+    const edits = savedBoard.value.runtime.state === "present" ? savedBoard.value.runtime.value.tileEdits : [];
+    for (const edit of edits) {
+      if (edit.tile !== null && !fingerprintTile(edit.tile)) return null;
+    }
+    const programs = new Map<string, RecoveryAssetManifest["programs"][number]>();
+    const fingerprintAsset = (key: AssetKey): boolean => {
+      const existing = programs.get(key);
+      if (existing !== undefined) return true;
+      const bytes = cache.get(key);
+      if (bytes === undefined) return false;
+      programs.set(key, { key, hash: fnv1a64(bytes) });
+      return true;
+    };
+    const materializeProgramRef = (ref: LedgerProgramRef): ProgramRef => {
+      const common = {
+        compiler: ref.compiler,
+        ...(ref.includes.length === 0 ? {} : { includes: [...ref.includes] }),
+        ...(ref.redirects.length === 0 ? {} : { redirects: ref.redirects.map(([from, to]) => [from, to] as [string, string]) }),
+        ...(ref.dialect === null ? {} : { dialect: ref.dialect }),
+        ...(ref.owner === null ? {} : { owner: ref.owner }),
+      };
+      return ref.kind === "file"
+        ? { kind: "file", path: ref.path, sourceHash: ref.sourceHash, ...common }
+        : { kind: "inline", text: ref.text, ...common };
+    };
+    const fingerprintProgramRef = (ref: ProgramRef): boolean => {
+      if (ref.kind === "file") {
+        const resolved = resolveAsset(index, root, "programs", ref.path);
+        if (!resolved.ok || !fingerprintAsset(resolved.value)) return false;
+      }
+      try {
+        const compiled = services.programs.get(ref);
+        return Object.values(compiled.fileKeys).every((key) => fingerprintAsset(assetKey(key)));
+      } catch {
+        return false;
+      }
+    };
+    const fingerprintProgram = (name: string): RecoveryAssetManifest["programs"][number] | null => {
+      const resolved = resolveAsset(index, root, "programs", name);
+      if (!resolved.ok || !fingerprintAsset(resolved.value)) return null;
+      if (loader === null) return null;
+      try {
+        if (!fingerprintProgramRef(fileProgramRef(loader, name))) return null;
+      } catch {
+        return null;
+      }
+      return programs.get(resolved.value) ?? null;
+    };
+    const entryProgram = board.enterPrg === undefined || board.enterPrg === "" ? null : fingerprintProgram(board.enterPrg);
+    if (board.enterPrg !== undefined && board.enterPrg !== "" && entryProgram === null) return null;
+    for (const name of board.threads ?? []) if (name !== "" && fingerprintProgram(name) === null) return null;
+    for (const item of state.sprites.items) {
+      if (item.multitaskProgram !== null && fingerprintProgram(item.multitaskProgram) === null) return null;
+    }
+    const graph = ledger.script.persistentGraph;
+    for (const object of graph.objects) {
+      if (object.program !== null && !fingerprintProgramRef(materializeProgramRef(object.program))) return null;
+    }
+    if (graph.defOwners.state === "present") {
+      for (const ref of Object.values(graph.defOwners.value)) {
+        if (!fingerprintProgramRef(materializeProgramRef(ref))) return null;
+      }
+    }
+    const listenerAnchors = recoveryListenerAnchors(graph.objects.map((object) => object.handle));
+    if (listenerAnchors === null) return null;
+    return {
+      version: 1,
+      board: { key: board.key, hash: fnv1a64(boardBytes) },
+      boardDependencies,
+      entryProgram,
+      programs: [...programs.values()],
+      listenerAnchors,
+    };
+  }
+  /**
+   * The startup-installed listeners whose target the ledger keeps
+   * (docs/spec/engine/interruption-recovery.md#recovery-and-pause). A listener installed after startup is not
+   * part of startup state and never anchors its object. `null` refuses capture: a listener whose object identity a
+   * later boot could not reproduce must never be persisted against a guessed handle.
+   */
+  function recoveryListenerAnchors(durableHandles: readonly number[]): RecoveryListenerAnchor[] | null {
+    const durable = new Set(durableHandles);
+    const anchors: RecoveryListenerAnchor[] = [];
+    const seen = new Set<number>();
+    const sorted = [...new Set(state.events.listeners.map((listener) => listener.emitter))].sort();
+    for (const emitter of sorted) {
+      if (!emitter.startsWith("object:")) continue;
+      const handle = Number(emitter.slice("object:".length));
+      if (!Number.isSafeInteger(handle) || handle < 1) return null;
+      if (!startupListenerEmitters.has(emitter) || !durable.has(handle) || seen.has(handle)) continue;
+      seen.add(handle);
+      const anchor = startupAnchorOf(handle);
+      if (anchor === null) return null;
+      anchors.push({ handle, ...anchor });
+    }
+    return anchors;
+  }
   function recoveryCaptureEligible(allowOpenTick = false): boolean {
     const selectedPlayer = state.sprites.selectedPlayer;
     return !failed &&
@@ -645,7 +797,9 @@ export function createEngine(init: EngineInit): Engine {
   }
   function serializeRecoveryCandidate(): RecoveryCandidate | null {
     try {
-      return { bytes: utf8Encode(snapshotGameSave(state)), tick: state.time.tick };
+      const recoveryAssets = recoveryAssetManifest();
+      if (recoveryAssets === null) return null;
+      return { bytes: utf8Encode(snapshotRecoveryCandidate(state, recoveryAssets)), tick: state.time.tick };
     } catch {
       return null;
     }
@@ -790,6 +944,8 @@ export function createEngine(init: EngineInit): Engine {
       failed = previousFailed;
 
       Object.assign(state, candidate);
+      // A loaded continuation replaces the object table, so no startup lifetime identity survives.
+      clearStartupAnchors();
       if (typeof candidate.engine.nextRequestId === "number" && Number.isSafeInteger(candidate.engine.nextRequestId) && candidate.engine.nextRequestId >= 1) {
         nextRequestId = candidate.engine.nextRequestId;
       }
@@ -1424,6 +1580,7 @@ export function createEngine(init: EngineInit): Engine {
   }
   function resetLifecycle(nextMain?: string): void {
     discardRecoveryCandidates();
+    clearStartupAnchors();
     const rng = state.rng;
     const time = state.time;
     const fresh = createGameState({ seed: 0 });
@@ -1488,13 +1645,13 @@ export function createEngine(init: EngineInit): Engine {
   }
 
   /** Hydrate board `key`, requesting its file and then each missing tile asset in turn. */
-  function loadBoard(key: AssetKey): "pending" | WorldBoard | null {
+  function loadBoard(key: AssetKey, tick = state.time.tick): "pending" | WorldBoard | null {
     const bytes = cache.get(key);
     if (bytes === undefined) {
       request(key, "board");
       return "pending";
     }
-    const result = hydrateBoard(key, bytes, index, root, cache, state.time.tick);
+    const result = hydrateBoard(key, bytes, index, root, cache, tick);
     if (result.error !== null) {
       fail({ code: "asset.invalid", file: result.error.path, line: result.error.offset, message: result.error.message });
       return null;
@@ -1865,7 +2022,351 @@ export function createEngine(init: EngineInit): Engine {
     }
     return false;
   }
+  function recoveryError(code: string, message: string): Error & { readonly code: string } {
+    const error = new Error(message) as Error & { code: string };
+    error.code = code;
+    return error;
+  }
+  function recoveryFailure(code: string, message: string, file = mainKey ?? ""): false {
+    recoveryCandidateBytes = null;
+    recoveryLaunch = null;
+    preparedRecovery = null;
+    fail({ code, file, line: 0, message });
+    return false;
+  }
+  /**
+   * Map each saved listener target to the object the fresh startup created for it
+   * (docs/spec/engine/interruption-recovery.md#recovery-and-pause). Every anchor must name the object a fresh startup
+   * reproduced at the same ordinal and the same class, and that object must carry a startup listener of its own;
+   * anything else is refused rather than attached to a look-alike.
+   */
+  function recoveryListenerHandles(manifest: RecoveryAssetManifest): Map<number, number> {
+    const handles = new Map<number, number>();
+    if (manifest.listenerAnchors.length === 0) return handles;
+    const byOrdinal = new Map<number, number>();
+    for (const [handle, ordinal] of startupOrdinals) byOrdinal.set(ordinal, handle);
+    const listenedTo = new Set(state.events.listeners
+      .map((listener) => listener.emitter)
+      .filter((emitter) => emitter.startsWith("object:")));
+    for (const anchor of manifest.listenerAnchors) {
+      const fresh = byOrdinal.get(anchor.ordinal);
+      const live = fresh === undefined ? undefined : state.vm.objects.find((record) => record.handle === fresh);
+      const original = fresh === undefined ? undefined : startupObjects.get(fresh);
+      if (fresh === undefined || live === undefined || original !== live) {
+        throw recoveryError("recovery.listener-anchor", `saved listener target ${anchor.handle} has no matching startup object`);
+      }
+      if (live.className !== anchor.className || (live.hostType ?? null) !== anchor.hostType) {
+        throw recoveryError("recovery.listener-anchor", `saved listener target ${anchor.handle} does not match the startup object at ordinal ${anchor.ordinal}`);
+      }
+      if (!listenedTo.has(`object:${fresh}`)) {
+        throw recoveryError("recovery.listener-anchor", `the startup object for saved listener target ${anchor.handle} has no startup listener`);
+      }
+      for (const mapped of handles.values()) {
+        if (mapped === fresh) throw recoveryError("recovery.listener-anchor", `two saved listener targets resolve to startup object ${fresh}`);
+      }
+      handles.set(anchor.handle, fresh);
+    }
+    return handles;
+  }
+  function initializeRecovery(): boolean {
+    if (recoveryCandidateBytes === null) return recoveryFailure("recovery.candidate-missing", "recovery was requested without candidate bytes");
+    try {
+      const candidate = restoreRecoveryCandidate(utf8Decode(recoveryCandidateBytes), state.audio);
+      const ledger = projectGameLedger(candidate.state);
+      if (ledger.world.board.state !== "present") throw new Error("the recovery candidate has no saved board");
+      const cloneDiagnostics: Diagnostic[] = [];
+      const staged = restoreGameState(snapshot(state), cloneDiagnostics);
+      if (cloneDiagnostics.length > 0) throw new Error(cloneDiagnostics.map((entry) => entry.message).join("; "));
+      applyRecoveryLedger(staged, ledger, recoveryListenerHandles(candidate.recoveryAssets));
+      recoveryLaunch = { candidate, ledger, staged, boardKey: assetKey(ledger.world.board.value.key) };
+      return true;
+    } catch (error) {
+      const details = error as { readonly code?: unknown };
+      const code = typeof details.code === "string" ? details.code : "recovery.candidate-invalid";
+      return recoveryFailure(code, error instanceof Error ? error.message : String(error));
+    }
+  }
+  function verifyRecoveryBoardDependencies(
+    dependencies: readonly AssetKey[],
+    ledger: GameLedgerV1,
+    manifest: RecoveryAssetManifest,
+  ): boolean {
+    const required = new Set<AssetKey>(dependencies);
+    const savedBoard = ledger.world.board;
+    if (savedBoard.state !== "present") return recoveryFailure("recovery.board-missing", "the recovery ledger has no board");
+    const collectTile = (tile: LedgerTile): boolean => {
+      const resolved = resolveTileReference(index, root, tile.asset);
+      if (!resolved.ok) return recoveryFailure("recovery.asset-missing", `saved board tile "${tile.asset}" is not in the asset index`);
+      if (resolved.value.kind !== "empty") required.add(resolved.value.asset);
+      if (tile.animation !== null) {
+        for (const frame of tile.animation.frames) if (!collectTile(frame)) return false;
+      }
+      return true;
+    };
+    if (savedBoard.value.runtime.state === "present") {
+      for (const edit of savedBoard.value.runtime.value.tileEdits) {
+        if (edit.tile !== null && !collectTile(edit.tile)) return false;
+      }
+    }
+    const expected = new Map<string, string>();
+    for (const fingerprint of manifest.boardDependencies) {
+      if (expected.has(fingerprint.key)) return recoveryFailure("recovery.asset-manifest", `duplicate board dependency "${fingerprint.key}"`);
+      expected.set(fingerprint.key, fingerprint.hash);
+    }
+    if (expected.size !== required.size) return recoveryFailure("recovery.asset-manifest", "the recovery candidate's board dependency list is incomplete or stale");
+    for (const key of required) {
+      const hash = expected.get(key);
+      if (hash === undefined) return recoveryFailure("recovery.asset-manifest", `board dependency "${key}" is not fingerprinted`);
+      if (!index.byKey.has(key)) return recoveryFailure("recovery.asset-missing", `board dependency "${key}" is not in the asset index`, key);
+      const bytes = cache.get(key);
+      if (bytes === undefined) {
+        request(key, requestKindFor(key));
+        return false;
+      }
+      if (fnv1a64(bytes) !== hash) return recoveryFailure("recovery.asset-changed", `board dependency "${key}" changed since the checkpoint`, key);
+    }
+    return true;
+  }
+  function preflightRecoveryPrograms(board: WorldBoard, ledger: GameLedgerV1, manifest: RecoveryAssetManifest): boolean {
+    const programFingerprints = new Map<string, string>();
+    for (const fingerprint of manifest.programs) {
+      if (programFingerprints.has(fingerprint.key)) return recoveryFailure("recovery.asset-manifest", `duplicate program asset "${fingerprint.key}"`);
+      const key = assetKey(fingerprint.key);
+      if (key !== fingerprint.key) return recoveryFailure("recovery.asset-manifest", `program asset key "${fingerprint.key}" is not canonical`);
+      if (!index.byKey.has(key)) return recoveryFailure("recovery.asset-missing", `program asset "${key}" is not in the asset index`, key);
+      const bytes = cache.get(key);
+      if (bytes === undefined) {
+        request(key, "program");
+        return false;
+      }
+      if (fnv1a64(bytes) !== fingerprint.hash) return recoveryFailure("recovery.asset-changed", `program asset "${key}" changed since the checkpoint`, key);
+      programFingerprints.set(key, fingerprint.hash);
+    }
+    const entryName = board.enterPrg ?? "";
+    const entryAsset = entryName === "" ? null : resolveAsset(index, root, "programs", entryName);
+    if (entryAsset !== null && !entryAsset.ok) return recoveryFailure("recovery.asset-missing", `entry program "${entryName}" is not in the asset index`);
+    const expectedEntry = manifest.entryProgram;
+    if (entryAsset === null ? expectedEntry !== null : expectedEntry === null || expectedEntry.key !== entryAsset.value) {
+      return recoveryFailure("recovery.asset-manifest", "the entry program fingerprint does not match the saved board");
+    }
+    if (entryAsset !== null && !programFingerprints.has(entryAsset.value)) {
+      return recoveryFailure("recovery.asset-manifest", `entry program "${entryAsset.value}" is not fingerprinted`);
+    }
+    if (entryAsset !== null && expectedEntry?.hash !== programFingerprints.get(entryAsset.value)) {
+      return recoveryFailure("recovery.asset-manifest", "the entry program hashes disagree in the recovery manifest");
+    }
+    const currentLoader = loader;
+    if (currentLoader === null) return recoveryFailure("recovery.program-loader", "the program loader is unavailable");
+    const resolveProgram = (name: string): ProgramRef | null => {
+      const resolved = resolveAsset(index, root, "programs", name);
+      if (!resolved.ok) {
+        recoveryFailure("recovery.asset-missing", `required program "${name}" is not in the asset index`);
+        return null;
+      }
+      if (!programFingerprints.has(resolved.value)) {
+        recoveryFailure("recovery.asset-manifest", `required program "${resolved.value}" is not fingerprinted`);
+        return null;
+      }
+      try {
+        const ref = fileProgramRef(currentLoader, name);
+        const compiled = services.programs.get(ref);
+        for (const key of Object.values(compiled.fileKeys)) {
+          if (!programFingerprints.has(key)) {
+            recoveryFailure("recovery.asset-manifest", `included program asset "${key}" is not fingerprinted`);
+            return null;
+          }
+        }
+        return ref;
+      } catch (error) {
+        const details = error as { readonly code?: unknown };
+        const code = typeof details.code === "string" ? details.code : "recovery.program-invalid";
+        recoveryFailure(code, error instanceof Error ? error.message : String(error));
+        return null;
+      }
+    };
+    const boardPrograms: ProgramRef[] = [];
+    for (const name of board.threads ?? []) {
+      if (name === "") continue;
+      const ref = resolveProgram(name);
+      if (ref === null) return false;
+      boardPrograms.push(ref);
+    }
+    const entryProgram = entryName === "" ? null : resolveProgram(entryName);
+    if (entryName !== "" && entryProgram === null) return false;
+    const itemPrograms = new Map<string, ProgramRef>();
+    for (const sprite of ledger.sprites.items) {
+      if (!sprite.visible || sprite.multitaskProgram === null) continue;
+      const ref = resolveProgram(sprite.multitaskProgram);
+      if (ref === null) return false;
+      itemPrograms.set(sprite.id, ref);
+    }
+    preparedRecovery = { board, boardPrograms, entryProgram, itemPrograms };
+    return true;
+  }
+  function queueRecoveryBoardEntered(staged: GameState, board: WorldBoard): void {
+    const actor = staged.actors.actors.find((candidate) => candidate.kind === "party") ?? staged.actors.actors[0];
+    const detail = { actorid: actor?.id ?? null, boardkey: board.key };
+    registerEmitter(staged.vm, staged.events, boardEmitterKey(board.key));
+    queueNativeEvent(staged.vm, staged.events, boardEmitterKey(board.key), "entered", detail);
+    if (actor !== undefined) {
+      registerActorObject(staged.vm, staged.events, staged.actors, actor.id);
+      queueNativeEvent(staged.vm, staged.events, actorEmitterKey(actor.id), "entered", detail);
+    }
+  }
+  function stepRecovery(): boolean {
+    if (!recoveryInitialized) {
+      recoveryInitialized = true;
+      if (!initializeRecovery()) return false;
+    }
+    const launch = recoveryLaunch;
+    if (launch === null) return false;
+    const savedBoard = launch.ledger.world.board;
+    if (savedBoard.state !== "present") return recoveryFailure("recovery.board-missing", "the recovery ledger has no saved board");
+    if (launch.candidate.recoveryAssets.board.key !== savedBoard.value.key || launch.candidate.recoveryAssets.board.key !== launch.boardKey) {
+      return recoveryFailure("recovery.asset-manifest", "the board fingerprint does not match the ledger board");
+    }
+    const resolved = resolveAsset(index, root, "boards", savedBoard.value.key);
+    if (!resolved.ok || resolved.value !== launch.boardKey) {
+      return recoveryFailure("recovery.asset-missing", `saved board "${savedBoard.value.key}" is not in the asset index`);
+    }
+    const boardBytes = cache.get(launch.boardKey);
+    if (boardBytes === undefined) {
+      request(launch.boardKey, "board");
+      return false;
+    }
+    if (fnv1a64(boardBytes) !== launch.candidate.recoveryAssets.board.hash) {
+      return recoveryFailure("recovery.asset-changed", `board asset "${launch.boardKey}" changed since the checkpoint`, launch.boardKey);
+    }
+    const hydrated = hydrateBoard(launch.boardKey, boardBytes, index, root, cache, launch.ledger.time.tick);
+    if (hydrated.error !== null) return recoveryFailure("asset.invalid", hydrated.error.message, hydrated.error.path);
+    if (hydrated.missing !== null) {
+      request(hydrated.missing, requestKindFor(hydrated.missing));
+      return false;
+    }
+    if (hydrated.value === null) return recoveryFailure("asset.invalid", "the saved board could not be hydrated", launch.boardKey);
+    if (!verifyRecoveryBoardDependencies(hydrated.value.dependencies, launch.ledger, launch.candidate.recoveryAssets)) return false;
+    const authoredBoard = hydrated.value.board;
+    if (!preflightRecoveryPrograms(authoredBoard, launch.ledger, launch.candidate.recoveryAssets)) return false;
+    try {
+      compileRestoredPrograms(launch.staged.vm, services);
+      verifyRestoredHandles(launch.staged.vm, services, launch.staged.events);
+      const staged = launch.staged;
+      endBoardThreads(staged.vm);
+      for (const item of staged.sprites.items) {
+        endItemThreads(staged.vm, item.handle === null ? item.id : `item:${item.source}`);
+      }
+      const board = installRecoveryBoard(staged, authoredBoard, launch.ledger);
+      const player = staged.sprites.players.find((candidate) => candidate.id === staged.sprites.selectedPlayer);
+      if (player !== undefined) staged.camera = realignCamera(staged.camera, board, { x: player.x, y: player.y });
+      queueRecoveryBoardEntered(staged, board);
+      if (staged.engine.boot === undefined) throw new Error("the recovery launch lost its boot state");
+      delete staged.engine.transition;
+      delete staged.engine.openTick;
+      staged.engine.boot.stage = "recovery-paused";
+      const runtime = init.spriteRuntime;
+      const spriteInstall = runtime?.prepareRecovery(board, staged.sprites);
+      try {
+        spriteInstall?.commit();
+      } catch (error) {
+        spriteInstall?.rollback();
+        throw error;
+      }
+      preparedRecovery = { ...preparedRecovery!, board };
+      clearPathfindingCache();
+      // Services and event sinks created during startup retain section references.
+      // Replace their contents, not the section objects behind those services.
+      for (const key of ["world", "sprites", "actors", "party", "inventory", "triggers", "vm", "rng", "time", "engine", "events", "camera"] as const) {
+        const target = state[key] as unknown as Record<string, unknown>;
+        const source = staged[key] as unknown as Record<string, unknown>;
+        for (const field of Object.keys(target)) if (!Object.hasOwn(source, field)) delete target[field];
+        Object.assign(target, source);
+      }
+      recoveryCandidateBytes = null;
+      recoveryLaunch = null;
+      // The committed object table holds staged copies; handles and ordinals did not change.
+      repinStartupAnchors();
+      return true;
+    } catch (error) {
+      const details = error as { readonly code?: unknown };
+      const code = typeof details.code === "string" ? details.code : "recovery.install-failed";
+      return recoveryFailure(code, error instanceof Error ? error.message : String(error), launch.boardKey);
+    }
+  }
+  function resumeRecovery(): boolean {
+    if (recoveryResumed || preparedRecovery === null || state.engine.boot?.stage !== "recovery-paused") return false;
+    const prepared = preparedRecovery;
+    const stagedVm: VmState = { ...state.vm, threads: [...state.vm.threads] };
+    let items = state.sprites.items;
+    try {
+      items = state.sprites.items.map((item) => {
+        if (!item.visible || item.multitaskProgram === null) return item;
+        const ref = prepared.itemPrograms.get(item.id);
+        if (ref === undefined) throw new Error(`item program "${item.multitaskProgram}" was not prepared`);
+        const source = item.handle === null ? item.id : `item:${item.source}`;
+        const thread = startThread(stagedVm, { ref, kind: "item", owner: "world", source, target: source });
+        return { ...item, multitaskThread: thread.id };
+      });
+      for (const ref of prepared.boardPrograms) startThread(stagedVm, { ref, kind: "board", owner: "world" });
+      if (prepared.entryProgram !== null) {
+        const blocking = stagedVm.threads.some((thread) => thread.kind === "blocking" && thread.status !== "finished");
+        startThread(stagedVm, { ref: prepared.entryProgram, kind: blocking ? "board" : "blocking", owner: blocking ? "world" : "script" });
+      }
+    } catch (error) {
+      const details = error as { readonly code?: unknown };
+      const code = typeof details.code === "string" ? details.code : "recovery.resume-failed";
+      diagnostics.push({ code, file: prepared.board.key, line: 0, message: error instanceof Error ? error.message : String(error) });
+      return false;
+    }
+    postBoardMusic(prepared.board);
+    state.vm.threads = stagedVm.threads;
+    state.sprites.items = items;
+    if (init.spriteRuntime !== undefined && init.spriteRuntime.section !== state.sprites) init.spriteRuntime.section.items = items;
+    state.engine.boot!.stage = "running";
+    recoveryResumed = true;
+    recoveryLaunch = null;
+    preparedRecovery = null;
+    return true;
+  }
+  /**
+   * Lifetime identities of the objects startup left alive (docs/spec/engine/interruption-recovery.md#recovery-and-pause).
+   * A handle can be reused after its object is freed, so the table keeps the record reference, not the number alone;
+   * the ordinal is the object's position in handle order at the end of startup, which a fresh boot reproduces.
+   */
+  let startupObjects = new Map<number, ObjectRecord>();
+  let startupOrdinals = new Map<number, number>();
+  /** Emitters that already had a listener when startup finished, the only listeners a fresh boot reproduces. */
+  let startupListenerEmitters = new Set<string>();
+  function recordStartupAnchors(): void {
+    startupObjects = new Map(state.vm.objects.map((record) => [record.handle, record]));
+    startupOrdinals = new Map([...startupObjects.keys()].sort((left, right) => left - right).map((handle, ordinal) => [handle, ordinal]));
+    startupListenerEmitters = new Set(state.events.listeners.map((listener) => listener.emitter));
+  }
+  /**
+   * Re-point the startup table after a recovery commit replaces the object table with staged copies:
+   * handles and ordinals are unchanged by the commit, so the live record at each handle is the same object.
+   */
+  function repinStartupAnchors(): void {
+    for (const handle of startupOrdinals.keys()) {
+      const record = state.vm.objects.find((candidate) => candidate.handle === handle);
+      if (record === undefined) startupObjects.delete(handle);
+      else startupObjects.set(handle, record);
+    }
+  }
+  function clearStartupAnchors(): void {
+    startupObjects = new Map();
+    startupOrdinals = new Map();
+    startupListenerEmitters = new Set();
+  }
+  /** The saved listener target that provably is the startup object its emitter key names, or `null`. */
+  function startupAnchorOf(handle: number): { readonly ordinal: number; readonly className: string; readonly hostType: string | null } | null {
+    const live = state.vm.objects.find((record) => record.handle === handle);
+    const original = startupObjects.get(handle);
+    const ordinal = startupOrdinals.get(handle);
+    if (live === undefined || original !== live || ordinal === undefined) return null;
+    return { ordinal, className: live.className, hostType: live.hostType ?? null };
+  }
   function stepBoot(boot: NonNullable<EngineSection["boot"]>): boolean {
+    if (boot.stage === "recovery") return stepRecovery();
     if (boot.stage === "main" || boot.stage === "assets") return startBoot(boot);
     if (boot.stage === "startup") {
       if (blockingAlive()) return false;
@@ -1874,6 +2375,12 @@ export function createEngine(init: EngineInit): Engine {
       if (!ports.presence.hasPlayer()) {
         fail({ code: "startup.no-player", file: mainKey ?? "", line: 0, message: "an initial character must be defined" });
         return false;
+      }
+      recordStartupAnchors();
+      if (recoveryCandidateBytes !== null) {
+        delete state.engine.transition;
+        boot.stage = "recovery";
+        return true;
       }
       if (ports.savedGame.restored()) {
         boot.stage = "running";
@@ -2428,6 +2935,14 @@ export function createEngine(init: EngineInit): Engine {
       preBattleRecoveryCandidate = null;
       return preBattle;
     },
+    recoveryStatus(): RecoveryStatus {
+      if (!recoveryLaunchRequested) return "none";
+      if (recoveryResumed) return "resumed";
+      if (failed || state.engine.failed === true || state.engine.boot?.stage === "stopped") return "failed";
+      if (state.engine.boot?.stage === "recovery-paused") return "paused";
+      return "loading";
+    },
+    resumeRecovery,
     drawList(alpha = 0, include: DrawListInclude = { shading: false, images: false, sprites: false }) {
       return currentDrawList(alpha, include);
     },

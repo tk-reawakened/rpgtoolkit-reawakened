@@ -1,6 +1,6 @@
 # Interruption recovery
 
-**Owner-approved rule, partially implemented (#777, #782, #783); ledger-first re-entry is tracked by #779.** Interruption recovery is distinct from normal `Save`/`Load` and saveable VM snapshots; it does not weaken [G1](../../guardrails.md) or change existing mid-battle snapshot continuation. The approved contract and source evidence are in [the recovery decision](../../../_bmad-output/initiative-rpgtoolkit-reawakened/epic-menu-party-save/recovery-checkpoint-proposal.md). Ledger fields, identity, migrations and validation belong to #776.
+**Owner-approved rule, implemented (#777, #778, #779, #782, #783).** Interruption recovery is distinct from normal `Save`/`Load` and saveable VM snapshots; it does not weaken [G1](../../guardrails.md) or change existing mid-battle snapshot continuation. The approved contract and source evidence are in [the recovery decision](../../../_bmad-output/initiative-rpgtoolkit-reawakened/epic-menu-party-save/recovery-checkpoint-proposal.md). Ledger fields, identity, migrations and validation belong to #776.
 
 <a id="stable-checkpoint"></a>
 ## Stable checkpoint
@@ -70,4 +70,4 @@ For ordinary objects with startup-installed listeners that are reachable from th
 
 Once the recovered board is prepared, expose it for drawing but keep simulation paused. No recovered-board, item or entry-program instruction runs before explicit Resume; focus gain, debugger continuation and `advance(0)` do not resume. `Engine.recoveryStatus()` reports `none`, `loading`, `paused`, `resumed` or `failed`; the host invokes one-shot `Engine.resumeRecovery()` on explicit Resume. It starts item multitask and board threads and the entry program in ordinary board-entry order, then releases the pause. A waiting entry program accepts ordinary input after Resume.
 
-Implementation and tests are tracked by #778, #782, #783 and #779; #780 reconciles BAT-13 evidence and #753 remains the sole Epic 7 closure sweep. Existing behavior evidence is cited in the decision document; this rule is not a claim that these capabilities have shipped.
+Implementation and tests have landed for capture, promotion and paused ledger-first re-entry (#778, #779, #782, #783); #780 reconciles BAT-13 evidence and #753 remains the sole Epic 7 closure sweep. Existing behavior evidence is cited in the decision document.
