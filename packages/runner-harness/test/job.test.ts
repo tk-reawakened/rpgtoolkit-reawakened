@@ -178,6 +178,7 @@ test("goldenJob detects batching disagreement without throwing", () => {
         return null;
       },
       setBreakpoints(_breakpoints: readonly Breakpoint[]): void {},
+      recoveryCandidate() { return null; },
     };
   };
 

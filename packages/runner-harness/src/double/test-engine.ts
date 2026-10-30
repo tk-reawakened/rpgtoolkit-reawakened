@@ -193,6 +193,9 @@ export function createTestEngine(): Engine {
     surfacePixels(_id: SurfaceId, _rev: number): SurfacePixels | null {
       return null;
     },
+    recoveryCandidate() {
+      return null;
+    },
 
     setBreakpoints(_breakpoints: readonly Breakpoint[]): void {},
   };

@@ -199,6 +199,8 @@ export type ScriptServices = ScriptObservers & {
   readonly menuOwners: MenuOwnerPorts;
   /** Synchronous engine cleanup after a thread is removed, before the command resumes. */
   readonly onThreadRemoved?: (threadId: number) => void;
+  /** Script-facing request for one engine-owned interruption-recovery candidate. */
+  readonly requestRecoveryCapture?: () => void;
   /** Engine-owned synchronous dispatch for recorded command effects. */
   readonly postEffect?: (section: SectionKey, effect: EffectRecord) => void;
   /** Engine-owned synchronous host-request dispatch hook. */
@@ -279,6 +281,8 @@ export function createScriptServices(
   gameOverProgram: string | null = null,
   battleStart?: CommandView["battleStart"],
   onThreadRemoved?: (threadId: number) => void,
+  requestRecoveryCapture?: () => void,
+  beforeBattleStart?: () => void,
 ): ScriptServices {
   const loader = typeof loaderOrGameId === "string" ? undefined : loaderOrGameId;
   const gameId = typeof loaderOrGameId === "string" ? loaderOrGameId : explicitGameId ?? null;
@@ -351,6 +355,7 @@ export function createScriptServices(
     commit: (section) => { state.battle = section; },
     readBattleCounter: () => state.engine.nextBattleId,
     commitBattleCounter: (next) => { state.engine = { ...state.engine, nextBattleId: next }; },
+    ...(beforeBattleStart === undefined ? {} : { beforeStart: beforeBattleStart }),
   });
   const battleStartView = battleStart === undefined
     ? undefined
@@ -365,6 +370,7 @@ export function createScriptServices(
     actors,
     battle,
     ...(battleStartView === undefined ? {} : { battleStart: battleStartView }),
+    ...(requestRecoveryCapture === undefined ? {} : { requestRecoveryCapture }),
     ...(media === undefined ? {} : { media }),
     objectMembers: (handle: number) => state.vm.objects.find((record) => record.handle === handle)?.members,
     gameOverProgram,
@@ -470,6 +476,7 @@ export function createScriptServices(
     ...(postEffect === undefined ? {} : { postEffect }),
     ...(postRequest === undefined ? {} : { postRequest }),
     ...(onThreadRemoved === undefined ? {} : { onThreadRemoved }),
+    ...(requestRecoveryCapture === undefined ? {} : { requestRecoveryCapture }),
     ...(media === undefined ? {} : { media }),
     ...observers,
     ...(observers?.postCall === undefined ? {} : {

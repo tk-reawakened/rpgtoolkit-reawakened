@@ -40,6 +40,7 @@ test("runLog partitions ticks into windows and passes maxTicks = n", () => {
     surfacePixels(_id: SurfaceId, _rev: number): SurfacePixels | null {
       return null;
     },
+    recoveryCandidate() { return null; },
     setBreakpoints(_breakpoints: readonly Breakpoint[]): void {},
   };
 
@@ -127,6 +128,7 @@ test("runLog throws naming call and cause for engine violations", () => {
       return null;
     },
     setBreakpoints(): void {},
+    recoveryCandidate() { return null; },
   });
   const failureCases: readonly {
     name: string;
@@ -269,6 +271,7 @@ test("runLog accepts non-empty requests and diagnostics and hands them to the ob
       return null;
     },
     setBreakpoints(): void {},
+    recoveryCandidate() { return null; },
     };
   };
   const seen: { call: number; tickAfter: number; requests: number; diagnostics: unknown }[] = [];

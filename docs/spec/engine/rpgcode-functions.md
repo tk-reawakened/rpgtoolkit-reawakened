@@ -1,9 +1,9 @@
 # RPGCode built-in commands
 
-All 282 command names the 3.1 engine registers, grouped by area. Names are case-insensitive. 14 names are aliases of another command. Signatures use the engine's own notation: `[x]` = optional parameter, `&` = the argument must be a variable (it receives a result), `ret` = the value the command returns. Types are `int`/`double` (numbers), `string`, `bool` (number or "on"/"off"), `canvas`/`thread`/`animation` (numeric handles).
+The Toolkit 3.1 engine registers 282 command names, grouped by area; 14 are aliases of another command. Names are case-insensitive. This page also documents Reawakened-only additions, which are not part of that legacy count. Signatures use the engine's own notation: `[x]` = optional parameter, `&` = the argument must be a variable (it receives a result), `ret` = the value the command returns. Types are `int`/`double` (numbers), `string`, `bool` (number or "on"/"off"), `canvas`/`thread`/`animation` (numeric handles).
 
 <a id="e-94"></a>
-**E-94 Built-in library.** About 280 functions, grouped by capability. Parity means every name in the catalogue resolves, with the same argument conventions, including optional trailing by-reference outputs and handles that accept a name, an index, `"source"` or `"target"`. The catalogue on this page is the 282 names the engine registers, aliases included.
+**E-94 Built-in library.** About 280 functions, grouped by capability. Parity means every name in the 3.1 catalogue resolves, with the same argument conventions, including optional trailing by-reference outputs and handles that accept a name, an index, `"source"` or `"target"`. The 3.1 catalogue on this page is the 282 names the engine registers, aliases included; Reawakened-only commands are identified separately.
 
 **Compatibility notes.**
 
@@ -68,6 +68,7 @@ All 282 command names the 3.1 engine registers, grouped by area. Names are case-
 | Command | Signature | Purpose | Notes |
 |---|---|---|---|
 | `branch` | `void branch(label lbl)` | Jump to a label. |  |
+| `checkpoint` | `void checkpoint()` | Mark this point as safe for interruption recovery. | Takes no arguments and never waits. Queues a one-shot request; the engine returns a candidate only when the runner calls `Engine.recoveryCandidate()` at an eligible settled point, otherwise it returns `null` ([interruption recovery](interruption-recovery.md#stable-checkpoint)). |
 | `change` | `void change(string program)` | Change this program so that next time it is triggered, a different program runs instead. Change() is active only while the player remains on the board (i.e., leaving... |  |
 | `done` | `void done()` | End the program. |  |
 | `dos` | `void dos()` | Quit the game. | Legacy alias of `quitGame`; emits one `quit` request and does not wait. |

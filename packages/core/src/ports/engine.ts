@@ -97,6 +97,11 @@ export interface Engine {
    * is unknown or `rev` is no longer available (AD-27).
    */
   surfacePixels(id: SurfaceId, rev: number): SurfacePixels | null;
+  /**
+   * Return one explicit checkpoint or queued pre-battle candidate, or `null`
+   * when no candidate is pending or the current state is ineligible.
+   */
+  recoveryCandidate(): { readonly bytes: Uint8Array; readonly tick: number } | null;
 
   /** Set source breakpoints as data; a hit stops mid-tick (AD-1). */
   setBreakpoints(breakpoints: readonly Breakpoint[]): void;

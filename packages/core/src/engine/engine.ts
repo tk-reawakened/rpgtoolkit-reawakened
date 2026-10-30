@@ -236,6 +236,7 @@ type PendingBlobRequest = {
   readonly hex: string | null;
   published: boolean;
 };
+type RecoveryCandidate = { readonly bytes: Uint8Array; readonly tick: number };
 type SourceLocation = { file: string; line: number };
 type Paused = { thread: number; frame: number; line: number };
 type BlobReplyResult = "ignored" | "consumed" | "loaded";
@@ -308,6 +309,8 @@ export function createEngine(init: EngineInit): Engine {
   const pendingBoardPreviews: Array<{ readonly key: AssetKey; readonly effect: EffectRecord }> = [];
   const queuedInputs: InputRecord[] = [];
   const requestsOut: RunnerRequest[] = [];
+  let recoveryCaptureRequested = false;
+  let preBattleRecoveryCandidate: RecoveryCandidate | null = null;
   const diagnostics: Diagnostic[] = [];
   const registrations = [...(init.phaseRegistrations ?? [])].sort((left, right) => (left.rank ?? 0) - (right.rank ?? 0));
   const registrationByPhase = new Map<EnginePhase, EnginePhaseRegistration[]>();
@@ -620,6 +623,42 @@ export function createEngine(init: EngineInit): Engine {
     const bytes = mainKey === null ? undefined : cache.get(mainKey);
     if (bytes !== undefined && hostGameIdentity !== undefined) currentGameId = deriveGameId(bytes, hostGameIdentity);
   }
+  function recoveryCaptureEligible(): boolean {
+    const selectedPlayer = state.sprites.selectedPlayer;
+    return !failed &&
+      state.engine.failed !== true &&
+      state.engine.boot?.stage === "running" &&
+      state.engine.openTick === undefined &&
+      pending.size === 0 &&
+      pendingBlobs.size === 0 &&
+      pendingImageEffects.length === 0 &&
+      pendingBoardPreviews.length === 0 &&
+      !state.vm.threads.some((thread) => thread.wait?.kind === "request") &&
+      !quitRequested &&
+      state.engine.transition === undefined &&
+      state.engine.video === undefined &&
+      state.battle === null &&
+      state.menu.screens.length === 0 &&
+      state.world.board != null &&
+      selectedPlayer !== null &&
+      state.sprites.players.some((player) => player.id === selectedPlayer);
+  }
+  function serializeRecoveryCandidate(): RecoveryCandidate | null {
+    try {
+      return { bytes: utf8Encode(snapshotGameSave(state)), tick: state.time.tick };
+    } catch {
+      return null;
+    }
+  }
+  function capturePreBattleRecoveryCandidate(): void {
+    if (!recoveryCaptureEligible()) return;
+    const candidate = serializeRecoveryCandidate();
+    if (candidate !== null) preBattleRecoveryCandidate = candidate;
+  }
+  function discardRecoveryCandidates(): void {
+    recoveryCaptureRequested = false;
+    preBattleRecoveryCandidate = null;
+  }
   let pluginLayers = createPluginLayers();
   const packageStartupLifecycle = { active: false, packageName: undefined as string | undefined };
   let startupServicesReady = false;
@@ -707,6 +746,8 @@ export function createEngine(init: EngineInit): Engine {
         stockBattleAvailable: plugins.some((plugin) => plugin.definition.id === "stock_battle"),
       },
       () => expireProgramTileEdits(state),
+      () => { recoveryCaptureRequested = true; },
+      capturePreBattleRecoveryCandidate,
     );
     media.activateDeclared();
     if (runStartups) {
@@ -1224,6 +1265,7 @@ export function createEngine(init: EngineInit): Engine {
         const restored = restoreGameSave(utf8Decode(event.bytes), state.audio);
         diagnostics.push(...restored.diagnostics);
         applyLoadedGame(restored.state, restored.audio);
+        discardRecoveryCandidates();
         pending.clear();
         pendingBlobs.clear();
         pendingImageEffects.length = 0;
@@ -1380,6 +1422,7 @@ export function createEngine(init: EngineInit): Engine {
     }
   }
   function resetLifecycle(nextMain?: string): void {
+    discardRecoveryCandidates();
     const rng = state.rng;
     const time = state.time;
     const fresh = createGameState({ seed: 0 });
@@ -2371,6 +2414,18 @@ export function createEngine(init: EngineInit): Engine {
         paused,
         stateHash: hashGameState(state),
       };
+    },
+    recoveryCandidate() {
+      const preBattle = preBattleRecoveryCandidate;
+      if (preBattle !== null) {
+        preBattleRecoveryCandidate = null;
+        recoveryCaptureRequested = false;
+        return preBattle;
+      }
+      if (!recoveryCaptureRequested) return null;
+      recoveryCaptureRequested = false;
+      if (!recoveryCaptureEligible()) return null;
+      return serializeRecoveryCandidate();
     },
     drawList(alpha = 0, include: DrawListInclude = { shading: false, images: false, sprites: false }) {
       return currentDrawList(alpha, include);

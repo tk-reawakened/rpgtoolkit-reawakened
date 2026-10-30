@@ -590,6 +590,9 @@ export const conformingEngine: Engine = {
   surfacePixels(_id: SurfaceId, _rev: number): SurfacePixels | null {
     return pinSurfacePixels;
   },
+  recoveryCandidate() {
+    return null;
+  },
   setBreakpoints(_breakpoints: readonly Breakpoint[]): void {
     // no-op
   },
@@ -601,5 +604,6 @@ export function testConformingEngineCall(engine: Engine): void {
   engine.drawList();
   engine.drawList(0);
   const _pixels: SurfacePixels | null = engine.surfacePixels(0 as SurfaceId, 1);
+  engine.recoveryCandidate();
   engine.setBreakpoints([]);
 }
