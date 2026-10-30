@@ -33,6 +33,8 @@ Appended the baseline-pinned inventory to the epic record, retaining the histori
 
 Focused documentary checks: `git diff --check` passed; inspected the historical table, cited tests for outcomes, AI, background, identifiers, custom fights, encounter, audio and save/load, and the owner rulings in BAT-2, E-74 and BAT-14. PR-to-issue associations were collected from GitHub search. The complete detailed assertion-by-assertion audit remains for independent review.
 
+Subsequent documentary audit compared all twelve issue acceptance criteria with the cited source, regression assertions and owner decisions. The matrix names scope limits, including #751's normalized rather than literal whole-state hash comparison, #742's separately tested fallen moves/items, and #743's control not covering every other format. Parent criteria not fully revalidated are explicitly listed. Independent review remains pending.
+
 ## Plan Change Log
 
 ## Review Triage Log
