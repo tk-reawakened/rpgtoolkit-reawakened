@@ -769,8 +769,8 @@ function validateSurfacesShape(value: unknown): void {
     if (bitmap.t !== "rgba") shapeError(`the snapshot's surfaces.entries.${rawId}.bitmap.t must be "rgba"`);
     const width = numberAt(bitmap.w, `surfaces.entries.${rawId}.bitmap.w`);
     const height = numberAt(bitmap.h, `surfaces.entries.${rawId}.bitmap.h`);
-    if (!Number.isSafeInteger(width) || width < 0 || !Number.isSafeInteger(height) || height < 0) {
-      shapeError(`the snapshot's surfaces.entries.${rawId}.bitmap dimensions must be non-negative safe integers`);
+    if (!Number.isInteger(width) || width < 0 || !Number.isInteger(height) || height < 0) {
+      shapeError(`the snapshot's surfaces.entries.${rawId}.bitmap dimensions must be non-negative integers`);
     }
     const byteLength = width * height * 4;
     if (!Number.isSafeInteger(byteLength)) shapeError(`the snapshot's surfaces.entries.${rawId}.bitmap dimensions exceed a safe RGBA byte length`);

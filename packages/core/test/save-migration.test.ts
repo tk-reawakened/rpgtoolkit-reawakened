@@ -14,6 +14,7 @@ import {
   canon,
   createAudioSection,
   createGameState,
+  createSurface,
   awardExperience,
   queueNativeEvent,
   registerEmitter,
@@ -114,6 +115,28 @@ test("snapshot restoration rejects malformed or dimension-mismatched surface bas
     };
     equal(errorOf(() => restoreGameState(JSON.stringify(malformed))).code, "restore.shape");
   }
+});
+
+test("producer-created zero-area surfaces with unsafe integer dimensions survive snapshot restore", () => {
+  const state = createGameState({ seed: 0 });
+  const width = 2 ** 53;
+  const id = createSurface(state.surfaces, width, 0);
+
+  const restored = restoreGameState(snapshot(state));
+  const surface = restored.surfaces.entries[String(id)]!;
+  equal(surface.bitmap.w, width);
+  equal(surface.bitmap.h, 0);
+  equal(surface.bitmap.b64, "");
+});
+
+test("snapshot restoration accepts decoder-compatible noncanonical surface base64", () => {
+  const state = createGameState({ seed: 0 });
+  const id = createSurface(state.surfaces, 1, 1);
+  const surface = state.surfaces.entries[String(id)]!;
+  surface.bitmap = { ...surface.bitmap, b64: "AAAAAB==" };
+
+  const restored = restoreGameState(snapshot(state));
+  equal(restored.surfaces.entries[String(id)]!.bitmap.b64, "AAAAAB==");
 });
 
 test("a schema-v1 actor save preserves state and marks legacy precedence unresolved", () => {
