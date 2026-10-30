@@ -361,7 +361,8 @@ function validateEquipmentDefinition(item: EquipmentItemDefinition, index: numbe
   item.equipBonus.forEach((value, bonusIndex) => integer(value, `item catalog entry ${index} equipBonus[${bonusIndex}]`));
 }
 
-function equipmentBonuses(items: readonly EquipmentItemDefinition[], equipped: readonly string[]): ActorEquipmentBonuses {
+/** Derive the four equipment bonuses from the catalog; the same pure rule ApplyEquipment uses (E-82). */
+export function deriveEquipmentBonuses(items: readonly EquipmentItemDefinition[], equipped: readonly string[]): ActorEquipmentBonuses {
   items.forEach(validateEquipmentDefinition);
   const result = { hp: 0, dp: 0, fp: 0, smp: 0 };
   for (const reference of equipped) {
@@ -387,7 +388,7 @@ export function applyEquipment(section: ActorsSection, id: ActorId | number, equ
   if (new Set(equipped).size !== equipped.length) throw new RangeError("equipment references must be unique");
   const previousBonuses = actor.equipment.bonuses;
   let nextEquipped = [...equipped];
-  let nextBonuses = equipmentBonuses(items, nextEquipped);
+  let nextBonuses = deriveEquipmentBonuses(items, nextEquipped);
   if (hooks.equipmentChanged !== undefined) {
     const result = record(hooks.equipmentChanged(actor, { equipped: nextEquipped, bonuses: nextBonuses, previous: previousBonuses }), "equipmentChanged");
     exactKeys(result, ["equipped", "bonuses"], "equipmentChanged");
@@ -395,7 +396,7 @@ export function applyEquipment(section: ActorsSection, id: ActorId | number, equ
       if (!Array.isArray(result.equipped) || result.equipped.some((entry) => typeof entry !== "string")) throw new TypeError("equipmentChanged equipped must be strings");
       if (new Set(result.equipped).size !== result.equipped.length) throw new RangeError("equipmentChanged equipped must be unique");
       nextEquipped = [...result.equipped];
-      nextBonuses = equipmentBonuses(items, nextEquipped);
+      nextBonuses = deriveEquipmentBonuses(items, nextEquipped);
     }
     if (result.bonuses !== undefined) {
       const bonusPatch = record(result.bonuses, "equipmentChanged.bonuses");
