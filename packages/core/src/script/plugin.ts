@@ -101,6 +101,8 @@ export type CommandView = {
   readonly thread?: number;
   /** Main-file game-over program selected by the boot owner. */
   readonly gameOverProgram?: string | null;
+  /** Mark the next eligible settled point for one engine recovery capture. */
+  readonly requestRecoveryCapture?: () => void;
 };
 
 /**

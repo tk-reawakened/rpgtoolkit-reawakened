@@ -54,6 +54,8 @@ export type BattleOwnerStore = {
   /** The run's next battle number (`engine.nextBattleId`); survives loss cleanup (BAT-2 "battle numbers"). */
   readonly readBattleCounter: () => number | undefined;
   readonly commitBattleCounter: (next: number) => void;
+  /** Best-effort observation after start validation and before battle state is committed. */
+  readonly beforeStart?: () => void;
 };
 
 const PARTY_THRESHOLDS: Readonly<Record<BattleParty, number>> = { 0: 123, 1: 75 };
@@ -135,6 +137,7 @@ export function createBattleOwner(store: BattleOwnerStore): BattleOwner {
         outcome: null,
         parties: [enemies.value, players.value],
       };
+      store.beforeStart?.();
       store.commitBattleCounter(id + 1);
       store.commit(battle);
       return success(battle);

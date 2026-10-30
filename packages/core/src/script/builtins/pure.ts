@@ -249,6 +249,22 @@ const FLOW_SPECS: readonly BuiltinSpec[] = [
   },
   ...PROGRAM_CALL_SPECS,
   {
+    name: "checkpoint",
+    aliases: [],
+    params: [],
+    doc: {
+      summary: "Mark this point as safe for interruption recovery.",
+      behaviour: "Request one recovery candidate at a settled, eligible engine point; takes no arguments and never waits.",
+      groups: ["reawakened-additions-not-part-of-the-282-legacy-catalogue", "program-flow-errors-debugging-25", "core-runtime"],
+      waits: { kind: "never", summary: "Never waits." },
+      see: ["docs/spec/engine/interruption-recovery.md#stable-checkpoint"],
+    },
+    call: (view) => {
+      view.requestRecoveryCapture?.();
+      return { value: null };
+    },
+  },
+  {
     name: "change",
     aliases: [],
     params: [{ name: "program", optional: false, byRef: false, variadic: false }],

@@ -6,11 +6,11 @@
 // movement-triggers (first player, presence, camera target) and menu-party-save (saved games)
 // until those epics register the real owners.
 import { test } from "node:test";
-import { deepEqual, equal } from "node:assert/strict";
+import { deepEqual, equal, ok } from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { TextEncoder } from "node:util";
+import { TextDecoder, TextEncoder } from "node:util";
 import {
   actorFromSource,
   addActor,
@@ -19,14 +19,18 @@ import {
   createEmptyBoard,
   COMPILER_VERSION,
   createEmptyMainFile,
+  ENGINE_DEFAULT_MANIFEST,
+  hashGameLedger,
   createEngine,
   PACKAGE_ROOT,
   writeBoard,
   writeMainFile,
+  projectGameLedger,
+  restoreGameSave,
   startProgram,
 } from "../src/index.ts";
 import { engineEffect, resolveManifestPlugins } from "../src/engine/boot.ts";
-import type { AssetIndex, AssetRoot, Engine, EffectRecord, EngineInit, GameState, InputRecord, PackageCatalogueEntry, PlainData, TickReport } from "../src/index.ts";
+import type { AssetIndex, AssetRoot, Engine, EffectRecord, EngineInit, GameState, InputRecord, PackageCatalogueEntry, PlainData, ResolvedPlugin, TickReport } from "../src/index.ts";
 import type { MainFileAudioSettings } from "../src/formats/main-file/model.ts";
 import type { AudioCue } from "../src/ports/audio.ts";
 import { BUILTIN_TRACKS } from "../src/audio/model.ts";
@@ -200,7 +204,7 @@ function run(engine: Engine, files: Files, ticks: number, inputs: readonly Input
   throw new Error("the host loop did not settle");
 }
 
-function bootEngine(game: AuthoredGame, doubles: Doubles, packageCatalogue?: readonly PackageCatalogueEntry[]): Engine {
+function bootEngine(game: AuthoredGame, doubles: Doubles, packageCatalogue?: readonly PackageCatalogueEntry[], plugins?: readonly ResolvedPlugin[]): Engine {
   return createEngine({
     seed: 11,
     assetIndex: game.index,
@@ -212,6 +216,7 @@ function bootEngine(game: AuthoredGame, doubles: Doubles, packageCatalogue?: rea
     height: 240,
     maxTicks: 600,
     ...(packageCatalogue === undefined ? {} : { packageCatalogue }),
+    ...(plugins === undefined ? {} : { plugins: [...resolveManifestPlugins(ENGINE_DEFAULT_MANIFEST).plugins, ...plugins] }),
     ...doubles.options,
   });
 }
@@ -1050,4 +1055,196 @@ test("boot diagnoses a missing authored bank once and emits null without refusin
   const result = run(host.engine, game.files, 2);
   deepEqual(result.diagnostics.map(({ code, file }) => ({ code, file })), [{ code: "media.soundfont-missing", file: "media/town.sf2" }]);
   deepEqual(result.cues.filter((cue) => cue.kind === "soundfont.set").map((cue) => cue.asset), [null]);
+});
+
+function recoveryFixture(plugins: readonly ResolvedPlugin[] = []): { readonly engine: Engine; readonly state: GameState } {
+  const game = authorGame({
+    startup: "start.prg",
+    initChar: "hero.tem",
+    boards: { "start.brd": {} },
+    programs: { "start.prg": "end()\n" },
+  });
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles, undefined, plugins);
+  const result = run(engine, game.files, 30);
+  deepEqual(result.diagnostics, []);
+  const state = doubles.state();
+  const board = state.world.board;
+  if (board == null) throw new Error("recovery fixture did not load its initial board");
+  const actor = addActor(state.actors, {
+    kind: "party",
+    source: "hero.tem",
+    stats: { hp: 12, maxHp: 12, smp: 4, maxSmp: 4, dp: 2, fp: 3, level: 1 },
+    behaviour: "stock-rpg.hero",
+  });
+  const source = actorFromSource({
+    id: "Characters/hero.chr",
+    kind: "player",
+    source: "hero.tem",
+    x: 64,
+    y: 64,
+    layer: 1,
+    controlled: true,
+  }, board, 0, null);
+  state.party.members = [actor.id];
+  state.party.selected = actor.id;
+  state.sprites.players = [{ ...source, actorId: actor.id }];
+  state.sprites.selectedPlayer = source.id;
+  equal(state.engine.boot?.stage, "running");
+  equal(state.world.board?.key, "boards/start.brd");
+  ok(state.sprites.players.some((player) => player.id === state.sprites.selectedPlayer));
+  return { engine, state };
+}
+
+function startRecoveryProgram(state: GameState, text: string): void {
+  startProgram(state.vm, { kind: "inline", text: `${text}\n`, compiler: COMPILER_VERSION });
+}
+
+const recoveryBattlePlugin: ResolvedPlugin = {
+  namespace: "recovery-test",
+  definition: {
+    id: "recovery-test",
+    version: "1.0.0",
+    commands: [{
+      name: "startrecoverybattle",
+      aliases: [],
+      params: [],
+      call: (view) => {
+        const state = view.state;
+        const actors = view.actors;
+        const battle = view.battle;
+        if (state === undefined || actors === undefined || battle === undefined) return { value: 0 };
+        const player = actors.create({
+          kind: "party",
+          source: "hero.tem",
+          stats: { hp: 10, maxHp: 10, smp: 4, maxSmp: 4, dp: 1, fp: 1, level: 1 },
+        });
+        const enemy = actors.create({
+          kind: "enemy",
+          source: "slime.ene",
+          stats: { hp: 10, maxHp: 10, smp: 0, maxSmp: 0, dp: 1, fp: 1, level: 1 },
+        });
+        state.party.members = [player.id];
+        state.party.selected = player.id;
+        const selectedIndex = state.sprites.players.findIndex((sprite) => sprite.id === state.sprites.selectedPlayer);
+        const selected = state.sprites.players[selectedIndex];
+        if (selectedIndex < 0 || selected === undefined) return { value: 0 };
+        state.sprites.players[selectedIndex] = { ...selected, actorId: player.id };
+        const started = battle.start({
+          boardKey: state.world.board?.key ?? "boards/start.brd",
+          background: "",
+          canRun: true,
+          enemies: [enemy.id],
+          players: [player.id],
+        });
+        return { value: started.ok ? 1 : 0 };
+      },
+    }],
+  },
+};
+
+function stepRecoveryBattleStart(engine: Engine, state: GameState): void {
+  let report = engine.advance(1, [], undefined, "step");
+  ok(state.engine.openTick !== undefined);
+  for (let step = 0; step < 20 && state.battle === null; step += 1) {
+    report = engine.advance(1, [], undefined, "step");
+    ok(state.engine.openTick !== undefined);
+  }
+  equal(report.diagnostics.length, 0);
+  ok(state.battle !== null);
+}
+
+test("checkpoint requests one canonical candidate at the host's settled signal and consumes it once", () => {
+  const { engine, state } = recoveryFixture();
+  equal(engine.recoveryCandidate(), null);
+  startRecoveryProgram(state, "checkpoint()\nend()");
+  const report = engine.advance(1, []);
+  equal(report.ticksRun, 1);
+  equal(report.loading, false);
+  const candidate = engine.recoveryCandidate();
+  ok(candidate !== null);
+  equal(candidate.tick, report.tickAfter);
+  const restored = restoreGameSave(new TextDecoder().decode(candidate.bytes), state.audio);
+  equal(hashGameLedger(projectGameLedger(restored.state)), hashGameLedger(projectGameLedger(state)));
+  equal(engine.recoveryCandidate(), null);
+});
+
+test("unsafe menu and transition states consume a checkpoint request without returning a candidate", () => {
+  const { engine, state } = recoveryFixture();
+  startRecoveryProgram(state, "checkpoint()\nend()");
+  engine.advance(1, []);
+  state.menu.screens.push({ screen: "main", actorId: null, selection: 0 });
+  equal(engine.recoveryCandidate(), null);
+  equal(engine.recoveryCandidate(), null);
+
+  state.menu.screens.length = 0;
+  startRecoveryProgram(state, "checkpoint()\nend()");
+  engine.advance(1, []);
+  state.engine.openTick = { readyThreads: [], readyIndex: 0, currentThread: 0, stepsUsed: 0 };
+  equal(engine.recoveryCandidate(), null);
+  delete state.engine.openTick;
+  state.engine.transition = { board: "boards/start.brd", x: 1, y: 1, layer: 1 };
+  equal(engine.recoveryCandidate(), null);
+});
+
+test("an outstanding ordinary save transaction blocks recovery capture", () => {
+  const { engine, state } = recoveryFixture();
+  startRecoveryProgram(state, 'checkpoint()\nSave("slot")');
+  const report = engine.advance(1, []);
+  ok(report.requests.some((request) => request.kind === "saveBlob"));
+  equal(report.loading, true);
+  equal(engine.recoveryCandidate(), null);
+});
+
+test("the pre-battle candidate survives battle start during an open tick and is returned once", () => {
+  const { engine, state } = recoveryFixture([recoveryBattlePlugin]);
+  startRecoveryProgram(state, "checkpoint()\nstartrecoverybattle()\nend()");
+  stepRecoveryBattleStart(engine, state);
+
+  const candidate = engine.recoveryCandidate();
+  ok(candidate !== null);
+  const restored = restoreGameSave(new TextDecoder().decode(candidate.bytes), state.audio);
+  equal(restored.state.battle, null);
+  equal(restored.state.time.tick, candidate.tick);
+  equal(engine.recoveryCandidate(), null);
+
+  engine.advance(1, []);
+  startRecoveryProgram(state, "checkpoint()\nend()");
+  engine.advance(1, []);
+  equal(engine.recoveryCandidate(), null);
+});
+
+test("a later explicit checkpoint supersedes the queued pre-battle candidate", () => {
+  const { engine, state } = recoveryFixture([recoveryBattlePlugin]);
+  startRecoveryProgram(state, "startrecoverybattle()\nend()");
+  stepRecoveryBattleStart(engine, state);
+  const preBattleTick = state.time.tick;
+
+  // Re-establish an eligible board state without consuming the queued candidate.
+  state.battle = null;
+  engine.advance(1, []);
+  ok(state.time.tick > preBattleTick);
+  state.vm.globals.recoveryMarker = "newer";
+  startRecoveryProgram(state, "checkpoint()\nend()");
+  const report = engine.advance(1, []);
+  equal(report.diagnostics.length, 0);
+
+  const candidate = engine.recoveryCandidate();
+  ok(candidate !== null);
+  equal(candidate.tick, report.tickAfter);
+  ok(candidate.tick > preBattleTick);
+  const restored = restoreGameSave(new TextDecoder().decode(candidate.bytes), state.audio);
+  equal(restored.state.vm.globals.recoveryMarker, "newer");
+  equal(engine.recoveryCandidate(), null);
+});
+
+test("serialization failure returns null and consumes the explicit checkpoint request", () => {
+  const { engine, state } = recoveryFixture();
+  startRecoveryProgram(state, "checkpoint()\nend()");
+  engine.advance(1, []);
+  const globals = state.vm.globals as unknown as Record<string, unknown>;
+  globals.unserializable = Symbol("unsupported recovery value");
+  equal(engine.recoveryCandidate(), null);
+  delete globals.unserializable;
+  equal(engine.recoveryCandidate(), null);
 });
