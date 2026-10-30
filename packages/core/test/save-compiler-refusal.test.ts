@@ -161,7 +161,10 @@ test("control: a compatible save restores and resumes the saved thread", () => {
 });
 
 for (const [label, edit] of [
-  ["the snapshot's schema.compiler", (json: Json) => { json.schema.compiler = "1"; }],
+  ["the snapshot's schema.compiler", (json: Json) => {
+    if (json.schema === null) throw new Error("the saved game has no schema object");
+    json.schema.compiler = "1";
+  }],
   ["a thread frame's program compiler", (json: Json) => {
     const thread = json.vm.threads.find((entry) => entry.frames.length > 0);
     ok(thread !== undefined, "the save holds a running thread");
