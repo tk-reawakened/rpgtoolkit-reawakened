@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Program `Put` edits now expire only with their owner: finished threads are cleaned up at end-of-thread-phase, while `killThread`, event-thread teardown, and board/item lifecycle removals expire edits synchronously before the numeric thread id can be reused. Overlapping edits keep the latest still-live program or board edit visible and restore the original board tile when none remain; `LayerPut` keeps its board lifetime.
+
 
 - Save restoration preserves object values and suspended method continuations after explicit release, including when a freed handle is reused by another class. Values retain a positive safe-integer handle and string class tag; comparisons continue to use handles. Object-member references and callable receivers still require live objects, and destructor continuations still require a live release handle.
 
