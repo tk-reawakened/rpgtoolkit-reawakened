@@ -2,7 +2,7 @@
 title: "Capture stable interruption checkpoints on host signals"
 type: 'feature'
 ticket: 18
-status: in-progress
+status: done
 created: '2026-10-29'
 risk: "high"
 context:
@@ -40,7 +40,7 @@ The requested and pre-battle paths return only canonical save candidates from a 
 
 ## Verification
 
-Main-agent verification only; this worktree does not run tests, builds, lint, formatting or other checks. Suggested focused coverage is the new recovery-candidate test plus any touched RPGCode builtin/battle tests; full required checks follow the repository's contribution instructions.
+Merged PR #803 as `d995404ed57e8be754628df7a665d0c343f0678e`. Focused engine-boot tests passed 42/42; the full strict suite passed 2374 tests with no skips, and all repository checks passed. Independent reviews found and fixed the open-tick pre-battle gap and stale pre-battle priority.
 
 ## Unresolved
 

@@ -2,7 +2,7 @@
 title: "Promote validated recovery candidates atomically"
 type: 'feature'
 ticket: 19
-status: in-progress
+status: done
 created: '2026-10-29'
 risk: "high"
 context:
@@ -39,7 +39,7 @@ Host-specific failure injection proves selection never exposes an unvalidated ca
 
 ## Verification
 
-`node --test packages/core/test/recovery-store.test.ts`; then `pnpm typecheck`, `pnpm lint`, `pnpm graph`, `pnpm provenance` and the full `pnpm test` suite. The focused test uses no engine boot, rendering or ticks and stays well under the one-second owner rule. Checks are not run in this worktree delivery; the main agent runs them.
+Merged PR #802 as `3d006cac6e30455a4c70cba978d33b45924f2361`. Focused recovery-store tests passed 26/26; the full strict suite passed 2368 tests with no skips, and all repository checks passed. Independent reviews found and fixed unvalidated pruning retention and transient-read pointer demotion.
 
 ## Unresolved
 
