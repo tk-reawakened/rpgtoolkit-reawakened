@@ -199,6 +199,8 @@ export type ScriptServices = ScriptObservers & {
   readonly menuOwners: MenuOwnerPorts;
   /** Synchronous engine cleanup after a thread is removed, before the command resumes. */
   readonly onThreadRemoved?: (threadId: number) => void;
+  /** Engine-owned synchronous dispatch for recorded command effects. */
+  readonly postEffect?: (section: SectionKey, effect: EffectRecord) => void;
   /** Engine-owned synchronous host-request dispatch hook. */
   readonly postRequest?: (request: CommandRequest) => void;
   /** The script-facing media owner (MEDIA-1), when the engine provides one. */
