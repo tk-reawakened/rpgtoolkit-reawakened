@@ -196,6 +196,12 @@ export function createTestEngine(): Engine {
     recoveryCandidate() {
       return null;
     },
+    resumeRecovery() {
+      return false;
+    },
+    recoveryStatus() {
+      return "none";
+    },
 
     setBreakpoints(_breakpoints: readonly Breakpoint[]): void {},
   };

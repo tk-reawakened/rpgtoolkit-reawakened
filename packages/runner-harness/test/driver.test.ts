@@ -41,6 +41,8 @@ test("runLog partitions ticks into windows and passes maxTicks = n", () => {
       return null;
     },
     recoveryCandidate() { return null; },
+    resumeRecovery() { return false; },
+    recoveryStatus() { return "none"; },
     setBreakpoints(_breakpoints: readonly Breakpoint[]): void {},
   };
 
@@ -129,6 +131,8 @@ test("runLog throws naming call and cause for engine violations", () => {
     },
     setBreakpoints(): void {},
     recoveryCandidate() { return null; },
+    resumeRecovery() { return false; },
+    recoveryStatus() { return "none"; },
   });
   const failureCases: readonly {
     name: string;
@@ -272,6 +276,8 @@ test("runLog accepts non-empty requests and diagnostics and hands them to the ob
     },
     setBreakpoints(): void {},
     recoveryCandidate() { return null; },
+    resumeRecovery() { return false; },
+    recoveryStatus() { return "none"; },
     };
   };
   const seen: { call: number; tickAfter: number; requests: number; diagnostics: unknown }[] = [];
