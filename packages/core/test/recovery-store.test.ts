@@ -217,6 +217,18 @@ test("a read-back that is missing or validates differently refuses promotion", (
   equal(pointerOf(store).generation, 1);
 });
 
+test("a metadata read-back that disagrees refuses promotion", () => {
+  const store = new MemoryStore();
+  const previous = candidate(5);
+  promoted(store, previous);
+  const wrongMeta = utf8Encode(JSON.stringify({ version: 1, generation: 2, tick: 999, ledgerHash: "hash-999" }));
+  store.readOverride = (path) => (path === generationFile(2, "meta.json") ? wrongMeta : undefined);
+
+  equal(failureCode(() => promoted(store, candidate(6))), "recovery.readback");
+  equal(pointerOf(store).generation, 1);
+  deepEqual(selected(store).bytes, previous.bytes);
+});
+
 test("a pointer write failure leaves the previous pointer selected", () => {
   const store = new MemoryStore();
   const previous = candidate(5);

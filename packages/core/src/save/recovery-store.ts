@@ -409,7 +409,13 @@ export function promoteRecovery(store: RecoveryStorage, options: RecoveryPromote
     tick: second.tick,
     ledgerHash: second.ledgerHash,
   };
-  store.write(metadataPath(gameId, generation), encodeMetadata(meta));
+  const metadataBytes = encodeMetadata(meta);
+  store.write(metadataPath(gameId, generation), metadataBytes);
+  const metadataReadBack = readBytes(store, metadataPath(gameId, generation));
+  const storedMeta = metadataReadBack === null ? null : asMetadata(decodeJson(metadataReadBack));
+  if (storedMeta === null || storedMeta.generation !== generation || storedMeta.tick !== second.tick || storedMeta.ledgerHash !== second.ledgerHash) {
+    throw new RecoveryStoreError("recovery.readback", `recovery generation ${generation} metadata could not be read back`);
+  }
 
   const pointer: RecoveryPointer = {
     version: RECOVERY_STORE_VERSION,
