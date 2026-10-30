@@ -352,6 +352,51 @@ test("promotion retains the current and one previous generation", () => {
   equal(selected(store).generation, 3);
 });
 
+test("pruning keeps the newest validated generation after a failed pointer switch", () => {
+  const store = new MemoryStore();
+  promoted(store, candidate(5));
+  let interrupted = false;
+  store.beforeAtomicWrite = () => {
+    if (interrupted) return;
+    interrupted = true;
+    throw new Error("pointer write interrupted");
+  };
+  equal(failureMessage(() => promoted(store, candidate(6))), "pointer write interrupted");
+  store.beforeAtomicWrite = null;
+  // The old pointer generation is now unreadable; the validated generation from
+  // the failed pointer switch must not be pruned in its favour.
+  store.files.delete(generationFile(1, "candidate.bin"));
+
+  promoted(store, candidate(7));
+  deepEqual(generationsIn(store), [2, 3]);
+});
+
+test("pruning skips a corrupt newer generation and keeps a valid older one", () => {
+  const store = new MemoryStore();
+  promoted(store, candidate(5));
+  promoted(store, candidate(6));
+  store.files.set(generationFile(2, "candidate.bin"), candidate(6, "hash-6", true).bytes);
+
+  promoted(store, candidate(7));
+  deepEqual(generationsIn(store), [1, 3]);
+
+  // Generation 1 is the real fallback when the promoted generation later fails.
+  store.files.set(generationFile(3, "candidate.bin"), candidate(7, "hash-7", true).bytes);
+  const recovery = selected(store);
+  equal(recovery.generation, 1);
+  equal(recovery.tick, 5);
+  equal(pointerOf(store).generation, 1);
+});
+
+test("pruning keeps the newest remaining generation when none revalidates", () => {
+  const store = new MemoryStore();
+  promoted(store, candidate(5));
+  store.files.delete(generationFile(1, "candidate.bin"));
+
+  promoted(store, candidate(6));
+  deepEqual(generationsIn(store), [1, 2]);
+});
+
 test("a host without removal keeps older generations and still selects safely", () => {
   const store = new MemoryStore();
   const host = withoutRemove(store);

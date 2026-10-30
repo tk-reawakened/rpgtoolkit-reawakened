@@ -321,10 +321,15 @@ function repairPointer(store: RecoveryStorage, gameId: string, recovery: Validat
 
 /**
  * Prune generations that are neither the promoted one nor one preceding
- * validated generation. Best effort: without `remove`, or on any host failure,
- * the extra generations stay and selection still validates what it reads.
+ * validated generation. The retained predecessor is the newest older
+ * generation that `loadGeneration` revalidates, so a corrupt or partial
+ * generation that happens to be the previous pointer target cannot displace a
+ * valid older fallback. If no older generation validates, the newest remaining
+ * generation is kept so a transient read or validation failure does not delete
+ * the only fallback. Best effort: without `remove`, or on any host failure, the
+ * extra generations stay and selection still validates what it reads.
  */
-function pruneGenerations(store: RecoveryStorage, gameId: string, current: number, previous: number | null): void {
+function pruneGenerations(store: RecoveryStorage, gameId: string, current: number, validate: RecoveryValidate): void {
   if (store.remove === undefined) return;
   const prefix = generationsPrefix(gameId);
   let paths: readonly string[];
@@ -336,20 +341,20 @@ function pruneGenerations(store: RecoveryStorage, gameId: string, current: numbe
     // Retention is best effort; keep whatever the host already holds.
     return;
   }
-  const listed = generationsFromPaths(prefix, paths);
+  const listed = generationsFromPaths(prefix, paths).sort((left, right) => right - left);
   if (listed.length === 0) return;
 
   const keep = new Set<number>([current]);
-  if (previous !== null && previous !== current && listed.includes(previous)) {
-    keep.add(previous);
-  } else {
-    let fallback: number | null = null;
-    for (const generation of listed) {
-      if (generation === current) continue;
-      if (fallback === null || generation > fallback) fallback = generation;
+  let newestOlder: number | null = null;
+  for (const generation of listed) {
+    if (generation === current) continue;
+    if (newestOlder === null) newestOlder = generation;
+    if (loadGeneration(store, gameId, generation, validate) !== null) {
+      keep.add(generation);
+      break;
     }
-    if (fallback !== null) keep.add(fallback);
   }
+  if (keep.size === 1 && newestOlder !== null) keep.add(newestOlder);
 
   for (const path of paths) {
     const generation = generationOf(prefix, path);
@@ -445,7 +450,7 @@ export function promoteRecovery(store: RecoveryStorage, options: RecoveryPromote
     throw new RecoveryStoreError("recovery.pointer", `recovery pointer did not read back as generation ${generation}`);
   }
 
-  pruneGenerations(store, gameId, generation, previous);
+  pruneGenerations(store, gameId, generation, validate);
   return { generation, tick: second.tick, ledgerHash: second.ledgerHash, bytes: readBack };
 }
 
