@@ -16,14 +16,15 @@
  * file-backed program whose source changed restarts its thread, and that is the
  * program cache's `restore.source-changed`, not a snapshot error.
  *
- * **Callable handles and closure cells (FUN-8; entry 18.6).** `restoreGameState`
- * also checks, with no program to hand, that every callable is a whole record,
- * that `vm.cells` and `vm.cellSeq` agree, and that every cell a handle or a frame
+ * **VM objects, callables and closure cells (FUN-8/OOP-10; entry 18.6).** Without
+ * compiled programs, `restoreGameState` checks each object value, member reference,
+ * frame receiver and destructor handle against the saved handle table; values also
+ * carry their object's class tag. It checks that every callable is a whole record,
+ * that `vm.cells` and `vm.cellSeq` agree, and that every cell a callable or frame
  * names exists (`restore.callable-malformed`, `restore.cell-seq`,
- * `restore.cell-missing`). Whether a handle's definition is still defined needs
- * the compiled programs, so a host runs `verifyRestoredHandles` after it has
- * rebuilt its services. No schema or compiler version moves: the new fields are
- * optional and absent from every state with no closure in it.
+ * `restore.cell-missing`). Whether a callable's definition is still defined needs
+ * the compiled programs, so a host runs `verifyRestoredHandles` after rebuilding
+ * its services. The new closure fields remain optional when no closure exists.
  *
  * **Migration (AD-7's migration chain).** A save whose `schema.vm` is behind
  * `SCHEMA_VERSIONS.vm` is migrated forward before it is returned: v2 → v3 adds
@@ -42,8 +43,10 @@
 
 import { canon, reviveNonFinite, tagNonFinite } from "../canon/index.ts";
 import { cellIdOfRef, cellNumber, eachRootValue, isRecord } from "../script/cells.ts";
+import { parseObjectRef } from "../script/objects.ts";
 import {
   RESTORE_CALLABLE_MALFORMED,
+  RESTORE_CALLABLE_RECEIVER,
   RESTORE_CELL_MISSING,
   RESTORE_CELL_SEQ,
   ScriptError,
@@ -372,7 +375,7 @@ function validateProgramRef(value: unknown, path: string): void {
   }
 }
 
-function validateVmShape(vm: Record<string, unknown>): void {
+function validateVmShape(vm: Record<string, unknown>): ReadonlyMap<number, string> {
   for (const key of ["threads", "objects", "redirects", "files", "effects"] as const) arrayAt(vm[key], `vm.${key}`);
   recordAt(vm.globals, "vm.globals");
   numberAt(vm.effectSeq, "vm.effectSeq");
@@ -433,8 +436,10 @@ function validateVmShape(vm: Record<string, unknown>): void {
       }
     }
   }
-  validateVmObjects(vm);
-  validateVmHandles(vm);
+  const objectClasses = validateVmObjects(vm);
+  validateVmFrames(vm, objectClasses);
+  validateVmHandles(vm, objectClasses);
+  return objectClasses;
 }
 
 /**
@@ -445,18 +450,21 @@ function validateVmShape(vm: Record<string, unknown>): void {
  * A record in the shape saved before entry 19.5 (a class instance with no `keys`)
  * is refused here: no step migrates it.
  */
-function validateVmObjects(vm: Record<string, unknown>): void {
-  const handles = new Set<number>();
+function validateVmObjects(vm: Record<string, unknown>): ReadonlyMap<number, string> {
+  const classes = new Map<number, string>();
   for (const [index, value] of arrayAt(vm.objects, "vm.objects").entries()) {
     const path = `vm.objects[${index}]`;
     const record = recordAt(value, path);
     const handle = numberAt(record.handle, `${path}.handle`);
-    if (handle < 1 || handles.has(handle)) shapeError(`the snapshot's ${path}.handle is not a distinct positive handle`);
-    handles.add(handle);
+    if (!Number.isSafeInteger(handle) || handle < 1 || classes.has(handle)) {
+      shapeError(`the snapshot's ${path}.handle is not a distinct positive handle`);
+    }
+    const className = stringAt(record.className, `${path}.className`);
+    classes.set(handle, className);
     if (typeof record.hostType !== "undefined" && (typeof record.hostType !== "string" || record.hostType === "")) {
       shapeError(`the snapshot's ${path}.hostType must be a non-empty string when present`);
     }
-    if (stringAt(record.className, `${path}.className`) === "") {
+    if (className === "") {
       if (record.program !== null) shapeError(`the snapshot's ${path}.program must be null on an object with no class`);
     } else {
       validateProgramRef(record.program, `${path}.program`);
@@ -470,6 +478,7 @@ function validateVmObjects(vm: Record<string, unknown>): void {
       shapeError(`the snapshot's ${path}.keys does not list its members exactly once each`);
     }
   }
+  return classes;
 }
 
 /** A typed restore failure whose message names the place in the save (entry 18.6). */
@@ -478,19 +487,34 @@ function restoreError(code: string, message: string): never {
 }
 
 /**
- * Check one script value at `path` (FUN-8; entry 18.6): a number, a string, null, an
- * object handle or a whole callable record, and a callable's `captures` all name
- * cells that exist. A malformed callable is `restore.callable-malformed`; a
- * missing cell is `restore.cell-missing`; any other value is `restore.shape`.
+ * Check one script value at `path`: a number, string, null, a whole callable or an
+ * object value whose handle and class tag agree with the saved handle table.
+ * Callable captures must name cells that exist. Malformed callables use
+ * `restore.callable-malformed`; missing cells use `restore.cell-missing`; any
+ * other invalid value is `restore.shape`.
  */
-function checkValue(path: string, value: unknown, cells: Readonly<Record<string, unknown>>): void {
+function checkValue(
+  path: string,
+  value: unknown,
+  cells: Readonly<Record<string, unknown>>,
+  objects: ReadonlyMap<number, string>,
+): void {
   if (value === null || typeof value === "number" || typeof value === "string") return;
   if (!isRecord(value)) {
     return shapeError(`the snapshot's ${path} is not a script value (a number, a string, null, an object handle or a callable)`);
   }
   if (value.kind === "object") {
-    if (!Number.isInteger(value.handle) || typeof value.className !== "string" || Object.keys(value).length !== 3) {
+    if (
+      typeof value.handle !== "number" ||
+      !Number.isSafeInteger(value.handle) ||
+      value.handle < 1 ||
+      typeof value.className !== "string" ||
+      Object.keys(value).sort().join(",") !== "className,handle,kind"
+    ) {
       shapeError(`the snapshot's ${path} is not a whole object handle`);
+    }
+    if (!objects.has(value.handle) || objects.get(value.handle) !== value.className) {
+      shapeError(`the snapshot's ${path} does not name a matching live object handle`);
     }
     return;
   }
@@ -513,6 +537,12 @@ function checkValue(path: string, value: unknown, cells: Readonly<Record<string,
       `${path} is not a whole callable: it must be { type, def, captures, receiver } with an optional owner package name, a def text, a list of cell ids and a receiver that is text or null`,
     );
   }
+  if (receiver !== null) {
+    const handle = Number(receiver);
+    if (!Number.isSafeInteger(handle) || !objects.has(handle)) {
+      restoreError(RESTORE_CALLABLE_RECEIVER, `${path}.receiver names no live object handle`);
+    }
+  }
   for (const [index, id] of (captures as string[]).entries()) {
     if (id !== "" && !Object.hasOwn(cells, id)) {
       restoreError(RESTORE_CELL_MISSING, `${path}.captures[${index}] names cell "${id}", which is not in vm.cells`);
@@ -520,14 +550,65 @@ function checkValue(path: string, value: unknown, cells: Readonly<Record<string,
   }
 }
 
+function checkReference(
+  path: string,
+  ref: unknown,
+  cells: Readonly<Record<string, unknown>>,
+  objects: ReadonlyMap<number, string>,
+): void {
+  const id = cellIdOfRef(ref);
+  if (id !== null && !Object.hasOwn(cells, id)) {
+    restoreError(RESTORE_CELL_MISSING, `${path} names cell "${id}", which is not in vm.cells`);
+  }
+  if (typeof ref !== "string" || !ref.startsWith("object:")) return;
+  const parsed = parseObjectRef(ref);
+  const separator = ref.indexOf(":", "object:".length);
+  const handleText = separator < 0 ? "" : ref.slice("object:".length, separator);
+  if (
+    parsed === null ||
+    !Number.isSafeInteger(parsed.handle) ||
+    parsed.handle < 1 ||
+    String(parsed.handle) !== handleText ||
+    !objects.has(parsed.handle)
+  ) {
+    shapeError(`the snapshot's ${path} does not name a live object member`);
+  }
+}
+
+/** A frame's object receiver and destructor handle must name live objects; dispatch class text may be an ancestor. */
+function validateVmFrames(vm: Record<string, unknown>, objects: ReadonlyMap<number, string>): void {
+  for (const [threadIndex, threadValue] of arrayAt(vm.threads, "vm.threads").entries()) {
+    const thread = recordAt(threadValue, `vm.threads[${threadIndex}]`);
+    for (const [frameIndex, frameValue] of arrayAt(thread.frames, `vm.threads[${threadIndex}].frames`).entries()) {
+      const path = `vm.threads[${threadIndex}].frames[${frameIndex}]`;
+      const frame = recordAt(frameValue, path);
+      const hasHandle = Object.hasOwn(frame, "objectHandle");
+      const hasClass = Object.hasOwn(frame, "objectClass");
+      if (hasHandle !== hasClass) shapeError(`the snapshot's ${path} must carry objectHandle and objectClass together`);
+      if (hasHandle) {
+        const handle = numberAt(frame.objectHandle, `${path}.objectHandle`);
+        if (!Number.isSafeInteger(handle) || handle < 1 || !objects.has(handle)) {
+          shapeError(`the snapshot's ${path}.objectHandle names no live object`);
+        }
+        stringAt(frame.objectClass, `${path}.objectClass`);
+      }
+      if (Object.hasOwn(frame, "releaseHandle")) {
+        const handle = numberAt(frame.releaseHandle, `${path}.releaseHandle`);
+        if (!Number.isSafeInteger(handle) || handle < 1 || !objects.has(handle) || !hasHandle || handle !== frame.objectHandle) {
+          shapeError(`the snapshot's ${path}.releaseHandle does not match its live object receiver`);
+        }
+      }
+    }
+  }
+}
 /**
- * The shape check of callable handles and closure cells (FUN-8; entry 18.6),
- * which needs no compiled program: `vm.cells` and `vm.cellSeq` agree and no id
- * is above the counter, every value and `vm.defOwners` entry is whole, and every
- * cell a handle, a frame slot, an operand or a wait names is in `vm.cells`.
- * The checks that need the compiled programs are `verifyRestoredHandles`.
+ * The script-reference and closure-cell check (FUN-8/OOP-10; entry 18.6), which
+ * needs no compiled program: `vm.cells` and `vm.cellSeq` agree, every script
+ * value and callable is whole, and every cell or object handle a value, reference
+ * or frame names is live. Program-aware callable-definition checks run in
+ * `verifyRestoredHandles`.
  */
-function validateVmHandles(vm: Record<string, unknown>): void {
+function validateVmHandles(vm: Record<string, unknown>, objects: ReadonlyMap<number, string>): void {
   const cells = vm.cells;
   const seq = vm.cellSeq;
   if (cells === undefined) {
@@ -555,16 +636,11 @@ function validateVmHandles(vm: Record<string, unknown>): void {
     const owners = recordAt(vm.defOwners, "vm.defOwners");
     for (const def of Object.keys(owners)) validateProgramRef(owners[def], `vm.defOwners.${def}`);
   }
-  for (const id of Object.keys(table)) checkValue(`vm.cells.${id}`, table[id], table);
+  for (const id of Object.keys(table)) checkValue(`vm.cells.${id}`, table[id], table, objects);
   eachRootValue(
     vm,
-    (path, value) => checkValue(path, value, table),
-    (path, ref) => {
-      const id = cellIdOfRef(ref);
-      if (id !== null && !Object.hasOwn(table, id)) {
-        restoreError(RESTORE_CELL_MISSING, `${path} names cell "${id}", which is not in vm.cells`);
-      }
-    },
+    (path, value) => checkValue(path, value, table, objects),
+    (path, ref) => checkReference(path, ref, table, objects),
   );
 }
 
@@ -582,7 +658,7 @@ function migrateEvents(record: Record<string, unknown>, schema: Record<string, u
  * cells exist, and the cursor's list, position and thread agree. Whether a listener's
  * definition still exists needs the compiled programs, which is `verifyRestoredHandles`.
  */
-function validateEventsShape(value: unknown, vm: Record<string, unknown>): void {
+function validateEventsShape(value: unknown, vm: Record<string, unknown>, objects: ReadonlyMap<number, string>): void {
   const events = recordAt(value, "events");
   const next = numberAt(events.nextListener, "events.nextListener");
   if (next < 1) shapeError("the snapshot's events.nextListener must be at least 1");
@@ -597,8 +673,6 @@ function validateEventsShape(value: unknown, vm: Record<string, unknown>): void 
       }
     }
   }
-  const objects = new Set<number>();
-  for (const object of arrayAt(vm.objects, "vm.objects")) objects.add(numberAt(recordAt(object, "vm.objects[]").handle, "vm.objects[].handle"));
   const threads = new Set<number>();
   for (const thread of arrayAt(vm.threads, "vm.threads")) threads.add(numberAt(recordAt(thread, "vm.threads[]").id, "vm.threads[].id"));
   const cells = isRecord(vm.cells) ? vm.cells : {};
@@ -615,7 +689,7 @@ function validateEventsShape(value: unknown, vm: Record<string, unknown>): void 
     if (!isRecord(listener.callable) || listener.callable.type !== "callable") {
       shapeError(`the snapshot's ${path}.callable must be a callable`);
     }
-    checkValue(`${path}.callable`, listener.callable, cells);
+    checkValue(`${path}.callable`, listener.callable, cells, objects);
   }
   const liveEvent = (handle: unknown, path: string): void => {
     if (!objects.has(numberAt(handle, path))) shapeError(`the snapshot's ${path} names no live object handle`);
@@ -798,9 +872,9 @@ function validateShape(record: Record<string, unknown>): void {
   const rng = recordAt(record.rng, "rng");
   for (const key of ["s0", "s1", "s2", "s3"]) numberAt(rng[key], `rng.${key}`);
   numberAt(recordAt(record.time, "time").tick, "time.tick");
-  validateVmShape(recordAt(record.vm, "vm"));
-  validateEventsShape(record.events, recordAt(record.vm, "vm"));
-  validateSurfacesShape(record.surfaces);
+  const vm = recordAt(record.vm, "vm");
+  const objectClasses = validateVmShape(vm);
+  validateEventsShape(record.events, vm, objectClasses);
 }
 
 /**
@@ -817,6 +891,38 @@ export function refuseOtherCompiler(compiler: unknown): void {
   }
 }
 
+/**
+ * Check program compiler identities before validating or migrating any payload section. The
+ * compiler mismatch ruling covers references in frames, object records and `vm.defOwners`,
+ * even when another payload section is malformed.
+ */
+function refuseOtherProgramCompilers(record: Record<string, unknown>): void {
+  const vm = record.vm;
+  if (!isRecord(vm)) return;
+  const check = (value: unknown, path: string): void => {
+    if (!isRecord(value) || typeof value.compiler !== "string" || value.compiler === COMPILER_VERSION) return;
+    throw new ScriptError(
+      "restore.compiler-mismatch",
+      `the snapshot's ${path}.compiler ${value.compiler} does not match ${COMPILER_VERSION}`,
+    );
+  };
+  if (Array.isArray(vm.threads)) {
+    vm.threads.forEach((thread, threadIndex) => {
+      if (!isRecord(thread) || !Array.isArray(thread.frames)) return;
+      thread.frames.forEach((frame, frameIndex) => {
+        if (isRecord(frame)) check(frame.program, `vm.threads[${threadIndex}].frames[${frameIndex}].program`);
+      });
+    });
+  }
+  if (Array.isArray(vm.objects)) {
+    vm.objects.forEach((object, index) => {
+      if (isRecord(object)) check(object.program, `vm.objects[${index}].program`);
+    });
+  }
+  if (isRecord(vm.defOwners)) {
+    for (const [def, ref] of Object.entries(vm.defOwners)) check(ref, `vm.defOwners.${def}`);
+  }
+}
 /** Parse and check a snapshot's canonical form (see the file header). */
 export function restoreGameState(json: string, diagnostics: Diagnostic[] = []): GameState {
   let parsed: unknown;
@@ -835,7 +941,7 @@ export function restoreGameState(json: string, diagnostics: Diagnostic[] = []): 
     throw new ScriptError("restore.shape", "the snapshot has no `schema` section");
   }
   refuseOtherCompiler((schema as Record<string, unknown>).compiler);
-
+  refuseOtherProgramCompilers(record);
   migrateEvents(record, schema as Record<string, unknown>);
   migrateActors(record, schema as Record<string, unknown>);
   validateActorsShape(record.actors);

@@ -106,7 +106,14 @@ function run(game: Game, loadBytes: Uint8Array | null): { saved: Uint8Array | nu
   return { saved, codes };
 }
 
-type Json = { schema: { compiler: string }; vm: { threads: { frames: { program: { compiler: string } }[] }[] } };
+type Json = {
+  schema: { compiler: string };
+  audio: unknown;
+  vm: {
+    threads: { frames: { program: { compiler: string } }[] }[];
+    objects: Array<{ program: { compiler: string; kind: string; path?: string } | null }>;
+  };
+};
 function tamper(bytes: Uint8Array, edit: (json: Json) => void): Uint8Array {
   const json = JSON.parse(new TextDecoder().decode(bytes)) as Json;
   edit(json);
@@ -118,9 +125,28 @@ const SAVER = 'marker = 1\nSave("slot")\nmarker = 5\nend()\n';
 // resume the saver, which then writes 5. A refused load leaves 9 and runs on.
 const LOADER = 'marker = 9\nLoad("slot")\nafter = marker\nend()\n';
 
+const OBJECT_SAVER = `
+class Saved {
+  public:
+  var value
+}
+savedObject = Saved()
+Save("slot")
+end()
+`;
+
 function capturedSave(): Uint8Array {
   const { saved } = run(boot(SAVER), null);
   ok(saved !== null, "the saver produced a save");
+  return saved;
+}
+
+function capturedObjectSave(): Uint8Array {
+  const { saved } = run(
+    boot("", "end()\n", { extra: { "saved.prg": OBJECT_SAVER }, fileThread: "saved.prg" }),
+    null,
+  );
+  ok(saved !== null, "the object saver produced a save");
   return saved;
 }
 
@@ -190,12 +216,42 @@ test("a compiler mismatch is reported as such even when the audio projection is 
   const loader = boot(LOADER);
   const bytes = tamper(capturedSave(), (json) => {
     json.schema.compiler = "1";
-    (json as unknown as { audio: unknown }).audio = { tick: 0, cueId: 1, tracks: 5 };
+    json.audio = { tick: 0, cueId: 1, tracks: 5 };
   });
   const { codes } = run(loader, bytes);
   ok(codes.includes("restore.compiler-mismatch"), `diagnostics: ${JSON.stringify(codes)}`);
   equal(codes.includes("restore.shape"), false, `diagnostics: ${JSON.stringify(codes)}`);
   equal((loader.state()!.vm.globals as Record<string, unknown>).after, 9);
+});
+
+test("an object program compiler mismatch is reported before another malformed section", () => {
+  const bytes = tamper(capturedObjectSave(), (json) => {
+    const object = json.vm.objects.find((entry) => entry.program !== null);
+    ok(object !== undefined && object.program !== null, "the save has a class object program");
+    object.program.compiler = "1";
+    json.audio = { tick: 0, cueId: 1, tracks: 5 };
+  });
+  const loader = boot(LOADER);
+  const { codes } = run(loader, bytes);
+  ok(codes.includes("restore.compiler-mismatch"), `diagnostics: ${JSON.stringify(codes)}`);
+  equal(codes.includes("restore.shape"), false, `diagnostics: ${JSON.stringify(codes)}`);
+  const globals = loader.state()!.vm.globals as Record<string, unknown>;
+  equal(globals.marker, 9);
+  equal(globals.after, 9);
+});
+
+test("a saved object program missing from the current package refuses the load before commit", () => {
+  const bytes = tamper(capturedObjectSave(), (json) => {
+    const object = json.vm.objects.find((entry) => entry.program !== null);
+    ok(object !== undefined && object.program !== null, "the save has a class object program");
+    object.program.path = "missing.prg";
+  });
+  const loader = boot(LOADER, "end()\n", { extra: { "saved.prg": OBJECT_SAVER } });
+  const { codes } = run(loader, bytes);
+  const globals = loader.state()!.vm.globals as Record<string, unknown>;
+  ok(codes.includes("program.missing"), `diagnostics: ${JSON.stringify(codes)}`);
+  equal(globals.marker, 9);
+  equal(globals.after, 9);
 });
 
 for (const [label, source, saverExtra, loaderExtra] of [

@@ -83,6 +83,25 @@ test("a v4 save (no module fields) restores unchanged apart from the v5 section 
   equal(canon(restoreGameState(snapshot(restored))), canon(restored));
 });
 
+test("schema-v1 menu, party and inventory sections migrate without moving saved continuation state", () => {
+  const restored = restoreGameState(fixtureText("menu-v1.json"));
+  const fresh = createGameState({ seed: 0 });
+
+  equal(restored.schema.menu, SCHEMA_VERSIONS.menu);
+  equal(restored.schema.party, SCHEMA_VERSIONS.party);
+  equal(restored.schema.inventory, SCHEMA_VERSIONS.inventory);
+  deepEqual(restored.menu, fresh.menu);
+  deepEqual(restored.party, fresh.party);
+  deepEqual(restored.inventory, fresh.inventory);
+  equal(restored.vm.globals.count, 2);
+  equal(restored.vm.threads[0]!.frames[0]!.ip, 2);
+  deepEqual(restored.vm.threads[0]!.wait, { global: true, kind: "sleep", resumesCall: true, until: 5 });
+  deepEqual(restored.rng, { s0: 1684164658, s1: 3653269916, s2: 2939563536, s3: 2141751570 });
+  equal(restored.time.tick, 3);
+  equal(canon(restoreGameState(snapshot(restored))), canon(restored));
+});
+
+
 test("a schema-v1 actor save preserves state and marks legacy precedence unresolved", () => {
   const restored = restoreGameState(fixtureText("actors-v1.json"));
 
