@@ -581,32 +581,44 @@ test("a save with a record that is not the one object shape is refused, naming t
   first("vm.objects[0].className", (objects) => void delete objects[0]!.className);
 });
 
-test("a saved object value with a live handle must carry its exact class tag", () => {
+test("saved object values require a positive safe handle and a string class tag", () => {
   const json = snapshot(runOnce("class A { public: var x }\na = A()\n"));
-  const mismatched = restoreShapeRefusal(json, (vm) => {
-    rawRecord(rawRecord(vm.globals).a).className = "other";
+  const invalidClassTag = restoreShapeRefusal(json, (vm) => {
+    rawRecord(rawRecord(vm.globals).a).className = 1;
   });
-  equal(mismatched.includes("vm.globals.a"), true);
+  equal(invalidClassTag.includes("vm.globals.a"), true);
+  const nonPositiveHandle = restoreShapeRefusal(json, (vm) => {
+    rawRecord(rawRecord(vm.globals).a).handle = 0;
+  });
+  equal(nonPositiveHandle.includes("vm.globals.a"), true);
+  const unsafeHandle = restoreShapeRefusal(json, (vm) => {
+    rawRecord(rawRecord(vm.globals).a).handle = Number.MAX_SAFE_INTEGER + 1;
+  });
+  equal(unsafeHandle.includes("vm.globals.a"), true);
 });
 
-test("released object values survive save and restore and remain comparable by handle", () => {
+test("a stale object value remains restorable after its handle is reused", () => {
   const state = makeState(`
 class A { public: method A() {} }
-a = A()
-b = a
-a->release()
+class B { public: method B() {} }
+stale = A()
+stale->release()
+live = B()
 sleep(1)
-same = a == b
+same = stale == live
 `);
   const services = createScriptServices(state);
   advanceOrFail(state, services);
-  const releasedHandle = rawRecord(state.vm.globals.a).handle;
-  equal(state.vm.objects.some((object) => object.handle === releasedHandle), false);
+  const stale = rawRecord(state.vm.globals.stale);
+  const live = rawRecord(state.vm.globals.live);
+  equal(stale.handle, live.handle, "the freed handle was reused");
+  equal(stale.className, "a");
+  equal(live.className, "b");
   const { state: restored, services: restoredServices } = restoreChecked(snapshot(state));
   runToRest(state, services);
   runToRest(restored, restoredServices);
-  equal(rawRecord(restored.vm.globals.a).handle, releasedHandle);
-  equal(restored.vm.globals.same, 1);
+  equal(rawRecord(restored.vm.globals.stale).handle, live.handle);
+  equal(restored.vm.globals.same, 1, "equality falls back to the reused handle");
   equal(hashState(restored), hashState(state));
 });
 

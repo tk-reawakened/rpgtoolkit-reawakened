@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Save restoration now preserves valid object values and suspended method continuations whose receivers were explicitly released. Released values retain their handles for equality; live object values still require a matching class tag, object-member references and callable receivers still require live objects, and destructor continuations still require a live release handle.
+- Save restoration preserves object values and suspended method continuations after explicit release, including when a freed handle is reused by another class. Values retain a positive safe-integer handle and string class tag; comparisons continue to use handles. Object-member references and callable receivers still require live objects, and destructor continuations still require a live release handle.
 
 - Loading a battle save now warns when a fighter is on the wrong team. The entry stays in its original position and is skipped rather than silently fighting for the wrong side.
 

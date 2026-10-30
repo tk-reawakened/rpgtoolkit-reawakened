@@ -488,11 +488,11 @@ function restoreError(code: string, message: string): never {
 
 /**
  * Check one script value at `path`: a number, string, null, a whole callable or an
- * object value whose handle and class tag agree when that handle remains live.
- * A released object's value remains meaningful for handle comparison. Callable
- * captures must name cells that exist. Malformed callables use
- * `restore.callable-malformed`; missing cells use `restore.cell-missing`; any
- * other invalid value is `restore.shape`.
+ * object value with a positive safe-integer handle and string class tag. Handles
+ * remain meaningful after release and reuse, so the tag is not checked against a
+ * current object record. Callable captures must name cells that exist.
+ * Malformed callables use `restore.callable-malformed`; missing cells use
+ * `restore.cell-missing`; any other invalid value is `restore.shape`.
  */
 function checkValue(
   path: string,
@@ -513,10 +513,6 @@ function checkValue(
       Object.keys(value).sort().join(",") !== "className,handle,kind"
     ) {
       shapeError(`the snapshot's ${path} is not a whole object handle`);
-    }
-    const liveClass = objects.get(value.handle);
-    if (liveClass !== undefined && liveClass !== value.className) {
-      shapeError(`the snapshot's ${path} class tag does not match its live object`);
     }
     return;
   }
