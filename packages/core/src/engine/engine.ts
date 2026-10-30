@@ -6,7 +6,7 @@ import { createPluginLayers, type PluginLayers } from "../script/layers.ts";
 import { actorEmitterKey, actorId } from "../actors/model.ts";
 import type { AudioSaveProjection } from "../audio/save.ts";
 import { projectGameLedger, type GameLedgerV1, type LedgerProgramRef, type LedgerTile } from "../save/ledger.ts";
-import { applyRecoveryLedger, copyRecoveredSprites, installRecoveryBoard } from "./recovery.ts";
+import { applyRecoveryLedger, installRecoveryBoard } from "./recovery.ts";
 import { updateActorStats, type ActorTransition } from "../actors/rules.ts";
 import { queueActorTransition, registerActorObject } from "../actors/object.ts";
 import { resolveAsset, assetKey, resolveTileReference } from "../formats/resolver/resolver.ts";
@@ -667,16 +667,19 @@ export function createEngine(init: EngineInit): Engine {
       return true;
     };
     for (const key of hydrated.value.dependencies) if (!addBoardDependency(key)) return null;
-    const fingerprintTile = (tile: WorldTile): boolean => {
+    const fingerprintTile = (tile: LedgerTile): boolean => {
       const resolved = resolveTileReference(index, root, tile.asset);
       if (!resolved.ok) return false;
       if (resolved.value.kind !== "empty" && !addBoardDependency(resolved.value.asset)) return false;
-      if (tile.animation !== null && tile.animation !== undefined) {
+      if (tile.animation !== null) {
         for (const frame of tile.animation.frames) if (!fingerprintTile(frame)) return false;
       }
       return true;
     };
-    for (const edit of board.runtime?.tileEdits ?? []) {
+    const savedBoard = ledger.world.board;
+    if (savedBoard.state !== "present") return null;
+    const edits = savedBoard.value.runtime.state === "present" ? savedBoard.value.runtime.value.tileEdits : [];
+    for (const edit of edits) {
       if (edit.tile !== null && !fingerprintTile(edit.tile)) return null;
     }
     const programs = new Map<string, RecoveryAssetManifest["programs"][number]>();
@@ -2180,6 +2183,10 @@ export function createEngine(init: EngineInit): Engine {
       compileRestoredPrograms(launch.staged.vm, services);
       verifyRestoredHandles(launch.staged.vm, services, launch.staged.events);
       const staged = launch.staged;
+      endBoardThreads(staged.vm);
+      for (const item of staged.sprites.items) {
+        endItemThreads(staged.vm, item.handle === null ? item.id : `item:${item.source}`);
+      }
       const board = installRecoveryBoard(staged, authoredBoard, launch.ledger);
       const player = staged.sprites.players.find((candidate) => candidate.id === staged.sprites.selectedPlayer);
       if (player !== undefined) staged.camera = realignCamera(staged.camera, board, { x: player.x, y: player.y });
@@ -2189,14 +2196,23 @@ export function createEngine(init: EngineInit): Engine {
       delete staged.engine.openTick;
       staged.engine.boot.stage = "recovery-paused";
       const runtime = init.spriteRuntime;
-      if (runtime !== undefined) {
-        runtime.hydrate({ board, players: [], actors: staged.actors, tick: launch.ledger.time.tick, variables: {} });
-        copyRecoveredSprites(runtime.section, staged.sprites);
-        if (runtime.section === state.sprites) staged.sprites = state.sprites;
+      const spriteInstall = runtime?.prepareRecovery(board, staged.sprites);
+      try {
+        spriteInstall?.commit();
+      } catch (error) {
+        spriteInstall?.rollback();
+        throw error;
       }
       preparedRecovery = { ...preparedRecovery!, board };
       clearPathfindingCache();
-      Object.assign(state, staged);
+      // Services and event sinks created during startup retain section references.
+      // Replace their contents, not the section objects behind those services.
+      for (const key of ["world", "sprites", "actors", "party", "inventory", "triggers", "vm", "rng", "time", "engine", "events", "camera"] as const) {
+        const target = state[key] as unknown as Record<string, unknown>;
+        const source = staged[key] as unknown as Record<string, unknown>;
+        for (const field of Object.keys(target)) if (!Object.hasOwn(source, field)) delete target[field];
+        Object.assign(target, source);
+      }
       recoveryCandidateBytes = null;
       recoveryLaunch = null;
       return true;
@@ -2234,6 +2250,7 @@ export function createEngine(init: EngineInit): Engine {
     postBoardMusic(prepared.board);
     state.vm.threads = stagedVm.threads;
     state.sprites.items = items;
+    if (init.spriteRuntime !== undefined && init.spriteRuntime.section !== state.sprites) init.spriteRuntime.section.items = items;
     state.engine.boot!.stage = "running";
     recoveryResumed = true;
     recoveryLaunch = null;
@@ -2312,7 +2329,7 @@ export function createEngine(init: EngineInit): Engine {
       const transition = state.engine.transition;
       let progressed: boolean;
       if (boot === undefined) progressed = transition !== undefined ? stepTransition(transition) : stepScene();
-      else if (transition !== undefined && recoveryCandidateBytes === null && boot.stage !== "main" && boot.stage !== "assets") progressed = stepTransition(transition);
+      else if (transition !== undefined && boot.stage !== "main" && boot.stage !== "assets") progressed = stepTransition(transition);
       else progressed = stepBoot(boot);
       if (!progressed) return;
     }

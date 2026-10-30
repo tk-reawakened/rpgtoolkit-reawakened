@@ -287,6 +287,8 @@ export type SpriteRuntime = CameraTarget & PlayerPresencePort & {
   readonly section: SpritesSection;
   readonly vm: VmState | undefined;
   hydrate(input: SpriteHydrationInput): SpritesSection;
+  /** Prepare without mutation; a throwing commit must be reversible by rollback. */
+  prepareRecovery(board: WorldBoard, sprites: SpritesSection): { commit(): void; rollback(): void };
   createPlayer(board: WorldBoard, source: SpriteActorSource): SpriteActor;
   placePlayer(x: number, y: number, layer: number, unit?: "pixel" | "tile"): boolean;
   showItem(id: string | number): boolean;
@@ -312,6 +314,23 @@ export function createSpriteRuntime(options: SpriteRuntimeOptions = {}): SpriteR
     hydrate(input) {
       board = input.board;
       return hydrateSprites(input, section);
+    },
+    prepareRecovery(nextBoard, sprites) {
+      const previousBoard = board;
+      const previous = { ...section };
+      const copy = (source: SpritesSection): void => {
+        section.version = source.version;
+        section.players = source.players;
+        section.items = source.items;
+        section.selectedPlayer = source.selectedPlayer;
+        section.nextItemHandle = source.nextItemHandle;
+        if (source.randomEncounter === undefined) delete section.randomEncounter;
+        else section.randomEncounter = source.randomEncounter;
+      };
+      return {
+        commit() { copy(sprites); board = nextBoard; },
+        rollback() { copy(previous); board = previousBoard; },
+      };
     },
     createPlayer(currentBoard, source) {
       board = currentBoard;

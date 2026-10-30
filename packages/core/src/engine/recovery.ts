@@ -80,7 +80,17 @@ function restorePersistentGraph(state: GameState, ledger: GameLedgerV1): void {
   const graph = ledger.script.persistentGraph;
   const handles = new Map<number, number>();
   let nextHandle = vm.objects.reduce((maximum, object) => Math.max(maximum, object.handle), 0);
-  for (const object of graph.objects) handles.set(object.handle, ++nextHandle);
+  for (const [key, savedHandle] of Object.entries(ledger.script.emitters)) {
+    const existing = state.events.emitters?.[key];
+    if (existing === undefined) continue;
+    const previous = handles.get(savedHandle);
+    if (previous !== undefined && previous !== existing) throw new Error(`recovery emitter ${key} has conflicting startup bindings`);
+    for (const [other, handle] of handles) {
+      if (other !== savedHandle && handle === existing) throw new Error(`recovery emitter ${key} aliases distinct saved objects`);
+    }
+    handles.set(savedHandle, existing);
+  }
+  for (const object of graph.objects) if (!handles.has(object.handle)) handles.set(object.handle, ++nextHandle);
 
   const cells = new Map<string, string>();
   const savedCells = graph.cells.state === "present" ? graph.cells.value : null;
@@ -112,7 +122,14 @@ function restorePersistentGraph(state: GameState, ledger: GameLedgerV1): void {
       keys: [...object.keys],
       ...(object.hostType.state === "present" ? { hostType: object.hostType.value } : {}),
     };
-    vm.objects.push(record);
+    const existing = vm.objects.find((candidate) => candidate.handle === record.handle);
+    if (existing === undefined) vm.objects.push(record);
+    else {
+      if (existing.className !== record.className || existing.hostType !== record.hostType) {
+        throw new Error(`recovery object ${object.handle} conflicts with its startup emitter`);
+      }
+      Object.assign(existing, record);
+    }
   }
 
   const globals = copyRecord(vm.globals);
@@ -365,14 +382,4 @@ export function installRecoveryBoard(state: GameState, authored: WorldBoard, led
   return board;
 }
 
-/** Replace an external SpriteRuntime section only after the recovery stage has passed every preflight. */
-export function copyRecoveredSprites(target: GameState["sprites"], source: GameState["sprites"]): void {
-  target.version = source.version;
-  target.players = source.players;
-  target.items = source.items;
-  target.selectedPlayer = source.selectedPlayer;
-  target.nextItemHandle = source.nextItemHandle;
-  if (source.randomEncounter !== undefined) target.randomEncounter = source.randomEncounter;
-  else delete target.randomEncounter;
-}
 

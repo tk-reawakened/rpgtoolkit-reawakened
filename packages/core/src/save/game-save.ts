@@ -61,7 +61,7 @@ export function snapshotRecoveryCandidate(state: GameState, recoveryAssets: Reco
   return canon({ ...root, recoveryAssets: manifest } as never);
 }
 
-function restoreGameSaveEnvelope(json: string, currentAudio: AudioStateV2): {
+function restoreGameSaveEnvelope(json: string, currentAudio: AudioStateV2, recovery = false): {
   readonly save: RestoredGameSave;
   readonly recoveryAssets: RecoveryAssetManifest | null;
 } {
@@ -72,8 +72,8 @@ function restoreGameSaveEnvelope(json: string, currentAudio: AudioStateV2): {
     throw new ScriptError("restore.shape", "a saved game must be valid UTF-8 JSON");
   }
   const root = record(parsed, "root");
-  const recoveryAssets = Object.hasOwn(root, "recoveryAssets") ? parseRecoveryAssetManifest(root.recoveryAssets) : null;
-  delete root.recoveryAssets;
+  const recoveryAssets = recovery && Object.hasOwn(root, "recoveryAssets") ? parseRecoveryAssetManifest(root.recoveryAssets) : null;
+  if (recovery) delete root.recoveryAssets;
   // The compiler check comes first (owner ruling 2026-10-27): a save from another
   // compiler is refused as such before any audio or section shape is examined.
   if (isRecord(root.schema)) refuseOtherCompiler(root.schema.compiler);
@@ -137,7 +137,7 @@ export function restoreGameSave(json: string, currentAudio: AudioStateV2): Resto
 
 /** Validate a checkpoint candidate and its recovery-only asset fingerprints. */
 export function restoreRecoveryCandidate(json: string, currentAudio: AudioStateV2): RestoredRecoveryCandidate {
-  const restored = restoreGameSaveEnvelope(json, currentAudio);
+  const restored = restoreGameSaveEnvelope(json, currentAudio, true);
   if (restored.recoveryAssets === null) throw new ScriptError("recovery.assets-missing", "the recovery candidate has no asset fingerprint manifest");
   return { ...restored.save, recoveryAssets: restored.recoveryAssets };
 }
