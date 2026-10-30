@@ -2,8 +2,9 @@ import { canon, reviveNonFinite, tagNonFinite } from "../canon/index.ts";
 import { audioSaveProjection, type AudioSaveProjection } from "../audio/save.ts";
 import { AUDIO_SCHEMA_VERSION, createAudioSection, createTrack, type AudioStateV2 } from "../audio/model.ts";
 import { ScriptError } from "../script/errors.ts";
+import { isRecord } from "../script/cells.ts";
 import type { Diagnostic } from "../ports/engine.ts";
-import { refuseOtherCompiler, restoreGameState } from "./snapshot.ts";
+import { refuseOtherCompiler, refuseOtherProgramCompilers, restoreGameState } from "./snapshot.ts";
 import type { GameState } from "./state.ts";
 
 export type RestoredGameSave = {
@@ -23,8 +24,8 @@ function shape(path: string): never {
 }
 
 function record(value: unknown, path: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return shape(`${path} must be an object`);
-  return value as Record<string, unknown>;
+  if (!isRecord(value)) return shape(`${path} must be an object`);
+  return value;
 }
 
 function number(value: unknown, path: string, min: number): number {
@@ -70,7 +71,8 @@ export function restoreGameSave(json: string, currentAudio: AudioStateV2): Resto
   const root = record(parsed, "root");
   // The compiler check comes first (owner ruling 2026-10-27): a save from another
   // compiler is refused as such before any audio or section shape is examined.
-  refuseOtherCompiler(record(root.schema, "schema").compiler);
+  if (isRecord(root.schema)) refuseOtherCompiler(root.schema.compiler);
+  refuseOtherProgramCompilers(root);
   let projection: Record<string, unknown>;
   let tick: number;
   let cueId: number;

@@ -6,11 +6,12 @@
  * callable names its definition by `def` only, and compiled programs are not
  * saved, so whether the game still has that definition, and how many names it
  * captures, can be answered only once the host has rebuilt its services. This
- * function answers it: it compiles the program of every frame and the owner of
- * every definition in `vm.defOwners`, then checks each callable against what it
- * found. Every failure is a typed `ScriptError` whose message names the place in
- * the save; nothing is repaired, and a state with no callable is not checked and
- * compiles nothing.
+ * function answers it: it compiles the program of every frame, object record and
+ * owner in `vm.defOwners`, then checks each callable against what it found. An
+ * object record has no instruction position to resume, so a changed file-backed
+ * class program is rebuilt from current source with its saved include list. Every
+ * failure is a typed `ScriptError` whose message names the place in the save;
+ * nothing is repaired, and a state with no named program compiles nothing.
  */
 
 import type { CallableValue } from "../ports/value.ts";
@@ -71,6 +72,17 @@ export function compileRestoredPrograms(
     }
     const root = thread.frames[0]?.program;
     if (restarts && root !== undefined) services.programs.get(restartProgramRef(root, services.loader, vm.redirects));
+  }
+  for (const object of vm.objects) {
+    const ref = object.program;
+    if (ref === null) continue;
+    if (ref.compiler !== COMPILER_VERSION) throw otherCompiler(ref);
+    try {
+      services.programs.get(ref);
+    } catch (error) {
+      if (!(error instanceof ScriptError) || error.code !== "restore.source-changed") throw error;
+      services.programs.get(restartProgramRef(ref, services.loader, vm.redirects));
+    }
   }
   for (const owner of Object.values(vm.defOwners ?? {})) {
     if (owner.compiler !== COMPILER_VERSION) throw otherCompiler(owner);

@@ -76,13 +76,15 @@ export function encodeSurfaceBytes(bytes: Uint8Array): string {
   return chunks.join("");
 }
 
-/** Decode a canonical base64 surface payload, rejecting malformed input. */
-export function decodeSurfaceBytes(value: string): Uint8Array {
+function encodedSurfaceByteLength(value: string): number {
   if (value.length % 4 !== 0) throw new TypeError("invalid surface base64 length");
   let padding = 0;
   if (value.endsWith("=")) padding += 1;
   if (value.endsWith("==")) padding += 1;
-  const output = new Uint8Array((value.length / 4) * 3 - padding);
+  return (value.length / 4) * 3 - padding;
+}
+
+function validateSurfaceBase64(value: string, output: Uint8Array | null): void {
   let at = 0;
   for (let i = 0; i < value.length; i += 4) {
     const a = value.charCodeAt(i);
@@ -96,6 +98,7 @@ export function decodeSurfaceBytes(value: string): Uint8Array {
     if (ai < 0 || bi < 0 || ci < 0 || di < 0 || (c === 61 && d !== 61) || (i + 4 < value.length && (c === 61 || d === 61))) {
       throw new TypeError("invalid surface base64 payload");
     }
+    if (output === null) continue;
     const first = (ai << 2) | (bi >> 4);
     if (at < output.length) output[at++] = first;
     if (c !== 61) {
@@ -107,7 +110,20 @@ export function decodeSurfaceBytes(value: string): Uint8Array {
       if (at < output.length) output[at++] = third;
     }
   }
+}
+
+/** Decode a canonical base64 surface payload, rejecting malformed input. */
+export function decodeSurfaceBytes(value: string): Uint8Array {
+  const output = new Uint8Array(encodedSurfaceByteLength(value));
+  validateSurfaceBase64(value, output);
   return output;
+}
+
+/** Validate a base64 surface payload without allocating the decoded pixel buffer. */
+export function surfaceByteLength(value: string): number {
+  const byteLength = encodedSurfaceByteLength(value);
+  validateSurfaceBase64(value, null);
+  return byteLength;
 }
 
 function snapshot(width: number, height: number, rgba: Uint8Array): RgbaSnapshot {

@@ -14,6 +14,8 @@ import {
   canon,
   createAudioSection,
   createGameState,
+  createSurface,
+  createSurfacesSection,
   awardExperience,
   queueNativeEvent,
   registerEmitter,
@@ -81,6 +83,63 @@ test("a v4 save (no module fields) restores unchanged apart from the v5 section 
   deepEqual(restored.vm.redirects, []);
   deepEqual(restored.vm.threads[0]!.wait, { kind: "sleep", until: 5, global: true, resumesCall: true });
   equal(canon(restoreGameState(snapshot(restored))), canon(restored));
+});
+
+test("schema-v1 menu, party and inventory sections migrate without moving saved continuation state", () => {
+  const restored = restoreGameState(fixtureText("menu-v1.json"));
+  const fresh = createGameState({ seed: 0 });
+
+  equal(restored.schema.menu, SCHEMA_VERSIONS.menu);
+  equal(restored.schema.party, SCHEMA_VERSIONS.party);
+  equal(restored.schema.inventory, SCHEMA_VERSIONS.inventory);
+  deepEqual(restored.menu, fresh.menu);
+  deepEqual(restored.party, fresh.party);
+  deepEqual(restored.inventory, fresh.inventory);
+  equal(restored.vm.globals.count, 2);
+  equal(restored.vm.threads[0]!.frames[0]!.ip, 2);
+  deepEqual(restored.vm.threads[0]!.wait, { global: true, kind: "sleep", resumesCall: true, until: 5 });
+  deepEqual(restored.rng, { s0: 1684164658, s1: 3653269916, s2: 2939563536, s3: 2141751570 });
+  equal(restored.time.tick, 3);
+  equal(canon(restoreGameState(snapshot(restored))), canon(restored));
+});
+
+
+test("snapshot restoration rejects malformed or dimension-mismatched surface base64", () => {
+  const snapshotText = snapshot(createGameState({ seed: 0 }));
+  for (const b64 of ["!!!!!!!!", "AAAAAAAA"]) {
+    const malformed = JSON.parse(snapshotText) as Record<string, unknown>;
+    malformed.surfaces = {
+      nextId: 1,
+      entries: { "0": { id: 0, rev: 0, bitmap: { t: "rgba", w: 1, h: 1, b64 } } },
+      slots: {},
+      colours: {},
+    };
+    equal(errorOf(() => restoreGameState(JSON.stringify(malformed))).code, "restore.shape");
+  }
+});
+
+test("producer-created zero-area surfaces with unsafe integer dimensions survive snapshot restore", () => {
+  const state = createGameState({ seed: 0 });
+  state.surfaces = createSurfacesSection();
+  const width = 2 ** 53;
+  const id = createSurface(state.surfaces, width, 0);
+
+  const restored = restoreGameState(snapshot(state));
+  const surface = restored.surfaces.entries[String(id)]!;
+  equal(surface.bitmap.w, width);
+  equal(surface.bitmap.h, 0);
+  equal(surface.bitmap.b64, "");
+});
+
+test("snapshot restoration accepts decoder-compatible noncanonical surface base64", () => {
+  const state = createGameState({ seed: 0 });
+  state.surfaces = createSurfacesSection();
+  const id = createSurface(state.surfaces, 1, 1);
+  const surface = state.surfaces.entries[String(id)]!;
+  surface.bitmap = { ...surface.bitmap, b64: "AAAAAB==" };
+
+  const restored = restoreGameState(snapshot(state));
+  equal(restored.surfaces.entries[String(id)]!.bitmap.b64, "AAAAAB==");
 });
 
 test("a schema-v1 actor save preserves state and marks legacy precedence unresolved", () => {

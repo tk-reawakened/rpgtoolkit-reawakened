@@ -131,6 +131,19 @@ plan_checkpoint = true
 references = ["spec - docs/spec/formats/save-game.md", "spine - AD-7, AD-10, AD-11, AD-17, AD-23"]
 
 [[entry]]
+id = 22
+tracker_id = "#791"
+type = "bug"
+title = "Reject invalid saved VM references and program incompatibilities"
+description = "Harden saved VM reference, compiler and surface validation without rejecting supported released or reused object handles. This focused slice precedes the remaining asset-aware validation work in 8.10."
+verify = "Valid released and reused handle continuations restore; malformed saved references or surfaces and incompatible saved programs fail without replacing the live game, with documented compiler mismatch precedence."
+covers = ["CAP-11"]
+after = [9]
+hitl = false
+risk = "high"
+references = ["issue - #593", "spec - docs/spec/formats/save-game.md"]
+
+[[entry]]
 id = 10
 tracker_id = "#593"
 type = "story"
@@ -138,7 +151,7 @@ title = "Load validation, restore order and thread continuation"
 description = "Validates untrusted save blobs and section versions, restores state and package/actor hydration in the ruled order, and resumes or restarts saved threads according to the approved compatibility rule."
 verify = "Valid and malformed saves exercise success and failure boundaries, prior-section migrations, package hydration order and ruled thread continuation; a deterministic post-load replay matches the expected state hashes and subsequent behavior."
 covers = ["CAP-11"]
-after = [9]
+after = [9, 22]
 hitl = false
 risk = "high"
 plan_checkpoint = true
