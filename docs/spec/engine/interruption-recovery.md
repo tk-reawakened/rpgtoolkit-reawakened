@@ -32,7 +32,7 @@ A **generation** is a positive integer written as twelve zero-padded decimal dig
 
 1. Validate the captured candidate bytes first. A refused candidate writes nothing and leaves the pointer untouched.
 2. Write the new generation's `candidate.bin`, read those bytes back and validate the read-back; its tick and ledger hash must equal the first validation exactly.
-3. Write `meta.json`, then replace `current.json` with an atomic write.
+3. Write `meta.json`, read it back and confirm it records the validated generation, then replace `current.json` with an atomic write.
 4. Read the pointer back and require it to name the new generation with exactly the validated tick and ledger hash. A pointer read-back failure restores the previous pointer when it was readable and reports promotion failure. The previous validated generation stays usable until this step succeeds.
 5. Best-effort prune older generations, retaining the promoted generation and one preceding validated generation. A host without removal keeps the extra generations; selection still validates whichever it reads.
 
