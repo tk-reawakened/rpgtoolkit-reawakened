@@ -84,3 +84,24 @@ Rows 1–8 reproduce the labels and evidence recorded by the 2026-10-28 audit ag
 | 9 | Resolve review follow-ups 7.21–7.32 and complete 7.33 closeout sweep; verify every child issue closed | No follow-up work or child issues are on `main`; 7.21–7.33 are drafted only in the owner-review worktree, and no new follow-up work is claimed complete | open |
 
 The 2026-10-28 audit labeled rows 1–8 "met"; those labels are preserved only as historical status, not as a present claim that the full criteria were satisfied. Review follow-ups 7.21–7.32 capture the observed behavior and evidence gaps. Original ticket statuses and completed plan checkboxes are not rewritten. The exact one-based `random(5)` mapping and accepted run-roll count are verified in current code/spec, but that fact alone does not close the other gaps. The owner reopened #503 after the review; it remains open until the actual Done-when criteria and all follow-up child issues are verified.
+
+### Follow-up evidence inventory (2026-10-30)
+
+Baseline: `95a44313a17afa52d10664960943a754c38f37f6`. The historical table above is unchanged; its row 9 describes the earlier baseline, not the state below. GitHub reports issues #741–#752 closed. The links and tests below identify merged evidence for each follow-up; they are not a fresh execution of those tests or an independent proof of every original Done-when criterion.
+
+| Follow-up | Merged evidence or ruling |
+|---|---|
+| 7.21 / #741 | PR #761; `packages/core/test/battle-outcomes-stock.test.ts` covers status cleanup for outcome codes 0–4 and loss taking precedence over escape. |
+| 7.22 / #742 | PR #764; `packages/core/test/battle-ai.test.ts` covers lethal status before custom AI and the no-effect attack. |
+| 7.23 / #743 | PR #767; `packages/core/test/battle-ui-background.test.ts` covers a rendered tile-bitmap background and the empty-background control. |
+| 7.24 / #744 | PR #765; `packages/core/test/battle-outcomes-core.test.ts` covers a new battle after loss cleanup; `battle-api.test.ts` covers a lagging counter. |
+| 7.25 / #745 | PR #775; `docs/spec/engine/battle.md#bat-2` records the owner-approved wrong-kind diagnostic and retention rule. |
+| 7.26 / #746 | PR #775; the owner chose to retain the random mapping and correct the equal-probability wording; see `docs/spec/engine/plugins-and-battle.md#e-74`. |
+| 7.27 / #747 | PR #775; `docs/spec/engine/battle.md#bat-14` distinguishes a missing handler from a registered replacement. `packages/core/test/battle-custom-fight.test.ts` covers both. |
+| 7.28 / #748 | PR #755; `packages/core/test/battle-cues-engine.test.ts` traces seeded tile movement through a stock encounter and replay. |
+| 7.29 / #749 | PR #760; `packages/core/test/battle-custom-fight.test.ts` covers names and stance queries without stock battle. |
+| 7.30 / #750 | PR #768; `packages/core/test/battle-outcomes-stock.test.ts` and `battle-damage.test.ts` contain the event-contract regressions. |
+| 7.31 / #751 | PR #771; `packages/core/test/battle-fresh-load.test.ts` compares a real load with an uninterrupted run and tests active-battle reset. |
+| 7.32 / #752 | PR #756; `packages/core/test/battle-cues-engine.test.ts` compares the active board's music with the saved battle-board identity. PR #772 links the separate audio issue #758. |
+
+**Still open or not established:** #753 itself and parent #503 remain open. #758 remains open for a voice-binding failure after a canceled board-music start; the #752 fixture does not resolve it. The 7.31 comparison is bounded to twelve tested ticks with no active audio: its comparison excludes request IDs and pending requests, audio cue ID, and script surfaces, while composed frames are compared separately. It does not prove identical whole-engine hashes for every load. Interruption recovery does not promise restarting an active battle from a ledger; #779 remains in progress and #780 owns the later BAT-13-specific reconciliation. A full present-day verification of all parent Done-when criteria and child closures is not claimed here.
