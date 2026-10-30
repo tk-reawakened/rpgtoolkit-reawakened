@@ -2,6 +2,7 @@
 title: "Validated game-ledger projection and hash"
 type: 'feature'
 ticket: 16
+status: draft
 created: '2026-10-29'
 risk: "high"
 context:
@@ -50,7 +51,7 @@ Use the existing `hashState`/`tagNonFinite` path from `canon/index.ts` (JCS-styl
 |---|---|---|
 | `party.{members,selected,steps}` | `state.party.{members,selected,steps}` | Preserve member order, selected identity and null. Exclude `party.version` as schema metadata. |
 | `actors.{nextId,actors[]}` | `state.actors.nextId`; every `state.actors.actors[]` in array order, with exactly `{id,kind,source,name,stats,statuses,progression,behaviour,customEvents}` | Include `party`, `enemy` and `npc` records, not only the party. Preserve the complete stats and progression records without guessing which fields are authored. Exclude section version and `actor.equipment` from the ledger because inventory assignments are authoritative and this actor view is derived. Validate the derived equipment references/bonuses before accepting the candidate (see dependency below). |
-| `inventory.{nextId,items[],equipment[],gold}` | `state.menu.inventory.{nextId,items,equipment,gold}` | Preserve item/equipment array order and exact `{id,source,handle,quantity}` / `{actorId,slot,itemId}` fields. Inventory item identity and equipment assignments are authoritative. Exclude `inventory.version`. |
+| `inventory.{nextId,items[],equipment[],gold}` | `state.inventory.{nextId,items,equipment,gold}` | Preserve item/equipment array order and exact `{id,source,handle,quantity}` / `{actorId,slot,itemId}` fields. Inventory item identity and equipment assignments are authoritative. Exclude `inventory.version`. |
 | `script.{globals,redirects}` | `state.vm.globals`, `state.vm.redirects` | Preserve all global values and ordered redirect pairs; canonical object key sorting handles map key order. Do not include thread frames/locals just because they are roots of the full-save collector. |
 | `script.persistentGraph.{objects,cells,defOwners}` | Reachable subset of `state.vm.objects`, `cells`, and `defOwners` from the proven persistent-root set | Preserve original object handles, object record order, `className`, `program`, optional `hostType`, member values and explicit `keys` enumeration order. Preserve original cell IDs and values. Include only definition owners referenced by included callable values. This mapping is conditional on the proof gates below; do not publish a “complete” projection while the root/counter proof is open. |
 | `world.board` | Presence-discriminated projection of `state.world.board` | Preserve absent vs explicit `null` vs present board. For a present board include `key`, the authoritative authored raw item slots, approved durable runtime edits, and any other source-proven game-owned board mutations resolved by the mutation census below. |
