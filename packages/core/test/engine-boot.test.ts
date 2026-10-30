@@ -1069,6 +1069,27 @@ function recoveryFixture(plugins: readonly ResolvedPlugin[] = []): { readonly en
   const result = run(engine, game.files, 30);
   deepEqual(result.diagnostics, []);
   const state = doubles.state();
+  const board = state.world.board;
+  if (board == null) throw new Error("recovery fixture did not load its initial board");
+  const actor = addActor(state.actors, {
+    kind: "party",
+    source: "hero.tem",
+    stats: { hp: 12, maxHp: 12, smp: 4, maxSmp: 4, dp: 2, fp: 3, level: 1 },
+    behaviour: "stock-rpg.hero",
+  });
+  const source = actorFromSource({
+    id: "Characters/hero.chr",
+    kind: "player",
+    source: "hero.tem",
+    x: 64,
+    y: 64,
+    layer: 1,
+    controlled: true,
+  }, board, 0, null);
+  state.party.members = [actor.id];
+  state.party.selected = actor.id;
+  state.sprites.players = [{ ...source, actorId: actor.id }];
+  state.sprites.selectedPlayer = source.id;
   equal(state.engine.boot?.stage, "running");
   equal(state.world.board?.key, "boards/start.brd");
   ok(state.sprites.players.some((player) => player.id === state.sprites.selectedPlayer));
