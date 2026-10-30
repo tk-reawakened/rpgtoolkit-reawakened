@@ -17,6 +17,22 @@ export { hashGameState } from "./hash.ts";
 export { checkEquipmentConsistency } from "./equipment-check.ts";
 export type { EquipmentAssetLookup, EquipmentCheckResult } from "./equipment-check.ts";
 export {
+  promoteRecovery,
+  RECOVERY_STORE_VERSION,
+  RecoveryStoreError,
+  selectRecovery,
+} from "./recovery-store.ts";
+export type {
+  RecoveryCandidateMeta,
+  RecoveryPointer,
+  RecoveryPromoteOptions,
+  RecoverySelectOptions,
+  RecoveryStorage,
+  RecoveryValidate,
+  RecoveryValidation,
+  ValidatedRecovery,
+} from "./recovery-store.ts";
+export {
   GAME_LEDGER_DOMAIN,
   GAME_LEDGER_VERSION,
   GameLedgerError,
