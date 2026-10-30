@@ -2,6 +2,7 @@
 
 **Owner-approved rule, partially implemented (#777).** The reference recovery store's promotion and selection are implemented in core (#783); #782 provides explicit checkpoints and the conservative pre-battle candidate API. Paused ledger-first re-entry (#779) remains. Interruption recovery is distinct from normal `Save`/`Load` and saveable VM snapshots; it does not weaken [G1](../../guardrails.md) or change existing mid-battle snapshot continuation. The approved contract and source evidence are in [the recovery decision](../../../_bmad-output/initiative-rpgtoolkit-reawakened/epic-menu-party-save/recovery-checkpoint-proposal.md). Ledger fields, identity, migrations and validation belong to #776.
 
+<a id="stable-checkpoint"></a>
 ## Stable checkpoint
 
 A recovery checkpoint represents committed game progress, a board identity and an arrival location, not a serialized continuation of an in-progress scene or battle. A game explicitly marks a settled script point as safe with [`checkpoint()`](rpgcode-functions.md#program-flow-errors--debugging), or the engine may nominate the conservative coherent pre-commit state immediately before battle state changes. A tick boundary alone does not prove authored multi-tick logic is complete; the script author's declaration is not proof of correctness for arbitrary game code.
@@ -11,6 +12,7 @@ For an explicit checkpoint request, unknown eligibility means no capture. It req
 ### Candidate API and capture timing
 
 `Engine.recoveryCandidate()` returns `{ bytes: Uint8Array, tick: number }` or `null`. `bytes` is the normal canonical game-save serialization, not a recovery-specific ledger or continuation format. For an explicit request, `checkpoint()` only records the request; it does not wait, capture synchronously or advance gameplay. The engine serializes only when the runner asks for a candidate at an eligible settled point. For pre-battle capture, the engine serializes in the validated before-start callback at the coherent pre-commit point, even if the current open tick remains. A request is one-shot: that call consumes it whether it returns bytes or `null`; a serialization failure also returns `null` and clears the request. With no pending explicit request or queued pre-battle candidate, the API returns `null`.
+When an explicit request and a pre-battle candidate are both pending, an eligible explicit capture supersedes and discards the older candidate. If the explicit request is ineligible, the queued pre-battle candidate is returned once instead.
 
 The battle owner may invoke an optional before-start callback only after validating the battle start and immediately before changing battle state. The engine applies all eligibility checks except the no-open-tick rule, with `battle === null`; the callback may capture the coherent pre-commit ledger while a script-issued battle still has its current tick open. It serializes then and holds the candidate across battle start so the runner can retrieve it once after the battle has begun. This is a checkpoint of the pre-battle state, not a promise or mechanism to restart a battle from its ledger. A rejected start does not invoke the callback.
 

@@ -1143,6 +1143,17 @@ const recoveryBattlePlugin: ResolvedPlugin = {
   },
 };
 
+function stepRecoveryBattleStart(engine: Engine, state: GameState): void {
+  let report = engine.advance(1, [], undefined, "step");
+  ok(state.engine.openTick !== undefined);
+  for (let step = 0; step < 20 && state.battle === null; step += 1) {
+    report = engine.advance(1, [], undefined, "step");
+    ok(state.engine.openTick !== undefined);
+  }
+  equal(report.diagnostics.length, 0);
+  ok(state.battle !== null);
+}
+
 test("checkpoint requests one canonical candidate at the host's settled signal and consumes it once", () => {
   const { engine, state } = recoveryFixture();
   equal(engine.recoveryCandidate(), null);
@@ -1188,15 +1199,7 @@ test("an outstanding ordinary save transaction blocks recovery capture", () => {
 test("the pre-battle candidate survives battle start during an open tick and is returned once", () => {
   const { engine, state } = recoveryFixture([recoveryBattlePlugin]);
   startRecoveryProgram(state, "checkpoint()\nstartrecoverybattle()\nend()");
-  let report = engine.advance(1, [], undefined, "step");
-  equal(state.battle, null);
-  ok(state.engine.openTick !== undefined);
-  for (let step = 0; step < 20 && state.battle === null; step += 1) {
-    report = engine.advance(1, [], undefined, "step");
-    ok(state.engine.openTick !== undefined);
-  }
-  equal(report.diagnostics.length, 0);
-  ok(state.battle !== null);
+  stepRecoveryBattleStart(engine, state);
 
   const candidate = engine.recoveryCandidate();
   ok(candidate !== null);
@@ -1208,6 +1211,30 @@ test("the pre-battle candidate survives battle start during an open tick and is 
   engine.advance(1, []);
   startRecoveryProgram(state, "checkpoint()\nend()");
   engine.advance(1, []);
+  equal(engine.recoveryCandidate(), null);
+});
+
+test("a later explicit checkpoint supersedes the queued pre-battle candidate", () => {
+  const { engine, state } = recoveryFixture([recoveryBattlePlugin]);
+  startRecoveryProgram(state, "startrecoverybattle()\nend()");
+  stepRecoveryBattleStart(engine, state);
+  const preBattleTick = state.time.tick;
+
+  // Re-establish an eligible board state without consuming the queued candidate.
+  state.battle = null;
+  engine.advance(1, []);
+  ok(state.time.tick > preBattleTick);
+  state.vm.globals.recoveryMarker = "newer";
+  startRecoveryProgram(state, "checkpoint()\nend()");
+  const report = engine.advance(1, []);
+  equal(report.diagnostics.length, 0);
+
+  const candidate = engine.recoveryCandidate();
+  ok(candidate !== null);
+  equal(candidate.tick, report.tickAfter);
+  ok(candidate.tick > preBattleTick);
+  const restored = restoreGameSave(new TextDecoder().decode(candidate.bytes), state.audio);
+  equal(restored.state.vm.globals.recoveryMarker, "newer");
   equal(engine.recoveryCandidate(), null);
 });
 

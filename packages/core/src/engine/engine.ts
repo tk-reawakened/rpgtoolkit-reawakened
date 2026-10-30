@@ -2417,16 +2417,16 @@ export function createEngine(init: EngineInit): Engine {
       };
     },
     recoveryCandidate() {
-      const preBattle = preBattleRecoveryCandidate;
-      if (preBattle !== null) {
-        preBattleRecoveryCandidate = null;
+      if (recoveryCaptureRequested) {
         recoveryCaptureRequested = false;
-        return preBattle;
+        if (recoveryCaptureEligible()) {
+          preBattleRecoveryCandidate = null;
+          return serializeRecoveryCandidate();
+        }
       }
-      if (!recoveryCaptureRequested) return null;
-      recoveryCaptureRequested = false;
-      if (!recoveryCaptureEligible()) return null;
-      return serializeRecoveryCandidate();
+      const preBattle = preBattleRecoveryCandidate;
+      preBattleRecoveryCandidate = null;
+      return preBattle;
     },
     drawList(alpha = 0, include: DrawListInclude = { shading: false, images: false, sprites: false }) {
       return currentDrawList(alpha, include);
