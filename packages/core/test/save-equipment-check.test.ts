@@ -10,14 +10,18 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import {
   addActor,
+  applyEquipment,
   checkEquipmentConsistency,
+  createActorService,
   createEmptyCharacter,
   createEmptyItem,
   createGameState,
+  createMenuOwnerPorts,
   type ActorRecord,
   type ActorsSection,
   type Character,
   type EquipmentAssetLookup,
+  type EquipmentItemDefinition,
   type Item,
   type InventorySection,
 } from "../src/index.ts";
@@ -194,7 +198,6 @@ test("an ineligible item, character and slot combination is refused", () => {
   const ineligible = [
     { ...sword(), equipable: 0 },
     { ...sword(), equipSlots: [0, 0, 0, 0, 0, 0, 0, 0] },
-    { ...sword(), usedBy: 1, allowedCharacters: ["Someone Else"] },
   ];
   for (const item of ineligible) {
     const result = checkEquipmentConsistency(inventory(actor.id), stateWith(actor), assets(item));
@@ -287,4 +290,37 @@ test("an empty inventory and an unprojected actor are consistent", () => {
   const actor = partyActor();
   const empty = { version: 2, nextId: 1, items: [], equipment: [], gold: 0 } satisfies InventorySection;
   deepEqual(checkEquipmentConsistency(empty, stateWith(actor), assets()), { ok: true, error: null });
+});
+
+test("a renamed actor keeps a consistent projection after an allowed equip", () => {
+  const state = createGameState({ seed: 11 });
+  const actor = addActor(state.actors, { kind: "party", source: "hero.tem", name: "Hero" });
+  const item = { ...sword(), usedBy: 1, allowedCharacters: ["Hero"] };
+  const character = hero();
+  const runtime = {
+    item: () => item,
+    character: () => character,
+    applyEquipment: (actorId: number, equipped: readonly string[], catalog: readonly EquipmentItemDefinition[]) =>
+      applyEquipment(state.actors, actorId, equipped, catalog) !== null,
+  };
+  const ports = createMenuOwnerPorts(state, undefined, runtime);
+  ok(ports.inventory.apply({ type: "addItem", source: "item/sword.itm", handle: "Sword", amount: 1 }).ok);
+  const entryId = state.inventory.items[0]!.id;
+  ok(ports.inventory.apply({ type: "equip", actorId: actor.id, slot: "right-hand", entryId }).ok);
+  equal(state.actors.actors[0]!.name, "Hero");
+  equal(state.actors.actors[0]!.equipment.equipped.length, 1);
+
+  // The actor name is script-writable progress: a later rename must not
+  // invalidate the saved projection even though the item lists "Hero".
+  const service = createActorService(state.actors);
+  ok(service.rename(actor.id, "Renamed Hero") !== null);
+  equal(state.actors.actors[0]!.name, "Renamed Hero");
+  deepEqual(checkEquipmentConsistency(state.inventory, state.actors, runtime), { ok: true, error: null });
+
+  // The live equip path still enforces the usedBy name list against the current name.
+  ok(ports.inventory.apply({ type: "addItem", source: "item/sword.itm", handle: "Sword", amount: 1 }).ok);
+  const secondEntry = state.inventory.items[0]!.id;
+  const refused = ports.inventory.apply({ type: "equip", actorId: actor.id, slot: "left-hand", entryId: secondEntry });
+  equal(refused.ok, false);
+  equal(refused.error?.path, "inventory.action.eligibility");
 });

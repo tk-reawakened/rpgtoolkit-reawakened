@@ -77,17 +77,15 @@ export function equipmentCatalog(
   return { equipped, catalog };
 }
 
-/** The pure eligibility rule the `equip` operation enforces (E-82). */
-export function validEquipment(
-  actor: ActorRecord,
-  slot: string,
-  item: Item,
-  character: Character,
-): boolean {
+/**
+ * The slot- and asset-only eligibility rule (E-82): flags and character slots
+ * only. It deliberately ignores the `usedBy` name list, which the live `equip`
+ * operation checks against `actor.name`; a name is script-writable progress and
+ * is not part of an asset's slot compatibility.
+ */
+export function validEquipmentSlot(slot: string, item: Item, character: Character): boolean {
   const location = slotLocation(slot);
   if (location === null || item.equipable !== 1) return false;
-  const names = item.allowedCharacters.filter((name) => name !== "");
-  if (item.usedBy === 1 && !names.includes(actor.name)) return false;
   const slotIndex = location === 3 ? 4 : location === 4 ? 3 : location;
   const slotFlag = location <= 6 ? item.equipSlots[slotIndex] : item.equipSlots[7];
   if (slotFlag !== 1) return false;
@@ -97,4 +95,16 @@ export function validEquipment(
     return characterSlot !== undefined && characterSlot !== "" && characterSlot === item.accessoryName;
   }
   return true;
+}
+
+/** The pure eligibility rule the `equip` operation enforces (E-82). */
+export function validEquipment(
+  actor: ActorRecord,
+  slot: string,
+  item: Item,
+  character: Character,
+): boolean {
+  const names = item.allowedCharacters.filter((name) => name !== "");
+  if (item.usedBy === 1 && !names.includes(actor.name)) return false;
+  return validEquipmentSlot(slot, item, character);
 }

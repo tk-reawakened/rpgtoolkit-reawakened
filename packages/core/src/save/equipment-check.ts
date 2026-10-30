@@ -24,7 +24,7 @@ import {
   type Character,
   type Item,
 } from "../formats/actor/model.ts";
-import { equipmentCatalog, slotLocation, validEquipment } from "../menu/equipment.ts";
+import { equipmentCatalog, slotLocation, validEquipmentSlot } from "../menu/equipment.ts";
 import { validateInventorySection, type InventorySection, type StateIssue } from "../menu/model.ts";
 
 /** The read-only item and character definition lookup, matching the inventory runtime shape. */
@@ -78,10 +78,11 @@ function equipmentShapeIssue(actor: ActorRecord, path: string): StateIssue | nul
  * The inventory section is validated first, so a tuple with an unknown actor,
  * an unknown or unavailable stack, or a duplicate actor slot is refused at the
  * section boundary. Each tuple then requires a recognised slot, a party actor,
- * available item and character definitions, and the live eligibility rule. The
- * derived references and bonuses must equal the saved actor projection exactly,
- * including order; a nonempty saved projection with no inventory tuple is
- * refused as unsafe rather than migrated or reset.
+ * available item and character definitions, and the slot/asset eligibility
+ * rule; the `usedBy` name list is not consulted because `actor.name` is
+ * script-writable progress. The derived references and bonuses must equal the
+ * saved actor projection exactly, including order; a nonempty saved projection
+ * with no inventory tuple is refused as unsafe rather than migrated or reset.
  */
 export function checkEquipmentConsistency(
   inventory: InventorySection,
@@ -110,7 +111,9 @@ export function checkEquipmentConsistency(
     if (character === undefined) return reject(`${path}.actorId`, `character definition is unavailable: ${actor.source}`);
     const characterIssue = characterDefinitionIssue(character, `${path}.actorId`);
     if (characterIssue !== null) return { ok: false, error: characterIssue };
-    if (!validEquipment(actor, entry.slot, item, character)) return reject(`${path}.slot`, "item is not eligible for this actor and slot");
+    // Eligibility is slot- and asset-only: `actor.name` is script-writable progress, so a
+    // rename after a valid equip must not refuse an otherwise consistent candidate.
+    if (!validEquipmentSlot(entry.slot, item, character)) return reject(`${path}.slot`, "item is not eligible for this actor and slot");
   }
 
   for (const [index, actor] of actors.actors.entries()) {

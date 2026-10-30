@@ -23,14 +23,15 @@ The accepted ledger ruling in `docs/spec/formats/save-game.md#game-ledger-and-sa
 - Validation is pure and read-only: no I/O, no mutation, no `applyEquipment` and no behaviour hook. A projection customised by an `equipmentChanged` or stats hook therefore fails closed instead of being reset.
 - A missing or malformed item or character definition refuses the candidate. No default is substituted for a changed asset and no saved stat is rewritten.
 - A nonempty saved actor equipment projection with no matching inventory tuple is refused as unsafe. There is no migration that invents a tuple and no reset that discards saved progress.
+- Eligibility for a saved tuple is slot and asset based only (`validEquipmentSlot`). The `usedBy` name list is checked by the live `equip` operation against `actor.name`, but a name is script-writable progress: an actor renamed after a valid equip must still restore, so the consistency check must not consult it.
 - Normal save bytes, the actor-section restore path, the ledger hash and the game-save roster are unchanged. This is not the #593 untrusted-blob pipeline and not recovery eligibility (#782/#783/#779); it is the check those callers can run on their validated readback.
 
 ## Implementation map
 
-- `packages/core/src/menu/equipment.ts` holds the pure derivation the live `equip` path already used (`slotLocation`, `equippedReference`, `equipmentCatalog`, `validEquipment`); `packages/core/src/menu/inventory.ts` imports it, so the check and the operation share one rule set.
+- `packages/core/src/menu/equipment.ts` holds the pure derivation the live `equip` path already used (`slotLocation`, `equippedReference`, `equipmentCatalog`, `validEquipmentSlot`, `validEquipment`); `packages/core/src/menu/inventory.ts` imports it, so the check and the operation share one rule set, while the check uses the actor-independent `validEquipmentSlot`.
 - `packages/core/src/actors/rules.ts` exports the existing pure bonus derivation as `deriveEquipmentBonuses`; `applyEquipment` still uses it internally.
 - `packages/core/src/save/equipment-check.ts` exports `checkEquipmentConsistency(inventory, actors, assets)` with an `EquipmentAssetLookup` of read-only `item(source)` / `character(source)` functions, returning a located `StateIssue` on refusal. `packages/core/src/save/index.ts` re-exports the API.
-- `packages/core/test/save-equipment-check.test.ts` covers a consistent candidate, each refusal class with its path, duplicate item filenames in distinct slots, no side effects on frozen inputs, a changed asset and the legacy nonempty-projection refusal.
+- `packages/core/test/save-equipment-check.test.ts` covers a consistent candidate, each refusal class with its path, duplicate item filenames in distinct slots, no side effects on frozen inputs, a changed asset, the legacy nonempty-projection refusal and a live equip followed by an actor-owner rename.
 
 ## Acceptance
 
