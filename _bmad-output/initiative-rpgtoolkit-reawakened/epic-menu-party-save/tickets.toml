@@ -302,3 +302,16 @@ after = [20, "7.33"]
 hitl = false
 risk = "medium"
 references = ["issue - #753", "issue - #779", "planning - recovery-direction.md", "spec - docs/spec/engine/battle.md#bat-13"]
+
+[[entry]]
+id = 23
+tracker_id = "#797"
+type = "story"
+title = "Validate saved equipment consistency against compatible assets"
+description = "Add a pure, asset-aware check that inventory equipment tuples and the saved actor equipment projection agree with the current item and character definitions before a recovery candidate is accepted; refuse changed or missing assets and legacy nonempty projections without replaying equip operations, running hooks or resetting saved progress."
+verify = "Compatible assets and a consistent projection validate without side effects; changed, missing or inconsistent assets are refused with located diagnostics; a legacy nonempty actor projection without inventory tuples is refused; normal save bytes, restore and the ledger hash are unchanged."
+covers = ["CAP-9", "CAP-11"]
+after = [16, 17]
+hitl = false
+risk = "high"
+references = ["issue - #797", "issue - #776", "issue - #593", "spec - docs/spec/formats/save-game.md#game-ledger-and-savable-continuation", "spec - docs/spec/engine/plugins-and-battle.md#e-81", "spec - docs/spec/engine/plugins-and-battle.md#e-82"]

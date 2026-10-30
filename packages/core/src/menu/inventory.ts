@@ -1,7 +1,8 @@
-import type { ActorsSection, ActorRecord } from "../actors/model.ts";
+import type { ActorsSection } from "../actors/model.ts";
 import type { Character, Item } from "../formats/actor/model.ts";
 import type { EquipmentItemDefinition } from "../actors/rules.ts";
 import { assetKey } from "../formats/resolver/resolver.ts";
+import { equipmentCatalog, slotLocation, validEquipment } from "./equipment.ts";
 import {
   validateActionFields,
   validateInventorySection,
@@ -38,14 +39,6 @@ export type InventoryRuntime = {
 
 const ACCEPTED: MenuStateResult = Object.freeze({ ok: true, error: null });
 const MAX_SAFE = Number.MAX_SAFE_INTEGER;
-const STANDARD_SLOTS: Readonly<Record<string, number>> = {
-  head: 1,
-  neck: 2,
-  "right-hand": 3,
-  "left-hand": 4,
-  body: 5,
-  legs: 6,
-};
 
 function rejected(path: string, message: string): MenuStateResult {
   return { ok: false, error: { path, message } };
@@ -55,70 +48,6 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 function safeAmount(value: unknown, allowZero = false): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= (allowZero ? 0 : 1);
-}
-function slotLocation(slot: string): number | null {
-  const standard = STANDARD_SLOTS[slot];
-  if (standard !== undefined) return standard;
-  const match = /^accessory-(\d{1,2})$/.exec(slot);
-  if (match === null) return null;
-  const location = Number(match[1]);
-  return location >= 7 && location <= 16 ? location : null;
-}
-function equippedReference(actorId: number, slot: string, itemId: number): string {
-  return `tkr-equipment:${JSON.stringify([actorId, slot, itemId])}`;
-}
-function equipmentCatalog(
-  actorId: number,
-  equipment: readonly InventoryEquipment[],
-  items: readonly InventoryItem[],
-  itemForSource: InventoryRuntime["item"],
-): { readonly equipped: string[]; readonly catalog: EquipmentItemDefinition[] } | null {
-  const entries = equipment.filter((entry) => entry.actorId === actorId);
-  const names: string[] = [];
-  const definitions: Array<{ entry: InventoryEquipment; item: Item }> = [];
-  for (const entry of entries) {
-    const stack = items.find((candidate) => candidate.id === entry.itemId);
-    const item = stack === undefined ? undefined : itemForSource(stack.source);
-    if (item === undefined) return null;
-    names.push(item.name);
-    definitions.push({ entry, item });
-  }
-  const used = new Set(names);
-  const equipped: string[] = [];
-  const catalog: EquipmentItemDefinition[] = [];
-  for (const { entry, item } of definitions) {
-    const base = equippedReference(actorId, entry.slot, entry.itemId);
-    let id = base;
-    let suffix = 0;
-    while (used.has(id)) {
-      suffix += 1;
-      id = `${base}#${suffix}`;
-    }
-    used.add(id);
-    equipped.push(id);
-    catalog.push({ name: item.name, id, equipBonus: item.equipBonus });
-  }
-  return { equipped, catalog };
-}
-function validEquipment(
-  actor: ActorRecord,
-  slot: string,
-  item: Item,
-  character: Character,
-): boolean {
-  const location = slotLocation(slot);
-  if (location === null || item.equipable !== 1) return false;
-  const names = item.allowedCharacters.filter((name) => name !== "");
-  if (item.usedBy === 1 && !names.includes(actor.name)) return false;
-  const slotIndex = location === 3 ? 4 : location === 4 ? 3 : location;
-  const slotFlag = location <= 6 ? item.equipSlots[slotIndex] : item.equipSlots[7];
-  if (slotFlag !== 1) return false;
-  if (location <= 6 && character.bodySlots[slotIndex] !== 1) return false;
-  if (location >= 7) {
-    const characterSlot = character.accessorySlots[location - 6];
-    return characterSlot !== undefined && characterSlot !== "" && characterSlot === item.accessoryName;
-  }
-  return true;
 }
 function exactAction(recordValue: Record<string, unknown>, keys: readonly string[]): StateIssue | null {
   return validateActionFields(recordValue, keys, "inventory.action");
