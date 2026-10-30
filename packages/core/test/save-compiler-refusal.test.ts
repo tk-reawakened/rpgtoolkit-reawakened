@@ -2,7 +2,7 @@
 // a save made by another compiler is refused whole and the live game is left
 // unchanged. This drives the real engine's `Load` against a captured save whose
 // compiler version has been altered, and against the untouched save as a control.
-import { deepEqual, equal, ok } from "node:assert/strict";
+import { deepEqual, equal, ok, throws } from "node:assert/strict";
 import { test } from "node:test";
 import { TextDecoder, TextEncoder } from "node:util";
 import {
@@ -14,6 +14,7 @@ import {
   createEngine,
   fileProgramRef,
   startThread,
+  restoreGameState,
   writeBoard,
   writeMainFile,
   type AssetKey,
@@ -107,7 +108,7 @@ function run(game: Game, loadBytes: Uint8Array | null): { saved: Uint8Array | nu
 }
 
 type Json = {
-  schema: { compiler: string };
+  schema: { compiler: string } | null;
   audio: unknown;
   vm: {
     threads: { frames: { program: { compiler: string } }[] }[];
@@ -215,6 +216,7 @@ test("a save whose thread names a program file the game no longer has is refused
 test("a compiler mismatch is reported as such even when the audio projection is also malformed", () => {
   const loader = boot(LOADER);
   const bytes = tamper(capturedSave(), (json) => {
+    if (json.schema === null) throw new Error("the saved game has no schema object");
     json.schema.compiler = "1";
     json.audio = { tick: 0, cueId: 1, tracks: 5 };
   });
@@ -224,17 +226,22 @@ test("a compiler mismatch is reported as such even when the audio projection is 
   equal((loader.state()!.vm.globals as Record<string, unknown>).after, 9);
 });
 
-test("an object program compiler mismatch is reported before another malformed section", () => {
+test("an object program compiler mismatch is reported before malformed schema and audio", () => {
   const bytes = tamper(capturedObjectSave(), (json) => {
     const object = json.vm.objects.find((entry) => entry.program !== null);
     ok(object !== undefined && object.program !== null, "the save has a class object program");
     object.program.compiler = "1";
+    json.schema = null;
     json.audio = { tick: 0, cueId: 1, tracks: 5 };
   });
   const loader = boot(LOADER);
   const { codes } = run(loader, bytes);
   ok(codes.includes("restore.compiler-mismatch"), `diagnostics: ${JSON.stringify(codes)}`);
   equal(codes.includes("restore.shape"), false, `diagnostics: ${JSON.stringify(codes)}`);
+  throws(
+    () => restoreGameState(new TextDecoder().decode(bytes)),
+    (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "restore.compiler-mismatch",
+  );
   const globals = loader.state()!.vm.globals as Record<string, unknown>;
   equal(globals.marker, 9);
   equal(globals.after, 9);

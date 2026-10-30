@@ -64,6 +64,7 @@ import { EVENT_DISPATCH_WAIT } from "../events/emitter.ts";
 import type { Diagnostic } from "../ports/engine.ts";
 import { BATTLE_SCHEMA_VERSION, createBattleSection, validateBattleSection } from "../battle/model.ts";
 import { migrateMenuSections } from "../menu/migrate.ts";
+import { surfaceByteLength } from "../raster/surfaces.ts";
 /** Upgrade the old empty battle placeholder to the fighter-reference section. */
 function migrateBattle(record: Record<string, unknown>, schema: Record<string, unknown>): void {
   const version = schema.battle;
@@ -766,9 +767,24 @@ function validateSurfacesShape(value: unknown): void {
     numberAt(item.rev, `surfaces.entries.${rawId}.rev`);
     const bitmap = recordAt(item.bitmap, `surfaces.entries.${rawId}.bitmap`);
     if (bitmap.t !== "rgba") shapeError(`the snapshot's surfaces.entries.${rawId}.bitmap.t must be "rgba"`);
-    numberAt(bitmap.w, `surfaces.entries.${rawId}.bitmap.w`);
-    numberAt(bitmap.h, `surfaces.entries.${rawId}.bitmap.h`);
-    stringAt(bitmap.b64, `surfaces.entries.${rawId}.bitmap.b64`);
+    const width = numberAt(bitmap.w, `surfaces.entries.${rawId}.bitmap.w`);
+    const height = numberAt(bitmap.h, `surfaces.entries.${rawId}.bitmap.h`);
+    if (!Number.isSafeInteger(width) || width < 0 || !Number.isSafeInteger(height) || height < 0) {
+      shapeError(`the snapshot's surfaces.entries.${rawId}.bitmap dimensions must be non-negative safe integers`);
+    }
+    const byteLength = width * height * 4;
+    if (!Number.isSafeInteger(byteLength)) shapeError(`the snapshot's surfaces.entries.${rawId}.bitmap dimensions exceed a safe RGBA byte length`);
+    const b64 = stringAt(bitmap.b64, `surfaces.entries.${rawId}.bitmap.b64`);
+    if (b64.length !== Math.ceil(byteLength / 3) * 4) {
+      shapeError(`the snapshot's surfaces.entries.${rawId}.bitmap.b64 length does not match its dimensions`);
+    }
+    let decodedLength: number;
+    try {
+      decodedLength = surfaceByteLength(b64);
+    } catch {
+      shapeError(`the snapshot's surfaces.entries.${rawId}.bitmap.b64 is not valid base64`);
+    }
+    if (decodedLength !== byteLength) shapeError(`the snapshot's surfaces.entries.${rawId}.bitmap.b64 does not match its dimensions`);
   }
   const slots = recordAt(surfaces.slots, "surfaces.slots");
   for (const slot of Object.keys(slots)) numberAt(slots[slot], `surfaces.slots.${slot}`);
@@ -867,6 +883,7 @@ function validateShape(record: Record<string, unknown>): void {
     recordAt(record[key], key);
     if (key === "engine") validateEngineShape(record[key]);
     if (key === "sprites") validateSpritesShape(record[key]);
+    if (key === "surfaces") validateSurfacesShape(record[key]);
     if (key === "actors") validateActorsShape(record[key]);
     if (key === "triggers") validateTriggersShape(record[key]);
     if (key === "audio") validateAudioShape(record[key]);
@@ -938,13 +955,14 @@ export function restoreGameState(json: string, diagnostics: Diagnostic[] = []): 
   }
   const record = parsed as Record<string, unknown>;
 
-  const schema = record.schema;
-  if (typeof schema !== "object" || schema === null || Array.isArray(schema)) {
+  const schemaValue = record.schema;
+  if (isRecord(schemaValue)) refuseOtherCompiler(schemaValue.compiler);
+  refuseOtherProgramCompilers(record);
+  if (!isRecord(schemaValue)) {
     throw new ScriptError("restore.shape", "the snapshot has no `schema` section");
   }
-  refuseOtherCompiler((schema as Record<string, unknown>).compiler);
-  refuseOtherProgramCompilers(record);
-  migrateEvents(record, schema as Record<string, unknown>);
+  const schema = schemaValue;
+  migrateEvents(record, schema);
   migrateActors(record, schema as Record<string, unknown>);
   validateActorsShape(record.actors);
   migrateBattle(record, schema as Record<string, unknown>);

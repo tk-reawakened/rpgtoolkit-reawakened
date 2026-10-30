@@ -102,6 +102,20 @@ test("schema-v1 menu, party and inventory sections migrate without moving saved 
 });
 
 
+test("snapshot restoration rejects malformed or dimension-mismatched surface base64", () => {
+  const snapshotText = snapshot(createGameState({ seed: 0 }));
+  for (const b64 of ["!!!!!!!!", "AAAAAAAA"]) {
+    const malformed = JSON.parse(snapshotText) as Record<string, unknown>;
+    malformed.surfaces = {
+      nextId: 1,
+      entries: { "0": { id: 0, rev: 0, bitmap: { t: "rgba", w: 1, h: 1, b64 } } },
+      slots: {},
+      colours: {},
+    };
+    equal(errorOf(() => restoreGameState(JSON.stringify(malformed))).code, "restore.shape");
+  }
+});
+
 test("a schema-v1 actor save preserves state and marks legacy precedence unresolved", () => {
   const restored = restoreGameState(fixtureText("actors-v1.json"));
 
