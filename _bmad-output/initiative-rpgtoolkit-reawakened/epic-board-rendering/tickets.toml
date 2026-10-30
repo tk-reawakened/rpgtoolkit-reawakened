@@ -274,15 +274,15 @@ id = 36
 tracker_id = "#790"
 type = "bug"
 title = "[4.36] Active Put edits lose their owner lifetime"
-description = "When one program ends, cleanup can discard another program's `Put` history, leaving its tile unable to expire; overlapping writes can also retain a tile from an owner that has already ended."
-verify = "Tests prove an active owner's `Put` survives expiry on a different cell, both same-cell completion orders restore the latest live edit and then the original tile, and a board-scoped `LayerPut` remains after overlapping program edits expire."
+description = "When one program finishes or is killed, cleanup can discard another program's `Put` history; an unregistered killed owner can also be mistaken for active, leaving its tile visible after the remaining owner finishes."
+verify = "Tests prove an active owner's `Put` survives expiry on a different cell, both same-cell completion orders restore the latest live edit and original tile, and a killed owner expires under a board-scoped `LayerPut`."
 covers = ["CAP-2"]
 after = [12]
 hitl = false
 risk = "medium"
 refine = true
 references = [
-  "reference - docs/spec/engine/rpgcode-functions.md#e-14 and #reawakened-tile-edit-lifetimes",
+  "reference - docs/spec/engine/rpgcode-functions.md#e-14 and #reawakened-tile-edit-lifetimes; docs/spec/engine/rpgcode-language.md#e-93",
 ]
 
 [[entry]]

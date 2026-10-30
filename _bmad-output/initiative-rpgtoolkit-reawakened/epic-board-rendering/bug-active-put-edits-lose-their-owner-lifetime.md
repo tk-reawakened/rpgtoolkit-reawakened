@@ -19,7 +19,7 @@ severity: P2
 
 ## Description
 
-After one script calls `Put`, another script can finish and trigger cleanup; the still-running script's tile can lose its expiry history. Later, that tile remains on the board when its own script ends. Edits should expire only with the program that made them, while later live edits and board-scoped `LayerPut` edits remain in effect.
+After one script calls `Put`, another script can finish and trigger cleanup; the still-running script's tile can lose its expiry history. Later, that tile remains on the board when its own script ends. Killing a program thread can leave its `Put` visible too, because its owner is removed from the thread table. Edits should expire only with the program thread that made them, while later live edits and board-scoped `LayerPut` edits remain in effect.
 
 ## Reproduction
 
@@ -31,26 +31,26 @@ After one script calls `Put`, another script can finish and trigger cleanup; the
 
 Actual: A's tile remains after A finishes. Expected: B's cell returns to empty at step 4; A's tile remains until A finishes, then returns to `tiles/base.tst`.
 
-The same reducer must also preserve the order of overlapping edits: the latest still-live edit remains visible, and an expiring owner must not restore a tile from an owner that has already finished.
+A second reproduction writes `LayerPut` on one cell, then `Put` from A and B on that cell; B is killed and A finishes. The board-scoped tile should remain visible, but the killed B tile can remain instead.
 
 ## Cause Hypothesis
 
-The cleanup appears to restore edits owned by finished threads, then remove every program-scoped edit record rather than only the finished owners' records. A later edit on the same cell can also retain a prior tile from an owner that has already finished, leaving a stale restoration chain.
+Cleanup appears to recognize a thread owner as finished only when its id remains in `vm.threads` with finished status. Killing a thread unregisters it, so its old `Put` records can be mistaken for active owners. The reducer can also retain a prior tile from an owner that has already ended.
 
 ## Acceptance Criteria
 
-1. **Only the finished owner's `Put` edits expire**
-   **Given** two active program threads have changed different cells with `Put`
-   **When** one thread finishes and tile edits expire
-   **Then** its cell returns to the latest remaining edit or the original board tile, while the other thread's tile remains visible and its expiry record remains until that thread finishes.
+1. **Only a finished or killed owner's `Put` edits expire**
+   **Given** two program threads have changed different cells with `Put`
+   **When** one thread finishes or is killed and tile edits expire
+   **Then** its cell returns to the latest remaining edit or the original board tile, while the other active thread's tile and expiry record remain.
 2. **Overlapping edits follow the lifetimes that remain active**
    **Given** two program threads have changed the same cell in order
-   **When** either the older or newer thread finishes first
-   **Then** the latest still-live edit remains visible, the other completion order reveals the older live edit, and the original board tile returns after both finish; a board-scoped `LayerPut` remains visible after overlapping program edits expire.
+   **When** either thread finishes first, or the later thread is killed
+   **Then** the latest edit whose owner remains active is visible; after both owners finish or are killed, the original tile returns unless a board-scoped `LayerPut` remains.
 3. **Regression tests cover the reported and related cases**
    **Given** the core test suite
    **When** it runs
-   **Then** tests cover different-cell active owners, both same-cell completion orders, and the interaction with `LayerPut`.
+   **Then** tests cover different-cell active owners, both same-cell completion orders, and a killed overlapping owner under a board-scoped `LayerPut`.
 4. **Or: no change is needed, with proof**
    **Given** the reproduction
    **When** it runs on the current code
@@ -59,7 +59,7 @@ The cleanup appears to restore edits owned by finished threads, then remove ever
 ## References
 
 - parent — `_bmad-output/initiative-rpgtoolkit-reawakened/epic-board-rendering/epic-board-rendering.md`, Done when 3
-- source — `docs/spec/engine/rpgcode-functions.md#e-14` and `docs/spec/engine/rpgcode-functions.md#reawakened-tile-edit-lifetimes`
+- source — `docs/spec/engine/rpgcode-functions.md#e-14`, `docs/spec/engine/rpgcode-functions.md#reawakened-tile-edit-lifetimes`, and `docs/spec/engine/rpgcode-language.md#e-93`
 - tracker — https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/790
 
 ## Notes
