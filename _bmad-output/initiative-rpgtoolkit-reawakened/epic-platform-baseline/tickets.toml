@@ -198,3 +198,29 @@ after = []
 hitl = true
 risk = "medium"
 references = []
+
+[[entry]]
+id = 16
+tracker_id = "#898"
+type = "bug"
+title = "Cover dynamic import in the core import bans"
+description = "The bare-fflate and workspace-package bans use no-restricted-imports, which does not visit ImportExpression, so await import(\"fflate\") or import(\"@tk-reawakened/...\") in core pass lint and the graph check."
+verify = "Core fixtures importing fflate and a workspace package through import() each trigger no-restricted-syntax and fail before the rule exists; the allowed fflate/browser sync import still passes."
+covers = ["CAP-12"]
+after = []
+hitl = false
+risk = "medium"
+references = ["issue - #898", "constraint - docs/guardrails.md G2, G6"]
+
+[[entry]]
+id = 17
+tracker_id = "#899"
+type = "bug"
+title = "Fail the golden job when a baseline file is missing"
+description = "A missing golden/scripts/golden.json, golden/ledger.json or golden/audio/cues.json removes that stage from the required job instead of failing it, contrary to G5 rule 3."
+verify = "With each baseline renamed, the compare-mode run exits non-zero naming the file; a record run and the fixtures-absent local flow are unchanged."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "medium"
+references = ["issue - #899", "constraint - docs/guardrails.md G5"]

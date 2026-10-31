@@ -169,6 +169,16 @@ const g2Syntax = [
     selector: `ImportExpression[source.value=/${nodeBuiltinDynamic}/]`,
     message: "G2.1: core must not import Node built-ins.",
   },
+  {
+    // `no-restricted-imports` does not visit an ImportExpression, so the fflate and workspace-package bans need a
+    // selector of their own or `await import("fflate")` slips past both rules.
+    selector: "ImportExpression[source.value=/^fflate(?:\\/(?!browser$).*)?$/]",
+    message: "AD-6: core may import only the `fflate/browser` sync APIs.",
+  },
+  {
+    selector: "ImportExpression[source.value=/^@tk-reawakened\\//]",
+    message: "G2.3: core must not import other workspace packages.",
+  },
 ];
 
 // Rule options factored out so the script scope composes the same restrictions.

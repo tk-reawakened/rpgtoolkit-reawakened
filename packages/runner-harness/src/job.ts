@@ -14,7 +14,8 @@ export type GoldenTexts = {
   readonly golden?: string | undefined;
   readonly scriptsGolden?: string | null | undefined;
   readonly sceneGolden?: SceneGoldenInput | undefined;
-  readonly sceneGoldens?: readonly SceneGoldenInput[] | undefined;
+  /** `null` means the ledger file is absent, which compare mode refuses; `[]` is a present, empty ledger. */
+  readonly sceneGoldens?: readonly SceneGoldenInput[] | null | undefined;
   readonly audioGolden?: string | undefined;
   readonly audioRuns?: readonly AudioGoldenRun[] | undefined;
   readonly audioSynthetic?: AudioGoldenRun | undefined;
@@ -99,6 +100,7 @@ export function goldenJob(
     }
 
     // Stage 6: replay every ledger scene through the real engine.
+    if (texts.sceneGoldens === null) throw new Error("golden/ledger.json is absent");
     if (texts.sceneGoldens !== undefined) {
       const scenes = checkSceneGoldens(texts.sceneGoldens, texts.sceneGoldens[0]?.ledgerText ?? "");
       if (!scenes.ok) throw new Error(scenes.lines[scenes.lines.length - 1] ?? "scene-golden failed");
@@ -117,7 +119,7 @@ export function goldenJob(
         formattedAudioGolden = formatAudioGolden(texts.audioRuns, texts.audioSynthetic);
         lines.push(`audio-golden: ${texts.audioRuns.length} games and synthetic battle recorded`);
       } else {
-        if (texts.audioGolden === undefined) throw new Error("golden/audio/cues.json is absent");
+        if (!texts.audioGolden) throw new Error("golden/audio/cues.json is absent");
         const audio = checkAudioGoldens(texts.audioRuns, texts.audioSynthetic, texts.audioGolden);
         if (!audio.ok) throw new Error(audio.lines[audio.lines.length - 1] ?? "audio golden failed");
         lines.push(...audio.lines.map((line) => `audio-golden: ${line}`));
