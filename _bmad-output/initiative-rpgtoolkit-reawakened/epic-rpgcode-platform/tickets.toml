@@ -269,6 +269,7 @@ references = [
 [[entry]]
 id = 16
 tracker_id = "#540"
+tracker_status = "done"
 type = "story"
 title = "Host package loader: manifest entry to source program and start-up"
 description = "Builds the package loader that PKG-4 and PKG-7 name: a host-supplied package catalogue (plain data the host fetches before boot; core touches no I/O, G2) maps each package named in the `.gam` list to its version, namespace, declared host requests and start-up program, so boot makes versioned package entries (the manifest entry and its declaration gain a `program` field) and owner-tagged start-up `ProgramRef`s, reports a listed name the catalogue lacks as a located `plugin.unresolved`, runs `runPackageStartup` at boot and on `reset`, and offers a restore helper that runs it on a scratch state before a saved state loads."
@@ -284,6 +285,7 @@ references = [
   "code - packages/runner-harness/src/script-host.ts (createScriptHost, restoreScriptHost), script-plugin-resolver.ts, corpus.ts (startups)",
   "audit - _bmad-output/initiative-rpgtoolkit-reawakened/epic-actors/discovery/actor-readiness.md (F-11 to F-14)",
 ]
+notes = ["Closed as superseded (Epic 19 audit recommendation, issue #540): Done-when 11 is delivered by 19.17/#562 and 19.20/#853, and this entry's draft plan described a pre-19.17 shape (a `program` field on PluginManifestEntry) that no longer exists. No start-up field was added: the merged contract keeps the start-up program on `PackageCatalogueEntry.startup` (engine.ts:175). PR #873 was already merged (9ab477f6) when that recommendation landed, so its only code change stands on its own merits: `resetLifecycle` reused the shared pluginLayers table, so every reset stacked another copy of each RPGCode layer and a wrapped engine command ran once per reset; it now builds a fresh table before makeServices, with the project-folder boot test that proves it and the namespace-identity test through pluginManifestFor/resolveManifestPlugins."]
 # Entry 17 was added on 2026-10-21 as the implementation follow-up to the closed 19.16 documentation handoff. It does not reopen or rewrite 19.16; it turns that normative package-loader contract into the real runtime required by Epic 20.11.
 [[entry]]
 id = 17
