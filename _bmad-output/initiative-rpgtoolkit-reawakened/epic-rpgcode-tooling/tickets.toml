@@ -1,0 +1,236 @@
+# tickets.toml — Epic 10 (epic-rpgcode-tooling), in build order.
+# STATUS: published 2026-10-31 with the owner's approval (see the epic's Notes, "Inception (approved)"); the entries are unchanged from the approved draft.
+# Reasoning, dependency evidence (file:line) and the owner decisions D-1..D-7: discovery/inception-proposal.md
+# Table order is the build order; ids are stable names.
+# Lanes: A lsp (1, 5) | B contracts+lib (2, 3) | H index (4) | C analysis (6, 7) | D spec framework (8) | E pipeline (9) | F dap (10) | G release (11) | sweep (12).
+# 3 owns `packages/script-tools` + the diagnostic model; 4 owns the ONE symbol/reference/call index (LSP, linter and CLI read it, and Epic 22's CodeGraph adapter may read its JSON — no second index); 6 owns the shared config and the rule ids; 8 owns the test fixtures 9 and 10 reuse; 10 owns `Engine.debugView()`.
+# Amendment 2026-10-31: entry 4 (the index) is new after the owner's CodeGraph angle; ids 4-11 below were 4-10 in the first draft. Reasoning: discovery/inception-proposal.md section 12.
+# Cross-epic pins are entry granularity: 3.8, 3.9, 3.11, 3.21, 3.29 (all done) and 4.30 (done).
+
+[[entry]]
+id = 1
+tracker_id = "#935"
+type = "story"
+title = "LSP tracer bullet: transport-free server, parser diagnostics over stdio, and the early extension"
+description = "Stands up `packages/lsp` with `createServer(connection)` (AD-21) and a `textDocument/didOpen|didChange` diagnostics path that compiles the buffer with core's parser (`tokenize`/`parse`/`compileProgram`) and reports the `ScriptError` code, message and line, a stdio entry point outside the package's public export, and `extensions/rpgcode/` — a minimal VS Code extension whose language client launches the server, registers `.prg`/`.rnc` and ships as a VSIX from CI on the official `vscode-languageserver` libraries (decision D-1, D-2, D-4)."
+verify = "An in-memory connection pair driven from a test yields exactly one diagnostic with the core's error code and line for a program containing a deliberate unknown character; the packaged extension opens `stock/stock_rpg/startup.prg` in VS Code and shows the same diagnostic; the dependency-graph rule proves `lsp` imports no Node API and `extensions/rpgcode/` is built for the web entry point too."
+covers = ["CAP-14"]
+after = []
+hitl = true
+risk = "medium"
+plan_checkpoint = true
+done_checkpoint = true
+references = [
+  "spine - _bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md, AD-21, AD-22, AD-24",
+  "spec - docs/editor-features.md, T-40 (program editor: syntax colouring, call tips, quick reference)",
+  "code - packages/core/src/script/program.ts (compileProgram, Program.notices), packages/core/src/script/errors.ts (ScriptError)",
+  "plan - packages/runner-headless/src/index.ts:200 (the existing `main(argv)` subcommand pattern)",
+  "research - docs/architecture-options.md, section 4.1 (the LSP as a reusable piece, published to Marketplace and Open VSX)",
+]
+
+[[entry]]
+id = 2
+tracker_id = "#937"
+type = "story"
+title = "Rulings: tooling contracts in docs/spec, the diagnostic and rule model, and an ADR for the added commands"
+description = "Writes doc-first (G7) a `docs/spec/engine/rpgcode-tooling.md` page plus an ADR that rule the diagnostic and lint-rule model (rule ids, default severities, autofix policy, one per-project config file), the formatter rules (brace-depth indent with configurable width, canonical built-in capitalisation, idempotence, source-text only), the RPGCode spec API (`describe` nesting, `it`/`test`, `beforeEach`/`afterEach`/`beforeAll`/`afterAll`, `expect` with the named matchers and `.not`, `skip`/`only`, the test-only package and its single native result channel), the `tkr script` contract (subcommands, stable exit codes, JSON result protocol), the versioned index document's schema and its stability promise (what may change without a major bump), and the read-only debug-view shape, and amends AD-1 for that view."
+verify = "The commit touches only `docs/`; every ruling carries an OWNER marker, its evidence and the rejected alternative; every command name the spec API adds has a row in `docs/spec/engine/rpgcode-functions.md`; and entries 4 to 10 can be planned from the page without inventing an API name, a rule id, a subcommand or an exit code."
+covers = ["CAP-14"]
+after = []
+hitl = true
+risk = "high"
+plan_checkpoint = true
+done_checkpoint = true
+references = [
+  "constraint - docs/guardrails.md, G7 (doc first) and ADR 0004 decision 1",
+  "spine - _bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md, AD-1, AD-8, AD-24",
+  "spec - docs/spec/engine/rpgcode-language.md (LEX-10, FUN-8), docs/spec/engine/rpgcode-dialects.md:57-69",
+  "spec - docs/spec/engine/rpgcode-functions.md (the catalogue table the help projection is validated against)",
+  "rule - AGENTS.md, help-text rule (plain language first, then exact ticks, units and whether the script waits)",
+]
+
+[[entry]]
+id = 3
+tracker_id = "#939"
+type = "story"
+title = "Source spans and the script-tools library: columns, end offsets and one diagnostic model"
+description = "Adds optional start and end columns and offsets to tokens, AST nodes and `SourcePos` (additive, no behaviour change) and creates `packages/script-tools` (`@tk-reawakened/script-tools`) whose single `analyse()` entry produces the ruled diagnostic model (code, severity, range, rule id, message, fix) over the core parser, plus the help projection built on `commandDocumentation()` — the destination of the command-docs gate."
+verify = "Every existing test, golden and state hash is unchanged; a token and node table test asserts start and end columns for a program with tabs, CRLF and a Windows-1252 byte; slicing the source with a diagnostic's range yields exactly the offending token; `script-tools` imports no Node API and passes the dependency-graph rule."
+covers = ["CAP-14"]
+after = [2, "3.29"]
+hitl = false
+risk = "medium"
+references = [
+  "code - packages/core/src/script/lex.ts:18-25 (Token carries `line` only), packages/core/src/script/ops.ts:14 (SourcePos), packages/core/src/script/ast.ts",
+  "code - packages/core/src/script/command-docs.ts:191 and :371 (commandDocumentation, validateCommandDocumentation)",
+  "code - packages/core/src/ports/engine.ts:18-26 (Diagnostic shape)",
+  "spine - AD-22 (one public entry per package, the edge list)",
+]
+
+[[entry]]
+id = 4
+tracker_id = "#941"
+type = "story"
+title = "RPGCode index: symbols, includes, call sites and event listeners as one versioned JSON schema"
+description = "Builds the ONE symbol and reference index that the LSP, the linter and the CLI all read (no second index beside it): per program, definitions from `Program.functions`/`classes`/`labels` with a qualified name and the spelling as written, the include graph from `ProgramRef.includes`/`Program.fileKeys` and the AST's `IncludeRequest`s (explicit versus implicit), call and reference sites from the `call { name, argc, file? }` and `load`/`declRef`/`storeRef`/`member`/`methodCall`/`construct` ops at their `SourcePos`, class members and methods from `CompiledClass`, event listeners from the literal first argument of `on`/`once`/`emit` call sites, and package start-up entry points from the start-up refs — all emitted as one versioned JSON document plus a library API in `script-tools`, with a located diagnostic instead of invented facts for a program that does not compile, and no CodeGraph, tree-sitter or Node dependency. This is the SEMANTIC surface: Epic 22's upstream CodeGraph extractor builds a syntactic node/edge graph from the tree-sitter CST and is blind to resolved includes, `file.func` binding, arity and literal call arguments, so neither artefact replaces the other (proposal section 12.2)."
+verify = "On the sample corpus the index lists every function, class, label and include with its file and line and every call site with its callee name and arity; a `file.func` call resolved through an include appears under the including program with the include edge; a class's methods and members appear under the class; an `on(\"error\", …)` site names its event; a program with a syntax error yields a located diagnostic and no fabricated facts; the document validates against the versioned schema and is byte-stable across two runs."
+covers = ["CAP-14"]
+after = [3]
+hitl = false
+risk = "medium"
+references = [
+  "code - packages/core/src/script/program.ts:99-115 (Program: functions, classes, labels, files, fileKeys, notices)",
+  "code - packages/core/src/script/ops.ts:43-140 (StepOp: call { name, argc, file?, pos }, load, declRef, storeRef, member, methodCall, construct)",
+  "code - packages/core/src/script/lower.ts:42-50 (CompiledClass: bases, members, methods, constructor, destructor)",
+  "code - packages/core/src/script/ast.ts:243-259 (IncludeRequest, Ast.includes)",
+  "code - packages/runner-harness/src/package-catalogue.ts (package start-up refs and catalogue entries)",
+  "why - discovery/inception-proposal.md section 12 (the CodeGraph angle, the syntactic-versus-semantic division, and why the Python code-graph-rag tool is not an integration path)",
+]
+
+[[entry]]
+id = 5
+tracker_id = "#943"
+type = "story"
+title = "LSP semantics and legacy-syntax quick fixes: hover, call tips, completion, go-to-definition, outline and behaviour-preserving code actions"
+description = "Fills the server with Done-when 1 and 2: hover and call tips from the gate-checked command documentation, completion of catalogue names and program symbols, go-to-definition across `#include`, implicit includes and `file.func` using `Program.files`/`fileKeys`, a document outline of the program's functions, classes and labels, and one code action per legacy form of `docs/spec/engine/rpgcode-dialects.md:57-69` plus the `#`/`#Include` frontend forms, each rewriting through the AST and re-parsing."
+verify = "Hover text for a sample of catalogue commands matches `commandDocumentation()` byte for byte, go-to-definition resolves includes across the fetched sample corpus, the outline lists every function, class and label of a fixture program, and each quick fix applied to a legacy fixture leaves a 3.1 program whose run reproduces the pre-fix state hash (TK2 fixtures: the TK2 frontend's run)."
+covers = ["CAP-14"]
+after = [4, "3.8"]
+hitl = false
+risk = "medium"
+references = [
+  "spec - docs/spec/engine/rpgcode-dialects.md:57-69 (the legacy form table this entry fixes one row at a time)",
+  "spec - docs/editor-features.md, T-40, T-43, T-44, T-46",
+  "code - packages/core/src/script/program.ts:99-115 (Program.files, fileKeys, functions, classes, labels)",
+  "code - packages/runner-harness/src/corpus.ts (buildFetchedCorpus, runFetchedCorpus) as the rewrite oracle",
+]
+
+[[entry]]
+id = 6
+tracker_id = "#945"
+type = "story"
+title = "Linter: rule table, project config, autofix and a committed baseline"
+description = "Builds the rule-based linter of Done-when 6 in `script-tools`: unused variables, labels and functions, unreachable code, shadowing (including the built-in-shadow warning epic 3 deferred to this epic), unknown and wrongly-called built-ins from the registered `ParamSpec` arity, deprecated and obsolete forms from `BuiltinDoc.replacedBy`/`reason` and the dialect table, and style rules — each with an id, a default severity, a rationale and, where safe, an autofix, over one per-project config file that entry 6 shares."
+verify = "One fixture per rule asserts its id, severity and message and, where a fix exists, the fixed text; `stock/` and the authored fixtures produce exactly the committed baseline, reviewed like a golden; the visual-event-builder fixture built from T-45's template list lints clean (decision D-6); a correctly called built-in never reports."
+covers = ["CAP-14"]
+after = [4, "3.21", "3.29"]
+hitl = false
+risk = "medium"
+references = [
+  "spec - docs/spec/engine/rpgcode-dialects.md:57-69 and docs/spec/engine/rpgcode-functions.md (obsolete names, R-36)",
+  "code - packages/core/src/script/builtins.ts:87-106 (BuiltinDoc.replacedBy, reason, support) and :108-114 (ParamSpec arity)",
+  "code - packages/core/src/script/command-docs.ts:371 (the doc gate whose metadata the rules read)",
+  "open - epic-rpgcode-vm Notes: the static built-in-shadow warning was deferred to this epic",
+  "spec - docs/editor-features.md, T-45 (the ~160 templates the VEB fixture is built from)",
+]
+
+[[entry]]
+id = 7
+tracker_id = "#947"
+type = "story"
+title = "Formatter: the indent wizard and canonical capitalisation, idempotent and behaviour-preserving"
+description = "Builds T-42's brace-depth re-indent with a configurable width and T-46's canonical-case normalisation as one formatter over the spans from entry 3, sharing entry 5's config file and adding its module to the same package barrel."
+verify = "Formatting every program in the fetched corpus twice gives byte-identical text; a run before and after formatting gives the same state hash; and the formatter leaves comments, strings, line continuations and the absence of a final newline exactly as it found them."
+covers = ["CAP-14"]
+after = [6]
+hitl = false
+risk = "medium"
+references = [
+  "spec - docs/editor-features.md, T-42 (indent wizard) and T-46 (capitalisation helpers)",
+  "code - packages/core/src/script/lex.ts (token stream the formatter reassembles), packages/core/src/script/fmath (no float maths needed)",
+  "assumption - A-1 in discovery/inception-proposal.md: this `after` is a barrel collision, not a functional prerequisite",
+]
+
+[[entry]]
+id = 8
+tracker_id = "#948"
+type = "story"
+title = "RPGCode spec framework: the describe/it/expect pack, its runner and *.spec.prg discovery"
+description = "Implements Done-when 8: the spec API ruled in entry 2 as an RPGCode package (`packages/script-spec`) — nestable `describe`, `it`/`test` whose body is a lambda it calls under FUN-8, the four hooks, `expect` with the named matchers and `.not`, `skip`/`only` and the strict no-skip mode — plus a VM-level runner that discovers `*.spec.prg`, runs each case on a fresh fixture board, party and variable set under the injected clock and seeded RNG, and reports expected against actual with the source line from its one native result channel."
+verify = "A spec file with a passing, a failing, a skipped and an `only` case reports each correctly with file and line; a failing `toBe` prints expected against actual; two runs of the same spec file produce identical result JSON and identical state hashes; a skipped case fails the strict run; and the engine's default manifest does not contain the spec package."
+covers = ["CAP-14"]
+after = [2, "3.9"]
+hitl = false
+risk = "high"
+plan_checkpoint = true
+references = [
+  "spec - docs/spec/engine/rpgcode-language.md (FUN-8: a plain-name call of a variable holding a callable)",
+  "code - packages/core/src/script/plugin.ts:72-119 (CommandView cannot call a callable: the result channel is the only native surface)",
+  "code - packages/runner-harness/src/script-host.ts (createScriptHost, createMemoryLoader as the fixture seam)",
+  "code - packages/core/src/script/vm.ts (STEP_BUDGET), packages/core/test/... `tools/no-skips/run.mjs` (the strict-mode model)",
+]
+
+[[entry]]
+id = 9
+tracker_id = "#949"
+type = "story"
+title = "tkr script: the CLI, its result protocol, generated help and the dogfooding CI job"
+description = "Adds `packages/script-cli` (bin `tkr`) with `check` (parse diagnostics plus lint), `fmt` (`--check`), `test`, `docs` (the generated quick reference and searchable language reference from `commandDocumentation()`) and `index` (entry 4's versioned JSON to a file or stdout), the ruled exit codes and JSON reporters, and the CI job that runs `check`, `fmt --check` and `test` over `stock/` and the authored fixtures against the committed baselines into the existing `gate` (the path predicate waits for #664, decision D-7)."
+verify = "Each subcommand exits with its documented code on a clean, a diagnostic, a lint-failing and a formatting-different tree and emits the documented JSON, and `index --json` writes a document that validates against the entry-4 schema; the CI job fails when a stock program gains a diagnostic or a format difference and a skipped case is present, and it is a required check; the generated reference is byte-stable between runs."
+covers = ["CAP-14"]
+after = [4, 6, 7, 8]
+hitl = false
+risk = "medium"
+references = [
+  "code - packages/runner-headless/src/index.ts:200 (subcommand dispatch and exit codes to imitate), packages/runner-headless/src/cli.ts",
+  "ci - .github/workflows/ci.yml (checks, unit, golden, golden-bun, gate; no `changes` job exists today)",
+  "issue - #664 (Smart CI gates: run only the jobs a change needs), OPEN, not this epic's work",
+  "spec - docs/editor-features.md, T-40 (quick reference) and T-09 (help)",
+]
+
+[[entry]]
+id = 10
+tracker_id = "#950"
+type = "story"
+title = "Debug adapter: breakpoints, step over/in/out, threads, call stack, variables and watches"
+description = "Adds the read-only `Engine.debugView()` projection (plain data: threads with status and wait, frames with program, line and function, locals and globals) and `packages/dap`, which drives `createEngine` on a committed fixture (SceneInit board plus program) with `setBreakpoints` and `advance(..., resume)`, computes step over, in and out from the frame depth, answers the debug requests for threads, stackTrace, scopes, variables, evaluate and watches, and registers as a `DebugAdapterInlineImplementation` in the web build (Done-when 4, AD-21; the `Engine` change also updates all four implementors)."
+verify = "A debug session over stdio sets a breakpoint and sees the paused thread, frame and line, steps over a call without entering it, steps into it, returns out, lists two threads with their frames, reads a local and a global, evaluates a watch expression, and runs to the end with the state hash of an uninterrupted run; the same session runs in the `vscode.dev` web build in CI; `debugView()` never changes the state hash."
+covers = ["CAP-14"]
+after = [2, "4.30", "3.11"]
+hitl = false
+risk = "high"
+plan_checkpoint = true
+references = [
+  "code - packages/core/src/ports/engine.ts:29-42, :92, :113 (PausedState, Breakpoint, ResumeMode, advance resume, setBreakpoints)",
+  "code - packages/core/src/engine/engine.ts:2844-2871 (runOpenThreads: one-instruction step and pause), :2903-2911",
+  "code - packages/core/src/engine/engine.ts:204-211 (SceneInit initialBoard + program: the fixture launch seam)",
+  "code - packages/runner-harness/src/driver.ts:113-115 (runLog refuses a paused report) and src/closing.ts:276-295 (the request-answering loop to imitate)",
+  "spine - AD-21 (transport-free dap over runner-harness, DebugAdapterInlineImplementation on the web)",
+  "test - packages/core/test/engine.test.ts:752, :767, :774 (the behaviour this adapter must not break)",
+]
+
+[[entry]]
+id = 11
+tracker_id = "#951"
+type = "story"
+title = "Public harness and release: semver packages, a standalone CLI, the JSON protocol, a GitHub Action and the extension publish"
+description = "Makes the harness the public contract of Done-when 12 and ships the early extension (Done-when 5): unpublish-private and semver-version `runner-headless`, `runner-harness` and the script tools with a stated compatibility promise, an `npx`/single-binary `tkr script` on Node and Bun, the documented JSON result protocol, a ready-made GitHub Action and copy-paste CI recipe, a documented way to drive the harness from another test runner, and the Marketplace and Open VSX publication of the extension."
+verify = "A clean container outside this checkout installs the published versions, runs `check`, `fmt --check` and `test` on a copied stock package and gets the documented exit codes and JSON; the Action does the same on a fixture repository; the extension installs from both registries; `pnpm licence` passes over the published dependency trees."
+covers = ["CAP-14"]
+after = [5, 9, 10]
+hitl = true
+risk = "high"
+plan_checkpoint = true
+done_checkpoint = true
+references = [
+  "code - packages/runner-headless/package.json and packages/runner-harness/package.json (`private: true`, version 0.0.0)",
+  "spine - AD-21, AD-22 (package surface, one public entry)",
+  "constraint - docs/guardrails.md, G6 (the licence gate over the published trees; `ovsx` is the named dev-tool exception)",
+  "spec - docs/architecture-options.md, section 4.1 (publish to the Marketplace and Open VSX)",
+]
+
+[[entry]]
+id = 12
+tracker_id = "#952"
+type = "story"
+title = "Refactor sweep"
+description = "Cleanup only, scoped when it starts from the plans and the review findings deferred during the epic: dead helpers, span walking duplicated between the linter, formatter and LSP, the package barrels and the dependency edge list, error messages, and any temporary fixture."
+verify = "Every deferred finding is either fixed or recorded as a new entry; the dependency-graph, licence and provenance gates pass; and the epic's Done-when table reads green with each row citing merged evidence."
+covers = ["CAP-14"]
+after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+hitl = false
+risk = "low"
+references = [
+  "rule - ~/.agents/skills/bmad-ticket/references/validate-checks.md (Set: a closing refactor sweep)",
+  "plan - every entry's plan file in this folder, once written",
+]
