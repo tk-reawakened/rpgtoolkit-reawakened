@@ -590,7 +590,7 @@ merged section as its first act, which is where `slice.md` puts them. SC-5 is no
 owner and belongs in `epic-audio-synth`'s Notes when that epic closes — not asserting it on epic 6's behalf is
 deliberate.
 
-**Deferred out of this epic, deliberately:** the editor's T-70 "Make EXE" button and any editor packaging UI (epic
+**Deferred out of this epic, deliberately:** the editor's T-70 "Make package" button and any editor packaging UI (epic
 editor-assets-p0); the editor PWA's shell and service worker (`host-web`, epic editor-foundation); hosting, domains,
 signing, store accounts and the release pipeline (no owner; epic 17's D-13 says the same); a native or WASM renderer or
 synth (AD-30's escape hatch); the desktop-shell epic's editor chrome.
