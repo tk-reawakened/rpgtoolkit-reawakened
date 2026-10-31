@@ -239,11 +239,11 @@
 
 ## Promotion and disposition record (Epic 23 audit, 2026-10-31, pinned c8b7772f)
 
-Every finding below was re-checked against code, tests and spec at `c8b7772f` before it was given a venue. The entries above are untouched; this record says where each one went.
+Every finding below was re-checked against code, tests and spec at `c8b7772f`. Tickets cut after that pin name the commit that delivered them, so a venue introduced later is cited at its own merge rather than at the audit revision. The entries above are untouched; this record says where each one went.
 
 ### Promoted to a ticket
 
-- `deferred-work` ledger entry for actor/battle writer validation (code review of 2.6, 2026-10-13) → **23.1 / #640**, delivered in #829 (`8d809f41`): `packages/core/src/formats/validate.ts` refuses an over-bound list, an out-of-range `i8`/`i16`/`i32`, a missing stored `idleTime`/`speed`, a wrong magic, an unlisted minor and a negative major.
+- `deferred-work` ledger entry for actor/battle writer validation (code review of 2.6, 2026-10-13) → **23.1 / #640**, delivered in #829 (`8d809f41`): `packages/core/src/formats/validate.ts` refuses an over-bound list, an out-of-range `i8`/`i16`/`i32`, a wrong magic, an unlisted minor and a negative major, and the actor writers refuse a missing stored `idleTime`/`speed` (`packages/core/src/formats/actor/character.ts`, `item.ts`).
 - Pre-vector board final-run overrun (2.8, 2026-10-13) → **23.2 / #641**, delivered in #729 (`4ff93c93`); the rule is `docs/spec/formats/legacy/older-binary-versions.md#board-minor-2-and-3-pre-vector` and the test is `packages/core/test/format-board-pre-vector.test.ts:316`.
 - First-board and no-board display (closing suite, 4.28) → **23.3 / #642**, awaiting an owner ruling; the display rule is still absent from `docs/spec/engine/main-loop-and-startup.md`.
 - Monorepo change tracking → **23.4 / #668**, delivered as `docs/findings/monorepo-change-detection.md` (#823).
@@ -251,8 +251,8 @@ Every finding below was re-checked against code, tests and spec at `c8b7772f` be
 - Core-battle CI shard split → **23.6 / #710**, delivered; `tools/no-skips/run.mjs --verify-groups` pins the grouping.
 - Surface pixel cache and incremental surface hashing (closing suite, 4.28) → **23.7 / #711** and **23.8 / #712**, delivered in #714 (`1797f7d2`); the residual cost is recorded in the `## Resolved` entry above rather than closed.
 - Shade-layer coverage (2.5, 2026-10-13) → **23.9 / #847**, delivered in #857 (`0fa9097a`) and refined in #862 (`a6147ff1`): `board/writer.ts` now refuses both a short layer and a record after the one that completes it.
-- Font substitution (closing suite, 4.28) → **23.10 / #848**, delivered in #862 (`a6147ff1`): `resolveFontAsset` (`render/text.ts`) resolves exact path, then family, then the Liberation substitution against the assets the project ships, and the engine passes the resolver for the `font` command. The Basic sample's recorded state hashes moved with it and were re-recorded with that reason (G5); no PNG baseline changed.
-- Main-file row citations (2.9, 2026-10-13) → **23.11 / #849**, delivered in #862: every citation now names its table row (fight style 33, language file 13, encounter pool 27, plugin list 37 with entries 38a/38b, day/night 40–41, cursor sounds 42–44, joystick/colour 45–46, the minor<3 menu-plugin fallback 23′).
+- Font substitution (closing suite, 4.28) → **23.10 / #848**, delivered in #857 (`0fa9097a`) and finished in #862 (`a6147ff1`): `resolveFontAsset` (`render/text.ts`) resolves exact path, then family, then the Liberation substitution against the assets the project ships, and the engine passes the resolver for the `font` command; the follow-up pinned family precedence by pixels and kept the documented fallback keys. The Basic sample's recorded state hashes moved with it and were re-recorded with that reason (G5); no PNG baseline changed.
+- Main-file row citations (2.9, 2026-10-13) → **23.11 / #849**, opened in #857 (`0fa9097a`) and finished in #862 (`a6147ff1`): every citation now names its table row (fight style 33, language file 13, encounter pool 27, plugin list 37 with entries 38a/38b, day/night 40–41, cursor sounds 42–44, joystick/colour 45–46, the minor<3 menu-plugin fallback 23′).
 - Ledger dispositions (this record) → **23.12 / #851**.
 - Tileset corpus coverage, `.spc`/`.ste` byte authority, the main-file conditional-rows test and focus pause in the golden double → **23.13 / #852**, partially delivered in #865 (`15ac7ba8`) for the enemy critical values, two extra named samples and the still-boots clause; the rest stays open there.
 - Board thread inline-code entry (closing suite, 4.28, INFERENCE) → **23.14 / #854**, awaiting an owner ruling.
@@ -265,11 +265,11 @@ Every finding below was re-checked against code, tests and spec at `c8b7772f` be
 - `docs/format-spec.md` §10 image kinds (2.3, 2026-10-11) — `docs/spec/formats/images.md` is the authority, `formats/image/{bmp,gif}.ts` implement BMP and GIF, and ICO/WMF are explicitly dropped in `docs/spec/formats/README.md:120-121`.
 - §4.2/§14 contradictions (2.5, 2026-10-11) — `docs/spec/formats/board.md` now rules the LUT, run-marker and isometric-detection questions it listed.
 - Board load path refusing minors 2–3 (2.8, 2026-10-11) — the registry dispatches a pre-vector board to the converter (`packages/core/src/formats/registry/core-decoders.ts`), so a 3.0.x project loads.
-- `resolveReference` with no consumer (2.9, 2026-10-11) — `engine/boot.ts:34` consumes it for the package-root folder key.
+- `resolveReference` with no consumer (2.9, 2026-10-11) — `engine/boot.ts:34` consumes it for the game-folder root's folder key (`Game/<projectPath>/<TypeFolder>/`); a package root builds its key from `typeFolder` directly.
 - Loose-folder package form and the L1–L26 rule ids cited as §13 (2.10, 2026-10-11) — ruled in `docs/spec/formats/packaging-and-paths.md` (the loose-folder form and its rules), which is the page the loader now cites.
 - `.tpk` in-package layout asserted only by fixtures (2.10, 2026-10-11) — `docs/spec/formats/packaging-and-paths.md` now pins the archive root and layout.
 - Manifest missing from the feature catalogues (2.12, 2026-10-11) — `docs/editor-features.md:184-192` (T-70, T-71, T-74) documents `manifest.json { schema, main, index }`.
-- Actor version-conditional fixtures (2.6, 2026-10-13) — committed examples under `docs/spec/examples/versions/` are read and round-tripped in `packages/core/test/format-actor.test.ts`, including the item minors 2–7 added by #857.
+- Actor version-conditional fixtures (2.6, 2026-10-13) — committed examples under `docs/spec/examples/versions/` are read and round-tripped in `packages/core/test/format-actor.test.ts`; the item minors 2–7 examples were added before #829 and their round-trip loop in `8d809f41`.
 - Walk-frame order (2.6, 2026-10-13) — stated by the character page's "Minor < 5 layout" and `docs/spec/formats/item.md` layout rows.
 - Coordinate and version validation (2.1/2.4/2.7 review findings) — already recorded under `## Resolved` above.
 
