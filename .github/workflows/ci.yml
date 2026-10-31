@@ -51,6 +51,7 @@ jobs:
           - plugin-tk2-compat
           - runner-harness
           - runner-headless
+          - runner-web
           - script-tools
     steps:
       - uses: actions/checkout@v7
