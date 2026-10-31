@@ -77,79 +77,85 @@ export function createTestEngine(): Engine {
 
       const audioCues: AudioCue[] = [];
       const consumed: InputRecord[] = [];
-
-      for (const record of inputs) {
-        const event = record.event;
-        switch (event.kind) {
-          case "key": {
-            if (event.down) {
-              if (!state.keys.includes(event.name)) {
-                state.keys.push(event.name);
-                state.keys.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      // E-03: apply events tick by tick, and stop counting frames as soon as the window loses focus. A record
+      // stamped for a tick that never runs is left unconsumed, which is what the engine's re-queue amounts to.
+      let ran = 0;
+      let tick = before;
+      while (ran < actualTicks) {
+        for (const record of inputs) {
+          if (record.tick !== tick) continue;
+          const event = record.event;
+          switch (event.kind) {
+            case "key": {
+              if (event.down) {
+                if (!state.keys.includes(event.name)) {
+                  state.keys.push(event.name);
+                  state.keys.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+                }
+                state.cueId++;
+                audioCues.push({
+                  cueId: state.cueId,
+                  tick: record.tick,
+                  kind: "media.volume",
+                  track: null,
+                  voice: null,
+                  asset: null,
+                  loop: null,
+                  flags: null,
+                  positionTicks: null,
+                  volume: 100,
+                  targetVolume: null,
+                  durationTicks: null,
+                });
+              } else {
+                const index = state.keys.indexOf(event.name);
+                if (index !== -1) {
+                  state.keys.splice(index, 1);
+                }
               }
-              state.cueId++;
-              audioCues.push({
-                cueId: state.cueId,
-                tick: record.tick,
-                kind: "media.volume",
-                track: null,
-                voice: null,
-                asset: null,
-                loop: null,
-                flags: null,
-                positionTicks: null,
-                volume: 100,
-                targetVolume: null,
-                durationTicks: null,
-              });
-            } else {
-              const index = state.keys.indexOf(event.name);
-              if (index !== -1) {
-                state.keys.splice(index, 1);
-              }
+              break;
             }
-            break;
+            case "pointer": {
+              state.pointer = {
+                x: event.x,
+                y: event.y,
+                buttons: event.buttons,
+              };
+              break;
+            }
+            case "gamepad":
+            case "asset":
+            case "blob.loaded":
+            case "blob.saved":
+            case "blob.listed":
+            case "extension.result":
+            case "audio.ended":
+            case "video.ended": {
+              state.other++;
+              break;
+            }
+            case "focus": {
+              // E-03: the Paused state runs no game frame, so losing focus stops the clock advancing until it returns.
+              state.focused = event.state === "gained";
+              break;
+            }
+            default: {
+              const _never: never = event;
+              throw new Error("test double: unexpected event kind");
+            }
           }
-          case "pointer": {
-            state.pointer = {
-              x: event.x,
-              y: event.y,
-              buttons: event.buttons,
-            };
-            break;
-          }
-          case "gamepad":
-          case "asset":
-          case "blob.loaded":
-          case "blob.saved":
-          case "blob.listed":
-          case "extension.result":
-          case "audio.ended":
-          case "video.ended": {
-            state.other++;
-            break;
-          }
-          case "focus": {
-            // E-03: the Paused state runs no game frame, so losing focus stops the clock advancing until it returns.
-            state.focused = event.state === "gained";
-            break;
-          }
-          default: {
-            const _never: never = event;
-            throw new Error("test double: unexpected event kind");
-          }
+
+          state.log = fnv1a64(state.log + canon(encodeLog(record)));
+          consumed.push({
+            tick: record.tick,
+            event: deepCopyValue(record.event as InputEvent),
+          });
         }
-
-        state.log = fnv1a64(state.log + canon(encodeLog(record)));
-        consumed.push({
-          tick: record.tick,
-          event: deepCopyValue(record.event as InputEvent),
-        });
+        if (!state.focused) break;
+        ran += 1;
+        tick += 1;
       }
-
-      // A paused window runs no frame: the inputs are consumed, but the tick does not advance.
-      const ran = state.focused ? actualTicks : 0;
-      state.tick = state.focused ? endTick : before;
+      state.tick = tick;
       const stateHash = hashState(state);
 
       return {
