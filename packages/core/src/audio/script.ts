@@ -154,30 +154,32 @@ export function createMediaScriptService(
     },
     bind(handle, result) {
       const record = findObject(state.vm, handle);
-      if (record !== undefined && (result.kind === "started" || (result.kind === "same-file" && result.action === "carry-on"))) {
-        writeMember(record, "slot", result.voice);
-        writeMember(record, "cueId", result.cueId);
-        if (!waiting.has(handle)) {
-          const ref = mediaVoiceRef(record)!;
-          const voice = findVoice(state.audio, ref);
-          if (voice?.lengthTicks === null && state.vm.threads.some((thread) => {
+      // A restored save may hold a `media.play` whose voice handle was freed and its
+      // number reallocated, so the handle names no live voice or one this play did not
+      // build (issue #825). Tolerate that: write nothing, skip the diagnosis and the
+      // emitter adoption, and keep the play's own result.
+      const voice = record !== undefined && record.hostType === "media.voice" && typeof record.members["track"] === "string" ? record : undefined;
+      if (voice !== undefined && (result.kind === "started" || (result.kind === "same-file" && result.action === "carry-on"))) {
+        writeMember(voice, "slot", result.voice);
+        writeMember(voice, "cueId", result.cueId);
+        const ref = mediaVoiceRef(voice);
+        if (ref !== null && !waiting.has(handle)) {
+          const live = findVoice(state.audio, ref);
+          if (live?.lengthTicks === null && state.vm.threads.some((thread) => {
             const wait = thread.wait;
             if (wait?.kind !== "audio.track") return false;
             const payload = wait.payload[0];
             return payload !== null && typeof payload === "object" && !Array.isArray(payload) && payload.handle === handle;
           })) diagnose("media.asset-length", "voice.wait", { track: ref.track, voice: ref.slot });
         }
-        if (mediaEventsActive(state)) {
-          const name = record.members["track"];
-          if (typeof name === "string") {
-            const track = service.trackObject(name);
-            if (track !== null) adoptEmitter(state.vm, state.events, mediaTrackEmitterKey(name), track);
-            adoptEmitter(state.vm, state.events, mediaVoiceEmitterKey({ track: name, slot: result.voice, cueId: result.cueId }), record);
-          }
+        if (ref !== null && mediaEventsActive(state)) {
+          const track = service.trackObject(ref.track);
+          if (track !== null) adoptEmitter(state.vm, state.events, mediaTrackEmitterKey(ref.track), track);
+          adoptEmitter(state.vm, state.events, mediaVoiceEmitterKey({ track: ref.track, slot: result.voice, cueId: result.cueId }), voice);
           adoptEmitter(state.vm, state.events, MEDIA_EMITTER, service.mediaObject());
         }
       }
-      if (record !== undefined && waiting.has(record.handle)) results.set(record.handle, result);
+      if (waiting.has(handle)) results.set(handle, result);
     },
     mediaObject() {
       if (mediaRecord === null || findObject(state.vm, mediaRecord.handle) !== mediaRecord) {

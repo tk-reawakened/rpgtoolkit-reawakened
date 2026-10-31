@@ -201,7 +201,31 @@ type Played = {
   readonly state: GameState;
   /** The tick at which each cue was reported, with the report's hash, for ordering checks. */
   readonly cueTicks: readonly number[];
+  /** Every script `media.voice` object the audio phase saw, with the tick it appeared and the tick it was bound. */
+  readonly voices: readonly ObservedVoice[];
 };
+
+/**
+ * One `media.voice` object as the audio phase of a tick saw it (MEDIA-1): `firstTick` is the tick it first
+ * appeared in, and `boundTick` the first tick it carried a track, a slot and a cue id together.
+ */
+type ObservedVoice = {
+  readonly handle: number;
+  readonly firstTick: number;
+  readonly track: string | null;
+  readonly slot: number | null;
+  readonly cueId: number | null;
+  readonly boundTick: number | null;
+};
+
+/** The members of a `media.voice` record, read the way MEDIA-1 defines them. */
+function voiceObservation(record: { readonly handle: number; readonly members: { readonly [name: string]: unknown } }, tick: number, firstTick: number): ObservedVoice {
+  const track = typeof record.members["track"] === "string" ? record.members["track"] : null;
+  const slot = typeof record.members["slot"] === "number" && Number.isInteger(record.members["slot"]) ? record.members["slot"] : null;
+  const cueId = typeof record.members["cueId"] === "number" && Number.isInteger(record.members["cueId"]) ? record.members["cueId"] : null;
+  const bound = track !== null && slot !== null && cueId !== null;
+  return { handle: record.handle, firstTick, track, slot, cueId, boundTick: bound ? tick : null };
+}
 
 /**
  * Host the game for `ticks` engine ticks, `CHUNK` ticks per `advance` call, answering every asset request.
@@ -215,6 +239,24 @@ function play(ticks: number, device: boolean, switchBoard = false, cancelBoard =
   let seeded = false;
   let switched = false;
   let observedOutcome = false;
+  // The audio phase runs after the applier binds a start and before the end-of-tick pass, so a voice object
+  // that only a held effect keeps alive is visible here and nowhere later.
+  const observedVoices = new Map<number, ObservedVoice>();
+  const observeVoices = (state: GameState): void => {
+    const tick = state.time.tick;
+    for (let index = 0; index < state.vm.objects.length; index += 1) {
+      const record = state.vm.objects[index];
+      if (record === undefined || record.hostType !== "media.voice") continue;
+      const previous = observedVoices.get(record.handle);
+      if (previous === undefined) {
+        observedVoices.set(record.handle, voiceObservation(record, tick, tick));
+        continue;
+      }
+      if (previous.boundTick !== null) continue;
+      const current = voiceObservation(record, tick, previous.firstTick);
+      if (current.boundTick !== null) observedVoices.set(record.handle, current);
+    }
+  };
   const engine: Engine = createEngine({
     seed: 23,
     assetIndex: createAssetIndex(paths),
@@ -256,6 +298,9 @@ function play(ticks: number, device: boolean, switchBoard = false, cancelBoard =
         state.party.members = [hero.id];
         state.party.selected = hero.id;
       },
+    }, {
+      phase: "audio",
+      run: (state) => { observeVoices(state); },
     }],
   });
   const cues: AudioCue[] = [];
@@ -296,7 +341,7 @@ function play(ticks: number, device: boolean, switchBoard = false, cancelBoard =
   }
   if (latest === null) throw new Error("the engine never ran a tick");
   if (switchBoard) ok(observedOutcome, "board B is active while the won battle still names board A");
-  return { cues, hashes, state: latest, cueTicks };
+  return { cues, hashes, state: latest, cueTicks, voices: [...observedVoices.values()] };
 }
 
 /** Ticks per `advance` call; one state hash is taken per call. */
@@ -399,6 +444,12 @@ test("a canceled board music start does not invalidate a pending script voice", 
   equal(played.state.vm.globals.fightreturned, 1);
   equal(musicStarts(played.cues).filter((asset) => asset === "media/other.mid").length, 0, "the board music request is canceled");
   ok(played.cues.some((cue) => cue.kind === "media.play" && cue.track === "ui" && cue.asset === "media/ready.wav"));
+  // The readySound play must reach its voice object (MEDIA-1), not merely a cue: a record that is a
+  // `media.voice` with the `ui` track and integer slot and cue id, still alive in a tick later than the one
+  // that created it — which only a held effect keeps alive (issue #825).
+  const ui = played.voices.filter((voice) => voice.track === "ui" && voice.slot !== null && voice.cueId !== null);
+  ok(ui.length > 0, "the readySound play bound a media.voice on the ui track");
+  ok(ui.some((voice) => voice.boundTick !== null && voice.boundTick > voice.firstTick), "the bound voice outlived the tick that created it");
 });
 
 test("the null runner and a runner that answers audio.ended see equal cue streams and state hashes", () => {
