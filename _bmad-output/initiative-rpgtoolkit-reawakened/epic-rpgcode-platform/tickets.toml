@@ -337,10 +337,12 @@ references = ["issue - #850", "spec - docs/spec/engine/rpgcode-package-loader.md
 [[entry]]
 id = 20
 tracker_id = "#853"
+tracker_status = "done"
 type = "story"
 title = "Build the package catalogue in the host"
 description = "Core consumes a package catalogue but no host builds one, so packages named in the .gam list never load outside tests."
 verify = "A host-level fixture boots a game naming stock_battle from a real package folder with one start-up observable and no plugin.unresolved, while a missing name stays a located diagnostic and the game boots."
+notes = ["Delivered by PR #879 (f0216f6c, Fixes #853), merged 2026-10-31. packages/runner-harness/src/package-catalogue.ts builds the catalogue core consumes from a package folder's manifest and start-up text, validating with core's own PACKAGE_IDENTIFIER and HOST_REQUEST_KINDS (shared, not copied), refusing a repeated request kind and a start-up path that leaves the folder. Tests over the real stock/stock_battle folder: a game naming it boots with no plugin.unresolved and the start-up observable, a missing name is one located plugin.unresolved at the main file and its list position while the game boots, and the validation rules are covered in both directions. This is the host half of Epic 19 Done-when 11; 19.16/#540 is recorded as superseded."]
 covers = ["CAP-5"]
 after = []
 hitl = false
