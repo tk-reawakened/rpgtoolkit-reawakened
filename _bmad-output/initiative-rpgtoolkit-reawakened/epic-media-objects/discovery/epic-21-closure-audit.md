@@ -81,3 +81,15 @@ open were re-checked against the merged tree rather than taken from the store:
 A parallel implementation of entry 21.7 was written in this session (PR #858) before #846 landed; it was closed as
 a duplicate rather than merged, so `main` keeps a single fixture folder, a single media-package golden and one
 reviewed behaviour suite.
+
+## Addendum (2026-10-31, second cross-check)
+
+Re-derived after the epic's last entries merged. The nine verdicts above still hold; three items in the audit text are
+superseded:
+
+- **A-03** said "criteria 8 depends on entry 21.7 (#486, open) and the epic's refactor sweep (21.8, #487) is open". Both
+  merged (#846 and #859), so nothing in the buildable scope is open.
+- **A-02** (store drift) is corrected in its own PR: entries 21.5–21.9 are marked done in their plan files, and the
+  21.12 spike plan now carries a plan type so the store joins it to entry 12 instead of listing it as a stray row.
+- The epic still does **not** close: 21.12 / #843 is the owner-gated load-time listener ruling (criterion 6), exactly as
+  recorded above.

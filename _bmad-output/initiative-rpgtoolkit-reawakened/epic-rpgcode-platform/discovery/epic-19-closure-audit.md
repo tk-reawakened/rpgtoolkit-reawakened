@@ -7,8 +7,8 @@ baseline_revision: 26740257db3b692b5b210b05b489f60057d35e72
 
 # Epic 19 closure audit
 
-Audited at **`26740257`**. 19 of 20 children are CLOSED; the open one is **19.20 / #853** (build the package catalogue
-in the host), whose session is active. The epic's criteria are otherwise proven by named suites.
+Audited at **`26740257`**; updated 2026-10-31. All 20 children are now CLOSED: **19.20 / #853** merged as #879
+(`f0216f6c`), so the host half below is delivered. The epic's criteria are proven by named suites.
 
 | # | Done when | Verdict | Evidence |
 |---|---|---|---|
@@ -22,7 +22,7 @@ in the host), whose session is active. The epic's criteria are otherwise proven 
 | 8 | The trust baseline (ADR 0008) and plugin-language guidance are written in docs/spec and the plugin guide | **Proven** | `docs/adr/0008-*`, the plugin guide source under `docs/`, and the spec sections PKG-1…PKG-8 in `rpgcode-modules-and-objects.md` |
 | 9 | The measured stock ATB tick and cancelable-emit result against `STEP_BUDGET` is committed, and Epic 20 reflects it | **Proven** | `packages/core/test/step-budget-spike.test.ts` (committed measurement) |
 | 10 | Every legacy golden unchanged; typecheck, lint, licence, provenance, catalogue and command-docs gates pass | **Proven** | `pnpm golden` (24 compared, scenes exact), `pnpm closing` 8/8, and all six gates observed green this session |
-| 11 | A package named in `.gam` loads: catalogue gives version/namespace/requests/start-up; start-up runs at boot and on `reset`; a restore runs it on a scratch state first; a name with no entry is a located `plugin.unresolved` and the game still boots | **Proven in engine, host half in flight** | Engine side: `battle-cues-engine.test.ts` catalogue boot, `applyLoadedGame`'s scratch-state start-up (`engine.ts:928-968`), `plugin.unresolved` in `script-manifest.test.ts`/`engine.test.ts`; the **host** that builds and passes the catalogue is **19.20 / #853**, still open and owned by another session |
+| 11 | A package named in `.gam` loads: catalogue gives version/namespace/requests/start-up; start-up runs at boot and on `reset`; a restore runs it on a scratch state first; a name with no entry is a located `plugin.unresolved` and the game still boots | **Proven** | Engine side: `battle-cues-engine.test.ts` catalogue boot, `applyLoadedGame`'s scratch-state start-up (`engine.ts:928-968`), `plugin.unresolved` in `script-manifest.test.ts`/`engine.test.ts`. Host side: `packages/runner-harness/src/package-catalogue.ts` builds the catalogue from a package folder and `packages/runner-harness/test/package-catalogue.test.ts` boots the real `stock/stock_battle` folder end to end (#853, PR #879); the criterion-by-criterion record is `epic-rpgcode-platform/discovery/done-when-11-audit.md` |
 
 ## Findings
 
@@ -34,3 +34,9 @@ in the host), whose session is active. The epic's criteria are otherwise proven 
 - Bookkeeping: the earlier audit note that 19.16 / #540 was closed while its entry still read planned was resolved by
   another session in #875 (“record ticket 540 as superseded”).
 - Store: 19/19 closed children `done`; no correction.
+
+> **Correction (2026-10-31, second cross-check).** The header previously read "19 of 20 children are CLOSED; the open
+> one is **19.20 / #853** (build the package catalogue in the host), whose session is active", and criterion 11 was
+> "**Proven in engine, host half in flight**". #853 merged as #879 (`f0216f6c`), so the host half is delivered and the
+> criterion is Proven; the clause-by-clause record is `done-when-11-audit.md`. The F-01 recommendation was realised
+> exactly as written (the host builds the catalogue and passes it through `EngineInit.packageCatalogue`).
