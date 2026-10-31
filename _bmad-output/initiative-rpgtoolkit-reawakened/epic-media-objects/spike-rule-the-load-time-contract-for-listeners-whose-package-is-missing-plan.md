@@ -1,6 +1,6 @@
 ---
 title: 'Rule the load-time contract for listeners whose package is missing'
-type: 'spike'
+type: 'chore'
 ticket: 12
 created: '2026-10-30'
 status: blocked

@@ -6,7 +6,7 @@ tracker_id: "#487"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/487"
 parent: epic-media-objects
 created: '2026-10-19'
-status: built
+status: done
 baseline_revision: 'bde11f324a05271ce7421d8281bde02f5cca5984'
 risk: "low"
 review: thorough

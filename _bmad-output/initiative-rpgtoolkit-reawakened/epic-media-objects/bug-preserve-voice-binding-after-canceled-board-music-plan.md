@@ -3,7 +3,7 @@ title: 'Preserve voice binding after canceled board music'
 type: 'bugfix'
 ticket: 9
 created: '2026-10-30'
-status: 'built'
+status: done
 baseline_revision: '2573a98d7bb27d94c6570d511ae23b777056215d'
 risk: 'medium'
 context: []
