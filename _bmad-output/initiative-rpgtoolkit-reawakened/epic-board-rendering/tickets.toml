@@ -581,6 +581,7 @@ references = [
 [[entry]]
 id = 37
 tracker_id = "#885"
+tracker_status = "done"
 type = "bug"
 title = "The epic 4 audit miscounts the ledger rows"
 description = "Correct the closure audit's criterion 1 evidence: golden/ledger.json holds 12 independent-reference rows and 7 regression baselines (19 total), and there are six S-LIGHT-* scenes, not the seven the audit names. No code, ledger or golden change."
@@ -590,3 +591,4 @@ after = []
 hitl = false
 risk = "low"
 references = ["audit - epic-board-rendering/discovery/epic-04-closure-audit.md", "golden - golden/ledger.json"]
+notes = ["Delivered by PR #887 (b93ee00c, Fixes #885), merged 2026-10-31. The audit row now names the 12 independent-reference scenes and the six S-LIGHT-* scenes, with a correction note quoting the superseded wording; golden/ledger.json is unchanged."]
