@@ -152,3 +152,29 @@ after = [4, 5]
 hitl = false
 risk = "medium"
 references = ["issue - #758", "spec - docs/spec/engine/audio-media.md"]
+
+[[entry]]
+id = 10
+tracker_id = "#825"
+type = "bug"
+title = "Bind tolerates a voice record that is not a live media.voice"
+description = "Finishes #758's Expected: `bind` skips the length diagnosis and emitter adoption when the handle it is given does not name a bound media.voice, keeps the play's own result, and no longer dereferences a null `mediaVoiceRef`. Adds the deterministic restored-save regression (a snapshot whose held media.play names a reallocated handle) and strengthens the #821 battle regression so it observes the bound voice object."
+verify = "The restored-save test throws on the pre-fix commit and passes after it; the strengthened battle regression fails if the fix only swallows the null; test:strict, golden, golden:bun and closing are unchanged or explained per program."
+covers = ["CAP-5", "CAP-7"]
+after = [9]
+hitl = false
+risk = "medium"
+references = ["issue - #825", "pr - #821", "spec - docs/spec/engine/audio-media.md#audio-core-pins", "spec - docs/spec/engine/rpgcode-modules-and-objects.md (R-34)"]
+
+[[entry]]
+id = 11
+tracker_id = "#826"
+type = "story"
+title = "Name the media.play voice root once and document the end-of-tick audio root"
+description = "Maintainability and docs: export the pending audio roots (and the voice-argument index) from the audio section instead of the third hardcoded `args[8]`, pass them through collectStateGarbage's `extra` parameter, and document the new end-of-tick root in the collectStateGarbage JSDoc, audio-media.md pin 4 and R-34's roots list; fix the CHANGELOG wording that an effect `finishes`."
+verify = "One named source for the voice-argument index with all three call sites using it; docs and CHANGELOG updated in a docs-first commit; state hashes, goldens and closing unchanged; typecheck, lint, test:strict, graph, licence and provenance green."
+covers = ["CAP-5", "CAP-7"]
+after = [10]
+hitl = false
+risk = "low"
+references = ["issue - #826", "spec - docs/spec/engine/audio-media.md#audio-core-pins", "spec - docs/spec/engine/rpgcode-modules-and-objects.md (R-34)", "code - packages/core/src/script/layers.ts (layerRoots)"]
