@@ -48,7 +48,7 @@ Seven are gating — 9.2 to 9.14 cannot start without them (D-1, D-3, D-4, D-5, 
 
 | ID | Ruling in one line | Gating? | Lands in |
 |---|---|---|---|
-| D-1 | Two desktop applications from one codebase plus the PWA: a **player** (distribution artefact, resolving `--game`/deep link → `player.json` → baked default → library) and an **editor** (own package, own platform-services, own cadence), both on Electron 45.2.1 with `app://`; games are packages in a library, no per-game executable, stub or file association | **yes** | `docs/adr/0013-desktop-shell-electron.md` (new, one G6 inventory for both binaries), `docs/spec/engine/runners.md#desktop-shell`, `#install`, `docs/spec/formats/packaging-and-paths.md` (Install descriptor), epic `desktop-shell`'s envelope |
+| D-1 | Two desktop applications from one codebase plus the PWA: a **player** (distribution artefact, resolving `--game`/deep link → `player.json` → baked default → library) and an **editor** (own package, own platform-services, own cadence), both on Electron 45.2.1 with `app://`; games are packages in a library, no per-game stub, second shell or file association — one player build may carry one baked package | **yes** | `docs/adr/0013-desktop-shell-electron.md` (new, one G6 inventory for both binaries), `docs/spec/engine/runners.md#desktop-shell`, `#install`, `docs/spec/formats/packaging-and-paths.md` (Install descriptor), epic `desktop-shell`'s envelope |
 | D-2 | Store images as they are; no BMP/GIF transcode; no WebP; PNG only for what we write | no | `docs/spec/formats/images.md` (new Storage policy section), epic Notes |
 | D-3 | One normative runner page, one JSON Schema, one vector kit; the TypeScript packages are a binding | **yes** | `docs/spec/engine/runners.md` (new), `packages/runner-harness/schema/runner-protocol-v1.schema.json` (new), `tools/fixtures/runner-protocol/` (new) |
 | D-4 | Two load modes with a measured threshold; the core computes the prefetch plan; manifest unchanged | **yes** | `docs/spec/engine/runners.md#load-modes`, `#prefetch`; AD-5 amendment |
@@ -60,10 +60,49 @@ Seven are gating — 9.2 to 9.14 cannot start without them (D-1, D-3, D-4, D-5, 
 | D-10 | SF2 on the default path and no WebAssembly, so no `wasm-unsafe-eval` there | no | `docs/spec/engine/runners.md#csp-and-banks` |
 | D-11 | The player page is `runner-web`'s declared `./app` subpath, not a new package | no | AD-22 amendment in the spine, `packages/runner-web/package.json` |
 
-ADR numbers are the next two free in `docs/adr/` (0001 to 0012 exist); renumber if another ADR lands first. **0013 is
-already claimed by another epic**: `epic-rpgcode-tooling`'s ruling draft proposes `docs/adr/0013-rpgcode-spec-package.md`
-"working number; renumber if 0013 is taken". Whichever lands first keeps the number and this page's references to
-`0013-…` and `0014-…` are re-read at that moment.
+ADR numbers are the next two free in `docs/adr/` (0001 to 0012 exist); renumber if another ADR lands first. **`0013` is
+also wanted by another epic, not claimed by it**: `epic-rpgcode-tooling`'s ruling draft proposes
+`docs/adr/0013-rpgcode-spec-package.md` — *"working number; renumber if 0013 is taken"* — so neither epic has priority.
+Whichever lands first keeps the number and this page's references to `0013-…` and `0014-…` are re-read at that moment
+(if the tooling ADR lands first, this page's two become `0014` and `0015`).
+
+## Corrections made at review (2026-10-31)
+
+Seven contradictions were fixed in place above. Each is dated here with the wording it superseded, none changes a
+ruling's substance, and every paragraph keeps its `Proposed ruling (pending owner review; entry 9.1)` marking.
+
+1. **D-1, the table row — "no per-game executable, stub or file association"** (superseded). It contradicted the
+   ruling's own resolution order for the player (Artefact 2, step 3: "an embedded default project baked in at export")
+   and `epic-web-runner-packaging.md:39-40` ("a game is a package installed into the player's library, **with a default
+   game baked at export or configured**"). Correct text: *no per-game stub, second shell or file association — one
+   player build may carry one baked package*.
+2. **D-1, "what the exporter emits" — "and never an engine"** (superseded). AD-6 says "web and desktop bundles embed
+   [the distribution package] unchanged", and a pre-configured player build is exactly such a bundle: read literally,
+   "never an engine" forbade the baked default the same section rules two paragraphs earlier, and the section's own
+   "Rejected alternatives" withdraws *per-game bundled executables*, not a pre-configured build of the one player.
+   Correct text: *and no second engine:
+   the only executable a game can travel inside is the player build already shipped, with one package embedded
+   unchanged (AD-6)*.
+3. **D-1, the page this ruling lands in — `docs/spec/formats/packaging-and-paths.md:96`.** The "Distribution package"
+   section that gains the new "Install descriptor" section opens with "The editor's 'Make EXE' (T-70) **appends a
+   distribution package** to an engine copy", the form correction 2 rules out. The same commit must reword that
+   sentence to the package-plus-descriptor form, or to the T-70 open question this D-1 records.
+4. **The ADR-number paragraph — "0013 is already claimed by another epic"** (superseded). The plan it quotes says the
+   opposite of a claim: `epic-rpgcode-tooling`'s ruling draft lists `docs/adr/0013-rpgcode-spec-package.md` in its
+   "Where the text lands" table as a "*working number; renumber if 0013 is taken*" (that plan, D-1's Files line).
+   Correct text: *also wanted by another epic, not claimed by it*, with the `0014`/`0015` consequence stated.
+5. **D-4 — "64 MiB standing in until the tracer measures the fetched corpus"** (superseded). The envelope's own
+   `Source conflict: SC-3` says "9.9 measures the fetched corpus instead" (`epic-web-runner-packaging.md:75`), and 9.9
+   is the entry that owns the threshold table and its measurement date. Correct text: *until 9.9 measures the fetched
+   corpus*.
+6. **D-4, Lands in — "an AD-5 amendment in the spine adding the hint request kind"** (superseded as written). The
+   enumerated request kinds live in AD-17 (`architecture-rpgtoolkit-reawakened.md:284`), not AD-5, and 9.8's own entry
+   names "the AD-17/AD-5 doc-first amendment of the request list" (`tickets.toml`, entry 8). Correct text: *an AD-5
+   and AD-17 amendment*.
+7. **D-10, Lands in — `docs/spec/engine/runners.md#csp-and-banks` alone** (superseded as written). The ruling says the
+   shipped CSP needs no `wasm-unsafe-eval`, while the spine's Operations sentence D-10 cites still ships it
+   (`architecture-rpgtoolkit-reawakened.md:497`), so the new page and the spine would disagree the day D-10 lands.
+   Correct text: the spine's Operations sentence is made conditional in the same commit.
 
 ---
 
@@ -181,7 +220,9 @@ a standing maintenance line, not a one-off bump.
 
 **Proposed ruling (pending owner review; entry 9.1) — what the exporter emits, and the open T-70 question.** The
 exporter emits **a package and its install descriptor** — a distribution `.tpk` (or the same tree as a folder) plus the
-sibling `<package>.tpk.json` — and never an engine. That is a change to the **product promise**, not to the writer:
+sibling `<package>.tpk.json` — and **no second engine**: the only executable a game can travel inside is the player
+build the owner already ships, with one package embedded in it unchanged (AD-6). That is a change to the **product
+promise**, not to the writer:
 `writeDistributionPackage` already returns a ZIP and nothing else, and "a pre-configured player build with a baked
 default" is configuration applied at export, not a different artefact kind. `docs/editor-features.md` still describes
 T-70 as "one self-running executable (the engine with the game appended)"; whether that legacy form is
@@ -194,7 +235,9 @@ decision and is recorded as an open question here rather than assumed in the pac
   path/drag-and-drop asset source, `platform-services`, no worker), `#offline` (artefact 4, under D-5) and `#install`
   (what "install a package" means in a host, and that it is not a save). The package bytes themselves stay D-4's
   `#load-modes`; the descriptor's shape lands in `docs/spec/formats/packaging-and-paths.md` as a new "Install descriptor"
-  section, because AD-6's three-field manifest must not change to carry it. Epic `desktop-shell`'s envelope gains the
+  section, because AD-6's three-field manifest must not change to carry it — and that same commit rewords the section's
+  T-70 opening sentence ("appends a distribution package to an engine copy", `packaging-and-paths.md:96`), which states
+  the form this ruling replaces (correction 3 above). Epic `desktop-shell`'s envelope gains the
   editor-application half.
 - **Evidence.** Measured on macOS 27.0.1 / Apple M1 Pro, 2026-10-31: Electron 44.7.0 and a WKWebView host both present
   WebGL2 (16,384 max texture; the only extension difference is `EXT_disjoint_timer_query_webgl2`, Chromium-only), both
@@ -224,10 +267,12 @@ decision and is recorded as an open question here rather than assumed in the pac
   24.04+ only, and its packaged Bun statically links JavaScriptCore under **LGPL-2**, an obligation its MIT licence file
   does not mention. *Wails v3 and NW.js*: a third language, and a licence-free 0.x line that hands page JavaScript full
   Node privilege with no updater. *Per-game bundled executables*: withdrawn by the owner on 2026-10-31 — the player is
-  installed once and the game is data. *A per-game system-webview stub*, and *file association as the distribution
-  mechanism*: both withdrawn by the owner on the same day, because the single-project case is configuration, not
-  packaging: a stub per game means a second shell, a second signing pipeline and a second engine per export for a game
-  that is otherwise a file, and an association is a promise the OS lets a user break and that does not exist in the PWA.
+  installed once and the game is data; a pre-configured build of the one player, with a package baked in, is
+  configuration of that build, not a per-game executable. *A per-game system-webview stub*, and *file association as
+  the distribution mechanism*: both withdrawn by the owner on the same day, because the single-project case is
+  configuration, not packaging: a stub per game means a second shell, a second signing pipeline and a second engine per
+  export for a game that is otherwise a file, and an association is a promise the OS lets a user break and that does not
+  exist in the PWA.
 - **Flip conditions.** The shell moves to Tauri if **any** of these holds: the G6 exception is refused for either
   binary; the player fails one of the four measurements on any of the three operating systems; the owner rules a
   ~124 MiB macOS / ~151 MiB Windows download unacceptable for the audience; or the eight-week major cadence cannot be
@@ -300,18 +345,20 @@ runner proves itself by replaying the vectors; it never depends on a TypeScript 
 **Proposed ruling (pending owner review; entry 9.1).** The web runner has two load modes. Below a threshold it
 downloads the whole distribution package once, behind a progress screen, and keeps it; above it, it streams assets on
 demand. The threshold is not a fixed constant: it is the measured uncompressed size of the largest corpus package,
-rounded up to the next whole mebibyte and recorded in a table with its measurement date, 64 MiB standing in until the
-tracer measures the fetched corpus. The **core** computes the deterministic prefetch plan and sends it as tiered hints
-at the AD-5 seam — `now`: the current board, its music, the `.anm` frame sounds of the animations it uses and the
-default bank when a MIDI is in this tier; `next`: boards reachable by edge links and literal `send(...)` targets, the
-battle background and its sounds; `always`: main-file cursor sounds and the default bank — and a runner only fetches
-and decodes ahead. A runner **MUST NOT** parse a board to guess what to prefetch. A hint never blocks, never changes
-state or a hash, and never earns a reply. `manifest.json` keeps exactly `schema`, `main` and `index`; a cached package
-is keyed by the SHA-256 of its bytes, and per-entry hashes and delta updates wait until a second published package
-version exists.
+rounded up to the next whole mebibyte and recorded in a table with its measurement date, 64 MiB standing in until **9.9**
+measures the fetched corpus (the envelope's `Source conflict: SC-3`). The **core** computes the deterministic prefetch
+plan and sends it as tiered hints at the AD-5 seam — `now`: the current board, its music, the `.anm` frame sounds of
+the animations it uses and the default bank when a MIDI is in this tier; `next`: boards reachable by edge links and
+literal `send(...)` targets, the battle background and its sounds; `always`: main-file cursor sounds and the default
+bank — and a runner only fetches and decodes ahead. A runner **MUST NOT** parse a board to guess what to prefetch. A
+hint never blocks, never changes state or a hash, and never earns a reply. `manifest.json` keeps exactly `schema`,
+`main` and `index`; a cached package is keyed by the SHA-256 of its bytes, and per-entry hashes and delta updates wait
+until a second published package version exists.
 
-- **Lands in:** `docs/spec/engine/runners.md#load-modes` and `#prefetch`; an AD-5 amendment in the spine adding the
-  hint request kind; and 9.8's code half in `packages/core/src/ports/requests.ts` with the matching
+- **Lands in:** `docs/spec/engine/runners.md#load-modes` and `#prefetch`; an **AD-5 and AD-17** amendment in the spine
+  adding the hint request kind (AD-17 holds the enumerated request list at `:284`, where `asset`, `loadBlob`,
+  `saveBlob`, `listBlobs`, `extension.call`, `quit`, `openUrl` and `playVideo` are named; AD-5 holds the
+  blocking/stream/hint rule); and 9.8's code half in `packages/core/src/ports/requests.ts` with the matching
   `HOST_REQUEST_KINDS` entry in `packages/core/src/script/manifest.ts` and the `isRequest` guard in
   `packages/runner-harness/src/driver.ts`.
 - **Evidence:** AD-5 (blocking versus stream requests; hints allowed and unable to change state); AD-6 and
@@ -456,7 +503,10 @@ WebAssembly, so the allowance can never widen silently. SF3 support itself stays
 this epic.
 
 - **Lands in:** `docs/spec/engine/runners.md#csp-and-banks`, plus a line in the epic's Notes so the caveat survives
-  beside the audio handoff.
+  beside the audio handoff, **and** the Operations sentence in the spine that this ruling narrows
+  (`architecture-rpgtoolkit-reawakened.md:497`, "`script-src 'self' 'wasm-unsafe-eval' blob:` … SF3 decoding needs
+  `wasm-unsafe-eval`"), which becomes conditional on the build that can load SF3 — otherwise the shipped CSP says one
+  thing and this page another.
 - **Evidence:** `audio-media.md#audio-browser-test` states the bundled banks are SF2 so the default path needs no
   WebAssembly, and calls the SF3 requirement **unverified**; the spine's Operations section allows
   `'wasm-unsafe-eval'` in the shipped CSP (`:497`) and the review record explains that `spessasynth_core` reaches

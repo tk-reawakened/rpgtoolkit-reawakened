@@ -7,7 +7,7 @@ blocked_reason: awaiting the owner review of the ruling text recorded here
 
 ## Intent
 
-Entry 10.2 is the epic's doc-first gate (G7 rule 4): it writes the normative text that entries 10.4 to 10.11 implement, so no builder invents an API name, a rule id, a subcommand, an exit code or a schema. This plan records the exact wording the owner is asked to approve, decision by decision (D-1 to D-8 from `discovery/inception-proposal.md` §4), with the file each paragraph lands in, its evidence, the rejected alternative, and the entries that change if the owner rules the other way.
+Entry 10.2 is the epic's doc-first gate (G7 rule 4): it writes the normative text that entries 10.4 to 10.11 implement, so no builder invents an API name, a rule id, a subcommand, an exit code or a schema. This plan records the exact wording the owner is asked to approve, decision by decision, with the file each paragraph lands in, its evidence, the rejected alternative, and the entries that change if the owner rules the other way. **Its D-numbers are this plan's own and do not line up with `discovery/inception-proposal.md` §4** — only D-1, D-2 and D-7 name the same decisions there; the "Corrections made at review" section below carries the mapping, because the two documents' `D-3` to `D-6` are different decisions.
 
 Nothing here is written into `docs/` yet. Every paragraph below is marked **Proposed ruling (pending owner review; entry 10.2)** with no owner name and no date, so approval can be recorded against the text as it stands.
 
@@ -15,14 +15,62 @@ Nothing here is written into `docs/` yet. Every paragraph below is marked **Prop
 
 | File | What it carries | Created by 10.2? |
 |---|---|---|
-| `docs/spec/engine/rpgcode-tooling.md` | the whole tooling contract: the diagnostic model (D-1), the lint rules (D-3), the formatter rules (D-4), the spec API (D-5), the index schema (D-6), the CLI surface (D-7) | new page |
+| `docs/spec/engine/rpgcode-tooling.md` | the tooling contract: the transport and its licence note (D-1), the early extension note (D-2), the diagnostic and lint-rule model (D-3), the formatter rules (D-4), the spec API (D-5), the index schema (D-6), the CI job's command order (D-7), the debug view (D-8). **Not** the `tkr script` surface: subcommands, stable exit codes and the JSON result protocol have no paragraph in this draft — see "Not ruled here" | new page |
 | `docs/adr/0013-rpgcode-spec-package.md` (working number; renumber if 0013 is taken when 10.2 runs) | why the spec API is a test-only RPGCode package with one native result channel, and how its commands enter the catalogue (G7, ADR 0004) | new ADR |
 | `docs/spec/engine/rpgcode-functions.md` | one row per command the spec package registers, in the existing table shape, so the command-docs gate validates them | edited |
-| `docs/guardrails.md` | **only if** the owner approves the D-2 note that the LSP/DAP libraries ship inside our own artefacts (no rule text changes are proposed today) | unchanged unless ruled |
+| `docs/guardrails.md` | **only if** the owner wants D-1's licence note written outside the spec — the one that records the four LSP libraries in the production tree (no rule text changes are proposed today) | unchanged unless ruled |
 | `docs/adr/0011-tree-sitter-rpgcode.md` | **only if** a grammar decision moves; no paragraph below proposes one | unchanged |
 | `_bmad-output/…/architecture-…/architecture-…md` | an amendment note on AD-1 (the read-only debug view, D-8) | edited |
 
 `package.json`, any `tsconfig`, and any source file stay untouched: entry 10.2 is a docs entry, and its verify is that the commit touches `docs/` and the epic folder only (plus the spine's AD-1 note).
+
+## Corrections made at review (2026-10-31)
+
+Seven contradictions were fixed in place above. Each is dated here with the wording it superseded; every paragraph keeps
+its `Proposed ruling (pending owner review; entry 10.2)` marking and the plan stays `status: blocked`.
+
+1. **The Intent's "(D-1 to D-8 from `discovery/inception-proposal.md` §4)"** (superseded). The numbers are not the
+   proposal's: §4's D-3 is "Is the linter / formatter / test-framework scope in this epic or deferred", D-4 is
+   "`vscode.dev` web-build constraints", D-5 is "Where the shared tooling library lives, and whether the spec framework
+   is built-ins", D-6 is "What 'the VEB output lints clean' means before the VEB exists" and D-8 is the CodeGraph angle
+   (§12), while this plan's D-3, D-4, D-5, D-6 and D-8 are the diagnostic model, the formatter, the spec API, the index
+   and the debug view. Only D-1, D-2 and D-7 name the same decision in both. The Intent now says so, so an approval
+   recorded against "D-4" cannot mean two things.
+2. **The "Where the text lands" row — "the diagnostic model (D-1) … the CLI surface (D-7)"** (superseded). The
+   diagnostic model is D-3, D-1 is the transport and D-7 is the CI job; the row now names D-1 to D-8 against the right
+   decisions.
+3. **The `docs/guardrails.md` row — "the D-2 note that the LSP/DAP libraries ship inside our own artefacts"**
+   (superseded). D-2 is the early standalone extension and says nothing about shipping libraries; the optional licence
+   note is D-1's ("plus the licence note if the owner wants the dependency set written down outside the spec").
+4. **D-1, "If ruled otherwise" — "10.4 gains the framing work and its transport tests; 10.1's tracer is unaffected"**
+   (superseded). Entry 4 is the index since the 2026-10-31 amendment that inserted it (`tickets.toml`, "Amendment
+   2026-10-31"), so 10.4 is the wrong entry, and 10.1 is not unaffected: it owns `packages/lsp`, `createServer` and the
+   stdio entry, which is where a hand-rolled connection is built. Correct text: *10.1 gains the framing work and its
+   transport tests; 10.5 is unaffected.* The "Effect on 10.3 to 10.12" row and heading are corrected to match.
+5. **D-6's field list** (incomplete). It omitted the package start-up entry points that entry 10.4's description
+   requires ("package start-up entry points from the start-up refs"), which would have made 10.4 invent a schema field —
+   the thing this entry's verify forbids. The field is added to the ruling text; no other field changes.
+6. **The "Effect on 10.3 to 10.12" heading and its D-1 row** (superseded). The table lists 10.1 for D-2 while the
+   heading excluded it, and its D-1 row carried the same stale `10.4`; the heading now reads "Effect on 10.1 to 10.12"
+   and the D-1 row reads `10.1, 10.11`.
+7. **D-8 — "the frame's locals and the global table as name/value pairs"** (completed). As written, nothing stopped the
+   projection from returning the live frame objects, which is the one thing G1's saveable-state rule and AD-1's
+   "debug hooks read state and never write it" exist to prevent: a debug adapter holding a shared reference could mutate
+   the VM. AD-1's check already asserts it for every other accessor ("transfers and mutates every returned buffer and
+   asserts `stateHash` unchanged") and the port states it for `surfacePixels` ("Outputs never alias state",
+   `packages/core/src/ports/engine.ts:46-49`). Correct text: *copied out rather than aliased to the live frames*. The
+   Evidence line's `ScriptHost.state()` citation is also corrected from `:186-191` to `:188-193`.
+
+## Not ruled here (open, and it keeps 10.2 blocked)
+
+**The `tkr script` contract — subcommands, stable exit codes and the JSON result protocol — has no paragraph in this
+draft, although entry 10.2's description asks for it and 10.9 cannot be built without it.** This plan names subcommands
+only in passing (`check`, `fmt --check`, `test` in D-7, `index` and `docs` in D-6 and 10.9's description) and rules no
+exit code and no result protocol, while D-3's "the CLI's `check` summary" and D-4's "`fmt --check` exit code semantics"
+both assume them. `docs/editor-features.md` T-40 and the `packages/runner-headless/src/index.ts:200` subcommand pattern
+are the evidence a ruling would cite. It is left open deliberately rather than invented here: whoever approves this plan
+must either add a ninth ruling for the CLI surface or accept that 10.9 decides those three things in code, which is the
+one thing entry 10.2 exists to prevent.
 
 ## D-1 — Transport and packaging of the LSP
 
@@ -31,7 +79,7 @@ Nothing here is written into `docs/` yet. Every paragraph below is marked **Prop
 - **Evidence:** AD-21 already rules `createServer(connection)` and the three transports; the epic's Boundaries name transport-free `lsp`/`dap`; G6 admits MIT.
 - **Files:** `docs/spec/engine/rpgcode-tooling.md` (a "Packages and transport" section), plus the licence note if the owner wants the dependency set written down outside the spec.
 - **Rejected:** hand-rolled JSON-RPC framing. It is roughly 200 lines we would own forever and it drifts on cancellation, progress and `workspace/configuration`, while the browser client remains an official dependency anyway.
-- **If ruled otherwise:** 10.4 gains the framing work and its transport tests; 10.1's tracer is unaffected (it uses whatever connection it is given); 10.11 publishes a differently shaped package.
+- **If ruled otherwise:** 10.1 gains the framing work and its transport tests — it owns `packages/lsp`, `createServer` and the stdio entry, which is where a hand-rolled connection would be built; 10.5 is unaffected (it uses whatever connection it is given); 10.11 publishes a differently shaped package.
 
 ## D-2 — The early standalone extension
 
@@ -71,7 +119,7 @@ Nothing here is written into `docs/` yet. Every paragraph below is marked **Prop
 
 ## D-6 — The index document
 
-**Proposed ruling (pending owner review; entry 10.2).** `tkr script index` emits one JSON document under a versioned schema: for each program, its reference, its functions (name as written, folded name, arity, line), classes with bases, members and methods, labels, the include edges it resolved (explicit and implicit, in order), the files it reached, its call and reference sites with name, arity and position, and the event names its listeners name literally; plus a diagnostics list, so a program that did not compile is reported and given no invented facts. Additive fields may appear in a minor version; removing or retyping a field is a major version. The document is the whole surface this epic publishes for other tools: writing it into a code graph, or serving it over a protocol, is not this epic's work.
+**Proposed ruling (pending owner review; entry 10.2).** `tkr script index` emits one JSON document under a versioned schema: for each program, its reference, its functions (name as written, folded name, arity, line), classes with bases, members and methods, labels, the include edges it resolved (explicit and implicit, in order), the files it reached, its call and reference sites with name, arity and position, and the event names its listeners name literally, and the package start-up entry points a package catalogue resolves (owner, ref), as entry 10.4's description requires; plus a diagnostics list, so a program that did not compile is reported and given no invented facts. Additive fields may appear in a minor version; removing or retyping a field is a major version. The document is the whole surface this epic publishes for other tools: writing it into a code graph, or serving it over a protocol, is not this epic's work.
 
 - **Evidence:** the fact set and its gaps in `discovery/inception-proposal.md` §12.1 (with file:line); the division against CodeGraph's contribution route in §12.2 (Epic 22, #923 / `8df6503`: stage 1 syntactic, stage 2 implicit includes and listener literals); and why the grammar route is not duplicated.
 - **Files:** `docs/spec/engine/rpgcode-tooling.md` (a "Machine-readable index" section with the field list and the versioning rule).
@@ -89,18 +137,18 @@ Nothing here is written into `docs/` yet. Every paragraph below is marked **Prop
 
 ## D-8 — The read-only debug view
 
-**Proposed ruling (pending owner review; entry 10.2).** The engine exposes one additional read-only projection, `debugView()`, returning plain data: the tick, and per thread its id, kind and status, the wait it is parked on, and its frames from outermost to innermost, each with the program reference, the instruction pointer, the source line and the function name, plus the frame's locals and the global table as name/value pairs. It never writes state, allocates no payload when unobserved, and a call leaves the state hash unchanged. It is the only seam a debug adapter reads; the adapter computes step over, step in and step out from the frame depth it sees between one-instruction resumes, so the core gains no new stepping mode.
+**Proposed ruling (pending owner review; entry 10.2).** The engine exposes one additional read-only projection, `debugView()`, returning plain data: the tick, and per thread its id, kind and status, the wait it is parked on, and its frames from outermost to innermost, each with the program reference, the instruction pointer, the source line and the function name, plus the frame's locals and the global table as name/value pairs, copied out rather than aliased to the live frames (AD-1: outputs never alias state, and its check transfers and mutates every returned buffer to prove it). It never writes state, allocates no payload when unobserved, and a call leaves the state hash unchanged. It is the only seam a debug adapter reads; the adapter computes step over, step in and step out from the frame depth it sees between one-instruction resumes, so the core gains no new stepping mode.
 
-- **Evidence:** `packages/core/src/ports/engine.ts:98-114` has no such accessor, while `packages/core/src/script/state.ts:93-160` already holds frames, locals and thread status; 4.30 supplies `setBreakpoints` and the one-instruction `step`; `ScriptHost.state()` (`packages/runner-harness/src/script-host.ts:186-191`) is the test-host precedent but returns the whole versioned state.
+- **Evidence:** `packages/core/src/ports/engine.ts:98-114` has no such accessor, while `packages/core/src/script/state.ts:93-160` already holds frames, locals and thread status; 4.30 supplies `setBreakpoints` and the one-instruction `step`; `ScriptHost.state()` (`packages/runner-harness/src/script-host.ts:188-193`) is the test-host precedent but returns the whole versioned state.
 - **Files:** `docs/spec/engine/rpgcode-tooling.md` (the view's shape) and the architecture spine's AD-1 note that the engine API gains this projection.
 - **Rejected:** exposing `GameState` from `Engine` instead. It would let a debugger read and, through a shared reference, mutate the versioned state, and it couples the debugger to every section's shape rather than to one projection.
 - **If ruled otherwise:** 10.10 changes shape (it would read the whole state or a different projection), and the AD-1 note is not written.
 
-## Effect on 10.3 to 10.12 if a decision is reversed
+## Effect on 10.1 to 10.12 if a decision is reversed
 
 | Decision | Entries that change |
 |---|---|
-| D-1 | 10.4, 10.11 |
+| D-1 | 10.1, 10.11 |
 | D-2 | 10.1, 10.11 |
 | D-3 | 10.3, 10.5, 10.6, 10.9 |
 | D-4 | 10.7, 10.9 |
