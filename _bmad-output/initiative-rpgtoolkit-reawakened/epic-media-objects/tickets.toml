@@ -95,6 +95,7 @@ references = [
 [[entry]]
 id = 6
 tracker_id = "#485"
+tracker_status = "done"
 type = "story"
 title = "Retire the procedural media surface and migrate every caller"
 description = "Removes `mediaTrack`, `mediaLoad`, the other net-new `media*` commands and queries, `&voice`, the `tkMD_*` constants and the `priority` and `syncTrack` arguments, and migrates every fixture, golden, catalogue row, command-doc, spec page and Epic 6 note to the media object, with no shim or alias left."
@@ -108,6 +109,7 @@ references = [
   "fixtures - packages/core/test/fixtures/audio/, tools/fixtures/audio/",
   "spec - docs/spec/engine/audio-media.md, rpgcode-functions.md",
 ]
+notes = ["Delivered by PR #838 (2ea1768e, Fixes #485), merged 2026-10-30. The 19 retired commands, the tkMD_* constants and their catalogue/doc rows are gone; the internal method targets stay doc.access internal so the objects still dispatch. The audio effect-name table no longer accepts a retired spelling, and the wait helpers the removed commands used are deleted. Oracle labels moved to the ruled options/object form and the seven audio fixtures were re-recorded for label text only (no tick row, cue or hash changed). Independent review at c5abc4c3 found nothing left."]
 
 [[entry]]
 id = 7
