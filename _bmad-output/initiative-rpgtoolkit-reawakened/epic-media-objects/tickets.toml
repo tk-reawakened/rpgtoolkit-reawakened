@@ -132,9 +132,11 @@ references = [
 [[entry]]
 id = 8
 tracker_id = "#487"
+tracker_status = "done"
 type = "story"
 title = "Refactor sweep"
 description = "Reconciles the shared seams this epic touched (audio built-in registration, the phase list, the catalogue and command docs), removes dead code made obsolete by the cutover and closes the epic against its Done when."
+notes = ["Delivered by PR #859 (7d4220a8, Fixes #487), merged 2026-10-31. The script barrel no longer exports the pack-internal MEDIA_COMMANDS/readAudioView; nine broken internal doc anchors were added and battle.md's E-85 link retargeted, so a docs link sweep reports 0 problems. The plan checks the epic Done-when item by item with merged evidence (#838 for the retirement, #846 for the pure-RPGCode packages, golden/audio/cues.json unchanged since #482)."]
 verify = "No duplicate registration paths remain; barrels and the phase-list test describe the final shape; docs/spec links resolve; the Done when list is checked item by item with evidence in the PR."
 covers = ["CAP-7"]
 after = [1, 2, 3, 4, 5, 6, 7]
