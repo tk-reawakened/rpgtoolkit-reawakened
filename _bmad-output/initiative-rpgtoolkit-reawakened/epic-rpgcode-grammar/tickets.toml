@@ -156,6 +156,25 @@ references = ["docs/adr/0011-tree-sitter-rpgcode.md", "docs/editor-features.md",
 notes = ["Kind: integration. Backlog (Todo); no Sprint. Refine before implementation.", "Grammar/scanner/corpus/queries derive from docs/spec, never the runtime parser, its outputs or AST fixtures, real games or legacy source.", "Native/Wasm and incremental/full parity, scanner progress and source-range mapping are acceptance gates. No core runtime changes or golden/hash drift."]
 
 [[entry]]
+id = 12
+tracker_id = "#870"
+type = "story"
+title = "Track the CodeGraph third-party grammar registration prerequisite"
+description = "22.2 proved the artifact route and the registration gap: CodeGraph 1.6.2 resolves grammars from a fixed filename map and maps extensions only onto languages it already supports (blocker B-01). The epic requires that prerequisite to be tracked. This entry records the upstream capability request and the adapter fallback, each with pinned versions, the licence position and exit criteria, so 22.10 is refined against a real prerequisite."
+verify = "A committed prerequisite record states the upstream request (version, config/API shape, minimal surface) and the adapter fallback, each with exit criteria; it names CodeGraph 1.6.2, web-tree-sitter 0.25.10 and tree-sitter-wasms 0.1.13 and states that nothing is shipped; no grammar, scanner, .wasm, dependency or CI change is part of the entry."
+covers = ["CAP-14"]
+after = [2]
+hitl = false
+risk = "low"
+references = [
+  "issue - #870",
+  "audit - _bmad-output/initiative-rpgtoolkit-reawakened/epic-rpgcode-grammar/discovery/epic-22-closure-audit.md (F-01)",
+  "evidence - _bmad-output/initiative-rpgtoolkit-reawakened/epic-rpgcode-grammar/discovery/scanner-wasm-codegraph-routes.md (F-05, F-06)",
+  "spec - docs/adr/0011-tree-sitter-rpgcode.md (Artifact and consumers)",
+  "code - docs/codegraph.md",
+]
+
+[[entry]]
 id = 10
 tracker_id = "#634"
 type = "story"
@@ -163,7 +182,7 @@ title = "Integrate RPGCode symbols, imports and calls with CodeGraph"
 description = "Implement the evidenced CodeGraph adapter/registration route using the released independent grammar, rather than pretending a Wasm artifact registers a language automatically."
 verify = "1. Resolve the concrete capability/upstream blocker identified by 22.2 before starting implementation; record compatible pinned versions and use the supported adapter/native route. No TypeScript extension mapping workaround.\n2. Extract stable symbol definitions, declared functions/classes/methods, syntactic includes/imports and call sites with normalized names plus original spelling and source ranges, from the public CST/query contract.\n3. Validate .prg and approved .rnc associations against independently authored fixtures; mixed-case names, static/computed includes, incomplete sources and dynamic targets produce honest syntax-level results without inventing resolved runtime edges.\n4. Add/update/delete/reindex operations have deterministic node identities and no stale or duplicate edges. A fresh index and refreshed index agree on reviewed expected graph facts.\n5. Demonstrate actual navigation queries on the fixtures and retain the repository packages-only TypeScript index boundary; do not index the repo root or docs/_bmad-output, and do not claim runtime handler/command census evidence.\n6. Adapter code imports no runtime parser, core stays free of tooling dependencies, and grammar releases are consumed by version instead of embedding a second grammar copy."
 covers = ["CAP-14"]
-after = [2, 8]
+after = [2, 8, 12]
 hitl = false
 refine = true
 risk = "high"
