@@ -6,7 +6,7 @@ tracker_id: "#479"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/479"
 parent: epic-actors
 created: '2026-10-19'
-status: built
+status: done
 baseline_revision: '0975a26b54f8d7bf569f463a02b783b16ec0ea98'
 risk: "low"
 review: thorough

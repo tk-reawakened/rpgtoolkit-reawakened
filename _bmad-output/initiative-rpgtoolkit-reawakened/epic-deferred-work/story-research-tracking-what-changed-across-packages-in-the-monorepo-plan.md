@@ -5,7 +5,7 @@ title: "Research: tracking what changed across packages in the monorepo"
 tracker_id: "#668"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/668"
 parent: epic-deferred-work
-status: built
+status: done
 risk: low
 context: ["tools/deps/edges.json", ".github/workflows/ci.yml", "tools/no-skips/run.mjs", "issue - #664", "issue - #666"]
 ---

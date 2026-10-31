@@ -6,7 +6,7 @@ tracker_id: "#591"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/591"
 parent: epic-menu-party-save
 created: '2026-10-22'
-status: built
+status: done
 risk: "high"
 context:
   - "spec - docs/spec/formats/save-game.md"
