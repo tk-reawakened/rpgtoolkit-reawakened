@@ -3,7 +3,7 @@ title: "Host package loader: manifest entry to source program and start-up"
 type: 'feature'
 ticket: 16
 created: '2026-10-20'
-status: built
+status: done
 baseline_revision: 'df7c1d03'
 risk: "high"
 context:
@@ -13,6 +13,11 @@ context:
   - "code - packages/runner-harness/src/script-host.ts, script-plugin-resolver.ts, corpus.ts"
   - "audit - _bmad-output/initiative-rpgtoolkit-reawakened/epic-actors/discovery/actor-readiness.md (F-11 to F-14)"
 ---
+
+> **Superseded (Epic 19 audit, issue #540).** Done-when 11 is delivered by 19.17/#562 and 19.20/#853;
+> the `program` field this plan proposed does not exist and must not be added — the start-up program
+> lives on `PackageCatalogueEntry.startup`. The Delivered section below is the record of the verification
+> work and the reset layer-table fix (PR #873) that landed from this entry before that recommendation.
 
 ## Intent
 
