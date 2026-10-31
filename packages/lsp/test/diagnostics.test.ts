@@ -43,6 +43,10 @@ function pair(): Pair {
       change = handler;
       return disposable;
     },
+    onHover: () => disposable,
+    onCompletion: () => disposable,
+    onDefinition: () => disposable,
+    onDocumentSymbol: () => disposable,
     sendDiagnostics: (params) => published.push(params),
   };
   return {
