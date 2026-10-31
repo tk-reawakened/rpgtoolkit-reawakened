@@ -7,6 +7,7 @@ import { checkVectors } from "./vectors.ts";
 import { compareScriptsGolden, formatScriptsGolden, runAllCorpusPrograms } from "./corpus.ts";
 import { checkSceneGolden, checkSceneGoldens, type SceneGoldenInput } from "./scene-golden.ts";
 import { checkAudioGoldens, formatAudioGolden, type AudioGoldenRun } from "./audio-golden.ts";
+import { checkMediaPackagesGolden, formatMediaPackagesGolden, type MediaPackagesRun } from "./media-packages-golden.ts";
 
 export type GoldenTexts = {
   readonly vectors?: string | undefined;
@@ -18,6 +19,8 @@ export type GoldenTexts = {
   readonly audioGolden?: string | undefined;
   readonly audioRuns?: readonly AudioGoldenRun[] | undefined;
   readonly audioSynthetic?: AudioGoldenRun | undefined;
+  readonly mediaGolden?: string | undefined;
+  readonly mediaPackages?: MediaPackagesRun | undefined;
 };
 
 export type GoldenOutcome =
@@ -27,6 +30,7 @@ export type GoldenOutcome =
       readonly golden?: string | undefined;
       readonly scriptsGolden?: string | undefined;
       readonly audioGolden?: string | undefined;
+      readonly mediaGolden?: string | undefined;
     }
   | { readonly ok: false; readonly lines: string[] };
 
@@ -124,12 +128,28 @@ export function goldenJob(
       }
     }
 
+    // Stage 8: the authored media packages (entry 21.7) through the real engine.
+    let formattedMediaGolden: string | undefined;
+    if (texts.mediaGolden !== undefined || texts.mediaPackages !== undefined) {
+      if (texts.mediaPackages === undefined) throw new Error("the media-packages run is absent");
+      if (record) {
+        formattedMediaGolden = formatMediaPackagesGolden(texts.mediaPackages);
+        lines.push(`media-golden: authored media packages recorded (${String(texts.mediaPackages.cues.length)} cues)`);
+      } else {
+        if (texts.mediaGolden === undefined) throw new Error("golden/media/packages.json is absent");
+        const media = checkMediaPackagesGolden(texts.mediaPackages, texts.mediaGolden);
+        if (!media.ok) throw new Error(media.lines[media.lines.length - 1] ?? "media golden failed");
+        lines.push(...media.lines.map((line) => `media-golden: ${line}`));
+      }
+    }
+
     return {
       ok: true,
       lines,
       ...(formattedGolden !== undefined ? { golden: formattedGolden } : {}),
       ...(formattedScriptsGolden !== undefined ? { scriptsGolden: formattedScriptsGolden } : {}),
       ...(formattedAudioGolden !== undefined ? { audioGolden: formattedAudioGolden } : {}),
+      ...(formattedMediaGolden !== undefined ? { mediaGolden: formattedMediaGolden } : {}),
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Three authored pure-RPGCode media packages (ducking, stems, region music) load by name from a game's package list and are pinned in `golden/media/packages.json`, with a save round trip at every tick (epic 21.7).
 - Pending script audio starts retain their voice objects until that audio effect applies, so a handed-over handle is still the voice the play built and a board-music cancellation keeps a valid binding.
 - A plugin id that is an inherited `Object.prototype` member (`constructor`, `__proto__`, `toString`) is now an unknown plugin with the located `plugin.unresolved` diagnostic, in boot and in the runner harness, instead of crashing boot when an inherited member is mistaken for a definition.
 - Actor and battle writers now refuse a model their own readers would reject instead of writing bytes that mean something else: a vector-base or point list over the 32768-entry `i16` bound, an `i16`/`i32`/`i8` field outside its stored width, a character or item model that omits a stored `idleTime`/`speed`, and a wrong magic, an unlisted minor or a negative major version. The refusal is a located writer error naming the field and its range.

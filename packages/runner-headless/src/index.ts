@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { goldenJob, parseClosingPlan, runAudioGoldens, runFetchedCorpus, type AudioGoldenRuns } from "@tk-reawakened/runner-harness";
+import { goldenJob, MEDIA_PACKAGE_FILES, MEDIA_PACKAGE_FOLDER, MEDIA_PACKAGE_STARTUP, parseClosingPlan, runAudioGoldens, runFetchedCorpus, runMediaPackages, type AudioGoldenRuns, type MediaPackagesRun } from "@tk-reawakened/runner-harness";
 import { loadGameFiles, runClosing } from "./closing.ts";
 import { runDump } from "./dump/cli.ts";
 
@@ -77,6 +77,18 @@ function runGolden(argv: string[]): number {
         audioRuns = runAudioGoldens(closingPlan, (name) => loadGameFiles(join(fetchedRoot, name)), bundled);
       }
     }
+    // The media-package golden is verified only where its authored fixtures are: a temp root
+    // that copies the golden tree alone has nothing to run it against.
+    const mediaFixtures = join(root, MEDIA_PACKAGE_FOLDER);
+    const mediaGolden = existsSync(mediaFixtures)
+      ? readFileOrUndefined(join(root, "golden/media/packages.json")) ?? (record ? "" : undefined)
+      : undefined;
+    let mediaPackages: MediaPackagesRun | undefined;
+    if (mediaGolden !== undefined) {
+      const mediaSources: Record<string, Uint8Array> = {};
+      for (const [name, file] of Object.entries(MEDIA_PACKAGE_FILES)) mediaSources[name] = new Uint8Array(readFileSync(join(root, MEDIA_PACKAGE_FOLDER, file)));
+      mediaPackages = runMediaPackages(mediaSources, new TextEncoder().encode(MEDIA_PACKAGE_STARTUP));
+    }
     const result = goldenJob({
       vectors,
       run,
@@ -88,6 +100,7 @@ function runGolden(argv: string[]): number {
         audioRuns: audioRuns.runs,
         audioSynthetic: audioRuns.synthetic,
       } : {}),
+      ...(mediaGolden !== undefined ? { mediaGolden, mediaPackages } : {}),
     }, record);
 
     if (!result.ok) {
@@ -120,6 +133,13 @@ function runGolden(argv: string[]): number {
       mkdirSync(targetDir, { recursive: true });
       const tmpPath = join(targetDir, `golden.json.tmp.${process.pid}`);
       writeFileSync(tmpPath, result.scriptsGolden, "utf8");
+      renameSync(tmpPath, targetPath);
+    }
+    if (record && result.mediaGolden !== undefined) {
+      const targetPath = join(root, "golden/media/packages.json");
+      mkdirSync(dirname(targetPath), { recursive: true });
+      const tmpPath = join(dirname(targetPath), `packages.json.tmp.${process.pid}`);
+      writeFileSync(tmpPath, result.mediaGolden, "utf8");
       renameSync(tmpPath, targetPath);
     }
     if (record && result.audioGolden !== undefined) {
