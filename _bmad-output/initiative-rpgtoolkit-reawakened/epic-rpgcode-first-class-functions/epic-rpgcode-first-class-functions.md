@@ -5,6 +5,9 @@ parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-5"]
 assignee: ""
 risk: high
+status: done
+tracker_id: "#916"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/916"
 ---
 
 # First-class functions and pure-RPGCode plugin architecture

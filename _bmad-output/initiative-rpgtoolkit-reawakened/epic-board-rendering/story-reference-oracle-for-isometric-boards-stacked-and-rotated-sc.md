@@ -3,6 +3,9 @@ id: 17
 type: story
 title: "Reference oracle for isometric boards: stacked and rotated scenes"
 parent: epic-board-rendering
+tracker_id: "#400"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/400"
+tracker_status: done
 covers: [CAP-6]
 after: [1, 4]
 hitl: false

@@ -3,6 +3,9 @@ id: 12
 type: story
 title: "Make absent values explicit in the ports contract"
 parent: epic-platform-baseline
+tracker_id: "#310"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/310"
+tracker_status: done
 covers: [CAP-12, CAP-13]
 after: [9]
 refined: true

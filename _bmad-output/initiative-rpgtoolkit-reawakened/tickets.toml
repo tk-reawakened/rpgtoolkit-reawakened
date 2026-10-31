@@ -2,12 +2,14 @@
 
 [[epic]]
 id = 1
+tracker_id = "#910"
 slug = "epic-platform-baseline"
 title = "Platform baseline: monorepo, guard-rails and headless CI"
 covers = ["CAP-12", "CAP-13"]
 
 [[epic]]
 id = 2
+tracker_id = "#911"
 slug = "epic-legacy-formats"
 title = "Legacy projects load: formats, packages and asset resolver"
 covers = ["CAP-1"]
@@ -15,6 +17,7 @@ after = [{ epic = 1, needs = "the monorepo, CI and fixture fetch, and ADR 0007 (
 
 [[epic]]
 id = 16
+tracker_id = "#912"
 slug = "epic-tk2-support"
 title = "TK2 games load: 2.x data formats"
 covers = ["CAP-1"]
@@ -22,6 +25,7 @@ after = [{ epic = 1, needs = "ADR 0007, docs/spec as the normative spec (1.13)" 
 
 [[epic]]
 id = 3
+tracker_id = "#913"
 slug = "epic-rpgcode-vm"
 title = "RPGCode runs on a saveable step-machine VM"
 covers = ["CAP-5"]
@@ -37,6 +41,7 @@ after = [{ epic = 1, needs = "the licence gate, contract types, the headless run
 
 [[epic]]
 id = 5
+tracker_id = "#914"
 slug = "epic-movement-triggers"
 title = "Sprites move, collide and fire triggers as legacy did"
 covers = ["CAP-3", "CAP-4", "CAP-8"]
@@ -44,6 +49,7 @@ after = [{ epic = 2, needs = "character, item and board data" }, { epic = 3, nee
 
 [[epic]]
 id = 6
+tracker_id = "#915"
 slug = "epic-audio-synth"
 title = "Music, effects and MIDI play through a shared synth"
 covers = ["CAP-7"]
@@ -51,6 +57,7 @@ after = [{ epic = 1, needs = "the synth package scaffold and licence gate" }, { 
 
 [[epic]]
 id = 18
+tracker_id = "#916"
 slug = "epic-rpgcode-first-class-functions"
 title = "First-class functions and pure-RPGCode plugin architecture"
 covers = ["CAP-5"]
@@ -58,6 +65,7 @@ after = [{ epic = 3, needs = "the saveable step-machine VM, AST, and lowerer (3.
 
 [[epic]]
 id = 19
+tracker_id = "#489"
 slug = "epic-rpgcode-platform"
 title = "RPGCode as a platform: objects, packages, events and trust"
 covers = ["CAP-5", "CAP-9", "CAP-11"]
@@ -65,6 +73,7 @@ after = [{ epic = 2, needs = "the main-file reader and writer for the plugins li
 
 [[epic]]
 id = 20
+tracker_id = "#490"
 slug = "epic-actors"
 title = "Actors: one data model for party members, enemies and NPCs, with behaviours and stock packages"
 covers = ["CAP-3", "CAP-9", "CAP-10", "CAP-11"]
@@ -72,6 +81,7 @@ after = [{ epic = 2, needs = "the character, enemy, item and battle-data readers
 
 [[epic]]
 id = 21
+tracker_id = "#491"
 slug = "epic-media-objects"
 title = "Media as objects and events: voices, tracks and the media object"
 covers = ["CAP-5", "CAP-7"]
@@ -102,6 +112,7 @@ after = [{ epic = 4, needs = "draw lists to replay" }, { epic = 6, needs = "audi
 
 [[epic]]
 id = 10
+tracker_id = "#666"
 slug = "epic-rpgcode-tooling"
 title = "RPGCode language tooling: language server, linter, formatter, test framework, help and debug adapter"
 covers = ["CAP-14"]

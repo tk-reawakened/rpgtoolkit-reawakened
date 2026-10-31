@@ -5,6 +5,9 @@ parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-7"]
 assignee: ""
 risk: medium
+status: done
+tracker_id: "#915"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/915"
 ---
 
 # Music, effects and MIDI play through a shared synth

@@ -3,13 +3,14 @@ type: epic
 id: 22
 title: "Independent RPGCode syntax for editor navigation and CodeGraph"
 tracker_id: "#624"
-remote: https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/624
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/624"
 parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-14", "CAP-15", "CAP-18"]
 assignee: ""
 risk: high
 stepsCompleted: ["input-selection", "scope", "requirements", "story-backlog", "github-mirroring"]
 inputDocuments: ["docs/adr/0011-tree-sitter-rpgcode.md", "docs/guardrails.md", "docs/editor-features.md", "docs/spec/engine/rpgcode-language.md", "docs/spec/engine/rpgcode-modules-and-objects.md", "docs/spec/engine/rpgcode-functions.md", "docs/spec/engine/rpgcode-dialects.md", "docs/spec/formats/rpgcode-program.md", "_bmad-output/initiative-rpgtoolkit-reawakened/spec-rpgtoolkit-reawakened/spec-rpgtoolkit-reawakened.md", "_bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md"]
+status: in-progress
 ---
 
 # Epic 22: Independent RPGCode syntax for editor navigation and CodeGraph

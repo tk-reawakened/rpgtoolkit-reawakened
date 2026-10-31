@@ -5,6 +5,9 @@ parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-1"]
 assignee: ""
 risk: medium
+status: done
+tracker_id: "#911"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/911"
 ---
 
 # Legacy projects load: formats, packages and asset resolver

@@ -5,6 +5,9 @@ parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-5"]
 assignee: ""
 risk: high
+status: done
+tracker_id: "#913"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/913"
 ---
 
 # RPGCode runs on a saveable step-machine VM

@@ -13,10 +13,13 @@ import argparse
 import json
 import re
 import subprocess
+import sys
+import time
 import tomllib
 from pathlib import Path
 
 REPO = "tk-reawakened/rpgtoolkit-reawakened"
+INITIATIVE = "initiative-rpgtoolkit-reawakened"
 PROJECT_ID = "PVT_kwDOFH0rD84Bnzfi"
 STATUS_FIELD_ID = "PVTSSF_lADOFH0rD84BnzfizhmWa0w"
 STATUS_OPTION_IDS = {
@@ -29,19 +32,100 @@ STATUS_OPTION_IDS = {
     "done": "d4a82464",
     "dropped": "939c6cf8",
 }
+STATE_TO_STATUS = {
+    "backlog": "draft",
+    "in-progress": "in-progress",
+    "review": "in-review",
+    "done": "done",
+    "dropped": "dropped",
+}
+ITEM_QUERY = """query($issue:ID!) {
+  node(id:$issue) {
+    ... on Issue {
+      projectItems(first:100) {
+        nodes {
+          id
+          project { id }
+          fieldValues(first:50) {
+            nodes {
+              ... on ProjectV2ItemFieldSingleSelectValue {
+                name
+                field { ... on ProjectV2SingleSelectField { id } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}"""
+
+
+def store_tickets(root: Path) -> dict[str, dict]:
+    """Every stored ticket keyed by its tracker_id, from the store's own status view.
+
+    A breakdown entry carries no status: the plans do. Asking the store keeps the mirrored
+    Project status equal to what BMAD records, instead of resetting every story to draft."""
+    result = subprocess.run(
+        [sys.executable, str(root / "_bmad/method/scripts/tickets.py"),
+         "--project-root", str(root), "status", INITIATIVE],
+        text=True, capture_output=True, check=True, cwd=root,
+    )
+    view = json.loads(result.stdout)
+    return {ticket["tracker_id"]: ticket for ticket in view.get("tickets", []) if ticket.get("tracker_id")}
+
+
+def story_status(tracker: str, fallback: str, tickets: dict[str, dict]) -> str | None:
+    """The story's Project status, or None when the store cannot say and nothing should be written.
+
+    Writing the breakdown's own status would reset every planned story to draft, because a
+    breakdown entry carries no status; an empty leaf frontmatter must not erase a real one."""
+    ticket = tickets.get(tracker)
+    if ticket:
+        if ticket.get("status") in STATUS_OPTION_IDS:
+            return ticket["status"]
+        if ticket.get("state") in STATE_TO_STATUS:
+            return STATE_TO_STATUS[ticket["state"]]
+    return fallback if fallback in STATUS_OPTION_IDS else None
+
+
+def project_item_status(item: dict) -> str:
+    """The item's Status option name, or "" when the project has not set one."""
+    for value in item.get("fieldValues", {}).get("nodes", []):
+        if (value.get("field") or {}).get("id") == STATUS_FIELD_ID:
+            return value.get("name") or ""
+    return ""
 
 
 def gh_api(endpoint: str, payload: dict | None = None, method: str = "POST") -> dict:
     command = ["gh", "api", endpoint]
     if payload is not None:
         command.extend(["--method", method, "--input", "-"])
-        result = subprocess.run(command, input=json.dumps(payload), text=True, capture_output=True, check=True)
-    else:
-        result = subprocess.run(command, text=True, capture_output=True, check=True)
+    for attempt in range(3):
+        result = subprocess.run(command, input=json.dumps(payload) if payload is not None else None,
+                                text=True, capture_output=True)
+        if result.returncode == 0:
+            break
+        # A TLS handshake timeout in the middle of a 37-story epic must not lose the run.
+        if attempt == 2:
+            # `check=True` hid the reason inside CalledProcessError, which made a GraphQL refusal
+            # (a child already parented elsewhere) read as an unexplained non-zero exit.
+            raise RuntimeError(f"gh api {endpoint} failed: {result.stderr.strip() or result.stdout.strip()}")
+        time.sleep(2 * (attempt + 1))
     response = json.loads(result.stdout) if result.stdout.strip() else {}
     if endpoint == "graphql" and response.get("errors"):
         raise RuntimeError(f"GitHub GraphQL error: {response['errors']}")
     return response
+
+
+def find_issue_by_title(title: str) -> list[int]:
+    """Numbers of issues (open or closed) whose title is exactly `title`."""
+    result = subprocess.run(
+        ["gh", "issue", "list", "--repo", REPO, "--state", "all", "--search", f'"{title}" in:title',
+         "--json", "number,title", "--limit", "20"],
+        text=True, capture_output=True, check=True,
+    )
+    return [int(issue["number"]) for issue in json.loads(result.stdout) if issue["title"] == title]
 
 
 def github_issue_number(tracker_id: str) -> int:
@@ -131,6 +215,7 @@ def main() -> None:
         for story in stories if story.get("tracker_id")
     ]
     missing = [story["id"] for story in stories if not story.get("tracker_id")]
+    tickets = store_tickets(root)
 
     if args.dry_run:
         print(f"Would sync parent issue: {title}")
@@ -143,10 +228,21 @@ def main() -> None:
         parent_number = github_issue_number(existing_tracker)
         print(f"Using existing Epic issue #{parent_number}")
     else:
+        twins = find_issue_by_title(title)
+        if twins:
+            raise SystemExit(
+                f"Issue {', '.join(f'#{number}' for number in twins)} already carries the title {title!r}. "
+                f"Record it as `tracker_id = \"#{twins[0]}\"` for epic {epic_id} in the initiative index "
+                "instead of creating a second parent."
+            )
         created = gh_api(f"repos/{REPO}/issues", {"title": title, "body": body})
         parent_number = int(created["number"])
+        print(f"Created Epic issue #{parent_number}")
+    if existing_tracker != f"#{parent_number}":
+        # The number can live only in the epic document (an envelope created by hand), so the
+        # index row still has no tracker_id; write it either way.
         write_epic_tracker_id(index_path, epic_id, f"#{parent_number}")
-        print(f"Created Epic issue #{parent_number} and wrote tracker_id")
+        print(f"Wrote tracker_id #{parent_number} for epic {epic_id} into the initiative index")
     write_epic_frontmatter(epic_doc, f"#{parent_number}")
 
     parent = gh_api(f"repos/{REPO}/issues/{parent_number}")
@@ -162,12 +258,7 @@ def main() -> None:
       addProjectV2ItemById(input:{projectId:$project, contentId:$content}) { item { id } }
     }"""
     graphql(project_query, {"project": PROJECT_ID, "content": parent_node})
-    item_query = """query($issue:ID!) {
-      node(id:$issue) {
-        ... on Issue { projectItems(first:100) { nodes { id project { id } } } }
-      }
-    }"""
-    item_result = graphql(item_query, {"issue": parent_node})
+    item_result = graphql(ITEM_QUERY, {"issue": parent_node})
     items = item_result.get("data", {}).get("node", {}).get("projectItems", {}).get("nodes", [])
     project_item = next((entry for entry in items if entry.get("project", {}).get("id") == PROJECT_ID), None)
     if project_item is None:
@@ -178,13 +269,16 @@ def main() -> None:
         value:{singleSelectOptionId:$option}
       }) { projectV2Item { id } }
     }"""
-    graphql(status_query, {
-        "project": PROJECT_ID,
-        "item": project_item["id"],
-        "field": STATUS_FIELD_ID,
-        "option": STATUS_OPTION_IDS[epic_status],
-    })
-    print(f"Added parent issue #{parent_number} to Project 3 with {epic_status} status")
+    if project_item_status(project_item) != epic_status:
+        graphql(status_query, {
+            "project": PROJECT_ID,
+            "item": project_item["id"],
+            "field": STATUS_FIELD_ID,
+            "option": STATUS_OPTION_IDS[epic_status],
+        })
+        print(f"Set parent issue #{parent_number} to {epic_status} in Project 3")
+    else:
+        print(f"Parent issue #{parent_number} already {epic_status} in Project 3")
 
     existing_children = graphql(
         """query($parent:ID!) {
@@ -195,29 +289,43 @@ def main() -> None:
         {"parent": parent_node},
     ).get("data", {}).get("node", {}).get("subIssues", {}).get("nodes", [])
     existing_child_ids = {entry["id"] for entry in existing_children}
-    for story_id, tracker, status in children:
+    for story_id, tracker, fallback_status in children:
         child_number = github_issue_number(tracker)
         child = gh_api(f"repos/{REPO}/issues/{child_number}")
-        child_items = graphql(item_query, {"issue": child["node_id"]}).get("data", {}).get("node", {}).get("projectItems", {}).get("nodes", [])
+        child_items = graphql(ITEM_QUERY, {"issue": child["node_id"]}).get("data", {}).get("node", {}).get("projectItems", {}).get("nodes", [])
         child_item = next((entry for entry in child_items if entry.get("project", {}).get("id") == PROJECT_ID), None)
         if child_item is None:
-            raise RuntimeError(f"Story issue #{child_number} is not in Project 3")
-        option = STATUS_OPTION_IDS.get(status.lower())
-        if option is None:
-            raise ValueError(f"Unsupported status {status!r} for story {epic_id}.{story_id}")
-        graphql(status_query, {
-            "project": PROJECT_ID,
-            "item": child_item["id"],
-            "field": STATUS_FIELD_ID,
-            "option": option,
-        })
+            # An issue published before the board learned about it would otherwise abort the
+            # whole epic; the board is part of the mirror, so join the story to it and carry on.
+            graphql(project_query, {"project": PROJECT_ID, "content": child["node_id"]})
+            print(f"Added story issue #{child_number} to Project 3")
+            child_items = graphql(ITEM_QUERY, {"issue": child["node_id"]}).get("data", {}).get("node", {}).get("projectItems", {}).get("nodes", [])
+            child_item = next((entry for entry in child_items if entry.get("project", {}).get("id") == PROJECT_ID), None)
+            if child_item is None:
+                raise RuntimeError(f"Story issue #{child_number} could not be added to Project 3")
+        status = story_status(tracker, fallback_status, tickets)
+        if status is None:
+            print(f"Story {epic_id}.{story_id} (#{child_number}): the store reports no status; left as is")
+        elif project_item_status(child_item) != status:
+            graphql(status_query, {
+                "project": PROJECT_ID,
+                "item": child_item["id"],
+                "field": STATUS_FIELD_ID,
+                "option": STATUS_OPTION_IDS[status],
+            })
         if child["node_id"] in existing_child_ids:
             print(f"Story {epic_id}.{story_id} (#{child_number}) already linked; status={status}")
             continue
         subissue_query = """mutation($parent:ID!, $child:ID!) {
           addSubIssue(input:{issueId:$parent, subIssueId:$child}) { subIssue { number } }
         }"""
-        graphql(subissue_query, {"parent": parent_node, "child": child["node_id"]})
+        try:
+            graphql(subissue_query, {"parent": parent_node, "child": child["node_id"]})
+        except RuntimeError as error:
+            # GitHub allows one parent per issue; a story already nested elsewhere must not
+            # stop the rest of the epic from being mirrored.
+            print(f"Could not link story {epic_id}.{story_id} (#{child_number}): {error}")
+            continue
         print(f"Linked story {epic_id}.{story_id} (#{child_number}) under Epic #{parent_number}; status={status}")
     if missing:
         print(f"Stories without tracker_id (not linked yet): {missing}")
