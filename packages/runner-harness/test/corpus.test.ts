@@ -353,8 +353,8 @@ test("corpus: whole fetched corpus suite over fixtures/legacy runs all 10 progra
   // Re-pinned by ticket 7.9: the samples' built-in FightEnemy calls now retain their started battle sections.
   // Re-pinned by story 8.25 (#814): `schema.compiler` became `schema.ir`, `schema` moved to version 2 and `vm`
   // to version 6. Hashing each final state with the old schema fields put back gives every previous value.
-  // Re-pinned by ticket 23.10 (#848): `font("Arial")` now stores the bundled Liberation face path instead of a path no
-  // project ships, and the saved `ui.font.asset` is part of the hashed state. Only `sample-start-basic` moved.
+  // Re-pinned by ticket 23.10 (#848): `font("Arial")` now resolves to the Liberation face the host bundles instead of
+  // a key nothing ships, and the saved `ui.font.asset` is part of the hashed state. Only `sample-start-basic` moved.
   const expectedHashes: Record<string, string> = {
     "sample-start-demo": "ab73298e19acf1a9",
     "sample-system-demo": "1412e38336613efb",

@@ -46,10 +46,11 @@ function spliceVariables(value: string, view: CommandView): string {
 }
 function canonicalFont(value: string): AssetKey {
   const lowered = value.trim().toLowerCase();
-  // The bundled faces the engine ships; these are the keys the host can actually decode.
-  if (lowered === "" || lowered === "arial" || lowered === "sans-serif" || lowered === "liberation sans" || lowered === "liberationsans") return assetKey("media/fonts/LiberationSans-Regular.ttf");
-  if (lowered === "times new roman" || lowered === "serif" || lowered === "liberation serif" || lowered === "liberationserif") return assetKey("media/fonts/LiberationSerif-Regular.ttf");
-  if (lowered === "courier new" || lowered === "monospace" || lowered === "liberation mono" || lowered === "liberationmono") return assetKey("media/fonts/LiberationMono-Regular.ttf");
+  // The fallback keys are unchanged from the shipped behaviour: when the project ships no Liberation
+  // face the renderer substitutes the bitmap font anyway, so this only keeps the saved state stable.
+  if (lowered === "" || lowered === "arial" || lowered === "sans-serif" || lowered === "liberation sans" || lowered === "liberationsans") return assetKey("media/fonts/liberation-sans.ttf");
+  if (lowered === "times new roman" || lowered === "serif" || lowered === "liberation serif" || lowered === "liberationserif") return assetKey("media/fonts/liberation-serif.ttf");
+  if (lowered === "courier new" || lowered === "monospace" || lowered === "liberation mono" || lowered === "liberationmono") return assetKey("media/fonts/liberation-mono.ttf");
   return assetKey(value);
 }
 function effect(args: readonly PlainData[] = [], kind: CommandEffect["kind"] = "state-write"): CommandEffect {
