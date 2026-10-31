@@ -48,7 +48,7 @@ Seven are gating — 9.2 to 9.14 cannot start without them (D-1, D-3, D-4, D-5, 
 
 | ID | Ruling in one line | Gating? | Lands in |
 |---|---|---|---|
-| D-1 | Two desktop applications from one codebase plus the PWA: a **player** (distribution artefact, resolving `--game`/deep link → `player.json` → baked default → library) and an **editor** (own package, own platform-services, own cadence), both on Electron 45.2.1 with `app://`; games are packages in a library, no per-game stub, second shell or file association — one player build may carry one baked package | **yes** | `docs/adr/0013-desktop-shell-electron.md` (new, one G6 inventory for both binaries), `docs/spec/engine/runners.md#desktop-shell`, `#install`, `docs/spec/formats/packaging-and-paths.md` (Install descriptor), epic `desktop-shell`'s envelope |
+| D-1 | Two desktop applications from one codebase plus the PWA: a **player** (distribution artefact, resolving `--game`/deep link → `player.json` → baked default → library) and an **editor** (own package, own platform-services, own cadence), both on Electron 45.2.1 with `app://`; games are packages in a library, no per-game stub, second shell or file association and no self-running EXE produced (T-70 becomes "Make package"; the `CMP1` reader stays for legacy import) — one player build may carry one baked package | **yes** | `docs/adr/0013-desktop-shell-electron.md` (new, one G6 inventory for both binaries), `docs/spec/engine/runners.md#desktop-shell`, `#install`, `docs/spec/formats/packaging-and-paths.md` (Install descriptor), epic `desktop-shell`'s envelope |
 | D-2 | Store images as they are; no BMP/GIF transcode; no WebP; PNG only for what we write | no | `docs/spec/formats/images.md` (new Storage policy section), epic Notes |
 | D-3 | One normative runner page, one JSON Schema, one vector kit; the TypeScript packages are a binding | **yes** | `docs/spec/engine/runners.md` (new), `packages/runner-harness/schema/runner-protocol-v1.schema.json` (new), `tools/fixtures/runner-protocol/` (new) |
 | D-4 | Two load modes with a measured threshold; the core computes the prefetch plan; manifest unchanged | **yes** | `docs/spec/engine/runners.md#load-modes`, `#prefetch`; AD-5 amendment |
@@ -86,7 +86,7 @@ ruling's substance, and every paragraph keeps its `Proposed ruling (pending owne
 3. **D-1, the page this ruling lands in — `docs/spec/formats/packaging-and-paths.md:96`.** The "Distribution package"
    section that gains the new "Install descriptor" section opens with "The editor's 'Make EXE' (T-70) **appends a
    distribution package** to an engine copy", the form correction 2 rules out. The same commit must reword that
-   sentence to the package-plus-descriptor form, or to the T-70 open question this D-1 records.
+   sentence to the package-plus-descriptor form, or to the T-70/T-71 resolution this D-1 proposes.
 4. **The ADR-number paragraph — "0013 is already claimed by another epic"** (superseded). The plan it quotes says the
    opposite of a claim: `epic-rpgcode-tooling`'s ruling draft lists `docs/adr/0013-rpgcode-spec-package.md` in its
    "Where the text lands" table as a "*working number; renumber if 0013 is taken*" (that plan, D-1's Files line).
@@ -219,19 +219,58 @@ take a bump **together** from the same ADR, so the two binaries never drift; Ele
 supports the **latest three**, so ADR 0013 is amended whenever the pin falls more than one major behind Chrome stable —
 a standing maintenance line, not a one-off bump.
 
-**Proposed ruling (pending owner review; entry 9.1) — what the exporter emits, and the open T-70 question.** The
-exporter emits **a package and its install descriptor** — a distribution `.tpk` (or the same tree as a folder) plus the
-sibling `<package>.tpk.json` — and **no second engine**: the only executable a game can travel inside is the player
-build the owner already ships, with one package embedded in it unchanged (AD-6). That is a change to the **product
-promise**, not to the writer:
-`writeDistributionPackage` already returns a ZIP and nothing else, and "a pre-configured player build with a baked
-default" is configuration applied at export, not a different artefact kind. `docs/editor-features.md` still describes
-**T-70** as "one self-running executable (the engine with the game appended)" and, one line later, **T-71** as making
-the build "one step for the `.tpk` and the self-running EXE". That is **one question, not two**: answering T-70 alone
-leaves T-71 contradicting the answer, so whether the legacy self-running form is **reimplemented as an optional
-export** or **dropped in favour of a package installed into (or baked into a build of) the player** covers both
-tools — and T-71's `.tpk` half is unaffected either way. The decision is the owner's and is recorded as an open
-question here rather than assumed in the packaging entry.
+**Proposed ruling (pending owner review; entry 9.1) — the recommended resolution: we stop *producing* self-running
+executables.** We keep the `CMP1` **reader** and stop writing what it reads. An export produces **a distribution
+package** — the `.tpk`-compatible ZIP with the three-field manifest — **plus its install descriptor**, and the player
+opens it from the library, or a pre-configured build carries one baked in. No export path appends a package to an engine
+copy — the only executable a game can travel inside is the player build already shipped, with one package embedded
+unchanged (AD-6) — because an appended copy is one engine **per game**: the 293 MB arithmetic above paid per export
+instead of once per installation, plus a second build path with its own signing, its own failure modes and its own size
+story. In the editor
+features, **T-70 becomes "Make package"** — package the game as one distribution package with its install descriptor —
+and **T-71 loses its "superseded by EXE" parenthetical** while keeping its `.tpk`-only build step. In the spec, the
+"Distribution package (this project's own)" paragraph stops describing the editor as appending to an engine copy, and
+the **Standalone EXE** section stays as it is as **reader** behaviour — legacy import only — with one added line saying
+this project reads that form and never writes it. The form and the numbers stay proposals in the page's own sense:
+"no sample ships a package, so the package numbers have no corpus evidence at all"
+(`docs/spec/formats/packaging-and-paths.md:110`). The trade to accept, stated plainly: a player who wants "one file to
+hand over" gets one file — the package — plus the player they already installed, and a player who has no harness is
+pointed at the PWA or the player download, which is where they got the player from.
+
+**The three spec sentences this would change, quoted as they stand today.**
+1. `docs/editor-features.md:184` (T-70): "**T-70 Make EXE.** Package the game into one self-running executable (the
+   engine with the game appended), with a custom icon and output path." → "*T-70 Make package.* Package the game as one
+   distribution package (§13) plus its install descriptor, with an output path."
+2. `docs/editor-features.md:186` (T-71): "Package the game as a single `.tpk` archive for an installed engine (legacy,
+   superseded by EXE). … so the build is one step for the `.tpk` and the self-running EXE." → drop "(legacy, superseded
+   by EXE)" and end the sentence at "one step for the `.tpk`".
+3. `docs/spec/formats/packaging-and-paths.md:96`: "The editor's "Make EXE" (T-70) **appends a distribution package** to
+   an engine copy — a `.tpk`-compatible ZIP, …" → "The editor's "Make package" (T-70) **writes a distribution
+   package** — a `.tpk`-compatible ZIP, …", with the rest of the sentence unchanged.
+
+**What does not change either way.** Import compatibility is untouched: the reader still accepts a legacy `CMP1`
+appended-ZIP game under the L20 trailer rules (`docs/spec/formats/packaging-and-paths.md:90,135`), including the legacy
+**leniency** for bytes between the end of the ZIP and the trailer, and still refuses Toolkit 2 Professional EXEs and
+self-extracting installers under L21 (`:92,136`). The Standalone EXE section's opening sentence at `:78` describes the
+**legacy** editor's own tool, which stays true as format history; the added line is what keeps a reader from taking it
+for our behaviour. This resolution is about what we *produce*, not what we *read*.
+
+**Rejected alternatives.** *Keeping the EXE export as an option*: it reintroduces one engine copy per game — 293 MB per
+export instead of once per installation — a second build path, a second signing step and its own failure modes, for a
+convenience the library plus a baked build already covers; the owner has also said the project over-emphasises exactly
+this form. *Dropping the `CMP1` reader*: it would break importing the very games this project exists to play, and that
+reader is already written and tested under L20 and L21.
+
+**If the owner says keep it.** The export then needs a **player-copy step** — locate or copy the ruled Electron player,
+append the package, and patch the icon the way T-70's "custom icon" asks — so T-70 and T-71 stay as written, and 9.7
+gains that path with its size consequence recorded beside it (a player copy per export, against the 293 MB measured
+installation). Nothing in the player, the library or the resolution order in this D-1 changes either way.
+
+- **Amendment files (this resolution only):** `docs/editor-features.md` §8, the T-70 and T-71 lines
+  (`:184` and `:186`); `docs/spec/formats/packaging-and-paths.md`, the opening sentence of "Distribution package (this
+  project's own)" (`:96`) and one added line in "Standalone EXE" (`:76`); this plan, when the owner approves; and the
+  epic's Notes as the dated decision line. No code changes: `writeDistributionPackage` already writes the ZIP and
+  nothing else, and no tool appends a package to an engine today.
 
 - **Lands in:** `docs/adr/0013-desktop-shell-electron.md` (new; renumbered if another ADR takes 0013 first) — one ADR for
   one shell, one G6 inventory naming both binaries — plus `docs/spec/engine/runners.md#desktop-shell` (what a desktop
@@ -241,7 +280,7 @@ question here rather than assumed in the packaging entry.
   `#load-modes`; the descriptor's shape lands in `docs/spec/formats/packaging-and-paths.md` as a new "Install descriptor"
   section, because AD-6's three-field manifest must not change to carry it — and that same commit rewords the section's
   T-70 opening sentence ("appends a distribution package to an engine copy", `packaging-and-paths.md:96`), which states
-  the form this ruling replaces (correction 3 above). Epic `desktop-shell`'s envelope gains the
+  the form the T-70/T-71 resolution below replaces (correction 3 above). Epic `desktop-shell`'s envelope gains the
   editor-application half.
 - **Evidence.** Measured on macOS 27.0.1 / Apple M1 Pro, 2026-10-31: Electron 44.7.0 and a WKWebView host both present
   WebGL2 (16,384 max texture; the only extension difference is `EXT_disjoint_timer_query_webgl2`, Chromium-only), both
@@ -592,7 +631,7 @@ entry that replaces them with numbers.
 | 9.4 | the replayer and the agreement check | D-7 flipped: software-blend path; D-3 flipped: TypeScript fixtures only |
 | 9.5 | cue player and Web Audio output | D-10 flipped: WebAssembly assertion in the other direction |
 | 9.6 | banks, cache, user `.sf2` | D-10 flipped: container detection before promising playback |
-| 9.7 | `make-package` writes the package **and its install descriptor** | D-2 flipped: transcode step and an encoder; D-4 flipped: manifest hashes; D-1 flipped: descriptor shape |
+| 9.7 | `make-package` writes the package **and its install descriptor** | D-2 flipped: transcode step and an encoder; D-4 flipped: manifest hashes; D-1 flipped: descriptor shape, and if the owner keeps the EXE export, 9.7 gains the player-copy step and records its size consequence |
 | 9.8 | core planner and the hint wire | D-4 flipped: either dropped (runner parses boards) or joined by manifest hashing |
 | 9.9 | load modes, storage tiers, service worker | D-5 flipped: no service worker; D-4 flipped: per-entry cache keys |
 | 9.10 | builds the **player** application — the ruled shell, the resolution order, the library and the baked default — and gates the exported player on three-OS CI | D-1 flipped: three system-webview legs are added and the Electron leg is dropped |
