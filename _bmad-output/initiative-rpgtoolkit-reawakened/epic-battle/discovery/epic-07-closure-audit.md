@@ -18,7 +18,7 @@ literal battle-load full-state hash. Criterion 6 is the one that spike touches, 
 | 4 | A custom RPGCode fight program drives every ruled E-79 operation with the stock package absent | **Proven** | `battle-custom-fight.test.ts` (including “without the stock_battle package a custom program still runs and its FightEnemy call is a catchable `battle.package-missing`”) |
 | 5 | The default battle UI renders an owner-approved deterministic golden | **Proven** | `battle-ui-screen.test.ts` / `battle-ui-refresh.test.ts` with the pinned UI goldens under `golden/`; `pnpm golden` green |
 | 6 | A mid-battle save restores the same fighters, charge, background, `canRun` and outcome with an identical state hash; `battle` holds references and charge only | **In flight (owner-gated)** | `battle-save-golden.test.ts` and the full-engine save case in `battle-cues-engine.test.ts` prove restore and continuation; the *literal-load full-state hash equality* is exactly what **7.34 / #805** is open to rule on, so the criterion's hash limb is not settled. Nothing is broken in evidence; the ruling decides the wording/limit |
-| 7 | `stock_battle` loads by name and is mapped in `.gam`; a game without a battle package ends the battle immediately with a diagnostic | **Proven** | `battle-cues-engine.test.ts` (`packageCatalogue` + `stock_battle`), `engine.test.ts:403` (`battle.package-missing`), `battle-start.test.ts:442,460,472` |
+| 7 | `stock_battle` loads by name and is mapped in `.gam`; a game without a battle package ends the battle immediately with a diagnostic | **Proven** | `battle-cues-engine.test.ts` (`packageCatalogue` + `stock_battle`), `engine.test.ts:403` (`battle.package-missing`), `battle-start.test.ts:442,472` |
 | 8 | Battle music and cues through the media object; `boardReturned` restores the board's music; a failed `beforePlay` rejects only the music request; `BattleState` holds no audio; the null-audio runner produces the same cue stream | **Proven** | `battle-cues-engine.test.ts` (board/battle/board music sequence, canceled board start with the script voice still playing, `!JSON.stringify(played.state.battle).match(/audio\|music\|media\|\.mid\|\.wav/i)`), plus the null-runner vs `audio.ended` runner equality case |
 | 9 | 7.21–7.32 resolved with merged evidence or owner rules; 7.33 closeout sweep complete; every follow-up child closed before #503 | **Proven except 7.34** | All follow-up children are CLOSED; 7.33's sweep merged; #805 remains the single open child |
 
@@ -33,3 +33,7 @@ literal battle-load full-state hash. Criterion 6 is the one that spike touches, 
     lifecycle queue contents into the comparison, which depend on when the load happened rather than on battle state,
     and would need golden re-records for no behavioural gain.
 - Store: 34/34 non-spike entries `done`; no correction.
+
+> **Correction (2026-10-31, second cross-check).** Row 7 previously cited `battle-start.test.ts:442,460,472`. Line 460
+> is the title of "random encounter handoff reports a missing stock package before requesting assets"; the two
+> `battle.package-missing` assertions are at 442 and 472. The verdict is unchanged.
