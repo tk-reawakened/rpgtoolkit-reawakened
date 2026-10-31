@@ -5,6 +5,8 @@ parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-12"]
 assignee: ""
 risk: medium
+tracker_id: "#946"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/946"
 ---
 
 # Games play in the browser; desktop, mobile and packaging wrap the same core
@@ -27,26 +29,10 @@ Anyone can play a legacy game in a browser; the CAP-12 success check, sample gam
 
 ## Notes
 
-- Audit (2026-10-31): this envelope has no `tickets.toml` breakdown, so it has no `tracker_id` and no GitHub parent issue, contrary to the initiative's mirror rule. Recorded, not fixed: a parent issue needs a real breakdown, and inventing entries to satisfy the rule was rejected. Filed as issue #882; `epic-editor-foundation` is the one to break down first because Epic 22's 22.9 waits on its seams. See `DISCOVERY-envelope-audit.md`.
+- Audit (2026-10-31): this envelope has no `tickets.toml` breakdown, so it has no `tracker_id` and no GitHub parent issue, contrary to the initiative's mirror rule. Recorded, not fixed: a parent issue needs a real breakdown, and inventing entries to satisfy the rule was rejected. Filed as issue #882; **resolved 2026-10-31**: the breakdown is `tickets.toml` and the parent issue is #946 (see the inception block below); `epic-editor-foundation` is the one to break down first because Epic 22's 22.9 waits on its seams. See `DISCOVERY-envelope-audit.md`.
 
 
 - Open question (epic 6 evidence gap, filed as issue #877): a headless-browser SoundFont playback test. `packages/synth/test/render.test.ts` proves the MIDI-through-bank path under Node; the browser limb of epic 6's Done-when 2 has no test, and this repository has no browser runner. The assertion belongs to this epic's browser job (its Done-when 3 already requires a browser replay), so it is carried here until this envelope gets a `tickets.toml`. Adding Playwright for one assertion now was rejected; the licence (Apache-2.0) is acceptable, the scope is not.
-
-## Boundaries
-
-`render-webgl2`, `runner-web`, `runner-desktop` and `runner-mobile` as wrappers, and game packaging through the core package writer. Not the desktop editor shell (epic desktop-shell) and not editor hosts.
-
-- Touch point: Capacitor and the chosen desktop shell - consumed; owner: this epic for the runner wrapper, epic desktop-shell for the editor
-
-## References
-
-- spec - _bmad-output/initiative-rpgtoolkit-reawakened/spec-rpgtoolkit-reawakened/spec-rpgtoolkit-reawakened.md, section Capabilities
-- spine - _bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md, AD-1, AD-3, AD-4, AD-5, AD-6, AD-14, AD-27
-- constraint - docs/guardrails.md, sections G3 and G4
-- reference - docs/spec/engine/main-loop-and-startup.md#e-130 to E-132
-- reference - docs/architecture-options.md, section 8
-
-## Notes
 
 - Open question: the desktop runner shell depends on the same Tauri, Electron or Electrobun spike as epic desktop-shell; decide which epic runs the spike.
 - Decision: epic set approved by the user, 2026-10-10.
@@ -73,3 +59,33 @@ Anyone can play a legacy game in a browser; the CAP-12 success check, sample gam
 - Handoff (from epic audio-synth exploration, 2026-10-18): runner audio settings include per-bus volume, mute and a SoundFont picker (bundled, CDN, or any user `.sf2`) as player preferences. The runner implements epic 6's rules for autoplay unlock, focus pause and late-SFX drops, and caches SoundFonts per runner, shared across games.
 - Open question (from epic audio-synth exploration, 2026-10-18; owner direction that runners in any language share one shape): should the whole runner boundary (draw-list replay, audio, input events, AD-5 requests) get what epic 6 proposes for audio? That is a normative behaviour page, a language-neutral message schema, and conformance vectors a non-TypeScript runner can replay. Settle at this epic's inception; see `epic-audio-synth/discovery/audio-exploration.md` §12.
 - Handoff (epic audio-synth entry 6.3, proposed, pending owner review, 2026-10-18): the audio contract this epic implements is in `docs/spec/engine/audio-media.md#epic9-audio-handoff`: autoplay unlock as a delayed late start (`#audio-autoplay`), focus pause by default (`#audio-focus`), the 15-tick late-sound drop measured from ready (`#audio-late-sounds`), audio prefetch tiers and a SHA-256 keyed SoundFont cache shared across games (`#audio-prefetch`, `#audio-soundfont-cache`), the user `.sf2` contract (`#soundfont-user-bank`), and the browser playback test and `wasm-unsafe-eval` note (`#audio-browser-test`; Done-when items 2 and 3 of epic audio-synth are delivered here against that contract). Video: the portable profile (WebM, VP9, Opus; browser support unverified, verify here) and the `playVideo` / `video.ended { reqId }` contract (`#video-policy`, `#video-request`). The core prefetch planner and hint wire shape remain this epic's inception to create.
+
+- Inception, 2026-10-31 (owner approved publishing; the breakdown is `tickets.toml`). Fourteen entries in build order; the tracer bullet is 9.3 and the epic closes with 9.13 (sweep) and 9.14 (closing suite). The source is `discovery/inception-proposal.md`, which keeps its `status: draft — awaiting owner approval` line as the record of what was reviewed. The two `## Notes` sections above are merged into one here, which satisfies the merge half of 9.1's description; approving publication did **not** decide the rulings, so 9.1 still records D-1 to D-11.
+- Decision: 9.1 is the only entry with no prerequisites and every other entry is transitively gated by it, so no build work starts until the owner dates those rulings. The gating set is D-1 (desktop shell spike owner), D-3 (runner-boundary contract), D-4 (load modes and prefetch ownership), D-5 (offline), D-6 (mobile scope), D-8 (build tool) and D-9 (browser lane); D-2, D-7, D-10 and D-11 may be decided or recorded open.
+- Assumption (marked): 9.4 covers CAP-6 as well as CAP-12, because `packages.md` assigns `render-webgl2` to CAP-6, 12 and 15 and epic board-rendering excludes the replayer by name. If this epic's `covers` stays at CAP-12 only, 9.4's `covers` drops CAP-6 (proposal ask A-02).
+- Source conflict (SC-1): the handoff above says entry 4.26 "commits the golden draw lists"; it commits scene recipes (`golden/scenes/S-01.json:1`), reference PNGs and `golden/ledger.json`, and the draw list is regenerated by the engine at replay (`packages/runner-harness/src/scene-golden.ts`). 9.4 replays the scenes, not draw-list files.
+- Source conflict (SC-2): the assumption that `manifest.json` `index` entries "gain a content hash and size" contradicts `docs/spec/formats/packaging-and-paths.md:98-106`, which fixes the manifest at exactly `schema`, `main` and `index` and requires a reader to refuse any other field (AD-6). 9.7 and 9.9 use one package-level content hash at v1.
+- Source conflict (SC-3): the "about 64 MB" threshold and "largest about 33 MB uncompressed" have no recorded source; the only corpus measurement in the tree is 134 files and 6.3 MB for two games (`docs/spec/formats/packaging-and-paths.md:112`). 9.9 measures the fetched corpus instead.
+- Source conflict (SC-4): `docs/architecture-options.md:264` scopes the desktop-shell spike to "the board editor and the game runner", while `epic-desktop-shell`'s boundary claims "the spike". 9.10 spikes the runner and records an ADR that epic desktop-shell cites (proposal ask A-01).
+- Handoff: epic audio-synth is entry-complete without the cue player — `docs/spec/engine/audio-media.md#cue-player` puts it in `synth`, and 6.11's plan excludes it ("The cue player is not part of this ticket"). 9.5 builds it against the reference arithmetic in `tools/fixtures/audio/sim.mjs:663`. Recorded here because epic 6's own Notes do not say it.
+- Pinned-provider map: 9.4 after 4.6 and 4.26, 9.5 after 6.15, 9.9 after 8.9, 9.14 after 16.8 — all merged, so the pins record provenance rather than wait.
+- Decision (2026-10-31, at publication; proposal ask A-03): epic 7 is removed from this epic's `after` in the initiative index. Every battle entry it could pin is merged except 7.34 / #805, which rules on literal full-state hash equality across a save and load — a question no entry here reads, so a pin would be decoration. Restoring it needs a battle-exercising check in a runner lane first. Ask A-04 (epic 2 in `after`) stays open; 9.7 cites 2.12 as a reference meanwhile.
+- Accepted risk: a browser lane adds wall-clock to CI and one more required `gate` dependency; 9.3 keeps each browser test under a second where it can and says why when it cannot.
+- Accepted risk: the player's deploy address, signing and store accounts have no owner, so 9.9 and 9.12 stop at a local build; publishing the product is out of scope (epic 17's proposal D-13 says the same).
+- Deferred scope: the editor's T-70 "Make EXE" button and packaging UI (epic editor-assets-p0); the editor PWA shell and service worker (`host-web`, epic editor-foundation); a native or wasm renderer or synth (AD-30's escape hatch); the desktop-shell epic's editor chrome; per-entry manifest hashes and delta updates.
+- Stand-ins: none. Every verification uses a merged artifact or a check this epic creates; the browser probes in 9.3 are measurements, not stand-ins.
+
+
+## Boundaries
+
+`render-webgl2`, `runner-web`, `runner-desktop` and `runner-mobile` as wrappers, and game packaging through the core package writer. Not the desktop editor shell (epic desktop-shell) and not editor hosts.
+
+- Touch point: Capacitor and the chosen desktop shell - consumed; owner: this epic for the runner wrapper, epic desktop-shell for the editor
+
+## References
+
+- spec - _bmad-output/initiative-rpgtoolkit-reawakened/spec-rpgtoolkit-reawakened/spec-rpgtoolkit-reawakened.md, section Capabilities
+- spine - _bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md, AD-1, AD-3, AD-4, AD-5, AD-6, AD-14, AD-27
+- constraint - docs/guardrails.md, sections G3 and G4
+- reference - docs/spec/engine/main-loop-and-startup.md#e-130 to E-132
+- reference - docs/architecture-options.md, section 8

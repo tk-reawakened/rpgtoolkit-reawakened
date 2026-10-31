@@ -105,10 +105,11 @@ after = [{ epic = 3, needs = "thread/wait registry and snapshot support (3.9, 3.
 
 [[epic]]
 id = 9
+tracker_id = "#946"
 slug = "epic-web-runner-packaging"
 title = "Games play in the browser; desktop, mobile and packaging wrap the same core"
 covers = ["CAP-12"]
-after = [{ epic = 4, needs = "draw lists to replay" }, { epic = 6, needs = "audio cues and synth" }, { epic = 7, needs = "battle" }, { epic = 8, needs = "menu and save" }, { epic = 16, needs = "TK2 data formats, so TK2 games load" }]
+after = [{ epic = 4, needs = "draw lists to replay" }, { epic = 6, needs = "audio cues and synth" }, { epic = 8, needs = "menu and save" }, { epic = 16, needs = "TK2 data formats, so TK2 games load" }]
 
 [[epic]]
 id = 10
