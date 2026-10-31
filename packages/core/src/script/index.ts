@@ -75,6 +75,7 @@ export type {
   Program,
   ProgramNotice,
   ProgramRef,
+  ProgramUnit,
   RedirectPairs,
   ScriptDialect,
 } from "./program.ts";

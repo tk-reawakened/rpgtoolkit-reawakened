@@ -15,5 +15,8 @@
   },
   "dependencies": {
     "@tk-reawakened/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.0.0"
   }
 }

@@ -111,6 +111,8 @@ export type Program = {
   readonly fileKeys: { readonly [path: string]: string };
   /** Warnings and diagnostics raised while loading (MOD-1, MOD-3, R-35). */
   readonly notices: readonly ProgramNotice[];
+  /** Each parsed file, main first then includes in load order. */
+  readonly units: readonly ProgramUnit[];
 };
 
 /** What a compile may use beyond the ref: the source loader and the built-in name test. */
@@ -201,12 +203,25 @@ export function restartProgramRef(
 }
 
 /** One parsed source file in the order it was added to the program. */
-type Unit = {
+/**
+ * One parsed source file of a compiled program: the main file first, then the
+ * files its includes reached in load order. The tables stay on `Program`; a
+ * reader that needs the source-level facts (the include requests with their
+ * explicit/implicit spelling, the text a span slices, an event name written as
+ * a literal) reads them here rather than parsing the file again
+ * (docs/spec/engine/rpgcode-tooling.md#tool-6).
+ */
+export type ProgramUnit = {
   readonly name: string;
   readonly key: string;
   readonly ast: Ast;
+  /** Every include request the file made, literal `#include` and implicit `file.func`, in source order (MOD-2). */
   readonly requests: readonly IncludeRequest[];
+  /** The decoded source text, so a span's text can be sliced without re-reading the host. */
+  readonly text: string;
 };
+
+type Unit = ProgramUnit;
 
 const INLINE_KEY = "<inline>";
 
@@ -248,7 +263,7 @@ function build(ref: ProgramRef, context: CompileContext, inlineName: string): Pr
       const scanned = ref.dialect === "tk2" ? { tokens: [], includes: [] } : scan(text, true);
       const ast = ref.dialect === "tk2" ? parseTk2(text) : parse(scanned.tokens, { redirects });
       const requests = [...scanned.includes, ...ast.includes].sort((a, b) => a.line - b.line);
-      return { name, key, ast, requests };
+      return { name, key, ast, requests, text };
     } catch (error) {
       // The parser does not know its file; a loaded file's failures carry its name,
       // and the token span the parser stamped (docs/spec/engine/rpgcode-tooling.md#tool-3-range-convention).
@@ -402,5 +417,5 @@ function build(ref: ProgramRef, context: CompileContext, inlineName: string): Pr
     }
   }
 
-  return { ref, ops, functions, classes, labels, statements, files, fileKeys, notices };
+  return { ref, ops, functions, classes, labels, statements, files, fileKeys, notices, units };
 }

@@ -195,7 +195,8 @@ export function parseTk2(text: string, lookup?: Tk2CommandLookup): Ast {
 
 /** Compile TK2 source into the shared flat Step IR without modifying its input. */
 export function compileTk2(text: string, file = "<tk2>", lookup?: Tk2CommandLookup): Program {
-  const result = lower(parseTk2(text, lookup), file);
+  const ast = parseTk2(text, lookup);
+  const result = lower(ast, file);
   return {
     ref: { kind: "inline", text, ir: IR_VERSION, dialect: "tk2" },
     ops: result.ops,
@@ -206,5 +207,6 @@ export function compileTk2(text: string, file = "<tk2>", lookup?: Tk2CommandLook
     files: {},
     fileKeys: {},
     notices: [],
+    units: [{ name: file, key: file, ast, requests: ast.includes, text }],
   };
 }
