@@ -314,7 +314,7 @@ test("same-file-rules: carry-on, restart, replace and the one-voice versus multi
   const sfx = theCase("same-file-rules", "sfx-same-file-ignored-and-replaced");
   deepEqual(facts(sfx, "same-file").map((f) => [f.t, f.action]), [[3, "ignored"]]);
   deepEqual(kinds(sfx, 5), ["media.stop/sfx#0", "media.play/sfx#0"]);
-  deepEqual(kinds(sfx, 6), ["media.stop/sfx#0", "media.play/sfx#0"]); // tkMD_RESTART of the same file
+  deepEqual(kinds(sfx, 6), ["media.stop/sfx#0", "media.play/sfx#0"]); // a restart request of the same file
   deepEqual(finishes(sfx), [[16, "sfx", 0]]); // restarted at 6, 10 ticks long
   const multi = theCase("same-file-rules", "multi-voice-overlaps-the-same-file");
   deepEqual(kinds(multi, 2), ["media.play/ui#1"]);
@@ -442,7 +442,7 @@ test("media-wait-suspend: waits wake on the end tick, are held by pause, and wak
   deepEqual(wakes(stop), [[6, 1]]);
   const replace = theCase("media-wait-suspend", "replacing-the-voice-wakes-the-old-wait");
   deepEqual(wakes(replace), [[5, 1]]);
-  const plain = theCase("media-wait-suspend", "mediaWait-on-a-playing-one-shot");
+  const plain = theCase("media-wait-suspend", "voice-wait-on-a-playing-one-shot");
   deepEqual(wakes(plain), [[20, 1]]);
   const two = theCase("media-wait-suspend", "two-threads-wake-in-ascending-thread-id");
   deepEqual(wakes(two), [[11, 1], [11, 3]]);
@@ -552,9 +552,9 @@ test("legacy-parity-ledger: legacy names behave as their standard calls", () => 
   deepEqual(kinds(carry, 10), ["media.play/music#0"]);
   const alias = theCase("legacy-parity-ledger", "aliases-map-to-the-standard-calls");
   deepEqual(facts(alias, "legacy").map((f) => f.as), [
-    'mediaPlay(file, "music", tkMD_LOOP)', 'mediaPlay(file, "music", tkMD_LOOP)', 'mediaPlay(file, "music", tkMD_LOOP)',
-    'mediaStop("music")', 'mediaStop("music")', 'mediaStop("music")', 'mediaPlay(file, "sfx", tkMD_ONCE)', 'mediaStop("sfx")',
-    'mediaPlay(file, "sfx", tkMD_ONCE)', 'mediaPlay(file, "sfx", tkMD_ONCE | tkMD_WAIT)', "master script volume",
+    'mediaPlay(file, { track: "music", loop: true })', 'mediaPlay(file, { track: "music", loop: true })', 'mediaPlay(file, { track: "music", loop: true })',
+    'mediaStop("music")', 'mediaStop("music")', 'mediaStop("music")', 'mediaPlay(file, { track: "sfx", loop: false })', 'mediaStop("sfx")',
+    'mediaPlay(file, { track: "sfx", loop: false })', 'mediaPlay(file, { track: "sfx", loop: false, wait: true })', "master script volume",
   ]);
   deepEqual(facts(alias, "no-op").map((f) => f.t), [4, 5]); // stopping a stopped track
   deepEqual(wakes(alias), [[19, 1]]);

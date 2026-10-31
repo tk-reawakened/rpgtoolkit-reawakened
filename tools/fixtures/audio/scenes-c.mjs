@@ -170,7 +170,7 @@ export function legacyParityLedger() {
     cases: [
       makeCase(
         "mp3pause-waits-while-music-keeps-playing",
-        "Q1, 3.1.0: mp3pause(file) is a wav on the sfx track with tkMD_ONCE | tkMD_WAIT, so the thread parks until the 10-tick file ends (tick 12) while the music keeps playing.",
+        "Q1, 3.1.0: mp3pause(file) is a wav on the sfx track with `loop: false` and `wait: true`, so the thread parks until the 10-tick file ends (tick 12) while the music keeps playing.",
         setup({ assets }),
         [legacy(0, "midiplay", { file: "Town.mid" }), legacy(2, "mp3pause", { file: "Hit.wav", thread: 1 })],
         15,
@@ -315,7 +315,7 @@ const LEDGER = [
   row("Q2", "timeline", "wav never waits; mp3 aliases it.", "Keep.", at("legacy-parity-ledger", "wav-and-mp3-never-wait-and-play-once")),
   row("Q3", "timeline", "One sfx slot replaces a different file and ignores the same playing name.", "Keep on the one-voice sfx track.", at("legacy-parity-ledger", "one-sfx-slot-replaces-or-ignores")),
   row("Q4", "timeline", "wavStop stops the script, default-menu and default-battle sfx slot, not music or animation-frame sounds.", "Keep the sfx mapping; frame sounds join sfx (6.3 A5); menu sounds move to ui.", at("legacy-parity-ledger", "wavstop-leaves-music-alone")),
-  row("Q5", "timeline", "The same music name (case-insensitive) carries on while playing and restarts when stopped.", "Keep in the music applier; tkMD_RESTART is the new override.", at("legacy-parity-ledger", "midiplay-carries-on-and-stop-retains")),
+  row("Q5", "timeline", "The same music name (case-insensitive) carries on while playing and restarts when stopped.", "Keep in the music applier; a restart request is the new override.", at("legacy-parity-ledger", "midiplay-carries-on-and-stop-retains")),
   row("Q6", "timeline", "Missing music stops the old music first, then is silent with no error.", "Keep: a null or missing board request stops and clears music, no error.", at("legacy-parity-ledger", "board-entry-silence-and-replay")),
   row("Q7", "timeline", "Board entry compares with the music loaded now; empty means silence; the final version blocks replay after an empty or failed name.", "Follow 3.1.0: compare the current track, empty is silence, no replay block.", at("legacy-parity-ledger", "board-entry-silence-and-replay")),
   row("Q8", "timeline", "A battle takes over board music; a fight without music has no fallback.", "Owner rule (BAT-10): non-empty battle .bkg music takes over; absent music posts no effect and board music continues.", at("battle-music-handoff", "battle-without-music-is-silent")),
@@ -330,8 +330,8 @@ const LEDGER = [
   row("Q17", "platform", "3.1.0 played all listed formats and looped music; the final version played only MIDI.", "Follow 3.1.0 through import-time transcoding; trackers are a documented departure. Format policy is not a core timeline fact; the authored files carry the lengths.", null),
   row("Q18", "timeline", "Files are under Media, subfolders allowed, no extension added, case-insensitive; packages did not unpack frame sounds or check videos.", "Keep the path rule and the ASCII fold (name folding is on every case); the package gaps are not reproduced.", at("same-file-rules", "music-same-file-carries-on")),
   row("Q19", "timeline", "The music virtual shows the battle music and is non-empty after mediaStop.", "Keep: it reads the music track's retained file.", at("battle-music-handoff", "music-virtual-follows-the-music-track-file")),
-  row("M1", "timeline", "Music always loops in both versions and has no once argument.", "Keep tkMD_LOOP as the music default; tkMD_ONCE is a Reawakened addition.", at("legacy-parity-ledger", "midiplay-carries-on-and-stop-retains")),
-  row("M2", "timeline", "Replaying an already-playing track carries on.", "Keep as the same-file rule unless tkMD_RESTART.", at("same-file-rules", "music-same-file-carries-on")),
+  row("M1", "timeline", "Music always loops in both versions and has no once argument.", "Keep looping as the music default; a non-looping one-shot is a Reawakened addition.", at("legacy-parity-ledger", "midiplay-carries-on-and-stop-retains")),
+  row("M2", "timeline", "Replaying an already-playing track carries on.", "Keep as the same-file rule unless the caller requests a restart.", at("same-file-rules", "music-same-file-carries-on")),
   row("M3", "timeline", "Board and battle music use the same repeat setting.", "Keep: both are looping music.", at("battle-music-handoff", "battle-music-then-return")),
-  row("M4", "timeline", "wav, mp3 and mp3pause never loop.", "Keep: every legacy sfx mapping is tkMD_ONCE.", at("legacy-parity-ledger", "wav-and-mp3-never-wait-and-play-once")),
+  row("M4", "timeline", "wav, mp3 and mp3pause never loop.", "Keep: every legacy sfx mapping plays once and never waits.", at("legacy-parity-ledger", "wav-and-mp3-never-wait-and-play-once")),
 ];

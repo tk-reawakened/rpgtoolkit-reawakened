@@ -267,7 +267,7 @@ test("a wait wakes when its voice is stopped or replaced, and a terminal wait at
   equal(runtime.waitFor("music"), null, "a stopped track is the normal stopped result, not a wait");
 });
 
-test("an unknown-length voice is not waitable and a play with tkMD_WAIT on it parks nothing", () => {
+test("an unknown-length voice is not waitable and a play that waits for it parks nothing", () => {
   const { runtime, notes } = rig({ "odd.xm": "unsupported" });
   deepEqual(runtime.play({ track: "sfx", asset: key("odd.xm"), loop: false, wait: true }), { kind: "started", voice: 0, cueId: 1, wait: null });
   deepEqual(codes(notes), ["media.asset-format", "media.asset-length"]);

@@ -15,19 +15,11 @@ import type { AssetKey } from "../ports/keys.ts";
 /** The section's own schema number (`GameState.schema.audio` carries the same). */
 export const AUDIO_SCHEMA_VERSION = 2;
 
-/** `tkMD_ONCE`: finish at the first asset boundary (docs/spec/engine/audio-media.md#media-command-family). */
+/** The play flag bits: finish at the first boundary, continue at every boundary, wait for the end, restart a same-file voice. */
 export const MEDIA_ONCE = 0;
-/** `tkMD_LOOP`: continue at every asset boundary. */
 export const MEDIA_LOOP = 1;
-/** `tkMD_WAIT`: park the calling thread until the voice's wait condition is met. */
 export const MEDIA_WAIT = 2;
-/** `tkMD_RESTART`: restart a same-file voice from zero instead of carrying on. */
 export const MEDIA_RESTART = 4;
-/** Public RPGCode spellings for the media flag bits. */
-export const tkMD_ONCE = MEDIA_ONCE;
-export const tkMD_LOOP = MEDIA_LOOP;
-export const tkMD_WAIT = MEDIA_WAIT;
-export const tkMD_RESTART = MEDIA_RESTART;
 
 /** At most this many named tracks, the five built-ins included. */
 export const MAX_TRACKS = 16;

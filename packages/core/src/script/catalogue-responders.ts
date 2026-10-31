@@ -494,13 +494,9 @@ const RENDER_PACK_FALLBACKS: readonly BuiltinSpec[] = RENDER_PLUGIN.commands.fil
 /** File commands are implemented by CORE_PLUGIN's sandboxed pack (ticket 3.16). */
 
 const MEDIA_PACK_NAMES: Record<string, true> = {
-  mediatrack: true, mediaload: true, mediaplay: true, midiplay: true, playmidi: true,
-  mediastop: true, mediarest: true, midirest: true, mediapause: true, mediaresume: true,
-  mediaseek: true, medialoop: true, mediafade: true, mediawait: true, mediavolume: true,
-  mediastate: true, mediaflags: true, mediaplaying: true, mediafile: true, mediaposition: true,
-  medialength: true, mediatracks: true, getvolume: true,
+  mediaplay: true, midiplay: true, playmidi: true,
+  mediastop: true, mediarest: true, midirest: true,
   wav: true, mp3: true, wavstop: true, mp3pause: true, setvolume: true,
-  soundfont: true, soundfontreset: true,
   playavi: true, playavismall: true,
 };
 const CATALOGUE_GRAPHICS_NAMES = new Set(GRAPHICS_COMMANDS.flatMap((command) => [command.name, ...command.aliases]));

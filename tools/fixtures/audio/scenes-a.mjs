@@ -190,9 +190,9 @@ export function loopAndEndTicks() {
       ),
       makeCase(
         "loop-pass-boundaries",
-        "A looping voice has pass boundaries at start + n x length (15, 27, 39 for start 3 and length 12), its position wraps, and it never finishes. A mediaWait on a loop waits for the next pass boundary only: thread 1 (asked at tick 5) wakes at 15, thread 2 (asked at tick 15 exactly on a boundary) wakes at 27.",
+        "A looping voice has pass boundaries at start + n x length (15, 27, 39 for start 3 and length 12), its position wraps, and it never finishes. A voice wait on a loop waits for the next pass boundary only: thread 1 (asked at tick 5) wakes at 15, thread 2 (asked at tick 15 exactly on a boundary) wakes at 27.",
         setup({ assets }),
-        [cmd(3, "mediaPlay", { file: "loop.wav", track: "ambience", flags: LOOP }), cmd(5, "mediaWait", { thread: 1, track: "ambience" }), cmd(15, "mediaWait", { thread: 2, track: "ambience" })],
+        [cmd(3, "mediaPlay", { file: "loop.wav", track: "ambience", flags: LOOP }), cmd(5, "voiceWait", { thread: 1, track: "ambience" }), cmd(15, "voiceWait", { thread: 2, track: "ambience" })],
         42,
       ),
       makeCase(
@@ -240,7 +240,7 @@ export function loopAndEndTicks() {
       ),
       makeCase(
         "loop-plus-wait-is-diagnosed",
-        "mediaPlay with tkMD_LOOP | tkMD_WAIT is a located diagnostic at the call: nothing plays and no thread parks (a loop cannot be waited to its end).",
+        "mediaPlay with `loop` and `wait` together is a located diagnostic at the call: nothing plays and no thread parks (a loop cannot be waited to its end).",
         setup({ assets }),
         [cmd(1, "mediaPlay", { file: "loop.wav", track: "ambience", flags: LOOP | WAIT, thread: 1 })],
         4,
@@ -263,7 +263,7 @@ export function sameFileRules() {
       ),
       makeCase(
         "music-restart-flag-restarts",
-        "tkMD_RESTART turns the carry-on into stop then play at position zero.",
+        "a restart request turns the carry-on into stop then play at position zero.",
         setup({ assets }),
         [cmd(0, "mediaPlay", { file: "song.mid" }), cmd(8, "mediaPlay", { file: "song.mid", flags: LOOP | RESTART })],
         12,
@@ -284,7 +284,7 @@ export function sameFileRules() {
       ),
       makeCase(
         "sfx-same-file-ignored-and-replaced",
-        "On the one-voice sfx track a same-file play while playing is ignored, a different file replaces, and tkMD_RESTART restarts the same file.",
+        "On the one-voice sfx track a same-file play while playing is ignored, a different file replaces, and a restart request restarts the same file.",
         setup({ assets }),
         [
           cmd(0, "mediaPlay", { file: "hit.wav", track: "sfx" }),

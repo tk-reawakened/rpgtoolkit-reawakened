@@ -15,7 +15,7 @@
   "cases": [
     {
       "name": "wait-wakes-on-the-end-tick",
-      "note": "Thread 1 plays a 10-tick sound at tick 2 with tkMD_WAIT: the voice ends at tick 12 and the wait wakes in the waits phase of tick 12 (before the audio phase finishes the voice and emits media.stop).",
+      "note": "Thread 1 plays a 10-tick sound at tick 2 with `wait: true`: the voice ends at tick 12 and the wait wakes in the waits phase of tick 12 (before the audio phase finishes the voice and emits media.stop).",
       "setup": {
         "defaultSoundFont": null,
         "assets": {
@@ -153,8 +153,8 @@
       "end": {"cueId":5,"soundFont":null,"master":100}
     },
     {
-      "name": "mediaWait-on-a-playing-one-shot",
-      "note": "mediaWait on a voice started without tkMD_WAIT parks until its end tick (20 here): thread 1 asks at tick 3 and wakes at 20.",
+      "name": "voice-wait-on-a-playing-one-shot",
+      "note": "voice.wait() on a voice started without `wait: true` parks until its end tick (20 here): thread 1 asks at tick 3 and wakes at 20.",
       "setup": {
         "defaultSoundFont": null,
         "assets": {
@@ -167,7 +167,7 @@
       },
       "script": [
         {"t":0,"op":"mediaPlay","file":"shot.wav","track":"sfx"},
-        {"t":3,"op":"mediaWait","thread":1,"track":"sfx"}
+        {"t":3,"op":"voiceWait","thread":1,"track":"sfx"}
       ],
       "ticks": 22,
       "expect": [
@@ -211,7 +211,7 @@
       },
       "script": [
         {"t":1,"op":"mediaPlay","file":"shot.wav","track":"sfx","flags":2,"thread":3},
-        {"t":2,"op":"mediaWait","thread":1,"track":"sfx"}
+        {"t":2,"op":"voiceWait","thread":1,"track":"sfx"}
       ],
       "ticks": 14,
       "expect": [
@@ -269,7 +269,7 @@
     },
     {
       "name": "wait-diagnostics-do-not-park",
-      "note": "A mediaWait on an unknown track and on a voice of unknown length are located diagnostics: no wait is registered and the thread carries on.",
+      "note": "A voice wait on an unknown track and on a voice of unknown length are located diagnostics: no wait is registered and the thread carries on.",
       "setup": {
         "defaultSoundFont": null,
         "assets": {
@@ -282,14 +282,14 @@
       },
       "script": [
         {"t":1,"op":"mediaPlay","file":"song.xm","track":"sfx"},
-        {"t":2,"op":"mediaWait","thread":1,"track":"sfx"},
-        {"t":2,"op":"mediaWait","thread":2,"track":"nosuch"}
+        {"t":2,"op":"voiceWait","thread":1,"track":"sfx"},
+        {"t":2,"op":"voiceWait","thread":2,"track":"nosuch"}
       ],
       "ticks": 4,
       "expect": [
         {"t":0,"cfg":[["music",1],["sfx",1],["ambience",4],["voice",2],["ui",4]],"tr":[],"cues":[{"cueId":1,"tick":0,"kind":"soundfont.set","track":null,"voice":null,"asset":null,"loop":null,"flags":null,"positionTicks":null,"volume":null,"targetVolume":null,"durationTicks":null}]},
         {"t":1,"tr":[["sfx","playing",0,"media/song.xm",0,null,[[0,"playing",2,0,100,1,0,null,0,null]]]],"cues":[{"cueId":2,"tick":1,"kind":"media.play","track":"sfx","voice":0,"asset":"media/song.xm","loop":false,"flags":0,"positionTicks":0,"volume":100,"targetVolume":null,"durationTicks":null}],"ev":[{"e":"diag","code":"media.asset-format","op":"mediaPlay","file":"media/song.xm"}]},
-        {"t":2,"tr":[["sfx","playing",0,"media/song.xm",1,null,[[0,"playing",2,0,100,1,1,null,0,null]]]],"ev":[{"e":"diag","code":"media.asset-length","op":"mediaWait","track":"sfx","voice":0},{"e":"diag","code":"media.unknown-track","op":"mediaWait","track":"nosuch"}]},
+        {"t":2,"tr":[["sfx","playing",0,"media/song.xm",1,null,[[0,"playing",2,0,100,1,1,null,0,null]]]],"ev":[{"e":"diag","code":"media.asset-length","op":"voiceWait","track":"sfx","voice":0},{"e":"diag","code":"media.unknown-track","op":"voiceWait","track":"nosuch"}]},
         {"t":3,"tr":[["sfx","playing",0,"media/song.xm",2,null,[[0,"playing",2,0,100,1,2,null,0,null]]]]}
       ],
       "end": {"cueId":3,"soundFont":null,"master":100}

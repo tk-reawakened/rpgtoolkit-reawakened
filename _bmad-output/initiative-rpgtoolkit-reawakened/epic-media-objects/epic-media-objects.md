@@ -62,3 +62,4 @@ Changes `core/audio` only at its script-facing edge (events out, `beforePlay` in
 - Handoff: Epic 7 (stock battle) and Epic 8 (stock menu) play their battle, cursor and menu sounds through this surface and list this epic in their `after`.
 - Handoff: Epic 9's audio handoff is unchanged (cues and the runner protocol are not touched).
 - Principle: see the initiative Notes Decision of 2026-10-19 (3.1 is a compatibility layer, not the model); 19.1 writes ADR 0009 and the CLAUDE.md working note.
+- Delivered: entry 21.6 removed the retired surface from the command table, catalogue and reference (no alias or shim); the internal method targets stay `doc.access: "internal"`, so authors see only `mediaPlay`, the objects and the 3.1 aliases. The oracle's standard-call labels now use the options/object form; the re-recorded audio fixtures differ in those labels only.

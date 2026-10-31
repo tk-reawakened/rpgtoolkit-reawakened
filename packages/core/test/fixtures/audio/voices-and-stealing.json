@@ -206,7 +206,7 @@
     },
     {
       "name": "steal-wakes-the-displaced-wait",
-      "note": "Thread 1 plays voice 0 with tkMD_WAIT and parks; thread 2's play steals voice 0 at tick 3 (the voice's cue id changes), so thread 1 wakes at the next waits phase, tick 4, although its sound had 28 ticks left.",
+      "note": "Thread 1 plays voice 0 with `wait: true` and parks; thread 2's play steals voice 0 at tick 3 (the voice's cue id changes), so thread 1 wakes at the next waits phase, tick 4, although its sound had 28 ticks left.",
       "setup": {
         "defaultSoundFont": null,
         "assets": {
