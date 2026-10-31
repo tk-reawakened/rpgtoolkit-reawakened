@@ -180,3 +180,20 @@ after = [10]
 hitl = false
 risk = "low"
 references = ["issue - #826", "spec - docs/spec/engine/audio-media.md#audio-core-pins", "spec - docs/spec/engine/rpgcode-modules-and-objects.md (R-34)", "code - packages/core/src/script/layers.ts (layerRoots)"]
+
+[[entry]]
+id = 12
+tracker_id = "#843"
+type = "spike"
+title = "Rule the load-time contract for listeners whose package is missing"
+description = "Contract question found by the closure audit (discovery/epic-21-closure-audit.md, A-01): Epic 21 Done-when 6 promises that a package missing on load loses its listeners with a diagnostic, but EMIT-15 makes listeners saved script-state callable records and OOP-12 rules only method hydration. The deliverable is a proposed ruling, not code."
+verify = "A ruling is recorded in this entry's plan with its evidence and the rejected alternative; if the wording option is accepted, Epic 21 Done-when 6 is reworded and the named test proves that a save with a listener whose package is absent loads, keeps the listener and is not refused; if the implementation option is chosen, a follow-up ticket carries the save-migration question and the new diagnostic's code, location and test."
+covers = ["CAP-5", "CAP-7"]
+after = [3]
+hitl = true
+risk = "low"
+references = [
+  "issue - #843",
+  "audit - _bmad-output/initiative-rpgtoolkit-reawakened/epic-media-objects/discovery/epic-21-closure-audit.md (A-01)",
+  "spec - docs/spec/engine/rpgcode-modules-and-objects.md (EMIT-15, OOP-12)",
+]
