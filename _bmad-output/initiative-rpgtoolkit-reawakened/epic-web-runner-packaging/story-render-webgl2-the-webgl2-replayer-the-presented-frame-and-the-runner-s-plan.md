@@ -3,7 +3,7 @@ title: "render-webgl2: the WebGL2 replayer, the presented frame and the runner's
 type: 'feature'
 ticket: 4
 created: '2026-10-31'
-status: in-progress
+status: done
 tracker_id: "#929"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/929"
 baseline_revision: 'adb6c95b'
@@ -69,8 +69,20 @@ row of the golden ledger — not on a demonstration frame.
 ## Verification
 
 - `pnpm browser:test` — 16/16 vectors **exact**, 19/19 gating ledger rows **exact**, every row flush-stable.
-- `pnpm golden` 20 rows, `pnpm closing` 8/8, `pnpm test:strict`, `pnpm typecheck`, `pnpm lint`, `pnpm graph`,
-  `pnpm fixtures:test`, `pnpm licence`, `pnpm provenance`, `pnpm no-skips:test`.
+- `pnpm golden` 20 rows, `pnpm closing` 8/8, `pnpm test:strict` (2512/2512, none skipped), `pnpm typecheck`,
+  `pnpm lint`, `pnpm graph` (539 modules), `pnpm fixtures:test` (99), `pnpm licence`, `pnpm provenance`,
+  `pnpm no-skips:test` (12).
+
+## Landing
+
+Merged as **`a95cebbf`** — "feat(9.4): replay every AD-3 command in WebGL2 and prove it against the oracle" (PR
+[#984](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/984), squash; #929 closed as completed). One commit.
+
+Two things the work turned up that the entry text did not name, both fixed here because the presentation was wrong
+without them: the engine's default-font substitution (`DEFAULT_FONT_ASSET`, now a core leaf the engine imports) and the
+tileset strip exceeding `MAX_TEXTURE_SIZE`, which sampled as black on the largest closing board. Neither moved a
+golden. CI run 41251593546 green on every check, including the new `unit (render-webgl2)` shard and the coverage
+`gate`.
 
 ## Out of scope
 
