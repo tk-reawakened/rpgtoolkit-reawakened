@@ -304,11 +304,11 @@ const SAMPLE_TILESETS = existsSync(join(repoRoot, "fixtures", "legacy"))
     .filter((name) => name.toLowerCase().endsWith(".tst"))
     .map((name) => join(repoRoot, "fixtures", "legacy", name))
   : [];
-const missingFixtures = SAMPLE_TILESETS.filter((file) => !existsSync(file));
+const fixturesFetched = existsSync(join(repoRoot, "fixtures", "legacy"));
 
 test(
   "the sample tilesets parse with zero trailing bytes and round-trip",
-  { skip: missingFixtures.length === 0 ? false : `fixtures not fetched: ${missingFixtures[0]}` },
+  { skip: fixturesFetched ? false : "legacy fixtures are not fetched" },
   () => {
     for (const file of SAMPLE_TILESETS) {
       const bytes = new Uint8Array(readFileSync(file));
@@ -316,7 +316,9 @@ test(
       const model = unwrap(readTileset(bytes, file));
       equal(model.tiles.length > 0, true, `${file} should hold tiles`);
       equal(model.residue.length, 0, `${file} should have no trailing bytes`);
-      deepEqual([...unwrap(writeTileset(model))], [...bytes], `${file} should round-trip exactly`);
+      // Compare the typed arrays directly: spreading 51 MB of tilesets into number arrays cost ~2.5 s of
+      // the sweep's runtime and proves nothing extra.
+      deepEqual(unwrap(writeTileset(model)), bytes, `${file} should round-trip exactly`);
     }
   },
 );

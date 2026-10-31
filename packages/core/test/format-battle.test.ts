@@ -638,8 +638,8 @@ function collect(root: string, suffixes: readonly string[]): string[] {
     .map((name) => join(root, name));
 }
 
-// Every fetched sample game, not only `demo` and `Basic`: FinalDestiny ships the only real `.spc` and
-// `.ste` files in the corpus, so a two-game list left the two layouts with synthetic coverage only (#852).
+// Every fetched sample game, not only `demo` and `Basic`: those two ship no binary `.spc` or `.ste` at all,
+// while ChimeranEmpire, FinalDestiny and School2Demo do, so a two-game list left both layouts synthetic (#852).
 const sampleBattle = collect(join(repoRoot, "fixtures", "legacy"), [".bkg", ".spc", ".ste"]);
 
 /** Check one parsed sample: no trailing bytes, no residue, exact round-trip. */

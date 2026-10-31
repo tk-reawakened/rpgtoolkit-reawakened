@@ -409,22 +409,22 @@ test("minor 9 adds pathfinding, debug vectors and the eight scan codes", () => {
   deepEqual(unwrap(writeMainFile(model)), built.bytes);
 });
 
-test("every conditional row follows the spec page's own condition, and only that condition", () => {
+test("every conditional scalar row follows the spec page's own condition, and only that condition", () => {
   // Source: docs/spec/formats/main-file.md#layout "Present when". Each entry cites the row and repeats the
   // page's wording, so this table is checkable against the page rather than against the builder.
   const rows: readonly (readonly [number, string, string, (minor: number) => boolean])[] = [
     [11, "parallax", "minor < 3", (minor) => minor < 3],
     [23, "menuPlugin", "minor ≥ 3", (minor) => minor >= 3],
-    [23, "menuPluginFallback", "minor < 3", (minor) => minor < 3],
+    [23, "menuPluginFallback", "minor < 3 (row 23′)", (minor) => minor < 3],
     [25, "multitask", "minor ≤ 2", (minor) => minor <= 2],
     [33, "fightStyle", "minor < 3", (minor) => minor < 3],
     [42, "cursorMoveSound", "minor ≥ 3", (minor) => minor >= 3],
     [47, "gameSpeed", "minor ≥ 4", (minor) => minor >= 4],
     [49, "cursorEnabled", "minor = 5", (minor) => minor === 5],
     [50, "mouseCursor", "minor ≥ 6", (minor) => minor >= 6],
-    [51, "resX", "minor ≥ 7", (minor) => minor >= 7],
-    [52, "showFpsInTitle", "minor ≥ 8", (minor) => minor >= 8],
-    [53, "pathfindHeuristic", "minor ≥ 9", (minor) => minor >= 9],
+    [54, "resX", "minor ≥ 7", (minor) => minor >= 7],
+    [56, "showFpsInTitle", "minor ≥ 8", (minor) => minor >= 8],
+    [57, "pathfindHeuristic", "minor ≥ 9", (minor) => minor >= 9],
   ];
   for (const [row, name, condition, expected] of rows) {
     let transitions = 0;
