@@ -1627,6 +1627,11 @@ export function createEngine(init: EngineInit): Engine {
         state.engine.boot = { stage: "main", main: found, fonts: [] };
       }
     }
+    // Package layers are session data derived from the installed packages, never
+    // carried across a reset (docs/spec/engine/rpgcode-package-loader.md#reset-and-restore):
+    // reusing the table would stack a second copy of every RPGCode layer and run a
+    // wrapped engine command twice.
+    pluginLayers = createPluginLayers();
     if (nextMain !== undefined) {
       startupServicesReady = false;
       services = makeServices([], loader ?? undefined, false);

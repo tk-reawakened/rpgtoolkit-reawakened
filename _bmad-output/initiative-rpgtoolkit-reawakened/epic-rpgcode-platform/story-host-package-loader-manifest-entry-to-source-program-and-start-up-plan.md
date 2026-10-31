@@ -3,8 +3,8 @@ title: "Host package loader: manifest entry to source program and start-up"
 type: 'feature'
 ticket: 16
 created: '2026-10-20'
-status: draft
-baseline_revision: '5fce842c0f6ae46a40b7fb767540dce1f25da73a'
+status: built
+baseline_revision: 'df7c1d03'
 risk: "high"
 context:
   - "spec - docs/spec/engine/rpgcode-modules-and-objects.md (PKG-2, PKG-3, PKG-4, PKG-5, PKG-7)"
@@ -23,6 +23,8 @@ Shape. A **package catalogue** is plain data the host builds before boot, the sa
 ## Boundaries
 
 Touches: `script/manifest.ts` (the optional `program` field of a package entry and of `PackageDeclaration`, validated like the other fields and allowed only on a package entry), `engine/boot.ts` and `engine/engine.ts` (the catalogue input, entry upgrade, start-up at boot and `reset`), a restore helper beside `package-startup.ts`, the runner-harness resolver and `script-host.ts` (the harness reads the same catalogue; its `packageStartups` input stays and keeps working unchanged), and the spec rows below. The first step is doc-first (G7): PKG-2 (field spelling, now including `program`) and PKG-7 (where a package's code comes from) are Proposed rulings in `rpgcode-modules-and-objects.md`; this entry rules them as built and amends E-02 step 3 and the main-file page's paragraph on the package list, which today describe one appended `{ id }` entry and an unresolved name as the only outcome.
+
+The `program` field named below is delivered as the catalogue's `startup` program reference (see Delivered); no manifest or declaration field of that name exists.
 
 Does not: add a file format reader (the descriptor is read by the host; where the file sits and how it is parsed is the host's), change `registerPlugin`, rule how packages are distributed to the editor (Epic 11/12), load native TypeScript packages (they stay author-installed, ADR 0008), add the `ns.name(...)` lookup of a package's script functions and objects (PKG-4's last clause; recorded below as an owner question, not built here), or add a capability model. It must not touch the files the closed 19.14 and 19.15 changed beyond the harness seams named above.
 
@@ -48,3 +50,27 @@ Unit tests over a fixture package folder (a start-up that wraps an existing engi
 ## Open for the owner
 
 - `ns.name(...)` for a package's script functions and objects (PKG-4's clause "when the package loader of PKG-7 supplies them"): today a namespace reaches only a native definition's commands, and `registerPlugin`'s `name` is a free label. Not needed by Epic 20. Taken: not in this entry. <!-- OWNER: build the namespace lookup of RPGCode-package exports here, or leave to Epic 7 or a later entry -->
+
+## Delivered
+
+The loader itself shipped in entry 19.17 (`story-implement-package-catalogue-loader-and-startup-runtime`), which ruled the catalogue shape on `docs/spec/engine/rpgcode-package-loader.md`: a host-built catalogue entry carries `{ name, version, namespace?, requests, definition, startup: ProgramRef }`, and the manifest entry is upgraded from it in `engine/boot.ts` (`pluginManifestFor`). The `program` field this plan proposed on the manifest entry was therefore implemented as the catalogue's `startup` program reference; both the ruling and the code agree, and no second spelling exists.
+
+What this entry added on top, and what each verify clause now rests on:
+
+| Verify clause | Evidence |
+|---|---|
+| A project folder holding one RPGCode package and a `.gam` list naming it boots with that package's version and namespace in the manifest, its start-up having registered a layer on an engine command | `packages/core/test/engine-boot.test.ts`, "a project folder's RPGCode package layers an engine command and is rebuilt by reset": a `Main/` game folder under `Game/Sample/`, the package named in the `.gam` list, a catalogue entry with version `1.2` and namespace `climate`, and a start-up that registers a `registerPlugin` layer over the engine's `getgp`; the main program observes the wrapper ran once and the wrapped command still answered. The manifest identity itself is asserted by the existing "manifest package lookup folds ASCII package identity", now also checking `package.version` and `package.namespace`. |
+| The layer table is rebuilt after `reset` | Same test: after the main program calls `reset()`, the fresh state runs the package start-up again and the wrapper still runs exactly once. `engine.ts` `resetLifecycle` now builds a fresh `createPluginLayers()` before `makeServices`, as `docs/spec/engine/rpgcode-package-loader.md#reset-and-restore` rules ("each fresh service/layer table derives its registrations deterministically from the installed packages"); before this entry the shared table was reused, so every reset stacked a second copy of each RPGCode layer and a wrapped engine command ran twice. |
+| The layer table is rebuilt through the restore helper before a saved state loads | `engine.ts` `applyLoadedGame` already builds `restoredLayers = createPluginLayers()` and reruns the active packages' start-up (documented at `rpgcode-package-loader.md:41` after #861); exercised end to end by `packages/core/test/battle-fresh-load.test.ts`, which loads a real game save whose package owns a start-up and continues the fight. |
+| A start-up that waits fails with `package.startup-unfinished` | Existing `engine-boot.test.ts` case "a package startup that waits is rejected by the lifecycle clock guard". |
+| A listed name the catalogue lacks is one located `plugin.unresolved` naming the main file and the list position, and the game still boots | `engine-boot.test.ts:444-451` — both names, `diagnostic.file === game.main`, lines `[0, 1]`, and the engine still reaches its running stage. |
+| A name that is not a legal package identifier is `manifest.package-name` | `script-manifest.test.ts:159`, and negatively in `engine-boot.test.ts:440`. |
+| The 19.14 corpus start-up path and the legacy goldens are unchanged | `packages/runner-harness/src/corpus.ts:816-842` (`startups`) keeps working unchanged, and `pnpm golden`, `pnpm golden:bun` and `pnpm closing` (8/8) are green. |
+
+### Defect found and fixed
+
+`resetLifecycle` reused the engine's one `pluginLayers` table when it rebuilt services, so a package's `registerPlugin` layer was registered again on top of the copy already there. A wrapped engine command then ran once per reset (measured: two runs after one reset). The fix builds a fresh layer table first; `pnpm test:strict` passes 2,430 tests with it.
+
+### Plan Change Log
+
+- 2026-10-31 (built): the `program` field is recorded as delivered by the catalogue `startup` reference (19.17's ruling); added the project-folder boot and reset-rebuild test; fixed the reset layer-table reuse it exposed.

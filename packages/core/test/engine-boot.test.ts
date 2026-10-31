@@ -35,8 +35,9 @@ import {
   restoreRecoveryCandidate,
   snapshotGameSave,
   startProgram,
+  startThread,
 } from "../src/index.ts";
-import { engineEffect, resolveManifestPlugins } from "../src/engine/boot.ts";
+import { engineEffect, pluginManifestFor, resolveManifestPlugins } from "../src/engine/boot.ts";
 import type { AssetIndex, AssetRoot, Engine, EffectRecord, EngineInit, GameState, InputRecord, PackageCatalogueEntry, PlainData, ResolvedPlugin, SpriteRuntime, TickReport } from "../src/index.ts";
 import type { MainFileAudioSettings } from "../src/formats/main-file/model.ts";
 import type { AudioCue } from "../src/ports/audio.ts";
@@ -657,22 +658,67 @@ test("package audio declarations respect the 16-track limit without removing gam
   equal(result.diagnostics.find((diagnostic) => diagnostic.code === "media.package-track")?.message.includes("track-limit"), true);
 });
 
-test("manifest package lookup folds ASCII package identity", () => {
-  const resolved = resolveManifestPlugins(
-    [{ id: "WEATHER", version: "1.2" }],
-    "main.gam",
-    [{
-      name: "Weather",
-      version: "1.2",
-      requests: [],
-      definition: { id: "weather", version: "1.2", commands: [] },
-      startup: { kind: "inline", text: "end()\n", ir: IR_VERSION, dialect: "tk3" },
-    }],
-  );
+test("manifest package lookup folds ASCII package identity and keeps the catalogue's namespace", () => {
+  const catalogue: readonly PackageCatalogueEntry[] = [{
+    name: "Weather",
+    version: "1.2",
+    namespace: "climate",
+    requests: [],
+    definition: { id: "weather", version: "1.2", commands: [] },
+    startup: { kind: "inline", text: "end()\n", ir: IR_VERSION, dialect: "tk3" },
+  }];
+  const main = { ...createEmptyMainFile(), packagePlugins: ["WEATHER"] };
+  const { manifest, diagnostics } = pluginManifestFor(main, "main.gam", catalogue);
+  deepEqual(diagnostics, []);
+  const entry = manifest.find((candidate) => candidate.id === "weather");
+  equal(entry?.version, "1.2", "the catalogue's version reaches the manifest entry");
+  equal(entry?.namespace, "climate", "the catalogue's namespace reaches the manifest entry");
+
+  const resolved = resolveManifestPlugins(manifest, "main.gam", catalogue);
   equal(resolved.diagnostics.length, 0);
-  equal(resolved.plugins[0]?.package?.name, "weather");
-  equal(resolved.plugins[0]?.startup?.owner, "weather");
+  const weather = resolved.plugins.find((plugin) => plugin.package?.name === "weather");
+  equal(weather?.package?.version, "1.2");
+  equal(weather?.package?.namespace, "climate", "a declared namespace reaches the resolved package metadata");
+  equal(weather?.startup?.owner, "weather");
 });
+
+test("a project folder's RPGCode package layers an engine command and is rebuilt by reset", () => {
+  const game = authorGame({
+    ...SCRIPTED,
+    project: "Sample",
+    packages: ["weather"],
+    programs: {
+      ...SCRIPTED.programs,
+      "start.prg": "answered = getgp()\nwrapped = weatherWraps\nend()\n",
+    },
+  });
+  const catalogue: readonly PackageCatalogueEntry[] = [{
+    name: "weather",
+    version: "1.2",
+    namespace: "climate",
+    requests: [],
+    definition: { id: "weather", version: "1.2", commands: [] },
+    startup: {
+      kind: "inline",
+      ir: IR_VERSION,
+      dialect: "tk3",
+      text: 'registerPlugin({ name: "weather", commands: { getgp: (next) => { weatherWraps = weatherWraps + 1; return next() } } })\nend()\n',
+    },
+  }];
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles, catalogue);
+  const booted = run(engine, game.files, 20);
+  equal(booted.diagnostics.some((diagnostic) => diagnostic.code === "plugin.unresolved"), false);
+  equal(doubles.state().vm.globals.wrapped, 1, "the package layer wrapped the engine command");
+  equal(doubles.state().vm.globals.answered, 0, "the wrapped engine command still answered");
+
+  // `reset()` reruns package startup before main startup, so the same layer must be back in the fresh state.
+  startThread(doubles.state().vm, { ref: { kind: "inline", text: "reset()\nend()", ir: IR_VERSION }, kind: "persistent", owner: "script" });
+  const afterReset = run(engine, game.files, 20);
+  equal(afterReset.diagnostics.some((diagnostic) => diagnostic.code === "unknown.command"), false);
+  equal(doubles.state().vm.globals.wrapped, 1, "reset rebuilt the package layer");
+});
+
 test("a package startup that waits is rejected by the lifecycle clock guard", () => {
   const game = authorGame({ ...SCRIPTED, packages: ["weather"] });
   const catalogue: readonly PackageCatalogueEntry[] = [{
