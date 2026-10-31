@@ -638,10 +638,9 @@ function collect(root: string, suffixes: readonly string[]): string[] {
     .map((name) => join(root, name));
 }
 
-const sampleBattle = [
-  ...collect(join(repoRoot, "fixtures", "legacy", "demo"), [".bkg", ".spc", ".ste"]),
-  ...collect(join(repoRoot, "fixtures", "legacy", "Basic"), [".bkg", ".spc", ".ste"]),
-];
+// Every fetched sample game, not only `demo` and `Basic`: FinalDestiny ships the only real `.spc` and
+// `.ste` files in the corpus, so a two-game list left the two layouts with synthetic coverage only (#852).
+const sampleBattle = collect(join(repoRoot, "fixtures", "legacy"), [".bkg", ".spc", ".ste"]);
 
 /** Check one parsed sample: no trailing bytes, no residue, exact round-trip. */
 function checkBattle<T extends { readonly residue: Uint8Array }>(
@@ -667,6 +666,22 @@ function checkBattle<T extends { readonly residue: Uint8Array }>(
   deepEqual(unwrap(write(result.value)), bytes, `${path}: byte-identical round-trip`);
 }
 
+/** A zero-byte placeholder is refused; a Toolkit 2 text file (minor 0) parses but is not round-tripped. */
+function visit<T extends { readonly minor: number; readonly residue: Uint8Array }>(
+  path: string,
+  bytes: Uint8Array,
+  reader: BinaryReader,
+  result: Result<T>,
+  write: (model: T) => Result<Uint8Array>,
+): void {
+  if (bytes.length === 0) {
+    equal(result.ok, false, `${path}: an empty file is refused`);
+    return;
+  }
+  if (result.ok && result.value.minor === 0) return;
+  checkBattle(path, bytes, reader, result, write);
+}
+
 test(
   "every sample battle file parses with zero trailing bytes and round-trips exactly",
   { skip: sampleBattle.length === 0 ? "legacy fixtures are not fetched" : false },
@@ -676,11 +691,11 @@ test(
       const reader = new BinaryReader(bytes, path);
       const lower = path.toLowerCase();
       if (lower.endsWith(".bkg")) {
-        checkBattle(path, bytes, reader, readBattleBackground(reader), writeBattleBackground);
+        visit(path, bytes, reader, readBattleBackground(reader), writeBattleBackground);
       } else if (lower.endsWith(".spc")) {
-        checkBattle(path, bytes, reader, readSpecialMove(reader), writeSpecialMove);
+        visit(path, bytes, reader, readSpecialMove(reader), writeSpecialMove);
       } else {
-        checkBattle(path, bytes, reader, readStatusEffect(reader), writeStatusEffect);
+        visit(path, bytes, reader, readStatusEffect(reader), writeStatusEffect);
       }
     }
   },

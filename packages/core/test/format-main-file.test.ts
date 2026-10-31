@@ -409,26 +409,34 @@ test("minor 9 adds pathfinding, debug vectors and the eight scan codes", () => {
   deepEqual(unwrap(writeMainFile(model)), built.bytes);
 });
 
-test("the conditional rows are absent at the minors the spec omits them from", () => {
-  const present: Record<string, (minor: number) => boolean> = {
-    parallax: (minor) => minor < 3,
-    menuPluginFallback: (minor) => minor < 3,
-    multitask: (minor) => minor <= 2,
-    fightStyle: (minor) => minor < 3,
-    menuPlugin: (minor) => minor >= 3,
-    cursorMoveSound: (minor) => minor >= 3,
-    gameSpeed: (minor) => minor >= 4,
-    cursorEnabled: (minor) => minor === 5,
-    mouseCursor: (minor) => minor >= 6,
-    resX: (minor) => minor >= 7,
-    showFpsInTitle: (minor) => minor >= 8,
-    pathfindHeuristic: (minor) => minor >= 9,
-  };
-  for (const [name, expected] of Object.entries(present)) {
+test("every conditional row follows the spec page's own condition, and only that condition", () => {
+  // Source: docs/spec/formats/main-file.md#layout "Present when". Each entry cites the row and repeats the
+  // page's wording, so this table is checkable against the page rather than against the builder.
+  const rows: readonly (readonly [number, string, string, (minor: number) => boolean])[] = [
+    [11, "parallax", "minor < 3", (minor) => minor < 3],
+    [23, "menuPlugin", "minor ≥ 3", (minor) => minor >= 3],
+    [23, "menuPluginFallback", "minor < 3", (minor) => minor < 3],
+    [25, "multitask", "minor ≤ 2", (minor) => minor <= 2],
+    [33, "fightStyle", "minor < 3", (minor) => minor < 3],
+    [42, "cursorMoveSound", "minor ≥ 3", (minor) => minor >= 3],
+    [47, "gameSpeed", "minor ≥ 4", (minor) => minor >= 4],
+    [49, "cursorEnabled", "minor = 5", (minor) => minor === 5],
+    [50, "mouseCursor", "minor ≥ 6", (minor) => minor >= 6],
+    [51, "resX", "minor ≥ 7", (minor) => minor >= 7],
+    [52, "showFpsInTitle", "minor ≥ 8", (minor) => minor >= 8],
+    [53, "pathfindHeuristic", "minor ≥ 9", (minor) => minor >= 9],
+  ];
+  for (const [row, name, condition, expected] of rows) {
+    let transitions = 0;
+    let previous: boolean | undefined;
     for (let minor = 0; minor <= 9; minor += 1) {
-      const built = buildGam(minor);
-      equal(built.offsets[name] !== undefined, expected(minor), `${name} at minor ${minor}`);
+      const present = buildGam(minor).offsets[name] !== undefined;
+      equal(present, expected(minor), `row ${row} (${name}) at minor ${minor}: the page says "${condition}"`);
+      if (previous !== undefined && present !== previous) transitions += 1;
+      previous = present;
     }
+    // A condition that is an inequality changes presence once; `minor = 5` changes it twice.
+    equal(transitions, condition === "minor = 5" ? 2 : 1, `row ${row} (${name}) changes presence ${transitions} time(s)`);
   }
 });
 
