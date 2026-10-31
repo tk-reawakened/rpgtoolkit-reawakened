@@ -1,0 +1,58 @@
+{
+  "files": [
+    "stock/stock_rpg/startup.prg",
+    "stock/stock_menu/startup.prg",
+    "stock/stock_battle/startup.prg"
+  ],
+  "diagnostics": [
+    {
+      "file": "stock/stock_rpg/startup.prg",
+      "rule": "lint/unknown-command",
+      "line": 1,
+      "column": 40,
+      "message": "`bridgetalked` is not a script function, class, label or registered command"
+    },
+    {
+      "file": "stock/stock_menu/startup.prg",
+      "rule": "lint/unknown-command",
+      "line": 5,
+      "column": 14,
+      "message": "`next` is not a script function, class, label or registered command"
+    },
+    {
+      "file": "stock/stock_battle/startup.prg",
+      "rule": "lint/unknown-command",
+      "line": 2630,
+      "column": 3,
+      "message": "`clearbuffer` is not a script function, class, label or registered command"
+    },
+    {
+      "file": "stock/stock_battle/startup.prg",
+      "rule": "lint/unknown-command",
+      "line": 2639,
+      "column": 11,
+      "message": "`get` is not a script function, class, label or registered command"
+    },
+    {
+      "file": "stock/stock_battle/startup.prg",
+      "rule": "lint/unknown-command",
+      "line": 2686,
+      "column": 14,
+      "message": "`next` is not a script function, class, label or registered command"
+    },
+    {
+      "file": "stock/stock_battle/startup.prg",
+      "rule": "lint/unknown-command",
+      "line": 2689,
+      "column": 14,
+      "message": "`next` is not a script function, class, label or registered command"
+    },
+    {
+      "file": "stock/stock_battle/startup.prg",
+      "rule": "lint/unknown-command",
+      "line": 2694,
+      "column": 7,
+      "message": "`next` is not a script function, class, label or registered command"
+    }
+  ]
+}
