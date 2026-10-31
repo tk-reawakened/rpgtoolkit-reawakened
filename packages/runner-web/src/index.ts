@@ -11,7 +11,16 @@
  * page's Implementation status table.
  */
 
-import { assetKey, type AssetKey, type DrawList } from "@tk-reawakened/core";
+import {
+  assetKey,
+  DEFAULT_FONT_ASSET,
+  readLegacyFont,
+  readTrueTypeFont,
+  type AssetKey,
+  type DrawList,
+  type RasterAsset,
+  type SurfaceId,
+} from "@tk-reawakened/core";
 import {
   decodeAssetTexture,
   parseClosingPlan,
@@ -90,7 +99,29 @@ export type ScriptedFrameOptions = {
   readonly gl: WebGL2RenderingContext;
   /** Which captured frame to present; the plan's `board` frame is tick 120. */
   readonly tick?: number;
+  /** Font assets by key, decoded by the core; a text command without one is counted deferred. */
+  readonly fonts?: ReadonlyMap<AssetKey, RasterAsset>;
 };
+
+/**
+ * Decode the fonts a host carries into the map a text command's `asset` names (AD-15). Only formats the core reads
+ * decode: a legacy `.fnt` as a `LegacyFont`, a TrueType as a `TrueTypeFont`; anything else is left out, and a text
+ * command naming it is counted deferred rather than drawn with a guess.
+ */
+export function fontProvider(files: ClosingFiles): ReadonlyMap<AssetKey, RasterAsset> {
+  const fonts = new Map<AssetKey, RasterAsset>();
+  for (const [path, bytes] of files) {
+    const key = assetKey(path);
+    if (key.endsWith(".fnt")) {
+      const font = readLegacyFont(bytes, path);
+      if (font.ok) fonts.set(key, font.value);
+    } else if (key.endsWith(".ttf")) {
+      const font = readTrueTypeFont(bytes, path);
+      if (font.ok) fonts.set(key, font.value);
+    }
+  }
+  return fonts;
+}
 
 /**
  * Boot one game exactly as the headless closing suite does and present one captured frame through WebGL2. Returns the
@@ -104,9 +135,14 @@ export function runScriptedFrame(options: ScriptedFrameOptions): FrameReport {
   const frame = run.frames.find((candidate) => candidate.tick === (options.tick ?? 120)) ?? run.frames.at(-1);
   if (frame === undefined) throw new Error(`runner-web: ${options.game} captured no frame`);
   const renderer = createWebgl2Renderer(options.gl);
-  const render = renderer.render(frame.drawList as DrawList, textureProvider(options.files), (id, rev) => {
-    const pixels = frame.surfaces.get(`${id}:${rev}`);
-    return pixels === undefined || pixels === null ? null : { w: pixels.w, h: pixels.h, rgba: pixels.rgba };
+  const render = renderer.render(frame.drawList as DrawList, {
+    textures: textureProvider(options.files),
+    surfaces: (id: SurfaceId, rev: number) => {
+      const pixels = frame.surfaces.get(`${id}:${rev}`);
+      return pixels === undefined || pixels === null ? null : { w: pixels.w, h: pixels.h, rgba: pixels.rgba };
+    },
+    fonts: (asset: AssetKey) => options.fonts?.get(asset),
+    ...(options.fonts?.get(DEFAULT_FONT_ASSET) === undefined ? {} : { fallbackFont: options.fonts.get(DEFAULT_FONT_ASSET) }),
   });
   return { tick: frame.tick, stateHash: frame.stateHash, drawHash: frame.drawHash, commands: frame.commands, render };
 }

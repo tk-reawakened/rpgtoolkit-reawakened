@@ -1,22 +1,36 @@
 import { expect, test } from "@playwright/test";
 
-/** D-7 on the commit-time vectors: exact on key, tint and blend choice; at most one unit per channel on blend arithmetic. */
-test("render-webgl2 replays the committed raster vectors within the D-7 bound", async ({ page }) => {
-  await page.goto("/packages/runner-web/app/vectors.html");
-  await page.waitForFunction(() => window.__vectors !== undefined, undefined, { timeout: 30_000 });
-  const results = await page.evaluate(() => window.__vectors as { id: string; actual: string; expected: string }[]);
-  console.log("vectors:", JSON.stringify(results));
-  expect(results.length).toBe(7);
+/**
+ * D-7 on the whole commit-time kit: exact on every discrete decision (colour-key exclusion, the R-15 tint remap,
+ * alpha-0 skipping, row order, and the pixel sets of the line, the rectangle outline, the midpoint ellipse, the `.iso`
+ * projection and text ink), at most one unit per channel on blend arithmetic.
+ *
+ * The page reports the worst channel per vector and whether the reference itself reproduced the committed bytes, so a
+ * failure here names the vector, the pixel and the channel instead of a boolean.
+ */
+type VectorReport = {
+  readonly id: string;
+  readonly actual: string;
+  readonly expected: string;
+  readonly worst: number;
+  readonly at: string;
+  readonly kitError: string | null;
+};
 
+test("render-webgl2 replays every committed raster vector within the D-7 bound", async ({ page }) => {
+  await page.goto("/packages/runner-web/app/vectors.html");
+  await page.waitForFunction(() => window.__vectors !== undefined, undefined, { timeout: 60_000 });
+  const results = (await page.evaluate(() => window.__vectors)) as readonly VectorReport[];
+  // 14 geometry and pipeline vectors, one legacy bitmap-font run, one TrueType run.
+  expect(results.length).toBe(16);
+
+  const blendArithmetic = (id: string): boolean => id.includes("translucent") || id.includes("additive");
   for (const result of results) {
-    const actual = bytes(result.actual);
-    const expected = bytes(result.expected);
-    const worst = worstChannel(actual, expected);
-    // Every discrete decision — the key, the R-15 tint remap, alpha-0 skipping, row order — must be exact; only the two
-    // blend arithmetic cases may differ by one (D-7).
-    const arithmetic = result.id.includes("translucent") || result.id.includes("additive");
-    if (arithmetic) expect(worst, `${result.id} within one unit per channel`).toBeLessThanOrEqual(1);
-    else expect(worst, `${result.id} must be exact`).toBe(0);
+    expect(result.kitError, `${result.id}: the committed bytes must reproduce through the reference`).toBeNull();
+    const worst = worstChannel(bytes(result.actual), bytes(result.expected));
+    expect(worst, `${result.id}: worst channel`).toBe(result.worst);
+    if (blendArithmetic(result.id)) expect(worst, `${result.id} within one unit per channel (${result.at})`).toBeLessThanOrEqual(1);
+    else expect(worst, `${result.id} must be exact (first difference ${result.at})`).toBe(0);
   }
 });
 

@@ -110,7 +110,7 @@ import {
 import type { ObjectRecord, Thread, VmState } from "../script/state.ts";
 import { findObject, readMember } from "../script/objects.ts";
 import type { PackageCatalogueEntry, PluginDefinition } from "../script/plugin.ts";
-import { DEFAULT_FONT } from "../script/packs/ui.ts";
+import { DEFAULT_FONT_ASSET } from "../raster/text.ts";
 import type { WaitView } from "../ports/wait.ts";
 import { runTimePhase } from "../time/time.ts";
 import { blitTexture, rasterize, readSurfacePixels, replaceSurface, surfaceTextures, createSurfacesSection, type RasterAsset, type SurfacePixelCache } from "../raster/index.ts";
@@ -310,7 +310,7 @@ export function createEngine(init: EngineInit): Engine {
   const state: GameState = createGameState({ seed: init.seed });
   state.input = createInputSection(init.input);
   state.engine = { claims: [] };
-  const defaultFontAsset = assetKey(DEFAULT_FONT);
+  const defaultFontAsset = DEFAULT_FONT_ASSET;
   let root: AssetRoot = init.assetRoot;
   let mainFile: MainFile | null = null;
   let loader: ProgramLoader | null = null;

@@ -21,11 +21,10 @@ test("demo boots in Chromium to the committed tick-120 hashes", async ({ page })
   expect(report["commands"]).toBe(128);
 
   const render = report["render"] as { drawn: number; deferred: number; deferredByKind: Record<string, number> };
-  // 128 commands: fill + blits are drawn; the five text commands are entry 9.4's and are counted, not faked.
-  expect(render.drawn + render.deferred).toBe(128);
-  expect(render.deferredByKind["text"]).toBe(5);
-  // Nothing else is deferred: every geometry command, including the surface blit, has a real source.
-  expect(render.deferredByKind["blit"]).toBeUndefined();
+  // All 128 commands present, text included: entry 9.4 draws the glyph atlas, so nothing is deferred any more.
+  expect(render.drawn).toBe(128);
+  expect(render.deferred).toBe(0);
+  expect(render.deferredByKind["text"]).toBeUndefined();
 
   // The frame is really on the canvas: read a pixel the board draws, and check the canvas is not blank.
   const sample = await page.evaluate(() => {

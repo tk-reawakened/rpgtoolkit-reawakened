@@ -10,7 +10,9 @@ import { createReadStream, existsSync, readdirSync, readFileSync, statSync } fro
 import { createServer } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
 
-const ROOTS = ["apps", "fixtures", "golden", "media", "tools", "packages/runner-web/app"];
+// `docs` and `packages/core/test/fixtures` carry the examples and authored oracles the golden scenes replay; nothing
+// else outside these roots is reachable.
+const ROOTS = ["apps", "docs", "fixtures", "golden", "media", "tools", "packages/core/test/fixtures", "packages/runner-web/app"];
 const TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
