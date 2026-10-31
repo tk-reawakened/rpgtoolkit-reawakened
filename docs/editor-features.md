@@ -181,9 +181,9 @@ The most important tool. A board is edited on a zoomable, scrollable canvas, wit
 
 ## 8. Build & distribution tools (T-70 … T-74)
 
-**T-70 Make EXE.** Package the game into one self-running executable (the engine with the game appended), with a custom icon and output path. The appended archive is a **distribution package** (§13): the project folder at its root, with `manifest.json { schema, main, index }` naming the main file and the game files.
+**T-70 Make package.** Package the game as one **distribution package** (§13) plus its **install descriptor**, with an output path: the project folder at the archive root, with `manifest.json { schema, main, index }` naming the main file and the game files. The package is what a player installs and opens; it carries no copy of the engine. The legacy self-running EXE is an **import** format only — we read one and never write one (§13, Standalone EXE).
 
-**T-71 Pak file compiler.** Package the game as a single `.tpk` archive for an installed engine (legacy, superseded by EXE). A rebuild's build step writes the same archive as its **distribution package** — a `.tpk`-compatible ZIP with `manifest.json { schema, main, index }` at the archive root (§13) — so the build is one step for the `.tpk` and the self-running EXE.
+**T-71 Pak file compiler.** Package the game as a single `.tpk` archive that an installed player opens. A rebuild's build step writes the same archive as its **distribution package** — a `.tpk`-compatible ZIP with `manifest.json { schema, main, index }` at the archive root (§13) — so the build is one step for the `.tpk` and the package.
 
 **T-72 Create setup.** A ZIP containing the game files plus a simple installer and uninstaller.
 

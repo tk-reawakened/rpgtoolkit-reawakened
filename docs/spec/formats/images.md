@@ -13,6 +13,27 @@ Every image the engine loads, whatever its kind, becomes the same pixels, so tha
 - Every defect is a **located error** carrying the file's path, the offending byte offset and the section `docs/spec/formats/images.md#the-shared-decode-contract` — never a throw and never a plausible wrong picture.
 - A **zero dimension** is refused, and so is an image of more than **100,000,000 pixels**: `width × height` is untrusted input, so past that limit the allocation is not attempted and the file is refused instead. The limit is far above any game asset. A GIF is a stack of **pages** held at once, so for it the limit applies both to its logical screen and to `pages × screen` together ([GIF](#gif)).
 
+<a id="storage-policy"></a>
+## Storage policy
+
+**Ruling (owner: Jensen, 2026-10-31).** The project stores every game image **exactly as the game holds it** — PNG, JPEG,
+Windows bitmap or GIF — and decodes it only through the shared decode contract above. No import step transcodes a bitmap
+or a GIF, and **lossless WebP is not adopted**:
+
+- A runner hands the core **bytes** through an AD-5 `asset` request and never asks the browser to decode a game picture,
+  so native browser support for these formats cannot affect whether a game plays. The one decoder is `decodeTexture`, with
+  `decodeGif` for the animation path (AD-28), and a transcode would add a second format for no behavioural gain.
+- Lossless WebP would mean a second pure-TypeScript decoder inside `core`, which G2 and G3 make a correctness burden,
+  plus a licence-checked encoder. The measured corpus does not justify it: the largest file in the only corpus measured
+  in this repository is 430,086 bytes ([packaging-and-paths.md](packaging-and-paths.md#untrusted-package-limits-l1l26)),
+  and the whole 134-file, two-game corpus is 6.3 MB.
+- For pictures **this project writes** (the editor's export image and authored assets), PNG is the format, **indexed when
+  the picture holds 256 colours or fewer**, because the indexed form is what the legacy art already is. A JPEG is never
+  re-encoded to a lossless format.
+
+The rule is about what we *produce*. What we *read* stays the set above, unchanged: a game's own bytes load whether or
+not they were ever re-saved.
+
 ## Windows bitmap (`.bmp`)
 
 The layout below is the public Microsoft bitmap layout, written here in the byte order of this spec ([README.md](README.md#primitive-encoding): `short` is signed 16-bit little-endian, `int` is signed 32-bit little-endian). No RPG Toolkit file format is involved.

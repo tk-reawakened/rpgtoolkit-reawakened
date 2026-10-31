@@ -104,7 +104,7 @@ The new spec's Python tools need only the standard library, plus Pillow for rend
 | R-57 | Battle model | E-72 to E-77 | Charge +3 per tick (±2 per speed/slow effect); act at 75 (players) and 123 (enemies); `skill` is always −1; outcomes 0-4; `fightInform` codes 6 and 7 never sent; "No enemies of skill level N found." | battle |
 | R-58 | Golden-image oracle | Board-rendering Unknown: no expected images | `docs/spec/examples/renders/*.png` are renders of authored boards and tilesets from an independent renderer | board-rendering |
 | R-59 | Audio | E-100 to E-104 | Every file went through the MIDI path (a bug); animation-frame sounds bypassed PAK extraction | audio-synth |
-| R-60 | Editor behaviour | `editor-features.md` (not replaced) | `sys_test.prg` test runs, new-project defaults, Make EXE, the TK2 folder-upgrade wizard, the battle-plugin upgrade, `.gph` writing | editor-foundation, editor-assets-p0 |
+| R-60 | Editor behaviour | `editor-features.md` (not replaced) | `sys_test.prg` test runs, new-project defaults, Make EXE (the rebuild's T-70 is **Make package**; the EXE form is read, never written), the TK2 folder-upgrade wizard, the battle-plugin upgrade, `.gph` writing | editor-foundation, editor-assets-p0 |
 | R-61 | Plugin contract | E-99, ADR 0004 | The 140-method callback interface, the native and COM export shapes, and the battle protocol | rpgcode-vm 3.23/3.24 (evidence), battle |
 
 ## Entries this report creates

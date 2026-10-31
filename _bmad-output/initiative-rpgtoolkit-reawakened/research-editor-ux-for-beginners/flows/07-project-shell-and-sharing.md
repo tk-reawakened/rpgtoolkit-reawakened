@@ -154,7 +154,7 @@ Party setup owns starting members, inventory, and equipment; each board owns its
 | T-36/T-38 tile and `.gph` operations | Tile editor exposes replace colour, cut corner, skew, layer-tile overlay, greyscale, wrap-scroll, save to chosen slot, and `.gph` single-tile add/convert/export. |
 | T-40/T-46 program helpers | Program creation offers header templates and capitalisation helper; auto-command cleanup wraps loose dialogue lines with preview. |
 | T-64 skins | Skin editor is deferred, not dropped; no legacy skin DLL support. |
-| T-70/T-72 distribution | Distinct Web package, self-running executable where supported, and Setup ZIP profiles, each with preflight/output disclosure. |
+| T-70/T-72 distribution | Distinct Web package and Setup ZIP profiles, each with preflight/output disclosure. A self-running executable is **not** a profile: the owner dropped producing one on 2026-10-31 (it is read for import only). |
 | T-73 flat layout | Import recognizes 2.x flat projects, previews mapping/upgrades and retains originals for recovery. |
 | T-81 browser | Legacy embedded browser intentionally remains external: open URLs in host/browser with permission; no browser recreation. |
 | T-82 file association | Host setup offers supported project/file associations and explains permission limits. |
@@ -211,7 +211,7 @@ The top-level **Share / Export** action is a profile picker, not a collection of
 | **Share playable link** | Upload through a host/service selected and configured by the owner | Pending: no hosting backend, privacy, expiry, limits or anonymous-publishing contract is established; never imply solved. |
 | **Project export** | Editable project archive | Native extension/container remains undecided. |
 | **Distributable package** | Playable distribution package using the documented package manifest | Not a promise to write legacy authoring formats. |
-| **Executable / Setup ZIP** | Host-supported self-running executable or installer package | Distinct T-70/T-72 profiles with explicit host support and preflight; not legacy `.tpk` export. |
+| **Setup ZIP** | Installer package that registers the game with the player's library | Distinct T-70/T-72 profiles with explicit host support and preflight; not legacy `.tpk` export, and no self-running executable (read for import only). |
 
 Before any profile, preflight checks:
 

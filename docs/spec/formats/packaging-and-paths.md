@@ -75,7 +75,7 @@ A plain ZIP of the `Main/` and `Game/` folders (as the original installer shippe
 
 ## Standalone EXE
 
-The editor's "Make EXE" copies the engine executable and appends a PAK and a 12-byte trailer:
+**This project reads this form and never writes it.** It is an *input* format: importing an appended-ZIP legacy game is the only way some of those games load at all, so dropping the producing side is not dropping support. The legacy editor's "Make EXE" copied the engine executable and appended a PAK and a 12-byte trailer:
 
 | Part | Size | Content |
 |---|---|---|
@@ -93,7 +93,7 @@ At start-up the engine reads the last 12 bytes of its own file. If they begin wi
 
 ## Distribution package (this project's own)
 
-The editor's "Make EXE" (T-70) **appends a distribution package** to an engine copy — a `.tpk`-compatible ZIP, the project folder at the archive root exactly as for a `.tpk`, that differs from a legacy pak in two ways: the main file is kept at its [README.md](README.md#paths-inside-files) path `Main/<game>.gam` rather than the legacy root `main.gam`, and the archive also holds a **`manifest.json`** at the root, next to the game files. <!-- OWNER: chose to keep our main file at its §1.5 path `Main/<game>.gam` (and name it in the manifest) rather than the legacy pak's root `main.gam`, because a legacy pak's embedded main is found by the engine and our package names it in `manifest.json`; a reader that accepts both forms ignores the difference. -->
+The editor's **"Make package"** (T-70) **writes a distribution package** — a `.tpk`-compatible ZIP, the project folder at the archive root exactly as for a `.tpk`, that differs from a legacy pak in two ways: the main file is kept at its [README.md](README.md#paths-inside-files) path `Main/<game>.gam` rather than the legacy root `main.gam`, and the archive also holds a **`manifest.json`** at the root, next to the game files. <!-- OWNER: chose to keep our main file at its §1.5 path `Main/<game>.gam` (and name it in the manifest) rather than the legacy pak's root `main.gam`, because a legacy pak's embedded main is found by the engine and our package names it in `manifest.json`; a reader that accepts both forms ignores the difference. -->
 
 The manifest is UTF-8 JSON with **exactly three fields**:
 
@@ -104,6 +104,35 @@ The manifest is UTF-8 JSON with **exactly three fields**:
 | `index` | the in-package path of every game file except `manifest.json`, each listed once, in code-unit order |
 
 The `index` order is the **writer's**, so two writes of one asset tree are byte-identical (guard-rail G3); the caller's array order never reaches the file. A reader accepts the entries in any order, comparing them as a set with `main`, and checks that `main` and every `index` entry name a file in the archive and that no game file is missing from `index`; it refuses a manifest with any other field. A legacy package has no manifest and loads without one; only packages this project writes must carry it. The code is `packages/core/src/formats/package/manifest.ts:1-90` and `package/write.ts:281-430`.
+
+<a id="install-descriptor"></a>
+## Install descriptor
+
+A package is what a game *is*; the descriptor is what a host needs to **register** it. The exporter writes it beside the
+package as `<package>.tpk.json`, a sibling file, because the package's own manifest keeps exactly `schema`, `main` and
+`index` and a reader refuses any other field (AD-6). It is data about the package, not part of it: two exports of one
+asset tree stay byte-identical, and no reader or writer contract changes.
+
+The descriptor is **UTF-8 JSON with exactly seven fields**:
+
+| Field | Meaning |
+|---|---|
+| `schema` | a non-negative integer: the descriptor's own schema version, independent of the package's `manifest.schema` |
+| `file` | the package's file name, as written, with no directory part |
+| `sha256` | the lower-case hex SHA-256 of the package's bytes — the same hash the runner uses as a cache key |
+| `size` | the package's byte length, a non-negative integer |
+| `gameId` | the identity a library row and that game's settings are keyed by (the `GameId` AD-17 derives in core) |
+| `title` | the game's display name, a non-empty string |
+| `version` | the game's own version string, as the author wrote it |
+
+A host that registers a package validates the descriptor against the file it names — the SHA-256 and the size must
+match, or the install is refused with the reason — and stores the six fields in its library registry. **Installing is
+registering**: no per-game stub, no executable wrapper and no file association are involved, and an install is not a
+save (AD-17's blob areas are untouched).
+
+**Every descriptor value is a proposal of the same standing as the limits below.** No sample game ships a package, so
+the field set has no corpus evidence; it is fixed here because a library row needs a shape to key, and it changes only
+with this section.
 
 ## Untrusted-package limits (L1–L26)
 
