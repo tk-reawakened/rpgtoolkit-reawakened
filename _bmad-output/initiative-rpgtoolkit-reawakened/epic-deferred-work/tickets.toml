@@ -45,7 +45,7 @@ risk = "medium"
 id = 4
 tracker_id = "#668"
 type = "story"
-status = "deferred"
+status = "done"
 title = "Research: tracking what changed across packages in the monorepo"
 description = "Compare pnpm filters, Lerna, Nx, Turborepo and the in-repo dependency graph tool for knowing which packages a change affects, beyond the smart-gates path allowlist (#664), and for versioning and changelogs once Epic 10 publishes packages (#666)."
 verify = "A short comparison document with a recommendation and a go/no-go exists; no implementation is started."
@@ -53,6 +53,7 @@ covers = ["CAP-13"]
 after = []
 hitl = false
 risk = "low"
+notes = ["Delivered by PR #823 (58483651, Fixes #668), merged 2026-10-30. docs/findings/monorepo-change-detection.md compares pnpm [<since>]/--filter selectors, Turborepo 2.11.10, Nx 24.0, Lerna 10.1.1 and the in-repo edge-list tool against this repository's facts; recommendation is a zero-dependency path-table `changes` job whose package half is `pnpm --filter \"{packages/*}[origin/main]\"`, with no-go on Turborepo/Nx/Lerna until a published package or one of the four recorded triggers. No workflow, config or dependency was added."]
 
 [[entry]]
 id = 5
