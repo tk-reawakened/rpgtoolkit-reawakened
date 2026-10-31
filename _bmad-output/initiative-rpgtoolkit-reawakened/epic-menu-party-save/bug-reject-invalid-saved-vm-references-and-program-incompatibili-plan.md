@@ -1,7 +1,7 @@
 ---
 title: "Reject invalid saved VM references and program incompatibilities"
 ticket: 22
-type: bug
+type: bugfix
 status: done
 risk: high
 ---

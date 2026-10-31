@@ -1,7 +1,6 @@
 ---
 title: "Authored object-oriented RPGCode parser goldens"
-type: feature
-ticket: ''
+type: discovery
 created: '2026-10-18'
 status: built
 baseline_revision: f212728587894ad87ae94de67ae14e31cb444a36
@@ -17,6 +16,13 @@ context:
   - docs/spec/engine/rpgcode-language.md
   - docs/spec/engine/rpgcode-modules-and-objects.md
 ---
+
+> **Store note (2026-10-31).** This document was written as a plan for the authored OOP parser goldens that merged
+> in `e9525922` (2026-10-18), before the ticket breakdown existed; it carries no entry id because no entry owns it —
+> epic 18's parser entry is `&name`/anonymous methods, epic 19's are the rulings and the dictionary/class runtime, and
+> epic 22 deliberately forbids deriving grammar from the runtime parser or AST fixtures. It is therefore reclassified
+> as a discovery record rather than being attached to a guessed entry, and `tickets.py` no longer reports it as a
+> plan whose ticket names nothing.
 
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">
 
