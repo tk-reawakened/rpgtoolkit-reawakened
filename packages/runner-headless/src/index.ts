@@ -49,8 +49,8 @@ function runGolden(argv: string[]): number {
     const vectors = readFileOrUndefined(join(root, "golden/hash-vectors.json"));
     const run = readFileOrUndefined(join(root, "golden/test-double/run.json"));
     const golden = readFileOrUndefined(join(root, "golden/test-double/golden.json"));
-    const scriptsGolden =
-      readFileOrUndefined(join(root, "golden/scripts/golden.json")) ?? (record ? undefined : "");
+    // The empty sentinel works in both modes: compare fails with "is absent", record rewrites the file.
+    const scriptsGolden = readFileOrUndefined(join(root, "golden/scripts/golden.json")) ?? "";
     const ledgerText = readFileOrUndefined(join(root, "golden/ledger.json")) ?? (record ? undefined : "");
     const sceneGoldens = ledgerText === undefined ? undefined : ledgerText === "" ? [] : readdirSync(join(root, "golden/scenes")).filter((name) => name.endsWith(".json")).sort().map((name) => {
       const sceneText = readFileSync(join(root, "golden/scenes", name), "utf8");
