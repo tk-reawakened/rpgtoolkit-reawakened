@@ -1,0 +1,105 @@
+import { deepEqual, equal, ok } from "node:assert/strict";
+import { test } from "node:test";
+import { assetKey } from "@tk-reawakened/core";
+import { fetchBundled, fetchGame, textureProvider, toFiles } from "../src/index.ts";
+
+// `runner-web`'s transport helpers and its decode adapter are the shipped code a Node unit test reaches without a
+// browser; the drawing itself is entry 4's lane under Playwright.
+
+const realFetch = globalThis.fetch;
+
+/** Answers every request with `body` (or `status`) and records the URLs it was asked for. */
+function stubFetch(asked: string[], status = 200, body: unknown = { files: [] }): void {
+  globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
+    asked.push(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    return new Response(status === 200 ? JSON.stringify(body) : "nope", { status });
+  }) as typeof fetch;
+}
+
+/** A 24-bit bottom-up BMP, the smallest real image the shared decoder accepts (docs/spec/formats/images.md#bmp). */
+function bmp(left: readonly number[], right: readonly number[]): Uint8Array {
+  const bytes = new Uint8Array(14 + 40 + 8);
+  const view = new DataView(bytes.buffer);
+  bytes.set([0x42, 0x4d], 0);
+  view.setUint32(2, bytes.length, true);
+  view.setUint32(10, 54, true);
+  view.setUint32(14, 40, true);
+  view.setInt32(18, 2, true);
+  view.setInt32(22, 1, true);
+  view.setUint16(26, 1, true);
+  view.setUint16(28, 24, true);
+  view.setUint32(34, 8, true);
+  bytes.set([left[2]!, left[1]!, left[0]!, right[2]!, right[1]!, right[0]!], 54);
+  return bytes;
+}
+
+test("toFiles keys bytes by their path inside the game and keeps the last duplicate", () => {
+  const files = toFiles([
+    { path: "Main/game.gam", bytes: new Uint8Array([1]) },
+    { path: "tiles/first.tst", bytes: new Uint8Array([2]) },
+    { path: "tiles/first.tst", bytes: new Uint8Array([3]) },
+  ]);
+  deepEqual([...files.keys()], ["Main/game.gam", "tiles/first.tst"]);
+  deepEqual([...(files.get("tiles/first.tst") ?? [])], [3]);
+});
+
+test("fetchGame asks the host for one root and decodes its base64 bytes", async () => {
+  const asked: string[] = [];
+  stubFetch(asked, 200, { files: [{ path: "Main/a.gam", bytes: "AQID" }] });
+  try {
+    const files = await fetchGame("http://host", "demo");
+    deepEqual(asked, ["http://host/api/game?root=demo"]);
+    deepEqual([...(files.get("Main/a.gam") ?? [])], [1, 2, 3]);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchBundled joins the plan's folders and percent-encodes them", async () => {
+  const asked: string[] = [];
+  stubFetch(asked);
+  try {
+    const files = await fetchBundled("http://host", ["media/fonts", "media/cursors"]);
+    deepEqual(asked, ["http://host/api/bundled?folders=media%2Ffonts%2Cmedia%2Fcursors"]);
+    equal(files.size, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("a non-OK answer throws with the URL and the status, not an empty game", async () => {
+  const asked: string[] = [];
+  stubFetch(asked, 404);
+  let message = "";
+  try {
+    await fetchGame("http://host", "missing");
+  } catch (error) {
+    message = error instanceof Error ? error.message : String(error);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  ok(message.includes("answered 404"), `expected a 404 to throw, got ${JSON.stringify(message)}`);
+});
+
+test("textureProvider decodes a game's own image bytes once and caches the pixels", () => {
+  const bytes = bmp([255, 0, 0], [0, 0, 255]);
+  const files = toFiles([{ path: "tiles/arrow.bmp", bytes }]);
+  const provide = textureProvider(files);
+  const first = provide(assetKey("Tiles/arrow.bmp"));
+  ok(first !== null, "a 2×1 BMP decodes");
+  equal(first.w, 2);
+  equal(first.h, 1);
+  deepEqual([...first.rgba], [255, 0, 0, 255, 0, 0, 255, 255]);
+  bytes.fill(0);
+  ok(provide(assetKey("Tiles/arrow.bmp")) === first, "the second call is the cached decode, not a re-read");
+});
+
+test("an asset the game does not carry, and a kind still deferred, decode to null", () => {
+  const provide = textureProvider(toFiles([
+    { path: "tiles/anim.tan", bytes: new Uint8Array([1, 2, 3]) },
+    { path: "tiles/bit.tbm", bytes: new Uint8Array([1, 2, 3]) },
+  ]));
+  equal(provide(assetKey("Tiles/missing.bmp")), null);
+  equal(provide(assetKey("Tiles/anim.tan")), null);
+  equal(provide(assetKey("Tiles/bit.tbm")), null);
+});

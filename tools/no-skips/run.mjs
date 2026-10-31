@@ -31,6 +31,7 @@ export const GROUPS = Object.freeze([
   "plugin-tk2-compat",
   "runner-harness",
   "runner-headless",
+  "runner-web",
   "script-tools",
 ]);
 
