@@ -204,11 +204,11 @@ verified until epic desktop-shell runs, which the owner may prefer to accept.
 
 > **Note added 2026-10-31 (after approval; this section is the record of what was reviewed, not live guidance).** D-1 is
 > **ruled**: the owner decided that the harness is separate from the game bundle — a game is a package installed into a
-> harness's library with a configured default game — and that there are at most two shells, the PWA and one Electron
-> desktop app that is the editor and the player. No shell comparison is re-run and no candidate is chosen by measurement.
-> Entry 10 (now titled for the ruled harness) builds that app and writes the ADR; entry 11 consumes it; epic
-> desktop-shell cites it and may not re-decide it. The ruling text is D-1 in
-> `../story-rulings-the-runner-boundary-the-desktop-shell-image-storage-plan.md`.
+> player's library with a configured default game — and that there are **two desktop applications from one codebase**
+> (a player and an editor) plus the PWA, both applications on the same ruled Electron shell with `app://`. No shell
+> comparison is re-run and no candidate is chosen by measurement. Entry 10 builds and measures the **player**; entry 11
+> is the player's desktop package; epic desktop-shell owns the **editor** application and cites the same ADR. The ruling
+> text is D-1 in `../story-rulings-the-runner-boundary-the-desktop-shell-image-storage-plan.md`.
 
 ### D-2 — The stored image format: keep the original bytes, or transcode BMP/GIF
 

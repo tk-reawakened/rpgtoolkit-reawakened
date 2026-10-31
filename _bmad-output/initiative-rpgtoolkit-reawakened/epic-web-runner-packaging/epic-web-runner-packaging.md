@@ -34,10 +34,13 @@ Anyone can play a legacy game in a browser; the CAP-12 success check, sample gam
 
 - Open question (epic 6 evidence gap, filed as issue #877): a headless-browser SoundFont playback test. `packages/synth/test/render.test.ts` proves the MIDI-through-bank path under Node; the browser limb of epic 6's Done-when 2 has no test, and this repository has no browser runner. The assertion belongs to this epic's browser job (its Done-when 3 already requires a browser replay), so it is carried here until this envelope gets a `tickets.toml`. Adding Playwright for one assertion now was rejected; the licence (Apache-2.0) is acceptable, the scope is not.
 
-- Decision (2026-10-31): 9.10 runs the shell spike and records the shell in an ADR that epic desktop-shell cites; the
-  earlier open question ("which epic runs the spike") is closed. The owner ruled the same day that the harness is
-  separate from the game bundle — a game is a package installed into a harness's library with a configured default —
-  and that there are at most two shells, the PWA and one Electron desktop app that is the editor and the player. The
+- Decision (2026-10-31): the shell is **ruled**, so 9.10 no longer spikes anything; the earlier open question ("which
+  epic runs the spike") is closed and the ADR records the ruling for epic desktop-shell to cite. The owner also ruled
+  that the harness is separate from the game bundle — a game is a package installed into the player's library, with a
+  default game baked at export or configured — and that there are **two desktop applications from one codebase plus the
+  PWA**: a **player** (9.11's package under 9.10's application) and an **editor** (`host-desktop`, epic desktop-shell's
+  own package and application), both on the ruled Electron shell with `app://`, while the PWA is the only artefact with
+  a service worker. This epic builds the player and packaging; it does not build or measure the editor application. The
   ruling text is D-1 in `story-rulings-the-runner-boundary-the-desktop-shell-image-storage-plan.md`.
 - Decision: epic set approved by the user, 2026-10-10.
 - Waits on board-rendering because: draw lists to replay.
@@ -82,9 +85,9 @@ Anyone can play a legacy game in a browser; the CAP-12 success check, sample gam
 
 ## Boundaries
 
-`render-webgl2`, `runner-web`, `runner-desktop` and `runner-mobile` as wrappers, and game packaging through the core package writer. Not the desktop editor shell (epic desktop-shell) and not editor hosts.
+`render-webgl2`, `runner-web`, `runner-desktop` as the **player's** desktop package, `runner-mobile`, and game packaging through the core package writer — the **player application** is this epic's. Not the **editor application**: `host-desktop` is its own package and application, owned by epic desktop-shell (its own platform-services instantiation, the harness embedded for preview, its own update cadence), and not editor hosts.
 
-- Touch point: Capacitor and the chosen desktop shell - consumed; owner: this epic for the runner wrapper, epic desktop-shell for the editor
+- Touch point: Capacitor and the ruled Electron shell - consumed; owner: this epic for the player, epic desktop-shell for the editor application; both binaries come from the same shell and share one G6 exception in ADR 0013
 
 ## References
 
