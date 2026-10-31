@@ -86,13 +86,35 @@ source corpus with the native test harness and the browser Wasm loader; pin UTF-
 byte ranges and the editor's UTF-16 position mapping, including non-ASCII text.
 
 The editor consumes the tree for highlighting and declaration outlines, including
-useful partial trees with `ERROR`/missing nodes during typing. A future CodeGraph
-adapter consumes named nodes and extraction queries for symbols, imports and
-calls. **The Wasm artifact alone is not an extractor integration:** CodeGraph's
-current language registration/extraction pipeline must be checked and adapted
-under a later ticket; its configuration maps extensions to existing languages,
-not arbitrary new grammars. Prove the loading/extraction seam before claiming
-support. Neither grammar nor extractor may import the runtime parser.
+useful partial trees with `ERROR`/missing nodes during typing. The CodeGraph
+consumer is a **contributed language**, not a Wasm file loaded at run time:
+CodeGraph 1.6.2 has no third-party registration seam — `codegraph.json` maps an
+extension onto a language it already ships — and accepts a language by adding it
+to its repository, a vendored grammar `.wasm` plus a per-language extractor
+(`src/extraction/languages/<lang>.ts`, the `grammars.ts` maps, and the `LANGUAGES` union in `src/types.ts`),
+attributed by a `docs/grammars/<lang>.md` provenance record. The route and its cost are recorded in the
+[registration prerequisite](../../_bmad-output/initiative-rpgtoolkit-reawakened/epic-rpgcode-grammar/discovery/codegraph-registration-prerequisite.md).
+Neither grammar nor extractor may import the runtime parser.
+
+Two CST decisions this contract makes load-bearing, so they are reviewed here
+rather than discovered later:
+
+- **Base clauses.** Supertype extraction lives in CodeGraph's core walk, which
+  recognises the child types `extends_clause`, `superclass`, `base_clause` and
+  `extends_interfaces` and carries per-language branches where a language's
+  clause packs several bases (Scala's `extends A[X] with B with C` needed one).
+  A base-clause node that matches a recognised type is wired by the extractor
+  alone; any other shape needs a CodeGraph-side branch. Pick one deliberately
+  when the OOP milestone fixes the CST.
+- **Includes.** An `#include` directive is an import node plus a resolve step,
+  and the file→file resolve is language-gated in CodeGraph's resolver, so the
+  grammar's directive node needs a matching extractor entry *and* a resolver
+  branch. Naming the node after an existing import type is not enough on its
+  own.
+
+Silent thinness is the failure to avoid: a language whose nodes are wired but
+whose relationships resolve to nothing produces a graph, not an error, and
+nothing downstream reports the missing edges.
 
 ## Milestones and independent evidence
 

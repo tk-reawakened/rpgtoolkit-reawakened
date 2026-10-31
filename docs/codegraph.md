@@ -48,5 +48,11 @@ access controls. That returned source was not used for the grammar ADR. Claude
 quota failures and zero-token CLI configuration failures were excluded.
 
 **No RPGCode support:** this index does not parse `.rnc`/`.prg`. The independent
-[grammar proposal](adr/0011-tree-sitter-rpgcode.md) derives only from `docs/spec/`;
-a Wasm grammar and a future CodeGraph extractor adapter remain separate work.
+[grammar proposal](adr/0011-tree-sitter-rpgcode.md) derives only from `docs/spec/`.
+CodeGraph 1.6.2 is still the latest release (2026-10-03) and takes a new language
+only by contribution — a vendored grammar `.wasm` plus a per-language extractor
+in its repository — not through `codegraph.json`, which maps an extension onto a
+language it already ships. The route, its two stages and its cost are recorded in
+the [registration prerequisite](../_bmad-output/initiative-rpgtoolkit-reawakened/epic-rpgcode-grammar/discovery/codegraph-registration-prerequisite.md);
+no adapter of ours is planned. The `lib/dist/…` paths cited below are the
+installed package's build of the repository's `src/…`.
