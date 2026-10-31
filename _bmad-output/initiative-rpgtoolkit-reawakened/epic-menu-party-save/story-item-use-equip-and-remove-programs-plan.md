@@ -9,6 +9,9 @@ context:
   - "spec - docs/spec/engine/plugins-and-battle.md#e-81"
   - "spec - docs/spec/engine/plugins-and-battle.md#e-82"
   - "spec - docs/spec/formats/item.md"
+status: draft
+blocked_at: "2026-10-31"
+blocked_reason: "Awaiting the owner ruling on the menu item-use capability list: E-80/E-81 rule the menu screens and the inventory owner actions but no item-use action, and docs/spec/engine/actors.md:299 places the item battle program (prgFightUse) in Epic 7, so the Epic 8 item-use surface needs a ruling before implementation."
 ---
 
 ## Intent
