@@ -12,10 +12,7 @@ import {
   MEDIA_TRACK_NAME,
   asciiFold,
   findTrack,
-  voicePass,
   type AudioStateV2,
-  type AudioTrackState,
-  type AudioVoiceState,
 } from "../../audio/model.ts";
 import { secondsToTicks } from "../../time/time.ts";
 import type { Arg, BuiltinDoc, BuiltinSpec } from "../builtins.ts";
