@@ -305,3 +305,16 @@ references = [
   "tests - packages/runner-headless and packages/runner-harness package boot/startup tests",
   "handoff - Epic 20.11 stock package shells and behavior registration",
 ]
+
+[[entry]]
+id = 18
+tracker_id = "#537"
+type = "bug"
+title = "Reserved plugin ids resolve to Object.prototype members"
+description = "Make every plugin-id lookup own-property-safe in boot and in the runner harness, so a manifest id such as constructor, __proto__ or toString is an unknown plugin with a located plugin.unresolved diagnostic instead of an inherited Object.prototype member."
+verify = "Reserved ids produce plugin.unresolved in both boot and the harness resolver without throwing, ordinary ids resolve as before, the duplicate-id check still works, and a test covers each reserved id in both paths."
+covers = ["CAP-5"]
+after = []
+hitl = false
+risk = "medium"
+references = ["issue - #537", "spec - docs/spec/engine/main-loop-and-startup.md#reawakened-boot-sequence"]

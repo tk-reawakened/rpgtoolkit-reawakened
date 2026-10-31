@@ -196,7 +196,9 @@ export function resolveManifestPlugins(
   for (let index = 0; index < manifest.length; index += 1) {
     const entry = manifest[index]!;
     if (!isPluginManifestEntryEnabled(entry)) continue;
-    const definition = ENGINE_PLUGIN_TABLE[entry.id];
+    // Own-property-safe (issue #537): `constructor`, `__proto__` and `toString` are inherited
+    // members of a plain object, and selecting one would skip the located `plugin.unresolved`.
+    const definition = Object.hasOwn(ENGINE_PLUGIN_TABLE, entry.id) ? ENGINE_PLUGIN_TABLE[entry.id] : undefined;
     if (definition !== undefined) {
       plugins.push(entry.options === undefined ? { definition } : { definition, options: entry.options });
       continue;

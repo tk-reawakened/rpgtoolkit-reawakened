@@ -113,7 +113,8 @@ function resolveHostPlugins(
   patch: PluginManifestPatch | undefined,
   definitions: readonly PluginDefinition[] | undefined,
 ): HostResolution {
-  const table: Record<string, PluginDefinition> = { ...ENGINE_PLUGIN_TABLE, tk2: TK2_COMPAT_PLUGIN };
+  // A null-prototype table keeps inherited `Object.prototype` members out of id lookup (#537).
+  const table: Record<string, PluginDefinition> = Object.assign(Object.create(null) as Record<string, PluginDefinition>, ENGINE_PLUGIN_TABLE, { tk2: TK2_COMPAT_PLUGIN });
   if (definitions !== undefined) {
     for (const definition of definitions) {
       if (definition.id !== "core") table[definition.id] = definition;

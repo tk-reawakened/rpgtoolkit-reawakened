@@ -1748,3 +1748,19 @@ test("smoke: promote, select, pause and explicitly resume a recovery candidate",
   deepEqual(run(engine, game.files, 3).diagnostics, []);
   equal(doubles.state().vm.globals.entrycount, 1);
 });
+
+test("a reserved plugin id is an unknown plugin with a located diagnostic, never an inherited member", () => {
+  // `constructor`, `__proto__` and `toString` are inherited members of a plain object, so a
+  // plain `table[id]` lookup selects one instead of reporting `plugin.unresolved` (#537).
+  for (const id of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+    const result = resolveManifestPlugins([{ id }], "game/main.gam");
+    equal(result.plugins.length, 0, `${id}: no plugin was resolved`);
+    equal(result.diagnostics.length, 1, `${id}: one diagnostic`);
+    equal(result.diagnostics[0]?.code, "plugin.unresolved", `${id}: unresolved`);
+    equal(result.diagnostics[0]?.message.includes(id), true, `${id}: the message names the id`);
+  }
+  // An ordinary id is unaffected.
+  const core = resolveManifestPlugins([{ id: "core" }]);
+  equal(core.plugins.length, 1);
+  equal(core.diagnostics.length, 0);
+});

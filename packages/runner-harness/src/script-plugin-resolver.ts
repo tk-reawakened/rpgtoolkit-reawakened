@@ -24,10 +24,10 @@ export function resolvePluginManifest(
 ): PluginManifestResolution {
   const plugins: ResolvedPlugin[] = [];
   const diagnostics: PluginManifestDiagnostic[] = [];
-  const seen: Record<string, true> = {};
+  const seen = new Set<string>();
   for (let index = 0; index < manifest.length; index += 1) {
     const entry = manifest[index]!;
-    if (seen[entry.id] === true) {
+    if (seen.has(entry.id)) {
       diagnostics.push({
         code: "manifest.duplicate-id",
         path,
@@ -36,9 +36,10 @@ export function resolvePluginManifest(
       });
       continue;
     }
-    seen[entry.id] = true;
+    seen.add(entry.id);
     if (!isPluginManifestEntryEnabled(entry)) continue;
-    const definition = table[entry.id];
+    // Own-property-safe (#537): an id such as `toString` must be unknown, not inherited.
+    const definition = Object.hasOwn(table, entry.id) ? table[entry.id] : undefined;
     if (definition === undefined) {
       diagnostics.push({
         code: "plugin.unresolved",
