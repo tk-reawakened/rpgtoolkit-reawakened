@@ -243,6 +243,7 @@ references = [
 [[entry]]
 id = 14
 tracker_id = "#479"
+tracker_status = "done"
 type = "story"
 title = "Refactor sweep"
 description = "Reconciles the shared core seams touched by the actor stories (actors barrel, section list, built-in registrations, catalogue and command docs), removes the old parallel actor representation made obsolete, and records the core refactor without claiming the package-owned follow-ups."
@@ -254,6 +255,7 @@ risk = "low"
 references = [
   "epic - epic-actors.md, Done when",
 ]
+notes = ["Delivered by PR #827 (c282ad39, Fixes #479), merged 2026-10-30. The plan records the Done-when audit item by item with file:line evidence; no second actor representation exists, so nothing was removed. Two drifts were corrected: docs/spec/engine/actors.md:24 named a board sprite as an actor kind (contradicting the 2026-10-19 owner decision and the page's own sprite rule), and the save barrel's header omitted actors/party/inventory/menu from its section list."]
 
 [[entry]]
 id = 15
