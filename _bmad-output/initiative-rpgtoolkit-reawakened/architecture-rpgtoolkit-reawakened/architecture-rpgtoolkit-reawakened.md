@@ -45,6 +45,7 @@ graph LR
   core --> runnerharness[runner-harness]
   core --> plugintk2compat[plugin-tk2-compat]
   core --> scripttools[script-tools]
+  scripttools --> lsp
   plugintk2compat --> runnerharness
   core --> lsp
   core --> editormodel[editor-model]

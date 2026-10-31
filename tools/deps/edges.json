@@ -24,6 +24,7 @@
     ["core", "runner-harness"],
     ["core", "plugin-tk2-compat"],
     ["core", "script-tools"],
+    ["script-tools", "lsp"],
     ["plugin-tk2-compat", "runner-harness"],
     ["core", "lsp"],
     ["core", "editor-model"],

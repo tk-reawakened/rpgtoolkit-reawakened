@@ -245,6 +245,14 @@ function buildRules() {
     to: { path: "node_modules/(\\.pnpm/)?((phaser|pixi\\.js|excalibur)[@/]|@pixi/)" },
   });
   rules.push({
+    name: "r5-lsp-no-node",
+    severity: "error",
+    comment:
+      "packages/lsp/src/ imports no Node built-in: the transport lives with the host (TOOL-1; G2).",
+    from: { path: "^packages/lsp/src/" },
+    to: { dependencyTypes: ["core"] },
+  });
+  rules.push({
     name: "r4-script-tools-no-node",
     severity: "error",
     comment:
