@@ -723,7 +723,7 @@ export function readMainFile(reader: BinaryReader): Result<MainFile> {
     return customFightPrg;
   }
 
-  // Row 29, minor < 3: reserved i16 (old fight style).
+  // Row 11, minor < 3: reserved i16 (old fight style).
   let fightStyle = NO_BYTES;
   if (minor < 3) {
     const r = reader.readBytes(2);
@@ -746,7 +746,7 @@ export function readMainFile(reader: BinaryReader): Result<MainFile> {
     return skinWindow;
   }
 
-  // Row 29: the plugin list. Entries are `i16 enabled` at minor ≤ 2 (the name is
+  // Row 37: the plugin list. Entries are `i16 enabled` at minor ≤ 2 (the name is
   // implied as `tkplug<N>`) and `str pluginFile` at minor ≥ 3.
   const plugins: MainFilePlugin[] = [];
   const pluginBound = reader.readUpperBound("i16");

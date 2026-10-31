@@ -3,7 +3,7 @@ import { assetKey } from "../../formats/resolver/resolver.ts";
 import type { PlainData } from "../../ports/plain-data.ts";
 import type { Rgb } from "../../ports/draw.ts";
 import { colourSurface, surfaceSize } from "../../raster/surfaces.ts";
-import type { SurfaceId } from "../../ports/keys.ts";
+import type { AssetKey, SurfaceId } from "../../ports/keys.ts";
 import type { Arg, BuiltinDoc, BuiltinSpec, ParamSpec } from "../builtins.ts";
 import { ScriptError } from "../errors.ts";
 import type { CommandEffect, CommandResult, CommandView, PluginDefinition } from "../plugin.ts";
@@ -44,11 +44,12 @@ function spliceVariables(value: string, view: CommandView): string {
     return found === undefined ? whole : toStringValue(found as never);
   });
 }
-function canonicalFont(value: string): string {
+function canonicalFont(value: string): AssetKey {
   const lowered = value.trim().toLowerCase();
-  if (lowered === "" || lowered === "arial" || lowered === "sans-serif") return assetKey("media/fonts/liberation-sans.ttf");
-  if (lowered === "times new roman" || lowered === "serif") return assetKey("media/fonts/liberation-serif.ttf");
-  if (lowered === "courier new" || lowered === "monospace") return assetKey("media/fonts/liberation-mono.ttf");
+  // The bundled faces the engine ships; these are the keys the host can actually decode.
+  if (lowered === "" || lowered === "arial" || lowered === "sans-serif") return assetKey("media/fonts/LiberationSans-Regular.ttf");
+  if (lowered === "times new roman" || lowered === "serif") return assetKey("media/fonts/LiberationSerif-Regular.ttf");
+  if (lowered === "courier new" || lowered === "monospace") return assetKey("media/fonts/LiberationMono-Regular.ttf");
   return assetKey(value);
 }
 function effect(args: readonly PlainData[] = [], kind: CommandEffect["kind"] = "state-write"): CommandEffect {
@@ -199,7 +200,13 @@ export const UI_PLUGIN: PluginDefinition = {
   commands: UI_COMMANDS,
 };
 
-export function applyUiEffect(state: { ui: UiSection; surfaces?: SurfacesSection }, name: string, args: readonly PlainData[]): void {
+export function applyUiEffect(
+  state: { ui: UiSection; surfaces?: SurfacesSection },
+  name: string,
+  args: readonly PlainData[],
+  /** Resolve a `font(name)` argument against the assets the project ships, when the caller has them. */
+  resolveFont?: (name: string) => AssetKey | null,
+): void {
   const ui = state.ui;
   if (ui.message === undefined) Object.assign(ui, createUiSection());
   if (ui.backgroundSurface === null && state.surfaces !== undefined && state.surfaces.entries !== undefined) {
@@ -227,7 +234,11 @@ export function applyUiEffect(state: { ui: UiSection; surfaces?: SurfacesSection
     case "wincolor": setBackground(dosPaletteEntry(numberArg(first))); return;
     case "wincolorrgb": setBackground({ r: numberArg(args[0]), g: numberArg(args[1]), b: numberArg(args[2]) }); return;
     case "setmwintranslucency": ui.message = { ...ui.message, translucency: Math.max(0, Math.min(100, Math.trunc(numberArg(first)))) }; return;
-    case "font": ui.font = { ...ui.font, asset: assetKey(stringArg(first)) }; return;
+    case "font": {
+      const requested = stringArg(first);
+      ui.font = { ...ui.font, asset: resolveFont?.(requested) ?? canonicalFont(requested) };
+      return;
+    }
     case "fontsize": ui.font = { ...ui.font, size: Math.max(1, Math.min(256, Math.trunc(numberArg(first)))) }; return;
     case "bold": ui.font = { ...ui.font, bold: numberArg(first) !== 0 }; return;
     case "italics": ui.font = { ...ui.font, italic: numberArg(first) !== 0 }; return;

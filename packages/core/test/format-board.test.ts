@@ -18,10 +18,11 @@ import {
   BOARD_SECTION,
   BinaryReader,
   BinaryWriter,
+  createEmptyBoard,
   readBoard,
   writeBoard,
 } from "../src/index.ts";
-import type { BoardRgb, Colorref, Result } from "../src/index.ts";
+import type { Board, BoardRgb, Colorref, Result } from "../src/index.ts";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(testDir, "..", "..", "..");
@@ -1006,3 +1007,29 @@ test(
     }
   },
 );
+
+test("a shade layer that under-covers the grid is refused instead of writing a misread file", () => {
+  // docs/spec/formats/board.md#vector-layout-minor-4-and-later: the reader consumes a layer's records until they
+  // cover the grid, so a short layer would be read into the light list (#847).
+  const filled: Board = {
+    ...createEmptyBoard(),
+    magic: BOARD_MAGIC,
+    major: 2,
+    minor: 4,
+    sizeX: 4,
+    sizeY: 4,
+    sizeL: 1,
+    tileMatrix: Array(16).fill(0),
+    tileRuns: [{ lutIndex: 0, count: 16, marker: true }],
+    layerTitles: ["", ""],
+    shadeLayers: [{ castLayer: 1, records: [{ runCount: 16, r: 0, g: 0, b: 0 }] }],
+  };
+  const board = unwrap(readBoard(new BinaryReader(unwrap(writeBoard(filled)))));
+  const short = writeBoard({ ...board, shadeLayers: [{ castLayer: 1, records: [{ runCount: 8, r: 0, g: 0, b: 0 }] }] });
+  equal(short.ok, false, "a layer covering half the grid is refused");
+  if (short.ok) return;
+  equal(short.error.message.includes("shade layer 0 covers 8 cells"), true, short.error.message);
+  equal(short.error.section, "docs/spec/formats/board.md#vector-layout-minor-4-and-later", short.error.section);
+  // The exact-cover case still writes the same bytes.
+  deepEqual(unwrap(writeBoard(board)), unwrap(writeBoard(filled)));
+});

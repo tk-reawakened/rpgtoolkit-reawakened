@@ -318,3 +318,29 @@ after = []
 hitl = false
 risk = "medium"
 references = ["issue - #537", "spec - docs/spec/engine/main-loop-and-startup.md#reawakened-boot-sequence"]
+
+[[entry]]
+id = 19
+tracker_id = "#850"
+type = "bug"
+title = "Correct the loader page's claim about restore hydration"
+description = "docs/spec/engine/rpgcode-package-loader.md says no engine-owned saved-state hydration exists, but applyLoadedGame builds a scratch state and runs package startups inside the engine's own load path."
+verify = "The page states the engine's actual behaviour with its code reference and tells a host not to rebuild startups; no owner ruling is invented."
+covers = ["CAP-5"]
+after = []
+hitl = false
+risk = "low"
+references = ["issue - #850", "spec - docs/spec/engine/rpgcode-package-loader.md", "code - packages/core/src/engine/engine.ts"]
+
+[[entry]]
+id = 20
+tracker_id = "#853"
+type = "story"
+title = "Build the package catalogue in the host"
+description = "Core consumes a package catalogue but no host builds one, so packages named in the .gam list never load outside tests."
+verify = "A host-level fixture boots a game naming stock_battle from a real package folder with one start-up observable and no plugin.unresolved, while a missing name stays a located diagnostic and the game boots."
+covers = ["CAP-5"]
+after = []
+hitl = false
+risk = "high"
+references = ["issue - #853", "spec - docs/spec/engine/rpgcode-package-loader.md"]

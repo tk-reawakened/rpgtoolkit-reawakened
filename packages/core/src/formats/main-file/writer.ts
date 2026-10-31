@@ -186,7 +186,7 @@ function checkModel(writer: BinaryWriter, model: MainFile): Result<never> | unde
     }
   }
 
-  // Row 29: the plugin list; only the field the minor stores is written.
+  // Row 37: the plugin list; only the field the minor stores is written.
   const plugins = checkCount(writer, "plugin list", model.plugins.length);
   if (plugins !== undefined) {
     return plugins;
@@ -481,7 +481,7 @@ export function writeMainFile(model: MainFile): Result<Uint8Array> {
     return customFightPrg;
   }
 
-  // Row 29 (conditional, minor < 3).
+  // Row 11 (conditional, minor < 3).
   if (minor < 3) {
     writer.writeBytes(model.reservedRuns.fightStyle);
   }
@@ -499,7 +499,7 @@ export function writeMainFile(model: MainFile): Result<Uint8Array> {
     return skinWindow;
   }
 
-  // Row 29: the plugin list; entries are `i16 enabled` at minor ≤ 2 and
+  // Row 37: the plugin list; entries are `i16 enabled` at minor ≤ 2 and
   // `str pluginFile` at minor ≥ 3.
   writer.i16(model.plugins.length === 0 ? -1 : model.plugins.length - 1);
   for (const plugin of model.plugins) {

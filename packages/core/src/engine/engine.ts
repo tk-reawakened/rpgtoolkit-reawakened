@@ -51,7 +51,7 @@ import { BUILTIN_TRACKS, MAX_VOICES } from "../audio/model.ts";
 import type { Logger } from "../ports/logger.ts";
 import { composeBoard, type BoardBlit, type SpriteDraw } from "../render/compose.ts";
 import { composeUi, composeUiCursor, renderNowBlit } from "../render/ui.ts";
-import { emitText, layoutText } from "../render/text.ts";
+import { emitText, layoutText, resolveFontAsset } from "../render/text.ts";
 import { applyFxDrawList, advanceFx, applyFxEffect } from "../render/fx.ts";
 import { advanceAnimations, animationBlits, loadAnimation, releaseAnimationSurfaces } from "../render/animation.ts";
 import { hydrateBoard } from "../world/hydrate.ts";
@@ -455,7 +455,7 @@ export function createEngine(init: EngineInit): Engine {
       applyCanvasText(lower === "text", effect.args);
       return;
     }
-    applyUiEffect(state, effect.name, effect.args);
+    applyUiEffect(state, effect.name, effect.args, (name) => resolveFontAsset(name, index.keys));
   });
   bus.register("fx", (effect) => applyFxEffect(state, effect));
   bus.register("surfaces", (effect) => applySurfaceEffect(effect));

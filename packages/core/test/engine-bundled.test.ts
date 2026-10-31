@@ -22,10 +22,10 @@ function boardBytes(): Uint8Array {
 }
 
 /** A scene-mode engine that has loaded its board and run `program` for a few ticks. */
-function runProgram(program: string, bundled?: ReadonlyMap<AssetKey, Uint8Array>): { readonly engine: Engine; readonly diagnostics: Diagnostic[] } {
+function runProgram(program: string, bundled?: ReadonlyMap<AssetKey, Uint8Array>, extraKeys: readonly string[] = []): { readonly engine: Engine; readonly diagnostics: Diagnostic[] } {
   const engine = createEngine({
     seed: 5,
-    assetIndex: createAssetIndex(["Boards/test.brd"]),
+    assetIndex: createAssetIndex(["Boards/test.brd", ...extraKeys]),
     assetRoot: PACKAGE_ROOT,
     initialBoard: "test.brd",
     width: 96,
@@ -81,6 +81,26 @@ test("a font name the game does not ship draws in the default bitmap font", () =
   equal(paintedPixels(screen(named.engine)), paintedPixels(screen(plain.engine)));
   equal(paintedPixels(screen(named.engine)) > 0, true);
   equal(named.engine.advance(0, []).diagnostics.length, 0);
+});
+
+test("a family name resolves to the Liberation face the project ships, not an asset it lacks", () => {
+  // #848: `font("Arial")` used to store `media/fonts/liberation-sans.ttf`, which no project ships, so the
+  // documented substitution silently fell back to the bitmap font.
+  const liberation = assetKey("media/fonts/LiberationSans-Regular.ttf");
+  const withFont = new Map<AssetKey, Uint8Array>([
+    ...bundledFiles,
+    [liberation, new Uint8Array(readFileSync(join(repoRoot, "media", "fonts", "LiberationSans-Regular.ttf")))],
+  ]);
+  const substituted = runProgram('font("Arial")\ntext(1, 1, "hi")\nend()\n', withFont, [liberation]);
+  const bitmap = runProgram('text(1, 1, "hi")\nend()\n', bundledFiles);
+  equal(substituted.engine.advance(0, []).diagnostics.length, 0);
+  equal(bitmap.engine.advance(0, []).diagnostics.length, 0);
+  equal(paintedPixels(screen(substituted.engine)) > 0, true, "the substituted face draws text");
+  equal(
+    screen(substituted.engine).join(",") === screen(bitmap.engine).join(","),
+    false,
+    "the Liberation face is used, not the bitmap fallback",
+  );
 });
 
 test("a bundled file that does not decode is reported once with its key", () => {

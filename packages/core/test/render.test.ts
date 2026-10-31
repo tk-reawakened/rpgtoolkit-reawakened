@@ -1,6 +1,6 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { test } from "node:test";
-import { assetKey, composeBoard, rasterize, type WorldBoard } from "../src/index.ts";
+import { assetKey, composeBoard, rasterize, resolveFontAsset, type WorldBoard } from "../src/index.ts";
 
 const board: WorldBoard = { key: assetKey("boards/test.brd"), coordType: 0, sizeX: 2, sizeY: 1, sizeL: 1, width: 64, height: 32, background: { r: 4, g: 5, b: 6 }, ambient: { r: 0, g: 0, b: 0 }, layers: [{ tiles: [{ asset: assetKey("tiles/test.tst"), tile: 1 }, { asset: assetKey("tiles/test.tst"), tile: 2 }] }] };
 
@@ -80,4 +80,14 @@ test("composeBoard accepts the AD-29 board/assets/view form", () => {
     include: { shading: false, images: false, sprites: false },
   });
   equal(list.commands.length, 2);
+});
+
+test("resolveFontAsset prefers an exact path, then a family match, then the Liberation substitution", () => {
+  const keys = [assetKey("media/fonts/Custom Hand.ttf"), assetKey("media/fonts/LiberationSans-Regular.ttf"), assetKey("media/fonts/tkr-8x8.fnt")];
+  equal(resolveFontAsset("media/fonts/Custom Hand.ttf", keys), assetKey("media/fonts/Custom Hand.ttf"), "an exact path wins");
+  equal(resolveFontAsset("custom hand", keys), assetKey("media/fonts/Custom Hand.ttf"), "a family name matches ignoring case and spaces");
+  equal(resolveFontAsset("Arial", keys), assetKey("media/fonts/LiberationSans-Regular.ttf"), "Arial substitutes Liberation Sans");
+  equal(resolveFontAsset("sans-serif", keys), assetKey("media/fonts/LiberationSans-Regular.ttf"));
+  equal(resolveFontAsset("Comic Sans MS", keys), null, "an unknown family resolves to nothing, so the caller falls back");
+  equal(resolveFontAsset("", keys), null);
 });
