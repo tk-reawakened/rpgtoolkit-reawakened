@@ -166,7 +166,7 @@ function checkModel(writer: BinaryWriter, model: MainFile): Result<never> | unde
     }
   }
 
-  // Rows 20–24: the fight settings, then row 21's encounter pool.
+  // Rows 25–29: the fight settings, then row 27's encounter pool.
   const fight =
     checkI16(writer, "fightingDisabled", model.fightingDisabled) ??
     checkI16(writer, "fightType", model.fightType) ??
@@ -186,7 +186,7 @@ function checkModel(writer: BinaryWriter, model: MainFile): Result<never> | unde
     }
   }
 
-  // Row 37: the plugin list; only the field the minor stores is written.
+  // Rows 37–38b: the plugin list; only the field the minor stores is written.
   const plugins = checkCount(writer, "plugin list", model.plugins.length);
   if (plugins !== undefined) {
     return plugins;
@@ -209,7 +209,7 @@ function checkModel(writer: BinaryWriter, model: MainFile): Result<never> | unde
     return dayNight;
   }
 
-  // Row 37 (minor ≥ 3): the joystick and colour depth.
+  // Rows 45–46 (minor ≥ 3): the joystick and colour depth.
   if (minor >= 3) {
     const cursor =
       checkU8(writer, "useJoystick", model.useJoystick) ?? checkU8(writer, "colorDepth", model.colorDepth);
@@ -297,9 +297,9 @@ function checkModel(writer: BinaryWriter, model: MainFile): Result<never> | unde
   // minor does not carry must be empty (`docs/spec/formats/main-file.md#layout`).
   const runs =
     checkRun(writer, "parallax", model.reservedRuns.parallax, minor < 3 ? 2 : 0, "row 10") ??
-    checkRun(writer, "menuPluginFallback", model.reservedRuns.menuPluginFallback, minor < 3 ? 2 : 0, "row 21") ??
+    checkRun(writer, "menuPluginFallback", model.reservedRuns.menuPluginFallback, minor < 3 ? 2 : 0, "row 23'") ??
     checkRun(writer, "multitask", model.reservedRuns.multitask, minor <= 2 ? 6 : 0, "row 22") ??
-    checkRun(writer, "fightStyle", model.reservedRuns.fightStyle, minor < 3 ? 2 : 0, "row 29");
+    checkRun(writer, "fightStyle", model.reservedRuns.fightStyle, minor < 3 ? 2 : 0, "row 33");
   if (runs !== undefined) {
     return runs;
   }
@@ -481,7 +481,7 @@ export function writeMainFile(model: MainFile): Result<Uint8Array> {
     return customFightPrg;
   }
 
-  // Row 11 (conditional, minor < 3).
+  // Row 33 (conditional, minor < 3).
   if (minor < 3) {
     writer.writeBytes(model.reservedRuns.fightStyle);
   }
@@ -499,7 +499,7 @@ export function writeMainFile(model: MainFile): Result<Uint8Array> {
     return skinWindow;
   }
 
-  // Row 37: the plugin list; entries are `i16 enabled` at minor ≤ 2 and
+  // Rows 37–38b: the plugin list; entries are `i16 enabled` at minor ≤ 2 and
   // `str pluginFile` at minor ≥ 3.
   writer.i16(model.plugins.length === 0 ? -1 : model.plugins.length - 1);
   for (const plugin of model.plugins) {
@@ -517,7 +517,7 @@ export function writeMainFile(model: MainFile): Result<Uint8Array> {
   writer.i16(model.dayNightType);
   writer.i32(model.dayLengthMinutes);
 
-  // Row 37 (conditional, minor ≥ 3).
+  // Rows 42–44 (conditional, minor ≥ 3): the cursor sounds.
   if (minor >= 3) {
     const cursorMoveSound = writer.str(model.cursorMoveSound);
     if (!cursorMoveSound.ok) {

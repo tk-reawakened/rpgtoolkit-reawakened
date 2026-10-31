@@ -723,7 +723,7 @@ export function readMainFile(reader: BinaryReader): Result<MainFile> {
     return customFightPrg;
   }
 
-  // Row 11, minor < 3: reserved i16 (old fight style).
+  // Row 33, minor < 3: reserved i16 (old fight style).
   let fightStyle = NO_BYTES;
   if (minor < 3) {
     const r = reader.readBytes(2);
@@ -746,7 +746,7 @@ export function readMainFile(reader: BinaryReader): Result<MainFile> {
     return skinWindow;
   }
 
-  // Row 37: the plugin list. Entries are `i16 enabled` at minor ≤ 2 (the name is
+  // Rows 37–38b: the plugin list. Entries are `i16 enabled` at minor ≤ 2 (the name is
   // implied as `tkplug<N>`) and `str pluginFile` at minor ≥ 3.
   const plugins: MainFilePlugin[] = [];
   const pluginBound = reader.readUpperBound("i16");
@@ -782,8 +782,7 @@ export function readMainFile(reader: BinaryReader): Result<MainFile> {
     return dayLengthMinutes;
   }
 
-  // Row 37 (conditional, minor ≥ 3): the cursor sounds and the joystick/colour
-  // settings.
+  // Rows 42–44 (conditional, minor ≥ 3): the cursor sounds.
   let cursorMoveSound = "";
   let cursorSelectSound = "";
   let cursorCancelSound = "";

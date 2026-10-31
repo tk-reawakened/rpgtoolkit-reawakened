@@ -6,7 +6,7 @@ tracker_id: "#848"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/848"
 parent: epic-deferred-work
 created: '2026-10-31'
-status: 'built'
+status: 'done'
 baseline_revision: 'c8b7772f4d0c9d15fcd14f066dcaf16d1ca89d70'
 route: 'oneshot'
 route_source: 'auto'
@@ -23,4 +23,4 @@ context: []
 
 - `node --test packages/core/test/render.test.ts`: 6 passed, including the new resolver cases (exact path, family match, Arial substitution, unknown family, empty name).
 - `node --test packages/core/test/engine-bundled.test.ts`: 5 passed; the new engine case proves `font("Arial")` draws with the shipped Liberation face rather than the bitmap fallback.
-- `pnpm typecheck`, `pnpm lint`, `pnpm golden` passed.
+- `pnpm typecheck`, `pnpm lint`, `pnpm golden` and `pnpm closing` passed after re-recording the values this fix moves (G5, with the reason in the changelog): the Basic sample's state hashes in `golden/regression/closing.json`, the `sample-start-basic` script hash, and the corpus expectation. Its title and board frames did not change, so no PNG baseline moved.

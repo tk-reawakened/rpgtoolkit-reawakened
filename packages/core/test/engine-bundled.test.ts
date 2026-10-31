@@ -101,6 +101,21 @@ test("a family name resolves to the Liberation face the project ships, not an as
     false,
     "the Liberation face is used, not the bitmap fallback",
   );
+  // A project font whose family is the requested name wins over the substitution.
+  const projectFace = assetKey("media/fonts/arial.ttf");
+  const withProject = new Map<AssetKey, Uint8Array>([
+    ...bundledFiles,
+    [projectFace, new Uint8Array(readFileSync(join(repoRoot, "media", "fonts", "LiberationSans-Regular.ttf")))],
+  ]);
+  const familyMatch = runProgram('font("Arial")\ntext(1, 1, "hi")\nend()\n', withProject, [projectFace]);
+  equal(familyMatch.engine.advance(0, []).diagnostics.length, 0);
+  // The shipped face must be drawn: the bitmap fallback would paint different bytes.
+  const unknownFamily = runProgram('font("Comic Sans MS")\ntext(1, 1, "hi")\nend()\n', withProject, [projectFace]);
+  equal(
+    screen(familyMatch.engine).join(",") === screen(unknownFamily.engine).join(","),
+    false,
+    "a shipped family match draws with that face, not the bitmap fallback",
+  );
 });
 
 test("a bundled file that does not decode is reported once with its key", () => {

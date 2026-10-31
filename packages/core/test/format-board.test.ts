@@ -1032,4 +1032,9 @@ test("a shade layer that under-covers the grid is refused instead of writing a m
   equal(short.error.section, "docs/spec/formats/board.md#vector-layout-minor-4-and-later", short.error.section);
   // The exact-cover case still writes the same bytes.
   deepEqual(unwrap(writeBoard(board)), unwrap(writeBoard(filled)));
+  // A record after the one that completes the layer is never read either.
+  const trailing = writeBoard({ ...board, shadeLayers: [{ castLayer: 1, records: [{ runCount: 16, r: 0, g: 0, b: 0 }, { runCount: 1, r: 0, g: 0, b: 0 }] }] });
+  equal(trailing.ok, false, "a record after the completing one is refused");
+  if (trailing.ok) return;
+  equal(trailing.error.message.includes("already complete before its final record"), true, trailing.error.message);
 });
