@@ -17,7 +17,8 @@ shipped by this entry**; no grammar, scanner, `.wasm`, dependency, config or CI 
 Correction (2026-10-31, entry 22.12). The runtime facts below were and remain accurate: CodeGraph 1.6.2 accepts no
 third-party language at run time. What this record previously got wrong was the *option framing* — it presented the
 only route as an unbounded "upstream capability request". CodeGraph's maintainers accept new languages by ordinary
-contribution, on a path they have merged ten times in the last year, so the route is a bounded language PR rather
+contribution, on a path its maintainers have merged repeatedly — nine language additions sit in one run of its
+changelog (`CHANGELOG.md:1189-1203`, Nix through CFML) — so the route is a bounded language PR rather
 than a feature request. Option 1 is rewritten accordingly and Option 2 is recorded as not recommended.
 
 ## Pinned facts the request rests on
@@ -58,12 +59,18 @@ languages that already arrived this way (CFML, COBOL, VB.NET, Erlang, Solidity, 
 (`check-grammar.mjs`, `dump-ast.mjs`, `verify-extraction.mjs`, `bench.sh`). Every path below is from that repository
 at that date.
 
+**The cookbook is also stale in one step.** Its Step 4 asks for `'**/*.<ext>'` in `DEFAULT_CONFIG.include` “or
+`codegraph init` finds 0 files”. No `DEFAULT_CONFIG` exists anywhere in `src/` today (`grep -rn DEFAULT_CONFIG src/`
+finds nothing outside the skill file); discovery reads `EXTENSION_MAP` through `isSourceFile`
+(`src/extraction/grammars.ts:250-258`). The extension entry alone is sufficient — but re-read both against the
+checkout when 22.10 starts, because this is the second place the cookbook and the code disagree.
+
 **What a language contribution touches.**
 
 | File | Change |
 |---|---|
-| `src/types.ts` | `'rpgcode'` in the `LANGUAGES` const; `'**/*.prg'` in `DEFAULT_CONFIG.include` — the file-scan allowlist, without which `codegraph init` finds zero files |
-| `src/extraction/grammars.ts` | `WASM_GRAMMAR_FILES`, `EXTENSION_MAP` (`.prg`, `.rnc`), `getLanguageDisplayName`, and `rpgcode` in `VENDORED_WASM_LANGS` |
+| `src/types.ts` | `'rpgcode'` in the `LANGUAGES` const |
+| `src/extraction/grammars.ts` | `WASM_GRAMMAR_FILES`, `EXTENSION_MAP` (`.prg`, `.rnc`), `getLanguageDisplayName`, and `rpgcode` in `VENDORED_WASM_LANGS` — `EXTENSION_MAP` is also what file discovery reads (`isSourceFile`, `grammars.ts:250-258`), so the extension entry is what makes `codegraph init` see the files |
 | `src/extraction/languages/rpgcode.ts`, `…/index.ts` | the extractor: `functionTypes`, `classTypes`, `methodTypes`, `structTypes`, `importTypes`, `callTypes`, `variableTypes`, `nameField`, `bodyField`, `paramsField`, plus `extractImport`/`visitNode` hooks |
 | `src/extraction/wasm/tree-sitter-rpgcode.wasm` | 22.8's artefact, vendored as-is (below) |
 | `docs/grammars/tree-sitter-rpgcode.md` | provenance: upstream commit, patch (if any), build command, ABI, licence — the format of `docs/grammars/tree-sitter-cobol.md` |

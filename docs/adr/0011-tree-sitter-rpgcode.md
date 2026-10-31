@@ -91,9 +91,8 @@ consumer is a **contributed language**, not a Wasm file loaded at run time:
 CodeGraph 1.6.2 has no third-party registration seam — `codegraph.json` maps an
 extension onto a language it already ships — and accepts a language by adding it
 to its repository, a vendored grammar `.wasm` plus a per-language extractor
-(`src/extraction/languages/<lang>.ts`, the `grammars.ts` maps and the scan
-allowlist in `src/types.ts`), attributed by a `docs/grammars/<lang>.md`
-provenance record. The route and its cost are recorded in the
+(`src/extraction/languages/<lang>.ts`, the `grammars.ts` maps, and the `LANGUAGES` union in `src/types.ts`),
+attributed by a `docs/grammars/<lang>.md` provenance record. The route and its cost are recorded in the
 [registration prerequisite](../../_bmad-output/initiative-rpgtoolkit-reawakened/epic-rpgcode-grammar/discovery/codegraph-registration-prerequisite.md).
 Neither grammar nor extractor may import the runtime parser.
 
