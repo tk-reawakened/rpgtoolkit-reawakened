@@ -36,7 +36,18 @@ export type TracerScene = {
   readonly sprites?: readonly SpriteDraw[];
 };
 export type TracerTick = { readonly tick: number; readonly stateHash: string; readonly drawHash: string };
-export type TracerResult = { readonly scene: string; readonly drawList: DrawList; readonly drawHash: string; readonly stateHash: string; readonly pixels: Uint8Array; readonly png: Uint8Array; readonly error: string | null; readonly ticks: readonly TracerTick[] };
+export type TracerResult = {
+  readonly scene: string;
+  readonly drawList: DrawList;
+  readonly drawHash: string;
+  readonly stateHash: string;
+  readonly pixels: Uint8Array;
+  readonly png: Uint8Array;
+  readonly error: string | null;
+  readonly ticks: readonly TracerTick[];
+  /** The decoded textures the draw list's blits name, so a replayer can draw the same scene (AD-27). */
+  readonly textures: ReadonlyMap<AssetKey, DecodedTexture>;
+};
 
 function scenePath(path: string): string {
   if (path.includes("/Boards/")) return `Boards/${path.split("/Boards/")[1] ?? ""}`;
@@ -200,14 +211,14 @@ export function runTracerScene(scene: TracerScene, files: ReadonlyMap<string, Ui
     const records = report.requests.filter((request) => request.kind === "asset").map((request) => ({ tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: available.get(request.key) ?? null } }));
     report = engine.advance(0, records);
   }
-  if (report.loading) return { scene: scene.name, drawList: engine.drawList(0, scene.view.include), drawHash: "", stateHash: report.stateHash, pixels: new Uint8Array(), png: new Uint8Array(), error: "engine remained loading after asset replies", ticks: [] };
+  if (report.loading) return { scene: scene.name, drawList: engine.drawList(0, scene.view.include), drawHash: "", stateHash: report.stateHash, pixels: new Uint8Array(), png: new Uint8Array(), error: "engine remained loading after asset replies", ticks: [], textures };
   while (report.tickAfter < scene.tick) {
     const remaining = scene.tick - report.tickAfter;
     report = engine.advance(Math.min(remaining, 60), []);
   }
   const drawList = engine.drawList(0, scene.view.include);
   const raster = rasterize(drawList, textures);
-  if (raster.error) return { scene: scene.name, drawList, drawHash: hashDrawList(drawList), stateHash: report.stateHash, pixels: raster.rgba, png: new Uint8Array(), error: raster.error, ticks: [{ tick: report.tickAfter, stateHash: report.stateHash, drawHash: hashDrawList(drawList) }] };
+  if (raster.error) return { scene: scene.name, drawList, drawHash: hashDrawList(drawList), stateHash: report.stateHash, pixels: raster.rgba, png: new Uint8Array(), error: raster.error, ticks: [{ tick: report.tickAfter, stateHash: report.stateHash, drawHash: hashDrawList(drawList) }], textures };
   const image: DecodedTexture = { w: raster.width, h: raster.height, rgba: raster.rgba };
-  return { scene: scene.name, drawList, drawHash: hashDrawList(drawList), stateHash: report.stateHash, pixels: raster.rgba, png: encodeRgbaPng(image), error: null, ticks: [{ tick: report.tickAfter, stateHash: report.stateHash, drawHash: hashDrawList(drawList) }] };
+  return { scene: scene.name, drawList, drawHash: hashDrawList(drawList), stateHash: report.stateHash, pixels: raster.rgba, png: encodeRgbaPng(image), error: null, ticks: [{ tick: report.tickAfter, stateHash: report.stateHash, drawHash: hashDrawList(drawList) }], textures };
 }

@@ -72,12 +72,18 @@ vectors and on every gating golden scene:
 - **within one unit per channel** on the arithmetic a GPU may round differently, which is the `translucent` and
   `additive` blend of AD-3's pixel pipeline, with the worst per-channel difference reported per vector.
 
-**What is drawn today.** Entry 9.3 replays the committed raster vectors and the demo frame's geometry — fills and blits,
-with key, tint and the three blends — at the draw list's logical resolution. The **text** commands, the exact 1-pixel
-line and integer-midpoint ellipse, the `.iso` projection, and the animated (`.tan`), tile-bitmap (`.tbm`) and single-tile
-(`.gph`) textures are entry 9.4's; a
-renderer that cannot draw one of them **MUST** count it as deferred and report a diagnostic, never draw an approximate
-pixel in its place. A frame that reports a deferred command is a partial frame, not a pass.
+**What is drawn today.** Entry 9.4 replays all eight commands of AD-3's union — `fill`, `rect`, `line`, `ellipse`, `blit`
+(with the `.iso` projection and persistent surfaces), `text`, `pushTarget` and `popTarget` — at the draw list's logical
+resolution, with AD-33's two presentation modes as viewport geometry. The pixel sets a GPU cannot derive on its own come
+from `core/raster`'s leaves rather than from a second implementation: `linePixels`, `rectOutlinePixels`,
+`ellipsePixels`, `isoSourceOffset` and `textInk` (which owns the legacy cell scaling, the italic shear, bold's second ink
+and the TrueType outline's coverage), plus `DEFAULT_FONT_ASSET` for AD-15's substitution of a family the game does not
+ship. A tiled blit uploads only the tile it names, because a `.tst` strip of a large board can exceed
+`MAX_TEXTURE_SIZE` and an incomplete texture samples as black.
+
+A renderer that cannot draw a command **MUST** count it as deferred and report a diagnostic, never draw an approximate
+pixel in its place. A frame that reports a deferred command is a partial frame, not a pass; the browser lane today
+reports none on any gating ledger row or committed vector.
 
 This bound never widens a PNG golden: `independent-reference` and `regression-baseline` rows stay exact
 ([parity-checklist.md#golden-image-oracle](parity-checklist.md#golden-image-oracle)), and a `legacy-screenshot` row stays
@@ -284,8 +290,7 @@ Its licence, and why it is a dev-only tool outside the production-tree scan, are
 
 | Section | Delivered by |
 |---|---|
-| [draw-list](#draw-list), the geometry path of [webgl2-agreement](#webgl2-agreement) | 9.3 |
-| the rest of [webgl2-agreement](#webgl2-agreement): text, the exact line and ellipse, `.iso`, the full vector set and every ledger scene | 9.4 |
+| [draw-list](#draw-list) and [webgl2-agreement](#webgl2-agreement) in full: every AD-3 command, the unified vector kit and every gating ledger row | 9.3, 9.4 |
 | [audio](#audio) | 9.5, 9.6 |
 | [install](#install), [desktop-shell](#desktop-shell) (player) | 9.10, 9.11 |
 | [load-modes](#load-modes), [prefetch](#prefetch), [offline](#offline) | 9.8, 9.9 |

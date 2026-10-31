@@ -7,7 +7,7 @@
  */
 
 import { parseClosingPlan } from "@tk-reawakened/runner-harness";
-import { fetchBundled, fetchGame, runScriptedFrame } from "../src/index.ts";
+import { fetchBundled, fetchGame, fontProvider, runScriptedFrame } from "../src/index.ts";
 
 declare global {
   interface Window {
@@ -35,7 +35,7 @@ async function boot(context: WebGL2RenderingContext, report: HTMLPreElement): Pr
     const planText = await (await fetch(`${base}/golden/closing/plan.json`)).text();
     const files = await fetchGame(base, `fixtures/legacy/${game}`);
     const bundled = await fetchBundled(base, parseClosingPlan(planText).bundled);
-    const result = runScriptedFrame({ planText, game, files, bundled, gl: context });
+    const result = runScriptedFrame({ planText, game, files, bundled, gl: context, fonts: fontProvider(bundled) });
     window.__report = { game, ...result };
     report.textContent = [
       `${game} tick ${result.tick}`,

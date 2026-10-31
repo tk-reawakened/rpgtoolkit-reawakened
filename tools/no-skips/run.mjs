@@ -29,6 +29,7 @@ export const GROUPS = Object.freeze([
   "core-battle",
   "synth",
   "plugin-tk2-compat",
+  "render-webgl2",
   "runner-harness",
   "runner-headless",
   "runner-web",
