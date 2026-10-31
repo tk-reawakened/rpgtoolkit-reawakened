@@ -101,10 +101,11 @@ def index_entries(initiative: Path) -> dict[str, dict]:
     return entries
 
 
-def prerequisite_line(ref: object, entries: dict[str, dict]) -> str:
+def prerequisite_line(ref: object, entries: dict[str, dict], siblings: dict[str, dict]) -> str:
     text_ref = str(ref)
-    if text_ref.isdigit() and not text_ref.startswith("epic-"):
-        return f"- `{text_ref}` — sibling entry"
+    if text_ref.isdigit() and siblings.get(text_ref) is not None:
+        title = text(text_ref and siblings[text_ref].get("title", ""))
+        return f"- `{text_ref}` — {title}" if title else f"- `{text_ref}`"
     if text_ref.startswith("epic-"):
         return f"- `{text_ref}` — the whole epic"
     entry = entries.get(text_ref)
@@ -116,7 +117,7 @@ def prerequisite_line(ref: object, entries: dict[str, dict]) -> str:
     return f"- `{text_ref}` — {title} ({link})"
 
 
-def build_body(entry: dict, area: str, entries: dict[str, dict]) -> str:
+def build_body(entry: dict, area: str, entries: dict[str, dict], siblings: dict[str, dict]) -> str:
     lines: list[str] = []
     lines.append("## Goal & Description")
     lines.append("")
@@ -130,7 +131,7 @@ def build_body(entry: dict, area: str, entries: dict[str, dict]) -> str:
     lines.append("")
     after = [str(item) for item in entry.get("after", [])]
     if after:
-        lines.extend(prerequisite_line(item, entries) for item in after)
+        lines.extend(prerequisite_line(item, entries, siblings) for item in after)
     else:
         lines.append("- None.")
     lines.append("")
@@ -185,14 +186,16 @@ def main() -> int:
         if not (epic_dir / "tickets.toml").is_file():
             raise SystemExit(f"No tickets.toml in {epic_dir}")
         area = EPIC_AREA_MAP.get(epic_dir.name, "core")
-        for entry in tomllib.loads((epic_dir / "tickets.toml").read_text(encoding="utf-8")).get("entry", []):
+        entries_of_epic = tomllib.loads((epic_dir / "tickets.toml").read_text(encoding="utf-8")).get("entry", [])
+        siblings = {str(item["id"]): item for item in entries_of_epic}
+        for entry in entries_of_epic:
             tracker = text(entry.get("tracker_id", ""))
             if not tracker.startswith("#"):
                 skipped += 1
                 continue
             total += 1
             number = int(tracker.removeprefix("#"))
-            body = build_body(entry, area, entries)
+            body = build_body(entry, area, entries, siblings)
             if args.dry_run:
                 print(f"--- {epic_dir.name} {entry['id']} -> #{number}")
                 print(body)
