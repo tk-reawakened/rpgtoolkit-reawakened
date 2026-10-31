@@ -114,7 +114,7 @@ export interface MainFileReservedRuns {
   readonly menuPluginFallback: Uint8Array;
   /** Row 22, minor ≤ 2: the `i32` + `i16` multitask-speed / memory-protection run. */
   readonly multitask: Uint8Array;
-  /** Row 11, minor < 3: the `i16` old fight style after `customFightPrg`. */
+  /** Row 33, minor < 3: the `i16` old fight style after `customFightPrg`. */
   readonly fightStyle: Uint8Array;
 }
 

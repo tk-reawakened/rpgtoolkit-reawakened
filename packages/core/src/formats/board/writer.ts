@@ -254,11 +254,19 @@ export function writeBoard(model: Board): Result<Uint8Array> {
   // next field as a shade record and misparse the rest of the file.
   const cellsPerLayer = grid.width * grid.height;
   for (const [index, layer] of model.shadeLayers.entries()) {
-    const covered = layer.records.reduce((sum, record) => sum + (record.runCount > 1 ? record.runCount : 1), 0);
+    const cells = (record: { readonly runCount: number }): number => record.runCount > 1 ? record.runCount : 1;
+    const covered = layer.records.reduce((sum, record) => sum + cells(record), 0);
     if (covered < cellsPerLayer) {
       return fail(
         writer,
         `shade layer ${index} covers ${covered} cells but the grid has ${cellsPerLayer}; the reader consumes a record per cell until the layer is covered, so a short layer would be read into the following fields`,
+      );
+    }
+    const last = layer.records[layer.records.length - 1];
+    if (last !== undefined && covered - cells(last) >= cellsPerLayer) {
+      return fail(
+        writer,
+        `shade layer ${index} is already complete before its final record; the reader stops at the record that covers the grid, so no record may follow it`,
       );
     }
     writer.i32(layer.castLayer);

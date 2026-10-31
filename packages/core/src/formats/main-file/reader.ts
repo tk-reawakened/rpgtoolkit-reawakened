@@ -723,7 +723,7 @@ export function readMainFile(reader: BinaryReader): Result<MainFile> {
     return customFightPrg;
   }
 
-  // Row 11, minor < 3: reserved i16 (old fight style).
+  // Row 33, minor < 3: reserved i16 (old fight style).
   let fightStyle = NO_BYTES;
   if (minor < 3) {
     const r = reader.readBytes(2);
