@@ -12,13 +12,15 @@ const fixtureRoot = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "p
 const names = ["collection", "widgets", "inheritance", "references"] as const;
 
 function semanticAst(value: unknown): unknown {
-  // Successful-node source locations are intentionally omitted. Structure,
-  // operators, grouping, declarations and reference distinctions are semantic.
+  // Successful-node source locations are intentionally omitted (`line`, `col`
+  // and `endCol` alike: the spans are additive and pinned by
+  // script-spans-ast.test.ts). Structure, operators, grouping, declarations and
+  // reference distinctions are semantic.
   if (Array.isArray(value)) return value.map(semanticAst);
   if (value === null || typeof value !== "object") return value;
   const result: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
-    if (key !== "line") result[key] = semanticAst(child);
+    if (key !== "line" && key !== "col" && key !== "endCol") result[key] = semanticAst(child);
   }
   return result;
 }

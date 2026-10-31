@@ -243,6 +243,30 @@ test("engine import: r3 fires outside packages/runner-*/src/render/ only", () =>
   );
 });
 
+test("node builtin: r4 fires for script-tools/src only, not its tests", () => {
+  withRoot(
+    "script-tools-node",
+    {
+      packages: {
+        "script-tools": {
+          "src/index.ts": 'import { readFileSync } from "node:fs";\nexport const x = readFileSync;\n',
+          "test/smoke.test.ts": 'import { test } from "node:test";\nexport const x = test;\n',
+        },
+      },
+      edges: [],
+    },
+    (root) => {
+      seed(root);
+      const result = run(root);
+      notEqual(result.status, 0);
+      const node = violations(result.output).filter((line) => line.includes("r4-script-tools-no-node"));
+      equal(node.length, 1, result.output);
+      match(node[0], /packages\/script-tools\/src\/index\.ts/);
+      ok(!node[0].includes("smoke.test.ts"), result.output);
+    },
+  );
+});
+
 test("stale diagram: the check names the spine file and pnpm graph:write, --write repairs it", () => {
   withRoot(
     "stale",

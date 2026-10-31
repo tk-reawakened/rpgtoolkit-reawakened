@@ -219,6 +219,12 @@ importers:
         specifier: 24.0.0
         version: 24.0.0
 
+  packages/script-tools:
+    dependencies:
+      '@tk-reawakened/core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/synth:
     dependencies:
       '@tk-reawakened/core':

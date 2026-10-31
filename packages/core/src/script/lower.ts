@@ -99,7 +99,7 @@ export function lower(ast: Ast, file = "<inline>", knownClasses?: ReadonlySet<st
   const classNames = new Set([...(knownClasses ?? []), ...ast.classes.map((item) => item.name)]);
   const defs: FunctionDefInfo[] = [];
   const ops: StepOp[] = [];
-  const posCache = new Map<number, SourcePos>();
+  const posCache = new Map<string, SourcePos>();
   const statements: StatementRange[] = [];
   const lambdaDefs: { readonly def: string; readonly expr: Extract<Expr, { kind: "lambda" }> }[] = [];
   let lambdaNumber = 0;
@@ -109,11 +109,22 @@ export function lower(ast: Ast, file = "<inline>", knownClasses?: ReadonlySet<st
   function indexesParam(base: Expr): boolean {
     return base.kind === "variable" && base.name !== "this" && paramNames.has(base.name);
   }
-  function getPos(line: number): SourcePos {
-    let p = posCache.get(line);
+  /**
+   * The interned `SourcePos` of a node or a bare line. A node carries the span
+   * of the token its `line` came from, so the instruction names exactly that
+   * token (docs/spec/engine/rpgcode-tooling.md#tool-3-range-convention); a
+   * synthesized instruction with no node keeps `file` and `line` only.
+   */
+  function getPos(at: { readonly line: number; readonly col?: number; readonly endCol?: number } | number): SourcePos {
+    const line = typeof at === "number" ? at : at.line;
+    const col = typeof at === "number" ? undefined : at.col;
+    const endCol = typeof at === "number" ? undefined : at.endCol;
+    const span = col === undefined || endCol === undefined ? undefined : { col, endCol };
+    const key = span === undefined ? `line:${line}` : `line:${line}:${col}:${endCol}`;
+    let p = posCache.get(key);
     if (!p) {
-      p = Object.freeze({ file, line });
-      posCache.set(line, p);
+      p = Object.freeze({ file, line, ...span });
+      posCache.set(key, p);
     }
     return p;
   }
@@ -134,42 +145,42 @@ export function lower(ast: Ast, file = "<inline>", knownClasses?: ReadonlySet<st
   function lowerLvalue(target: Expr): void {
     if (target.kind === "variable") {
       if (target.scope) {
-        ops.push({ op: "load", name: target.name, scope: target.scope, pos: getPos(target.line) });
+        ops.push({ op: "load", name: target.name, scope: target.scope, pos: getPos(target) });
       } else {
         ops.push({
           op: "load",
           name: target.name,
           ...(paramNames.has(target.name) ? { param: true as const } : {}),
-          pos: getPos(target.line),
+          pos: getPos(target),
         });
       }
       return;
     }
     if (target.kind === "decl") {
-      ops.push({ op: "declRef", scope: target.scope, name: target.name, pos: getPos(target.line) });
+      ops.push({ op: "declRef", scope: target.scope, name: target.name, pos: getPos(target) });
       return;
     }
     if (target.kind === "index") {
       lowerIndexBase(target.base);
       lowerExpr(target.index);
-      ops.push({ op: "index", ...(indexesParam(target.base) ? { baseParam: true as const } : {}), pos: getPos(target.line) });
+      ops.push({ op: "index", ...(indexesParam(target.base) ? { baseParam: true as const } : {}), pos: getPos(target) });
       return;
     }
     if (target.kind === "member") {
       lowerExpr(target.receiver);
-      ops.push({ op: "member", name: target.name, pos: getPos(target.line) });
+      ops.push({ op: "member", name: target.name, pos: getPos(target) });
       return;
     }
     if (target.kind === "call" || target.kind === "methodCall") {
       lowerExpr(target);
       return;
     }
-    throw new ScriptError("syntax.error", "invalid assignment target", getPos(target.line));
+    throw new ScriptError("syntax.error", "invalid assignment target", getPos(target));
   }
 
   function lowerIndexBase(base: Expr): void {
     if (base.kind === "variable" && base.name !== "this") {
-      ops.push({ op: "name", name: base.name, pos: getPos(base.line) });
+      ops.push({ op: "name", name: base.name, pos: getPos(base) });
     } else {
       lowerExpr(base);
     }
@@ -178,30 +189,30 @@ export function lower(ast: Ast, file = "<inline>", knownClasses?: ReadonlySet<st
   function lowerExpr(expr: Expr): void {
     switch (expr.kind) {
       case "literal":
-        ops.push({ op: "push", value: expr.value, pos: getPos(expr.line) });
+        ops.push({ op: "push", value: expr.value, pos: getPos(expr) });
         break;
       case "variable":
         if (expr.scope) {
-          ops.push({ op: "load", name: expr.name, scope: expr.scope, pos: getPos(expr.line) });
+          ops.push({ op: "load", name: expr.name, scope: expr.scope, pos: getPos(expr) });
         } else {
           ops.push({
             op: "load",
             name: expr.name,
             ...(paramNames.has(expr.name) ? { param: true as const } : {}),
-            pos: getPos(expr.line),
+            pos: getPos(expr),
           });
         }
         break;
       case "index":
         lowerIndexBase(expr.base);
         lowerExpr(expr.index);
-        ops.push({ op: "index", ...(indexesParam(expr.base) ? { baseParam: true as const } : {}), pos: getPos(expr.line) });
+        ops.push({ op: "index", ...(indexesParam(expr.base) ? { baseParam: true as const } : {}), pos: getPos(expr) });
         break;
       case "decl":
-        ops.push({ op: "declRef", scope: expr.scope, name: expr.name, pos: getPos(expr.line) });
+        ops.push({ op: "declRef", scope: expr.scope, name: expr.name, pos: getPos(expr) });
         break;
       case "labelRef":
-        ops.push({ op: "push", value: expr.name, pos: getPos(expr.line) });
+        ops.push({ op: "push", value: expr.name, pos: getPos(expr) });
         break;
       case "call":
         for (const arg of expr.args) lowerExpr(arg);
@@ -212,83 +223,83 @@ export function lower(ast: Ast, file = "<inline>", knownClasses?: ReadonlySet<st
             argc: expr.args.length,
             file: expr.file,
             ...(paramNames.has(expr.file) ? { fileParam: true as const } : {}),
-            pos: getPos(expr.line),
+            pos: getPos(expr),
           });
         } else if (classNames.has(expr.name)) {
-          ops.push({ op: "construct", className: expr.name, argc: expr.args.length, pos: getPos(expr.line) });
+          ops.push({ op: "construct", className: expr.name, argc: expr.args.length, pos: getPos(expr) });
         } else {
-          ops.push({ op: "call", name: expr.name, argc: expr.args.length, pos: getPos(expr.line) });
+          ops.push({ op: "call", name: expr.name, argc: expr.args.length, pos: getPos(expr) });
         }
         break;
       case "methodCall":
         lowerExpr(expr.receiver);
         for (const arg of expr.args) lowerExpr(arg);
-        ops.push({ op: "methodCall", name: expr.name, argc: expr.args.length, pos: getPos(expr.line) });
+        ops.push({ op: "methodCall", name: expr.name, argc: expr.args.length, pos: getPos(expr) });
         break;
       case "construct":
         for (const arg of expr.args) lowerExpr(arg);
-        ops.push({ op: "construct", className: expr.className, argc: expr.args.length, pos: getPos(expr.line) });
+        ops.push({ op: "construct", className: expr.className, argc: expr.args.length, pos: getPos(expr) });
         break;
       case "member":
         lowerExpr(expr.receiver);
-        ops.push({ op: "get_member_bound", name: expr.name, pos: getPos(expr.line) });
+        ops.push({ op: "get_member_bound", name: expr.name, pos: getPos(expr) });
         break;
       case "unary":
         if (expr.operator === "++") {
           lowerLvalue(expr.operand);
-          ops.push({ op: "dup", pos: getPos(expr.line) });
-          ops.push({ op: "push", value: 1, pos: getPos(expr.line) });
-          ops.push({ op: "binop", operator: "+", pos: getPos(expr.line) });
-          ops.push({ op: "storeRef", pos: getPos(expr.line) });
+          ops.push({ op: "dup", pos: getPos(expr) });
+          ops.push({ op: "push", value: 1, pos: getPos(expr) });
+          ops.push({ op: "binop", operator: "+", pos: getPos(expr) });
+          ops.push({ op: "storeRef", pos: getPos(expr) });
         } else if (expr.operator === "--") {
           lowerLvalue(expr.operand);
-          ops.push({ op: "dup", pos: getPos(expr.line) });
-          ops.push({ op: "push", value: 1, pos: getPos(expr.line) });
-          ops.push({ op: "binop", operator: "-", pos: getPos(expr.line) });
-          ops.push({ op: "storeRef", pos: getPos(expr.line) });
+          ops.push({ op: "dup", pos: getPos(expr) });
+          ops.push({ op: "push", value: 1, pos: getPos(expr) });
+          ops.push({ op: "binop", operator: "-", pos: getPos(expr) });
+          ops.push({ op: "storeRef", pos: getPos(expr) });
         } else {
           lowerExpr(expr.operand);
-          ops.push({ op: "unop", operator: expr.operator, pos: getPos(expr.line) });
+          ops.push({ op: "unop", operator: expr.operator, pos: getPos(expr) });
         }
         break;
       case "postfix":
         if (expr.operator === "++") {
           lowerLvalue(expr.operand);
-          ops.push({ op: "dup", pos: getPos(expr.line) });
-          ops.push({ op: "dup", pos: getPos(expr.line) });
-          ops.push({ op: "push", value: 1, pos: getPos(expr.line) });
-          ops.push({ op: "binop", operator: "+", pos: getPos(expr.line) });
-          ops.push({ op: "storeRef", pos: getPos(expr.line) });
-          ops.push({ op: "pop", pos: getPos(expr.line) });
+          ops.push({ op: "dup", pos: getPos(expr) });
+          ops.push({ op: "dup", pos: getPos(expr) });
+          ops.push({ op: "push", value: 1, pos: getPos(expr) });
+          ops.push({ op: "binop", operator: "+", pos: getPos(expr) });
+          ops.push({ op: "storeRef", pos: getPos(expr) });
+          ops.push({ op: "pop", pos: getPos(expr) });
         } else {
           lowerLvalue(expr.operand);
-          ops.push({ op: "dup", pos: getPos(expr.line) });
-          ops.push({ op: "dup", pos: getPos(expr.line) });
-          ops.push({ op: "push", value: 1, pos: getPos(expr.line) });
-          ops.push({ op: "binop", operator: "-", pos: getPos(expr.line) });
-          ops.push({ op: "storeRef", pos: getPos(expr.line) });
-          ops.push({ op: "pop", pos: getPos(expr.line) });
+          ops.push({ op: "dup", pos: getPos(expr) });
+          ops.push({ op: "dup", pos: getPos(expr) });
+          ops.push({ op: "push", value: 1, pos: getPos(expr) });
+          ops.push({ op: "binop", operator: "-", pos: getPos(expr) });
+          ops.push({ op: "storeRef", pos: getPos(expr) });
+          ops.push({ op: "pop", pos: getPos(expr) });
         }
         break;
       case "binary":
         lowerExpr(expr.left);
         lowerExpr(expr.right);
-        ops.push({ op: "binop", operator: expr.operator, pos: getPos(expr.line) });
+        ops.push({ op: "binop", operator: expr.operator, pos: getPos(expr) });
         break;
       case "ternary":
         lowerExpr(expr.cond);
         lowerExpr(expr.then);
         lowerExpr(expr.else);
-        ops.push({ op: "select", pos: getPos(expr.line) });
+        ops.push({ op: "select", pos: getPos(expr) });
         break;
       case "assign":
         lowerLvalue(expr.target);
         if (expr.operator === "=") {
           lowerExpr(expr.value);
-          ops.push({ op: "storeRef", pos: getPos(expr.line) });
+          ops.push({ op: "storeRef", pos: getPos(expr) });
         } else {
           lowerExpr(expr.value);
-          ops.push({ op: "compound", operator: expr.operator, pos: getPos(expr.line) });
+          ops.push({ op: "compound", operator: expr.operator, pos: getPos(expr) });
         }
         break;
       case "lambda": {
@@ -298,22 +309,22 @@ export function lower(ast: Ast, file = "<inline>", knownClasses?: ReadonlySet<st
         // Captures are represented as stable cell IDs by the VM. The lowerer does not
         // allocate runtime cells, so this instruction deliberately carries the empty
         // deterministic set; 18.4 resolves the enclosing environment when invoked.
-        ops.push({ op: "load_fn", def, captures: [], pos: getPos(expr.line) });
+        ops.push({ op: "load_fn", def, captures: [], pos: getPos(expr) });
         break;
       }
       case "callIndirect": {
         lowerExpr(expr.callee);
         for (const arg of expr.args) lowerExpr(arg);
-        ops.push({ op: "call_indirect", argc: expr.args.length, pos: getPos(expr.line) });
+        ops.push({ op: "call_indirect", argc: expr.args.length, pos: getPos(expr) });
         break;
       }
       case "object":
         // A dictionary literal makes its object first and then evaluates the values in
         // the order written, so a nested literal's handle is allocated after its parent's (OOP-10).
-        ops.push({ op: "newObject", pos: getPos(expr.line) });
+        ops.push({ op: "newObject", pos: getPos(expr) });
         for (const entry of expr.entries) {
           lowerExpr(entry.value);
-          ops.push({ op: "initMember", key: entry.key, pos: getPos(entry.line) });
+          ops.push({ op: "initMember", key: entry.key, pos: getPos(entry) });
         }
         break;
       }
@@ -323,7 +334,7 @@ export function lower(ast: Ast, file = "<inline>", knownClasses?: ReadonlySet<st
   function emitStatement(statement: Statement, currentLabels: { [name: string]: number }): void {
     const start = ops.length;
     lowerStatement(statement, currentLabels);
-    ops.push({ op: "pop", pos: getPos(statement.line) });
+    ops.push({ op: "pop", pos: getPos(statement) });
     statements.push({ start, end: ops.length });
   }
 
@@ -363,7 +374,7 @@ export function lower(ast: Ast, file = "<inline>", knownClasses?: ReadonlySet<st
         for (const j of jumpEnds) {
           patchJump(j, endTarget);
         }
-        ops.push({ op: "push", value: 0, pos: getPos(stmt.line) });
+        ops.push({ op: "push", value: 0, pos: getPos(stmt) });
         break;
       }
       case "while": {
@@ -373,24 +384,24 @@ export function lower(ast: Ast, file = "<inline>", knownClasses?: ReadonlySet<st
         lowerBlock(stmt.body, currentLabels);
         emitJump("jump", top, stmt.line);
         patchJump(jumpEnd, ops.length);
-        ops.push({ op: "push", value: 0, pos: getPos(stmt.line) });
+        ops.push({ op: "push", value: 0, pos: getPos(stmt) });
         break;
       }
       case "until": {
         const top = ops.length;
         lowerExpr(stmt.cond);
-        ops.push({ op: "unop", operator: "!", pos: getPos(stmt.line) });
+        ops.push({ op: "unop", operator: "!", pos: getPos(stmt) });
         const jumpEnd = emitJump("jumpIfFalse", 0, stmt.line);
         lowerBlock(stmt.body, currentLabels);
         emitJump("jump", top, stmt.line);
         patchJump(jumpEnd, ops.length);
-        ops.push({ op: "push", value: 0, pos: getPos(stmt.line) });
+        ops.push({ op: "push", value: 0, pos: getPos(stmt) });
         break;
       }
       case "for": {
         if (stmt.init) {
           lowerExpr(stmt.init);
-          ops.push({ op: "pop", pos: getPos(stmt.line) });
+          ops.push({ op: "pop", pos: getPos(stmt) });
         }
         const top = ops.length;
         let jumpEnd: number | null = null;
@@ -401,13 +412,13 @@ export function lower(ast: Ast, file = "<inline>", knownClasses?: ReadonlySet<st
         lowerBlock(stmt.body, currentLabels);
         if (stmt.step) {
           lowerExpr(stmt.step);
-          ops.push({ op: "pop", pos: getPos(stmt.line) });
+          ops.push({ op: "pop", pos: getPos(stmt) });
         }
         emitJump("jump", top, stmt.line);
         if (jumpEnd !== null) {
           patchJump(jumpEnd, ops.length);
         }
-        ops.push({ op: "push", value: 0, pos: getPos(stmt.line) });
+        ops.push({ op: "push", value: 0, pos: getPos(stmt) });
         break;
       }
       case "switch": {
@@ -415,18 +426,18 @@ export function lower(ast: Ast, file = "<inline>", knownClasses?: ReadonlySet<st
         const jumpEnds: number[] = [];
 
         for (const cs of stmt.cases) {
-          ops.push({ op: "dup", pos: getPos(cs.line) });
+          ops.push({ op: "dup", pos: getPos(cs) });
           lowerExpr(cs.value);
-          ops.push({ op: "binop", operator: "==", pos: getPos(cs.line) });
+          ops.push({ op: "binop", operator: "==", pos: getPos(cs) });
           const jumpNext = emitJump("jumpIfFalse", 0, cs.line);
-          ops.push({ op: "pop", pos: getPos(cs.line) });
+          ops.push({ op: "pop", pos: getPos(cs) });
           lowerBlock(cs.body, currentLabels);
           jumpEnds.push(emitJump("jump", 0, cs.line));
           patchJump(jumpNext, ops.length);
         }
 
         // Pop the test value carried on stack
-        ops.push({ op: "pop", pos: getPos(stmt.line) });
+        ops.push({ op: "pop", pos: getPos(stmt) });
 
         if (stmt.defaultBody) {
           lowerBlock(stmt.defaultBody, currentLabels);
@@ -436,7 +447,7 @@ export function lower(ast: Ast, file = "<inline>", knownClasses?: ReadonlySet<st
         for (const j of jumpEnds) {
           patchJump(j, endTarget);
         }
-        ops.push({ op: "push", value: 0, pos: getPos(stmt.line) });
+        ops.push({ op: "push", value: 0, pos: getPos(stmt) });
         break;
       }
       case "label":
@@ -444,25 +455,25 @@ export function lower(ast: Ast, file = "<inline>", knownClasses?: ReadonlySet<st
           throw new ScriptError(
             "compile.duplicate-label",
             `label \`:${stmt.name}\` is already defined in this scope`,
-            getPos(stmt.line),
+            getPos(stmt),
           );
         }
         currentLabels[stmt.name] = ops.length;
-        ops.push({ op: "push", value: 0, pos: getPos(stmt.line) });
+        ops.push({ op: "push", value: 0, pos: getPos(stmt) });
         break;
       case "return":
         if (stmt.byRef) {
           if (!stmt.value) {
-            ops.push({ op: "push", value: 0, pos: getPos(stmt.line) });
+            ops.push({ op: "push", value: 0, pos: getPos(stmt) });
           } else {
             lowerLvalue(stmt.value);
           }
         } else if (stmt.value) {
           lowerExpr(stmt.value);
         } else {
-          ops.push({ op: "push", value: 0, pos: getPos(stmt.line) });
+          ops.push({ op: "push", value: 0, pos: getPos(stmt) });
         }
-        ops.push({ op: "return", pos: getPos(stmt.line) });
+        ops.push({ op: "return", pos: getPos(stmt) });
         break;
     }
   }
@@ -509,7 +520,7 @@ export function lower(ast: Ast, file = "<inline>", knownClasses?: ReadonlySet<st
   for (const fn of ast.functions) {
     const list = functions[fn.name] ?? [];
     if (list.some((existing) => existing.params.length === fn.params.length)) {
-      throw new ScriptError("compile.duplicate-function", `function \`${fn.name}\` with ${fn.params.length} parameter(s) is already defined`, getPos(fn.line));
+      throw new ScriptError("compile.duplicate-function", `function \`${fn.name}\` with ${fn.params.length} parameter(s) is already defined`, getPos(fn));
     }
     const info = infoFor(fn);
     functions[fn.name] = [...list, info];

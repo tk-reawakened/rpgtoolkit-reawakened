@@ -3,7 +3,15 @@
 // exact Step IR the tracer program lowers to.
 import { deepEqual, equal } from "node:assert/strict";
 import { test } from "node:test";
-import { compileInline, compileProgram, tokenize, type ScriptError } from "../src/index.ts";
+import { compileInline, compileProgram, tokenize as lexTokens, type ScriptError, type Token } from "../src/index.ts";
+
+/**
+ * These assertions pin the token stream's shape without its spans: `col` and
+ * `endCol` are covered by `script-lex-spans.test.ts`, and repeating them in
+ * every literal here would bury the frontend behaviour the file tests.
+ */
+const tokenize = (text: string): Array<Omit<Token, "col" | "endCol">> =>
+  lexTokens(text).map(({ col: _col, endCol: _endCol, ...rest }) => rest);
 
 function errorOf(run: () => unknown): { code: string; message: string } {
   try {
@@ -175,9 +183,12 @@ test("accepts comments, a legacy # line and the numeric literals", () => {
 });
 
 test("lowers a bare identifier to a zero-argument call", () => {
+  // The call and its `pop` carry the `end` token's span; the synthesized closing
+  // `return` has no token, so it keeps `file` and `line` only
+  // (docs/spec/engine/rpgcode-tooling.md#tool-3-range-convention).
   deepEqual(compileInline("end\n").ops, [
-    { op: "call", name: "end", argc: 0, pos: { file: "<inline>", line: 1 } },
-    { op: "pop", pos: { file: "<inline>", line: 1 } },
+    { op: "call", name: "end", argc: 0, pos: { file: "<inline>", line: 1, col: 1, endCol: 3 } },
+    { op: "pop", pos: { file: "<inline>", line: 1, col: 1, endCol: 3 } },
     { op: "return", pos: { file: "<inline>", line: 1 } },
   ]);
 });
@@ -192,23 +203,23 @@ test("lowers the tracer program to the exact op array", () => {
     ir: "1",
   });
   deepEqual(program.ops, [
-    { op: "load", name: "greeting", pos: { file: "<inline>", line: 1 } },
-    { op: "push", value: "hi", pos: { file: "<inline>", line: 1 } },
-    { op: "storeRef", pos: { file: "<inline>", line: 1 } },
-    { op: "pop", pos: { file: "<inline>", line: 1 } },
-    { op: "load", name: "count", pos: { file: "<inline>", line: 2 } },
-    { op: "push", value: 2, pos: { file: "<inline>", line: 2 } },
-    { op: "storeRef", pos: { file: "<inline>", line: 2 } },
-    { op: "pop", pos: { file: "<inline>", line: 2 } },
-    { op: "load", name: "count", pos: { file: "<inline>", line: 3 } },
-    { op: "call", name: "sleep", argc: 1, pos: { file: "<inline>", line: 3 } },
-    { op: "pop", pos: { file: "<inline>", line: 3 } },
-    { op: "load", name: "count", pos: { file: "<inline>", line: 4 } },
-    { op: "push", value: 3, pos: { file: "<inline>", line: 4 } },
-    { op: "storeRef", pos: { file: "<inline>", line: 4 } },
-    { op: "pop", pos: { file: "<inline>", line: 4 } },
-    { op: "call", name: "end", argc: 0, pos: { file: "<inline>", line: 5 } },
-    { op: "pop", pos: { file: "<inline>", line: 5 } },
+    { op: "load", name: "greeting", pos: { file: "<inline>", line: 1, col: 1, endCol: 8 } },
+    { op: "push", value: "hi", pos: { file: "<inline>", line: 1, col: 12, endCol: 15 } },
+    { op: "storeRef", pos: { file: "<inline>", line: 1, col: 10, endCol: 10 } },
+    { op: "pop", pos: { file: "<inline>", line: 1, col: 10, endCol: 10 } },
+    { op: "load", name: "count", pos: { file: "<inline>", line: 2, col: 1, endCol: 5 } },
+    { op: "push", value: 2, pos: { file: "<inline>", line: 2, col: 9, endCol: 9 } },
+    { op: "storeRef", pos: { file: "<inline>", line: 2, col: 7, endCol: 7 } },
+    { op: "pop", pos: { file: "<inline>", line: 2, col: 7, endCol: 7 } },
+    { op: "load", name: "count", pos: { file: "<inline>", line: 3, col: 7, endCol: 11 } },
+    { op: "call", name: "sleep", argc: 1, pos: { file: "<inline>", line: 3, col: 1, endCol: 5 } },
+    { op: "pop", pos: { file: "<inline>", line: 3, col: 1, endCol: 5 } },
+    { op: "load", name: "count", pos: { file: "<inline>", line: 4, col: 1, endCol: 5 } },
+    { op: "push", value: 3, pos: { file: "<inline>", line: 4, col: 9, endCol: 9 } },
+    { op: "storeRef", pos: { file: "<inline>", line: 4, col: 7, endCol: 7 } },
+    { op: "pop", pos: { file: "<inline>", line: 4, col: 7, endCol: 7 } },
+    { op: "call", name: "end", argc: 0, pos: { file: "<inline>", line: 5, col: 1, endCol: 3 } },
+    { op: "pop", pos: { file: "<inline>", line: 5, col: 1, endCol: 3 } },
     { op: "return", pos: { file: "<inline>", line: 5 } },
   ]);
 

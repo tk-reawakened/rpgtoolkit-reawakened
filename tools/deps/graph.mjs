@@ -244,6 +244,14 @@ function buildRules() {
     // node_modules/.pnpm/<pkg>@<version>/node_modules/<pkg>/….
     to: { path: "node_modules/(\\.pnpm/)?((phaser|pixi\\.js|excalibur)[@/]|@pixi/)" },
   });
+  rules.push({
+    name: "r4-script-tools-no-node",
+    severity: "error",
+    comment:
+      "packages/script-tools/src/ imports no Node built-in: it is a pure library over core (G2; docs/spec/engine/rpgcode-tooling.md#tool-3).",
+    from: { path: "^packages/script-tools/src/" },
+    to: { dependencyTypes: ["core"] },
+  });
   return rules;
 }
 

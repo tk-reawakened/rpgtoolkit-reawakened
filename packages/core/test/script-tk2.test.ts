@@ -44,8 +44,17 @@ test("TK2 raw text binds only the command argument and leaves expressions execut
   equal(normalised, 'Mwin("Hello there")\nWalkSpeed(2 + 1)\nx = a * b');
   deepEqual(parseTk2("#Mwin(Hello there)").statements[0], {
     kind: "expr",
-    expr: { kind: "call", name: "mwin", args: [{ kind: "literal", value: "Hello there", line: 1 }], line: 1 },
+    expr: {
+      kind: "call",
+      name: "mwin",
+      args: [{ kind: "literal", value: "Hello there", line: 1, col: 6, endCol: 18 }],
+      line: 1,
+      col: 1,
+      endCol: 4,
+    },
     line: 1,
+    col: 1,
+    endCol: 4,
   });
 });
 

@@ -44,6 +44,7 @@ graph LR
   core --> renderwebgl2[render-webgl2]
   core --> runnerharness[runner-harness]
   core --> plugintk2compat[plugin-tk2-compat]
+  core --> scripttools[script-tools]
   plugintk2compat --> runnerharness
   core --> lsp
   core --> editormodel[editor-model]

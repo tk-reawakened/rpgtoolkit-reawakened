@@ -1,6 +1,7 @@
 {
   "packages": [
     "core",
+    "script-tools",
     "synth",
     "render-webgl2",
     "runner-harness",
@@ -22,6 +23,7 @@
     ["core", "render-webgl2"],
     ["core", "runner-harness"],
     ["core", "plugin-tk2-compat"],
+    ["core", "script-tools"],
     ["plugin-tk2-compat", "runner-harness"],
     ["core", "lsp"],
     ["core", "editor-model"],

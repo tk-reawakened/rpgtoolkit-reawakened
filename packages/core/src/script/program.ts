@@ -250,9 +250,10 @@ function build(ref: ProgramRef, context: CompileContext, inlineName: string): Pr
       const requests = [...scanned.includes, ...ast.includes].sort((a, b) => a.line - b.line);
       return { name, key, ast, requests };
     } catch (error) {
-      // The parser does not know its file; a loaded file's failures carry its name.
+      // The parser does not know its file; a loaded file's failures carry its name,
+      // and the token span the parser stamped (docs/spec/engine/rpgcode-tooling.md#tool-3-range-convention).
       if (located && error instanceof ScriptError && error.pos?.file === "") {
-        throw new ScriptError(error.code, error.message, { file: name, line: error.pos.line });
+        throw new ScriptError(error.code, error.message, { ...error.pos, file: name });
       }
       throw error;
     }

@@ -10,18 +10,27 @@
 
 import type { IncludeRequest } from "./ast.ts";
 import { ScriptError } from "./errors.ts";
+import type { SourcePos } from "./ops.ts";
 import { foldAscii } from "./values.ts";
 
 export { foldAscii };
 
-/** One lexical token. `end` terminates a statement; `eof` ends the source. */
+/**
+ * One lexical token. `end` terminates a statement; `eof` ends the source.
+ *
+ * `col` and `endCol` are UTF-16 code units of the decoded source, 1-based and
+ * inclusive: `col` is the first character, `endCol` the last. A token never
+ * spans a line, so a range is one line's [col, endCol]. The CR of a CRLF does
+ * not count, because it precedes the line break. A zero-width token (`end` on a
+ * newline, `eof`) has `endCol === col`.
+ */
 export type Token =
-  | { readonly kind: "identifier"; readonly name: string; readonly line: number }
-  | { readonly kind: "number"; readonly value: number; readonly line: number }
-  | { readonly kind: "string"; readonly value: string; readonly line: number }
-  | { readonly kind: "op"; readonly text: string; readonly line: number }
-  | { readonly kind: "end"; readonly line: number }
-  | { readonly kind: "eof"; readonly line: number };
+  | { readonly kind: "identifier"; readonly name: string; readonly line: number; readonly col: number; readonly endCol: number }
+  | { readonly kind: "number"; readonly value: number; readonly line: number; readonly col: number; readonly endCol: number }
+  | { readonly kind: "string"; readonly value: string; readonly line: number; readonly col: number; readonly endCol: number }
+  | { readonly kind: "op"; readonly text: string; readonly line: number; readonly col: number; readonly endCol: number }
+  | { readonly kind: "end"; readonly line: number; readonly col: number; readonly endCol: number }
+  | { readonly kind: "eof"; readonly line: number; readonly col: number; readonly endCol: number };
 
 function isDigit(ch: string): boolean {
   return ch >= "0" && ch <= "9";
@@ -35,29 +44,39 @@ function isIdentifierChar(ch: string): boolean {
   return isIdentifierStart(ch) || isDigit(ch);
 }
 
+/**
+ * The source position of one offending construct. `col` and `endCol` are
+ * UTF-16 code units, 1-based and inclusive
+ * (docs/spec/engine/rpgcode-tooling.md#tool-3-range-convention), so a
+ * diagnostic's range slices exactly the text it names.
+ */
+function pos(line: number, col: number, endCol: number): SourcePos {
+  return { file: "", line, col, endCol };
+}
+
 /** Reject a construct the rebuild excludes, naming the entry that adds it. */
-function unsupported(construct: string, entry: string, line: number): never {
+function unsupported(construct: string, entry: string, at: SourcePos): never {
   throw new ScriptError(
     "syntax.unsupported",
     `${construct} is not in the tracer's RPGCode subset; ${entry} adds it`,
-    { file: "", line },
+    at,
   );
 }
 
 /** Reject malformed input (an unknown character, an unterminated string). */
-function lexical(message: string, line: number): never {
-  throw new ScriptError("syntax.error", message, { file: "", line });
+function lexical(message: string, at: SourcePos): never {
+  throw new ScriptError("syntax.error", message, at);
 }
 
 /** Refuse an identifier the spec or scope excludes, by name and entry. */
-function rejectKeyword(name: string, line: number, allowObjects: boolean): void {
+function rejectKeyword(name: string, at: SourcePos, allowObjects: boolean): void {
   switch (name) {
     case "break":
     case "continue":
       throw new ScriptError(
         "syntax.unsupported",
         `the \`${name}\` statement is not in the RPGCode 3.1 specification (docs/spec/engine/rpgcode-language.md#keywords-and-structure)`,
-        { file: "", line },
+        at,
       );
     case "class":
     case "struct":
@@ -67,10 +86,10 @@ function rejectKeyword(name: string, line: number, allowObjects: boolean): void 
     case "this":
     case "new":
       if (allowObjects) return;
-      unsupported(`the \`${name}\` class construct`, "entry 6", line);
+      unsupported(`the \`${name}\` class construct`, "entry 6", at);
       break;
     case "protected":
-      unsupported(`the \`${name}\` class construct`, "entry 6", line);
+      unsupported(`the \`${name}\` class construct`, "entry 6", at);
       break;
     default:
       break;
@@ -177,6 +196,7 @@ function run(text: string): Token[] {
   const length = text.length;
   let index = 0;
   let line = 1;
+  let lineStart = 0;
   let firstNonBlankOnLine = true;
 
   while (index < length) {
@@ -188,15 +208,18 @@ function run(text: string): Token[] {
     }
 
     if (ch === "\n") {
-      tokens.push({ kind: "end", line });
+      const column = index - lineStart + 1;
+      tokens.push({ kind: "end", line, col: column, endCol: column });
       index++;
       line++;
+      lineStart = index;
       firstNonBlankOnLine = true;
       continue;
     }
 
     if (ch === ";") {
-      tokens.push({ kind: "end", line });
+      const column = index - lineStart + 1;
+      tokens.push({ kind: "end", line, col: column, endCol: column });
       index++;
       firstNonBlankOnLine = false;
       continue;
@@ -213,11 +236,19 @@ function run(text: string): Token[] {
     if (ch === "/" && text[index + 1] === "*") {
       index += 2;
       while (index < length && !(text[index] === "*" && text[index + 1] === "/")) {
-        if (text[index] === "\n") line++;
+        if (text[index] === "\n") {
+          line++;
+          lineStart = index + 1;
+        }
         index++;
       }
       if (index >= length) {
-        lexical("unterminated block comment; a `/* */` comment must end with `*/`", line);
+        // Positioned at the end of the source, where the missing `*/` was looked for.
+        const column = index - lineStart + 1;
+        lexical(
+          "unterminated block comment; a `/* */` comment must end with `*/`",
+          pos(line, column, column),
+        );
       }
       index += 2;
       continue;
@@ -242,12 +273,23 @@ function run(text: string): Token[] {
       let lineEnd = index;
       while (lineEnd < length && text[lineEnd] !== "\n") lineEnd++;
       const lineText = text.slice(index, lineEnd);
+      // The CR of a CRLF precedes the break and is not a column (TOOL-3).
+      const endCol = lineEnd - lineStart - (text[lineEnd - 1] === "\r" ? 1 : 0);
       if (/^#\s*include\b/i.test(lineText)) {
         const named = /^#\s*include\s+"([^"\r]*)"/i.exec(lineText);
         if (named === null) {
-          lexical('`#include` needs a quoted file name, as in `#include "file.prg"` (MOD-1)', line);
+          lexical(
+            '`#include` needs a quoted file name, as in `#include "file.prg"` (MOD-1)',
+            pos(line, index - lineStart + 1, endCol),
+          );
         }
-        includes.push({ path: named[1]!, line, implicit: false });
+        includes.push({
+          path: named[1]!,
+          line,
+          implicit: false,
+          col: index - lineStart + 1,
+          endCol,
+        });
       }
       index = lineEnd;
       continue;
@@ -262,12 +304,13 @@ function run(text: string): Token[] {
         cursor++;
       }
       if (cursor >= length || text[cursor] !== '"') {
+        const last = (cursor < length ? cursor : length) - lineStart;
         lexical(
           "unterminated string; a string is single-line and ends with `\"` (docs/spec/engine/rpgcode-functions.md#rpgcode-built-in-commands LEX-8)",
-          line,
+          pos(line, index - lineStart + 1, Math.max(last, index - lineStart + 1)),
         );
       }
-      tokens.push({ kind: "string", value, line });
+      tokens.push({ kind: "string", value, line, col: index - lineStart + 1, endCol: cursor + 1 - lineStart });
       index = cursor + 1;
       firstNonBlankOnLine = false;
       continue;
@@ -301,9 +344,12 @@ function run(text: string): Token[] {
           const literal = text.slice(start, cursor);
           const value = Number(literal);
           if (!Number.isFinite(value)) {
-            lexical(`the number literal \`${literal}\` is not finite (docs/spec/engine/rpgcode-functions.md#rpgcode-built-in-commands)`, line);
+            lexical(
+              `the number literal \`${literal}\` is not finite (docs/spec/engine/rpgcode-functions.md#rpgcode-built-in-commands)`,
+              pos(line, start - lineStart + 1, cursor - lineStart),
+            );
           }
-          tokens.push({ kind: "number", value, line });
+          tokens.push({ kind: "number", value, line, col: start - lineStart + 1, endCol: cursor - lineStart });
           index = cursor;
           firstNonBlankOnLine = false;
           continue;
@@ -326,11 +372,11 @@ function run(text: string): Token[] {
       const name = foldAscii(text.slice(start, nameEnd));
 
       if (name === "true" || name === "false") {
-        tokens.push({ kind: "number", value: name === "true" ? 1 : 0, line });
+        tokens.push({ kind: "number", value: name === "true" ? 1 : 0, line, col: start - lineStart + 1, endCol: end - lineStart });
       } else if (name === "null") {
-        tokens.push({ kind: "number", value: 0, line });
+        tokens.push({ kind: "number", value: 0, line, col: start - lineStart + 1, endCol: end - lineStart });
       } else if (name === "and" || name === "or") {
-        tokens.push({ kind: "op", text: name, line });
+        tokens.push({ kind: "op", text: name, line, col: start - lineStart + 1, endCol: end - lineStart });
       } else if (name === "_" && restIsBlank(text, end, length)) {
         // Line continuation: consume to newline, increment line, do not emit end
         let scan = end;
@@ -338,13 +384,14 @@ function run(text: string): Token[] {
         if (scan < length && text[scan] === "\n") {
           scan++;
           line++;
+          lineStart = scan;
         }
         index = scan;
         firstNonBlankOnLine = false; // continued line is not start of line (so * is multiply)
         continue;
       } else {
-        rejectKeyword(name, line, allowObjects);
-        tokens.push({ kind: "identifier", name, line });
+        rejectKeyword(name, pos(line, start - lineStart + 1, end - lineStart), allowObjects);
+        tokens.push({ kind: "identifier", name, line, col: start - lineStart + 1, endCol: end - lineStart });
       }
 
       index = end;
@@ -355,7 +402,7 @@ function run(text: string): Token[] {
     // Check operators / punctuation
     const sub3 = text.slice(index, index + 3);
     if (THREE_CHAR_OPS.includes(sub3)) {
-      tokens.push({ kind: "op", text: sub3, line });
+      tokens.push({ kind: "op", text: sub3, line, col: index - lineStart + 1, endCol: index + 3 - lineStart });
       index += 3;
       firstNonBlankOnLine = false;
       continue;
@@ -368,18 +415,18 @@ function run(text: string): Token[] {
           unsupported(
             sub2 === "->" ? "the `->` member access operator" : "the `::` class scope operator",
             "entry 6",
-            line,
+            pos(line, index - lineStart + 1, index + 2 - lineStart),
           );
         }
       }
-      tokens.push({ kind: "op", text: sub2, line });
+      tokens.push({ kind: "op", text: sub2, line, col: index - lineStart + 1, endCol: index + 2 - lineStart });
       index += 2;
       firstNonBlankOnLine = false;
       continue;
     }
 
     if (SINGLE_CHAR_OPS.includes(ch)) {
-      tokens.push({ kind: "op", text: ch, line });
+      tokens.push({ kind: "op", text: ch, line, col: index - lineStart + 1, endCol: index + 1 - lineStart });
       index += 1;
       firstNonBlankOnLine = false;
       continue;
@@ -387,21 +434,22 @@ function run(text: string): Token[] {
 
     // `.` joins a file name to a function (MOD-2) or spells object access (OOP-3).
     if (ch === ".") {
-      tokens.push({ kind: "op", text: ".", line });
+      tokens.push({ kind: "op", text: ".", line, col: index - lineStart + 1, endCol: index + 1 - lineStart });
       index += 1;
       firstNonBlankOnLine = false;
       continue;
     }
     if (ch === "@") {
-      unsupported("the Toolkit 2.x `@` line", "entry 15", line);
+      unsupported("the Toolkit 2.x `@` line", "entry 15", pos(line, index - lineStart + 1, index - lineStart + 1));
     }
 
     lexical(
       `unknown character ${JSON.stringify(ch)}; docs/spec/engine/rpgcode-functions.md#rpgcode-built-in-commands (LEX-11) makes this a lexical error`,
-      line,
+      pos(line, index - lineStart + 1, index - lineStart + 1),
     );
   }
 
-  tokens.push({ kind: "eof", line });
+  const eofColumn = index - lineStart + 1;
+  tokens.push({ kind: "eof", line, col: eofColumn, endCol: eofColumn });
   return tokens;
 }
