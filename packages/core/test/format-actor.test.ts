@@ -479,7 +479,8 @@ test("item: custom stances follow the movement strings at minor 4 and idle+speed
 
 test("an enemy's two critical fields keep their own values, so a consistent swap fails", () => {
   // Round-tripping a swapped reader/writer pair cannot see the swap; distinct values can.
-  const enemy = unwrap(readEnemy(new BinaryReader(buildEnemy({ criticalOn: 4, criticalBy: 10 }))));
+  // The builder writes 4 then 10 at the two critical fields.
+  const enemy = unwrap(readEnemy(new BinaryReader(buildEnemy())));
   equal(enemy.criticalOn, 4, "criticalOn is the first critical field");
   equal(enemy.criticalBy, 10, "criticalBy is the second");
   const swapped = unwrap(readEnemy(new BinaryReader(unwrap(writeEnemy({ ...enemy, criticalOn: 10, criticalBy: 4 })))));
@@ -942,12 +943,14 @@ test(
     equal(item.vectorBases?.length, 2);
 
     // The two samples the layout test used to skip still pin their own round-trip.
-    for (const [suffix, read] of [[join("Basic", "Chrs", "start.tem"), readCharacter], [join("demo", "Item", "oldman.itm"), readItem]] as const) {
-      const path = sample(suffix);
-      const bytes = new Uint8Array(readFileSync(path));
-      const reader = new BinaryReader(bytes, path);
-      checkActor(path, bytes, reader, read(reader), suffix.endsWith(".tem") ? writeCharacter : writeItem);
-    }
+    const basicTem = sample(join("Basic", "Chrs", "start.tem"));
+    const basicBytes = new Uint8Array(readFileSync(basicTem));
+    const basicReader = new BinaryReader(basicBytes, basicTem);
+    checkActor(basicTem, basicBytes, basicReader, readCharacter(basicReader), writeCharacter);
+    const oldmanItm = sample(join("demo", "Item", "oldman.itm"));
+    const oldmanBytes = new Uint8Array(readFileSync(oldmanItm));
+    const oldmanReader = new BinaryReader(oldmanBytes, oldmanItm);
+    checkActor(oldmanItm, oldmanBytes, oldmanReader, readItem(oldmanReader), writeItem);
 
     const pirateEne = sample(join("demo", "Enemy", "pirate.ene"));
     const pirateBytes = new Uint8Array(readFileSync(pirateEne));
