@@ -1,14 +1,8 @@
 ---
-title: 'Prove the scanner, Wasm and CodeGraph integration routes'
-type: 'spike'
+title: "Prove the scanner, Wasm and CodeGraph integration routes"
 ticket: 2
-created: '2026-10-30'
-status: 'built'
-baseline_revision: '2ea1768e5081ab3ce80e2f5f55f9d7c4bd54c4c3'
-risk: 'high'
-context: []
+status: done
 ---
-
 ## Intent
 
 Entry 22.2 answers one question before any grammar work starts: can an independently authored tree-sitter grammar
@@ -62,3 +56,9 @@ Executed on the baseline revision, macOS arm64:
 
 None. This entry records evidence and a proposal for review; it changes no `docs/spec` text, asserts no owner
 approval and does not mark ADR 0011 accepted.
+
+## Merged
+
+PR #841 merged by squash as `5f076e708bdf833dcba4d684305eb8665c210134` (in `origin/main`); the evidence record is at
+`discovery/scanner-wasm-codegraph-routes.md`. The issue is closed by this metadata change because its deliverable is
+that record; blocker B-01 and its three options remain open for entry 22.10 and do not hold 22.3 onward.
