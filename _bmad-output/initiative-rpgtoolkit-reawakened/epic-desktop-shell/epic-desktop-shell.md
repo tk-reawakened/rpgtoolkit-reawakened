@@ -47,7 +47,7 @@ which epic web-runner-packaging rules in 9.1 and 9.10, and not the runner's side
 - Audit (2026-10-31): this envelope has no `tickets.toml` breakdown, so it has no `tracker_id` and no GitHub parent issue, contrary to the initiative's mirror rule. Recorded, not fixed: a parent issue needs a real breakdown, and inventing entries to satisfy the rule was rejected. Filed as issue #882; `epic-editor-foundation` is the one to break down first because Epic 22's 22.9 waits on its seams. See `DISCOVERY-envelope-audit.md`.
 
 
-- Decision: ADR 0001 defers the shell choice to a spike; the choice is reversible through platform-services.
+- Decision: ADR 0001 defers the shell choice to a spike; the choice is reversible through platform-services. (Superseded 2026-10-31 by the decision below: the shell is ruled, not spiked.)
 - Decision: epic set approved by the user, 2026-10-10.
 - Decision (2026-10-31): the shell is ruled elsewhere. Epic web-runner-packaging's 9.1 records the owner's ruling that
   the harness is separate from the game bundle, that there are at most two shells, and that the one desktop shell is
