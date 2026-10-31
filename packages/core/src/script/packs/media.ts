@@ -9,25 +9,18 @@ import { assetKey } from "../../formats/resolver/resolver.ts";
 import { MEDIA_HOST_TYPES, type MediaPlayOptions } from "../../audio/script.ts";
 import type { MediaVoiceRef } from "../../audio/model.ts";
 import {
-  MEDIA_LOOP,
-  MEDIA_ONCE,
-  MEDIA_RESTART,
   MEDIA_TRACK_NAME,
-  MEDIA_WAIT,
   asciiFold,
   findTrack,
   voicePass,
-  voicePosition,
   type AudioStateV2,
   type AudioTrackState,
   type AudioVoiceState,
 } from "../../audio/model.ts";
 import { secondsToTicks } from "../../time/time.ts";
-import type { NamedWait } from "../../ports/wait.ts";
 import type { Arg, BuiltinDoc, BuiltinSpec } from "../builtins.ts";
 import { ScriptError } from "../errors.ts";
 import type { CommandEffect, CommandView, PluginDefinition } from "../plugin.ts";
-import { truthy } from "../values.ts";
 
 /** A read-only structural view reused by media query commands. */
 export type AudioReadView = Readonly<AudioStateV2>;
@@ -105,46 +98,6 @@ function video(name: "playavi" | "playavismall", presentation: "full" | "small")
       };
     },
   };
-}
-
-function waitPayload(track: AudioTrackState, voice: AudioVoiceState, tick: number, pass: boolean): Record<string, string | number | boolean | null> {
-  return {
-    track: track.name,
-    voice: voice.index,
-    cueId: voice.cueId,
-    endTick: voice.endTick,
-    pass,
-    passIndex: pass ? voicePass(voice, tick) : null,
-  };
-}
-
-function audioWait(view: CommandView, trackName: string, voiceIndex: number, id: string): NamedWait | undefined {
-  const audio = readAudioView(view);
-  if (audio === undefined) return undefined;
-  const track = findTrack(audio, trackName);
-  if (track === undefined) throw new ScriptError("media.unknown-track", `${id}: unknown track "${trackName}"`);
-  if (!Number.isInteger(voiceIndex) || voiceIndex < 0 || voiceIndex >= track.voiceCount) {
-    throw new ScriptError("media.unknown-voice", `${id}: unknown voice ${voiceIndex} on track "${track.name}"`);
-  }
-  const voice = track.voices.find((item) => item.index === voiceIndex);
-  if (voice === undefined) return undefined;
-  if (voice.lengthTicks === null) throw new ScriptError("media.asset-length", `${id}: the track has no known length`);
-  const pass = voice.loop;
-  return {
-    kind: "audio.track",
-    global: false,
-    id: "mediaWait",
-    payload: [waitPayload(track, voice, view.clock.tick(), pass)],
-    resumeRefs: [],
-  };
-}
-
-function playWait(view: CommandView, trackName: string, voice: number | undefined, flags: number): NamedWait | undefined {
-  if ((flags & MEDIA_LOOP) !== 0 && (flags & MEDIA_WAIT) !== 0) {
-    throw new ScriptError("media.wait-loop", "mediaPlay: a looping play cannot also wait for its end");
-  }
-  if ((flags & MEDIA_WAIT) === 0) return undefined;
-  return audioWait(view, trackName, voice ?? 0, "mediaPlay");
 }
 
 function effect(name: string, args: readonly (string | number | boolean | null)[]): CommandEffect {
@@ -368,20 +321,19 @@ function mediaTrackFade(): BuiltinSpec {
   };
 }
 
-function mediaTransport(name: string): BuiltinSpec {
+function mediaStop(): BuiltinSpec {
   return {
-    name,
+    name: "mediastop",
     aliases: [],
     params: [
       { name: "track", optional: true, byRef: false, variadic: false },
       { name: "voice", optional: true, byRef: false, variadic: false },
     ],
-    doc: doc(name === "mediastop" ? "Stop a track or voice." : name === "mediapause" ? "Pause a track or voice." : "Resume a paused track or voice.", `Posts the deterministic ${name} audio effect for the selected track and voice; the command is immediate and never waits.`),
+    doc: doc("Stop a track or voice.", "Posts the deterministic media.stop audio effect for the selected track and voice; the command is immediate and never waits."),
     call: (_view, args) => {
-      const track = asciiFold(optionalTrack(args, 0, "music", name));
-      const voice = optionalVoice(args, 1, name);
-      const effectName = name === "mediastop" ? "media.stop" : name === "mediapause" ? "media.pause" : "media.resume";
-      return { value: null, effects: [effect(effectName, [track, voice ?? null])] };
+      const track = asciiFold(optionalTrack(args, 0, "music", "mediastop"));
+      const voice = optionalVoice(args, 1, "mediastop");
+      return { value: null, effects: [effect("media.stop", [track, voice ?? null])] };
     },
   };
 }
@@ -395,7 +347,7 @@ function legacyDoc(summary: string, behaviour: string, waits?: BuiltinDoc["waits
   };
 }
 const MEDIA_PLAY = mediaPlay();
-const MEDIA_STOP = mediaTransport("mediastop");
+const MEDIA_STOP = mediaStop();
 
 
 /** A Toolkit 3.1 alias keeps its void result and playback mapping. */

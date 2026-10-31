@@ -245,12 +245,10 @@ function selectorValue(value: unknown): AudioVoiceSelector | undefined | null {
 
 /** Script effects retain their command name; args already use the owner's canonical layout. */
 const SCRIPT_AUDIO_OPERATIONS: Readonly<Record<string, string>> = {
-  mediatrack: "media.track", mediaload: "media.load", mediaplay: "media.play",
+  mediaplay: "media.play",
   midiplay: "media.play", playmidi: "media.play", wav: "media.play", mp3: "media.play", mp3pause: "media.play",
   mediastop: "media.stop", mediarest: "media.stop", midirest: "media.stop", wavstop: "media.stop",
-  mediapause: "media.pause", mediaresume: "media.resume", mediaseek: "media.seek",
-  medialoop: "media.loop", mediafade: "media.fade", mediavolume: "media.volume", setvolume: "media.volume",
-  soundfont: "soundfont.set", soundfontreset: "soundfont.set",
+  setvolume: "media.volume",
 };
 
 function syncEffectArgs(host: AudioHost, effect: EffectRecord, args: EffectRecord["args"]): void {
