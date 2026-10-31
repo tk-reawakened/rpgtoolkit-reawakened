@@ -1,7 +1,7 @@
 ---
 title: "RPGCode index: symbols, includes, call sites and event listeners as one versioned JSON schema"
 ticket: 4
-status: in-progress
+status: done
 ---
 
 ## Intent
@@ -39,3 +39,13 @@ Entry 10.4 is the one symbol, reference and include index the language server (1
 ## Out of scope
 
 No LSP transport (10.1/10.5), no lint rules (10.6), no formatter (10.7), no CLI wiring (10.9). The index builder takes compiled inputs and returns a value; it reads no file itself.
+
+## Landing
+
+Merged as **`7fabea38b94de590f93e069531dae742a7e12200`** — "feat(10.4): the RPGCode symbol and reference index (#941)" (PR [#975](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/975), squash). Issue #941 closed as completed.
+
+Two commits: the docs-first rulings (TOOL-6 identity, site shape, field table, broken-program rule, schema) and the code (`Program.units` + `buildIndex` + tests).
+
+Gates at the code head: `typecheck`, `lint`, `graph` and `graph:test` exit 0; `test:strict` 2500/2500 pass, 0 skipped; `golden` and `golden:bun` exit 0 with closing 8/8; `closing` 8/8; `licence`, `provenance`, `catalogue:check`, `command-docs:check` and `fixtures:author:check` pass. CI run 41246682579 green on every check, including the `unit (script-tools)` shard (21 tests) and the coverage `gate`.
+
+No golden, state hash or snapshot moved; the only compiler change is the additive `Program.units` field.
