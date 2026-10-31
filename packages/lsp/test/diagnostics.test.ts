@@ -47,6 +47,7 @@ function pair(): Pair {
     onCompletion: () => disposable,
     onDefinition: () => disposable,
     onDocumentSymbol: () => disposable,
+    onCodeAction: () => disposable,
     sendDiagnostics: (params) => published.push(params),
   };
   return {

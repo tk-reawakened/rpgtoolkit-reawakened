@@ -17,6 +17,8 @@ import {
 } from "@tk-reawakened/core";
 import { buildIndex, projectHelp } from "@tk-reawakened/script-tools";
 import type {
+  CodeAction,
+  CodeActionParams,
   CompletionItem,
   CompletionParams,
   Diagnostic,
@@ -44,6 +46,7 @@ type Pair = {
   completion(uri: string, line: number, character: number): CompletionItem[];
   definition(uri: string, line: number, character: number): Location[];
   symbols(uri: string): DocumentSymbol[];
+  codeActions(uri: string): CodeAction[];
 };
 
 function pair(): Pair {
@@ -53,6 +56,7 @@ function pair(): Pair {
   let completionHandler: (params: CompletionParams) => CompletionItem[] = () => [];
   let definitionHandler: (params: HoverParams) => Location[] = () => [];
   let symbolHandler: (params: DocumentSymbolParams) => DocumentSymbol[] = () => [];
+  let codeActionHandler: (params: CodeActionParams) => CodeAction[] = () => [];
   const absent = { dispose: () => {} };
   const connection: ServerConnection = {
     onInitialize: () => absent,
@@ -77,6 +81,10 @@ function pair(): Pair {
       symbolHandler = handler;
       return absent;
     },
+    onCodeAction: (handler) => {
+      codeActionHandler = handler;
+      return absent;
+    },
     sendDiagnostics: (params) => published.push(params.diagnostics),
   };
   return {
@@ -87,6 +95,7 @@ function pair(): Pair {
     completion: (uri, line, character) => completionHandler({ textDocument: { uri }, position: { line, character } }),
     definition: (uri, line, character) => definitionHandler({ textDocument: { uri }, position: { line, character } }),
     symbols: (uri) => symbolHandler({ textDocument: { uri } }),
+    codeActions: (uri) => codeActionHandler({ textDocument: { uri }, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, context: { diagnostics: [] } }),
   };
 }
 
@@ -189,4 +198,32 @@ test("the outline is the index's functions, classes and labels", () => {
   const box = symbols.find((symbol) => symbol.name === "box");
   ok(box);
   deepEqual(box.children?.map((child: DocumentSymbol) => child.name), ["n", "box.m"]);
+});
+
+test("one code action per legacy form, each an edit that re-parses", () => {
+  const text = ["#Mwin(Hello there)", "#ReturnMethod(1 + 2)", "#Dos", "x! = 1"].join("\n") + "\n";
+  const started = server({ "main.prg": text });
+  started.open("file:///main.prg", text);
+  const actions = started.codeActions("file:///main.prg");
+  deepEqual(
+    actions.map((action) => action.kind),
+    ["quickfix", "quickfix", "quickfix", "quickfix"],
+  );
+  const titles = actions.map((action) => action.title);
+  ok(titles.some((title) => title.includes("#Mwin")));
+  ok(titles.some((title) => title.includes("#ReturnMethod")));
+  ok(titles.some((title) => title.includes("#Dos")));
+  ok(titles.some((title) => title.includes("sigil")));
+  for (const action of actions) {
+    const edits = action.edit?.changes?.["file:///main.prg"] ?? [];
+    ok(edits.length > 0);
+    for (const item of edits) equal(typeof item.newText, "string");
+  }
+});
+
+test("a row whose rewrite would change behaviour gets no code action", () => {
+  const text = "if (x = 5) {\n  y = 1\n}\nm[key] = 1\nHello there\n";
+  const started = server({ "main.prg": text });
+  started.open("file:///main/prg", text);
+  deepEqual(started.codeActions("file:///main.prg"), []);
 });

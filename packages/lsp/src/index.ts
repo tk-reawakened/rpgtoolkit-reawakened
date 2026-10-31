@@ -29,6 +29,7 @@ import {
 import {
   analyse,
   buildIndex,
+  legacyFixes,
   projectHelp,
   type Diagnostic as AnalysisDiagnostic,
   type HelpEntry,
@@ -42,6 +43,8 @@ import {
   CompletionItemKind,
   DiagnosticSeverity,
   SymbolKind,
+  type CodeAction,
+  type CodeActionParams,
   type CompletionItem,
   type CompletionParams,
   type DidChangeTextDocumentParams,
@@ -97,6 +100,7 @@ export type ServerConnection = {
   onCompletion(handler: (params: CompletionParams) => CompletionItem[]): Disposable;
   onDefinition(handler: (params: TextDocumentPositionParams) => Location[]): Disposable;
   onDocumentSymbol(handler: (params: DocumentSymbolParams) => DocumentSymbol[]): Disposable;
+  onCodeAction(handler: (params: CodeActionParams) => CodeAction[]): Disposable;
   sendDiagnostics(params: PublishDiagnosticsParams): void;
 };
 
@@ -181,6 +185,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
       completionProvider: { triggerCharacters: ["(", ":"] },
       definitionProvider: true,
       documentSymbolProvider: true,
+      codeActionProvider: true,
     },
   }));
 
@@ -267,6 +272,27 @@ export function createServer(connection: ServerConnection, options: ServerOption
       return target === null ? [] : [target];
     }
     return [];
+  });
+
+  connection.onCodeAction((params) => {
+    const document = documents.get(params.textDocument.uri);
+    if (document === undefined) return [];
+    return legacyFixes(document.getText()).map((fix) => ({
+      title: fix.title,
+      kind: "quickfix",
+      diagnostics: params.context.diagnostics,
+      edit: {
+        changes: {
+          [document.uri]: fix.edits.map((item) => ({
+            range: {
+              start: { line: item.range.start.line - 1, character: item.range.start.column - 1 },
+              end: { line: item.range.end.line - 1, character: item.range.end.column },
+            },
+            newText: item.newText,
+          })),
+        },
+      },
+    }));
   });
 
   connection.onDocumentSymbol((params) => {

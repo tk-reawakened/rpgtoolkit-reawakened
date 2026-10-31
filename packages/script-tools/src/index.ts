@@ -10,6 +10,8 @@
 
 export { analyse } from "./analyse.ts";
 export type { Analysis, AnalyseOptions } from "./analyse.ts";
+export { applyEdits, DIAGNOSTIC_ONLY_ROWS, legacyFixes, sameLowering } from "./fixes.ts";
+export type { LegacyFix } from "./fixes.ts";
 export { rangeOf, sliceRange } from "./diagnostics.ts";
 export type { Diagnostic, Position, Range, Severity, TextEdit } from "./diagnostics.ts";
 export { helpFor, projectHelp } from "./help.ts";
