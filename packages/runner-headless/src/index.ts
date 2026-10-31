@@ -50,9 +50,9 @@ function runGolden(argv: string[]): number {
     const run = readFileOrUndefined(join(root, "golden/test-double/run.json"));
     const golden = readFileOrUndefined(join(root, "golden/test-double/golden.json"));
     const scriptsGolden =
-      readFileOrUndefined(join(root, "golden/scripts/golden.json")) ?? (record ? "" : undefined);
-    const ledgerText = readFileOrUndefined(join(root, "golden/ledger.json"));
-    const sceneGoldens = ledgerText === undefined ? undefined : readdirSync(join(root, "golden/scenes")).filter((name) => name.endsWith(".json")).sort().map((name) => {
+      readFileOrUndefined(join(root, "golden/scripts/golden.json")) ?? (record ? undefined : "");
+    const ledgerText = readFileOrUndefined(join(root, "golden/ledger.json")) ?? (record ? undefined : "");
+    const sceneGoldens = ledgerText === undefined ? undefined : ledgerText === "" ? [] : readdirSync(join(root, "golden/scenes")).filter((name) => name.endsWith(".json")).sort().map((name) => {
       const sceneText = readFileSync(join(root, "golden/scenes", name), "utf8");
       const scene = JSON.parse(sceneText) as { readonly boardFiles: readonly string[]; readonly name: string };
       const ledger = JSON.parse(ledgerText) as { readonly goldens: readonly { readonly scene: string; readonly path: string }[] };
@@ -68,7 +68,9 @@ function runGolden(argv: string[]): number {
     const closingPlanText = readFileOrUndefined(join(root, "golden/closing/plan.json"));
     const audioGolden = readFileOrUndefined(join(root, "golden/audio/cues.json")) ?? (record ? "" : undefined);
     let audioRuns: AudioGoldenRuns | undefined;
-    if (closingPlanText !== undefined && audioGolden !== undefined) {
+    // Build the runs whenever the corpus and its plan exist, so a missing baseline is detected below rather than
+    // silently removing the audio stage from the job.
+    if (closingPlanText !== undefined) {
       const closingPlan = parseClosingPlan(closingPlanText);
       const bundled = new Map<string, Uint8Array>();
       for (const folder of closingPlan.bundled) for (const [path, bytes] of loadGameFiles(join(root, folder))) bundled.set(`${folder}/${path}`, bytes);
@@ -76,6 +78,12 @@ function runGolden(argv: string[]): number {
       if (existsSync(fetchedRoot)) {
         audioRuns = runAudioGoldens(closingPlan, (name) => loadGameFiles(join(fetchedRoot, name)), bundled);
       }
+    }
+    // The corpus and its closing plan exist (CI fetches the fixtures): a missing cue baseline is then a failure,
+    // not a silently dropped stage. Without the fixtures the local flow is `fixtures:fetch` first, so it stays out.
+    if (!record && audioRuns !== undefined && audioGolden === undefined) {
+      console.error("golden: error: golden/audio/cues.json is absent");
+      return 1;
     }
     const result = goldenJob({
       vectors,

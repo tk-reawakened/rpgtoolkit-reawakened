@@ -99,6 +99,9 @@ export function goldenJob(
     }
 
     // Stage 6: replay every ledger scene through the real engine.
+    if (texts.sceneGoldens !== undefined && texts.sceneGoldens.length === 0) {
+      throw new Error("golden/ledger.json is absent");
+    }
     if (texts.sceneGoldens !== undefined) {
       const scenes = checkSceneGoldens(texts.sceneGoldens, texts.sceneGoldens[0]?.ledgerText ?? "");
       if (!scenes.ok) throw new Error(scenes.lines[scenes.lines.length - 1] ?? "scene-golden failed");
@@ -117,7 +120,7 @@ export function goldenJob(
         formattedAudioGolden = formatAudioGolden(texts.audioRuns, texts.audioSynthetic);
         lines.push(`audio-golden: ${texts.audioRuns.length} games and synthetic battle recorded`);
       } else {
-        if (texts.audioGolden === undefined) throw new Error("golden/audio/cues.json is absent");
+        if (!texts.audioGolden) throw new Error("golden/audio/cues.json is absent");
         const audio = checkAudioGoldens(texts.audioRuns, texts.audioSynthetic, texts.audioGolden);
         if (!audio.ok) throw new Error(audio.lines[audio.lines.length - 1] ?? "audio golden failed");
         lines.push(...audio.lines.map((line) => `audio-golden: ${line}`));
