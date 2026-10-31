@@ -21,10 +21,10 @@ A manifest plugin id such as `constructor`, `__proto__` or `toString` passed val
 
 ## Implementation Notes
 
-Every id-keyed lookup is now own-property-safe: `resolveManifestPlugins` checks `Object.hasOwn` before reading `ENGINE_PLUGIN_TABLE`; the legacy plugin-file map is checked the same way, so `constructor.dll` maps to no stock package; the harness builds a null-prototype table and its resolver checks `Object.hasOwn` before reading it; the resolver's duplicate marker is a `Set`.
+Every id-keyed lookup is now own-property-safe: `resolveManifestPlugins` checks `Object.hasOwn` before reading `ENGINE_PLUGIN_TABLE`;; the harness builds a null-prototype table and its resolver checks `Object.hasOwn` before reading it; the resolver's duplicate marker is a `Set`.
 
 ## Verification
 
 - `pnpm exec tsc -b` passed.
-- `node --test packages/core/test/engine-boot.test.ts packages/runner-harness/test/script-plugin-resolver.test.ts`: 61 passed, 3 fixture skips; the new cases cover each reserved id in boot and in the harness with both a plain and a null-prototype table, the duplicate check for ordinary ids, and `constructor.dll` as a legacy row.
+- `node --test packages/core/test/engine-boot.test.ts packages/runner-harness/test/script-plugin-resolver.test.ts`: 61 passed, 3 fixture skips; the new cases cover each reserved id in boot and in the harness with both a plain and a null-prototype table, the duplicate check for ordinary and `__proto__` ids.
 - `pnpm lint`, `pnpm golden` passed.

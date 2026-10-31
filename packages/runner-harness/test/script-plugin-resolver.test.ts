@@ -83,12 +83,20 @@ test("a reserved id is unresolved in the harness, and inherited members are neve
   }
 });
 
-test("a reserved id never breaks the duplicate check for ordinary ids", () => {
+test("a reserved id never breaks the duplicate check, including __proto__, whose duplicate only a Set can see", () => {
   const result = resolvePluginManifest([{ id: "constructor" }, { id: "constructor" }, { id: "core" }, { id: "core" }], { core: CORE });
   equal(result.plugins.length, 1);
   deepEqual(result.diagnostics.map((item) => [item.code, item.index]), [
     ["plugin.unresolved", 0],
     ["manifest.duplicate-id", 1],
     ["manifest.duplicate-id", 3],
+  ]);
+  // On a plain object `seen["__proto__"] = true` hits the inherited setter and records nothing,
+  // so a duplicate `__proto__` entry was never flagged; a Set does flag it.
+  const proto = resolvePluginManifest([{ id: "__proto__" }, { id: "__proto__" }], { core: CORE });
+  equal(proto.plugins.length, 0);
+  deepEqual(proto.diagnostics.map((item) => [item.code, item.index]), [
+    ["plugin.unresolved", 0],
+    ["manifest.duplicate-id", 1],
   ]);
 });

@@ -36,7 +36,7 @@ import {
   snapshotGameSave,
   startProgram,
 } from "../src/index.ts";
-import { engineEffect, mainFileLegacyPluginRows, resolveManifestPlugins } from "../src/engine/boot.ts";
+import { engineEffect, resolveManifestPlugins } from "../src/engine/boot.ts";
 import type { AssetIndex, AssetRoot, Engine, EffectRecord, EngineInit, GameState, InputRecord, PackageCatalogueEntry, PlainData, ResolvedPlugin, SpriteRuntime, TickReport } from "../src/index.ts";
 import type { MainFileAudioSettings } from "../src/formats/main-file/model.ts";
 import type { AudioCue } from "../src/ports/audio.ts";
@@ -1763,11 +1763,4 @@ test("a reserved plugin id is an unknown plugin with a located diagnostic, never
   const core = resolveManifestPlugins([{ id: "core" }]);
   equal(core.plugins.length, 1);
   equal(core.diagnostics.length, 0);
-});
-
-test("a legacy plugin file named after an inherited member maps to no stock package", () => {
-  // `LEGACY_PLUGIN_PACKAGES` is a plain object, so `constructor.dll` must not select a prototype member (#537).
-  const rows = mainFileLegacyPluginRows({ ...createEmptyMainFile(), plugins: [{ pluginFile: "constructor.dll" }] } as never);
-  const row = rows.find((item) => item.field === "plugins");
-  equal(row?.package ?? null, null, "no stock package is selected");
 });

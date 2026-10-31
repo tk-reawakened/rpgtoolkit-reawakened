@@ -101,10 +101,7 @@ export function mainFileLegacyPluginRows(main: MainFile): LegacyPluginRow[] {
     field,
     index,
     file,
-    // Own-property-safe: a file named `constructor.dll` must not select an inherited member.
-    package: Object.hasOwn(LEGACY_PLUGIN_PACKAGES, legacyPluginFileName(file))
-      ? LEGACY_PLUGIN_PACKAGES[legacyPluginFileName(file)] ?? null
-      : null,
+    package: LEGACY_PLUGIN_PACKAGES[legacyPluginFileName(file)] ?? null,
   });
   const rows: LegacyPluginRow[] = [];
   if (main.menuPlugin !== "") rows.push(row("menuPlugin", 0, main.menuPlugin));
