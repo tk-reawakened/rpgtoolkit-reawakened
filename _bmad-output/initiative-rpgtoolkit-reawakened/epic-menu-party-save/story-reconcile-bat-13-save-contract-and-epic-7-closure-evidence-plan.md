@@ -3,7 +3,7 @@ title: 'Reconcile BAT-13 save contract and Epic 7 closure evidence'
 type: 'feature'
 ticket: 21
 created: '2026-10-30'
-status: 'built'
+status: done
 baseline_revision: 'cc173f35a884d5705491999f7679c58823ba474a'
 route: 'oneshot'
 route_source: 'auto'
