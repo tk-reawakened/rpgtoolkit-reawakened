@@ -2,7 +2,7 @@
 type: epic
 id: 24
 tracker_id: "#727"
-remote: https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/727
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/727"
 title: "Headless sessions: screenshots, short videos, start state and mocks"
 parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-12", "CAP-13"]
