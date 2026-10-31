@@ -27,6 +27,7 @@ import type {
   AssetKey,
   AudioCue,
   DecodedTexture,
+  DrawList,
   DrawListInclude,
   EffectRecord,
   Engine,
@@ -212,9 +213,11 @@ function createBootDoubles(options: ClosingRunOptions = {}) {
   };
 }
 
-type Capture = { readonly frame: ClosingFrameRecord; readonly image: DecodedTexture };
+type Capture = { readonly frame: ClosingFrameRecord; readonly image: DecodedTexture; readonly drawList: DrawList };
 type Trace = {
   readonly census?: ExecutionCensus;
+  /** The engine's pixel accessor, so a host that draws the frames can pull a persistent surface (AD-27). */
+  readonly surfacePixels: (id: SurfaceId, rev: number) => DecodedTexture | null;
   readonly ticks: number;
   readonly stalled: boolean;
   readonly bootStage: string | null;
@@ -240,6 +243,7 @@ function capture(engine: Engine, label: string, tick: number, stateHash: string)
   const image = readScreen(engine);
   return {
     image,
+    drawList: list,
     frame: { label, tick, stateHash, drawHash: hashDrawList(list), pixelHash: fnv1a64(image.rgba), commands: list.commands.length, width: image.w, height: image.h },
   };
 }
@@ -335,6 +339,7 @@ function runOnce(plan: ClosingPlan, files: ClosingFiles, bundled: ClosingFiles, 
   const state = doubles.observed();
   return {
     ...(census === undefined ? {} : { census: census.result() }),
+    surfacePixels: (id: SurfaceId, rev: number) => engine.surfacePixels(id, rev),
     ticks: tick,
     stalled,
     bootStage: state?.engine.boot?.stage ?? (stalled ? "stopped" : null),
@@ -390,6 +395,45 @@ function traceDifferences(batch: number, reference: Trace, other: Trace): string
     if (found === undefined || found.drawHash !== frame.frame.drawHash || found.pixelHash !== frame.frame.pixelHash) problems.push(`${tag}: frame ${frame.frame.label} draw/pixel hash is ${found?.drawHash ?? "missing"}/${found?.pixelHash ?? "missing"}, reference ${frame.frame.drawHash}/${frame.frame.pixelHash}`);
   }
   return problems;
+}
+
+/** One captured frame with the draw list that produced it, for a host that draws the frames itself. */
+export type ClosingFrameWithDrawList = ClosingFrameRecord & { readonly drawList: DrawList };
+
+/** What a host needs to draw a closing frame outside the headless runner (the browser lane, 9.3). */
+export type ClosingFrameRun = {
+  readonly ticks: number;
+  readonly stalled: boolean;
+  readonly board: string | null;
+  readonly diagnostics: readonly ClosingDiagnostic[];
+  readonly frames: readonly ClosingFrameWithDrawList[];
+  /** Persistent surfaces as the engine held them after the run (AD-27), for a host drawing a surface blit. */
+  readonly surfacePixels: (id: SurfaceId, rev: number) => DecodedTexture | null;
+};
+
+/**
+ * Boot one game exactly as the closing suite does — same plan, same batching, same asset replies — and return its
+ * captured frames with their draw lists. A host that must present the frames itself reuses this so its hashes are the
+ * baseline's by construction, not by a copy of the boot sequence.
+ */
+export function runClosingFrames(
+  plan: ClosingPlan,
+  game: ClosingGamePlan,
+  files: ClosingFiles,
+  bundled: ClosingFiles,
+  options: ClosingRunOptions = {},
+): ClosingFrameRun {
+  const { all, index, mainKey } = gameFiles(game, files);
+  const gameIdentity = derivePackageIdentity([...all].map(([path, bytes]) => ({ path, bytes })));
+  const trace = runOnce(plan, all, bundled, index, mainKey, gameIdentity, plan.batches[0] ?? 1, options);
+  return {
+    ticks: trace.ticks,
+    stalled: trace.stalled,
+    board: trace.board,
+    diagnostics: trace.diagnostics,
+    surfacePixels: trace.surfacePixels,
+    frames: trace.captures.map((capture) => ({ ...capture.frame, drawList: capture.drawList })),
+  };
 }
 
 /** Run one game for every batch size of the plan and return the reference record with any batching disagreement. */

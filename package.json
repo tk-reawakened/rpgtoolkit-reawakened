@@ -36,6 +36,9 @@
     "no-skips:test": "node --test tools/no-skips/test/no-skips.test.mjs",
     "audio-protocol:check": "node tools/fixtures/audio-protocol/generate.mjs --check",
     "runner-protocol:check": "node tools/fixtures/runner-protocol/generate.mjs --check",
+    "browser:build": "node tools/browser/build.mjs",
+    "browser:serve": "node tools/browser/serve.mjs --port 4173",
+    "browser:test": "node tools/browser/build.mjs && playwright test",
     "oracle:check": "python3 tools/fixtures/reference/render.py --check && node tools/fixtures/author/generate.mjs --check && pnpm run audio-protocol:check && pnpm run runner-protocol:check",
     "golden": "tsc -b && node packages/runner-headless/dist/cli.js golden",
     "golden:record": "tsc -b && node packages/runner-headless/dist/cli.js golden --record",
@@ -50,8 +53,10 @@
     "dump:record:examples": "tsc -b && node packages/runner-headless/dist/cli.js dump --record golden/spec-examples.json docs/spec/examples"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.0",
     "@typescript/native": "npm:typescript@7.0.2",
     "dependency-cruiser": "18.5.0",
+    "esbuild": "0.28.2",
     "eslint": "10.12.0",
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "8.71.1"

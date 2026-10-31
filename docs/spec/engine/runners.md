@@ -72,6 +72,12 @@ vectors and on every gating golden scene:
 - **within one unit per channel** on the arithmetic a GPU may round differently, which is the `translucent` and
   `additive` blend of AD-3's pixel pipeline, with the worst per-channel difference reported per vector.
 
+**What is drawn today.** Entry 9.3 replays the committed raster vectors and the demo frame's geometry — fills and blits,
+with key, tint and the three blends — at the draw list's logical resolution. The **text** commands, the exact 1-pixel
+line and integer-midpoint ellipse, the `.iso` projection and the animated and tile-bitmap textures are entry 9.4's; a
+renderer that cannot draw one of them **MUST** count it as deferred and report a diagnostic, never draw an approximate
+pixel in its place. A frame that reports a deferred command is a partial frame, not a pass.
+
 This bound never widens a PNG golden: `independent-reference` and `regression-baseline` rows stay exact
 ([parity-checklist.md#golden-image-oracle](parity-checklist.md#golden-image-oracle)), and a `legacy-screenshot` row stays
 report-only. A replayer that needs more than one unit on a blend is a defect to fix or a case for a new ADR — not a
@@ -232,7 +238,7 @@ second rendering or input path.
 
 The browser artefacts are bundled with **esbuild 0.28.2** — the bundler AD-22 names for `host-vscode`, MIT licensed.
 Vite **MUST NOT** be installed: it pulls `lightningcss` (MPL-2.0) and would need its own ADR before a first install, and
-nothing here needs HMR. See [ADR 0014](../../adr/0015-web-build-and-test-toolchain.md).
+nothing here needs HMR. See [ADR 0015](../../adr/0015-web-build-and-test-toolchain.md).
 
 The engine worker and the AudioWorklet are **single-file IIFE bundles with no runtime `import()`**. The player page is a
 static HTML file plus one bundle, served in development and in the browser tests by a small static server; no framework
@@ -270,14 +276,15 @@ vector, and `pnpm fixtures:test` fails if the committed kit differs from what th
 The browser lane is **Playwright 1.64.0** (Apache-2.0, Blue Oak Gold), one headless Chromium project, a required `gate`
 dependency that runs `pnpm fixtures:fetch` first and serves the fetched `fixtures/` folder over the local static server.
 Its licence, and why it is a dev-only tool outside the production-tree scan, are recorded in
-[ADR 0014](../../adr/0015-web-build-and-test-toolchain.md). No test reaches the network.
+[ADR 0015](../../adr/0015-web-build-and-test-toolchain.md). No test reaches the network.
 
 <a id="implementation-status"></a>
 ## Implementation status
 
 | Section | Delivered by |
 |---|---|
-| [webgl2-agreement](#webgl2-agreement), [draw-list](#draw-list) | 9.4 |
+| [draw-list](#draw-list), the geometry path of [webgl2-agreement](#webgl2-agreement) | 9.3 |
+| the rest of [webgl2-agreement](#webgl2-agreement): text, the exact line and ellipse, `.iso`, the full vector set and every ledger scene | 9.4 |
 | [audio](#audio) | 9.5, 9.6 |
 | [install](#install), [desktop-shell](#desktop-shell) (player) | 9.10, 9.11 |
 | [load-modes](#load-modes), [prefetch](#prefetch), [offline](#offline) | 9.8, 9.9 |

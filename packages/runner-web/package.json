@@ -1,0 +1,24 @@
+{
+  "name": "@tk-reawakened/runner-web",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./app": "./app/index.html"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@tk-reawakened/core": "workspace:*",
+    "@tk-reawakened/render-webgl2": "workspace:*",
+    "@tk-reawakened/runner-harness": "workspace:*"
+  }
+}

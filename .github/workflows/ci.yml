@@ -126,8 +126,23 @@ jobs:
       # committed output; the `golden` job already covers the Node replay.
       - run: pnpm fixtures:fetch
       - run: pnpm golden:bun
+  # The browser lane (ADR 0015, D-9): one headless Chromium project. Playwright and its browser binaries are dev-only,
+  # never shipped; the lane boots a sample game to the committed tick-120 hashes and replays the raster vectors.
+  browser:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm fixtures:fetch
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm browser:test
   gate:
-    needs: [checks, unit, golden, golden-bun]
+    needs: [checks, unit, golden, golden-bun, browser]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

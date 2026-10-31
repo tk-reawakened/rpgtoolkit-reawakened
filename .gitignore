@@ -51,3 +51,6 @@ __pycache__/
 
 # Local CodeGraph index; the indexed root is packages/ only.
 /packages/.codegraph/
+apps/
+test-results/
+playwright-report/
