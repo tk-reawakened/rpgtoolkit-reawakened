@@ -34,7 +34,11 @@ Anyone can play a legacy game in a browser; the CAP-12 success check, sample gam
 
 - Open question (epic 6 evidence gap, filed as issue #877): a headless-browser SoundFont playback test. `packages/synth/test/render.test.ts` proves the MIDI-through-bank path under Node; the browser limb of epic 6's Done-when 2 has no test, and this repository has no browser runner. The assertion belongs to this epic's browser job (its Done-when 3 already requires a browser replay), so it is carried here until this envelope gets a `tickets.toml`. Adding Playwright for one assertion now was rejected; the licence (Apache-2.0) is acceptable, the scope is not.
 
-- Open question: the desktop runner shell depends on the same Tauri, Electron or Electrobun spike as epic desktop-shell; decide which epic runs the spike.
+- Decision (2026-10-31): 9.10 runs the shell spike and records the shell in an ADR that epic desktop-shell cites; the
+  earlier open question ("which epic runs the spike") is closed. The owner ruled the same day that the harness is
+  separate from the game bundle — a game is a package installed into a harness's library with a configured default —
+  and that there are at most two shells, the PWA and one Electron desktop app that is the editor and the player. The
+  ruling text is D-1 in `story-rulings-the-runner-boundary-the-desktop-shell-image-storage-plan.md`.
 - Decision: epic set approved by the user, 2026-10-10.
 - Waits on board-rendering because: draw lists to replay.
 - Waits on audio-synth because: audio cues and synth.
