@@ -49,7 +49,7 @@ The normative #779 checks pass: host-side prompt and Continue select a paused re
 
 ## Verification
 
-`packages/core/test/engine-boot.test.ts` passed 56/56, including the fifteen new recovery tests; the full suite passed 2388 tests with no skips, and every repository check passed (`typecheck`, `lint`, `graph:test`/`graph`, `licence:test`/`licence`, `provenance:test`/`provenance`, `fixtures:check`, `catalogue:check`, `no-skips:test`, `icons:test`, `golden`, `closing`, `dump:check`). Independent review found and fixed one contract gap: only listeners present when startup finished may anchor an object, so a listener installed later by script cannot cause a false recovery refusal.
+Merged PR #811 as `3e084ca59d14a5d8bde4b03ddcb0988a86211fd7`. `packages/core/test/engine-boot.test.ts` passed 56/56, including the fifteen new recovery tests; the full suite passed 2388 tests with no skips, and every repository check passed (`typecheck`, `lint`, `graph:test`/`graph`, `licence:test`/`licence`, `provenance:test`/`provenance`, `fixtures:check`, `catalogue:check`, `no-skips:test`, `icons:test`, `golden`, `closing`, `dump:check`). Independent review found and fixed one contract gap: only listeners present when startup finished may anchor an object, so a listener installed later by script cannot cause a false recovery refusal.
 
 ## Unresolved
 
