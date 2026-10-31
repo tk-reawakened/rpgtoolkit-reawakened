@@ -47,6 +47,7 @@ import {
   type LegacyWalkFrame,
 } from "./model.ts";
 import { TextLineReader } from "../text/line-reader.ts";
+import { checkMajor, checkI8, checkI16, checkI32, checkMagic, checkMinor } from "../validate.ts";
 
 /** An empty placeholder item for zero-byte files (Z-1). */
 export function createEmptyItem(): Item {
@@ -567,22 +568,40 @@ export function readItem(reader: BinaryReader): Result<Item> {
  * Append a `wide ? i32 : i16` value (docs/spec/formats/item.md#layout: `i32` at `minor >= 3`,
  * applied to prices, equip bonuses and the menu/battle use deltas).
  */
-function writeWide(writer: BinaryWriter, value: number, wide: boolean): void {
+function writeWide(
+  writer: BinaryWriter,
+  field: string,
+  value: number,
+  wide: boolean,
+): Result<never> | undefined {
+  // An i16 value above its range wraps and re-reads as a different number, so
+  // the narrow branch refuses it (docs/spec/formats/README.md#primitive-encoding).
+  const checked = wide
+    ? checkI32(writer, ITEM_SECTION, field, value)
+    : checkI16(writer, ITEM_SECTION, field, value);
+  if (checked !== undefined) return checked;
   if (wide) {
     writer.i32(value);
   } else {
     writer.i16(value);
   }
+  return undefined;
 }
 
 /** Serialise `model` to the item layout (docs/spec/formats/item.md#layout). */
 export function writeItem(model: Item): Result<Uint8Array> {
   const writer = new BinaryWriter();
+  const headerMagic = checkMagic(writer, ITEM_SECTION, model.magic, ITEM_MAGIC);
+  if (headerMagic !== undefined) return headerMagic;
   const magic = writer.str(model.magic);
   if (!magic.ok) {
     return writerError(writer, ITEM_SECTION, `magic: ${magic.error.message}`);
   }
+  const headerMajor = checkMajor(writer, ITEM_SECTION, model.major);
+  if (headerMajor !== undefined) return headerMajor;
   writer.i16(model.major);
+  const headerMinor = checkMinor(writer, ITEM_SECTION, model.minor, ITEM_MIN_MINOR, ITEM_MAX_MINOR);
+  if (headerMinor !== undefined) return headerMinor;
   writer.i16(model.minor);
   const wide = model.minor >= ITEM_I32_MINOR;
 
@@ -615,8 +634,12 @@ export function writeItem(model: Item): Result<Uint8Array> {
     return characters;
   }
 
-  writeWide(writer, model.buyPrice, wide);
-  writeWide(writer, model.sellPrice, wide);
+  for (const [field, value] of [["buyPrice", model.buyPrice], ["sellPrice", model.sellPrice]] as const) {
+    const price = writeWide(writer, field, value, wide);
+    if (price !== undefined) return price;
+  }
+  const keyItem = checkI8(writer, ITEM_SECTION, "keyItem", model.keyItem);
+  if (keyItem !== undefined) return keyItem;
   writer.i8(model.keyItem);
   const slots = writeFixedBytes(
     writer,
@@ -639,8 +662,9 @@ export function writeItem(model: Item): Result<Uint8Array> {
       `equip bonuses need exactly ${EQUIP_BONUS_COUNT} entries but the model has ${model.equipBonus.length}`,
     );
   }
-  for (const value of model.equipBonus) {
-    writeWide(writer, value, wide);
+  for (const [index, value] of model.equipBonus.entries()) {
+    const bonus = writeWide(writer, `equipBonus[${index}]`, value, wide);
+    if (bonus !== undefined) return bonus;
   }
 
   const onEquipProgram = writer.str(model.onEquipProgram);
@@ -651,14 +675,18 @@ export function writeItem(model: Item): Result<Uint8Array> {
   if (!onRemoveProgram.ok) {
     return writerError(writer, ITEM_SECTION, `on-remove program: ${onRemoveProgram.error.message}`);
   }
-  writeWide(writer, model.menuUseHp, wide);
-  writeWide(writer, model.menuUseSmp, wide);
+  const menuUseHp = writeWide(writer, "menuUseHp", model.menuUseHp, wide);
+  if (menuUseHp !== undefined) return menuUseHp;
+  const menuUseSmp = writeWide(writer, "menuUseSmp", model.menuUseSmp, wide);
+  if (menuUseSmp !== undefined) return menuUseSmp;
   const menuUseProgram = writer.str(model.menuUseProgram);
   if (!menuUseProgram.ok) {
     return writerError(writer, ITEM_SECTION, `menu-use program: ${menuUseProgram.error.message}`);
   }
-  writeWide(writer, model.battleUseHp, wide);
-  writeWide(writer, model.battleUseSmp, wide);
+  const battleUseHp = writeWide(writer, "battleUseHp", model.battleUseHp, wide);
+  if (battleUseHp !== undefined) return battleUseHp;
+  const battleUseSmp = writeWide(writer, "battleUseSmp", model.battleUseSmp, wide);
+  if (battleUseSmp !== undefined) return battleUseSmp;
   const battleUseProgram = writer.str(model.battleUseProgram);
   if (!battleUseProgram.ok) {
     return writerError(writer, ITEM_SECTION, `battle-use program: ${battleUseProgram.error.message}`);
@@ -676,6 +704,8 @@ export function writeItem(model: Item): Result<Uint8Array> {
   if (!activationProgram.ok) {
     return writerError(writer, ITEM_SECTION, `activation program: ${activationProgram.error.message}`);
   }
+  const sizeType = checkI8(writer, ITEM_SECTION, "sizeType", model.sizeType);
+  if (sizeType !== undefined) return sizeType;
   writer.i8(model.sizeType);
 
   if (model.minor >= ITEM_MOVEMENT_MINOR) {
@@ -713,8 +743,14 @@ export function writeItem(model: Item): Result<Uint8Array> {
     if (!idle.ok) {
       return idle;
     }
-    writer.f64(model.speed ?? 0);
-    writer.f64(model.idleTime ?? 0);
+    if (model.speed === undefined) {
+      return writerError(writer, ITEM_SECTION, "speed is undefined but minor >= 5 stores it (docs/spec/formats/item.md#layout)");
+    }
+    if (model.idleTime === undefined) {
+      return writerError(writer, ITEM_SECTION, "idleTime is undefined but minor >= 5 stores it (docs/spec/formats/item.md#layout)");
+    }
+    writer.f64(model.speed);
+    writer.f64(model.idleTime);
   }
   if (model.minor >= ITEM_MOVEMENT_MINOR) {
     const stances = writeStances(writer, model.customStances ?? [], ITEM_SECTION);

@@ -13,6 +13,7 @@ import { err, ok, type Result } from "../result.ts";
 import { BinaryReader } from "../binary/reader.ts";
 import { BinaryWriter } from "../binary/writer.ts";
 import { TextLineReader } from "../text/line-reader.ts";
+import { checkMajor, checkI16, checkMagic, checkMinor } from "../validate.ts";
 import {
   BATTLE_MAX_MINOR,
   BATTLE_MIN_MINOR,
@@ -152,26 +153,39 @@ export function readStatusEffect(reader: BinaryReader): Result<StatusEffect> {
  */
 export function writeStatusEffect(model: StatusEffect): Result<Uint8Array> {
   const writer = new BinaryWriter();
+  const headerMagic = checkMagic(writer, STATUS_EFFECT_SECTION, model.magic, STATUS_EFFECT_MAGIC);
+  if (headerMagic !== undefined) return headerMagic;
 
   const magic = writer.str(model.magic);
   if (!magic.ok) {
     return magic;
   }
+  const headerMajor = checkMajor(writer, STATUS_EFFECT_SECTION, model.major);
+  if (headerMajor !== undefined) return headerMajor;
   writer.i16(model.major);
+  const headerMinor = checkMinor(writer, STATUS_EFFECT_SECTION, model.minor, BATTLE_MIN_MINOR, BATTLE_MAX_MINOR);
+  if (headerMinor !== undefined) return headerMinor;
   writer.i16(model.minor);
   const name = writer.str(model.name);
   if (!name.ok) {
     return name;
   }
-  writer.i16(model.rounds);
-  writer.i16(model.speedUp);
-  writer.i16(model.slowDown);
-  writer.i16(model.disable);
-  writer.i16(model.hpEnabled);
-  writer.i16(model.hpPerRound);
-  writer.i16(model.smpEnabled);
-  writer.i16(model.smpPerRound);
-  writer.i16(model.runProgram);
+  const scalars = [
+    ["rounds", model.rounds],
+    ["speedUp", model.speedUp],
+    ["slowDown", model.slowDown],
+    ["disable", model.disable],
+    ["hpEnabled", model.hpEnabled],
+    ["hpPerRound", model.hpPerRound],
+    ["smpEnabled", model.smpEnabled],
+    ["smpPerRound", model.smpPerRound],
+    ["runProgram", model.runProgram],
+  ] as const;
+  for (const [field, value] of scalars) {
+    const checked = checkI16(writer, STATUS_EFFECT_SECTION, field, value);
+    if (checked !== undefined) return checked;
+    writer.i16(value);
+  }
   const program = writer.str(model.program);
   if (!program.ok) {
     return program;

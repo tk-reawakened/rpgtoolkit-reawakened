@@ -12,6 +12,7 @@ import { ok, type Result } from "../result.ts";
 import { BinaryReader } from "../binary/reader.ts";
 import { BinaryWriter } from "../binary/writer.ts";
 import { TextLineReader } from "../text/line-reader.ts";
+import { checkMajor, checkI8, checkI16, checkI32, checkMagic, checkMinor } from "../validate.ts";
 import {
   ENEMY_BINARY_MINOR,
   ENEMY_DETECT_OFFSET,
@@ -191,24 +192,37 @@ export function readEnemy(reader: BinaryReader): Result<Enemy> {
 /** Serialise `model` to the enemy layout (docs/spec/formats/enemy.md#layout). */
 export function writeEnemy(model: Enemy): Result<Uint8Array> {
   const writer = new BinaryWriter();
+  const headerMagic = checkMagic(writer, ENEMY_SECTION, model.magic, ENEMY_MAGIC);
+  if (headerMagic !== undefined) return headerMagic;
   const magic = writer.str(model.magic);
   if (!magic.ok) {
     return writerError(writer, ENEMY_SECTION, `magic: ${magic.error.message}`);
   }
+  const headerMajor = checkMajor(writer, ENEMY_SECTION, model.major);
+  if (headerMajor !== undefined) return headerMajor;
   writer.i16(model.major);
+  const headerMinor = checkMinor(writer, ENEMY_SECTION, model.minor, ENEMY_BINARY_MINOR, ENEMY_BINARY_MINOR);
+  if (headerMinor !== undefined) return headerMinor;
   writer.i16(model.minor);
 
   const name = writer.str(model.name);
   if (!name.ok) {
     return writerError(writer, ENEMY_SECTION, `name: ${name.error.message}`);
   }
-  writer.i32(model.hp);
-  writer.i32(model.smp);
-  writer.i32(model.fp);
-  writer.i32(model.dp);
+  const vitals = [["hp", model.hp], ["smp", model.smp], ["fp", model.fp], ["dp", model.dp]] as const;
+  for (const [field, value] of vitals) {
+    const checked = checkI32(writer, ENEMY_SECTION, field, value);
+    if (checked !== undefined) return checked;
+    writer.i32(value);
+  }
+  const canRun = checkI8(writer, ENEMY_SECTION, "canRun", model.canRun);
+  if (canRun !== undefined) return canRun;
   writer.i8(model.canRun);
-  writer.i16(model.criticalOn);
-  writer.i16(model.criticalBy);
+  for (const [field, value] of [["criticalOn", model.criticalOn], ["criticalBy", model.criticalBy]] as const) {
+    const checked = checkI16(writer, ENEMY_SECTION, field, value);
+    if (checked !== undefined) return checked;
+    writer.i16(value);
+  }
 
   const moves = writeBoundedStrings(writer, model.specialMoves, ENEMY_SECTION, "special moves");
   if (!moves.ok) {
@@ -223,14 +237,21 @@ export function writeEnemy(model: Enemy): Result<Uint8Array> {
     return strengths;
   }
 
+  for (const [field, value] of [["aiLevel", model.aiLevel], ["customAi", model.customAi]] as const) {
+    const checked = checkI8(writer, ENEMY_SECTION, field, value);
+    if (checked !== undefined) return checked;
+  }
   writer.i8(model.aiLevel);
   writer.i8(model.customAi);
   const aiProgram = writer.str(model.aiProgram);
   if (!aiProgram.ok) {
     return writerError(writer, ENEMY_SECTION, `AI program: ${aiProgram.error.message}`);
   }
-  writer.i32(model.experienceReward);
-  writer.i32(model.goldReward);
+  for (const [field, value] of [["experienceReward", model.experienceReward], ["goldReward", model.goldReward]] as const) {
+    const checked = checkI32(writer, ENEMY_SECTION, field, value);
+    if (checked !== undefined) return checked;
+    writer.i32(value);
+  }
   const defeatProgram = writer.str(model.defeatProgram);
   if (!defeatProgram.ok) {
     return writerError(writer, ENEMY_SECTION, `defeat program: ${defeatProgram.error.message}`);

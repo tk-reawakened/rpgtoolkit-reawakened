@@ -51,6 +51,7 @@ import {
 } from "./model.ts";
 
 import { TextLineReader } from "../text/line-reader.ts";
+import { checkMajor, checkI8, checkI16, checkI32, checkMagic, checkMinor } from "../validate.ts";
 
 /** An empty placeholder character for zero-byte files (Z-1). */
 export function createEmptyCharacter(): Character {
@@ -692,11 +693,17 @@ export function readCharacter(reader: BinaryReader): Result<Character> {
 /** Serialise `model` to the character layout (docs/spec/formats/character.md#layout). */
 export function writeCharacter(model: Character): Result<Uint8Array> {
   const writer = new BinaryWriter();
+  const headerMagic = checkMagic(writer, CHARACTER_SECTION, model.magic, CHARACTER_MAGIC);
+  if (headerMagic !== undefined) return headerMagic;
   const magic = writer.str(model.magic);
   if (!magic.ok) {
     return writerError(writer, CHARACTER_SECTION, `magic: ${magic.error.message}`);
   }
+  const headerMajor = checkMajor(writer, CHARACTER_SECTION, model.major);
+  if (headerMajor !== undefined) return headerMajor;
   writer.i16(model.major);
+  const headerMinor = checkMinor(writer, CHARACTER_SECTION, model.minor, CHARACTER_MIN_MINOR, CHARACTER_MAX_MINOR);
+  if (headerMinor !== undefined) return headerMinor;
   writer.i16(model.minor);
 
   const name = writer.str(model.name);
@@ -714,14 +721,21 @@ export function writeCharacter(model: Character): Result<Uint8Array> {
     return names;
   }
 
-  writer.i32(model.stats.experience);
-  writer.i32(model.stats.hp);
-  writer.i32(model.stats.maxHp);
-  writer.i32(model.stats.dp);
-  writer.i32(model.stats.fp);
-  writer.i32(model.stats.smp);
-  writer.i32(model.stats.maxSmp);
-  writer.i32(model.stats.level);
+  const stats = [
+    ["experience", model.stats.experience],
+    ["hp", model.stats.hp],
+    ["maxHp", model.stats.maxHp],
+    ["dp", model.stats.dp],
+    ["fp", model.stats.fp],
+    ["smp", model.stats.smp],
+    ["maxSmp", model.stats.maxSmp],
+    ["level", model.stats.level],
+  ] as const;
+  for (const [field, value] of stats) {
+    const checked = checkI32(writer, CHARACTER_SECTION, field, value);
+    if (checked !== undefined) return checked;
+    writer.i32(value);
+  }
 
   const profilePicture = writer.str(model.profilePicture);
   if (!profilePicture.ok) {
@@ -737,13 +751,16 @@ export function writeCharacter(model: Character): Result<Uint8Array> {
       `special moves need exactly ${SPECIAL_MOVE_SLOTS} entries but the model has ${model.specialMoves.length}`,
     );
   }
-  for (const move of model.specialMoves) {
+  for (const [index, move] of model.specialMoves.entries()) {
     const file = writer.str(move.file);
     if (!file.ok) {
       return writerError(writer, CHARACTER_SECTION, `special-move file: ${file.error.message}`);
     }
-    writer.i32(move.minExp);
-    writer.i32(move.minLevel);
+    for (const [field, value] of [["minExp", move.minExp], ["minLevel", move.minLevel]] as const) {
+      const checked = checkI32(writer, CHARACTER_SECTION, `specialMoves[${index}].${field}`, value);
+      if (checked !== undefined) return checked;
+      writer.i32(value);
+    }
     const condVar = writer.str(move.condVar);
     if (!condVar.ok) {
       return writerError(
@@ -770,6 +787,8 @@ export function writeCharacter(model: Character): Result<Uint8Array> {
       `special-move category: ${specialMoveCategory.error.message}`,
     );
   }
+  const hasSpecialMoves = checkI8(writer, CHARACTER_SECTION, "hasSpecialMoves", model.hasSpecialMoves);
+  if (hasSpecialMoves !== undefined) return hasSpecialMoves;
   writer.i8(model.hasSpecialMoves);
   const accessories = writeFixedStrings(
     writer,
@@ -793,11 +812,19 @@ export function writeCharacter(model: Character): Result<Uint8Array> {
   }
 
   if (model.minor === FIRST_LEVEL_EXP_I8_MINOR) {
+    const firstLevel = checkI8(writer, CHARACTER_SECTION, "firstLevelExp", model.firstLevelExp);
+    if (firstLevel !== undefined) return firstLevel;
     writer.i8(model.firstLevelExp);
   } else {
+    const firstLevel = checkI32(writer, CHARACTER_SECTION, "firstLevelExp", model.firstLevelExp);
+    if (firstLevel !== undefined) return firstLevel;
     writer.i32(model.firstLevelExp);
   }
+  const experience = checkI16(writer, CHARACTER_SECTION, "experienceIncrease", model.experienceIncrease);
+  if (experience !== undefined) return experience;
   writer.i16(model.experienceIncrease);
+  const maxLevel = checkI32(writer, CHARACTER_SECTION, "maxLevel", model.maxLevel);
+  if (maxLevel !== undefined) return maxLevel;
   writer.i32(model.maxLevel);
   if (model.levelIncreases.length !== LEVEL_INCREASE_COUNT) {
     return writerError(
@@ -806,7 +833,9 @@ export function writeCharacter(model: Character): Result<Uint8Array> {
       `per-level increases need exactly ${LEVEL_INCREASE_COUNT} entries but the model has ${model.levelIncreases.length}`,
     );
   }
-  for (const value of model.levelIncreases) {
+  for (const [index, value] of model.levelIncreases.entries()) {
+    const increase = checkI16(writer, CHARACTER_SECTION, `levelIncreases[${index}]`, value);
+    if (increase !== undefined) return increase;
     writer.i16(value);
   }
 
@@ -827,6 +856,10 @@ export function writeCharacter(model: Character): Result<Uint8Array> {
   const levelUpProgram = writer.str(model.levelUpProgram);
   if (!levelUpProgram.ok) {
     return writerError(writer, CHARACTER_SECTION, `level-up program: ${levelUpProgram.error.message}`);
+  }
+  for (const [field, value] of [["levelUpType", model.levelUpType], ["sizeType", model.sizeType]] as const) {
+    const checked = checkI8(writer, CHARACTER_SECTION, field, value);
+    if (checked !== undefined) return checked;
   }
   writer.i8(model.levelUpType);
   writer.i8(model.sizeType);
@@ -930,8 +963,17 @@ export function writeCharacter(model: Character): Result<Uint8Array> {
     }
   }
   if (model.minor >= 7) {
-    writer.f64(model.idleTime ?? 0);
-    writer.f64(model.speed ?? 0);
+    // The layout stores them from minor 7 on, so a model without them cannot be
+    // encoded: the placeholder `0` would record an idle time of 0 seconds, not
+    // the documented 3.0 s default.
+    if (model.idleTime === undefined) {
+      return writerError(writer, CHARACTER_SECTION, "idleTime is undefined but minor >= 7 stores it (docs/spec/formats/character.md#layout row 32)");
+    }
+    if (model.speed === undefined) {
+      return writerError(writer, CHARACTER_SECTION, "speed is undefined but minor >= 7 stores it (docs/spec/formats/character.md#layout row 33)");
+    }
+    writer.f64(model.idleTime);
+    writer.f64(model.speed);
   }
   if (model.minor >= 5) {
     const stances = writeStances(writer, model.customStances ?? [], CHARACTER_SECTION);

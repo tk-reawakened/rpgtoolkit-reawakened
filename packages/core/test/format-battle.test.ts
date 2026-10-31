@@ -700,3 +700,113 @@ test(
     }
   },
 );
+
+// --- The battle writers refuse what their readers would refuse (#640 / 23.1) --------------------------------
+
+/** The message a writer fails with, so a refusal can be checked for its named field. */
+function refusal<T>(model: T, write: (model: T) => Result<Uint8Array>): string {
+  const result = write(model);
+  equal(result.ok, false, "the writer was expected to fail");
+  if (result.ok) throw new Error("unreachable");
+  return result.error.message;
+}
+
+test("a battle writer refuses an i16 field outside its range instead of wrapping it", () => {
+  const effect = unwrap(readStatusEffect(new BinaryReader(buildSte())));
+  const rounds = refusal({ ...effect, rounds: 40_000 }, writeStatusEffect);
+  equal(rounds.includes("rounds"), true, rounds);
+  equal(rounds.includes("-32768..32767"), true, rounds);
+  const heal = refusal({ ...effect, hpPerRound: 40_000 }, writeStatusEffect);
+  equal(heal.includes("hpPerRound"), true, heal);
+
+  // The signed extremes are representable, and keep their bytes.
+  const extremes = unwrap(writeStatusEffect({ ...effect, rounds: 32_767, hpPerRound: -32_768 }));
+  const reread = unwrap(readStatusEffect(new BinaryReader(extremes)));
+  equal(reread.rounds, 32_767);
+  equal(reread.hpPerRound, -32_768);
+  deepEqual(unwrap(writeStatusEffect(reread)), extremes, "byte-identical round-trip");
+});
+
+test("a battle writer refuses an out-of-range i32 or i8 field", () => {
+  const move = unwrap(readSpecialMove(new BinaryReader(buildSpc())));
+  const damage = refusal({ ...move, damage: 2_147_483_648 }, writeSpecialMove);
+  equal(damage.includes("damage"), true, damage);
+  equal(damage.includes("-2147483648..2147483647"), true, damage);
+  const usable = refusal({ ...move, usableInBattle: 200 }, writeSpecialMove);
+  equal(usable.includes("usableInBattle"), true, usable);
+});
+
+test("a battle writer refuses a wrong magic or an unlisted minor", () => {
+  const move = unwrap(readSpecialMove(new BinaryReader(buildSpc())));
+  const magic = refusal({ ...move, magic: "RPGTLKIT STATUSE" }, writeSpecialMove);
+  equal(magic.includes("\"RPGTLKIT SPLMOVE\""), true, magic);
+  const moveMinor = refusal({ ...move, minor: 7 }, writeSpecialMove);
+  equal(moveMinor.includes("2..3"), true, moveMinor);
+
+  const effect = unwrap(readStatusEffect(new BinaryReader(buildSte())));
+  const effectMinor = refusal({ ...effect, minor: 1 }, writeStatusEffect);
+  equal(effectMinor.includes("2..3"), true, effectMinor);
+
+  const background = unwrap(readBattleBackground(new BinaryReader(buildBkg())));
+  const backgroundMinor = refusal({ ...background, minor: 4 }, writeBattleBackground);
+  equal(backgroundMinor.includes("2..3"), true, backgroundMinor);
+});
+
+test("a batched writer reports the refused field's own offset, not the block's start", () => {
+  // FormatError.offset is the field's first byte (result.ts), so a check that
+  // runs just before its write must not report an earlier sibling's position.
+  const offsetOf = (model: StatusEffect): number => {
+    const result = writeStatusEffect(model);
+    equal(result.ok, false, "the writer was expected to fail");
+    if (result.ok) throw new Error("unreachable");
+    return result.error.offset;
+  };
+  const effect = unwrap(readStatusEffect(new BinaryReader(buildSte())));
+  const minor = offsetOf({ ...effect, minor: 7 });
+  equal(minor, 19, "the minor error sits on the minor field, as the reader's does");
+  const rounds = offsetOf({ ...effect, rounds: 40_000 });
+  const runProgram = offsetOf({ ...effect, runProgram: 40_000 });
+  equal(runProgram - rounds, 16, "runProgram follows the eight rounds..smpPerRound i16 fields");
+});
+
+test("each battle writer refuses a negative major and accepts 0", () => {
+  // docs/spec/formats/README.md#header-and-version rules a negative version field invalid.
+  const move = unwrap(readSpecialMove(new BinaryReader(buildSpc())));
+  equal(refusal({ ...move, major: -1 }, writeSpecialMove).includes("major version -1"), true);
+  equal(unwrap(writeSpecialMove({ ...move, major: 0 })).length > 0, true, "a zero major is a version the reader accepts");
+
+  const effect = unwrap(readStatusEffect(new BinaryReader(buildSte())));
+  equal(refusal({ ...effect, major: -1 }, writeStatusEffect).includes("major version -1"), true);
+  equal(unwrap(readStatusEffect(new BinaryReader(unwrap(writeStatusEffect({ ...effect, major: 0 }))))).major, 0);
+
+  const background = unwrap(readBattleBackground(new BinaryReader(buildBkg())));
+  equal(refusal({ ...background, major: -1 }, writeBattleBackground).includes("major version -1"), true);
+  equal(unwrap(readBattleBackground(new BinaryReader(unwrap(writeBattleBackground({ ...background, major: 0 }))))).major, 0);
+});
+
+test("each battle width refuses one past both ends and accepts both ends", () => {
+  const effect = unwrap(readStatusEffect(new BinaryReader(buildSte())));
+  equal(refusal({ ...effect, rounds: 32_768 }, writeStatusEffect).includes("i16 field holds -32768..32767"), true);
+  equal(refusal({ ...effect, rounds: -32_769 }, writeStatusEffect).includes("i16 field holds -32768..32767"), true);
+  const atMin = unwrap(readStatusEffect(new BinaryReader(unwrap(writeStatusEffect({ ...effect, rounds: -32_768 })))));
+  equal(atMin.rounds, -32_768, "the i16 minimum is representable");
+
+  const move = unwrap(readSpecialMove(new BinaryReader(buildSpc())));
+  equal(refusal({ ...move, usableInBattle: 128 }, writeSpecialMove).includes("i8 field holds -128..127"), true);
+  equal(refusal({ ...move, usableInBattle: -129 }, writeSpecialMove).includes("i8 field holds -128..127"), true);
+});
+
+function exampleRoundTrip<T>(folder: string, name: string, read: (reader: BinaryReader) => Result<T>, write: (model: T) => Result<Uint8Array>): void {
+  const file = join(repoRoot, "docs", "spec", "examples", "versions", folder, name);
+  const bytes = new Uint8Array(readFileSync(file));
+  const reader = new BinaryReader(bytes, file);
+  const model = unwrap(read(reader));
+  equal(reader.remaining, 0, `${name}: trailing bytes`);
+  deepEqual(unwrap(write(model)), bytes, `${name}: byte-identical round-trip`);
+}
+
+test("the committed battle example files parse and round-trip byte-identically", () => {
+  exampleRoundTrip("status-effect", "status_minor2.ste", readStatusEffect, writeStatusEffect);
+  exampleRoundTrip("special-move", "special_minor2.spc", readSpecialMove, writeSpecialMove);
+  exampleRoundTrip("fight-background", "background_minor3.bkg", readBattleBackground, writeBattleBackground);
+});
