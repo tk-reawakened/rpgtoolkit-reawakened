@@ -3,7 +3,7 @@ title: 'Name the media.play voice root once and document the end-of-tick audio r
 type: 'chore'
 ticket: 11
 created: '2026-10-30'
-status: 'built'
+status: done
 baseline_revision: 'c282ad391e569d9cbc3ba8d949f03d37ea3deb9c'
 risk: 'low'
 context: []
@@ -55,3 +55,8 @@ Observed in this worktree at baseline `c282ad39` plus the two commits:
   owner ruling.
 - `MEDIA_PLAY_VOICE_ARG` is exported from the audio module but not from the package barrel: the end-of-tick reader
   imports it directly, so no new public surface is added and no unused re-export exists.
+
+## Merged
+
+PR #834 merged by squash as `bae81000e00c494873da5dbee436d9fc74ab1e70` (in `origin/main`); issue #826 closed as
+completed by that merge. The docs commit landed first inside the same PR (`732ec581`), as G7 requires.
