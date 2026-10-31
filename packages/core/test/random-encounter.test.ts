@@ -22,7 +22,7 @@ import {
   type RandomEncounterConfig,
   type WorldBoard,
 } from "../src/index.ts";
-import { COMPILER_VERSION } from "../src/script/program.ts";
+import { IR_VERSION } from "../src/script/program.ts";
 
 const fixtureRoot = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "movement");
 type FixtureBoard = {
@@ -105,7 +105,7 @@ test("random encounter fixtures drive movement, triggers, and random-encounter e
         }
       }
       runMovementPhase(state.sprites, board, tick, { gameSpeed: sourceGameSpeed(caseData) });
-      runTriggersPhase(state, { programRef: () => ({ kind: "inline", text: "", compiler: COMPILER_VERSION }) });
+      runTriggersPhase(state, { programRef: () => ({ kind: "inline", text: "", ir: IR_VERSION }) });
       runRandomEncounterPhase(state, config, post);
     }
     if (config.fightingDisabled === 0 && board.allowBattles === 1) equal(typeof state.sprites.randomEncounter?.tiles, "number", caseData.name);
@@ -130,7 +130,7 @@ test("demo NPC battle fixture runs movement, triggers, and random boundary witho
   for (let tick = 0; tick < fixtureCase.ticks; tick += 1) {
     state.time.tick = tick;
     runMovementPhase(state.sprites, board, tick, { gameSpeed: 0 });
-    runTriggersPhase(state, { programRef: () => ({ kind: "inline", text: "", compiler: COMPILER_VERSION }) });
+    runTriggersPhase(state, { programRef: () => ({ kind: "inline", text: "", ir: IR_VERSION }) });
     runRandomEncounterPhase(state, null, (_section, effect) => posted.push(effect.name));
   }
   equal(state.sprites.randomEncounter, undefined);

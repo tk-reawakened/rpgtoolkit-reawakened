@@ -11,7 +11,7 @@ import {
   canon,
   CATALOGUE_STUBS_PLUGIN,
   CORE_PLUGIN,
-  COMPILER_VERSION,
+  IR_VERSION,
   createGameState,
   createVmState,
   createWaitPoll,
@@ -41,7 +41,7 @@ import {
 import { createScriptServices } from "./script-test-services.ts";
 
 function ref(text: string): ProgramRef {
-  return { kind: "inline", text, compiler: COMPILER_VERSION };
+  return { kind: "inline", text, ir: IR_VERSION };
 }
 
 /** What the test plugin's commands saw: `mark` calls, request continuations. */

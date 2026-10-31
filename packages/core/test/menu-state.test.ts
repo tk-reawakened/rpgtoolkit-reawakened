@@ -210,7 +210,7 @@ test("authored RPGCode party operations preserve actor identity and emit only co
   const ports = createMenuOwnerPorts(state, (event) => events.push(event));
   const services = createScriptServices(state);
   const program = readFileSync(join(fixtureDirectory, "party-operations.prg"), "utf8").split("\n").filter((line) => !line.startsWith("newplyr(") && !line.startsWith("newplayer(")).join("\n");
-  startProgram(state.vm, { kind: "inline", text: program, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: program, ir: "1" });
   let lastEffect = 0;
   for (let tick = 0; tick < 24; tick += 1) {
     advanceScriptTick(state, services);

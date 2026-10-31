@@ -1,7 +1,7 @@
 /** Deterministic trigger dispatch (E-40..E-45, R-52, AD-25/AD-26). */
 import type { EnginePhaseRegistration, EngineResetRegistration } from "../engine/engine.ts";
 import type { EffectRecord } from "../script/effects.ts";
-import type { ProgramRef } from "../script/program.ts";
+import { IR_VERSION, type ProgramRef } from "../script/program.ts";
 import { findThread, startThread } from "../script/state.ts";
 import type { GameState } from "../save/state.ts";
 import type { Facing, SpriteActor } from "../sprites/model.ts";
@@ -213,7 +213,7 @@ function programRef(name: string, resolver: TriggerProgramResolver | null | unde
     if (resolved !== null) return resolved;
   }
   if (name.toLowerCase().endsWith(".prg")) return null;
-  return { kind: "inline", text: name, compiler: "2", dialect: "tk3" };
+  return { kind: "inline", text: name, ir: IR_VERSION, dialect: "tk3" };
 }
 function emit(events: TriggerEvent[], options: TriggerPhaseOptions, value: TriggerEvent): void {
   events.push(value);

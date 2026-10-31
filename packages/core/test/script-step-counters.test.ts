@@ -20,10 +20,10 @@ import {
 import type { Value } from "../src/ports/value.ts";
 import { createScriptServices } from "./script-test-services.ts";
 
-const compiler = "2";
+const ir = "1";
 
 function packageRef(text: string, owner: string): ProgramRef {
-  return withOwner({ kind: "inline", text, compiler }, owner);
+  return withOwner({ kind: "inline", text, ir }, owner);
 }
 
 function makeState(): GameState {

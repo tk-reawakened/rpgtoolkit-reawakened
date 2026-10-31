@@ -7,7 +7,7 @@ import { TextEncoder } from "node:util";
 import {
   assetKey,
   BinaryReader,
-  COMPILER_VERSION,
+  IR_VERSION,
   createAssetIndex,
   createEmptyBoard,
   createEmptyMainFile,
@@ -66,7 +66,7 @@ function packageCatalogue(): readonly PackageCatalogueEntry[] {
         version: manifest.version,
         commands: manifest.name === "stock_battle" ? [STOCK_BATTLE_FIGHTENEMY] : [],
       },
-    startup: { kind: "inline", text: source, compiler: COMPILER_VERSION, dialect: "tk3" },
+    startup: { kind: "inline", text: source, ir: IR_VERSION, dialect: "tk3" },
   }));
 }
 

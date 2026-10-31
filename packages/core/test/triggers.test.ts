@@ -6,7 +6,7 @@ import { actorFromSource, type SpriteActor } from "../src/sprites/model.ts";
 import { runTriggersPhase } from "../src/triggers/runtime.ts";
 import type { WorldBoard, WorldItem, WorldProgram } from "../src/world/model.ts";
 
-const ref = (text: string) => ({ kind: "inline" as const, text, compiler: "2", dialect: "tk3" as const });
+const ref = (text: string) => ({ kind: "inline" as const, text, ir: "1", dialect: "tk3" as const });
 const rectangle = (left: number, top: number, right: number, bottom: number) => [
   { x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom },
 ];

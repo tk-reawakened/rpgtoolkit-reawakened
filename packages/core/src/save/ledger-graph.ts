@@ -104,7 +104,7 @@ export type LedgerProgramRef =
       readonly kind: "file";
       readonly path: string;
       readonly sourceHash: string;
-      readonly compiler: string;
+      readonly ir: string;
       readonly includes: string[];
       readonly redirects: Array<[string, string]>;
       readonly dialect: "tk3" | "tk2" | null;
@@ -113,7 +113,7 @@ export type LedgerProgramRef =
   | {
       readonly kind: "inline";
       readonly text: string;
-      readonly compiler: string;
+      readonly ir: string;
       readonly includes: string[];
       readonly redirects: Array<[string, string]>;
       readonly dialect: "tk3" | "tk2" | null;
@@ -230,7 +230,7 @@ function ledgerValue(value: Value): LedgerValue {
 export function ledgerProgramRef(value: unknown, path: string): LedgerProgramRef | null {
   if (value === null) return null;
   const record = ledgerRecord(value, path);
-  const compiler = ledgerText(record.compiler, `${path}.compiler`);
+  const ir = ledgerText(record.ir, `${path}.ir`);
   const includes = record.includes === undefined
     ? []
     : ledgerList(record.includes, `${path}.includes`).map((entry, index) => ledgerText(entry, `${path}.includes[${index}]`));
@@ -242,7 +242,7 @@ export function ledgerProgramRef(value: unknown, path: string): LedgerProgramRef
       kind: "file",
       path: ledgerText(record.path, `${path}.path`),
       sourceHash: ledgerText(record.sourceHash, `${path}.sourceHash`),
-      compiler,
+      ir,
       includes,
       redirects,
       dialect,
@@ -253,7 +253,7 @@ export function ledgerProgramRef(value: unknown, path: string): LedgerProgramRef
     return {
       kind: "inline",
       text: ledgerText(record.text, `${path}.text`),
-      compiler,
+      ir,
       includes,
       redirects,
       dialect,

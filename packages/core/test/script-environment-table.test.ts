@@ -42,7 +42,7 @@ function loaderOf(files: Record<string, string>): ProgramLoader {
 
 function makeState(program: string): GameState {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: program, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: program, ir: "1" });
   return state;
 }
 

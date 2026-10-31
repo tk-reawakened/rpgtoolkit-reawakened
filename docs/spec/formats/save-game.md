@@ -147,9 +147,11 @@ its saved position cannot be honoured — while a newer one refuses the save. Th
 no `restore.restarted` diagnostic, and `restore.compiler-mismatch` retires with the
 old gate.
 
-The target save shape is `schema` version 2 (`ir` replaces `compiler`) and `vm`
-version 6 (`ProgramRef.ir` replaces `ProgramRef.compiler`); both migrations and
-their previous-version fixtures belong to the implementation story.
+The save shape is `schema` version 2 (`ir` replaces `compiler`) and `vm` version 6
+(`ProgramRef.ir` replaces `ProgramRef.compiler`). A version-1 `schema` migrates
+its `compiler` to `ir` and a version-5 `vm` migrates every saved program
+reference the same way; every committed save fixture from before the split
+exercises both.
 
 Audio game saves add only the playback projection defined in
 [audio-media.md](../engine/audio-media.md#audio-save-load), not runtime audio

@@ -33,7 +33,7 @@ function errorOf(run: () => unknown): { code: string; message: string } {
 
 function runScript(source: string, plugins: readonly PluginDefinition[] = []): GameState {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: source, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: source, ir: "1" });
   advanceOrFail(state, createScriptServices(state, plugins));
   return state;
 }
@@ -222,7 +222,7 @@ test("run abandons its caller and starts the replacement file", () => {
     read: (asset: typeof key) => asset === key ? bytes : undefined,
   };
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: 'before = 1\nrun("child.prg")\nafter = 3\n', compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: 'before = 1\nrun("child.prg")\nafter = 3\n', ir: "1" });
   const services = createScriptServices(state, [], undefined, undefined, loader);
   advanceOrFail(state, services);
   advanceOrFail(state, services);
@@ -238,7 +238,7 @@ test("snapshot before end resumes identically after the final unwind", () => {
   startProgram(state.vm, {
     kind: "inline",
     text: "marker = 1\nsleep(1)\nend()\nafter = 2\n",
-    compiler: "2",
+    ir: "1",
   });
   const services = createScriptServices(state);
   advanceScriptTick(state, services);
@@ -301,7 +301,7 @@ x = x + 100
 end()
 `;
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: script, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: script, ir: "1" });
   const services = createScriptServices(state);
 
   advanceOrFail(state, services);

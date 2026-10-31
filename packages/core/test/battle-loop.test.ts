@@ -465,7 +465,7 @@ test("lethal status HP fires one fallen event with cause status without cancelli
   startThread(rig.state.vm, {
     ref: {
       kind: "inline",
-      compiler: "2",
+      ir: "1",
       text: `global(statusFallenCount)
 global(statusFallenCause)
 on(battle.fighter(0, 0), "fallen", (event) => {

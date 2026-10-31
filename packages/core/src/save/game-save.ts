@@ -4,7 +4,8 @@ import { AUDIO_SCHEMA_VERSION, createAudioSection, createTrack, type AudioStateV
 import { ScriptError } from "../script/errors.ts";
 import { isRecord } from "../script/cells.ts";
 import type { Diagnostic } from "../ports/engine.ts";
-import { refuseOtherCompiler, refuseOtherProgramCompilers, restoreGameState } from "./snapshot.ts";
+import { refuseNewerFrameIr, refuseNewerIr, restoreGameState } from "./snapshot.ts";
+import { SCHEMA_VERSIONS } from "./state.ts";
 import type { GameState } from "./state.ts";
 
 export type RestoredGameSave = {
@@ -106,12 +107,20 @@ function restoreGameSaveEnvelope(json: string, currentAudio: AudioStateV2, recov
     throw new ScriptError("restore.shape", "a saved game must be valid UTF-8 JSON");
   }
   const root = record(parsed, "root");
+  // A newer save is refused before any payload — including the recovery manifest
+  // and the audio projection — is examined (owner ruling 2026-10-30). A legacy
+  // save has `compiler` and no `ir`; it is always older and is migrated by
+  // `restoreGameState`.
+  if (isRecord(root.schema)) {
+    const shape = root.schema.schema;
+    if (typeof shape === "number" && Number.isInteger(shape) && shape > SCHEMA_VERSIONS.schema) {
+      throw new ScriptError("restore.shape", `the saved game schema version ${shape} is newer than ${SCHEMA_VERSIONS.schema}`);
+    }
+    refuseNewerIr(root.schema.ir);
+  }
+  refuseNewerFrameIr(root);
   const recoveryAssets = recovery && Object.hasOwn(root, "recoveryAssets") ? parseRecoveryAssetManifest(root.recoveryAssets) : null;
   if (recovery) delete root.recoveryAssets;
-  // The compiler check comes first (owner ruling 2026-10-27): a save from another
-  // compiler is refused as such before any audio or section shape is examined.
-  if (isRecord(root.schema)) refuseOtherCompiler(root.schema.compiler);
-  refuseOtherProgramCompilers(root);
   let projection: Record<string, unknown>;
   let tick: number;
   let cueId: number;
@@ -158,7 +167,7 @@ function restoreGameSaveEnvelope(json: string, currentAudio: AudioStateV2, recov
     settings: currentAudio.settings,
   };
   const diagnostics: Diagnostic[] = [];
-  const state = restoreGameState(canon(tagNonFinite(root) as never), diagnostics);
+  const state = restoreGameState(canon(tagNonFinite(root) as never), diagnostics, recovery ? { requireCurrentIr: true } : {});
   if (state.time.tick !== tick) shape("audio.tick must match time.tick");
   state.audio = resetPlayback(currentAudio);
   return { save: { state, audio: projection as unknown as AudioSaveProjection, diagnostics }, recoveryAssets };

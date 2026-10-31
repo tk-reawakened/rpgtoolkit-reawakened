@@ -45,7 +45,7 @@ function fixtureText(name: string): string {
 test("a v2 save (no effect log) restores cleanly as the current vm schema", () => {
   const restored = restoreGameState(fixtureText("v2-vm.json"));
 
-  equal(SCHEMA_VERSIONS.vm, 5);
+  equal(SCHEMA_VERSIONS.vm, 6);
   equal(restored.schema.vm, SCHEMA_VERSIONS.vm);
   deepEqual(restored.vm.effects, []);
   equal(restored.vm.effectSeq, 0);
@@ -72,14 +72,14 @@ test("a v3 save restores with its thread and sleep wait migrated to the v4 shape
   equal(canon(restoreGameState(snapshot(restored))), canon(restored));
 });
 
-test("a v4 save (no module fields) restores unchanged apart from the v5 section version", () => {
+test("a v4 save (no module fields) restores unchanged apart from the v6 section version", () => {
   const restored = restoreGameState(fixtureText("v4-vm.json"));
 
-  equal(SCHEMA_VERSIONS.vm, 5);
+  equal(SCHEMA_VERSIONS.vm, 6);
   equal(restored.schema.vm, SCHEMA_VERSIONS.vm);
   const frame = restored.vm.threads[0]!.frames[0]!;
   // The module fields are optional and stay absent: the ref is the v4 ref.
-  deepEqual(frame.program, { compiler: "2", kind: "inline", text: "sleep(5)\nend()\n" });
+  deepEqual(frame.program, { ir: "1", kind: "inline", text: "sleep(5)\nend()\n" });
   deepEqual(restored.vm.redirects, []);
   deepEqual(restored.vm.threads[0]!.wait, { kind: "sleep", until: 5, global: true, resumesCall: true });
   equal(canon(restoreGameState(snapshot(restored))), canon(restored));
@@ -219,7 +219,6 @@ test("a save from audio schema 1 (the empty placeholder) restores as a fresh sch
     equal(SCHEMA_VERSIONS.audio, 2);
     equal(raw.schema.audio, 1, `${name} is a schema 1 save`);
     deepEqual(raw.audio, {}, `${name} carries the empty placeholder`);
-    if (raw.schema.compiler !== "2") continue;
     const restored = restoreGameState(fixtureText(name));
     equal(restored.schema.audio, SCHEMA_VERSIONS.audio);
     deepEqual(restored.audio, createAudioSection());

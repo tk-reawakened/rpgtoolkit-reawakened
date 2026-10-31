@@ -168,7 +168,7 @@ function runOutcome(state: GameState, source: string, options: { readonly gameOv
     state, plugins, undefined, undefined, loader, "default", undefined, undefined,
     undefined, undefined, false, undefined, undefined, undefined, options.gameOverProgram ?? null,
   );
-  const thread = startProgram(state.vm, { kind: "inline", text: source, compiler: "2" });
+  const thread = startProgram(state.vm, { kind: "inline", text: source, ir: "1" });
   thread.source = "Hero";
   thread.target = "Slime";
   const enemy = Array.from(options.enemy ?? enemyBytes(), (byte) => byte.toString(16).padStart(2, "0")).join("");

@@ -31,7 +31,7 @@ import {
   replyToRequest,
   restoreGameState,
   snapshot,
-  COMPILER_VERSION,
+  IR_VERSION,
   createPluginLayers,
   runPackageStartup,
   startProgram,
@@ -336,7 +336,7 @@ export function createScriptHost(init: ScriptHostInit): ScriptHost {
     ? {
         kind: "inline",
         text: init.program,
-        compiler: COMPILER_VERSION,
+        ir: IR_VERSION,
         dialect: init.dialect ?? "tk3",
       }
     : init.program;

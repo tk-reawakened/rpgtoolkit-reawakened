@@ -1,0 +1,38 @@
+[
+  {
+    "name": "arithmetic",
+    "source": "a = 1 + 2 * 3\nb = (a - 1) / 2\nc = -(a % 4)\nend()\n"
+  },
+  {
+    "name": "conditions",
+    "source": "if (a > 1) { b = 1 } elseif (a == 1) { b = 2 } else { b = 3 }\nwhile (b < 4) { b = b + 1 }\nuntil (b > 6) { b = b + 1 }\nend()\n"
+  },
+  {
+    "name": "loops",
+    "source": "for (i = 0; i < 3; i = i + 1) { total = total + i }\nswitch (total) { case (1) { x = 1 } case (3) { x = 3 } default { x = 0 } }\nend()\n"
+  },
+  {
+    "name": "functions",
+    "source": "function twice(value) { return value * 2 }\nfunction swap(&left, &right) { local(t) = left\n left = right\n right = t }\nresult = twice(21)\nend()\n"
+  },
+  {
+    "name": "calls",
+    "source": "showtext(\"hi\", 1)\nsleep(2)\nvalue = random(6)\nend()\n"
+  },
+  {
+    "name": "arrays",
+    "source": "items[0] = 1\nitems[\"key\"] = 2\nsize = length(items)\nend()\n"
+  },
+  {
+    "name": "classes",
+    "source": "class Point {\npublic:\n  var x\n  var y\n  method Point(ax, ay) { this->x = ax\n this->y = ay }\n  method sum() { return this->x + this->y }\n}\np = Point(1, 2)\ntotal = p->sum()\nend()\n"
+  },
+  {
+    "name": "lambdas",
+    "source": "factor = 3\nscale = (value) => value * factor\nresult = scale(4)\nend()\n"
+  },
+  {
+    "name": "errors",
+    "source": "function risky() {\n  setErrorHandler(:failed)\n  local(a) = 1 / 0\n  return 0\n  :failed\n  seen = 1\n  resumeNext()\n}\nrisky()\nend()\n"
+  }
+]

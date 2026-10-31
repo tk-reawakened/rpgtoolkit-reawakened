@@ -27,7 +27,7 @@ function ok(condition: unknown, message?: string): asserts condition {
 
 function makeState(program: string): GameState {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: program, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: program, ir: "1" });
   return state;
 }
 
@@ -559,7 +559,7 @@ h = 0
   advanceOrFail(state, services);
   equal(state.events.listeners.length, 0);
   equal(state.vm.objects.length, 0);
-  startProgram(state.vm, { kind: "inline", text: 'h = {}\nh.emit("x")\n', compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: 'h = {}\nh.emit("x")\n', ir: "1" });
   for (let tick = 0; tick < 3; tick += 1) advanceOrFail(state, services);
   equal(log(state), "");
 });

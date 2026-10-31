@@ -91,7 +91,7 @@ export type {
 export const GAME_LEDGER_DOMAIN = "tkr.game-ledger";
 
 /** The ledger projection version; it is independent of every section schema version. */
-export const GAME_LEDGER_VERSION = 1;
+export const GAME_LEDGER_VERSION = 2;
 
 /** Party roster, selection and steps; `party.version` is schema metadata. */
 export type LedgerParty = {

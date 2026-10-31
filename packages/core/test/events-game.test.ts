@@ -106,7 +106,7 @@ type Run = { readonly state: GameState; readonly services: ScriptServices; reado
 /** Start `program` with the test plugin and run `ticks` ticks, collecting every diagnostic. */
 function run(program: string, ticks = 6, listeners: PluginDefinition["listeners"] = PING_LISTENER): Run {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: program, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: program, ir: "1" });
   const heard: Heard[] = [];
   const services = createScriptServices(state, [makePlugin(heard, listeners)]);
   const diagnostics: Diagnostic[] = [];
@@ -125,7 +125,7 @@ test("dialogue completion is queued once after the input wait resumes", () => {
   const actor = addActor(state.actors, { kind: "npc", source: "speaker.tem" });
   const speaker = actorFromSource({ id: "speaker", kind: "player", source: "speaker.tem", actorId: actor.id, x: 0, y: 0, layer: 0 }, { coordType: 0 } as WorldBoard, 0, null);
   state.sprites.players.push(speaker);
-  const thread = startProgram(state.vm, { kind: "inline", text: 'result = dialogue("Hello")', compiler: "2" });
+  const thread = startProgram(state.vm, { kind: "inline", text: 'result = dialogue("Hello")', ir: "1" });
   thread.source = speaker.id;
   const heard: Heard[] = [];
   const services = createScriptServices(state, [
@@ -157,7 +157,7 @@ test("a script listens on the game and receives an event a TypeScript plugin emi
   const state = createGameState({ seed: 0 });
   startProgram(state.vm, {
     kind: "inline",
-    compiler: "2",
+    ir: "1",
     text: `
 log = ""
 game.on("tick", (e) => { log = log + "a" + e.detail.n })
@@ -179,7 +179,7 @@ mid = log
 
 test("a script emit reaches a TypeScript listener, which runs only when the dispatcher starts it (EMIT-7, EMIT-21)", () => {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", compiler: "2", text: `game.emit("ping", { n: 5, s: "x" })\ngame.emit("other")\n` });
+  startProgram(state.vm, { kind: "inline", ir: "1", text: `game.emit("ping", { n: 5, s: "x" })\ngame.emit("other")\n` });
   const heard: Heard[] = [];
   const services = createScriptServices(state, [makePlugin(heard, PING_LISTENER)]);
   runWaitsPhase(state.vm, { tick: 0, events: state.events });
@@ -228,7 +228,7 @@ atonce = seen
 
 test("a native listener sits ahead of the script listeners of its type, in the one registration order, and runs from the same dispatcher (EMIT-21)", () => {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", compiler: "2", text: `log = ""\ngame.on("ping", (e) => { log = log + "s" })\ngame.emit("ping")\n` });
+  startProgram(state.vm, { kind: "inline", ir: "1", text: `log = ""\ngame.on("ping", (e) => { log = log + "s" })\ngame.emit("ping")\n` });
   const heard: Heard[] = [];
   const services = createScriptServices(state, [makePlugin(heard, PING_LISTENER)]);
   equal(state.events.listeners.length, 1, "the package's listener was added when the package started, before any script ran");
@@ -373,7 +373,7 @@ outer()
 
 test("debug(false) silences the log but not the event (EMIT-22)", () => {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", compiler: "2", text: `${ERRORS}debug(false)\nnope()\n` });
+  startProgram(state.vm, { kind: "inline", ir: "1", text: `${ERRORS}debug(false)\nnope()\n` });
   const { sink, records } = createCollectingSink();
   const services = createScriptServices(state, [], createLogger([sink]));
   for (let tick = 0; tick < 3; tick += 1) advanceScriptTick(state, services);
@@ -391,7 +391,7 @@ nope()
   equal(globalOf(result, "tg"), 1);
   equal(globalOf(result, "m"), 'no built-in or function named "nope"');
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", compiler: "2", text: `nope()\n` });
+  startProgram(state.vm, { kind: "inline", ir: "1", text: `nope()\n` });
   const services = createScriptServices(state, []);
   runWaitsPhase(state.vm, { tick: 0, events: state.events });
   runThreadsPhase(state.vm, services, STEP_BUDGET);
@@ -451,7 +451,7 @@ test("a section owner registers an emitter once, the engine keeps it alive and i
   equal(state.vm.objects.length, 1);
   startProgram(state.vm, {
     kind: "inline",
-    compiler: "2",
+    ir: "1",
     text: `log = ""\ncave.on("entered", (e) => { log = log + "e" })\ncave.once("entered", (e) => { log = log + "o" })\ntsemitto("board:cave", "entered")\ncave.emit("entered")\n`,
   });
   const services = createScriptServices(state, [makePlugin([], undefined)]);
@@ -506,7 +506,7 @@ test("a save taken at every tick restores, does not double the native listener a
   const heard: Heard[] = [];
   const plugin = makePlugin(heard, PING_LISTENER);
   const straight = createGameState({ seed: 0 });
-  startProgram(straight.vm, { kind: "inline", compiler: "2", text: SAVE_PROGRAM });
+  startProgram(straight.vm, { kind: "inline", ir: "1", text: SAVE_PROGRAM });
   const straightServices = createScriptServices(straight, [plugin]);
   const ticks = 24;
   const hashes: string[] = [];

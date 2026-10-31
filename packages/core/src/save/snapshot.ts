@@ -3,18 +3,23 @@
  *
  * `snapshot(state)` is the canonical form of the whole state tree, so a
  * snapshot, a save, a hash and a restore all share one representation
- * (`canon`, RFC 8785) — Q4. `restoreGameState(json)` parses it and checks the
- * compiler version and the presence of every section; bounds and the
- * restore-versus-restart policy for a mismatch are entry 11's. Q5/Q12 place the
- * shared snapshot→restore→hash check in `runner-harness`. Compiled programs are
- * not in state (AD-7), so a restored host recompiles lazily through its own
- * program memo.
+ * (`canon`, RFC 8785) — Q4. `restoreGameState(json)` parses it, migrates the
+ * data sections forward and checks the presence of every section; bounds and the
+ * restore-versus-restart policy for an instruction version are entry 11's.
+ * Q5/Q12 place the shared snapshot→restore→hash check in `runner-harness`.
+ * Compiled programs are not in state (AD-7), so a restored host recompiles
+ * lazily through its own program memo.
  *
- * Two errors are pinned: a different `schema.compiler`, or any program reference
- * naming another compiler, is `restore.compiler-mismatch` and refuses the whole
- * save (owner ruling 2026-10-27); a missing section is `restore.shape`. Only a
- * file-backed program whose source changed restarts its thread, and that is the
- * program cache's `restore.source-changed`, not a snapshot error.
+ * Two identities decide compatibility
+ * (docs/spec/formats/save-game.md#save-compatibility-and-instruction-versions-owner-ruling):
+ * the per-section versions describe the data shape and migrate forward, while
+ * `schema.ir` and every frame's `ProgramRef.ir` describe the meaning of a saved
+ * instruction position. A newer `ir` is `restore.ir-mismatch` and refuses the
+ * whole save before payload validation; an older `ir` keeps every data section
+ * and restarts that thread from its saved program source (root frame at `ip 0`,
+ * call stack and locals dropped). A changed source still restarts one thread
+ * through the program cache's `restore.source-changed`, which is not a snapshot
+ * error. A missing section is `restore.shape`.
  *
  * **VM objects, callables and closure cells (FUN-8/OOP-10; entry 18.6).** Without
  * compiled programs, `restoreGameState` checks each object value, member reference,
@@ -30,9 +35,10 @@
  * `SCHEMA_VERSIONS.vm` is migrated forward before it is returned: v2 → v3 adds
  * the effect log that ticket 3.21 introduced, v3 → v4 the thread, wait and
  * request fields of ticket 3.9, v4 → v5 advances both ticket 3.8 module
- * metadata and ticket 3.16's sandboxed file-handle table, then the section
- * version is set to the current one. The chain is keyed by the per-section
- * numbers (AD-23). A save whose `schema.audio` is 1 carried the empty
+ * metadata and ticket 3.16's sandboxed file-handle table, and v5 → v6 renames
+ * each program reference's `compiler` to `ir`. The `schema` section v1 → v2
+ * turns its `compiler` into `ir` the same way. The chain is keyed by the
+ * per-section numbers (AD-23). A save whose `schema.audio` is 1 carried the empty
  * placeholder; it is replaced by a fresh schema-2 audio section
  * (docs/spec/engine/audio-media.md#audio-state), because a placeholder held no
  * playback to keep.
@@ -51,7 +57,7 @@ import {
   RESTORE_CELL_SEQ,
   ScriptError,
 } from "../script/errors.ts";
-import { COMPILER_VERSION } from "../script/program.ts";
+import { IR_VERSION } from "../script/program.ts";
 import { SCHEMA_VERSIONS, type GameState } from "./state.ts";
 import { asActorsSection, createActorsSection, ACTORS_SCHEMA_VERSION, validateActorProgression, type ActorProgression, type ActorStats } from "../actors/model.ts";
 import { asSpritesSection, createSpritesSection, SPRITES_SCHEMA_VERSION } from "../sprites/model.ts";
@@ -82,6 +88,37 @@ export function snapshot(state: GameState): string {
   return canon(tagNonFinite(state) as never);
 }
 
+/** Rename one saved program reference's legacy `compiler` to `ir` (v5 → v6). */
+function renameProgramRef(value: unknown): void {
+  if (!isRecord(value)) return;
+  if (typeof value.ir === "string") {
+    // A partially migrated reference keeps `ir` and drops the legacy field.
+    if (typeof value.compiler === "string") delete value.compiler;
+    return;
+  }
+  if (typeof value.compiler !== "string") return;
+  value.ir = irOfCompiler(value.compiler);
+  delete value.compiler;
+}
+
+/** Rename every saved program reference: frame programs, object programs and definition owners. */
+function migrateProgramRefs(record: Record<string, unknown>): void {
+  const vm = record.vm;
+  if (!isRecord(vm)) return;
+  if (Array.isArray(vm.threads)) {
+    for (const thread of vm.threads) {
+      if (!isRecord(thread) || !Array.isArray(thread.frames)) continue;
+      for (const frame of thread.frames) if (isRecord(frame)) renameProgramRef(frame.program);
+    }
+  }
+  if (Array.isArray(vm.objects)) {
+    for (const object of vm.objects) if (isRecord(object)) renameProgramRef(object.program);
+  }
+  if (isRecord(vm.defOwners)) {
+    for (const ref of Object.values(vm.defOwners)) renameProgramRef(ref);
+  }
+}
+
 /**
  * Migrate a snapshot's `vm` section to the current schema. Engine effect queues
  * are optional and require no version bump because an empty engine section
@@ -92,6 +129,8 @@ function migrateVm(record: Record<string, unknown>, schema: Record<string, unkno
   if (typeof version !== "number") {
     throw new ScriptError("restore.shape", "the snapshot's `schema` has no numeric `vm` version");
   }
+  if (version > SCHEMA_VERSIONS.vm) shapeError(`the snapshot's vm schema version ${String(version)} is newer than supported version ${SCHEMA_VERSIONS.vm}`);
+  if (version < SCHEMA_VERSIONS.vm) migrateProgramRefs(record);
   if (version >= SCHEMA_VERSIONS.vm) return;
 
   const vm = record.vm;
@@ -140,6 +179,7 @@ function migrateEngine(record: Record<string, unknown>, schema: Record<string, u
   if (typeof version !== "number") {
     throw new ScriptError("restore.shape", "the snapshot's `schema` has no numeric `engine` version");
   }
+  if (version > SCHEMA_VERSIONS.engine) shapeError(`the snapshot's engine schema version ${String(version)} is newer than supported version ${SCHEMA_VERSIONS.engine}`);
   if (version >= SCHEMA_VERSIONS.engine) return;
   const engine = recordAt(record.engine, "engine");
   if (version < 2) {
@@ -341,18 +381,9 @@ function validateProgramRef(value: unknown, path: string): void {
   const ref = recordAt(value, path);
   const kind = stringAt(ref.kind, `${path}.kind`);
   if (kind !== "inline" && kind !== "file") return shapeError(`the snapshot's ${path}.kind is invalid`);
-  const compiler = stringAt(ref.compiler, `${path}.compiler`);
-  // A program compiled by another compiler has instruction positions this one
-  // cannot honour: the whole save is refused (owner ruling 2026-10-27,
-  // docs/spec/formats/save-game.md#compiler-mismatch-refuse-the-whole-save-owner-ruling).
-  // Only a changed *source* restarts a thread, and that is decided later, by the
-  // program cache, not here.
-  if (compiler !== COMPILER_VERSION) {
-    throw new ScriptError(
-      "restore.compiler-mismatch",
-      `the snapshot's ${path}.compiler ${compiler} does not match ${COMPILER_VERSION}`,
-    );
-  }
+  // The instruction version is shape here; a newer one was refused before payload
+  // validation and an older one already restarted its thread (see the file header).
+  irNumberAt(ref.ir, `${path}.ir`);
   if (kind === "inline") stringAt(ref.text, `${path}.text`);
   else {
     stringAt(ref.path, `${path}.path`);
@@ -873,7 +904,7 @@ function validateEngineShape(value: unknown): void {
 function validateShape(record: Record<string, unknown>): void {
   const schema = recordAt(record.schema, "schema");
   for (const key of Object.keys(SCHEMA_VERSIONS)) numberAt(schema[key], `schema.${key}`);
-  stringAt(schema.compiler, "schema.compiler");
+  irNumberAt(schema.ir, "schema.ir");
   for (const key of Object.keys(SCHEMA_VERSIONS)) {
     if (key === "schema" || key === "vm" || key === "rng" || key === "time") continue;
     if (key === "battle") {
@@ -896,54 +927,154 @@ function validateShape(record: Record<string, unknown>): void {
   validateEventsShape(record.events, vm, objectClasses);
 }
 
+/** Options for a restore beyond the canonical form and diagnostics. */
+export type RestoreOptions = {
+  /** Refuse an older instruction version instead of restarting the affected threads (recovery). */
+  readonly requireCurrentIr?: boolean;
+};
+
+/** The whole-number form of an instruction version, or `null` when the text is not one. */
+function irNumber(value: unknown): number | null {
+  if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value)) return null;
+  return Number(value);
+}
+
+function irNumberAt(value: unknown, path: string): number {
+  const version = irNumber(value);
+  if (version === null) return shapeError(`the snapshot's ${path} must be a whole-number string`);
+  return version;
+}
+
 /**
- * Refuse a save made by another compiler. It is the first check on every restore
- * path, ahead of any section or audio validation, so a save from another compiler
- * is always reported as `restore.compiler-mismatch` whatever else is malformed.
+ * Refuse a save from a newer instruction version. Called on every restore path and
+ * by the game-save envelope before its audio projection is read, so a newer save is
+ * reported as such whatever else is malformed. A legacy `compiler` field is not
+ * checked here: the `schema` migration maps it to `ir` first.
  */
-export function refuseOtherCompiler(compiler: unknown): void {
-  if (compiler !== COMPILER_VERSION) {
-    throw new ScriptError(
-      "restore.compiler-mismatch",
-      `the snapshot's compiler ${String(compiler)} does not match ${COMPILER_VERSION}`,
-    );
+export function refuseNewerIr(value: unknown, path = "schema.ir"): void {
+  const version = irNumber(value);
+  const current = irNumber(IR_VERSION) ?? 0;
+  if (version !== null && version > current) {
+    throw new ScriptError("restore.ir-mismatch", `the snapshot's ${path} ${String(value)} is newer than ${IR_VERSION}`);
   }
 }
 
 /**
- * Check program compiler identities before validating or migrating any payload section. The
- * compiler mismatch ruling covers references in frames, object records and `vm.defOwners`,
- * even when another payload section is malformed.
+ * The instruction version a legacy `compiler` value maps to: only compiler 2
+ * produced the current linear IR. Every other value — compiler 1, or an unknown
+ * future compiler — maps to `"0"` ("positions not valid"), which restarts the
+ * thread rather than guessing at its saved `ip`.
  */
-export function refuseOtherProgramCompilers(record: Record<string, unknown>): void {
+function irOfCompiler(compiler: string): string {
+  return compiler === "2" ? IR_VERSION : "0";
+}
+
+/** Migrate the `schema` section: v1 `compiler` becomes v2 `ir` (docs/spec/formats/save-game.md). */
+function migrateSchema(schema: Record<string, unknown>): void {
+  const version = schema.schema;
+  if (typeof version !== "number") shapeError("the snapshot's `schema` has no numeric `schema` version");
+  if (version > SCHEMA_VERSIONS.schema) shapeError(`the snapshot's schema version ${String(version)} is newer than supported version ${SCHEMA_VERSIONS.schema}`);
+  if (version >= SCHEMA_VERSIONS.schema) return;
+  if (version !== 1) shapeError(`the snapshot's schema version ${String(version)} has no migration`);
+  schema.ir = irOfCompiler(stringAt(schema.compiler, "schema.compiler"));
+  delete schema.compiler;
+  schema.schema = SCHEMA_VERSIONS.schema;
+}
+
+/**
+ * Restart a thread whose saved instruction positions predate the running version.
+ * The shape matches `restartThreadFromSource`: one root frame at `ip 0`, no saved
+ * locals, operands, wait or pending call, and the current `ir` on the reference so
+ * the host compiles the saved source rather than a stale step table.
+ */
+function restartOutdatedThread(thread: Record<string, unknown>): void {
+  const root = Array.isArray(thread.frames) ? thread.frames[0] : undefined;
+  if (!isRecord(root) || !isRecord(root.program)) return;
+  thread.frames = [{
+    program: { ...root.program, ir: IR_VERSION },
+    ip: 0,
+    locals: {},
+    operands: [],
+    errorHandler: null,
+    autoLocal: false,
+  }];
+  thread.status = "ready";
+  thread.wait = null;
+  thread.pending = null;
+  thread.detached = [];
+  thread.collect = null;
+}
+
+type FrameProgram = {
+  readonly threadIndex: number;
+  readonly path: string;
+  readonly ref: Record<string, unknown>;
+};
+
+/** Every saved frame's program reference, tolerantly: a malformed thread is a shape error, not this walk's. */
+function eachFrameProgram(record: Record<string, unknown>): FrameProgram[] {
+  const found: FrameProgram[] = [];
   const vm = record.vm;
-  if (!isRecord(vm)) return;
-  const check = (value: unknown, path: string): void => {
-    if (!isRecord(value) || typeof value.compiler !== "string" || value.compiler === COMPILER_VERSION) return;
-    throw new ScriptError(
-      "restore.compiler-mismatch",
-      `the snapshot's ${path}.compiler ${value.compiler} does not match ${COMPILER_VERSION}`,
-    );
-  };
-  if (Array.isArray(vm.threads)) {
-    vm.threads.forEach((thread, threadIndex) => {
-      if (!isRecord(thread) || !Array.isArray(thread.frames)) return;
-      thread.frames.forEach((frame, frameIndex) => {
-        if (isRecord(frame)) check(frame.program, `vm.threads[${threadIndex}].frames[${frameIndex}].program`);
-      });
+  if (!isRecord(vm) || !Array.isArray(vm.threads)) return found;
+  vm.threads.forEach((thread, threadIndex) => {
+    if (!isRecord(thread) || !Array.isArray(thread.frames)) return;
+    thread.frames.forEach((frame, frameIndex) => {
+      if (!isRecord(frame) || !isRecord(frame.program)) return;
+      found.push({ threadIndex, path: `vm.threads[${threadIndex}].frames[${frameIndex}].program.ir`, ref: frame.program });
     });
+  });
+  return found;
+}
+
+/** Refuse a frame from a newer instruction version before any payload section is migrated or validated. */
+export function refuseNewerFrameIr(record: Record<string, unknown>): void {
+  const current = irNumber(IR_VERSION) ?? 0;
+  for (const frame of eachFrameProgram(record)) {
+    const version = irNumber(frame.ref.ir);
+    if (version !== null && version > current) {
+      throw new ScriptError("restore.ir-mismatch", `the snapshot's ${frame.path} ${String(frame.ref.ir)} is newer than ${IR_VERSION}`);
+    }
   }
-  if (Array.isArray(vm.objects)) {
-    vm.objects.forEach((object, index) => {
-      if (isRecord(object)) check(object.program, `vm.objects[${index}].program`);
-    });
+}
+
+/**
+ * Apply the instruction-version rule to every saved thread: an older frame
+ * restarts that thread (or, for a recovery candidate, refuses the save). A newer
+ * one was already refused before payload validation. Position-free program
+ * references — object records and `vm.defOwners` — carry no `ip` and are left for
+ * the host to recompile.
+ */
+function applyIrCompatibility(record: Record<string, unknown>, options: RestoreOptions): void {
+  const current = irNumber(IR_VERSION) ?? 0;
+  // A recovery candidate is like-for-like: a save-level instruction difference
+  // refuses it even when no frame would restart (for example a finished thread).
+  const schema = record.schema;
+  if (options.requireCurrentIr === true && isRecord(schema) && schema.ir !== IR_VERSION) {
+    throw new ScriptError("restore.ir-mismatch", `the snapshot's schema.ir ${String(schema.ir)} differs from ${IR_VERSION}`);
   }
-  if (isRecord(vm.defOwners)) {
-    for (const [def, ref] of Object.entries(vm.defOwners)) check(ref, `vm.defOwners.${def}`);
+  const outdated = new Set<number>();
+  for (const frame of eachFrameProgram(record)) {
+    const version = irNumber(frame.ref.ir);
+    if (version !== null && version < current) outdated.add(frame.threadIndex);
+  }
+  const vm = record.vm as Record<string, unknown>;
+  for (const index of outdated) {
+    const thread = (vm.threads as unknown[])[index];
+    if (!isRecord(thread)) continue;
+    // A finished thread has no position left to resume; leave it finished.
+    if (thread.status === "finished") continue;
+    if (options.requireCurrentIr === true) {
+      throw new ScriptError("restore.ir-mismatch", `the snapshot's vm.threads[${index}] was saved by an earlier instruction version`);
+    }
+    restartOutdatedThread(thread);
   }
 }
 /** Parse and check a snapshot's canonical form (see the file header). */
-export function restoreGameState(json: string, diagnostics: Diagnostic[] = []): GameState {
+export function restoreGameState(
+  json: string,
+  diagnostics: Diagnostic[] = [],
+  options: RestoreOptions = {},
+): GameState {
   let parsed: unknown;
   try {
     parsed = reviveNonFinite(JSON.parse(json));
@@ -956,11 +1087,14 @@ export function restoreGameState(json: string, diagnostics: Diagnostic[] = []): 
   const record = parsed as Record<string, unknown>;
 
   const schemaValue = record.schema;
-  if (isRecord(schemaValue)) refuseOtherCompiler(schemaValue.compiler);
-  refuseOtherProgramCompilers(record);
   if (!isRecord(schemaValue)) {
     throw new ScriptError("restore.shape", "the snapshot has no `schema` section");
   }
+  // The schema migration is the one transform before the newer-version check: a
+  // legacy save has `compiler` and no `ir`, and is always older.
+  migrateSchema(schemaValue);
+  refuseNewerIr(schemaValue.ir);
+  refuseNewerFrameIr(record);
   const schema = schemaValue;
   migrateEvents(record, schema);
   migrateActors(record, schema as Record<string, unknown>);
@@ -978,6 +1112,11 @@ export function restoreGameState(json: string, diagnostics: Diagnostic[] = []): 
   migrateInput(record, schema as Record<string, unknown>);
   migrateTriggers(record, schema as Record<string, unknown>);
   migrateAudio(record, schema as Record<string, unknown>);
+  applyIrCompatibility(record, options);
+  // The loaded state now runs the current instruction version: every position is
+  // either unchanged or was restarted, and position-free references keep their
+  // provenance. A save written from it therefore records the running `ir`.
+  schema.ir = IR_VERSION;
   const battleIssues = validateBattleSection(record.battle, record.actors as GameState["actors"]);
   for (const issue of battleIssues) {
     if (issue.recoverable) {

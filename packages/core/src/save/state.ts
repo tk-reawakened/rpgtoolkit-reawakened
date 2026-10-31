@@ -7,13 +7,15 @@
  * `save/sections/` (`world`, `camera`, `ui`, `fx`, `surfaces`, `input`,
  * `engine`), nine are owned by their modules (`sprites`, `actors`,
  * `triggers`, `audio`, `events`, `party`, `inventory`, `menu`, and `battle`).
- * `SchemaState` is AD-23's per-section version map plus the compiler version.
+ * `SchemaState` is AD-23's per-section version map plus the instruction version (`ir`).
  *
- * **The schema-bump rule (AD-7's check).** A change to any `*State` type or to
- * `StepOp` needs either a section's version in `SCHEMA_VERSIONS` bumped or
- * `COMPILER_VERSION` changed, *plus* a fixture save from the previous version
- * and a restore test over it. `restore.compiler-mismatch` catches a compiler
- * bump; the per-section numbers are the migration chain's keys.
+ * **The version rules (AD-7's check; owner ruling 2026-10-30).** A change to a
+ * `*State` type bumps that section's version in `SCHEMA_VERSIONS`, plus a fixture
+ * save from the previous version and a restore test over it. A change to `StepOp`,
+ * the lowering or the emission order bumps `IR_VERSION` and the step-op
+ * fingerprint instead; the per-section numbers are the migration chain's keys and
+ * never carry instruction meaning
+ * (docs/spec/formats/save-game.md#save-compatibility-and-instruction-versions-owner-ruling).
  *
  * AD-10 (the state tree), AD-11 (the canonical form) and AD-23 (per-section
  * versions); docs/spec/formats/save-game.md#layout-minor-4 (the saved game).
@@ -21,7 +23,7 @@
 
 import type { AssertPlainData } from "../ports/plain-data.ts";
 import { seedRng, type RngState } from "../rng/xoshiro.ts";
-import { COMPILER_VERSION } from "../script/program.ts";
+import { IR_VERSION } from "../script/program.ts";
 import { createVmState, type VmState } from "../script/state.ts";
 import { createTimeState, type TimeState } from "../time/time.ts";
 import {
@@ -58,14 +60,14 @@ import { BATTLE_SCHEMA_VERSION, createBattleSection } from "../battle/model.ts";
 
 /** Every `GameState` section key (AD-10), i.e. the schema version map's keys. */
 export const SCHEMA_VERSIONS = {
-  schema: 1,
+  schema: 2,
   world: 1,
   sprites: 2,
   actors: 2,
   party: PARTY_SCHEMA_VERSION,
   inventory: INVENTORY_SCHEMA_VERSION,
   triggers: 2,
-  vm: 5,
+  vm: 6,
   battle: BATTLE_SCHEMA_VERSION,
   menu: MENU_SCHEMA_VERSION,
   input: 2,
@@ -83,7 +85,7 @@ export const SCHEMA_VERSIONS = {
 /** One `GameState` section key. */
 export type SectionKey = keyof typeof SCHEMA_VERSIONS;
 
-/** AD-23's `GameState.schema`: a version per section plus the compiler version. */
+/** AD-23's `GameState.schema`: a version per section plus the instruction version (`ir`). */
 export type SchemaState = {
   schema: number;
   world: number;
@@ -105,7 +107,7 @@ export type SchemaState = {
   time: number;
   engine: number;
   events: number;
-  compiler: string;
+  ir: string;
 };
 
 /** AD-10's 20-section state tree (`events` is entry 19.10's); `SaveState` is this type. */
@@ -158,7 +160,7 @@ export function createSchemaState(): SchemaState {
     time: SCHEMA_VERSIONS.time,
     engine: SCHEMA_VERSIONS.engine,
     events: SCHEMA_VERSIONS.events,
-    compiler: COMPILER_VERSION,
+    ir: IR_VERSION,
   };
 }
 

@@ -125,7 +125,7 @@ function callProgram(spec: BuiltinSpec, argc: number): { text: string; byRef: nu
 /** Run one program in a fresh state for one tick. */
 function run(program: string): GameState {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: program, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: program, ir: "1" });
   advanceOrFail(state, createScriptServices(state));
   return state;
 }
@@ -250,7 +250,7 @@ test("a by-reference argument is written back and recorded by index", () => {
 test("the obsolete names raise builtin.obsolete and record nothing", () => {
   for (const name of ["underarrow", "itemwalkspeed"]) {
     const state = createGameState({ seed: 0 });
-    startProgram(state.vm, { kind: "inline", text: `${name}()\n`, compiler: "2" });
+    startProgram(state.vm, { kind: "inline", text: `${name}()\n`, ir: "1" });
     const error = errorOf(() => advanceOrFail(state, createScriptServices(state)));
     equal(error.code, "builtin.obsolete", `code for "${name}"`);
     equal(state.vm.effects.length, 0, `record for "${name}"`);
@@ -297,7 +297,7 @@ test("a snapshot with effects restores identically and keeps stamping monotonic 
   equal(hashState(restored), hashState(state));
   deepEqual(restored.vm.effects, state.vm.effects);
 
-  startProgram(restored.vm, { kind: "inline", text: "mediastop()\n", compiler: "2" });
+  startProgram(restored.vm, { kind: "inline", text: "mediastop()\n", ir: "1" });
   advanceScriptTick(restored, createScriptServices(restored));
   equal(restored.vm.effectSeq, 3);
   equal(restored.vm.effects[2]?.seq, 3);
@@ -312,7 +312,7 @@ test("a caller plugin overrides a stub and warns once", () => {
   };
   const warnings: string[] = [];
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: "mediastop()\n", compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: "mediastop()\n", ir: "1" });
   const services = createScriptServices(state, [
     { id: "game", version: "1.0.0", commands: [replacement] },
   ], {

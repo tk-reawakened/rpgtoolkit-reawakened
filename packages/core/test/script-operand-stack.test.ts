@@ -57,7 +57,7 @@ end()
 test("the synthetic program produces all pinned outcomes with a stable state hash", () => {
   function run(): { state: GameState; hash: string } {
     const state = createGameState({ seed: 0 });
-    startProgram(state.vm, { kind: "inline", text: SYNTHETIC, compiler: "2" });
+    startProgram(state.vm, { kind: "inline", text: SYNTHETIC, ir: "1" });
     const services = createScriptServices(state);
 
     let ticks = 0;
@@ -89,7 +89,7 @@ test("the synthetic program produces all pinned outcomes with a stable state has
 
 test("per-step snapshot and restore round-trips with non-empty operand stack", () => {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: SYNTHETIC, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: SYNTHETIC, ir: "1" });
   const services = createScriptServices(state);
 
   let totalSteps = 0;

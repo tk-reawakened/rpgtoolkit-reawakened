@@ -1,0 +1,14 @@
+{
+  "ir": "1",
+  "programs": {
+    "arithmetic": "c0b73003e853c363",
+    "conditions": "de1f2fec89a375c8",
+    "loops": "fc8a2b218fdd2f7c",
+    "functions": "8c3d7d3b07d3b51c",
+    "calls": "3d7d75ea64fe5835",
+    "arrays": "b4c576840dba92b2",
+    "classes": "b2240b5fdbca0a7e",
+    "lambdas": "cd886c1e3bfb4fd5",
+    "errors": "6c0b4c1ffc0c974b"
+  }
+}

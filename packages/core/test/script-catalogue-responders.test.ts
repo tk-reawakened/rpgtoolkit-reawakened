@@ -48,7 +48,7 @@ function callText(spec: BuiltinSpec): string {
 
 function run(text: string): GameState {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text, ir: "1" });
   advanceOrFail(state, createScriptServices(state, [CATALOGUE_RESPONDERS_PLUGIN]));
   return state;
 }
@@ -70,7 +70,7 @@ test("all non-core catalogue responders have a lower-case command and a recorded
   for (const spec of COMMANDS) {
     equal(spec.name, spec.name.toLowerCase());
     const state = createGameState({ seed: 0 });
-    startProgram(state.vm, { kind: "inline", text: callText(spec), compiler: "2" });
+    startProgram(state.vm, { kind: "inline", text: callText(spec), ir: "1" });
     if (["godos", "sound", "start", "win"].includes(spec.name)) {
       throws(() => advanceOrFail(state, createScriptServices(state, [CATALOGUE_RESPONDERS_PLUGIN])), /obsolete/);
       equal(state.vm.effects.length, 0);
@@ -98,7 +98,7 @@ test("core pure commands are not duplicated in the default catalogue layer", () 
 
 test("a named wait is global, records its wait, and resumes by-reference outputs", () => {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: 'prompt("Question", answer)\n', compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: 'prompt("Question", answer)\n', ir: "1" });
   advanceOrFail(state, createScriptServices(state, [CATALOGUE_RESPONDERS_PLUGIN]));
 
   const thread = state.vm.threads[0]!;

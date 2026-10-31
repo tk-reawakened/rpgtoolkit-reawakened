@@ -189,7 +189,7 @@ test("lowers the tracer program to the exact op array", () => {
   deepEqual(program.ref, {
     kind: "inline",
     text: 'greeting = "hi"\ncount = 2\nsleep(count)\ncount = 3\nend()\n',
-    compiler: "2",
+    ir: "1",
   });
   deepEqual(program.ops, [
     { op: "load", name: "greeting", pos: { file: "<inline>", line: 1 } },
@@ -215,7 +215,7 @@ test("lowers the tracer program to the exact op array", () => {
   // A file reference needs a source loader; without one it is refused.
   equal(
     errorOf(() =>
-      compileProgram({ kind: "file", path: "a.prg", sourceHash: "0", compiler: "2" }),
+      compileProgram({ kind: "file", path: "a.prg", sourceHash: "0", ir: "1" }),
     ).code,
     "program.file-unsupported",
   );

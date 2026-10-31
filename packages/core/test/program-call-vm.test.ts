@@ -62,7 +62,7 @@ function makeRig(
   pair: { readonly source: string | null; readonly target: string | null } = { source: null, target: null },
 ) {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: source, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: source, ir: "1" });
   const thread = state.vm.threads[0]!;
   thread.source = pair.source;
   thread.target = pair.target;
@@ -148,7 +148,7 @@ test("source and target context handles resolve from the old pair, inherit when 
       'executeProgram("program-call-handles.prg", "target", "source")\n' +
       "positional_source = observed_source\npositional_target = observed_target\n" +
       "restored_source = sourceHandle()\nrestored_target = targetHandle()\n",
-    compiler: "2",
+    ir: "1",
   });
   const thread = state.vm.threads[0]!;
   thread.source = hero!;
@@ -266,7 +266,7 @@ test("end, done, and stop end only the nested program and restore its pair", () 
     startProgram(state.vm, {
       kind: "inline",
       text: `result = executeProgram("program-call-${command}.prg")\nafter = 1\n`,
-      compiler: "2",
+      ir: "1",
     });
     const thread = state.vm.threads[0]!;
     thread.source = hero!;
@@ -290,7 +290,7 @@ test("replaceProgram inside executeProgram discards pending returns and leaves t
     text:
       'executeProgram("program-call-replace-inside.prg", { source: "' + handles[2] + '", new_source: "' + handles[3] + '", new_target: "' + handles[4] + '", marker: "replacement" })\n' +
       "outer_resumed = 1\n",
-    compiler: "2",
+    ir: "1",
   });
   const thread = state.vm.threads[0]!;
   thread.source = handles[0]!;
@@ -316,7 +316,7 @@ test("replaceProgram installs its resolved pair and inherits omitted slots", () 
     text:
       'replaceProgram("program-call-replacement.prg", { target: "' + handles[2] + '", marker: "replacement" })\n' +
       "after_replace = 1\n",
-    compiler: "2",
+    ir: "1",
   });
   const thread = state.vm.threads[0]!;
   thread.source = handles[0]!;
@@ -358,7 +358,7 @@ test("a wait in the nested program parks its caller thread while another thread 
     loader,
   );
   const other = startThread(state.vm, {
-    ref: { kind: "inline", text: "other_ran = other_ran + 1\n", compiler: "2" },
+    ref: { kind: "inline", text: "other_ran = other_ran + 1\n", ir: "1" },
     kind: "persistent",
     owner: "script",
   });
@@ -411,7 +411,7 @@ test("each instruction-boundary save inside executeProgram restores context and 
     kind: "inline",
     text:
       'nested_result = executeProgram("program-call-context.prg", { source: "' + handles[2] + '", value: 47 })\nafter_save = 1\n',
-    compiler: "2",
+    ir: "1",
   });
   const thread = state.vm.threads[0]!;
   thread.source = handles[0]!;

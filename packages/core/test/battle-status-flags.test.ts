@@ -13,7 +13,7 @@ function stateWithStatus() {
 
 function run(state: GameState, code: string, poll?: WaitPoll) {
   const services = createScriptServices(state, plugins);
-  const thread = startProgram(state.vm, { kind: "inline", text: code, compiler: "2" });
+  const thread = startProgram(state.vm, { kind: "inline", text: code, ir: "1" });
   let status: string = "running";
   for (let i = 0; i < 20 && status !== "finished"; i += 1) status = advanceScriptTick(state, services, undefined, poll);
   return { thread, services };

@@ -34,7 +34,7 @@ function ok(condition: unknown, message?: string): asserts condition {
 
 function makeState(program: string): GameState {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: program, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: program, ir: "1" });
   return state;
 }
 
@@ -331,7 +331,7 @@ kill(d)
   const saved = snapshot(state);
   const restored = restoreChecked(saved);
   equal(restored.state.vm.objects.length, 1);
-  startProgram(restored.state.vm, { kind: "inline", text: "r = f()\n", compiler: "2" });
+  startProgram(restored.state.vm, { kind: "inline", text: "r = f()\n", ir: "1" });
   runToRest(restored.state, restored.services);
   equal(restored.state.vm.globals.r, 7);
 });
@@ -435,7 +435,7 @@ test("a dictionary nothing names is freed at the end of the tick it became unrea
   equal(state.vm.objects.length, 3, "all three are reachable through d");
 
   const services = createScriptServices(state);
-  startProgram(state.vm, { kind: "inline", text: "kill(d)\n", compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: "kill(d)\n", ir: "1" });
   advanceOrFail(state, services);
   equal(state.vm.objects.length, 0, "dropping the outer drops the chain in the same tick");
 });
@@ -470,10 +470,10 @@ b = step()
   deepEqual(state.vm.cells, { cell1: 2 });
   equal(state.vm.objects.length, 1);
 
-  startProgram(state.vm, { kind: "inline", text: "kill(step)\n", compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: "kill(step)\n", ir: "1" });
   advanceOrFail(state, services);
   deepEqual(state.vm.cells, { cell1: 2 }, "the dictionary still holds the closure, so its cell stays");
-  startProgram(state.vm, { kind: "inline", text: "kill(d)\n", compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: "kill(d)\n", ir: "1" });
   advanceOrFail(state, services);
   equal(state.vm.objects.length, 0, "the dictionary is freed in the tick it became unreachable");
   deepEqual(state.vm.cells, { cell1: 2 }, "the cell only it reached was still reachable when the cell pass ran");
@@ -484,7 +484,7 @@ b = step()
 
 test("a dictionary that names itself is never freed (R-34), and one that is named stays", () => {
   const state = runOnce("d = {}\nd.me = d\n");
-  startProgram(state.vm, { kind: "inline", text: "kill(d)\n", compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: "kill(d)\n", ir: "1" });
   advanceOrFail(state, createScriptServices(state));
   equal(state.vm.objects.length, 1);
 });
@@ -560,7 +560,7 @@ test("a snapshot whose dictionary keys disagree with its members is refused", ()
 test("advanceScriptTick on a restored state collects like the original", () => {
   const state = runOnce("d = { a: { b: 1 } }\n");
   const { state: restored } = restoreChecked(snapshot(state));
-  startProgram(restored.vm, { kind: "inline", text: "kill(d)\n", compiler: "2" });
+  startProgram(restored.vm, { kind: "inline", text: "kill(d)\n", ir: "1" });
   advanceScriptTick(restored, createScriptServices(restored));
   equal(restored.vm.objects.length, 0);
 });

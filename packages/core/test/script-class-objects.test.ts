@@ -25,7 +25,7 @@ import { createScriptServices } from "./script-test-services.ts";
 
 function makeState(program: string): GameState {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: program, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: program, ir: "1" });
   return state;
 }
 
@@ -121,7 +121,7 @@ test("a class instance holds every declared field of its class and ancestors, in
   const state = runOnce(HIERARCHY);
   const [instance, dictionary] = state.vm.objects;
   equal(instance!.className, "leaf");
-  deepEqual(instance!.program, { kind: "inline", text: HIERARCHY, compiler: "2" });
+  deepEqual(instance!.program, { kind: "inline", text: HIERARCHY, ir: "1" });
   deepEqual(
     objectKeys(instance!),
     ["leaffield", "midfield", "shared", "slots[0]", "slots[1]", "grow"],
@@ -470,7 +470,7 @@ kill(g, h)
   equal(state.vm.objects.length, 3, "the two cycle members and the dictionary their callable remembers");
   const { state: restored, services } = restoreChecked(snapshot(state));
   equal(hashState(restored), hashState(state));
-  startProgram(restored.vm, { kind: "inline", text: "r = 1\n", compiler: "2" });
+  startProgram(restored.vm, { kind: "inline", text: "r = 1\n", ir: "1" });
   advanceOrFail(restored, services);
   equal(restored.vm.objects.length, 3, "a restored state collects exactly like the original");
 });
@@ -690,7 +690,7 @@ a->wait()
 test("an instance whose class the running program no longer declares is a catchable error and keeps its data", () => {
   const original = runOnce("class A { public: var v; method A(n) { v = n } method get() { return v } }\na = A(7)\n");
   const { state: restored } = restoreChecked(snapshot(original));
-  startProgram(restored.vm, { kind: "inline", text: "r = a->get()\n", compiler: "2" });
+  startProgram(restored.vm, { kind: "inline", text: "r = a->get()\n", ir: "1" });
   const services = createScriptServices(restored);
   let failure: ScriptError | undefined;
   try {

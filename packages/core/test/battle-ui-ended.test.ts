@@ -25,7 +25,7 @@ for (const mode of ["command", "list", "target"] as const) {
     if (mode === "target") rig.press("ENTER", 6);
     equal(ui(rig)["mode"], mode);
     equal(rig.state().battle?.outcome, null);
-    startThread(rig.state().vm, { ref: { kind: "inline", text: "battle.finish(2)\nend()", compiler: "2" }, kind: "persistent", owner: "script" });
+    startThread(rig.state().vm, { ref: { kind: "inline", text: "battle.finish(2)\nend()", ir: "1" }, kind: "persistent", owner: "script" });
     rig.tick(100);
     equal(rig.state().battle?.outcome, 2);
     equal(rig.state().vm.globals.afterfight, 1, "the battle loop returned to the fight program");

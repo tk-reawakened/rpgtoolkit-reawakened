@@ -960,7 +960,7 @@ test("package startup helper rejects native clock access directly", () => {
     }],
   };
   const services = coreCreateScriptServices(state, [{ definition: CORE_PLUGIN }, { definition }]);
-  const plugin: ResolvedPlugin = { definition, startup: { kind: "inline", text: "readclock()\nend()\n", compiler: "2", dialect: "tk3" } };
+  const plugin: ResolvedPlugin = { definition, startup: { kind: "inline", text: "readclock()\nend()\n", ir: "1", dialect: "tk3" } };
   throws(
     () => runPackageStartup(state, services, [plugin.startup!], [plugin]),
     (error: unknown) => error instanceof ScriptError && error.code === "package.startup-forbidden",

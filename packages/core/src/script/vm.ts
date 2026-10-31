@@ -89,7 +89,7 @@ import { MODULE_COMMANDS } from "./parse.ts";
 import type { SourcePos, StepOp } from "./ops.ts";
 import type { CommandResult, CommandRequest, CommandView, ResolvedPlugin, MenuProvider, MenuProviderEvent, MenuProviderResult, MenuScreenId } from "./plugin.ts";
 import {
-  COMPILER_VERSION,
+  IR_VERSION,
   fileProgramRef,
   restartProgramRef,
   withRedirects,
@@ -1824,7 +1824,7 @@ function findDefinition(
   if (local !== undefined) return { program, infos: local };
   let owner = services.programs.find(def);
   const recorded = vm.defOwners !== undefined && Object.hasOwn(vm.defOwners, def) ? vm.defOwners[def] : undefined;
-  if (owner === undefined && recorded !== undefined && recorded.compiler === COMPILER_VERSION) {
+  if (owner === undefined && recorded !== undefined) {
     try {
       owner = services.programs.get(recorded);
     } catch (error) {
@@ -2508,7 +2508,7 @@ function dispatchResolved(
         const raw = effect.args?.[1];
         if (
           typeof raw !== "object" || raw === null || Array.isArray(raw) ||
-          raw.kind !== "inline" || typeof raw.text !== "string" || typeof raw.compiler !== "string"
+          raw.kind !== "inline" || typeof raw.text !== "string" || typeof raw.ir !== "string"
         ) throw new ScriptError("builtin.bad-arg", "executeProgramRef: expected an inline program reference", pos);
         const callerPair = { source: thread.source, target: thread.target };
         const plan = prepareProgramContext(vm, services, "executeProgram", "positional", undefined, null, null, callerPair, pos);
@@ -2759,7 +2759,7 @@ function dispatchResolved(
       }
       if (action === "thread") {
         startThread(vm, {
-          ref: { kind: "inline", text: effect.args?.[1] as string, compiler: COMPILER_VERSION },
+          ref: { kind: "inline", text: effect.args?.[1] as string, ir: IR_VERSION },
           kind: effect.args?.[2] === true ? "persistent" : "board",
           owner: "script",
         });
@@ -2986,8 +2986,8 @@ function restartThreadFromSource(thread: Thread, vm: VmState, services: ScriptSe
 function ensureCurrentProgram(thread: Thread, vm: VmState, services: ScriptServices): void {
   const frame = thread.frames[thread.frames.length - 1];
   if (frame === undefined) return;
-  // Only a changed source restarts a thread. A compiler mismatch cannot reach
-  // here: restoreGameState refuses the whole save for it (owner ruling 2026-10-27).
+  // Only a changed source restarts a thread here. An older instruction version was
+  // already restarted from source by restoreGameState (owner ruling 2026-10-30).
   try {
     services.programs.get(frame.program);
   } catch (error) {
@@ -3064,7 +3064,7 @@ export function stepThread(
       thread.queue.shift();
       thread.frames.push({
         program: withRedirects(
-          { kind: "inline", text: queued.text, compiler: COMPILER_VERSION },
+          { kind: "inline", text: queued.text, ir: IR_VERSION },
           vm.redirects,
         ),
         ip: 0,

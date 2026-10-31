@@ -17,7 +17,7 @@ import { TextDecoder, TextEncoder } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
   assetKey,
-  COMPILER_VERSION,
+  IR_VERSION,
   createAssetIndex,
   createEngine,
   createSurfacesSection,
@@ -129,7 +129,7 @@ function catalogue(): readonly PackageCatalogueEntry[] {
     namespace: manifest.namespace,
     requests: manifest.requests,
     definition: { id: manifest.name, version: manifest.version, commands: [] },
-    startup: { kind: "inline", text: readFileSync(join(folder, manifest.program), "utf8"), compiler: "2", dialect: "tk3" },
+    startup: { kind: "inline", text: readFileSync(join(folder, manifest.program), "utf8"), ir: "1", dialect: "tk3" },
   }];
 }
 
@@ -329,7 +329,7 @@ test("resetting during a live battle clears the battle and the fight program tha
   equal(fightThreads(live).length, 1, "the game's fight program is parked inside the battle");
 
   // A script calls `reset()` the way a game program does; the call posts the engine's lifecycle reset.
-  startThread(live.vm, { ref: { kind: "inline", text: "reset()\nend()", compiler: COMPILER_VERSION }, kind: "persistent", owner: "script" });
+  startThread(live.vm, { ref: { kind: "inline", text: "reset()\nend()", ir: IR_VERSION }, kind: "persistent", owner: "script" });
 
   for (let step = 0; step < 5; step += 1) {
     rig.tick(1);

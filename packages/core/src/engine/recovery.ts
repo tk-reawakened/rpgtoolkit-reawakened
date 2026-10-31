@@ -28,7 +28,7 @@ function setRecord<T>(target: Record<string, T>, key: string, value: T): void {
 
 function restoreProgramRef(ref: LedgerProgramRef): ProgramRef {
   const common = {
-    compiler: ref.compiler,
+    ir: ref.ir,
     ...(ref.includes.length === 0 ? {} : { includes: [...ref.includes] }),
     ...(ref.redirects.length === 0 ? {} : { redirects: ref.redirects.map(([from, to]) => [from, to] as [string, string]) }),
     ...(ref.dialect === null ? {} : { dialect: ref.dialect }),

@@ -19,7 +19,7 @@ import { createScriptServices } from "./script-test-services.ts";
 
 function run(program: string, seed = 0): GameState {
   const state = createGameState({ seed });
-  startProgram(state.vm, { kind: "inline", text: program, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: program, ir: "1" });
   advanceOrFail(state, createScriptServices(state));
   return state;
 }
@@ -238,7 +238,7 @@ test("snapshot and restore round-trips programs holding NaN, +Infinity and -Infi
   startProgram(stateWithContinuation.vm, {
     kind: "inline",
     text: "checkNan = isNaN(nanVar)\ncheckPosInf = isInfinity(posInfVar)\ncheckNegInf = isInfinity(negInfVar)\ncheckFinite = isFinite(finiteVar)\nend()\n",
-    compiler: "2",
+    ir: "1",
   });
   const services = createScriptServices(stateWithContinuation);
   advanceScriptTick(stateWithContinuation, services);
@@ -253,7 +253,7 @@ test("random stream snapshots round-trip while a program is waiting", () => {
   startProgram(state.vm, {
     kind: "inline",
     text: "first = random(100)\nsleep(1)\nsecond = random(100)\nend()\n",
-    compiler: "2",
+    ir: "1",
   });
   const services = createScriptServices(state);
   advanceScriptTick(state, services);
@@ -602,7 +602,7 @@ test("E-92 virtual gametime is read-only", () => {
       gametime = 999
       t2 = gametime
     `,
-    compiler: "2",
+    ir: "1",
   });
   const services = createScriptServices(state);
   const error = errorOf(() => advanceOrFail(state, services));
@@ -651,7 +651,7 @@ test("E-92 virtual variables read engine state sections", () => {
       c0 = constant[0]
       c1 = constant[1]
     `,
-    compiler: "2",
+    ir: "1",
   });
   advanceScriptTick(state, createScriptServices(state));
 

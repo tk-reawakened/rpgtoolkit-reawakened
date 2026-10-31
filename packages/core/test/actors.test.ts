@@ -363,7 +363,7 @@ test("actor owner transitions are queued on the actor emitter and reach script l
   const services = createScriptServices(state, [nativePlugin]);
   startProgram(state.vm, {
     kind: "inline",
-    compiler: "2",
+    ir: "1",
     text: `
 fallenCause = ""
 fallenSource = 99
@@ -424,7 +424,7 @@ test("actor transition events deliver revive and level details only to the chang
   const services = createScriptServices(state);
   startProgram(state.vm, {
     kind: "inline",
-    compiler: "2",
+    ir: "1",
     text: `
 firstRevived = 0
 secondRevived = 0
@@ -454,7 +454,7 @@ test("actor host fields hydrate through dot and indexed VM access", () => {
   const object = registerActorObject(state.vm, state.events, state.actors, actor.id);
   ok(object !== null);
   state.vm.globals.actor = { kind: "object", handle: object!.handle, className: object!.className };
-  startProgram(state.vm, { kind: "inline", text: "dot = actor.hp\nactor.hp = 7\nindexed = actor[\"hp\"]\n", compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: "dot = actor.hp\nactor.hp = 7\nindexed = actor[\"hp\"]\n", ir: "1" });
   advanceScriptTick(state, createScriptServices(state));
   equal(state.vm.globals.dot, 12);
   equal(state.actors.actors[0]?.stats.hp, 7);
