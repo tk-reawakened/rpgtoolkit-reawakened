@@ -210,7 +210,7 @@ for (const action of ["", "wavStop()", 'mediaPlay("other.wav", {track: "sfx"})']
   test(`natural end waiter race: ${action || "no mutation"} before audio retirement`, () => {
     const game = fixture();
     const events: EventRecord[] = [];
-    const engine = makeEngine(game, events, `wav("step.wav")\nthreadSleep(getThreadId(), 0.05)\nmediaWait("sfx")\n${action}\nthreadSleep(getThreadId(), 1)\nend()`);
+    const engine = makeEngine(game, events, `v = mediaPlay("step.wav", {track: "sfx"})\nthreadSleep(getThreadId(), 0.05)\nv.wait()\n${action}\nthreadSleep(getThreadId(), 1)\nend()`);
     const reports = advanceAll(engine, game.files, 40);
     deepEqual(reports.flatMap((report) => report.diagnostics), []);
     const shared = events.filter((event) => event.scope === "media");

@@ -55,7 +55,7 @@ export function voicesAndStealing() {
       ),
       makeCase(
         "steal-wakes-the-displaced-wait",
-        "Thread 1 plays voice 0 with tkMD_WAIT and parks; thread 2's play steals voice 0 at tick 3 (the voice's cue id changes), so thread 1 wakes at the next waits phase, tick 4, although its sound had 28 ticks left.",
+        "Thread 1 plays voice 0 with `wait: true` and parks; thread 2's play steals voice 0 at tick 3 (the voice's cue id changes), so thread 1 wakes at the next waits phase, tick 4, although its sound had 28 ticks left.",
         setup({ assets: { ...assets, "a.wav": 30 } }),
         [cmd(0, "mediaTrack", { name: "fx", voices: 2 }), play(1, "a.wav", "fx", { flags: WAIT, thread: 1 }), play(2, "b.wav", "fx"), play(3, "c.wav", "fx")],
         7,
@@ -302,7 +302,7 @@ export function mediaWaitSuspend() {
     cases: [
       makeCase(
         "wait-wakes-on-the-end-tick",
-        "Thread 1 plays a 10-tick sound at tick 2 with tkMD_WAIT: the voice ends at tick 12 and the wait wakes in the waits phase of tick 12 (before the audio phase finishes the voice and emits media.stop).",
+        "Thread 1 plays a 10-tick sound at tick 2 with `wait: true`: the voice ends at tick 12 and the wait wakes in the waits phase of tick 12 (before the audio phase finishes the voice and emits media.stop).",
         setup({ assets }),
         [wait(2, 1)],
         15,
@@ -329,17 +329,17 @@ export function mediaWaitSuspend() {
         8,
       ),
       makeCase(
-        "mediaWait-on-a-playing-one-shot",
-        "mediaWait on a voice started without tkMD_WAIT parks until its end tick (20 here): thread 1 asks at tick 3 and wakes at 20.",
+        "voice-wait-on-a-playing-one-shot",
+        "voice.wait() on a voice started without `wait: true` parks until its end tick (20 here): thread 1 asks at tick 3 and wakes at 20.",
         setup({ assets: { ...assets, "shot.wav": 20 } }),
-        [play(0, "shot.wav", "sfx"), cmd(3, "mediaWait", { thread: 1, track: "sfx" })],
+        [play(0, "shot.wav", "sfx"), cmd(3, "voiceWait", { thread: 1, track: "sfx" })],
         22,
       ),
       makeCase(
         "two-threads-wake-in-ascending-thread-id",
         "Threads 3 and 1 both wait on the same voice (thread 3 first); at its end tick both wake in the same waits phase, listed in ascending thread id (1 then 3).",
         setup({ assets }),
-        [wait(1, 3), cmd(2, "mediaWait", { thread: 1, track: "sfx" })],
+        [wait(1, 3), cmd(2, "voiceWait", { thread: 1, track: "sfx" })],
         14,
       ),
       makeCase(
@@ -351,9 +351,9 @@ export function mediaWaitSuspend() {
       ),
       makeCase(
         "wait-diagnostics-do-not-park",
-        "A mediaWait on an unknown track and on a voice of unknown length are located diagnostics: no wait is registered and the thread carries on.",
+        "A voice wait on an unknown track and on a voice of unknown length are located diagnostics: no wait is registered and the thread carries on.",
         setup({ assets }),
-        [play(1, "song.xm", "sfx"), cmd(2, "mediaWait", { thread: 1, track: "sfx" }), cmd(2, "mediaWait", { thread: 2, track: "nosuch" })],
+        [play(1, "song.xm", "sfx"), cmd(2, "voiceWait", { thread: 1, track: "sfx" }), cmd(2, "voiceWait", { thread: 2, track: "nosuch" })],
         4,
       ),
     ],

@@ -76,7 +76,7 @@
     },
     {
       "name": "loop-pass-boundaries",
-      "note": "A looping voice has pass boundaries at start + n x length (15, 27, 39 for start 3 and length 12), its position wraps, and it never finishes. A mediaWait on a loop waits for the next pass boundary only: thread 1 (asked at tick 5) wakes at 15, thread 2 (asked at tick 15 exactly on a boundary) wakes at 27.",
+      "note": "A looping voice has pass boundaries at start + n x length (15, 27, 39 for start 3 and length 12), its position wraps, and it never finishes. A voice wait on a loop waits for the next pass boundary only: thread 1 (asked at tick 5) wakes at 15, thread 2 (asked at tick 15 exactly on a boundary) wakes at 27.",
       "setup": {
         "defaultSoundFont": null,
         "assets": {
@@ -89,8 +89,8 @@
       },
       "script": [
         {"t":3,"op":"mediaPlay","file":"loop.wav","track":"ambience","flags":1},
-        {"t":5,"op":"mediaWait","thread":1,"track":"ambience"},
-        {"t":15,"op":"mediaWait","thread":2,"track":"ambience"}
+        {"t":5,"op":"voiceWait","thread":1,"track":"ambience"},
+        {"t":15,"op":"voiceWait","thread":2,"track":"ambience"}
       ],
       "ticks": 42,
       "expect": [
@@ -320,7 +320,7 @@
     },
     {
       "name": "loop-plus-wait-is-diagnosed",
-      "note": "mediaPlay with tkMD_LOOP | tkMD_WAIT is a located diagnostic at the call: nothing plays and no thread parks (a loop cannot be waited to its end).",
+      "note": "mediaPlay with `loop` and `wait` together is a located diagnostic at the call: nothing plays and no thread parks (a loop cannot be waited to its end).",
       "setup": {
         "defaultSoundFont": null,
         "assets": {

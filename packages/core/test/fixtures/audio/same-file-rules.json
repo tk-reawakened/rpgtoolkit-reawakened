@@ -55,7 +55,7 @@
     },
     {
       "name": "music-restart-flag-restarts",
-      "note": "tkMD_RESTART turns the carry-on into stop then play at position zero.",
+      "note": "a restart request turns the carry-on into stop then play at position zero.",
       "setup": {
         "defaultSoundFont": null,
         "assets": {
@@ -164,7 +164,7 @@
     },
     {
       "name": "sfx-same-file-ignored-and-replaced",
-      "note": "On the one-voice sfx track a same-file play while playing is ignored, a different file replaces, and tkMD_RESTART restarts the same file.",
+      "note": "On the one-voice sfx track a same-file play while playing is ignored, a different file replaces, and a restart request restarts the same file.",
       "setup": {
         "defaultSoundFont": null,
         "assets": {

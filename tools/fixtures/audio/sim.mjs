@@ -243,11 +243,11 @@ function legacy(st, op) {
   const name = lower(op.name);
   const file = op.file;
   let std;
-  if (name === "midiplay" || name === "playmidi" || name === "mediaplay") std = { op: "mediaPlay", file, track: "music", flags: LOOP, as: `mediaPlay(file, "music", tkMD_LOOP)` };
+  if (name === "midiplay" || name === "playmidi" || name === "mediaplay") std = { op: "mediaPlay", file, track: "music", flags: LOOP, as: `mediaPlay(file, { track: "music", loop: true })` };
   else if (name === "mediastop" || name === "mediarest" || name === "midirest") std = { op: "mediaStop", track: "music", as: `mediaStop("music")` };
-  else if (name === "wav" || name === "mp3") std = { op: "mediaPlay", file, track: "sfx", flags: 0, as: `mediaPlay(file, "sfx", tkMD_ONCE)` };
+  else if (name === "wav" || name === "mp3") std = { op: "mediaPlay", file, track: "sfx", flags: 0, as: `mediaPlay(file, { track: "sfx", loop: false })` };
   else if (name === "wavstop") std = { op: "mediaStop", track: "sfx", as: `mediaStop("sfx")` };
-  else if (name === "mp3pause") std = { op: "mediaPlay", file, track: "sfx", flags: WAIT, thread: op.thread, as: `mediaPlay(file, "sfx", tkMD_ONCE | tkMD_WAIT)` };
+  else if (name === "mp3pause") std = { op: "mediaPlay", file, track: "sfx", flags: WAIT, thread: op.thread, as: `mediaPlay(file, { track: "sfx", loop: false, wait: true })` };
   else if (name === "setvolume") std = { op: "setvolume", percent: op.percent, as: "master script volume" };
   else throw new Error(`unknown legacy name ${op.name}`);
   st.ev.push({ e: "legacy", name: op.name, as: std.as });
@@ -424,10 +424,10 @@ function command(st, op) {
       emit(st, "media.volume", { volume: op.percent });
       return undefined;
     }
-    case "mediaWait": {
+    case "voiceWait": {
       const r = checkTrackAndVoice(st, op.op, op.track ?? "sfx", op.voice);
       if (r === null) return undefined;
-      if (r.v === undefined) unruled("mediaWait on a voice that is not active");
+      if (r.v === undefined) unruled("a voice wait on a voice that is not active");
       if (r.v.length === null) return diag(st, "media.asset-length", op.op, { track: r.tr.name, voice: r.index });
       addWait(st, r.tr, r.v, op.thread, r.v.loop);
       return undefined;

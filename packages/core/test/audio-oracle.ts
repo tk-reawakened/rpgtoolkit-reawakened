@@ -136,7 +136,7 @@ export function runCase(sceneCase: SceneCase, options: RunOptions = {}): SceneRu
   const legacy = (op: SceneOp): void => {
     const name = lower(String(op.name));
     if (name === "wav" || name === "mp3") {
-      facts.push({ e: "legacy", name: op.name, as: 'mediaPlay(file, "sfx", tkMD_ONCE)' });
+      facts.push({ e: "legacy", name: op.name, as: 'mediaPlay(file, { track: "sfx", loop: false })' });
       play(op, "sfx", 0, String(op.file));
     } else if (name === "wavstop") {
       facts.push({ e: "legacy", name: op.name, as: 'mediaStop("sfx")' });
@@ -198,7 +198,7 @@ export function runCase(sceneCase: SceneCase, options: RunOptions = {}): SceneRu
       case "setvolume":
         runtime.setMasterVolume(op.percent as number);
         return;
-      case "mediaWait": {
+      case "voiceWait": {
         const wait = runtime.waitFor((op.track as string | undefined) ?? "sfx", op.voice as number | undefined);
         if (wait !== null) park(op.thread as number, wait);
         return;

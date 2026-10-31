@@ -133,9 +133,9 @@ export type AudioPlayRequest = {
   readonly voice?: number | undefined;
   /** Start at the current position of this track's primary voice. */
   readonly syncTrack?: string | undefined;
-  /** `tkMD_RESTART`: stop and start from zero even when the same file is playing. */
+  /** The restart flag: stop and start from zero even when the same file is playing. */
   readonly restart?: boolean;
-  /** `tkMD_WAIT`: also make the wait for this voice's end. */
+  /** The wait flag: also make the wait for this voice's end. */
   readonly wait?: boolean;
   readonly priority?: number;
   /** The voice's script volume at start, 0..100; omitted means 100 (MEDIA-1). */

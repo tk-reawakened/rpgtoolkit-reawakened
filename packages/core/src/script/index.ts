@@ -141,7 +141,7 @@ export { WORLD_PLUGIN } from "./packs/world.ts";
 export { STOCK_RPG_PLUGIN } from "./stock-rpg.ts";
 export { MOVEMENT_COMMANDS, MOVEMENT_PLUGIN, applyInputEffect, applySpriteEffect } from "./packs/movement.ts";
 export { BATTLE_COMMANDS, BATTLE_COMMAND_NAMES, BATTLE_PLUGIN } from "./packs/battle.ts";
-export { MEDIA_COMMANDS, MEDIA_PLUGIN, readAudioView, tkMD_LOOP, tkMD_ONCE, tkMD_RESTART, tkMD_SYNC, tkMD_WAIT, tkMD_STOPPED, tkMD_PLAYING, tkMD_PAUSED } from "./packs/media.ts";
+export { MEDIA_COMMANDS, MEDIA_PLUGIN, readAudioView } from "./packs/media.ts";
 export type { Arg, BuiltinDoc, BuiltinSpec, DocExample, DocReturns, DocTag, DocThrow, DocWait, ParamDoc, ParamDocValue, ParamSpec, RunnerSupport } from "./builtins.ts";
 export {
   commandDocumentation,
