@@ -26,6 +26,7 @@ import type { GameState } from "../save/state.ts";
 import type { AudioLifecycleEvent } from "./events.ts";
 import { MEDIA_EMITTER } from "./events.ts";
 import { findObject, readMember, writeMember } from "../script/objects.ts";
+import { MEDIA_PLAY_VOICE_ARG } from "./pending.ts";
 import { queueNativeEvent } from "../events/emitter.ts";
 import {
   BUILTIN_TRACKS,
@@ -570,7 +571,7 @@ export function createAudioRuntime(host: AudioHost, options: AudioRuntimeOptions
     if (operation === "media.play") {
       const beforeEvent = args[10];
       let beforeHandled = args[11] === true;
-      const handle = args[8];
+      const handle = args[MEDIA_PLAY_VOICE_ARG];
       if (typeof beforeEvent === "number" && !beforeHandled) {
         if (host.events.dispatch?.event === beforeEvent || host.events.queue.some((queued) => queued.event === beforeEvent)) return "pending";
         const eventRecord = findObject(host.vm, beforeEvent);

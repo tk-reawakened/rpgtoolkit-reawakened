@@ -13,6 +13,7 @@
  */
 
 import { BUILTIN_TRACKS, fadeValue, findVoice, findTrack, voicePosition, voiceWaitPayload, type MediaVoiceRef } from "./model.ts";
+import { MEDIA_PLAY_VOICE_ARG } from "./pending.ts";
 import { MEDIA_EMITTER, mediaEventsActive, mediaTrackEmitterKey, mediaVoiceEmitterKey } from "./events.ts";
 import type { AudioPlayResult } from "./runtime.ts";
 import { adoptEmitter, registerEmitter } from "../events/emitter.ts";
@@ -128,7 +129,9 @@ export function createMediaScriptService(
       const record = createHostObject(state.vm, "media.voice");
       writeMember(record, "track", options.track);
       waiting.add(record.handle);
-      const posted = post("media.play", [file, options.track, options.loop, false, options.priority, options.sync, null, options.volume, record.handle]);
+      const args: PlainData[] = [file, options.track, options.loop, false, options.priority, options.sync, null, options.volume];
+      args[MEDIA_PLAY_VOICE_ARG] = record.handle;
+      const posted = post("media.play", args);
       const outcome = results.get(record.handle) ?? { kind: "pending" };
       results.delete(record.handle);
       waiting.delete(record.handle);
