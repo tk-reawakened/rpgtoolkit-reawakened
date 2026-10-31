@@ -299,7 +299,7 @@ function checkModel(writer: BinaryWriter, model: MainFile): Result<never> | unde
     checkRun(writer, "parallax", model.reservedRuns.parallax, minor < 3 ? 2 : 0, "row 10") ??
     checkRun(writer, "menuPluginFallback", model.reservedRuns.menuPluginFallback, minor < 3 ? 2 : 0, "row 21") ??
     checkRun(writer, "multitask", model.reservedRuns.multitask, minor <= 2 ? 6 : 0, "row 22") ??
-    checkRun(writer, "fightStyle", model.reservedRuns.fightStyle, minor < 3 ? 2 : 0, "row 29");
+    checkRun(writer, "fightStyle", model.reservedRuns.fightStyle, minor < 3 ? 2 : 0, "row 33");
   if (runs !== undefined) {
     return runs;
   }
@@ -481,7 +481,7 @@ export function writeMainFile(model: MainFile): Result<Uint8Array> {
     return customFightPrg;
   }
 
-  // Row 11 (conditional, minor < 3).
+  // Row 33 (conditional, minor < 3).
   if (minor < 3) {
     writer.writeBytes(model.reservedRuns.fightStyle);
   }
