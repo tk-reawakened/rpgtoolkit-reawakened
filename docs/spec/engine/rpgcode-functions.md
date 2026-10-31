@@ -63,6 +63,7 @@ The Toolkit 3.1 engine registers 282 command names, grouped by area; 14 are alia
 <a id="message-window-text-and-fonts"></a>
 **Reawakened rule (OWNER; FontRef-facing font semantics).** `font(name)` resolves a project asset by case-insensitive family name. If none resolves, `Arial`/sans-serif uses Liberation Sans, `Times New Roman`/serif uses Liberation Serif, and `Courier New`/monospace uses Liberation Mono, followed by the documented fallback family. A `.fnt` is selected when the name resolves to one or when the project is TK2; other names use family substitution. The draw-list `FontRef` carries `{ asset, size, bold, italic }`; underline remains a separate `line` command. Entry 4.3 owns the library and bundled assets.
 
+<a id="program-flow-errors--debugging"></a>
 ## Program flow, errors & debugging (25)
 
 | Command | Signature | Purpose | Notes |
@@ -136,6 +137,7 @@ How to read this section: a paragraph starting **Legacy (R12)** says what Toolki
 
 **Reawakened rule: shared `context` payload (viewbag) and `source`/`target` compatibility bridge (OWNER; Jensen, 2026-10-25).** These object-payload and handle-resolution rules apply to both `executeProgram` and [`replaceProgram`](#reawakened-replaceprogram); legacy `run` is an alias of `replaceProgram` and follows its object-context form. Only `executeProgram` also accepts the positional `(file, source, target)` convenience. Their control flow and restoration lifetime differ.
 
+<a id="legacy-call-contexts-and-order"></a>
 1. **Primary modern contracts (`executeProgram(file, [context])` and `replaceProgram(file, [context])`):** `context` is an optional dictionary payload (`{ ... }`), defaulting to `{}` when omitted. It is bound as `context` in the new program's root scope, so programs and packages can read arbitrary named arguments (`context.power`, `context.element`, `context.move`, `context.item`, `context.slot`, and so on) without passing data through globals. This is an explicit root-scope variable separate from `this`; neither command binds `this` to the dictionary.
 2. **Compatibility bridge for legacy scripts (`context.source`, `context.target`, and positional `(file, source, target)`):**
    * If `context.source` is supplied, the calling thread's `source` slot is set to that actor/entity for the new program; if omitted, it inherits the calling thread's `source` slot.
@@ -505,6 +507,7 @@ A committed buy emits exactly one `itemAdded`, followed by `goldChanged` if gold
 | `canvasdrawpart` | `void canvasdrawpart(int cnv, int x, int y, int xSrc, int ySrc, int width, int height[, canvas cnvDest])` | Draw part of a canvas. |  |
 | `canvasgetscreen` | `void canvasgetscreen(canvas cnvDest)` | Copy the screen onto a canvas. |  |
 
+<a id="e-56"></a>
 **E-56 Text and primitives.** Text at tile-cell or pixel coordinates; lines, rectangles and circles, filled or outlined; pixel get and set; images drawn normally, colour-keyed, translucent (50 %) or additive (per cent). All of them work on the screen or on an **off-screen canvas**, and a canvas can be created, drawn whole or in part, colour-keyed and captured from the screen.
 
 <a id="reawakened-text-cell-size"></a>

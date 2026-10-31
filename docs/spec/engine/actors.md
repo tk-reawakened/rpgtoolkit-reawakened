@@ -221,6 +221,7 @@ An actor-producing asset MAY declare custom event names. Declarations are asset 
 
 | Entry | Contract | Builder |
 |---|---|---|
+<a id="act-10"></a>
 | ACT-1 | Actor identity is one stable scalar id; runtime handles and emitter keys are not save ids. | 20.3 |
 | ACT-2 | Actor state is plain data; executable programs, host objects, listeners, and raw `.prg` paths are hydrated runtime concerns. | 20.8 |
 | ACT-3 | The actor owns current/max stats, statuses, equipment-derived state, and progression state. | 20.3, 20.6 |

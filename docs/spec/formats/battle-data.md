@@ -21,6 +21,7 @@ Lives in `Bkrounds\`. Referenced by boards (`battleBackground`) and scripts.
 
 Toolkit 2 text backgrounds: [legacy/text-formats.md](legacy/text-formats.md#fight-background).
 
+<a id="status-effect"></a>
 ## Status effect (`.ste`)
 
 Lives in `StatusE\`. Applied by special moves and scripts during battle.
