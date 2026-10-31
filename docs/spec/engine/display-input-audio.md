@@ -136,6 +136,7 @@ Scripts play video with `PlayAvi()` (full screen) and `PlayAviSmall()` (actual s
 
 **Reawakened rule.** Video is **transcoded on import** to a portable container a runner can decode without a legacy codec; the imported copy is what the game plays from then on. The portable profile (WebM, VP9 video, Opus audio) and the name-preserving import are ruled in [audio-media.md#video-policy](audio-media.md#video-policy).
 
+<a id="e-132"></a>
 ## Fonts
 
 All `*.ttf` files in the project's `Font\` folder are made available to the game while it runs. Scripts select fonts by name (`Font()`), size, bold, italic and underline. Toolkit 2 bitmap fonts are not supported by the 3.x engine.
