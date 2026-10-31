@@ -3,7 +3,15 @@
 // exact Step IR the tracer program lowers to.
 import { deepEqual, equal } from "node:assert/strict";
 import { test } from "node:test";
-import { compileInline, compileProgram, tokenize, type ScriptError } from "../src/index.ts";
+import { compileInline, compileProgram, tokenize as lexTokens, type ScriptError, type Token } from "../src/index.ts";
+
+/**
+ * These assertions pin the token stream's shape without its spans: `col` and
+ * `endCol` are covered by `script-lex-spans.test.ts`, and repeating them in
+ * every literal here would bury the frontend behaviour the file tests.
+ */
+const tokenize = (text: string): Array<Omit<Token, "col" | "endCol">> =>
+  lexTokens(text).map(({ col: _col, endCol: _endCol, ...rest }) => rest);
 
 function errorOf(run: () => unknown): { code: string; message: string } {
   try {

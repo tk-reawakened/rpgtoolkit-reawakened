@@ -14,14 +14,22 @@ import { foldAscii } from "./values.ts";
 
 export { foldAscii };
 
-/** One lexical token. `end` terminates a statement; `eof` ends the source. */
+/**
+ * One lexical token. `end` terminates a statement; `eof` ends the source.
+ *
+ * `col` and `endCol` are UTF-16 code units of the decoded source, 1-based and
+ * inclusive: `col` is the first character, `endCol` the last. A token never
+ * spans a line, so a range is one line's [col, endCol]. The CR of a CRLF does
+ * not count, because it precedes the line break. A zero-width token (`end` on a
+ * newline, `eof`) has `endCol === col`.
+ */
 export type Token =
-  | { readonly kind: "identifier"; readonly name: string; readonly line: number }
-  | { readonly kind: "number"; readonly value: number; readonly line: number }
-  | { readonly kind: "string"; readonly value: string; readonly line: number }
-  | { readonly kind: "op"; readonly text: string; readonly line: number }
-  | { readonly kind: "end"; readonly line: number }
-  | { readonly kind: "eof"; readonly line: number };
+  | { readonly kind: "identifier"; readonly name: string; readonly line: number; readonly col: number; readonly endCol: number }
+  | { readonly kind: "number"; readonly value: number; readonly line: number; readonly col: number; readonly endCol: number }
+  | { readonly kind: "string"; readonly value: string; readonly line: number; readonly col: number; readonly endCol: number }
+  | { readonly kind: "op"; readonly text: string; readonly line: number; readonly col: number; readonly endCol: number }
+  | { readonly kind: "end"; readonly line: number; readonly col: number; readonly endCol: number }
+  | { readonly kind: "eof"; readonly line: number; readonly col: number; readonly endCol: number };
 
 function isDigit(ch: string): boolean {
   return ch >= "0" && ch <= "9";
@@ -177,6 +185,7 @@ function run(text: string): Token[] {
   const length = text.length;
   let index = 0;
   let line = 1;
+  let lineStart = 0;
   let firstNonBlankOnLine = true;
 
   while (index < length) {
@@ -188,15 +197,18 @@ function run(text: string): Token[] {
     }
 
     if (ch === "\n") {
-      tokens.push({ kind: "end", line });
+      const column = index - lineStart + 1;
+      tokens.push({ kind: "end", line, col: column, endCol: column });
       index++;
       line++;
+      lineStart = index;
       firstNonBlankOnLine = true;
       continue;
     }
 
     if (ch === ";") {
-      tokens.push({ kind: "end", line });
+      const column = index - lineStart + 1;
+      tokens.push({ kind: "end", line, col: column, endCol: column });
       index++;
       firstNonBlankOnLine = false;
       continue;
@@ -213,7 +225,10 @@ function run(text: string): Token[] {
     if (ch === "/" && text[index + 1] === "*") {
       index += 2;
       while (index < length && !(text[index] === "*" && text[index + 1] === "/")) {
-        if (text[index] === "\n") line++;
+        if (text[index] === "\n") {
+          line++;
+          lineStart = index + 1;
+        }
         index++;
       }
       if (index >= length) {
@@ -267,7 +282,7 @@ function run(text: string): Token[] {
           line,
         );
       }
-      tokens.push({ kind: "string", value, line });
+      tokens.push({ kind: "string", value, line, col: index - lineStart + 1, endCol: cursor + 1 - lineStart });
       index = cursor + 1;
       firstNonBlankOnLine = false;
       continue;
@@ -303,7 +318,7 @@ function run(text: string): Token[] {
           if (!Number.isFinite(value)) {
             lexical(`the number literal \`${literal}\` is not finite (docs/spec/engine/rpgcode-functions.md#rpgcode-built-in-commands)`, line);
           }
-          tokens.push({ kind: "number", value, line });
+          tokens.push({ kind: "number", value, line, col: start - lineStart + 1, endCol: cursor - lineStart });
           index = cursor;
           firstNonBlankOnLine = false;
           continue;
@@ -326,11 +341,11 @@ function run(text: string): Token[] {
       const name = foldAscii(text.slice(start, nameEnd));
 
       if (name === "true" || name === "false") {
-        tokens.push({ kind: "number", value: name === "true" ? 1 : 0, line });
+        tokens.push({ kind: "number", value: name === "true" ? 1 : 0, line, col: start - lineStart + 1, endCol: end - lineStart });
       } else if (name === "null") {
-        tokens.push({ kind: "number", value: 0, line });
+        tokens.push({ kind: "number", value: 0, line, col: start - lineStart + 1, endCol: end - lineStart });
       } else if (name === "and" || name === "or") {
-        tokens.push({ kind: "op", text: name, line });
+        tokens.push({ kind: "op", text: name, line, col: start - lineStart + 1, endCol: end - lineStart });
       } else if (name === "_" && restIsBlank(text, end, length)) {
         // Line continuation: consume to newline, increment line, do not emit end
         let scan = end;
@@ -338,13 +353,14 @@ function run(text: string): Token[] {
         if (scan < length && text[scan] === "\n") {
           scan++;
           line++;
+          lineStart = scan;
         }
         index = scan;
         firstNonBlankOnLine = false; // continued line is not start of line (so * is multiply)
         continue;
       } else {
         rejectKeyword(name, line, allowObjects);
-        tokens.push({ kind: "identifier", name, line });
+        tokens.push({ kind: "identifier", name, line, col: start - lineStart + 1, endCol: end - lineStart });
       }
 
       index = end;
@@ -355,7 +371,7 @@ function run(text: string): Token[] {
     // Check operators / punctuation
     const sub3 = text.slice(index, index + 3);
     if (THREE_CHAR_OPS.includes(sub3)) {
-      tokens.push({ kind: "op", text: sub3, line });
+      tokens.push({ kind: "op", text: sub3, line, col: index - lineStart + 1, endCol: index + 3 - lineStart });
       index += 3;
       firstNonBlankOnLine = false;
       continue;
@@ -372,14 +388,14 @@ function run(text: string): Token[] {
           );
         }
       }
-      tokens.push({ kind: "op", text: sub2, line });
+      tokens.push({ kind: "op", text: sub2, line, col: index - lineStart + 1, endCol: index + 2 - lineStart });
       index += 2;
       firstNonBlankOnLine = false;
       continue;
     }
 
     if (SINGLE_CHAR_OPS.includes(ch)) {
-      tokens.push({ kind: "op", text: ch, line });
+      tokens.push({ kind: "op", text: ch, line, col: index - lineStart + 1, endCol: index + 1 - lineStart });
       index += 1;
       firstNonBlankOnLine = false;
       continue;
@@ -387,7 +403,7 @@ function run(text: string): Token[] {
 
     // `.` joins a file name to a function (MOD-2) or spells object access (OOP-3).
     if (ch === ".") {
-      tokens.push({ kind: "op", text: ".", line });
+      tokens.push({ kind: "op", text: ".", line, col: index - lineStart + 1, endCol: index + 1 - lineStart });
       index += 1;
       firstNonBlankOnLine = false;
       continue;
@@ -402,6 +418,7 @@ function run(text: string): Token[] {
     );
   }
 
-  tokens.push({ kind: "eof", line });
+  const eofColumn = index - lineStart + 1;
+  tokens.push({ kind: "eof", line, col: eofColumn, endCol: eofColumn });
   return tokens;
 }

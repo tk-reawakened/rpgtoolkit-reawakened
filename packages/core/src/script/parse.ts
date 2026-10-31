@@ -117,9 +117,12 @@ export const MODULE_COMMANDS: { readonly [name: string]: true } = {
 
 /** Parse a token list into the full Unified AST. */
 export function parse(tokens: readonly Token[], context: ParseContext = { redirects: new Map() }): Ast {
+  const last = tokens[tokens.length - 1];
   const eof: Token = {
     kind: "eof",
-    line: tokens[tokens.length - 1]?.line ?? 1,
+    line: last?.line ?? 1,
+    col: last?.endCol ?? 1,
+    endCol: last?.endCol ?? 1,
   };
   let index = 0;
   const redirects = context.redirects;
