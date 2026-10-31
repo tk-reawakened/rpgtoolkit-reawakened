@@ -7,7 +7,7 @@ blocked_reason: awaiting the owner review of the ruling text recorded here
 
 ## Intent
 
-Entry 10.2 is the epic's doc-first gate (G7 rule 4): it writes the normative text that entries 10.4 to 10.11 implement, so no builder invents an API name, a rule id, a subcommand, an exit code or a schema. This plan records the exact wording the owner is asked to approve, decision by decision, with the file each paragraph lands in, its evidence, the rejected alternative, and the entries that change if the owner rules the other way. **Its D-numbers are this plan's own and do not line up with `discovery/inception-proposal.md` §4** — only D-1, D-2 and D-7 name the same decisions there; the "Corrections made at review" section below carries the mapping, because the two documents' `D-3` to `D-6` are different decisions.
+Entry 10.2 is the epic's doc-first gate (G7 rule 4): it writes the normative text that entries 10.4 to 10.11 implement, so no builder invents an API name, a rule id, a subcommand, an exit code or a schema. This plan records the exact wording the owner is asked to approve, decision by decision (D-1 to D-9: transport, the early extension, the diagnostic model, the formatter, the spec API, the index, the CI job, the debug view, and the `tkr script` CLI surface), with the file each paragraph lands in, its evidence, the rejected alternative, and the entries that change if the owner rules the other way. **Its D-numbers are this plan's own and do not line up with `discovery/inception-proposal.md` §4** — only D-1, D-2 and D-7 name the same decisions there; the "Corrections made at review" section below carries the mapping, because the two documents' `D-3` to `D-6` are different decisions.
 
 Nothing here is written into `docs/` yet. Every paragraph below is marked **Proposed ruling (pending owner review; entry 10.2)** with no owner name and no date, so approval can be recorded against the text as it stands.
 
@@ -15,7 +15,8 @@ Nothing here is written into `docs/` yet. Every paragraph below is marked **Prop
 
 | File | What it carries | Created by 10.2? |
 |---|---|---|
-| `docs/spec/engine/rpgcode-tooling.md` | the tooling contract: the transport and its licence note (D-1), the early extension note (D-2), the diagnostic and lint-rule model (D-3), the formatter rules (D-4), the spec API (D-5), the index schema (D-6), the CI job's command order (D-7), the debug view (D-8). **Not** the `tkr script` surface: subcommands, stable exit codes and the JSON result protocol have no paragraph in this draft — see "Not ruled here" | new page |
+| `docs/spec/engine/rpgcode-tooling.md` | the tooling contract: the transport and its licence note (D-1), the early extension note (D-2), the diagnostic and lint-rule model (D-3), the formatter rules (D-4), the spec API (D-5), the index schema (D-6), the CI job's command order (D-7), the debug view (D-8) and the `tkr script` surface — subcommands, reads and writes, exit codes, the JSON envelope (D-9) | new page |
+| `docs/spec/schemas/tkr-script-result.schema.json` | the machine-readable JSON Schema for the `--json` envelope D-9 rules (new folder; a test validates every subcommand's output against it) | new file |
 | `docs/adr/0013-rpgcode-spec-package.md` (working number; renumber if 0013 is taken when 10.2 runs) | why the spec API is a test-only RPGCode package with one native result channel, and how its commands enter the catalogue (G7, ADR 0004) | new ADR |
 | `docs/spec/engine/rpgcode-functions.md` | one row per command the spec package registers, in the existing table shape, so the command-docs gate validates them | edited |
 | `docs/guardrails.md` | **only if** the owner wants D-1's licence note written outside the spec — the one that records the four LSP libraries in the production tree (no rule text changes are proposed today) | unchanged unless ruled |
@@ -61,16 +62,12 @@ its `Proposed ruling (pending owner review; entry 10.2)` marking and the plan st
    `packages/core/src/ports/engine.ts:46-49`). Correct text: *copied out rather than aliased to the live frames*. The
    Evidence line's `ScriptHost.state()` citation is also corrected from `:186-191` to `:188-193`.
 
-## Not ruled here (open, and it keeps 10.2 blocked)
-
-**The `tkr script` contract — subcommands, stable exit codes and the JSON result protocol — has no paragraph in this
-draft, although entry 10.2's description asks for it and 10.9 cannot be built without it.** This plan names subcommands
-only in passing (`check`, `fmt --check`, `test` in D-7, `index` and `docs` in D-6 and 10.9's description) and rules no
-exit code and no result protocol, while D-3's "the CLI's `check` summary" and D-4's "`fmt --check` exit code semantics"
-both assume them. `docs/editor-features.md` T-40 and the `packages/runner-headless/src/index.ts:200` subcommand pattern
-are the evidence a ruling would cite. It is left open deliberately rather than invented here: whoever approves this plan
-must either add a ninth ruling for the CLI surface or accept that 10.9 decides those three things in code, which is the
-one thing entry 10.2 exists to prevent.
+8. **The `tkr script` contract — subcommands, stable exit codes and the JSON result protocol — had no paragraph**
+   (superseded by D-9). The earlier draft named subcommands only in passing (`check`, `fmt --check`, `test` in D-7,
+   `index` and `docs` in 10.9's description) and ruled no exit code and no result protocol, while D-3's "the CLI's
+   `check` summary" and D-4's "`fmt --check` exit code semantics" both assumed them. Entry 10.2's own description asks
+   for that contract and 10.9 cannot be built without it, so "Not ruled here" would have defeated the entry's purpose.
+   Drafted as D-9 below and removed from the open list; the review is unchanged otherwise.
 
 ## D-1 — Transport and packaging of the LSP
 
@@ -106,7 +103,7 @@ one thing entry 10.2 exists to prevent.
 - **Evidence:** T-42 and T-46 (`docs/editor-features.md`); LEX-10 folds names by ASCII lower-casing; the corpus gate gives the before/after oracle.
 - **Files:** `docs/spec/engine/rpgcode-tooling.md` (a "Formatting" section).
 - **Rejected:** an AST-printing formatter (parse, then print). The parser discards whitespace and comments irrecoverably, so a printer would delete comments — the one thing T-42/T-44 never did.
-- **If ruled otherwise:** 10.7 changes scope, and 10.9's `fmt --check` exit code semantics change with it.
+- **If ruled otherwise:** 10.7 changes scope, and 10.9's `fmt --check` exit code semantics change with it (D-9 rules the codes themselves).
 
 ## D-5 — The RPGCode spec API and its packaging
 
@@ -144,6 +141,24 @@ one thing entry 10.2 exists to prevent.
 - **Rejected:** exposing `GameState` from `Engine` instead. It would let a debugger read and, through a shared reference, mutate the versioned state, and it couples the debugger to every section's shape rather than to one projection.
 - **If ruled otherwise:** 10.10 changes shape (it would read the whole state or a different projection), and the AD-1 note is not written.
 
+## D-9 — The `tkr script` command surface
+
+**Proposed ruling (pending owner review; entry 10.2).** The tool is one binary, `tkr`, and the RPGCode tools are its `script` group — `tkr script check`, `fmt`, `test`, `docs`, `index` — so later groups (`tkr run`, `tkr pack`) can be added without renaming anything; the envelope's "working name `tkr script`" is settled here as that group, not as a second binary. Each subcommand reads a project (a directory, or paths on the command line) and writes only what it says: `check` reads `.prg`/`.rnc` sources and the project config and writes nothing; `fmt` rewrites the sources it is given and writes nothing when `--check` is passed; `test` reads the project's `*.spec.prg` files and writes a report file only when one is asked for; `docs` writes the generated quick reference and language reference to a path or to stdout; `index` writes the versioned JSON document of D-6 to a path or to stdout. Every subcommand accepts `--json`, and with it writes the envelope below to stdout and human-readable progress to stderr, in both success and failure. Exit codes are stable and public once published, and a code is never reused for a different meaning:
+
+| Code | Meaning | `check` | `fmt` | `test` | `docs` | `index` |
+|---|---|---|---|---|---|---|
+| `0` | nothing to report | no diagnostic at the failure severity | nothing would change (with `--check`) | every case passed, or skipped outside strict mode | the committed reference matches | the document was written |
+| `1` | findings in the project | a diagnostic at the failure severity | at least one file would change | at least one failing case, or a skip under strict mode | the generated reference differs from the committed one | — |
+| `2` | usage or configuration error | unknown subcommand, bad argument, missing path, unreadable or invalid project config — nothing is written | same | same | same | same |
+| `3` | internal error | the tool itself failed unexpectedly — never used for a program's content | same | same | same | same |
+
+The `--json` envelope is one shape for every subcommand and both outcomes: `{ schema, tool, subcommand, status, exitCode, diagnostics, summary, results }`, where `schema` is `tkr-script-result/1`, `tool` is `tkr`, `status` is `ok` \| `findings` \| `error` and agrees with `exitCode`, `diagnostics` carries the D-3 diagnostic objects themselves — the same objects the language server publishes, so a CI job and an editor see one shape — `summary` counts files, diagnostics by severity, changed files, passed, failed and skipped cases, and `results` holds the subcommand's own payload (`fmt`: changed paths; `test`: cases with expected and actual; `docs`: the path or a drift list; `index`: the D-6 document). The schema lives at `docs/spec/schemas/tkr-script-result.schema.json`; adding a field is a minor version, removing or retyping a field or adding an exit code is a breaking one, and 10.9's test asserts that each subcommand's `--json` output validates against the committed schema.
+
+- **Evidence:** Done-when 10 requires "stable exit codes and machine-readable output, used by CI and the editor alike"; D-3 rules the diagnostic objects the envelope carries and D-4 rules the `fmt --check` semantics the `1` row depends on; the subcommand pattern already exists at `packages/runner-headless/src/index.ts:200` (`main(argv)` dispatch with an integer exit code); `docs/editor-features.md` T-40 and T-09 name the quick reference and help the `docs` subcommand generates.
+- **Files:** `docs/spec/engine/rpgcode-tooling.md` (a "Command-line front end" section with the table and the envelope) and the new `docs/spec/schemas/tkr-script-result.schema.json`.
+- **Rejected:** one non-zero exit code for everything. A CI job or a wrapper could then not tell "your script has a warning" from "your config is broken" from "the tool crashed", which is the distinction `--strict`/`--fix` workflows turn on; and a per-subcommand JSON envelope would mean two schemas to version for one contract.
+- **If ruled otherwise:** 10.9 changes wholesale (subcommand set, reporters, the `docs` drift exit, the schema file), 10.6's `check` summary and 10.7's `fmt --check` semantics follow it, and 10.11's published compatibility promise has to cover whatever shape replaces the envelope.
+
 ## Effect on 10.1 to 10.12 if a decision is reversed
 
 | Decision | Entries that change |
@@ -156,10 +171,11 @@ one thing entry 10.2 exists to prevent.
 | D-6 | 10.4, 10.9 |
 | D-7 | 10.9 (and the epic's closure evidence for Done-when 11) |
 | D-8 | 10.10, plus the AD-1 note |
+| D-9 | 10.9 (the subcommand set, the reporters, the schema and the `docs` drift exit), with 10.6's `check` summary, 10.7's `fmt --check` semantics and 10.11's published contract following |
 
 ## Verification
 
-The entry's own check runs when it starts, not now: the commit touches `docs/` and the epic folder only; every ruling above appears marked "Proposed ruling (pending owner review; entry 10.2)" with an evidence line and a rejected alternative; the new spec page's anchors resolve; `docs/spec/engine/rpgcode-functions.md` gains exactly the rows D-5 names; `pnpm provenance` and `pnpm lint` pass; and a person can plan 10.3 to 10.12 from the page without inventing a name, rule id, exit code or schema field.
+The entry's own check runs when it starts, not now: the commit touches `docs/` and the epic folder only; every ruling above appears marked "Proposed ruling (pending owner review; entry 10.2)" with an evidence line and a rejected alternative; the new spec page's anchors resolve; `docs/spec/engine/rpgcode-functions.md` gains exactly the rows D-5 names; the D-9 exit-code table and JSON envelope are the ones 10.9's verify cites, and `docs/spec/schemas/tkr-script-result.schema.json` exists and is the file 10.9 validates against; `pnpm provenance` and `pnpm lint` pass; and a person can plan 10.3 to 10.12 from the page without inventing a name, rule id, exit code or schema field.
 
 ## Why this plan is blocked
 
