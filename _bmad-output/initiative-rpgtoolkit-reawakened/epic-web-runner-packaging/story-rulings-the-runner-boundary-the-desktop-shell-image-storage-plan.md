@@ -146,8 +146,9 @@ is not a stripped editor. Epic `desktop-shell` owns it and measures its editor-s
 it nor ships it.
 
 **Artefact 4 — the PWA: unchanged.** `runner-web`'s `./app` subpath behind the D-5 service worker stays exactly as D-5,
-D-9 and D-11 rule it, and remains the **only** artefact with a service worker: a desktop application is already offline,
-so a worker there would only add an update path D-5 owns for the web.
+D-9 and D-11 rule it, and is the **only artefact this epic ships** with a service worker: a desktop application is
+already offline, so a worker there would only add an update path D-5 owns for the web. The editor's PWA is `host-web`'s
+and its worker is epic editor-foundation's — this ruling neither gives nor forbids one there.
 
 **Both desktop applications use one ruled shell.** The shell is **Electron 45.2.1** (Chromium 156.0.8078.75), the same
 for the player and the editor, and it serves every page over a **privileged `app://` scheme** — `standard`, `secure`,
@@ -225,9 +226,12 @@ build the owner already ships, with one package embedded in it unchanged (AD-6).
 promise**, not to the writer:
 `writeDistributionPackage` already returns a ZIP and nothing else, and "a pre-configured player build with a baked
 default" is configuration applied at export, not a different artefact kind. `docs/editor-features.md` still describes
-T-70 as "one self-running executable (the engine with the game appended)"; whether that legacy form is
-**reimplemented as an optional export** or **dropped in favour of a package installed into the player** is the owner's
-decision and is recorded as an open question here rather than assumed in the packaging entry.
+**T-70** as "one self-running executable (the engine with the game appended)" and, one line later, **T-71** as making
+the build "one step for the `.tpk` and the self-running EXE". That is **one question, not two**: answering T-70 alone
+leaves T-71 contradicting the answer, so whether the legacy self-running form is **reimplemented as an optional
+export** or **dropped in favour of a package installed into (or baked into a build of) the player** covers both
+tools — and T-71's `.tpk` half is unaffected either way. The decision is the owner's and is recorded as an open
+question here rather than assumed in the packaging entry.
 
 - **Lands in:** `docs/adr/0013-desktop-shell-electron.md` (new; renumbered if another ADR takes 0013 first) — one ADR for
   one shell, one G6 inventory naming both binaries — plus `docs/spec/engine/runners.md#desktop-shell` (what a desktop
@@ -379,9 +383,9 @@ until a second published package version exists.
 
 ## D-5 — The offline service worker
 
-**Proposed ruling (pending owner review; entry 9.1).** The **PWA** — the web player, and the only artefact with a
-service worker (D-1) — ships a worker that caches the app shell, the bundled default bank and the whole-package
-download, and that updates on the next launch and **never** mid-session.
+**Proposed ruling (pending owner review; entry 9.1).** The **PWA** — the web player, and the only artefact *this epic
+ships* with a service worker (D-1) — ships a worker that caches the app shell, the bundled default bank and the
+whole-package download, and that updates on the next launch and **never** mid-session.
 Save blobs go through the existing `saveBlob` / `loadBlob` / `listBlobs` contract under `GameId`-keyed paths, and the
 service worker never reads a save. The runner **SHOULD** call `navigator.storage.persist()` and **MUST** report an
 unpersisted or quota-limited state rather than swallowing it, falling back to streaming for anything it cannot keep. No

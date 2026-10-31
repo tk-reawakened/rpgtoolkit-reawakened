@@ -39,8 +39,8 @@ Anyone can play a legacy game in a browser; the CAP-12 success check, sample gam
   that the harness is separate from the game bundle — a game is a package installed into the player's library, with a
   default game baked at export or configured — and that there are **two desktop applications from one codebase plus the
   PWA**: a **player** (9.11's package under 9.10's application) and an **editor** (`host-desktop`, epic desktop-shell's
-  own package and application), both on the ruled Electron shell with `app://`, while the PWA is the only artefact with
-  a service worker. This epic builds the player and packaging; it does not build or measure the editor application. The
+  own package and application), both on the ruled Electron shell with `app://`, while the PWA is the only artefact
+  **this epic ships** with a service worker — the editor PWA's worker is `host-web`'s (epic editor-foundation). This epic builds the player and packaging; it does not build or measure the editor application. The
   ruling text is D-1 in `story-rulings-the-runner-boundary-the-desktop-shell-image-storage-plan.md`.
 - Decision: epic set approved by the user, 2026-10-10.
 - Waits on board-rendering because: draw lists to replay.
