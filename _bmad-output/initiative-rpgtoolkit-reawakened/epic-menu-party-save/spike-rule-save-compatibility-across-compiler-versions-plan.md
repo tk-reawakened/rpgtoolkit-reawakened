@@ -111,6 +111,10 @@ The project already refuses to migrate a save shape no player could hold — the
 - **Recovery does not change.** #779's like-for-like rule keeps refusing a recovery candidate across an `ir` difference; the player captures again. The two rules stay separate so neither is weakened by the other.
 - **Follow-up implementation story (#814):** the save-shape migrations and fixtures, `IR_VERSION`, the resume/restart rule with the mapped legacy sentinel, the `engine` newer-version guard, the `restore.ir-mismatch` rename, the compiler-1 fixture as the first restart test, a newer-`ir` refusal test, the unchanged-live-game assertions, and the step-op fingerprint golden.
 
+## Completion evidence
+
+Merged PR #813 (evidence) and PR #815 (policy) as `b3f1c340d27a7efcb40d4008a4d03e0f755cbd3e`.
+
 ## Owner decisions recorded
 
 1. Save-compatibility carrier: **separate `irVersion` field** (option E), not the per-version table.
