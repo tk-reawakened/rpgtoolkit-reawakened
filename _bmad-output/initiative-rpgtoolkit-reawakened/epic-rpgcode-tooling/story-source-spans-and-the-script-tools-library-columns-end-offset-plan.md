@@ -1,7 +1,7 @@
 ---
 title: "Source spans and the script-tools library: columns, end offsets and one diagnostic model"
 ticket: 3
-status: in-progress
+status: done
 ---
 
 ## Intent
@@ -53,3 +53,13 @@ The same rule fixes the anchor: a node's `line`, `col` and `endCol` all come fro
 ## Out of scope
 
 No linter rule (10.6), no formatter (10.7), no index document (10.4), no LSP transport (10.1). The help projection is a pure function of the resolved plugin definitions; it does not read `docs/` or the filesystem.
+
+## Landing
+
+Merged as **`4a58476df822bf2040d44958edfb9cddc5423509`** — "feat(10.3): source spans in the scanner, AST and IR; script-tools analyse and help (#939)" (PR [#971](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/971), squash). Issue #939 closed as completed.
+
+Six commits: the scanner spans (the inherited first slice), the UTF-16 ruling, the range-convention section and this plan; then the AST/`SourcePos`/error spans, `packages/script-tools` with the dependency edge, and the CI test shard.
+
+Gates at the final head `f78b3607`: `fixtures:fetch` fetched; `typecheck` exit 0; `lint` exit 0; `test:strict` 2485/2485 pass, 0 skipped; `fixtures:author:check` matched; `golden` exit 0; `golden:bun` identical and closing 8/8; `graph` no violations (526 modules, 2667 dependencies); `licence` passed; `provenance` 0 violations; `catalogue:check` matched; `command-docs:check` exit 0; `closing` 8/8. CI run 41244758388 green on all 12 checks, including the new `unit (script-tools)` shard and the coverage `gate`.
+
+**No golden, state hash or snapshot moved and none was re-recorded.** Three structural comparisons that carried `line` only now compare the span-blind view (the OOP parser goldens) or the exact new spans; the golden files themselves are untouched.
