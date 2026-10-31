@@ -22,7 +22,6 @@ import {
   enqueueDirectionMove,
   hashGameState,
   hydrateSprites,
-  restoreGameState,
   movementPhaseRegistration,
   nextUint32,
   PACKAGE_ROOT,
@@ -702,7 +701,7 @@ test("same-tick setimage before Save waits for the asset reply so the saved stat
   equal(surface.rgba[0], 255, "red channel is 255 from pixel.bmp");
 });
 
-test("a save requested inside a cancelable dispatch restores to the same state and finishes the run", () => {
+test("a save requested inside a cancelable dispatch is restored by a real load", () => {
   // Done-when 6 of Epic 19 asks for a save taken at any tick, including mid-dispatch, to restore and finish with
   // the same state hash. The listener below calls Save() while the emit has parked the caller thread, so the save
   // is taken with `events.dispatch` set (#852).
@@ -747,6 +746,7 @@ test("a save requested inside a cancelable dispatch restores to the same state a
   const loading = hostedEngine(loadedGame);
   let loadReplies: InputRecord[] = [];
   let sawLoad = false;
+  let savedAgain = false;
   for (let guard = 0; guard < 400; guard += 1) {
     const report = loading.engine.advance(1, loadReplies);
     loadReplies = [];
@@ -755,13 +755,19 @@ test("a save requested inside a cancelable dispatch restores to the same state a
         sawLoad = true;
         loadReplies.push({ tick: report.tickAfter, event: { kind: "blob.loaded" as const, reqId: request.reqId, bytes: new Uint8Array(savedBytes as Uint8Array) } });
       }
-      if (request.kind === "saveBlob") loadReplies.push({ tick: report.tickAfter, event: { kind: "blob.saved" as const, reqId: request.reqId, ok: true } });
+      if (request.kind === "saveBlob") {
+        // A restored run resumes the Save the snapshot already answered; a refused load falls back to a fresh run,
+        // which issues a second save request. This is the discriminator a from-scratch pass cannot satisfy.
+        savedAgain = true;
+        loadReplies.push({ tick: report.tickAfter, event: { kind: "blob.saved" as const, reqId: request.reqId, ok: true } });
+      }
       if (request.kind === "asset") loadReplies.push({ tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: loadedGame.files.get(request.key) ?? null } });
     }
     if (loading.latest()?.vm.globals.aftersave === 1) break;
   }
   const resumed = loading.latest();
   ok(sawLoad, "the second engine requested the saved blob");
+  equal(savedAgain, false, "the restored run resumed the answered Save instead of running the program again");
   ok(resumed !== null);
   equal(resumed.vm.globals.aftersave, 1, "the loaded run reached the statement after the emit");
   equal(resumed.vm.globals.hits, 1, "the restored run continued the listener's own thread rather than re-running it");
