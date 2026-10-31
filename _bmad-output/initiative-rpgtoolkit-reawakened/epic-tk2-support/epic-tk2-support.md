@@ -5,6 +5,9 @@ parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-1"]
 assignee: ""
 risk: high
+status: done
+tracker_id: "#912"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/912"
 ---
 
 # TK2 games load: 2.x data formats

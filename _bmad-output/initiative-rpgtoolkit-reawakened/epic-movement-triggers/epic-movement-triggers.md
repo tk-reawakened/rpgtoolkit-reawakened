@@ -5,6 +5,9 @@ parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-3", "CAP-4", "CAP-8"]
 assignee: ""
 risk: high
+status: done
+tracker_id: "#914"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/914"
 ---
 
 # Sprites move, collide and fire triggers as legacy did

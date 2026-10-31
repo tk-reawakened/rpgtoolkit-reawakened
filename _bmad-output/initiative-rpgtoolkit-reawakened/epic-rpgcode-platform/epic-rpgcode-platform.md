@@ -5,6 +5,9 @@ parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-5", "CAP-9", "CAP-11"]
 assignee: ""
 risk: high
+status: done
+tracker_id: "#489"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/489"
 ---
 
 # RPGCode as a platform: objects, packages, events and trust

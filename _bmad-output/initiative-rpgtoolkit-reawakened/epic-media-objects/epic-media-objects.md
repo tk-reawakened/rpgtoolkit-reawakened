@@ -5,6 +5,9 @@ parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-5", "CAP-7"]
 assignee: ""
 risk: medium
+status: in-progress
+tracker_id: "#491"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/491"
 ---
 
 # Media as objects and events: voices, tracks and the media object

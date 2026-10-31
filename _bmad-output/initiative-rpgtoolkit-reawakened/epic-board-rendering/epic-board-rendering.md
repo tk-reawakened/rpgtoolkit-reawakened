@@ -6,6 +6,8 @@ covers: ["CAP-2", "CAP-6"]
 assignee: ""
 risk: high
 status: in-progress
+tracker_id: "#794"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/794"
 ---
 
 # Boards render through draw lists in 2D and both iso modes

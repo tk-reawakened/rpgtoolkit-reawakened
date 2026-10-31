@@ -5,6 +5,9 @@ parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-3", "CAP-9", "CAP-10", "CAP-11"]
 assignee: ""
 risk: high
+status: done
+tracker_id: "#490"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/490"
 ---
 
 # Actors: one data model for party members, enemies and NPCs, with behaviours and stock packages

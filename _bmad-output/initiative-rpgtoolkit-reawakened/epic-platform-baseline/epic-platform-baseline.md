@@ -5,6 +5,9 @@ parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-12", "CAP-13"]
 assignee: ""
 risk: medium
+status: done
+tracker_id: "#910"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/910"
 ---
 
 # Platform baseline: monorepo, guard-rails and headless CI
