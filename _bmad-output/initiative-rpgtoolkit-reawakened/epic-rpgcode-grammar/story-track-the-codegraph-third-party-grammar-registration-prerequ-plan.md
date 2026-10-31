@@ -1,7 +1,7 @@
 ---
 title: "Track the CodeGraph third-party grammar registration prerequisite"
 ticket: 12
-status: built
+status: done
 ---
 
 ## Intent
@@ -31,3 +31,9 @@ and exit criteria, so 22.10 is refined against a real prerequisite.
 
 - Neither option is chosen here; that is 22.10's refinement decision with the owner, and option 1 is recommended.
 - 22.3–22.8 are unaffected: the grammar library does not depend on CodeGraph.
+
+## Merged
+
+PR #871 merged by squash as `0966e1e1acb3f76a4febe7647031edc930e82eb8` (in `origin/main`); the prerequisite record
+lives at `discovery/codegraph-registration-prerequisite.md` and issue #870 is closed by this metadata change. 22.10's
+entry now carries `after = [2, 8, 12]`.
