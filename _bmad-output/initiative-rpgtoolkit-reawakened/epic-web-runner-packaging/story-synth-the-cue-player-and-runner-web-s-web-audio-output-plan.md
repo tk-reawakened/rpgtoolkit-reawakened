@@ -3,7 +3,7 @@ title: "synth: the cue player, and runner-web's Web Audio output"
 type: 'feature'
 ticket: 5
 created: '2026-10-31'
-status: in-progress
+status: done
 tracker_id: "#930"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/930"
 baseline_revision: '217a6bc6'
@@ -72,6 +72,18 @@ the browser lane. No SoundFont path, no bank picker or shared bank cache (9.6), 
 MIDI needs a SoundFont bank. `setBank` is recorded by the sink and a voice whose source needs one fails with
 `bank.missing` rather than playing silence; the SoundFont path, the player's bank picker and the shared bank cache are
 entry 9.6's. The bundled bank exists at `media/soundfonts/TK-16.sf2` but nothing loads it yet.
+
+## Landing
+
+Merged as **`ce6d105b`** — "feat(9.5): the cue player, and PCM from the synth into the browser's audio graph" (PR
+[#989](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/989), squash; #930 closed as completed). One commit.
+
+The vector kit changed with it: a runner expectation committed only the cue's identity, so a `media.seek`'s
+`loop`/`playing` and a cue's `positionTicks`/`volume` came from generator defaults and `seek-and-fade-cues-late` expected
+a wrapped position no committed fact implied. The generator now commits the whole cue plus those two facts, and the kit
+was regenerated; `packages/core` reads neither field, so only the runner-side block moved. No golden, hash or baseline
+PNG changed. CI run 41253722426 green on every check, including `unit (synth)`, `unit (runner-web)`, the `browser` lane
+and the coverage `gate`.
 
 ## Out of scope
 
