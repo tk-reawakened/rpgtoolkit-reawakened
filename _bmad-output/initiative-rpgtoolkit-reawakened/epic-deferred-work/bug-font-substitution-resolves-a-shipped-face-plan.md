@@ -23,4 +23,4 @@ context: []
 
 - `node --test packages/core/test/render.test.ts`: 6 passed, including the new resolver cases (exact path, family match, Arial substitution, unknown family, empty name).
 - `node --test packages/core/test/engine-bundled.test.ts`: 5 passed; the new engine case proves `font("Arial")` draws with the shipped Liberation face rather than the bitmap fallback.
-- `pnpm typecheck`, `pnpm lint`, `pnpm golden` passed.
+- `pnpm typecheck`, `pnpm lint` passed. `pnpm golden` moved exactly one value, the `sample-start-basic` script hash, because the script state records `ui.font.asset` and it now names the bundled Liberation face instead of a path no project ships; it was re-recorded deliberately (G5) with that reason in the changelog. No pixel golden changed: that corpus host ships no Liberation file, so text still falls back to the bitmap font there.
