@@ -6,7 +6,7 @@ tracker_id: "#849"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/849"
 parent: epic-deferred-work
 created: '2026-10-31'
-status: 'built'
+status: 'done'
 baseline_revision: 'c8b7772f4d0c9d15fcd14f066dcaf16d1ca89d70'
 route: 'oneshot'
 route_source: 'auto'
