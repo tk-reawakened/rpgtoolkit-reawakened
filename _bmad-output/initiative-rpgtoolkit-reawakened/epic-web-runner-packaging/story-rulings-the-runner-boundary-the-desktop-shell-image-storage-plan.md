@@ -28,23 +28,25 @@ context:
 
 ## Intent
 
-Give the owner one page of finished ruling text to approve or redirect, so entry 9.1 can land the normative
-paragraphs instead of deciding them during a build. Each block below **is** the paragraph: it is written to be lifted
-into the file it names, unchanged, and every block is marked `Proposed ruling (pending owner review; entry 9.1)`.
+Give the owner one page of finished ruling text to approve or redirect, so entry 9.1 could land the normative
+paragraphs instead of deciding them during a build. Each block below **is** the paragraph, written to be lifted into the
+file it names unchanged. **The owner approved all eleven rulings on 2026-10-31**, including the recommended resolution
+of the self-running EXE question, so every block is marked `Approved ruling (owner: Jensen, 2026-10-31)` and entry 9.1
+lands them docs-first.
 
 ## Boundaries
 
-A plan file only. This document changes no `docs/` page, no ADR, no guard-rail, no spine section, no code and no
-config. Approving it does not edit them either: entry 9.1 lands each paragraph in its own docs-first commit, per
-G7 rule 4. The mechanical half of 9.1 — merging the envelope's two `## Notes` headings and recording the four
-`Source conflict:` lines — was already done when the breakdown was published, so 9.1 now starts at the rulings.
+The plan records what was approved; entry 9.1 lands it. Each approval is written into its destination in its own
+docs-first commit, per G7 rule 4, and this file changes only its own markings. The mechanical half of 9.1 — merging the
+envelope's two `## Notes` headings and recording the four `Source conflict:` lines — was done when the breakdown was
+published; the rulings are already in place from the publication commit.
 
-## What approving this looks like
+## Approved, 2026-10-31
 
-Answer per decision: **approve verbatim**, or redirect with the alternative, or defer with the open question kept.
-Seven are gating — 9.2 to 9.14 cannot start without them (D-1, D-3, D-4, D-5, D-6, D-8, D-9). Four are advisory —
-9.2 to 9.14 can start with them left open, and their paragraphs are written so a later answer amends one section
-(D-2, D-7, D-10, D-11).
+The owner approved all eleven rulings verbatim. Seven were gating and unblock 9.2 to 9.14 (D-1, D-3, D-4, D-5, D-6,
+D-8, D-9); four were advisory and now need no later amendment (D-2, D-7, D-10, D-11). No ruling's substance changed at
+approval: the only edits were the marking, the "recommended resolution" label on D-1's EXE ruling, and the
+`If the owner had said keep it (not taken)` label on its untaken branch.
 
 | ID | Ruling in one line | Gating? | Lands in |
 |---|---|---|---|
@@ -69,7 +71,8 @@ Whichever lands first keeps the number and this page's references to `0013-…` 
 ## Corrections made at review (2026-10-31)
 
 Seven contradictions were fixed in place above. Each is dated here with the wording it superseded, none changes a
-ruling's substance, and every paragraph keeps its `Proposed ruling (pending owner review; entry 9.1)` marking.
+ruling's substance, and every paragraph keeps its approved marking (then `Proposed ruling (pending owner review; entry
+9.1)`, now `Approved ruling (owner: Jensen, 2026-10-31)`).
 
 1. **D-1, the table row — "no per-game executable, stub or file association"** (superseded). It contradicted the
    ruling's own resolution order for the player (Artefact 2, step 3: "an embedded default project baked in at export")
@@ -112,8 +115,8 @@ ruling's substance, and every paragraph keeps its `Proposed ruling (pending owne
 **editor**, each its own desktop application built from the same codebase and the same ruled shell, plus the **PWA**.
 The player/editor split is the owner's ruling of 2026-10-31. Earlier drafts of this section spent one copy of the shell
 per exported game, then a system-WebView stub per game, then one application that was both editor and player; the owner
-withdrew all three on the same day, and the paragraphs below are this ruling's text. They keep their
-`Proposed ruling (pending owner review; entry 9.1)` marking until the owner approves the wording word for word.
+withdrew all three on the same day, and the paragraphs below are this ruling's text. The owner approved the wording
+word for word on 2026-10-31, so each paragraph carries the `Approved ruling (owner: Jensen, 2026-10-31)` marking.
 
 **Artefact 1 — the harness, embedded by both applications and hosted by the PWA.** One `runner-web` build, unchanged in
 all three, that **opens a game package** — by path, by drag-and-drop onto the window, or over `fetch`/OPFS. What the
@@ -158,7 +161,7 @@ stated rather than hidden: **two signing, notarisation and updater pipelines and
 justified because the player is distributed to people who never author and must not carry an editor's size or update
 churn.
 
-**Proposed ruling (pending owner review; entry 9.1) — install registers a package; the player holds a library and a
+**Approved ruling (owner: Jensen, 2026-10-31) — install registers a package; the player holds a library and a
 default game.** There is **no per-game stub and no file association to rely on**: a friend who is sent a game receives a
 package plus "install this", and installing means **registering the package with the player**, not wrapping it. The
 player keeps a **library**: a versioned host-side registry, outside the save store (AD-17's blob keys are untouched),
@@ -171,7 +174,7 @@ never knows a registry exists. **Launch:** the resolution order above, so a cold
 game and, with none set or the configured one missing, shows the library and says why rather than a blank window. The
 editor may read the same registry to open a project, and gains no second mechanism from it.
 
-**Proposed ruling (pending owner review; entry 9.1) — the install descriptor.** The package's `manifest.json` keeps
+**Approved ruling (owner: Jensen, 2026-10-31) — the install descriptor.** The package's `manifest.json` keeps
 **exactly** `schema`, `main` and `index` (AD-6 refuses any other field), so identity for the library travels in a
 **sibling file** the exporter writes next to the package — `<package>.tpk.json` — with `{ schema, file, sha256, size,
 gameId, title, version }`: the package's name, its SHA-256 (the same hash D-4 already uses as a cache key), its byte
@@ -180,7 +183,7 @@ no reader or writer contract changes and two exports of one tree stay byte-ident
 parsing every installed package at launch, which costs a ZIP read per game to draw a list, and *rejected:* adding fields
 to the manifest, which amends AD-6 for a job the descriptor does.
 
-**Proposed ruling (pending owner review; entry 9.1) — the measured artefact is the exported player.** There is no
+**Approved ruling (owner: Jensen, 2026-10-31) — the measured artefact is the exported player.** There is no
 separate "export engine" to test: the engine a player gets is either the PWA or the player application, and both are
 measured. Entry 9.10 takes four measurements on the **exported player** — WebGL2 present; the [D-7] blend bound; audio
 of the expected length; and a game resolved through the ruled order, from the baked default and from the library at a
@@ -190,7 +193,7 @@ is ever shipped**; today none is, so no system webview is claimed and none is me
 artefacts: the same draw list rendered by the PWA build and by the player agrees within the [D-7] bound. The **editor's**
 own measurements are epic `desktop-shell`'s Done-when 1, not this epic's.
 
-**Proposed ruling (pending owner review; entry 9.1) — a secure scheme is not optional.** Two findings make `file://` a
+**Approved ruling (owner: Jensen, 2026-10-31) — a secure scheme is not optional.** Two findings make `file://` a
 defect rather than a convenience, even though the applications open game *data* rather than pages from disk. Measured on
 2026-10-31 (macOS 27.0.1, Apple M1 Pro): in **WKWebView** a `file://` page refuses `audioWorklet.addModule(blob:)` —
 "Cross-origin script load denied by Cross-Origin Resource Sharing policy" — while the same page in Electron loads it;
@@ -200,7 +203,7 @@ not bind this ruling — neither desktop application ships a worker — but the 
 its own pages over a scheme the engine treats as **secure and standard**, so that loading a game from an arbitrary path
 can never be what breaks audio.
 
-**Proposed ruling (pending owner review; entry 9.1) — G6 exception: one inventory, two binaries.** `electron` is MIT and
+**Approved ruling (owner: Jensen, 2026-10-31) — G6 exception: one inventory, two binaries.** `electron` is MIT and
 the npm package is a build-time dev dependency, but **that sentence does not cover the artefacts we ship**: the Electron
 44.7.0 macOS bundle (the version measured) carries `LICENSES.chromium.html` (20,115,518 bytes) whose per-product blocks
 place **ffmpeg under LGPL-2.1-or-later** and **`symphonia-core` under MPL-2.0**, and it ships `libffmpeg.dylib`
@@ -212,14 +215,14 @@ inventory re-opens the exception. One exception therefore covers two binaries, w
 one shell; the inventory is re-read for 45.2.1 when 9.10 builds it. The PWA needs no exception: it ships no browser
 engine.
 
-**Proposed ruling (pending owner review; entry 9.1) — the pin and its maintenance line.** The desktop shell is
+**Approved ruling (owner: Jensen, 2026-10-31) — the pin and its maintenance line.** The desktop shell is
 **Electron 45.2.1** (Chromium 156.0.8078.75, published 2026-10-30), not the **44.7.0** the spine pins today: 44 is
 Chromium 152 while Chrome stable is 156.0.8078.80, so today's pin is already a Chromium major behind. Both applications
 take a bump **together** from the same ADR, so the two binaries never drift; Electron ships a major every **8 weeks** and
 supports the **latest three**, so ADR 0013 is amended whenever the pin falls more than one major behind Chrome stable —
 a standing maintenance line, not a one-off bump.
 
-**Proposed ruling (pending owner review; entry 9.1) — the recommended resolution: we stop *producing* self-running
+**Approved ruling (owner: Jensen, 2026-10-31) — the resolution: we stop *producing* self-running
 executables.** We keep the `CMP1` **reader** and stop writing what it reads. An export produces **a distribution
 package** — the `.tpk`-compatible ZIP with the three-field manifest — **plus its install descriptor**, and the player
 opens it from the library, or a pre-configured build carries one baked in. No export path appends a package to an engine
@@ -261,7 +264,7 @@ convenience the library plus a baked build already covers; the owner has also sa
 this form. *Dropping the `CMP1` reader*: it would break importing the very games this project exists to play, and that
 reader is already written and tested under L20 and L21.
 
-**If the owner says keep it.** The export then needs a **player-copy step** — locate or copy the ruled Electron player,
+**If the owner had said keep it (not taken).** The export would then need a **player-copy step** — locate or copy the ruled Electron player,
 append the package, and patch the icon the way T-70's "custom icon" asks — so T-70 and T-71 stay as written, and 9.7
 gains that path with its size consequence recorded beside it (a player copy per export, against the 293 MB measured
 installation). Nothing in the player, the library or the resolution order in this D-1 changes either way.
@@ -330,7 +333,7 @@ installation). Nothing in the player, the library or the resolution order in thi
 
 ## D-2 — Stored image format (advisory)
 
-**Proposed ruling (pending owner review; entry 9.1).** The project stores every game image exactly as the game holds
+**Approved ruling (owner: Jensen, 2026-10-31).** The project stores every game image exactly as the game holds
 it — PNG, JPEG, Windows bitmap or GIF — and decodes it only through `core/formats/image`: `decodeTexture` for a still
 picture and `decodeGif` for an animation. No import step transcodes a bitmap or a GIF, because a runner hands the core
 bytes through the AD-5 `asset` request and never asks the browser to decode a game picture, so native browser support
@@ -356,7 +359,7 @@ never re-encoded to a lossless format.
 
 ## D-3 — The runner boundary contract
 
-**Proposed ruling (pending owner review; entry 9.1).** `docs/spec/engine/runners.md` is the normative contract between
+**Approved ruling (owner: Jensen, 2026-10-31).** `docs/spec/engine/runners.md` is the normative contract between
 the core and any runner, and the TypeScript packages are one binding of it, never the contract. It defines four
 record families — the draw list (AD-3), the audio cue and its runner message protocol (AD-16 and
 `audio-media.md#runner-audio-protocol`), the input event and its reply (AD-14), and the host request (AD-5, AD-17) —
@@ -385,7 +388,7 @@ runner proves itself by replaying the vectors; it never depends on a TypeScript 
 
 ## D-4 — Load modes, the threshold and who plans prefetching
 
-**Proposed ruling (pending owner review; entry 9.1).** The web runner has two load modes. Below a threshold it
+**Approved ruling (owner: Jensen, 2026-10-31).** The web runner has two load modes. Below a threshold it
 downloads the whole distribution package once, behind a progress screen, and keeps it; above it, it streams assets on
 demand. The threshold is not a fixed constant: it is the measured uncompressed size of the largest corpus package,
 rounded up to the next whole mebibyte and recorded in a table with its measurement date, 64 MiB standing in until **9.9**
@@ -422,7 +425,7 @@ until a second published package version exists.
 
 ## D-5 — The offline service worker
 
-**Proposed ruling (pending owner review; entry 9.1).** The **PWA** — the web player, and the only artefact *this epic
+**Approved ruling (owner: Jensen, 2026-10-31).** The **PWA** — the web player, and the only artefact *this epic
 ships* with a service worker (D-1) — ships a worker that caches the app shell, the bundled default bank and the
 whole-package download, and that updates on the next launch and **never** mid-session.
 Save blobs go through the existing `saveBlob` / `loadBlob` / `listBlobs` contract under `GameId`-keyed paths, and the
@@ -445,7 +448,7 @@ this epic.
 
 ## D-6 — Mobile wrapper scope
 
-**Proposed ruling (pending owner review; entry 9.1).** `runner-mobile` is the `runner-web` build inside **Capacitor
+**Approved ruling (owner: Jensen, 2026-10-31).** `runner-mobile` is the `runner-web` build inside **Capacitor
 8.5.3** and nothing else: v1 proves one sample game running on a real device or emulator, carrying the same asset
 source and the same AD-17 blob keys as the web runner with the Capacitor filesystem behind them. Store submission,
 signing, icons, splash screens, deep links and per-platform chrome are out of scope and belong to a release owner that
@@ -466,7 +469,7 @@ the runner page, never a second rendering or input path.
 
 ## D-7 — What the WebGL2 agreement bound means (advisory)
 
-**Proposed ruling (pending owner review; entry 9.1).** The WebGL2 replayer and the reference rasteriser are compared
+**Approved ruling (owner: Jensen, 2026-10-31).** The WebGL2 replayer and the reference rasteriser are compared
 **exactly** on every decision the CPU pipeline makes discretely — colour-key exclusion, tint saturation and the choice
 of blend — and within **at most one** unit per channel on the arithmetic a GPU may round differently, the `translucent`
 and `additive` blends, with the worst per-channel difference reported per vector. The comparison never widens a PNG
@@ -489,7 +492,7 @@ report-only.
 
 ## D-8 — The web build tool
 
-**Proposed ruling (pending owner review; entry 9.1).** The browser artefacts are bundled with **esbuild 0.28.2**, the
+**Approved ruling (owner: Jensen, 2026-10-31).** The browser artefacts are bundled with **esbuild 0.28.2**, the
 bundler AD-22 already names for `host-vscode`. The engine worker and the AudioWorklet are single-file IIFE bundles with
 no runtime `import()`, as the spine's Operations section requires. Vite **MUST NOT** be installed: it pulls
 `lightningcss` (MPL-2.0) and would need its own ADR before a first install, and nothing here needs HMR. The player page
@@ -512,7 +515,7 @@ framework or dev server enters the shipped artefact.
 
 ## D-9 — The browser lane, and why Playwright passes G6
 
-**Proposed ruling (pending owner review; entry 9.1).** The browser lane is **Playwright 1.64.0**, one headless Chromium
+**Approved ruling (owner: Jensen, 2026-10-31).** The browser lane is **Playwright 1.64.0**, one headless Chromium
 project, and it is a required `gate` dependency that runs `pnpm fixtures:fetch` first. Playwright is **Apache-2.0**,
 rated Gold on the pinned Blue Oak list, so G6 rule 1 admits it outright. It is nevertheless declared a **dev-only**
 tool in ADR 0014 in the exact pattern ADR 0002 uses for `ovsx`: the npm packages and the browser binaries Playwright
@@ -538,7 +541,7 @@ never sees them, and the scan still fails if any Playwright code appears in a sh
 
 ## D-10 — SF2, WebAssembly and the CSP note (advisory)
 
-**Proposed ruling (pending owner review; entry 9.1).** The default audio path ships **SF2** banks only, so it
+**Approved ruling (owner: Jensen, 2026-10-31).** The default audio path ships **SF2** banks only, so it
 instantiates **no WebAssembly** and the shipped CSP needs no `wasm-unsafe-eval` for it. `script-src 'wasm-unsafe-eval'`
 is allowed only in a build that can load an SF3 bank or a user-supplied `.sf2` that is SF3, and the player page states
 which build it is. The web runner **MUST** assert in the browser lane that the default path instantiates no
@@ -562,7 +565,7 @@ this epic.
 
 ## D-11 — Where the player page lives (advisory)
 
-**Proposed ruling (pending owner review; entry 9.1).** The player page lives in `packages/runner-web` as a declared
+**Approved ruling (owner: Jensen, 2026-10-31).** The player page lives in `packages/runner-web` as a declared
 **`./app`** subpath beside the package's `src/index.ts`, and `host-web` remains the editor's PWA. AD-22 gains that
 subpath in its own list — "every package exports one public entry `src/index.ts`, plus `./testing` and, for
 `runner-web`, `./app`, where needed" — and no new workspace package is created, so `tools/deps/edges.json`, the spine's
@@ -587,10 +590,10 @@ Structural Seed and its generated diagram are unchanged.
 
 ## Acceptance
 
-Entry 9.1 is done when the epic's single `## Notes` section holds a dated owner line for D-1, D-3, D-4, D-5, D-6, D-8
-and D-9, and each paragraph above has landed in the file it names, in a docs-first commit that no code commit precedes.
-The four advisory rulings are either dated lines or recorded open questions with the entries they would change. The
-`Source conflict:` lines and the Notes merge are already in place from the publication commit.
+Entry 9.1 is done when the epic's single `## Notes` section holds a dated owner line for all eleven rulings, and each
+paragraph above has landed in the file it names, in a docs-first commit that no code commit precedes. The four advisory
+rulings land the same way and no longer leave an open question. The `Source conflict:` lines and the Notes merge are in
+place from the publication commit.
 
 ## Verification
 
