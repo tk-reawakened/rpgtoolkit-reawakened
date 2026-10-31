@@ -37,6 +37,9 @@ P0 tools of editor-features section 11 only. P1 tools (epic editor-p1) and P2 to
 
 ## Notes
 
+- Audit (2026-10-31): this envelope has no `tickets.toml` breakdown, so it has no `tracker_id` and no GitHub parent issue, contrary to the initiative's mirror rule. Recorded, not fixed: a parent issue needs a real breakdown, and inventing entries to satisfy the rule was rejected. Filed as issue #882; `epic-editor-foundation` is the one to break down first because Epic 22's 22.9 waits on its seams. See `DISCOVERY-envelope-audit.md`.
+
+
 - Open question: where P0 draws the line inside T-20 to T-35 (editor-features names priority per tool, not per feature); settle at inception.
 - Decision: epic set approved by the user, 2026-10-10.
 - Waits on editor-foundation because: editor-ui and both hosts.

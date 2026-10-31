@@ -41,6 +41,9 @@ Authors can open a legacy project in VS Code or in the browser and edit its sett
 
 ## Notes
 
+- Audit (2026-10-31): this envelope has no `tickets.toml` breakdown, so it has no `tracker_id` and no GitHub parent issue, contrary to the initiative's mirror rule. Recorded, not fixed: a parent issue needs a real breakdown, and inventing entries to satisfy the rule was rejected. Filed as issue #882; `epic-editor-foundation` is the one to break down first because Epic 22's 22.9 waits on its seams. See `DISCOVERY-envelope-audit.md`.
+
+
 - Open question: the platform-services interface surface; settled by the architecture spine.
 - Assumption: epic editor-foundation owns CAP-18 until the desktop shell epic adds `host-desktop`. Confirm.
 - Decision: epic set approved by the user, 2026-10-10.
