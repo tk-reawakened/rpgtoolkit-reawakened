@@ -257,8 +257,14 @@ A runner proves itself by replaying vectors, not by sharing types. Two artefacts
   this page's boundary carries, with fixed keys and `null` for absence (AD-14). A non-TypeScript runner validates its
   messages against it;
 - **the vector kit** — `tools/fixtures/runner-protocol/`, a generator with a `--check` mode on the
-  `audio-protocol:check` pattern, holding `(bytes, record script) → expected records and pixels` cases. A runner passes
-  by replaying them.
+  `audio-protocol:check` pattern. It holds one record per kind across the three families — a draw list, an input record and
+  a host request — each with the verdict a conforming schema must return, plus the refusals a runner must reject (an
+  unknown kind, an omitted required key, an out-of-range value, a non-`https:` URL). A runner passes by validating and
+  replaying them.
+
+The schema and the kit cannot drift from `core`: `packages/runner-harness/test/runner-protocol.test.ts` keeps an
+exhaustive kind map per family, so a command, input event or request added to `core` fails the type check until it has a
+vector, and `pnpm fixtures:test` fails if the committed kit differs from what the generator produces.
 
 The browser lane is **Playwright 1.64.0** (Apache-2.0, Blue Oak Gold), one headless Chromium project, a required `gate`
 dependency that runs `pnpm fixtures:fetch` first and serves the fetched `fixtures/` folder over the local static server.
