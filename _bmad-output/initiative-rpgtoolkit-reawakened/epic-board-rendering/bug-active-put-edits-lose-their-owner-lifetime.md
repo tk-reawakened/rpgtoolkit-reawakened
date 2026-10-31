@@ -8,7 +8,7 @@ after: [12]
 assignee: ""
 tracker_id: "#790"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/790"
-tracker_status: in-progress
+tracker_status: done
 refined: true
 hitl: false
 risk: medium
