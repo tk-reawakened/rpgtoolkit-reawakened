@@ -1,8 +1,9 @@
-# ADR 0014 — The web build and test toolchain: esbuild and Playwright, both dev-only
+# ADR 0015 — The web build and test toolchain: esbuild and Playwright, both dev-only
 
 * **Status:** Accepted (2026-10-31)
 * **Date:** 2026-10-31
 * **Amends:** [guardrails.md](../guardrails.md) G6 (the dev-only inventory gains two tools); the spine's Stack table and its Deferred line "Vite 8 depends on `lightningcss`"
+* **Numbering:** drafted as ADR 0014; renumbered to **0015** when epic 10's tooling rulings landed `0014-rpgcode-spec-package.md` first, under the rule the ruling draft set for this collision
 * **Context documents:** [ADR 0002](0002-core-pixels-and-deterministic-maths.md) (the `ovsx` precedent), [spec/engine/runners.md](../spec/engine/runners.md#build), [spec/engine/runners.md](../spec/engine/runners.md#conformance-lane)
 
 ## Summary

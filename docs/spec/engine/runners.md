@@ -231,7 +231,7 @@ second rendering or input path.
 
 The browser artefacts are bundled with **esbuild 0.28.2** — the bundler AD-22 names for `host-vscode`, MIT licensed.
 Vite **MUST NOT** be installed: it pulls `lightningcss` (MPL-2.0) and would need its own ADR before a first install, and
-nothing here needs HMR. See [ADR 0014](../../adr/0014-web-build-and-test-toolchain.md).
+nothing here needs HMR. See [ADR 0014](../../adr/0015-web-build-and-test-toolchain.md).
 
 The engine worker and the AudioWorklet are **single-file IIFE bundles with no runtime `import()`**. The player page is a
 static HTML file plus one bundle, served in development and in the browser tests by a small static server; no framework
@@ -263,7 +263,7 @@ A runner proves itself by replaying vectors, not by sharing types. Two artefacts
 The browser lane is **Playwright 1.64.0** (Apache-2.0, Blue Oak Gold), one headless Chromium project, a required `gate`
 dependency that runs `pnpm fixtures:fetch` first and serves the fetched `fixtures/` folder over the local static server.
 Its licence, and why it is a dev-only tool outside the production-tree scan, are recorded in
-[ADR 0014](../../adr/0014-web-build-and-test-toolchain.md). No test reaches the network.
+[ADR 0014](../../adr/0015-web-build-and-test-toolchain.md). No test reaches the network.
 
 <a id="implementation-status"></a>
 ## Implementation status

@@ -57,13 +57,14 @@ approval: the only edits were the marking, the "recommended resolution" label on
 | D-5 | The PWA ships a service worker that updates on next launch and never mid-session; neither desktop application registers one | **yes** | `docs/spec/engine/runners.md#offline` |
 | D-6 | `runner-mobile` is Capacitor 8.5.3 around the web build; one platform proved; no store work | **yes** | `docs/spec/engine/runners.md#mobile` |
 | D-7 | Exact for key, tint and blend choice; at most one unit per channel on blend arithmetic | no | `docs/spec/engine/runners.md#webgl2-agreement` |
-| D-8 | esbuild 0.28.2; Vite not installed; single-file IIFE worker and AudioWorklet | **yes** | `docs/adr/0014-web-build-and-test-toolchain.md` (new), `docs/spec/engine/runners.md#build` |
-| D-9 | Playwright 1.64.0, Apache-2.0, dev-only and named in ADR 0014 in the `ovsx` pattern | **yes** | `docs/adr/0014-web-build-and-test-toolchain.md` (new), `docs/spec/engine/runners.md#conformance-lane` |
+| D-8 | esbuild 0.28.2; Vite not installed; single-file IIFE worker and AudioWorklet | **yes** | `docs/adr/0015-web-build-and-test-toolchain.md` (new), `docs/spec/engine/runners.md#build` |
+| D-9 | Playwright 1.64.0, Apache-2.0, dev-only and named in ADR 0014 in the `ovsx` pattern | **yes** | `docs/adr/0015-web-build-and-test-toolchain.md` (new), `docs/spec/engine/runners.md#conformance-lane` |
 | D-10 | SF2 on the default path and no WebAssembly, so no `wasm-unsafe-eval` there | no | `docs/spec/engine/runners.md#csp-and-banks` |
 | D-11 | The player page is `runner-web`'s declared `./app` subpath, not a new package | no | AD-22 amendment in the spine, `packages/runner-web/package.json` |
 
-ADR numbers are the next two free in `docs/adr/` (0001 to 0012 exist); renumber if another ADR lands first. **`0013` is
-also wanted by another epic, not claimed by it**: `epic-rpgcode-tooling`'s ruling draft proposes
+ADR numbers were the next two free in `docs/adr/` when this was drafted; the rule was renumber-on-first-landing, and
+**epic 10's tooling rulings landed `docs/adr/0014-rpgcode-spec-package.md` first**, so the web build and test toolchain
+ADR is **0015** and the shell ADR kept **0013**. **`0013` was also wanted by another epic, not claimed by it**: `epic-rpgcode-tooling`'s ruling draft proposes
 `docs/adr/0013-rpgcode-spec-package.md` — *"working number; renumber if 0013 is taken"* — so neither epic has priority.
 Whichever lands first keeps the number and this page's references to `0013-…` and `0014-…` are re-read at that moment
 (if the tooling ADR lands first, this page's two become `0014` and `0015`).
@@ -499,7 +500,7 @@ no runtime `import()`, as the spine's Operations section requires. Vite **MUST N
 is a static HTML file plus one bundle, served in development and in the browser tests by a small static server, and no
 framework or dev server enters the shipped artefact.
 
-- **Lands in:** `docs/adr/0014-web-build-and-test-toolchain.md` (new, shared with D-9) and
+- **Lands in:** `docs/adr/0015-web-build-and-test-toolchain.md` (new, shared with D-9) and
   `docs/spec/engine/runners.md#build` for the artefact shape; 9.3's code half in `tools/browser/build.mjs` and the root
   `package.json` dev dependencies.
 - **Evidence:** the spine's Deferred list (`architecture-rpgtoolkit-reawakened.md:545`): "Vite 8 depends on
@@ -523,7 +524,7 @@ downloads at install time are never bundled, linked or shipped in any artefact, 
 never sees them, and the scan still fails if any Playwright code appears in a shipped tree. The lane serves the fetched
 `fixtures/` folder over the local static server, and no test reaches the network.
 
-- **Lands in:** `docs/adr/0014-web-build-and-test-toolchain.md` (new, shared with D-8) and
+- **Lands in:** `docs/adr/0015-web-build-and-test-toolchain.md` (new, shared with D-8) and
   `docs/spec/engine/runners.md#conformance-lane`; 9.3's code half in `.github/workflows/ci.yml` (job plus `gate`
   dependency) and the `GROUPS` list in `tools/no-skips/run.mjs`.
 - **Evidence:** G6 rule 1 lists Apache-2.0 among the licences it admits, and its Enforcement paragraph is where the
@@ -618,7 +619,7 @@ entry that replaces them with numbers.
 ## Changed artifacts when approved
 
 - three new files: `docs/spec/engine/runners.md`, `docs/adr/0013-desktop-shell-electron.md`,
-  `docs/adr/0014-web-build-and-test-toolchain.md`;
+  `docs/adr/0015-web-build-and-test-toolchain.md`;
 - one new section in `docs/spec/formats/images.md`, one new "Install descriptor" section in
   `docs/spec/formats/packaging-and-paths.md`, one amendment to AD-22 and one to AD-5 in the spine;
 - the epic's Notes gain the dated decision lines, including the owner's 2026-10-31 ruling that the harness is separate
