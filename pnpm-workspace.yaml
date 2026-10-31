@@ -1,2 +1,6 @@
 packages:
   - packages/*
+
+# Build scripts allowed to run on install: esbuild downloads its platform binary (ADR 0015, dev-only).
+allowBuilds:
+  esbuild: true
