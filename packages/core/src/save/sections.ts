@@ -2,7 +2,8 @@
  * State section declarations for AD-10. The seven sections the board-rendering
  * epic owns (`world`, `camera`, `ui`, `fx`, `surfaces`, `input`, `engine`) live
  * in modules under `save/sections/`; this barrel re-exports them and the
- * sections owned elsewhere (`sprites`, `triggers`, `battle`, `audio`, `events`).
+ * sections owned elsewhere (`actors`, `party`, `inventory`, `menu`, `sprites`,
+ * `triggers`, `battle`, `audio`, `events`).
  *
  * AD-10 (one state tree, one owner per section); AD-11 (one canonical form);
  * docs/spec/formats/save-game.md#reawakened-canonical-party-inventory-and-menu-state
