@@ -21,7 +21,7 @@ Epic 23 Done-when 2 needs each finding that is resolved, duplicated or waiting o
 
 ## Implementation Notes
 
-Docs only, appended as a new `## Promotion and disposition record` section; no historical entry was edited. Every venue cited was re-checked at `c8b7772f` before it was written, and the findings already recorded under `## Resolved` are not repeated.
+Docs only, appended as a new `## Promotion and disposition record` section; no historical entry was edited. Findings were re-checked at the audit revision `c8b7772f`; venues delivered after that pin are cited at their own merge commit, and the findings already recorded under `## Resolved` are not repeated.
 
 ## Verification
 
