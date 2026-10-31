@@ -68,3 +68,27 @@ test("a package entry resolves with its namespace (declared, else its name); a n
   ], { core: CORE, pkg_a: named, pkg_b: declared });
   deepEqual(result.plugins.map((item) => item.namespace), [undefined, "pkg_a", "Bee"]);
 });
+
+test("a reserved id is unresolved in the harness, and inherited members are never a definition", () => {
+  // Both a plain table (which inherits Object.prototype) and a null-prototype one must treat
+  // `constructor`, `__proto__` and `toString` as unknown ids (#537).
+  for (const table of [{ core: CORE } as Record<string, PluginDefinition>, Object.assign(Object.create(null) as Record<string, PluginDefinition>, { core: CORE })]) {
+    for (const id of ["constructor", "__proto__", "toString"]) {
+      const result = resolvePluginManifest([{ id: "core" }, { id }], table);
+      deepEqual(result.plugins.map((item) => item.definition.id), ["core"], `${id}: only core resolves`);
+      equal(result.diagnostics.length, 1, `${id}: one diagnostic`);
+      equal(result.diagnostics[0]?.code, "plugin.unresolved", `${id}: unresolved`);
+      equal(result.diagnostics[0]?.index, 1, `${id}: located at its entry`);
+    }
+  }
+});
+
+test("a reserved id never breaks the duplicate check for ordinary ids", () => {
+  const result = resolvePluginManifest([{ id: "constructor" }, { id: "constructor" }, { id: "core" }, { id: "core" }], { core: CORE });
+  equal(result.plugins.length, 1);
+  deepEqual(result.diagnostics.map((item) => [item.code, item.index]), [
+    ["plugin.unresolved", 0],
+    ["manifest.duplicate-id", 1],
+    ["manifest.duplicate-id", 3],
+  ]);
+});

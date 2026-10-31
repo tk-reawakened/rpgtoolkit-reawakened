@@ -36,7 +36,7 @@ import {
   snapshotGameSave,
   startProgram,
 } from "../src/index.ts";
-import { engineEffect, resolveManifestPlugins } from "../src/engine/boot.ts";
+import { engineEffect, mainFileLegacyPluginRows, resolveManifestPlugins } from "../src/engine/boot.ts";
 import type { AssetIndex, AssetRoot, Engine, EffectRecord, EngineInit, GameState, InputRecord, PackageCatalogueEntry, PlainData, ResolvedPlugin, SpriteRuntime, TickReport } from "../src/index.ts";
 import type { MainFileAudioSettings } from "../src/formats/main-file/model.ts";
 import type { AudioCue } from "../src/ports/audio.ts";
@@ -1747,4 +1747,27 @@ test("smoke: promote, select, pause and explicitly resume a recovery candidate",
   equal(engine.resumeRecovery(), true);
   deepEqual(run(engine, game.files, 3).diagnostics, []);
   equal(doubles.state().vm.globals.entrycount, 1);
+});
+
+test("a reserved plugin id is an unknown plugin with a located diagnostic, never an inherited member", () => {
+  // `constructor`, `__proto__` and `toString` are inherited members of a plain object, so a
+  // plain `table[id]` lookup selects one instead of reporting `plugin.unresolved` (#537).
+  for (const id of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+    const result = resolveManifestPlugins([{ id }], "game/main.gam");
+    equal(result.plugins.length, 0, `${id}: no plugin was resolved`);
+    equal(result.diagnostics.length, 1, `${id}: one diagnostic`);
+    equal(result.diagnostics[0]?.code, "plugin.unresolved", `${id}: unresolved`);
+    equal(result.diagnostics[0]?.message.includes(id), true, `${id}: the message names the id`);
+  }
+  // An ordinary id is unaffected.
+  const core = resolveManifestPlugins([{ id: "core" }]);
+  equal(core.plugins.length, 1);
+  equal(core.diagnostics.length, 0);
+});
+
+test("a legacy plugin file named after an inherited member maps to no stock package", () => {
+  // `LEGACY_PLUGIN_PACKAGES` is a plain object, so `constructor.dll` must not select a prototype member (#537).
+  const rows = mainFileLegacyPluginRows({ ...createEmptyMainFile(), plugins: [{ pluginFile: "constructor.dll" }] } as never);
+  const row = rows.find((item) => item.field === "plugins");
+  equal(row?.package ?? null, null, "no stock package is selected");
 });
