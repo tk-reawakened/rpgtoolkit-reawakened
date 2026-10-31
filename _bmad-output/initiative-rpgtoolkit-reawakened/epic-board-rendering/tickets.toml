@@ -577,3 +577,16 @@ risk = "medium"
 references = [
   "reference - docs/spec/engine/parity-checklist.md",
 ]
+
+[[entry]]
+id = 37
+tracker_id = "#885"
+type = "bug"
+title = "The epic 4 audit miscounts the ledger rows"
+description = "Correct the closure audit's criterion 1 evidence: golden/ledger.json holds 12 independent-reference rows and 7 regression baselines (19 total), and there are six S-LIGHT-* scenes, not the seven the audit names. No code, ledger or golden change."
+verify = "The audit row names 12 independent-reference scenes and six S-LIGHT-* scenes, quotes the superseded wording in the correction, and golden/ledger.json is unchanged."
+covers = ["CAP-2"]
+after = []
+hitl = false
+risk = "low"
+references = ["audit - epic-board-rendering/discovery/epic-04-closure-audit.md", "golden - golden/ledger.json"]
