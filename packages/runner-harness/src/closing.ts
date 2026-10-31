@@ -412,6 +412,8 @@ export type ClosingFrameWithDrawList = ClosingFrameRecord & {
   readonly drawList: DrawList;
   /** `"<surface>:<rev>"` to the pixels that surface held when the frame was captured (AD-27). */
   readonly surfaces: ReadonlyMap<string, DecodedTexture | null>;
+  /** The engine's own screen pixels, the reference a replayer's frame is compared with (AD-4). */
+  readonly pixels: Uint8Array;
 };
 
 /** What a host needs to draw a closing frame outside the headless runner (the browser lane, 9.3). */
@@ -444,7 +446,7 @@ export function runClosingFrames(
     stalled: trace.stalled,
     board: trace.board,
     diagnostics: trace.diagnostics,
-    frames: trace.captures.map((capture) => ({ ...capture.frame, drawList: capture.drawList, surfaces: capture.surfaces })),
+    frames: trace.captures.map((capture) => ({ ...capture.frame, drawList: capture.drawList, surfaces: capture.surfaces, pixels: capture.image.rgba })),
   };
 }
 
