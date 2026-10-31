@@ -170,7 +170,7 @@ export interface MainFile {
   readonly resolution: number;
   /** Row 10: obsolete. */
   readonly disableProtectReg: number;
-  /** Row 11: obsolete language file. */
+  /** Row 13: obsolete language file. */
   readonly languageFile: string;
   /** Row 12: the program run at boot. */
   readonly startupPrg: string;
@@ -213,7 +213,7 @@ export interface MainFile {
   readonly skinButton: string;
   /** Row 28: legacy UI skin image. */
   readonly skinWindow: string;
-  /** Row 37: the plugin list (the upper bound is derived). */
+  /** Row 37 with entries 38a/38b: the plugin list (the upper bound is derived). */
   readonly plugins: readonly MainFilePlugin[];
   /** TKR package names from the optional trailing extension, in authored order. */
   readonly packagePlugins?: readonly string[];
@@ -223,19 +223,19 @@ export interface MainFile {
   readonly audioSettings: MainFileAudioSettings | null;
   /** Row 30: `0`/`1`. */
   readonly useDayNight: number;
-  /** Row 31: `0` = real clock, `1` = game clock. */
+  /** Row 40: `0` = real clock, `1` = game clock. */
   readonly dayNightType: number;
-  /** Row 32: minutes per day. */
+  /** Row 41: minutes per day. */
   readonly dayLengthMinutes: number;
-  /** Row 37, minor ≥ 3. */
+  /** Row 42, minor ≥ 3. */
   readonly cursorMoveSound: string;
-  /** Row 37, minor ≥ 3. */
+  /** Row 43, minor ≥ 3. */
   readonly cursorSelectSound: string;
-  /** Row 37, minor ≥ 3. */
+  /** Row 44, minor ≥ 3. */
   readonly cursorCancelSound: string;
-  /** Row 37, minor ≥ 3: `u8`. */
+  /** Row 45, minor ≥ 3: `u8`. */
   readonly useJoystick: number;
-  /** Row 37, minor ≥ 3: `u8`. */
+  /** Row 46, minor ≥ 3: `u8`. */
   readonly colorDepth: number;
   /**
    * Row 38, minor ≥ 4: the decoded speed. At minor ≥ 8 the stored byte is
