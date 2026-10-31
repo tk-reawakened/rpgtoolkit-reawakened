@@ -140,7 +140,7 @@ Section map for the three legacy-ness sections: §1.1 `:13-38` (the legacy proce
 
 ## Design Notes
 
-Order of work: the census and the anchors first (they are the acceptance test), then the mechanical E-id paragraphs, then the Reawakened-rule blocks (guidance #1…#12), then the R-50…R-61 conflict blocks (both sides quoted), then the new `parity-checklist.md` and its README row. The ticket carries `hitl = true`: nothing migrates before the human has approved this plan and ruled OPEN-1 to OPEN-4, and the plan stays `draft` until then. The reconciliation note's section D is the source for the conflict rows and is never reproduced elsewhere as a second source of truth.
+Order of work: the census and the anchors first (they are the acceptance test), then the mechanical E-id paragraphs, then the Reawakened-rule blocks (guidance #1…#12), then the R-50…R-61 conflict blocks (both sides quoted), then the new `parity-checklist.md` and its README row. The ticket carries `hitl = true`: nothing migrates before the human has approved this plan and ruled OPEN-1 to OPEN-4, and this plan stayed `draft` until the human approved it. The reconciliation note's section D is the source for the conflict rows and is never reproduced elsewhere as a second source of truth.
 
 ## Verification
 
