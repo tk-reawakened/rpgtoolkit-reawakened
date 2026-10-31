@@ -7,5 +7,5 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "references": [{ "path": "../core" }, { "path": "../render-webgl2" }, { "path": "../runner-harness" }]
+  "references": [{ "path": "../core" }, { "path": "../render-webgl2" }, { "path": "../runner-harness" }, { "path": "../synth" }]
 }

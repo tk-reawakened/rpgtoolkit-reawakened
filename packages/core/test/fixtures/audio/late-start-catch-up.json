@@ -23,8 +23,23 @@
       "end": {"cueId":1,"soundFont":null,"master":100},
       "runner": [
         {
-          "cue": {"cueId":41,"tick":100,"kind":"media.play","track":"music"},
+          "cue": {
+            "cueId": 41,
+            "tick": 100,
+            "kind": "media.play",
+            "track": "music",
+            "voice": 0,
+            "asset": "media/song.mid",
+            "loop": true,
+            "flags": 1,
+            "positionTicks": 0,
+            "volume": 100,
+            "targetVolume": null,
+            "durationTicks": null
+          },
           "lengthTicks": 600,
+          "loop": null,
+          "playing": null,
           "ready": [
             {"at":100,"action":"play","positionTicks":0,"lateness":0},
             {"at":190,"action":"play","positionTicks":90,"lateness":90},
@@ -63,8 +78,23 @@
       "end": {"cueId":3,"soundFont":null,"master":100},
       "runner": [
         {
-          "cue": {"cueId":2,"tick":5,"kind":"media.play","track":"music"},
+          "cue": {
+            "cueId": 2,
+            "tick": 5,
+            "kind": "media.play",
+            "track": "music",
+            "voice": 0,
+            "asset": "media/song.mid",
+            "loop": true,
+            "flags": 1,
+            "positionTicks": 0,
+            "volume": 100,
+            "targetVolume": null,
+            "durationTicks": null
+          },
           "lengthTicks": 40,
+          "loop": null,
+          "playing": null,
           "ready": [
             {"at":3,"action":"play","positionTicks":0,"lateness":0},
             {"at":5,"action":"play","positionTicks":0,"lateness":0},
@@ -112,8 +142,23 @@
       "end": {"cueId":4,"soundFont":null,"master":100},
       "runner": [
         {
-          "cue": {"cueId":2,"tick":10,"kind":"media.play","track":"sfx"},
+          "cue": {
+            "cueId": 2,
+            "tick": 10,
+            "kind": "media.play",
+            "track": "sfx",
+            "voice": 0,
+            "asset": "media/hit.wav",
+            "loop": false,
+            "flags": 0,
+            "positionTicks": 0,
+            "volume": 100,
+            "targetVolume": null,
+            "durationTicks": null
+          },
           "lengthTicks": 40,
+          "loop": null,
+          "playing": null,
           "ready": [
             {"at":10,"action":"play","positionTicks":0,"lateness":0},
             {"at":12,"action":"play","positionTicks":2,"lateness":2},
@@ -123,8 +168,23 @@
           ]
         },
         {
-          "cue": {"cueId":3,"tick":10,"kind":"media.play","track":"voice"},
+          "cue": {
+            "cueId": 3,
+            "tick": 10,
+            "kind": "media.play",
+            "track": "voice",
+            "voice": 0,
+            "asset": "media/short.wav",
+            "loop": false,
+            "flags": 0,
+            "positionTicks": 0,
+            "volume": 100,
+            "targetVolume": null,
+            "durationTicks": null
+          },
           "lengthTicks": 12,
+          "loop": null,
+          "playing": null,
           "ready": [
             {"at":21,"action":"play","positionTicks":11,"lateness":11},
             {"at":22,"action":"stop","reason":"finished","lateness":12},
@@ -160,8 +220,23 @@
       "end": {"cueId":4,"soundFont":null,"master":100},
       "runner": [
         {
-          "cue": {"cueId":2,"tick":0,"kind":"media.play","track":"music"},
+          "cue": {
+            "cueId": 2,
+            "tick": 0,
+            "kind": "media.play",
+            "track": "music",
+            "voice": 0,
+            "asset": "media/song.mid",
+            "loop": false,
+            "flags": 0,
+            "positionTicks": 0,
+            "volume": 100,
+            "targetVolume": null,
+            "durationTicks": null
+          },
           "lengthTicks": 40,
+          "loop": null,
+          "playing": null,
           "ready": [
             {"at":30,"action":"play","positionTicks":30,"lateness":30},
             {"at":39,"action":"play","positionTicks":39,"lateness":39},
@@ -170,8 +245,23 @@
           ]
         },
         {
-          "cue": {"cueId":3,"tick":0,"kind":"media.play","track":"ambience"},
+          "cue": {
+            "cueId": 3,
+            "tick": 0,
+            "kind": "media.play",
+            "track": "ambience",
+            "voice": 0,
+            "asset": "media/loop.wav",
+            "loop": true,
+            "flags": 1,
+            "positionTicks": 0,
+            "volume": 100,
+            "targetVolume": null,
+            "durationTicks": null
+          },
           "lengthTicks": 12,
+          "loop": null,
+          "playing": null,
           "ready": [{"at":100,"action":"play","positionTicks":4,"lateness":100}]
         }
       ]
@@ -208,8 +298,23 @@
       "end": {"cueId":5,"soundFont":null,"master":100},
       "runner": [
         {
-          "cue": {"cueId":3,"tick":3,"kind":"media.seek","track":"music"},
+          "cue": {
+            "cueId": 3,
+            "tick": 3,
+            "kind": "media.seek",
+            "track": "music",
+            "voice": 0,
+            "asset": null,
+            "loop": null,
+            "flags": null,
+            "positionTicks": 30,
+            "volume": null,
+            "targetVolume": null,
+            "durationTicks": null
+          },
           "lengthTicks": 40,
+          "loop": true,
+          "playing": null,
           "ready": [
             {"at":3,"action":"seek","positionTicks":30,"lateness":0},
             {"at":13,"action":"seek","positionTicks":0,"lateness":10},
@@ -217,8 +322,23 @@
           ]
         },
         {
-          "cue": {"cueId":4,"tick":5,"kind":"media.fade","track":"music"},
+          "cue": {
+            "cueId": 4,
+            "tick": 5,
+            "kind": "media.fade",
+            "track": "music",
+            "voice": 0,
+            "asset": null,
+            "loop": null,
+            "flags": null,
+            "positionTicks": null,
+            "volume": 100,
+            "targetVolume": 40,
+            "durationTicks": 30
+          },
           "lengthTicks": null,
+          "loop": null,
+          "playing": null,
           "ready": [
             {"at":5,"action":"fade","from":100,"target":40,"durationTicks":30,"lateness":0},
             {"at":15,"action":"fade","from":80,"target":40,"durationTicks":20,"lateness":10},
@@ -277,18 +397,63 @@
       "end": {"cueId":9,"soundFont":null,"master":100},
       "runner": [
         {
-          "cue": {"cueId":6,"tick":20,"kind":"media.play","track":"music"},
+          "cue": {
+            "cueId": 6,
+            "tick": 20,
+            "kind": "media.play",
+            "track": "music",
+            "voice": 0,
+            "asset": "media/song.mid",
+            "loop": true,
+            "flags": 1,
+            "positionTicks": 0,
+            "volume": 100,
+            "targetVolume": null,
+            "durationTicks": null
+          },
           "lengthTicks": 40,
+          "loop": null,
+          "playing": null,
           "ready": [{"at":20,"action":"play","positionTicks":0,"lateness":0}]
         },
         {
-          "cue": {"cueId":8,"tick":12,"kind":"media.play","track":"ambience"},
+          "cue": {
+            "cueId": 8,
+            "tick": 12,
+            "kind": "media.play",
+            "track": "ambience",
+            "voice": 0,
+            "asset": "media/loop.wav",
+            "loop": true,
+            "flags": 1,
+            "positionTicks": 0,
+            "volume": 100,
+            "targetVolume": null,
+            "durationTicks": null
+          },
           "lengthTicks": 12,
+          "loop": null,
+          "playing": null,
           "ready": [{"at":20,"action":"play","positionTicks":8,"lateness":8}]
         },
         {
-          "cue": {"cueId":7,"tick":14,"kind":"media.play","track":"sfx"},
+          "cue": {
+            "cueId": 7,
+            "tick": 14,
+            "kind": "media.play",
+            "track": "sfx",
+            "voice": 0,
+            "asset": "media/hit.wav",
+            "loop": false,
+            "flags": 0,
+            "positionTicks": 0,
+            "volume": 100,
+            "targetVolume": null,
+            "durationTicks": null
+          },
           "lengthTicks": 40,
+          "loop": null,
+          "playing": null,
           "ready": [{"at":20,"action":"play","positionTicks":6,"lateness":6}]
         }
       ]

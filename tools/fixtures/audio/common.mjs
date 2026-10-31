@@ -62,8 +62,14 @@ function runnerFacts(specs, rows, assets) {
     }
     const length = spec.length !== undefined ? spec.length : cue.asset !== null && assets[cue.asset] !== undefined ? assets[cue.asset].lengthTicks : null;
     return {
-      cue: { cueId: cue.cueId, tick: cue.tick, kind: cue.kind, track: cue.track },
+      // The whole cue: the start arithmetic reads `loop`, `positionTicks`, `volume`, `targetVolume` and `durationTicks`,
+      // so a vector that committed only its identity could not pin the arithmetic it demonstrates.
+      cue: { ...cue },
       lengthTicks: length,
+      // The two facts the start arithmetic reads that a cue may not carry itself: a seek's voice `loop` and whether it
+      // is `playing`. Committed so the vector pins the expectation instead of relying on a generator-local default.
+      loop: spec.loop === undefined ? null : spec.loop,
+      playing: spec.playing === undefined ? null : spec.playing,
       ready: spec.ready.map((r) => ({ at: r, ...cuePlayer(cue, r, { length, loop: spec.loop ?? cue.loop === true, playing: spec.playing }) })),
     };
   });
