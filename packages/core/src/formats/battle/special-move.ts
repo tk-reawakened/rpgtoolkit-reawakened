@@ -14,7 +14,7 @@ import { err, ok, type Result } from "../result.ts";
 import { BinaryReader } from "../binary/reader.ts";
 import { BinaryWriter } from "../binary/writer.ts";
 import { TextLineReader } from "../text/line-reader.ts";
-import { checkMajor, checkI8, checkI16, checkI32, checkMagic, checkMinor } from "../validate.ts";
+import { checkMajor, checkI8, checkI32, checkMagic, checkMinor } from "../validate.ts";
 import {
   BATTLE_MAX_MINOR,
   BATTLE_MIN_MINOR,
@@ -173,8 +173,6 @@ export function writeSpecialMove(model: SpecialMove): Result<Uint8Array> {
   const writer = new BinaryWriter();
   const headerMagic = checkMagic(writer, SPECIAL_MOVE_SECTION, model.magic, SPECIAL_MOVE_MAGIC);
   if (headerMagic !== undefined) return headerMagic;
-  const headerMinor = checkMinor(writer, SPECIAL_MOVE_SECTION, model.minor, BATTLE_MIN_MINOR, BATTLE_MAX_MINOR);
-  if (headerMinor !== undefined) return headerMinor;
 
   const magic = writer.str(model.magic);
   if (!magic.ok) {
@@ -183,6 +181,8 @@ export function writeSpecialMove(model: SpecialMove): Result<Uint8Array> {
   const headerMajor = checkMajor(writer, SPECIAL_MOVE_SECTION, model.major);
   if (headerMajor !== undefined) return headerMajor;
   writer.i16(model.major);
+  const headerMinor = checkMinor(writer, SPECIAL_MOVE_SECTION, model.minor, BATTLE_MIN_MINOR, BATTLE_MAX_MINOR);
+  if (headerMinor !== undefined) return headerMinor;
   writer.i16(model.minor);
   const name = writer.str(model.name);
   if (!name.ok) {

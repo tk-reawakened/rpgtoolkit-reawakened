@@ -19,15 +19,15 @@ const I8_MIN = -128;
 const I8_MAX = 127;
 
 /** The signed 16-bit range every `i16` field must fit (docs/spec/formats/README.md#primitive-encoding). */
-export const I16_MIN = -32_768;
-export const I16_MAX = 32_767;
+const I16_MIN = -32_768;
+const I16_MAX = 32_767;
 
 /** The signed 32-bit range every `i32` field must fit (docs/spec/formats/README.md#primitive-encoding). */
-export const I32_MIN = -2_147_483_648;
-export const I32_MAX = 2_147_483_647;
+const I32_MIN = -2_147_483_648;
+const I32_MAX = 2_147_483_647;
 
 /** The most entries an `i16` upper bound can index (docs/spec/formats/README.md#counts-are-usually-upper-bounds). */
-export const MAX_LIST_ENTRIES = 32_768;
+const MAX_LIST_ENTRIES = 32_768;
 
 /**
  * A located error at the writer's current offset (AD-18), so a writer checks a

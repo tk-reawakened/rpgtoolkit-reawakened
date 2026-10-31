@@ -695,8 +695,6 @@ export function writeCharacter(model: Character): Result<Uint8Array> {
   const writer = new BinaryWriter();
   const headerMagic = checkMagic(writer, CHARACTER_SECTION, model.magic, CHARACTER_MAGIC);
   if (headerMagic !== undefined) return headerMagic;
-  const headerMinor = checkMinor(writer, CHARACTER_SECTION, model.minor, CHARACTER_MIN_MINOR, CHARACTER_MAX_MINOR);
-  if (headerMinor !== undefined) return headerMinor;
   const magic = writer.str(model.magic);
   if (!magic.ok) {
     return writerError(writer, CHARACTER_SECTION, `magic: ${magic.error.message}`);
@@ -704,6 +702,8 @@ export function writeCharacter(model: Character): Result<Uint8Array> {
   const headerMajor = checkMajor(writer, CHARACTER_SECTION, model.major);
   if (headerMajor !== undefined) return headerMajor;
   writer.i16(model.major);
+  const headerMinor = checkMinor(writer, CHARACTER_SECTION, model.minor, CHARACTER_MIN_MINOR, CHARACTER_MAX_MINOR);
+  if (headerMinor !== undefined) return headerMinor;
   writer.i16(model.minor);
 
   const name = writer.str(model.name);

@@ -155,8 +155,6 @@ export function writeStatusEffect(model: StatusEffect): Result<Uint8Array> {
   const writer = new BinaryWriter();
   const headerMagic = checkMagic(writer, STATUS_EFFECT_SECTION, model.magic, STATUS_EFFECT_MAGIC);
   if (headerMagic !== undefined) return headerMagic;
-  const headerMinor = checkMinor(writer, STATUS_EFFECT_SECTION, model.minor, BATTLE_MIN_MINOR, BATTLE_MAX_MINOR);
-  if (headerMinor !== undefined) return headerMinor;
 
   const magic = writer.str(model.magic);
   if (!magic.ok) {
@@ -165,6 +163,8 @@ export function writeStatusEffect(model: StatusEffect): Result<Uint8Array> {
   const headerMajor = checkMajor(writer, STATUS_EFFECT_SECTION, model.major);
   if (headerMajor !== undefined) return headerMajor;
   writer.i16(model.major);
+  const headerMinor = checkMinor(writer, STATUS_EFFECT_SECTION, model.minor, BATTLE_MIN_MINOR, BATTLE_MAX_MINOR);
+  if (headerMinor !== undefined) return headerMinor;
   writer.i16(model.minor);
   const name = writer.str(model.name);
   if (!name.ok) {

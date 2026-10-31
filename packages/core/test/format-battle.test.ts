@@ -762,6 +762,8 @@ test("a batched writer reports the refused field's own offset, not the block's s
     return result.error.offset;
   };
   const effect = unwrap(readStatusEffect(new BinaryReader(buildSte())));
+  const minor = offsetOf({ ...effect, minor: 7 });
+  equal(minor, 19, "the minor error sits on the minor field, as the reader's does");
   const rounds = offsetOf({ ...effect, rounds: 40_000 });
   const runProgram = offsetOf({ ...effect, runProgram: 40_000 });
   equal(runProgram - rounds, 16, "runProgram follows the eight rounds..smpPerRound i16 fields");

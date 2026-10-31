@@ -194,8 +194,6 @@ export function writeEnemy(model: Enemy): Result<Uint8Array> {
   const writer = new BinaryWriter();
   const headerMagic = checkMagic(writer, ENEMY_SECTION, model.magic, ENEMY_MAGIC);
   if (headerMagic !== undefined) return headerMagic;
-  const headerMinor = checkMinor(writer, ENEMY_SECTION, model.minor, ENEMY_BINARY_MINOR, ENEMY_BINARY_MINOR);
-  if (headerMinor !== undefined) return headerMinor;
   const magic = writer.str(model.magic);
   if (!magic.ok) {
     return writerError(writer, ENEMY_SECTION, `magic: ${magic.error.message}`);
@@ -203,6 +201,8 @@ export function writeEnemy(model: Enemy): Result<Uint8Array> {
   const headerMajor = checkMajor(writer, ENEMY_SECTION, model.major);
   if (headerMajor !== undefined) return headerMajor;
   writer.i16(model.major);
+  const headerMinor = checkMinor(writer, ENEMY_SECTION, model.minor, ENEMY_BINARY_MINOR, ENEMY_BINARY_MINOR);
+  if (headerMinor !== undefined) return headerMinor;
   writer.i16(model.minor);
 
   const name = writer.str(model.name);

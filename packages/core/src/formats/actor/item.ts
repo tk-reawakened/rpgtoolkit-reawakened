@@ -593,8 +593,6 @@ export function writeItem(model: Item): Result<Uint8Array> {
   const writer = new BinaryWriter();
   const headerMagic = checkMagic(writer, ITEM_SECTION, model.magic, ITEM_MAGIC);
   if (headerMagic !== undefined) return headerMagic;
-  const headerMinor = checkMinor(writer, ITEM_SECTION, model.minor, ITEM_MIN_MINOR, ITEM_MAX_MINOR);
-  if (headerMinor !== undefined) return headerMinor;
   const magic = writer.str(model.magic);
   if (!magic.ok) {
     return writerError(writer, ITEM_SECTION, `magic: ${magic.error.message}`);
@@ -602,6 +600,8 @@ export function writeItem(model: Item): Result<Uint8Array> {
   const headerMajor = checkMajor(writer, ITEM_SECTION, model.major);
   if (headerMajor !== undefined) return headerMajor;
   writer.i16(model.major);
+  const headerMinor = checkMinor(writer, ITEM_SECTION, model.minor, ITEM_MIN_MINOR, ITEM_MAX_MINOR);
+  if (headerMinor !== undefined) return headerMinor;
   writer.i16(model.minor);
   const wide = model.minor >= ITEM_I32_MINOR;
 
