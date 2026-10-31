@@ -41,10 +41,14 @@ mutation (MEDIA-1, MEDIA-2, MEDIA-3).
 2. The package programs use lambdas stored in globals rather than named functions handed to `media.on`:
    the listener argument must be a callable value, and a bare function name is not one.
 3. Each re-recorded golden gets a written reason (G5): `golden/audio/media-packages.json` is a **new**
-   golden, recorded once from the pinned scenario (seed 31, 130 ticks). No existing golden changed.
+   golden recorded from the pinned scenario (seed 31, 130 ticks). Its values are the live per-tick
+   hashes the engine reports (`report.stateHash`), not the hashes of a restored state, so the pin fails
+   on a lossy restore. No existing golden changed.
 4. The golden records the per-tick state hashes of the combined scenario — ducking, stems and region
-   music running together — so a change in any of the three packages, or in the audio event/apply
-   ordering they depend on, moves a hash.
+   music running together — so a change in the stems chain, the region rewrite or the audio
+   event/apply ordering they depend on moves a hash. Ducking is covered by its cue assertion instead:
+   its track fade lands in `audio.settings.trackVolumes`, which the state hash excludes by design, so
+   no hash can observe it.
 
 ## Acceptance
 

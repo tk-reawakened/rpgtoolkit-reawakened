@@ -183,9 +183,10 @@ function play(scenario: Scenario): Run {
     for (const diagnostic of report.diagnostics) diagnostics.push({ code: diagnostic.code, message: diagnostic.message });
     const state = latest as GameState | null;
     if (state === null) continue;
-    const json = snapshot(state);
-    hashes.push(hashGameState(restoreGameState(json)));
-    restored.push(hashGameState(restoreGameState(snapshot(restoreGameState(json)))));
+    // The live hash of the tick (the engine reports the same value) against the hash of
+    // restoring that same state: a lossy restore moves only the second one.
+    hashes.push(report.stateHash);
+    restored.push(hashGameState(restoreGameState(snapshot(state))));
   }
   const state = latest as GameState | null;
   if (state === null) throw new Error(`the game never reached a running tick: ${JSON.stringify(diagnostics.slice(0, 6))}`);
@@ -243,8 +244,9 @@ test("the pinned golden records the package scenario's per-tick hashes", () => {
 });
 
 test("the package scenario replays to the same hashes, and a save at every tick restores to them", () => {
-  const first = play({ packages: ["ducking", "stems", "region_music"], ticks: 130, script: 'mediaPlay("media/door.wav", { track: "ui", loop: false })\nend()\n' });
-  const second = play({ packages: ["ducking", "stems", "region_music"], ticks: 130, script: 'mediaPlay("media/door.wav", { track: "ui", loop: false })\nend()\n' });
+  const script = 'mediaPlay("media/door.wav", { track: "ui", loop: false })\nmediaPlay("media/stem1.wav", { track: "ambience", loop: false })\nend()\n';
+  const first = play({ packages: ["ducking", "stems", "region_music"], ticks: 130, script });
+  const second = play({ packages: ["ducking", "stems", "region_music"], ticks: 130, script });
   deepEqual(first.hashes, second.hashes, "the same seed and script produce the same per-tick hashes");
   deepEqual(first.hashes, first.restored, "a save at every tick restores to that tick's hash");
 });

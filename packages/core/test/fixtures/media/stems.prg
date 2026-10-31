@@ -2,8 +2,8 @@
 //
 // What it does for a game author: ambient audio is authored as three one-shot
 // layers; when the layer that is playing reaches its end, the package starts the
-// next one on the same track, so the ambience never gaps and never repeats until
-// the third layer.
+// next one on the same track, so the ambience keeps moving through the authored
+// layers without the script polling.
 //
 // How it works: `ended` on the ambience track names the file that finished, and the
 // package starts the next authored one-shot. Every layer is a one-shot, so the chain
