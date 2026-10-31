@@ -38,7 +38,7 @@ its `Proposed ruling (pending owner review; entry 10.2)` marking and the plan st
    and the debug view. Only D-1, D-2 and D-7 name the same decision in both. The Intent now says so, so an approval
    recorded against "D-4" cannot mean two things.
 2. **The "Where the text lands" row — "the diagnostic model (D-1) … the CLI surface (D-7)"** (superseded). The
-   diagnostic model is D-3, D-1 is the transport and D-7 is the CI job; the row now names D-1 to D-8 against the right
+   diagnostic model is D-3, D-1 is the transport and D-7 is the CI job; the row now names D-1 to D-9 against the right
    decisions.
 3. **The `docs/guardrails.md` row — "the D-2 note that the LSP/DAP libraries ship inside our own artefacts"**
    (superseded). D-2 is the early standalone extension and says nothing about shipping libraries; the optional licence
@@ -67,7 +67,11 @@ its `Proposed ruling (pending owner review; entry 10.2)` marking and the plan st
    `index` and `docs` in 10.9's description) and ruled no exit code and no result protocol, while D-3's "the CLI's
    `check` summary" and D-4's "`fmt --check` exit code semantics" both assumed them. Entry 10.2's own description asks
    for that contract and 10.9 cannot be built without it, so "Not ruled here" would have defeated the entry's purpose.
-   Drafted as D-9 below and removed from the open list; the review is unchanged otherwise.
+   Drafted as D-9 below and removed from the open list; the review is unchanged otherwise. Two live sentences that kept
+   counting eight decisions were corrected at the same time and their superseded wording is quoted here: the "Why this
+   plan is blocked" paragraph read *"The proposal's D-1 to D-8 are recommendations; ... answers the eight paragraphs
+   above"*, now *"Its D-1 to D-9 are recommendations - the plan's own numbers, as the intent states, not the proposal's -
+   ... answers the nine paragraphs above"*; and correction 2 read *"the row now names D-1 to D-8"*, now *"D-1 to D-9"*.
 
 ## D-1 — Transport and packaging of the LSP
 
@@ -179,4 +183,4 @@ The entry's own check runs when it starts, not now: the commit touches `docs/` a
 
 ## Why this plan is blocked
 
-It is a doc-first entry whose whole deliverable is the ruling text, and that text is the owner's to approve. The proposal's D-1 to D-8 are recommendations; publishing them into `docs/spec` before the owner rules would record a decision nobody made. The blocker clears when the owner answers the eight paragraphs above — approve as written, amend, or reject with a reason — after which this plan's `status` returns to normal and the entry writes the files listed in the table.
+It is a doc-first entry whose whole deliverable is the ruling text, and that text is the owner's to approve. Its D-1 to D-9 are recommendations - the plan's own numbers, as the intent states, not the proposal's - and publishing them into `docs/spec` before the owner rules would record a decision nobody made. The blocker clears when the owner answers the nine paragraphs above — approve as written, amend, or reject with a reason — after which this plan's `status` returns to normal and the entry writes the files listed in the table.
