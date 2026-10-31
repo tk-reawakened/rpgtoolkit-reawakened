@@ -7,6 +7,7 @@ import { TextEncoder } from "node:util";
 import { test } from "node:test";
 import {
   addActor,
+  applyMenuStateEffect,
   assetKey,
   BATTLE_PLUGIN,
   BinaryWriter,
@@ -15,7 +16,9 @@ import {
   CORE_PLUGIN,
   createAssetIndex,
   createBattleOwner,
+  createEmptyItem,
   createEmptySpecialMove,
+  createMenuOwnerPorts,
   createGameState,
   createPluginLayers,
   createScriptServices as coreCreateScriptServices,
@@ -38,6 +41,7 @@ import {
   verifyRestoredHandles,
   WORLD_PLUGIN,
   writeSpecialMove,
+  writeItem,
   type ActorRecord,
   type GameState,
   type PluginLayers,
@@ -100,6 +104,7 @@ type RunOptions = {
   readonly script?: string;
   readonly customMode?: string;
   readonly extraAssets?: Readonly<Record<string, string>>;
+  readonly withInventoryOwner?: boolean;
   readonly holdSpecialOnce?: boolean;
   readonly saveMidSpecial?: boolean;
   readonly secondTurn?: boolean;
@@ -180,6 +185,25 @@ function specialMoveAsset(values: { fp: number; smp?: number; targetSmp?: number
   })));
 }
 
+function itemAsset(values: { hp: number; smp: number }): string {
+  return hex(unwrap(writeItem({
+    ...createEmptyItem(),
+    minor: 4,
+    movementAnimations: Array(8).fill(""),
+    restAnimation: "",
+    reservedAnimation: "",
+    customStances: [],
+    name: "Authored potion",
+    battleUsable: 1,
+    battleUseHp: values.hp,
+    battleUseSmp: values.smp,
+    battleUseProgram: "",
+    battleAnimation: "",
+  })));
+}
+
+const battlePotionDefinition = { ...createEmptyItem(), name: "Potion", battleUsable: 1 };
+
 function makeActor(state: GameState, kind: "party" | "enemy", name: string, source: string, spec: EnemyDefinition | PlayerDefinition): ActorFixture {
   const record = addActor(state.actors, {
     kind,
@@ -224,7 +248,15 @@ function statusAsset(hpAmount: number): string {
   return hex(writer.toBytes());
 }
 
-function servicesFor(state: GameState, layers: PluginLayers): ScriptServices {
+function servicesFor(state: GameState, layers: PluginLayers, withInventoryOwner = false): ScriptServices {
+  const menuPorts = withInventoryOwner ? createMenuOwnerPorts(state, undefined, {
+    item: (source) => source === "item/potion.itm" ? battlePotionDefinition : undefined,
+    character: () => undefined,
+    applyEquipment: () => true,
+  }) : undefined;
+  const applyInventoryEffect = menuPorts === undefined ? undefined : (section: string, effect: Parameters<typeof applyMenuStateEffect>[1]) => {
+    if (section === "inventory" && effect.name === "battleconsume") applyMenuStateEffect(menuPorts, effect);
+  };
   return coreCreateScriptServices(
     state,
     [
@@ -235,7 +267,7 @@ function servicesFor(state: GameState, layers: PluginLayers): ScriptServices {
       { definition: BATTLE_PLUGIN },
       stockBattle,
     ],
-    undefined, undefined, loader, "default", undefined, undefined, layers,
+    undefined, undefined, loader, "default", applyInventoryEffect, undefined, layers, [], false, undefined, undefined, menuPorts,
   );
 }
 
@@ -244,6 +276,10 @@ function makeRig(options: RunOptions): Rig {
   const definitions = options.enemies ?? [{}];
   const playerDefinitions = options.players ?? [{}];
   const state = createGameState({ seed });
+  if (options.withInventoryOwner) {
+    state.inventory.items = [{ id: 1, source: "item/potion.itm", handle: "Potion", quantity: 1 }];
+    state.inventory.nextId = 2;
+  }
   const enemies = definitions.map((definition, index) =>
     makeActor(state, "enemy", `Enemy ${index}`, `enemy-${index}.ene`, definition));
   const players = playerDefinitions.map((definition, index) =>
@@ -262,7 +298,7 @@ function makeRig(options: RunOptions): Rig {
     ],
   };
   const layers = createPluginLayers();
-  const services = servicesFor(state, layers);
+  const services = servicesFor(state, layers, options.withInventoryOwner);
   runPackageStartup(state, services, [startupRef], [stockBattle]);
   const assets: Record<string, string> = { ...options.extraAssets };
   definitions.forEach((definition, index) => { assets[`enemy-${index}.ene`] = enemyAsset(definition); });
@@ -758,13 +794,19 @@ test("a no-op custom AI spends its turn without an automatic attack", () => {
 // BAT-6: a status that takes a fighter to 0 HP does not stop the turn, so a
 // fallen enemy still runs its custom AI program, while its attacks, moves and
 // items do nothing. A fallen enemy without a custom program still does nothing.
-test("a lethal status still runs the enemy's custom AI turn, whose attack has no effect", () => {
-  const runChargedPass = (definition: EnemyDefinition, extraAssets: Readonly<Record<string, string>>) => {
+test("a lethal status runs the enemy's custom AI, whose three actions require a living source", () => {
+  const runChargedPass = (
+    definition: EnemyDefinition,
+    extraAssets: Readonly<Record<string, string>>,
+    customMode = "attack",
+    withInventoryOwner = false,
+  ) => {
     const rig = makeRig({
       enemies: [{ customAi: 1, aiProgram: "battle-ai-custom.prg", ...definition }],
       script: "battle-ai-loop.prg",
-      customMode: "attack",
+      customMode,
       extraAssets,
+      withInventoryOwner,
     });
     for (let elapsed = 0; elapsed < 32; elapsed += 1) {
       tick(rig.state, rig.services, pollAssets(rig));
@@ -798,6 +840,52 @@ test("a lethal status still runs the enemy's custom AI turn, whose attack has no
   );
   equal(stat(level.state, level.players[0]!.record.id, "hp"), 100, "a fallen enemy with a normal AI level still does nothing");
   equal(stat(level.state, level.enemies[0]!.record.id, "smp"), 20, "no special move is spent by a fallen enemy");
+  const actionAssets = {
+    "lethal.ste": statusAsset(5),
+    "hit.spc": specialMoveAsset({ fp: 15, smp: 3, targetSmp: 4 }),
+    "potion.itm": itemAsset({ hp: 10, smp: 6 }),
+  };
+  const runActions = (hp: number) => runChargedPass(
+    { hp, fp: 10, smp: 20, statuses: { "lethal.ste": 1 } },
+    actionAssets,
+    "actions",
+    true,
+  );
+  const actionOutcomes = (rig: Rig) => ({
+    calls: rig.state.vm.globals.customcalls,
+    enemyHp: stat(rig.state, rig.enemies[0]!.record.id, "hp"),
+    attackHp: rig.state.vm.globals.customattackhp,
+    moveHp: rig.state.vm.globals.custommovehp,
+    moveSmp: rig.state.vm.globals.custommovesmp,
+    moveSourceSmp: rig.state.vm.globals.custommovesourcesmp,
+    itemHp: rig.state.vm.globals.customitemhp,
+    itemSmp: rig.state.vm.globals.customitemsmp,
+    inventory: rig.state.inventory.items,
+  });
+  const lethalActions = runActions(5);
+  equal(stat(lethalActions.state, lethalActions.enemies[0]!.record.id, "hp"), 0);
+  equal(lethalActions.state.vm.globals.customcalls, 1, "the fallen custom AI runs once");
+  equal(lethalActions.state.vm.globals.customattackhp, 100, "fallen attack leaves its target unchanged");
+  equal(lethalActions.state.vm.globals.custommovehp, 100, "fallen special leaves target HP unchanged");
+  equal(lethalActions.state.vm.globals.custommovesmp, 20, "fallen special leaves target SMP unchanged");
+  equal(lethalActions.state.vm.globals.custommovesourcesmp, 20, "fallen special spends no source SMP");
+  equal(lethalActions.state.vm.globals.customitemhp, 100, "fallen item leaves target HP unchanged");
+  equal(lethalActions.state.vm.globals.customitemsmp, 20, "fallen item leaves target SMP unchanged");
+  deepEqual(lethalActions.state.inventory.items, [
+    { id: 1, source: "item/potion.itm", handle: "Potion", quantity: 1 },
+  ], "fallen item leaves inventory unchanged");
+  deepEqual(actionOutcomes(runActions(5)), actionOutcomes(lethalActions), "lethal actions replay deterministically");
+
+  const actionControl = runActions(20);
+  equal(actionControl.state.vm.globals.customcalls, 1, "living control runs its custom AI once");
+  ok(Number(actionControl.state.vm.globals.customattackhp) < 100, "living attack damages its target");
+  ok(Number(actionControl.state.vm.globals.custommovehp) < Number(actionControl.state.vm.globals.customattackhp), "living special damages its target");
+  ok(Number(actionControl.state.vm.globals.custommovesmp) < 20, "living special drains target SMP");
+  ok(Number(actionControl.state.vm.globals.custommovesourcesmp) < 20, "living special spends source SMP");
+  ok(Number(actionControl.state.vm.globals.customitemhp) > Number(actionControl.state.vm.globals.custommovehp), "living item heals its target");
+  ok(Number(actionControl.state.vm.globals.customitemsmp) > Number(actionControl.state.vm.globals.custommovesmp), "living item restores target SMP");
+  equal(actionControl.state.inventory.items.find(({ handle }) => handle === "Potion")?.quantity ?? 0, 0, "living item consumes exactly one inventory unit");
+  deepEqual(actionOutcomes(runActions(20)), actionOutcomes(actionControl), "living actions replay deterministically");
 });
 
 test("a normal enemy turn stays below STEP_BUDGET", () => {

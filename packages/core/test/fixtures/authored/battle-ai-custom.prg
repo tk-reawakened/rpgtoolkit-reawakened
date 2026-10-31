@@ -20,6 +20,19 @@ if (customMode == "attack") {
   }
   stockBattle.attack(sourceFighter, targetFighter)
 }
+if (customMode == "actions") {
+  sourceFighter = stockBattle.resolveFighter(sourceHandle())
+  targetFighter = stockBattle.resolveFighter(targetHandle())
+  stockBattle.attack(sourceFighter, targetFighter)
+  customAttackHp = targetFighter.hp
+  stockBattle.special(sourceFighter, targetFighter, "hit.spc")
+  customMoveHp = targetFighter.hp
+  customMoveSmp = targetFighter.smp
+  customMoveSourceSmp = sourceFighter.smp
+  stockBattle.item(sourceFighter, targetFighter, "potion.itm", null)
+  customItemHp = targetFighter.hp
+  customItemSmp = targetFighter.smp
+}
 if (customMode == "error") {
   missing_battle_ai_command()
   customErrorResumed = 1
