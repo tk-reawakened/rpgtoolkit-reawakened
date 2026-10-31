@@ -49,10 +49,16 @@ function runGolden(argv: string[]): number {
     const vectors = readFileOrUndefined(join(root, "golden/hash-vectors.json"));
     const run = readFileOrUndefined(join(root, "golden/test-double/run.json"));
     const golden = readFileOrUndefined(join(root, "golden/test-double/golden.json"));
-    // The empty sentinel works in both modes: compare fails with "is absent", record rewrites the file.
-    const scriptsGolden = readFileOrUndefined(join(root, "golden/scripts/golden.json")) ?? "";
-    const ledgerText = readFileOrUndefined(join(root, "golden/ledger.json")) ?? (record ? undefined : "");
-    const sceneGoldens = ledgerText === undefined ? undefined : ledgerText === "" ? [] : readdirSync(join(root, "golden/scenes")).filter((name) => name.endsWith(".json")).sort().map((name) => {
+    // A missing baseline fails the compare run when the tree carries that baseline's directory, which every
+    // repository checkout does; a scratch root built without it stays a deliberate partial tree. Record mode
+    // always writes the file back.
+    const hasScriptsBaseline = existsSync(join(root, "golden/scripts"));
+    const scriptsGolden =
+      readFileOrUndefined(join(root, "golden/scripts/golden.json")) ?? (hasScriptsBaseline ? "" : undefined);
+    const hasSceneBaseline = existsSync(join(root, "golden/scenes"));
+    const ledgerText =
+      readFileOrUndefined(join(root, "golden/ledger.json")) ?? (hasSceneBaseline ? "" : undefined);
+    const sceneGoldens = ledgerText === undefined ? undefined : ledgerText === "" ? null : readdirSync(join(root, "golden/scenes")).filter((name) => name.endsWith(".json")).sort().map((name) => {
       const sceneText = readFileSync(join(root, "golden/scenes", name), "utf8");
       const scene = JSON.parse(sceneText) as { readonly boardFiles: readonly string[]; readonly name: string };
       const ledger = JSON.parse(ledgerText) as { readonly goldens: readonly { readonly scene: string; readonly path: string }[] };

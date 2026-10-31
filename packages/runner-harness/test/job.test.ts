@@ -1,5 +1,8 @@
 import { deepEqual, equal } from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import type {
   Breakpoint,
   DrawList,
@@ -252,5 +255,17 @@ test("goldenJob fails when scriptsGolden differs or is missing", () => {
   equal(missingOutcome.ok, false);
   if (!missingOutcome.ok) {
     equal(missingOutcome.lines.some((l) => l.includes("golden/scripts/golden.json is absent")), true);
+  }
+});
+
+test("the repository carries every golden baseline the CLI enforces", () => {
+  // The compare-mode guards key on each baseline's directory, so a deleted *directory* must fail somewhere: this
+  // test names the three files and the two directories the required golden job reads.
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+  for (const path of ["golden/scripts/golden.json", "golden/ledger.json", "golden/audio/cues.json"]) {
+    equal(existsSync(join(repoRoot, path)), true, `${path} is committed`);
+  }
+  for (const dir of ["golden/scripts", "golden/scenes"]) {
+    equal(existsSync(join(repoRoot, dir)), true, `${dir}/ exists so the missing-file guard applies`);
   }
 });
