@@ -1,8 +1,7 @@
 ---
 title: "Rulings: tooling contracts in docs/spec, the diagnostic and rule model, and an ADR for the added commands"
 ticket: 2
-status: blocked
-blocked_reason: awaiting the owner review of the ruling text recorded here
+status: done
 ---
 
 ## Intent
@@ -181,6 +180,12 @@ The `--json` envelope is one shape for every subcommand and both outcomes: `{ sc
 
 The entry's own check runs when it starts, not now: the commit touches `docs/` and the epic folder only; every ruling above appears marked "Proposed ruling (pending owner review; entry 10.2)" with an evidence line and a rejected alternative; the new spec page's anchors resolve; `docs/spec/engine/rpgcode-functions.md` gains exactly the rows D-5 names; the D-9 exit-code table and JSON envelope are the ones 10.9's verify cites, and `docs/spec/schemas/tkr-script-result.schema.json` exists and is the file 10.9 validates against; `pnpm provenance` and `pnpm lint` pass; and a person can plan 10.3 to 10.12 from the page without inventing a name, rule id, exit code or schema field.
 
-## Why this plan is blocked
+## Outcome
 
-It is a doc-first entry whose whole deliverable is the ruling text, and that text is the owner's to approve. Its D-1 to D-9 are recommendations - the plan's own numbers, as the intent states, not the proposal's - and publishing them into `docs/spec` before the owner rules would record a decision nobody made. The blocker clears when the owner answers the nine paragraphs above — approve as written, amend, or reject with a reason — after which this plan's `status` returns to normal and the entry writes the files listed in the table.
+Landed in `5d401a1fb469cc863c0f9b0dfaf42ad6094ef154` (squash of #967): `docs/spec/engine/rpgcode-tooling.md` with TOOL-1 to TOOL-9, `docs/spec/schemas/tkr-script-result.schema.json`, `docs/adr/0014-rpgcode-spec-package.md`, the eighteen command rows in `docs/spec/engine/rpgcode-functions.md`, the page's entry in `docs/spec/README.md`, and the `debugView()` note on AD-1 in the architecture spine. All nine rulings were approved by the owner on 2026-10-31; the plan's pending-review markings were replaced by that approval without changing any paragraph's substance.
+
+Gates at landing: `pnpm provenance` 0 violations, `pnpm lint` clean, `pnpm command-docs:check` passing over the new rows.
+
+## Earlier note on why the plan was blocked (kept as the record)
+
+This was a doc-first entry whose whole deliverable is the ruling text, and that text was the owner's to approve. The nine rulings were approved on 2026-10-31 and written into their destinations; nothing below is pending.
