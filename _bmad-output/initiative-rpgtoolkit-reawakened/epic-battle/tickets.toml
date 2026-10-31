@@ -602,6 +602,7 @@ notes = ["Evidence: packages/core/test/battle-fresh-load.test.ts:214-231,246-291
 [[entry]]
 id = 35
 tracker_id = "#806"
+tracker_status = "done"
 type = "story"
 title = "Verify lethal-status custom AI moves and items"
 description = """Close #742's combined-scenario evidence gap: a status kills an enemy at its charged boundary and its custom AI attempts attack, move and item in that same turn."""
@@ -611,5 +612,5 @@ after = [22]
 hitl = false
 risk = "medium"
 references = ["issue - #742", "issue - #503", "spec - docs/spec/engine/battle.md#bat-6", "spec - docs/spec/engine/battle.md#bat-7"]
-notes = ["Evidence: packages/core/test/battle-ai.test.ts:761-793 covers lethal-status custom AI and attack; battle-actions.test.ts:486-527 tests fallen moves and items separately. This is a coverage gap, not a proven bug."]
+notes = ["Delivered by PR #822 (27d5e342, Fixes #806), merged 2026-10-30. Evidence: packages/core/test/battle-ai.test.ts:797-889 drives stock/stock_battle/startup.prg through the real stock battle() loop with the authored battle-ai-custom.prg `actions` mode; the status-lethal source's attack, special and item change no target HP/SMP, spend no source SMP and leave inventory at quantity 1, the living control proves each action works and consumes exactly one unit, and both replay identically from the same seed. No runtime defect was reproduced, so no runtime behavior changed; battle-actions.test.ts:486-527 keeps its separate fallen-actor coverage."]
 
