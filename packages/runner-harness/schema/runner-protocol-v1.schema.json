@@ -23,7 +23,8 @@
     "bytes": {
       "type": "string",
       "contentEncoding": "base64",
-      "description": "A Uint8Array leaf in its JSON projection. A runner decodes it before use; the core never sees the string form."
+      "description": "A Uint8Array leaf in its JSON projection. A runner decodes it before use; the core never sees the string form.",
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
     },
     "tint": {
       "type": "object",
@@ -469,7 +470,7 @@
       }
     },
     "plainData": {
-      "description": "PortData's JSON half: null, boolean, finite number, string, an array of PlainData or a string-keyed record of PlainData (AD-7).",
+      "description": "PortData's JSON half: null, boolean, finite number, string, an array of PlainData or a string-keyed record of PlainData (AD-7). A Uint8Array leaf nested inside PortData is untagged in this projection \u2014 a byte leaf and a string look alike \u2014 so the extension's own contract is what says where one appears; the dedicated `bytes` fields above are the tagged form.",
       "oneOf": [
         {
           "type": "null"

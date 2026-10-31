@@ -150,40 +150,74 @@ test("the schema accepts every valid vector and refuses every recorded refusal",
   }
 });
 
-/* Exhaustive kind maps: a new kind in core fails the type check here first. */
-const DRAW_KINDS: Record<DrawCommand["kind"], true> = {
-  blit: true,
-  fill: true,
-  line: true,
-  rect: true,
-  ellipse: true,
-  text: true,
-  pushTarget: true,
-  popTarget: true,
+/*
+ * The drift gate. Each family is one table that names, per kind, the schema definition that
+ * describes it and every key that kind carries. Three checks ride on the table:
+ *  - `satisfies KeyMap<Family>` rejects a key the core type does not have;
+ *  - `Excluded` must be empty for every kind, so a key the core type gained cannot be missing here;
+ *  - the schema's `properties` for that definition must be exactly the table's keys.
+ * Together they make the schema, the kit and `core` move as one: adding a field to `BlitCommand`
+ * fails the type check until the table — and therefore the schema and its vectors — follow.
+ */
+type VariantKeys<Family extends { kind: string }, Kind extends string> = keyof Extract<Family, { kind: Kind }> & string;
+type KeyMap<Family extends { kind: string }, Def> = {
+  [Kind in Family["kind"]]: { readonly def: Def; readonly keys: readonly VariantKeys<Family, Kind>[] };
 };
-const INPUT_KINDS: Record<InputEvent["kind"], true> = {
-  key: true,
-  pointer: true,
-  gamepad: true,
-  focus: true,
-  asset: true,
-  "blob.loaded": true,
-  "blob.saved": true,
-  "blob.listed": true,
-  "extension.result": true,
-  "audio.ended": true,
-  "video.ended": true,
+type Excluded<Family extends { kind: string }, Table extends KeyMap<Family, string>> = {
+  [Kind in Family["kind"]]: Exclude<VariantKeys<Family, Kind>, Table[Kind]["keys"][number]>;
 };
-const REQUEST_KINDS: Record<RunnerRequest["kind"], true> = {
-  asset: true,
-  loadBlob: true,
-  saveBlob: true,
-  listBlobs: true,
-  "extension.call": true,
-  quit: true,
-  openUrl: true,
-  playVideo: true,
-};
+
+const DRAW_KEYS = {
+  blit: { def: "blit", keys: ["kind", "source", "src", "dst", "key", "tint", "alpha", "blend", "iso2d"] },
+  fill: { def: "fill", keys: ["kind", "rgb"] },
+  line: { def: "line", keys: ["kind", "x1", "y1", "x2", "y2", "rgb"] },
+  rect: { def: "rectCommand", keys: ["kind", "rect", "rgb", "filled"] },
+  ellipse: { def: "ellipse", keys: ["kind", "rect", "rgb", "filled"] },
+  text: { def: "text", keys: ["kind", "x", "y", "text", "font", "rgb", "advances"] },
+  pushTarget: { def: "pushTarget", keys: ["kind", "scratch"] },
+  popTarget: { def: "popTarget", keys: ["kind"] },
+} as const satisfies KeyMap<DrawCommand, string>;
+
+const INPUT_KEYS = {
+  key: { def: "keyInput", keys: ["kind", "name", "code", "char", "down", "repeat"] },
+  pointer: { def: "pointerInput", keys: ["kind", "x", "y", "buttons"] },
+  gamepad: { def: "gamepadInput", keys: ["kind", "device", "connected", "axes", "buttons"] },
+  focus: { def: "focusInput", keys: ["kind", "state"] },
+  asset: { def: "assetReply", keys: ["kind", "reqId", "bytes"] },
+  "blob.loaded": { def: "blobLoaded", keys: ["kind", "reqId", "bytes"] },
+  "blob.saved": { def: "blobSaved", keys: ["kind", "reqId", "ok"] },
+  "blob.listed": { def: "blobListed", keys: ["kind", "reqId", "names"] },
+  "extension.result": { def: "extensionResult", keys: ["kind", "reqId", "result"] },
+  "audio.ended": { def: "audioEnded", keys: ["kind", "cueId"] },
+  "video.ended": { def: "videoEnded", keys: ["kind", "reqId"] },
+} as const satisfies KeyMap<InputEvent, string>;
+
+const REQUEST_KEYS = {
+  asset: { def: "assetRequest", keys: ["kind", "reqId", "key"] },
+  loadBlob: { def: "loadBlobRequest", keys: ["kind", "reqId", "blob"] },
+  saveBlob: { def: "saveBlobRequest", keys: ["kind", "reqId", "blob", "bytes"] },
+  listBlobs: { def: "listBlobsRequest", keys: ["kind", "reqId", "area"] },
+  "extension.call": { def: "extensionCallRequest", keys: ["kind", "reqId", "name", "args"] },
+  quit: { def: "quitRequest", keys: ["kind", "reqId"] },
+  openUrl: { def: "openUrlRequest", keys: ["kind", "reqId", "url"] },
+  playVideo: { def: "playVideoRequest", keys: ["kind", "reqId", "key", "presentation"] },
+} as const satisfies KeyMap<RunnerRequest, string>;
+
+type AssertNoMissing<Family extends { kind: string }, Table extends KeyMap<Family, string>> =
+  Excluded<Family, Table> extends Record<Family["kind"], never> ? true : { readonly missing: Excluded<Family, Table> };
+const _drawExact: AssertNoMissing<DrawCommand, typeof DRAW_KEYS> = true;
+const _inputExact: AssertNoMissing<InputEvent, typeof INPUT_KEYS> = true;
+const _requestExact: AssertNoMissing<RunnerRequest, typeof REQUEST_KEYS> = true;
+void _drawExact;
+void _inputExact;
+void _requestExact;
+
+function schemaKeys(definition: string): string[] {
+  const defs = object(schema.$defs as Schema);
+  const entry = defs[definition];
+  ok(entry !== undefined, `schema has no $defs.${definition}`);
+  return Object.keys(object(object(entry as Schema).properties as Schema)).sort();
+}
 
 function covered(family: Family): string[] {
   const kinds = new Set<string>();
@@ -201,11 +235,17 @@ function covered(family: Family): string[] {
 }
 
 test("the kit covers every draw command, input event and request kind", () => {
-  deepEqual(covered("draw"), Object.keys(DRAW_KINDS).sort());
-  deepEqual(covered("input"), Object.keys(INPUT_KINDS).sort());
-  deepEqual(covered("request"), Object.keys(REQUEST_KINDS).sort());
-  deepEqual(Object.keys(REQUEST_KINDS).sort(), [...HOST_REQUEST_KINDS].sort(), "the requests a package may declare and the kinds on the wire are the same set");
-  deepEqual(kit.counts, { draw: 12, input: 15, request: 10 });
+  deepEqual(covered("draw"), Object.keys(DRAW_KEYS).sort());
+  deepEqual(covered("input"), Object.keys(INPUT_KEYS).sort());
+  deepEqual(covered("request"), Object.keys(REQUEST_KEYS).sort());
+  deepEqual(Object.keys(REQUEST_KEYS).sort(), [...HOST_REQUEST_KINDS].sort(), "the requests a package may declare and the kinds on the wire are the same set");
+  deepEqual(kit.counts, { draw: 12, input: 15, request: 11 });
+});
+
+test("every schema definition carries exactly the keys its core type carries", () => {
+  for (const [kind, entry] of Object.entries(DRAW_KEYS)) deepEqual(schemaKeys(entry.def), [...entry.keys].sort(), `draw ${kind}`);
+  for (const [kind, entry] of Object.entries(INPUT_KEYS)) deepEqual(schemaKeys(entry.def), [...entry.keys].sort(), `input ${kind}`);
+  for (const [kind, entry] of Object.entries(REQUEST_KEYS)) deepEqual(schemaKeys(entry.def), [...entry.keys].sort(), `request ${kind}`);
 });
 
 test("an input record stamps its event with the consuming tick", () => {

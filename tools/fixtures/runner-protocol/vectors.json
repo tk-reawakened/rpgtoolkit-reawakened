@@ -5,7 +5,7 @@
   "counts": {
     "draw": 12,
     "input": 15,
-    "request": 10
+    "request": 11
   },
   "vectors": [
     {
@@ -688,6 +688,21 @@
         "kind": "openUrl",
         "reqId": 9,
         "url": "http://example.invalid/"
+      }
+    },
+    {
+      "id": "refuse-non-base64-bytes",
+      "family": "request",
+      "valid": false,
+      "why": "a byte leaf is base64 in the JSON projection",
+      "record": {
+        "kind": "saveBlob",
+        "reqId": 10,
+        "blob": {
+          "area": "files",
+          "path": "log.txt"
+        },
+        "bytes": "not base64!"
       }
     }
   ]

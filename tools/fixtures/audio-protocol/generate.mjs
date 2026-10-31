@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { isEntryPoint } from "../fetch.mjs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -66,10 +67,14 @@ export function check() {
   if (!existsSync(output)) return [`missing ${output}`];
   return readFileSync(output).equals(Buffer.from(document)) ? [] : [`${output} differs; run node tools/fixtures/audio-protocol/generate.mjs`];
 }
-if (process.argv.includes("--check")) {
-  const problems = check();
-  if (problems.length > 0) { console.error(problems.join("\n")); process.exitCode = 1; }
-} else {
-  mkdirSync(resolve(here), { recursive: true });
-  writeFileSync(output, document);
+// Import must not write: tools/fixtures/test/audio-protocol.test.mjs calls `check()`, and a write on
+// import would let it compare the file against itself and always pass.
+if (isEntryPoint(import.meta.url)) {
+  if (process.argv.includes("--check")) {
+    const problems = check();
+    if (problems.length > 0) { console.error(problems.join("\n")); process.exitCode = 1; }
+  } else {
+    mkdirSync(resolve(here), { recursive: true });
+    writeFileSync(output, document);
+  }
 }

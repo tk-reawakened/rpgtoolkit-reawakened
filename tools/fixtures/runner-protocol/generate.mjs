@@ -16,6 +16,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isEntryPoint } from "../fetch.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const output = join(here, "vectors.json");
@@ -88,6 +89,8 @@ const vectors = [
     record: { kind: "warm", reqId: 1, key: "a" } },
   { id: "refuse-http-url", family: "request", valid: false, why: "openUrl allows https: only (AD-17)",
     record: { kind: "openUrl", reqId: 9, url: "http://example.invalid/" } },
+  { id: "refuse-non-base64-bytes", family: "request", valid: false, why: "a byte leaf is base64 in the JSON projection",
+    record: { kind: "saveBlob", reqId: 10, blob: { area: "files", path: "log.txt" }, bytes: "not base64!" } },
 ];
 
 const document = JSON.stringify(
@@ -113,12 +116,16 @@ export function check() {
     : [`${output} differs; run node tools/fixtures/runner-protocol/generate.mjs`];
 }
 
-if (process.argv.includes("--check")) {
-  const problems = check();
-  if (problems.length > 0) {
-    console.error(problems.join("\n"));
-    process.exitCode = 1;
+// Importing this module must have no side effect: `check()` is what the fixtures test
+// calls, and a write on import would let it compare a file against itself and always pass.
+if (isEntryPoint(import.meta.url)) {
+  if (process.argv.includes("--check")) {
+    const problems = check();
+    if (problems.length > 0) {
+      console.error(problems.join("\n"));
+      process.exitCode = 1;
+    }
+  } else {
+    writeFileSync(output, document);
   }
-} else {
-  writeFileSync(output, document);
 }

@@ -81,8 +81,9 @@ reason to widen the bound.
 ## Input and focus
 
 A runner turns its host's events into the AD-14 input records and feeds them to `advance` with the tick they belong to:
-`key { name, code, char, down }` with `name` in the legacy logical vocabulary (`"ENTER"`, `"LEFT"`, `"A"`), `pointer` in
-logical integer pixels, `gamepad`, `focus { lost | gained }`. The DOM-to-legacy name table lives in `core/input`; a
+`key { name, code, char, down }` with `name` in the legacy logical vocabulary (`"ENTER"`, `"LEFT"`, `"A"`) and the
+optional `repeat` flag for host auto-repeat, which is not a new press edge; `pointer` in logical integer pixels;
+`gamepad`; `focus { lost | gained }`. The DOM-to-legacy name table lives in `core/input`; a
 runner maps, it does not name.
 
 Focus is the core's, not the runner's: after `focus.lost` the core consumes no ticks until `focus.gained` (E-03). A

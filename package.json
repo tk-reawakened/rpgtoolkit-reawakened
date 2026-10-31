@@ -36,7 +36,7 @@
     "no-skips:test": "node --test tools/no-skips/test/no-skips.test.mjs",
     "audio-protocol:check": "node tools/fixtures/audio-protocol/generate.mjs --check",
     "runner-protocol:check": "node tools/fixtures/runner-protocol/generate.mjs --check",
-    "oracle:check": "python3 tools/fixtures/reference/render.py --check && node tools/fixtures/author/generate.mjs --check && pnpm run audio-protocol:check",
+    "oracle:check": "python3 tools/fixtures/reference/render.py --check && node tools/fixtures/author/generate.mjs --check && pnpm run audio-protocol:check && pnpm run runner-protocol:check",
     "golden": "tsc -b && node packages/runner-headless/dist/cli.js golden",
     "golden:record": "tsc -b && node packages/runner-headless/dist/cli.js golden --record",
     "golden:bun": "pnpm build && bun packages/runner-headless/dist/cli.js golden && bun packages/runner-headless/dist/cli.js closing",
