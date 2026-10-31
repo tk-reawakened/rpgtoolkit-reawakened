@@ -7,10 +7,7 @@ status: 'done'
 baseline_revision: '3e084ca5'
 risk: 'high'
 review: 'full'
-context:
-  - 'docs/spec/formats/save-game.md'
-  - 'docs/spec/engine/interruption-recovery.md'
-  - 'docs/spec/engine/rpgcode-runtime.md'
+context: ['docs/spec/formats/save-game.md', 'docs/spec/engine/interruption-recovery.md', 'docs/spec/engine/rpgcode-runtime.md']
 ---
 
 ## Intent
