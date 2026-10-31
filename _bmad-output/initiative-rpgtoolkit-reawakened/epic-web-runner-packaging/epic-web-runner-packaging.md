@@ -27,6 +27,9 @@ Anyone can play a legacy game in a browser; the CAP-12 success check, sample gam
 
 ## Notes
 
+- Audit (2026-10-31): this envelope has no `tickets.toml` breakdown, so it has no `tracker_id` and no GitHub parent issue, contrary to the initiative's mirror rule. Recorded, not fixed: a parent issue needs a real breakdown, and inventing entries to satisfy the rule was rejected. Filed as issue #882; `epic-editor-foundation` is the one to break down first because Epic 22's 22.9 waits on its seams. See `DISCOVERY-envelope-audit.md`.
+
+
 - Open question (epic 6 evidence gap, filed as issue #877): a headless-browser SoundFont playback test. `packages/synth/test/render.test.ts` proves the MIDI-through-bank path under Node; the browser limb of epic 6's Done-when 2 has no test, and this repository has no browser runner. The assertion belongs to this epic's browser job (its Done-when 3 already requires a browser replay), so it is carried here until this envelope gets a `tickets.toml`. Adding Playwright for one assertion now was rejected; the licence (Apache-2.0) is acceptable, the scope is not.
 
 ## Boundaries

@@ -49,6 +49,9 @@ Documentation content and the website that publishes it: the information archite
 
 ## Notes
 
+- Audit (2026-10-31): this envelope has no `tickets.toml` breakdown, so it has no `tracker_id` and no GitHub parent issue, contrary to the initiative's mirror rule. Recorded, not fixed: a parent issue needs a real breakdown, and inventing entries to satisfy the rule was rejected. Filed as issue #882; `epic-editor-foundation` is the one to break down first because Epic 22's 22.9 waits on its seams. See `DISCOVERY-envelope-audit.md`.
+
+
 - Decision: 2026-10-17: the owner asked for a documentation and website epic to run after the product is finished. This draft is planning only: no site, tooling or product code, and no `tickets.toml` yet (the other epics awaiting inception, 5 to 15, have none either).
 - Decision: 2026-10-17 (draft, owner to confirm): epic 17, last in build order, covering a new capability CAP-19 added to the spec as a draft. Not an extension of CAP-12: CAP-12 delivers the runners and a packaged single-file game; CAP-19 delivers the documentation and the website about them.
 - Assumption A-1 (to confirm): the user documentation is written fresh, in our own words, from `docs/spec/`, the built product and original examples. The recovered legacy user guide is copyrighted by its authors ("© 2005, 2007 C.J. Fitzpatrick, Jonathan Hughes, and Samuel Bedwell", `recovery-legacy-docs-and-plugins/docs.md` section 1) and the 3.1.0 code is GPL-3; no page of it is copied, translated or closely paraphrased. It may serve as a topic checklist (which tasks a beginner needs), nothing more. The licence of the guide's text is [INFERENCE: not stated in the recovery]; a rights check, not G7, decides if the owner wants more.

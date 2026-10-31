@@ -35,6 +35,9 @@ The spike and `host-desktop` chrome. Not the runner wrapper, which epic web-runn
 
 ## Notes
 
+- Audit (2026-10-31): this envelope has no `tickets.toml` breakdown, so it has no `tracker_id` and no GitHub parent issue, contrary to the initiative's mirror rule. Recorded, not fixed: a parent issue needs a real breakdown, and inventing entries to satisfy the rule was rejected. Filed as issue #882; `epic-editor-foundation` is the one to break down first because Epic 22's 22.9 waits on its seams. See `DISCOVERY-envelope-audit.md`.
+
+
 - Decision: ADR 0001 defers the shell choice to a spike; the choice is reversible through platform-services.
 - Decision: epic set approved by the user, 2026-10-10.
 - Waits on editor-assets-p0 because: a board editor to spike against.

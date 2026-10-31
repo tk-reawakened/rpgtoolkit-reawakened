@@ -35,6 +35,9 @@ P1 tools of editor-features section 11. Not P0 or P2.
 
 ## Notes
 
+- Audit (2026-10-31): this envelope has no `tickets.toml` breakdown, so it has no `tracker_id` and no GitHub parent issue, contrary to the initiative's mirror rule. Recorded, not fixed: a parent issue needs a real breakdown, and inventing entries to satisfy the rule was rejected. Filed as issue #882; `epic-editor-foundation` is the one to break down first because Epic 22's 22.9 waits on its seams. See `DISCOVERY-envelope-audit.md`.
+
+
 - Open question: the auto-tiler variant ordering must be rebuilt from sample sets under G7; which sample sets? Entries wait on that answer.
 - Decision: epic set approved by the user, 2026-10-10.
 - Waits on editor-assets-p0 because: the board editor and shared tileset browser.
