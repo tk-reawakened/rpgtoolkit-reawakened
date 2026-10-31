@@ -546,20 +546,9 @@ A committed buy emits exactly one `itemAdded`, followed by `goldChanged` if gold
 | `midiplay` | `void midiplay(string file)` | Play a media file on a named track. | deprecated; replaced by `mediaplay`; music loops |
 | `playmidi` | `void playmidi(string file)` | Play a media file on a named track. | deprecated; replaced by `mediaplay`; music loops |
 | `mediaplay` | `object mediaplay(string file[, object options])` | Play a media file on a named track. | Reawakened addition (MEDIA-1): returns the voice object; `options` may set `track`, `loop`, `volume`, `priority`, `sync` and `wait`; the one-argument Toolkit 3.1 call uses `music`/loop defaults and returns the voice object, which existing bare statements ignore. |
-| `mediatrack` | `void mediatrack(string name[, int voices])` | Create or resize a named audio track. |  |
-| `mediaload` | `void mediaload(string track, string file)` | Load a media file for a track without starting it. |  |
 | `mediastop` | `void mediastop([string track[, int voice]])` | Stop a track or voice. |  |
 | `mediarest` | `void mediarest([string track[, int voice]])` | Stop a track or voice. | deprecated; replaced by `mediastop` |
 | `midirest` | `void midirest([string track[, int voice]])` | Stop a track or voice. | deprecated; replaced by `mediastop` |
-| `mediapause` | `void mediapause([string track[, int voice]])` | Pause a track or voice. |  |
-| `mediaresume` | `void mediaresume([string track[, int voice]])` | Resume a paused track or voice. |  |
-| `mediaseek` | `void mediaseek(string track, number seconds[, int voice])` | Move a track or voice to a time position. |  |
-| `medialoop` | `void medialoop(string track, bool on[, int voice])` | Turn looping on or off for a track or voice. |  |
-| `mediafade` | `void mediafade(string track, int percent, number seconds[, int voice])` | Fade a track or voice to a volume percentage. |  |
-| `mediawait` | `void mediawait([string track[, int voice]])` | Wait until a track or voice finishes its current sound. | waits on `audio.track`; pause suspends and stop or replacement wakes it |
-| `mediavolume` | `int mediavolume(string track[, int voice[, int &percent]])` | Set or read a track or voice volume. |  |
-| `soundfont` | `void soundfont(string file)` | Choose the SoundFont used by MIDI music. |  |
-| `soundfontreset` | `void soundfontreset()` | Return MIDI music to the game's default SoundFont. |  |
 | `wavstop` | `void wavstop()` | Stop the current sound effect. | deprecated; replaced by `mediastop` |
 | `mp3` | `void mp3(string file)` | Play a wave file (e.g. a sound effect). | deprecated; replaced by `mediaplay`; sound effects play once |
 | `mp3pause` | `void mp3pause(string file)` | Play a sound effect and pause the engine until it finishes. | deprecated; replaced by `mediaplay`; plays once, then waits on `audio.track` |
