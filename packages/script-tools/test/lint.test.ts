@@ -9,7 +9,7 @@ import {
   type PluginDefinition,
   type ResolvedPlugin,
 } from "@tk-reawakened/core";
-import { buildIndex, lint, readLintConfig, RULES } from "../src/index.ts";
+import { analyse, applyEdits, buildIndex, lint, readLintConfig, RULES } from "../src/index.ts";
 
 /**
  * The linter (docs/spec/engine/rpgcode-tooling.md#tool-3): rules read the index
@@ -38,6 +38,10 @@ test("every rule has a stable id, a default severity and a rationale", () => {
       ["lint/command-arity", "warning", false],
       ["lint/shadowed-builtin", "warning", false],
       ["lint/unresolved-include", "warning", false],
+      ["dialect/sigil", "warning", true],
+      ["dialect/return-method", "warning", true],
+      ["dialect/obsolete-control", "warning", true],
+      ["dialect/unquoted-command-argument", "warning", true],
     ],
   );
   for (const rule of RULES) ok(rule.rationale.length > 0);
@@ -65,7 +69,7 @@ test("a script function that reuses a command name is reported", () => {
 });
 
 test("an include nothing served is reported", () => {
-  const result = lint(indexOf('#include "missing.prg"\n'), { plugins });
+  const result = lint(indexOf('#include "missing.prg"\n'), { plugins, resolveIncludes: true });
   deepEqual(result.diagnostics.map((d) => d.rule), ["lint/unresolved-include"]);
 });
 
@@ -91,4 +95,25 @@ test("config validation rejects an unknown rule id or severity instead of ignori
   equal(good.ok, true);
   const empty = readLintConfig({});
   equal(empty.ok, true);
+});
+
+test("the dialect rules carry their own autofix, and applying it compiles", () => {
+  const text = "#Mwin(Hello there)\n#ReturnMethod(1 + 2)\n#Dos\nx! = 1\n";
+  const document = indexOf(text);
+  const result = lint(document, { plugins, sources: { "main.prg": text } });
+  deepEqual(
+    result.diagnostics.map((found) => found.rule),
+    ["dialect/unquoted-command-argument", "dialect/return-method", "dialect/obsolete-control", "dialect/sigil"],
+  );
+  for (const found of result.diagnostics) {
+    ok(found.fix !== undefined && found.fix.length > 0, `${found.rule} has an edit`);
+  }
+  const fixed = result.diagnostics.reduce((current, found) => applyEdits(current, found.fix ?? []), text);
+  equal(applyEdits(text, result.diagnostics.flatMap((found) => [...(found.fix ?? [])])), fixed);
+  equal(analyse(fixed).ok, true, JSON.stringify(analyse(fixed).diagnostics));
+});
+
+test("the dialect rules are off when their source is not supplied", () => {
+  const result = lint(indexOf("#Dos\n"), { plugins });
+  deepEqual(result.diagnostics, []);
 });

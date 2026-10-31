@@ -11,6 +11,7 @@
  */
 
 import { commandDocumentation, foldAscii, type ResolvedPlugin } from "@tk-reawakened/core";
+import { legacyFixes } from "./fixes.ts";
 import type { Diagnostic } from "./diagnostics.ts";
 import { rangeOf } from "./diagnostics.ts";
 import type { IndexDocument, IndexProgram, IndexPos } from "./index-document.ts";
@@ -19,7 +20,11 @@ export type RuleId =
   | "lint/unknown-command"
   | "lint/command-arity"
   | "lint/shadowed-builtin"
-  | "lint/unresolved-include";
+  | "lint/unresolved-include"
+  | "dialect/sigil"
+  | "dialect/return-method"
+  | "dialect/obsolete-control"
+  | "dialect/unquoted-command-argument";
 
 export type LintSeverity = "error" | "warning" | "info" | "hint";
 
@@ -58,6 +63,30 @@ export const RULES: readonly RuleDefinition[] = [
     rationale: "An include names a file the asset index does not serve, so its definitions are missing.",
     fix: false,
   },
+  {
+    id: "dialect/sigil",
+    defaultSeverity: "warning",
+    rationale: "The legacy `!`/`$` sigil is ignored by the lexer; deleting it makes the program plain (docs/spec/engine/rpgcode-dialects.md:57-69).",
+    fix: true,
+  },
+  {
+    id: "dialect/return-method",
+    defaultSeverity: "warning",
+    rationale: "`#ReturnMethod(x)` is the pre-3.1 spelling of `return x`.",
+    fix: true,
+  },
+  {
+    id: "dialect/obsolete-control",
+    defaultSeverity: "warning",
+    rationale: "`#Dos`, `#Windows`, `#Gone`, `#Over`, `#Reset` and `#Win` are obsolete engine controls with no meaning in 3.1.",
+    fix: true,
+  },
+  {
+    id: "dialect/unquoted-command-argument",
+    defaultSeverity: "warning",
+    rationale: "A `#Command` line with an unquoted argument is the Toolkit 2.x spelling; 3.1 reads `command(\"text\")`.",
+    fix: true,
+  },
 ];
 
 /** One ignore entry: a rule, a file, a line or any combination; absent fields match anything. */
@@ -89,6 +118,15 @@ export type LintResult = {
 export type LintOptions = {
   readonly plugins: readonly ResolvedPlugin[];
   readonly config?: LintConfig;
+  /** Each program's source text, keyed by its name; the dialect rules run where it is supplied. */
+  readonly sources?: { readonly [name: string]: string };
+  /**
+   * Whether the run has an asset index behind it. Only then can an unserved
+   * include be told from a file the project ships elsewhere, so the rule is off
+   * without one (the CLI passes true; a stock baseline over sources without their
+   * game tree passes false).
+   */
+  readonly resolveIncludes?: boolean;
 };
 
 const SEVERITIES = new Set<string>(["error", "warning", "info", "hint", "off"]);
@@ -181,18 +219,22 @@ function arityOf(entry: ReturnType<typeof commandDocumentation>[number]): { read
   };
 }
 
-function rulesFor(program: IndexProgram, catalogue: Catalogue): Diagnostic[] {
+function rulesFor(program: IndexProgram, catalogue: Catalogue, resolveIncludes: boolean): Diagnostic[] {
   const found: Diagnostic[] = [];
   const unknown = RULES[0]!;
   const arity = RULES[1]!;
   const shadowed = RULES[2]!;
   const unresolved = RULES[3]!;
   const declared = new Set<string>([...program.functions.map((fn) => foldAscii(fn.name)), ...program.classes.map((cls) => foldAscii(cls.name)), ...program.labels.map((label) => foldAscii(label.name))]);
+  // A plain-name call may invoke a *variable* that holds a callable (FUN-8): the
+  // lowering emits a load of that name before the call, so a name read anywhere in
+  // the program is resolved at run time and is not an unknown command.
+  const callableVariables = new Set(program.references.filter((site) => site.kind === "read" && site.name !== null).map((site) => foldAscii(site.name!)));
 
   for (const call of program.calls) {
     if (call.file !== null) continue;
     const name = foldAscii(call.name);
-    if (declared.has(name) || catalogue.byName.has(name)) continue;
+    if (declared.has(name) || catalogue.byName.has(name) || callableVariables.has(name)) continue;
     // A bare identifier statement lowers to a zero-argument call; a missing name is
     // the only fact the index has, so the rule states exactly that.
     found.push(diagnostic(unknown, unknown.defaultSeverity, call.pos, `\`${call.written ?? call.name}\` is not a script function, class, label or registered command`));
@@ -214,12 +256,33 @@ function rulesFor(program: IndexProgram, catalogue: Catalogue): Diagnostic[] {
     found.push(diagnostic(shadowed, shadowed.defaultSeverity, { file: fn.file, line: fn.line, ...(fn.col === undefined ? {} : { col: fn.col }), ...(fn.endCol === undefined ? {} : { endCol: fn.endCol }) }, `\`${fn.name}\` shadows the registered command \`${entry.canonicalName}\`; calls bind to the command (R-35)`));
   }
 
-  for (const include of program.includes) {
+  if (resolveIncludes) for (const include of program.includes) {
     if (include.key !== undefined) continue;
     found.push(diagnostic(unresolved, unresolved.defaultSeverity, { file: include.file, line: include.line, ...(include.col === undefined ? {} : { col: include.col }), ...(include.endCol === undefined ? {} : { endCol: include.endCol }) }, `nothing serves \`${include.path}\`, so its definitions are missing`));
   }
 
   return found;
+}
+
+/**
+ * The dialect rules (docs/spec/engine/rpgcode-dialects.md:57-69) over one
+ * program's text. `legacyFixes` already re-parsed each rewrite and proved it
+ * lowers identically, so a diagnostic here carries an edit that is safe to
+ * apply; a row without a preserving rewrite is deliberately not offered.
+ */
+function dialectDiagnostics(source: string): Diagnostic[] {
+  return legacyFixes(source).map((fix) => {
+    const [first] = fix.edits;
+    if (first === undefined) throw new Error(`${fix.rule} produced no edit`);
+    return {
+      code: fix.rule,
+      severity: "warning",
+      range: first.range,
+      message: fix.title,
+      rule: fix.rule,
+      fix: [...fix.edits],
+    };
+  });
 }
 
 function ignored(diagnostic: Diagnostic, file: string, config: LintConfig): boolean {
@@ -253,7 +316,18 @@ export function lint(document: IndexDocument, options: LintOptions): LintResult 
   const diagnostics: Diagnostic[] = [];
   let ignoredRanges = 0;
   for (const program of document.programs) {
-    for (const found of rulesFor(program, catalogue)) {
+    for (const found of rulesFor(program, catalogue, options.resolveIncludes === true)) {
+      if (!enabled.some((rule) => rule.id === found.rule)) continue;
+      const rule = RULES.find((item) => item.id === found.rule)!;
+      if (ignored(found, program.name, config)) {
+        ignoredRanges += 1;
+        continue;
+      }
+      diagnostics.push({ ...found, severity: severityOf(rule) });
+    }
+    const source = options.sources?.[program.name];
+    if (source === undefined) continue;
+    for (const found of dialectDiagnostics(source)) {
       if (!enabled.some((rule) => rule.id === found.rule)) continue;
       const rule = RULES.find((item) => item.id === found.rule)!;
       if (ignored(found, program.name, config)) {
