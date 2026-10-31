@@ -6,7 +6,7 @@ tracker_id: "#899"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/899"
 parent: epic-platform-baseline
 created: '2026-10-31'
-status: 'built'
+status: 'done'
 baseline_revision: 'deaba38927e9d2b34946cc71f82e6a357053ecaa'
 route: 'oneshot'
 route_source: 'auto'
