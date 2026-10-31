@@ -46,7 +46,7 @@ function loaderOf(files: Record<string, string>): ProgramLoader {
 
 function makeState(program: string): GameState {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: program, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: program, ir: "1" });
   return state;
 }
 
@@ -271,11 +271,11 @@ test("a state with no callable and no cell is not checked and compiles nothing",
   equal(Object.hasOwn(restored.vm, "defOwners"), false);
 });
 
-test("closures add optional fields only: the vm schema and the compiler version do not move", () => {
+test("closures add optional fields only: the vm schema and the instruction version do not move for them", () => {
   const plain = createGameState({ seed: 0 });
-  equal(SCHEMA_VERSIONS.vm, 5);
-  equal(plain.schema.vm, 5);
-  equal(plain.schema.compiler, "2");
+  equal(SCHEMA_VERSIONS.vm, 6);
+  equal(plain.schema.vm, 6);
+  equal(plain.schema.ir, "1");
   deepEqual(Object.keys(plain.vm).sort(), [
     "block",
     "effectSeq",
@@ -467,7 +467,7 @@ test("an owner that does not define the def it is recorded for is refused as res
   const error = failure(() =>
     restoreChecked(
       edited(json, (raw) => {
-        raw.vm.defOwners = { "<inline>#lambda_1": { kind: "inline", text: "x = 1\n", compiler: "2" } };
+        raw.vm.defOwners = { "<inline>#lambda_1": { kind: "inline", text: "x = 1\n", ir: "1" } };
       }),
     ),
   );

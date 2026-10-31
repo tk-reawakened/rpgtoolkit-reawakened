@@ -6,7 +6,7 @@ import {
   assetKey,
   BATTLE_BACKGROUND_MAGIC,
   BATTLE_PLUGIN,
-  COMPILER_VERSION,
+  IR_VERSION,
   CORE_PLUGIN,
   createGameState,
   createMediaScriptService,
@@ -324,7 +324,7 @@ test("Fight completes setup with ordered parties, the background, canRun from ev
     const drawn = parsePending(String(first.then?.args[0])).enemySources;
     const rngAfterDraw = clonePlain(state.rng);
     const completed = finishRequestedBattleAssets(service.view, first, assets);
-    deepEqual(completed.effects?.map(({ kind, args }) => [kind, args?.[0], args?.[1]]), [["vm.control", "executeProgramRef", { kind: "inline", text: "battle()", compiler: COMPILER_VERSION }]], `seed ${seed}: completion starts the registered battle handler`);
+    deepEqual(completed.effects?.map(({ kind, args }) => [kind, args?.[0], args?.[1]]), [["vm.control", "executeProgramRef", { kind: "inline", text: "battle()", ir: IR_VERSION }]], `seed ${seed}: completion starts the registered battle handler`);
     deepEqual(state.rng, rngAfterDraw, `seed ${seed}: setup after the draw takes no further random number`);
     const battle = state.battle;
     ok(battle, `seed ${seed}: a battle exists`);
@@ -477,7 +477,7 @@ test("random encounter handoff reports a missing stock package before requesting
 test("battle setup request and seeded draws survive save and restore mid-start", () => {
   const first = startState(91);
   const firstServices = services(first);
-  startProgram(first.vm, { kind: "inline", text: '__battle_prepare_random(1, "night.bkg")', compiler: "2" });
+  startProgram(first.vm, { kind: "inline", text: '__battle_prepare_random(1, "night.bkg")', ir: "1" });
   advanceScriptTick(first, firstServices);
   const pendingId = requestId(first);
   const saved = snapshot(first);
@@ -513,7 +513,7 @@ test("four-enemy battle setup stays within STEP_BUDGET across asset continuation
 
   const state = startState(seedWithFour);
   const service = services(state);
-  startProgram(state.vm, { kind: "inline", text: '__battle_prepare_random(1, "night.bkg")', compiler: "2", owner: "stock_battle" });
+  startProgram(state.vm, { kind: "inline", text: '__battle_prepare_random(1, "night.bkg")', ir: "1", owner: "stock_battle" });
   const thread = state.vm.threads[0]!;
   let maxSteps = 0;
   for (let guard = 0; guard < 8 && thread.status !== "finished"; guard += 1) {

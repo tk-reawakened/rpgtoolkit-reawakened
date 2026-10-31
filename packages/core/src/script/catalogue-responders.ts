@@ -12,7 +12,7 @@ import type { NamedWaitKind, Wait } from "../ports/wait.ts";
 import { MAX_TICK, secondsToTicks } from "../time/time.ts";
 import type { BuiltinDoc, BuiltinSpec, ParamSpec } from "./builtins.ts";
 import { ScriptError } from "./errors.ts";
-import { COMPILER_VERSION } from "./program.ts";
+import { IR_VERSION } from "./program.ts";
 import type { CommandEffect, PluginDefinition } from "./plugin.ts";
 import { CATALOGUE_STUBS_PLUGIN } from "./catalogue-stubs.ts";
 import { PURE_SPECS } from "./builtins/pure.ts";
@@ -415,7 +415,7 @@ function makeWait(row: Row, args: readonly { readonly value: unknown; readonly r
 }
 
 function controlFor(row: Row, args: readonly { readonly value: unknown }[], thread: number | undefined): CommandEffect | null {
-  if (row.name === "run") return { kind: "vm.control", args: ["run", { kind: "inline", text: toStringValue(args[0]?.value as never ?? ""), compiler: COMPILER_VERSION }] };
+  if (row.name === "run") return { kind: "vm.control", args: ["run", { kind: "inline", text: toStringValue(args[0]?.value as never ?? ""), ir: IR_VERSION }] };
   if (row.name === "rpgcode" && thread !== undefined) return { kind: "vm.control", args: ["threadTell", thread, toStringValue(args[0]?.value as never ?? "")] };
   if (row.name === "branch" || row.name === "fbranch") return { kind: "vm.control", args: ["jump", toStringValue(args[0]?.value as never ?? "")] };
   if (row.name === "end" || row.name === "done" || row.name === "stop") return { kind: "vm.control", args: ["end"] };

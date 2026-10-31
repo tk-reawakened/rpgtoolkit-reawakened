@@ -389,7 +389,7 @@ function cueRig(scenario: Scenario = {}): Rig {
   }
   startProgram(state.vm, {
     kind: "inline",
-    compiler: "2",
+    ir: "1",
     text: [COUNTING_TURN, scenario.script ?? "", 'FightEnemy("slime", "night.bkg")', "fightReturned = 1"].join("\n"),
   });
   return rig;

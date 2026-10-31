@@ -225,7 +225,7 @@ test("surface hashes preserve renderNowOn presence, values and direct mutations"
 
 test("aliased program owners preserve canonical hashes through direct edits and evolving prefixes", () => {
   const state = withSurfaceBytes("A".repeat(10000));
-  const ref = { kind: "inline" as const, text: "x".repeat(9000), compiler: "2", owner: "pack" };
+  const ref = { kind: "inline" as const, text: "x".repeat(9000), ir: "1", owner: "pack" };
   state.vm.defOwners = Object.fromEntries(Array.from({ length: 18 }, (_, i) => [`def${i}`, ref]));
   for (let i = 0; i < 30; i += 1) {
     state.rng.s0 = i;
@@ -254,12 +254,12 @@ test("many independent program owners retain parity as they are replaced", () =>
   const state = withSurfaceBytes("A".repeat(10000));
   state.vm.defOwners = Object.fromEntries(Array.from({ length: 35 }, (_, i) => [
     `def${i}`,
-    { kind: "inline" as const, text: `${i}:` + "x".repeat(8200), compiler: "2" },
+    { kind: "inline" as const, text: `${i}:` + "x".repeat(8200), ir: "1" },
   ]));
   equal(hashGameState(state), previousHashProjection(state));
   for (let i = 0; i < 8; i += 1) {
     delete state.vm.defOwners[`def${i}`];
-    state.vm.defOwners[`replacement${i}`] = { kind: "inline", text: `${i}:` + "y".repeat(8200), compiler: "2" };
+    state.vm.defOwners[`replacement${i}`] = { kind: "inline", text: `${i}:` + "y".repeat(8200), ir: "1" };
     state.rng.s0 = i;
     equal(hashGameState(state), previousHashProjection(state));
   }
@@ -267,7 +267,7 @@ test("many independent program owners retain parity as they are replaced", () =>
 
 test("a large definition table hashes without exceeding call argument limits", () => {
   const state = withSurfaceBytes("");
-  const ref = { kind: "inline" as const, text: "x", compiler: "2" };
+  const ref = { kind: "inline" as const, text: "x", ir: "1" };
   state.vm.defOwners = Object.fromEntries(Array.from({ length: 65000 }, (_, i) => [`d${i}`, ref]));
   equal(hashGameState(state), previousHashProjection(state));
 });

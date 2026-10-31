@@ -9,7 +9,7 @@ import { test } from "node:test";
 import {
   actorEmitterKey,
   addActor,
-  COMPILER_VERSION,
+  IR_VERSION,
   createHostObject,
   ENGINE_DEFAULT_MANIFEST,
   hashState,
@@ -409,7 +409,7 @@ test("restore reruns startup hooks on scratch and actual services", () => {
   const packageStartup = {
     kind: "inline" as const,
     text: "seedactor()\nHP! = 5\nend()\n",
-    compiler: COMPILER_VERSION,
+    ir: IR_VERSION,
     dialect: "tk3" as const,
   };
   const host = createScriptHost({
@@ -449,7 +449,7 @@ test("restore preserves a startup RPGCode menu override over the same native pro
   const startup = {
     kind: "inline" as const,
     text: 'registerPlugin({ name: "menu-override", commands: {}, menuProviders: { main: (context) => { sleep(1); winner = "rpg" } } })\n',
-    compiler: COMPILER_VERSION,
+    ir: IR_VERSION,
     dialect: "tk3" as const,
   };
   const host = createScriptHost({
@@ -474,7 +474,7 @@ test("stock_rpg actor talked delivery survives restore from a queued event exact
   const startup = {
     kind: "inline" as const,
     text: readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../../stock/stock_rpg/startup.prg"), "utf8"),
-    compiler: COMPILER_VERSION,
+    ir: IR_VERSION,
     dialect: "tk3" as const,
   };
   const probe: PluginDefinition = {

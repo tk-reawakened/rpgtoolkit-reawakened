@@ -408,7 +408,7 @@ on(enemy${index}, "defeated", (event) => {
   startThread(rig.state.vm, {
     ref: {
       kind: "inline",
-      compiler: "2",
+      ir: "1",
       text: `
 global(defeatedEventOrder)
 global(defeatedGameCount)
@@ -803,7 +803,7 @@ test("authored hp() script update that first drops an enemy to 0 emits one scrip
   start(rig, poll);
   observeDefeatedEvents(rig);
   startThread(rig.state.vm, {
-    ref: { kind: "inline", compiler: "2", text: "hp(battle.fighter(0, 0), 0)\n" },
+    ref: { kind: "inline", ir: "1", text: "hp(battle.fighter(0, 0), 0)\n" },
     kind: "persistent",
     owner: "script",
   });

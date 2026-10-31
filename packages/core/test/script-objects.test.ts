@@ -16,13 +16,13 @@ import { advanceOrFail } from "./script-failures.ts";
 import { createScriptServices } from "./script-test-services.ts";
 
 function run(source: string, state = createGameState({ seed: 3 })): GameState {
-  startProgram(state.vm, { kind: "inline", text: source, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: source, ir: "1" });
   advanceScriptTick(state, createScriptServices(state));
   return state;
 }
 function errorOf(source: string): ScriptError {
   const state = createGameState({ seed: 3 });
-  startProgram(state.vm, { kind: "inline", text: source, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: source, ir: "1" });
   try {
     advanceOrFail(state, createScriptServices(state));
   } catch (error) {
@@ -252,7 +252,7 @@ kill(a,b)
 test("criteria 15: snapshot restore preserves object table, hashes and next handles", () => {
   const source = "class A { public: var x; method A(n) { x=n } }\na=A(1)\nb=A(2)\na.x=b\n";
   const original = createGameState({ seed: 4 });
-  startProgram(original.vm, { kind: "inline", text: source, compiler: "2" });
+  startProgram(original.vm, { kind: "inline", text: source, ir: "1" });
   advanceScriptTick(original, createScriptServices(original));
   const restored = restoreGameState(snapshot(original));
   equal(hashState(restored), hashState(original));

@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import {
   addActor,
-  COMPILER_VERSION,
+  IR_VERSION,
   createGameState,
   registerActorObject,
   restoreGameState,
@@ -116,10 +116,10 @@ function makeState(): GameState {
   runPackageStartup(
     state,
     services,
-    [{ kind: "inline", text: startup, compiler: COMPILER_VERSION, dialect: "tk3", owner: "stock_battle" }],
+    [{ kind: "inline", text: startup, ir: IR_VERSION, dialect: "tk3", owner: "stock_battle" }],
     [stockBattle],
   );
-  startProgram(state.vm, { kind: "inline", text: `${startupProgram}\n${fixture}`, compiler: COMPILER_VERSION, dialect: "tk3", owner: "battle-damage-fixture" });
+  startProgram(state.vm, { kind: "inline", text: `${startupProgram}\n${fixture}`, ir: IR_VERSION, dialect: "tk3", owner: "battle-damage-fixture" });
   return state;
 }
 function runBattleTick(state: GameState, services: ScriptServices): void {

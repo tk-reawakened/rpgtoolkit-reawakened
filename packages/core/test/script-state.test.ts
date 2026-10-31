@@ -41,7 +41,7 @@ function midYieldState(): GameState {
   startProgram(state.vm, {
     kind: "inline",
     text: 'greeting = "hi"\ncount = 2\nsleep(count)\ncount = 3\nend()\n',
-    compiler: "2",
+    ir: "1",
   });
   advanceScriptTick(state, createScriptServices(state));
   return state;
@@ -52,7 +52,7 @@ test("GameState is PlainData and has exactly the AD-10 sections", () => {
   deepEqual(Object.keys(state).sort(), Object.keys(SCHEMA_VERSIONS).sort());
   equal(Object.keys(state).length, 20);
   equal(typeof canon(state), "string");
-  deepEqual(state.schema.compiler, "2");
+  deepEqual(state.schema.ir, "1");
 });
 
 test("canon round-trips through restore for a mid-yield state", () => {
@@ -63,15 +63,15 @@ test("canon round-trips through restore for a mid-yield state", () => {
   equal(canon(restoreGameState(json)), json);
 });
 
-test("restore rejects a different compiler version and a missing section", () => {
+test("restore refuses a newer instruction version and a missing section", () => {
   const json = snapshot(createGameState({ seed: 0 }));
+  ok(!Object.hasOwn(JSON.parse(json).schema, "compiler"), "the save no longer carries schema.compiler");
 
-  const wrongCompiler = JSON.parse(json) as { schema: { compiler: string } };
-  wrongCompiler.schema.compiler = "999";
-  equal(
-    errorOf(() => restoreGameState(JSON.stringify(wrongCompiler))).code,
-    "restore.compiler-mismatch",
-  );
+  const newer = JSON.parse(json) as { schema: { ir: string } };
+  newer.schema.ir = "999";
+  const error = errorOf(() => restoreGameState(JSON.stringify(newer)));
+  equal(error.code, "restore.ir-mismatch");
+  ok(error.message.includes("schema.ir"), error.message);
 
   const missingSection = JSON.parse(json) as Record<string, unknown>;
   delete missingSection.vm;
@@ -80,48 +80,59 @@ test("restore rejects a different compiler version and a missing section", () =>
   equal(errorOf(() => restoreGameState("{ not json")).code, "restore.shape");
 });
 
-test("restore rejects a compiler: 1 snapshot fixture before reading payload", () => {
+test("a compiler: 1 snapshot fixture loads its data and restarts its thread", () => {
   const fixturePath = join(
     dirname(fileURLToPath(import.meta.url)),
     "fixtures",
     "save",
     "compiler-1-snapshot.json",
   );
-  const fixture = readFileSync(fixturePath, "utf8");
-  equal(errorOf(() => restoreGameState(fixture)).code, "restore.compiler-mismatch");
+  const restored = restoreGameState(readFileSync(fixturePath, "utf8"));
+  equal(restored.schema.ir, "1");
+  equal(restored.schema.audio, 2);
+  equal(restored.vm.threads.length, 1);
+  const thread = restored.vm.threads[0]!;
+  equal(thread.frames.length, 1);
+  equal(thread.frames[0]!.ip, 0);
+  deepEqual(thread.frames[0]!.locals, {});
+  equal(thread.frames[0]!.program.ir, "1");
+  equal(thread.status, "ready");
 });
 
-test("a save whose frame program names another compiler is refused whole, not restarted", () => {
-  // schema.compiler is current, so only the per-program check can catch this.
+test("a thread saved by an older instruction version restarts from source, not at its saved position", () => {
   const state = createGameState({ seed: 7 });
-  startProgram(state.vm, { kind: "inline", text: "value = 42\nend()\n", compiler: "2" });
-  const json = JSON.parse(snapshot(state)) as { vm: { threads: { frames: { program: { compiler: string } }[] }[] } };
-  json.vm.threads[0]!.frames[0]!.program.compiler = "1";
+  startProgram(state.vm, { kind: "inline", text: "value = 42\nend()\n", ir: "1" });
+  const json = JSON.parse(snapshot(state)) as { vm: { threads: { frames: { program: { ir: string } }[] }[] } };
+  json.vm.threads[0]!.frames[0]!.program.ir = "0";
 
-  const error = errorOf(() => restoreGameState(JSON.stringify(json)));
-  equal(error.code, "restore.compiler-mismatch");
-  ok(error.message.includes("vm.threads[0].frames[0].program.compiler"), error.message);
-  // The refusal is a whole-save decision: nothing was built to run.
-  equal(state.vm.threads[0]!.frames[0]!.program.compiler, "2");
+  const restored = restoreGameState(JSON.stringify(json));
+  equal(restored.schema.ir, "1");
+  equal(restored.vm.threads[0]!.frames.length, 1);
+  equal(restored.vm.threads[0]!.frames[0]!.ip, 0);
+  deepEqual(restored.vm.threads[0]!.frames[0]!.locals, {});
+  equal(restored.vm.threads[0]!.frames[0]!.program.ir, "1");
+  equal(restored.vm.threads[0]!.status, "ready");
 });
 
-test("a file-backed owner program from another compiler is refused whole, not restarted", () => {
+test("a position-free reference from an older instruction version never refuses the save", () => {
+  const state = createGameState({ seed: 3 });
+  state.vm.defOwners = { f: { kind: "inline", text: "function f() { return 1 }\n", ir: "0" } };
+  const restored = restoreGameState(snapshot(state));
+  equal(restored.schema.ir, "1");
+  equal(restored.vm.defOwners?.f?.ir, "0");
+});
+
+test("an object program from an older instruction version is recompiled, not refused", () => {
   const bytes = Uint8Array.from([...`value = 42\nend()\n`].map((char) => char.charCodeAt(0)));
   const loader = { index: createAssetIndex(["Prg/main.prg"]), root: PACKAGE_ROOT, read: () => bytes };
   const state = createGameState({ seed: 9 });
   startThread(state.vm, { ref: withOwner(fileProgramRef(loader, "main.prg"), "alpha"), kind: "blocking", owner: "script" });
-  const json = JSON.parse(snapshot(state)) as { vm: { threads: { frames: { program: { compiler: string } }[] }[] } };
-  json.vm.threads[0]!.frames[0]!.program.compiler = "1";
+  const json = JSON.parse(snapshot(state)) as { vm: { threads: { frames: { program: { ir: string } }[] }[] } };
+  json.vm.threads[0]!.frames[0]!.program.ir = "0";
 
-  equal(errorOf(() => restoreGameState(JSON.stringify(json))).code, "restore.compiler-mismatch");
-});
-
-test("a vm.defOwners entry from another compiler is refused whole", () => {
-  const state = createGameState({ seed: 3 });
-  state.vm.defOwners = { f: { kind: "inline", text: "function f() { return 1 }\n", compiler: "1" } };
-  const error = errorOf(() => restoreGameState(JSON.stringify(JSON.parse(snapshot(state)))));
-  equal(error.code, "restore.compiler-mismatch");
-  ok(error.message.includes("vm.defOwners.f.compiler"), error.message);
+  const restored = restoreGameState(JSON.stringify(json));
+  ok(restored.vm.threads[0]!.frames[0]!.program.kind === "file");
+  equal(restored.vm.threads[0]!.frames[0]!.program.ir, "1");
 });
 
 test("restore rejects malformed nested VM state", () => {

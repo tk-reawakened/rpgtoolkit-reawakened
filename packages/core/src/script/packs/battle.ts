@@ -19,7 +19,7 @@ import type { Arg, BuiltinDoc, BuiltinSpec, ParamSpec } from "../builtins.ts";
 import { ScriptError } from "../errors.ts";
 import { recordDiagnostic } from "../effects.ts";
 import type { CommandEffect, CommandResult, CommandView, PluginDefinition } from "../plugin.ts";
-import { COMPILER_VERSION } from "../program.ts";
+import { IR_VERSION } from "../program.ts";
 import type { PlainData } from "../../ports/plain-data.ts";
 import { surfaceSize } from "../../raster/surfaces.ts";
 import type { SurfaceId } from "../../ports/keys.ts";
@@ -247,7 +247,7 @@ function outcomeAdapterEffect(): CommandEffect {
   const ref = {
     kind: "inline",
     text: BATTLE_OUTCOME_ADAPTER,
-    compiler: COMPILER_VERSION,
+    ir: IR_VERSION,
     dialect: "tk3",
   };
   return { kind: "vm.control", args: ["executeProgramRef", ref as PlainData] };
@@ -645,7 +645,7 @@ function registeredBattleLoop(): CommandEffect {
     args: ["executeProgramRef", {
       kind: "inline",
       text: "battle()",
-      compiler: COMPILER_VERSION,
+      ir: IR_VERSION,
     }, null, null],
   };
 }
@@ -717,7 +717,7 @@ function beginRandomBattle(view: CommandView, skill: number, background: string,
   const pool = setup.enemies.filter((enemy) => enemy.skillLevel === skill);
   if (pool.length === 0) {
     const message = `No enemies of skill level ${skill} found.`;
-    const ref = { kind: "inline" as const, text: `mwin(${JSON.stringify(message)})`, compiler: COMPILER_VERSION };
+    const ref = { kind: "inline" as const, text: `mwin(${JSON.stringify(message)})`, ir: IR_VERSION };
     return { value: null, effects: [{ kind: "vm.control", args: ["executeProgramRef", ref, null, null] }] };
   }
   if (runLoop && !hasBattleHandler(view)) {

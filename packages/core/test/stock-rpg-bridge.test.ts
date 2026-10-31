@@ -13,7 +13,7 @@ import {
   addActor,
   advanceScriptTick,
   assetKey,
-  COMPILER_VERSION,
+  IR_VERSION,
   createAssetIndex,
   createEmptyBoard,
   createEngine,
@@ -131,7 +131,7 @@ function catalogue(): readonly PackageCatalogueEntry[] {
     startup: {
       kind: "inline",
       text: readFileSync(join(folder, manifest.program), "utf8"),
-      compiler: COMPILER_VERSION,
+      ir: IR_VERSION,
       dialect: "tk3",
     },
   }];
@@ -210,7 +210,7 @@ function prepareTalkedRun(withSource = true, withTarget = true): TalkedRun {
   const thread = startProgram(state.vm, {
     kind: "inline",
     text: 'result = dialogue("Hello, <name>")\nend()\n',
-    compiler: COMPILER_VERSION,
+    ir: IR_VERSION,
   });
   if (withSource) thread.source = speaker.id;
   if (withTarget) thread.target = target.id;

@@ -258,7 +258,7 @@ test("engine beforeEnter rejects a waiting listener with a located diagnostic", 
   const state = createGameState({ seed: 69 });
   const boardObject = registerEmitter(state.vm, state.events, "board:test", createHostObject(state.vm, "board"));
   state.vm.globals.board = { kind: "object", handle: boardObject.handle, className: boardObject.className };
-  startProgram(state.vm, { kind: "inline", compiler: "2", text: `board.on("beforeEnter", (event) => { sleep(1) })\n` });
+  startProgram(state.vm, { kind: "inline", ir: "1", text: `board.on("beforeEnter", (event) => { sleep(1) })\n` });
   const services = createScriptServices(state);
   advanceScriptTick(state, services);
   equal(runEngineCancelableEvent(state, services, "board:test", "beforeEnter", { actorId: 1, boardKey: "test.brd" }), false);
@@ -270,7 +270,7 @@ test("engine beforeEnter rejects a listener that exceeds its bounded budget", ()
   const state = createGameState({ seed: 70 });
   const boardObject = registerEmitter(state.vm, state.events, "board:budget", createHostObject(state.vm, "board"));
   state.vm.globals.board = { kind: "object", handle: boardObject.handle, className: boardObject.className };
-  startProgram(state.vm, { kind: "inline", compiler: "2", text: `board.on("beforeEnter", (event) => { for (i = 0; i < 400; i = i + 1) { n = i } })\n` });
+  startProgram(state.vm, { kind: "inline", ir: "1", text: `board.on("beforeEnter", (event) => { for (i = 0; i < 400; i = i + 1) { n = i } })\n` });
   const services = createScriptServices(state);
   advanceScriptTick(state, services);
   equal(runEngineCancelableEvent(state, services, "board:budget", "beforeEnter", { actorId: 1, boardKey: "budget.brd" }, 2), false);
@@ -288,7 +288,7 @@ function assertRejectedEngineEventReleasesNativeDetail(
   const state = createGameState({ seed: 71 });
   const emitterObject = registerEmitter(state.vm, state.events, emitter, createHostObject(state.vm, "board"));
   state.vm.globals.board = { kind: "object", handle: emitterObject.handle, className: emitterObject.className };
-  startProgram(state.vm, { kind: "inline", compiler: "2", text: program });
+  startProgram(state.vm, { kind: "inline", ir: "1", text: program });
   const services = createScriptServices(state);
   advanceScriptTick(state, services);
 

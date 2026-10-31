@@ -16,7 +16,7 @@
  * changes. No delivery happens while a blocking command waits (R-32).
  */
 
-import { COMPILER_VERSION } from "../script/program.ts";
+import { IR_VERSION } from "../script/program.ts";
 import { findObject, readMember } from "../script/objects.ts";
 import { findBlockingThread, findThread, killThread, localRef, refreshBlock, startThread, type Thread } from "../script/state.ts";
 import { collectGarbage, STEP_BUDGET, stepThread, type ScriptServices } from "../script/vm.ts";
@@ -52,7 +52,7 @@ function retireCompletedEmitters(state: GameState): void {
 /** Start the thread that calls `callable` with the event object (EMIT-14). */
 function startListenerThread(state: GameState, callable: CallableValue, event: number): Thread {
   const thread = startThread(state.vm, {
-    ref: { kind: "inline", text: LISTENER_PROGRAM, compiler: COMPILER_VERSION },
+    ref: { kind: "inline", text: LISTENER_PROGRAM, ir: IR_VERSION },
     kind: "persistent",
     owner: "world",
   });

@@ -1,7 +1,7 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { TextEncoder } from "node:util";
 import { test } from "node:test";
-import { addActor, applyEmitterOp, assetKey, COMPILER_VERSION, createAssetIndex, createEmptyBoard, createEmptyMainFile, createEngine, decodeSurfaceBytes, ENGINE_DEFAULT_MANIFEST, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, encodeSurfaceBytes, hashGameState, PACKAGE_ROOT, readSurfacePixels, TILE_BITMAP_MAGIC, writeBoard, writeMainFile, writeTileBitmap, writeTileset, type Board, type CommandView, type EffectRecord, type Engine, type EnginePhaseRegistration, type GameState, type PackageCatalogueEntry, type PluginDefinition, type ResolvedPlugin, type SurfaceId } from "../src/index.ts";
+import { addActor, applyEmitterOp, assetKey, IR_VERSION, createAssetIndex, createEmptyBoard, createEmptyMainFile, createEngine, decodeSurfaceBytes, ENGINE_DEFAULT_MANIFEST, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, encodeSurfaceBytes, hashGameState, PACKAGE_ROOT, readSurfacePixels, TILE_BITMAP_MAGIC, writeBoard, writeMainFile, writeTileBitmap, writeTileset, type Board, type CommandView, type EffectRecord, type Engine, type EnginePhaseRegistration, type GameState, type PackageCatalogueEntry, type PluginDefinition, type ResolvedPlugin, type SurfaceId } from "../src/index.ts";
 import { resolveManifestPlugins } from "../src/engine/boot.ts";
 
 function boardBytes(board: Board): Uint8Array {
@@ -162,7 +162,7 @@ test("createEngine preserves manifest package behaviours and actor operations ac
   };
   const resolvedPlugin: ResolvedPlugin = {
     definition: plugin,
-    startup: { kind: "inline", text: "countstartup()\nend()\n", compiler: COMPILER_VERSION, dialect: "tk3" },
+    startup: { kind: "inline", text: "countstartup()\nend()\n", ir: IR_VERSION, dialect: "tk3" },
   };
   const main = writeMainFile({
     ...createEmptyMainFile(),
@@ -300,7 +300,7 @@ test("createEngine does not start inline main program after package startup fail
         },
       }],
     },
-    startup: { kind: "inline", text: "sleep(1)\n", compiler: COMPILER_VERSION, dialect: "tk3" },
+    startup: { kind: "inline", text: "sleep(1)\n", ir: IR_VERSION, dialect: "tk3" },
   };
   const engine = createEngine({
     seed: 7,

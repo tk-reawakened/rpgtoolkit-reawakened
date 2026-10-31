@@ -14,7 +14,7 @@ import { test } from "node:test";
 import { TextDecoder, TextEncoder } from "node:util";
 import {
   assetKey,
-  COMPILER_VERSION,
+  IR_VERSION,
   createAssetIndex,
   createEmptyBoard,
   createEmptyMainFile,
@@ -74,12 +74,12 @@ test("a game save never captures a thread parked on an unanswered host request",
         if (started || state.engine.boot?.stage !== "running") return;
         started = true;
         startThread(state.vm, {
-          ref: { kind: "inline", text: 'h = openfileoutput("log.txt", "files")\nend()\n', compiler: COMPILER_VERSION },
+          ref: { kind: "inline", text: 'h = openfileoutput("log.txt", "files")\nend()\n', ir: IR_VERSION },
           kind: "board",
           owner: "script",
         });
         startThread(state.vm, {
-          ref: { kind: "inline", text: 'Save("slot")\nend()\n', compiler: COMPILER_VERSION },
+          ref: { kind: "inline", text: 'Save("slot")\nend()\n', ir: IR_VERSION },
           kind: "board",
           owner: "script",
         });

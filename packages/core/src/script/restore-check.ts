@@ -20,7 +20,7 @@ import { eachRootValue, isCallableRecord } from "./cells.ts";
 import { RESTORE_CALLABLE_CAPTURES, RESTORE_CALLABLE_RECEIVER, RESTORE_CALLABLE_UNKNOWN_DEF, ScriptError } from "./errors.ts";
 import { isLayerDef } from "./layers.ts";
 import { parseHostMethodDef } from "./host.ts";
-import { COMPILER_VERSION, programKey, restartProgramRef, type Program, type ProgramLoader, type ProgramRef } from "./program.ts";
+import { programKey, restartProgramRef, type Program, type ProgramLoader, type ProgramRef } from "./program.ts";
 import type { CommandLookup } from "./registry.ts";
 import type { VmState } from "./state.ts";
 import type { EventsSection } from "../events/model.ts";
@@ -52,8 +52,10 @@ function describeProgram(ref: ProgramRef): string {
  * built the way `restartThreadFromSource` builds it (`restartProgramRef`) and
  * compiled here: a syntax error in the new file, a missing literal include, or a
  * saved run-time include that was removed refuses the load now. Any other failure
- * (`program.missing`, a bad include) also refuses it. A program from another
- * compiler never reaches here: the save is refused whole first.
+ * (`program.missing`, a bad include) also refuses it. A thread from an older
+ * instruction version was already restarted by `restoreGameState`, so its frame
+ * names current source; an object record or definition owner carries no position
+ * and is compiled from its saved source whatever its `ir` says.
  */
 export function compileRestoredPrograms(
   vm: VmState,
@@ -62,7 +64,6 @@ export function compileRestoredPrograms(
   for (const thread of vm.threads) {
     let restarts = false;
     for (const frame of thread.frames) {
-      if (frame.program.compiler !== COMPILER_VERSION) throw otherCompiler(frame.program);
       try {
         services.programs.get(frame.program);
       } catch (error) {
@@ -76,7 +77,6 @@ export function compileRestoredPrograms(
   for (const object of vm.objects) {
     const ref = object.program;
     if (ref === null) continue;
-    if (ref.compiler !== COMPILER_VERSION) throw otherCompiler(ref);
     try {
       services.programs.get(ref);
     } catch (error) {
@@ -85,7 +85,6 @@ export function compileRestoredPrograms(
     }
   }
   for (const owner of Object.values(vm.defOwners ?? {})) {
-    if (owner.compiler !== COMPILER_VERSION) throw otherCompiler(owner);
     try {
       services.programs.get(owner);
     } catch (error) {
@@ -94,21 +93,14 @@ export function compileRestoredPrograms(
   }
 }
 
-function otherCompiler(ref: ProgramRef): ScriptError {
-  return new ScriptError(
-    "restore.compiler-mismatch",
-    `the snapshot's program "${describeProgram(ref)}" was compiled by ${ref.compiler}, not ${COMPILER_VERSION}`,
-  );
-}
-
 /**
  * Check every callable in `vm` against the programs and commands the host has
  * (entry 18.6). The definition must be defined by a compiled program or be a
  * command, its capture count must equal the handle's (a command captures none),
  * and each `vm.defOwners` entry's program must define the `def` it is recorded
- * for. A program whose source changed since the save, or that an older compiler
- * built, is skipped: its thread restarts from source on its next turn, so a
- * definition only that program had is reported unknown, with the program named.
+ * for. A program whose source changed since the save is skipped: its thread
+ * restarts from source on its next turn, so a definition only that program had is
+ * reported unknown, with the program named.
  * The listeners of the `events` section, when given, are callables like any other (EMIT-15).
  */
 export function verifyRestoredHandles(vm: VmState, services: RestoreCheckServices, events?: EventsSection): void {
@@ -183,11 +175,6 @@ export function verifyRestoredHandles(vm: VmState, services: RestoreCheckService
   const skipped = new Set<string>();
   const changed: string[] = [];
   for (const [key, ref] of refs) {
-    if (ref.compiler !== COMPILER_VERSION) {
-      skipped.add(key);
-      changed.push(describeProgram(ref));
-      continue;
-    }
     try {
       compiled.push(services.programs.get(ref));
     } catch (error) {

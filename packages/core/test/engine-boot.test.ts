@@ -18,7 +18,7 @@ import {
   createAssetIndex,
   createSpriteRuntime,
   createEmptyBoard,
-  COMPILER_VERSION,
+  IR_VERSION,
   createEmptyMainFile,
   ENGINE_DEFAULT_MANIFEST,
   hashGameLedger,
@@ -350,7 +350,7 @@ test("engine-backed dialogue displays through the message window and resumes on 
   const thread = startProgram(state.vm, {
     kind: "inline",
     text: 'dialogue("Hello, <name>")',
-    compiler: COMPILER_VERSION,
+    ir: IR_VERSION,
   });
   thread.source = source.id;
   state.vm.globals.name = "Ada";
@@ -427,7 +427,7 @@ test("a legacy stock plugin row installs its package and an unmapped DLL is one 
     version: "1.0.0",
     requests: [],
     definition: { id: "stock_battle", version: "1.0.0", commands: [] },
-    startup: { kind: "inline", text: "packageStarted = 1\n", compiler: COMPILER_VERSION, dialect: "tk3" },
+    startup: { kind: "inline", text: "packageStarted = 1\n", ir: IR_VERSION, dialect: "tk3" },
   }];
   const doubles = makeDoubles();
   const result = run(bootEngine(game, doubles, catalogue), game.files, 30);
@@ -470,7 +470,7 @@ test("a host catalogue resolves the listed package and runs its owned startup be
       ],
       listeners: [{ emitter: "game", type: "ping", command: "packagelistener" }],
     },
-    startup: { kind: "inline", text: "packageStarted = 1\nend()\n", compiler: COMPILER_VERSION, dialect: "tk3" },
+    startup: { kind: "inline", text: "packageStarted = 1\nend()\n", ir: IR_VERSION, dialect: "tk3" },
   }];
   const doubles = makeDoubles();
   const result = run(bootEngine(game, doubles, catalogue), game.files, 10);
@@ -663,7 +663,7 @@ test("manifest package lookup folds ASCII package identity", () => {
       version: "1.2",
       requests: [],
       definition: { id: "weather", version: "1.2", commands: [] },
-      startup: { kind: "inline", text: "end()\n", compiler: COMPILER_VERSION, dialect: "tk3" },
+      startup: { kind: "inline", text: "end()\n", ir: IR_VERSION, dialect: "tk3" },
     }],
   );
   equal(resolved.diagnostics.length, 0);
@@ -677,7 +677,7 @@ test("a package startup that waits is rejected by the lifecycle clock guard", ()
     version: "1.2",
     requests: [],
     definition: { id: "weather", version: "1.2", commands: [] },
-    startup: { kind: "inline", text: "sleep(1)\n", compiler: COMPILER_VERSION, dialect: "tk3" },
+    startup: { kind: "inline", text: "sleep(1)\n", ir: IR_VERSION, dialect: "tk3" },
   }];
   const result = run(bootEngine(game, makeDoubles(), catalogue), game.files, 10);
   equal(result.diagnostics.some((diagnostic) => diagnostic.code === "package.startup-unfinished"), true);
@@ -690,7 +690,7 @@ test("a package startup that consumes randomness is rejected by the lifecycle gu
     version: "1.2",
     requests: [],
     definition: { id: "weather", version: "1.2", commands: [] },
-    startup: { kind: "inline", text: "random(3)\nend()\n", compiler: COMPILER_VERSION, dialect: "tk3" },
+    startup: { kind: "inline", text: "random(3)\nend()\n", ir: IR_VERSION, dialect: "tk3" },
   }];
   const result = run(bootEngine(game, makeDoubles(), catalogue), game.files, 10);
   equal(result.diagnostics.some((diagnostic) => diagnostic.code === "package.startup-forbidden"), true);
@@ -702,7 +702,7 @@ test("a package startup cannot read gametime through the virtual variable", () =
     version: "1.2",
     requests: [],
     definition: { id: "weather", version: "1.2", commands: [] },
-    startup: { kind: "inline", text: "observed = gametime\nend()\n", compiler: COMPILER_VERSION, dialect: "tk3" },
+    startup: { kind: "inline", text: "observed = gametime\nend()\n", ir: IR_VERSION, dialect: "tk3" },
   }];
   const result = run(bootEngine(game, makeDoubles(), catalogue), game.files, 10);
   equal(result.diagnostics.some((diagnostic) => diagnostic.code === "package.startup-forbidden"), true);
@@ -721,7 +721,7 @@ test("a direct package command cannot consume RNG during startup", () => {
       version: "1.2",
       commands: [{ name: "directrng", aliases: [], params: [], call: (view) => { try { Object.assign(view, { packageStartup: false, rng: { nextUint32: () => 1 } }); } catch { /* frozen command view */ } try { Object.defineProperty(view, "rng", { value: { nextUint32: () => 1 } }); } catch { /* frozen command view */ } try { Object.defineProperty(view.rng, "nextUint32", { value: () => 1 }); } catch { /* frozen RNG port */ } view.rng.nextUint32(); return { value: null }; } }],
     },
-    startup: { kind: "inline", text: "directrng()\nend()\n", compiler: COMPILER_VERSION, dialect: "tk3" },
+    startup: { kind: "inline", text: "directrng()\nend()\n", ir: IR_VERSION, dialect: "tk3" },
   }];
   const result = run(bootEngine(game, makeDoubles(), catalogue), game.files, 10);
   equal(result.diagnostics.some((diagnostic) => diagnostic.code === "package.startup-forbidden"), true);
@@ -738,7 +738,7 @@ test("a direct package command cannot consume the simulation clock during startu
       version: "1.2",
       commands: [{ name: "directclock", aliases: [], params: [], call: (view) => { view.clock.tick(); return { value: null }; } }],
     },
-    startup: { kind: "inline", text: "directclock()\nend()\n", compiler: COMPILER_VERSION, dialect: "tk3" },
+    startup: { kind: "inline", text: "directclock()\nend()\n", ir: IR_VERSION, dialect: "tk3" },
   }];
   const result = run(bootEngine(game, makeDoubles(), catalogue), game.files, 10);
   equal(result.diagnostics.some((diagnostic) => diagnostic.code === "package.startup-forbidden"), true);
@@ -755,7 +755,7 @@ test("a direct package command cannot reach RNG through state during startup", (
       version: "1.2",
       commands: [{ name: "staterng", aliases: [], params: [], call: (view) => { Object.getOwnPropertyDescriptor(view.state!, "rng")?.value; return { value: null }; } }],
     },
-    startup: { kind: "inline", text: "staterng()\nend()\n", compiler: COMPILER_VERSION, dialect: "tk3" },
+    startup: { kind: "inline", text: "staterng()\nend()\n", ir: IR_VERSION, dialect: "tk3" },
   }];
   const result = run(bootEngine(game, makeDoubles(), catalogue), game.files, 10);
   equal(result.diagnostics.some((diagnostic) => diagnostic.code === "package.startup-forbidden"), true);
@@ -772,7 +772,7 @@ test("a direct package command cannot reach the simulation clock through state d
       version: "1.2",
       commands: [{ name: "stateclock", aliases: [], params: [], call: (view) => { Object.getOwnPropertyDescriptor(view.state!, "time")?.value; return { value: null }; } }],
     },
-    startup: { kind: "inline", text: "stateclock()\nend()\n", compiler: COMPILER_VERSION, dialect: "tk3" },
+    startup: { kind: "inline", text: "stateclock()\nend()\n", ir: IR_VERSION, dialect: "tk3" },
   }];
   const result = run(bootEngine(game, makeDoubles(), catalogue), game.files, 10);
   equal(result.diagnostics.some((diagnostic) => diagnostic.code === "package.startup-forbidden"), true);
@@ -1112,7 +1112,7 @@ function recoveryFixture(
 }
 
 function startRecoveryProgram(state: GameState, text: string): void {
-  startProgram(state.vm, { kind: "inline", text: `${text}\n`, compiler: COMPILER_VERSION });
+  startProgram(state.vm, { kind: "inline", text: `${text}\n`, ir: IR_VERSION });
 }
 
 const PAUSED_RECOVERY_GAME: GameSpec = {

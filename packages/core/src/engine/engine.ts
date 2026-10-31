@@ -76,7 +76,7 @@ import type { EnginePhase, EngineRequestKind, EngineSection } from "../save/sect
 import { collectStateGarbage, runEngineCancelableEvent, runEngineCancelableEventOutcome, runEventsPhase } from "../events/dispatch.ts";
 import { deferUnregisterEmitter, queueNativeEvent, registerEmitter, unregisterEmitter } from "../events/emitter.ts";
 import {
-  COMPILER_VERSION,
+  IR_VERSION,
   createScriptServices,
   defaultWaitPoll,
   drainDiagnostics,
@@ -511,7 +511,7 @@ export function createEngine(init: EngineInit): Engine {
     const ref: ProgramRef = {
       kind: "inline",
       text: `${command}(${JSON.stringify(encodeInlineScriptString(serialized))})`,
-      compiler: COMPILER_VERSION,
+      ir: IR_VERSION,
     };
     try {
       startThread(state.vm, { ref, kind, owner: kind === "blocking" ? "script" : "world" });
@@ -693,7 +693,7 @@ export function createEngine(init: EngineInit): Engine {
     };
     const materializeProgramRef = (ref: LedgerProgramRef): ProgramRef => {
       const common = {
-        compiler: ref.compiler,
+        ir: ref.ir,
         ...(ref.includes.length === 0 ? {} : { includes: [...ref.includes] }),
         ...(ref.redirects.length === 0 ? {} : { redirects: ref.redirects.map(([from, to]) => [from, to] as [string, string]) }),
         ...(ref.dialect === null ? {} : { dialect: ref.dialect }),
@@ -974,7 +974,7 @@ export function createEngine(init: EngineInit): Engine {
     : makeServices([], undefined, false);
   if (init.mainFile === undefined && !failed && init.program !== undefined) {
     const ref: ProgramRef = typeof init.program === "string"
-      ? { kind: "inline", text: init.program, compiler: COMPILER_VERSION, dialect: "tk3" }
+      ? { kind: "inline", text: init.program, ir: IR_VERSION, dialect: "tk3" }
       : init.program;
     startProgram(state.vm, ref);
   }

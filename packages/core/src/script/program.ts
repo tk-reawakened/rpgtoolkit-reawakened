@@ -41,10 +41,15 @@ export type { CompiledClass, FunctionInfo, StatementRange } from "./lower.ts";
 export type { ProgramLoader } from "./loader.ts";
 
 /**
- * The compiler version, part of `GameState.schema` (AD-7, AD-23). A change
- * here is a schema bump and needs a previous-version fixture (AD-7's check).
+ * The instruction version: the meaning of a saved instruction position (`ip`,
+ * `operands`). It is `GameState.schema.ir` and `ProgramRef.ir`, and it changes
+ * only when the step set, the lowering or the emission order changes what an
+ * `ip` means — never for a data-shape change, which bumps the affected section
+ * version instead. A bump needs the step-op fingerprint golden updated and a
+ * save fixture from the previous version
+ * (docs/spec/formats/save-game.md#save-compatibility-and-instruction-versions-owner-ruling).
  */
-export const COMPILER_VERSION = "2";
+export const IR_VERSION = "1";
 
 /** A redirect table as saved: ordered `[folded old name, folded new name]` pairs (R-42). */
 export type RedirectPairs = Array<[string, string]>;
@@ -63,7 +68,7 @@ export type ProgramRef =
       readonly kind: "file";
       readonly path: string;
       readonly sourceHash: string;
-      readonly compiler: string;
+      readonly ir: string;
       readonly includes?: string[];
       readonly redirects?: RedirectPairs;
       readonly dialect?: ScriptDialect;
@@ -73,7 +78,7 @@ export type ProgramRef =
   | {
       readonly kind: "inline";
       readonly text: string;
-      readonly compiler: string;
+      readonly ir: string;
       readonly includes?: string[];
       readonly redirects?: RedirectPairs;
       readonly dialect?: ScriptDialect;
@@ -115,15 +120,15 @@ export type CompileContext = {
   readonly isBuiltin?: (name: string) => boolean;
 };
 
-/** The program-cache identity of `ref`: dialect, source, compiler, includes, redirects and owner (MOD-3, R-42, PKG-8). */
+/** The program-cache identity of `ref`: dialect, source, instruction version, includes, redirects and owner (MOD-3, R-42, PKG-8). */
 export function programKey(ref: ProgramRef): string {
   const dialect = ref.dialect ?? "tk3";
   const includes = (ref.includes ?? []).join("\u0001");
   const redirects = (ref.redirects ?? []).map(([from, to]) => `${from}\u0002${to}`).join("\u0001");
   const source =
     ref.kind === "inline"
-      ? `inline\u0000${dialect}\u0000${ref.compiler}\u0000${ref.text}`
-      : `file\u0000${dialect}\u0000${foldPath(ref.path)}\u0000${ref.sourceHash}\u0000${ref.compiler}`;
+      ? `inline\u0000${dialect}\u0000${ref.ir}\u0000${ref.text}`
+      : `file\u0000${dialect}\u0000${foldPath(ref.path)}\u0000${ref.sourceHash}\u0000${ref.ir}`;
   const metadata = `${includes}\u0000${redirects}`;
   return ref.owner === undefined ? `${source}\u0000${metadata}` : `${source}\u0000${metadata}\u0000owner\u0000${ref.owner}`;
 }
@@ -157,16 +162,18 @@ export function fileProgramRef(
     kind: "file",
     path: name,
     sourceHash: source.hash,
-    compiler: COMPILER_VERSION,
+    ir: IR_VERSION,
   };
   return withRedirects(ref, redirects);
 }
 
 /**
- * The reference a thread restarts from when its saved source has changed: the
- * file's current source under the saved redirects, include list, dialect and
- * owner. A thread restart (`restartThreadFromSource`) and the load-time check that
- * the restart will compile both build it here, so they cannot disagree.
+ * The reference a thread restarts from: current source for a file program, the
+ * saved text for an inline one, under the saved redirects, include list, dialect
+ * and owner, always stamped with the current instruction version. A thread restart
+ * (`restartThreadFromSource`), an older instruction version at load, and the
+ * load-time check that the restart will compile all build it here, so they cannot
+ * disagree.
  */
 export function restartProgramRef(
   stale: ProgramRef,
@@ -176,6 +183,7 @@ export function restartProgramRef(
   if (stale.kind !== "file") {
     return {
       ...stale,
+      ir: IR_VERSION,
       ...(stale.includes === undefined ? {} : { includes: [...stale.includes] }),
       ...(stale.dialect === undefined ? {} : { dialect: stale.dialect }),
     };
@@ -206,8 +214,8 @@ const INLINE_KEY = "<inline>";
 export function compileInline(text: string, file = "<inline>", dialect: ScriptDialect = "tk3"): Program {
   const ref: ProgramRef =
     dialect === "tk3"
-      ? { kind: "inline", text, compiler: COMPILER_VERSION }
-      : { kind: "inline", text, compiler: COMPILER_VERSION, dialect };
+      ? { kind: "inline", text, ir: IR_VERSION }
+      : { kind: "inline", text, ir: IR_VERSION, dialect };
   return build(ref, {}, file);
 }
 

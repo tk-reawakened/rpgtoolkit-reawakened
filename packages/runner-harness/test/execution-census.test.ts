@@ -114,7 +114,7 @@ test("observers coexist with package startup lifecycle and its restore and forbi
       return { value: 0 };
     },
   }] };
-  const packageStartups = [{ owner: plugin.id, ref: { kind: "inline" as const, text: "startupProbe()", compiler: "2" } }];
+  const packageStartups = [{ owner: plugin.id, ref: { kind: "inline" as const, text: "startupProbe()", ir: "1" } }];
   const init = { program: "answer = castint(3.7)\nsleep(2)", seed: 3, plugins: [plugin], packageStartups };
   const calls: CallObservation[] = [];
   const handlers: HandlerObservation[] = [];

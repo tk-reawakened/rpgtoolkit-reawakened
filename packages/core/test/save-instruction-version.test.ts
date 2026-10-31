@@ -1,7 +1,9 @@
-// Owner ruling 2026-10-27 (docs/spec/formats/save-game.md#compiler-mismatch-refuse-the-whole-save-owner-ruling):
-// a save made by another compiler is refused whole and the live game is left
-// unchanged. This drives the real engine's `Load` against a captured save whose
-// compiler version has been altered, and against the untouched save as a control.
+// Owner ruling 2026-10-30 (docs/spec/formats/save-game.md#save-compatibility-and-instruction-versions-owner-ruling):
+// data sections migrate forward; a thread resumes only when its instruction
+// version is current, an older one restarts that thread from source, and a newer
+// one refuses the whole save with the live game unchanged. This drives the real
+// engine's `Load` against a captured save whose instruction version has been
+// altered, and against the untouched save as a control.
 import { deepEqual, equal, ok, throws } from "node:assert/strict";
 import { test } from "node:test";
 import { TextDecoder, TextEncoder } from "node:util";
@@ -10,9 +12,13 @@ import {
   createAssetIndex,
   createEmptyBoard,
   createEmptyMainFile,
-  COMPILER_VERSION,
   createEngine,
+  createGameState,
   fileProgramRef,
+  IR_VERSION,
+  startProgram,
+  restoreRecoveryCandidate,
+  snapshotRecoveryCandidate,
   startThread,
   restoreGameState,
   writeBoard,
@@ -60,7 +66,7 @@ function boot(
     assetIndex: createAssetIndex(paths),
     assetRoot: { kind: "package" },
     mainFile: "main.gam",
-    gameIdentity: "compiler-refusal-test",
+    gameIdentity: "instruction-version-test",
     width: 64,
     height: 64,
     maxTicks: 400,
@@ -75,7 +81,7 @@ function boot(
         if (started || state.engine.boot?.stage !== "running") return;
         started = true;
         const ref = options.fileThread === undefined
-          ? { kind: "inline" as const, text: program, compiler: COMPILER_VERSION }
+          ? { kind: "inline" as const, text: program, ir: IR_VERSION }
           : fileProgramRef(programLoader, options.fileThread);
         startThread(state.vm, { ref, kind: "board", owner: "script" });
       },
@@ -108,11 +114,11 @@ function run(game: Game, loadBytes: Uint8Array | null): { saved: Uint8Array | nu
 }
 
 type Json = {
-  schema: { compiler: string } | null;
+  schema: { ir: string; schema?: number } | null;
   audio: unknown;
   vm: {
-    threads: { frames: { program: { compiler: string } }[] }[];
-    objects: Array<{ program: { compiler: string; kind: string; path?: string } | null }>;
+    threads: { frames: { program: { ir: string } }[] }[];
+    objects: Array<{ program: { ir: string; kind: string; path?: string } | null }>;
   };
 };
 function tamper(bytes: Uint8Array, edit: (json: Json) => void): Uint8Array {
@@ -121,9 +127,11 @@ function tamper(bytes: Uint8Array, edit: (json: Json) => void): Uint8Array {
   return encoder.encode(JSON.stringify(json));
 }
 
-const SAVER = 'marker = 1\nSave("slot")\nmarker = 5\nend()\n';
-// Marker 9 is set before Load; a restored save would put marker back to 1 and
-// resume the saver, which then writes 5. A refused load leaves 9 and runs on.
+// The saver increments marker before the save and records it afterwards. A
+// resumed thread continues after `Save` and writes 1; a thread restarted from
+// source re-runs the increment over the restored value and writes 2.
+const SAVER = 'marker = marker + 1\nSave("slot")\nafter = marker\nend()\n';
+// Marker 9 is set before Load; a refused load leaves 9 and the caller runs on.
 const LOADER = 'marker = 9\nLoad("slot")\nafter = marker\nend()\n';
 
 const OBJECT_SAVER = `
@@ -155,36 +163,59 @@ test("control: a compatible save restores and resumes the saved thread", () => {
   const loader = boot(LOADER);
   const { codes } = run(loader, capturedSave());
   const globals = loader.state()!.vm.globals as Record<string, unknown>;
-  equal(globals.marker, 5, `the restored thread ran on after Save: ${JSON.stringify(codes)} ${JSON.stringify(globals)}`);
-  equal(globals.after, undefined, "the loader's own continuation was replaced by the save");
-  equal(codes.includes("restore.compiler-mismatch"), false);
+  equal(globals.after, 1, `the restored thread resumed after Save: ${JSON.stringify(codes)} ${JSON.stringify(globals)}`);
+  equal(globals.marker, 1, "the saved globals were applied");
+  equal(codes.includes("restore.ir-mismatch"), false);
+});
+
+test("a save whose schema.ir is older but whose thread positions are current resumes", () => {
+  const loader = boot(LOADER);
+  const { codes } = run(loader, tamper(capturedSave(), (json) => {
+    if (json.schema === null) throw new Error("the saved game has no schema object");
+    json.schema.ir = "0";
+  }));
+  const globals = loader.state()!.vm.globals as Record<string, unknown>;
+  equal(codes.includes("restore.ir-mismatch"), false, JSON.stringify(codes));
+  equal(globals.after, 1, "the position-bearing frame is the claim, and it is current");
+});
+
+test("a thread saved by an older instruction version restarts from source", () => {
+  const loader = boot(LOADER);
+  const { codes } = run(loader, tamper(capturedSave(), (json) => {
+    const thread = json.vm.threads.find((entry) => entry.frames.length > 0);
+    ok(thread !== undefined, "the save holds a running thread");
+    thread.frames[0]!.program.ir = "0";
+  }));
+  const globals = loader.state()!.vm.globals as Record<string, unknown>;
+  equal(codes.includes("restore.ir-mismatch"), false, JSON.stringify(codes));
+  equal(globals.after, 2, "the thread re-ran its first instruction over the restored value");
 });
 
 for (const [label, edit] of [
-  ["the snapshot's schema.compiler", (json: Json) => {
+  ["the snapshot's schema.ir", (json: Json) => {
     if (json.schema === null) throw new Error("the saved game has no schema object");
-    json.schema.compiler = "1";
+    json.schema.ir = String(Number(IR_VERSION) + 1);
   }],
-  ["a thread frame's program compiler", (json: Json) => {
+  ["a thread frame's program ir", (json: Json) => {
     const thread = json.vm.threads.find((entry) => entry.frames.length > 0);
     ok(thread !== undefined, "the save holds a running thread");
-    thread.frames[0]!.program.compiler = "1";
+    thread.frames[0]!.program.ir = String(Number(IR_VERSION) + 1);
   }],
 ] as const) {
-  test(`a save with ${label} from another compiler is refused whole and the live game is unchanged`, () => {
+  test(`a save with a newer ${label} is refused whole and the live game is unchanged`, () => {
     const loader = boot(LOADER);
     const { codes } = run(loader, tamper(capturedSave(), edit));
     const state = loader.state()!;
     const globals = state.vm.globals as Record<string, unknown>;
 
-    ok(codes.includes("restore.compiler-mismatch"), `diagnostics: ${JSON.stringify(codes)}`);
+    ok(codes.includes("restore.ir-mismatch"), `diagnostics: ${JSON.stringify(codes)}`);
     equal(globals.marker, 9, "no part of the save was applied");
     equal(globals.after, 9, "the calling thread kept running after Load failed");
     equal(state.vm.threads.some((thread) => thread.status === "waiting"), false, "the failed Load left no thread parked");
   });
 }
 
-test("a changed file source is not a compiler mismatch: the save loads and only that thread restarts", () => {
+test("a changed file source is not an instruction mismatch: the save loads and only that thread restarts", () => {
   // The saved thread is the start-up program, a file-backed program with a source
   // hash. The loading game ships a different start.prg, so on restore that one
   // thread restarts from the current source (restore.source-changed) while the
@@ -194,7 +225,7 @@ test("a changed file source is not a compiler mismatch: the save loads and only 
   const loader = boot(LOADER, "marker = 7\nend()\n");
   const { codes } = run(loader, saved);
   const globals = loader.state()!.vm.globals as Record<string, unknown>;
-  equal(codes.includes("restore.compiler-mismatch"), false, JSON.stringify(codes));
+  equal(codes.includes("restore.ir-mismatch"), false, JSON.stringify(codes));
   equal(globals.after, undefined, "the load was accepted and replaced the loader's continuation");
   equal(globals.marker, 7, "the saved thread restarted from the current start.prg source");
 });
@@ -216,38 +247,95 @@ test("a save whose thread names a program file the game no longer has is refused
   equal(state.vm.threads.some((thread) => thread.frames.some((frame) => frame.program.kind === "file" && frame.program.path === "other.prg")), false, "the saved thread was not installed");
 });
 
-test("a compiler mismatch is reported as such even when the audio projection is also malformed", () => {
+test("a newer instruction version is reported as such even when the audio projection is also malformed", () => {
+  for (const [label, edit] of [
+    ["schema.ir", (json: Json) => {
+      if (json.schema === null) throw new Error("the saved game has no schema object");
+      json.schema.ir = String(Number(IR_VERSION) + 1);
+    }],
+    ["a frame's program ir", (json: Json) => {
+      const thread = json.vm.threads.find((entry) => entry.frames.length > 0);
+      ok(thread !== undefined, "the save holds a running thread");
+      thread.frames[0]!.program.ir = String(Number(IR_VERSION) + 1);
+    }],
+  ] as const) {
+    const loader = boot(LOADER);
+    const bytes = tamper(capturedSave(), (json) => {
+      edit(json);
+      json.audio = { tick: 0, cueId: 1, tracks: 5 };
+    });
+    const { codes } = run(loader, bytes);
+    ok(codes.includes("restore.ir-mismatch"), `${label}: ${JSON.stringify(codes)}`);
+    equal(codes.includes("restore.shape"), false, `${label}: ${JSON.stringify(codes)}`);
+    equal((loader.state()!.vm.globals as Record<string, unknown>).after, 9, label);
+  }
+});
+
+test("a save from a newer schema version is refused before malformed audio", () => {
   const loader = boot(LOADER);
   const bytes = tamper(capturedSave(), (json) => {
     if (json.schema === null) throw new Error("the saved game has no schema object");
-    json.schema.compiler = "1";
+    json.schema.schema = 3;
     json.audio = { tick: 0, cueId: 1, tracks: 5 };
   });
   const { codes } = run(loader, bytes);
-  ok(codes.includes("restore.compiler-mismatch"), `diagnostics: ${JSON.stringify(codes)}`);
-  equal(codes.includes("restore.shape"), false, `diagnostics: ${JSON.stringify(codes)}`);
+  ok(codes.includes("restore.shape"), `diagnostics: ${JSON.stringify(codes)}`);
+  equal(codes.includes("audio"), false, `diagnostics: ${JSON.stringify(codes)}`);
   equal((loader.state()!.vm.globals as Record<string, unknown>).after, 9);
 });
 
-test("an object program compiler mismatch is reported before malformed schema and audio", () => {
+test("a position-free object program from an older instruction version loads", () => {
   const bytes = tamper(capturedObjectSave(), (json) => {
     const object = json.vm.objects.find((entry) => entry.program !== null);
     ok(object !== undefined && object.program !== null, "the save has a class object program");
-    object.program.compiler = "1";
-    json.schema = null;
-    json.audio = { tick: 0, cueId: 1, tracks: 5 };
+    object.program.ir = "0";
   });
-  const loader = boot(LOADER);
+  const loader = boot(LOADER, "end()\n", { extra: { "saved.prg": OBJECT_SAVER } });
   const { codes } = run(loader, bytes);
-  ok(codes.includes("restore.compiler-mismatch"), `diagnostics: ${JSON.stringify(codes)}`);
-  equal(codes.includes("restore.shape"), false, `diagnostics: ${JSON.stringify(codes)}`);
-  throws(
-    () => restoreGameState(new TextDecoder().decode(bytes)),
-    (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "restore.compiler-mismatch",
-  );
-  const globals = loader.state()!.vm.globals as Record<string, unknown>;
-  equal(globals.marker, 9);
-  equal(globals.after, 9);
+  ok(!codes.includes("restore.ir-mismatch"), `diagnostics: ${JSON.stringify(codes)}`);
+  const state = loader.state()!;
+  equal(state.vm.objects.some((object) => object.program !== null), true, "the class object was restored");
+  equal(state.vm.objects.find((object) => object.program !== null)?.program?.ir, "0", "its provenance is kept");
+});
+
+function recoveryCandidateState(): GameState {
+  const state = createGameState({ seed: 1 });
+  startProgram(state.vm, { kind: "inline", text: "value = 1\nend()\n", ir: IR_VERSION });
+  return state;
+}
+
+test("a recovery candidate refuses any instruction-version difference, even an older one", () => {
+  const state = recoveryCandidateState();
+  const manifest = {
+    version: 1 as const,
+    board: { key: "boards/start.brd", hash: "0123456789abcdef" },
+    boardDependencies: [],
+    entryProgram: null,
+    programs: [],
+    listenerAnchors: [],
+  };
+  const candidate = snapshotRecoveryCandidate(state, manifest);
+  const current = JSON.parse(candidate) as Json;
+  const refusals: Array<(json: Json) => void> = [
+    (json) => {
+      const thread = json.vm.threads.find((entry) => entry.frames.length > 0);
+      ok(thread !== undefined, "the candidate holds a thread");
+      thread.frames[0]!.program.ir = "0";
+    },
+    (json) => {
+      if (json.schema === null) throw new Error("the candidate has no schema");
+      json.schema.ir = "0";
+    },
+  ];
+  for (const edit of refusals) {
+    const saved: Json = JSON.parse(JSON.stringify(current)) as Json;
+    edit(saved);
+    const refused = (() => { try { restoreRecoveryCandidate(JSON.stringify(saved), state.audio); return null; } catch (error) { return error as { code?: string }; } })();
+    ok(refused !== null, "the candidate was refused");
+    equal(refused.code, "restore.ir-mismatch");
+  }
+  const restored = restoreRecoveryCandidate(candidate, state.audio);
+  equal(restored.state.schema.ir, IR_VERSION);
 });
 
 test("a saved object program missing from the current package refuses the load before commit", () => {

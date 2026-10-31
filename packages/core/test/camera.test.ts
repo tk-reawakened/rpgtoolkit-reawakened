@@ -339,7 +339,7 @@ test("camera built-ins execute through RPGCode program", () => {
     cameraShake(0.2, 6);
   `;
 
-  startProgram(state.vm, { kind: "inline", text: script, compiler: "5", dialect: "tk3" });
+  startProgram(state.vm, { kind: "inline", text: script, ir: "5", dialect: "tk3" });
   runThreadsPhase(state.vm, services, 100);
 
   equal(state.vm.globals["cx"], 45);

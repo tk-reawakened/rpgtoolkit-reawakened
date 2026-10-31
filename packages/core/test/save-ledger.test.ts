@@ -166,7 +166,7 @@ function object(handle: number, className: string, members: Record<string, Value
   return {
     handle,
     className,
-    program: className === "" ? null : { kind: "inline", text: "class " + className + "\nendClass\n", compiler: "2" },
+    program: className === "" ? null : { kind: "inline", text: "class " + className + "\nendClass\n", ir: "1" },
     members,
     keys: keys ?? Object.keys(members),
   };
@@ -239,14 +239,14 @@ function fixture(): GameState {
   state.vm.cells = { cell1: 7, cell4: { kind: "object", handle: 6, className: "" } };
   state.vm.cellSeq = 6;
   state.vm.defOwners = {
-    loot: { kind: "inline", text: "function loot()\nendFunction\n", compiler: "2" },
-    dead: { kind: "inline", text: "function dead()\nendFunction\n", compiler: "2" },
+    loot: { kind: "inline", text: "function loot()\nendFunction\n", ir: "1" },
+    dead: { kind: "inline", text: "function dead()\nendFunction\n", ir: "1" },
   };
   state.vm.redirects = [["oldname", "newname"]];
   state.vm.effectSeq = 3;
   state.vm.messagesOff = true;
   const frame = {
-    program: { kind: "inline" as const, text: "var secret\nend()\n", compiler: "2" },
+    program: { kind: "inline" as const, text: "var secret\nend()\n", ir: "1" },
     ip: 2,
     locals: { secret: { value: { kind: "object" as const, handle: 7, className: "Hidden" }, ref: "local:secret" as RefId } },
     operands: [],
@@ -364,7 +364,7 @@ test("the v1 projection maps exactly the accepted fields and keeps their order",
   deepEqual(graph.objects[0]!.program, {
     kind: "inline",
     text: "class Party\nendClass\n",
-    compiler: "2",
+    ir: "1",
     includes: [],
     redirects: [],
     dialect: null,
@@ -437,10 +437,10 @@ test("the ledger hash is the tagged envelope hash and not hashGameState", () => 
   const state = fixture();
   const ledger = projectGameLedger(state);
   equal(GAME_LEDGER_DOMAIN, "tkr.game-ledger");
-  equal(GAME_LEDGER_VERSION, 1);
+  equal(GAME_LEDGER_VERSION, 2);
   equal(
     hashGameLedger(ledger),
-    hashState({ domain: "tkr.game-ledger", version: 1, ledger } as never),
+    hashState({ domain: "tkr.game-ledger", version: 2, ledger } as never),
   );
   differs(hashGameLedger(ledger), hashGameState(state));
   const minimal = minimalLedger();
@@ -449,10 +449,10 @@ test("the ledger hash is the tagged envelope hash and not hashGameState", () => 
   // the domain, version and ledger are all covered.
   equal(
     MINIMAL_LEDGER_HASH,
-    fnv1a64(canon({ domain: "tkr.game-ledger", version: 1, ledger: minimal } as never)),
+    fnv1a64(canon({ domain: "tkr.game-ledger", version: 2, ledger: minimal } as never)),
   );
   // A different domain or version hashes differently even for the same ledger.
-  differs(hashState({ domain: "tkr.game-ledger", version: 2, ledger } as never), hashGameLedger(ledger));
+  differs(hashState({ domain: "tkr.game-ledger", version: 3, ledger } as never), hashGameLedger(ledger));
 });
 
 /** The smallest whole v1 ledger, used to pin the envelope vector. */
@@ -475,7 +475,7 @@ function minimalLedger(): GameLedgerV1 {
   };
 }
 
-const MINIMAL_LEDGER_HASH = "13a6d5bf7a413030";
+const MINIMAL_LEDGER_HASH = "139cd5bf7a38dbab";
 
 test("each excluded continuation and metadata field changes the full save but not the ledger", () => {
   const baseline = ledgerHash();
@@ -547,7 +547,7 @@ test("each ledger-bearing field changes the projection hash independently", () =
     ["object member", (state) => { (state.vm.objects[0]!.members.gold) = 11; }],
     ["object keys order", (state) => { const record0 = state.vm.objects[0]!; state.vm.objects[0] = { ...record0, keys: ["next", "gold", "self"] }; }],
     ["object handle", (state) => { state.vm.globals.party = { kind: "object", handle: 6, className: "" }; }],
-    ["def owners", (state) => { state.vm.defOwners!.loot = { kind: "inline", text: "function loot(a)\nendFunction\n", compiler: "2" }; }],
+    ["def owners", (state) => { state.vm.defOwners!.loot = { kind: "inline", text: "function loot(a)\nendFunction\n", ir: "1" }; }],
     ["emitters", (state) => { state.events.emitters = { [boardEmitterKey(BOARD_KEY)]: 5, battle: 5 }; }],
     ["board key", (state) => { state.world = { board: { ...state.world.board!, key: assetKey("other.brd") } }; state.triggers.boardKey = "other.brd"; state.sprites.randomEncounter = { boardKey: "other.brd", tile: { x: 1, y: 2 }, tiles: 5 }; }],
     ["board size", (state) => { state.world = { board: { ...state.world.board!, sizeX: 9 } }; }],
@@ -713,7 +713,7 @@ test("the persistent-root walker keeps rooted cycles and refuses stale handles",
     ["malformed callable", (mutated) => { mutated.vm.globals.loot = { type: "callable", def: "", captures: [], receiver: null }; }, "ledger.shape", "vm.globals.loot.def"],
     ["cell above seq", (mutated) => { mutated.vm.cellSeq = 3; }, "ledger.identity", "vm.cells.cell4"],
     ["cells without seq", (mutated) => { delete mutated.vm.cellSeq; }, "ledger.shape", "vm.cellSeq"],
-    ["bad def owner", (mutated) => { mutated.vm.defOwners!.loot = { kind: "sideways", compiler: "2" } as never; }, "ledger.shape", "vm.defOwners.loot.kind"],
+    ["bad def owner", (mutated) => { mutated.vm.defOwners!.loot = { kind: "sideways", ir: "1" } as never; }, "ledger.shape", "vm.defOwners.loot.kind"],
     ["not a script value", (mutated) => { mutated.vm.globals.flag = true as never; }, "ledger.shape", "vm.globals.flag"],
   ];
   for (const [name, change, code, path] of cases) {
@@ -876,14 +876,14 @@ test("file program references and animated durable tiles project whole", () => {
       kind: "file",
       path: "Prg/party.prg",
       sourceHash: "abc",
-      compiler: "2",
+      ir: "1",
       includes: ["Prg/util.prg"],
       redirects: [["a", "b"]],
       dialect: "tk2",
       owner: "pkg",
     },
   };
-  state.vm.defOwners!.loot = { kind: "file", path: "Prg/loot.prg", sourceHash: "def", compiler: "2" };
+  state.vm.defOwners!.loot = { kind: "file", path: "Prg/loot.prg", sourceHash: "def", ir: "1" };
   const board0 = state.world.board!;
   const animated = {
     asset: assetKey("Tiles/water.tle"),
@@ -910,7 +910,7 @@ test("file program references and animated durable tiles project whole", () => {
     kind: "file",
     path: "Prg/party.prg",
     sourceHash: "abc",
-    compiler: "2",
+    ir: "1",
     includes: ["Prg/util.prg"],
     redirects: [["a", "b"]],
     dialect: "tk2",
@@ -921,7 +921,7 @@ test("file program references and animated durable tiles project whole", () => {
     kind: "file",
     path: "Prg/loot.prg",
     sourceHash: "def",
-    compiler: "2",
+    ir: "1",
     includes: [],
     redirects: [],
     dialect: null,
@@ -965,7 +965,7 @@ test("malformed ledger-only fields are refused with a located path", () => {
     }, "ledger.shape", "world.board.runtime.tileEdits[0].scope"],
     ["sprite slot range", (state) => { state.sprites.items[0] = { ...state.sprites.items[0]!, sourceSlot: 9 }; }, "ledger.board", "sprites.items[0].sourceSlot"],
     ["dictionary with program", (state) => {
-      state.vm.objects[2] = { ...state.vm.objects[2]!, program: { kind: "inline", text: "end()\n", compiler: "2" } };
+      state.vm.objects[2] = { ...state.vm.objects[2]!, program: { kind: "inline", text: "end()\n", ir: "1" } };
     }, "ledger.shape", "vm.objects[2].program"],
     ["class without program", (state) => { state.vm.objects[0] = { ...state.vm.objects[0]!, program: null }; }, "ledger.shape", "vm.objects[0].program"],
     ["redirect pair", (state) => { state.vm.redirects = [["a"]] as never; }, "ledger.shape", "vm.redirects[0]"],

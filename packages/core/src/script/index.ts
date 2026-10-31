@@ -62,7 +62,7 @@ export type {
   StatementRange,
 } from "./lower.ts";
 export {
-  COMPILER_VERSION,
+  IR_VERSION,
   compileInline,
   compileProgram,
   fileProgramRef,

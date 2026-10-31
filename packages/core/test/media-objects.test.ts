@@ -102,7 +102,7 @@ function rig(lengths: Record<string, number | null | "pending">, program: string
     media,
   );
   for (const diagnostic of drainDiagnostics(services)) diagnostics.push({ code: diagnostic.code, message: diagnostic.message });
-  if (saved === undefined) startProgram(state.vm, { kind: "inline", text: program, compiler: "2" });
+  if (saved === undefined) startProgram(state.vm, { kind: "inline", text: program, ir: "1" });
   const made: Rig = {
     state,
     services,

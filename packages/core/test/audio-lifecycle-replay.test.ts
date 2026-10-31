@@ -41,7 +41,7 @@ test("every-tick snapshot restores queued/in-flight lifecycle history and all su
   const media = registerEmitter(straight.vm, straight.events, "media");
   straight.vm.globals.media = { kind: "object", handle: media.handle, className: media.className };
   const listeners = names.map((name) => `media.on("${name}", (e) => { threadSleep(getThreadId(), 0.05); history = history + e.type + ":" + e.detail.tick + ";" })`).join("\n");
-  startProgram(straight.vm, { kind: "inline", compiler: "2", text: `history = ""\n${listeners}\n` });
+  startProgram(straight.vm, { kind: "inline", ir: "1", text: `history = ""\n${listeners}\n` });
   const running = session(straight);
   const saves: string[] = [];
   const hashes: string[] = [];

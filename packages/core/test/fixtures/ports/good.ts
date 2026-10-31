@@ -81,7 +81,7 @@ export const pinThread: Thread = {
   target: null,
   frames: [
     {
-      program: { kind: "inline", text: "end()", compiler: "2" },
+      program: { kind: "inline", text: "end()", ir: "1" },
       ip: 0,
       locals: {},
       operands: [],

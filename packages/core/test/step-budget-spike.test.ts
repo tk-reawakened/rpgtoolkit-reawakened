@@ -196,7 +196,7 @@ interface Run {
 
 function start(config: Config, seed = 7): { state: GameState; services: ScriptServices } {
   const state = createGameState({ seed });
-  startProgram(state.vm, { kind: "inline", text: program(config), compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: program(config), ir: "1" });
   return { state, services: createScriptServices(state) };
 }
 

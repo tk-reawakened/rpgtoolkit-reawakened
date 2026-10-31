@@ -25,7 +25,7 @@ function errorOf(run: () => unknown): { code: string; message: string } {
 
 function runScript(source: string, plugins: readonly PluginDefinition[] = []): GameState {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: source, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: source, ir: "1" });
   advanceOrFail(state, createScriptServices(state, plugins));
   return state;
 }
@@ -50,7 +50,7 @@ r_sum = sum(500)
 
   function runDeep(): { state: GameState; maxFrames: number } {
     const state = createGameState({ seed: 0 });
-    startProgram(state.vm, { kind: "inline", text: script, compiler: "2" });
+    startProgram(state.vm, { kind: "inline", text: script, ir: "1" });
     const services = createScriptServices(state);
     let maxFrames = 0;
     while (state.vm.threads[0]?.status === "ready") {

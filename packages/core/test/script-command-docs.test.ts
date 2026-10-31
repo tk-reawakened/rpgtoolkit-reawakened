@@ -178,7 +178,7 @@ test("documentation metadata never enters the state hash", () => {
   });
   const run = (definition: PluginDefinition) => {
     const state = createGameState({ seed: 4 });
-    startProgram(state.vm, { kind: "inline", text: "doccommand()\nend()\n", compiler: "2" });
+    startProgram(state.vm, { kind: "inline", text: "doccommand()\nend()\n", ir: "1" });
     advanceScriptTick(state, createScriptServices(state, resolved(definition)));
     return state;
   };

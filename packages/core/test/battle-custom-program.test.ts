@@ -200,7 +200,7 @@ function makeRig(seed: number, outcomeCode = 1, gameOverProgram: string | null =
     state, plugins, undefined, undefined, outcomeLoader, "default", undefined, undefined,
     undefined, undefined, false, undefined, undefined, undefined, gameOverProgram,
   );
-  const thread = startProgram(state.vm, { kind: "inline", text: customFight, compiler: "2" });
+  const thread = startProgram(state.vm, { kind: "inline", text: customFight, ir: "1" });
   let inputReady = false;
   const encodedStatus = hex(statusEffectBytes());
   const encodedEnemy = hex(enemyBytes());
@@ -329,7 +329,7 @@ test("custom fight seed and mid-battle save restore preserve state and drawing",
   equal(drawHash, hashDrawList(drawListFor(repeated.state)));
   equal(stateHash === hashState(differentSeed.state), false);
   equal(drawHash === hashDrawList(drawListFor(differentSeed.state)), false);
-  equal(stateHash, "f89983678b63bf24");
+  equal(stateHash, "aa36fe1a754289a5");
   equal(drawHash, "3fa17af6365a9ba5");
 
   const restoredState = restoreGameState(snapshot(first.state));
@@ -390,7 +390,7 @@ test("custom fight finish routes outcomes 0, 2 and 4 through the adapter and lea
 test("a custom program cannot resolve stock battle internals without the package", () => {
   const state = createGameState({ seed: 7 });
   const services = createScriptServices(state, plugins);
-  const thread = startProgram(state.vm, { kind: "inline", text: "stockBattle.turn(0, 0)", compiler: "2" });
+  const thread = startProgram(state.vm, { kind: "inline", text: "stockBattle.turn(0, 0)", ir: "1" });
 
   advanceScriptTick(state, services);
   equal(thread.status, "finished");

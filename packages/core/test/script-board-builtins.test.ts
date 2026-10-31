@@ -1,6 +1,6 @@
 import { deepEqual, equal, throws } from "node:assert/strict";
 import { test } from "node:test";
-import { assetKey, COMPILER_VERSION, CORE_PLUGIN, createActorService, createGameState, createScriptServices, createDefaultVirtuals, runThreadsPhase, ScriptError, STEP_BUDGET, type Arg, type GameState, type WorldBoard } from "../src/index.ts";
+import { assetKey, IR_VERSION, CORE_PLUGIN, createActorService, createGameState, createScriptServices, createDefaultVirtuals, runThreadsPhase, ScriptError, STEP_BUDGET, type Arg, type GameState, type WorldBoard } from "../src/index.ts";
 import { applyWorldEffect, expireProgramTileEdits } from "../src/world/effects.ts";
 import type { EffectRecord } from "../src/script/effects.ts";
 import { startThread } from "../src/script/state.ts";
@@ -28,7 +28,7 @@ function stateWithBoard(): GameState {
 }
 
 function programThread(state: GameState): number {
-  return startThread(state.vm, { ref: { kind: "inline", text: "", compiler: "test" }, kind: "persistent", owner: "script" }).id;
+  return startThread(state.vm, { ref: { kind: "inline", text: "", ir: "1" }, kind: "persistent", owner: "script" }).id;
 }
 
 function applyTileEdit(state: GameState, thread: number, name: "put" | "layerput", args: (number | string)[]): void {
@@ -187,7 +187,7 @@ test("a killed highest-id Put owner expires before same-phase id reuse", () => {
     ref: {
       kind: "inline",
       text: 'killthread(2)\nreplacement = thread("end()", 0)\nend()',
-      compiler: COMPILER_VERSION,
+      ir: IR_VERSION,
     },
     kind: "persistent",
     owner: "script",

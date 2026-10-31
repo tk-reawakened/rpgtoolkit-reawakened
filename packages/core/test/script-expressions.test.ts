@@ -27,7 +27,7 @@ function errorOf(run: () => unknown): { code: string; message: string } {
 
 function runScript(source: string, plugins: readonly PluginDefinition[] = []): GameState {
   const state = createGameState({ seed: 0 });
-  startProgram(state.vm, { kind: "inline", text: source, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: source, ir: "1" });
   advanceOrFail(state, createScriptServices(state, plugins));
   return state;
 }

@@ -17,7 +17,7 @@ import {
   BinaryWriter,
   CATALOGUE_RESPONDERS_PLUGIN,
   CATALOGUE_STUBS_PLUGIN,
-  COMPILER_VERSION,
+  IR_VERSION,
   composeUi,
   CORE_PLUGIN,
   createAssetIndex,
@@ -432,7 +432,7 @@ function makeRig(options: {
 function startCustomRequest(rig: Rig, request: unknown, afterMarker = false): void {
   const call = `__battle_custom_fight(${JSON.stringify(encodeRequest(request))})`;
   startThread(rig.state.vm, {
-    ref: { kind: "inline", text: afterMarker ? `global(afterCall)\n${call}\nafterCall = 1` : call, compiler: COMPILER_VERSION },
+    ref: { kind: "inline", text: afterMarker ? `global(afterCall)\n${call}\nafterCall = 1` : call, ir: IR_VERSION },
     kind: "blocking",
     owner: "script",
   });
@@ -865,7 +865,7 @@ function stockCatalogue(): readonly PackageCatalogueEntry[] {
     namespace: stockManifest.namespace,
     requests: stockManifest.requests,
     definition: { id: stockManifest.name, version: stockManifest.version, commands: [] },
-    startup: { kind: "inline", text: stockSource, compiler: COMPILER_VERSION, dialect: "tk3" },
+    startup: { kind: "inline", text: stockSource, ir: IR_VERSION, dialect: "tk3" },
   }];
 }
 

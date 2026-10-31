@@ -131,7 +131,7 @@ test("hydrates compact actors, owns item threads, and keeps draw ids stable", ()
     variables: { haunted: 0 },
     players: [{ id: "hero", kind: "player", source: "hero.tem", x: 48, y: 63, layer: 1, controlled: true }],
     vm,
-    programRef: () => ({ kind: "inline", text: "end()\n", compiler: "2" }),
+    programRef: () => ({ kind: "inline", text: "end()\n", ir: "1" }),
   });
   equal(state.items.length, 2);
   equal(state.items[0]?.handle, 0);
@@ -139,7 +139,7 @@ test("hydrates compact actors, owns item threads, and keeps draw ids stable", ()
   equal(state.items[1]?.visible, false);
   equal(vm.threads.length, 1);
   deepEqual(spriteDraws(state).map((draw) => [draw.id, draw.drawId]), [["hero", 0], ["clerk", 1]]);
-  setItemVisible(state, "ghost", true, vm, () => ({ kind: "inline", text: "end()\n", compiler: "2" }));
+  setItemVisible(state, "ghost", true, vm, () => ({ kind: "inline", text: "end()\n", ir: "1" }));
   equal(vm.threads.length, 2);
   setItemVisible(state, "clerk", false, vm, null);
   equal(vm.threads.length, 1);

@@ -41,7 +41,7 @@ function errorOf(run: () => unknown): { code: string; message: string } {
 
 function makeState(program: string, seed = 0): GameState {
   const state = createGameState({ seed });
-  startProgram(state.vm, { kind: "inline", text: program, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: program, ir: "1" });
   return state;
 }
 
@@ -54,7 +54,7 @@ function waitingThread(id: number, until: number): Thread {
     target: null,
     frames: [
       {
-        program: { kind: "inline", text: "", compiler: "2" },
+        program: { kind: "inline", text: "", ir: "1" },
         ip: 0,
         locals: {},
         operands: [],
@@ -80,7 +80,7 @@ function readyThread(id: number, text: string): Thread {
     target: null,
     frames: [
       {
-        program: { kind: "inline", text, compiler: "2" },
+        program: { kind: "inline", text, ir: "1" },
         ip: 0,
         locals: {},
         operands: [],
@@ -368,7 +368,7 @@ test("sleep rejects zero, fractional and negative counts", () => {
 
 test("a second blocking thread is refused", () => {
   const state = createGameState({ seed: 0 });
-  const ref = { kind: "inline", text: "end()", compiler: "2" } as const;
+  const ref = { kind: "inline", text: "end()", ir: "1" } as const;
   startProgram(state.vm, ref);
   equal(errorOf(() => startProgram(state.vm, ref)).code, "thread.blocking-exists");
 });

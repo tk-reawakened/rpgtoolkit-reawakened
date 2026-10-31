@@ -106,7 +106,7 @@ test("battle owner starts ordered parties with fallen players and a fresh battle
 
 function runScript(state: GameState, text: string, poll?: WaitPoll) {
   const services = createScriptServices(state, plugins);
-  const thread = startProgram(state.vm, { kind: "inline", text, compiler: "2" });
+  const thread = startProgram(state.vm, { kind: "inline", text, ir: "1" });
   thread.source = "Hero";
   thread.target = "Slime";
   let finished = false;

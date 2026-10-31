@@ -13,8 +13,8 @@ import { lower } from "./lower.ts";
 import { tokenizeObjects } from "./lex.ts";
 import type { Ast, Expr } from "./ast.ts";
 import { parse } from "./parse.ts";
-import type { Program } from "./program.ts";
-const TK2_COMPILER_VERSION = "2";
+import { IR_VERSION, type Program } from "./program.ts";
+
 
 export type Tk2CommandLookup =
   | ReadonlyMap<string, BuiltinSpec>
@@ -197,7 +197,7 @@ export function parseTk2(text: string, lookup?: Tk2CommandLookup): Ast {
 export function compileTk2(text: string, file = "<tk2>", lookup?: Tk2CommandLookup): Program {
   const result = lower(parseTk2(text, lookup), file);
   return {
-    ref: { kind: "inline", text, compiler: TK2_COMPILER_VERSION, dialect: "tk2" },
+    ref: { kind: "inline", text, ir: IR_VERSION, dialect: "tk2" },
     ops: result.ops,
     functions: result.functions,
     classes: result.classes,

@@ -9,7 +9,7 @@ import {
   advanceScriptTick,
   assetKey,
   compileProgram,
-  COMPILER_VERSION,
+  IR_VERSION,
   createAssetIndex,
   createCollectingSink,
   createGameState,
@@ -217,7 +217,7 @@ test("redirect substitutes one hop at parse time and a restored snapshot keeps t
     "r = a()",
   ].join("\n");
   const loader = loaderOf({});
-  const run = setup(loader, { kind: "inline", text: source, compiler: "2" });
+  const run = setup(loader, { kind: "inline", text: source, ir: "1" });
   deepEqual(tick(run), []);
   // a -> b only: no chaining through b -> c.
   equal(run.state.vm.globals.r, 1);
@@ -233,7 +233,7 @@ test("redirect substitutes one hop at parse time and a restored snapshot keeps t
 
   // A program started later is compiled under the table in force and records it in its ref.
   for (const state of [run.state, restored]) {
-    const next = setup(loader, { kind: "inline", text: "function b() { return 7 }\ns = a()\n", compiler: "2" }, state);
+    const next = setup(loader, { kind: "inline", text: "function b() { return 7 }\ns = a()\n", ir: "1" }, state);
     deepEqual(state.vm.threads[1]!.frames[0]!.program.redirects, table);
     deepEqual(tick(next), []);
     equal(state.vm.globals.s, 7);
@@ -246,18 +246,18 @@ test("killRedirect and killAllRedirects end a redirect for programs parsed after
   const state = createGameState({ seed: 2 });
   const first = setup(
     loader,
-    { kind: "inline", text: 'redirect("a", "b")\nredirect("c", "d")\nkillredirect("A")\n', compiler: "2" },
+    { kind: "inline", text: 'redirect("a", "b")\nredirect("c", "d")\nkillredirect("A")\n', ir: "1" },
     state,
   );
   deepEqual(tick(first), []);
   deepEqual(state.vm.redirects, [["c", "d"]]);
 
-  startProgram(state.vm, { kind: "inline", text: "killallredirects()\n", compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: "killallredirects()\n", ir: "1" });
   deepEqual(tick(first), []);
   deepEqual(state.vm.redirects, []);
 
   // With the table empty again `a()` is no longer substituted.
-  startProgram(state.vm, { kind: "inline", text: "function b() { return 1 }\nr = a()\n", compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: "function b() { return 1 }\nr = a()\n", ir: "1" });
   equal(tick(first)[0]?.code, "unknown.command");
 });
 
@@ -314,12 +314,12 @@ test("the cache compiles a source hash once and recompiles when includes or redi
 test("a reference is answered from memory, and equal content still shares one compile", () => {
   const cache = createProgramCache({});
   const text = "x = 1\ny = 2\n";
-  const ref: ProgramRef = { kind: "inline", text, compiler: COMPILER_VERSION, dialect: "tk3" };
+  const ref: ProgramRef = { kind: "inline", text, ir: IR_VERSION, dialect: "tk3" };
   const first = cache.get(ref);
   equal(cache.get(ref), first, "the same reference is answered from the cache");
   equal(cache.compiles, 1, "a repeated request compiles nothing");
   // The key is the content, not the object: a distinct reference with the same content is the same program.
-  const copy: ProgramRef = { kind: "inline", text, compiler: COMPILER_VERSION, dialect: "tk3" };
+  const copy: ProgramRef = { kind: "inline", text, ir: IR_VERSION, dialect: "tk3" };
   equal(cache.get(copy), first, "an equal-content reference reuses the compile");
   equal(cache.compiles, 1);
   // A changed program arrives as a new reference and is compiled on its own key.
@@ -363,7 +363,7 @@ test("a compiled program is refused with the re-save message and no binary parse
 });
 
 test("a file program without a loader, or naming a missing file, is refused", () => {
-  const ref: ProgramRef = { kind: "file", path: "x.prg", sourceHash: "0", compiler: "2" };
+  const ref: ProgramRef = { kind: "file", path: "x.prg", sourceHash: "0", ir: "1" };
   throws(
     () => compileProgram(ref),
     (caught: unknown) => caught instanceof ScriptError && caught.code === "program.file-unsupported",
@@ -460,7 +460,7 @@ test("a plugin command is reached after script functions, so it is not a built-i
   startProgram(state.vm, {
     kind: "inline",
     text: "function gamecmd() { return 9 }\nr = gamecmd()\n",
-    compiler: "2",
+    ir: "1",
   });
   advanceScriptTick(state, services);
   deepEqual(drainDiagnostics(services), []);

@@ -40,7 +40,7 @@ function begin(program: string, plugins: readonly PluginDefinition[] = []) {
   const state = createGameState({ seed: 0 });
   const { sink, records } = createCollectingSink();
   const services = createScriptServices(state, plugins, createLogger([sink]));
-  startProgram(state.vm, { kind: "inline", text: program, compiler: "2" });
+  startProgram(state.vm, { kind: "inline", text: program, ir: "1" });
   return { state, services, records };
 }
 

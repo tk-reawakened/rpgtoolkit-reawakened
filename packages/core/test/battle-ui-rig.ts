@@ -11,7 +11,7 @@ import {
   addActor,
   assetKey,
   BATTLE_BACKGROUND_MAGIC,
-  COMPILER_VERSION,
+  IR_VERSION,
   createAssetIndex,
   createEmptyBoard,
   createEmptyCharacter,
@@ -533,7 +533,7 @@ function catalogue(): readonly PackageCatalogueEntry[] {
     namespace: manifest.namespace,
     requests: manifest.requests,
     definition: { id: manifest.name, version: manifest.version, commands: [] },
-    startup: { kind: "inline", text: readFileSync(join(folder, manifest.program), "utf8"), compiler: COMPILER_VERSION, dialect: "tk3" },
+    startup: { kind: "inline", text: readFileSync(join(folder, manifest.program), "utf8"), ir: IR_VERSION, dialect: "tk3" },
   }];
 }
 
