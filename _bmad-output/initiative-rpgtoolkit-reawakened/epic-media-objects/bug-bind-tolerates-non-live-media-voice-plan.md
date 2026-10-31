@@ -3,7 +3,7 @@ title: 'Bind tolerates a voice record that is not a live media.voice'
 type: 'bugfix'
 ticket: 10
 created: '2026-10-30'
-status: 'built'
+status: done
 baseline_revision: '27d5e342190064f3dc3bd8f1ba062d3fe7ea5986'
 risk: 'medium'
 context: []
@@ -70,3 +70,9 @@ Observed on this branch (all from the worktree at `fix/825-media-voice-bind`):
 ## Proposed rulings
 
 None: the change implements issue #758's stated Expected and adds no new normative behaviour.
+
+## Merged
+
+PR #831 merged by squash as `7f47bcd17ca8d3c6bddb756f647fa5af017b9604` (in `origin/main`); issue #825 closed as
+completed by that merge. The tracker metadata (entry 21.10) landed first as `e954ef8e` (PR #828). CI on the PR ran
+green: `checks`, every `unit` shard, `golden`, `golden-bun` and `gate`.
