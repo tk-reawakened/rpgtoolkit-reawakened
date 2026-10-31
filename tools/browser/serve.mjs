@@ -1,0 +1,82 @@
+// The tracer's static host: serves the page, the bundles, the committed plan/vectors, and a game folder as one payload.
+//
+//   node tools/browser/serve.mjs [--port 4173]
+//
+// Only these roots are served — `apps/`, `fixtures/`, `golden/`, `media/`, `tools/` — so the server cannot be talked into
+// reading anything else. A game folder comes back as one JSON payload (`/api/game`), which is the whole-package load the
+// tracer proves; the streaming modes of D-4 are entry 9.9's.
+
+import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { createServer } from "node:http";
+import { extname, join, normalize, resolve, sep } from "node:path";
+
+const ROOTS = ["apps", "fixtures", "golden", "media", "tools", "packages/runner-web/app"];
+const TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".css": "text/css; charset=utf-8",
+};
+
+const root = resolve(process.cwd());
+const port = Number(process.argv[process.argv.indexOf("--port") + 1]) || (process.argv.includes("--port") ? 4173 : 4173);
+
+function inside(relative) {
+  const resolved = resolve(root, relative);
+  return resolved === root || resolved.startsWith(root + sep) ? resolved : null;
+}
+
+function filesUnder(relativeRoot) {
+  const directory = inside(relativeRoot);
+  if (directory === null || !existsSync(directory)) return [];
+  const files = [];
+  for (const entry of readdirSync(directory, { recursive: true, encoding: "utf8" }).map((path) => path.split("\\").join("/")).sort()) {
+    const full = join(directory, entry);
+    if (statSync(full).isFile()) files.push({ path: entry, bytes: readFileSync(full).toString("base64") });
+  }
+  return files;
+}
+
+function allowed(relative) {
+  return ROOTS.some((root) => relative === root || relative.startsWith(`${root}/`));
+}
+
+createServer((request, response) => {
+  const url = new URL(request.url ?? "/", "http://localhost");
+  if (url.pathname === "/health") {
+    response.writeHead(200, { "content-type": "text/plain" }).end("ok");
+    return;
+  }
+  if (url.pathname === "/api/game" || url.pathname === "/api/bundled") {
+    const requested =
+      url.pathname === "/api/game"
+        ? [url.searchParams.get("root") ?? ""]
+        : (url.searchParams.get("folders") ?? "").split(",").filter((folder) => folder !== "");
+    if (requested.length === 0 || requested.some((entry) => entry === "" || !allowed(entry))) {
+      response.writeHead(400).end("bad root");
+      return;
+    }
+    const files = requested.flatMap((entry) =>
+      url.pathname === "/api/game"
+        ? filesUnder(entry)
+        : filesUnder(entry).map((file) => ({ path: `${entry}/${file.path}`, bytes: file.bytes })),
+    );
+    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ files }));
+    return;
+  }
+  const relative = normalize(decodeURIComponent(url.pathname)).replaceAll("\\", "/").replace(/^\/+/, "");
+  if (relative === "" || !allowed(relative)) {
+    response.writeHead(404).end("not found");
+    return;
+  }
+  const full = inside(relative);
+  if (full === null || !existsSync(full) || !statSync(full).isFile()) {
+    response.writeHead(404).end("not found");
+    return;
+  }
+  response.writeHead(200, { "content-type": TYPES[extname(full)] ?? "application/octet-stream" });
+  createReadStream(full).pipe(response);
+}).listen(port, "127.0.0.1", () => {
+  console.log(`browser host on http://127.0.0.1:${port}/packages/runner-web/app/index.html`);
+});

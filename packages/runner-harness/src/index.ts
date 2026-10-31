@@ -3,6 +3,7 @@ export { summariseCensus, type ExecutionCensus, type CatalogueRow } from "./exec
 export { runLog, type ReportObservation, type ReportObserver } from "./driver.ts";
 export { compareGolden, formatGolden, parseGolden, parseRun, type Golden, type Run, type TickRecord } from "./golden.ts";
 export { checkVectors } from "./vectors.ts";
+export { decodeAssetTexture } from "./textures.ts";
 export { createScriptHost, restoreScriptHost } from "./script-host.ts";
 export type { ScriptHost, ScriptHostBlobs, ScriptHostInit, ScriptHostRestore } from "./script-host.ts";
 export { resolvePluginManifest, type PluginDefinitionTable, type PluginManifestResolution } from "./script-plugin-resolver.ts";
@@ -14,5 +15,5 @@ export { buildCorpus, buildFetchedCorpus, compareScriptsGolden, createMemoryLoad
 export { encodeRgbaPng, comparePngPixels, compareRgbaWithPng, type PixelComparison } from "./png.ts";
 export { runTracerScene, type TracerScene, type TracerResult } from "./tracer.ts";
 export { checkSceneGolden, type SceneGoldenInput, type SceneGoldenOutcome } from "./scene-golden.ts";
-export { checkClosingSuite, closingLedgerRows, CLOSING_BASELINE_PATH, CLOSING_PLAN_PATH, formatClosingBaseline, parseClosingPlan, runClosingGame, runClosingSuite, type ClosingBaseline, type ClosingCheck, type ClosingExpectation, type ClosingFiles, type ClosingGamePlan, type ClosingGameRecord, type ClosingGameRun, type ClosingPlan, type ClosingRunOptions } from "./closing.ts";
+export { checkClosingSuite, closingLedgerRows, CLOSING_BASELINE_PATH, CLOSING_PLAN_PATH, formatClosingBaseline, parseClosingPlan, runClosingFrames, runClosingGame, runClosingSuite, type ClosingBaseline, type ClosingCheck, type ClosingExpectation, type ClosingFiles, type ClosingFrameRun, type ClosingFrameWithDrawList, type ClosingGamePlan, type ClosingGameRecord, type ClosingGameRun, type ClosingPlan, type ClosingRunOptions } from "./closing.ts";
 export { checkAudioGoldens, formatAudioGolden, runAudioGoldens, type AudioGoldenCheck, type AudioGoldenRecord, type AudioGoldenRun, type AudioGoldenRuns } from "./audio-golden.ts";

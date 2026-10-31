@@ -1,11 +1,29 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/core" },
-    { "path": "packages/synth" },
-    { "path": "packages/runner-harness" },
-    { "path": "packages/runner-headless" },
-    { "path": "packages/plugin-tk2-compat" },
-    { "path": "packages/script-tools" }
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/synth"
+    },
+    {
+      "path": "packages/runner-harness"
+    },
+    {
+      "path": "packages/runner-headless"
+    },
+    {
+      "path": "packages/plugin-tk2-compat"
+    },
+    {
+      "path": "packages/script-tools"
+    },
+    {
+      "path": "packages/render-webgl2"
+    },
+    {
+      "path": "packages/runner-web"
+    }
   ]
 }
