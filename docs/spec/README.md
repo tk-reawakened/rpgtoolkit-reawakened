@@ -18,6 +18,7 @@ This is a behaviour and file-format specification of **RPG Toolkit 3.1** (the ed
 | [engine/plugins-and-battle.md](engine/plugins-and-battle.md) | Menu, battle and command plugins; the battle model and enemy AI; the 140-method callback interface |
 | [engine/battle.md](engine/battle.md) | The Reawakened battle rules: boundary, state, loop, damage, status, AI, outcomes and starts (BAT-1 to BAT-15) |
 | [engine/plugin-constants.md](engine/plugin-constants.md) | Info codes and enumerations used by the callback interface |
+| [engine/rpgcode-tooling.md](engine/rpgcode-tooling.md) | The tooling contract: language server and debug adapter, one diagnostic model, the linter rules, formatting, the spec API, the index schema, the CI job, the debug view and `tkr script` with its exit codes |
 | [engine/parity-checklist.md](engine/parity-checklist.md) | What "plays legacy games" requires, area by area: the reference the headless golden tests hold the engine to |
 | [tools/](tools/README.md) | Python readers and writers for every format, a renderer, and the example-game builder |
 | [examples/](examples/) | A small complete game in every format, with annotated byte listings and renders, built from original placeholder art |

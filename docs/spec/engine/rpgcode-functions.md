@@ -648,3 +648,28 @@ The following functions are Reawakened built-in additions, not part of the 282 l
 * **Numeric invariant.** For any numeric input, exactly one of `isNaN`, `isInfinity` and `isFinite` returns 1, and the other two return 0 (`isFinite == 1` iff `isNaN == 0 && isInfinity == 0`).
 * **Corpus check (R-35).** None of these functions existed in 3.1. Verified that no legacy corpus or fixture script defines `isNaN`, `isInfinity` or `isFinite`.
 * **Emitter commands (entries 19.10 and 19.11; corpus check, R-35).** `on`, `once`, `off`, `emit`, `emitCancelable` and `cancelEvent` are the free-function aliases of the methods every object has ([EMIT-14](rpgcode-modules-and-objects.md#emit-14), [EMIT-16](rpgcode-modules-and-objects.md#emit-16), [EMIT-17](rpgcode-modules-and-objects.md#emit-17)); the rows above describe the call, the method form is the normative one ([EMIT-2](rpgcode-modules-and-objects.md#emit-1)). None of them existed in 3.1. Verified that no script of the fetched legacy corpus (`fixtures/legacy`, every game) calls or defines a function named `on`, `off`, `once`, `emit`, `emitCancelable` or `cancelEvent`, so no legacy program meets the new names. A script that defines its own function of one of these names gets the load-time `command.shadowed` notice and its calls bind to the built-in (R-35).
+
+## Tooling: the RPGCode spec package (not part of the 282 legacy catalogue)
+
+The commands of the test package `script-spec`, ruled by [rpgcode-tooling.md#tool-5](rpgcode-tooling.md#tool-5) and [ADR 0014](../../adr/0014-rpgcode-spec-package.md). The package is loaded only by the test runner and is never part of a game's manifest; `specResult` is the one native command and every other name is defined by the package's library program in RPGCode. The matcher methods are called on the object `expect` returns and are documented here so an author finds them in one place.
+
+| Command | Signature | Purpose | Notes |
+|---|---|---|---|
+| `specResult` | `void specResult(string kind, string name, string expected, string actual)` | Record one spec outcome with the source position of this call. | Native. `kind` is `pass`, `fail`, `skip` or `only`; the runner reports it with the file and line of the call. |
+| `describe` | `void describe(string name, function body)` | Group cases; groups nest. | Package-defined. |
+| `it` | `void it(string name, function body)` | Run one case by calling `body`. | Package-defined; the body is a callable ([FUN-8](rpgcode-language.md#keywords-and-structure)). |
+| `test` | `void test(string name, function body)` | The other spelling of `it`. | Package-defined. |
+| `beforeEach` | `void beforeEach(function body)` | Run before each case of the enclosing `describe`. | Package-defined. |
+| `afterEach` | `void afterEach(function body)` | Run after each case of the enclosing `describe`. | Package-defined. |
+| `beforeAll` | `void beforeAll(function body)` | Run once before the enclosing `describe`'s cases. | Package-defined. |
+| `afterAll` | `void afterAll(function body)` | Run once after the enclosing `describe`'s cases. | Package-defined. |
+| `expect` | `object expect(value)` | Return a matcher object over `value`. | Package-defined; `.not` negates every matcher below. |
+| `toBe` | `void toBe(value expected)` | Assert strict equality. | Package-defined matcher method. |
+| `toEqual` | `void toEqual(value expected)` | Assert value equality: numbers, strings, arrays element-wise. | Package-defined matcher method. |
+| `toBeTruthy` | `void toBeTruthy()` | Assert the engine's truth test ([R-39](rpgcode-language.md#compatibility-notes)). | Package-defined matcher method. |
+| `toBeNull` | `void toBeNull()` | Assert the unset value. | Package-defined matcher method. |
+| `toContain` | `void toContain(value needle)` | Assert a string or array contains `needle`. | Package-defined matcher method. |
+| `toBeCloseTo` | `void toBeCloseTo(double expected, [double tolerance])` | Assert numeric closeness. | Package-defined matcher method. |
+| `toThrow` | `void toThrow([function body])` | Assert a callable raises a runtime error. | Package-defined matcher method. |
+| `skip` | `void skip(string name, function body)` | Leave a case out. | Package-defined; a skip fails the strict run. |
+| `only` | `void only(string name, function body)` | Run only the marked cases. | Package-defined; warns that it narrowed the run. |
