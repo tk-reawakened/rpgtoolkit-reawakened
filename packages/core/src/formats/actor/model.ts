@@ -14,6 +14,7 @@
 import { err, ok, type Result } from "../result.ts";
 import { BinaryReader } from "../binary/reader.ts";
 import { BinaryWriter } from "../binary/writer.ts";
+import { checkI8, checkI32, checkListBound } from "../validate.ts";
 
 // --- Character (`.tem`) ----------------------------------------------------
 
@@ -602,9 +603,11 @@ export function writeFixedBytes(
       `${what} needs exactly ${count} entries but the model has ${values.length}`,
     );
   }
-  for (const value of values) {
-    writer.i8(value);
+  for (const [index, value] of values.entries()) {
+    const checked = checkI8(writer, section, `${what}[${index}]`, value);
+    if (checked !== undefined) return checked;
   }
+  for (const value of values) writer.i8(value);
   return ok(undefined);
 }
 
@@ -665,6 +668,18 @@ export function writeBases(
   bases: readonly ActorBase[],
   section: string,
 ): Result<void> {
+  const bound = checkListBound(writer, section, "vector bases", bases.length);
+  if (bound !== undefined) return bound;
+  for (const [index, base] of bases.entries()) {
+    const points = checkListBound(writer, section, `vector base ${index}`, base.points.length);
+    if (points !== undefined) return points;
+    for (const [position, point] of base.points.entries()) {
+      const x = checkI32(writer, section, `vector base ${index} point ${position} x`, point.x);
+      if (x !== undefined) return x;
+      const y = checkI32(writer, section, `vector base ${index} point ${position} y`, point.y);
+      if (y !== undefined) return y;
+    }
+  }
   writeBound(writer, bases.length, "i16");
   for (const base of bases) {
     writeBound(writer, base.points.length, "i16");

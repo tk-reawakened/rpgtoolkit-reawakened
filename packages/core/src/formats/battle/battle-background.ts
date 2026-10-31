@@ -12,6 +12,7 @@ import { err, ok, type Result } from "../result.ts";
 import { BinaryReader } from "../binary/reader.ts";
 import { BinaryWriter } from "../binary/writer.ts";
 import { TextLineReader } from "../text/line-reader.ts";
+import { checkI16, checkMagic, checkMinor } from "../validate.ts";
 import {
   BATTLE_BACKGROUND_DETECT_OFFSET,
   BATTLE_BACKGROUND_MAGIC,
@@ -127,11 +128,17 @@ export function readBattleBackground(reader: BinaryReader): Result<BattleBackgro
  */
 export function writeBattleBackground(model: BattleBackground): Result<Uint8Array> {
   const writer = new BinaryWriter();
+  const headerMagic = checkMagic(writer, BATTLE_BACKGROUND_SECTION, model.magic, BATTLE_BACKGROUND_MAGIC);
+  if (headerMagic !== undefined) return headerMagic;
+  const headerMinor = checkMinor(writer, BATTLE_BACKGROUND_SECTION, model.minor, BATTLE_MIN_MINOR, BATTLE_MAX_MINOR);
+  if (headerMinor !== undefined) return headerMinor;
 
   const magic = writer.str(model.magic);
   if (!magic.ok) {
     return magic;
   }
+  const headerMajor = checkI16(writer, BATTLE_BACKGROUND_SECTION, "major", model.major);
+  if (headerMajor !== undefined) return headerMajor;
   writer.i16(model.major);
   writer.i16(model.minor);
   for (const value of [

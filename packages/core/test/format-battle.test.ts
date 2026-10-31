@@ -700,3 +700,54 @@ test(
     }
   },
 );
+
+// --- The battle writers refuse what their readers would refuse (#640 / 23.1) --------------------------------
+
+/** The message a writer fails with, so a refusal can be checked for its named field. */
+function refusal<T>(model: T, write: (model: T) => Result<Uint8Array>): string {
+  const result = write(model);
+  equal(result.ok, false, "the writer was expected to fail");
+  if (result.ok) throw new Error("unreachable");
+  return result.error.message;
+}
+
+test("a battle writer refuses an i16 field outside its range instead of wrapping it", () => {
+  const effect = unwrap(readStatusEffect(new BinaryReader(buildSte())));
+  const rounds = refusal({ ...effect, rounds: 40_000 }, writeStatusEffect);
+  equal(rounds.includes("rounds"), true, rounds);
+  equal(rounds.includes("-32768..32767"), true, rounds);
+  const heal = refusal({ ...effect, hpPerRound: 40_000 }, writeStatusEffect);
+  equal(heal.includes("hpPerRound"), true, heal);
+
+  // The signed extremes are representable, and keep their bytes.
+  const extremes = unwrap(writeStatusEffect({ ...effect, rounds: 32_767, hpPerRound: -32_768 }));
+  const reread = unwrap(readStatusEffect(new BinaryReader(extremes)));
+  equal(reread.rounds, 32_767);
+  equal(reread.hpPerRound, -32_768);
+  deepEqual(unwrap(writeStatusEffect(reread)), extremes, "byte-identical round-trip");
+});
+
+test("a battle writer refuses an out-of-range i32 or i8 field", () => {
+  const move = unwrap(readSpecialMove(new BinaryReader(buildSpc())));
+  const damage = refusal({ ...move, damage: 2_147_483_648 }, writeSpecialMove);
+  equal(damage.includes("damage"), true, damage);
+  equal(damage.includes("-2147483648..2147483647"), true, damage);
+  const usable = refusal({ ...move, usableInBattle: 200 }, writeSpecialMove);
+  equal(usable.includes("usableInBattle"), true, usable);
+});
+
+test("a battle writer refuses a wrong magic or an unlisted minor", () => {
+  const move = unwrap(readSpecialMove(new BinaryReader(buildSpc())));
+  const magic = refusal({ ...move, magic: "RPGTLKIT STATUSE" }, writeSpecialMove);
+  equal(magic.includes("\"RPGTLKIT SPLMOVE\""), true, magic);
+  const moveMinor = refusal({ ...move, minor: 7 }, writeSpecialMove);
+  equal(moveMinor.includes("2..3"), true, moveMinor);
+
+  const effect = unwrap(readStatusEffect(new BinaryReader(buildSte())));
+  const effectMinor = refusal({ ...effect, minor: 1 }, writeStatusEffect);
+  equal(effectMinor.includes("2..3"), true, effectMinor);
+
+  const background = unwrap(readBattleBackground(new BinaryReader(buildBkg())));
+  const backgroundMinor = refusal({ ...background, minor: 4 }, writeBattleBackground);
+  equal(backgroundMinor.includes("2..3"), true, backgroundMinor);
+});

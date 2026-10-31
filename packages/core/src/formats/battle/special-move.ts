@@ -14,6 +14,7 @@ import { err, ok, type Result } from "../result.ts";
 import { BinaryReader } from "../binary/reader.ts";
 import { BinaryWriter } from "../binary/writer.ts";
 import { TextLineReader } from "../text/line-reader.ts";
+import { checkI8, checkI16, checkI32, checkMagic, checkMinor } from "../validate.ts";
 import {
   BATTLE_MAX_MINOR,
   BATTLE_MIN_MINOR,
@@ -170,16 +171,26 @@ export function readSpecialMove(reader: BinaryReader): Result<SpecialMove> {
  */
 export function writeSpecialMove(model: SpecialMove): Result<Uint8Array> {
   const writer = new BinaryWriter();
+  const headerMagic = checkMagic(writer, SPECIAL_MOVE_SECTION, model.magic, SPECIAL_MOVE_MAGIC);
+  if (headerMagic !== undefined) return headerMagic;
+  const headerMinor = checkMinor(writer, SPECIAL_MOVE_SECTION, model.minor, BATTLE_MIN_MINOR, BATTLE_MAX_MINOR);
+  if (headerMinor !== undefined) return headerMinor;
 
   const magic = writer.str(model.magic);
   if (!magic.ok) {
     return magic;
   }
+  const headerMajor = checkI16(writer, SPECIAL_MOVE_SECTION, "major", model.major);
+  if (headerMajor !== undefined) return headerMajor;
   writer.i16(model.major);
   writer.i16(model.minor);
   const name = writer.str(model.name);
   if (!name.ok) {
     return name;
+  }
+  for (const [field, value] of [["damage", model.damage], ["smpCost", model.smpCost]] as const) {
+    const checked = checkI32(writer, SPECIAL_MOVE_SECTION, field, value);
+    if (checked !== undefined) return checked;
   }
   writer.i32(model.damage);
   writer.i32(model.smpCost);
@@ -187,7 +198,13 @@ export function writeSpecialMove(model: SpecialMove): Result<Uint8Array> {
   if (!program.ok) {
     return program;
   }
+  const drain = checkI32(writer, SPECIAL_MOVE_SECTION, "targetSmpDrain", model.targetSmpDrain);
+  if (drain !== undefined) return drain;
   writer.i32(model.targetSmpDrain);
+  for (const [field, value] of [["usableInBattle", model.usableInBattle], ["usableFromMenu", model.usableFromMenu]] as const) {
+    const checked = checkI8(writer, SPECIAL_MOVE_SECTION, field, value);
+    if (checked !== undefined) return checked;
+  }
   writer.i8(model.usableInBattle);
   writer.i8(model.usableFromMenu);
   for (const value of [model.statusEffect, model.animation, model.description]) {

@@ -963,3 +963,118 @@ test("the committed character version examples parse with zero trailing bytes an
     deepEqual(unwrap(writeCharacter(character)), bytes, `minor ${minor}: byte-identical round-trip`);
   }
 });
+
+// --- Writers refuse what their readers would refuse (#640 / 23.1) ------------------------------------------
+
+/** The message a writer fails with, so a refusal can be checked for its named field and range. */
+function refusal<T>(model: T, write: (model: T) => Result<Uint8Array>): string {
+  const result = write(model);
+  equal(result.ok, false, "the writer was expected to fail");
+  if (result.ok) throw new Error("unreachable");
+  return result.error.message;
+}
+
+test("a vector base or point list over the i16 upper bound is refused instead of wrapped", () => {
+  // docs/spec/formats/character.md#layout stores both counts as an i16 upper bound, so 32768 is the
+  // last representable count: a larger one wrapped to a negative bound that re-read as "none".
+  const character = unwrap(readCharacter(new BinaryReader(buildCharacter())));
+  const point = { x: 0, y: 0 };
+  const tooManyPoints = refusal({ ...character, vectorBases: [{ points: Array.from({ length: 32_769 }, () => point) }] }, writeCharacter);
+  equal(tooManyPoints.includes("32769"), true, tooManyPoints);
+  equal(tooManyPoints.includes("32768"), true, tooManyPoints);
+  const tooManyBases = refusal({ ...character, vectorBases: Array.from({ length: 32_769 }, () => ({ points: [] })) }, writeCharacter);
+  equal(tooManyBases.includes("32769"), true, tooManyBases);
+
+  const atBound = unwrap(writeCharacter({ ...character, vectorBases: [{ points: Array.from({ length: 32_768 }, () => point) }] }));
+  const reread = unwrap(readCharacter(new BinaryReader(atBound)));
+  equal(reread.vectorBases?.[0]?.points.length, 32_768, "the point bound itself is representable");
+  deepEqual(unwrap(writeCharacter(reread)), atBound, "byte-identical round-trip at the point bound");
+
+  const atBoundBases = unwrap(writeCharacter({ ...character, vectorBases: Array.from({ length: 32_768 }, () => ({ points: [] })) }));
+  const basesReread = unwrap(readCharacter(new BinaryReader(atBoundBases)));
+  equal(basesReread.vectorBases?.length, 32_768, "the base bound itself is representable");
+  deepEqual(unwrap(writeCharacter(basesReread)), atBoundBases, "byte-identical round-trip at the base bound");
+});
+
+test("an i16 actor scalar outside its range is refused instead of wrapping", () => {
+  const character = unwrap(readCharacter(new BinaryReader(buildCharacter())));
+  const experience = refusal({ ...character, experienceIncrease: 40_000 }, writeCharacter);
+  equal(experience.includes("experienceIncrease"), true, experience);
+  equal(experience.includes("-32768..32767"), true, experience);
+  const increase = refusal({ ...character, levelIncreases: [5, 40_000, 5, 5] }, writeCharacter);
+  equal(increase.includes("levelIncreases[1]"), true, increase);
+
+  // The extremes are representable and keep their bytes.
+  const extremes = unwrap(writeCharacter({ ...character, experienceIncrease: -32_768, levelIncreases: [32_767, -32_768, 0, 1] }));
+  const reread = unwrap(readCharacter(new BinaryReader(extremes)));
+  equal(reread.experienceIncrease, -32_768);
+  deepEqual(reread.levelIncreases, [32_767, -32_768, 0, 1]);
+
+  const enemy = unwrap(readEnemy(new BinaryReader(buildEnemy())));
+  const critical = refusal({ ...enemy, criticalOn: 40_000 }, writeEnemy);
+  equal(critical.includes("criticalOn"), true, critical);
+  const item = unwrap(readItem(new BinaryReader(buildItem())));
+  const price = refusal({ ...item, minor: 2, buyPrice: 40_000 }, writeItem);
+  equal(price.includes("buyPrice"), true, price);
+  equal(price.includes("-32768..32767"), true, "a minor below 3 stores prices as i16");
+});
+
+test("a stored idle field the model omits is refused rather than written as zero", () => {
+  const character = unwrap(readCharacter(new BinaryReader(buildCharacter({ minor: 7 }))));
+  const noIdle = refusal({ ...character, idleTime: undefined }, writeCharacter);
+  equal(noIdle.includes("idleTime"), true, noIdle);
+  const noSpeed = refusal({ ...character, speed: undefined }, writeCharacter);
+  equal(noSpeed.includes("speed"), true, noSpeed);
+
+  const item = unwrap(readItem(new BinaryReader(buildItem({ minor: 5 }))));
+  const itemIdle = refusal({ ...item, idleTime: undefined }, writeItem);
+  equal(itemIdle.includes("idleTime"), true, itemIdle);
+
+  // Below the minor that stores them, absence is correct: the bytes are unchanged.
+  const older = unwrap(readCharacter(new BinaryReader(buildCharacter({ minor: 6 }))));
+  deepEqual(unwrap(writeCharacter({ ...older, idleTime: undefined, speed: undefined })), buildCharacter({ minor: 6 }));
+});
+
+test("an actor writer refuses a wrong magic and an unlisted minor", () => {
+  const character = unwrap(readCharacter(new BinaryReader(buildCharacter())));
+  const magic = refusal({ ...character, magic: "RPGTLKIT ITEM" }, writeCharacter);
+  equal(magic.includes("\"RPGTLKIT CHAR\""), true, magic);
+  const minor = refusal({ ...character, minor: 9 }, writeCharacter);
+  equal(minor.includes("0..8"), true, minor);
+
+  const item = unwrap(readItem(new BinaryReader(buildItem())));
+  const itemMinor = refusal({ ...item, minor: 8 }, writeItem);
+  equal(itemMinor.includes("0..7"), true, itemMinor);
+
+  const enemy = unwrap(readEnemy(new BinaryReader(buildEnemy())));
+  const enemyMinor = refusal({ ...enemy, minor: 2 }, writeEnemy);
+  equal(enemyMinor.includes("unsupported minor version 2"), true, enemyMinor);
+});
+
+test("the remaining int and byte actor scalars are checked too", () => {
+  // A stat, an enum byte and a fixed flag list each wrap in the same way an i16 does,
+  // so each is refused with the field named rather than encoded as another value.
+  const character = unwrap(readCharacter(new BinaryReader(buildCharacter())));
+  const stat = refusal({ ...character, stats: { ...character.stats, hp: 2_147_483_648 } }, writeCharacter);
+  equal(stat.includes("hp"), true, stat);
+  const level = refusal({ ...character, maxLevel: 2_147_483_648 }, writeCharacter);
+  equal(level.includes("maxLevel"), true, level);
+  const flag = refusal({ ...character, hasSpecialMoves: 200 }, writeCharacter);
+  equal(flag.includes("hasSpecialMoves"), true, flag);
+  const bodySlot = refusal({ ...character, bodySlots: [0, 1, 200, 1, 1, 1, 1] }, writeCharacter);
+  equal(bodySlot.includes("body slots[2]"), true, bodySlot);
+  const sizeType = refusal({ ...character, sizeType: 200 }, writeCharacter);
+  equal(sizeType.includes("sizeType"), true, sizeType);
+
+  const item = unwrap(readItem(new BinaryReader(buildItem())));
+  const useFlag = refusal({ ...item, equipable: 200 }, writeItem);
+  equal(useFlag.includes("use flags[0]"), true, useFlag);
+
+  const enemy = unwrap(readEnemy(new BinaryReader(buildEnemy())));
+  const enemyHp = refusal({ ...enemy, hp: 2_147_483_648 }, writeEnemy);
+  equal(enemyHp.includes("hp"), true, enemyHp);
+  const ai = refusal({ ...enemy, aiLevel: 200 }, writeEnemy);
+  equal(ai.includes("aiLevel"), true, ai);
+  const reward = refusal({ ...enemy, experienceReward: 2_147_483_648 }, writeEnemy);
+  equal(reward.includes("experienceReward"), true, reward);
+});
