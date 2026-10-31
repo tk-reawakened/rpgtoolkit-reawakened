@@ -99,3 +99,30 @@ test("a play applied in its own tick keeps the applier's result and binds a comp
   ok(Number.isInteger(record.members["slot"]), "the voice names its slot");
   ok(Number.isInteger(record.members["cueId"]), "the voice names its cue");
 });
+
+test("a play whose record leaves the object table before the applier binds keeps its own result", () => {
+  const state = createGameState({ seed: 7 });
+  const bus = new EffectBus(state);
+  let media: MediaScriptService | null = null;
+  const audio = createAudioRuntime(state, {
+    lookup: () => ({ kind: "known", lengthTicks: 30 }),
+    bindVoice: (handle, result) => {
+      // The handle's record is gone by the time the applier binds it: the same stale-handle shape as a
+      // restored save whose voice was collected and its number reused.
+      state.vm.objects.splice(0, state.vm.objects.length);
+      media?.bind(handle, result);
+    },
+    defaultSoundFont: null,
+  });
+  media = createMediaScriptService(
+    state,
+    (name, args) => bus.postEffect("audio", engineEffect("audio", name, args, "draw-audio-cue")),
+    () => null,
+    () => undefined,
+  );
+  audio.register(bus);
+  const start = media.play("media/ready.wav", { track: "ui", loop: false, volume: 100, priority: 0, sync: null, wait: false });
+
+  equal(start.outcome.kind, "started", "the play keeps the result the applier decided");
+  equal(findObject(state.vm, start.record.handle), undefined, "the record really was gone when bind ran");
+});

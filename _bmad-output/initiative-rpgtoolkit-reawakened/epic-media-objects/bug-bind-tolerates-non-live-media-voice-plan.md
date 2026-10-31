@@ -29,12 +29,25 @@ object (`packages/core/src/save/snapshot.ts:186`), so a handle that was freed an
   real producer, reallocates the handle, round-trips `snapshot` → `restoreGameState`, and registers the real
   audio applier; it fails on the pre-fix commit with `TypeError: Cannot read properties of null (reading
   'track')` at `findVoice` (`audio/model.ts:200`) via `bind` (`audio/script.ts:162`). The second test keeps the
-  ordinary path honest: a play applied in its own tick still returns `started` and binds a complete voice.
+  ordinary path honest: a play applied in its own tick still returns `started` and binds a complete voice. The
+  third removes the record from the object table inside the applier, before `bind`, and asserts the play still
+  returns `started` — the branch the director review asked about.
 - `packages/core/test/battle-cues-engine.test.ts`: the #821 regression now also observes every `media.voice`
   object at the `audio` phase of each tick (after the applier binds, before the end-of-tick pass) and asserts a
   `ui` voice with a string `track` and integer `slot`/`cueId` was bound in a tick later than the one that
   created it. With the end-of-tick rooting removed, that assertion fails ("the bound voice outlived the
   tick that created it"), so a fix that only swallows the null cannot pass it.
+
+- Director review, #831: the final line is now `if (waiting.has(handle)) results.set(handle, result)`, where it
+  previously also required `record !== undefined`. `results` is a per-service mailbox written only by `bind` and
+  read-and-deleted only by the `play()` call that is still on the stack (`results.get` at `audio/script.ts:132`,
+  `results.delete` at 133, `waiting.add`/`delete` at 130/134). `waiting` holds exactly the handles that call
+  posted, so membership already identifies the right producer; no thread, wait payload or parked waiter reads
+  `results` (a thread's `audio.track` wait carries its own handle and is resolved from `state.vm`/`state.audio`
+  through `mediaStart`/`mediaVoiceRef`). Delivering the result for a handle whose record is gone therefore
+  cannot wake a wrong waiter — it only lets that same call return the applier's decision instead of `pending`,
+  which is #758's "keep the play's own result". Pinned by the third test in the regression file, which fails
+  `pending` vs `started` on the pre-fix code.
 
 ## Verification
 
