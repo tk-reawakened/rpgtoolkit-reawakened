@@ -327,4 +327,17 @@ covers = ["CAP-11"]
 after = [10]
 hitl = true
 risk = "high"
-references = ["issue - #593", "issue - #791", "spec - docs/spec/formats/save-game.md"]
+references = ["issue - #593", "issue - #791", "issue - #814", "spec - docs/spec/formats/save-game.md"]
+
+[[entry]]
+id = 25
+tracker_id = "#814"
+type = "story"
+title = "Carry saves across instruction versions"
+description = "Implement the owner-approved #809 policy: separate the data shape (per-section versions) from the meaning of a saved instruction position (a dedicated ir), migrate older data forward, resume a thread whose ir is current, restart a thread whose ir is older from its saved source, and refuse a newer ir or section whole. Retire schema.compiler and ProgramRef.compiler, keep position-free references non-gating, keep recovery like-for-like, and add the step-op fingerprint golden."
+verify = "A current-ir save resumes at a non-zero ip after a data-shape migration; the compiler-1 fixture loads its data and restarts its thread; a newer ir is refused with restore.ir-mismatch before any payload with the live game and counters unchanged; a newer section version is refused for every section including engine; an uncompilable restart refuses before commit; a recovery candidate with a different ir is refused without touching stored bytes; the step-op fingerprint fails when lowering changes without an ir bump."
+covers = ["CAP-11"]
+after = [24]
+hitl = false
+risk = "high"
+references = ["issue - #809", "spec - docs/spec/formats/save-game.md#save-compatibility-and-instruction-versions-owner-ruling", "planning - spike-rule-save-compatibility-across-compiler-versions-plan.md"]

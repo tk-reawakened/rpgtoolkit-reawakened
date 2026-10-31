@@ -6,7 +6,7 @@ Legacy header text: `RPGTLKIT SAVE`. Toolkit 3.1.0 writes major **3**, minor **4
 
 **Counts here are exact counts** (not upper bounds), except the thread list.
 
-**Our own save format — Reawakened rule (R-13).** A rebuild may use its own save format; this project's canonical Reawakened format is the save/load contract. Epic 8 implements that format only; legacy `.sav` import (E-122) is deferred. Restore a thread from its serialized execution state only when the save's compiler version matches the running compiler: a save made by a different compiler is refused whole with `restore.compiler-mismatch`, before any payload is used, and the current game is left unchanged (OWNER: Jensen, 2026-10-27). A thread whose saved *source* no longer matches the current source (`restore.source-changed`) is a separate, per-thread rule: that thread restarts from source rather than resuming an incompatible instruction position, and the rest of the save still loads. Restore still validates every saved callable and definition owner: if a changed or incompatible program leaves an unresolved callable reference, reject the save with the existing located restore error rather than repairing or silently dropping callable state (see [rpgcode-language.md](../engine/rpgcode-language.md), “Saving, loading and tidying up closures”). The split into separate lists — numeric globals, object-handle globals and string globals, then redirects, party, inventory, equipment and the miscellany — documents legacy import behavior only.
+**Our own save format — Reawakened rule (R-13).** A rebuild may use its own save format; this project's canonical Reawakened format is the save/load contract. Epic 8 implements that format only; legacy `.sav` import (E-122) is deferred. A saved game records its data shape in the per-section versions and the meaning of its saved instruction positions in `schema.ir`; a data section migrates forward by its own version, a thread resumes its saved position only when `schema.ir` matches the running instruction version, and a thread from an older instruction version restarts from its saved source after the data migrations (OWNER: Jensen, 2026-10-30, [save compatibility](#save-compatibility-and-instruction-versions-owner-ruling)). A save from a *newer* instruction or section version is refused whole with a located diagnostic before any payload is used, and the current game is left unchanged. A thread whose saved *source* no longer matches the current source (`restore.source-changed`) is a separate, per-thread rule: that thread restarts from source rather than resuming an incompatible instruction position, and the rest of the save still loads. Restore still validates every saved callable and definition owner: if a changed or incompatible program leaves an unresolved callable reference, reject the save with the existing located restore error rather than repairing or silently dropping callable state (see [rpgcode-language.md](../engine/rpgcode-language.md), “Saving, loading and tidying up closures”). The split into separate lists — numeric globals, object-handle globals and string globals, then redirects, party, inventory, equipment and the miscellany — documents legacy import behavior only.
 
 ### Reawakened full-engine save and load
 
@@ -71,42 +71,85 @@ image effects and other in-flight blob requests all settle first. A save
 therefore never records a thread parked on a request the host has not answered,
 which a restore would drop and strand.
 
-### Compiler mismatch: refuse the whole save (owner ruling)
+### Save compatibility and instruction versions (owner ruling)
 
-**Ruling (OWNER: Jensen, 2026-10-27).** A compiler version that differs from the
-running compiler makes a saved instruction position meaningless, so the save is
-refused as a whole and the live game is not changed. Two distinct rules follow
-and must not be merged:
+<a id="compiler-mismatch-refuse-the-whole-save-owner-ruling"></a>
 
-| Situation | Outcome |
-|---|---|
-| The save's `schema.compiler`, or any program reference inside it (every frame's `program`, every object record's `program`, every `vm.defOwners` entry), names a compiler other than the running one | The whole save is refused with `restore.compiler-mismatch`, located at the first offending field, before the `vm` payload is used. `Load` returns failure to the calling thread, raises the diagnostic, and replaces nothing. |
-| The compiler matches but a file-backed program's current source no longer matches the saved `sourceHash` (`restore.source-changed`) | That one thread restarts from source on its next turn; the rest of the save loads. Callable and owner validation still rejects the save when a changed program leaves a saved callable unresolved. |
+<!-- The anchor above is the 2026-10-27 heading's id, kept so existing links resolve. -->
 
-The compiler check is the first one a load makes: a save from another compiler
-reports `restore.compiler-mismatch` even when other parts of it (its audio
-projection, its sections) are also malformed. After it, a game load compiles every
-program the save names, with or without callables, so a save whose thread names a
-program file or include the game no longer has fails the load up front
-(`program.missing`) and leaves the live game unchanged.
-A thread whose file source changed (`restore.source-changed`) still restarts from
-source, and the load proves that restart will work before it commits: the current
-source is compiled together with the saved run-time include list, so a syntax error
-in the new file, or a saved `include()` whose file was removed
-(`program.include-missing`), refuses the load rather than throwing from a later
-tick. A literal include of a file the game lacks is not an error (it is ignored
-silently, R2-Q21), so it does not refuse a load. A refused load restores every
-engine counter it touched, including the request-id counter, so the unchanged game
-keeps issuing fresh request ids and keeps the same state hash. (The callable check
-`verifyRestoredHandles` itself still compiles nothing for a state with no
-callable, [rpgcode-language.md](../engine/rpgcode-language.md); the engine's load
-adds this compile pass.)
+**Ruling (OWNER: Jensen, 2026-10-30; supersedes the 2026-10-27 whole-save
+compiler refusal).** A save records two independent identities, and each decides
+one thing:
 
-This resolves the earlier disagreement between the whole-snapshot refusal
-(`restoreGameState`; the hardening plan; `script-state.test.ts`) and the
-per-thread clause that said "compiler or source mismatch restarts the thread":
-the per-thread restart is for changed source only. There is no `restore.restarted`
-diagnostic.
+| Carrier | Describes | On an older save |
+|---|---|---|
+| The per-section versions in `schema` (`vm`, `actors`, `audio`, …) and the `schema` version itself | the saved **data shape** | migrated forward in place before validation; a section with no migration is refused with `restore.shape` |
+| `schema.ir`, mirrored by `ProgramRef.ir` | the meaning of a saved **instruction position** — `ip` and `operands` inside `vm.threads[].frames` | every data section still loads; each affected thread restarts from its saved source |
+
+`schema.compiler` and `ProgramRef.compiler` retire: one value was carrying both
+jobs. These rules follow and must not be merged:
+
+- **`ir` changes only when positions change.** A data-shape change bumps the
+  affected section version (or `schema`) and leaves `ir` alone, so a save from any
+  build whose instruction numbering is unchanged resumes exactly. `ir` changes
+  exactly when the step set, the lowering or the emission order changes what an
+  `ip` means. The same change MUST update the step-op fingerprint golden — a hash
+  of each fixture program's lowered `StepOp` list — so a lowering change that
+  forgets the `ir` bump fails CI instead of misreading saved positions.
+- **A current `ir` resumes.** After the section migrations, every thread resumes at
+  its saved `ip` and operand stack.
+- **An older `ir` restarts those threads from source.** The data still migrates and
+  loads; each thread whose frames carry an older `ir` restarts before the load
+  commits — root frame at `ip 0`, call stack dropped, locals reset — and the
+  restart is compiled as part of the load, so a restart that cannot compile
+  (`program.missing`, `program.include-missing`, a syntax error) refuses the save.
+  A thread whose file source also changed (`restore.source-changed`) uses the
+  current source, as it does today. This is a replay: a restarted thread re-runs
+  from its first instruction, which is the price of loading a save whose positions
+  cannot be honoured.
+- **Pre-split saves migrate.** A save written with `compiler` and no `ir` maps
+  `compiler "2"` to `ir "1"` and any other compiler value to `ir "0"` — "positions
+  not valid" — which takes the restart path. A compiler-1 save therefore loads its
+  data and restarts its threads; it is no longer refused whole.
+- **A newer `ir` or section is refused whole.** The diagnostic is
+  `restore.ir-mismatch` for the instruction version and `restore.shape` for a newer
+  section, located at the offending field and raised before any payload is used.
+  `Load` returns failure to the calling thread, raises the diagnostic, and replaces
+  nothing.
+- **Position-free references never gate the save.** An object record's `program`, a
+  `vm.defOwners` entry and a callable (which names a `def`, not a program) carry no
+  instruction position; the load rebuilds them from source. A `def` that only a
+  restarted program defined is reported as unknown, as today.
+- **Recovery is stricter than `Load`.** A recovery candidate needs like-for-like
+  assets *and* format, so any `ir` difference refuses the candidate without touching
+  stored bytes and the player captures again
+  ([interruption-recovery.md](../engine/interruption-recovery.md#recovery-and-pause)).
+  Normal-save migration never loosens that rule.
+
+A game load still compiles every program the save names, with or without callables,
+so a save whose thread names a program file or include the game no longer has fails
+the load up front and leaves the live game unchanged. A thread whose file source
+changed still restarts from source, and the load proves that restart will work
+before it commits: the current source is compiled together with the saved run-time
+include list, so a syntax error in the new file, or a saved `include()` whose file
+was removed, refuses the load rather than throwing from a later tick. A literal
+include of a file the game lacks is not an error (it is ignored silently, R2-Q21),
+so it does not refuse a load. A refused load restores every engine counter it
+touched, including the request-id counter, so the unchanged game keeps issuing
+fresh request ids and keeps the same state hash. (The callable check
+`verifyRestoredHandles` itself still compiles nothing for a state with no callable,
+[rpgcode-language.md](../engine/rpgcode-language.md); the engine's load adds this
+compile pass.)
+
+This replaces the 2026-10-27 rule that the per-thread restart was for changed
+source only: an older instruction version restarts the thread for the same reason —
+its saved position cannot be honoured — while a newer one refuses the save. There is
+no `restore.restarted` diagnostic, and `restore.compiler-mismatch` retires with the
+old gate.
+
+The target save shape is `schema` version 2 (`ir` replaces `compiler`) and `vm`
+version 6 (`ProgramRef.ir` replaces `ProgramRef.compiler`); both migrations and
+their previous-version fixtures belong to the implementation story.
 
 Audio game saves add only the playback projection defined in
 [audio-media.md](../engine/audio-media.md#audio-save-load), not runtime audio
@@ -120,7 +163,7 @@ The **game ledger** is the validated, game-owned progress subset of **savable
 state**. Savable state also includes the continuation needed for ordinary
 Save/Load. A ledger is not a replacement for the complete VM snapshot: normal
 saves retain running threads, waits, frames, locals and their references under
-G1 and the compiler/source compatibility rules above. Interruption recovery is
+G1 and the instruction-version/source compatibility rules above. Interruption recovery is
 separate from normal Load and does not promise to restart a battle.
 
 This ruling is a required contract for future work, not a claim that the
