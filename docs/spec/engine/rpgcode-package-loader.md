@@ -38,7 +38,7 @@ This metadata is consumed at audio configuration time, not by the package manife
 
 Reset reuses the active resolved manifest and catalogue, reconstructing services and rerunning the same package startup sequence before main startup. Each fresh service/layer table therefore derives its registrations deterministically from the installed packages and their manifest order; package layer tables are not serialized.
 
-There is no engine-owned saved-state hydration API. A restore host must construct the engine's script services and rebuild package startups against fresh state before it hydrates the saved state, using the same active catalogue and package order. Saved VM handles are checked against that rebuilt session table by existing restore validation. The engine's `SavedGamePort.restored()` remains only the signal to skip initial-board loading; it is not state hydration.
+The engine owns the restore-time startup rebuild: its load path builds a scratch state, constructs the services and runs the installed packages' start-ups against that fresh state (`applyLoadedGame` in `packages/core/src/engine/engine.ts`), refuses the load with `restore.shape` when an installed start-up fails, and only then hydrates the saved state. A host must not rebuild the start-ups itself, or they run twice. Saved VM handles are checked against the rebuilt session table by the engine's existing restore validation, and `SavedGamePort.restored()` remains only the signal to skip initial-board loading; it is not the restore entry point.
 
 ## Host boundary
 
