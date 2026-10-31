@@ -14,3 +14,21 @@ export { rangeOf, sliceRange } from "./diagnostics.ts";
 export type { Diagnostic, Position, Range, Severity, TextEdit } from "./diagnostics.ts";
 export { helpFor, projectHelp } from "./help.ts";
 export type { HelpEntry } from "./help.ts";
+export { buildIndex, INDEX_SCHEMA } from "./index-document.ts";
+export type {
+  IndexCall,
+  IndexClass,
+  IndexDocument,
+  IndexFunction,
+  IndexInclude,
+  IndexLabel,
+  IndexListener,
+  IndexMember,
+  IndexMethod,
+  IndexOptions,
+  IndexPos,
+  IndexProgram,
+  IndexProgramInput,
+  IndexReference,
+  IndexStartup,
+} from "./index-document.ts";

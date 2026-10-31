@@ -88,6 +88,30 @@ The commands this page adds to the catalogue are listed in [rpgcode-functions.md
 
 **Stability promise.** Adding an optional field, or adding a value to an enumerated field, is a minor change; removing a field, retyping it, renaming it, or changing the meaning of an existing field is a major change. A consumer may rely on every field above; it may not rely on the order of members inside an object, on whitespace, or on fields not listed here.
 
+<a id="tool-6-identity"></a>
+**TOOL-6 symbol identity and the document's fields.** Every symbol has one stable id, `<file>#<kind>:<name>`, where `<file>` is the unit's canonical key (an inline program uses `<inline>`), `<kind>` is `function`, `method`, `member`, `class` or `label`, and `<name>` is the **folded** spelling. RPGCode folds identifiers ([LEX-10](rpgcode-language.md#lexical-rules)), so `MWin`, `mwin` and `MWIN` are one symbol; the folded spelling is its identity and the only spelling the compiler's tables hold. A class member or method qualifies with its owner: `prg/startup.prg#method:counter.bump`. Each definition also carries `qualifiedName`, the dotted name a reader recognises (`counter.bump`), which is not an identity because two files can define the same dotted name.
+
+A **site** — a call, a member access, a variable read or write, a declaration — is `{ kind, name, written, scope, pos }`. `written` is the exact source spelling, present whenever the compiler's position is the identifier token: the site's range slices the text, so `written` is that slice. It is absent when the position is a keyword, because [TOOL-3](#tool-3-range-convention) anchors a function on `function` and a label on `:`.
+
+Per program the document carries:
+
+| Field | Contents |
+|---|---|
+| `name`, `key`, `files` | the caller's name for the program, its main unit's canonical key, and every unit key in load order (main first) |
+| `functions` | `{ id, qualifiedName, name, arity, file, line, col, endCol, className }` per definition, from the compiler's own function table and the parsed unit |
+| `classes` | `{ id, qualifiedName, name, file, line, col, endCol, bases, members, methods }`, members with `access` and `arraySize`, methods with `arity`, `access` and `isPure` |
+| `labels` | `{ id, name, file, line, col, endCol }` |
+| `includes` | one entry per `IncludeRequest` in source order: `{ path, implicit, key, file, line, col, endCol }`, where `key` is the resolved canonical key or absent when nothing served it |
+| `calls` | `{ name, written, arity, file, fileParam, pos }` per `call`, `methodCall` and `construct` |
+| `references` | `{ kind, name, written, scope, pos }` per `load`, `declRef`, `member`, `get_member_bound` and `storeRef`; a `storeRef` carries no name because the IR keeps the target on the stack, and its `kind` says so |
+| `listeners` | `{ event, call, pos }` for every literal first argument of `on`, `once` and `emit` |
+| `startup` | the package names whose start-up program this program is |
+| `diagnostics` | the [TOOL-3](#tool-3) diagnostics of that program |
+
+**Broken programs.** A program that does not compile contributes its diagnostic and an otherwise empty entry — no functions, classes, labels, includes, calls, references, listeners or start-up points are invented from a partial parse. The absence is the fact, and a consumer must not read "not listed" as "does not exist".
+
+The index is **read from the compiler, not a second walk**: definitions come from `Program.functions`/`classes`/`labels` and the parsed units, sites from the lowered ops at their `SourcePos`, and the include requests from the units the compiler parsed. The schema is [schemas/tkr-script-index.schema.json](../schemas/tkr-script-index.schema.json); the same inputs produce the same bytes, so a diff means the source changed.
+
 The document is the whole surface this epic publishes for other tools. Writing it into a code graph, or serving it over a protocol, is not this page's contract: the syntactic graph a code-graph tool builds from its own grammar is separate work, and the two must not be confused — this index is the compiler's own semantic view, that graph is a syntax view ([ADR 0011](../../adr/0011-tree-sitter-rpgcode.md)).
 
 <!-- OWNER: D-6, approved 2026-10-31. Rejected: every tool reading the compiler in process — that is what the server, the linter and the CLI would each do, and it is why the index has one owner; and emitting grammar or graph nodes here would duplicate the independent extractor and tempt the grammar work to use parser output, which ADR 0011 forbids. -->

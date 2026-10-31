@@ -1,0 +1,668 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tk-reawakened/rpgtoolkit-reawakened/docs/spec/schemas/tkr-script-index.schema.json",
+  "title": "tkr script index document",
+  "description": "The one symbol and reference index the language server, the linter and the CLI read (docs/spec/engine/rpgcode-tooling.md#tool-6). Adding an optional field or an enumerated value is a minor change; removing, renaming or retyping a field is a major one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "programs",
+    "diagnostics"
+  ],
+  "properties": {
+    "schema": {
+      "description": "Document schema identity and version: tkr-index/<major>.<minor>.",
+      "type": "string",
+      "pattern": "^tkr-index/[0-9]+\\.[0-9]+$"
+    },
+    "programs": {
+      "description": "One entry per program the index was given, in the order given.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/program"
+      }
+    },
+    "diagnostics": {
+      "description": "Every program's TOOL-3 diagnostics, concatenated in program order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    }
+  },
+  "$defs": {
+    "position": {
+      "description": "One source position; columns count UTF-16 code units, 1-based and inclusive (TOOL-3 range convention).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "line"
+      ],
+      "properties": {
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "$ref": "#/$defs/position"
+        },
+        "end": {
+          "$ref": "#/$defs/position"
+        }
+      }
+    },
+    "textEdit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "range",
+        "newText"
+      ],
+      "properties": {
+        "range": {
+          "$ref": "#/$defs/range"
+        },
+        "newText": {
+          "type": "string"
+        },
+        "rule": {
+          "type": "string"
+        }
+      }
+    },
+    "diagnostic": {
+      "description": "The TOOL-3 diagnostic shape, verbatim.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "severity",
+        "range",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "info",
+            "hint"
+          ]
+        },
+        "range": {
+          "$ref": "#/$defs/range"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fix": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/textEdit"
+          }
+        }
+      }
+    },
+    "declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "file",
+        "line",
+        "col",
+        "endCol"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "col": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endCol": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "function": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "file",
+        "line",
+        "col",
+        "endCol",
+        "qualifiedName",
+        "arity",
+        "className"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "col": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endCol": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "qualifiedName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "arity": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "className": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "isInline": {
+          "type": "boolean"
+        }
+      }
+    },
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "file",
+        "line",
+        "col",
+        "endCol",
+        "access",
+        "arraySize"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "col": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endCol": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "access": {
+          "enum": [
+            "public",
+            "private"
+          ]
+        },
+        "arraySize": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "qualifiedName",
+        "name",
+        "file",
+        "line",
+        "col",
+        "endCol",
+        "arity",
+        "access",
+        "isPure"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "qualifiedName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "col": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endCol": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "arity": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "access": {
+          "enum": [
+            "public",
+            "private"
+          ]
+        },
+        "isPure": {
+          "type": "boolean"
+        }
+      }
+    },
+    "class": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "qualifiedName",
+        "name",
+        "file",
+        "line",
+        "col",
+        "endCol",
+        "bases",
+        "members",
+        "methods"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "qualifiedName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "col": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endCol": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "bases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/member"
+          }
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/method"
+          }
+        }
+      }
+    },
+    "include": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "file",
+        "implicit",
+        "line",
+        "col",
+        "endCol"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "implicit": {
+          "type": "boolean"
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "col": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endCol": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "pos": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "line"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "col": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endCol": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "written",
+        "arity",
+        "file",
+        "pos"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "written": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "arity": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fileParam": {
+          "type": "boolean"
+        },
+        "pos": {
+          "$ref": "#/$defs/pos"
+        }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "name",
+        "written",
+        "scope",
+        "pos"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "read",
+            "decl",
+            "member",
+            "store"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "written": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "enum": [
+            "local",
+            "global",
+            null
+          ]
+        },
+        "pos": {
+          "$ref": "#/$defs/pos"
+        }
+      }
+    },
+    "listener": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event",
+        "call",
+        "pos"
+      ],
+      "properties": {
+        "event": {
+          "type": "string",
+          "minLength": 1
+        },
+        "call": {
+          "enum": [
+            "on",
+            "once",
+            "emit"
+          ]
+        },
+        "pos": {
+          "$ref": "#/$defs/pos"
+        }
+      }
+    },
+    "program": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "key",
+        "files",
+        "functions",
+        "classes",
+        "labels",
+        "includes",
+        "calls",
+        "references",
+        "listeners",
+        "startup",
+        "diagnostics"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "functions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/function"
+          }
+        },
+        "classes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/class"
+          }
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/declaration"
+          }
+        },
+        "includes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/include"
+          }
+        },
+        "calls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/call"
+          }
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
+        },
+        "listeners": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/listener"
+          }
+        },
+        "startup": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diagnostic"
+          }
+        }
+      }
+    }
+  }
+}
