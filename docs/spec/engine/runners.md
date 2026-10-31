@@ -123,6 +123,14 @@ A runner also owns the player's preferences — per-bus volume and mute, and the
 of [audio-media.md#audio-soundfont-cache](audio-media.md#audio-soundfont-cache): banks keyed by the SHA-256 of their
 bytes, cached per runner and shared across games, with eviction that never removes the bank in use.
 
+**What is implemented today** (entry 9.5). `synth` carries the cue player: `cueStart` is the table's `media.play`,
+`media.seek` and `media.fade` arithmetic as a pure function of the cue and the tick the voice became ready, and
+`CuePlayer` is the state machine over it — the `(track, voice)` map, the prepared voice from `media.load`, the
+pre-ready message queue, the autoplay lock's mirror and the focus hold. `runner-web` carries the output: `PcmSink` holds
+one `synth` source voice per protocol voice and **pulls** frames, which is the same call a browser `AudioContext` graph
+makes, with bus, master and voice volumes applied at the pull. A bank is recorded from `setBank` and MIDI voices fail
+with `bank.missing` until the SoundFont path and the bank picker land with 9.6.
+
 <a id="desktop-shell"></a>
 ## The desktop applications
 
@@ -291,10 +299,11 @@ Its licence, and why it is a dev-only tool outside the production-tree scan, are
 | Section | Delivered by |
 |---|---|
 | [draw-list](#draw-list) and [webgl2-agreement](#webgl2-agreement) in full: every AD-3 command, the unified vector kit and every gating ledger row | 9.3, 9.4 |
-| [audio](#audio) | 9.5, 9.6 |
+| [audio](#audio): the cue player and the PCM output | 9.5 |
 | [install](#install), [desktop-shell](#desktop-shell) (player) | 9.10, 9.11 |
 | [load-modes](#load-modes), [prefetch](#prefetch), [offline](#offline) | 9.8, 9.9 |
 | [mobile](#mobile) | 9.12 |
 | [build](#build), [conformance-lane](#conformance-lane), [csp-and-banks](#csp-and-banks) | 9.3 |
 | the schema and the vector kit themselves | 9.2 |
+| [audio](#audio): the SoundFont path, the bank picker and the shared bank cache | 9.6 |
 | the whole page replayed end to end | 9.14 |

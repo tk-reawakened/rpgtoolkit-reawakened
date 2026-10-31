@@ -7,4 +7,5 @@ export * from "./pcm.ts";
 export * from "./mixer.ts";
 export * from "./voice-pool.ts";
 export * from "./machine.ts";
+export * from "./cue-player.ts";
 export * from "./null.ts";

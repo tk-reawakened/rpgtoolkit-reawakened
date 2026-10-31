@@ -270,6 +270,9 @@ importers:
       '@tk-reawakened/runner-harness':
         specifier: workspace:*
         version: link:../runner-harness
+      '@tk-reawakened/synth':
+        specifier: workspace:*
+        version: link:../synth
 
   packages/script-tools:
     dependencies:

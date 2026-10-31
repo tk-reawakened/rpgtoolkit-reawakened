@@ -20,6 +20,7 @@
   "dependencies": {
     "@tk-reawakened/core": "workspace:*",
     "@tk-reawakened/render-webgl2": "workspace:*",
-    "@tk-reawakened/runner-harness": "workspace:*"
+    "@tk-reawakened/runner-harness": "workspace:*",
+    "@tk-reawakened/synth": "workspace:*"
   }
 }
