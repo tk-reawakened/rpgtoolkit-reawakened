@@ -135,6 +135,8 @@ export type IndexProgram = {
   readonly key: string;
   readonly files: readonly string[];
   readonly functions: readonly IndexFunction[];
+  /** Every parameter name the program's functions, methods and lambdas declare, folded and de-duplicated. */
+  readonly parameters: readonly string[];
   readonly classes: readonly IndexClass[];
   readonly labels: readonly IndexLabel[];
   readonly includes: readonly IndexInclude[];
@@ -178,6 +180,7 @@ function emptyProgram(name: string, key: string, startup: readonly string[], dia
     key,
     files: [],
     functions: [],
+    parameters: [],
     classes: [],
     labels: [],
     includes: [],
@@ -388,6 +391,36 @@ function statementExpressions(statement: Statement): Expr[] {
   }
 }
 
+/** Every declared parameter name in one unit: functions, methods and lambdas. */
+function parameterNames(unit: ProgramUnit): string[] {
+  const names = new Set<string>();
+  const add = (params: readonly { readonly name: string }[]): void => {
+    for (const param of params) names.add(param.name);
+  };
+  for (const fn of unit.ast.functions) add(fn.params);
+  for (const cls of unit.ast.classes) for (const method of cls.methods) add(method.params);
+  const visitExpr = (expr: Expr): void => {
+    if (expr.kind === "lambda") add(expr.params);
+    for (const child of childExpressions(expr)) visitExpr(child);
+  };
+  const walk = (block: Block): void => {
+    for (const statement of block) {
+      for (const expr of statementExpressions(statement)) visitExpr(expr);
+      if (statement.kind === "if") {
+        for (const branch of statement.branches) walk(branch.body);
+        if (statement.elseBody !== null) walk(statement.elseBody);
+      } else if (statement.kind === "while" || statement.kind === "until" || statement.kind === "for") {
+        walk(statement.body);
+      } else if (statement.kind === "switch") {
+        for (const item of statement.cases) walk(item.body);
+        if (statement.defaultBody !== null) walk(statement.defaultBody);
+      }
+    }
+  };
+  walk(unit.ast.statements);
+  return [...names];
+}
+
 function includeKey(program: Program, path: string): string | undefined {
   return program.fileKeys[foldAscii(path)];
 }
@@ -401,6 +434,7 @@ function programFacts(
   const units = program.units;
   const mainKey = units[0]?.key ?? name;
   const functions: IndexFunction[] = [];
+  const parameters = new Set<string>();
   const classes: IndexClass[] = [];
   const labels: IndexLabel[] = [];
   const includes: IndexInclude[] = [];
@@ -409,6 +443,7 @@ function programFacts(
   const listeners: IndexListener[] = [];
 
   for (const unit of units) {
+    for (const name of parameterNames(unit)) parameters.add(name);
     functions.push(...functionsOf(unit));
     classes.push(...classesOf(unit));
     labels.push(...labelsOf(unit));
@@ -499,6 +534,7 @@ function programFacts(
     key: mainKey,
     files: units.map((unit) => unit.key),
     functions,
+    parameters: [...parameters],
     classes,
     labels,
     includes,

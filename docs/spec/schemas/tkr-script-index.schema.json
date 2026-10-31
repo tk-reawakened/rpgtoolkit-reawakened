@@ -589,7 +589,8 @@
         "references",
         "listeners",
         "startup",
-        "diagnostics"
+        "diagnostics",
+        "parameters"
       ],
       "properties": {
         "name": {
@@ -661,6 +662,14 @@
           "items": {
             "$ref": "#/$defs/diagnostic"
           }
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Every parameter name the program declares (functions, methods and lambdas), folded and de-duplicated."
         }
       }
     }

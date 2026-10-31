@@ -4,16 +4,11 @@ import {
   commandDocumentation,
   createAssetIndex,
   assetKey,
+  FIRST_PARTY_PLUGINS,
   PACKAGE_ROOT,
   utf8Encode,
   type ProgramLoader,
   type ResolvedPlugin,
-  CORE_PLUGIN,
-  MEDIA_PLUGIN,
-  BATTLE_PLUGIN,
-  CATALOGUE_PLUGIN,
-  NATIVE_PACK_TABLE,
-  type PluginDefinition,
 } from "@tk-reawakened/core";
 import { buildIndex, projectHelp } from "@tk-reawakened/script-tools";
 import type {
@@ -99,14 +94,7 @@ function pair(): Pair {
   };
 }
 
-const definitions: { readonly [id: string]: PluginDefinition } = {
-  core: CORE_PLUGIN,
-  media: MEDIA_PLUGIN,
-  battle: BATTLE_PLUGIN,
-  catalogue: CATALOGUE_PLUGIN,
-  ...NATIVE_PACK_TABLE,
-};
-const plugins: ResolvedPlugin[] = ["core", "media", "battle", "catalogue", "gsmisc", "triuken", "filereadwrite", "proplug", "xfmwin", "kaimu", "twbutton"].map((id) => ({ definition: definitions[id]! }));
+const plugins: ResolvedPlugin[] = FIRST_PARTY_PLUGINS.map((definition) => ({ definition }));
 const help = projectHelp(plugins);
 
 function loader(files: Readonly<Record<string, string>>): ProgramLoader {
