@@ -3,7 +3,7 @@ title: 'Resolve the custom battle-handler contract conflict'
 type: 'chore'
 ticket: 27
 created: '2026-10-29'
-status: in-progress
+status: done
 baseline_revision: '82d30c5e'
 risk: 'medium'
 review: 'quick'

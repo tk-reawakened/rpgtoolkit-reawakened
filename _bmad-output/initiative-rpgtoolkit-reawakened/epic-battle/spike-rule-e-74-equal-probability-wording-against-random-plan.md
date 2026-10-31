@@ -3,7 +3,7 @@ title: 'Rule E-74 equal-probability wording against random()'
 type: 'chore'
 ticket: 26
 created: '2026-10-29'
-status: in-progress
+status: done
 baseline_revision: '82d30c5e'
 risk: 'medium'
 review: 'quick'

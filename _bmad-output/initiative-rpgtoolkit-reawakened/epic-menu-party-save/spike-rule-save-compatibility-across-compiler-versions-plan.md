@@ -1,6 +1,6 @@
 ---
 title: 'Rule save compatibility across compiler versions'
-type: 'spike'
+type: 'chore'
 ticket: 24
 created: '2026-10-30'
 status: 'done'

@@ -6,7 +6,7 @@ tracker_id: "#853"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/853"
 parent: epic-rpgcode-platform
 created: '2026-10-30'
-status: built
+status: done
 baseline_revision: '9ab477f66872d20bc97ef635384a72287e0ac024'
 risk: "high"
 context:

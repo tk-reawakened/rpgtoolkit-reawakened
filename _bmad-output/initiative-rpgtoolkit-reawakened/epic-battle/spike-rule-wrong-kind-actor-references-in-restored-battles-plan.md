@@ -3,7 +3,7 @@ title: 'Rule wrong-kind actor references in restored battles'
 type: 'chore'
 ticket: 25
 created: '2026-10-29'
-status: in-progress
+status: done
 baseline_revision: '82d30c5e'
 risk: 'medium'
 review: 'quick'
