@@ -17,6 +17,8 @@ import {
 
 export type TestEngineState = {
   tick: number;
+  /** False while the window is inactive: the main loop runs no frame then (docs/spec/engine/main-loop-and-startup.md#e-03). */
+  focused: boolean;
   keys: string[];
   pointer: { x: number; y: number; buttons: number };
   other: number;
@@ -46,6 +48,7 @@ function deepCopyValue<T>(value: T): T {
 export function createTestEngine(): Engine {
   const state: TestEngineState = {
     tick: 0,
+    focused: true,
     keys: [],
     pointer: { x: 0, y: 0, buttons: 0 },
     other: 0,
@@ -127,7 +130,9 @@ export function createTestEngine(): Engine {
             break;
           }
           case "focus": {
-            throw new Error("test double: focus pause is not modelled");
+            // E-03: the Paused state runs no game frame, so losing focus stops the clock advancing until it returns.
+            state.focused = event.state === "gained";
+            break;
           }
           default: {
             const _never: never = event;
@@ -142,11 +147,13 @@ export function createTestEngine(): Engine {
         });
       }
 
-      state.tick = endTick;
+      // A paused window runs no frame: the inputs are consumed, but the tick does not advance.
+      const ran = state.focused ? actualTicks : 0;
+      state.tick = state.focused ? endTick : before;
       const stateHash = hashState(state);
 
       return {
-        ticksRun: actualTicks,
+        ticksRun: ran,
         tickAfter: state.tick,
         consumed,
         audioCues,
