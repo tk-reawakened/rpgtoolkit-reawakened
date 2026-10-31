@@ -3,9 +3,7 @@ title: "Rulings: the runner boundary, the desktop shell, image storage, load mod
 type: 'feature'
 ticket: 1
 created: '2026-10-31'
-status: blocked
-blocked_at: '2026-10-31'
-blocked_reason: 'awaiting the owner review of the ruling text recorded here'
+status: done
 tracker_id: "#926"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/926"
 baseline_revision: '674c8a03'
@@ -588,6 +586,25 @@ Structural Seed and its generated diagram are unchanged.
   belongs to that package rather than to `runner-web`.
 
 ---
+
+## Landed
+
+**Merged 2026-10-31 in `ff7a65045a5ba0cc3768ac2f5f1793aa28c915fa`** (PR #968, squash), one docs-first commit per
+destination:
+
+| Ruling | Destination | Commit |
+|---|---|---|
+| D-3, D-4, D-5, D-6, D-7, D-10, D-11 | `docs/spec/engine/runners.md` (new; indexed from `docs/spec/README.md`) | `ee608050` |
+| D-1 (shell, two applications, `app://`, G6 exception) | `docs/adr/0013-desktop-shell-electron.md` | `b1f1c3f5` |
+| D-8, D-9 | `docs/adr/0015-web-build-and-test-toolchain.md` — numbered 0015 because epic 10 landed `0014-rpgcode-spec-package.md` first | `691ae578`, renumbered `993b6ac1` |
+| D-1 (install descriptor), the EXE correction | `docs/spec/formats/packaging-and-paths.md#install-descriptor` | `e46283a4` |
+| D-2 | `docs/spec/formats/images.md#storage-policy` | `00675112` |
+| D-1, D-4, D-10, D-11 (spine side) | AD-5, AD-17, AD-22, the Stack pin 45.2.1, the closed shell open question, the conditional `wasm-unsafe-eval` sentence | `48c0eabf` |
+| T-70/T-71 | `docs/editor-features.md` §8 | `6fe18ddf` |
+| the approvals and the EXE sweep | epic 9's Notes and five documents | `75c6e5a1` |
+
+`pnpm provenance` and `pnpm lint` were clean at the merge; `tickets.py status` reported `problems: null` with no
+`order_conflict`, no `unpinned_after` and no `undeclared_after` for this epic.
 
 ## Acceptance
 
