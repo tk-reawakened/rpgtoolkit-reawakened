@@ -3,6 +3,9 @@ id: 6
 type: story
 title: "Classes, objects and operator dispatch"
 parent: epic-rpgcode-vm
+tracker_id: "#362"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/362"
+tracker_status: done
 covers: [CAP-5]
 after: [3, 5]
 refined: true

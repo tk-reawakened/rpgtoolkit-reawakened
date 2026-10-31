@@ -3,6 +3,9 @@ id: 33
 type: story
 title: "Reference oracle for lights and shading: lit scenes"
 parent: epic-board-rendering
+tracker_id: "#401"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/401"
+tracker_status: done
 covers: [CAP-6]
 after: [4, 13]
 hitl: false
