@@ -48,11 +48,11 @@ Seven are gating — 9.2 to 9.14 cannot start without them (D-1, D-3, D-4, D-5, 
 
 | ID | Ruling in one line | Gating? | Lands in |
 |---|---|---|---|
-| D-1 | Two shells only — the PWA and one Electron desktop app (editor and player in one) whose harness installs game **packages** into a library with a configured default; no per-game executable, stub or file association | **yes** | `docs/adr/0013-desktop-shell-electron.md` (new), `docs/spec/engine/runners.md#desktop-shell`, `#install`, `docs/spec/formats/packaging-and-paths.md` (Install descriptor) |
+| D-1 | Two desktop applications from one codebase plus the PWA: a **player** (distribution artefact, resolving `--game`/deep link → `player.json` → baked default → library) and an **editor** (own package, own platform-services, own cadence), both on Electron 45.2.1 with `app://`; games are packages in a library, no per-game executable, stub or file association | **yes** | `docs/adr/0013-desktop-shell-electron.md` (new, one G6 inventory for both binaries), `docs/spec/engine/runners.md#desktop-shell`, `#install`, `docs/spec/formats/packaging-and-paths.md` (Install descriptor), epic `desktop-shell`'s envelope |
 | D-2 | Store images as they are; no BMP/GIF transcode; no WebP; PNG only for what we write | no | `docs/spec/formats/images.md` (new Storage policy section), epic Notes |
 | D-3 | One normative runner page, one JSON Schema, one vector kit; the TypeScript packages are a binding | **yes** | `docs/spec/engine/runners.md` (new), `packages/runner-harness/schema/runner-protocol-v1.schema.json` (new), `tools/fixtures/runner-protocol/` (new) |
 | D-4 | Two load modes with a measured threshold; the core computes the prefetch plan; manifest unchanged | **yes** | `docs/spec/engine/runners.md#load-modes`, `#prefetch`; AD-5 amendment |
-| D-5 | The player ships a service worker that updates on next launch and never mid-session | **yes** | `docs/spec/engine/runners.md#offline` |
+| D-5 | The PWA ships a service worker that updates on next launch and never mid-session; neither desktop application registers one | **yes** | `docs/spec/engine/runners.md#offline` |
 | D-6 | `runner-mobile` is Capacitor 8.5.3 around the web build; one platform proved; no store work | **yes** | `docs/spec/engine/runners.md#mobile` |
 | D-7 | Exact for key, tint and blend choice; at most one unit per channel on blend arithmetic | no | `docs/spec/engine/runners.md#webgl2-agreement` |
 | D-8 | esbuild 0.28.2; Vite not installed; single-file IIFE worker and AudioWorklet | **yes** | `docs/adr/0014-web-build-and-test-toolchain.md` (new), `docs/spec/engine/runners.md#build` |
@@ -67,50 +67,69 @@ already claimed by another epic**: `epic-rpgcode-tooling`'s ruling draft propose
 
 ---
 
-## D-1 — One desktop shell and one web player; games are packages, not executables
+## D-1 — Two desktop applications from one codebase, plus the PWA
 
-**Ruled by the owner on 2026-10-31.** There are **at most two shells** — the **web player** (the PWA) and **one
-desktop shell** — and a game is **data**: the harness is separate from the game bundle, nothing is bundled into a
-per-game executable or stub, and the install is a registration rather than a wrapper. Earlier drafts of this section
-spent a copy of the shell per exported game and then a system-WebView stub per game; the owner withdrew both on the
-same day. The paragraphs below are this ruling's text and keep their
+**Ruled by the owner on 2026-10-31.** There are **three artefacts and one embedded harness**: a **player** and an
+**editor**, each its own desktop application built from the same codebase and the same ruled shell, plus the **PWA**.
+The player/editor split is the owner's ruling of 2026-10-31. Earlier drafts of this section spent one copy of the shell
+per exported game, then a system-WebView stub per game, then one application that was both editor and player; the owner
+withdrew all three on the same day, and the paragraphs below are this ruling's text. They keep their
 `Proposed ruling (pending owner review; entry 9.1)` marking until the owner approves the wording word for word.
 
-**Artefact 1 — the harness, which both shells host.** One `runner-web` build, unchanged in both shells, that **opens a
-game package** — by path, by drag-and-drop onto the window, or over `fetch`/OPFS. What the exporter writes is data, in
-the shape the core already produces: `writeDistributionPackage`
+**Artefact 1 — the harness, embedded by both applications and hosted by the PWA.** One `runner-web` build, unchanged in
+all three, that **opens a game package** — by path, by drag-and-drop onto the window, or over `fetch`/OPFS. What the
+exporter writes is data, in the shape the core already produces: `writeDistributionPackage`
 (`packages/core/src/formats/package/write.ts:288`) takes `{ files, manifest }` and returns
 `Result<Uint8Array>` — a `.tpk`-compatible ZIP with `manifest.json { schema, main, index }` at its root and **no
 executable of any kind**. What it must also emit is the **install descriptor** below. Legacy appended-ZIP standalone
 EXEs are an **import** concern that epic 2 already settles by refusing them
 (`docs/spec/formats/packaging-and-paths.md:92`, rule L21), and are never something we emit.
 
-**Artefact 2 — the web player: the PWA, unchanged.** `runner-web`'s `./app` subpath behind the D-5 service worker stays
-exactly as D-5, D-9 and D-11 rule it, and remains the **only** artefact with a service worker: a desktop harness is
-already offline, so a worker there would only add an update path D-5 owns for the web.
+**Artefact 2 — the player: a distribution artefact, not an editor.** The player is the harness built as a
+**player-only flavour**, and it resolves the game it opens in this order:
 
-**Artefact 3 — the desktop shell: Electron, one app that is both the editor and the player.** `host-desktop` and
-`runner-desktop` are **one application**, not two: the editor opens projects and the same binary opens a game package,
-because the editor already runs the game for its preview through platform-services' `run` (`startGame`) and a
-player-only build would be a second Electron target with its own signing, notarisation and updater for an audience that
-already has the PWA. If a player-only flavour is ever wanted it is a build flag on this app, never a second app. The
-shell is **Electron 45.x** (45.2.1 at the time of writing, Chromium 156.0.8078.75) and it serves every page over a
-**privileged `app://` scheme** — `standard`, `secure`, `supportFetchAPI`, `corsEnabled` — and registers no service
-worker (so it does not claim `allowServiceWorkers`); the scheme is registered before `app.ready`, never `loadFile`.
+1. an explicit `--game <path>` argument, or a deep link;
+2. a configuration file by convention — `player.json` beside the executable, or, when installed, in the operating
+   system's configuration directory for the application;
+3. an embedded default project baked in at export;
+4. if none of those name a project, the installed-game library.
 
-**Proposed ruling (pending owner review; entry 9.1) — install registers a package; the harness holds a library and a
+Handing somebody "the player plus my game" is therefore a **pre-configured build or a configuration file**, never a
+per-game stub, and the same binary serves a player with many games when nothing is configured. The earlier
+**per-game-stub and file-association mechanisms stay withdrawn**: the single-project case is configuration, not
+packaging. **The artefact that ships is the export, and the export is what is measured** — a check that passes only in
+the development bundle is not evidence.
+
+**Artefact 3 — the editor: its own package and its own application.** The editor is `host-desktop`, a separate package
+with **its own application**, its own `platform-services` instantiation, the harness **embedded for preview** (the
+editor already runs the game it edits), and **its own update cadence**. It is not a mode of the player, and the player
+is not a stripped editor. Epic `desktop-shell` owns it and measures its editor-side behaviour; this epic neither builds
+it nor ships it.
+
+**Artefact 4 — the PWA: unchanged.** `runner-web`'s `./app` subpath behind the D-5 service worker stays exactly as D-5,
+D-9 and D-11 rule it, and remains the **only** artefact with a service worker: a desktop application is already offline,
+so a worker there would only add an update path D-5 owns for the web.
+
+**Both desktop applications use one ruled shell.** The shell is **Electron 45.2.1** (Chromium 156.0.8078.75), the same
+for the player and the editor, and it serves every page over a **privileged `app://` scheme** — `standard`, `secure`,
+`supportFetchAPI`, `corsEnabled` — registered before `app.ready`, never `loadFile`; neither application registers a
+service worker (so neither claims `allowServiceWorkers`). One ADR records the shell for both. The cost this accepts is
+stated rather than hidden: **two signing, notarisation and updater pipelines and two release cadences**, which is
+justified because the player is distributed to people who never author and must not carry an editor's size or update
+churn.
+
+**Proposed ruling (pending owner review; entry 9.1) — install registers a package; the player holds a library and a
 default game.** There is **no per-game stub and no file association to rely on**: a friend who is sent a game receives a
-package plus "install this", and installing means **registering the package with the harness**, not wrapping it. The
-harness keeps a **library**: a versioned host-side registry, outside the save store (AD-17's blob keys are untouched),
+package plus "install this", and installing means **registering the package with the player**, not wrapping it. The
+player keeps a **library**: a versioned host-side registry, outside the save store (AD-17's blob keys are untouched),
 holding each installed package's identity (its SHA-256 and the manifest's `schema` and `main`), its path on the desktop
 or its OPFS handle on the web, that game's settings, and the **default game**. On the desktop the registry is a small
 versioned JSON file in the application-data directory beside copies of the installed packages; in the PWA it is OPFS
-(a `library` directory and index), with Cache Storage left to the app shell under D-5. **Core stays I/O-free (G2):**
-the harness resolves a library entry and hands `core` the package's bytes through the existing asset source; `core`
-never knows a registry exists. **Launch:** starting the harness opens the **default game**; with no default set, or with
-the default missing, it shows the library and says why rather than a blank window; `--game` and a deep link are optional
-conveniences on top of the registry, never the mechanism. File association (T-82) **may** remain an optional convenience
-where the OS offers it, and one sentence in the host's README is the whole of its promise.
+(a `library` directory and index), with Cache Storage left to the app shell under D-5. **Core stays I/O-free (G2):** the
+application resolves a library entry and hands `core` the package's bytes through the existing asset source; `core`
+never knows a registry exists. **Launch:** the resolution order above, so a cold start opens the configured or baked
+game and, with none set or the configured one missing, shows the library and says why rather than a blank window. The
+editor may read the same registry to open a project, and gains no second mechanism from it.
 
 **Proposed ruling (pending owner review; entry 9.1) — the install descriptor.** The package's `manifest.json` keeps
 **exactly** `schema`, `main` and `index` (AD-6 refuses any other field), so identity for the library travels in a
@@ -121,56 +140,62 @@ no reader or writer contract changes and two exports of one tree stay byte-ident
 parsing every installed package at launch, which costs a ZIP read per game to draw a list, and *rejected:* adding fields
 to the manifest, which amends AD-6 for a job the descriptor does.
 
-**Proposed ruling (pending owner review; entry 9.1) — the measured artefact is harness + a game package, opened
-through the library, on each engine we claim.** There is no "export" engine to test separately: the engine a player gets
-is either a browser (the PWA) or this one Electron shell, and both of those we claim. Entry 9.10's four measurements —
-WebGL2 present; the [D-7] blend bound; audio of the expected length; and **a package installed into the library, set as
-the default, launched from a cold start of the harness, and running** — are taken on **Chromium** (the PWA lane, and the
-engine inside Electron) and on the **Electron build on macOS, Windows and Linux** in CI. A WKWebView, WebView2 or
-WebKitGTK leg is added **only if a system-webview harness is ever shipped**; today nothing is, so no system webview is
-claimed and none is measured. One further check spans the two shells: the same draw list rendered by the PWA build and
-by the Electron build agrees within the [D-7] bound.
+**Proposed ruling (pending owner review; entry 9.1) — the measured artefact is the exported player.** There is no
+separate "export engine" to test: the engine a player gets is either the PWA or the player application, and both are
+measured. Entry 9.10 takes four measurements on the **exported player** — WebGL2 present; the [D-7] blend bound; audio
+of the expected length; and a game resolved through the ruled order, from the baked default and from the library at a
+cold start — on **Chromium** (the PWA lane, and the engine inside Electron) and on the **Electron build of the player on
+macOS, Windows and Linux** in CI. A WKWebView, WebView2 or WebKitGTK leg is added **only if a system-webview application
+is ever shipped**; today none is, so no system webview is claimed and none is measured. One further check spans the
+artefacts: the same draw list rendered by the PWA build and by the player agrees within the [D-7] bound. The **editor's**
+own measurements are epic `desktop-shell`'s Done-when 1, not this epic's.
 
 **Proposed ruling (pending owner review; entry 9.1) — a secure scheme is not optional.** Two findings make `file://` a
-defect rather than a convenience, even though the harness opens game *data* rather than pages from disk. Measured on
+defect rather than a convenience, even though the applications open game *data* rather than pages from disk. Measured on
 2026-10-31 (macOS 27.0.1, Apple M1 Pro): in **WKWebView** a `file://` page refuses `audioWorklet.addModule(blob:)` —
 "Cross-origin script load denied by Cross-Origin Resource Sharing policy" — while the same page in Electron loads it;
 and **WKWebView cannot register a service worker at all** without Apple's `com.apple.developer.web-browser` entitlement
 (WebKit bug **206741**, "WKWebView support for Service Workers", open, filed 2020-01-24). The service-worker half does
-not bind this ruling — the desktop harness ships no worker — but the `file://` half does: the harness serves its own
-pages over a scheme the engine treats as **secure and standard**, so that loading a game from an arbitrary path can
-never be what breaks audio.
+not bind this ruling — neither desktop application ships a worker — but the `file://` half does: each application serves
+its own pages over a scheme the engine treats as **secure and standard**, so that loading a game from an arbitrary path
+can never be what breaks audio.
 
-**Proposed ruling (pending owner review; entry 9.1) — G6 exception.** `electron` is MIT and the npm package is a
-build-time dev dependency, but **that sentence does not cover the artefact we ship**: the Electron 44.7.0 macOS bundle
-carries `LICENSES.chromium.html` (20,115,518 bytes) whose per-product blocks place **ffmpeg under LGPL-2.1-or-later**
-and **`symphonia-core` under MPL-2.0**, and it ships `libffmpeg.dylib` (2,317,968 bytes). G6 rule 2 blocks both licences
-and G6 rule 1 names "desktop and mobile builds" explicitly, so the deviation is recorded, not described away: ADR 0013
-carries `guardrail-exception: G6 ADR-0013`, a CI check lists the built artefact's `LICENSES.chromium.html` and
-`libffmpeg*` with their licences, and any Electron major that changes that inventory re-opens the exception. The web
-player needs no exception: it ships no browser engine.
+**Proposed ruling (pending owner review; entry 9.1) — G6 exception: one inventory, two binaries.** `electron` is MIT and
+the npm package is a build-time dev dependency, but **that sentence does not cover the artefacts we ship**: the Electron
+44.7.0 macOS bundle (the version measured) carries `LICENSES.chromium.html` (20,115,518 bytes) whose per-product blocks
+place **ffmpeg under LGPL-2.1-or-later** and **`symphonia-core` under MPL-2.0**, and it ships `libffmpeg.dylib`
+(2,317,968 bytes). G6 rule 2 blocks both licences and G6 rule 1 names "desktop and mobile builds" explicitly, so the
+deviation is recorded, not described away. **ADR 0013 carries one `guardrail-exception: G6 ADR-0013` inventory that
+lists both binaries — the player and the editor — from the same Electron version**, a CI check reads each built
+artefact's `LICENSES.chromium.html` and `libffmpeg*` with their licences, and any Electron major that changes that
+inventory re-opens the exception. One exception therefore covers two binaries, which is the point of building them from
+one shell; the inventory is re-read for 45.2.1 when 9.10 builds it. The PWA needs no exception: it ships no browser
+engine.
 
 **Proposed ruling (pending owner review; entry 9.1) — the pin and its maintenance line.** The desktop shell is
 **Electron 45.2.1** (Chromium 156.0.8078.75, published 2026-10-30), not the **44.7.0** the spine pins today: 44 is
-Chromium 152 while Chrome stable is 156.0.8078.80, so today's pin is already a Chromium major behind. Electron ships a
-major every **8 weeks** and supports the **latest three**, so this ADR is amended whenever the pin falls more than one
-major behind Chrome stable — a standing maintenance line, not a one-off bump.
+Chromium 152 while Chrome stable is 156.0.8078.80, so today's pin is already a Chromium major behind. Both applications
+take a bump **together** from the same ADR, so the two binaries never drift; Electron ships a major every **8 weeks** and
+supports the **latest three**, so ADR 0013 is amended whenever the pin falls more than one major behind Chrome stable —
+a standing maintenance line, not a one-off bump.
 
 **Proposed ruling (pending owner review; entry 9.1) — what the exporter emits, and the open T-70 question.** The
 exporter emits **a package and its install descriptor** — a distribution `.tpk` (or the same tree as a folder) plus the
 sibling `<package>.tpk.json` — and never an engine. That is a change to the **product promise**, not to the writer:
-`writeDistributionPackage` already returns a ZIP and nothing else. `docs/editor-features.md` still describes T-70 as
-"one self-running executable (the engine with the game appended)"; whether that legacy form is **reimplemented as an
-optional export** or **dropped in favour of a package installed into the harness** is the owner's decision and is
-recorded as an open question here rather than assumed in the packaging entry.
+`writeDistributionPackage` already returns a ZIP and nothing else, and "a pre-configured player build with a baked
+default" is configuration applied at export, not a different artefact kind. `docs/editor-features.md` still describes
+T-70 as "one self-running executable (the engine with the game appended)"; whether that legacy form is
+**reimplemented as an optional export** or **dropped in favour of a package installed into the player** is the owner's
+decision and is recorded as an open question here rather than assumed in the packaging entry.
 
-- **Lands in:** `docs/adr/0013-desktop-shell-electron.md` (new; renumbered if another ADR takes 0013 first) — one ADR
-  for one shell — plus `docs/spec/engine/runners.md#desktop-shell` (what the shell must provide: a secure scheme, a
-  library and default-game setting, a path/drag-and-drop asset source, platform-services, no update path for a bundled
-  worker), `#offline` (artefact 2, under D-5) and `#install` (what "install a package" means in a host, and that it is
-  not a save). The package bytes themselves stay D-4's `#load-modes`; the descriptor's shape lands in
-  `docs/spec/formats/packaging-and-paths.md` as a new "Install descriptor" section, because AD-6's three-field manifest
-  must not change to carry it.
+- **Lands in:** `docs/adr/0013-desktop-shell-electron.md` (new; renumbered if another ADR takes 0013 first) — one ADR for
+  one shell, one G6 inventory naming both binaries — plus `docs/spec/engine/runners.md#desktop-shell` (what a desktop
+  application must provide: a secure scheme, the player's resolution order, a library and default-game setting, a
+  path/drag-and-drop asset source, `platform-services`, no worker), `#offline` (artefact 4, under D-5) and `#install`
+  (what "install a package" means in a host, and that it is not a save). The package bytes themselves stay D-4's
+  `#load-modes`; the descriptor's shape lands in `docs/spec/formats/packaging-and-paths.md` as a new "Install descriptor"
+  section, because AD-6's three-field manifest must not change to carry it. Epic `desktop-shell`'s envelope gains the
+  editor-application half.
 - **Evidence.** Measured on macOS 27.0.1 / Apple M1 Pro, 2026-10-31: Electron 44.7.0 and a WKWebView host both present
   WebGL2 (16,384 max texture; the only extension difference is `EXT_disjoint_timer_query_webgl2`, Chromium-only), both
   reproduce the [D-7] CPU blend `(dst·(255−a) + c·a + 127)/255` **exactly — worst delta 0 across 1,536 channel
@@ -179,42 +204,41 @@ recorded as an open question here rather than assumed in the packaging entry.
   parity with the claimed browser, not on observed superiority. Measured sizes: Electron 44.7.0 `darwin-arm64`
   130,394,296 B, `win32-x64` 158,293,649 B, extracted 312 MB with `Electron.app` at 293 MB, summed RSS 429,168 KB on a
   page holding a WebGL2 context and an AudioWorklet; spawn to first WebGL2 frame 1,066.9 ms in Electron against
-  439–464 ms for a WKWebView host. **That 293 MB is paid once per installation under this ruling**, not once per game —
-  the arithmetic that killed the previous draft. Version, licence and Chromium-pairing facts read on 2026-10-31 from
-  `registry.npmjs.org/electron`, `releases.electronjs.org/releases.json` and
-  `googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json`; the G6 inventory read from the
-  downloaded bundle itself; the exporter's output read from `writeDistributionPackage`
+  439–464 ms for a WKWebView host. **That 293 MB is paid once per application installation**, not once per game and not
+  once per export — but it is paid **twice** for a user who installs both the player and the editor, which is the
+  accepted cost of the split and the reason the player carries neither the editor's code nor its update cadence. Version,
+  licence and Chromium-pairing facts read on 2026-10-31 from `registry.npmjs.org/electron`,
+  `releases.electronjs.org/releases.json` and `googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json`;
+  the G6 inventory read from the downloaded bundle itself; the exporter's output read from `writeDistributionPackage`
   (`packages/core/src/formats/package/write.ts:288`) and `docs/spec/formats/packaging-and-paths.md`. Repo grounds:
   `docs/architecture-options.md` §4–§8, ADR 0001 decision 6, the spine's Stack and Operations sections, G2 rule 4, G4
   and G6, AD-20, T-70/T-82 in `docs/editor-features.md`, and `tools/deps/edges.json` (`["render-webgl2", "editor-ui"]` —
-  the editor replays draw lists too, which is why the editor and the runner want the same engine).
-- **Rejected alternatives.** *Tauri as the single desktop shell*: it is the smaller download and needs no G6 exception,
-  but it turns the desktop leg into three engines (WKWebView, WebView2, WebKitGTK) against the one Chromium the web
-  player already claims, so the same draw list would have to be proven on four engines instead of two; and its
-  macOS/Linux webviews bring the 206741 service-worker gap and the `file://` audio defect that the harness sidesteps
-  only by never using `file://`. It stays the named fallback. *A separate player-only desktop build*: the PWA already
-  plays, and a second Electron target means a second signing, notarisation and updater pipeline for no capability the
-  first one lacks. *Electrobun*: its default is the same system webview as Tauri (no gain), its CEF option is
-  147,695,098 B for `darwin-arm64` (worse than Electron), its official Linux tier is Ubuntu 24.04+ only, and its
-  packaged Bun statically links JavaScriptCore under **LGPL-2**, an obligation its MIT licence file does not mention.
-  *Wails v3 and NW.js*: a third language, and a licence-free 0.x line that hands page JavaScript full Node privilege
-  with no updater. *Per-game bundled executables*: withdrawn by the owner on 2026-10-31 — the harness is installed once
-  and the game is data. *A per-game system-webview stub*, and *file association as the distribution mechanism*: both
-  withdrawn by the owner on the same day. A stub per game means a second shell, a second signing pipeline and a second
-  engine per export for a game that is otherwise a file; and an association is a promise the OS lets a user break, does
-  not exist in the PWA at all, and lands the user in whichever harness happens to own the extension. The library plus a
-  configured default gives the same convenience — double-click the app and the game you were playing opens — with one
-  mechanism on both shells. Association survives only as an optional extra where an OS offers it.
-- **Flip conditions.** The desktop shell moves to Tauri if **any** of these holds: the G6 exception is refused; the
-  Electron build fails one of the four measurements on any of the three operating systems; the owner rules a ~124 MiB
-  macOS / ~151 MiB Windows download unacceptable for the audience; or the eight-week major cadence cannot be staffed,
-  in which case a shell with no engine to patch wins by default. Tauri then carries the editor and the player in one
-  app under the same `app://` scheme and platform-services surface, and 9.10 gains the three system-webview legs it
-  currently does not need.
-- **If it goes the other way (Tauri ruled):** 9.10 measures harness + game bundle on WKWebView, WebView2 and WebKitGTK
-  as well as Chromium, and its WebGL2 leg must name a WebKitGTK floor per distribution; 9.11's main process,
-  capabilities file and IPC surface change and Electron's main process is not written at all; 9.14's desktop limb runs
-  the Tauri app; and D-5 stays web-only either way, because neither shell registers a worker on the desktop.
+  the editor replays draw lists too, which is why both applications embed the same harness).
+- **Rejected alternatives.** *One application that is both editor and player*: withdrawn by the owner on 2026-10-31. It
+  is the cheaper build and one update pipeline, but it puts an editor's size and release churn on people who will never
+  author, and it makes the editor's update cadence and the player's the same decision. *Tauri as the single desktop
+  shell*: the smaller download and no G6 exception, but it turns the desktop leg into three engines (WKWebView, WebView2,
+  WebKitGTK) against the one Chromium the PWA already claims, so the same draw list would have to be proven on four
+  engines instead of two; it stays the named fallback. *Electrobun*: its default is the same system webview as Tauri (no
+  gain), its CEF option is 147,695,098 B for `darwin-arm64` (worse than Electron), its official Linux tier is Ubuntu
+  24.04+ only, and its packaged Bun statically links JavaScriptCore under **LGPL-2**, an obligation its MIT licence file
+  does not mention. *Wails v3 and NW.js*: a third language, and a licence-free 0.x line that hands page JavaScript full
+  Node privilege with no updater. *Per-game bundled executables*: withdrawn by the owner on 2026-10-31 — the player is
+  installed once and the game is data. *A per-game system-webview stub*, and *file association as the distribution
+  mechanism*: both withdrawn by the owner on the same day, because the single-project case is configuration, not
+  packaging: a stub per game means a second shell, a second signing pipeline and a second engine per export for a game
+  that is otherwise a file, and an association is a promise the OS lets a user break and that does not exist in the PWA.
+- **Flip conditions.** The shell moves to Tauri if **any** of these holds: the G6 exception is refused for either
+  binary; the player fails one of the four measurements on any of the three operating systems; the owner rules a
+  ~124 MiB macOS / ~151 MiB Windows download unacceptable for the audience; or the eight-week major cadence cannot be
+  staffed, in which case a shell with no engine to patch wins by default. Tauri then carries both applications under the
+  same `app://` scheme and `platform-services` surface, and 9.10 gains the three system-webview legs it currently does
+  not need.
+- **If it goes the other way (Tauri ruled):** 9.10 measures the exported player on WKWebView, WebView2 and WebKitGTK as
+  well as Chromium, and its WebGL2 leg must name a WebKitGTK floor per distribution; 9.11's main process, capabilities
+  file and IPC surface change and Electron's main process is not written at all; 9.14's desktop limb runs the Tauri
+  player; epic `desktop-shell` repeats the same substitution for the editor; and D-5 stays web-only either way, because
+  neither desktop application registers a worker.
 
 ## D-2 — Stored image format (advisory)
 
@@ -308,13 +332,15 @@ version exists.
 
 ## D-5 — The offline service worker
 
-**Proposed ruling (pending owner review; entry 9.1).** The player ships a service worker that caches the app shell,
-the bundled default bank and the whole-package download, and that updates on the next launch and **never** mid-session.
+**Proposed ruling (pending owner review; entry 9.1).** The **PWA** — the web player, and the only artefact with a
+service worker (D-1) — ships a worker that caches the app shell, the bundled default bank and the whole-package
+download, and that updates on the next launch and **never** mid-session.
 Save blobs go through the existing `saveBlob` / `loadBlob` / `listBlobs` contract under `GameId`-keyed paths, and the
 service worker never reads a save. The runner **SHOULD** call `navigator.storage.persist()` and **MUST** report an
 unpersisted or quota-limited state rather than swallowing it, falling back to streaming for anything it cannot keep. No
-background sync, push, accounts or telemetry are added. The player is its own static artefact: the editor PWA stays
-`host-web`'s, and publishing or deploying the player is out of scope for this epic.
+background sync, push, accounts or telemetry are added. The PWA is its own static artefact: the editor PWA stays
+`host-web`'s, neither desktop application registers a worker, and publishing or deploying the PWA is out of scope for
+this epic.
 
 - **Lands in:** `docs/spec/engine/runners.md#offline`, and 9.9's code half in
   `packages/runner-web/app/service-worker.ts`.
@@ -500,7 +526,7 @@ entry that replaces them with numbers.
 - one new section in `docs/spec/formats/images.md`, one new "Install descriptor" section in
   `docs/spec/formats/packaging-and-paths.md`, one amendment to AD-22 and one to AD-5 in the spine;
 - the epic's Notes gain the dated decision lines, including the owner's 2026-10-31 ruling that the harness is separate
-  from the game bundle and that there are at most two shells;
+  from the game bundle and that there are two desktop applications from one codebase plus the PWA;
 - no code, no guard-rail, no manifest and no dependency change in this entry.
 
 ## Plan impact on later entries
@@ -515,8 +541,8 @@ entry that replaces them with numbers.
 | 9.7 | `make-package` writes the package **and its install descriptor** | D-2 flipped: transcode step and an encoder; D-4 flipped: manifest hashes; D-1 flipped: descriptor shape |
 | 9.8 | core planner and the hint wire | D-4 flipped: either dropped (runner parses boards) or joined by manifest hashing |
 | 9.9 | load modes, storage tiers, service worker | D-5 flipped: no service worker; D-4 flipped: per-entry cache keys |
-| 9.10 | builds the shell with its library, default game and launch behaviour, and gates harness + package on three-OS CI | D-1 flipped: three system-webview legs are added and the Electron leg is dropped |
-| 9.11 | the Electron app (editor and player in one) over the web build | D-1 flipped: Tauri config and IPC replace the Electron main process |
+| 9.10 | builds the **player** application — the ruled shell, the resolution order, the library and the baked default — and gates the exported player on three-OS CI | D-1 flipped: three system-webview legs are added and the Electron leg is dropped |
+| 9.11 | `runner-desktop`: the **player's** desktop package (main process, `app://`, asset source, save-blob host) that 9.10's application is built on; the editor is epic `desktop-shell`'s | D-1 flipped: Tauri config and IPC replace the Electron main process |
 | 9.12 | Capacitor wrapper on a device | D-6 flipped: native port and vector binding |
 | 9.13 | refactor sweep | nothing here changes it |
 | 9.14 | closing suite and the CAP-12 signal | D-1 flipped: the desktop limb runs the Tauri app; D-7 flipped: agreement claim weakens |
