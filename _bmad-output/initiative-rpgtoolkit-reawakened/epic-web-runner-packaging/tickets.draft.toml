@@ -1,0 +1,198 @@
+# tickets.draft.toml — DRAFT breakdown of epic-web-runner-packaging, in build order.
+#
+# NOT PUBLISHED, NOT THE STORE. This file is deliberately not named `tickets.toml`, so
+# `tickets.py` does not read it and no GitHub issue has been created from it. It becomes the
+# epic's `tickets.toml` only when the owner approves `discovery/inception-proposal.md`.
+#
+# Cross-epic `after` pins, and why these and not others (proposal section 2):
+# - "4.6" and "4.26" on entry 4: the conformance vectors and the golden scenes/ledger it replays.
+# - "6.15" on entry 5: the audio protocol schema and vectors the cue player is checked against.
+# - "8.9" on entry 9: the canonical save path whose blobs the browser must store and replay.
+# - "16.8" on entry 14: the TK2 decoder registration that lets the six TK2 corpus games load.
+# - Nothing pins epic 7: 34 of its 35 entries are done and the one open item (7.34 / #805) is an
+#   evidence-and-ruling question about save hashes that no entry here reads. `tickets.py` will
+#   report `unpinned_after` for `epic-battle` until the owner either removes that item from epic 9's
+#   `after` or names the battle entry they want pinned (proposal ask A-03).
+# - Entry 7 cites 2.12 (the landed distribution-package writer) as a reference only, because epic 9
+#   does not declare epic 2; adding epic 2 to the epic's `after` is the owner's call (ask A-04).
+#
+# Tickets get `tracker_id` at publication (`tools/create-epic-on-github.py` needs a breakdown first,
+# which is issue #882). The last table position is the build order. One lane per run of entries; the
+# only shared file is `packages/runner-web/src/index.ts`, owned by entry 3 and only extended by 4, 5,
+# 7 and 9, which `after` sequences.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Rulings: the runner boundary, the desktop shell, image storage, load modes and mobile scope"
+description = "Merges this envelope's two `## Notes` headings into one, adds the four `Source conflict:` lines the inception found, and records the owner's rulings — the runner-boundary contract (D-3), the desktop shell spike's owner and evidence bar (D-1), the stored image format and whether BMP and GIF transcode (D-2), load modes, the prefetch threshold and prefetch ownership (D-4), the offline service worker (D-5), the mobile wrapper's scope (D-6), the GPU golden tolerance (D-7), the web build tool (D-8), the browser lane (D-9), SF3 and the CSP note (D-10) and the player page and its AD-22 subpath (D-11) — as dated Decision lines, with each spec or guard-rail amendment in its own docs-first commit (G7 rule 4); D-1, D-8, D-9 must be decided, not left open, because entries 3, 10 and 11 cannot start without them."
+verify = "One `## Notes` section holds a dated owner line for D-1, D-3, D-4, D-5, D-6, D-8 and D-9 and each of the four `Source conflict:` lines, every other ruling is either decided or an open question with a named owner and the entries it would change, and every amendment to docs/spec/ or docs/guardrails.md is a separate docs commit that no code commit precedes."
+covers = ["CAP-12"]
+after = []
+hitl = true
+risk = "high"
+plan_checkpoint = true
+done_checkpoint = true
+references = ["discovery - _bmad-output/initiative-rpgtoolkit-reawakened/epic-web-runner-packaging/discovery/inception-proposal.md, sections 3 and 7", "spine - _bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md, AD-5, AD-6, AD-17, AD-22 and the Deferred list", "reference - docs/architecture-options.md, section 8 (desktop shell)"]
+
+[[entry]]
+id = 2
+type = "story"
+title = "The runner contract page, its message schema and the vector kit"
+description = "Writes the normative runner page docs/spec/engine/runners.md under ADR 0007 — what a runner owes the core and what it may decide for draw-list replay, audio, input events and AD-5 requests — publishes one language-neutral JSON Schema beside the existing audio schema, and defines the vector-kit format plus a generator whose --check mode proves the schema, the vectors and the TypeScript types do not drift."
+verify = "The page exists with an anchor per record kind, the schema validates every committed vector, `pnpm runner-protocol:check` fails when a type, the schema or a vector changes alone, and the audio protocol's existing schema and vectors are reused rather than duplicated."
+covers = ["CAP-12"]
+after = [1]
+hitl = false
+risk = "medium"
+references = ["spec - docs/spec/engine/audio-media.md#epic9-audio-handoff and #cue-player", "precedent - packages/synth/schema/audio-protocol-v1.schema.json and tools/fixtures/audio-protocol/generate.mjs", "precedent - tools/fixtures/conformance/raster/vectors.json", "spine - _bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md, AD-1, AD-3, AD-14"]
+
+[[entry]]
+id = 3
+type = "story"
+title = "Tracer bullet: a sample game boots and presents a frame in a headless browser from the same core build"
+description = "Creates `packages/runner-web` with its `src/index.ts` public entry and a declared `./app` subpath for the player page (the D-11 AD-22 amendment), its root `tsconfig.json` project reference and its `tools/no-skips` group and CI `unit` matrix row; bundles `core` and `runner-harness` for the browser from the same `tsc -b` output the headless lane uses (esbuild, one IIFE per entry point per D-8), adds a static asset server that serves a fetched game folder or a package, wires the input path, presents the composed frame through the reference rasteriser, and adds the Playwright lane as a required `gate` dependency that runs `pnpm fixtures:fetch` first and registers its own browser group."
+verify = "One Playwright run boots `demo` from the served fixture folder in headless Chromium and reports, at tick 120, state hash `bff947dce3a11b4f` and draw hash `9a40be8a0b5ca816` — the values committed in golden/regression/closing.json for that game and tick — while presenting the frame; the same run reports the browser probes the rulings need (VP9 in WebM with Opus decodable, and no WebAssembly instantiation on the shipped default path); the lane is a required `gate` dependency and fails on a clean runner; and every browser test reports its own duration under one second or says why."
+covers = ["CAP-12"]
+after = [2]
+hitl = false
+risk = "high"
+plan_checkpoint = true
+references = ["spine - _bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md, AD-1, AD-4, AD-22, Operations (CSP and single-file IIFE bundles)", "baseline - golden/regression/closing.json and golden/closing/plan.json", "spec - docs/spec/engine/audio-media.md#video-policy and #audio-browser-test", "fixtures - tools/fixtures/sources.json and .gitignore `/fixtures/`", "constraint - docs/guardrails.md, G5 rule 4 (sample games are fetched, never committed)"]
+
+[[entry]]
+id = 4
+type = "story"
+title = "render-webgl2: the WebGL2 replayer, the presented frame and the runner's presenter"
+description = "Builds the `render-webgl2` package as a draw-list replayer and nothing more (G4) — all eight commands of AD-3's union, the normative AD-3 pixel pipeline for key, tint and the three blends, scratch targets via pushTarget/popTarget, the AD-27 surface pull with `engine.surfacePixels(id, rev)`, texture and glyph-atlas caches that can be flushed every frame, and the logical-to-physical viewport scaling AD-33 requires (integer-scaled letterbox and expand-viewport) — gives it its `tools/no-skips` group and CI `unit` matrix row, and makes it runner-web's presenter so the shipped player draws through it while the reference rasteriser stays the oracle (D-11's AD-22 amendment keeps both behind declared subpaths)."
+verify = "Every vector in tools/fixtures/conformance/raster/ (vectors, text, truetype) and every gating row of golden/ledger.json replays through WebGL2 in headless Chromium and matches the reference rasteriser exactly for colour-key decisions and tint, within the D-7 bound for blend arithmetic, with the worst per-channel difference reported per vector; the runner-web test that flushes every cache every frame (AD-27) is pixel-identical to the same frame presented through the reference rasteriser."
+covers = ["CAP-12", "CAP-6"]
+after = [3, "4.6", "4.26"]
+hitl = false
+risk = "high"
+plan_checkpoint = true
+references = ["spine - _bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md, AD-3 (pixel pipeline), AD-4, AD-27, AD-33", "spec - docs/spec/engine/parity-checklist.md#golden-image-oracle", "spec - docs/spec/engine/display-input-audio.md#reawakened-light-and-raster-arithmetic", "spec - _bmad-output/initiative-rpgtoolkit-reawakened/spec-rpgtoolkit-reawakened/packages.md, render-webgl2"]
+notes = ["covers names CAP-6 as well because packages.md assigns render-webgl2 to CAP-6, 12 and 15 and epic board-rendering excludes the replayer by name; drop CAP-6 if the owner prefers covers to equal the epic's own cover, or add CAP-6 to the epic's covers with a sentence naming the replayer as this epic's part (proposal ask A-02)."]
+
+[[entry]]
+id = 5
+type = "story"
+title = "synth: the cue player, and runner-web's Web Audio output"
+description = "Implements the cue player that #cue-player puts in `synth` — the cue-to-message table over VoiceMachine, with the prepared-voice map, lateness arithmetic, and the runner rules for autoplay unlock as a delayed late start, the 15-tick drop measured from ready, and the focus hold — and wires runner-web's Web Audio output (PCM from the synth into the host's audio graph) so a real browser makes sound."
+verify = "The cue player reproduces tools/fixtures/audio/sim.mjs's `cuePlayer` arithmetic on every committed audio vector, and a Playwright test with an analyser tap observes non-silent output of about the core AudioInfo length for a cue vector, with the locked-then-unlocked run joining music at the ruled position and dropping only the missed finite effects; this is epic 6's Done-when 2 browser limb against audio-media.md#audio-browser-test."
+covers = ["CAP-12"]
+after = [2, 3, "6.15"]
+hitl = false
+risk = "high"
+plan_checkpoint = true
+references = ["spec - docs/spec/engine/audio-media.md#cue-player, #audio-autoplay, #audio-focus, #audio-late-sounds, #epic9-audio-handoff", "oracle - tools/fixtures/audio/sim.mjs (cuePlayer)", "protocol - packages/synth/schema/audio-protocol-v1.schema.json"]
+
+[[entry]]
+id = 6
+type = "story"
+title = "runner-web: SoundFont resolution, the shared bank cache and a user .sf2"
+description = "Wires the SoundFont resolution order the spec rules (player, script, author, runner, bundled) into the web runner, caches banks by the SHA-256 of their bytes per runner and shared across games with the app-shell cache for the bundled default, and adds the player's bank picker with a user-chosen .sf2, including the bank.invalid and bank.unavailable paths and eviction that never removes the bank in use."
+verify = "A Playwright test plays a MIDI through a user-chosen .sf2 and through the game's own bank, shows one stored bank reused across two games by SHA-256, reports a mismatched hash as bank.invalid, and proves eviction leaves the in-use bank; this is epic 6's Done-when 3."
+covers = ["CAP-12"]
+after = [5]
+hitl = false
+risk = "medium"
+references = ["spec - docs/spec/engine/audio-media.md#soundfont-user-bank, #audio-soundfont-cache, #soundfont-layers, #path-b-bank", "spine - _bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md, AD-31"]
+
+[[entry]]
+id = 7
+type = "story"
+title = "Packaging: the make-package tool and loading a distribution package in the web runner"
+description = "Adds a `pnpm make-package` tool over the landed distribution-package writer (`writeDistributionPackage`, entry 2.12) that turns a folder into the project's single-file package and bounds it with the spec's L1 to L26 limits, and gives the web runner a package asset source so a game boots from one file with no folder access; the editor's T-70 button stays epic editor-assets-p0's and calls the same writer later."
+verify = "A written package reloads through `loadPackage` to identical file bytes and a manifest with exactly `schema`, `main` and `index`, and the web runner boots that package in headless Chromium to `demo`'s tick-120 state hash `bff947dce3a11b4f` with no folder access."
+covers = ["CAP-12"]
+after = [3]
+hitl = false
+risk = "medium"
+references = ["spec - docs/spec/formats/packaging-and-paths.md, Distribution package and limits L1 to L26", "spec - docs/spec/engine/main-loop-and-startup.md#e-131", "provider - _bmad-output/initiative-rpgtoolkit-reawakened/epic-legacy-formats/tickets.toml, entry 12 (the writer this builds on)", "evidence - docs/spec/examples/files/example_game.tpk and standalone_layout.exe.bin"]
+
+[[entry]]
+id = 8
+type = "story"
+title = "Core: the prefetch planner and the AD-5 hint wire"
+description = "Adds the deterministic prefetch planner to core and the hint wire shape at the AD-5 seam — the `now`, `next` and `always` tiers over the current board, edge-linked and literal `send` boards, the battle background and its sounds, and the menu and cursor sounds, plus audio's share from audio-media.md#audio-prefetch — as a request that never blocks, never changes state and never appears in a state or draw hash, and carries it through every consumer the union touches: the AD-17/AD-5 doc-first amendment of the request list, the `HOST_REQUEST_KINDS` exhaustiveness list in `core/script/manifest.ts`, and `runner-harness`'s `isRequest` guard so a hint is observed rather than dropped."
+verify = "The engine emits the ruled tiered hints for the demo board, a battle background and the menu sounds; `HOST_REQUEST_KINDS` and the request union compile together and an exhaustive switch keeps its `never` default; `pnpm golden` and `pnpm closing` state and draw hashes are byte-identical when the same log runs against a host that consumes hints and one that discards them; and the latency-fuzz replay test still passes."
+covers = ["CAP-12"]
+after = [2]
+hitl = false
+risk = "medium"
+references = ["spine - _bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md, AD-5, AD-17", "spec - docs/spec/engine/audio-media.md#audio-prefetch", "code - packages/core/src/ports/requests.ts, packages/core/src/script/manifest.ts, packages/runner-harness/src/driver.ts"]
+
+[[entry]]
+id = 9
+type = "story"
+title = "Load modes, storage tiers and the offline service worker"
+description = "Implements the two load modes with a measured threshold rather than a guessed one — whole-package below it, behind a progress screen, streaming above it driven by the entry 8 plan — with memory, then Cache Storage or OPFS, then network decode-ahead in a worker, save blobs stored under the AD-17 keys the engine's save path produces (entry 8.9), `navigator.storage.persist()` with a streaming fallback on quota errors, the last-frame stall presentation with a spinner only after about 300 ms, and a service worker for the player that updates on next launch and never mid-session."
+verify = "A second launch serves the game from cache with the network blocked and boots to `demo`'s tick-120 state hash `bff947dce3a11b4f`, a save written before that reload restores under the same `GameId` key, every blocking stall in a streaming run is on an asset outside the plan and none on a hinted one, and a quota failure is reported as a state with the streaming fallback taken rather than a silent stop."
+covers = ["CAP-12"]
+after = [3, 7, 8, "8.9"]
+hitl = false
+risk = "high"
+plan_checkpoint = true
+references = ["spec - docs/spec/engine/audio-media.md#audio-prefetch", "spine - _bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md, AD-17, Operations (CSP, PWA update policy)", "decision - D-4 and D-5 of discovery/inception-proposal.md"]
+
+[[entry]]
+id = 10
+type = "spike"
+title = "Desktop shell spike: Tauri, Electron and Electrobun on the runner"
+description = "Spikes the three desktop shells against the runner alone — not the editor — on all three desktop OSes, measuring bundle size, cold start to first frame, WebGL2 availability in each WebView, audio output and loading a distribution package that entry 7 writes from disk, with Linux WebKitGTK treated as the risk case, and records the ruling as an ADR that entry 11 consumes and epic desktop-shell cites rather than repeats."
+verify = "The spike reports those five measurements for each shell on macOS, Windows and Linux, names the WebView floor for the runner, and a person rules the shell in an ADR that entry 11 and epic desktop-shell both cite."
+covers = ["CAP-12"]
+after = [3, 7]
+hitl = true
+risk = "high"
+plan_checkpoint = true
+done_checkpoint = true
+references = ["reference - docs/architecture-options.md, section 8 (desktop shell)", "reference - docs/adr/0001-typescript-core.md, decision 6", "decision - D-1 of discovery/inception-proposal.md"]
+
+[[entry]]
+id = 11
+type = "story"
+title = "runner-desktop: a package from disk boots the same frame"
+description = "Wraps the web build in the shell entry 10 rules, adds the desktop asset source (a folder or an embedded archive from the filesystem) and the save-blob host behind AD-17's keys, so the packaged single-file game loads in the desktop runner with no web-only assumptions."
+verify = "The desktop runner opens a distribution package from the filesystem and reports `demo`'s tick-120 state hash `bff947dce3a11b4f` and draw hash `9a40be8a0b5ca816`, the same values the web runner and golden/regression/closing.json give, and a save written by the desktop runner loads in the web runner under the same `GameId` key."
+covers = ["CAP-12"]
+after = [7, 10]
+hitl = false
+risk = "medium"
+references = ["spec - _bmad-output/initiative-rpgtoolkit-reawakened/spec-rpgtoolkit-reawakened/packages.md, runner-desktop", "spine - _bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md, AD-17"]
+
+[[entry]]
+id = 12
+type = "story"
+title = "runner-mobile: the Capacitor wrapper on a device or emulator"
+description = "Wraps the web build in runner-mobile with Capacitor 8.5.3 and the mobile asset and storage sources it needs, proving a sample game runs on a real device or emulator; store submission, signing, icons, splash screens and per-platform chrome are out of scope."
+verify = "The Capacitor build runs `demo` to the board on a device or emulator with a person confirming it, and the tick-120 state hash on the device is `bff947dce3a11b4f`, the headless baseline."
+covers = ["CAP-12"]
+after = [3, 5]
+hitl = true
+risk = "medium"
+references = ["spec - _bmad-output/initiative-rpgtoolkit-reawakened/spec-rpgtoolkit-reawakened/packages.md, runner-mobile", "reference - docs/architecture-options.md, section 8 (Capacitor)", "decision - D-6 of discovery/inception-proposal.md"]
+
+[[entry]]
+id = 13
+type = "story"
+title = "Refactor sweep"
+description = "Land the cleanups deferred during this epic from the twelve preceding plans and their review findings, taking cleanup only: no scope pushed out of another entry and no behaviour change, with the goldens untouched."
+verify = "Every deferred cleanup named in the twelve plans is either landed or recorded with a reason, and `pnpm checks`, `pnpm golden`, `pnpm golden:bun` and the browser lane pass with no golden changed."
+covers = ["CAP-12"]
+after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 14
+type = "story"
+title = "Closing suite: the sample games in browser and desktop, the packaged file, and the CAP-12 signal"
+description = "Closes the epic with one end-to-end run that plays every game in golden/closing/plan.json in the browser (all eight, each to the outcome the plan records, so the six TK2 games exercise entry 16.8's decoder registration) and on desktop, loads a packaged single-file game in both, and replays one recorded input log under Node and headless Chromium, reporting the CAP-12 success check against the same core build the headless runner uses."
+verify = "One command plays every game in golden/closing/plan.json in the browser to the plan's recorded outcome and `demo` and `Basic` on desktop, loads the packaged file in both, and reports identical per-tick state and draw hashes between Node and headless Chromium for one recorded input log over three tick batchings."
+covers = ["CAP-12"]
+after = [13, "16.8"]
+hitl = false
+risk = "medium"
+references = ["spec - _bmad-output/initiative-rpgtoolkit-reawakened/spec-rpgtoolkit-reawakened/spec-rpgtoolkit-reawakened.md, CAP-12", "constraint - docs/guardrails.md, G3 and G5", "baseline - golden/closing/plan.json and golden/regression/closing.json"]
