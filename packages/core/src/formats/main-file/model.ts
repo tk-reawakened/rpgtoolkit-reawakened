@@ -114,7 +114,7 @@ export interface MainFileReservedRuns {
   readonly menuPluginFallback: Uint8Array;
   /** Row 22, minor ≤ 2: the `i32` + `i16` multitask-speed / memory-protection run. */
   readonly multitask: Uint8Array;
-  /** Row 29, minor < 3: the `i16` old fight style after `customFightPrg`. */
+  /** Row 11, minor < 3: the `i16` old fight style after `customFightPrg`. */
   readonly fightStyle: Uint8Array;
 }
 
@@ -213,7 +213,7 @@ export interface MainFile {
   readonly skinButton: string;
   /** Row 28: legacy UI skin image. */
   readonly skinWindow: string;
-  /** Row 29: the plugin list (the upper bound is derived). */
+  /** Row 37: the plugin list (the upper bound is derived). */
   readonly plugins: readonly MainFilePlugin[];
   /** TKR package names from the optional trailing extension, in authored order. */
   readonly packagePlugins?: readonly string[];

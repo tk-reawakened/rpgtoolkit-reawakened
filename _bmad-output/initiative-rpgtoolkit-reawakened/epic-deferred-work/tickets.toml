@@ -123,3 +123,94 @@ hitl = false
 risk = "high"
 references = ["issue - #712", "epic - #639", "architecture - AD-1, AD-11, AD-27", "guardrails - docs/guardrails.md (G1, G3, G5)"]
 notes = ["Delivered: exact FNV-1a per-block transitions learned lazily one incoming low-byte value at a time, capped at 2,048 blocks per game state with eviction of blocks no longer in the state; cached canonical surface fragments that direct edits invalidate; hashes unchanged.", "Not applicable on this base: origin/main has no applyCanvasText or renderNowOn. The hash cache already accepts the existing optional surfaces.renderNow key; no fields were added.", "Measured on Node 24.21.0 against origin/main with identical state hashes: a tick editing four high-entropy 640x480 surfaces while the state prefix changes took about 630 ms median before and 61 ms median after (37 ms on Node 26.8.1, 111 ms on Bun 1.4.2); cold or highly varied surfaces still need sequential hashing."]
+
+[[entry]]
+id = 9
+tracker_id = "#847"
+type = "bug"
+title = "Refuse a shade layer that under-covers the grid"
+description = "writeBoard writes a shade layer's records verbatim while readBoard consumes them until they cover the grid, so a short layer is read into the following fields."
+verify = "A layer one cell short is refused with a located error naming the layer and the shortfall; exact coverage still writes byte-identical bytes."
+covers = ["CAP-1"]
+after = []
+hitl = false
+risk = "medium"
+references = ["issue - #847", "spec - docs/spec/formats/board.md#vector-layout-minor-4-and-later"]
+
+[[entry]]
+id = 10
+tracker_id = "#848"
+type = "bug"
+title = "Resolve font() substitution to an asset the project ships"
+description = "font(name) stored media/fonts/liberation-sans.ttf, a key no project ships, so the documented Liberation substitution silently fell back to the bitmap font."
+verify = "font(\"Arial\") resolves a shipped Liberation face and draws with it; an unknown family still falls back to the bitmap font; an exact or family match wins."
+covers = ["CAP-1"]
+after = []
+hitl = false
+risk = "medium"
+references = ["issue - #848", "spec - docs/spec/engine/rpgcode-functions.md#reawakened-rule-owner-fontref-facing-font-semantics"]
+
+[[entry]]
+id = 11
+tracker_id = "#849"
+type = "bug"
+title = "Correct main-file row citations to the renumbered spec"
+description = "Source comments cite Row 29 for both the old fight style and the plugin list; the spec numbers them 11 and 37."
+verify = "Every main-file citation names the row the spec numbers, and a repository search finds no Row 29 reference."
+covers = ["CAP-1"]
+after = []
+hitl = false
+risk = "low"
+references = ["issue - #849", "spec - docs/spec/formats/main-file.md"]
+
+[[entry]]
+id = 12
+tracker_id = "#851"
+type = "story"
+title = "Record deferred-work dispositions and promotion markers"
+description = "Epic 23 Done-when 2 needs every resolved, duplicated or ruling-blocked finding to keep its ledger entry with the disposition recorded, and each promoted finding to name where it went."
+verify = "Every promoted finding names its venue, every resolved finding has a ## Resolved line, #680 and #642 stay marked as awaiting an owner decision, and no historical entry is rewritten."
+covers = ["CAP-1"]
+after = []
+hitl = false
+risk = "low"
+references = ["issue - #851", "ledger - deferred-work.md"]
+
+[[entry]]
+id = 13
+tracker_id = "#852"
+type = "story"
+title = "Pin the format and event evidence the audits found unproven"
+description = "Several criteria are met in code but not pinned by a test that would fail on regression: enemy critical fields, sample() coverage, an engine-level mid-dispatch save/load, the still-boots assertion, tileset and battle fixtures, the main-file conditional rows and focus pause."
+verify = "Each listed assertion fails when the behaviour it pins is removed, and fixture-dependent items skip with a reason when the fixtures are absent."
+covers = ["CAP-1"]
+after = []
+hitl = false
+risk = "low"
+references = ["issue - #852"]
+
+[[entry]]
+id = 14
+tracker_id = "#854"
+type = "spike"
+title = "Rule whether board thread entries accept inline code"
+description = "docs/spec/formats/board.md says a board thread entry is a program file or inline code, but the engine starts every entry as a file program and no known file stores inline code."
+verify = "The owner answers with a rule; the page and the engine then agree. Recommendation and rejected alternative are in issue #854."
+covers = ["CAP-1"]
+after = []
+hitl = true
+risk = "medium"
+references = ["issue - #854", "spec - docs/spec/formats/board.md"]
+
+[[entry]]
+id = 15
+tracker_id = "#855"
+type = "spike"
+title = "Rule the owner of startup compile-failure behaviour"
+description = "The deferred ledger defers startup compile-failure behaviour to a completed epic whose boundaries exclude boot semantics, so the rule is unowned."
+verify = "The owner names the owning epic and the behaviour; the spec then states it and a ticket implements it. Recommendation and rejected alternative are in issue #855."
+covers = ["CAP-1"]
+after = []
+hitl = true
+risk = "medium"
+references = ["issue - #855", "spec - docs/spec/engine/main-loop-and-startup.md"]

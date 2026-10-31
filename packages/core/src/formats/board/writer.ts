@@ -249,7 +249,18 @@ export function writeBoard(model: Board): Result<Uint8Array> {
   if (!shadeLayers.ok) {
     return shadeLayers;
   }
-  for (const layer of model.shadeLayers) {
+  // docs/spec/formats/board.md#vector-layout-minor-4-and-later stores a layer as records the reader
+  // consumes until they cover the grid, so an under-covering layer would make the reader read the
+  // next field as a shade record and misparse the rest of the file.
+  const cellsPerLayer = grid.width * grid.height;
+  for (const [index, layer] of model.shadeLayers.entries()) {
+    const covered = layer.records.reduce((sum, record) => sum + (record.runCount > 1 ? record.runCount : 1), 0);
+    if (covered < cellsPerLayer) {
+      return fail(
+        writer,
+        `shade layer ${index} covers ${covered} cells but the grid has ${cellsPerLayer}; the reader consumes a record per cell until the layer is covered, so a short layer would be read into the following fields`,
+      );
+    }
     writer.i32(layer.castLayer);
     for (const record of layer.records) {
       const scalars = writeI16s(

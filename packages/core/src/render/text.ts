@@ -86,6 +86,37 @@ function widthOf(glyphs: readonly GlyphAdvance[]): number {
   return glyphs.reduce((sum, glyph) => sum + glyph.advance, 0);
 }
 
+/**
+ * Resolve a `font(name)` argument against the assets the project actually ships
+ * (docs/spec/engine/rpgcode-functions.md#reawakened-rule-owner-fontref-facing-font-semantics):
+ * an exact path, then a case-insensitive family match, then the documented
+ * Liberation substitution, and `null` when nothing resolves so the caller can
+ * fall back.
+ */
+export function resolveFontAsset(name: string, keys: Iterable<AssetKey>): AssetKey | null {
+  const folded = name.trim().toLowerCase();
+  if (folded === "") return null;
+  const familyOf = (key: AssetKey): string => {
+    const path = String(key).toLowerCase();
+    return path.slice(path.lastIndexOf("/") + 1).replace(/\.[^.]+$/, "").replace(/[-_\s]/g, "");
+  };
+  const wanted = folded.replace(/[-_\s]/g, "");
+  const all = [...keys];
+  const exact = all.find((key) => String(key).toLowerCase() === folded || String(key).toLowerCase().endsWith(`/${folded}`));
+  if (exact !== undefined) return exact;
+  const byFamily = all.find((key) => familyOf(key) === wanted);
+  if (byFamily !== undefined) return byFamily;
+  const substitute = folded === "arial" || folded === "sans-serif" || folded === "liberation sans"
+    ? "liberationsans"
+    : folded === "times new roman" || folded === "serif" || folded === "liberation serif"
+      ? "liberationserif"
+      : folded === "courier new" || folded === "monospace" || folded === "liberation mono"
+        ? "liberationmono"
+        : "";
+  if (substitute === "") return null;
+  return all.find((key) => familyOf(key).startsWith(substitute)) ?? null;
+}
+
 /** Resolve a named project font, applying the documented family aliases. */
 export function resolveFont(
   name: string,
