@@ -477,6 +477,17 @@ test("item: custom stances follow the movement strings at minor 4 and idle+speed
 
 // --- docs/spec/formats/enemy.md#layout enemy, six stance slots and the i32 custom-stance bound -----------
 
+test("an enemy's two critical fields keep their own values, so a consistent swap fails", () => {
+  // Round-tripping a swapped reader/writer pair cannot see the swap; distinct values can.
+  // The builder writes 4 then 10 at the two critical fields.
+  const enemy = unwrap(readEnemy(new BinaryReader(buildEnemy())));
+  equal(enemy.criticalOn, 4, "criticalOn is the first critical field");
+  equal(enemy.criticalBy, 10, "criticalBy is the second");
+  const swapped = unwrap(readEnemy(new BinaryReader(unwrap(writeEnemy({ ...enemy, criticalOn: 10, criticalBy: 4 })))));
+  equal(swapped.criticalOn, 10);
+  equal(swapped.criticalBy, 4, "a swapped pair re-reads as itself, which only distinct values can prove");
+});
+
 test("enemy: the stance bound 5 yields six slots and the custom-stance bound is i32", () => {
   const stances = ["rest", "fight", "defend", "special", "die", ""];
   const bytes = buildEnemy({ stances });
@@ -930,6 +941,16 @@ test(
     equal(item.speed, 0.1, "items store speed first");
     equal(item.idleTime, 3);
     equal(item.vectorBases?.length, 2);
+
+    // The two samples the layout test used to skip still pin their own round-trip.
+    const basicTem = sample(join("Basic", "Chrs", "start.tem"));
+    const basicBytes = new Uint8Array(readFileSync(basicTem));
+    const basicReader = new BinaryReader(basicBytes, basicTem);
+    checkActor(basicTem, basicBytes, basicReader, readCharacter(basicReader), writeCharacter);
+    const oldmanItm = sample(join("demo", "Item", "oldman.itm"));
+    const oldmanBytes = new Uint8Array(readFileSync(oldmanItm));
+    const oldmanReader = new BinaryReader(oldmanBytes, oldmanItm);
+    checkActor(oldmanItm, oldmanBytes, oldmanReader, readItem(oldmanReader), writeItem);
 
     const pirateEne = sample(join("demo", "Enemy", "pirate.ene"));
     const pirateBytes = new Uint8Array(readFileSync(pirateEne));
