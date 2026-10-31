@@ -6,7 +6,7 @@
   "packageManager": "pnpm@12.10.1",
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc -b && pnpm -r --if-present run typecheck:tests",
+    "typecheck": "tsc -b && pnpm -r --if-present run typecheck:tests && tsc -p packages/runner-web/tsconfig.app.json",
     "test": "tsc -b && node --test \"packages/*/test/*.test.ts\"",
     "coverage": "tsc -b && mkdir -p coverage && node --experimental-test-coverage --test-coverage-lines=91 --test-coverage-branches=81 --test-coverage-include='packages/*/src/**' --test-coverage-exclude='**/catalogue-stubs.ts' --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=coverage/lcov.info --test \"packages/*/test/*.test.ts\"",
     "test:strict": "tsc -b && node tools/no-skips/run.mjs",

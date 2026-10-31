@@ -213,11 +213,15 @@ function createBootDoubles(options: ClosingRunOptions = {}) {
   };
 }
 
-type Capture = { readonly frame: ClosingFrameRecord; readonly image: DecodedTexture; readonly drawList: DrawList };
+type Capture = {
+  readonly frame: ClosingFrameRecord;
+  readonly image: DecodedTexture;
+  readonly drawList: DrawList;
+  /** The persistent surfaces this frame's blits name, read at capture time: a later tick may replace one (AD-27). */
+  readonly surfaces: ReadonlyMap<string, DecodedTexture | null>;
+};
 type Trace = {
   readonly census?: ExecutionCensus;
-  /** The engine's pixel accessor, so a host that draws the frames can pull a persistent surface (AD-27). */
-  readonly surfacePixels: (id: SurfaceId, rev: number) => DecodedTexture | null;
   readonly ticks: number;
   readonly stalled: boolean;
   readonly bootStage: string | null;
@@ -241,9 +245,16 @@ function readScreen(engine: Engine): DecodedTexture {
 function capture(engine: Engine, label: string, tick: number, stateHash: string): Capture {
   const list = engine.drawList(0, INCLUDE);
   const image = readScreen(engine);
+  const surfaces = new Map<string, DecodedTexture | null>();
+  for (const command of list.commands) {
+    if (command.kind !== "blit" || "asset" in command.source) continue;
+    const key = `${command.source.surface}:${command.source.rev}`;
+    if (!surfaces.has(key)) surfaces.set(key, engine.surfacePixels(command.source.surface, command.source.rev));
+  }
   return {
     image,
     drawList: list,
+    surfaces,
     frame: { label, tick, stateHash, drawHash: hashDrawList(list), pixelHash: fnv1a64(image.rgba), commands: list.commands.length, width: image.w, height: image.h },
   };
 }
@@ -339,7 +350,6 @@ function runOnce(plan: ClosingPlan, files: ClosingFiles, bundled: ClosingFiles, 
   const state = doubles.observed();
   return {
     ...(census === undefined ? {} : { census: census.result() }),
-    surfacePixels: (id: SurfaceId, rev: number) => engine.surfacePixels(id, rev),
     ticks: tick,
     stalled,
     bootStage: state?.engine.boot?.stage ?? (stalled ? "stopped" : null),
@@ -398,7 +408,11 @@ function traceDifferences(batch: number, reference: Trace, other: Trace): string
 }
 
 /** One captured frame with the draw list that produced it, for a host that draws the frames itself. */
-export type ClosingFrameWithDrawList = ClosingFrameRecord & { readonly drawList: DrawList };
+export type ClosingFrameWithDrawList = ClosingFrameRecord & {
+  readonly drawList: DrawList;
+  /** `"<surface>:<rev>"` to the pixels that surface held when the frame was captured (AD-27). */
+  readonly surfaces: ReadonlyMap<string, DecodedTexture | null>;
+};
 
 /** What a host needs to draw a closing frame outside the headless runner (the browser lane, 9.3). */
 export type ClosingFrameRun = {
@@ -407,14 +421,13 @@ export type ClosingFrameRun = {
   readonly board: string | null;
   readonly diagnostics: readonly ClosingDiagnostic[];
   readonly frames: readonly ClosingFrameWithDrawList[];
-  /** Persistent surfaces as the engine held them after the run (AD-27), for a host drawing a surface blit. */
-  readonly surfacePixels: (id: SurfaceId, rev: number) => DecodedTexture | null;
 };
 
 /**
- * Boot one game exactly as the closing suite does — same plan, same batching, same asset replies — and return its
- * captured frames with their draw lists. A host that must present the frames itself reuses this so its hashes are the
- * baseline's by construction, not by a copy of the boot sequence.
+ * Boot one game exactly as the closing suite does — same plan, same asset replies, the plan's first batch, which is the
+ * batch the committed baseline records — and return its captured frames with their draw lists and the surfaces they
+ * name. A host that must present the frames itself reuses this so its hashes are the baseline's by construction, not by
+ * a copy of the boot sequence. The cross-batch determinism check stays `runClosingGame`'s.
  */
 export function runClosingFrames(
   plan: ClosingPlan,
@@ -431,8 +444,7 @@ export function runClosingFrames(
     stalled: trace.stalled,
     board: trace.board,
     diagnostics: trace.diagnostics,
-    surfacePixels: trace.surfacePixels,
-    frames: trace.captures.map((capture) => ({ ...capture.frame, drawList: capture.drawList })),
+    frames: trace.captures.map((capture) => ({ ...capture.frame, drawList: capture.drawList, surfaces: capture.surfaces })),
   };
 }
 

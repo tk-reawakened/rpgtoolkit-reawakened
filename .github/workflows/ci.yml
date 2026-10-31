@@ -138,6 +138,7 @@ jobs:
           node-version: 24.21.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm build
       - run: pnpm fixtures:fetch
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm browser:test

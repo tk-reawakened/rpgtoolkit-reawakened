@@ -52,6 +52,8 @@ graph LR
   synth --> runnerweb[runner-web]
   renderwebgl2 --> runnerweb
   core --> runnerheadless[runner-headless]
+  core --> runnerweb
+  runnerharness --> runnerweb
   runnerharness --> runnerheadless
   runnerharness --> dap
   runnerweb --> runnerdesktop[runner-desktop]

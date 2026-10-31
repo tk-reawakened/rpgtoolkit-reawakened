@@ -58,7 +58,13 @@ void (async () => {
     const pixels = new Uint8Array(vector.width * vector.height * 4);
     gl.readPixels(0, 0, vector.width, vector.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     renderer.dispose();
-    results.push({ id: vector.id, actual: hexFromBytes(pixels), expected: vector.rgba });
+    // `readPixels` returns rows bottom-up and a vector's expected RGBA is top-first, so compare in one order.
+    const stride = vector.width * 4;
+    const topFirst = new Uint8Array(pixels.length);
+    for (let row = 0; row < vector.height; row += 1) {
+      topFirst.set(pixels.subarray(row * stride, (row + 1) * stride), (vector.height - 1 - row) * stride);
+    }
+    results.push({ id: vector.id, actual: hexFromBytes(topFirst), expected: vector.rgba });
   }
   window.__vectors = results;
   window.document.title = `vectors: ${results.length} replayed`;

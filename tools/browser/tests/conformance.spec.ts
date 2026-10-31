@@ -6,15 +6,17 @@ test("render-webgl2 replays the committed raster vectors within the D-7 bound", 
   await page.waitForFunction(() => window.__vectors !== undefined, undefined, { timeout: 30_000 });
   const results = await page.evaluate(() => window.__vectors as { id: string; actual: string; expected: string }[]);
   console.log("vectors:", JSON.stringify(results));
-  expect(results.length).toBe(3);
+  expect(results.length).toBe(7);
 
   for (const result of results) {
     const actual = bytes(result.actual);
     const expected = bytes(result.expected);
     const worst = worstChannel(actual, expected);
-    // The tint case is a discrete decision and must be exact; the two blend cases are arithmetic and may differ by one.
-    if (result.id === "tint-extremes") expect(worst, `${result.id} must be exact`).toBe(0);
-    else expect(worst, `${result.id} within one unit per channel`).toBeLessThanOrEqual(1);
+    // Every discrete decision — the key, the R-15 tint remap, alpha-0 skipping, row order — must be exact; only the two
+    // blend arithmetic cases may differ by one (D-7).
+    const arithmetic = result.id.includes("translucent") || result.id.includes("additive");
+    if (arithmetic) expect(worst, `${result.id} within one unit per channel`).toBeLessThanOrEqual(1);
+    else expect(worst, `${result.id} must be exact`).toBe(0);
   }
 });
 

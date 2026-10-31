@@ -6,9 +6,41 @@
       "id": "tint-extremes",
       "width": 1,
       "height": 1,
-      "texture": { "asset": "test/vector", "w": 1, "h": 1, "rgba": "ff0064ff" },
+      "texture": {
+        "asset": "test/vector",
+        "w": 1,
+        "h": 1,
+        "rgba": "ff0064ff"
+      },
       "commands": [
-        { "kind": "blit", "source": { "asset": "test/vector", "tile": null }, "src": { "x": 0, "y": 0, "w": 1, "h": 1 }, "dst": { "x": 0, "y": 0, "w": 1, "h": 1 }, "key": null, "tint": { "r": -1020, "g": 1020, "b": 1020 }, "alpha": 255, "blend": "normal", "iso2d": false }
+        {
+          "kind": "blit",
+          "source": {
+            "asset": "test/vector",
+            "tile": null
+          },
+          "src": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "dst": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "key": null,
+          "tint": {
+            "r": -1020,
+            "g": 1020,
+            "b": 1020
+          },
+          "alpha": 255,
+          "blend": "normal",
+          "iso2d": false
+        }
       ],
       "rgba": "00ffffff"
     },
@@ -16,10 +48,49 @@
       "id": "translucent-127",
       "width": 1,
       "height": 1,
-      "texture": { "asset": "test/vector", "w": 1, "h": 1, "rgba": "5aa0c8ff" },
+      "texture": {
+        "asset": "test/vector",
+        "w": 1,
+        "h": 1,
+        "rgba": "5aa0c8ff"
+      },
       "commands": [
-        { "kind": "fill", "rgb": { "r": 10, "g": 20, "b": 30 } },
-        { "kind": "blit", "source": { "asset": "test/vector", "tile": null }, "src": { "x": 0, "y": 0, "w": 1, "h": 1 }, "dst": { "x": 0, "y": 0, "w": 1, "h": 1 }, "key": null, "tint": { "r": 0, "g": 0, "b": 0 }, "alpha": 127, "blend": "translucent", "iso2d": false }
+        {
+          "kind": "fill",
+          "rgb": {
+            "r": 10,
+            "g": 20,
+            "b": 30
+          }
+        },
+        {
+          "kind": "blit",
+          "source": {
+            "asset": "test/vector",
+            "tile": null
+          },
+          "src": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "dst": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "key": null,
+          "tint": {
+            "r": 0,
+            "g": 0,
+            "b": 0
+          },
+          "alpha": 127,
+          "blend": "translucent",
+          "iso2d": false
+        }
       ],
       "rgba": "325a73ff"
     },
@@ -27,12 +98,238 @@
       "id": "additive-128",
       "width": 1,
       "height": 1,
-      "texture": { "asset": "test/vector", "w": 1, "h": 1, "rgba": "5aa0c8ff" },
+      "texture": {
+        "asset": "test/vector",
+        "w": 1,
+        "h": 1,
+        "rgba": "5aa0c8ff"
+      },
       "commands": [
-        { "kind": "fill", "rgb": { "r": 10, "g": 20, "b": 30 } },
-        { "kind": "blit", "source": { "asset": "test/vector", "tile": null }, "src": { "x": 0, "y": 0, "w": 1, "h": 1 }, "dst": { "x": 0, "y": 0, "w": 1, "h": 1 }, "key": null, "tint": { "r": 0, "g": 0, "b": 0 }, "alpha": 128, "blend": "additive", "iso2d": false }
+        {
+          "kind": "fill",
+          "rgb": {
+            "r": 10,
+            "g": 20,
+            "b": 30
+          }
+        },
+        {
+          "kind": "blit",
+          "source": {
+            "asset": "test/vector",
+            "tile": null
+          },
+          "src": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "dst": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "key": null,
+          "tint": {
+            "r": 0,
+            "g": 0,
+            "b": 0
+          },
+          "alpha": 128,
+          "blend": "additive",
+          "iso2d": false
+        }
       ],
       "rgba": "376482ff"
+    },
+    {
+      "id": "tint-white-remap",
+      "width": 1,
+      "height": 1,
+      "texture": {
+        "asset": "test/vector",
+        "w": 1,
+        "h": 1,
+        "rgba": "ffffffff"
+      },
+      "commands": [
+        {
+          "kind": "fill",
+          "rgb": {
+            "r": 0,
+            "g": 0,
+            "b": 0
+          }
+        },
+        {
+          "kind": "blit",
+          "source": {
+            "asset": "test/vector",
+            "tile": null
+          },
+          "src": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "dst": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "key": null,
+          "tint": {
+            "r": 1,
+            "g": 0,
+            "b": 0
+          },
+          "alpha": 255,
+          "blend": "normal",
+          "iso2d": false
+        }
+      ],
+      "rgba": "f6f5f5ff"
+    },
+    {
+      "id": "tint-black-remap",
+      "width": 1,
+      "height": 1,
+      "texture": {
+        "asset": "test/vector",
+        "w": 1,
+        "h": 1,
+        "rgba": "000000ff"
+      },
+      "commands": [
+        {
+          "kind": "fill",
+          "rgb": {
+            "r": 0,
+            "g": 0,
+            "b": 0
+          }
+        },
+        {
+          "kind": "blit",
+          "source": {
+            "asset": "test/vector",
+            "tile": null
+          },
+          "src": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "dst": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "key": null,
+          "tint": {
+            "r": -1,
+            "g": 0,
+            "b": 0
+          },
+          "alpha": 255,
+          "blend": "normal",
+          "iso2d": false
+        }
+      ],
+      "rgba": "090a0aff"
+    },
+    {
+      "id": "alpha-zero-skips",
+      "width": 1,
+      "height": 1,
+      "texture": {
+        "asset": "test/vector",
+        "w": 1,
+        "h": 1,
+        "rgba": "11223300"
+      },
+      "commands": [
+        {
+          "kind": "fill",
+          "rgb": {
+            "r": 0,
+            "g": 0,
+            "b": 0
+          }
+        },
+        {
+          "kind": "blit",
+          "source": {
+            "asset": "test/vector",
+            "tile": null
+          },
+          "src": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "dst": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "key": null,
+          "tint": {
+            "r": 0,
+            "g": 0,
+            "b": 0
+          },
+          "alpha": 255,
+          "blend": "normal",
+          "iso2d": false
+        }
+      ],
+      "rgba": "000000ff"
+    },
+    {
+      "id": "row-order",
+      "width": 1,
+      "height": 2,
+      "texture": {
+        "asset": "test/vector",
+        "w": 1,
+        "h": 1,
+        "rgba": "ffffffff"
+      },
+      "commands": [
+        {
+          "kind": "fill",
+          "rgb": {
+            "r": 0,
+            "g": 0,
+            "b": 0
+          }
+        },
+        {
+          "kind": "rect",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "rgb": {
+            "r": 255,
+            "g": 0,
+            "b": 0
+          },
+          "filled": true
+        }
+      ],
+      "rgba": "ff0000ff000000ff"
     }
   ]
 }

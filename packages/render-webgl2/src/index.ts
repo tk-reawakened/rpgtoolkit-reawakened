@@ -52,18 +52,17 @@ const VERTEX = `#version 300 es
 in vec2 aUnit;
 uniform vec4 uRect;
 uniform vec2 uViewport;
-uniform vec4 uUv;
-out vec2 vUv;
+out vec2 vLocal;
 void main() {
   vec2 px = uRect.xy + aUnit * uRect.zw;
   vec2 clip = (px / uViewport) * 2.0 - 1.0;
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
-  vUv = uUv.xy + aUnit * (uUv.zw - uUv.xy);
+  vLocal = aUnit;
 }`;
 
 const FRAGMENT = `#version 300 es
 precision highp float;
-in vec2 vUv;
+in vec2 vLocal;
 out vec4 outColor;
 uniform sampler2D uTex;
 uniform int uMode;
@@ -72,13 +71,28 @@ uniform vec3 uTint;
 uniform float uAlpha;
 uniform int uKeyOn;
 uniform vec3 uKey;
+uniform ivec2 uSrcOrigin;
+uniform ivec2 uSrcSize;
+uniform ivec2 uDstSize;
 void main() {
   if (uMode == 0 || uMode == 2) {
-    vec4 texel = texture(uTex, vUv);
-    if (uKeyOn == 1 && texel.r * 255.0 == uKey.r && texel.g * 255.0 == uKey.g && texel.b * 255.0 == uKey.b) discard;
-    vec3 c = clamp(texel.rgb * 255.0 + uTint, 0.0, 255.0) / 255.0;
+    // Nearest, with the reference rasteriser's mapping: source = src.origin + floor(dest * src / dst).
+    ivec2 at = ivec2(int(floor(vLocal.x * float(uDstSize.x) + 0.0001)), int(floor(vLocal.y * float(uDstSize.y) + 0.0001)));
+    ivec2 texel = ivec2(uSrcOrigin.x + at.x * uSrcSize.x / uDstSize.x, uSrcOrigin.y + at.y * uSrcSize.y / uDstSize.y);
+    vec4 texelValue = texelFetch(uTex, texel, 0);
+    if (texelValue.a == 0.0) discard;
+    if (uKeyOn == 1 && texelValue.r * 255.0 == uKey.r && texelValue.g * 255.0 == uKey.g && texelValue.b * 255.0 == uKey.b) discard;
+    // R-15: with a non-zero tint, pure white becomes 245 and pure black 10 before the tint is added (tiles.md#shading).
+    vec3 src = texelValue.rgb * 255.0;
+    if (uTint.r != 0.0 || uTint.g != 0.0 || uTint.b != 0.0) {
+      src = vec3(
+        src.r == 255.0 ? 245.0 : (src.r == 0.0 ? 10.0 : src.r),
+        src.g == 255.0 ? 245.0 : (src.g == 0.0 ? 10.0 : src.g),
+        src.b == 255.0 ? 245.0 : (src.b == 0.0 ? 10.0 : src.b));
+    }
+    vec3 c = clamp(src + uTint, 0.0, 255.0) / 255.0;
     // A normal blit copies the texture's own alpha; a blend is weighted by the command's alpha, never the texture's (AD-3).
-    outColor = vec4(c, uMode == 0 ? texel.a : uAlpha);
+    outColor = vec4(c, uMode == 0 ? texelValue.a : uAlpha);
     return;
   }
   outColor = vec4(uColor, uAlpha);
@@ -127,8 +141,10 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
   };
   const uRect = uniform("uRect");
   const uViewport = uniform("uViewport");
-  const uUv = uniform("uUv");
   const uMode = uniform("uMode");
+  const uSrcOrigin = uniform("uSrcOrigin");
+  const uSrcSize = uniform("uSrcSize");
+  const uDstSize = uniform("uDstSize");
   const uColor = uniform("uColor");
   const uTint = uniform("uTint");
   const uAlpha = uniform("uAlpha");
@@ -178,12 +194,18 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
     gl.blendFuncSeparate(gl.SRC_ALPHA, mode === "additive" ? gl.ONE : gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE);
   }
 
-  function drawQuad(rect: { x: number; y: number; w: number; h: number }, uv: { u0: number; v0: number; u1: number; v1: number }): void {
+  /** A quad in logical pixels; `source` is the texel rectangle it samples, in the texture's own pixels. */
+  type Source = { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
+  function drawQuad(rect: { x: number; y: number; w: number; h: number }, source?: Source): void {
     gl.uniform4f(uRect, rect.x, rect.y, rect.w, rect.h);
-    gl.uniform4f(uUv, uv.u0, uv.v0, uv.u1, uv.v1);
+    gl.uniform2i(uDstSize, rect.w, rect.h);
+    if (source === undefined) gl.uniform2i(uSrcSize, 0, 0);
+    else {
+      gl.uniform2i(uSrcOrigin, source.x, source.y);
+      gl.uniform2i(uSrcSize, source.w, source.h);
+    }
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
-
   return {
     render(list: DrawList, textures: TextureProvider, surfaces?: SurfaceProvider): RenderStats {
       if (disposed) throw new Error("render-webgl2: renderer was disposed");
@@ -221,7 +243,7 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
             gl.uniform3f(uColor, command.rgb.r / 255, command.rgb.g / 255, command.rgb.b / 255);
             gl.uniform1f(uAlpha, 1);
             setBlend("normal");
-            drawQuad({ x: 0, y: 0, w: list.width, h: list.height }, { u0: 0, v0: 0, u1: 0, v1: 0 });
+            drawQuad({ x: 0, y: 0, w: list.width, h: list.height });
             drawn += 1;
             break;
           }
@@ -231,13 +253,13 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
             gl.uniform3f(uColor, command.rgb.r / 255, command.rgb.g / 255, command.rgb.b / 255);
             gl.uniform1f(uAlpha, 1);
             setBlend("normal");
-            if (command.filled) drawQuad(command.rect, { u0: 0, v0: 0, u1: 0, v1: 0 });
+            if (command.filled) drawQuad(command.rect);
             else {
               const { x, y, w, h } = command.rect;
-              drawQuad({ x, y, w, h: 1 }, { u0: 0, v0: 0, u1: 0, v1: 0 });
-              drawQuad({ x, y: y + h - 1, w, h: 1 }, { u0: 0, v0: 0, u1: 0, v1: 0 });
-              drawQuad({ x, y, w: 1, h }, { u0: 0, v0: 0, u1: 0, v1: 0 });
-              drawQuad({ x: x + w - 1, y, w: 1, h }, { u0: 0, v0: 0, u1: 0, v1: 0 });
+              drawQuad({ x, y, w, h: 1 });
+              drawQuad({ x, y: y + h - 1, w, h: 1 });
+              drawQuad({ x, y, w: 1, h });
+              drawQuad({ x: x + w - 1, y, w: 1, h });
             }
             drawn += 1;
             break;
@@ -283,12 +305,7 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
             gl.uniform1f(uAlpha, command.alpha / 255);
             gl.uniform1i(uMode, command.blend === "normal" ? 0 : 2);
             setBlend(command.blend);
-            drawQuad(command.dst, {
-              u0: origin.x / texture.w,
-              v0: origin.y / texture.h,
-              u1: (origin.x + command.src.w) / texture.w,
-              v1: (origin.y + command.src.h) / texture.h,
-            });
+            drawQuad(command.dst, { x: origin.x, y: origin.y, w: command.src.w, h: command.src.h });
             drawn += 1;
             break;
           }
@@ -304,27 +321,24 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
             gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
             gl.clearColor(0, 0, 0, 0);
             gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.viewport(0, 0, list.width, list.height);
             scratchStack.push({ texture, framebuffer });
             drawn += 1;
             break;
           }
           case "popTarget": {
+            // The reference pops the target stack and nothing else: a scratch target is frame-scoped state that no
+            // blit source can name (AD-27), so popping restores the parent and draws no pixel.
             const top = scratchStack.pop();
             if (top === undefined) {
               defer("popTarget", "webgl2.unbalanced-pop: popTarget without pushTarget");
               break;
             }
-            bindDefaultFramebuffer();
-            gl.activeTexture(gl.TEXTURE0);
-            gl.bindTexture(gl.TEXTURE_2D, top.texture);
-            gl.uniform1i(uMode, 0);
-            gl.uniform1i(uKeyOn, 0);
-            gl.uniform3f(uTint, 0, 0, 0);
-            gl.uniform1f(uAlpha, 1);
-            setBlend("normal");
-            drawQuad({ x: 0, y: 0, w: list.width, h: list.height }, { u0: 0, v0: 0, u1: 1, v1: 1 });
             gl.deleteFramebuffer(top.framebuffer);
             gl.deleteTexture(top.texture);
+            const parent = scratchStack.at(-1);
+            if (parent === undefined) bindDefaultFramebuffer();
+            else gl.bindFramebuffer(gl.FRAMEBUFFER, parent.framebuffer);
             drawn += 1;
             break;
           }

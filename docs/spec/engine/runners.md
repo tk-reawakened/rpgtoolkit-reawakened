@@ -74,7 +74,8 @@ vectors and on every gating golden scene:
 
 **What is drawn today.** Entry 9.3 replays the committed raster vectors and the demo frame's geometry — fills and blits,
 with key, tint and the three blends — at the draw list's logical resolution. The **text** commands, the exact 1-pixel
-line and integer-midpoint ellipse, the `.iso` projection and the animated and tile-bitmap textures are entry 9.4's; a
+line and integer-midpoint ellipse, the `.iso` projection, and the animated (`.tan`), tile-bitmap (`.tbm`) and single-tile
+(`.gph`) textures are entry 9.4's; a
 renderer that cannot draw one of them **MUST** count it as deferred and report a diagnostic, never draw an approximate
 pixel in its place. A frame that reports a deferred command is a partial frame, not a pass.
 

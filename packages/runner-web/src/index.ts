@@ -105,8 +105,8 @@ export function runScriptedFrame(options: ScriptedFrameOptions): FrameReport {
   if (frame === undefined) throw new Error(`runner-web: ${options.game} captured no frame`);
   const renderer = createWebgl2Renderer(options.gl);
   const render = renderer.render(frame.drawList as DrawList, textureProvider(options.files), (id, rev) => {
-    const pixels = run.surfacePixels(id, rev);
-    return pixels === null ? null : { w: pixels.w, h: pixels.h, rgba: pixels.rgba };
+    const pixels = frame.surfaces.get(`${id}:${rev}`);
+    return pixels === undefined || pixels === null ? null : { w: pixels.w, h: pixels.h, rgba: pixels.rgba };
   });
   return { tick: frame.tick, stateHash: frame.stateHash, drawHash: frame.drawHash, commands: frame.commands, render };
 }

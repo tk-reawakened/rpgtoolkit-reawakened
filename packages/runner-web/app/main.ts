@@ -6,6 +6,7 @@
  * without scraping the DOM, and it is printed for a person watching the page.
  */
 
+import { parseClosingPlan } from "@tk-reawakened/runner-harness";
 import { fetchBundled, fetchGame, runScriptedFrame } from "../src/index.ts";
 
 declare global {
@@ -33,7 +34,7 @@ async function boot(context: WebGL2RenderingContext, report: HTMLPreElement): Pr
     const base = "";
     const planText = await (await fetch(`${base}/golden/closing/plan.json`)).text();
     const files = await fetchGame(base, `fixtures/legacy/${game}`);
-    const bundled = await fetchBundled(base, ["media/fonts", "media/cursors"]);
+    const bundled = await fetchBundled(base, parseClosingPlan(planText).bundled);
     const result = runScriptedFrame({ planText, game, files, bundled, gl: context });
     window.__report = { game, ...result };
     report.textContent = [

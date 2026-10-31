@@ -31,6 +31,8 @@
     ["synth", "runner-web"],
     ["render-webgl2", "runner-web"],
     ["core", "runner-headless"],
+    ["core", "runner-web"],
+    ["runner-harness", "runner-web"],
     ["runner-harness", "runner-headless"],
     ["runner-harness", "dap"],
     ["runner-web", "runner-desktop"],
