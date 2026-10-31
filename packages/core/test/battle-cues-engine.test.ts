@@ -22,6 +22,7 @@ import {
   enqueueDirectionMove,
   hashGameState,
   hydrateSprites,
+  restoreGameState,
   movementPhaseRegistration,
   nextUint32,
   PACKAGE_ROOT,
@@ -717,7 +718,6 @@ test("a save requested inside a cancelable dispatch restores to the same state a
   let replies: InputRecord[] = [];
   let savedBytes: Uint8Array | null = null;
   let savedTick = -1;
-  let hashAtSave = "";
   for (let guard = 0; guard < 400 && savedBytes === null; guard += 1) {
     const report = saving.engine.advance(1, replies);
     replies = [];
@@ -725,7 +725,6 @@ test("a save requested inside a cancelable dispatch restores to the same state a
       if (request.kind === "saveBlob") {
         savedBytes = new Uint8Array(request.bytes);
         savedTick = report.tickAfter;
-        hashAtSave = report.stateHash;
       }
     }
     if (report.loading) {
@@ -739,24 +738,33 @@ test("a save requested inside a cancelable dispatch restores to the same state a
   ok(saved.events.dispatch !== null, "the save was taken with a dispatch open");
   equal(saving.latest()?.vm.globals.hits, 1, "the listener ran once");
 
-  // The same program, uninterrupted, from the saved tick onward.
-  const loadedGame = authoredGame(program);
+  // A brand-new engine whose start-up program calls load("slot") restores the blob. What this pins: the load really
+  // happened (`loadBlob` requested and answered), the restored run resumes at or past the saved tick rather than from
+  // zero, the parked listener did not run again, and the caller continues past the emit. Exact cross-engine hash
+  // equality for snapshots is pinned by `battle-fresh-load.test.ts`; the save here is the game envelope, taken with
+  // the dispatch cursor open, which that test does not cover.
+  const loadedGame = authoredGame(program, 'load("slot")\nend()\n');
   const loading = hostedEngine(loadedGame);
   let loadReplies: InputRecord[] = [];
-  let flagsPrecedeBoard = false;
+  let sawLoad = false;
   for (let guard = 0; guard < 400; guard += 1) {
     const report = loading.engine.advance(1, loadReplies);
     loadReplies = [];
     for (const request of report.requests) {
-      if (request.kind === "loadBlob") loadReplies.push({ tick: report.tickAfter, event: { kind: "blob.loaded" as const, reqId: request.reqId, bytes: new Uint8Array(savedBytes as Uint8Array) } });
+      if (request.kind === "loadBlob") {
+        sawLoad = true;
+        loadReplies.push({ tick: report.tickAfter, event: { kind: "blob.loaded" as const, reqId: request.reqId, bytes: new Uint8Array(savedBytes as Uint8Array) } });
+      }
       if (request.kind === "saveBlob") loadReplies.push({ tick: report.tickAfter, event: { kind: "blob.saved" as const, reqId: request.reqId, ok: true } });
       if (request.kind === "asset") loadReplies.push({ tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: loadedGame.files.get(request.key) ?? null } });
     }
-    if (report.loading) continue;
-    const state = loading.latest();
-    if (state?.vm.globals.aftersave === 1) { flagsPrecedeBoard = true; break; }
+    if (loading.latest()?.vm.globals.aftersave === 1) break;
   }
-  ok(flagsPrecedeBoard, "the loaded run reached the statement after the emit");
-  equal(loading.latest()?.vm.globals.hits, 1, "the restored run did not re-run the listener");
-  equal(hashAtSave !== "", true);
+  const resumed = loading.latest();
+  ok(sawLoad, "the second engine requested the saved blob");
+  ok(resumed !== null);
+  equal(resumed.vm.globals.aftersave, 1, "the loaded run reached the statement after the emit");
+  equal(resumed.vm.globals.hits, 1, "the restored run continued the listener's own thread rather than re-running it");
+  ok(resumed.time.tick >= savedTick, "the restored run resumed from the saved tick, not from zero");
+  equal(savedTick > 0, true, "the save was taken after the first tick");
 });
