@@ -1,10 +1,9 @@
 ---
-status: 'built'
 title: "The media object: media, track and voice objects, and mediaPlay returning a voice"
 type: 'feature'
 ticket: 5
 created: '2026-10-22'
-status: 'in-review'
+status: done
 review: 'quick'
 review_source: 'pinned'
 lenses_ran: ['quick']
