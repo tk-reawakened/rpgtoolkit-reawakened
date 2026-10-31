@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tk-reawakened/rpgtoolkit-reawakened/docs/spec/schemas/tkr-script-result.schema.json",
+  "title": "tkr script result envelope",
+  "description": "The JSON envelope every `tkr script` subcommand writes to stdout with --json, in both success and failure (docs/spec/engine/rpgcode-tooling.md#tool-9). Exit codes are stable and public once published; adding an optional field is a minor change, removing or retyping one, or adding an exit code, is a major one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "tool", "subcommand", "status", "exitCode", "diagnostics", "summary", "results"],
+  "properties": {
+    "schema": {
+      "description": "Envelope schema identity and version.",
+      "const": "tkr-script-result/1"
+    },
+    "tool": {
+      "description": "The binary that produced the envelope. One binary serves every group.",
+      "const": "tkr"
+    },
+    "subcommand": {
+      "description": "The script group subcommand that ran.",
+      "enum": ["check", "fmt", "test", "docs", "index"]
+    },
+    "status": {
+      "description": "Agrees with exitCode: ok for 0, findings for 1, error for 2 and 3.",
+      "enum": ["ok", "findings", "error"]
+    },
+    "exitCode": {
+      "description": "0 nothing to report, 1 findings in the project, 2 usage or configuration error, 3 internal error.",
+      "enum": [0, 1, 2, 3]
+    },
+    "diagnostics": {
+      "description": "The diagnostic objects of TOOL-3, in the order the tool produced them: failures and lint findings together, so an editor and a CI job see one shape.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/diagnostic" }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files", "diagnostics", "changed", "passed", "failed", "skipped"],
+      "properties": {
+        "files": { "description": "Files the subcommand read.", "type": "integer", "minimum": 0 },
+        "diagnostics": {
+          "description": "Diagnostic counts by severity.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["error", "warning", "info", "hint"],
+          "properties": {
+            "error": { "type": "integer", "minimum": 0 },
+            "warning": { "type": "integer", "minimum": 0 },
+            "info": { "type": "integer", "minimum": 0 },
+            "hint": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "changed": { "description": "Files fmt would change, or did change.", "type": "integer", "minimum": 0 },
+        "passed": { "description": "Spec cases that passed.", "type": "integer", "minimum": 0 },
+        "failed": { "description": "Spec cases that failed.", "type": "integer", "minimum": 0 },
+        "skipped": { "description": "Spec cases skipped.", "type": "integer", "minimum": 0 }
+      }
+    },
+    "results": {
+      "description": "The subcommand's own payload: changed paths for fmt, cases with expected and actual for test, the written path or a drift list for docs, the TOOL-6 document for index, and an empty object for check."
+    }
+  },
+  "$defs": {
+    "position": {
+      "description": "A source position in decoded characters: lines and columns 1-based, the column inclusive.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line", "column"],
+      "properties": {
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "range": {
+      "description": "A half-open source range, start inclusive and end exclusive.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "$ref": "#/$defs/position" },
+        "end": { "$ref": "#/$defs/position" }
+      }
+    },
+    "textEdit": {
+      "description": "One replacement of a source range with new text, naming the rule that produced it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["range", "newText", "rule"],
+      "properties": {
+        "range": { "$ref": "#/$defs/range" },
+        "newText": { "type": "string" },
+        "rule": { "type": "string", "pattern": "^[a-z][a-z0-9-]*/[a-z][a-z0-9-]*$" }
+      }
+    },
+    "diagnostic": {
+      "description": "TOOL-3: one diagnostic from the parser, the linter or the engine's run.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "file", "range", "message"],
+      "properties": {
+        "code": {
+          "description": "A failure code such as syntax.error, or a lint rule id such as lint/unused-variable.",
+          "type": "string",
+          "minLength": 1
+        },
+        "rule": {
+          "description": "The lint rule id when a rule raised the diagnostic; absent for a parser diagnostic.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*/[a-z][a-z0-9-]*$"
+        },
+        "severity": { "enum": ["error", "warning", "info", "hint"] },
+        "file": { "description": "The program's path as the tool names it.", "type": "string" },
+        "range": { "$ref": "#/$defs/range" },
+        "message": { "type": "string", "minLength": 1 },
+        "fix": {
+          "description": "The autofix, when the rule has a safe rewrite.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/textEdit" },
+          "minItems": 1
+        }
+      }
+    }
+  }
+}
