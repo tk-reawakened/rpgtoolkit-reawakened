@@ -15,8 +15,8 @@ import type { BinaryWriter } from "./binary/writer.ts";
 import { err, type Result } from "./result.ts";
 
 /** The signed 8-bit range every `i8` field must fit (docs/spec/formats/README.md#primitive-encoding). */
-export const I8_MIN = -128;
-export const I8_MAX = 127;
+const I8_MIN = -128;
+const I8_MAX = 127;
 
 /** The signed 16-bit range every `i16` field must fit (docs/spec/formats/README.md#primitive-encoding). */
 export const I16_MIN = -32_768;
@@ -34,7 +34,7 @@ export const MAX_LIST_ENTRIES = 32_768;
  * field immediately before writing it and the error names that field's own
  * first byte.
  */
-export function writerFailure(writer: BinaryWriter, section: string, message: string): Result<never> {
+function writerFailure(writer: BinaryWriter, section: string, message: string): Result<never> {
   return err({ offset: writer.toBytes().length, section, message });
 }
 
@@ -68,6 +68,21 @@ export function checkI16(writer: BinaryWriter, section: string, field: string, v
 /** `undefined` when `value` fits an `i32`; otherwise a located error. */
 export function checkI32(writer: BinaryWriter, section: string, field: string, value: number): Result<never> | undefined {
   return checkRange(writer, section, field, value, I32_MIN, I32_MAX, "i32");
+}
+
+/**
+ * `undefined` when `major` is a version a reader accepts; otherwise a located
+ * error. A reader refuses a negative version field
+ * (docs/spec/formats/README.md#header-and-version), so the major is checked as a
+ * non-negative `short` rather than as a signed one.
+ */
+export function checkMajor(writer: BinaryWriter, section: string, major: number): Result<never> | undefined {
+  if (Number.isInteger(major) && major >= 0 && major <= I16_MAX) return undefined;
+  return writerFailure(
+    writer,
+    section,
+    `invalid major version ${major}: a version field is a non-negative short, 0..${I16_MAX}`,
+  );
 }
 
 /**

@@ -51,7 +51,7 @@ import {
 } from "./model.ts";
 
 import { TextLineReader } from "../text/line-reader.ts";
-import { checkI8, checkI16, checkI32, checkMagic, checkMinor } from "../validate.ts";
+import { checkMajor, checkI8, checkI16, checkI32, checkMagic, checkMinor } from "../validate.ts";
 
 /** An empty placeholder character for zero-byte files (Z-1). */
 export function createEmptyCharacter(): Character {
@@ -701,7 +701,7 @@ export function writeCharacter(model: Character): Result<Uint8Array> {
   if (!magic.ok) {
     return writerError(writer, CHARACTER_SECTION, `magic: ${magic.error.message}`);
   }
-  const headerMajor = checkI16(writer, CHARACTER_SECTION, "major", model.major);
+  const headerMajor = checkMajor(writer, CHARACTER_SECTION, model.major);
   if (headerMajor !== undefined) return headerMajor;
   writer.i16(model.major);
   writer.i16(model.minor);

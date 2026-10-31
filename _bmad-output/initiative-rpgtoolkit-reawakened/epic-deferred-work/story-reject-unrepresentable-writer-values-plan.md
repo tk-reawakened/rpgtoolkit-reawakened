@@ -76,7 +76,7 @@ context: ["spec - docs/spec/formats/character.md, item.md, enemy.md and battle-d
 
 ## Implementation Notes
 
-Every refusal the ledger names is implemented and the whole scalar surface of the five writers is now checked, not just the fields the ledger happened to sample: header `major`, `i8`/`i16`/`i32` scalars, fixed one-byte lists and both `i16` list bounds. No spec page changed: every range and accepted minor is already stated (primitive widths, `UB+1` counts, character rows 32-33, item rows 26-27, each page's accepted minor set) and `docs/spec/formats/board.md` already rules that a writer refuses what the reader would refuse, so AC5's doc-first clause did not trigger. Readers are untouched and no production caller of these writers exists in the tree.
+Every refusal the ledger names is implemented and the whole scalar surface of the five writers is now checked, not just the fields the ledger happened to sample: header `major`, `i8`/`i16`/`i32` scalars, fixed one-byte lists and both `i16` list bounds. The refusals are proven by boundary tests per width (`127`/`128`, `32767`/`32768`, `2147483647`/`2147483648`, one below each minimum) and by refusal tests that name a representative field in each writer's error (`experienceIncrease`, `levelIncreases[1]`, `hp`, `maxLevel`, `hasSpecialMoves`, `body slots[2]`, `sizeType`, `use flags[0]`, `criticalOn`, `aiLevel`, `experienceReward`, `rounds`, `hpPerRound`, `damage`, `usableInBattle`, `runProgram`); the remaining fields are covered by the same shared check rather than by a per-field test of their own. No spec page changed: every range and accepted minor is already stated (primitive widths, `UB+1` counts, character rows 32-33, item rows 26-27, each page's accepted minor set) and `docs/spec/formats/board.md` already rules that a writer refuses what the reader would refuse, so AC5's doc-first clause did not trigger. Readers are untouched and no production caller of these writers exists in the tree.
 
 Two independent reviews found: (1) scalar coverage was incomplete in `writeEnemy`, `writeCharacter` and `writeItem` — fixed by checking every remaining scalar and fixed byte list, with tests naming each field; (2) the story's `32768`-base at-bound case was unasserted — added. The `idleTime` comment's stated reason was corrected (a stored `0` round-trips as `0`; the refusal exists because the field is stored at that minor).
 
@@ -91,6 +91,12 @@ Two independent reviews found: (1) scalar coverage was incomplete in `writeEnemy
 | Batched pre-checks made the error `offset` point at the block start | low, real | Patched: each check now runs immediately before its own write, with a test proving `runProgram`'s offset is 16 bytes past `rounds` |
 | `writeBoundedStrings` kept its own 32 768 copy | low, real (consistency) | Patched: it calls `checkListBound`; the message is unchanged |
 | `f64` fields have no `Number.isFinite` guard | false-positive for this ticket | A NaN/Infinity is representable and round-trips as itself; the docs state no range, so refusing it would infer a rule (AC5) |
+| All six writers accepted a negative `major` and emitted a file every reader refuses | high, real | Patched: new `checkMajor` (non-negative `short`) at all six sites; tests refuse `-1` and accept `0` |
+| Refusals were only tested far outside their range | low, real | Patched: one-past-each-end refused and both ends accepted, per width, in both format suites |
+| `criticalBy` reported `criticalOn`'s offset | low, real | Patched: each check now sits immediately before its write |
+| Plan claimed a per-field test for every field | low, real | Patched: the claim now states what is tested |
+| Committed item/enemy/status/special/background examples were unused | low, real | Patched: round-trip tests added, so a writer change that breaks a committed example fails CI |
+| `writerFailure` and `I8_MIN`/`I8_MAX` were exported unnecessarily | low, real | Patched: internal to `validate.ts` |
 
 **Commands:**
 - `pnpm exec tsc -b` — expected: success.

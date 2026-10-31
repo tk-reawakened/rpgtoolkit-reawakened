@@ -1078,3 +1078,55 @@ test("the remaining int and byte actor scalars are checked too", () => {
   const reward = refusal({ ...enemy, experienceReward: 2_147_483_648 }, writeEnemy);
   equal(reward.includes("experienceReward"), true, reward);
 });
+
+test("each actor writer refuses a negative major and accepts 0", () => {
+  // docs/spec/formats/README.md#header-and-version rules a negative version field invalid, and every reader
+  // refuses one at its major field, so the writer must not hand back such a file.
+  const character = unwrap(readCharacter(new BinaryReader(buildCharacter())));
+  const characterMajor = refusal({ ...character, major: -1 }, writeCharacter);
+  equal(characterMajor.includes("major version -1"), true, characterMajor);
+  const zero = unwrap(readCharacter(new BinaryReader(unwrap(writeCharacter({ ...character, major: 0 })))));
+  equal(zero.major, 0, "a zero major is a version the reader accepts");
+
+  const item = unwrap(readItem(new BinaryReader(buildItem())));
+  equal(refusal({ ...item, major: -1 }, writeItem).includes("major version -1"), true);
+
+  const enemy = unwrap(readEnemy(new BinaryReader(buildEnemy())));
+  equal(refusal({ ...enemy, major: -1 }, writeEnemy).includes("major version -1"), true);
+});
+
+test("each width refuses one past both ends and accepts both ends", () => {
+  // The boundary itself must stay representable: a check that also refused the
+  // documented extremes would reject valid files.
+  const character = unwrap(readCharacter(new BinaryReader(buildCharacter())));
+  equal(refusal({ ...character, hasSpecialMoves: 128 }, writeCharacter).includes("i8 field holds -128..127"), true);
+  equal(unwrap(readCharacter(new BinaryReader(unwrap(writeCharacter({ ...character, hasSpecialMoves: 127 }))))).hasSpecialMoves, 127);
+  equal(unwrap(readCharacter(new BinaryReader(unwrap(writeCharacter({ ...character, hasSpecialMoves: -128 }))))).hasSpecialMoves, -128);
+
+  equal(refusal({ ...character, experienceIncrease: 32_768 }, writeCharacter).includes("i16 field holds -32768..32767"), true);
+  equal(refusal({ ...character, experienceIncrease: -32_769 }, writeCharacter).includes("i16 field holds -32768..32767"), true);
+
+  equal(refusal({ ...character, maxLevel: 2_147_483_648 }, writeCharacter).includes("i32 field holds -2147483648..2147483647"), true);
+  equal(refusal({ ...character, maxLevel: -2_147_483_649 }, writeCharacter).includes("i32 field holds -2147483648..2147483647"), true);
+  const maxLevel = unwrap(readCharacter(new BinaryReader(unwrap(writeCharacter({ ...character, maxLevel: 2_147_483_647 })))));
+  equal(maxLevel.maxLevel, 2_147_483_647, "the i32 maximum is representable");
+});
+
+test("the committed item version examples parse with zero trailing bytes and round-trip", () => {
+  for (const minor of [2, 3, 4, 5, 6, 7]) {
+    const file = join(repoRoot, "docs", "spec", "examples", "versions", "item", `item_minor${minor}.itm`);
+    const bytes = new Uint8Array(readFileSync(file));
+    const reader = new BinaryReader(bytes, file);
+    const item = unwrap(readItem(reader));
+    equal(reader.remaining, 0, `minor ${minor}: trailing bytes`);
+    equal(item.residue.length, 0, `minor ${minor}: residue bytes`);
+    equal(item.minor, minor, `minor ${minor}: expected minor`);
+    deepEqual(unwrap(writeItem(item)), bytes, `minor ${minor}: byte-identical round-trip`);
+  }
+  const enemyFile = join(repoRoot, "docs", "spec", "examples", "versions", "enemy", "enemy_minor1.ene");
+  const enemyBytes = new Uint8Array(readFileSync(enemyFile));
+  const enemyReader = new BinaryReader(enemyBytes, enemyFile);
+  const enemy = unwrap(readEnemy(enemyReader));
+  equal(enemyReader.remaining, 0, "the enemy example has no trailing bytes");
+  deepEqual(unwrap(writeEnemy(enemy)), enemyBytes, "the enemy example round-trips byte-identically");
+});

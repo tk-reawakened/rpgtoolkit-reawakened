@@ -12,7 +12,7 @@ import { err, ok, type Result } from "../result.ts";
 import { BinaryReader } from "../binary/reader.ts";
 import { BinaryWriter } from "../binary/writer.ts";
 import { TextLineReader } from "../text/line-reader.ts";
-import { checkI16, checkMagic, checkMinor } from "../validate.ts";
+import { checkMajor, checkI16, checkMagic, checkMinor } from "../validate.ts";
 import {
   BATTLE_BACKGROUND_DETECT_OFFSET,
   BATTLE_BACKGROUND_MAGIC,
@@ -137,7 +137,7 @@ export function writeBattleBackground(model: BattleBackground): Result<Uint8Arra
   if (!magic.ok) {
     return magic;
   }
-  const headerMajor = checkI16(writer, BATTLE_BACKGROUND_SECTION, "major", model.major);
+  const headerMajor = checkMajor(writer, BATTLE_BACKGROUND_SECTION, model.major);
   if (headerMajor !== undefined) return headerMajor;
   writer.i16(model.major);
   writer.i16(model.minor);

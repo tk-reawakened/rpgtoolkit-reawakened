@@ -47,7 +47,7 @@ import {
   type LegacyWalkFrame,
 } from "./model.ts";
 import { TextLineReader } from "../text/line-reader.ts";
-import { checkI8, checkI16, checkI32, checkMagic, checkMinor } from "../validate.ts";
+import { checkMajor, checkI8, checkI16, checkI32, checkMagic, checkMinor } from "../validate.ts";
 
 /** An empty placeholder item for zero-byte files (Z-1). */
 export function createEmptyItem(): Item {
@@ -599,7 +599,7 @@ export function writeItem(model: Item): Result<Uint8Array> {
   if (!magic.ok) {
     return writerError(writer, ITEM_SECTION, `magic: ${magic.error.message}`);
   }
-  const headerMajor = checkI16(writer, ITEM_SECTION, "major", model.major);
+  const headerMajor = checkMajor(writer, ITEM_SECTION, model.major);
   if (headerMajor !== undefined) return headerMajor;
   writer.i16(model.major);
   writer.i16(model.minor);

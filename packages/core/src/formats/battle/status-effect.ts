@@ -13,7 +13,7 @@ import { err, ok, type Result } from "../result.ts";
 import { BinaryReader } from "../binary/reader.ts";
 import { BinaryWriter } from "../binary/writer.ts";
 import { TextLineReader } from "../text/line-reader.ts";
-import { checkI16, checkMagic, checkMinor } from "../validate.ts";
+import { checkMajor, checkI16, checkMagic, checkMinor } from "../validate.ts";
 import {
   BATTLE_MAX_MINOR,
   BATTLE_MIN_MINOR,
@@ -162,7 +162,7 @@ export function writeStatusEffect(model: StatusEffect): Result<Uint8Array> {
   if (!magic.ok) {
     return magic;
   }
-  const headerMajor = checkI16(writer, STATUS_EFFECT_SECTION, "major", model.major);
+  const headerMajor = checkMajor(writer, STATUS_EFFECT_SECTION, model.major);
   if (headerMajor !== undefined) return headerMajor;
   writer.i16(model.major);
   writer.i16(model.minor);

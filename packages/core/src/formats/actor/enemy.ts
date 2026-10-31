@@ -12,7 +12,7 @@ import { ok, type Result } from "../result.ts";
 import { BinaryReader } from "../binary/reader.ts";
 import { BinaryWriter } from "../binary/writer.ts";
 import { TextLineReader } from "../text/line-reader.ts";
-import { checkI8, checkI16, checkI32, checkMagic, checkMinor } from "../validate.ts";
+import { checkMajor, checkI8, checkI16, checkI32, checkMagic, checkMinor } from "../validate.ts";
 import {
   ENEMY_BINARY_MINOR,
   ENEMY_DETECT_OFFSET,
@@ -200,7 +200,7 @@ export function writeEnemy(model: Enemy): Result<Uint8Array> {
   if (!magic.ok) {
     return writerError(writer, ENEMY_SECTION, `magic: ${magic.error.message}`);
   }
-  const headerMajor = checkI16(writer, ENEMY_SECTION, "major", model.major);
+  const headerMajor = checkMajor(writer, ENEMY_SECTION, model.major);
   if (headerMajor !== undefined) return headerMajor;
   writer.i16(model.major);
   writer.i16(model.minor);
@@ -218,12 +218,11 @@ export function writeEnemy(model: Enemy): Result<Uint8Array> {
   const canRun = checkI8(writer, ENEMY_SECTION, "canRun", model.canRun);
   if (canRun !== undefined) return canRun;
   writer.i8(model.canRun);
-  const criticalOn = checkI16(writer, ENEMY_SECTION, "criticalOn", model.criticalOn);
-  if (criticalOn !== undefined) return criticalOn;
-  const criticalBy = checkI16(writer, ENEMY_SECTION, "criticalBy", model.criticalBy);
-  if (criticalBy !== undefined) return criticalBy;
-  writer.i16(model.criticalOn);
-  writer.i16(model.criticalBy);
+  for (const [field, value] of [["criticalOn", model.criticalOn], ["criticalBy", model.criticalBy]] as const) {
+    const checked = checkI16(writer, ENEMY_SECTION, field, value);
+    if (checked !== undefined) return checked;
+    writer.i16(value);
+  }
 
   const moves = writeBoundedStrings(writer, model.specialMoves, ENEMY_SECTION, "special moves");
   if (!moves.ok) {
