@@ -10,8 +10,21 @@
 
 import type { Value, VarScope } from "../ports/value.ts";
 
-/** Source position attached to every Step IR instruction (R-38a, E-98). */
-export type SourcePos = { readonly file: string; readonly line: number };
+/**
+ * Source position attached to every Step IR instruction (R-38a, E-98).
+ *
+ * `col` and `endCol` follow the TOOL-3 range convention
+ * (docs/spec/engine/rpgcode-tooling.md#tool-3-range-convention): UTF-16 code
+ * units of the decoded source, 1-based and inclusive. They are optional because
+ * an instruction can be synthesized with no token behind it; `file` and `line`
+ * are always present.
+ */
+export type SourcePos = {
+  readonly file: string;
+  readonly line: number;
+  readonly col?: number;
+  readonly endCol?: number;
+};
 
 /** The unary operator vocabulary (EXP-2 level 2, prefix ++/--). */
 export type UnaryOp = "-" | "+" | "!" | "~" | "++" | "--";

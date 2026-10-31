@@ -27,7 +27,7 @@ import type {
 } from "./ast.ts";
 import { ScriptError } from "./errors.ts";
 import { foldAscii, type Token } from "./lex.ts";
-import type { BinaryOp, UnaryOp } from "./ops.ts";
+import type { BinaryOp, SourcePos, UnaryOp } from "./ops.ts";
 
 function isOp(token: Token, text: string): token is Token & { kind: "op" } {
   return token.kind === "op" && token.text === text;
@@ -52,6 +52,25 @@ function describe(token: Token): string {
     case "eof":
       return "the end of the program";
   }
+}
+
+/**
+ * The span of the token a node anchors on (docs/spec/engine/rpgcode-tooling.md#tool-3-range-convention).
+ * `line` stays where it always was; `col` and `endCol` are the same token's range.
+ */
+type Anchor = { readonly line: number; readonly col?: number; readonly endCol?: number };
+
+function at(anchor: Anchor): { readonly col?: number; readonly endCol?: number } {
+  if (anchor.col === undefined || anchor.endCol === undefined) return {};
+  return { col: anchor.col, endCol: anchor.endCol };
+}
+
+/** A `ScriptError` position naming the token the error is about, so its range slices it exactly. */
+function atPos(anchor: Anchor): SourcePos {
+  if (anchor.col === undefined || anchor.endCol === undefined) {
+    return { file: "", line: anchor.line };
+  }
+  return { file: "", line: anchor.line, col: anchor.col, endCol: anchor.endCol };
 }
 
 const ASSIGNMENT_OPS = [
@@ -133,7 +152,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
    * one hop only (docs/spec/engine/rpgcode-modules-and-objects.md#redirects R-42..R-44);
    * a `file.func` target or an explicit `file.func` call queues the file (MOD-2).
    */
-  function makeCall(name: string, args: readonly Expr[], line: number, file?: string): Expr {
+  function makeCall(name: string, args: readonly Expr[], anchor: Anchor, file?: string): Expr {
     let callName = name;
     let callFile = file;
     if (callFile === undefined) {
@@ -154,9 +173,11 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
     }
     // `system.func` is the engine's own namespace, not a file (PRG-1): it is the plain call `func`.
     if (callFile === "system" && context.preserveSystemNamespace !== true) callFile = undefined;
-    if (callFile === undefined) return { kind: "call", name: callName, args, line };
-    implicit.push({ path: `${callFile}.prg`, line, implicit: true });
-    return { kind: "call", name: callName, args, file: callFile, line };
+    if (callFile === undefined) {
+      return { kind: "call", name: callName, args, line: anchor.line, ...at(anchor) };
+    }
+    implicit.push({ path: `${callFile}.prg`, line: anchor.line, implicit: true, ...at(anchor) });
+    return { kind: "call", name: callName, args, file: callFile, line: anchor.line, ...at(anchor) };
   }
 
   /** A literal `redirect`/`killRedirect`/`killAllRedirects` changes the table for text parsed after it. */
@@ -201,7 +222,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       throw new ScriptError(
         "syntax.error",
         `expected \`${text}\` ${context} but found ${describe(token)}`,
-        { file: "", line: token.line },
+        atPos(token),
       );
     }
     return consume();
@@ -220,7 +241,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
     throw new ScriptError(
       "syntax.error",
       `expected the end of a statement but found ${describe(token)}`,
-      { file: "", line: token.line },
+      atPos(token),
     );
   }
 
@@ -231,7 +252,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       throw new ScriptError(
         "syntax.unsupported",
         `braces are mandatory (STX-1): expected \`{\` ${context} but found ${describe(token)}`,
-        { file: "", line: token.line },
+        atPos(token),
       );
     }
     consume(); // consume '{'
@@ -249,7 +270,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       throw new ScriptError(
         "syntax.error",
         `expected \`}\` to close block but found ${describe(peek())}`,
-        { file: "", line: peek().line },
+        atPos(peek()),
       );
     }
     consume(); // consume '}'
@@ -283,18 +304,19 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
    * The part of a lambda after `=>`: a `{` always opens a block body; anything else is a single
    * expression returned by the lambda. Lambdas are expressions, so they never declare a name.
    */
-  function parseLambdaBody(params: readonly Param[], line: number, inArgs: boolean): Expr {
+  function parseLambdaBody(params: readonly Param[], anchor: Anchor, inArgs: boolean): Expr {
     skipEnds();
     if (isOp(peek(), "{")) {
-      return { kind: "lambda", params, body: expectBlock("after `=>`"), exprBody: false, line };
+      return { kind: "lambda", params, body: expectBlock("after `=>`"), exprBody: false, line: anchor.line, ...at(anchor) };
     }
     const value = parseExpression(inArgs);
     return {
       kind: "lambda",
       params,
-      body: [{ kind: "return", value, byRef: false, line }],
+      body: [{ kind: "return", value, byRef: false, line: anchor.line, ...at(anchor) }],
       exprBody: true,
-      line,
+      line: anchor.line,
+      ...at(anchor),
     };
   }
 
@@ -309,7 +331,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         throw new ScriptError(
           "syntax.error",
           `expected a dictionary key but found ${describe(keyToken)}`,
-          { file: "", line: keyToken.line },
+          atPos(keyToken),
         );
       }
       consume();
@@ -318,7 +340,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       expectOp(":", `after the dictionary key \`${key}\``);
       skipEnds();
       const value = parseExpression();
-      entries.push({ key, value, line: keyToken.line });
+      entries.push({ key, value, line: keyToken.line, ...at(keyToken) });
       skipEnds();
       if (isOp(peek(), ",")) {
         consume();
@@ -329,12 +351,12 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         throw new ScriptError(
           "syntax.error",
           `expected \`,\` or \`}\` in a dictionary literal but found ${describe(peek())}`,
-          { file: "", line: peek().line },
+          atPos(peek()),
         );
       }
     }
     consume(); // '}'
-    return { kind: "object", entries, line: open.line };
+    return { kind: "object", entries, line: open.line, ...at(open) };
   }
 
   function parsePrimary(inArgs = false): Expr {
@@ -343,12 +365,12 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
 
     if (token.kind === "number") {
       consume();
-      return { kind: "literal", value: token.value, line: token.line };
+      return { kind: "literal", value: token.value, line: token.line, ...at(token) };
     }
 
     if (token.kind === "string") {
       consume();
-      return { kind: "literal", value: token.value, line: token.line };
+      return { kind: "literal", value: token.value, line: token.line, ...at(token) };
     }
 
     // `(params) => body` lambda (FUN-8), or a parenthesized expression.
@@ -357,7 +379,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         const params = parseParams();
         skipEnds();
         expectOp("=>", "after the lambda parameter list");
-        return parseLambdaBody(params, token.line, inArgs);
+        return parseLambdaBody(params, token, inArgs);
       }
       consume();
       const expr = parseExpression();
@@ -380,14 +402,14 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         throw new ScriptError(
           "syntax.error",
           `expected an identifier after \`:\` but found ${describe(next)}`,
-          { file: "", line },
+          atPos(next),
         );
       }
       consume();
       if (inArgs) {
-        return { kind: "labelRef", name: next.name, line };
+        return { kind: "labelRef", name: next.name, line, ...at(token) };
       }
-      return { kind: "variable", name: next.name, scope: "global", line };
+      return { kind: "variable", name: next.name, scope: "global", line, ...at(token) };
     }
 
     // local(x) or global(x) declaration form (FUN-2)
@@ -404,13 +426,13 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
           throw new ScriptError(
             "syntax.error",
             `expected variable name in \`${scope}()\` declaration but found ${describe(ident)}`,
-            { file: "", line: ident.line },
+            atPos(ident),
           );
         }
         consume();
         skipEnds();
         expectOp(")", `after \`${scope}(${ident.name})\``);
-        return { kind: "decl", scope, name: ident.name, line };
+        return { kind: "decl", scope, name: ident.name, line, ...at(token) };
       }
     }
 
@@ -420,17 +442,17 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       if (arrow !== undefined && isOp(arrow, "=>")) {
         consume();
         consume();
-        const param: Param = { name: token.name, byRef: false, typeName: null, line: token.line };
-        return parseLambdaBody([param], token.line, inArgs);
+        const param: Param = { name: token.name, byRef: false, typeName: null, line: token.line, ...at(token) };
+        return parseLambdaBody([param], token, inArgs);
       }
       consume();
-      return { kind: "variable", name: token.name, scope: null, line: token.line };
+      return { kind: "variable", name: token.name, scope: null, line: token.line, ...at(token) };
     }
 
     throw new ScriptError(
       "syntax.error",
       `expected an expression but found ${describe(token)}`,
-      { file: "", line: token.line },
+      atPos(token),
     );
   }
 
@@ -445,19 +467,19 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         if (expr.kind === "variable") {
           consume();
           const args = parseArgs();
-          expr = makeCall(expr.name, args, expr.line);
+          expr = makeCall(expr.name, args, expr);
           continue;
         }
         if (expr.kind === "member") {
           consume();
           const args = parseArgs();
-          expr = { kind: "methodCall", receiver: expr.receiver, name: expr.name, args, line: expr.line };
+          expr = { kind: "methodCall", receiver: expr.receiver, name: expr.name, args, line: expr.line, ...at(expr) };
           continue;
         }
         // Any other callee (`f()()`, `a[i](x)`, a parenthesised lambda) is an indirect call (FUN-8).
         consume();
         const indirectArgs = parseArgs();
-        expr = { kind: "callIndirect", callee: expr, args: indirectArgs, line: expr.line };
+        expr = { kind: "callIndirect", callee: expr, args: indirectArgs, line: expr.line, ...at(expr) };
         continue;
       }
 
@@ -471,7 +493,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
           consume();
           consume();
           const args = parseArgs();
-          expr = makeCall(nameToken.name, args, expr.line, expr.name);
+          expr = makeCall(nameToken.name, args, expr, expr.name);
           continue;
         }
       }
@@ -482,13 +504,10 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         consume();
         const member = peek();
         if (member.kind !== "identifier") {
-          throw new ScriptError("syntax.error", "expected member name after object access", {
-            file: "",
-            line: member.line,
-          });
+          throw new ScriptError("syntax.error", "expected member name after object access", atPos(member));
         }
         consume();
-        expr = { kind: "member", receiver: expr, name: member.name, line: member.line };
+        expr = { kind: "member", receiver: expr, name: member.name, line: member.line, ...at(member) };
         continue;
       }
 
@@ -504,6 +523,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
           base: expr,
           index: indexExpr,
           line: expr.line,
+          ...at(expr),
         };
         continue;
       }
@@ -516,6 +536,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
           operator: token.text as "++" | "--",
           operand: expr,
           line: expr.line,
+          ...at(expr),
         };
         continue;
       }
@@ -546,6 +567,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         operator: token.text as UnaryOp,
         operand,
         line: token.line,
+        ...at(token),
       };
     }
 
@@ -574,6 +596,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
           target: left,
           value: right,
           line: op.line,
+          ...at(op),
         };
         continue;
       }
@@ -592,6 +615,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
           then: thenExpr,
           else: elseExpr,
           line: op.line,
+          ...at(op),
         };
         continue;
       }
@@ -607,6 +631,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         left,
         right,
         line: op.line,
+        ...at(op),
       };
     }
 
@@ -662,7 +687,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         throw new ScriptError(
           "syntax.error",
           `expected parameter name but found ${describe(first)}`,
-          { file: "", line: first.line },
+          atPos(first),
         );
       }
       consume();
@@ -688,6 +713,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         byRef,
         typeName,
         line: nameToken.line,
+        ...at(nameToken),
       };
     }
 
@@ -713,7 +739,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       const operatorCandidate = peek();
       if (name === "operator" && operatorCandidate.kind === "op") {
         const operatorToken = consume();
-        if (operatorToken.kind !== "op") throw new ScriptError("syntax.error", "expected operator name", { file: "", line: operatorToken.line });
+        if (operatorToken.kind !== "op") throw new ScriptError("syntax.error", "expected operator name", atPos(operatorToken));
         name += operatorToken.text;
         if (operatorToken.text === "[") {
           expectOp("]", "at end of operator[] name");
@@ -723,11 +749,11 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
     } else if (nameToken.kind === "op" && nameToken.text === "~") {
       consume();
       const classToken = peek();
-      if (classToken.kind !== "identifier") throw new ScriptError("syntax.error", "expected destructor name", { file: "", line: classToken.line });
+      if (classToken.kind !== "identifier") throw new ScriptError("syntax.error", "expected destructor name", atPos(classToken));
       consume();
       name = `~${classToken.name}`;
     } else {
-      throw new ScriptError("syntax.error", "expected method name", { file: "", line: nameToken.line });
+      throw new ScriptError("syntax.error", "expected method name", atPos(nameToken));
     }
     const params = parseParams();
     skipEnds();
@@ -735,18 +761,12 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
     let body: Block | null;
     if (isOp(peek(), "=")) {
       if (!allowPrototype) {
-        throw new ScriptError("syntax.error", "pure methods are only declarations", {
-          file: "",
-          line: peek().line,
-        });
+        throw new ScriptError("syntax.error", "pure methods are only declarations", atPos(peek()));
       }
       consume();
       const zero = peek();
       if (zero.kind !== "number" || zero.value !== 0) {
-        throw new ScriptError("syntax.error", "pure method must use `= 0`", {
-          file: "",
-          line: zero.line,
-        });
+        throw new ScriptError("syntax.error", "pure method must use `= 0`", atPos(zero));
       }
       consume();
       expectStatementEnd();
@@ -767,6 +787,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       access,
       owner,
       line: methodToken.line,
+      ...at(methodToken),
     };
   }
 
@@ -774,7 +795,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
     const classToken = consume();
     const nameToken = peek();
     if (nameToken.kind !== "identifier") {
-      throw new ScriptError("syntax.error", "expected class name", { file: "", line: nameToken.line });
+      throw new ScriptError("syntax.error", "expected class name", atPos(nameToken));
     }
     consume();
     const bases: string[] = [];
@@ -783,7 +804,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       while (true) {
         const base = peek();
         if (base.kind !== "identifier") {
-          throw new ScriptError("syntax.error", "expected base class name", { file: "", line: base.line });
+          throw new ScriptError("syntax.error", "expected base class name", atPos(base));
         }
         bases.push(base.name);
         consume();
@@ -807,10 +828,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         continue;
       }
       if (isIdent(token, "protected")) {
-        throw new ScriptError("syntax.unsupported", "`protected` is not a language access level", {
-          file: "",
-          line: token.line,
-        });
+        throw new ScriptError("syntax.unsupported", "`protected` is not a language access level", atPos(token));
       }
       if (isIdent(token, "method")) {
         methods.push(parseMethod(nameToken.name, access, true));
@@ -821,7 +839,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         if (isIdent(token, "var")) consume();
         const member = peek();
         if (member.kind !== "identifier") {
-          throw new ScriptError("syntax.error", "expected member name", { file: "", line: member.line });
+          throw new ScriptError("syntax.error", "expected member name", atPos(member));
         }
         consume();
         let arraySize: number | null = null;
@@ -835,14 +853,11 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
           expectOp("]", "after member array");
         }
         expectStatementEnd();
-        members.push({ name: member.name, arraySize, access, line: member.line });
+        members.push({ name: member.name, arraySize, access, line: member.line, ...at(member) });
         skipEnds();
         continue;
       }
-      throw new ScriptError("syntax.error", "unexpected token in class body", {
-        file: "",
-        line: token.line,
-      });
+      throw new ScriptError("syntax.error", "unexpected token in class body", atPos(token));
     }
     expectOp("}", "to close class body");
     return {
@@ -852,6 +867,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       methods,
       isStruct,
       line: classToken.line,
+      ...at(classToken),
     };
   }
 
@@ -859,15 +875,15 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
   function parseOutOfClassMethod(): MethodDef {
     consume(); // method
     const owner = peek();
-    if (owner.kind !== "identifier") throw new ScriptError("syntax.error", "expected class name", { file: "", line: owner.line });
+    if (owner.kind !== "identifier") throw new ScriptError("syntax.error", "expected class name", atPos(owner));
     consume();
     expectOp("::", "between class and method name");
     const name = peek();
-    if (name.kind !== "identifier") throw new ScriptError("syntax.error", "expected method name", { file: "", line: name.line });
+    if (name.kind !== "identifier") throw new ScriptError("syntax.error", "expected method name", atPos(name));
     consume();
     const params = parseParams();
     const body = expectBlock(`in method \`${name.name}\``);
-    return { name: name.name, params, body, isPure: false, access: "public", owner: owner.name, line: name.line };
+    return { name: name.name, params, body, isPure: false, access: "public", owner: owner.name, line: name.line, ...at(name) };
   }
   const classes: ClassDef[] = [];
 
@@ -879,7 +895,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       throw new ScriptError(
         "syntax.error",
         `expected function name after \`${fnToken.kind === "identifier" ? fnToken.name : "function"}\` but found ${describe(nameToken)}`,
-        { file: "", line: nameToken.line },
+        atPos(nameToken),
       );
     }
     consume();
@@ -891,6 +907,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       body,
       isInline,
       line: fnToken.line,
+      ...at(fnToken),
     };
   }
 
@@ -903,7 +920,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
     expectOp(")", "after `if` condition");
     const body = expectBlock("after `if` condition");
 
-    const branches: IfBranch[] = [{ cond, body, line: ifToken.line }];
+    const branches: IfBranch[] = [{ cond, body, line: ifToken.line, ...at(ifToken) }];
     let elseBody: Block | null = null;
 
     // Check for `elseif` or `else if` (STX-3)
@@ -918,7 +935,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         skipEnds();
         expectOp(")", "after `elseif` condition");
         const elifBody = expectBlock("after `elseif` condition");
-        branches.push({ cond: elifCond, body: elifBody, line: elifToken.line });
+        branches.push({ cond: elifCond, body: elifBody, line: elifToken.line, ...at(elifToken) });
         continue;
       }
       if (isIdent(next, "else")) {
@@ -939,7 +956,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
           skipEnds();
           expectOp(")", "after `else if` condition");
           const elifBody = expectBlock("after `else if` condition");
-          branches.push({ cond: elifCond, body: elifBody, line: elseToken.line });
+          branches.push({ cond: elifCond, body: elifBody, line: elseToken.line, ...at(elseToken) });
           continue;
         }
 
@@ -957,6 +974,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       branches,
       elseBody,
       line: ifToken.line,
+      ...at(ifToken),
     };
   }
 
@@ -968,7 +986,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
     skipEnds();
     expectOp(")", "after `while` condition");
     const body = expectBlock("after `while` condition");
-    return { kind: "while", cond, body, line: token.line };
+    return { kind: "while", cond, body, line: token.line, ...at(token) };
   }
 
   function parseUntil(): Statement {
@@ -979,7 +997,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
     skipEnds();
     expectOp(")", "after `until` condition");
     const body = expectBlock("after `until` condition");
-    return { kind: "until", cond, body, line: token.line };
+    return { kind: "until", cond, body, line: token.line, ...at(token) };
   }
 
   function parseFor(): Statement {
@@ -992,7 +1010,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       init = parseExpression();
     }
     if (peek().kind !== "end") {
-      throw new ScriptError("syntax.error", `expected \`;\` after \`for\` initialiser but found ${describe(peek())}`, { file: "", line: peek().line });
+      throw new ScriptError("syntax.error", `expected \`;\` after \`for\` initialiser but found ${describe(peek())}`, atPos(peek()));
     }
     consume(); // consume ';'
 
@@ -1001,7 +1019,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       cond = parseExpression();
     }
     if (peek().kind !== "end") {
-      throw new ScriptError("syntax.error", `expected \`;\` after \`for\` condition but found ${describe(peek())}`, { file: "", line: peek().line });
+      throw new ScriptError("syntax.error", `expected \`;\` after \`for\` condition but found ${describe(peek())}`, atPos(peek()));
     }
     consume(); // consume ';'
 
@@ -1012,7 +1030,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
     expectOp(")", "after `for` step");
 
     const body = expectBlock("after `for` header");
-    return { kind: "for", init, cond, step, body, line: token.line };
+    return { kind: "for", init, cond, step, body, line: token.line, ...at(token) };
   }
 
   function parseSwitch(): Statement {
@@ -1029,7 +1047,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       throw new ScriptError(
         "syntax.unsupported",
         `braces are mandatory (STX-1): expected \`{\` after \`switch\` but found ${describe(openBrace)}`,
-        { file: "", line: openBrace.line },
+        atPos(openBrace),
       );
     }
     consume();
@@ -1047,7 +1065,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         skipEnds();
         if (isOp(peek(), ":")) consume(); // colon is optional (STX-2)
         const caseBody = expectBlock("in `case` label");
-        cases.push({ value: caseValue, body: caseBody, line: caseOrDef.line });
+        cases.push({ value: caseValue, body: caseBody, line: caseOrDef.line, ...at(caseOrDef) });
         skipEnds();
         continue;
       }
@@ -1062,7 +1080,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       throw new ScriptError(
         "syntax.error",
         `expected \`case\` or \`default\` inside \`switch\` but found ${describe(caseOrDef)}`,
-        { file: "", line: caseOrDef.line },
+        atPos(caseOrDef),
       );
     }
 
@@ -1070,7 +1088,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       throw new ScriptError(
         "syntax.error",
         `expected \`}\` to close \`switch\` but found ${describe(peek())}`,
-        { file: "", line: peek().line },
+        atPos(peek()),
       );
     }
     consume(); // '}'
@@ -1081,6 +1099,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       cases,
       defaultBody,
       line: token.line,
+      ...at(token),
     };
   }
 
@@ -1091,7 +1110,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
     // Bare return
     if (next.kind === "end" || next.kind === "eof" || isOp(next, "}")) {
       expectStatementEnd();
-      return { kind: "return", value: null, byRef: false, line: token.line };
+      return { kind: "return", value: null, byRef: false, line: token.line, ...at(token) };
     }
 
     // return &lvalue (FUN-3)
@@ -1099,13 +1118,13 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       consume(); // consume '&'
       const value = parseExpression();
       expectStatementEnd();
-      return { kind: "return", value, byRef: true, line: token.line };
+      return { kind: "return", value, byRef: true, line: token.line, ...at(token) };
     }
 
     // return expr
     const value = parseExpression();
     expectStatementEnd();
-    return { kind: "return", value, byRef: false, line: token.line };
+    return { kind: "return", value, byRef: false, line: token.line, ...at(token) };
   }
 
   /**
@@ -1124,15 +1143,16 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         throw new ScriptError(
           "syntax.error",
           `expected \`next\` after \`on error resume\` but found ${describe(word)}`,
-          { file: "", line: word.line },
+          atPos(word),
         );
       }
       consume();
       expectStatementEnd();
       return {
         kind: "expr",
-        expr: { kind: "call", name: "setresumenexthandler", args: [], line: token.line },
+        expr: { kind: "call", name: "setresumenexthandler", args: [], line: token.line, ...at(token) },
         line: token.line,
+        ...at(token),
       };
     }
     if (isIdent(mode, "goto")) {
@@ -1143,7 +1163,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         throw new ScriptError(
           "syntax.error",
           `expected a label name after \`on error goto :\` but found ${describe(label)}`,
-          { file: "", line: token.line },
+          atPos(token),
         );
       }
       consume();
@@ -1153,16 +1173,18 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         expr: {
           kind: "call",
           name: "seterrorhandler",
-          args: [{ kind: "labelRef", name: label.name, line: token.line }],
+          args: [{ kind: "labelRef", name: label.name, line: token.line, ...at(token) }],
           line: token.line,
+          ...at(token),
         },
         line: token.line,
+        ...at(token),
       };
     }
     throw new ScriptError(
       "syntax.error",
       `expected \`goto\` or \`resume next\` after \`on error\` but found ${describe(mode)}`,
-      { file: "", line: token.line },
+      atPos(token),
     );
   }
 
@@ -1177,7 +1199,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
           throw new ScriptError(
             "syntax.error",
             "function definitions cannot appear inside blocks",
-            { file: "", line: token.line },
+            atPos(token),
           );
         }
         consume(); // 'inline'
@@ -1185,17 +1207,23 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         functions.push(fn);
         return {
           kind: "expr",
-          expr: { kind: "literal", value: 0, line: token.line },
+          expr: { kind: "literal", value: 0, line: token.line, ...at(token) },
           line: token.line,
+          ...at(token),
         };
       }
     }
 
     // Class and struct declarations are hoisted metadata, not executable statements.
     if (isIdent(token, "class") || isIdent(token, "struct")) {
-      if (inBlock) throw new ScriptError("syntax.error", "class declarations cannot appear inside blocks", { file: "", line: token.line });
+      if (inBlock) throw new ScriptError("syntax.error", "class declarations cannot appear inside blocks", atPos(token));
       classes.push(parseClass(token.name === "struct"));
-      return { kind: "expr", expr: { kind: "literal", value: 0, line: token.line }, line: token.line };
+      return {
+        kind: "expr",
+        expr: { kind: "literal", value: 0, line: token.line, ...at(token) },
+        line: token.line,
+        ...at(token),
+      };
     }
     // Function or out-of-class method definition.
     if (isIdent(token, "function") || isIdent(token, "method")) {
@@ -1203,17 +1231,14 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         throw new ScriptError(
           "syntax.error",
           "function definitions cannot appear inside blocks",
-          { file: "", line: token.line },
+          atPos(token),
         );
       }
       if (isIdent(token, "method") && isOp(tokens[index + 2] ?? eof, "::")) {
         const method = parseOutOfClassMethod();
         const owner = classes.find((item) => item.name === method.owner);
         if (owner === undefined) {
-          throw new ScriptError("compile.unknown-class", `class \`${method.owner}\` is not defined`, {
-            file: "",
-            line: method.line,
-          });
+          throw new ScriptError("compile.unknown-class", `class \`${method.owner}\` is not defined`, atPos(method));
         }
         owner.methods = [...owner.methods, method];
       } else {
@@ -1221,8 +1246,9 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       }
       return {
         kind: "expr",
-        expr: { kind: "literal", value: 0, line: token.line },
+        expr: { kind: "literal", value: 0, line: token.line, ...at(token) },
         line: token.line,
+        ...at(token),
       };
     }
 
@@ -1248,7 +1274,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         consume(); // ':'
         consume(); // identifier
         expectStatementEnd();
-        return { kind: "label", name: next.name, line: token.line };
+        return { kind: "label", name: next.name, line: token.line, ...at(token) };
       }
     }
 
@@ -1260,8 +1286,9 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         expectStatementEnd();
         return {
           kind: "expr",
-          expr: makeCall(token.name, [], token.line),
+          expr: makeCall(token.name, [], token),
           line: token.line,
+          ...at(token),
         };
       }
     }
@@ -1269,7 +1296,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
     // Expression statement (assignment, call, decl, etc.)
     const expr = parseExpression();
     expectStatementEnd();
-    return { kind: "expr", expr, line: expr.line };
+    return { kind: "expr", expr, line: expr.line, ...at(expr) };
   }
 
   const statements: Statement[] = [];

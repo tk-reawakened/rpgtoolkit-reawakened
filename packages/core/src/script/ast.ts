@@ -2,7 +2,16 @@
  * The Unified AST for RPGCode (ADR 0004 decision 1; docs/spec/formats/rpgcode-program.md#text-form.
  *
  * Covers expressions, statements, control flow, functions and parameter lists,
- * with source line numbers on every node.
+ * with a source span on every node.
+ *
+ * A node's `line`, `col` and `endCol` all come from one token: the token the
+ * node's `line` names. A composite node therefore anchors on the first token of
+ * the construct, exactly as its `line` always did, and its range is one line
+ * long. The columns follow the range convention of
+ * docs/spec/engine/rpgcode-tooling.md#tool-3-range-convention: UTF-16 code
+ * units of the decoded source, 1-based and inclusive. `col` and `endCol` are
+ * optional because a hand-written node (a test fixture, a synthesized node)
+ * need not name a source site, while `line` is always present.
  *
  * docs/adr/0004 decision 1; docs/spec/engine/rpgcode-functions.md#rpgcode-built-in-commands.
  */
@@ -16,6 +25,10 @@ export type Param = {
   readonly byRef: boolean;
   readonly typeName: string | null;
   readonly line: number;
+  /** First code unit of the parameter's name (TOOL-3 range convention). */
+  readonly col?: number;
+  /** Last code unit of the parameter's name (TOOL-3 range convention). */
+  readonly endCol?: number;
 };
 
 /** An ordered statement block. */
@@ -28,6 +41,8 @@ export type FunctionDef = {
   readonly body: Block;
   readonly isInline: boolean;
   readonly line: number;
+  readonly col?: number;
+  readonly endCol?: number;
 };
 
 export type AccessLevel = "public" | "private";
@@ -37,6 +52,8 @@ export type MemberDef = {
   readonly arraySize: number | null;
   readonly access: AccessLevel;
   readonly line: number;
+  readonly col?: number;
+  readonly endCol?: number;
 };
 
 export type MethodDef = {
@@ -47,6 +64,8 @@ export type MethodDef = {
   readonly access: AccessLevel;
   readonly owner: string;
   readonly line: number;
+  readonly col?: number;
+  readonly endCol?: number;
 };
 
 export type ClassDef = {
@@ -56,24 +75,42 @@ export type ClassDef = {
   methods: MethodDef[];
   readonly isStruct: boolean;
   readonly line: number;
+  readonly col?: number;
+  readonly endCol?: number;
 };
 
 /** A value-producing or variable-reading expression (docs/spec/formats/rpgcode-program.md#text-form. */
 export type Expr =
-  | { readonly kind: "literal"; readonly value: Value; readonly line: number }
+  | {
+      readonly kind: "literal";
+      readonly value: Value;
+      readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
+    }
   | {
       readonly kind: "variable";
       readonly name: string;
       readonly scope: VarScope | null;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "decl";
       readonly scope: VarScope;
       readonly name: string;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
-  | { readonly kind: "labelRef"; readonly name: string; readonly line: number }
+  | {
+      readonly kind: "labelRef";
+      readonly name: string;
+      readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
+    }
   | {
       readonly kind: "call";
       readonly name: string;
@@ -81,6 +118,8 @@ export type Expr =
       /** The folded file name of a `file.func(...)` call; the call binds to that file first (MOD-2). */
       readonly file?: string;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "methodCall";
@@ -88,36 +127,48 @@ export type Expr =
       readonly name: string;
       readonly args: readonly Expr[];
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "member";
       readonly receiver: Expr;
       readonly name: string;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "construct";
       readonly className: string;
       readonly args: readonly Expr[];
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "index";
       readonly base: Expr;
       readonly index: Expr;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "unary";
       readonly operator: UnaryOp;
       readonly operand: Expr;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "postfix";
       readonly operator: "++" | "--";
       readonly operand: Expr;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "binary";
@@ -125,6 +176,8 @@ export type Expr =
       readonly left: Expr;
       readonly right: Expr;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "ternary";
@@ -132,6 +185,8 @@ export type Expr =
       readonly then: Expr;
       readonly else: Expr;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "assign";
@@ -139,6 +194,8 @@ export type Expr =
       readonly target: Expr;
       readonly value: Expr;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   /**
    * An arrow lambda (docs/spec/engine/rpgcode-language.md FUN-8). The body is always a block:
@@ -151,12 +208,16 @@ export type Expr =
       /** True when written with an expression body (no braces). */
       readonly exprBody: boolean;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   /** A dictionary literal `{ key: value, ... }` (OOP-10); keys keep source order. */
   | {
       readonly kind: "object";
       readonly entries: readonly ObjectEntry[];
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   /** A call whose callee is an arbitrary expression rather than a name: `f()()`, `a[i](x)`, `(x => x)(1)`. */
   | {
@@ -164,6 +225,8 @@ export type Expr =
       readonly callee: Expr;
       readonly args: readonly Expr[];
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     };
 
 /** One `key: value` entry of a dictionary literal. */
@@ -171,6 +234,8 @@ export type ObjectEntry = {
   readonly key: string;
   readonly value: Expr;
   readonly line: number;
+  readonly col?: number;
+  readonly endCol?: number;
 };
 
 /** One branch of an if/elseif chain (STX-3). */
@@ -178,6 +243,8 @@ export type IfBranch = {
   readonly cond: Expr;
   readonly body: Block;
   readonly line: number;
+  readonly col?: number;
+  readonly endCol?: number;
 };
 
 /** One case in a switch statement (STX-2). */
@@ -185,6 +252,8 @@ export type SwitchCase = {
   readonly value: Expr;
   readonly body: Block;
   readonly line: number;
+  readonly col?: number;
+  readonly endCol?: number;
 };
 
 /** A statement (docs/spec/engine/rpgcode-modules-and-objects.md#modules). */
@@ -193,24 +262,32 @@ export type Statement =
       readonly kind: "expr";
       readonly expr: Expr;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "if";
       readonly branches: readonly IfBranch[];
       readonly elseBody: Block | null;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "while";
       readonly cond: Expr;
       readonly body: Block;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "until";
       readonly cond: Expr;
       readonly body: Block;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "for";
@@ -219,6 +296,8 @@ export type Statement =
       readonly step: Expr | null;
       readonly body: Block;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "switch";
@@ -226,17 +305,23 @@ export type Statement =
       readonly cases: readonly SwitchCase[];
       readonly defaultBody: Block | null;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "label";
       readonly name: string;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     }
   | {
       readonly kind: "return";
       readonly value: Expr | null;
       readonly byRef: boolean;
       readonly line: number;
+      readonly col?: number;
+      readonly endCol?: number;
     };
 
 /**
@@ -248,6 +333,10 @@ export type IncludeRequest = {
   readonly path: string;
   readonly line: number;
   readonly implicit: boolean;
+  /** The directive's first code unit (TOOL-3 range convention). */
+  readonly col?: number;
+  /** The directive's last code unit on its line (TOOL-3 range convention). */
+  readonly endCol?: number;
 };
 
 /** A parsed program: statements, hoisted functions, class declarations and the files it includes. */
