@@ -6,6 +6,8 @@ parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-5", "CAP-9", "CAP-10", "CAP-11"]
 assignee: ""
 risk: high
+status: in-progress
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/582"
 ---
 
 # Menu, party, inventory and saves work, including running threads

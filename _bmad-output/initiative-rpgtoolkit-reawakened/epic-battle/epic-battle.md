@@ -5,6 +5,9 @@ parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-9"]
 assignee: ""
 risk: medium
+status: in-progress
+tracker_id: "#503"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/503"
 ---
 
 # Battles run on core rules with a default UI

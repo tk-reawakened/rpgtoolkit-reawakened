@@ -5,6 +5,11 @@ The initiative tickets.toml remains authoritative. This command mirrors the
 parent issue to GitHub, stores its tracker_id, adds it to Project 3, and links
 any story issues that already have tracker IDs. Run the story migrator first
 for a complete parent/sub-issue hierarchy.
+
+An epic document with no `status` line takes its status from the store's own
+ticket states, so an unstarted epic reads as backlog and needs no invented
+frontmatter. A parent issue's body is written only when it is empty: epics
+often carry checklists or review records their documents do not.
 """
 
 from __future__ import annotations
@@ -39,6 +44,9 @@ STATE_TO_STATUS = {
     "done": "done",
     "dropped": "dropped",
 }
+# The ticket store's own vocabulary for an epic document (`CONTAINER_STATUSES` in
+# _bmad/method/scripts/tickets.py); anything else is a store error, not a status choice.
+CONTAINER_STATUSES = ("in-progress", "done", "dropped")
 ITEM_QUERY = """query($issue:ID!) {
   node(id:$issue) {
     ... on Issue {
@@ -61,8 +69,8 @@ ITEM_QUERY = """query($issue:ID!) {
 }"""
 
 
-def store_tickets(root: Path) -> dict[str, dict]:
-    """Every stored ticket keyed by its tracker_id, from the store's own status view.
+def store_view(root: Path) -> dict:
+    """The ticket store's own status view, read once per run.
 
     A breakdown entry carries no status: the plans do. Asking the store keeps the mirrored
     Project status equal to what BMAD records, instead of resetting every story to draft."""
@@ -71,8 +79,29 @@ def store_tickets(root: Path) -> dict[str, dict]:
          "--project-root", str(root), "status", INITIATIVE],
         text=True, capture_output=True, check=True, cwd=root,
     )
-    view = json.loads(result.stdout)
-    return {ticket["tracker_id"]: ticket for ticket in view.get("tickets", []) if ticket.get("tracker_id")}
+    return json.loads(result.stdout)
+
+
+def epic_status(markdown: str, slug: str, view: dict) -> str:
+    """The epic's status: the document's own line when it has one, else the store's reading.
+
+    The document may only carry the store's container vocabulary (in-progress, done, dropped);
+    an epic with no line at all is unstarted or unknown, so its status is derived from what the
+    store says about its entries rather than invented here."""
+    match = re.search(r"(?m)^status:\s*([a-z-]+)\s*$", markdown)
+    if match:
+        status = match.group(1)
+        if status not in CONTAINER_STATUSES:
+            raise SystemExit(f"Epic status must be one of {', '.join(CONTAINER_STATUSES)}; got {status!r}")
+        return status
+    states = {ticket.get("state", "") for ticket in view.get("tickets", []) if ticket.get("epic") == slug}
+    if not states or states <= {"backlog", "planned"}:
+        return "backlog"
+    if states == {"done"}:
+        return "done"
+    if states == {"dropped"}:
+        return "dropped"
+    return "in-progress"
 
 
 def story_status(tracker: str, fallback: str, tickets: dict[str, dict]) -> str | None:
@@ -95,6 +124,11 @@ def project_item_status(item: dict) -> str:
         if (value.get("field") or {}).get("id") == STATUS_FIELD_ID:
             return value.get("name") or ""
     return ""
+
+
+def project_option(status: str) -> str:
+    """The Project 3 single-select id for an epic status; `backlog` reads as `draft` there."""
+    return STATUS_OPTION_IDS[status] if status in STATUS_OPTION_IDS else STATUS_OPTION_IDS[STATE_TO_STATUS[status]]
 
 
 def gh_api(endpoint: str, payload: dict | None = None, method: str = "POST") -> dict:
@@ -203,10 +237,8 @@ def main() -> None:
 
     markdown = epic_doc.read_text(encoding="utf-8")
     body = re.sub(r"\A---\s*\n.*?\n---\s*\n", "", markdown, count=1, flags=re.S).strip()
-    epic_status_match = re.search(r"(?m)^status:\s*([a-z-]+)\s*$", markdown)
-    epic_status = epic_status_match.group(1) if epic_status_match else ""
-    if epic_status not in {"in-progress", "done", "dropped"}:
-        raise SystemExit(f"Epic status must be one of in-progress, done, dropped; got {epic_status!r}")
+    view = store_view(root)
+    epic_state = epic_status(markdown, args.slug, view)
     title = f"[Epic {epic_id}] {epic['title']}"
     stories = tomllib.loads(story_index.read_text(encoding="utf-8")).get("entry", [])
     existing_tracker = epic.get("tracker_id", "")
@@ -215,7 +247,7 @@ def main() -> None:
         for story in stories if story.get("tracker_id")
     ]
     missing = [story["id"] for story in stories if not story.get("tracker_id")]
-    tickets = store_tickets(root)
+    tickets = {ticket["tracker_id"]: ticket for ticket in view.get("tickets", []) if ticket.get("tracker_id")}
 
     if args.dry_run:
         print(f"Would sync parent issue: {title}")
@@ -246,13 +278,20 @@ def main() -> None:
     write_epic_frontmatter(epic_doc, f"#{parent_number}")
 
     parent = gh_api(f"repos/{REPO}/issues/{parent_number}")
-    if parent.get("title") != title or (parent.get("body") or "").rstrip() != body.rstrip():
-        gh_api(
-            f"repos/{REPO}/issues/{parent_number}",
-            {"title": title, "body": body},
-            method="PATCH",
+    if parent.get("title") != title:
+        gh_api(f"repos/{REPO}/issues/{parent_number}", {"title": title}, method="PATCH")
+        print(f"Retitled parent issue #{parent_number} from the initiative index")
+    current_body = (parent.get("body") or "").rstrip()
+    if not current_body and body:
+        gh_api(f"repos/{REPO}/issues/{parent_number}", {"body": body}, method="PATCH")
+        print(f"Filled the empty body of parent issue #{parent_number} from the epic document")
+    elif current_body != body.rstrip():
+        # An epic issue often carries its own implementation checklist or review record that
+        # the document does not; overwriting it would delete work no diff would ever show.
+        print(
+            f"Parent issue #{parent_number}: body differs from the epic document "
+            f"({len(current_body)} vs {len(body)} chars); left as is"
         )
-        print(f"Updated parent issue #{parent_number} from epic metadata")
     parent_node = parent["node_id"]
     project_query = """mutation($project:ID!, $content:ID!) {
       addProjectV2ItemById(input:{projectId:$project, contentId:$content}) { item { id } }
@@ -269,16 +308,16 @@ def main() -> None:
         value:{singleSelectOptionId:$option}
       }) { projectV2Item { id } }
     }"""
-    if project_item_status(project_item) != epic_status:
+    if project_item_status(project_item) != project_option(epic_state):
         graphql(status_query, {
             "project": PROJECT_ID,
             "item": project_item["id"],
             "field": STATUS_FIELD_ID,
-            "option": STATUS_OPTION_IDS[epic_status],
+            "option": project_option(epic_state),
         })
-        print(f"Set parent issue #{parent_number} to {epic_status} in Project 3")
+        print(f"Set parent issue #{parent_number} to {epic_state} in Project 3")
     else:
-        print(f"Parent issue #{parent_number} already {epic_status} in Project 3")
+        print(f"Parent issue #{parent_number} already {epic_state} in Project 3")
 
     existing_children = graphql(
         """query($parent:ID!) {
