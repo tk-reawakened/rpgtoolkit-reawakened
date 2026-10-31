@@ -53,6 +53,7 @@ jobs:
           - runner-headless
           - runner-web
           - script-tools
+          - lsp
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6

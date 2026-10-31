@@ -33,6 +33,7 @@ export const GROUPS = Object.freeze([
   "runner-headless",
   "runner-web",
   "script-tools",
+  "lsp",
 ]);
 
 const CORE_FORMATS_FILE = /^(?:format-|audio-|canon\.|contracts\.|fmath|lint-rules\.|rng\.|save-migration\.|validate\.)/;
