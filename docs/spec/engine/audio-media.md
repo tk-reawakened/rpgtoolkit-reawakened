@@ -260,6 +260,10 @@ scenes of entry 6.4 (whose `P-1` to `P-18` proposals these adopt, listed in
    the reply is consumed. Audio bytes are decoded at once and dropped; the engine
    remembers the `AudioInfo` of each file for its own life, and an engine
    started from a snapshot asks again, the reply being in that run's input log.
+   A held play also keeps the `media.voice` object it carries alive: the
+   end-of-tick unreferenced-object pass (R-34) roots that object while the effect
+   waits, so the reply binds the voice the play built rather than a handle number
+   that was freed and reused (implementation note, entry 21.11).
    The decoders are the built-in `audio.midi` and `audio.wav` followed by those
    of the plugins ([audio-format-policy](#audio-format-policy) dispatch: header
    detection of the first 64 bytes, a decoder whose extensions name the file's

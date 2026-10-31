@@ -17,6 +17,7 @@
  */
 
 import { IR_VERSION } from "../script/program.ts";
+import { pendingAudioRoots } from "../audio/pending.ts";
 import { findObject, readMember } from "../script/objects.ts";
 import { findBlockingThread, findThread, killThread, localRef, refreshBlock, startThread, type Thread } from "../script/state.ts";
 import { collectGarbage, STEP_BUDGET, stepThread, type ScriptServices } from "../script/vm.ts";
@@ -217,23 +218,19 @@ export function runEngineCancelableEvent(
 }
 
 /**
- * The end-of-tick pass with the emitter's roots (R-34, EMIT-14, EMIT-16): the listener
- * table and the queued events keep their callables' cells and receivers and their
- * event objects alive, as does a thread parked on a cancelable emit, and the
- * listeners of an emitter the pass freed go with it. `extra` are further script
- * values kept outside the state, such as the callables the layer table of
- * `registerPlugin` holds (entry 19.8).
+ * The end-of-tick pass with the roots the state holds outside the ordinary object
+ * graph (R-34, EMIT-14, EMIT-16): the listener table and the queued events keep
+ * their callables' cells and receivers and their event objects alive, as does a
+ * thread parked on a cancelable emit, and the listeners of an emitter the pass
+ * freed go with it. `extra` are further script values kept outside the state,
+ * such as the callables the layer table of `registerPlugin` holds (entry 19.8).
+ * The held `audio` effects are the other such root: a `media.play` still waiting
+ * for its file's bytes keeps the `media.voice` object it carries, so the reply
+ * binds the voice the play built (`pendingAudioRoots`, audio-media.md pin 4,
+ * entry 21.11).
  */
 export function collectStateGarbage(state: GameState, extra: readonly unknown[] = []): void {
-  const roots = (): unknown[] => {
-    const pendingVoices = (state.engine.pendingEffects?.audio ?? []).flatMap((effect) => {
-      if (effect.name.toLowerCase() !== "media.play") return [];
-      const handle = effect.args[8];
-      const record = typeof handle === "number" ? findObject(state.vm, handle) : undefined;
-      return record?.hostType === "media.voice" ? [{ kind: "object", handle: record.handle, className: record.className }] : [];
-    });
-    return [...eventRoots(state.events, state.vm), ...extra, ...pendingVoices];
-  };
+  const roots = (): unknown[] => [...eventRoots(state.events, state.vm), ...extra, ...pendingAudioRoots(state)];
   collectGarbage(state.vm, roots());
   if (pruneDeadEmitters(state.events, state.vm) > 0) collectGarbage(state.vm, roots());
 }
