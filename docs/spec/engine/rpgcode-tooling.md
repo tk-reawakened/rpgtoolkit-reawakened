@@ -36,6 +36,19 @@ Lint rules carry a stable id of the form `<area>/<rule>`, a default severity, a 
 
 <!-- OWNER: D-3, approved 2026-10-31. Rejected: a linter-only diagnostic type — the premise of this page is that one model feeds the server, the CLI and CI; two shapes would need a translation layer whose only job is to lose the rule id. -->
 
+<a id="tool-3-range-convention"></a>
+**TOOL-3 range convention.** A range is a `start` and an `end` position. A position is a `line` and a `column`, both **1-based**, and `end` is **inclusive**: it names the last code unit of the range, so an empty range has `end` equal to `start`. A column counts **UTF-16 code units of the decoded source**, never bytes or code points. That single choice is what lets a consumer slice the text exactly: for a range on one line, `source.split("\n")[line - 1].slice(start.column - 1, end.column)` is exactly the text the diagnostic is about.
+
+Three consequences the tooling relies on:
+
+- A Windows-1252 byte is one code unit, so it advances a column by one; a supplementary-plane character is a surrogate pair, so it advances a column by two. Byte offsets and code-point offsets both disagree with this, which is why neither is used.
+- The CR of a CRLF pair is not counted: it precedes the line break, so the first code unit of the next line is column 1.
+- A token never spans a line. A zero-width token — the `end` marker of a statement on a newline, or end of file — has `end.column === start.column`, which is a valid position, not an empty one to be special-cased. A composite syntax node anchors on the token its `line` came from, so its own range is one token's range.
+
+The tokens the lexer emits carry exactly this range (`col` and `endCol` on `Token`, `packages/core/src/script/lex.ts`), and `packages/core/test/script-lex-spans.test.ts` proves it on tabs, CRLF, a Windows-1252 byte, an astral character and slicing.
+
+<!-- OWNER: D-3, approved 2026-10-31 (the range convention fixed in 10.3 after the lexer showed "decoded characters" was ambiguous). Rejected: byte offsets — they would disagree with the editor's and the LSP's positions at every non-ASCII character; and code-point offsets — they would split a surrogate pair and make slicing throw one code unit short. -->
+
 <a id="tool-4"></a>
 **TOOL-4 Formatting.** The formatter is a source-text rewrite with exactly two jobs: re-indent by brace depth, with a configurable indent width (default four spaces), and normalise built-in names, keywords and the reserved literals to their canonical lower-case spelling. It leaves string contents, map keys written as strings, comments and label spelling alone.
 
