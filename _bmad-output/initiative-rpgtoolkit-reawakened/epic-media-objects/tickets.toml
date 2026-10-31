@@ -139,3 +139,16 @@ risk = "low"
 references = [
   "epic - epic-media-objects.md, Done when",
 ]
+
+[[entry]]
+id = 9
+tracker_id = "#758"
+type = "bug"
+title = "Preserve voice binding after canceled board music"
+description = "Fix script mediaPlay voice binding when a beforePlay listener cancels an engine-originated board music start, without altering the cancellation contract."
+verify = "An engine-level regression cancels a board music start and then plays a script voice through beforePlay without a TypeError, checking voice binding and cancellation behavior."
+covers = ["CAP-5", "CAP-7"]
+after = [4, 5]
+hitl = false
+risk = "medium"
+references = ["issue - #758", "spec - docs/spec/engine/audio-media.md"]

@@ -208,8 +208,9 @@ type Played = {
  * `device` models a real runner: it answers each finished one-shot with the advisory `audio.ended` input. A null
  * runner records the same cues and never replies (docs/spec/engine/audio-media.md#audio-headless).
  */
-function play(ticks: number, device: boolean, switchBoard = false): Played {
-  const { files, paths } = authoredGame();
+function play(ticks: number, device: boolean, switchBoard = false, cancelBoard = false): Played {
+  const listener = 'canceledEntry = 0\nmedia.on("beforePlay", (event) => { if (event.detail.source == "board" && canceledEntry == 0) { canceledEntry = 1; event.cancel() } })\n';
+  const { files, paths } = authoredGame(cancelBoard ? listener + ENTER_PROGRAM : ENTER_PROGRAM);
   let latest = null as GameState | null;
   let seeded = false;
   let switched = false;
@@ -390,6 +391,14 @@ test("battle return chooses the active board music instead of the battle's saved
   equal(played.state.battle?.boardKey, "boards/start.brd", "battle retains board A after return");
   deepEqual(musicStarts(played.cues), ["media/board.mid", "media/battle.mid", "media/other.mid", "media/battle.mid", "media/other.mid"]);
   equal(played.state.audio.tracks.find((track) => track.name === "music")?.file, "media/other.mid");
+});
+
+test("a canceled board music start does not invalidate a pending script voice", () => {
+  const played = play(400, false, true, true);
+  equal(played.state.vm.globals.canceledentry, 1);
+  equal(played.state.vm.globals.fightreturned, 1);
+  equal(musicStarts(played.cues).filter((asset) => asset === "media/other.mid").length, 0, "the board music request is canceled");
+  ok(played.cues.some((cue) => cue.kind === "media.play" && cue.track === "ui" && cue.asset === "media/ready.wav"));
 });
 
 test("the null runner and a runner that answers audio.ended see equal cue streams and state hashes", () => {

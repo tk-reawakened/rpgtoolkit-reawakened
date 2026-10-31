@@ -225,7 +225,15 @@ export function runEngineCancelableEvent(
  * `registerPlugin` holds (entry 19.8).
  */
 export function collectStateGarbage(state: GameState, extra: readonly unknown[] = []): void {
-  const roots = (): unknown[] => [...eventRoots(state.events, state.vm), ...extra];
+  const roots = (): unknown[] => {
+    const pendingVoices = (state.engine.pendingEffects?.audio ?? []).flatMap((effect) => {
+      if (effect.name.toLowerCase() !== "media.play") return [];
+      const handle = effect.args[8];
+      const record = typeof handle === "number" ? findObject(state.vm, handle) : undefined;
+      return record?.hostType === "media.voice" ? [{ kind: "object", handle: record.handle, className: record.className }] : [];
+    });
+    return [...eventRoots(state.events, state.vm), ...extra, ...pendingVoices];
+  };
   collectGarbage(state.vm, roots());
   if (pruneDeadEmitters(state.events, state.vm) > 0) collectGarbage(state.vm, roots());
 }
