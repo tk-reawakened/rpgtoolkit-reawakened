@@ -25,6 +25,10 @@ Anyone can play a legacy game in a browser; the CAP-12 success check, sample gam
 4. A packaged single-file game loads in the web and desktop runners.
 5. The mobile wrapper runs a sample game on a device or emulator.
 
+## Notes
+
+- Open question (epic 6 evidence gap, filed as issue #877): a headless-browser SoundFont playback test. `packages/synth/test/render.test.ts` proves the MIDI-through-bank path under Node; the browser limb of epic 6's Done-when 2 has no test, and this repository has no browser runner. The assertion belongs to this epic's browser job (its Done-when 3 already requires a browser replay), so it is carried here until this envelope gets a `tickets.toml`. Adding Playwright for one assertion now was rejected; the licence (Apache-2.0) is acceptable, the scope is not.
+
 ## Boundaries
 
 `render-webgl2`, `runner-web`, `runner-desktop` and `runner-mobile` as wrappers, and game packaging through the core package writer. Not the desktop editor shell (epic desktop-shell) and not editor hosts.
