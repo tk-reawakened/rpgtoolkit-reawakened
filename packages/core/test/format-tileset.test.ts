@@ -8,7 +8,7 @@
 // byte-identically.
 import { test } from "node:test";
 import { deepEqual, equal } from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -297,24 +297,28 @@ test("the writer rejects a tile whose stored size does not match the detail", ()
 // when they are absent.
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(testDir, "..", "..", "..");
-const SAMPLE_TILESETS = [
-  join(repoRoot, "fixtures", "legacy", "demo", "Tiles", "char.tst"),
-  join(repoRoot, "fixtures", "legacy", "demo", "Tiles", "default.tst"),
-  join(repoRoot, "fixtures", "legacy", "Basic", "Tiles", "char.tst"),
-  join(repoRoot, "fixtures", "legacy", "Basic", "Tiles", "default.tst"),
-];
-const missingFixtures = SAMPLE_TILESETS.filter((file) => !existsSync(file));
+// Every fetched tileset, not only `demo` and `Basic`: the other four games add the geometry and palette
+// variants a two-game list never reached (#852).
+const SAMPLE_TILESETS = existsSync(join(repoRoot, "fixtures", "legacy"))
+  ? readdirSync(join(repoRoot, "fixtures", "legacy"), { recursive: true })
+    .filter((name) => name.toLowerCase().endsWith(".tst"))
+    .map((name) => join(repoRoot, "fixtures", "legacy", name))
+  : [];
+const fixturesFetched = existsSync(join(repoRoot, "fixtures", "legacy"));
 
 test(
   "the sample tilesets parse with zero trailing bytes and round-trip",
-  { skip: missingFixtures.length === 0 ? false : `fixtures not fetched: ${missingFixtures[0]}` },
+  { skip: fixturesFetched ? false : "legacy fixtures are not fetched" },
   () => {
     for (const file of SAMPLE_TILESETS) {
       const bytes = new Uint8Array(readFileSync(file));
+      if (bytes.length === 0) continue; // an empty placeholder is not a tileset
       const model = unwrap(readTileset(bytes, file));
       equal(model.tiles.length > 0, true, `${file} should hold tiles`);
       equal(model.residue.length, 0, `${file} should have no trailing bytes`);
-      deepEqual([...unwrap(writeTileset(model))], [...bytes], `${file} should round-trip exactly`);
+      // Compare the typed arrays directly: spreading 51 MB of tilesets into number arrays cost ~2.5 s of
+      // the sweep's runtime and proves nothing extra.
+      deepEqual(unwrap(writeTileset(model)), bytes, `${file} should round-trip exactly`);
     }
   },
 );
