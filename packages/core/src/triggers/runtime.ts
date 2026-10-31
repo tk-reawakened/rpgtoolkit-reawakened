@@ -300,7 +300,11 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
   }
   const qualifying = all.filter((candidate) => {
     if (!triggerTypeMatches(candidate, kind) || section.suppressed.includes(candidate.key) || section.deactivated.includes(candidate.key)) return false;
-    const inArea = candidate.source === "item" ? overlaps(shape, itemShape(candidate)) : overlaps(shape, polygon(candidate.points), candidate.closed !== 0);
+    // A trigger belongs to the layer it was authored on: only the player's own layer may fire it
+    // (docs/spec/engine/movement-and-collision.md#triggers). Regions are collected from every layer,
+    // so the comparison has to be here as well as in the item list above.
+    const inArea = candidate.layer === player.layer
+      && (candidate.source === "item" ? overlaps(shape, itemShape(candidate)) : overlaps(shape, polygon(candidate.points), candidate.closed !== 0));
     if (!inArea || !conditionMatches(state, candidate) || candidate.program === "") return false;
     if (kind === "key") return true;
     const fired = section.fired[candidate.key] === true;

@@ -220,3 +220,16 @@ references = [
   "spine - architecture AD-1, AD-2, AD-11, AD-14, AD-25 and AD-26",
   "fixture - entry 5.2 `demo-npc-pathfinding`, `demo-npc-battle-trigger`",
 ]
+
+[[entry]]
+id = 13
+tracker_id = "#886"
+type = "bug"
+title = "Trigger regions fire across layers, and three Done-when semantics are untested"
+description = "A region authored on one layer fires for a player on another because runTriggersPhase never compares the candidate layer with the player layer in its qualifying filter; key-press vs step-on, layer matching and run-if/then-set also had no test. Fix the filter and add the three missing semantics to triggers.test.ts."
+verify = "A region on another layer never fires and fires on the player's layer; a key-press trigger fires on a key but not on a step and the step-on trigger the reverse; a finished program applies its final variable; the existing trigger suite, golden and closing runs are unchanged."
+covers = ["CAP-2", "CAP-6"]
+after = []
+hitl = false
+risk = "medium"
+references = ["spec - docs/spec/engine/movement-and-collision.md#triggers", "code - packages/core/src/triggers/runtime.ts"]
