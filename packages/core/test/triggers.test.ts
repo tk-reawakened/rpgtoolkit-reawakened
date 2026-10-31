@@ -14,8 +14,8 @@ const rectangle = (left: number, top: number, right: number, bottom: number) => 
 function item(index: number, x: number, y: number, activationType = 0, initialVar = "", initialValue = ""): WorldItem {
   return { slot: index, itemFile: `item-${index}.itm`, activationPrg: `item-${index}`, multitaskPrg: "", initialVar, initialValue, finalVar: "", finalValue: "", loadingVar: "", loadingValue: "", activate: initialVar === "" ? 0 : 1, activationType, x, y, layer: 1, reserved: 0 };
 }
-function region(index: number, activationType = 0, initialVar = "", initialValue = ""): WorldProgram {
-  return { program: `region-${index}`, graphic: "", initialVar, initialValue, finalVar: "", finalValue: "", activate: initialVar === "" ? 0 : 1, activationType, repeatDistance: 0, layer: 1, points: rectangle(-32, -32, 32, 32), closed: 1, handle: `r${index}` };
+function region(index: number, activationType = 0, initialVar = "", initialValue = "", finalVar = "", finalValue = "", layer = 1): WorldProgram {
+  return { program: `region-${index}`, graphic: "", initialVar, initialValue, finalVar, finalValue, activate: initialVar === "" ? 0 : 1, activationType, repeatDistance: 0, layer, points: rectangle(-32, -32, 32, 32), closed: 1, handle: `r${index}` };
 }
 function board(programs: WorldProgram[] = [], items: WorldItem[] = []): WorldBoard {
   return { key: assetKey("boards/test.brd"), coordType: 0, sizeX: 10, sizeY: 10, sizeL: 1, width: 320, height: 320, background: { r: 0, g: 0, b: 0 }, ambient: { r: 255, g: 255, b: 255 }, layers: [], programs, items };
@@ -72,6 +72,50 @@ test("condition failure falls through and hidden items never become candidates",
   const events = runTriggersPhase(state, { programRef: (name) => ref(name) });
   equal(events[0]?.key, "region:1");
   equal(state.vm.threads.filter((thread) => thread.kind === "item").length, 0);
+});
+
+test("a key-press trigger fires on a key and a step-on trigger fires on a step, never the other way round", () => {
+  const world = board([region(0, 1), region(1, 0)]);
+  // A step: only the step-on region (activation type 0) qualifies.
+  const stepped = stateWith(world);
+  stepped.time.tick = 1;
+  stepped.sprites.players = stepped.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: 1, lastStepDistance: 32 } }));
+  const stepEvents = runTriggersPhase(stepped, { programRef: (name) => ref(name) });
+  equal(stepEvents[0]?.key, "region:1", "a step starts the step-on region, not the key region");
+
+  // A key press at the same place: now only the key region (type 1) qualifies.
+  const pressed = stateWith(world);
+  pressed.time.tick = 1;
+  pressed.input.keys.push({ seq: 1, name: "A", code: "KeyA", char: "a" });
+  const keyEvents = runTriggersPhase(pressed, { programRef: (name) => ref(name) });
+  equal(keyEvents[0]?.key, "region:0", "a key press starts the key region, not the step-on region");
+});
+
+test("trigger layer matching ignores a region on another layer", () => {
+  const world = board([region(0)]);
+  const state = stateWith(world);
+  state.time.tick = 1;
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, layer: 2, movement: { ...player.movement, lastStepTick: 1, lastStepDistance: 32 } }));
+  equal(runTriggersPhase(state, { programRef: (name) => ref(name) }).length, 0, "a player on another layer never fires the region");
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, layer: 1 }));
+  state.time.tick += 1;
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: state.time.tick } }));
+  const sameLayer = runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(sameLayer[0]?.key, "region:0", "the same position on the region's layer fires it");
+});
+
+test("a finished trigger program applies its final variable", () => {
+  const world = board([region(0, 0, "", "", "doorOpen", "yes")]);
+  const state = stateWith(world);
+  state.vm.globals.doorOpen = "no";
+  state.time.tick = 1;
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: 1, lastStepDistance: 32 } }));
+  const started = runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(started[0]?.key, "region:0");
+  equal(state.vm.globals.doorOpen, "no", "the final variable is untouched while the program runs");
+  finishActive(state);
+  equal(state.vm.globals.doorOpen, "yes", "completion writes the region's final variable");
+  equal(state.triggers.active, null);
 });
 
 test("snapshot trigger state is plain and resettable", () => {
