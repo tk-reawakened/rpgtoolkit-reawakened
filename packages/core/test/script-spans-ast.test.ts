@@ -6,10 +6,11 @@ import {
   tokenize,
   type Ast,
   type Expr,
-  type IncludeRequest,
   type ScriptError,
   type Statement,
 } from "../src/index.ts";
+import type { IncludeRequest } from "../src/script/ast.ts";
+import { scan } from "../src/script/lex.ts";
 
 /**
  * The AST half of the source-span contract (docs/spec/engine/rpgcode-tooling.md#tool-3-range-convention):
@@ -150,4 +151,14 @@ test("a lexical error names the exact character it is about", () => {
   equal(caught.code, "syntax.unsupported");
   deepEqual(caught.pos, { file: "", line: 1, col: 5, endCol: 5 });
   equal(sliceAt(source, 1, 5, 5), "@");
+});
+
+test("a literal #include directive carries its own span, and a CRLF's CR is not a column", () => {
+  const source = 'x = 1\r\n#include "inc.prg"\r\n';
+  const { includes } = scan(source, true);
+  const directive = includes[0] as IncludeRequest;
+  equal(directive.path, "inc.prg");
+  equal(directive.implicit, false);
+  deepEqual(spanOf(directive), [2, 1, 18]);
+  equal(slice(source, directive), '#include "inc.prg"');
 });

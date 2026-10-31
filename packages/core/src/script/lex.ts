@@ -273,12 +273,14 @@ function run(text: string): Token[] {
       let lineEnd = index;
       while (lineEnd < length && text[lineEnd] !== "\n") lineEnd++;
       const lineText = text.slice(index, lineEnd);
+      // The CR of a CRLF precedes the break and is not a column (TOOL-3).
+      const endCol = lineEnd - lineStart - (text[lineEnd - 1] === "\r" ? 1 : 0);
       if (/^#\s*include\b/i.test(lineText)) {
         const named = /^#\s*include\s+"([^"\r]*)"/i.exec(lineText);
         if (named === null) {
           lexical(
             '`#include` needs a quoted file name, as in `#include "file.prg"` (MOD-1)',
-            pos(line, index - lineStart + 1, lineEnd - lineStart),
+            pos(line, index - lineStart + 1, endCol),
           );
         }
         includes.push({
@@ -286,7 +288,7 @@ function run(text: string): Token[] {
           line,
           implicit: false,
           col: index - lineStart + 1,
-          endCol: lineEnd - lineStart,
+          endCol,
         });
       }
       index = lineEnd;
