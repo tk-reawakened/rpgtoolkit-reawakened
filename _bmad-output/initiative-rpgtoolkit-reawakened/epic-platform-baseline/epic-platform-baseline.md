@@ -19,7 +19,7 @@ Contributors and agents cannot merge code that breaks a guard-rail; the CAP-13 s
 
 ## Done when
 
-1. A fresh clone installs, builds and runs typecheck, lint and unit tests with one command each at repository scope (`pnpm build`, `typecheck`, `lint`, `test`); `synth` additionally exposes them per package. Per-package scripts for the other four packages were tried and rejected because they depend on each other's built output, so `pnpm -r build` fails (entry 1.2'"'"'s review).
+1. A fresh clone installs, builds and runs typecheck, lint and unit tests with one command each at repository scope (`pnpm build`, `typecheck`, `lint`, `test`); `synth` additionally exposes them per package. Per-package scripts for the other four packages were tried and rejected because they depend on each other's built output, so `pnpm -r build` fails (entry 1.2 review).
 2. A deliberate violation of each rule G1, G2, G3, G4, G6 and G7 (generator in the VM scope, DOM global in core, `Math.random`, a `Math` function outside the AD-13 allowlist or a `**` operator in core, the bare `fflate` specifier, an engine import outside a runner render folder, a GPL dependency, a legacy marker) fails its CI job, and a dependency edge not in the edge list fails the graph check.
 3. The golden job runs on every PR through `runner-harness`: it asserts the RFC 8785 and FNV-1a vectors of AD-11 and replays an input log against a test-double engine. It fetches the legacy `demo` and `Basic` games at CI time and commits none of them.
 4. The PR template carries the guard-rail checklist and cites-the-docs checkbox, `THIRD_PARTY_NOTICES` exists, and the required checks are set in branch protection.
