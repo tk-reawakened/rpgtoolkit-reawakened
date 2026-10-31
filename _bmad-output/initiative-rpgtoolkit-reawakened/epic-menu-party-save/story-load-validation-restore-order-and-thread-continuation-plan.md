@@ -4,6 +4,7 @@ type: 'feature'
 ticket: 10
 created: '2026-10-22'
 risk: "high"
+status: done
 context:
   - "spec - docs/spec/formats/save-game.md (R-13, field 46 compatibility)"
   - "spine - AD-7, AD-10, AD-23"
@@ -36,3 +37,7 @@ Preflight the schema and every saved program compiler reference before any paylo
 ### Unresolved integration dependency
 
 The accepted ledger contract makes inventory assignments authoritative and actor equipment bonuses/references derived. Resolving that projection requires asset-aware item authority and validation; the current plan has no evidence that load can reconstruct it safely without synthesizing bonuses or executing behavior hooks. Do not guess at either. Record this as an unresolved #593/#778 integration dependency until the owning asset-authority work defines and tests the reconciliation boundary. This is not an acceptance claim that equipment reconciliation has been implemented.
+
+## Evidence
+
+`packages/core/test/save-load.test.ts` (merged in `167c2a71`), fifteen cases through the engine's own `Load` over the blob port: every missing section, every section of an impossible type and four malformed thread shapes are located `restore.shape` refusals; a pre-split (`schema` 1, `vm` 5, `compiler`, no `ir`) save migrates its data and then resumes for compiler 2 and restarts for compiler 1; package startup and actor behaviour resolution run on the restored state before it goes live, with an unregistered behaviour reported exactly once; a resumed thread behaves as the unsaved run does, an older instruction version restarts only the affected thread, and a changed file source restarts that thread alone; a refused load leaves the game exactly as a missing-save load does, consumes only its own reply, and two fresh engines loading one save produce identical ticks, globals and state hash. No runtime change was needed: the composed path already matched `docs/spec/formats/save-game.md` and the 2026-10-30 instruction-version ruling, so no spec text was added.
