@@ -114,9 +114,11 @@ notes = ["Delivered by PR #838 (2ea1768e, Fixes #485), merged 2026-10-30. The 19
 [[entry]]
 id = 7
 tracker_id = "#486"
+tracker_status = "done"
 type = "story"
 title = "Pure-RPGCode media package fixtures and legacy golden verification"
 description = "Authors fixture packages in pure RPGCode (a ducking package that fades `music` while any voice on `ui` plays, a stems package that starts layers on `ended`, a region-music package that replaces board music through `beforePlay`) and pins them in headless goldens, with the legacy audio goldens unchanged."
+notes = ["Delivered by PR #846 (bde11f32, Fixes #486), merged 2026-10-31. packages/core/test/fixtures/media/{ducking,stems,region-music}.prg are RPGCode-only package programs loaded by name from the main file's package list; audio-packages.test.ts asserts each consequence and compares golden/audio/media-packages.json, whose 128 rows are the engine's live per-tick hashes (so a lossy restore fails). The save-at-every-tick check compares each tick's live hash with the hash of restoring that state and runs the stems chain. No existing fixture or golden changed; ducking is covered by its cue assertion because track fades live in audio settings, which the state hash excludes."]
 verify = "Fixtures run deterministically from a seed with a save at every tick; each pinned golden is explained; the three packages load by name from the manifest; all 3.1 audio goldens and sample plays are unchanged; typecheck, lint, licence, provenance, catalogue and command-docs gates pass."
 covers = ["CAP-5", "CAP-7"]
 after = [6, "19.14"]
