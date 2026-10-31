@@ -88,6 +88,9 @@ Two independent reviews found: (1) scalar coverage was incomplete in `writeEnemy
 | `writeCharacter`/`writeItem` left `maxLevel`, stats, `minExp`/`minLevel`, `hasSpecialMoves`, `levelUpType`/`sizeType`, item `sizeType` and fixed byte lists unchecked | medium, real | Patched: each checked; `writeFixedBytes` now checks every entry; test added |
 | `32768`-base at-bound case unasserted | low, real | Patched: base-bound success and byte-identical round-trip asserted |
 | `idleTime` refusal comment gave a wrong reason | low, real | Reworded |
+| Batched pre-checks made the error `offset` point at the block start | low, real | Patched: each check now runs immediately before its own write, with a test proving `runProgram`'s offset is 16 bytes past `rounds` |
+| `writeBoundedStrings` kept its own 32 768 copy | low, real (consistency) | Patched: it calls `checkListBound`; the message is unchanged |
+| `f64` fields have no `Number.isFinite` guard | false-positive for this ticket | A NaN/Infinity is representable and round-trips as itself; the docs state no range, so refusing it would infer a rule (AC5) |
 
 **Commands:**
 - `pnpm exec tsc -b` — expected: success.

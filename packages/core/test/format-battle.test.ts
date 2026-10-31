@@ -751,3 +751,18 @@ test("a battle writer refuses a wrong magic or an unlisted minor", () => {
   const backgroundMinor = refusal({ ...background, minor: 4 }, writeBattleBackground);
   equal(backgroundMinor.includes("2..3"), true, backgroundMinor);
 });
+
+test("a batched writer reports the refused field's own offset, not the block's start", () => {
+  // FormatError.offset is the field's first byte (result.ts), so a check that
+  // runs just before its write must not report an earlier sibling's position.
+  const offsetOf = (model: StatusEffect): number => {
+    const result = writeStatusEffect(model);
+    equal(result.ok, false, "the writer was expected to fail");
+    if (result.ok) throw new Error("unreachable");
+    return result.error.offset;
+  };
+  const effect = unwrap(readStatusEffect(new BinaryReader(buildSte())));
+  const rounds = offsetOf({ ...effect, rounds: 40_000 });
+  const runProgram = offsetOf({ ...effect, runProgram: 40_000 });
+  equal(runProgram - rounds, 16, "runProgram follows the eight rounds..smpPerRound i16 fields");
+});

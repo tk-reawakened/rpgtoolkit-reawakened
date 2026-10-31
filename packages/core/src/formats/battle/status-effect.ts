@@ -184,8 +184,8 @@ export function writeStatusEffect(model: StatusEffect): Result<Uint8Array> {
   for (const [field, value] of scalars) {
     const checked = checkI16(writer, STATUS_EFFECT_SECTION, field, value);
     if (checked !== undefined) return checked;
+    writer.i16(value);
   }
-  for (const [, value] of scalars) writer.i16(value);
   const program = writer.str(model.program);
   if (!program.ok) {
     return program;

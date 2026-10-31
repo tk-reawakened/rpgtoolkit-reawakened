@@ -213,8 +213,8 @@ export function writeEnemy(model: Enemy): Result<Uint8Array> {
   for (const [field, value] of vitals) {
     const checked = checkI32(writer, ENEMY_SECTION, field, value);
     if (checked !== undefined) return checked;
+    writer.i32(value);
   }
-  for (const [, value] of vitals) writer.i32(value);
   const canRun = checkI8(writer, ENEMY_SECTION, "canRun", model.canRun);
   if (canRun !== undefined) return canRun;
   writer.i8(model.canRun);
@@ -251,9 +251,8 @@ export function writeEnemy(model: Enemy): Result<Uint8Array> {
   for (const [field, value] of [["experienceReward", model.experienceReward], ["goldReward", model.goldReward]] as const) {
     const checked = checkI32(writer, ENEMY_SECTION, field, value);
     if (checked !== undefined) return checked;
+    writer.i32(value);
   }
-  writer.i32(model.experienceReward);
-  writer.i32(model.goldReward);
   const defeatProgram = writer.str(model.defeatProgram);
   if (!defeatProgram.ok) {
     return writerError(writer, ENEMY_SECTION, `defeat program: ${defeatProgram.error.message}`);

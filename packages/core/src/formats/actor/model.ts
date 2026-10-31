@@ -606,8 +606,8 @@ export function writeFixedBytes(
   for (const [index, value] of values.entries()) {
     const checked = checkI8(writer, section, `${what}[${index}]`, value);
     if (checked !== undefined) return checked;
+    writer.i8(value);
   }
-  for (const value of values) writer.i8(value);
   return ok(undefined);
 }
 
@@ -622,13 +622,8 @@ export function writeBoundedStrings(
   section: string,
   what: string,
 ): Result<void> {
-  if (values.length > 32_768) {
-    return writerError(
-      writer,
-      section,
-      `${what} has ${values.length} entries but the i16 upper bound holds at most 32768`,
-    );
-  }
+  const bound = checkListBound(writer, section, what, values.length);
+  if (bound !== undefined) return bound;
   writer.i16(values.length === 0 ? -1 : values.length - 1);
   return writeStrings(writer, values, section, what);
 }
@@ -670,22 +665,17 @@ export function writeBases(
 ): Result<void> {
   const bound = checkListBound(writer, section, "vector bases", bases.length);
   if (bound !== undefined) return bound;
+  writeBound(writer, bases.length, "i16");
   for (const [index, base] of bases.entries()) {
     const points = checkListBound(writer, section, `vector base ${index}`, base.points.length);
     if (points !== undefined) return points;
-    for (const [position, point] of base.points.entries()) {
-      const x = checkI32(writer, section, `vector base ${index} point ${position} x`, point.x);
-      if (x !== undefined) return x;
-      const y = checkI32(writer, section, `vector base ${index} point ${position} y`, point.y);
-      if (y !== undefined) return y;
-    }
-  }
-  writeBound(writer, bases.length, "i16");
-  for (const base of bases) {
     writeBound(writer, base.points.length, "i16");
-    for (const point of base.points) {
-      writer.i32(point.x);
-      writer.i32(point.y);
+    for (const [position, point] of base.points.entries()) {
+      for (const [axis, value] of [["x", point.x], ["y", point.y]] as const) {
+        const checked = checkI32(writer, section, `vector base ${index} point ${position} ${axis}`, value);
+        if (checked !== undefined) return checked;
+        writer.i32(value);
+      }
     }
   }
   return ok(undefined);

@@ -191,9 +191,8 @@ export function writeSpecialMove(model: SpecialMove): Result<Uint8Array> {
   for (const [field, value] of [["damage", model.damage], ["smpCost", model.smpCost]] as const) {
     const checked = checkI32(writer, SPECIAL_MOVE_SECTION, field, value);
     if (checked !== undefined) return checked;
+    writer.i32(value);
   }
-  writer.i32(model.damage);
-  writer.i32(model.smpCost);
   const program = writer.str(model.program);
   if (!program.ok) {
     return program;

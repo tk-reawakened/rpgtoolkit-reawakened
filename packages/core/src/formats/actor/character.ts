@@ -734,8 +734,8 @@ export function writeCharacter(model: Character): Result<Uint8Array> {
   for (const [field, value] of stats) {
     const checked = checkI32(writer, CHARACTER_SECTION, field, value);
     if (checked !== undefined) return checked;
+    writer.i32(value);
   }
-  for (const [, value] of stats) writer.i32(value);
 
   const profilePicture = writer.str(model.profilePicture);
   if (!profilePicture.ok) {
@@ -759,9 +759,8 @@ export function writeCharacter(model: Character): Result<Uint8Array> {
     for (const [field, value] of [["minExp", move.minExp], ["minLevel", move.minLevel]] as const) {
       const checked = checkI32(writer, CHARACTER_SECTION, `specialMoves[${index}].${field}`, value);
       if (checked !== undefined) return checked;
+      writer.i32(value);
     }
-    writer.i32(move.minExp);
-    writer.i32(move.minLevel);
     const condVar = writer.str(move.condVar);
     if (!condVar.ok) {
       return writerError(

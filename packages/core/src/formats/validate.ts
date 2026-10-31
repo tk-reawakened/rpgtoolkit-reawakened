@@ -30,9 +30,9 @@ export const I32_MAX = 2_147_483_647;
 export const MAX_LIST_ENTRIES = 32_768;
 
 /**
- * A located error at the writer's current offset (AD-18). A check made before a
- * block is written therefore reports the block's start, which is the offset of
- * the field it refuses.
+ * A located error at the writer's current offset (AD-18), so a writer checks a
+ * field immediately before writing it and the error names that field's own
+ * first byte.
  */
 export function writerFailure(writer: BinaryWriter, section: string, message: string): Result<never> {
   return err({ offset: writer.toBytes().length, section, message });
