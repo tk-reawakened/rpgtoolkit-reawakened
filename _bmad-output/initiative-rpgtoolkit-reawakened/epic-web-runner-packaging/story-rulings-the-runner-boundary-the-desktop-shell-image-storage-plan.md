@@ -95,8 +95,8 @@ because the editor already runs the game for its preview through platform-servic
 player-only build would be a second Electron target with its own signing, notarisation and updater for an audience that
 already has the PWA. If a player-only flavour is ever wanted it is a build flag on this app, never a second app. The
 shell is **Electron 45.x** (45.2.1 at the time of writing, Chromium 156.0.8078.75) and it serves every page over a
-**privileged `app://` scheme** — `standard`, `secure`, `supportFetchAPI`, `corsEnabled`, `allowServiceWorkers` —
-registered before `app.ready`, never `loadFile`.
+**privileged `app://` scheme** — `standard`, `secure`, `supportFetchAPI`, `corsEnabled` — and registers no service
+worker (so it does not claim `allowServiceWorkers`); the scheme is registered before `app.ready`, never `loadFile`.
 
 **Proposed ruling (pending owner review; entry 9.1) — install registers a package; the harness holds a library and a
 default game.** There is **no per-game stub and no file association to rely on**: a friend who is sent a game receives a
