@@ -175,3 +175,16 @@ test("test double key-down deduplicates held keys", () => {
     filled: true,
   });
 });
+
+test("a paused double defers the first tick's non-focus records, as the engine's pre-tick pass does", () => {
+  // The engine consumes only focus/asset/blob/video replies at the current tick while paused and re-queues the rest.
+  const engine = createTestEngine();
+  engine.advance(1, [{ tick: 0, event: { kind: "focus", state: "lost" } }]);
+  const paused = engine.advance(2, [{ tick: 0, event: { kind: "key", name: "A", code: "A", char: "a", down: true } }]);
+  equal(paused.ticksRun, 0);
+  equal(paused.tickAfter, 0);
+  equal(paused.consumed.length, 0, "the key stays queued while the window is inactive");
+  equal(paused.audioCues.length, 0, "no cue is emitted while paused");
+  // The draw list always has the background fill and the pointer rect; a key would add a third.
+  equal(engine.drawList().commands.length, 2, "no key draw command was recorded");
+});
