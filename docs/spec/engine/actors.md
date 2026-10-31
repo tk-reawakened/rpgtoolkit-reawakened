@@ -21,7 +21,8 @@ Every runtime actor has one stable scalar `id` and plain-data fields. The stable
 
 A runtime actor MAY contain:
 
-- source asset and kind (`party`, `enemy`, `npc`, or board sprite);
+- source asset and kind (`party`, `enemy`, or `npc`); a board sprite is not an actor kind
+  ([Sprites and board geometry](#sprites-and-board-geometry));
 - current and maximum stats, including level and total experience;
 - status counters and equipment-derived state;
 - progression state and actor-owned progression policy data;
