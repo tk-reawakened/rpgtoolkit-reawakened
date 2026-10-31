@@ -25,7 +25,7 @@ The debug adapter is the package `dap`, which depends on `runner-harness` (the p
 |---|---|
 | `code` | the stable failure or rule code, lower-case with dots for a failure (`syntax.error`) or `<area>/<rule>` for a lint rule (`lint/unused-variable`) |
 | `severity` | `error`, `warning`, `info` or `hint` |
-| `range` | start and end position in the source, in decoded characters, lines 1-based and columns 1-based inclusive |
+| `range` | start and end position in the source, in **UTF-16 code units of the decoded source** — lines 1-based, columns 1-based inclusive — so a range slices the text exactly ([TOOL-3 range convention](#tool-3-range-convention)) |
 | `message` | one sentence a game author can act on |
 | `rule` | the lint rule id when a rule raised it, absent for a parser diagnostic |
 | `fix` | optional: one or more text edits over ranges, each with the rule that produced it |
