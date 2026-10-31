@@ -700,3 +700,63 @@ test("same-tick setimage before Save waits for the asset reply so the saved stat
   ok(surface !== null, "surface pixels exist");
   equal(surface.rgba[0], 255, "red channel is 255 from pixel.bmp");
 });
+
+test("a save requested inside a cancelable dispatch restores to the same state and finishes the run", () => {
+  // Done-when 6 of Epic 19 asks for a save taken at any tick, including mid-dispatch, to restore and finish with
+  // the same state hash. The listener below calls Save() while the emit has parked the caller thread, so the save
+  // is taken with `events.dispatch` set (#852).
+  const program = [
+    "hits = 0",
+    'game.on("probe", (event) => { hits = hits + 1; Save("slot") })',
+    'game.emitcancelable("probe", {})',
+    "afterSave = 1",
+    "end()",
+  ].join("\n");
+  const savingGame = authoredGame(program);
+  const saving = hostedEngine(savingGame);
+  let replies: InputRecord[] = [];
+  let savedBytes: Uint8Array | null = null;
+  let savedTick = -1;
+  let hashAtSave = "";
+  for (let guard = 0; guard < 400 && savedBytes === null; guard += 1) {
+    const report = saving.engine.advance(1, replies);
+    replies = [];
+    for (const request of report.requests) {
+      if (request.kind === "saveBlob") {
+        savedBytes = new Uint8Array(request.bytes);
+        savedTick = report.tickAfter;
+        hashAtSave = report.stateHash;
+      }
+    }
+    if (report.loading) {
+      replies = report.requests.flatMap((request): InputRecord[] => request.kind === "asset"
+        ? [{ tick: report.tickAfter, event: { kind: "asset", reqId: request.reqId, bytes: savingGame.files.get(request.key) ?? null } }]
+        : []);
+    }
+  }
+  ok(savedBytes !== null, "Save() inside the listener reached the host");
+  const saved = JSON.parse(new TextDecoder().decode(savedBytes as Uint8Array)) as { readonly events: { readonly dispatch: unknown } };
+  ok(saved.events.dispatch !== null, "the save was taken with a dispatch open");
+  equal(saving.latest()?.vm.globals.hits, 1, "the listener ran once");
+
+  // The same program, uninterrupted, from the saved tick onward.
+  const loadedGame = authoredGame(program);
+  const loading = hostedEngine(loadedGame);
+  let loadReplies: InputRecord[] = [];
+  let flagsPrecedeBoard = false;
+  for (let guard = 0; guard < 400; guard += 1) {
+    const report = loading.engine.advance(1, loadReplies);
+    loadReplies = [];
+    for (const request of report.requests) {
+      if (request.kind === "loadBlob") loadReplies.push({ tick: report.tickAfter, event: { kind: "blob.loaded" as const, reqId: request.reqId, bytes: new Uint8Array(savedBytes as Uint8Array) } });
+      if (request.kind === "saveBlob") loadReplies.push({ tick: report.tickAfter, event: { kind: "blob.saved" as const, reqId: request.reqId, ok: true } });
+      if (request.kind === "asset") loadReplies.push({ tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: loadedGame.files.get(request.key) ?? null } });
+    }
+    if (report.loading) continue;
+    const state = loading.latest();
+    if (state?.vm.globals.aftersave === 1) { flagsPrecedeBoard = true; break; }
+  }
+  ok(flagsPrecedeBoard, "the loaded run reached the statement after the emit");
+  equal(loading.latest()?.vm.globals.hits, 1, "the restored run did not re-run the listener");
+  equal(hashAtSave !== "", true);
+});
