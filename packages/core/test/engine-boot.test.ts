@@ -443,11 +443,14 @@ test("a legacy stock plugin row installs its package and an unmapped DLL is one 
 
 test("the main file's package names feed the manifest in stored order, and a name with no definition is a located diagnostic", () => {
   const game = authorGame({ ...SCRIPTED, plugins: ["no-such-plugin.dll"], packages: ["weather", "quests"] });
-  const result = run(bootEngine(game, makeDoubles()), game.files, 10);
+  const doubles = makeDoubles();
+  const result = run(bootEngine(game, doubles), game.files, 10);
   const unresolved = result.diagnostics.filter((diagnostic) => diagnostic.code === "plugin.unresolved");
   deepEqual(unresolved.map((diagnostic) => diagnostic.message.includes("weather") ? "weather" : diagnostic.message.includes("quests") ? "quests" : "other"), ["weather", "quests"]);
   equal(unresolved.every((diagnostic) => diagnostic.file === game.main), true);
   deepEqual(unresolved.map((diagnostic) => diagnostic.line), [0, 1]);
+  // "the game still boots" is part of the criterion: a zero-tick run is also what a failed boot reports.
+  equal(doubles.state().engine.boot?.stage, "running", "boot continued past the unresolved packages");
 });
 test("a host catalogue resolves the listed package and runs its owned startup before main startup", () => {
   const game = authorGame({
