@@ -111,24 +111,19 @@ test("test double throws RangeError on past-stamped and future-stamped input", (
   );
 });
 
-test("test double throws plain Error naming focus pause", () => {
+test("test double pauses while the window has lost focus and resumes with it", () => {
+  // docs/spec/engine/main-loop-and-startup.md#e-03: the Paused state runs no game frame, so the tick stands still
+  // while the window is inactive and moves again once it is focused.
   const engine = createTestEngine();
-  throws(
-    () =>
-      engine.advance(1, [
-        {
-          tick: 0,
-          event: { kind: "focus", state: "lost" },
-        },
-      ]),
-    (err: unknown) => {
-      return (
-        err instanceof Error &&
-        !(err instanceof RangeError) &&
-        err.message.includes("test double: focus pause is not modelled")
-      );
-    },
-  );
+  const paused = engine.advance(3, [{ tick: 0, event: { kind: "focus", state: "lost" } }]);
+  equal(paused.ticksRun, 0, "no frame runs while unfocused");
+  equal(paused.tickAfter, 0, "the clock does not advance while unfocused");
+  const stillPaused = engine.advance(2, []);
+  equal(stillPaused.ticksRun, 0);
+  equal(stillPaused.tickAfter, 0);
+  const resumed = engine.advance(2, [{ tick: 0, event: { kind: "focus", state: "gained" } }]);
+  equal(resumed.ticksRun, 2, "focus returns the loop to running frames");
+  equal(resumed.tickAfter, 2);
 });
 
 test("test double increments other counter for remaining events and returns null for pixels", () => {
@@ -179,4 +174,17 @@ test("test double key-down deduplicates held keys", () => {
     rgb: { r: 255, g: 255, b: 255 },
     filled: true,
   });
+});
+
+test("a paused double defers the first tick's non-focus records, as the engine's pre-tick pass does", () => {
+  // The engine consumes only focus/asset/blob/video replies at the current tick while paused and re-queues the rest.
+  const engine = createTestEngine();
+  engine.advance(1, [{ tick: 0, event: { kind: "focus", state: "lost" } }]);
+  const paused = engine.advance(2, [{ tick: 0, event: { kind: "key", name: "A", code: "A", char: "a", down: true } }]);
+  equal(paused.ticksRun, 0);
+  equal(paused.tickAfter, 0);
+  equal(paused.consumed.length, 0, "the key stays queued while the window is inactive");
+  equal(paused.audioCues.length, 0, "no cue is emitted while paused");
+  // The draw list always has the background fill and the pointer rect; a key would add a third.
+  equal(engine.drawList().commands.length, 2, "no key draw command was recorded");
 });

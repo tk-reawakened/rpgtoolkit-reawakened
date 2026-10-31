@@ -17,6 +17,8 @@ import {
 
 export type TestEngineState = {
   tick: number;
+  /** False while the window is inactive: the main loop runs no frame then (docs/spec/engine/main-loop-and-startup.md#e-03). */
+  focused: boolean;
   keys: string[];
   pointer: { x: number; y: number; buttons: number };
   other: number;
@@ -46,6 +48,7 @@ function deepCopyValue<T>(value: T): T {
 export function createTestEngine(): Engine {
   const state: TestEngineState = {
     tick: 0,
+    focused: true,
     keys: [],
     pointer: { x: 0, y: 0, buttons: 0 },
     other: 0,
@@ -74,8 +77,13 @@ export function createTestEngine(): Engine {
 
       const audioCues: AudioCue[] = [];
       const consumed: InputRecord[] = [];
-
-      for (const record of inputs) {
+      // E-03: the engine has two passes at the current tick — a pre-tick pass that consumes only focus, asset and
+      // blob/video replies, then the frame's input phase, which never runs while the window is inactive
+      // (`engine.ts` `processPreTickEvents` and the `state.input.focused` loop guard). Model both: at the first tick
+      // apply the pre-tick kinds, and apply the rest only if the window is still focused; every later tick applies
+      // its own records and stops counting frames as soon as focus is lost.
+      const PRETICK: ReadonlySet<string> = new Set(["focus", "asset", "blob.loaded", "blob.saved", "video.ended"]);
+      const apply = (record: InputRecord): void => {
         const event = record.event;
         switch (event.kind) {
           case "key": {
@@ -127,7 +135,9 @@ export function createTestEngine(): Engine {
             break;
           }
           case "focus": {
-            throw new Error("test double: focus pause is not modelled");
+            // E-03: the Paused state runs no game frame, so losing focus stops the clock advancing until it returns.
+            state.focused = event.state === "gained";
+            break;
           }
           default: {
             const _never: never = event;
@@ -140,13 +150,32 @@ export function createTestEngine(): Engine {
           tick: record.tick,
           event: deepCopyValue(record.event as InputEvent),
         });
-      }
+      };
 
-      state.tick = endTick;
+      let ran = 0;
+      let tick = before;
+      while (ran < actualTicks) {
+        for (const record of inputs) {
+          if (record.tick !== tick) continue;
+          if (tick === before ? PRETICK.has(record.event.kind) : true) apply(record);
+        }
+        if (tick === before) {
+          for (const record of inputs) {
+            if (record.tick !== tick) continue;
+            if (PRETICK.has(record.event.kind)) continue;
+            if (!state.focused) continue; // left queued until focus returns, as the engine re-queues it
+            apply(record);
+          }
+        }
+        if (!state.focused) break;
+        ran += 1;
+        tick += 1;
+      }
+      state.tick = tick;
       const stateHash = hashState(state);
 
       return {
-        ticksRun: actualTicks,
+        ticksRun: ran,
         tickAfter: state.tick,
         consumed,
         audioCues,
