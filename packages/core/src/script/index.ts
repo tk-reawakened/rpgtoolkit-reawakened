@@ -194,6 +194,7 @@ export {
   ENGINE_DEFAULT_MANIFEST,
   HOST_REQUEST_KINDS,
   isPackageManifestEntry,
+  PACKAGE_IDENTIFIER,
   isPluginManifestEntryEnabled,
   listPackageDeclarations,
   packageNamespace,

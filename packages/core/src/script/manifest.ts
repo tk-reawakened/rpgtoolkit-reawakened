@@ -145,7 +145,12 @@ export function isPlainData(value: unknown, seen: Set<object> = new Set()): valu
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
-const FOLDED_IDENTIFIER = /^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/;
+/**
+ * The package-identity grammar (PKG-2): lower-case ASCII letters and digits with
+ * `-` or `_` separators, used for a package id and its namespace. A host that
+ * reads package folders validates with this one pattern rather than a copy.
+ */
+export const PACKAGE_IDENTIFIER = /^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/;
 
 function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
   const allowed = new Set(keys);
@@ -190,7 +195,7 @@ function parseEntry(
     if (typeof record.version !== "string" || record.version.length === 0) {
       return { entry: null, diagnostic: diagnostic("manifest.version", path, index, "package version must be a non-empty string") };
     }
-    if (!FOLDED_IDENTIFIER.test(record.id)) {
+    if (!PACKAGE_IDENTIFIER.test(record.id)) {
       return {
         entry: null,
         diagnostic: diagnostic("manifest.package-name", path, index, `package name "${record.id}" must be a lower-case ASCII identifier`),
@@ -198,7 +203,7 @@ function parseEntry(
     }
     entry.version = record.version;
     if (record.namespace !== undefined) {
-      if (typeof record.namespace !== "string" || !FOLDED_IDENTIFIER.test(record.namespace)) {
+      if (typeof record.namespace !== "string" || !PACKAGE_IDENTIFIER.test(record.namespace)) {
         return { entry: null, diagnostic: diagnostic("manifest.namespace", path, index, "package namespace must be an ASCII identifier") };
       }
       entry.namespace = record.namespace;

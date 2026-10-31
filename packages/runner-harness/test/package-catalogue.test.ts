@@ -84,13 +84,17 @@ function bootGame(packages: readonly string[], catalogue: Parameters<typeof crea
 }
 
 /** Advance until the game is running (or the guard runs out), answering asset requests. */
-function boot(booted: Booted): { readonly diagnostics: readonly { readonly code: string; readonly message: string }[] } {
+type BriefDiagnostic = { readonly code: string; readonly message: string; readonly file: string; readonly line: number };
+
+function boot(booted: Booted): { readonly diagnostics: readonly BriefDiagnostic[] } {
   let replies: InputRecord[] = [];
-  const diagnostics: { code: string; message: string }[] = [];
+  const diagnostics: BriefDiagnostic[] = [];
   for (let guard = 0; guard < 40; guard += 1) {
     const report = booted.engine.advance(1, replies);
     replies = [];
-    for (const diagnostic of report.diagnostics) diagnostics.push({ code: diagnostic.code, message: diagnostic.message });
+    for (const diagnostic of report.diagnostics) {
+      diagnostics.push({ code: diagnostic.code, message: diagnostic.message, file: diagnostic.file, line: diagnostic.line });
+    }
     for (const request of report.requests) {
       if (request.kind === "asset") {
         replies.push({ tick: report.tickAfter, event: { kind: "asset", reqId: request.reqId, bytes: booted.files.get(request.key) ?? null } });
@@ -126,14 +130,39 @@ test("a name the catalogue lacks is one located diagnostic and the game still bo
   const unresolved = diagnostics.filter((diagnostic) => diagnostic.code === "plugin.unresolved");
   equal(unresolved.length, 1, JSON.stringify(unresolved));
   ok(unresolved[0]?.message.includes("ghost_pkg"), unresolved[0]?.message);
+  equal(unresolved[0]?.file, "main.gam", "the diagnostic is located at the main file");
+  equal(unresolved[0]?.line, 1, "and at the package's list position");
   equal(booted.state().engine.boot?.stage, "running", "a missing package never refuses the boot");
 });
 
 test("a folder that cannot be a package is reported by name before boot", () => {
-  const bad = parsePackageManifest(JSON.stringify({ name: "stock-battle", version: "1", requests: [], program: "startup.prg" }), "bad/manifest.json");
+  const bad = parsePackageManifest(JSON.stringify({ name: "Stock-battle", version: "1", requests: [], program: "startup.prg" }), "bad/manifest.json");
   equal(bad.ok, false);
   if (bad.ok) throw new Error("unreachable");
   ok(bad.message.includes("bad/manifest.json") && bad.message.includes("name"), bad.message);
+
+  // The grammar is core's, in both directions: PKG-2's separators are legal, and a
+  // trailing or doubled separator is not.
+  const hyphenated = parsePackageManifest(JSON.stringify({ name: "stock-battle", version: "1", requests: ["asset", "saveBlob"], program: "Prg\\startup.prg" }), "ok/manifest.json");
+  ok(hyphenated.ok, hyphenated.ok ? "" : hyphenated.message);
+  if (hyphenated.ok) deepEqual(hyphenated.manifest.requests, ["asset", "saveBlob"]);
+  const trailing = parsePackageManifest(JSON.stringify({ name: "stock-", version: "1", requests: [], program: "startup.prg" }), "bad2/manifest.json");
+  equal(trailing.ok, false);
+
+  // Request kinds are core's list, not an invented one, and a repeated kind is refused
+  // exactly as core's own manifest reader refuses it.
+  const unknownKind = parsePackageManifest(JSON.stringify({ name: "pkg", version: "1", requests: ["audio"], program: "startup.prg" }), "bad3/manifest.json");
+  equal(unknownKind.ok, false);
+  if (!unknownKind.ok) ok(unknownKind.message.includes("unknown host-request kind"), unknownKind.message);
+  const twice = parsePackageManifest(JSON.stringify({ name: "pkg", version: "1", requests: ["asset", "asset"], program: "startup.prg" }), "bad4/manifest.json");
+  equal(twice.ok, false);
+  if (!twice.ok) ok(twice.message.includes("declared twice"), twice.message);
+
+  // The start-up path must stay inside the package folder.
+  for (const program of ["/startup.prg", "C:\\startup.prg", "..\\startup.prg", "a/../startup.prg"]) {
+    const escape = parsePackageManifest(JSON.stringify({ name: "pkg", version: "1", requests: [], program }), "bad5/manifest.json");
+    equal(escape.ok, false, `${program} must be refused`);
+  }
 
   const built = buildPackageCatalogue([
     stockBattleFolder(),
