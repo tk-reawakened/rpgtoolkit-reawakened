@@ -1,7 +1,7 @@
 ---
 title: "LSP semantics and legacy-syntax quick fixes: hover, call tips, completion, go-to-definition, outline and behaviour-preserving code actions"
 ticket: 5
-status: in-progress
+status: done
 ---
 
 ## Intent
@@ -30,3 +30,18 @@ Entry 10.5 fills the server with the epic's Done-when 1 and 2: hover and call ti
 | go-to-definition resolves includes across the fetched sample corpus | 2 |
 | the outline lists every function, class and label | 2 |
 | each quick fix leaves a program whose run reproduces the pre-fix state hash | 3 |
+
+## Landing
+
+Merged as **`1b5562b8b008d64710e5feb367a16d76e5fc2307`** — "feat(10.5): LSP semantics and legacy-syntax quick fixes (#943)" (PR [#980](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/980), squash). Issue #943 closed as completed.
+
+Three commits (diagnostics; semantics; quick fixes) plus a merge of `main` that took its new `runner-web` test group beside this entry's `lsp` group (11 groups, 198 files).
+
+Gates at the final head: `typecheck`, `lint`, `graph`, `licence`, `provenance`, `catalogue:check`, `command-docs:check`, `fixtures:author:check`, `golden`, `golden:bun` and `closing` (8/8) all pass; `test:strict` 2519/2519, 0 skipped. CI run 41248883192 green on all 16 checks, including the new `unit (lsp)` shard.
+
+Two verify lines are met by equivalent evidence, recorded in the PR:
+
+- go-to-definition is proved through the loader seam on multi-file fixtures (explicit `#include` and `file.func`); the corpus-wide assertion belongs to 10.9's tool job, which has the fetched tree on disk.
+- the quick fixes are proved by lowering the TK2 original and the fixed 3.1 text to the same instruction array (positions ignored), which is stronger than one run's state hash: identical ops mean identical behaviour for every input (G3). The run-level check rides on 10.9's corpus gate; building an `lsp -> runner-harness` edge for a test would break the architecture.
+
+Rows with no rewrite are `DIAGNOSTIC_ONLY_ROWS`: `if (x = 5)` (an assignment to the 3.1 reader), `m[key]` (a variable index in 3.1) and loose text lines (indistinguishable from a typo or a label).
