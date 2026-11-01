@@ -176,3 +176,41 @@ test("saves live in IndexedDB, survive a reload, stay apart per GameId, and neve
   expect(state).toMatchObject({ quota: "ok", lastError: null });
   expect(await page.evaluate(() => window.__blobs?.cacheNames())).toEqual([]);
 });
+
+test("the authored Save/Load fixture writes and restores a real full-engine save across a reload to the headless baseline, with zero bytes in Cache Storage", async ({ page }) => {
+  const expectation = JSON.parse(readFileSync(resolve("packages/core/test/fixtures/saveload/saveload.expect.json"), "utf8")) as {
+    fixture: { gameId: string };
+    baseline: {
+      saveRequest: { area: string; path: string; key: string; byteLength: number };
+      loadRequest: { area: string; path: string; key: string; found: boolean };
+      stateHashes: Record<"fresh" | "preSave" | "postLoad" | "final", { tick: number; stateHash: string }>;
+      tick: number;
+    };
+  };
+  await page.goto("/packages/runner-web/app/storage.html");
+  await page.waitForFunction(() => window.__blobs !== undefined);
+  const first = await page.evaluate(() => window.__blobs!.runSaveLoadLaunch());
+  expect(first.gameId).toBe(expectation.fixture.gameId);
+  expect(first.launch.saveRequests).toEqual([expectation.baseline.saveRequest]);
+  expect(first.launch.loadRequests).toEqual([{ ...expectation.baseline.loadRequest, found: false }]);
+  expect(first.launch.fresh).toMatchObject(expectation.baseline.stateHashes.fresh);
+  expect(first.launch.preSave).toMatchObject({ ...expectation.baseline.stateHashes.preSave, marker: 4242 });
+
+  // Reload: any in-memory copy is gone; launch two can only restore what IndexedDB kept.
+  await page.reload();
+  await page.waitForFunction(() => window.__blobs !== undefined);
+  const second = await page.evaluate(() => window.__blobs!.runSaveLoadLaunch());
+  expect(second.launch.saveRequests).toEqual([]); // the restored thread resumed past Save("slot")
+  expect(second.launch.loadRequests).toEqual([expectation.baseline.loadRequest]);
+  expect(second.launch.loadRequests[0]?.path).toBe(first.launch.saveRequests[0]?.path);
+  expect(second.launch.postLoad).toMatchObject({ ...expectation.baseline.stateHashes.postLoad, marker: 4242 });
+  expect(second.launch.final).toMatchObject({ ...expectation.baseline.stateHashes.final, marker: 17 });
+  expect(second.launch.final.tick).toBe(expectation.baseline.tick);
+
+  // Isolation and absence from Cache Storage: another GameId sees nothing, and no cache holds any save.
+  expect(await page.evaluate((id) => window.__blobs!.list(id), expectation.fixture.gameId)).toEqual(["saved/slot.sav"]);
+  expect(await page.evaluate(() => window.__blobs!.list("other-game"))).toEqual([]);
+  expect(await page.evaluate(() => window.__blobs!.read("other-game", "saved/slot.sav"))).toBeNull();
+  expect(await page.evaluate(() => window.__blobs!.cacheNames())).toEqual([]);
+  expect(await page.evaluate(() => window.__blobs!.cacheUrls())).toEqual([]);
+});

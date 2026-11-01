@@ -57,8 +57,18 @@ function packageWithoutStartupProgram(name: string): LiveFixture {
 
 /** Serve one generated package and its install descriptor where the player page asks for them. */
 async function servePackage(page: Page, fixture: LiveFixture): Promise<void> {
-  await page.route(`**/fixtures/packages/${fixture.name}`, (route) =>
-    route.fulfill({ status: 200, contentType: "application/octet-stream", body: Buffer.from(fixture.packageBytes) }));
+  await page.route(`**/fixtures/packages/${fixture.name}`, (route) => {
+    const bytes = fixture.packageBytes;
+    const range = route.request().headers()["range"];
+    const match = range === undefined ? null : /^bytes=(\d+)-(\d+)$/.exec(range);
+    if (match === null) {
+      return route.fulfill({ status: 200, contentType: "application/octet-stream", headers: { "content-length": String(bytes.length), "accept-ranges": "bytes" }, body: Buffer.from(bytes) });
+    }
+    const start = Number(match[1]);
+    const end = Math.min(Number(match[2]), bytes.length - 1);
+    const slice = bytes.subarray(start, end + 1);
+    return route.fulfill({ status: 206, contentType: "application/octet-stream", headers: { "content-range": `bytes ${start}-${end}/${bytes.length}`, "content-length": String(slice.length) }, body: Buffer.from(slice) });
+  });
   await page.route(`**/fixtures/packages/${fixture.name}.json`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(fixture.descriptor) }));
 }
@@ -70,7 +80,11 @@ test("live demo attaches a board canvas and movement changes the player and pres
     await page.waitForFunction((point) => (window.__live?.tick ?? 0) >= point, tick, { timeout: 45_000 });
     await page.keyboard.press("Enter");
   }
-  await page.waitForFunction(() => (window.__live?.tick ?? 0) >= 120 || window.__live?.error !== undefined, undefined, { timeout: 45_000 });
+  await page.waitForFunction(
+    () => ((window.__live?.tick ?? 0) >= 120 && window.__live?.board !== null) || window.__live?.error !== undefined,
+    undefined,
+    { timeout: 45_000 },
+  );
   const first = await page.evaluate(() => window.__live as LiveReport);
   expect(first.error).toBeUndefined();
   if (first.player === null) throw new Error("live demo did not expose the selected player position");

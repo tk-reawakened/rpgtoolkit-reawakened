@@ -75,6 +75,20 @@ export function fetchBundled(base: string, folders: readonly string[]): Promise<
   return getFiles(`${base}/api/bundled?folders=${encodeURIComponent(folders.join(","))}`);
 }
 
+/**
+ * Fetch the bundled assets one static file at a time, from the file list the build writes to `apps/bundled.json`. Unlike
+ * `fetchBundled` it asks the server for no API: every URL is an ordinary static path a service worker can cache, which
+ * is what lets a second launch boot with no network and no `/api/` request at all.
+ */
+export async function fetchBundledFiles(base: string, files: readonly string[]): Promise<ClosingFiles> {
+  const entries = await Promise.all(files.map(async (path) => {
+    const response = await fetch(`${base}/${path.split("/").map(encodeURIComponent).join("/")}`);
+    if (!response.ok) throw new Error(`runner-web: ${path} answered ${response.status}`);
+    return { path, bytes: new Uint8Array(await response.arrayBuffer()) };
+  }));
+  return toFiles(entries);
+}
+
 export type FrameReport = {
   readonly tick: number;
   readonly stateHash: string;
@@ -93,6 +107,33 @@ export function textureProvider(files: ClosingFiles): (asset: AssetKey) => Textu
     if (cached !== undefined) return cached;
     const bytes = byKey.get(asset);
     const decoded = bytes === undefined ? null : decodeAssetTexture(asset, bytes);
+    const pixels = decoded === null ? null : { w: decoded.w, h: decoded.h, rgba: decoded.rgba };
+    cache.set(asset, pixels);
+    return pixels;
+  };
+}
+
+/**
+ * Decoded textures for a session whose bytes arrive over time. `lookup` is the session's synchronous byte cache and
+ * `prepared` the decode worker's pixels, if any; a texture is decoded once, from the worker's pixels when they are ready
+ * and from the bytes otherwise. A key with no bytes yet is not cached as missing, because its bytes may still arrive.
+ */
+export function liveTextureProvider(
+  lookup: (asset: AssetKey) => Uint8Array | null,
+  prepared?: (asset: AssetKey) => TexturePixels | null,
+): (asset: AssetKey) => TexturePixels | null {
+  const cache = new Map<AssetKey, TexturePixels | null>();
+  return (asset: AssetKey): TexturePixels | null => {
+    const cached = cache.get(asset);
+    if (cached !== undefined) return cached;
+    const ready = prepared?.(asset) ?? null;
+    if (ready !== null) {
+      cache.set(asset, ready);
+      return ready;
+    }
+    const bytes = lookup(asset);
+    if (bytes === null) return null;
+    const decoded = decodeAssetTexture(asset, bytes);
     const pixels = decoded === null ? null : { w: decoded.w, h: decoded.h, rgba: decoded.rgba };
     cache.set(asset, pixels);
     return pixels;
@@ -210,7 +251,14 @@ export function runScriptedFrame(options: ScriptedFrameOptions): FrameReport {
 
 export * from "./audio-sink.ts";
 export * from "./blob-host.ts";
+export * from "./decode-ahead.ts";
+export * from "./decode-types.ts";
 export * from "./load-mode.ts";
 export * from "./package-source.ts";
+export * from "./opfs-store.ts";
+export * from "./session-assets.ts";
+export * from "./stall-overlay.ts";
+export * from "./register-worker.ts";
+export * from "./service-worker-core.ts";
 export * from "./player-page.ts";
 export * from "./video.ts";

@@ -4,6 +4,8 @@
 //
 //   storage.html?package=fixtures/packages/demo.tpk[&mode=streaming|whole|auto][&quota=1][&persist=grant|deny][&read=<entry>]
 
+import { loadPackage } from "@tk-reawakened/core";
+import { runSaveLoadLaunch, type SaveLoadLaunch } from "@tk-reawakened/runner-harness";
 import { createBlobHost, createIndexedDbBlobBackend, type BlobHost } from "../src/blob-host.ts";
 import { createLoadController, type LoadState, type StorageManagerLike } from "../src/load-mode.ts";
 import { createOpfsPackageStore, createOpfsStaging } from "../src/opfs-store.ts";
@@ -30,6 +32,8 @@ declare global {
       readonly list: (gameId: string) => Promise<readonly string[]>;
       readonly state: BlobHost["state"];
       readonly cacheNames: () => Promise<readonly string[]>;
+      readonly cacheUrls: () => Promise<readonly string[]>;
+      readonly runSaveLoadLaunch: (url?: string) => Promise<{ readonly gameId: string; readonly launch: SaveLoadLaunch }>;
     };
   }
 }
@@ -103,6 +107,24 @@ async function main(): Promise<void> {
     list: (gameId) => host.list("saves", gameId),
     state: host.state,
     cacheNames: () => caches.keys(),
+    cacheUrls: async () => {
+      const names = await caches.keys();
+      const urls: string[] = [];
+      for (const name of names) {
+        const cache = await caches.open(name);
+        for (const request of await cache.keys()) urls.push(request.url);
+      }
+      return urls.sort();
+    },
+    runSaveLoadLaunch: async (url = "/packages/core/test/fixtures/saveload/saveload.tpk") => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`${url} answered ${response.status}`);
+      const loaded = loadPackage({ kind: "tpk", name: "saveload.tpk", bytes: new Uint8Array(await response.arrayBuffer()) });
+      if (!loaded.ok) throw new Error(loaded.error.message);
+      const files = new Map<string, Uint8Array>();
+      for (const file of loaded.value.files) files.set(file.path, file.bytes);
+      return runSaveLoadLaunch({ files, host });
+    },
   };
   document.title = "storage ready";
 }
