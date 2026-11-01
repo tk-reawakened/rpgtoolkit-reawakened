@@ -3,7 +3,7 @@ title: 'Document how to run the desktop player'
 type: 'feature'
 ticket: '15'
 created: '2026-11-01'
-status: 'in-progress'
+status: 'done'
 baseline_revision: 'd4e2d29f27100c4c67f6fdb0d27edff14b565785'
 route: 'oneshot'
 route_source: 'auto'
@@ -46,12 +46,12 @@ Two friction points documented, not hidden: on a fresh checkout the first `deskt
 
 ## Acceptance
 
-- [ ] The user-facing page and the CONTRIBUTING fragment contain only commands that were run, and state the expected
+- [x] The user-facing page and the CONTRIBUTING fragment contain only commands that were run, and state the expected
       output each produced.
-- [ ] Both docs state plainly that the board is measured off-screen and interactive play is not landed (board-rendering
+- [x] Both docs state plainly that the board is measured off-screen and interactive play is not landed (board-rendering
       entry 19 / #393), and that mobile/Android is out of scope.
-- [ ] No `docs/spec/` file is modified.
-- [ ] `pnpm lint` and `pnpm provenance` pass (docs-only change).
+- [x] No `docs/spec/` file is modified.
+- [x] `pnpm lint` and `pnpm provenance` pass (docs-only change).
 
 ## Verification
 
