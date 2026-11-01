@@ -1732,19 +1732,7 @@ export function createEngine(init: EngineInit): Engine {
       return "pending";
     }
     const board = result.value?.board ?? null;
-    if (board === null) {
-      failed = true;
-      return null;
-    }
-    // The prefetch plan needs the battle background's own sound references, so the file must be
-    // in the cache before the board is considered loaded (docs/spec/engine/runners.md#prefetch).
-    if (board.battleBackground !== undefined && board.battleBackground !== "") {
-      const background = resolveAsset(index, root, "backgrounds", board.battleBackground);
-      if (background.ok && cache.get(background.value) === undefined) {
-        request(background.value, "background");
-        return "pending";
-      }
-    }
+    if (board === null) failed = true;
     return board;
   }
 

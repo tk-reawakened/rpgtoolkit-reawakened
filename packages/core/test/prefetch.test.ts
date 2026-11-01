@@ -138,3 +138,43 @@ test("the engine emits the ruled hints for a board that names music, and a host 
   equal(observed.stateHash, discarded.stateHash, "a hint never changes the state hash");
   equal(observed.drawHash, discarded.drawHash, "a hint never changes the draw hash");
 });
+
+test("the plan emits battle background and main menu hints in the ruled tiers", () => {
+  const plan = planPrefetch(facts({
+    boardMusic: assetKey("Media/town.mid"),
+    boardMusicIsMidi: true,
+    battle: {
+      music: "fight.mid",
+      menuMoveSound: "tick.wav",
+      menuChooseSound: "choose.wav",
+      readySound: "ready.wav",
+      cantDoSound: "nope.wav",
+    },
+    main: {
+      cursorMoveSound: assetKey("Media/move.wav"),
+      cursorSelectSound: assetKey("Media/select.wav"),
+      cursorCancelSound: assetKey("Media/cancel.wav"),
+    },
+  }));
+  const hints = plan.map((hint) => `${hint.tier}:${hint.key}`);
+  ok(hints.includes("next:fight.mid"), `battle music is a next hint: ${hints.join(",")}`);
+  ok(hints.includes("next:choose.wav"), `battle menu choose is a next hint: ${hints.join(",")}`);
+  ok(hints.includes("next:tick.wav"), `battle menu move is a next hint: ${hints.join(",")}`);
+  ok(hints.includes("next:ready.wav"), `battle ready is a next hint: ${hints.join(",")}`);
+  ok(hints.includes("next:nope.wav"), `battle can't-do is a next hint: ${hints.join(",")}`);
+  ok(hints.includes("always:media/move.wav"), `main menu move is an always hint: ${hints.join(",")}`);
+  ok(hints.includes("always:media/select.wav"), `main menu select is an always hint: ${hints.join(",")}`);
+  ok(hints.includes("always:media/cancel.wav"), `main menu cancel is an always hint: ${hints.join(",")}`);
+});
+
+test("the plan signature is stable and the same facts produce the same signature", () => {
+  const a = planPrefetch(facts({
+    battle: { music: "fight.mid", menuMoveSound: "a.wav", menuChooseSound: "b.wav", readySound: "c.wav", cantDoSound: "d.wav" },
+    main: { cursorMoveSound: assetKey("Media/move.wav"), cursorSelectSound: null, cursorCancelSound: null },
+  }));
+  const b = planPrefetch(facts({
+    battle: { music: "fight.mid", menuMoveSound: "a.wav", menuChooseSound: "b.wav", readySound: "c.wav", cantDoSound: "d.wav" },
+    main: { cursorMoveSound: assetKey("Media/move.wav"), cursorSelectSound: null, cursorCancelSound: null },
+  }));
+  equal(prefetchSignature(a), prefetchSignature(b));
+});
