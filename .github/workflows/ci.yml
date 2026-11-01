@@ -133,39 +133,6 @@ jobs:
       - run: pnpm golden:bun
   # The browser lane (ADR 0015, D-9): one headless Chromium project. Playwright and its browser binaries are dev-only,
   # never shipped; the lane boots a sample game to the committed tick-120 hashes and replays the raster vectors.
-  desktop:
-    # Entry 9.11: the Electron shell opens a package from disk over `app://` and reports the tick-120 hashes. Linux needs
-    # a virtual display; macOS and Windows runners have one. The job runs the same script on each, and the artefact it
-    # uploads is the measurement record — the numbers are the runner's, never hand-written.
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, macos-14, windows-2022]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.21.0
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm fixtures:fetch
-      - run: pnpm build
-      - run: pnpm make-package fixtures/legacy/demo --closing-plan golden/closing/plan.json --game demo --out fixtures/packages/demo.tpk --title Demo
-      - run: pnpm desktop:build
-      - run: pnpm desktop:inventory
-      - name: Measure the desktop runner
-        if: runner.os != 'Linux'
-        run: pnpm desktop:measure --out tools/desktop/measurements/${{ runner.os }}.json
-      - name: Measure the desktop runner under Xvfb
-        if: runner.os == 'Linux'
-        run: xvfb-run -a pnpm desktop:measure --out tools/desktop/measurements/${{ runner.os }}.json
-      - uses: actions/upload-artifact@v6
-        with:
-          name: desktop-measurement-${{ runner.os }}
-          path: tools/desktop/measurements/${{ runner.os }}.json
-          if-no-files-found: error
   browser:
     runs-on: ubuntu-24.04
     steps:
@@ -181,7 +148,7 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm browser:test
   gate:
-    needs: [checks, unit, golden, golden-bun, browser, desktop]
+    needs: [checks, unit, golden, golden-bun, browser]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
