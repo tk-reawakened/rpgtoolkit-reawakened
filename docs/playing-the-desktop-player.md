@@ -6,16 +6,16 @@ This page tells you how to run a game in TK Reawakened's desktop player, right n
 
 The desktop player is a small desktop window that opens a packaged game and runs it through the same engine as the browser and the headless test runner. It is built on Electron, the same technology behind apps like Slack and VS Code.
 
-What the player can do **today** is narrower than what it will do. Right now it can:
+What the player can do **today** is narrower than what it will do:
 
-- open a packaged game from disk, and
-- run that game forward to the board and check, pixel by pixel, that what it drew is exactly right.
+| Works today | Does not work yet |
+|---|---|
+| Open a packaged game from disk | Play interactively — there is no input loop yet |
+| Boot the game to the board and verify the state and drawing match the committed reference, pixel for pixel | Show a visible, animated board — the board is drawn and checked off-screen, so the window stays black |
+| Write a save and read it back under the game's key | Resume or list real in-game saves from the menu |
+| Report a machine-readable measurement (`error`, `tick`, the two hashes, the pixel difference) | Anything on mobile or Android |
 
-What it **cannot do yet**:
-
-- you cannot sit down and actually play a game in it. The board is currently drawn and checked in the background, off-screen, and then the window shows a black screen. The step that turns this into an interactive, animated game you can play is planned but not built yet (it is the "live input loop" in the project's task list, under the web-runner-packaging epic).
-
-So "run the desktop player" today means: watch it open a game, reach the board, and report that it rendered correctly. Think of it as a smoke test for now.
+The missing row — turning this into an interactive, animated game you can sit down and play — is the project's next step: the "live input loop", entries 9.9 and 9.10 of the web-runner-packaging epic in the task list. Until that lands, "run the desktop player" means: watch it open a game, reach the board, and report that it rendered correctly. Think of it as a smoke test for now.
 
 ## What you need
 
@@ -66,22 +66,21 @@ The report ends with the lines that prove it worked:
 
 ## Open the window yourself
 
-`pnpm desktop:measure` opens the player, measures it, and closes it. To open the window and leave it open, run the player directly:
+`pnpm desktop:measure` opens the player, measures it, and closes it. To open the window and leave it open, run the player:
 
 ```sh
-./node_modules/.bin/electron packages/runner-desktop/dist \
-  --serve . \
-  --package fixtures/packages/demo.tpk \
-  --page packages/runner-desktop/app/player.html
+pnpm desktop:run --package fixtures/packages/demo.tpk
 ```
 
 A window opens, and its title changes to `desktop: bff947dce3a11b4f`. That title is the sign the game booted to the board and rendered it correctly. As noted above, the board itself is drawn off-screen for now, so the window body stays black until the interactive loop lands.
+
+`pnpm desktop:run` builds the `demo` package for you when you leave `--package` off, and passes the player's other flags through unchanged (`--serve <dir>`, `--page <path>`, `--devtools`, `--quit-after`, `--report <file>`).
 
 ## Operating-system notes
 
 - **macOS** — works as written.
 - **Linux** — the same commands work. A machine with no display (a server or a CI runner) runs the measurement headlessly with `xvfb-run -a pnpm desktop:measure`. To open the visible window you need a running desktop session.
-- **Windows** — the same `pnpm` commands work in PowerShell. The Electron binary is at `node_modules\.bin\electron.cmd`, and package paths use backslashes (`fixtures\packages\demo.tpk`).
+- **Windows** — the same `pnpm` commands work in PowerShell; package paths use backslashes (`fixtures\packages\demo.tpk`). `pnpm desktop:run` handles the Electron binary path for you.
 
 ## Two things that can trip you up
 

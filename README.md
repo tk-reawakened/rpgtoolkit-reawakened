@@ -16,7 +16,7 @@ TK Reawakened is not RPG Toolkit, and it doesn't try to replace it. It's a new p
 - **Share.** Send your game to a friend as a link, or package it to publish anywhere.
 - **Bring it home.** Made something with the old Toolkit? Your game opens again, and you can keep working on it.
 
-Nothing to install, nothing to buy. Desktop, mobile and VS Code versions are planned from the same core.
+Nothing to install, nothing to buy. Desktop, mobile and VS Code versions all run the same core — the desktop shell is already in place and can open a game, and the others are on the way.
 
 TK Reawakened is its own project with its own version line, and its first release will be v1.0. It opens and plays classic RPG Toolkit games, and is free to define its own native format if the old ones ever hold it back.
 
@@ -26,7 +26,7 @@ The code is open source under the [MIT license](LICENSE). You can share your gam
 
 ## Where it stands
 
-It's early days, and nothing is playable yet. The recovery work is under way, and nothing is published until the people involved have had their say. The full written specification and architecture are done, and we're setting up the project's workspace and checks. The first goal is the player: a classic community game playing start to finish in a browser. Our first candidate is *Final Destiny*, by Christopher B. Matthews himself. The editor comes right after.
+It's early days, and no runner presents a playable board yet: the engine boots a sample game and checks that it renders correctly (see the [desktop player guide](docs/playing-the-desktop-player.md)), but you cannot sit down and play a game end to end. The recovery work is under way, and nothing is published until the people involved have had their say. The full written specification and architecture are done, and we're setting up the project's workspace and checks. The first goal is the player: a classic community game playing start to finish in a browser. Our first candidate is *Final Destiny*, by Christopher B. Matthews himself. The editor comes right after.
 
 One known limit: the old Toolkit allowed Windows-only add-ons called plugins, and those can't run in a browser. Toolkit 3's standard battle and menu systems were plugins too, but we're rebuilding those as part of the engine, so games that used only the standard ones should play. Games with custom-built plugins will need those parts rebuilt with the new extension system.
 

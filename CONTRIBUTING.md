@@ -253,7 +253,7 @@ pnpm graph:write                 # dev aid: write the dependency-graph inputs; C
 
 ### Run the desktop player
 
-The desktop player (`runner-desktop`) is an Electron shell over the `runner-web` build. There is no `desktop:run` script yet; build it, package a game, then either measure it or launch the window directly.
+The desktop player (`runner-desktop`) is an Electron shell over the `runner-web` build. Build it, package a game, then either measure it or launch the window.
 
 ```sh
 pnpm fixtures:fetch                                             # the sample games, once
@@ -268,13 +268,10 @@ pnpm desktop:measure                                           # launch, boot to
 To open the window and leave it open (the window title changes to `desktop: bff947dce3a11b4f` when the game boots):
 
 ```sh
-./node_modules/.bin/electron packages/runner-desktop/dist \
-  --serve . \
-  --package fixtures/packages/demo.tpk \
-  --page packages/runner-desktop/app/player.html
+pnpm desktop:run --package fixtures/packages/demo.tpk
 ```
 
-The flags: `--serve <dir>` is the directory pages and data are served from, `--package <file.tpk>` is the game to open, `--page <path>` is the player page, and `--report <file>` / `--quit-after` are for the measurement harness. On Linux a headless machine runs the measurement with `xvfb-run -a pnpm desktop:measure`.
+`pnpm desktop:run` builds the `demo` package when `--package` is absent and passes the player's other flags through unchanged — `--serve <dir>` is the directory pages and data are served from, `--package <file.tpk>` is the game to open, `--page <path>` is the player page, and `--report <file>` / `--quit-after` are for the measurement harness. On Linux a headless machine runs the measurement with `xvfb-run -a pnpm desktop:measure`.
 
 Two things to expect on a fresh worktree: `pnpm install` can return before Electron's ~100 MB runtime has finished downloading in the background, so a first `desktop:measure` may fail with `ENOENT …/Electron` — wait and re-run; and the board is drawn off-screen for now (the window is black and only the title changes), because the interactive player loop is not built yet. The user-facing version of these steps is [docs/playing-the-desktop-player.md](docs/playing-the-desktop-player.md).
 

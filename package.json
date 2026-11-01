@@ -54,6 +54,7 @@
     "make-package": "node tools/make-package/run.mjs",
     "make-package:test": "node --test tools/make-package/test/make-package.test.mjs",
     "desktop:build": "node tools/desktop/build.mjs",
+    "desktop:run": "node tools/desktop/run.mjs",
     "desktop:measure": "node tools/desktop/measure.mjs",
     "desktop:inventory": "node tools/licences/desktop-inventory.mjs"
   },
