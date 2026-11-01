@@ -198,7 +198,10 @@ export function runSpecFile(file: string, source: string, options: SpecRunOption
     for (const error of first.errors) {
       outcomes.push({ kind: "fail", label: `${name}/runtime error`, expected: "no runtime error", actual: `${error.code}: ${error.message}`, line: error.line, column: 0 });
     }
-    const ok = outcomes.every((outcome) => outcome.kind === "pass" || outcome.kind === "only" || (!strict && outcome.kind === "skip"));
+    // A case that records nothing has tested nothing: it must not read as healthy.
+    const ok = outcomes.length > 0
+      && outcomes.every((outcome) => outcome.kind === "pass" || outcome.kind === "only" || (!strict && outcome.kind === "skip"));
+    if (outcomes.length === 0) failures.push(`${file}: ${name}: recorded no assertion`);
     if (kind === "skip" && strict) failures.push(`${file}: ${name}: skipped in strict mode`);
     for (const outcome of outcomes) if (outcome.kind === "fail") failures.push(`${file}: ${name}: ${failureMessage(outcome)} (line ${outcome.line})`);
     cases.push({ name, outcomes, ok, stateHash: first.hash });

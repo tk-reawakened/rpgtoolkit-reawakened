@@ -19,10 +19,13 @@ test("project consumer discovers and runs only recursively nested spec programs"
     writeProjectFile(root, "tests/deep/middle.spec.prg", 'it("middle", () => { expect(2).toBe(2) })');
     writeProjectFile(root, "tests/not-a-spec.prg", 'it("ignored", () => { expect(0).toBe(1) })');
     writeProjectFile(root, "tests/almost.spec.prg.txt", 'it("ignored too", () => { expect(0).toBe(1) })');
-    writeProjectFile(root, "tests/case.SPEC.PRG", 'it("case variant", () => { expect(0).toBe(1) })');
+    // The core resolver folds case, so discovery does too: a spec the loader
+    // would serve must never be silently skipped.
+    writeProjectFile(root, "tests/case.SPEC.PRG", 'it("case variant", () => { expect(4).toBe(4) })');
 
     deepEqual(discoverProjectSpecs(root), [
       "tests/a-first.spec.prg",
+      "tests/case.SPEC.PRG",
       "tests/deep/middle.spec.prg",
       "z-last.spec.prg",
     ]);
@@ -30,10 +33,11 @@ test("project consumer discovers and runs only recursively nested spec programs"
     const report = runSpecProject(root);
     deepEqual(report.files.map((file) => file.file), [
       "tests/a-first.spec.prg",
+      "tests/case.SPEC.PRG",
       "tests/deep/middle.spec.prg",
       "z-last.spec.prg",
     ]);
-    deepEqual(report.files.map((file) => file.cases.map((item) => item.name)), [["first"], ["middle"], ["last"]]);
+    deepEqual(report.files.map((file) => file.cases.map((item) => item.name)), [["first"], ["case variant"], ["middle"], ["last"]]);
     equal(report.files.every((file) => file.cases.every((item) => item.ok)), true);
     deepEqual(report.failures, []);
     deepEqual(report.skipped, []);

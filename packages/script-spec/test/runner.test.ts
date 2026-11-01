@@ -41,8 +41,10 @@ test("discovery registers duplicate and assertion-free cases without running the
   const report = runSpecFile("cases.spec.prg", source, { library });
   equal(report.cases.length, 3);
   equal(report.cases[0]?.ok, false);
-  equal(report.cases[1]?.ok, true);
-  equal(report.cases[2]?.ok, true);
+  // Both later cases assert nothing, which must not read as healthy.
+  equal(report.cases[1]?.ok, false);
+  equal(report.cases[2]?.ok, false);
+  ok(report.failures.some((failure) => failure.includes("empty: recorded no assertion")));
   ok(report.failures[0]?.includes("unknown.command"));
 });
 

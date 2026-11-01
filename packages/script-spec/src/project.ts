@@ -13,7 +13,10 @@ function projectFiles(directory: string): string[] {
     const entries = readdirSync(current, { withFileTypes: true }).sort((left, right) => compareNames(left.name, right.name));
     for (const entry of entries) {
       const absolutePath = join(current, entry.name);
-      if (entry.isDirectory()) visit(absolutePath);
+      // Never descend into a dependency tree or a repository database.
+      if (entry.isDirectory()) {
+        if (entry.name !== "node_modules" && entry.name !== ".git") visit(absolutePath);
+      }
       else if (entry.isFile()) files.push(absolutePath);
     }
   };
@@ -25,7 +28,10 @@ function projectFiles(directory: string): string[] {
 export function discoverProjectSpecs(projectRoot: string): string[] {
   const root = resolve(projectRoot);
   return projectFiles(root)
-    .filter((file) => file.endsWith(".spec.prg"))
+    // The core resolver folds case (formats/README.md#paths-inside-files), so
+    // discovery uses the same fold: a spec the loader would serve must never be
+    // silently skipped by a case-sensitive suffix test.
+    .filter((file) => assetKey(file).endsWith(".spec.prg"))
     .map((file) => relative(root, file).split(sep).join("/"));
 }
 
