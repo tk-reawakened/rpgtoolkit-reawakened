@@ -1638,3 +1638,49 @@ test("smoke: promote, select, pause and explicitly resume a recovery candidate",
   deepEqual(run(engine, game.files, 3).diagnostics, []);
   equal(doubles.state().vm.globals.entrycount, 1);
 });
+
+test("recovery retains startup listeners on durable ordinary object emitters", () => {
+  const spec: GameSpec = {
+    ...PAUSED_RECOVERY_GAME,
+    programs: {
+      ...PAUSED_RECOVERY_GAME.programs,
+      "start.prg": 'notifier = {}\nnoticed = 0\nnotifier.on("ping", (e) => { noticed = noticed + 1 })\nend()\n',
+      "enter.prg": 'notifier.emit("ping")\nend()\n',
+    },
+  };
+  const { game, candidate } = recoveryCandidateWithDurableState(spec, [], (state) => { state.vm.globals.noticed = 0; });
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles, undefined, undefined, candidate);
+  deepEqual(run(engine, game.files, 30).diagnostics, []);
+  equal(engine.recoveryStatus(), "paused");
+  equal(engine.resumeRecovery(), true);
+  deepEqual(run(engine, game.files, 5).diagnostics, []);
+  equal(doubles.state().vm.globals.noticed, 1);
+});
+
+test("recovery startup does not execute temporary-board threads before Resume", () => {
+  let boardExecutions = 0;
+  const plugin: ResolvedPlugin = {
+    namespace: "startup-board-test",
+    definition: {
+      id: "startup-board-test", version: "1.0.0",
+      commands: [{ name: "marktemporary", aliases: [], params: [], call: () => { boardExecutions += 1; return { value: null }; } }],
+    },
+  };
+  const spec: GameSpec = {
+    ...PAUSED_RECOVERY_GAME,
+    boards: { "start.brd": { enter: "enter.prg", threads: ["board.prg"] }, "other.brd": { threads: ["temporary.prg"] } },
+    programs: {
+      ...PAUSED_RECOVERY_GAME.programs,
+      "start.prg": 'send("other.brd", 20, 20, 1)\nthreadsleep(getthreadid(), 0.05)\nend()\n',
+      "temporary.prg": "marktemporary()\nend()\n",
+    },
+  };
+  const { game, candidate } = recoveryCandidateWithDurableState(spec, [plugin]);
+  boardExecutions = 0;
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles, undefined, [plugin], candidate);
+  deepEqual(run(engine, game.files, 80).diagnostics, []);
+  equal(engine.recoveryStatus(), "paused");
+  equal(boardExecutions, 0);
+});
