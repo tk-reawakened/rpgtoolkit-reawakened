@@ -22,11 +22,13 @@ function argument(name, fallback) {
   return at >= 0 ? process.argv[at + 1] : fallback;
 }
 
-/** The Electron binary this workspace installed. */
+/**
+ * The Electron binary this workspace installed. The path comes from `path.txt`, which the install script writes — never
+ * from requiring the module, whose first call can print its download progress where a path is expected.
+ */
 function electronBinary() {
-  const fromPackage = join(root, "node_modules", "electron", "index.js");
-  const path = execFileSync(process.execPath, ["-e", `process.stdout.write(require(${JSON.stringify(fromPackage)}))`], { encoding: "utf8" });
-  return path.trim();
+  const relative = readFileSync(join(root, "node_modules", "electron", "path.txt"), "utf8").trim();
+  return join(root, "node_modules", "electron", "dist", relative);
 }
 
 /** The package to open, built from the fetched sample game when the caller names none. */
