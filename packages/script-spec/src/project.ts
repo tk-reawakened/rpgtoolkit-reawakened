@@ -75,20 +75,39 @@ export function runSpecProject(projectRoot: string, options: SpecProjectOptions 
     const bytes = readFileSync(absolutePath);
     return { projectPath, source: decodeCp1252(bytes, 0, bytes.length) };
   });
-  const selected = specs.map((spec) => ({
-    ...spec,
-    hasOnly: hasOnlyCases(library, spec.source, options.seed ?? 0, loader),
-  }));
+  const selected = specs.map((spec) => {
+    try {
+      return { ...spec, hasOnly: hasOnlyCases(library, spec.source, options.seed ?? 0, loader), error: null };
+    } catch (error) {
+      // One malformed spec must not abort the rest of the project run (TOOL-5).
+      return { ...spec, hasOnly: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
   const hasAnyOnly = selected.some((spec) => spec.hasOnly);
-  const reports = selected
-    .filter((spec) => !hasAnyOnly || spec.hasOnly)
-    .map((spec) => runSpecFile(spec.projectPath, spec.source, { ...options, library, loader }));
-  const prefix = (file: string, message: string): string => `${file}: ${message}`;
+  const reports: SpecFileReport[] = [];
+  const failures: string[] = [];
+  for (const spec of selected) {
+    if (hasAnyOnly && !spec.hasOnly) continue;
+    if (spec.error !== null) {
+      reports.push({ file: spec.projectPath, cases: [], skipped: [], warning: null, failures: [spec.error] });
+      failures.push(`${spec.projectPath}: ${spec.error}`);
+      continue;
+    }
+    try {
+      const report = runSpecFile(spec.projectPath, spec.source, { ...options, library, loader });
+      reports.push(report);
+      for (const failure of report.failures) failures.push(failure);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reports.push({ file: spec.projectPath, cases: [], skipped: [], warning: null, failures: [message] });
+      failures.push(`${spec.projectPath}: ${message}`);
+    }
+  }
   return {
     files: reports,
-    failures: reports.flatMap((report) => report.failures.map((failure) => prefix(report.file, failure))),
-    skipped: reports.flatMap((report) => report.skipped.map((name) => prefix(report.file, name))),
-    warnings: reports.flatMap((report) => report.warning === null ? [] : [prefix(report.file, report.warning)]),
+    failures,
+    skipped: reports.flatMap((report) => report.skipped.map((name) => `${report.file}: ${name}`)),
+    warnings: reports.flatMap((report) => report.warning === null ? [] : [`${report.file}: ${report.warning}`]),
   };
 }
 

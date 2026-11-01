@@ -87,7 +87,11 @@ function runIsolated(library: string, source: string, onlyCase: number, seed: nu
   state.party.members.push(actor.id);
   state.party.selected = actor.id;
   const sourceOffset = library.split("\n").length;
-  const positions: { line: number; column: number }[] = [];
+  // The record carries `specResult`'s own library position, not the assertion's,
+  // so the spec-file line is captured where the handler runs and keyed by the
+  // effect sequence the call is about to take: the effect log may evict records,
+  // so pairing by array index would silently drift.
+  const positions = new Map<number, { line: number; column: number }>();
   state.vm.globals.speconlycase = onlyCase + 1;
   state.vm.globals.speccollect = collect ? 1 : 0;
   startProgram(state.vm, { kind: "inline", text: `${library}\n${source}`, ir: "1" });
@@ -95,16 +99,16 @@ function runIsolated(library: string, source: string, onlyCase: number, seed: nu
     undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
       postHandler: (handler, threadId) => {
         if (handler.plugin !== "script-spec" || handler.name !== "specresult") return;
+        const seq = state.vm.effectSeq + 1;
         const thread = state.vm.threads.find((item) => item.id === threadId);
         for (let index = (thread?.frames.length ?? 0) - 1; index >= 0; index -= 1) {
           const frame = thread!.frames[index]!;
           const op = services.programs.get(frame.program).ops[frame.ip - 1];
           if (op !== undefined && op.pos.line > sourceOffset) {
-            positions.push({ line: op.pos.line - sourceOffset, column: op.pos.col ?? 0 });
+            positions.set(seq, { line: op.pos.line - sourceOffset, column: op.pos.col ?? 0 });
             return;
           }
         }
-        positions.push({ line: 0, column: 0 });
       },
     });
   let finished = false;
@@ -125,7 +129,7 @@ function runIsolated(library: string, source: string, onlyCase: number, seed: nu
     if (record.name !== "specresult") continue;
     const kind = String(record.args[0] ?? "");
     if (!OUTCOME_KINDS.has(kind)) continue;
-    const position = positions[outcomes.length];
+    const position = positions.get(record.seq);
     outcomes.push({
       kind: kind as SpecOutcomeKind,
       label: String(record.args[1] ?? ""),
@@ -151,7 +155,7 @@ function collectCases(library: string, source: string, seed: number, loader?: Pr
   const discovery = runIsolated(library, source, -1, seed, true, loader);
   if (discovery.errors.length > 0) {
     const error = discovery.errors[0]!;
-    throw new Error(`spec discovery failed (${error.code}): ${error.message}`);
+    throw new Error(`spec discovery failed at line ${error.line} (${error.code}): ${error.message}`);
   }
   return discovery.outcomes
     .filter((outcome) => outcome.kind === "pass" && outcome.expected === "case"
@@ -195,8 +199,8 @@ export function runSpecFile(file: string, source: string, options: SpecRunOption
       outcomes.push({ kind: "fail", label: `${name}/runtime error`, expected: "no runtime error", actual: `${error.code}: ${error.message}`, line: error.line, column: 0 });
     }
     const ok = outcomes.every((outcome) => outcome.kind === "pass" || outcome.kind === "only" || (!strict && outcome.kind === "skip"));
-    if (kind === "skip" && strict) failures.push(`${name}: skipped in strict mode`);
-    for (const outcome of outcomes) if (outcome.kind === "fail") failures.push(`${name}: ${failureMessage(outcome)} (line ${outcome.line})`);
+    if (kind === "skip" && strict) failures.push(`${file}: ${name}: skipped in strict mode`);
+    for (const outcome of outcomes) if (outcome.kind === "fail") failures.push(`${file}: ${name}: ${failureMessage(outcome)} (line ${outcome.line})`);
     cases.push({ name, outcomes, ok, stateHash: first.hash });
   });
   return { file, cases, skipped, warning: onlySeen ? ONLY_WARNING : null, failures };

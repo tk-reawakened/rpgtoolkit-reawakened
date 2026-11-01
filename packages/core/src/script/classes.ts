@@ -14,14 +14,23 @@ import type { CompiledClass, FunctionInfo, Program } from "./program.ts";
 /** Prefix for a saved callable that names a class-method tear-off. */
 const CLASS_METHOD_PREFIX = "@class-method:";
 
-/** The plain-data definition name of a bound class-method callable. */
-export function classMethodDef(name: string): string {
-  return `${CLASS_METHOD_PREFIX}${name}`;
+/** The plain-data definition name of a bound class-method callable: the class that granted the read and the method name. */
+export function classMethodDef(className: string, name: string): string {
+  return `${CLASS_METHOD_PREFIX}${className}:${name}`;
 }
 
-/** Return the method name in a bound class-method definition, or `null`. */
-export function parseClassMethodDef(def: string): string | null {
-  return def.startsWith(CLASS_METHOD_PREFIX) ? def.slice(CLASS_METHOD_PREFIX.length) : null;
+/**
+ * The class that granted a tear-off read and the method name in a bound
+ * class-method definition, or `null` (OOP-11). The granting class is part of the
+ * value so `bindThis` and a restore cannot move a legally obtained tear-off onto
+ * an unrelated class and reach that class's private method.
+ */
+export function parseClassMethodDef(def: string): { readonly className: string; readonly name: string } | null {
+  if (!def.startsWith(CLASS_METHOD_PREFIX)) return null;
+  const rest = def.slice(CLASS_METHOD_PREFIX.length);
+  const colon = rest.indexOf(":");
+  if (colon <= 0 || colon === rest.length - 1) return null;
+  return { className: rest.slice(0, colon), name: rest.slice(colon + 1) };
 }
 
 /** The distinct implemented arities a class and its ancestors expose for `name`, nearest class first. */

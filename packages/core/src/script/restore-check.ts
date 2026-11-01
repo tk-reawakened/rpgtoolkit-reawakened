@@ -14,7 +14,7 @@
  * nothing is repaired, and a state with no named program compiles nothing.
  */
 
-import { methodArities, parseClassMethodDef } from "./classes.ts";
+import { classWalk, methodArities, parseClassMethodDef } from "./classes.ts";
 import type { CallableValue } from "../ports/value.ts";
 import type { ProgramCache } from "./cache.ts";
 import { eachRootValue, isCallableRecord } from "./cells.ts";
@@ -211,8 +211,8 @@ export function verifyRestoredHandles(vm: VmState, services: RestoreCheckService
       }
       continue;
     }
-    const classMethodName = parseClassMethodDef(value.def);
-    if (classMethodName !== null) {
+    const classMethod = parseClassMethodDef(value.def);
+    if (classMethod !== null) {
       if (value.captures.length !== 0) {
         throw new ScriptError(
           RESTORE_CALLABLE_CAPTURES,
@@ -228,7 +228,12 @@ export function verifyRestoredHandles(vm: VmState, services: RestoreCheckService
       const key = programKey(ref);
       if (skipped.has(key)) continue;
       const owner = compiled.find((candidate) => programKey(candidate.ref) === key);
-      if (owner === undefined || methodArities(owner, receiver.className, classMethodName).length === 0) {
+      if (
+        owner === undefined ||
+        methodArities(owner, receiver.className, classMethod.name).length === 0 ||
+        // The granting class must still be the receiver's class or an ancestor (OOP-11).
+        !classWalk(owner, receiver.className).includes(classMethod.className)
+      ) {
         throw new ScriptError(
           RESTORE_CALLABLE_UNKNOWN_DEF,
           `the snapshot's ${path} names "${value.def}", which is not a method of "${receiver.className}"`,

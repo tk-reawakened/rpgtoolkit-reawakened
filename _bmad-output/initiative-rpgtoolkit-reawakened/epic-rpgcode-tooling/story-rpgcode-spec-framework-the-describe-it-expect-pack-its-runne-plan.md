@@ -91,6 +91,10 @@ The first runner experiment produced empty expected/actual values. The direct pr
 
 **Status:** not implemented. The library documents the integer-precision limit where `toBeCloseTo` is defined, and a test pins the truncation so any future precision change is visible. No silent claim of fractional closeness.
 
+### F-F — a class-method name is now readable as a bound callable (owner-gated)
+
+TOOL-5's optional `toBeCloseTo` tolerance needs one callable with two arities, and FUN-1 fixes arity, so `get_member_bound` now yields `@class-method:<class>:<name>` for a class method read without a call, dispatching the overload by exact argument count. That is a change to what a member read of a method name returns: OOP-10 (`docs/spec/engine/rpgcode-modules-and-objects.md:332`) says a class instance exposes "only declared members", and OOP-11's auto-binding rule (`:349`) covers "a member that holds a callable" while `:358` keeps legacy methods reachable by calls. No spec page was amended (G7/ADR 0007 requires the doc first), so the capability ships unruled and is exercised only by the spec package: the read records the granting class so a legally obtained tear-off keeps working when called, `bindThis`/restore cannot move it onto an unrelated class, and a private method's read is refused for a reader outside its class (R3-Q1). Decision needed: rule the tear-off read in OOP-11 (and list the saved `def` form) or require a different arity mechanism for the matcher.
+
 ### F-E — a fresh fixture per case conflicts with once-per-group hooks
 
 `docs/spec/engine/rpgcode-functions.md:664-665` says `beforeAll`/`afterAll` run once around the enclosing `describe`. The runner isolates every case by re-running the file, so a group's `beforeAll`/`afterAll` run once per rerun, including reruns of cases outside that group. Repeated registrations of the same hook kind now all run, in order. How a once-per-group setup is meant to survive a fresh fixture per case (captured value, or a snapshot taken after the group setup) is an owner decision.
@@ -104,7 +108,7 @@ The first runner experiment produced empty expected/actual values. The direct pr
 - `toBeTruthy` applies the RPGCode truth test (R-39); the previous numeric non-zero test called `""` and `"0"` false.
 - Every outcome carries the spec file's own line (`(line N)` on each report entry); a runtime error inside a case becomes a failing outcome with its code, message and line; a run that never finishes is `spec.timeout`; a strict run lists its skips as failures.
 - Each case starts on a fresh 1×1 board, one selected party actor and an empty variable set (tested with `HP!` and `ambientRed`).
-- `toBeCloseTo` accepts one or two arguments through OOP-11 bound class-method tear-offs, while `expect` still returns the dictionary of callables ADR 0014 requires; an explicit `0` tolerance is exact.
+- `toBeCloseTo` accepts one or two arguments through OOP-11 bound class-method tear-offs, while `expect` still returns the dictionary of callables ADR 0014 requires; an explicit `0` tolerance is exact for whole numbers (F-D).
 
 **Still open:** F-A (array `toEqual`/`toContain`, `toThrow`), F-D, F-E, strict `toBe` type identity (numbers and strings currently compare by RPGCode `==`, which converts mixed numbers and strings), and `skip`/`only` on a `describe` group — both are declared `(name, body)` and are treated as cases, because no runtime distinction between a group body and a case body exists without executing the body during discovery.
 

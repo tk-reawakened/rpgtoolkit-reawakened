@@ -256,7 +256,7 @@ withArg = reader(3)
   if (reader === null || typeof reader !== "object" || !("type" in reader) || reader.type !== "callable") {
     throw new Error("expected a bound callable");
   }
-  equal(reader.def, "@class-method:read");
+  equal(reader.def, "@class-method:derived:read");
   equal(reader.receiver !== null, true);
   equal(reader.captures.length, 0);
 });

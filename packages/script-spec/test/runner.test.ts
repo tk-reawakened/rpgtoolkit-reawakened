@@ -112,8 +112,8 @@ test("strict mode fails a skip; the lenient run tolerates it and still reports i
   const lenient = runSpecFile("math.spec.prg", SPEC, { library, strict: false });
   equal(lenient.cases.find((item) => item.name === "omitted")?.ok, true);
   deepEqual(lenient.skipped, ["omitted"]);
-  equal(strict.failures.includes("omitted: skipped in strict mode"), true);
-  equal(lenient.failures.includes("omitted: skipped in strict mode"), false);
+  equal(strict.failures.includes("math.spec.prg: omitted: skipped in strict mode"), true);
+  equal(lenient.failures.includes("math.spec.prg: omitted: skipped in strict mode"), false);
 });
 
 test("a failing scalar assertion reports the exact message, expected against actual", () => {
@@ -124,7 +124,7 @@ test("a failing scalar assertion reports the exact message, expected against act
   ok(outcome);
   equal(failureMessage(outcome), "toBe: expected 1, actual 2");
   equal(outcome.line, 3);
-  deepEqual(report.failures, ["subtracts: toBe: expected 1, actual 2 (line 3)", "omitted: skipped in strict mode"]);
+  deepEqual(report.failures, ["math.spec.prg: subtracts: toBe: expected 1, actual 2 (line 3)", "math.spec.prg: omitted: skipped in strict mode"]);
 });
 
 test("only narrows the run and warns with the documented text", () => {
