@@ -195,7 +195,7 @@ test("verifyGroups confirms that the repository's 14 groups partition every pack
   }
   const result = runTool(repoRoot, ["--verify-groups"]);
   equal(result.status, 0, result.output);
-  match(result.stdout, /verified 14 test groups: \d+ files/);
+  match(result.stdout, /verified 15 test groups: \d+ files/);
   ok(report.byGroup["core-battle"].length > 0, "core-battle is non-empty");
   ok(report.byGroup["core-battle"].every((file) => /^packages\/core\/test\/battle-.*\.test\.ts$/.test(file)), "core-battle contains only battle-*.test.ts files");
   ok(report.byGroup["core-engine"].every((file) => !/^packages\/core\/test\/battle-.*\.test\.ts$/.test(file)), "core-engine excludes battle-*.test.ts files");
@@ -224,12 +224,12 @@ test("verifyGroups fails when an unmapped package has test files or a group is e
 
   const report = verifyGroups(root);
   equal(report.ok, false);
-  deepEqual(report.emptyGroups, ["runner-mobile", "runner-web"]);
+  deepEqual(report.emptyGroups, ["runner-mobile", "runner-web", "script-cli"]);
   deepEqual(report.missing, ["packages/extra-pkg/test/unmapped.test.ts"]);
 
   const result = runTool(root, ["--verify-groups"]);
   equal(result.status, 1, result.output);
-  match(result.stderr, /empty test group\(s\): runner-mobile, runner-web/);
+  match(result.stderr, /empty test group\(s\): runner-mobile, runner-web, script-cli/);
   match(result.stderr, /unmapped test file\(s\): packages\/extra-pkg\/test\/unmapped\.test\.ts/);
 });
 
