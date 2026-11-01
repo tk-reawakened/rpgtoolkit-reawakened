@@ -59,6 +59,10 @@ test("the cue player and the PCM sink agree with the spec's three runner rules",
   expect(report.energy).toBeGreaterThan(0);
   expect(report.seconds).toBe(0.5);
 
+  // The real Web Audio graph path measured non-silent analyser energy.
+  expect(report.analyserEnergy).not.toBeNull();
+  expect(report.analyserEnergy).toBeGreaterThan(0);
+
   // The bundled bank loads and MIDI renders through it in the browser too: the file's SHA-256 keys the cache, and the
   // 120-tick fixture makes sound instead of silence.
   expect(report.bankSha).toBe("5419f02b0a9e63534b35332842e29decbc53c5352236be85b92cc87d0267f62a");

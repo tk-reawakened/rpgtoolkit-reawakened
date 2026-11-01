@@ -84,8 +84,8 @@ type Presentation = {
   readonly surfaces: ReadonlyMap<string, TexturePixels>;
 };
 
-/** Render one draw list twice with a cache flush between, and compare both with the reference rasteriser. */
-function renderBoth(input: Presentation, enginePixels?: Uint8Array): { actual: Uint8Array; worst: number; at: string; stats: RenderStats; flushStable: boolean } {
+/** Render one draw list several times with a cache flush before each render, and compare every pass with the reference rasteriser. */
+function renderBoth(input: Presentation): { actual: Uint8Array; worst: number; at: string; stats: RenderStats; flushStable: boolean } {
   const canvas = document.createElement("canvas");
   const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, antialias: false, alpha: true, preserveDrawingBuffer: true });
   if (gl === null) throw new Error("agreement: no WebGL2 context");
@@ -108,35 +108,31 @@ function renderBoth(input: Presentation, enginePixels?: Uint8Array): { actual: U
     }
     return topFirst;
   };
-  const first = read();
-  renderer.flush();
-  renderer.render(input.list, options);
-  const second = read();
-  const flushStable = first.every((value, index) => value === second[index]);
+  const reads: Uint8Array[] = [];
+  for (let pass = 0; pass < 3; pass += 1) {
+    if (pass > 0) renderer.flush();
+    renderer.render(input.list, options);
+    reads.push(read());
+  }
+  const flushStable = reads.every((frame) => frame.every((value, index) => value === reads[0][index]));
   renderer.dispose();
 
-  // A closing row's oracle is the engine's own screen (what the committed baseline locks, AD-4); an authored scene's is
-  // the reference rasteriser replaying the same draw list.
-  let reference: Uint8Array;
-  if (enginePixels !== undefined) {
-    reference = enginePixels;
-  } else {
-    // The engine substitutes the default font for a family the game does not ship; the oracle must do the same.
-    const assets = new Map<AssetKey, RasterAsset>([...input.textures, ...input.fonts]);
-    for (const command of input.list.commands) {
-      if (command.kind === "text" && !assets.has(command.font.asset)) {
-        const fallback = input.fonts.get(DEFAULT_FONT_ASSET);
-        if (fallback !== undefined) assets.set(command.font.asset, fallback);
-      }
+  // The oracle is the independent reference rasteriser replaying the same draw list; never the engine's own screen pixels.
+  const assets = new Map<AssetKey, RasterAsset>([...input.textures, ...input.fonts]);
+  for (const command of input.list.commands) {
+    if (command.kind === "text" && !assets.has(command.font.asset)) {
+      const fallback = input.fonts.get(DEFAULT_FONT_ASSET);
+      if (fallback !== undefined) assets.set(command.font.asset, fallback);
     }
-    const surfaces = new Map<SurfaceId, { readonly w: number; readonly h: number; readonly rgba: Uint8Array }>();
-    for (const [key, pixels] of input.surfaces) surfaces.set(Number(key.split(":")[0] ?? "0") as SurfaceId, pixels);
-    const raster = rasterize(input.list, assets, surfaces);
-    if (raster.error !== null) throw new Error(`agreement: the reference refused the frame: ${raster.error}`);
-    reference = raster.rgba;
   }
-  const { worst, at } = worstChannel(first, reference, input.list.width);
-  return { actual: first, worst, at, stats, flushStable };
+  const surfaces = new Map<SurfaceId, { readonly w: number; readonly h: number; readonly rgba: Uint8Array }>();
+  for (const [key, pixels] of input.surfaces) surfaces.set(Number(key.split(":")[0] ?? "0") as SurfaceId, pixels);
+  const raster = rasterize(input.list, assets, surfaces);
+  if (raster.error !== null) throw new Error(`agreement: the reference refused the frame: ${raster.error}`);
+  const reference = raster.rgba;
+
+  const { worst, at } = worstChannel(reads[0], reference, input.list.width);
+  return { actual: reads[0], worst, at, stats, flushStable };
 }
 
 /** Everything a scene needs: its own asset files, keyed by the paths the scene names. */
@@ -198,7 +194,7 @@ void (async () => {
         if (pixels !== null) surfaces.set(key, { w: pixels.w, h: pixels.h, rgba: pixels.rgba });
       }
       const fonts = new Map<AssetKey, RasterAsset>([...fontProvider(bundled), ...fontProvider(files)]);
-      const result = renderBoth({ list: frame.drawList as DrawList, textures, fonts, surfaces }, frame.pixels);
+      const result = renderBoth({ list: frame.drawList as DrawList, textures, fonts, surfaces });
       const kind = frame.drawList.commands.length === 0 ? "vacuous" : result.stats.deferred > 0 ? "partial" : "closing";
       reports.push({ scene: row.scene, kind, commands: frame.drawList.commands.length, worst: result.worst, at: result.at, drawn: result.stats.drawn, deferred: result.stats.deferred, diagnostics: result.stats.diagnostics.join("; "), flushStable: result.flushStable, error: null });
       continue;
