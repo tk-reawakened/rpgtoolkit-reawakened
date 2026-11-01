@@ -15,7 +15,7 @@ vector kit a non-TypeScript runner can replay, and gates that keep both equal to
 
 ## Scope
 
-The page itself landed with entry 9.1 (`docs/spec/engine/runners.md`, one docs-first commit per ruling), so this entry
+The page itself landed with entry 1 (`docs/spec/engine/runners.md`, one docs-first commit per ruling), so this entry
 delivered the limb the page names at `#conformance-lane`:
 
 - `packages/runner-harness/schema/runner-protocol-v1.schema.json` — JSON Schema 2020-12 for the three families: the draw

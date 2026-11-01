@@ -215,10 +215,24 @@ id = 15
 tracker_id = "#1013"
 type = "story"
 title = "Document how to run the desktop player"
-description = "Writes the missing runnable recipe for the landed desktop player (entry 11): a user-facing page under docs/ that says in plain terms what the desktop player is, what it needs, and the exact build-and-launch commands with the expected output of each — honest about the fact that the board is currently measured off-screen and there is no interactive play loop yet (board-rendering entry 19 / #393), and that mobile/Android is out of scope — plus the developer-facing fragment in CONTRIBUTING.md for building and running the player locally and pointing it at a package or a sample. Documents real behaviour only; it changes no docs/spec/ semantics."
+description = "Writes the missing runnable recipe for the landed desktop player (entry 11): a user-facing page under docs/ that says in plain terms what the desktop player is, what it needs, and the exact build-and-launch commands with the expected output of each — honest about the fact that the board is currently measured off-screen and there is no interactive play loop yet (web-runner-packaging entry 16 / #1018), and that mobile/Android is out of scope — plus the developer-facing fragment in CONTRIBUTING.md for building and running the player locally and pointing it at a package or a sample. Documents real behaviour only; it changes no docs/spec/ semantics."
 verify = "Every command in the two docs was run on a clean worktree from origin/main and produced the stated output (`pnpm desktop:measure` prints error null, tick 120, stateHash bff947dce3a11b4f, drawHash 9a40be8a0b5ca816, frame worst 0); the transcript is in the PR body; and the docs make no claim that interactive play or a visible board works."
 covers = ["CAP-12"]
 after = [11]
 hitl = false
 risk = "low"
-references = ["code - packages/runner-desktop (entry 11, ADR 0013)", "tool - tools/desktop/measure.mjs and tools/desktop/build.mjs", "spec - docs/spec/engine/runners.md#desktop-shell (unchanged by this entry)", "epic - epic-board-rendering entry 19 / #393 (the not-yet-landed interactive loop)"]
+references = ["code - packages/runner-desktop (entry 11, ADR 0013)", "tool - tools/desktop/measure.mjs and tools/desktop/build.mjs", "spec - docs/spec/engine/runners.md#desktop-shell (unchanged by this entry)", "epic - web-runner-packaging entry 16 / #1018 (the live interactive player page)"]
+
+[[entry]]
+id = 16
+tracker_id = "#1018"
+type = "story"
+title = "Live player page: keep engine.advance() alive under the injected clock, feed real input, and present every tick"
+description = "Wires the landed core engine loop (epic board-rendering entry 19 / #393) into the runner-web player page: keep one Engine alive across frames, call engine.advance() once per frame under the injected clock and host pacing, feed the core/input section from real keyboard/pointer events, present each tick's draw list to the on-page canvas, route saves through the host blob boundary, and honour the presentation-only alpha ruling. This is the visible, interactive loop that makes the desktop window and mobile wrapper show an animated board and accept input."
+verify = "The demo reaches the board on a visible canvas, keyboard input moves the player, the tick-120 state hash matches the golden `bff947dce3a11b4f`, and the draw list is presented every tick without changing state or hashes."
+covers = ["CAP-12"]
+after = [3, "4.19", 11, 12]
+hitl = false
+risk = "high"
+plan_checkpoint = true
+references = ["spec - docs/spec/engine/main-loop-and-startup.md#e-03, docs/spec/engine/display-input-audio.md#e-113", "code - packages/runner-web/app/main.ts, packages/core/src/engine/engine.ts, packages/core/src/input/input.ts", "epic - epic-board-rendering entry 19 / #393 (the engine loop)", "epic - web-runner-packaging entry 3 / #928 (the player page), entry 11 / #938 (runner-desktop), entry 12 / #940 (runner-mobile)"]

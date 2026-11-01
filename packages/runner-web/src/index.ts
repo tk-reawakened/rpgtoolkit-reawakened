@@ -7,8 +7,8 @@
  * copy of the boot code.
  *
  * What is here today is the tracer's path: a served game folder, one scripted frame, the presentation. Streaming load
- * modes, prefetch hints, the service worker and the library land with entries 9.9 and 9.10 and are named in the runner
- * page's Implementation status table.
+ * modes, prefetch hints, the service worker and the library land with entries 9 and 10; the live interactive player page
+ * lands with entry 16. Both are named in the runner page's Implementation status table.
  */
 
 import {

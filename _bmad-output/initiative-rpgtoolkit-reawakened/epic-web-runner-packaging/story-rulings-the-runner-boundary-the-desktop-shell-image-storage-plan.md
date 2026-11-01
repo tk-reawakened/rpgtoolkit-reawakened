@@ -26,22 +26,22 @@ context:
 
 ## Intent
 
-Give the owner one page of finished ruling text to approve or redirect, so entry 9.1 could land the normative
+Give the owner one page of finished ruling text to approve or redirect, so entry 1 could land the normative
 paragraphs instead of deciding them during a build. Each block below **is** the paragraph, written to be lifted into the
 file it names unchanged. **The owner approved all eleven rulings on 2026-10-31**, including the recommended resolution
-of the self-running EXE question, so every block is marked `Approved ruling (owner: Jensen, 2026-10-31)` and entry 9.1
+of the self-running EXE question, so every block is marked `Approved ruling (owner: Jensen, 2026-10-31)` and entry 1
 lands them docs-first.
 
 ## Boundaries
 
-The plan records what was approved; entry 9.1 lands it. Each approval is written into its destination in its own
-docs-first commit, per G7 rule 4, and this file changes only its own markings. The mechanical half of 9.1 — merging the
+The plan records what was approved; entry 1 lands it. Each approval is written into its destination in its own
+docs-first commit, per G7 rule 4, and this file changes only its own markings. The mechanical half of entry 1 — merging the
 envelope's two `## Notes` headings and recording the four `Source conflict:` lines — was done when the breakdown was
 published; the rulings are already in place from the publication commit.
 
 ## Approved, 2026-10-31
 
-The owner approved all eleven rulings verbatim. Seven were gating and unblock 9.2 to 9.14 (D-1, D-3, D-4, D-5, D-6,
+The owner approved all eleven rulings verbatim. Seven were gating and unblock entry 2 to entry 14 (D-1, D-3, D-4, D-5, D-6,
 D-8, D-9); four were advisory and now need no later amendment (D-2, D-7, D-10, D-11). No ruling's substance changed at
 approval: the only edits were the marking, the "recommended resolution" label on D-1's EXE ruling, and the
 `If the owner had said keep it (not taken)` label on its untaken branch.
@@ -71,7 +71,7 @@ Whichever lands first keeps the number and this page's references to `0013-…` 
 
 Seven contradictions were fixed in place above. Each is dated here with the wording it superseded, none changes a
 ruling's substance, and every paragraph keeps its approved marking (then `Proposed ruling (pending owner review; entry
-9.1)`, now `Approved ruling (owner: Jensen, 2026-10-31)`).
+entry 1)`, now `Approved ruling (owner: Jensen, 2026-10-31)`).
 
 1. **D-1, the table row — "no per-game executable, stub or file association"** (superseded). It contradicted the
    ruling's own resolution order for the player (Artefact 2, step 3: "an embedded default project baked in at export")
@@ -94,11 +94,11 @@ ruling's substance, and every paragraph keeps its approved marking (then `Propos
    "Where the text lands" table as a "*working number; renumber if 0013 is taken*" (that plan, D-1's Files line).
    Correct text: *also wanted by another epic, not claimed by it*, with the `0014`/`0015` consequence stated.
 5. **D-4 — "64 MiB standing in until the tracer measures the fetched corpus"** (superseded). The envelope's own
-   `Source conflict: SC-3` says "9.9 measures the fetched corpus instead" (`epic-web-runner-packaging.md:75`), and 9.9
-   is the entry that owns the threshold table and its measurement date. Correct text: *until 9.9 measures the fetched
+   `Source conflict: SC-3` says "entry 9 measures the fetched corpus instead" (`epic-web-runner-packaging.md:75`), and entry 9
+   is the entry that owns the threshold table and its measurement date. Correct text: *until entry 9 measures the fetched
    corpus*.
 6. **D-4, Lands in — "an AD-5 amendment in the spine adding the hint request kind"** (superseded as written). The
-   enumerated request kinds live in AD-17 (`architecture-rpgtoolkit-reawakened.md:284`), not AD-5, and 9.8's own entry
+   enumerated request kinds live in AD-17 (`architecture-rpgtoolkit-reawakened.md:284`), not AD-5, and entry 8's own entry
    names "the AD-17/AD-5 doc-first amendment of the request list" (`tickets.toml`, entry 8). Correct text: *an AD-5
    and AD-17 amendment*.
 7. **D-10, Lands in — `docs/spec/engine/runners.md#csp-and-banks` alone** (superseded as written). The ruling says the
@@ -184,7 +184,7 @@ to the manifest, which amends AD-6 for a job the descriptor does.
 
 **Approved ruling (owner: Jensen, 2026-10-31) — the measured artefact is the exported player.** There is no
 separate "export engine" to test: the engine a player gets is either the PWA or the player application, and both are
-measured. Entry 9.10 takes four measurements on the **exported player** — WebGL2 present; the [D-7] blend bound; audio
+measured. entry 10 takes four measurements on the **exported player** — WebGL2 present; the [D-7] blend bound; audio
 of the expected length; and a game resolved through the ruled order, from the baked default and from the library at a
 cold start — on **Chromium** (the PWA lane, and the engine inside Electron) and on the **Electron build of the player on
 macOS, Windows and Linux** in CI. A WKWebView, WebView2 or WebKitGTK leg is added **only if a system-webview application
@@ -211,7 +211,7 @@ deviation is recorded, not described away. **ADR 0013 carries one `guardrail-exc
 lists both binaries — the player and the editor — from the same Electron version**, a CI check reads each built
 artefact's `LICENSES.chromium.html` and `libffmpeg*` with their licences, and any Electron major that changes that
 inventory re-opens the exception. One exception therefore covers two binaries, which is the point of building them from
-one shell; the inventory is re-read for 45.2.1 when 9.10 builds it. The PWA needs no exception: it ships no browser
+one shell; the inventory is re-read for 45.2.1 when entry 10 builds it. The PWA needs no exception: it ships no browser
 engine.
 
 **Approved ruling (owner: Jensen, 2026-10-31) — the pin and its maintenance line.** The desktop shell is
@@ -264,7 +264,7 @@ this form. *Dropping the `CMP1` reader*: it would break importing the very games
 reader is already written and tested under L20 and L21.
 
 **If the owner had said keep it (not taken).** The export would then need a **player-copy step** — locate or copy the ruled Electron player,
-append the package, and patch the icon the way T-70's "custom icon" asks — so T-70 and T-71 stay as written, and 9.7
+append the package, and patch the icon the way T-70's "custom icon" asks — so T-70 and T-71 stay as written, and entry 7
 gains that path with its size consequence recorded beside it (a player copy per export, against the 293 MB measured
 installation). Nothing in the player, the library or the resolution order in this D-1 changes either way.
 
@@ -322,11 +322,11 @@ installation). Nothing in the player, the library or the resolution order in thi
   binary; the player fails one of the four measurements on any of the three operating systems; the owner rules a
   ~124 MiB macOS / ~151 MiB Windows download unacceptable for the audience; or the eight-week major cadence cannot be
   staffed, in which case a shell with no engine to patch wins by default. Tauri then carries both applications under the
-  same `app://` scheme and `platform-services` surface, and 9.10 gains the three system-webview legs it currently does
+  same `app://` scheme and `platform-services` surface, and entry 10 gains the three system-webview legs it currently does
   not need.
-- **If it goes the other way (Tauri ruled):** 9.10 measures the exported player on WKWebView, WebView2 and WebKitGTK as
-  well as Chromium, and its WebGL2 leg must name a WebKitGTK floor per distribution; 9.11's main process, capabilities
-  file and IPC surface change and Electron's main process is not written at all; 9.14's desktop limb runs the Tauri
+- **If it goes the other way (Tauri ruled):** entry 10 measures the exported player on WKWebView, WebView2 and WebKitGTK as
+  well as Chromium, and its WebGL2 leg must name a WebKitGTK floor per distribution; entry 11's main process, capabilities
+  file and IPC surface change and Electron's main process is not written at all; entry 14's desktop limb runs the Tauri
   player; epic `desktop-shell` repeats the same substitution for the editor; and D-5 stays web-only either way, because
   neither desktop application registers a worker.
 
@@ -352,8 +352,8 @@ never re-encoded to a lossless format.
 - **Rejected alternative.** Transcode every bitmap and GIF to PNG at import and add lossless WebP beside PNG. It needs
   an encoder inside the shipped tree, a new import-policy spec section, and a second decoder in `core` for WebP, to
   save bytes on a corpus smaller than a single modern web page.
-- **If it goes the other way:** 9.7 gains a transcode step and an encoder decision; 9.9's threshold measurement gains
-  a before/after size comparison; if WebP is ruled in, 9.4's texture upload path gains a second decode format, G2's
+- **If it goes the other way:** entry 7 gains a transcode step and an encoder decision; entry 9's threshold measurement gains
+  a before/after size comparison; if WebP is ruled in, entry 4's texture upload path gains a second decode format, G2's
   allowlist and G6's scan gain a dependency and its licence record.
 
 ## D-3 — The runner boundary contract
@@ -381,16 +381,16 @@ runner proves itself by replaying the vectors; it never depends on a TypeScript 
 - **Rejected alternative.** TypeScript-only: let the package types be the contract. Cheapest, and what most entries
   build anyway, but it fails the recorded direction and leaves the desktop and mobile wrappers — the two places a
   reimplementation is most likely — with nothing to check against.
-- **If it goes the other way:** 9.2 shrinks to a responsibilities page for our own runners; the JSON Schema and the
-  vector kit are dropped; 9.4 and 9.5 verify against TypeScript fixtures only; 9.3's `tools/browser` harness loses the
-  schema-validation step; 9.10 to 9.12 keep their checks but stop promising a portable proof.
+- **If it goes the other way:** entry 2 shrinks to a responsibilities page for our own runners; the JSON Schema and the
+  vector kit are dropped; entry 4 and entry 5 verify against TypeScript fixtures only; entry 3's `tools/browser` harness loses the
+  schema-validation step; entry 10 to entry 12 keep their checks but stop promising a portable proof.
 
 ## D-4 — Load modes, the threshold and who plans prefetching
 
 **Approved ruling (owner: Jensen, 2026-10-31).** The web runner has two load modes. Below a threshold it
 downloads the whole distribution package once, behind a progress screen, and keeps it; above it, it streams assets on
 demand. The threshold is not a fixed constant: it is the measured uncompressed size of the largest corpus package,
-rounded up to the next whole mebibyte and recorded in a table with its measurement date, 64 MiB standing in until **9.9**
+rounded up to the next whole mebibyte and recorded in a table with its measurement date, 64 MiB standing in until **entry 9**
 measures the fetched corpus (the envelope's `Source conflict: SC-3`). The **core** computes the deterministic prefetch
 plan and sends it as tiered hints at the AD-5 seam — `now`: the current board, its music, the `.anm` frame sounds of
 the animations it uses and the default bank when a MIDI is in this tier; `next`: boards reachable by edge links and
@@ -403,7 +403,7 @@ until a second published package version exists.
 - **Lands in:** `docs/spec/engine/runners.md#load-modes` and `#prefetch`; an **AD-5 and AD-17** amendment in the spine
   adding the hint request kind (AD-17 holds the enumerated request list at `:284`, where `asset`, `loadBlob`,
   `saveBlob`, `listBlobs`, `extension.call`, `quit`, `openUrl` and `playVideo` are named; AD-5 holds the
-  blocking/stream/hint rule); and 9.8's code half in `packages/core/src/ports/requests.ts` with the matching
+  blocking/stream/hint rule); and entry 8's code half in `packages/core/src/ports/requests.ts` with the matching
   `HOST_REQUEST_KINDS` entry in `packages/core/src/script/manifest.ts` and the `isRequest` guard in
   `packages/runner-harness/src/driver.ts`.
 - **Evidence:** AD-5 (blocking versus stream requests; hints allowed and unable to change state); AD-6 and
@@ -417,9 +417,9 @@ until a second published package version exists.
   makes every first load a visible stall; the second duplicates the board reader in every host, which
   `audio-media.md#audio-prefetch` rejects by name. Adding per-entry manifest hashes now is rejected because it amends
   AD-6 and the manifest contract for a delta-update benefit no v1 artefact can use.
-- **If it goes the other way:** per-entry hashes now add an AD-6 and `docs/spec/formats/` amendment to 9.7 and 9.9 plus
-  a re-proof that the write stays byte-identical; dropping streaming leaves 9.9 with storage tiers and stall
-  presentation only, and the threshold table still lands; letting a runner parse boards removes 9.8 and gives 9.9 a
+- **If it goes the other way:** per-entry hashes now add an AD-6 and `docs/spec/formats/` amendment to entry 7 and entry 9 plus
+  a re-proof that the write stays byte-identical; dropping streaming leaves entry 9 with storage tiers and stall
+  presentation only, and the threshold table still lands; letting a runner parse boards removes entry 8 and gives entry 9 a
   second board parser.
 
 ## D-5 — The offline service worker
@@ -434,7 +434,7 @@ background sync, push, accounts or telemetry are added. The PWA is its own stati
 `host-web`'s, neither desktop application registers a worker, and publishing or deploying the PWA is out of scope for
 this epic.
 
-- **Lands in:** `docs/spec/engine/runners.md#offline`, and 9.9's code half in
+- **Lands in:** `docs/spec/engine/runners.md#offline`, and entry 9's code half in
   `packages/runner-web/app/service-worker.ts`.
 - **Evidence:** the spine's Operations section fixes the CSP, the offline-first stance and the update policy in one
   place (`architecture-rpgtoolkit-reawakened.md:497`, "the PWA updates on next launch, never mid-session"); AD-17 fixes
@@ -442,7 +442,7 @@ this epic.
   assumed; the release pipeline has no owner (epic 17's proposal D-13).
 - **Rejected alternative.** Defer offline to a release epic. It leaves `persist()`, the quota fallback and the cache-key
   policy unowned, and the cache-key policy has to be decided alongside D-4.
-- **If it goes the other way:** 9.9 keeps storage tiers and the stall presentation and drops the service worker and the
+- **If it goes the other way:** entry 9 keeps storage tiers and the stall presentation and drops the service worker and the
   `persist()` handling; Done-when 1 to 3 are unaffected; the envelope's "kept offline" narrative is struck.
 
 ## D-6 — Mobile wrapper scope
@@ -454,7 +454,7 @@ signing, icons, splash screens, deep links and per-platform chrome are out of sc
 does not yet exist. The wrapper **MUST NOT** fork the player: a platform difference is a host service or a policy in
 the runner page, never a second rendering or input path.
 
-- **Lands in:** `docs/spec/engine/runners.md#mobile`, and 9.12's code half in `packages/runner-mobile/`.
+- **Lands in:** `docs/spec/engine/runners.md#mobile`, and entry 12's code half in `packages/runner-mobile/`.
 - **Evidence:** `spec-rpgtoolkit-reawakened/packages.md:14` ("`runner-web` in Capacitor"); the edge list already has
   `["runner-web", "runner-mobile"]` (`tools/deps/edges.json`); the spine pins Capacitor 8.5.3
   (`architecture-rpgtoolkit-reawakened.md:453`); `@capacitor/core` is MIT (npm registry, 2026-10-31); ADR 0005 makes
@@ -462,9 +462,9 @@ the runner page, never a second rendering or input path.
 - **Rejected alternative.** Tauri mobile, which the desktop spike might prefer, or a native shell. The first doubles the
   shell work and carries Tauri 2's documented mobile caveats; the second contradicts "one core, replaying draw lists"
   (G2, G4) for a platform no Done-when criterion asks for.
-- **If it goes the other way:** if a native shell is ruled, 9.12 becomes a platform port with its own binding of the
+- **If it goes the other way:** if a native shell is ruled, entry 12 becomes a platform port with its own binding of the
   vector kit and Done-when 5's proof changes from a WebView run to a native run; if store-readiness is required at v1,
-  the epic needs an owner and accounts it does not have, and 9.12 grows a limb it cannot finish.
+  the epic needs an owner and accounts it does not have, and entry 12 grows a limb it cannot finish.
 
 ## D-7 — What the WebGL2 agreement bound means (advisory)
 
@@ -485,9 +485,9 @@ report-only.
   policy keeps PNG comparison exact for the two gating classes (`docs/spec/engine/parity-checklist.md:30`).
 - **Rejected alternative.** Exact equality everywhere. Honest, but unachievable across drivers; chasing it produces
   driver-specific hacks, which is what G4 exists to prevent.
-- **If it goes the other way:** requiring exact-everywhere gives 9.4 a software-blend path for the two blends and
+- **If it goes the other way:** requiring exact-everywhere gives entry 4 a software-blend path for the two blends and
   roughly doubles its scope; permitting more than one unit per channel would keep the GL blend but add a tolerance
-  field to the ledger and weaken the agreement claim in 9.14.
+  field to the ledger and weaken the agreement claim in entry 14.
 
 ## D-8 — The web build tool
 
@@ -499,7 +499,7 @@ is a static HTML file plus one bundle, served in development and in the browser 
 framework or dev server enters the shipped artefact.
 
 - **Lands in:** `docs/adr/0015-web-build-and-test-toolchain.md` (new, shared with D-9) and
-  `docs/spec/engine/runners.md#build` for the artefact shape; 9.3's code half in `tools/browser/build.mjs` and the root
+  `docs/spec/engine/runners.md#build` for the artefact shape; entry 3's code half in `tools/browser/build.mjs` and the root
   `package.json` dev dependencies.
 - **Evidence:** the spine's Deferred list (`architecture-rpgtoolkit-reawakened.md:545`): "Vite 8 depends on
   `lightningcss` (MPL-2.0). Before the first Vite install (epics web-runner-packaging and editor-foundation), an ADR
@@ -508,7 +508,7 @@ framework or dev server enters the shipped artefact.
   (npm registry, 2026-10-31).
 - **Rejected alternative.** Vite 8 for HMR and a dev server. It costs an ADR for a copyleft-ish transitive dependency
   that only ever runs on a developer's machine, for a convenience this epic does not need.
-- **If it goes the other way:** choosing Vite adds the `lightningcss` dev-only ADR to 9.1 before 9.3 and changes 9.3's
+- **If it goes the other way:** choosing Vite adds the `lightningcss` dev-only ADR to entry 1 before entry 3 and changes entry 3's
   build script and CI step; choosing neither leaves the epic with no way to ship a browser bundle, which is a stop
   condition rather than a variant.
 
@@ -523,7 +523,7 @@ never sees them, and the scan still fails if any Playwright code appears in a sh
 `fixtures/` folder over the local static server, and no test reaches the network.
 
 - **Lands in:** `docs/adr/0015-web-build-and-test-toolchain.md` (new, shared with D-8) and
-  `docs/spec/engine/runners.md#conformance-lane`; 9.3's code half in `.github/workflows/ci.yml` (job plus `gate`
+  `docs/spec/engine/runners.md#conformance-lane`; entry 3's code half in `.github/workflows/ci.yml` (job plus `gate`
   dependency) and the `GROUPS` list in `tools/no-skips/run.mjs`.
 - **Evidence:** G6 rule 1 lists Apache-2.0 among the licences it admits, and its Enforcement paragraph is where the
   dev-only rule lives (`docs/guardrails.md:108,115`: "Dev-only tools that are never shipped, bundled or linked sit
@@ -534,7 +534,7 @@ never sees them, and the scan still fails if any Playwright code appears in a sh
   Apache-2.0 on the npm registry (read 2026-10-31).
 - **Rejected alternative.** A Node lane pretending to be a browser, or a WebDriver setup. Neither executes WebGL2 or
   Web Audio, which are the two things Done-when 2 and 3 exist to prove.
-- **If it goes the other way:** refusing Playwright is a stop condition, not a preference — 9.3, 9.4, 9.5, 9.6 and 9.14
+- **If it goes the other way:** refusing Playwright is a stop condition, not a preference — entry 3, entry 4, entry 5, entry 6 and entry 14
   lose their verification and Done-when 2, 3 and 5's audio limb become unprovable. If a different tool is chosen, it
   needs the same two facts in ADR 0014: its licence on the pinned Blue Oak list, and why it is dev-only.
 
@@ -559,8 +559,8 @@ this epic.
   bank may be TK-16 (SF2) or none.
 - **Rejected alternative.** Always allow `wasm-unsafe-eval`. It widens the shipped CSP for a path most games never take,
   and nothing in the epic needs the permission.
-- **If it goes the other way:** an SF3 default makes the CSP note mandatory and gives 9.5 a WebAssembly assertion in the
-  opposite direction; allowing user banks to be SF3 forces 9.6 to detect the container before promising playback.
+- **If it goes the other way:** an SF3 default makes the CSP note mandatory and gives entry 5 a WebAssembly assertion in the
+  opposite direction; allowing user banks to be SF3 forces entry 6 to detect the container before promising playback.
 
 ## D-11 — Where the player page lives (advisory)
 
@@ -582,7 +582,7 @@ Structural Seed and its generated diagram are unchanged.
   structural seed and the generated diagram for one template file, and it invites a second runner entry point that
   drifts from `runner-web`'s.
 - **If it goes the other way:** a separate package adds itself to `packages/`, `tools/deps/edges.json`, the spine's
-  Structural Seed and the regenerated diagram in 9.3, and the AD-22 clause is not needed; 9.9's service worker then
+  Structural Seed and the regenerated diagram in entry 3, and the AD-22 clause is not needed; entry 9's service worker then
   belongs to that package rather than to `runner-web`.
 
 ---
@@ -608,7 +608,7 @@ destination:
 
 ## Acceptance
 
-Entry 9.1 is done when the epic's single `## Notes` section holds a dated owner line for all eleven rulings, and each
+entry 1 is done when the epic's single `## Notes` section holds a dated owner line for all eleven rulings, and each
 paragraph above has landed in the file it names, in a docs-first commit that no code commit precedes. The four advisory
 rulings land the same way and no longer leave an open question. The `Source conflict:` lines and the Notes merge are in
 place from the publication commit.
@@ -630,7 +630,7 @@ T-82; `tools/deps/edges.json`; `docs/spec/engine/audio-media.md` anchors `#epic9
 `esbuild` MIT, `@capacitor/core` MIT, `@tauri-apps/cli` Apache-2.0 OR MIT, `electron` 45.2.1 on Chromium
 156.0.8078.75 against Chrome stable 156.0.8078.80); and the D-1 measurement session of 2026-10-31, which ran on **one
 machine (macOS 27.0.1, Apple M1 Pro)** and therefore measures the macOS legs only. **No Windows or Linux measurement
-exists in this repository yet** — the Windows and Linux halves of D-1 are engine-identity arguments, and 9.10 is the
+exists in this repository yet** — the Windows and Linux halves of D-1 are engine-identity arguments, and entry 10 is the
 entry that replaces them with numbers.
 
 ## Changed artifacts when approved
@@ -647,16 +647,16 @@ entry that replaces them with numbers.
 
 | Entry | Unchanged by these rulings | Changes if a ruling flips |
 |---|---|---|
-| 9.2 | writes `runners.md` and the schema under D-3 | D-3 flipped: page only, no schema, no vector kit |
-| 9.3 | esbuild bundle, player page, Playwright lane, probes | D-8 flipped: Vite + `lightningcss` ADR first; D-9 flipped: stop; D-11 flipped: new package, edge list and diagram |
-| 9.4 | the replayer and the agreement check | D-7 flipped: software-blend path; D-3 flipped: TypeScript fixtures only |
-| 9.5 | cue player and Web Audio output | D-10 flipped: WebAssembly assertion in the other direction |
-| 9.6 | banks, cache, user `.sf2` | D-10 flipped: container detection before promising playback |
-| 9.7 | `make-package` writes the package **and its install descriptor** | D-2 flipped: transcode step and an encoder; D-4 flipped: manifest hashes; D-1 flipped: descriptor shape, and if the owner keeps the EXE export, 9.7 gains the player-copy step and records its size consequence |
-| 9.8 | core planner and the hint wire | D-4 flipped: either dropped (runner parses boards) or joined by manifest hashing |
-| 9.9 | load modes, storage tiers, service worker | D-5 flipped: no service worker; D-4 flipped: per-entry cache keys |
-| 9.10 | builds the **player** application — the ruled shell, the resolution order, the library and the baked default — and gates the exported player on three-OS CI | D-1 flipped: three system-webview legs are added and the Electron leg is dropped |
-| 9.11 | `runner-desktop`: the **player's** desktop package (main process, `app://`, asset source, save-blob host) that 9.10's application is built on; the editor is epic `desktop-shell`'s | D-1 flipped: Tauri config and IPC replace the Electron main process |
-| 9.12 | Capacitor wrapper on a device | D-6 flipped: native port and vector binding |
-| 9.13 | refactor sweep | nothing here changes it |
-| 9.14 | closing suite and the CAP-12 signal | D-1 flipped: the desktop limb runs the Tauri app; D-7 flipped: agreement claim weakens |
+| entry 2 | writes `runners.md` and the schema under D-3 | D-3 flipped: page only, no schema, no vector kit |
+| entry 3 | esbuild bundle, player page, Playwright lane, probes | D-8 flipped: Vite + `lightningcss` ADR first; D-9 flipped: stop; D-11 flipped: new package, edge list and diagram |
+| entry 4 | the replayer and the agreement check | D-7 flipped: software-blend path; D-3 flipped: TypeScript fixtures only |
+| entry 5 | cue player and Web Audio output | D-10 flipped: WebAssembly assertion in the other direction |
+| entry 6 | banks, cache, user `.sf2` | D-10 flipped: container detection before promising playback |
+| entry 7 | `make-package` writes the package **and its install descriptor** | D-2 flipped: transcode step and an encoder; D-4 flipped: manifest hashes; D-1 flipped: descriptor shape, and if the owner keeps the EXE export, entry 7 gains the player-copy step and records its size consequence |
+| entry 8 | core planner and the hint wire | D-4 flipped: either dropped (runner parses boards) or joined by manifest hashing |
+| entry 9 | load modes, storage tiers, service worker | D-5 flipped: no service worker; D-4 flipped: per-entry cache keys |
+| entry 10 | builds the **player** application — the ruled shell, the resolution order, the library and the baked default — and gates the exported player on three-OS CI | D-1 flipped: three system-webview legs are added and the Electron leg is dropped |
+| entry 11 | `runner-desktop`: the **player's** desktop package (main process, `app://`, asset source, save-blob host) that entry 10's application is built on; the editor is epic `desktop-shell`'s | D-1 flipped: Tauri config and IPC replace the Electron main process |
+| entry 12 | Capacitor wrapper on a device | D-6 flipped: native port and vector binding |
+| entry 13 | refactor sweep | nothing here changes it |
+| entry 14 | closing suite and the CAP-12 signal | D-1 flipped: the desktop limb runs the Tauri app; D-7 flipped: agreement claim weakens |

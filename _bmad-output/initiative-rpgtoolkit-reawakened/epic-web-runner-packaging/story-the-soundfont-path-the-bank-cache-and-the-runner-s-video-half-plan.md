@@ -27,8 +27,8 @@ pull a bank out from under a playing voice — and give the browser the video ha
 ## Scope
 
 `packages/synth` (bank resolution and the cache), `packages/runner-web` (the bank path in the sink, `VideoHost` and its
-presentation rule), the two pages and the lane. No player-facing picker *UI* (9.9/9.10), no bank prefetch (9.9), no
-played-video fixture (9.7).
+presentation rule), the two pages and the lane. No player-facing picker *UI* (entry 9/entry 10), no bank prefetch (entry 9), no
+played-video fixture (entry 7).
 
 ## Decisions taken here
 
@@ -56,7 +56,7 @@ played-video fixture (9.7).
    `present` is injected, so a test drives it without a DOM and the page binds a real `<video>`. A missing asset, an
    undecodable container and a busy request each get their one reply; the hold goes in only for a video that started.
 8. **No VP9/WebM fixture ships yet.** The lane therefore proves the three failure and policy paths and the hold/release,
-   and the played path is named as 9.7's rather than faked with a substitute container.
+   and the played path is named as entry 7's rather than faked with a substitute container.
 
 ## Verification
 
@@ -73,7 +73,7 @@ played-video fixture (9.7).
 
 ## Landing
 
-Merged as **`888db1c6`** — "feat(9.6): the SoundFont path, the SHA-256 bank cache and the runner's video half" (PR
+Merged as **`888db1c6`** — "feat(entry 6): the SoundFont path, the SHA-256 bank cache and the runner's video half" (PR
 [#991](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/991), squash; #931 closed as completed). One commit.
 
 TK-16 loads and renders in Node and in headless Chromium, and the notice's SHA-256 is verified by our own implementation.
@@ -83,5 +83,5 @@ coverage `gate`.
 
 ## Out of scope
 
-The player-facing bank picker UI and durable storage of a user bank (9.9/9.10), bank prefetch tiers (9.9), the played
-video path and its fixture (9.7), and any change to TK-16's licence record.
+The player-facing bank picker UI and durable storage of a user bank (entry 9/entry 10), bank prefetch tiers (entry 9), the played
+video path and its fixture (entry 7), and any change to TK-16's licence record.

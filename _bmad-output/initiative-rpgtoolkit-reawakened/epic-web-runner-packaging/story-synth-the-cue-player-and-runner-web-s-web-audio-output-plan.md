@@ -28,7 +28,7 @@ Chromium.
 ## Scope
 
 `packages/synth` (the cue player), `packages/runner-web` (the PCM sink and its graph node), the audio kit generator and
-the browser lane. No SoundFont path, no bank picker or shared bank cache (9.6), no video (9.6/9.7), no prefetch (9.9).
+the browser lane. No SoundFont path, no bank picker or shared bank cache (entry 6), no video (entry 6/entry 7), no prefetch (entry 9).
 
 ## Decisions taken here
 
@@ -71,11 +71,11 @@ the browser lane. No SoundFont path, no bank picker or shared bank cache (9.6), 
 
 MIDI needs a SoundFont bank. `setBank` is recorded by the sink and a voice whose source needs one fails with
 `bank.missing` rather than playing silence; the SoundFont path, the player's bank picker and the shared bank cache are
-entry 9.6's. The bundled bank exists at `media/soundfonts/TK-16.sf2` but nothing loads it yet.
+entry 6's. The bundled bank exists at `media/soundfonts/TK-16.sf2` but nothing loads it yet.
 
 ## Landing
 
-Merged as **`ce6d105b`** — "feat(9.5): the cue player, and PCM from the synth into the browser's audio graph" (PR
+Merged as **`ce6d105b`** — "feat(entry 5): the cue player, and PCM from the synth into the browser's audio graph" (PR
 [#989](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/989), squash; #930 closed as completed). One commit.
 
 The vector kit changed with it: a runner expectation committed only the cue's identity, so a `media.seek`'s
@@ -87,5 +87,5 @@ and the coverage `gate`.
 
 ## Out of scope
 
-The SoundFont path and bank cache (9.6), video and the `video` wait (9.6/9.7), prefetch tiers (9.9), the desktop and
-mobile wrappers' audio devices (9.11, 9.12).
+The SoundFont path and bank cache (entry 6), video and the `video` wait (entry 6/entry 7), prefetch tiers (entry 9), the desktop and
+mobile wrappers' audio devices (entry 11, entry 12).

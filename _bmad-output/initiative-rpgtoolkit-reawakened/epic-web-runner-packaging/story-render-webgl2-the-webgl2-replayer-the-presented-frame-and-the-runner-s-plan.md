@@ -27,8 +27,8 @@ row of the golden ledger — not on a demonstration frame.
 ## Scope
 
 `packages/render-webgl2` (the replayer and its pure leaves), `packages/runner-web` (fonts and the presenter), the
-`runner-harness` seams a replayer needs, the committed raster kit and the browser lane. No audio (9.5), no input loop
-(9.9/9.10), no packaging (9.13), no desktop or mobile wrapper (9.11/9.12).
+`runner-harness` seams a replayer needs, the committed raster kit and the browser lane. No audio (entry 5), no input loop
+(entry 9/entry 10), no packaging (entry 13), no desktop or mobile wrapper (entry 11/entry 12).
 
 ## Decisions taken here
 
@@ -75,7 +75,7 @@ row of the golden ledger — not on a demonstration frame.
 
 ## Landing
 
-Merged as **`a95cebbf`** — "feat(9.4): replay every AD-3 command in WebGL2 and prove it against the oracle" (PR
+Merged as **`a95cebbf`** — "feat(entry 4): replay every AD-3 command in WebGL2 and prove it against the oracle" (PR
 [#984](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/984), squash; #929 closed as completed). One commit.
 
 Two things the work turned up that the entry text did not name, both fixed here because the presentation was wrong
@@ -86,5 +86,5 @@ golden. CI run 41251593546 green on every check, including the new `unit (render
 
 ## Out of scope
 
-The audio cue player and Web Audio (9.5, 9.6), the live input loop and load modes (9.9, 9.10), the desktop and mobile
-wrappers (9.11, 9.12), the single-file package (9.13).
+The audio cue player and Web Audio (entries 5 and 6), the live input loop (entry 16), load modes (entry 9), the desktop
+and mobile wrappers (entries 11 and 12), the single-file package (entry 7).
