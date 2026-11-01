@@ -57,6 +57,7 @@ jobs:
           - runner-web
           - script-tools
           - lsp
+          - script-spec
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
