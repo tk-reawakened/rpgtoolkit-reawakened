@@ -1,5 +1,6 @@
 import {
   assetKey,
+  BinaryReader,
   createAssetIndex,
   createEmptyMainFile,
   createEngine,
@@ -9,6 +10,7 @@ import {
   DEFAULT_FONT_ASSET,
   hashDrawList,
   PACKAGE_ROOT,
+  readMainFile,
   writeMainFile,
   type AssetKey,
   type DrawList,
@@ -37,6 +39,8 @@ export type LiveSession = {
   readonly viewSize: () => { readonly width: number; readonly height: number };
   readonly draw: (alpha: number) => { readonly drawHash: string; readonly commands: number; readonly render: RenderStats };
   readonly playerPosition: () => { readonly x: number; readonly y: number } | null;
+  /** The board the session is on, or `null` before board entry — the signal a host needs to tell "booting" from "playing". */
+  readonly boardKey: () => string | null;
   readonly advance: (ticks: number, inputs?: readonly InputRecord[]) => Promise<void>;
 };
 type LiveSessionBase = {
@@ -49,6 +53,35 @@ export type LiveSessionOptions = LiveSessionBase & (
   | { readonly interactive: true; readonly mainFile: string; readonly gameIdentity: string }
   | { readonly interactive?: false; readonly planText: string; readonly gameName: string }
 );
+
+/** The window resolution a main file asks for: 640×480, 800×600, 1024×768, or its custom `resX`×`resY`. */
+function mainResolution(bytes: Uint8Array, path: AssetKey): { readonly width: number; readonly height: number } {
+  const parsed = readMainFile(new BinaryReader(bytes, path));
+  if (!parsed.ok) return { width: 640, height: 480 };
+  const main = parsed.value;
+  if (main.resolution === 0) return { width: 640, height: 480 };
+  if (main.resolution === 1) return { width: 800, height: 600 };
+  if (main.resolution === 2) return { width: 1024, height: 768 };
+  return main.resX > 0 && main.resY > 0 ? { width: main.resX, height: main.resY } : { width: 640, height: 480 };
+}
+
+/**
+ * Present the logical frame at a whole-number scale, centred in the space it has (AD-33's pixel-perfect letterbox).
+ * A fractional stretch would break pixel-perfect presentation, so the largest integer factor that fits wins.
+ */
+export function fitCanvas(
+  canvas: HTMLCanvasElement,
+  width: number,
+  height: number,
+  available: { readonly width: number; readonly height: number },
+): number {
+  const scale = Math.max(1, Math.floor(Math.min(available.width / width, available.height / height)));
+  canvas.width = width;
+  canvas.height = height;
+  canvas.style.width = `${width * scale}px`;
+  canvas.style.height = `${height * scale}px`;
+  return scale;
+}
 
 /** Persistent engine and host request pump shared by browser and desktop players. */
 export function createLiveSession(options: LiveSessionOptions): LiveSession {
@@ -91,6 +124,11 @@ export function createLiveSession(options: LiveSessionOptions): LiveSession {
       { phase: "audio" as const, rank: 0, run: (state: GameState) => { latest = state; } },
     ]
     : [{ phase: "audio" as const, run: (state: GameState) => { latest = state; } }];
+  // The window and its resolution are the runner's job (`docs/spec/engine/main-loop-and-startup.md` steps 4-5): a
+  // packaged game plays at the resolution its main file asks for, never at a fixed 640×480 of the runner's choosing.
+  const viewport = interactive
+    ? mainResolution(mainBytes, assetKey(mainFile))
+    : { width: plan?.width ?? 640, height: plan?.height ?? 480 };
   const engine = createEngine({
     seed: plan?.seed ?? 0,
     assetIndex: index,
@@ -101,8 +139,8 @@ export function createLiveSession(options: LiveSessionOptions): LiveSession {
       presence: { hasPlayer: () => spriteRuntime === undefined ? hasPlayer : spriteRuntime.hasPlayer() },
       savedGame: { load: () => ({ kind: "missing" }), restored: () => false },
     },
-    width: plan?.width ?? 640,
-    height: plan?.height ?? 480,
+    width: viewport.width,
+    height: viewport.height,
     maxTicks: plan?.maxTicks ?? Number.MAX_SAFE_INTEGER,
     include: { shading: true, images: true, sprites: true },
     bundled,
@@ -204,12 +242,8 @@ export function createLiveSession(options: LiveSessionOptions): LiveSession {
     close() { closed = true; renderer.dispose(); },
     tick: () => currentTick,
     stateHash: () => currentStateHash,
-    viewSize: () => {
-      const board = latest?.world.board;
-      if (board !== null && board !== undefined) return { width: board.width, height: board.height };
-      const view = engine.drawList(0, { shading: true, images: true, sprites: true });
-      return { width: view.width, height: view.height };
-    },
+    viewSize: () => ({ width: viewport.width, height: viewport.height }),
+    boardKey: () => latest?.world.board?.key ?? null,
     playerPosition: () => {
       const actor = latest?.sprites.players.find((player) => player.id === latest?.sprites.selectedPlayer)
         ?? latest?.sprites.players.find((player) => player.controlled)

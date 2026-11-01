@@ -2,7 +2,7 @@
   "os": "darwin",
   "arch": "arm64",
   "electron": "v45.2.1",
-  "measuredAt": "2026-11-01T09:20:09.145Z",
+  "measuredAt": "2026-11-01T09:26:38.725Z",
   "package": "fixtures/packages/demo.tpk",
   "error": null,
   "scheme": "app",

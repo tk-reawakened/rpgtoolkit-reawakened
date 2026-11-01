@@ -1,6 +1,6 @@
 import type { InputRecord } from "@tk-reawakened/core";
 import { interactivePackage } from "@tk-reawakened/runner-web";
-import { createLiveSession, type LiveSession } from "@tk-reawakened/runner-web/live-session";
+import { createLiveSession, fitCanvas, type LiveSession } from "@tk-reawakened/runner-web/live-session";
 
 type Host = {
   openPackage(): Promise<{ readonly name: string; readonly bytes: Uint8Array; readonly descriptor: unknown } | null>;
@@ -8,12 +8,12 @@ type Host = {
   writeBlob(area: "saves" | "files", gameId: string, path: string, bytes: Uint8Array): Promise<boolean>;
   listBlobs(area: "saves" | "files", gameId: string): Promise<string[]>;
 };
-declare global { interface Window { desktop?: Host; __live?: { tick: number; stateHash: string; drawHash: string; player: { x: number; y: number } | null; error?: string } } }
+declare global { interface Window { desktop?: Host; __live?: { tick: number; stateHash: string; drawHash: string; board: string | null; player: { x: number; y: number } | null; error?: string } } }
 
 void start().catch((error: unknown) => {
   const status = document.querySelector<HTMLElement>("#live-status");
   if (status !== null) status.textContent = `player: ${String(error)}`;
-  window.__live = { tick: 0, stateHash: "", drawHash: "", player: null, error: String(error) };
+  window.__live = { tick: 0, stateHash: "", drawHash: "", board: null, player: null, error: String(error) };
 });
 
 async function start(): Promise<void> {
@@ -47,8 +47,14 @@ async function start(): Promise<void> {
     },
   });
   const view = session.viewSize();
-  canvas.width = view.width;
-  canvas.height = view.height;
+  const fit = (): void => {
+    fitCanvas(canvas, view.width, view.height, {
+      width: window.innerWidth,
+      height: Math.max(80, window.innerHeight - status.offsetHeight - 24),
+    });
+  };
+  fit();
+  window.addEventListener("resize", fit);
   run(session, canvas, status);
 }
 
@@ -103,17 +109,14 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
     pending = [];
     void session.advance(ticks, inputs).then(() => {
       if (disposed) return;
-      const view = session.viewSize();
-      if (canvas.width !== view.width) canvas.width = view.width;
-      if (canvas.height !== view.height) canvas.height = view.height;
       const frame = session.draw(accumulator / stepMs);
       const player = session.playerPosition();
-      const result = { tick: session.tick(), stateHash: session.stateHash(), drawHash: frame.drawHash, player };
+      const result = { tick: session.tick(), stateHash: session.stateHash(), drawHash: frame.drawHash, board: session.boardKey(), player };
       window.__live = result;
       status.textContent = [`tick ${result.tick}`, `state ${result.stateHash}`, `draw ${result.drawHash}`, player === null ? "player position unavailable" : `player ${player.x}, ${player.y}`, "Move: arrows or WASD; click to walk."].join("\n");
       requestAnimationFrame(draw);
     }).catch((error: unknown) => {
-      window.__live = { tick: session.tick(), stateHash: session.stateHash(), drawHash: "", player: session.playerPosition(), error: String(error) };
+      window.__live = { tick: session.tick(), stateHash: session.stateHash(), drawHash: "", board: session.boardKey(), player: session.playerPosition(), error: String(error) };
       status.textContent = `player: ${String(error)}`;
       dispose();
     });

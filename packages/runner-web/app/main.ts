@@ -1,12 +1,12 @@
 import { type InputRecord, type SurfaceId } from "@tk-reawakened/core";
 import { parseClosingPlan, type ClosingFiles } from "@tk-reawakened/runner-harness";
 import { fetchBundled, fetchGame, fontProvider, distributionPackage, interactivePackage, runScriptedFrame } from "../src/index.ts";
-import { createLiveSession, type LiveSession } from "../src/live-session.ts";
+import { createLiveSession, fitCanvas, type LiveSession } from "../src/live-session.ts";
 
 declare global {
   interface Window {
     __report?: unknown;
-    __live?: { tick: number; stateHash: string; drawHash: string; player: { x: number; y: number } | null; error?: string };
+    __live?: { tick: number; stateHash: string; drawHash: string; board: string | null; player: { x: number; y: number } | null; error?: string };
   }
 }
 
@@ -78,8 +78,15 @@ async function boot(context: WebGL2RenderingContext, screen: HTMLCanvasElement, 
       return;
     }
     const view = session.viewSize();
-    screen.width = view.width;
-    screen.height = view.height;
+    const fit = (): void => {
+      fitCanvas(screen, view.width, view.height, {
+        width: window.innerWidth,
+        height: Math.max(80, window.innerHeight - report.offsetHeight - 24),
+      });
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    window.addEventListener("pagehide", () => window.removeEventListener("resize", fit), { once: true });
     startLiveLoop(session, screen, report);
   } catch (error) {
     window.__report = { error: String(error) };
@@ -218,12 +225,9 @@ function startLiveLoop(session: LiveSession, canvas: HTMLCanvasElement, report: 
     pending = [];
     void session.advance(wholeTicks, inputs).then(() => {
       if (disposed) return;
-      const view = session.viewSize();
-      if (canvas.width !== view.width) canvas.width = view.width;
-      if (canvas.height !== view.height) canvas.height = view.height;
       const drawn = session.draw(accumulator / stepMs);
       const player = session.playerPosition();
-      const live = { tick: session.tick(), stateHash: session.stateHash(), drawHash: drawn.drawHash, player };
+      const live = { tick: session.tick(), stateHash: session.stateHash(), drawHash: drawn.drawHash, board: session.boardKey(), player };
       window.__live = live;
       window.__report = live;
       report.textContent = [
@@ -235,7 +239,7 @@ function startLiveLoop(session: LiveSession, canvas: HTMLCanvasElement, report: 
       ].join("\n");
       requestAnimationFrame(frame);
     }).catch((error: unknown) => {
-      window.__live = { tick: session.tick(), stateHash: session.stateHash(), drawHash: "", player: session.playerPosition(), error: String(error) };
+      window.__live = { tick: session.tick(), stateHash: session.stateHash(), drawHash: "", board: session.boardKey(), player: session.playerPosition(), error: String(error) };
       report.textContent = `player: ${String(error)}`;
       dispose();
     });
