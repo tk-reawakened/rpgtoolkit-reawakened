@@ -272,6 +272,29 @@ test("workflow: classify seals the verdict before any PR code runs, and no job c
       ok(step.join("\n").includes(guarded), `${name} step must gate on the classifier: ${step[0].trim()}`);
     }
   }
+
+  // `gate` recomputes the diff itself, so a workflow or classifier change can never arrive as "inert".
+  const gate = jobs.get("gate")?.join("\n") ?? "";
+  match(gate, /uses: actions\/checkout@v7\n {8}with:\n {10}fetch-depth: 0/u, "gate must check out full history");
+  ok(gate.includes("cannot be inert"), "gate must refuse a defer for a workflow or classifier change");
+  ok(gate.includes(".github/workflows/|tools/ci/"), "gate must look for workflow and classifier paths");
+  ok(gate.includes("--no-replace-objects diff"), "gate's own diff must ignore replacement refs");
+});
+
+test("CODEOWNERS covers the workflow and classifier paths", () => {
+  const lines = readFileSync(resolve(here, "..", "..", "..", ".github", "CODEOWNERS"), "utf8").split("\n");
+  const owners = new Map();
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === "" || trimmed.startsWith("#")) continue;
+    const [pattern, ...rest] = trimmed.split(/\s+/u);
+    owners.set(pattern, rest);
+  }
+  for (const pattern of ["/.github/workflows/", "/tools/ci/", "/.github/CODEOWNERS"]) {
+    const assigned = owners.get(pattern);
+    ok(assigned && assigned.length > 0, `${pattern} must have an owner`);
+    ok(assigned.every((owner) => /^@\S+$/u.test(owner)), `${pattern} owners must be @handles`);
+  }
 });
 
 function git(cwd, args, extraEnv = {}) {

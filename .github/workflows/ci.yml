@@ -535,12 +535,19 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - env:
+      # Full history, so `gate` can recompute the diff for its own cross-check below.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Required jobs and classifier verdict
+        env:
           RESULTS: "${{ join(needs.*.result, ' ') }}"
           NEEDS: "${{ toJSON(needs) }}"
           FULL: ${{ needs.changes.outputs.full }}
           REASON: ${{ needs.changes.outputs.reason }}
           EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           echo "$NEEDS" | jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"'
           [ -n "$RESULTS" ] || { echo "no results"; exit 1; }
@@ -560,8 +567,21 @@ jobs:
               esac ;;
             *) echo "gate failed: classifier returned no verdict (full='$FULL')"; exit 1 ;;
           esac
+          # Belt-and-braces, not a guarantee (ADR 0016): a workflow or classifier change must never be "inert".
+          # This catches a stale classifier or an honest mistake; `gate`'s own steps are as head-controlled as any.
+          if [ "$FULL" = false ]; then
+            case "$BASE_SHA" in ""|*[!0-9a-fA-F]*) echo "gate failed: cannot verify the diff (base='$BASE_SHA')"; exit 1 ;; esac
+            case "$HEAD_SHA" in ""|*[!0-9a-fA-F]*) echo "gate failed: cannot verify the diff (head='$HEAD_SHA')"; exit 1 ;; esac
+            if ! git --no-replace-objects diff --no-renames --name-only -z "$BASE_SHA" "$HEAD_SHA" -- > "$RUNNER_TEMP/gate-paths"; then
+              echo "gate failed: cannot compute the changed paths"; exit 1
+            fi
+            if tr '\0' '\n' < "$RUNNER_TEMP/gate-paths" | grep -Eq '^(\.github/workflows/|tools/ci/)'; then
+              echo "gate failed: a workflow or classifier change cannot be inert"
+              tr '\0' '\n' < "$RUNNER_TEMP/gate-paths" | grep -E '^(\.github/workflows/|tools/ci/)'
+              exit 1
+            fi
+          fi
           echo "all required jobs succeeded: $RESULTS (classifier: full=$FULL; $REASON)"
-      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 24.21.0
