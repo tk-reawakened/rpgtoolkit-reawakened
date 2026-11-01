@@ -27,6 +27,7 @@
 import type { AudioCue } from "@tk-reawakened/core";
 import type { AssetKey } from "@tk-reawakened/core";
 import type { AudioMessage, BankRef, VolumeScope } from "./protocol.ts";
+import { effectiveBank, type BankLayers } from "./bank.ts";
 
 /** The late-sound threshold: 250 ms at 60 Hz (6.2 P7, [#audio-late-sounds]). */
 export const LATE_TICKS = 15;
@@ -144,6 +145,11 @@ export type CuePlayerOptions = {
   readonly focus?: "pause" | "continue";
   /** Report `audio.ended` back to the core as an AD-14 input, once per finished one-shot. */
   readonly onEnded?: (cueId: number) => void;
+  /**
+   * The player, runner and bundled bank layers ([#soundfont-layers]); the author layer arrives in the `soundfont.set`
+   * cue. A layer is `null` when it has no opinion, and the four ranks are the whole list (MEDIA-5 retired the fifth).
+   */
+  readonly bankLayers?: { readonly player: BankRef | null; readonly runner: BankRef | null; readonly bundled: BankRef | null };
 };
 
 const VOICE_KEY = (track: string, voice: number): string => `${track}:${voice}`;
@@ -158,6 +164,9 @@ export class CuePlayer {
   private readonly readAsset: (asset: AssetKey) => Uint8Array | null;
   private readonly onEnded: ((cueId: number) => void) | undefined;
   private readonly focusMode: "pause" | "continue";
+  private readonly playerBank: BankRef | null;
+  private readonly runnerBank: BankRef | null;
+  private readonly bundledBank: BankRef | null;
   private readonly voices: PlayerVoice[] = [];
   private readonly prepared = new Map<string, { readonly voice: number; readonly asset: AssetKey }>();
   private readonly slots = new Map<string, PlayerVoice>();
@@ -166,12 +175,16 @@ export class CuePlayer {
   private reached = 0;
   private locked = false;
   private focusHold = false;
+  private videoHold = false;
 
   constructor(options: CuePlayerOptions) {
     this.send = options.send;
     this.readAsset = options.readAsset;
     this.onEnded = options.onEnded;
     this.focusMode = options.focus ?? "pause";
+    this.playerBank = options.bankLayers?.player ?? null;
+    this.runnerBank = options.bankLayers?.runner ?? null;
+    this.bundledBank = options.bankLayers?.bundled ?? null;
   }
 
   /** The simulation tick the player has most recently reached: R in the table. */
@@ -272,12 +285,37 @@ export class CuePlayer {
   focusGained(): void {
     if (!this.focusHold) return;
     this.focusHold = false;
+    this.releaseHold();
+  }
+
+  /**
+   * A video started ([#video-music]): the core already posted `media.stop("music")` in the same tick, so the runner holds
+   * every other realised voice for the video's duration instead of silencing it. The music's restart arrives as the
+   * core's own `music.play` cue; nothing here restarts it.
+   */
+  videoStarted(): void {
+    if (this.videoHold) return;
+    this.videoHold = true;
     for (const voice of this.voices) {
-      if (voice.state !== "paused") continue;
-      voice.state = "playing";
+      if (voice.state !== "playing") continue;
+      voice.position = this.voicePosition(voice);
+      voice.state = "paused";
+      voice.positionTicks = voice.position;
       voice.positionTick = this.reached;
-      this.send({ kind: "resume", voice: voice.id });
+      this.sendOrHold(voice, { kind: "pause", voice: voice.id });
     }
+  }
+
+  /** The video ended: release the hold before the core's restart cue is processed. */
+  videoEnded(): void {
+    if (!this.videoHold) return;
+    this.videoHold = false;
+    this.releaseHold();
+  }
+
+  /** Whether a video's hold is in force. */
+  get isVideoHeld(): boolean {
+    return this.videoHold;
   }
 
   /** Process one `TickReport`'s cues, then its requests, in array order (the table's order). */
@@ -358,9 +396,21 @@ export class CuePlayer {
     }
   }
 
+  /**
+   * Resolve the four ranks and send the result ([#soundfont-layers]). The author layer is the cue's asset — the game's
+   * `defaultSoundFont`, the only game-authored bank setting (MEDIA-5) — and the player, runner and bundled layers come
+   * from the host. A player choice therefore wins, and no cue can override it.
+   */
   private setBank(cue: AudioCue): void {
-    const bank: BankRef | null = cue.asset === null ? null : { source: "game", id: cue.asset, sha256: null };
-    const key = bank === null ? "none" : `${bank.source}:${bank.id}`;
+    const layers: BankLayers = {
+      player: this.playerBank,
+      author: cue.asset === null ? null : { source: "game", id: cue.asset, sha256: null },
+      runner: this.runnerBank,
+      bundled: this.bundledBank,
+    };
+    const chosen = effectiveBank(layers);
+    const bank = chosen.bank;
+    const key = bank === null ? "none" : `${chosen.rank}:${bank.source}:${bank.id}`;
     if (key === this.lastBank) return;
     this.lastBank = key;
     this.send({ kind: "setBank", bankKind: "soundfont", bank });
@@ -613,6 +663,16 @@ export class CuePlayer {
       return;
     }
     this.send(message);
+  }
+
+  /** Resume every voice a hold paused: the focus hold and the video hold share one mechanism ([#audio-focus]). */
+  private releaseHold(): void {
+    for (const voice of this.voices) {
+      if (voice.state !== "paused") continue;
+      voice.state = "playing";
+      voice.positionTick = this.reached;
+      this.send({ kind: "resume", voice: voice.id });
+    }
   }
 
   /** Build the cue a locked voice is realised with at unlock: its own last position, its own loop and volume. */

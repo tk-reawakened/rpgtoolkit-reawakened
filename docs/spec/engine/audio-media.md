@@ -1370,7 +1370,7 @@ implements this; epic 6 fixes the contract so it can be checked. Technically:
    their position and continue with the new instruments.
 5. *Failure.* Any failure keeps the previous bank, shows a message, and changes
    nothing in the game.
-6. *Reset.* Choosing "Game's choice" returns to rank 2/3/4/5 resolution.
+6. *Reset.* Choosing "Game's choice" returns to rank 2/3/4 resolution (the four ranks of [soundfont-layers](#soundfont-layers); the retired fifth rank never comes back).
 7. *Licence.* A user's file is the user's own responsibility under ADR 0004's
    ungated-extension rule; the runner ships no copy of it.
 8. *Proof.* The reference binding proves the contract with a conformance vector

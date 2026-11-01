@@ -16,7 +16,7 @@
  */
 
 import type { AudioCue } from "@tk-reawakened/core";
-import { CuePlayer, type AudioMessage } from "@tk-reawakened/synth";
+import { BUNDLED_BANK, CuePlayer, type AudioMessage } from "@tk-reawakened/synth";
 import { connectSinkToGraph, PcmSink, ticksToSeconds } from "../src/audio-sink.ts";
 
 type AudioReport = {
@@ -32,6 +32,10 @@ type AudioReport = {
   readonly graphStarted: boolean;
   readonly analyserEnergy: number | null;
   readonly errors: readonly string[];
+  /** The bundled SoundFont: its hash as the cache keyed it, and the MIDI the bank rendered in this browser. */
+  readonly bankSha: string | null;
+  readonly midiEnergy: number;
+  readonly midiLengthTicks: number | null;
 };
 
 declare global {
@@ -42,6 +46,8 @@ declare global {
 
 const MUSIC = "pcm8-mono-8000.wav"; // 30 ticks
 const EFFECT = "pcm16-mono-8000.wav"; // 15 ticks
+const MIDI = "midi0-480-default-tempo.mid"; // 120 ticks, rendered through the bundled bank
+const BANK = "media/soundfonts/TK-16.sf2";
 
 function cue(cueId: number, tick: number, kind: AudioCue["kind"], track: string, asset: string | null, extra: Partial<AudioCue> = {}): AudioCue {
   return {
@@ -65,10 +71,15 @@ void (async () => {
   const musicResponse = await fetch(`/packages/core/test/fixtures/audio/files/${MUSIC}`);
   const effectResponse = await fetch(`/packages/core/test/fixtures/audio/files/${EFFECT}`);
   if (!musicResponse.ok || !effectResponse.ok) throw new Error("audio: the fixture WAVs are not served");
+  const midiResponse = await fetch(`/packages/core/test/fixtures/audio/files/${MIDI}`);
+  const bankResponse = await fetch(`/${BANK}`);
+  if (!midiResponse.ok) throw new Error("audio: the fixture MIDI is not served");
   const bytes = new Map<string, Uint8Array>([
     [`media/${MUSIC}`, new Uint8Array(await musicResponse.arrayBuffer())],
     [`media/${EFFECT}`, new Uint8Array(await effectResponse.arrayBuffer())],
+    [`media/${MIDI}`, new Uint8Array(await midiResponse.arrayBuffer())],
   ]);
+  const bankBytes = bankResponse.ok ? new Uint8Array(await bankResponse.arrayBuffer()) : null;
 
   const sent: AudioMessage[] = [];
   const errors: string[] = [];
@@ -77,6 +88,7 @@ void (async () => {
   let player: CuePlayer | null = null;
   const sink = new PcmSink({
     readAsset: (asset) => bytes.get(asset) ?? null,
+    readBank: () => bankBytes,
     outputRateHz: 8_000,
     onEvent: (event) => {
       // A real source answers `ready` after fetching and decoding, which is the whole point of measuring lateness
@@ -91,9 +103,11 @@ void (async () => {
   player = new CuePlayer({
     send: (message) => {
       sent.push(message);
-      if (message.kind !== "setBank") sink.handle(message);
+      sink.handle(message);
     },
     readAsset: (asset) => bytes.get(asset) ?? null,
+    // Rank 4: the bundled bank. The player and runner layers are the host's preferences and are empty here.
+    bankLayers: { player: null, runner: null, bundled: BUNDLED_BANK },
   });
 
   /** Deliver the source's buffered `ready` answers: the tick they arrive at is when lateness is measured. */
@@ -173,6 +187,18 @@ void (async () => {
     graphStarted = false;
   }
 
+  // The bundled bank, loaded the way the runner loads it: ranks resolve, the cache hashes it, MIDI renders through it.
+  // A `soundfont.set` cue carries no track and no voice; its asset is the game's `defaultSoundFont` (null here, so the
+  // bundled layer is chosen).
+  player.advance([{ ...cue(71, 130, "soundfont.set", "music", null), track: null, voice: null, asset: null }]);
+  const bankSha = sink.currentBankSha;
+  player.advance([cue(72, 130, "media.play", "music", MIDI)]);
+  deliverReady();
+  const midiFrames = 8_192;
+  const midiLeft = new Float32Array(midiFrames);
+  const midiRight = new Float32Array(midiFrames);
+  sink.render(midiLeft, midiRight, midiFrames);
+
   window.__audio = {
     musicLengthTicks: lengths.get(41) ?? null,
     effectLengthTicks: lengths.get(61) ?? null,
@@ -186,6 +212,9 @@ void (async () => {
     graphStarted,
     analyserEnergy,
     errors,
+    bankSha,
+    midiEnergy: PcmSink.energy(midiLeft, midiFrames),
+    midiLengthTicks: lengths.get(72) ?? null,
   };
   window.document.title = `audio: energy ${PcmSink.energy(left, frames).toFixed(3)}`;
 })();
