@@ -1470,25 +1470,38 @@ its default status predates the owner's bank direction).
 
 <a id="path-c-bank"></a>
 <!-- OWNER: 6.14/C -->
-**TK-16 shipping record (entry 6.14, 2026-10-19).** Path C now ships the
-project-authored compact bank that the Path B outcome rule reserved. In plain
+**TK-16 shipping record (entry 6.14, updated 2026-11-01).** Path C ships the
+project-authored compact banks that the Path B outcome rule reserved. In plain
 terms, the game has a small, redistributable instrument set with a distinct
-16-bit RPG character; a person can listen to it before the bundled-default
-choice is activated. Technically, `media/soundfonts/TK-16.sf2` is a RIFF
-SoundFont 2.1 (`sfbk`) containing 16 melodic programs (MIDI programs 0–15), a
-bank-128 percussion program, and 17 mono looping samples at 22,050 Hz. It is
-37,560 bytes, SHA-256
-`5419f02b0a9e63534b35332842e29decbc53c5352236be85b92cc87d0267f62a`, and is
+16-bit RPG character, in three house styles an author can choose between.
+TK-16 is a compact synthesised bank, not a realistic General MIDI bank. Technically,
+each file in `media/soundfonts/` is a RIFF SoundFont 2.1 (`sfbk`) with 16
+authored timbres mapped over all 128 General MIDI programs by instrument family
+(three pitch zones each, with envelopes, a filter sweep and vibrato), plus a
+bank-128 kit with a distinct one-shot sound on every percussion key 35–81. Every
+looped sample holds a whole number of cycles of every partial, and its rate is
+set so the loop plays the written note: before vibrato starts, every melodic
+program measured within 1 cent at notes 60, 64 and 72.
+
+| File | Style | Bytes | SHA-256 |
+|---|---|---:|---|
+| `TK-16.sf2` (**default**) | Classic RPG: warm, long harp and string swell, tidy drums | 701,432 | `1530b366d1ae28b753e15215b633154a1d6ef6c7e90fab9391175b628943fcbe` |
+| `TK-16-Whimsical.sf2` | Whimsical: chunky, bright, low-rate, 8-bit crush | 516,794 | `deb9d5bd3fb0587e8dd1e304e8ef81e57dbe7de4aaefeba001bf5735fbbce69d` |
+| `TK-16-Arcade.sf2` | Arcade: fast attacks, driven guitar and lead, ringing toms | 625,298 | `087dc8b2ff58c42ee3381f18506632b56b2d950020ba1c71adf44220a5c9c211` |
+
+The owner chose Classic RPG as the bundled default on 2026-11-01; the other two
+are selectable bundled banks, picked by their `media/soundfonts/` id in the
+same layers as any bank ([soundfont-layers](#soundfont-layers)). All three are
 registered as `CC0-1.0` under `ADR-0003` with an 8 MiB ceiling in
 `tools/licences/config.json`.
 
 Every waveform is original deterministic synthesis; no recorded or commercial
-sample is included. `tools/licences/tk16-provenance.json` records each sample's
-generator, frequency, rate, loop range, source statement and CC0-1.0 licence.
-The bank and its notice pass the entry 6.13 bundling gate (`pnpm licence`).
-TK-16 is therefore the first bundled-bank candidate and is ready for owner
-listening review; until that approval, the runner's bundled-default layer
-remains conditional and no core state or save projection changes.
+sample is included. The style targets (attack time, brightness, decay, grit)
+were set by listening to and coarsely measuring reference sample sets, which are
+never read into the build. `tools/licences/tk16-provenance.json` records each
+sample's generator, root key, rate, loop range, source statement and CC0-1.0
+licence. The banks and their notice pass the entry 6.13 bundling gate
+(`pnpm licence`). No core state or save projection changes.
 
 ### The runner audio protocol
 
