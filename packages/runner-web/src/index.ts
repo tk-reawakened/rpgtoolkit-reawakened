@@ -22,9 +22,12 @@ import {
   readTrueTypeFont,
   type AssetKey,
   type DrawList,
+  type InputRecord,
   type RasterAsset,
   type SurfaceId,
 } from "@tk-reawakened/core";
+
+export type { InputRecord };
 import {
   decodeAssetTexture,
   parseClosingPlan,

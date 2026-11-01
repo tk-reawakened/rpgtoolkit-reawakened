@@ -54,6 +54,7 @@ jobs:
           - render-webgl2
           - runner-harness
           - runner-headless
+          - runner-mobile
           - runner-web
           - script-tools
           - script-cli

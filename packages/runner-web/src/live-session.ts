@@ -66,8 +66,9 @@ function mainResolution(bytes: Uint8Array, path: AssetKey): { readonly width: nu
 }
 
 /**
- * Present the logical frame at a whole-number scale, centred in the space it has (AD-33's pixel-perfect letterbox).
- * A fractional stretch would break pixel-perfect presentation, so the largest integer factor that fits wins.
+ * Present the logical frame centred in the space it has, never overflowing (AD-33's pixel-perfect letterbox).
+ * Use the largest integer scale that fits when possible; otherwise fall back to the exact fractional fit so a
+ * 640x480 (or larger) frame stays fully visible on a portrait phone whose CSS viewport is narrower than the frame.
  */
 export function fitCanvas(
   canvas: HTMLCanvasElement,
@@ -75,7 +76,8 @@ export function fitCanvas(
   height: number,
   available: { readonly width: number; readonly height: number },
 ): number {
-  const scale = Math.max(1, Math.floor(Math.min(available.width / width, available.height / height)));
+  const ratio = Math.min(available.width / width, available.height / height);
+  const scale = ratio >= 1 ? Math.floor(ratio) : ratio;
   canvas.width = width;
   canvas.height = height;
   canvas.style.width = `${width * scale}px`;

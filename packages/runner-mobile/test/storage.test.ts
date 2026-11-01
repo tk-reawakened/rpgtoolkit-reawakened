@@ -29,10 +29,22 @@ function memoryFilesystem(): MobileFilesystem & { readonly files: Map<string, Ui
       return { data: btoa(text) };
     },
     async readdir({ path }) {
-      const names = [...files.keys()]
-        .filter((key) => key.startsWith(`${path}/`))
-        .map((key) => key.slice(path.length + 1));
-      return { files: names.map((name) => ({ name, type: "file" })) };
+      const children = new Map<string, "file" | "directory">();
+      for (const key of files.keys()) {
+        if (!key.startsWith(`${path}/`)) continue;
+        const remainder = key.slice(path.length + 1);
+        const slash = remainder.indexOf("/");
+        const name = slash === -1 ? remainder : remainder.slice(0, slash);
+        const kind = slash === -1 ? "file" : "directory";
+        // A real `readdir` only reports directories when there is no file at the same path.
+        const existing = children.get(name);
+        if (existing === undefined) {
+          children.set(name, kind);
+        } else if (existing === "directory" && kind === "file") {
+          children.set(name, "file");
+        }
+      }
+      return { files: [...children.entries()].map(([name, type]) => ({ name, type })) };
     },
   };
 }
@@ -79,6 +91,14 @@ test("a base64 read is decoded, because Capacitor returns text for a binary file
   };
   const host = createMobileHost({ filesystem, readPackage: async () => null });
   deepEqual([...(await host.readBlob("saves", "game-a", "x.bin")) ?? []], [104, 101, 108, 108, 111]);
+});
+
+test("listBlobs traverses nested directories and the stub is non-recursive", async () => {
+  const filesystem = memoryFilesystem();
+  const host = createMobileHost({ filesystem, readPackage: async () => null });
+  equal(await host.writeBlob("saves", "game-a", "slot-1.json", new Uint8Array([1])), true);
+  equal(await host.writeBlob("saves", "game-a", "backups/slot-2.json", new Uint8Array([2])), true);
+  deepEqual(await host.listBlobs("saves", "game-a"), ["backups/slot-2.json", "slot-1.json"]);
 });
 
 test("the package comes from the host, and its absence is null rather than a crash", async () => {

@@ -13,6 +13,10 @@
       "types": "./dist/live-session.d.ts",
       "default": "./dist/live-session.js"
     },
+    "./pointer": {
+      "types": "./dist/pointer.d.ts",
+      "default": "./dist/pointer.js"
+    },
     "./app": "./app/index.html"
   },
   "scripts": {
