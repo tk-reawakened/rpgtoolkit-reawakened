@@ -51,6 +51,8 @@ export type AssetLoadState = {
     readonly pending: number;
   };
   readonly failures: readonly AssetFailure[];
+  /** Keys that were prefetched by a hint and then ensured by the audio cue chain: the shared hint+cue path. */
+  readonly shared: readonly AssetKey[];
 };
 
 export type SessionAssetsOptions = {
@@ -124,6 +126,8 @@ export function createSessionAssets(options: SessionAssetsOptions): SessionAsset
   const limit = Math.max(1, options.concurrency ?? 2);
   const inFlight = new Map<AssetKey, Promise<Uint8Array | null>>();
   const hinted = new Set<AssetKey>();
+  const ensured = new Set<AssetKey>();
+  const shared = new Set<AssetKey>();
   const queue: Job[] = [];
   const stalls: AssetStall[] = [];
   const failures: AssetFailure[] = [];
@@ -206,6 +210,7 @@ export function createSessionAssets(options: SessionAssetsOptions): SessionAsset
       counts.received += hints.length;
       for (const hint of hints) {
         hinted.add(hint.key);
+        if (ensured.has(hint.key)) shared.add(hint.key);
         if (cache.has(hint.key) || inFlight.has(hint.key) || queue.some((job) => job.key === hint.key)) {
           counts.completed += cache.has(hint.key) ? 1 : 0;
           continue;
@@ -223,6 +228,8 @@ export function createSessionAssets(options: SessionAssetsOptions): SessionAsset
     },
     async ensure(keys) {
       await Promise.all(keys.map(async (key) => {
+        ensured.add(key);
+        if (hinted.has(key)) shared.add(key);
         try {
           await load(key);
         } catch (cause) {
@@ -235,6 +242,7 @@ export function createSessionAssets(options: SessionAssetsOptions): SessionAsset
       stalls: [...stalls],
       hints: { ...counts, pending: queue.length + running },
       failures: [...failures],
+      shared: [...shared],
     }),
     close() {
       closed = true;
