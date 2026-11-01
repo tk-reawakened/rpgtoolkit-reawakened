@@ -13,6 +13,18 @@
       "types": "./dist/live-session.d.ts",
       "default": "./dist/live-session.js"
     },
+    "./load-mode": {
+      "types": "./dist/load-mode.d.ts",
+      "default": "./dist/load-mode.js"
+    },
+    "./blob-host": {
+      "types": "./dist/blob-host.d.ts",
+      "default": "./dist/blob-host.js"
+    },
+    "./package-source": {
+      "types": "./dist/package-source.d.ts",
+      "default": "./dist/package-source.js"
+    },
     "./pointer": {
       "types": "./dist/pointer.d.ts",
       "default": "./dist/pointer.js"

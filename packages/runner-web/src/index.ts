@@ -37,6 +37,7 @@ import {
   type ClosingPlan,
 } from "@tk-reawakened/runner-harness";
 import { createWebgl2Renderer, type RenderStats, type TexturePixels } from "@tk-reawakened/render-webgl2";
+import { parseInstallDescriptor } from "./package-source.ts";
 
 /** One file of a served game or of the bundled assets, as the browser received it. */
 export type ServedFile = { readonly path: string; readonly bytes: Uint8Array };
@@ -138,15 +139,6 @@ export function distributionPackage(name: string, bytes: Uint8Array): Distributi
 export function packageFiles(name: string, bytes: Uint8Array): ClosingFiles {
   return distributionPackage(name, bytes).files;
 }
-export type InstallDescriptor = {
-  readonly schema: number;
-  readonly file: string;
-  readonly sha256: string;
-  readonly size: number;
-  readonly gameId: string;
-  readonly title: string;
-  readonly version: string;
-};
 
 export type InteractivePackage = DistributionPackage & {
   readonly gameId: string;
@@ -155,19 +147,8 @@ export type InteractivePackage = DistributionPackage & {
 
 /** Validate the install sidecar against the package and its descriptor-selected main file. */
 export async function interactivePackage(name: string, bytes: Uint8Array, value: unknown): Promise<InteractivePackage> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`runner-web: ${name}.json is not a descriptor object`);
-  const descriptor = value as Record<string, unknown>;
-  const fields = ["schema", "file", "sha256", "size", "gameId", "title", "version"];
-  if (Object.keys(descriptor).length !== fields.length || fields.some((field) => !Object.prototype.hasOwnProperty.call(descriptor, field))) {
-    throw new Error(`runner-web: ${name}.json must contain exactly ${fields.join(", ")}`);
-  }
-  if (!Number.isInteger(descriptor.schema) || (descriptor.schema as number) < 0) throw new Error(`runner-web: ${name}.json has an invalid schema`);
-  if (descriptor.file !== name) throw new Error(`runner-web: descriptor names ${String(descriptor.file)}, not ${name}`);
-  if (!Number.isInteger(descriptor.size) || descriptor.size !== bytes.length) throw new Error(`runner-web: descriptor size does not match ${name}`);
-  if (typeof descriptor.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(descriptor.sha256)) throw new Error("runner-web: descriptor SHA-256 is invalid");
-  if (typeof descriptor.gameId !== "string" || descriptor.gameId === "") throw new Error("runner-web: descriptor gameId is invalid");
-  if (typeof descriptor.title !== "string" || descriptor.title.trim() === "") throw new Error("runner-web: descriptor title is invalid");
-  if (typeof descriptor.version !== "string") throw new Error("runner-web: descriptor version is invalid");
+  const descriptor = parseInstallDescriptor(value, name);
+  if (descriptor.size !== bytes.length) throw new Error(`runner-web: descriptor size does not match ${name}`);
   const digestBytes = bytes.buffer instanceof ArrayBuffer
     ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     : Uint8Array.from(bytes);
@@ -228,5 +209,8 @@ export function runScriptedFrame(options: ScriptedFrameOptions): FrameReport {
 }
 
 export * from "./audio-sink.ts";
+export * from "./blob-host.ts";
+export * from "./load-mode.ts";
+export * from "./package-source.ts";
 export * from "./player-page.ts";
 export * from "./video.ts";
