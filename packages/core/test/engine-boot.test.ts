@@ -2026,5 +2026,64 @@ test("boot emits battle and menu prefetch hints, and consuming them does not cha
   equal(observed.stateHash, discarded.stateHash, "a prefetch hint never changes the state hash");
   equal(observed.drawHash, discarded.drawHash, "a prefetch hint never changes the draw hash");
 });
+test("boot keeps simultaneous asset requests waiting across delayed replies and hashes their completion independent of order", () => {
+  const game = authorGame({
+    initChar: "hero.tem",
+    startup: "start.prg",
+    boards: { "start.brd": {} },
+    programs: {
+      "start.prg": "end()\n",
+      "alpha.prg": "end()\n",
+      "beta.prg": "end()\n",
+    },
+  });
+
+  function resolveInOrder(reverse: boolean) {
+    const engine = bootEngine(game, makeDoubles());
+    const beforeMain = engine.advance(0, []);
+    equal(beforeMain.requests.length, 1);
+    const mainRequest = beforeMain.requests[0];
+    if (mainRequest?.kind !== "asset") throw new Error("expected the main-file asset request");
+    equal(mainRequest.key, "main.gam");
+
+    let report = engine.advance(0, [{
+      tick: beforeMain.tickAfter,
+      event: { kind: "asset", reqId: mainRequest.reqId, bytes: game.files.get(mainRequest.key) ?? null },
+    }]);
+    const pending = report.requests.filter((request) => request.kind === "asset");
+    equal(pending.length, 4, "startup, two other programs and initChar are requested together");
+    equal(report.loading, true);
+    ok(report.stateHash !== beforeMain.stateHash, "the pending boot requests change the state hash");
+
+    const order = reverse ? [...pending].reverse() : [...pending];
+    const first = order[0];
+    if (first?.kind !== "asset") throw new Error("expected an asset request");
+    report = engine.advance(0, [{
+      tick: report.tickAfter,
+      event: { kind: "asset", reqId: first.reqId, bytes: game.files.get(first.key) ?? null },
+    }]);
+    equal(report.loading, true, "the other requests remain outstanding after one delayed reply");
+    const waitingHash = report.stateHash;
+
+    // Hold the rest of the replies back for an engine tick; the boot remains in its real loading flow.
+    report = engine.advance(1, []);
+    equal(report.loading, true);
+    equal(report.ticksRun, 0);
+    equal(report.stateHash, waitingHash);
+
+    for (const request of order.slice(1)) {
+      if (request.kind !== "asset") throw new Error("expected an asset request");
+      report = engine.advance(0, [{
+        tick: report.tickAfter,
+        event: { kind: "asset", reqId: request.reqId, bytes: game.files.get(request.key) ?? null },
+      }]);
+    }
+    equal(report.loading, false, "boot finishes loading once the same requests have all been answered");
+    ok(report.stateHash !== waitingHash, "the completed boot differs from its still-waiting state");
+    return report.stateHash;
+  }
+
+  equal(resolveInOrder(false), resolveInOrder(true), "reply order does not change the completed boot hash");
+});
 
 

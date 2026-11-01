@@ -7,7 +7,8 @@ import type { GameState } from "../src/save/state.ts";
 
 function previousHashProjection(state: GameState): string {
   const { stepCounters: _stepCounters, ...vm } = state.vm;
-  return hashState({ ...state, vm, audio: withoutSettings(state.audio) });
+  const { nextRequestId: _nextRequestId, ...engine } = state.engine;
+  return hashState({ ...state, vm, engine, audio: withoutSettings(state.audio) });
 }
 
 function withSurfaceBytes(b64: string): GameState {
@@ -26,6 +27,20 @@ function withSurfaceBytes(b64: string): GameState {
   };
   return state;
 }
+test("request counters are hash-neutral while outstanding request IDs remain state", () => {
+  const completedA = createGameState({ seed: 31 });
+  const completedB = createGameState({ seed: 31 });
+  completedA.engine.nextRequestId = 8;
+  completedB.engine.nextRequestId = 19;
+  equal(hashGameState(completedA), hashGameState(completedB), "different completed request histories do not affect state hash");
+
+  const waitingA = createGameState({ seed: 31 });
+  const waitingB = createGameState({ seed: 31 });
+  waitingA.engine.pending = [{ reqId: 4, key: "media/a.mid", kind: "asset" }];
+  waitingB.engine.pending = [{ reqId: 5, key: "media/a.mid", kind: "asset" }];
+  equal(waitingA.engine.nextRequestId, waitingB.engine.nextRequestId);
+  ok(hashGameState(waitingA) !== hashGameState(waitingB), "simultaneous pending requests with different IDs are distinguishable");
+});
 
 test("game-state hash matches the legacy projection after prefix, suffix and non-finite edits", () => {
   const state = createGameState({ seed: 712 });
