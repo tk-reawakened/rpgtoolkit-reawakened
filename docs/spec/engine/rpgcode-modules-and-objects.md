@@ -125,6 +125,8 @@ The RPGCode provider receives one read-only menu context and runs as a nested ca
 
 **What it does for a game author.** Every object in RPGCode can emit and listen to events. Emits can be cancelable, and listeners may change the event. A shield can listen for a hit and halve the damage; a quest script can listen for a character falling and award something. You add a listener with `on`, remove it with `off`, listen once with `once`, and send an event with `emit` (the game carries on) or `emitCancelable` (the script waits for every listener, then gets the event back and can see whether a listener cancelled it). There is no bubbling and no capture: an event goes to the listeners of the object it was sent on and to nobody else. If you want a quest script to hear about an actor, the stock actor package re-emits its actor event on the game under its package namespace.
 
+To remove a listener, pass `off` a callable equal to the one registered: store the handler in a global or a field and pass that stored value, rather than writing a fresh lambda for `off`.
+
 **The rules, precisely.** Entry 19.1; built by entries 19.10 to 19.12. Everything an emitter holds is plain JSON (G1); nothing here uses a Promise, a generator or a host callback (G1, G3).
 
 * **EMIT-1 — the model (OWNER).** The emitter is an object capability in the style of Godot signals and Node's EventEmitter: `on`, `off`, `once`, `emit` and `emitCancelable` (names approved 2026-10-19). There is no bubbling and no capture. *Rejected alternative:* DOM-style capture and bubbling through a parent chain, which needs a tree the objects do not have and makes order depend on it.
