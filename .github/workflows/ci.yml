@@ -153,13 +153,14 @@ jobs:
       - run: pnpm build
       - run: pnpm make-package fixtures/legacy/demo --closing-plan golden/closing/plan.json --game demo --out fixtures/packages/demo.tpk --title Demo
       - run: pnpm desktop:build
-      - run: pnpm desktop:inventory
       - name: Measure the desktop runner
         if: runner.os != 'Linux'
         run: pnpm desktop:measure --out tools/desktop/measurements/${{ runner.os }}.json
       - name: Measure the desktop runner under Xvfb
         if: runner.os == 'Linux'
         run: xvfb-run -a pnpm desktop:measure --out tools/desktop/measurements/${{ runner.os }}.json
+      # Inventory must run after measurement so the Electron binary has been downloaded and extracted.
+      - run: pnpm desktop:inventory
       - uses: actions/upload-artifact@v6
         with:
           name: desktop-measurement-${{ runner.os }}

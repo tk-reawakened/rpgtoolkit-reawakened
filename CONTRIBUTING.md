@@ -266,7 +266,7 @@ pnpm desktop:build                                              # dist/main.js, 
 pnpm desktop:measure                                           # launch, boot to the board, print the report, quit
 ```
 
-`pnpm desktop:measure` prints a JSON report ending in `"error": null`, `"tick": 120`, `"stateHash": "bff947dce3a11b4f"`, `"drawHash": "9a40be8a0b5ca816"` and `"frame": { "worst": 0 }`. It builds the package for you if you leave `--package` off. Point it at a package you built yourself with `pnpm desktop:measure --package path/to/your.tpk`.
+`pnpm desktop:measure` prints a JSON report that contains `"error": null`, `"tick": 120`, `"stateHash": "bff947dce3a11b4f"`, `"drawHash": "9a40be8a0b5ca816"` and `"frame": { "worst": 0 }` (a `save` block follows `frame`). It builds the package for you if you leave `--package` off. Point it at a package you built yourself with `pnpm desktop:measure --package path/to/your.tpk`.
 
 To open the window and leave it open (the window title changes to `desktop: bff947dce3a11b4f` when the game boots):
 

@@ -75,7 +75,7 @@ Merged as **`95cca777`** — "feat(9.11): runner-desktop, the player's Electron 
 the same work on a stale base and is closed.
 
 **The CI job is now merged.** The `desktop` matrix job on ubuntu/macOS/windows and its `gate` dependency were
-added to `.github/workflows/ci.yml` by PR #1013; the patch file `tools/desktop/desktop-ci.patch` was deleted once
+added to `.github/workflows/ci.yml` by PR #1014; the patch file `tools/desktop/desktop-ci.patch` was deleted once
 it landed. This turns the Linux and Windows measurements on in CI.
 
 ## What the next entry inherits
