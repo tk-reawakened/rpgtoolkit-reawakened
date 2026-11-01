@@ -40,7 +40,7 @@
     "browser:build": "node tools/browser/build.mjs",
     "browser:serve": "node tools/browser/serve.mjs --port 4173",
     "browser:test": "node tools/browser/build.mjs && playwright test",
-    "oracle:check": "python3 tools/fixtures/reference/render.py --check && node tools/fixtures/author/generate.mjs --check && pnpm run audio-protocol:check && pnpm run runner-protocol:check",
+    "oracle:check": "python3 tools/fixtures/reference/render.py --check && node tools/fixtures/author/generate.mjs --check && pnpm run saveload:check && pnpm run audio-protocol:check && pnpm run runner-protocol:check",
     "golden": "tsc -b && node packages/runner-headless/dist/cli.js golden",
     "golden:record": "tsc -b && node packages/runner-headless/dist/cli.js golden --record",
     "golden:bun": "pnpm build && bun packages/runner-headless/dist/cli.js golden && bun packages/runner-headless/dist/cli.js closing",
@@ -64,7 +64,9 @@
     "desktop:inventory": "node tools/licences/desktop-inventory.mjs",
     "mobile:build": "node tools/mobile/build.mjs",
     "mobile:proof": "node tools/mobile/proof.mjs",
-    "mobile:proof:test": "node --test tools/mobile/test/*.test.mjs"
+    "mobile:proof:test": "node --test tools/mobile/test/*.test.mjs",
+    "saveload:record": "tsc -b && node tools/fixtures/saveload/record.mjs",
+    "saveload:check": "tsc -b && node tools/fixtures/saveload/record.mjs --check"
   },
   "devDependencies": {
     "@capacitor/android": "8.4.3",
@@ -74,6 +76,8 @@
     "@capacitor/ios": "8.4.3",
     "@playwright/test": "1.64.0",
     "@tk-reawakened/core": "workspace:*",
+    "@tk-reawakened/runner-harness": "workspace:*",
+    "@tk-reawakened/runner-web": "workspace:*",
     "@typescript/native": "npm:typescript@7.0.2",
     "dependency-cruiser": "18.5.0",
     "electron": "45.2.1",

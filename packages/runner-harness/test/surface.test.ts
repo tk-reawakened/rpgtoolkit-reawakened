@@ -49,6 +49,11 @@ test("runner-harness public surface matches the pinned export list with no doubl
     "runTracerScene",
     "summariseCensus",
     "verifyCatalogueCompleteness",
+    "SAVELOAD_SEED",
+    "SAVELOAD_TICKS",
+    "createMemoryBlobHost",
+    "runSaveLoadFixture",
+    "runSaveLoadLaunch",
   ].sort();
 
   deepEqual(actualExports, pinnedExports);

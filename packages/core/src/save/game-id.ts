@@ -40,10 +40,31 @@ function field(text: string): string {
   return `${text.length}:${text}`;
 }
 
-/** `bytes` as an unambiguous, length-prefixed field (hashed, then length-prefixed). */
-function byteField(bytes: Uint8Array): string {
-  const hash = fnv1a64(bytes);
+/** A content hash as an unambiguous, length-prefixed field. */
+function hashField(hash: string): string {
+  if (typeof hash !== "string") throw new TypeError("a game identity content hash must be a string");
   return `${hash.length}:${hash}`;
+}
+
+/**
+ * One file's record of the package identity, from its path and the `fnv1a64` hash of its bytes. A host that cannot
+ * hold every file at once hashes each file as it passes and keeps only this record, then folds the records with
+ * `foldPackageIdentity`; the result equals `derivePackageIdentity` over the same files.
+ */
+export function packageIdentityRecord(path: string, contentHash: string): string {
+  return `${field(path)}${hashField(contentHash)}`;
+}
+
+/** Fold per-file records (`packageIdentityRecord`, in any order) into the package identity. */
+export function foldPackageIdentity(records: readonly string[]): string {
+  return fnv1a64([...records].sort().map(field).join(""));
+}
+
+/** A missing, empty or non-string identity is rejected rather than becoming a wrong save area. */
+function requireIdentity(gameIdentity: string): void {
+  if (typeof gameIdentity !== "string" || gameIdentity === "") {
+    throw new TypeError("deriveGameId needs the host's non-empty game identity");
+  }
 }
 
 /**
@@ -54,10 +75,7 @@ function byteField(bytes: Uint8Array): string {
  * different identities unless the 64-bit digests collide (see the file comment).
  */
 export function derivePackageIdentity(files: readonly PackageIdentityFile[]): string {
-  const records = files
-    .map((file) => `${field(file.path)}${byteField(file.bytes)}`)
-    .sort();
-  return fnv1a64(records.map(field).join(""));
+  return foldPackageIdentity(files.map((file) => packageIdentityRecord(file.path, fnv1a64(file.bytes))));
 }
 
 /**
@@ -68,8 +86,12 @@ export function derivePackageIdentity(files: readonly PackageIdentityFile[]): st
  * a wrong save area.
  */
 export function deriveGameId(mainBytes: Uint8Array, gameIdentity: string): string {
-  if (typeof gameIdentity !== "string" || gameIdentity === "") {
-    throw new TypeError("deriveGameId needs the host's non-empty game identity");
-  }
-  return fnv1a64(`${field(gameIdentity)}${byteField(mainBytes)}`);
+  requireIdentity(gameIdentity);
+  return deriveGameIdFromContentHash(fnv1a64(mainBytes), gameIdentity);
+}
+
+/** `deriveGameId` from the `fnv1a64` hash of the main file's bytes, for a host that no longer holds the bytes. */
+export function deriveGameIdFromContentHash(mainContentHash: string, gameIdentity: string): string {
+  requireIdentity(gameIdentity);
+  return fnv1a64(`${field(gameIdentity)}${hashField(mainContentHash)}`);
 }

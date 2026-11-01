@@ -11,7 +11,7 @@
  * bank picker is entry 9.6's, so a voice whose source needs a bank fails with `bank.missing` instead of playing silence.
  */
 
-import type { AssetKey } from "@tk-reawakened/core";
+import type { AssetKey, Result } from "@tk-reawakened/core";
 import {
   BANK_SIZE_CEILING,
   BankCache,
@@ -19,12 +19,15 @@ import {
   createAudioSourceRegistry,
   createPcmSource,
   createSpessaMidiSource,
+  openPrepared,
   validateBankBytes,
   type AudioMessage,
   type AudioSourceRegistry,
   type BankRef,
+  type SourceError,
   type SourceVoice,
 } from "@tk-reawakened/synth";
+import type { PreparedAudio } from "./decode-types.ts";
 
 /** What the sink tells the cue player, in the protocol's event vocabulary. */
 export type SinkEvent =
@@ -43,6 +46,13 @@ export type PcmSinkOptions = {
    * never remove it, and two games naming the same bytes share one entry by SHA-256.
    */
   readonly banks?: BankCache;
+  /**
+   * Audio a decode worker already prepared (`DecodeAhead.audio`), or `null` when none is ready. A prepared PCM at this
+   * sink's `outputRateHz` opens its voice with no decoding, from the same samples `createPcmSource` would have made;
+   * anything else (nothing ready, another rate, MIDI, a SoundFont) is opened as before. A prepared MIDI or SoundFont
+   * result is advisory: the bank cache and every bank decision stay here, and no second cache exists.
+   */
+  readonly readPrepared?: (asset: AssetKey) => PreparedAudio | null;
   /** The formats this runner can play; defaults to PCM (WAV, PCM and IMA/MS ADPCM) and MIDI through the loaded bank. */
   readonly registry?: AudioSourceRegistry;
   /** The graph's sample rate. */
@@ -77,6 +87,7 @@ export type ScheduledPlay = {
 };
 
 export class PcmSink {
+  private readonly readPrepared: ((asset: AssetKey) => PreparedAudio | null) | undefined;
   private readonly readAsset: (asset: AssetKey) => Uint8Array | null;
   private readonly registry: AudioSourceRegistry;
   private readonly outputRateHz: number;
@@ -93,6 +104,7 @@ export class PcmSink {
 
   constructor(options: PcmSinkOptions) {
     this.readAsset = options.readAsset;
+    this.readPrepared = options.readPrepared;
     this.banks = options.banks ?? new BankCache({ load: options.readBank ?? (() => null) });
     this.outputRateHz = options.outputRateHz ?? 44_100;
     this.onEvent = options.onEvent;
@@ -133,14 +145,21 @@ export class PcmSink {
         return;
       }
       case "load": {
-        const bytes = message.data.byteLength > 0 ? message.data : this.readAsset(message.asset);
-        if (bytes === null) {
-          this.fail(message.voice, "source.failed", `${message.asset} is not readable`);
-          return;
-        }
-        // The source reads the bank it needs from `env`; the bytes come from the cache through `bankResolver`.
+        // A worker-prepared PCM at this rate needs no bytes and no decoding; the host's own decode is the fallback.
+        const prepared = this.readPrepared?.(message.asset) ?? null;
         const env = { outputRateHz: this.outputRateHz, bank: this.bankRef };
-        const source = this.registry.open(bytes, () => env, extensionOf(message.asset));
+        let source: Result<SourceVoice, SourceError>;
+        if (prepared !== null && prepared.kind === "pcm" && prepared.outputRateHz === this.outputRateHz) {
+          source = openPrepared(prepared, env);
+        } else {
+          const bytes = message.data.byteLength > 0 ? message.data : this.readAsset(message.asset);
+          if (bytes === null) {
+            this.fail(message.voice, "source.failed", `${message.asset} is not readable`);
+            return;
+          }
+          // The source reads the bank it needs from `env`; the bytes come from the cache through `bankResolver`.
+          source = this.registry.open(bytes, () => env, extensionOf(message.asset));
+        }
         if (!source.ok) {
           const code = BANK_CODES.includes(source.error.code) || source.error.code === "format.unsupported" || source.error.code === "format.malformed"
             ? source.error.code
