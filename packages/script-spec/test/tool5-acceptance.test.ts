@@ -128,6 +128,14 @@ test("A7 the library arrives through the package start-up seam and it is unknown
   deepEqual(drainDiagnostics(services).map((item) => item.code), ["unknown.command"]);
 });
 
+test("B1 the optional tolerance is a recorded decision: one argument is an arity failure today", () => {
+  const report = runSpecFile("arity.spec.prg", 'it("one", () => { expect(3).toBeCloseTo(3) })', { library });
+  equal(report.cases[0]?.ok, false);
+  ok(report.failures[0]?.includes("callable.arity"), report.failures[0]);
+  const two = runSpecFile("arity2.spec.prg", 'it("two", () => { expect(3).toBeCloseTo(3, 0) })', { library });
+  equal(two.cases[0]?.ok, true);
+});
+
 test("A8/A9 script-spec stays out of the default manifest and registers only specresult", () => {
   equal(ENGINE_DEFAULT_MANIFEST.map((entry) => entry.id).includes("script-spec"), false);
   deepEqual(SPEC_PLUGIN.commands.map((command) => command.name), ["specresult"]);

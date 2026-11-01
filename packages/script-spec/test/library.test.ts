@@ -62,40 +62,28 @@ test("hooks run in the documented order, nested describes included", () => {
     "pass:D",
   ]);
 });
-test("toBeCloseTo compares whole numbers, at the arities it declares, including .not", () => {
+test("toBeCloseTo takes both arguments today, compares whole numbers, and says so", () => {
   // SEM-3:209 truncates every variable operand of arithmetic to an integer, and
   // both the actual and the expected value reach the matcher through a variable
-  // read. So closeness is decided on whole numbers, and the 1e-7 default is itself
-  // truncated to 0 inside `specClose`. Fractional closeness needs a native helper;
-  // the last case pins the truncation rather than hiding it.
+  // read, so closeness is decided on whole numbers. TOOL-5's optional tolerance is
+  // not implemented: a callable takes exactly its declared arity (FUN-1/ERR-2) and
+  // one- and two-argument overloads would need a class-method tear-off read, an
+  // owner-gated language change (F-F). One-argument calls therefore fail loudly,
+  // and fractional closeness needs a native helper (F-D).
   const spec = [
-    'it("default-equal", () => { expect(3).toBeCloseTo(3) })',
-    'it("default-outside", () => { expect(4).toBeCloseTo(3) })',
-    'it("default-negative-equal", () => { expect(0 - 3).toBeCloseTo(0 - 3) })',
-    'it("default-negative-outside", () => { expect(0 - 4).toBeCloseTo(0 - 3) })',
-    'it("explicit-tolerance-inside", () => { expect(5).toBeCloseTo(3, 2) })',
-    'it("explicit-tolerance-outside", () => { expect(6).toBeCloseTo(3, 2) })',
-    'it("zero-tolerance-equal", () => { expect(3).toBeCloseTo(3, 0) })',
-    'it("zero-tolerance-outside", () => { expect(4).toBeCloseTo(3, 0) })',
-    'it("not-default-outside", () => { expect(4).not.toBeCloseTo(3) })',
-    'it("not-default-equal", () => { expect(3).not.toBeCloseTo(3) })',
-    'it("not-explicit-tolerance-outside", () => { expect(6).not.toBeCloseTo(3, 2) })',
-    'it("not-explicit-tolerance-inside", () => { expect(5).not.toBeCloseTo(3, 2) })',
+    'it("two-arg-equal", () => { expect(3).toBeCloseTo(3, 0) })',
+    'it("two-arg-inside", () => { expect(5).toBeCloseTo(3, 2) })',
+    'it("two-arg-outside", () => { expect(6).toBeCloseTo(3, 2) })',
+    'it("not-inside", () => { expect(6).not.toBeCloseTo(3, 2) })',
+    'it("not-outside", () => { expect(5).not.toBeCloseTo(3, 2) })',
     'it("fractions-truncate-to-equal", () => { expect(0.4).toBeCloseTo(0.1, 0) })',
   ].join("\n");
   deepEqual(run(spec), [
-    "pass:default-equal/toBeCloseTo",
-    "fail:default-outside/toBeCloseTo",
-    "pass:default-negative-equal/toBeCloseTo",
-    "fail:default-negative-outside/toBeCloseTo",
-    "pass:explicit-tolerance-inside/toBeCloseTo",
-    "fail:explicit-tolerance-outside/toBeCloseTo",
-    "pass:zero-tolerance-equal/toBeCloseTo",
-    "fail:zero-tolerance-outside/toBeCloseTo",
-    "pass:not-default-outside/toBeCloseTo",
-    "fail:not-default-equal/toBeCloseTo",
-    "pass:not-explicit-tolerance-outside/toBeCloseTo",
-    "fail:not-explicit-tolerance-inside/toBeCloseTo",
+    "pass:two-arg-equal/toBeCloseTo",
+    "pass:two-arg-inside/toBeCloseTo",
+    "fail:two-arg-outside/toBeCloseTo",
+    "pass:not-inside/toBeCloseTo",
+    "fail:not-outside/toBeCloseTo",
     "pass:fractions-truncate-to-equal/toBeCloseTo",
   ]);
 });

@@ -141,35 +141,19 @@ function only(name, body) {
   specOnlyMark = 0
 }
 
-// A bound method supplies both allowed argument counts while the matcher remains
-// a dictionary of ordinary callables (FUN-1, OOP-11 and ADR 0014).
-class SpecCloseMatcher {
-  public:
-  var actual
-  var negated
-  method SpecCloseMatcher(value, negative) { actual = value; negated = negative }
-  method close(expected) {
-    specNegate = negated
-    specCheck(specClose(actual, expected, 0.0000001), "toBeCloseTo", expected, actual)
-  }
-  method close(expected, tolerance) {
-    specNegate = negated
-    specCheck(specClose(actual, expected, tolerance), "toBeCloseTo", expected, actual)
-  }
-}
-
 function expect(actual) {
-  local(positive)
-  local(negative)
-  positive = SpecCloseMatcher(actual, 0)
-  negative = SpecCloseMatcher(actual, 1)
   return {
     toBe: (expected) => specCheck(actual == expected, "toBe", expected, actual),
     toEqual: (expected) => specCheck(specEqual(actual, expected), "toEqual", expected, actual),
     toBeTruthy: () => specCheck(!!actual, "toBeTruthy", 1, actual),
     toBeNull: () => specCheck(actual == 0, "toBeNull", 0, actual),
     toContain: (needle) => specCheck(specContains(actual, needle), "toContain", needle, actual),
-    toBeCloseTo: positive.close,
+    // TOOL-5 declares an optional tolerance, but a callable takes exactly its
+    // declared arity (FUN-1/ERR-2) and the language has no default argument, so
+    // the callable takes both and the caller passes the limit. Rendering that as
+    // one- and two-argument overloads needs a class-method tear-off read, which is
+    // an owner-gated language change (F-F), not something this package may add.
+    toBeCloseTo: (expected, tolerance) => specCheck(specClose(actual, expected, tolerance), "toBeCloseTo", expected, actual),
     toThrow: (body) => specCheck(0, "toThrow", "a runtime error", "no error"),
     not: {
       toBe: (expected) => { specNegate = 1; specCheck(actual == expected, "toBe", expected, actual) },
@@ -177,7 +161,7 @@ function expect(actual) {
       toBeTruthy: () => { specNegate = 1; specCheck(!!actual, "toBeTruthy", 1, actual) },
       toBeNull: () => { specNegate = 1; specCheck(actual == 0, "toBeNull", 0, actual) },
       toContain: (needle) => { specNegate = 1; specCheck(specContains(actual, needle), "toContain", needle, actual) },
-      toBeCloseTo: negative.close
+      toBeCloseTo: (expected, tolerance) => { specNegate = 1; specCheck(specClose(actual, expected, tolerance), "toBeCloseTo", expected, actual) }
     }
   }
 }

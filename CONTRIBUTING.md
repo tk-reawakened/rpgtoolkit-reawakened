@@ -50,8 +50,9 @@ case-insensitive path rules; spec files use Windows-1252 RPGCode source encoding
 This package is still incomplete: array equality and containment and `toThrow`
 remain subject to the owner's F-A ruling; strict `toBe` type identity also
 needs a type distinction the current library does not provide; and `toBeCloseTo`
-compares truncated whole numbers only, because RPGCode truncates a variable's
-number in arithmetic (F-D). The current
+takes both arguments and compares truncated whole numbers only, because RPGCode
+truncates a variable's number in arithmetic (F-D) and one callable cannot accept
+both one and two arguments without a language change (F-F). The current
 `skip(name, body)` and `only(name, body)` forms mark cases, not groups. Group
 `beforeAll` and `afterAll` hooks are rerun for each isolated case, including
 when that case is outside the group; they do not yet satisfy the once-per-group
