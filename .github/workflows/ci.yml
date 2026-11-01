@@ -9,6 +9,73 @@ permissions:
 # Ubuntu 26 on 2026-10-19, and the golden/oracle checks are validated on 24.04.
 # Moving to a new image should be its own deliberate change.
 jobs:
+  # The change classifier (ADR 0016, issue #664). It publishes a verdict and never skips a job. The jobs
+  # marked "classified" below always run and always report: each prints this verdict first and defers its own
+  # steps only when `full` is exactly 'false', which the classifier says only when every changed path is on the
+  # inert list. An unknown event, an empty or unparseable diff, a missing verdict or a classifier failure all
+  # select a full run, and a classifier failure also fails this job, which fails `gate`.
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      full: ${{ steps.classify.outputs.full }}
+      reason: ${{ steps.classify.outputs.reason }}
+    steps:
+      # Full history, so the base commit is available to diff against.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.21.0
+      # The pull request's own copy of the classifier is tested first: if its tests fail, this job fails before it
+      # publishes any verdict, so no job can defer on the strength of a broken classifier.
+      - name: Test the classifier
+        run: node --test tools/ci/test/classify-changes.test.mjs
+      - id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -u
+          out="$RUNNER_TEMP/classifier-output"
+          paths="$RUNNER_TEMP/changed-paths"
+          classifier="$RUNNER_TEMP/classify-changes.mjs"
+          : > "$out"
+          # A stated verdict that selects a full run.
+          verdict_full() {
+            printf 'full=true\nreason=full: %s\n' "$1" >> "$GITHUB_OUTPUT"
+            echo "verdict: RUN - full: $1"
+            exit 0
+          }
+          # The classifier could not produce a verdict: select a full run and fail this job.
+          failure() {
+            printf 'full=true\nreason=full: classifier failure: %s\n' "$1" >> "$GITHUB_OUTPUT"
+            echo "::error title=CI classifier failure::$1; selecting a full run and failing the changes job"
+            exit 1
+          }
+          if [ "$EVENT_NAME" = pull_request ]; then
+            # Run the base branch's classifier, so a pull request cannot loosen the rules that judge it.
+            if ! git cat-file -e "$BASE_SHA:tools/ci/classify-changes.mjs" 2>/dev/null; then
+              verdict_full "the base commit has no tools/ci/classify-changes.mjs yet"
+            fi
+            git show "$BASE_SHA:tools/ci/classify-changes.mjs" > "$classifier" || failure "cannot read the base classifier"
+            # --no-renames: a rename contributes both its old and its new path. -z: paths are NUL-delimited.
+            git diff --no-renames --name-only -z "$BASE_SHA" "$HEAD_SHA" > "$paths" || failure "git diff failed"
+          else
+            # Not a pull request (a push to main): the verdict is always full, and there is no base to diff.
+            cp tools/ci/classify-changes.mjs "$classifier" || failure "cannot read the classifier"
+            : > "$paths"
+          fi
+          GITHUB_OUTPUT="$out" GITHUB_EVENT_NAME="$EVENT_NAME" node "$classifier" < "$paths" || failure "the classifier did not produce a verdict"
+          # Accept only a complete, consistent verdict; a defer must carry its inert-paths evidence.
+          [ "$(wc -l < "$out")" -eq 2 ] || failure "the classifier output was incomplete"
+          case "$(sed -n 1p "$out")|$(sed -n 2p "$out")" in
+            "full=true|reason=full: "* | "full=false|reason=inert: "*) ;;
+            *) failure "the classifier output was inconsistent" ;;
+          esac
+          cat "$out" >> "$GITHUB_OUTPUT"
   checks:
     runs-on: ubuntu-24.04
     steps:
@@ -85,109 +152,208 @@ jobs:
           name: lcov-${{ matrix.group }}
           path: coverage/lcov-${{ matrix.group }}.info
           if-no-files-found: error
+  # Classified (ADR 0016): always runs and prints the classifier's verdict; defers its steps only for an inert change.
   golden:
+    needs: [changes]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
+      - name: CI classifier decision
+        shell: bash
+        env:
+          JOB: golden
+          FULL: ${{ needs.changes.outputs.full }}
+          REASON: ${{ needs.changes.outputs.reason }}
+        run: |
+          if [ "$FULL" = false ]; then
+            echo "CI classifier [$JOB]: DEFER - nothing this job guards could have changed; $REASON"
+          else
+            echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
+          fi
       - uses: actions/checkout@v7
+        if: needs.changes.outputs.full != 'false'
       - uses: pnpm/action-setup@v6
+        if: needs.changes.outputs.full != 'false'
       - uses: actions/setup-node@v7
+        if: needs.changes.outputs.full != 'false'
         with:
           node-version: 24.21.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+        if: needs.changes.outputs.full != 'false'
       - uses: actions/cache@v6
+        if: needs.changes.outputs.full != 'false'
         with:
           path: fixtures/legacy
           key: legacy-games-${{ hashFiles('tools/fixtures/sources.json') }}
       - run: pnpm fixtures:fetch
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm fixtures:check
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm build
+        if: needs.changes.outputs.full != 'false'
       - run: node packages/runner-headless/dist/cli.js golden
+        if: needs.changes.outputs.full != 'false'
       # The closing suite boots every fetched sample game through the real engine and compares frames, hashes and
       # diagnostics with the committed regression baselines (ticket 4.28).
       - run: node packages/runner-headless/dist/cli.js closing
+        if: needs.changes.outputs.full != 'false'
       # Independent-oracle drift checks (Pillow is a CI-only dev tool, HPND, never shipped).
       - run: python3 -m pip install Pillow
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm oracle:check
+        if: needs.changes.outputs.full != 'false'
       # The corpus gate (epic 2 Done-when 1): `dump --check` re-runs the dump
       # over both sample games and compares its JSON report with the committed
       # `golden/legacy-corpus.json`. A parser or decoder that drifts fails there,
       # naming the file. Regenerating the expectation is deliberate
       # (`pnpm dump:record`), like a golden (G5).
       - run: node packages/runner-headless/dist/cli.js dump --check golden/legacy-corpus.json fixtures/legacy && node packages/runner-headless/dist/cli.js dump --check golden/spec-examples.json docs/spec/examples
+        if: needs.changes.outputs.full != 'false'
+  # Classified (ADR 0016). It also still waits for `checks`, as before.
   script-dogfood:
+    needs: [checks, changes]
+    if: ${{ !cancelled() && needs.checks.result == 'success' }}
     runs-on: ubuntu-24.04
-    needs: [checks]
     steps:
+      - name: CI classifier decision
+        shell: bash
+        env:
+          JOB: script-dogfood
+          FULL: ${{ needs.changes.outputs.full }}
+          REASON: ${{ needs.changes.outputs.reason }}
+        run: |
+          if [ "$FULL" = false ]; then
+            echo "CI classifier [$JOB]: DEFER - nothing this job guards could have changed; $REASON"
+          else
+            echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
+          fi
       - uses: actions/checkout@v7
+        if: needs.changes.outputs.full != 'false'
       - uses: pnpm/action-setup@v6
+        if: needs.changes.outputs.full != 'false'
       - uses: actions/setup-node@v7
+        if: needs.changes.outputs.full != 'false'
         with:
           node-version: 24.21.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm build
+        if: needs.changes.outputs.full != 'false'
       - name: tkr script check
+        if: needs.changes.outputs.full != 'false'
         run: node packages/script-cli/dist/cli.js script check stock docs/spec/examples/game --json > /tmp/check.json && diff -u packages/script-cli/baselines/check.json /tmp/check.json
       - name: tkr script fmt --check
+        if: needs.changes.outputs.full != 'false'
         run: node packages/script-cli/dist/cli.js script fmt --check stock docs/spec/examples/game --json > /tmp/fmt.json && diff -u packages/script-cli/baselines/fmt.json /tmp/fmt.json
       - name: tkr script index
+        if: needs.changes.outputs.full != 'false'
         run: node packages/script-cli/dist/cli.js script index stock docs/spec/examples/game --json > /tmp/index.json && diff -u packages/script-cli/baselines/index.json /tmp/index.json
       - name: tkr script docs
+        if: needs.changes.outputs.full != 'false'
         run: node packages/script-cli/dist/cli.js script docs --json > /tmp/docs.json && diff -u packages/script-cli/baselines/docs.json /tmp/docs.json
       - name: tkr script test
+        if: needs.changes.outputs.full != 'false'
         run: node packages/script-cli/dist/cli.js script test packages/script-cli/test/fixtures/pass-project --json > /tmp/test.json && diff -u packages/script-cli/baselines/test.json /tmp/test.json
+  # Classified (ADR 0016).
   golden-bun:
+    needs: [changes]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
+      - name: CI classifier decision
+        shell: bash
+        env:
+          JOB: golden-bun
+          FULL: ${{ needs.changes.outputs.full }}
+          REASON: ${{ needs.changes.outputs.reason }}
+        run: |
+          if [ "$FULL" = false ]; then
+            echo "CI classifier [$JOB]: DEFER - nothing this job guards could have changed; $REASON"
+          else
+            echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
+          fi
       - uses: actions/checkout@v7
+        if: needs.changes.outputs.full != 'false'
       - uses: pnpm/action-setup@v6
+        if: needs.changes.outputs.full != 'false'
       - uses: actions/setup-node@v7
+        if: needs.changes.outputs.full != 'false'
         with:
           node-version: 24.21.0
           cache: pnpm
       - uses: oven-sh/setup-bun@v2
+        if: needs.changes.outputs.full != 'false'
         with:
           bun-version: 1.4.2
       - run: pnpm install --frozen-lockfile
+        if: needs.changes.outputs.full != 'false'
       - uses: actions/cache@v6
+        if: needs.changes.outputs.full != 'false'
         with:
           path: fixtures/legacy
           key: legacy-games-${{ hashFiles('tools/fixtures/sources.json') }}
       # `golden:bun` replays the golden and closing suites under Bun against the
       # committed output; the `golden` job already covers the Node replay.
       - run: pnpm fixtures:fetch
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm golden:bun
+        if: needs.changes.outputs.full != 'false'
   # The desktop lane (entry 9.11): the Electron shell opens a package from disk over `app://` and reports the tick-120
   # hashes. Linux needs a virtual display; macOS and Windows runners have one. The job runs the same script on each, and
   # the artefact it uploads is the measurement record — the numbers are the runner's, never hand-written.
   desktop:
+    needs: [changes]
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-15, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
+      - name: CI classifier decision
+        shell: bash
+        env:
+          JOB: desktop (${{ matrix.os }})
+          FULL: ${{ needs.changes.outputs.full }}
+          REASON: ${{ needs.changes.outputs.reason }}
+        run: |
+          if [ "$FULL" = false ]; then
+            echo "CI classifier [$JOB]: DEFER - nothing this job guards could have changed; $REASON"
+          else
+            echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
+          fi
       - uses: actions/checkout@v7
+        if: needs.changes.outputs.full != 'false'
       - uses: pnpm/action-setup@v6
+        if: needs.changes.outputs.full != 'false'
       - uses: actions/setup-node@v7
+        if: needs.changes.outputs.full != 'false'
         with:
           node-version: 24.21.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm fixtures:fetch
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm build
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm make-package fixtures/legacy/demo --closing-plan golden/closing/plan.json --game demo --out fixtures/packages/demo.tpk --title Demo
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm desktop:build
+        if: needs.changes.outputs.full != 'false'
       - name: Measure the desktop runner
-        if: runner.os != 'Linux'
+        if: needs.changes.outputs.full != 'false' && runner.os != 'Linux'
         run: pnpm desktop:measure --out tools/desktop/measurements/${{ runner.os }}.json
       - name: Measure the desktop runner under Xvfb
-        if: runner.os == 'Linux'
+        if: needs.changes.outputs.full != 'false' && runner.os == 'Linux'
         run: xvfb-run -a pnpm desktop:measure --out tools/desktop/measurements/${{ runner.os }}.json
       # Inventory must run after measurement so the Electron binary has been downloaded and extracted.
       - run: pnpm desktop:inventory
+        if: needs.changes.outputs.full != 'false'
       - uses: actions/upload-artifact@v6
+        if: needs.changes.outputs.full != 'false'
         with:
           name: desktop-measurement-${{ runner.os }}
           path: tools/desktop/measurements/${{ runner.os }}.json
@@ -195,53 +361,105 @@ jobs:
   # The browser lane (ADR 0015, D-9): one headless Chromium project. Playwright and its browser binaries are dev-only,
   # never shipped; the lane boots a sample game to the committed tick-120 hashes and replays the raster vectors.
   browser:
+    needs: [changes]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
+      - name: CI classifier decision
+        shell: bash
+        env:
+          JOB: browser
+          FULL: ${{ needs.changes.outputs.full }}
+          REASON: ${{ needs.changes.outputs.reason }}
+        run: |
+          if [ "$FULL" = false ]; then
+            echo "CI classifier [$JOB]: DEFER - nothing this job guards could have changed; $REASON"
+          else
+            echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
+          fi
       - uses: actions/checkout@v7
+        if: needs.changes.outputs.full != 'false'
       - uses: pnpm/action-setup@v6
+        if: needs.changes.outputs.full != 'false'
       - uses: actions/setup-node@v7
+        if: needs.changes.outputs.full != 'false'
         with:
           node-version: 24.21.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm build
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm fixtures:fetch
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm exec playwright install --with-deps chromium
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm browser:test
+        if: needs.changes.outputs.full != 'false'
   # The mobile lane builds and drives the real Capacitor APK on API 33. The
   # proof script captures the page's own readings and fails instead of
   # substituting browser stubs or synthetic reports.
   mobile:
+    needs: [changes]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
+      - name: CI classifier decision
+        shell: bash
+        env:
+          JOB: mobile
+          FULL: ${{ needs.changes.outputs.full }}
+          REASON: ${{ needs.changes.outputs.reason }}
+        run: |
+          if [ "$FULL" = false ]; then
+            echo "CI classifier [$JOB]: DEFER - nothing this job guards could have changed; $REASON"
+          else
+            echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
+          fi
       - uses: actions/checkout@v7
+        if: needs.changes.outputs.full != 'false'
       - uses: pnpm/action-setup@v6
+        if: needs.changes.outputs.full != 'false'
       - uses: actions/setup-node@v7
+        if: needs.changes.outputs.full != 'false'
         with:
           node-version: 24.21.0
           cache: pnpm
       - uses: actions/setup-java@v5
+        if: needs.changes.outputs.full != 'false'
         with:
           distribution: temurin
           java-version: 21
       - uses: android-actions/setup-android@v3
+        if: needs.changes.outputs.full != 'false'
         with:
           packages: platform-tools
       - run: sdkmanager "platforms;android-33" "platforms;android-35" "platforms;android-36" "build-tools;35.0.0" "build-tools;36.0.0"
+        if: needs.changes.outputs.full != 'false'
       - run: mkdir -p artifacts/mobile-proof
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm install --frozen-lockfile
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm build
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm fixtures:fetch
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm make-package fixtures/legacy/demo --closing-plan golden/closing/plan.json --game demo --out fixtures/packages/demo.tpk --title Demo
+        if: needs.changes.outputs.full != 'false'
       - run: pnpm mobile:build
+        if: needs.changes.outputs.full != 'false'
       - name: Add Android platform
+        if: needs.changes.outputs.full != 'false'
         run: cd packages/runner-mobile && npx cap add android
       - name: Sync Capacitor Android project
+        if: needs.changes.outputs.full != 'false'
         run: cd packages/runner-mobile && npx cap sync android
       - name: Assemble debug APK
+        if: needs.changes.outputs.full != 'false'
         run: cd packages/runner-mobile/android && ./gradlew assembleDebug
       - name: Configure and require KVM access
+        if: needs.changes.outputs.full != 'false'
         run: |
           if [ ! -c /dev/kvm ]; then
             echo "::error::KVM device /dev/kvm is unavailable on this runner"
@@ -258,6 +476,7 @@ jobs:
           fi
           stat -c '%A %U:%G %n' /dev/kvm
       - name: Exercise APK on API 33 emulator
+        if: needs.changes.outputs.full != 'false'
         uses: reactivecircus/android-emulator-runner@v2
         env:
           CI: "true"
@@ -270,13 +489,13 @@ jobs:
           disable-animations: true
           script: pnpm mobile:proof
       - uses: actions/upload-artifact@v6
-        if: always()
+        if: always() && needs.changes.outputs.full != 'false'
         with:
           name: mobile-android-api33-proof
           path: artifacts/mobile-proof/
           if-no-files-found: error
   gate:
-    needs: [checks, unit, golden, golden-bun, browser, desktop, mobile, script-dogfood]
+    needs: [changes, checks, unit, golden, golden-bun, browser, desktop, mobile, script-dogfood]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -284,11 +503,25 @@ jobs:
       - env:
           RESULTS: "${{ join(needs.*.result, ' ') }}"
           NEEDS: "${{ toJSON(needs) }}"
+          FULL: ${{ needs.changes.outputs.full }}
+          REASON: ${{ needs.changes.outputs.reason }}
+          EVENT: ${{ github.event_name }}
         run: |
           echo "$NEEDS" | jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"'
           [ -n "$RESULTS" ] || { echo "no results"; exit 1; }
           for r in $RESULTS; do [ "$r" = success ] || { echo "gate failed: $NEEDS"; exit 1; }; done
-          echo "all required jobs succeeded: $RESULTS"
+          # The classifier (ADR 0016) must have produced a verdict, and a defer must carry its inert-paths evidence.
+          case "$FULL" in
+            true) ;;
+            false)
+              [ "$EVENT" = pull_request ] || { echo "gate failed: classifier deferred outside a pull request"; exit 1; }
+              case "$REASON" in
+                "inert: "*) ;;
+                *) echo "gate failed: classifier deferred without an inert-paths reason: $REASON"; exit 1 ;;
+              esac ;;
+            *) echo "gate failed: classifier returned no verdict (full='$FULL')"; exit 1 ;;
+          esac
+          echo "all required jobs succeeded: $RESULTS (classifier: full=$FULL; $REASON)"
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
