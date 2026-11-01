@@ -17,7 +17,7 @@ type LiveReport = {
   readonly board: string | null;
   readonly player: { readonly x: number; readonly y: number } | null;
   readonly moved?: boolean;
-  readonly save?: { readonly path: string; readonly written: boolean; readonly restored?: boolean };
+  readonly save?: { readonly path: string; readonly written: boolean; readonly blobPresent: boolean };
   readonly error?: string;
 };
 
@@ -146,7 +146,7 @@ async function run(
   const gameId = session.gameId;
   const savePath = "slot-1.json";
   const saveBytes = (): Uint8Array => new TextEncoder().encode(JSON.stringify({ gameId, tick: session.tick() }));
-  const saveRestored = await host.readBlob("saves", gameId, savePath) !== null;
+  const saveBlobPresent = await host.readBlob("saves", gameId, savePath) !== null;
 
   const onKeyDown = (event: KeyboardEvent): void => {
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) event.preventDefault();
@@ -212,8 +212,8 @@ async function run(
 
       // Prove the save path works on this host.
       const written = await host.writeBlob("saves", gameId, savePath, saveBytes());
-      const saveLabel = saveRestored ? `restored+written` : (written ? "written" : "failed");
-      setReport({ tick: session.tick(), stateHash: session.stateHash(), drawHash: frame.drawHash, board, player, moved, save: { path: savePath, written, restored: saveRestored } });
+      const saveLabel = `${saveBlobPresent ? "host blob present; " : ""}${written ? "written" : "write failed"}`;
+      setReport({ tick: session.tick(), stateHash: session.stateHash(), drawHash: frame.drawHash, board, player, moved, save: { path: savePath, written, blobPresent: saveBlobPresent } });
       status.textContent = [
         `tick ${session.tick()}`,
         `state ${session.stateHash()}`,
