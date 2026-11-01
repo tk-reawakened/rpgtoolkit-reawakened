@@ -68,7 +68,16 @@ import { collectStateGarbage, runEventsPhase } from "../events/dispatch.ts";
 import { applyEmitEffect, applyEmitterOp, EVENT_DISPATCH_WAIT, forgetEmitter, isEmitterMethod, isHostMethodDef, queueErrorEvent, queueNativeEvent, registerEmitter } from "../events/emitter.ts";
 import { GAME_EMITTER, type EventsSection } from "../events/model.ts";
 import { registerNativeListeners } from "../events/native.ts";
-import { classInfo, findMember, findMethod } from "./classes.ts";
+import {
+  classInfo,
+  classMethodDef,
+  classWalk,
+  findMember,
+  findMethod,
+  methodArities,
+  methodTearOffBlocked,
+  parseClassMethodDef,
+} from "./classes.ts";
 import { hostMethodDef, parseHostMethodDef } from "./host.ts";
 import {
   checkMemberAccess,
@@ -2006,6 +2015,46 @@ function performCallable(
   args: Arg[],
   pos: SourcePos,
 ): CallOutcome {
+  const classMethod = parseClassMethodDef(value.def);
+  if (classMethod !== null) {
+    const handle = value.receiver === null ? NaN : Number(value.receiver);
+    const receiver = Number.isSafeInteger(handle) ? findObject(vm, handle) : undefined;
+    if (receiver === undefined) {
+      throw new ScriptError("object.invalid", "bound class method receiver is not a live class instance", pos);
+    }
+    // OOP-10: every use finds the declaration in the running program's class
+    // table, exactly as a direct call does.
+    const arities = methodArities(program, receiver.className, classMethod.name);
+    if (arities.length === 0) {
+      throw new ScriptError(CALLABLE_UNKNOWN_DEF, `the callable's class method "${classMethod.name}" is not defined`, pos);
+    }
+    const method = findMethod(program, receiver.className, classMethod.name, args.length);
+    if (method === undefined || method.entry < 0) {
+      throw new ScriptError(CALLABLE_ARITY, `"${classMethod.name}" takes ${arities.join(" or ")} argument(s), got ${args.length}`, pos);
+    }
+    // The read applied R3-Q1 against the granting class, so the receiver must
+    // still be that class or a descendant: `bindThis` and a restore cannot move
+    // a legally obtained tear-off onto an unrelated class's private method.
+    if (!classWalk(program, receiver.className).includes(classMethod.className)) {
+      throw new ScriptError(
+        "object.inaccessible-member",
+        `a tear-off granted by "${classMethod.className}" cannot be called on "${receiver.className}"`,
+        pos,
+      );
+    }
+    frame.ip += 1;
+    thread.frames.push({
+      program: program.ref,
+      ip: method.entry,
+      locals: bindMethodLocals(method, args),
+      operands: [],
+      errorHandler: null,
+      autoLocal: frame.autoLocal,
+      objectHandle: handle,
+      objectClass: method.className ?? receiver.className,
+    });
+    return "continue";
+  }
   const hydrated = parseHostMethodDef(value.def);
   if (hydrated !== null) {
     const holder = value.receiver === null ? undefined : findObject(vm, Number(value.receiver));
@@ -3157,6 +3206,29 @@ export function stepThread(
           });
           frame.ip += 1;
           break;
+        }
+        if (op.op === "get_member_bound" && !isDictionary(record)) {
+          // OOP-10: the running program's class table answers, as it does for a
+          // direct call; the receiver's own program is not consulted.
+          if (
+            findMember(program, record.className, op.name) === undefined &&
+            methodArities(program, record.className, op.name).length > 0
+          ) {
+            // OOP-11: the read is what binds the method, so the legacy access rule
+            // (R3-Q1) is decided here, at the read, exactly where a direct call
+            // decides it; calling the resulting handle is not a second access, so a
+            // private tear-off an allowed read handed out stays callable.
+            if (methodTearOffBlocked(program, record.className, op.name, frame.objectClass)) {
+              throw new ScriptError("object.inaccessible-member", `method ${op.name} is private`, op.pos);
+            }
+            frame.operands.push({
+              value: { type: "callable", def: classMethodDef(record.className, op.name), captures: [], receiver: String(record.handle) },
+              // A method is not a stored member, so the value has no reference to alias.
+              ref: null,
+            });
+            frame.ip += 1;
+            break;
+          }
         }
         checkMemberAccess(program, record, op.name, frame.objectClass, op.pos);
         const value = readObjectValue(services, record, op.name);

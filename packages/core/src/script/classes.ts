@@ -11,6 +11,65 @@
 import type { MemberDef } from "./ast.ts";
 import type { CompiledClass, FunctionInfo, Program } from "./program.ts";
 
+/** Prefix for a saved callable that names a class-method tear-off. */
+const CLASS_METHOD_PREFIX = "@class-method:";
+
+/** The plain-data definition name of a bound class-method callable: the class that granted the read and the method name. */
+export function classMethodDef(className: string, name: string): string {
+  return `${CLASS_METHOD_PREFIX}${className}:${name}`;
+}
+
+/**
+ * The class that granted a tear-off read and the method name in a bound
+ * class-method definition, or `null` (OOP-11). The granting class is part of the
+ * value so `bindThis` and a restore cannot move a legally obtained tear-off onto
+ * an unrelated class and reach that class's private method.
+ */
+export function parseClassMethodDef(def: string): { readonly className: string; readonly name: string } | null {
+  if (!def.startsWith(CLASS_METHOD_PREFIX)) return null;
+  const rest = def.slice(CLASS_METHOD_PREFIX.length);
+  const colon = rest.indexOf(":");
+  if (colon <= 0 || colon === rest.length - 1) return null;
+  return { className: rest.slice(0, colon), name: rest.slice(colon + 1) };
+}
+
+/** The distinct implemented arities a class and its ancestors expose for `name`, nearest class first. */
+export function methodArities(program: Program, className: string, name: string): number[] {
+  const arities: number[] = [];
+  for (const current of classWalk(program, className)) {
+    const methods = classInfo(program, current)?.methods;
+    const list = methods !== undefined && Object.hasOwn(methods, name) ? methods[name] : undefined;
+    for (const method of list ?? []) {
+      if (method.entry < 0 || arities.includes(method.params.length)) continue;
+      arities.push(method.params.length);
+    }
+  }
+  return arities;
+}
+
+/**
+ * Whether a tear-off read of method `name` is blocked for a method running on
+ * `accessClass` (R3-Q1, OOP-11). The handle may dispatch to any overload, so the
+ * read is blocked when any declaration of the name in the OOP-8 walk is private
+ * and its declaring class is not the reader's: access is by class identity, the
+ * same comparison a direct call makes against the method it runs.
+ */
+export function methodTearOffBlocked(
+  program: Program,
+  className: string,
+  name: string,
+  accessClass: string | undefined,
+): boolean {
+  for (const current of classWalk(program, className)) {
+    const methods = classInfo(program, current)?.methods;
+    const list = methods !== undefined && Object.hasOwn(methods, name) ? methods[name] : undefined;
+    for (const method of list ?? []) {
+      if (method.access === "private" && accessClass !== current) return true;
+    }
+  }
+  return false;
+}
+
 /** The declaration of class `name` in `program`, or `undefined` when its table has none. */
 export function classInfo(program: Program, name: string): CompiledClass | undefined {
   return Object.hasOwn(program.classes, name) ? program.classes[name] : undefined;
