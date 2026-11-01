@@ -32,6 +32,8 @@ const proof = {
   saveProbeMeaning: "save.blobPresent means the host blob exists; the page does not restore game state",
   attachAttempts: [],
 };
+// Attach gets its own bounded deadline (see #1057): exponential backoff covers emulator/boot
+// jitter and devtools ECONNRESET, while board-entry assertions below remain strict and unretried.
 const ATTACH_TIMEOUT_MS = 180_000;
 const ATTACH_BACKOFF_INITIAL_MS = 500;
 const ATTACH_BACKOFF_MAX_MS = 8_000;
