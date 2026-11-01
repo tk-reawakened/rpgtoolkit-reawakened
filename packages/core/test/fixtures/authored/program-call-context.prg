@@ -1,5 +1,5 @@
 function readContext() {
-  return context.value
+    return context.value
 }
 context_root = context.value
 context_function = readContext()

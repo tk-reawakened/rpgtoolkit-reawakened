@@ -15,9 +15,9 @@
 spawn(48, 48, 24)
 log = ""
 for (round = 0; round < 6; round = round + 1) {
-  event = game.emitCancelable("beforeDamage", { dmg: 10 })
-  taken = hit(1, event.detail.dmg)
-  log = log + round + ":" + event.detail.dmg + ">" + taken + ";"
+    event = game.emitcancelable("beforeDamage", { dmg: 10 })
+    taken = hit(1, event.detail.dmg)
+    log = log + round + ":" + event.detail.dmg + ">" + taken + ";"
 }
 reward(1, 24)
 health = hpof(1)

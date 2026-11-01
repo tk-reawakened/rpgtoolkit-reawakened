@@ -2,7 +2,6 @@
   "checked": [
     "packages/core/test/fixtures/authored/battle-action-error.prg",
     "packages/core/test/fixtures/authored/battle-action-program.prg",
-    "packages/core/test/fixtures/authored/battle-action-wait.prg",
     "packages/core/test/fixtures/authored/battle-actions.prg",
     "packages/core/test/fixtures/authored/battle-ai-custom.prg",
     "packages/core/test/fixtures/authored/battle-ai-loop.prg",
@@ -14,14 +13,12 @@
     "packages/core/test/fixtures/authored/battle-decision-read.prg",
     "packages/core/test/fixtures/authored/battle-decision.prg",
     "packages/core/test/fixtures/authored/battle-facing-api.prg",
-    "packages/core/test/fixtures/authored/battle-loop.prg",
     "packages/core/test/fixtures/authored/battle-main-file-custom-fight-queries.prg",
     "packages/core/test/fixtures/authored/battle-main-file-custom-fight.prg",
     "packages/core/test/fixtures/authored/battle-outcome-first-run-program.prg",
     "packages/core/test/fixtures/authored/battle-outcome-game-over-restart.prg",
     "packages/core/test/fixtures/authored/battle-outcome-game-over.prg",
     "packages/core/test/fixtures/authored/battle-outcome-last-win.prg",
-    "packages/core/test/fixtures/authored/battle-outcome-levelup.prg",
     "packages/core/test/fixtures/authored/battle-outcome-loop.prg",
     "packages/core/test/fixtures/authored/battle-outcome-lose.prg",
     "packages/core/test/fixtures/authored/battle-outcome-run-program.prg",
@@ -35,13 +32,11 @@
     "packages/core/test/fixtures/authored/battle-status-api.prg",
     "packages/core/test/fixtures/authored/battle-status-error.prg",
     "packages/core/test/fixtures/authored/battle-status-record.prg",
-    "packages/core/test/fixtures/authored/battle-status-wait.prg",
     "packages/core/test/fixtures/authored/program-call-budget.prg",
     "packages/core/test/fixtures/authored/program-call-context.prg",
     "packages/core/test/fixtures/authored/program-call-deep.prg",
     "packages/core/test/fixtures/authored/program-call-done.prg",
     "packages/core/test/fixtures/authored/program-call-end.prg",
-    "packages/core/test/fixtures/authored/program-call-error.prg",
     "packages/core/test/fixtures/authored/program-call-handles.prg",
     "packages/core/test/fixtures/authored/program-call-local.prg",
     "packages/core/test/fixtures/authored/program-call-next.prg",
@@ -51,205 +46,17 @@
     "packages/core/test/fixtures/authored/program-call-run.prg",
     "packages/core/test/fixtures/authored/program-call-self.prg",
     "packages/core/test/fixtures/authored/program-call-stop.prg",
-    "packages/core/test/fixtures/authored/program-call-wait.prg",
     "stock/stock_battle/startup.prg",
     "stock/stock_menu/startup.prg",
     "stock/stock_rpg/startup.prg"
   ],
-  "wouldChange": [
-    {
-      "file": "packages/core/test/fixtures/authored/battle-action-program.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-action-wait.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-actions.prg",
-      "reasons": [
-        "indentation (brace depth, four spaces)",
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-ai-custom.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command",
-        "indentation (brace depth, four spaces)"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-ai.prg",
-      "reasons": [
-        "indentation (brace depth, four spaces)"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-custom-api.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-custom-fight.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command",
-        "indentation (brace depth, four spaces)"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-damage.prg",
-      "reasons": [
-        "indentation (brace depth, four spaces)",
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-loop.prg",
-      "reasons": [
-        "indentation (brace depth, four spaces)",
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-main-file-custom-fight-queries.prg",
-      "reasons": [
-        "indentation (brace depth, four spaces)",
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-main-file-custom-fight.prg",
-      "reasons": [
-        "indentation (brace depth, four spaces)",
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-outcome-levelup.prg",
-      "reasons": [
-        "indentation (brace depth, four spaces)",
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-outcome-loop.prg",
-      "reasons": [
-        "indentation (brace depth, four spaces)"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-replacement-package.prg",
-      "reasons": [
-        "indentation (brace depth, four spaces)",
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-replacement-start.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-scripts/ff.prg",
-      "reasons": [
-        "indentation (brace depth, four spaces)",
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-scripts/zelda.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command",
-        "indentation (brace depth, four spaces)"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-status-record.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/battle-status-wait.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/program-call-context.prg",
-      "reasons": [
-        "indentation (brace depth, four spaces)"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/program-call-deep.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/program-call-error.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command",
-        "indentation (brace depth, four spaces)"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/program-call-handles.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/program-call-next.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/program-call-replace-inside.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/program-call-replacement.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/program-call-self.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "packages/core/test/fixtures/authored/program-call-wait.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "stock/stock_battle/startup.prg",
-      "reasons": [
-        "indentation (brace depth, four spaces)",
-        "canonical lower-case spelling of a registered command"
-      ]
-    },
-    {
-      "file": "stock/stock_menu/startup.prg",
-      "reasons": [
-        "canonical lower-case spelling of a registered command",
-        "indentation (brace depth, four spaces)"
-      ]
-    }
-  ]
+  "tk2": [
+    "packages/core/test/fixtures/authored/battle-action-wait.prg",
+    "packages/core/test/fixtures/authored/battle-loop.prg",
+    "packages/core/test/fixtures/authored/battle-outcome-levelup.prg",
+    "packages/core/test/fixtures/authored/battle-status-wait.prg",
+    "packages/core/test/fixtures/authored/program-call-error.prg",
+    "packages/core/test/fixtures/authored/program-call-wait.prg"
+  ],
+  "wouldChange": []
 }

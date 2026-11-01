@@ -31,48 +31,48 @@ seenActorSource = context.actor.source
 seenActorX = context.actor.x
 seenActorLayer = context.actor.layer
 seenProgram = context.program
-seenSource = sourceHandle()
-seenTarget = targetHandle()
+seenSource = sourcehandle()
+seenTarget = targethandle()
 seenContext = context
 
 if (customMode != "record" && customMode != "fight-nopackage") {
   // The stock loop is the battle; this program only spends the players' turns. A player kills every enemy at once
   // and an enemy does nothing, so each scenario reaches outcome 2 without any AI or data request.
-  stockBattle.turn = (party, index) => {
-    local(player)
-    local(enemy)
-    local(enemyIndex) = 0
-    local(enemyCount)
-    if (party == 1) {
-      turnCount = turnCount + 1
-      player = battle.fighter(1, index)
-      enemyCount = battle.partySize(0)
-      while (enemyIndex < enemyCount) {
-        enemy = battle.fighter(0, enemyIndex)
-        physical({ source: player, target: enemy, amount: 999 })
-        enemyIndex = enemyIndex + 1
-      }
+    stockBattle.turn = (party, index) => {
+        local(player)
+        local(enemy)
+        local(enemyIndex) = 0
+        local(enemyCount)
+        if (party == 1) {
+            turnCount = turnCount + 1
+            player = battle.fighter(1, index)
+            enemyCount = battle.partySize(0)
+            while (enemyIndex < enemyCount) {
+                enemy = battle.fighter(0, enemyIndex)
+                physical({ source: player, target: enemy, amount: 999 })
+                enemyIndex = enemyIndex + 1
+            }
+        }
+        return 0
     }
-    return 0
-  }
 }
 
 if (customMode == "fight-one") {
-  FightEnemy("slime.ene", context.board.background)
+    fightenemy("slime.ene", context.board.background)
 }
 if (customMode == "fight-order") {
-  FightEnemy("bat.ene", "slime.ene", "bat.ene", context.board.background)
+    fightenemy("bat.ene", "slime.ene", "bat.ene", context.board.background)
 }
 if (customMode == "fight-four") {
-  FightEnemy("slime.ene", "bat.ene", "slime.ene", "bat.ene", context.board.background)
+    fightenemy("slime.ene", "bat.ene", "slime.ene", "bat.ene", context.board.background)
 }
 if (customMode == "fight-five") {
-  FightEnemy("slime.ene", "bat.ene", "slime.ene", "bat.ene", "slime.ene", context.board.background)
+    fightenemy("slime.ene", "bat.ene", "slime.ene", "bat.ene", "slime.ene", context.board.background)
 }
 if (customMode == "fight-none") {
-  FightEnemy(context.board.background)
+    fightenemy(context.board.background)
 }
 if (customMode == "fight-nopackage") {
-  FightEnemy("slime.ene", context.board.background)
+    fightenemy("slime.ene", context.board.background)
 }
 afterFight = afterFight + 1

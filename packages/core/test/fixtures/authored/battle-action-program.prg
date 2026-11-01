@@ -7,8 +7,8 @@ global(programContextTarget)
 global(programContextLabel)
 global(programContextValue)
 programCalls = programCalls + 1
-programSource = sourceHandle()
-programTarget = targetHandle()
+programSource = sourcehandle()
+programTarget = targethandle()
 programContextSource = context.source
 programContextTarget = context.target
 programContextLabel = context.label

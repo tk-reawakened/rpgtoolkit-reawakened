@@ -27,55 +27,55 @@ queryCalls = 0
 queryAfterFight = 0
 
 function mainFileQueryLoop() {
-  local(enemy)
-  local(enemy2)
-  local(hero)
-  local(hero2)
-  queryCalls = queryCalls + 1
+    local(enemy)
+    local(enemy2)
+    local(hero)
+    local(hero2)
+    queryCalls = queryCalls + 1
 
-  enemy = battle.fighter(0, 0)
-  enemy2 = battle.fighter(0, 1)
-  hero = battle.fighter(1, 0)
-  hero2 = battle.fighter(1, 1)
+    enemy = battle.fighter(0, 0)
+    enemy2 = battle.fighter(0, 1)
+    hero = battle.fighter(1, 0)
+    hero2 = battle.fighter(1, 1)
 
   // Callback 121: each handle's own display name.
-  queryEnemyName = enemy.name
-  queryEnemy2Name = enemy2.name
-  queryHeroName = hero.name
-  queryHero2Name = hero2.name
+    queryEnemyName = enemy.name
+    queryEnemy2Name = enemy2.name
+    queryHeroName = hero.name
+    queryHero2Name = hero2.name
 
   // Callback 122: the animation file the source asset names for each ruled stance. Enemies store
   // REST, FIGHT, DEFEND, SPECIAL MOVE, DIE; characters store FIGHT, DEFEND, SPECIAL MOVE, DIE, REST.
-  queryEnemyFight = fighteranimationfile(enemy, "fight")
-  queryEnemyDefend = fighteranimationfile(enemy, "defend")
-  queryEnemySpecial = fighteranimationfile(enemy, "special move")
-  queryEnemyDie = fighteranimationfile(enemy, "die")
-  queryEnemyRest = fighteranimationfile(enemy, "rest")
-  queryHeroFight = fighteranimationfile(hero, "fight")
-  queryHeroDefend = fighteranimationfile(hero, "defend")
-  queryHeroSpecial = fighteranimationfile(hero, "special move")
-  queryHeroDie = fighteranimationfile(hero, "die")
-  queryHeroRest = fighteranimationfile(hero, "rest")
-  queryEnemyAttackAlias = fighteranimationfile(enemy, "ATTACK")
+    queryEnemyFight = fighteranimationfile(enemy, "fight")
+    queryEnemyDefend = fighteranimationfile(enemy, "defend")
+    queryEnemySpecial = fighteranimationfile(enemy, "special move")
+    queryEnemyDie = fighteranimationfile(enemy, "die")
+    queryEnemyRest = fighteranimationfile(enemy, "rest")
+    queryHeroFight = fighteranimationfile(hero, "fight")
+    queryHeroDefend = fighteranimationfile(hero, "defend")
+    queryHeroSpecial = fighteranimationfile(hero, "special move")
+    queryHeroDie = fighteranimationfile(hero, "die")
+    queryHeroRest = fighteranimationfile(hero, "rest")
+    queryEnemyAttackAlias = fighteranimationfile(enemy, "ATTACK")
 
-  battle.finish(2)
-  return 0
+    battle.finish(2)
+    return 0
 }
 
 // The registered layer's engine binding is the program's own `battle` command. With stock_battle absent this is the
 // only battle handler in the game, so the queries run through the public surface and nothing else.
 function battle() {
-  mainFileQueryLoop()
+    mainFileQueryLoop()
 }
 
-registerPlugin({
-  name: "main_file_queries",
-  commands: {
-    battle: (next) => {
-      return mainFileQueryLoop()
+registerplugin({
+    name: "main_file_queries",
+    commands: {
+        battle: (next) => {
+            return mainFileQueryLoop()
+        }
     }
-  }
 })
 
-FightEnemy("slime.ene", "bat.ene", context.board.background)
+fightenemy("slime.ene", "bat.ene", context.board.background)
 queryAfterFight = queryAfterFight + 1

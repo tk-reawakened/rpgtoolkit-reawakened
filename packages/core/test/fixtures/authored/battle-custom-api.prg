@@ -27,15 +27,15 @@ heroPercent = battle.chargePercent(1, 0)
 coverage = coverage + "charge;"
 
 hero.hp = 9
-hero.maxHp = 21
+hero.maxhp = 21
 hero.smp = 5
-hero.maxSmp = 9
+hero.maxsmp = 9
 hero.fp = 6
 hero.dp = 7
 heroHp = hero.hp
-heroMaxHp = hero.maxHp
+heroMaxHp = hero.maxhp
 heroSmp = hero.smp
-heroMaxSmp = hero.maxSmp
+heroMaxSmp = hero.maxsmp
 heroFp = hero.fp
 heroDp = hero.dp
 coverage = coverage + "stats;"
@@ -58,7 +58,7 @@ enemy2.emit("defeated", { actorId: enemy2.id })
 coverage = coverage + "damage-defeated;"
 
 seededRoll = random(100)
-pixelText(12, 18, "Custom fight " + seededRoll)
+pixeltext(12, 18, "Custom fight " + seededRoll)
 coverage = coverage + "draw;"
 wait(pressed)
 coverage = coverage + "input;"

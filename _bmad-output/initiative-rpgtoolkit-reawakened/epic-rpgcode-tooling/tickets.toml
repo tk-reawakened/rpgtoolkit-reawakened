@@ -234,3 +234,20 @@ references = [
   "rule - ~/.agents/skills/bmad-ticket/references/validate-checks.md (Set: a closing refactor sweep)",
   "plan - every entry's plan file in this folder, once written",
 ]
+
+[[entry]]
+id = 13
+tracker_id = "#996"
+type = "story"
+title = "Canonical-formatted corpus: apply the formatter once and empty the baseline"
+description = "Applies the 10.7 formatter's rewrite to `stock/` and the 3.1 authored fixtures in one reviewable commit, so `fmt --check` is a gate rather than a comparison; re-records the pinned hashes that R-42's source hash moves for a text-only edit, and leaves `golden/format-baseline.json` empty. The six Toolkit 2.x loose-text fixtures are refused by the formatter's dialect guard (`tk2-dialect`) and are not in the checked set."
+verify = "Every 3.1 file in the set is canonical (formatting changes nothing); the six TK2 files come back byte-identical with the `tk2-dialect` reason and `--check` counts them as skipped; every re-recorded hash is explained by a source-hash-only change with identical lowered instructions; the full suite and golden set pass with no engine golden moved."
+covers = ["CAP-14"]
+after = [7]
+hitl = false
+risk = "low"
+references = [
+  "spec - docs/spec/engine/rpgcode-tooling.md#tool-4 and #tool-7",
+  "code - packages/script-tools/src/format.ts (formatSource, formatCheck)",
+  "golden - golden/format-baseline.json, golden/actors/battle-scripts.json",
+]

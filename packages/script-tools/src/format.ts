@@ -24,14 +24,28 @@ const KEYWORDS: readonly string[] = [
   "killallredirects", "break", "continue",
 ];
 
+/**
+ * The source dialect the formatter may rewrite. A Toolkit 2.x file's loose text
+ * lines are dialogue **data**, not code, so the formatter refuses it rather than
+ * rewriting what a game says; converting TK2 text is the dialect quick fixes' job
+ * (docs/spec/engine/rpgcode-tooling.md#tool-4).
+ */
+export type FormatDialect = "tk3" | "tk2";
+
+export type FormatSkipReason = "tk2-dialect";
+
 export type FormatOptions = {
   /** Spaces per brace depth; default four. */
   readonly indentWidth?: number;
+  /** The dialect the source is written in. Required, so no caller formats TK2 text by accident. */
+  readonly dialect: FormatDialect;
 };
 
 export type FormatResult = {
   readonly text: string;
   readonly changed: boolean;
+  /** Present when the formatter deliberately did not touch the file; `text` is the source unchanged. */
+  readonly skipped?: FormatSkipReason;
 };
 
 /** Every name the 3.1 reader spells canonically in lower case: keywords and registered commands. */
@@ -59,7 +73,8 @@ function isOpaqueLine(text: string): boolean {
  * Re-indent and normalise one source text. The rewrite is a pure function of the
  * brace depth and the token spells, so formatting formatted text is a no-op.
  */
-export function formatSource(source: string, options: FormatOptions = {}): FormatResult {
+export function formatSource(source: string, options: FormatOptions): FormatResult {
+  if (options.dialect === "tk2") return { text: source, changed: false, skipped: "tk2-dialect" };
   const indentWidth = options.indentWidth ?? 4;
   const names = canonicalNames();
   const lines = source.split("\n");
@@ -164,6 +179,38 @@ function stripStringsAndComments(line: string): string {
 }
 
 /** `--check` semantics: `true` when formatting would change the text (D-9 exit code 1). */
-export function formatChanged(source: string, options: FormatOptions = {}): boolean {
+export function formatChanged(source: string, options: FormatOptions): boolean {
   return formatSource(source, options).changed;
+}
+
+/** One file a bulk check was given. */
+export type FormatFile = {
+  readonly path: string;
+  readonly source: string;
+  readonly dialect: FormatDialect;
+};
+
+export type FormatCheck = {
+  /** The files formatting would change (D-9 exit 1). */
+  readonly changed: readonly string[];
+  /** The files the formatter refused, with the reason; never counted as clean. */
+  readonly skipped: readonly { readonly path: string; readonly reason: FormatSkipReason }[];
+};
+
+/**
+ * The bulk answer behind `tkr script fmt --check`: which files would change, and
+ * which were skipped and why. A skipped file is never reported as clean.
+ */
+export function formatCheck(files: readonly FormatFile[], options: { readonly indentWidth?: number } = {}): FormatCheck {
+  const changed: string[] = [];
+  const skipped: { path: string; reason: FormatSkipReason }[] = [];
+  for (const file of files) {
+    const result = formatSource(file.source, {
+      dialect: file.dialect,
+      ...(options.indentWidth === undefined ? {} : { indentWidth: options.indentWidth }),
+    });
+    if (result.skipped !== undefined) skipped.push({ path: file.path, reason: result.skipped });
+    else if (result.changed) changed.push(file.path);
+  }
+  return { changed, skipped };
 }

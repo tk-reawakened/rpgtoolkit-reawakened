@@ -53,95 +53,95 @@ dealt = 0
 total = 0
 
 if (watchfallen == 1) {
-  on(target, "fallen", (event) => { fallen1 = fallen1 + 1 })
+    on(target, "fallen", (event) => { fallen1 = fallen1 + 1 })
 }
 
 if (hookmode == "record") {
-  stockBattle.animate = (file, fighter) => {
-    order = order + file + "@" + fighter.id + ":" + fighter.hp + ":" + fighter.smp + ";"
-  }
-  executeProgram = (file, context) => {
-    order = order + "P:" + file + ":" + context.source + ">" + context.target + ":" + getstatus(target, 0) + ";"
-  }
+    stockBattle.animate = (file, fighter) => {
+        order = order + file + "@" + fighter.id + ":" + fighter.hp + ":" + fighter.smp + ";"
+    }
+    executeprogram = (file, context) => {
+        order = order + "P:" + file + ":" + context.source + ">" + context.target + ":" + getstatus(target, 0) + ";"
+    }
 }
 if (hookmode == "wait") {
-  stockBattle.animate = (file, fighter) => {
-    order = order + "w1 " + file + ";"
-    threadSleep(getThreadId(), 0.05)
-    order = order + "w2 " + file + ";"
-  }
-  executeProgram = (file, context) => {
-    order = order + "p1 " + file + ";"
-    threadSleep(getThreadId(), 0.05)
-    order = order + "p2 " + file + ";"
-  }
+    stockBattle.animate = (file, fighter) => {
+        order = order + "w1 " + file + ";"
+        threadsleep(getthreadid(), 0.05)
+        order = order + "w2 " + file + ";"
+    }
+    executeprogram = (file, context) => {
+        order = order + "p1 " + file + ";"
+        threadsleep(getthreadid(), 0.05)
+        order = order + "p2 " + file + ";"
+    }
 }
 
 if (scenario == "attack") {
-  dealt = stockBattle.attack(attacker, target)
+    dealt = stockBattle.attack(attacker, target)
 }
 if (scenario == "attackamount") {
-  dealt = stockBattle.attackAmount(attacker, target, amountin, poolin)
+    dealt = stockBattle.attackAmount(attacker, target, amountin, poolin)
 }
 if (scenario == "stream") {
-  for (i = 0; i < rounds; i = i + 1) {
-    total = total + stockBattle.attack(attacker, target)
-    total = total + stockBattle.attackAmount(target, attacker, 3 + i, "smp")
-  }
+    for (i = 0; i < rounds; i = i + 1) {
+        total = total + stockBattle.attack(attacker, target)
+        total = total + stockBattle.attackAmount(target, attacker, 3 + i, "smp")
+    }
 }
 if (scenario == "special") {
-  moved = stockBattle.special(attacker, target, filein)
-  movedhp = moved.hp
-  movedsmp = moved.smp
-  movedcost = moved.cost
+    moved = stockBattle.special(attacker, target, filein)
+    movedhp = moved.hp
+    movedsmp = moved.smp
+    movedcost = moved.cost
 }
 if (scenario == "item") {
-  used = stockBattle.item(attacker, target, filein, null)
-  usedhp = used.hp
-  usedsmp = used.smp
+    used = stockBattle.item(attacker, target, filein, null)
+    usedhp = used.hp
+    usedsmp = used.smp
 }
 if (scenario == "itemdispatch") {
-  on(target, "beforeDamage", (event) => {
-    bd1 = bd1 + 1
-    itemDetail = event.detail
-    itemDetailSource = event.detail.source
-    itemDetailTarget = event.detail.target
-    itemDetailDamage = event.detail.damage
-    if (itemMutate == 1) {
-      event.detail.damage = event.detail.damage - 40
-      itemMutatedDamage = event.detail.damage
-    }
-    if (itemCancel == 1) {
-      event.cancel()
-    }
-  })
-  used = stockBattle.item(attacker, target, filein, null)
-  usedhp = used.hp
-  usedsmp = used.smp
+    on(target, "beforeDamage", (event) => {
+        bd1 = bd1 + 1
+        itemDetail = event.detail
+        itemDetailSource = event.detail.source
+        itemDetailTarget = event.detail.target
+        itemDetailDamage = event.detail.damage
+        if (itemMutate == 1) {
+            event.detail.damage = event.detail.damage - 40
+            itemMutatedDamage = event.detail.damage
+        }
+        if (itemCancel == 1) {
+            event.cancel()
+        }
+    })
+    used = stockBattle.item(attacker, target, filein, null)
+    usedhp = used.hp
+    usedsmp = used.smp
 }
 if (scenario == "programcontext") {
-  executeProgram(filein, { source: "" + attacker.id, target: "" + target.id, label: "extra", value: 17 })
+    executeprogram(filein, { source: "" + attacker.id, target: "" + target.id, label: "extra", value: 17 })
 }
 if (scenario == "all") {
-  on(target, "beforeDamage", (event) => { bd1 = bd1 + 1 })
-  on(second, "beforeDamage", (event) => { bd2 = bd2 + 1 })
-  on(target, "fallen", (event) => { fallen1 = fallen1 + 1 })
-  on(second, "fallen", (event) => { fallen2 = fallen2 + 1 })
-  dealt = attackall({ source: attacker, first: target, second: second, third: null, amount: amountin })
+    on(target, "beforeDamage", (event) => { bd1 = bd1 + 1 })
+    on(second, "beforeDamage", (event) => { bd2 = bd2 + 1 })
+    on(target, "fallen", (event) => { fallen1 = fallen1 + 1 })
+    on(second, "fallen", (event) => { fallen2 = fallen2 + 1 })
+    dealt = attackall({ source: attacker, first: target, second: second, third: null, amount: amountin })
 }
 if (scenario == "drainall") {
-  dealt = drainall({ source: attacker, first: target, second: second, third: null, amount: amountin })
+    dealt = drainall({ source: attacker, first: target, second: second, third: null, amount: amountin })
 }
 if (scenario == "parked") {
-  on(target, "beforeDamage", (event) => {
-    order = order + "b1;"
-    threadSleep(getThreadId(), 0.05)
-    order = order + "b2;"
-  })
-  on(target, "fallen", (event) => { fallen1 = fallen1 + 1 })
-  dealt = attackall({ source: attacker, first: target, second: null, third: null, amount: amountin })
+    on(target, "beforeDamage", (event) => {
+        order = order + "b1;"
+        threadsleep(getthreadid(), 0.05)
+        order = order + "b2;"
+    })
+    on(target, "fallen", (event) => { fallen1 = fallen1 + 1 })
+    dealt = attackall({ source: attacker, first: target, second: null, third: null, amount: amountin })
 }
-postSource = sourceHandle()
-postTarget = targetHandle()
+postSource = sourcehandle()
+postTarget = targethandle()
 ended = 1
 end()

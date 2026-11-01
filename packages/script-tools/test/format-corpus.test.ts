@@ -39,7 +39,7 @@ test("the corpus rewrites are real, not no-ops: two named files change and still
   const named = ["fixtures/legacy/ChimeranEmpire/Prg/Blacksmith.prg", "fixtures/legacy/ChimeranEmpire/Prg/Project.prg"];
   for (const file of named) {
     const source = readFileSync(join(repoRoot, file), "utf8");
-    const formatted = formatSource(source).text;
+    const formatted = formatSource(source, { dialect: "tk3" }).text;
     ok(formatted !== source, `${file} is actually rewritten`);
     const before = lowered(source);
     const after = lowered(formatted);
@@ -55,8 +55,8 @@ test("the fetched corpus formats idempotently and preserves every program that c
   const mismatched: string[] = [];
   for (const file of files) {
     const source = readFileSync(file, "utf8");
-    const once = formatSource(source).text;
-    equal(formatSource(once).text, once, `${relative(repoRoot, file)} is idempotent`);
+    const once = formatSource(source, { dialect: "tk3" }).text;
+    equal(formatSource(once, { dialect: "tk3" }).text, once, `${relative(repoRoot, file)} is idempotent`);
     const before = lowered(source);
     if (before === null) continue;
     const after = lowered(once);

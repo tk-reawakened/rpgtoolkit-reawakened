@@ -15,10 +15,10 @@
 spawn(9999, 9999, 1000)
 log = ""
 for (round = 0; round < 6; round = round + 1) {
-  roll = 900 + random(600)
-  event = game.emitCancelable("beforeDamage", { dmg: roll })
-  taken = hit(1, event.detail.dmg)
-  log = log + round + ":" + roll + ">" + taken + ";"
+    roll = 900 + random(600)
+    event = game.emitcancelable("beforeDamage", { dmg: roll })
+    taken = hit(1, event.detail.dmg)
+    log = log + round + ":" + roll + ">" + taken + ";"
 }
 reward(1, 1500)
 health = hpof(1)
