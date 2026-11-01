@@ -35,6 +35,7 @@ jobs:
       - run: pnpm command-docs:test
       - run: node tools/command-docs/check.mjs
       - run: pnpm no-skips:test
+      - run: pnpm make-package:test
       - run: node tools/no-skips/run.mjs --verify-groups
       - run: pnpm icons:test
   unit:

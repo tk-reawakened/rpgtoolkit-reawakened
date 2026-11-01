@@ -15,6 +15,7 @@ test("demo boots in Chromium to the committed tick-120 hashes", async ({ page })
   console.log(`demo boot to report: ${seconds.toFixed(2)}s`, JSON.stringify(report));
 
   expect(report["error"]).toBeUndefined();
+  expect(report["package"]).toBeNull();
   expect(report["tick"]).toBe(120);
   expect(report["stateHash"]).toBe("bff947dce3a11b4f");
   expect(report["drawHash"]).toBe("9a40be8a0b5ca816");
