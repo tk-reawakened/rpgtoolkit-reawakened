@@ -14,9 +14,25 @@ const i16 = (b: Uint8Array, o: number): number => {
 const u32 = (b: Uint8Array, o: number): number =>
   (b[o] ?? 0) + (b[o + 1] ?? 0) * 0x100 + (b[o + 2] ?? 0) * 0x10000 + (b[o + 3] ?? 0) * 0x1000000;
 
-function fail(code: SourceError["code"], detail: string): Result<SourceVoice, SourceError> {
-  return err<SourceVoice, SourceError>({ code, detail });
+function fail<T = SourceVoice>(code: SourceError["code"], detail: string): Result<T, SourceError> {
+  return err<T, SourceError>({ code, detail });
 }
+
+/**
+ * A WAV decoded once, off the playback path: interleaved float samples already resampled to `outputRateHz`, plus the
+ * file's own rate and frame count (from which a voice's `lengthTicks` is computed). It is a pure function of the bytes
+ * and the rate, so a worker may make it and the host may open a voice from it with no further decoding
+ * (`preparePcm`, `openPrepared`). `samples` owns a tight buffer, so a worker can transfer it.
+ */
+export type PreparedPcm = {
+  readonly kind: "pcm";
+  readonly channels: 1 | 2;
+  readonly outputRateHz: number;
+  /** Interleaved samples at `outputRateHz`; the same samples `createPcmSource` makes. */
+  readonly samples: Float32Array;
+  readonly sourceRate: number;
+  readonly sourceFrames: number;
+};
 
 interface WavData {
   readonly format: 1 | 2 | 17;
@@ -260,12 +276,12 @@ class PcmVoice implements SourceVoice {
   private fadeFrames = 0;
   private fadeElapsed = 0;
 
-  constructor(samples: Float32Array, channels: number, sourceRate: number, outputRate: number, sourceFrames: number) {
-    this.channels = channels;
-    this.rateHz = outputRate;
-    this.samples = resample(samples, channels, sourceRate, outputRate);
-    this.lengthFrames = Math.floor(this.samples.length / channels);
-    this.lengthTicks = Math.max(1, Math.floor((120 * sourceFrames + sourceRate) / (2 * sourceRate)));
+  constructor(prepared: PreparedPcm) {
+    this.channels = prepared.channels;
+    this.rateHz = prepared.outputRateHz;
+    this.samples = prepared.samples;
+    this.lengthFrames = Math.floor(this.samples.length / prepared.channels);
+    this.lengthTicks = Math.max(1, Math.floor((120 * prepared.sourceFrames + prepared.sourceRate) / (2 * prepared.sourceRate)));
   }
 
   get ended(): boolean { return !this.loop && this.lengthFrames > 0 && this.position >= this.lengthFrames; }
@@ -319,6 +335,40 @@ class PcmVoice implements SourceVoice {
   }
 }
 
+/**
+ * Decode a WAV (PCM, IMA ADPCM or MS ADPCM) once and resample it to `outputRateHz`. Pure: the same bytes and rate always
+ * give the same samples, which is what lets a worker prepare audio the host later opens (`openPrepared`) and what
+ * `createPcmSource` itself uses, so the two paths cannot drift. Never throws.
+ */
+export function preparePcm(bytes: Uint8Array, outputRateHz: number): Result<PreparedPcm, SourceError> {
+  try {
+    const wav = parseWav(bytes);
+    if ("code" in wav) return fail<PreparedPcm>(wav.code, wav.detail);
+    const decoded = wav.format === 1 ? decodePcm(wav) : wav.format === 17 ? decodeIma(wav) : decodeMsAdpcm(wav);
+    const frames = wav.frames ?? Math.floor(decoded.length / wav.channels);
+    if (frames <= 0 || decoded.length === 0) return fail<PreparedPcm>("format.malformed", "WAV contains no sample frames");
+    const resampled = resample(decoded, wav.channels, wav.rate, outputRateHz);
+    // A tight buffer of its own: a decoder may hand back a view, and a worker transfers the whole buffer.
+    const samples = resampled.byteOffset === 0 && resampled.buffer.byteLength === resampled.byteLength
+      ? resampled
+      : resampled.slice();
+    return opened<PreparedPcm>({ kind: "pcm", channels: wav.channels, outputRateHz, samples, sourceRate: wav.rate, sourceFrames: frames });
+  } catch (error) {
+    return fail<PreparedPcm>("format.malformed", error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Open a voice from audio `preparePcm` already made, with no decoding. The prepared rate must be the host's output rate:
+ * a mismatch is an error and never a silent resample, so the caller decodes on the host instead.
+ */
+export function openPrepared(prepared: PreparedPcm, env: SourceEnv): Result<SourceVoice, SourceError> {
+  if (prepared.outputRateHz !== env.outputRateHz) {
+    return fail("source.failed", `audio was prepared at ${prepared.outputRateHz} Hz but the output runs at ${env.outputRateHz} Hz`);
+  }
+  return opened<SourceVoice>(new PcmVoice(prepared));
+}
+
 /** Decode WAV PCM/ADPCM into deterministic stereo/mono PCM at the requested output rate. */
 export function createPcmSource(id = "pcm"): AudioSource {
   return {
@@ -327,16 +377,8 @@ export function createPcmSource(id = "pcm"): AudioSource {
     detect: (header) => header.length >= 12 && tag(header, 0) === "RIFF" && tag(header, 8) === "WAVE",
     bank: null,
     open(bytes, env) {
-      try {
-        const wav = parseWav(bytes);
-        if ("code" in wav) return fail(wav.code, wav.detail);
-        const decoded = wav.format === 1 ? decodePcm(wav) : wav.format === 17 ? decodeIma(wav) : decodeMsAdpcm(wav);
-        const frames = wav.frames ?? Math.floor(decoded.length / wav.channels);
-        if (frames <= 0 || decoded.length === 0) return fail("format.malformed", "WAV contains no sample frames");
-        return opened<SourceVoice>(new PcmVoice(decoded, wav.channels, wav.rate, env.outputRateHz, frames));
-      } catch (error) {
-        return fail("format.malformed", error instanceof Error ? error.message : String(error));
-      }
+      const prepared = preparePcm(bytes, env.outputRateHz);
+      return prepared.ok ? openPrepared(prepared.value, env) : prepared;
     },
   };
 }
