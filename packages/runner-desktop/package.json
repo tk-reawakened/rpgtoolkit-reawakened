@@ -1,0 +1,17 @@
+{
+  "name": "@tk-reawakened/runner-desktop",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node ../../tools/desktop/build.mjs"
+  },
+  "dependencies": {
+    "@tk-reawakened/core": "workspace:*",
+    "@tk-reawakened/render-webgl2": "workspace:*",
+    "@tk-reawakened/runner-harness": "workspace:*",
+    "@tk-reawakened/runner-web": "workspace:*",
+    "@tk-reawakened/synth": "workspace:*"
+  }
+}
