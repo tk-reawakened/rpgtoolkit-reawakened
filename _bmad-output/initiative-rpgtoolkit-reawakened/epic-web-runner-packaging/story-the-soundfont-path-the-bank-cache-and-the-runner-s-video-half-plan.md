@@ -3,7 +3,7 @@ title: "The SoundFont path, the bank cache and the runner's video half"
 type: 'feature'
 ticket: 6
 created: '2026-10-31'
-status: in-progress
+status: done
 tracker_id: "#931"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/931"
 baseline_revision: 'ccffeee9'
@@ -70,6 +70,16 @@ played-video fixture (9.7).
   paths, hold/release ordering, unknown `reqId` ignored, and the presentation CSS.
 - Chromium: `tools/browser/tests/audio.spec.ts` now also asserts the bank's SHA-256 and a non-silent 120-tick MIDI
   render; `tools/browser/tests/video.spec.ts` asserts the three reply paths, the hold/release and the CSS.
+
+## Landing
+
+Merged as **`888db1c6`** — "feat(9.6): the SoundFont path, the SHA-256 bank cache and the runner's video half" (PR
+[#991](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/991), squash; #931 closed as completed). One commit.
+
+TK-16 loads and renders in Node and in headless Chromium, and the notice's SHA-256 is verified by our own implementation.
+The spec's stale "rank 2/3/4/5" is the one docs change this entry made, and no licence record changed. CI run
+41255342953 green on every check, including `unit (synth)`, `unit (runner-web)`, the `browser` lane (6 tests) and the
+coverage `gate`.
 
 ## Out of scope
 
