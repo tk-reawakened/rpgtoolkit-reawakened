@@ -50,7 +50,12 @@
 //     directory's own reference timeline, plus tiny PCM, MS-ADPCM, IMA-ADPCM and MIDI files
 //     with hand-worked lengths. No state or cue hashes; no import from `packages/core`.
 //     Written to `packages/core/test/fixtures/audio/`.
+//   * the Save/Load fixture (ticket #934): a tiny package (loose `game/` folder and `saveload.tpk`) whose board enter
+//     program performs a real `Save("slot")` and, on a second launch, a real `Load("slot")`, plus the expectation
+//     `saveload.expect.json` recorded from the real engine by `pnpm saveload:record` and bound to the `.tpk`'s
+//     SHA-256 (see the Save/Load section below). Written to `packages/core/test/fixtures/saveload/`.
 
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -464,7 +469,7 @@ const i32 = (value) => le32(value);
  * The parser's strings are NUL-terminated CP1252 and all numeric fields are
  * little-endian signed values.
  */
-function authoredBoard({ sizeX, sizeY, sizeL, coordType, lut, cells, shades, lights = [], ambient = [0, 0, 0], start = [1, 1, 1] }) {
+function authoredBoard({ sizeX, sizeY, sizeL, coordType, lut, cells, shades, lights = [], ambient = [0, 0, 0], start = [1, 1, 1], enterPrg = "" }) {
   const grid = (coordType & 3) === 2 ? sizeX + sizeY : sizeX;
   const gridHeight = (coordType & 3) === 2 ? grid : sizeY;
   const total = grid * gridHeight * sizeL;
@@ -508,7 +513,7 @@ function authoredBoard({ sizeX, sizeY, sizeL, coordType, lut, cells, shades, lig
     ...Array.from({ length: sizeL + 1 }, (_, layer) => zstr(`layer-${layer + 1}`)),
     zstr(""), zstr(""), zstr(""), zstr(""), // N/S/E/W links
     zstr(""), i32(0), i32(0), // background image/type/colour
-    zstr(""), zstr(""), zstr(""), // music, enter program, battle background
+    zstr(""), zstr(enterPrg), zstr(""), // music, enter program, battle background
     i16(-1), i16(0), i16(0), // battle skill/allow battles/disable saving
     i16(ambient[0]), i16(ambient[1]), i16(ambient[2]),
     i16(start[0]), i16(start[1]), i16(start[2]),
@@ -745,6 +750,118 @@ export function authoredFixtures() {
   ];
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// The Save/Load fixture (ticket #934, plan AC2).
+//
+// A tiny boot-mode game whose board enter program performs a real `Save("slot")` and, on the next launch, a real
+// `Load("slot")` (docs/spec/engine/main-loop-and-startup.md#e-120, #e-121; docs/spec/formats/save-game.md
+// "Reawakened full-engine save and load"). Every byte is written from the format pages here, not by `packages/core`.
+// The *expectation* beside it (`saveload.expect.json`: the `saveBlob`/`loadBlob` request key, the save's byte length
+// and the state hashes) can only come from running the real engine, which this tool must not import; it is recorded
+// by `pnpm saveload:record` (tools/fixtures/saveload/record.mjs) and bound to these bytes by their SHA-256, so
+// `--check` fails when the fixture changes and the expectation was not re-recorded. A drift of the engine itself is
+// caught by packages/runner-harness/test/saveload.test.ts, which re-runs the fixture and compares every value.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Where the Save/Load fixture goes: beside `authored/` by default, else under the output directory. */
+export const SAVELOAD_OUT = join(repoRoot, "packages", "core", "test", "fixtures", "saveload");
+function saveloadOut(out) {
+  return out === defaultOut ? SAVELOAD_OUT : join(out, "saveload");
+}
+
+/**
+ * The enter program. Launch one finds no "slot" save, so `Load` fails and the script falls through to write the
+ * distinctive value, save it, then change it. Launch two finds the save: `Load` replaces the live state with the
+ * snapshot (the value as it was *at* the save, 4242) and the saved thread resumes after `Save`, never re-running
+ * the first lines (so a second `saveBlob` means the load restored nothing).
+ */
+const SAVELOAD_PROGRAM = [
+  "// Save/Load fixture (#934). See tools/fixtures/author/generate.mjs.",
+  'load("slot")',
+  "marker = 4242",
+  'save("slot")',
+  "delay(1)",
+  "marker = 17",
+  "end()",
+  "",
+].join("\n");
+
+/**
+ * A minor-9 main file written from docs/spec/formats/main-file.md#layout, row by row. Run-time key, enemy and
+ * plugin lists each carry one empty entry (upper bound 0) so the file stays a few hundred bytes.
+ */
+function saveloadMainFile() {
+  const byte = (value) => new Uint8Array([value & 0xff]);
+  return concat([
+    zstr("RPGTLKIT MAIN"), i16(2), i16(9), // 1-3: header, major, minor
+    i16(1), zstr("NOCODE"), // 4-5: registered, registration code
+    zstr(""), zstr("Save Load Fixture"), // 6-7: projectPath (ignored from a package), gameTitle
+    i16(1), i16(0), i16(0), // 8-10: mainScreenType, extendToFullScreen, mainResolution (640x480)
+    i16(0), zstr(""), // 12-13: mainDisableProtectReg, language file (row 11 is minor < 3 only)
+    zstr("start.prg"), zstr("start.brd"), zstr(""), // 14-16: startupPrg, initBoard, initChar
+    zstr(""), i16(0), i16(13), i16(32), // 17-20: runTime, runKey, menuKey, key
+    i16(0), i16(0), zstr(""), // 21-22: run-time keys UB, one empty (key, program)
+    zstr(""), zstr(""), // 23-24: menuPlugin, fightPlugin
+    i16(1), // 26: fightGameYn (1 = random battles disabled)
+    i16(0), zstr(""), i16(0), // 27-28: enemy list UB, one empty (enemy, skill)
+    i16(0), i32(0), // 29-30: fightType, chances
+    i16(0), zstr(""), zstr(""), // 31-32, 34: fprgYn, fightPrg, gameOverPrg (row 33 is minor < 3 only)
+    zstr(""), zstr(""), // 35-36: skinButton, skinWindow
+    i16(0), zstr(""), // 37, 38b: plugin list UB, one empty plugin
+    i16(0), i16(0), i32(0), // 39-41: day/night flag, type, length
+    zstr(""), zstr(""), zstr(""), // 42-44: cursor sounds
+    byte(0), byte(2), // 45-46: useJoystick, colorDepth (32-bit)
+    byte(128), byte(0), // 47-48: gameSpeed (speed + 128), pixelMovement (tile)
+    zstr(""), byte(0), byte(0), i32(0), // 50-53: mouseCursor, hotSpotX, hotSpotY, transpColor (row 49 is minor = 5 only)
+    i32(0), i32(0), byte(0), // 54-56: resX, resY, bFpsInTitleBar
+    i16(2), i32(0), i32(0x00ffffff), i32(5), // 57-60: pfHeuristic, drawVectors, pathColor, movementControls
+    i16(0xcd), i16(0xd0), i16(0xcb), i16(0xc8), i16(0), i16(0), i16(0), i16(0), // 61: movement keys
+  ]);
+}
+
+/** The Save/Load game's files, in archive order. */
+function saveloadGameFiles() {
+  const board = authoredBoard({ sizeX: 2, sizeY: 2, sizeL: 1, coordType: 0, lut: [""], cells: [], shades: [], enterPrg: "saveload.prg" });
+  return [
+    { name: "main.gam", bytes: saveloadMainFile() },
+    { name: "Boards/start.brd", bytes: board },
+    { name: "Prg/start.prg", bytes: ascii("end()\n") },
+    { name: "Prg/saveload.prg", bytes: ascii(SAVELOAD_PROGRAM) },
+  ];
+}
+
+/** The Save/Load fixture's committed bytes as `relative name -> bytes`: the loose game folder and its `.tpk`. */
+export function saveloadFixtureFiles() {
+  const files = saveloadGameFiles();
+  return [...files.map((file) => [`game/${file.name}`, file.bytes]), ["saveload.tpk", buildZip(files)]];
+}
+
+function writeSaveloadFixtures(dir) {
+  for (const [name, bytes] of saveloadFixtureFiles()) {
+    mkdirSync(dirname(join(dir, name)), { recursive: true });
+    writeFileSync(join(dir, name), bytes);
+  }
+}
+
+function checkSaveloadFixtures(dir) {
+  const problems = [];
+  const files = saveloadFixtureFiles();
+  for (const [name, expected] of files) {
+    let actual;
+    try { actual = readFileSync(join(dir, name)); } catch { problems.push(`saveload/${name}: missing`); continue; }
+    if (!actual.equals(expected)) problems.push(`saveload/${name}: differs from a fresh run`);
+  }
+  // The expectation is recorded from the real engine, never written here; it must describe exactly these bytes.
+  const tpkBytes = files.find(([name]) => name === "saveload.tpk")?.[1];
+  let expectation;
+  try { expectation = JSON.parse(readFileSync(join(dir, "saveload.expect.json"), "utf8")); } catch { problems.push("saveload/saveload.expect.json: missing or not JSON (run `pnpm saveload:record`)"); return problems; }
+  const digest = createHash("sha256").update(tpkBytes).digest("hex");
+  if (expectation?.fixture?.sha256 !== digest || expectation?.fixture?.size !== tpkBytes.length) {
+    problems.push(`saveload/saveload.expect.json: recorded for a different fixture (expected sha256 ${digest}, ${tpkBytes.length} bytes); re-record with \`pnpm saveload:record\``);
+  }
+  return problems;
+}
+
 const defaultSceneOut = join(repoRoot, "golden", "scenes");
 
 const ORACLE_SCENES = {
@@ -970,6 +1087,7 @@ export function generate(out = defaultOut) {
   if (out === defaultOut) writeOracleScenes();
   writeMovementFixtures(movementOut(out));
   writeAudioFixtures(audioOut(out));
+  writeSaveloadFixtures(saveloadOut(out));
   return out;
 }
 
@@ -998,6 +1116,7 @@ export function check(out = defaultOut) {
   if (out === defaultOut) problems.push(...checkOracleScenes());
   problems.push(...checkMovementFixtures(movementOut(out)), ...checkMovementImports(), ...checkMovementCorpus());
   problems.push(...checkAudioFixtures(audioOut(out)), ...checkAudioFiles(), ...checkAudioImports(), ...checkAudioCorpus());
+  problems.push(...checkSaveloadFixtures(saveloadOut(out)));
   return problems;
 }
 
@@ -1017,7 +1136,7 @@ function main(argv) {
     return 0;
   }
   generate(out);
-  console.log(`wrote ${authoredFixtures().length} authored fixtures, ${movementFixtureFiles().length} movement oracle files and ${audioFixtureFiles().length} audio oracle files to ${out}`);
+  console.log(`wrote ${authoredFixtures().length} authored fixtures, ${movementFixtureFiles().length} movement oracle files, ${audioFixtureFiles().length} audio oracle files and ${saveloadFixtureFiles().length} save/load fixture files to ${out}`);
   return 0;
 }
 
