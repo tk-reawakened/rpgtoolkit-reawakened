@@ -59,7 +59,8 @@
     "desktop:run": "node tools/desktop/run.mjs",
     "desktop:measure": "node tools/desktop/measure.mjs",
     "desktop:input": "node tools/desktop/probe-input.mjs",
-    "desktop:inventory": "node tools/licences/desktop-inventory.mjs"
+    "desktop:inventory": "node tools/licences/desktop-inventory.mjs",
+    "mobile:build": "node tools/mobile/build.mjs"
   },
   "devDependencies": {
     "@capacitor/android": "8.4.3",

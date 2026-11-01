@@ -184,7 +184,7 @@ test("the tool fails saying no test ran when a directory holds none", () => {
 
 // ====================================================== groups & LCOV merge
 
-test("verifyGroups confirms that the repository's 13 groups partition every package test file", () => {
+test("verifyGroups confirms that the repository's 14 groups partition every package test file", () => {
   const report = verifyGroups(repoRoot);
   equal(report.ok, true, JSON.stringify(report));
   equal(report.emptyGroups.length, 0);
@@ -224,12 +224,12 @@ test("verifyGroups fails when an unmapped package has test files or a group is e
 
   const report = verifyGroups(root);
   equal(report.ok, false);
-  deepEqual(report.emptyGroups, ["runner-web", "script-cli"]);
+  deepEqual(report.emptyGroups, ["runner-mobile", "runner-web"]);
   deepEqual(report.missing, ["packages/extra-pkg/test/unmapped.test.ts"]);
 
   const result = runTool(root, ["--verify-groups"]);
   equal(result.status, 1, result.output);
-  match(result.stderr, /empty test group\(s\): runner-web/);
+  match(result.stderr, /empty test group\(s\): runner-mobile, runner-web/);
   match(result.stderr, /unmapped test file\(s\): packages\/extra-pkg\/test\/unmapped\.test\.ts/);
 });
 

@@ -48,8 +48,20 @@ test("the mobile page boots the package to the tick-120 hashes through a Capacit
     };
   });
 
+  // Everything the page says before it reports: a missing resource or a thrown boot step names itself instead of
+  // disappearing into a bare timeout.
+  const log: string[] = [];
+  page.on("console", (message) => log.push(`console[${message.type()}]: ${message.text()}`));
+  page.on("pageerror", (error) => log.push(`pageerror: ${error.message}`));
+  page.on("requestfailed", (request) => log.push(`requestfailed: ${request.url()} ${request.failure()?.errorText ?? ""}`));
+  page.on("response", (response) => {
+    if (response.status() >= 400) log.push(`http ${response.status()}: ${response.url()}`);
+  });
+
   await page.goto("/packages/runner-mobile/app/player.html");
-  await page.waitForFunction(() => window.__mobile !== undefined, undefined, { timeout: 90_000 });
+  await page.waitForFunction(() => window.__mobile !== undefined, undefined, { timeout: 90_000 }).catch((error: unknown) => {
+    throw new Error(`the page never reported; what it said:\n${log.join("\n")}\n(${String(error)})`);
+  });
   const report = (await page.evaluate(() => window.__mobile)) as Record<string, unknown>;
   console.log("mobile page:", JSON.stringify(report));
 
