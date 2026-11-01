@@ -21,6 +21,7 @@ import {
   createEmptyCharacter,
   enqueueDirectionMove,
   IR_VERSION,
+  BATTLE_BACKGROUND_MAGIC,
   createEmptyMainFile,
   ENGINE_DEFAULT_MANIFEST,
   hashDrawList,
@@ -30,6 +31,7 @@ import {
   createEngine,
   PACKAGE_ROOT,
   runMovementPhase,
+  writeBattleBackground,
   writeBoard,
   writeMainFile,
   promoteRecovery,
@@ -68,6 +70,10 @@ type GameSpec = {
   readonly packages?: readonly string[];
   readonly audioSettings?: MainFileAudioSettings | null;
   readonly soundFonts?: readonly string[];
+  /** Battle background files by filename; they are added under `Bkrounds/`. */
+  readonly battleBackgrounds?: Readonly<Record<string, { readonly music: string; readonly menuMoveSound: string; readonly menuChooseSound: string; readonly readySound: string; readonly cantDoSound: string }>>;
+  /** Menu cursor sounds by filename. */
+  readonly cursorSounds?: { readonly move?: string; readonly select?: string; readonly cancel?: string };
   /** Lay the game out as a game folder (`Main/` plus `Game/<project>/`) instead of a package. */
   readonly project?: string;
 };
@@ -122,13 +128,34 @@ function authorGame(spec: GameSpec): AuthoredGame {
     initChar: spec.initChar ?? "",
     plugins: (spec.plugins ?? []).map((pluginFile) => ({ enabled: 0, pluginFile })),
     audioSettings: spec.audioSettings ?? null,
+    cursorMoveSound: spec.cursorSounds?.move ?? "",
+    cursorSelectSound: spec.cursorSounds?.select ?? "",
+    cursorCancelSound: spec.cursorSounds?.cancel ?? "",
     ...(spec.packages === undefined ? {} : { packagePlugins: spec.packages }),
   };
   files.set(assetKey(mainPath), unwrap(writeMainFile(main)));
   for (const [name, board] of Object.entries(spec.boards)) add(`Boards/${name}`, boardBytes(board));
+  for (const [name, sounds] of Object.entries(spec.battleBackgrounds ?? {})) {
+    add(`Bkrounds/${name}`, unwrap(writeBattleBackground({
+      magic: BATTLE_BACKGROUND_MAGIC,
+      major: 2,
+      minor: 2,
+      image: "",
+      ...sounds,
+      residue: new Uint8Array(),
+    })));
+    add(`Media/${sounds.music}`, new Uint8Array([0]));
+    add(`Media/${sounds.menuMoveSound}`, new Uint8Array([0]));
+    add(`Media/${sounds.menuChooseSound}`, new Uint8Array([0]));
+    add(`Media/${sounds.readySound}`, new Uint8Array([0]));
+    add(`Media/${sounds.cantDoSound}`, new Uint8Array([0]));
+  }
   for (const [name, text] of Object.entries(spec.programs)) add(`Prg/${name}`, encoder.encode(text));
   for (const [name, bytes] of Object.entries(spec.fonts ?? {})) add(`Font/${name}`, bytes);
   if (spec.initChar !== undefined && spec.initChar !== "") add(`Chrs/${spec.initChar}`, unwrap(writeCharacter({ ...createEmptyCharacter(), minor: 5, name: "Hero", movementAnimations: Array(8).fill(""), battleStances: Array(6).fill("") })));
+  for (const name of [spec.cursorSounds?.move, spec.cursorSounds?.select, spec.cursorSounds?.cancel]) {
+    if (name !== undefined && name !== "") add(`Media/${name}`, new Uint8Array([0]));
+  }
   for (const media of ["theme.mid", "other.mid"]) add(`Media/${media}`, new Uint8Array([0]));
   for (const name of spec.soundFonts ?? []) add(`Media/${name}`, new Uint8Array([0]));
   const root: AssetRoot = spec.project === undefined ? PACKAGE_ROOT : { kind: "game", projectPath: "" };
@@ -1943,6 +1970,61 @@ test("a reserved plugin id is an unknown plugin with a located diagnostic, never
   const core = resolveManifestPlugins([{ id: "core" }]);
   equal(core.plugins.length, 1);
   equal(core.diagnostics.length, 0);
+});
+
+test("boot emits battle and menu prefetch hints, and consuming them does not change state or draw hashes", () => {
+  const game = authorGame({
+    initChar: "hero.tem",
+    boards: {
+      "start.brd": { music: "theme.mid", battleBackground: "fight.bkg" },
+    },
+    programs: { "startup.prg": "end()\n" },
+    startup: "startup.prg",
+    battleBackgrounds: {
+      "fight.bkg": {
+        music: "battle.mid",
+        menuMoveSound: "move.wav",
+        menuChooseSound: "choose.wav",
+        readySound: "ready.wav",
+        cantDoSound: "nope.wav",
+      },
+    },
+    cursorSounds: { move: "cursor.wav", select: "pick.wav", cancel: "back.wav" },
+  });
+
+  function bootAndCollect(observe: boolean) {
+    const doubles = makeDoubles();
+    const engine = bootEngine(game, doubles);
+    const hints: string[] = [];
+    let report = engine.advance(6, []);
+    const note = () => {
+      if (!observe) return;
+      for (const request of report.requests) {
+        if (request.kind !== "prefetch") continue;
+        for (const hint of request.hints) hints.push(`${hint.tier}:${hint.key}`);
+      }
+    };
+    note();
+    for (let guard = 0; guard < 40 && report.loading; guard += 1) {
+      const replies = report.requests.flatMap((request) =>
+        request.kind === "asset" ? [{ tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: game.files.get(request.key) ?? null } }] : [],
+      );
+      report = engine.advance(6, replies);
+      note();
+    }
+    const drawHash = hashDrawList(engine.drawList(0, { shading: true, images: true, sprites: true }));
+    return { stateHash: report.stateHash, drawHash, hints };
+  }
+
+  const observed = bootAndCollect(true);
+  const discarded = bootAndCollect(false);
+
+  ok(observed.hints.includes("now:media/theme.mid"), `board music hint emitted: ${observed.hints.join(",")}`);
+  ok(observed.hints.includes("next:battle.mid"), `battle music hint emitted: ${observed.hints.join(",")}`);
+  ok(observed.hints.includes("next:choose.wav"), `battle menu choose hint emitted: ${observed.hints.join(",")}`);
+  ok(observed.hints.includes("always:media/cursor.wav"), `main menu move hint emitted: ${observed.hints.join(",")}`);
+  equal(observed.stateHash, discarded.stateHash, "a prefetch hint never changes the state hash");
+  equal(observed.drawHash, discarded.drawHash, "a prefetch hint never changes the draw hash");
 });
 
 

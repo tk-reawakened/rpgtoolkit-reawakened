@@ -9,7 +9,17 @@ export default defineConfig({
   timeout: 60_000,
   fullyParallel: false,
   reporter: [["list"]],
-  use: { baseURL: `http://127.0.0.1:${port}`, trace: "off" },
+  use: {
+    baseURL: `http://127.0.0.1:${port}`,
+    trace: "off",
+    launchOptions: {
+      args: [
+        // Headless Chromium normally suspends AudioContexts until a user gesture; the audio lane asserts a real
+        // running graph, so disable the autoplay gate.
+        "--autoplay-policy=no-user-gesture-required",
+      ],
+    },
+  },
   webServer: {
     command:
       // The package fixture is generated from the fetched sample game, so the package boot needs no committed archive.

@@ -2,9 +2,9 @@ import { expect, test } from "@playwright/test";
 
 /**
  * The ledger limb of entry 9.4's agreement bound: every gating row of `golden/ledger.json` replays through
- * `render-webgl2` in headless Chromium and matches its oracle — the reference rasteriser for an authored scene, the
- * engine's own screen for a closing-suite baseline — exactly. Each row also renders twice with `flush()` between, and
- * the two images must be identical (AD-27, G4 rule 3).
+ * `render-webgl2` in headless Chromium and matches its oracle — the independent reference rasteriser replaying the
+ * same draw list — exactly. Each row also renders three times with `flush()` between, and every frame must be identical
+ * (AD-27, G4 rule 3).
  */
 type RowReport = {
   readonly scene: string;
