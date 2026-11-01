@@ -46,6 +46,7 @@
     "closing": "tsc -b && node packages/runner-headless/dist/cli.js closing",
     "closing:record": "tsc -b && node packages/runner-headless/dist/cli.js closing --record",
     "corpus": "tsc -b && node packages/runner-headless/dist/cli.js corpus",
+    "corpus:measure": "pnpm build && node tools/make-package/measure-corpus.mjs",
     "dump": "tsc -b && node packages/runner-headless/dist/cli.js dump",
     "dump:check": "tsc -b && node packages/runner-headless/dist/cli.js dump --check golden/legacy-corpus.json fixtures/legacy && node packages/runner-headless/dist/cli.js dump --check golden/spec-examples.json docs/spec/examples",
     "dump:record": "tsc -b && node packages/runner-headless/dist/cli.js dump --record golden/legacy-corpus.json fixtures/legacy",
