@@ -13,6 +13,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { electronBinary } from "./electron-binary.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
@@ -20,13 +21,6 @@ const root = resolve(here, "..", "..");
 function argument(name, fallback) {
   const at = process.argv.indexOf(name);
   return at >= 0 ? process.argv[at + 1] : fallback;
-}
-
-/** The Electron binary this workspace installed. */
-function electronBinary() {
-  const fromPackage = join(root, "node_modules", "electron", "index.js");
-  const path = execFileSync(process.execPath, ["-e", `process.stdout.write(require(${JSON.stringify(fromPackage)}))`], { encoding: "utf8" });
-  return path.trim();
 }
 
 /** The package to open, built from the fetched sample game when the caller names none. */
@@ -53,13 +47,25 @@ export async function measure(options = {}) {
     [
       // The app directory is the built one: its `package.json` names `main.js`, and the preload sits beside it.
       join(root, "packages", "runner-desktop", "dist"),
+      // Headless Linux CI runners (Xvfb) have no GPU; use Chromium's software WebGL2 path.
+      ...(process.platform === "linux" ? ["--enable-unsafe-swiftshader"] : []),
       "--serve", root,
       "--package", pkg,
       "--page", "packages/runner-desktop/app/player.html",
       "--report", reportPath,
       "--quit-after",
     ],
-    { cwd: root, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ELECTRON_ENABLE_LOGGING: "0" } },
+    {
+      cwd: root,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        ELECTRON_ENABLE_LOGGING: "0",
+        // The npm-installed Electron binary is user-owned, so the Linux SUID sandbox helper is not configured.
+        // Disable sandboxing for the measurement harness only; interactive play still uses the OS sandbox by default.
+        ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
+      },
+    },
   );
   const log = [];
   child.stdout.on("data", (chunk) => log.push(String(chunk)));
@@ -84,7 +90,14 @@ const measured = await measure();
 const record = {
   os: process.platform,
   arch: process.arch,
-  electron: execFileSync(electronBinary(), ["--version"], { encoding: "utf8" }).trim(),
+  electron: execFileSync(electronBinary(), ["--version"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ELECTRON_ENABLE_LOGGING: "0",
+      ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
+    },
+  }).trim(),
   measuredAt: new Date().toISOString(),
   // The path is relative to the repository so the record is portable between machines.
   package: measured.package.replace(`${root}/`, ""),

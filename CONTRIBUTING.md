@@ -130,10 +130,16 @@ These packages exist today (`packages/`):
 | `plugin-tk2-compat` | The Toolkit 2 compatibility command pack for RPGCode (deterministic adapters only). |
 | `runner-harness` | Shared headless runner logic: the scripted driver, golden, closing and corpus jobs. |
 | `runner-headless` | The Node/Bun command line (`golden`, `closing`, `corpus`, `dump`); `pnpm golden`, `pnpm closing` and `pnpm dump` call it. |
+| `render-webgl2` | The WebGL2 draw-list replayer: turns a draw list into pixels on a canvas (G4). |
+| `runner-web` | The browser/web runner: boots a game folder or package and presents frames; the desktop wrapper runs the same build, and a mobile wrapper is planned. |
+| `runner-desktop` | The desktop player: the Electron shell (`app://`) around the `runner-web` build, with a package asset source and save storage. See "Run the desktop player" below. |
+| `lsp` | The transport-free RPGCode language server (diagnostics, hover, completion, definition, outline). Host transports live outside this package. |
+| `script-spec` | Shared RPGCode tooling contracts: program, project and runner types used by the language server and script tools. |
+| `script-tools` | RPGCode analysis, indexing, formatting, diagnostics and quick-fixes used by the language server and stand-alone checks. |
 
 Outside `packages/`: `docs/` (spec, ADRs, guard-rails), `tools/` (the checks and generators CI runs), `golden/` (committed reference output), `fixtures/` (fetched sample games, never committed), `media/`, and `_bmad-output/` (tickets and plans, see below).
 
-The editor, its hosts (`editor-ui`, `host-vscode`, `host-web`, `host-desktop`), the language and debug servers and a web runner are **planned** and do not exist in this repository yet. The dependency direction they must follow is in G2.
+The editor and its hosts (`editor-ui`, `host-vscode`, `host-web`, `host-desktop`) and the debug server are **planned** and do not exist in this repository yet. The language server exists as `packages/lsp`. The web and desktop runners do exist (`runner-web`, `runner-desktop`), but a fully interactive player loop does not yet: today the desktop player boots a game to the board and measures it off-screen. The dependency direction every package must follow is in G2.
 
 ## Pick and claim an issue
 
@@ -247,6 +253,30 @@ pnpm graph:write                 # dev aid: write the dependency-graph inputs; C
 `pnpm golden:record` rewrites the golden and is the only writer of it. Never run it in CI. A golden change is a reviewed behaviour change (G5), so explain it in the pull request.
 
 `pnpm closing` boots all eight fetched sample games through the real engine and compares their frames, hashes and diagnostics with the baselines committed under `golden/regression/` (it needs `fixtures:fetch`, runs in the `golden` job and again under Bun in `golden-bun`, and takes about a minute). `pnpm closing:record` rewrites those baselines and the closing rows of `golden/ledger.json`; like `golden:record` it is a deliberate act and never runs in CI. The scripted run and each game's expected outcome live in `golden/closing/plan.json`; a Toolkit 2 game that cannot boot yet is listed there as an expected failure with its epic and reason, and fails the suite as soon as it starts to boot, so the entry is removed on purpose.
+
+### Run the desktop player
+
+The desktop player (`runner-desktop`) is an Electron shell over the `runner-web` build. Build it, package a game, then either measure it or launch the window.
+
+```sh
+pnpm fixtures:fetch                                             # the sample games, once
+pnpm make-package fixtures/legacy/demo --closing-plan golden/closing/plan.json \
+  --game demo --out fixtures/packages/demo.tpk --title Demo      # one .tpk package + descriptor
+pnpm desktop:build                                              # dist/main.js, dist/preload.js, apps/player-desktop.js
+pnpm desktop:measure                                           # launch, boot to the board, print the report, quit
+```
+
+`pnpm desktop:measure` prints a JSON report that contains `"error": null`, `"tick": 120`, `"stateHash": "bff947dce3a11b4f"`, `"drawHash": "9a40be8a0b5ca816"` and `"frame": { "worst": 0 }` (a `save` block follows `frame`). It builds the package for you if you leave `--package` off. Point it at a package you built yourself with `pnpm desktop:measure --package path/to/your.tpk`.
+
+To open the window and leave it open (the window title changes to `desktop: bff947dce3a11b4f` when the game boots):
+
+```sh
+pnpm desktop:run --package fixtures/packages/demo.tpk
+```
+
+`pnpm desktop:run` builds the `demo` package when `--package` is absent and passes the player's other flags through unchanged — `--serve <dir>` is the directory pages and data are served from, `--package <file.tpk>` is the game to open, `--page <path>` is the player page, and `--report <file>` / `--quit-after` are for the measurement harness. On Linux a headless machine runs the measurement with `xvfb-run -a pnpm desktop:measure`.
+
+Two things to expect on a fresh worktree: `pnpm install` can return before Electron's ~100 MB runtime has finished downloading in the background, so a first `desktop:measure` may fail with `ENOENT …/Electron` — wait and re-run; and the board is drawn off-screen for now (the window is black and only the title changes), because the interactive player loop is not built yet. The user-facing version of these steps is [docs/playing-the-desktop-player.md](docs/playing-the-desktop-player.md).
 
 ### The loop while you work
 

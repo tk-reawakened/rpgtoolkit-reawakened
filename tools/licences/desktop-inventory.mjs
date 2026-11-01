@@ -33,7 +33,8 @@ export function desktopInventory(dist) {
     .map((entry) => entry.split("\\").join("/"))
     .sort();
   const licences = entries.filter((entry) => entry.endsWith("LICENSES.chromium.html"));
-  const ffmpeg = entries.filter((entry) => /(^|\/)libffmpeg(\.[A-Za-z0-9]+)*$/i.test(entry));
+  // Windows Electron names the library `ffmpeg.dll`; macOS and Linux use `libffmpeg.dylib`/`libffmpeg.so`.
+  const ffmpeg = entries.filter((entry) => /(^|\/)(libffmpeg(\.[A-Za-z0-9]+)*|ffmpeg\.dll)$/i.test(entry));
   return {
     built: true,
     files: [...licences, ...ffmpeg].map((entry) => ({ name: entry, bytes: statSync(join(dist, entry)).size })),
