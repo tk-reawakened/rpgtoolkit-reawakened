@@ -123,13 +123,25 @@ A runner also owns the player's preferences — per-bus volume and mute, and the
 of [audio-media.md#audio-soundfont-cache](audio-media.md#audio-soundfont-cache): banks keyed by the SHA-256 of their
 bytes, cached per runner and shared across games, with eviction that never removes the bank in use.
 
-**What is implemented today** (entry 9.5). `synth` carries the cue player: `cueStart` is the table's `media.play`,
+**What is implemented today** (entries 9.5 and 9.6). `synth` carries the cue player: `cueStart` is the table's `media.play`,
 `media.seek` and `media.fade` arithmetic as a pure function of the cue and the tick the voice became ready, and
 `CuePlayer` is the state machine over it — the `(track, voice)` map, the prepared voice from `media.load`, the
 pre-ready message queue, the autoplay lock's mirror and the focus hold. `runner-web` carries the output: `PcmSink` holds
 one `synth` source voice per protocol voice and **pulls** frames, which is the same call a browser `AudioContext` graph
-makes, with bus, master and voice volumes applied at the pull. A bank is recorded from `setBank` and MIDI voices fail
-with `bank.missing` until the SoundFont path and the bank picker land with 9.6.
+makes, with bus, master and voice volumes applied at the pull. The four bank ranks of
+[audio-media.md#soundfont-layers](audio-media.md#soundfont-layers) resolve in `synth` (`effectiveBank`: player, author,
+runner, bundled — never a fifth, which MEDIA-5 retired), a bank is validated as a RIFF `sfbk` container against the
+runner's ceiling (`bank.invalid`, `bank.unavailable`), and `BankCache` keys it by the SHA-256 of its bytes so two games
+that name the same bytes share one entry and a swap never evicts the bank a voice holds. The bundled layer is
+`media/soundfonts/TK-16.sf2`, whose hash the notice records and whose licence is CC0-1.0; it loads and MIDI renders
+through it in Node and in headless Chromium. Its selection as a *default* remains the owner's listening approval (PB-10),
+so a host that wants the bank off passes no bundled layer.
+
+The **video** half is
+[audio-media.md#video-request](audio-media.md#video-request): `VideoHost` answers every `playVideo` with exactly one `video.ended { reqId }`
+(including every failure), keeps one video outstanding, and holds the other realised voices through the cue player's
+`videoStarted`/`videoEnded` while the core's own restart cue returns the music. No VP9/WebM fixture ships yet, so the
+lane proves the missing, undecodable and busy paths; the played path is entry 9.7's.
 
 <a id="desktop-shell"></a>
 ## The desktop applications
@@ -299,11 +311,11 @@ Its licence, and why it is a dev-only tool outside the production-tree scan, are
 | Section | Delivered by |
 |---|---|
 | [draw-list](#draw-list) and [webgl2-agreement](#webgl2-agreement) in full: every AD-3 command, the unified vector kit and every gating ledger row | 9.3, 9.4 |
-| [audio](#audio): the cue player and the PCM output | 9.5 |
+| [audio](#audio): the cue player, the PCM output, the bank path and the video policy | 9.5, 9.6 |
 | [install](#install), [desktop-shell](#desktop-shell) (player) | 9.10, 9.11 |
 | [load-modes](#load-modes), [prefetch](#prefetch), [offline](#offline) | 9.8, 9.9 |
 | [mobile](#mobile) | 9.12 |
 | [build](#build), [conformance-lane](#conformance-lane), [csp-and-banks](#csp-and-banks) | 9.3 |
 | the schema and the vector kit themselves | 9.2 |
-| [audio](#audio): the SoundFont path, the bank picker and the shared bank cache | 9.6 |
+| [audio](#audio): the player-facing bank picker UI and the prefetch of banks | 9.9, 9.10 |
 | the whole page replayed end to end | 9.14 |

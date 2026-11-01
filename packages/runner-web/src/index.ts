@@ -146,3 +146,6 @@ export function runScriptedFrame(options: ScriptedFrameOptions): FrameReport {
   });
   return { tick: frame.tick, stateHash: frame.stateHash, drawHash: frame.drawHash, commands: frame.commands, render };
 }
+
+export * from "./audio-sink.ts";
+export * from "./video.ts";

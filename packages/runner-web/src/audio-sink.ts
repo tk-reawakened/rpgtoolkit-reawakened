@@ -13,10 +13,16 @@
 
 import type { AssetKey } from "@tk-reawakened/core";
 import {
+  BANK_SIZE_CEILING,
+  BankCache,
+  BankError,
   createAudioSourceRegistry,
   createPcmSource,
+  createSpessaMidiSource,
+  validateBankBytes,
   type AudioMessage,
   type AudioSourceRegistry,
+  type BankRef,
   type SourceVoice,
 } from "@tk-reawakened/synth";
 
@@ -24,12 +30,20 @@ import {
 export type SinkEvent =
   | { readonly kind: "ready"; readonly voice: number; readonly lengthTicks: number | null }
   | { readonly kind: "ended"; readonly voice: number }
-  | { readonly kind: "error"; readonly voice: number; readonly code: string; readonly detail: string };
+  /** A bank failure belongs to no voice and keeps the previous bank. */
+  | { readonly kind: "error"; readonly voice: number | null; readonly code: string; readonly detail: string };
 
 export type PcmSinkOptions = {
   /** The bytes of one asset; `null` when the host cannot supply it. */
   readonly readAsset: (asset: AssetKey) => Uint8Array | null;
-  /** The formats this runner can play; defaults to the PCM source (WAV, PCM and IMA/MS ADPCM). */
+  /** The bytes of one bank, by `BankRef`; `null` when the host cannot supply it (`bank.missing`). */
+  readonly readBank?: (bank: BankRef) => Uint8Array | null;
+  /**
+   * The shared bank cache (`#audio-soundfont-cache`). The sink pins the current bank while it is in use, so eviction can
+   * never remove it, and two games naming the same bytes share one entry by SHA-256.
+   */
+  readonly banks?: BankCache;
+  /** The formats this runner can play; defaults to PCM (WAV, PCM and IMA/MS ADPCM) and MIDI through the loaded bank. */
   readonly registry?: AudioSourceRegistry;
   /** The graph's sample rate. */
   readonly outputRateHz?: number;
@@ -50,6 +64,9 @@ type SinkVoice = {
 
 const TICKS_PER_SECOND = 60;
 
+/** The closed error codes a source or the bank path may report through this sink. */
+const BANK_CODES = ["bank.missing", "bank.invalid", "bank.unavailable"];
+
 /** One `AudioBuffer`-shaped block per pull, and the deterministic record of what the sink has played. */
 export type ScheduledPlay = {
   readonly voice: number;
@@ -67,15 +84,25 @@ export class PcmSink {
   private readonly voices = new Map<number, SinkVoice>();
   private readonly busVolumes = new Map<string, number>();
   private masterVolume = 100;
-  private bank: string | null = null;
+  private readonly banks: BankCache;
+  private bankRef: BankRef | null = null;
+  private bankSha: string | null = null;
+  private bankBytes: Uint8Array | null = null;
   private readonly played: ScheduledPlay[] = [];
   private readonly errors: SinkEvent[] = [];
 
   constructor(options: PcmSinkOptions) {
     this.readAsset = options.readAsset;
-    this.registry = options.registry ?? createAudioSourceRegistry([createPcmSource()]);
+    this.banks = options.banks ?? new BankCache({ load: options.readBank ?? (() => null) });
     this.outputRateHz = options.outputRateHz ?? 44_100;
     this.onEvent = options.onEvent;
+    // The MIDI source reads the current bank at `open`, so a voice that arrives after a swap gets the new instruments.
+    this.registry = options.registry ?? createAudioSourceRegistry([
+      createPcmSource(),
+      createSpessaMidiSource({
+        bankResolver: (): Uint8Array | null => this.bankBytes,
+      }),
+    ]);
   }
 
   /** Every `play` the sink scheduled, in order: the record a lane compares instead of listening. */
@@ -84,8 +111,13 @@ export class PcmSink {
   }
 
   /** The bank the player last set (`setBank`), or `null`. */
-  get currentBank(): string | null {
-    return this.bank;
+  get currentBank(): BankRef | null {
+    return this.bankRef;
+  }
+
+  /** The cache entry the current bank pins, or `null`: the key a lane compares across two games. */
+  get currentBankSha(): string | null {
+    return this.bankSha;
   }
 
   /** The voices the sink holds, open or ended. */
@@ -97,7 +129,7 @@ export class PcmSink {
   handle(message: AudioMessage): void {
     switch (message.kind) {
       case "setBank": {
-        this.bank = message.bank === null ? null : `${message.bank.source}:${message.bank.id}`;
+        this.setBank(message.bank);
         return;
       }
       case "load": {
@@ -106,10 +138,11 @@ export class PcmSink {
           this.fail(message.voice, "source.failed", `${message.asset} is not readable`);
           return;
         }
-        const env = { outputRateHz: this.outputRateHz, bank: null };
+        // The source reads the bank it needs from `env`; the bytes come from the cache through `bankResolver`.
+        const env = { outputRateHz: this.outputRateHz, bank: this.bankRef };
         const source = this.registry.open(bytes, () => env, extensionOf(message.asset));
         if (!source.ok) {
-          const code = source.error.code === "format.unsupported" || source.error.code === "format.malformed"
+          const code = BANK_CODES.includes(source.error.code) || source.error.code === "format.unsupported" || source.error.code === "format.malformed"
             ? source.error.code
             : "source.failed";
           this.fail(message.voice, code, source.error.detail);
@@ -231,12 +264,45 @@ export class PcmSink {
     return energy;
   }
 
+  /**
+   * Set the bank: resolve its bytes once through the cache, validate the container and the ceiling, and keep the
+   * previous bank on any failure (#soundfont-user-bank item 5). The bank is pinned while it is in use, so a later swap
+   * cannot evict it out from under a playing voice.
+   */
+  private setBank(bank: BankRef | null): void {
+    if (bank === null) {
+      this.releaseBank();
+      return;
+    }
+    let bytes: Uint8Array;
+    try {
+      bytes = this.banks.acquire(bank);
+    } catch (error) {
+      const code = error instanceof BankError ? error.code : "bank.unavailable";
+      this.fail(null, code, error instanceof Error ? error.message : String(error));
+      return;
+    }
+    const sha = this.banks.entries.find((entry) => this.banks.bytesOf(entry.sha256) === bytes)?.sha256 ?? null;
+    if (this.bankSha !== null && this.bankSha !== sha) this.banks.release(this.bankSha);
+    else if (this.bankSha !== null && this.bankSha === sha) this.banks.release(sha); // the same bank acquired twice
+    this.bankRef = bank;
+    this.bankSha = sha;
+    this.bankBytes = validateBankBytes(bytes);
+  }
+
+  private releaseBank(): void {
+    if (this.bankSha !== null) this.banks.release(this.bankSha);
+    this.bankRef = null;
+    this.bankSha = null;
+    this.bankBytes = null;
+  }
+
   private event(event: SinkEvent): void {
     if (event.kind === "error") this.errors.push(event);
     this.onEvent?.(event);
   }
 
-  private fail(voice: number, code: string, detail: string): void {
+  private fail(voice: number | null, code: string, detail: string): void {
     this.event({ kind: "error", voice, code, detail });
   }
 }
@@ -271,6 +337,9 @@ export function connectSinkToGraph(context: AudioContext, sink: PcmSink, frames 
     },
   };
 }
+
+/** The runner's ceiling for a user or CDN bank, re-exported so a settings screen rejects early. */
+export const USER_BANK_SIZE_CEILING = BANK_SIZE_CEILING;
 
 /** Ticks as seconds at 60 Hz, for a length the lane reports next to the core's `AudioInfo.lengthTicks`. */
 export function ticksToSeconds(ticks: number): number {

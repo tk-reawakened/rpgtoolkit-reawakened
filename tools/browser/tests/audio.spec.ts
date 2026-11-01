@@ -24,6 +24,9 @@ type AudioReport = {
   readonly graphStarted: boolean;
   readonly analyserEnergy: number | null;
   readonly errors: readonly string[];
+  readonly bankSha: string | null;
+  readonly midiEnergy: number;
+  readonly midiLengthTicks: number | null;
 };
 
 test("the cue player and the PCM sink agree with the spec's three runner rules", async ({ page }) => {
@@ -55,4 +58,10 @@ test("the cue player and the PCM sink agree with the spec's three runner rules",
   // The sink pulled real samples: sound, not silence, and for the length the fixture kit hand-worked.
   expect(report.energy).toBeGreaterThan(0);
   expect(report.seconds).toBe(0.5);
+
+  // The bundled bank loads and MIDI renders through it in the browser too: the file's SHA-256 keys the cache, and the
+  // 120-tick fixture makes sound instead of silence.
+  expect(report.bankSha).toBe("5419f02b0a9e63534b35332842e29decbc53c5352236be85b92cc87d0267f62a");
+  expect(report.midiLengthTicks).toBe(120);
+  expect(report.midiEnergy).toBeGreaterThan(0);
 });

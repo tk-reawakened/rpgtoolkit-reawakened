@@ -145,3 +145,90 @@ test("a play for a voice that was never loaded is a protocol error, not a crash"
   equal(events[0]?.kind, "error");
   equal(events[0]?.kind === "error" ? events[0].code : "", "protocol.state");
 });
+
+// ---------------------------------------------------------------- SoundFont banks (entry 9.6)
+
+/** The path that ships: the bundled bank, whose SHA-256 the notice records. */
+function bundledBank(): Uint8Array {
+  return new Uint8Array(readFileSync(join(here, "..", "..", "..", "media", "soundfonts", "TK-16.sf2")));
+}
+
+const MIDI = "midi0-480-default-tempo.mid"; // 120 ticks, hand-worked by the kit
+
+function midiSink(options: { readonly withBank: boolean; readonly readBank?: () => Uint8Array | null }): {
+  readonly made: PcmSink;
+  readonly events: SinkEvent[];
+} {
+  const events: SinkEvent[] = [];
+  const bytes = new Map<string, Uint8Array>([[`media/${MIDI}`, wav(MIDI)]]);
+  const made = new PcmSink({
+    readAsset: (asset) => bytes.get(asset) ?? null,
+    readBank: options.readBank ?? (() => (options.withBank ? bundledBank() : null)),
+    outputRateHz: 8_000,
+    onEvent: (event) => events.push(event),
+  });
+  return { made, events };
+}
+
+test("TK-16 loads and MIDI renders through it: the bundled bank is usable", () => {
+  const { made, events } = midiSink({ withBank: true });
+  made.handle({ kind: "setBank", bankKind: "soundfont", bank: { source: "bundled", id: "TK-16", sha256: null } });
+  equal(made.currentBankSha, "5419f02b0a9e63534b35332842e29decbc53c5352236be85b92cc87d0267f62a");
+  made.handle({ kind: "load", voice: 7, track: "music", asset: `media/${MIDI}` as AssetKey, data: wav(MIDI) });
+  made.handle({ kind: "play", voice: 7, cue: 12, loop: false, volume: 100, positionTicks: 0 });
+  const frames = 8_192;
+  const left = new Float32Array(frames);
+  const right = new Float32Array(frames);
+  made.render(left, right, frames);
+  ok(PcmSink.energy(left, frames) > 0, "MIDI through TK-16 is sound, not silence");
+  deepEqual(events.filter((event) => event.kind === "ready"), [{ kind: "ready", voice: 7, lengthTicks: 120 }]);
+});
+
+test("without a bank a MIDI voice is bank.missing and WAV is unaffected", () => {
+  const { made, events } = midiSink({ withBank: false });
+  made.handle({ kind: "load", voice: 8, track: "music", asset: `media/${MIDI}` as AssetKey, data: wav(MIDI) });
+  deepEqual(events.map((event) => (event.kind === "error" ? event.code : event.kind)), ["bank.missing"]);
+  // A WAV voice in the same sink still loads and plays.
+  made.handle({ kind: "load", voice: 9, track: "sfx", asset: `media/${MONO}` as AssetKey, data: wav(MONO) });
+  made.handle({ kind: "play", voice: 9, cue: 13, loop: false, volume: 100, positionTicks: 0 });
+  const left = new Float32Array(400);
+  const right = new Float32Array(400);
+  made.render(left, right, 400);
+  ok(PcmSink.energy(left, 400) > 0, "WAV needs no bank");
+});
+
+test("an invalid bank keeps the previous one, and reports bank.invalid", () => {
+  const events: SinkEvent[] = [];
+  const bytes = new Map<string, Uint8Array>();
+  let give = bundledBank();
+  const made = new PcmSink({
+    readAsset: (asset) => bytes.get(asset) ?? null,
+    readBank: () => give,
+    outputRateHz: 8_000,
+    onEvent: (event) => events.push(event),
+  });
+  made.handle({ kind: "setBank", bankKind: "soundfont", bank: { source: "bundled", id: "TK-16", sha256: null } });
+  const first = made.currentBankSha;
+  ok(first !== null);
+  give = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x41, 0x56, 0x45]); // RIFF, but not sfbk
+  made.handle({ kind: "setBank", bankKind: "soundfont", bank: { source: "user", id: "broken", sha256: null } });
+  const last = events.at(-1);
+  equal(last?.kind === "error" ? last.code : "", "bank.invalid");
+  equal(made.currentBankSha, first, "the previous bank stays");
+});
+
+test("a bank over the ceiling is bank.unavailable, not a crash", () => {
+  const events: SinkEvent[] = [];
+  const huge = new Uint8Array(8 * 1024 * 1024 + 1);
+  huge.set([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x73, 0x66, 0x62, 0x6b]);
+  const made = new PcmSink({
+    readAsset: () => null,
+    readBank: () => huge,
+    outputRateHz: 8_000,
+    onEvent: (event) => events.push(event),
+  });
+  made.handle({ kind: "setBank", bankKind: "soundfont", bank: { source: "user", id: "huge", sha256: null } });
+  const last = events.at(-1);
+  equal(last?.kind === "error" ? last.code : "", "bank.unavailable");
+  equal(made.currentBank, null);
+});
