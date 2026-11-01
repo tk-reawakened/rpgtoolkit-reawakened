@@ -225,6 +225,8 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - run: sdkmanager "platforms;android-33" "platforms;android-35" "platforms;android-36" "build-tools;35.0.0" "build-tools;36.0.0"
       - run: mkdir -p artifacts/mobile-proof
       - run: pnpm install --frozen-lockfile
