@@ -18,3 +18,11 @@ Make `tkr script fmt --check` a gate. The formatter (10.7) proved the rewrite is
 - `formatSource(source, { dialect })`, `formatChanged`, `formatCheck`; TOOL-4's dialect paragraph.
 - 24 corpus files rewritten (49 checked 3.1 files, 25 already canonical), 6 TK2 files untouched by the guard.
 - `golden/format-baseline.json` is now `{ checked: 49, tk2: 6, wouldChange: [] }`, and the test fails if any 3.1 file stops being canonical or a TK2 file is counted as clean.
+
+## Landing
+
+Merged as **`17b375555f2d38a4ae720e5a74a0786c8d6d01dd`** — "chore(10.13): canonical corpus, dialect guard and the hashes R-42 moves" (PR [#997](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/997), squash). Issue #996 closed.
+
+24 files rewritten, 25 already canonical, 6 TK2 files refused by the dialect guard; `golden/format-baseline.json` is empty (`checked: 49`, `tk2: 6`, `wouldChange: []`). The zelda/ff per-tick rows and one custom-program hash were re-recorded because R-42 puts each program's source hash in the saved state, with the cause stated beside them; no engine golden moved.
+
+The CI failure that first blocked it was a real defect: the commit's pathspec omitted `stock/`, so the baseline claimed canonical text while the committed files were not, and the unit shard had also been reading the fetched corpus. Both fixed; the shard was verified green in a fixture-free checkout.
