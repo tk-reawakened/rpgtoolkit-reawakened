@@ -1,0 +1,13 @@
+# Review ownership for the files that decide what CI verifies (ADR 0016).
+#
+# On a `pull_request` event GitHub runs the workflow from the pull request's head tree, so a change
+# to the workflow can change what "green" means for that very pull request. The same is true of
+# tools/ci/, which computes the classifier verdict. These are the only paths where a passing run is
+# no evidence about the change itself, so they are the paths that need a person to look.
+#
+# CODEOWNERS requests this review. Making it a merge requirement needs "Require review from Code
+# Owners" in the default-branch ruleset, which is a repository setting rather than a file.
+
+/.github/workflows/ @aljopro
+/.github/CODEOWNERS @aljopro
+/tools/ci/ @aljopro

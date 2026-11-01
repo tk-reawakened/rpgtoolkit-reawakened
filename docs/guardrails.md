@@ -98,7 +98,7 @@ The key words **MUST**, **MUST NOT** and **MAY** are used as in RFC 2119.
 
 **Rationale.** Engine parity checklist ([docs/spec/engine/parity-checklist.md](spec/engine/parity-checklist.md), under [ADR 0007](adr/0007-docs-spec-is-the-normative-specification.md)). Without references, parity regressions are silent.
 
-**Enforcement.** A required CI job. Merges are blocked if it fails or is skipped.
+**Enforcement.** A required CI job. Merges are blocked if it fails or is skipped. The job runs on every pull request and reports a real result; for a change that touches only the inert paths named in [ADR 0016](adr/0016-ci-classified-steps.md), a fail-closed classifier may defer that job's expensive steps, and the job then prints the classifier's reason and still succeeds, so no job is ever skipped and any uncertainty or classifier failure runs everything and fails `gate`.
 
 ---
 
@@ -145,5 +145,5 @@ The checks are created **with the first code commit** (repository scaffolding), 
 1. Workspace layout and `tsconfig` per package (G2).
 2. Lint configuration with the restricted globals, imports and syntax above (G1–G3).
 3. Dependency-graph rules (G2, G4).
-4. CI workflow with the checks that enforce these rules: `checks` (typecheck, lint, licence, provenance, the dependency graph, catalogue and command docs, and the tests the tools own), `unit` (one shard per test group), **headless golden** (G5) and its **Bun replay**, and a `gate` job that fails unless every one of them succeeded, so a skipped job cannot merge. The repository ruleset requires that single `gate` check, which names the others in `needs`.
+4. CI workflow with the checks that enforce these rules: `checks` (typecheck, lint, licence, provenance, the dependency graph, catalogue and command docs, and the tests the tools own), `unit` (one shard per test group), **headless golden** (G5) and its **Bun replay**, and a `gate` job that fails unless every one of them succeeded, so a skipped job cannot merge. The repository ruleset requires that single `gate` check, which names the others in `needs`. A job whose steps the ADR 0016 classifier defers still runs, prints why and reports success, so it is not a skipped job and `gate` still requires it.
 5. A pull-request template with the guard-rail checklist (already in `.github/`).
