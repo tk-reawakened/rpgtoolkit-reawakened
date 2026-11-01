@@ -68,6 +68,9 @@ const SPEC_RESULT: BuiltinSpec = {
 };
 
 /** The package's only native definition: `specResult`, and nothing else. */
+export { discoverCases, failureMessage, ONLY_WARNING, runSpecFile } from "./runner.ts";
+export type { SpecCaseResult, SpecFileReport, SpecOutcome, SpecOutcomeKind, SpecRunOptions } from "./runner.ts";
+
 export const SPEC_PLUGIN: PluginDefinition = {
   id: "script-spec",
   version: "1.0.0",

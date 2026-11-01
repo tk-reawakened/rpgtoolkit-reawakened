@@ -63,7 +63,22 @@ The empty expected/actual seen by the first runner attempt was a **harness misma
 
 **Recommendation:** option 1 — a language change for a test API is disproportionate; the two-argument form is also what F-A's native helpers would expose.
 
-### F-C — the runner waits on F-A/F-B
+### F-C — the runner is built; F-B disproved (see the probe table), F-A still open
+
+**Delivered** (`packages/script-spec/src/runner.ts`):
+
+- **Discovery** by running the file once and grouping outcomes by the record label, which the library writes as `<case>/<matcher>` (no new record kind: TOOL-5 fixes pass/fail/skip/only).
+- **Fresh fixture per case**: each case is re-run in its own `GameState` with the library's `specOnlyCase` selector, so a global set by one case is unset in the next (tested).
+- **Determinism**: every case is run twice; outcomes and `hashGameState` must be identical, and the report carries each case's state hash (tested; two whole-file runs deep-equal).
+- **Strict mode** fails a skip (`skip` respects the selector, so an isolated run never reports another case's skip); **lenient** tolerates it and still lists it.
+- **`only`** narrows and warns with the stable text "only() narrowed the run to the marked cases; unmarked cases were not run" (asserted verbatim).
+- **Exact failure message**: `<matcher>: expected X, actual Y`, asserted as `toBe: expected 1, actual 2` and as the report's failure line.
+- **Manifest absence**: `ENGINE_DEFAULT_MANIFEST` does not contain `script-spec`, and the plugin registers only `specresult`.
+
+**Blocked on F-A**: element-wise `toEqual`, array `toContain` and `toThrow`. The seven runner tests deliberately do not use them; the library states the limits where they are defined.
+
+**Judgement on the entry**: the runner and `specResult` surface match the entry, but two of the seven matchers (`toEqual` element-wise, `toThrow`) and array `toContain` do not. The entry stays **in progress** until the owner rules on F-A; the code lands because it is green and self-contained.
+
 
 The runner slice (discovery, fresh fixture per case, determinism re-run with identical results and state hashes, strict mode failing a skip, `only` narrowing with a warning, exact failure-message text, engine-default-manifest absence) is untouched: its assertions are written against the matcher surface, so building it now would encode a shape the owner may change.
 

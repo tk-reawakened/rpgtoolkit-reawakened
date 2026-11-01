@@ -9,6 +9,11 @@ global(specAfterEach)
 global(specAfterAll)
 global(specNegate)
 global(specOnlyUsed)
+global(specCaseName)
+global(specCaseIndex)
+global(specOnlyCase)
+
+specCaseIndex = 0
 
 specBeforeEach = {}
 specAfterEach = {}
@@ -16,11 +21,15 @@ specAfterAll = {}
 
 function specCheck(ok, name, expected, actual) {
   local(result)
+  local(label)
   result = ok
   if (specNegate) { result = !result }
   specNegate = 0
-  if (result) { specResult("pass", name, "", "") }
-  else { specResult("fail", name, expected, actual) }
+  // `<case>/<matcher>`: the runner groups outcomes by case without a new record
+  // kind (TOOL-5 fixes the kinds at pass/fail/skip/only).
+  label = specCaseName + "/" + name
+  if (result) { specResult("pass", label, "", "") }
+  else { specResult("fail", label, expected, actual) }
 }
 
 // Scalar equality only; arrays need a type test the catalogue does not have.
@@ -50,6 +59,14 @@ function describe(name, body) {
 
 function it(name, body) {
   local(level)
+  specCaseName = name
+  specCaseIndex = specCaseIndex + 1
+  // The runner re-runs the file once per case with specOnlyCase set, so each case
+  // gets a fresh fixture (TOOL-5); -1 runs them all.
+  // 0 means "run every case"; the runner sets 1-based case numbers otherwise.
+  if (specOnlyCase != 0) {
+    if (specCaseIndex != specOnlyCase) { return }
+  }
   for (level = 1; level <= specDepth; level = level + 1) {
     if (specBeforeEach[level] != 0) { specBeforeEach[level]() }
   }
@@ -83,7 +100,7 @@ function skip(name, body) {
   // A skip respects the runner's per-case filter like `it`, so an isolated run of
   // another case does not report it.
   specCaseIndex = specCaseIndex + 1
-  if (specOnlyCase >= 0) {
+  if (specOnlyCase != 0) {
     if (specCaseIndex != specOnlyCase) { return }
   }
   specResult("skip", name, "", "")
