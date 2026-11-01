@@ -23,6 +23,8 @@ import {
 import { inputPhaseRegistration, inputResetRegistration, movementPhaseRegistration } from "@tk-reawakened/core";
 import { parseClosingPlan, type ClosingFiles } from "@tk-reawakened/runner-harness";
 import { createWebgl2Renderer, type RenderStats } from "@tk-reawakened/render-webgl2";
+import { BUNDLED_BANK, CuePlayer } from "@tk-reawakened/synth";
+import { connectSinkToGraph, PcmSink } from "./audio-sink.ts";
 import { fontProvider, textureProvider } from "./index.ts";
 
 export type LiveBlobHost = {
@@ -184,6 +186,36 @@ export function createLiveSession(options: LiveSessionOptions): LiveSession {
   let currentStateHash = "";
   let closed = false;
   let processing: Promise<void> = Promise.resolve();
+  const audioContext = new AudioContext();
+  const audioEvents: InputRecord[] = [];
+  let player: CuePlayer;
+  const sink = new PcmSink({
+    outputRateHz: audioContext.sampleRate,
+    readAsset: (key) => files.get(key) ?? bundled.get(key) ?? null,
+    readBank: (bank) => files.get(assetKey(bank.id)) ?? bundled.get(assetKey(bank.id)) ?? null,
+    onEvent(event) {
+      if (event.kind === "ready") queueMicrotask(() => player.ready(event.voice, event.lengthTicks));
+      else if (event.kind === "ended") player.ended(event.voice);
+      else if (event.kind === "error" && event.voice !== null) queueMicrotask(() => player.failed(event.voice!));
+    },
+  });
+  player = new CuePlayer({
+    send: (message) => sink.handle(message),
+    readAsset: (key) => files.get(key) ?? bundled.get(key) ?? null,
+    bankLayers: { player: null, runner: null, bundled: bundled.has(assetKey(BUNDLED_BANK.id)) ? BUNDLED_BANK : null },
+    onEnded: (cueId) => audioEvents.push({ tick: currentTick, event: { kind: "audio.ended", cueId } }),
+  });
+  const graph = connectSinkToGraph(audioContext, sink);
+  if (audioContext.state !== "running") player.lock();
+  audioContext.addEventListener("statechange", () => {
+    if (audioContext.state === "running") player.unlock(currentTick);
+  });
+  const unlockAudio = (): void => {
+    void audioContext.resume().then(() => { if (audioContext.state === "running") player.unlock(currentTick); });
+  };
+  window.addEventListener("pointerdown", unlockAudio);
+  window.addEventListener("keydown", unlockAudio);
+
 
   const hostReply = async (request: RunnerRequest, tick: number): Promise<InputRecord | null> => {
     switch (request.kind) {
@@ -217,11 +249,23 @@ export function createLiveSession(options: LiveSessionOptions): LiveSession {
     let ticks = initialTicks;
     let inputs = [...initialInputs];
     for (let guard = 0; guard < 10_000 && !closed; guard += 1) {
+      for (const input of inputs) {
+        if (input.event.kind === "focus") {
+          if (input.event.state === "lost") player.focusLost();
+          else player.focusGained();
+        }
+      }
+      inputs.push(...audioEvents.splice(0));
       const report = engine.advance(ticks, inputs);
       ticks = Math.max(0, ticks - report.ticksRun);
       inputs = [];
       currentTick = report.tickAfter;
       currentStateHash = report.stateHash;
+      queueMicrotask(() => {
+        if (closed) return;
+        player.reach(report.tickAfter);
+        player.advance(report.audioCues);
+      });
       const replies: InputRecord[] = [];
       for (const request of report.requests) {
         const reply = await hostReply(request, report.tickAfter);
@@ -241,7 +285,14 @@ export function createLiveSession(options: LiveSessionOptions): LiveSession {
   return {
     engine,
     gameId,
-    close() { closed = true; renderer.dispose(); },
+    close() {
+      closed = true;
+      window.removeEventListener("pointerdown", unlockAudio);
+      window.removeEventListener("keydown", unlockAudio);
+      graph.disconnect();
+      void audioContext.close();
+      renderer.dispose();
+    },
     tick: () => currentTick,
     stateHash: () => currentStateHash,
     viewSize: () => ({ width: viewport.width, height: viewport.height }),

@@ -12,6 +12,10 @@ import {
   writeMainFile,
 } from "@tk-reawakened/core";
 
+declare global {
+  interface Window { liveAnalyser?: AnalyserNode }
+}
+
 type LiveReport = { tick: number; stateHash: string; drawHash: string; player: { x: number; y: number } | null; error?: string };
 type LiveFixture = { readonly name: string; readonly packageBytes: Uint8Array; readonly descriptor: Record<string, unknown> };
 
@@ -135,4 +139,27 @@ test("focus loss pauses live ticks and focus gain resumes them", async ({ page }
   expect(await page.evaluate(() => window.__live?.tick ?? -2)).toBe(pausedTick);
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await page.waitForFunction((tick) => (window.__live?.tick ?? -1) > tick, pausedTick, { timeout: 5_000 });
+});
+
+test("the live player sends title music to the Web Audio graph", async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = AudioContext.prototype.createScriptProcessor;
+    AudioContext.prototype.createScriptProcessor = function (...args) {
+      const node = original.apply(this, args);
+      const analyser = this.createAnalyser();
+      analyser.fftSize = 2048;
+      node.connect(analyser);
+      window.liveAnalyser = analyser;
+      return node;
+    };
+  });
+  await page.goto("/packages/runner-web/app/index.html?package=fixtures/packages/demo.tpk");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => {
+    const analyser = window.liveAnalyser;
+    if (analyser === undefined) return false;
+    const samples = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(samples);
+    return samples.some((sample) => Math.abs(sample) > 0.001);
+  }, undefined, { timeout: 45_000 });
 });
