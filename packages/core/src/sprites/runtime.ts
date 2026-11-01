@@ -73,7 +73,7 @@ function updateItem(section: SpritesSection, index: number, update: (item: Sprit
   return replacement;
 }
 
-function actorSourceForPlayer(source: SpriteActorSource, index: number, board: WorldBoard, actors: SpriteHydrationInput["actors"]): SpriteActor {
+function actorSourceForPlayer(source: SpriteActorSource, index: number, board: WorldBoard | null, actors: SpriteHydrationInput["actors"]): SpriteActor {
   const link = actorLinkForSource(source, actors);
   return actorFromSource({ ...source, kind: "player", ...(link === undefined ? {} : { actorId: link }) }, board, index, null);
 }
@@ -100,10 +100,10 @@ export function hydrateSprites(input: SpriteHydrationInput, section = createSpri
   return section;
 }
 
-/** Construct a board's player from an initial character and place it at the board start. */
+/** Construct a player from its character definition, before or after a board is loaded. */
 export function createInitialPlayer(
   section: SpritesSection,
-  board: WorldBoard,
+  board: WorldBoard | null,
   source: SpriteActorSource,
 ): SpriteActor {
   const player = actorSourceForPlayer({ ...source, controlled: source.controlled ?? section.players.length === 0 }, section.players.length, board, undefined);
@@ -289,7 +289,7 @@ export type SpriteRuntime = CameraTarget & PlayerPresencePort & {
   hydrate(input: SpriteHydrationInput): SpritesSection;
   /** Prepare without mutation; a throwing commit must be reversible by rollback. */
   prepareRecovery(board: WorldBoard, sprites: SpritesSection): { commit(): void; rollback(): void };
-  createPlayer(board: WorldBoard, source: SpriteActorSource): SpriteActor;
+  createPlayer(board: WorldBoard | null, source: SpriteActorSource): SpriteActor;
   placePlayer(x: number, y: number, layer: number, unit?: "pixel" | "tile"): boolean;
   showItem(id: string | number): boolean;
   hideItem(id: string | number): boolean;

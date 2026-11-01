@@ -18,6 +18,7 @@ import {
   createAssetIndex,
   createSpriteRuntime,
   createEmptyBoard,
+  createEmptyCharacter,
   IR_VERSION,
   createEmptyMainFile,
   ENGINE_DEFAULT_MANIFEST,
@@ -29,6 +30,7 @@ import {
   writeBoard,
   writeMainFile,
   promoteRecovery,
+  writeCharacter,
   selectRecovery,
   projectGameLedger,
   registerActorObject,
@@ -122,7 +124,7 @@ function authorGame(spec: GameSpec): AuthoredGame {
   for (const [name, board] of Object.entries(spec.boards)) add(`Boards/${name}`, boardBytes(board));
   for (const [name, text] of Object.entries(spec.programs)) add(`Prg/${name}`, encoder.encode(text));
   for (const [name, bytes] of Object.entries(spec.fonts ?? {})) add(`Font/${name}`, bytes);
-  if (spec.initChar !== undefined && spec.initChar !== "") add(`Chrs/${spec.initChar}`, new Uint8Array([0]));
+  if (spec.initChar !== undefined && spec.initChar !== "") add(`Chrs/${spec.initChar}`, unwrap(writeCharacter({ ...createEmptyCharacter(), minor: 5, name: "Hero", movementAnimations: Array(8).fill(""), battleStances: Array(6).fill("") })));
   for (const media of ["theme.mid", "other.mid"]) add(`Media/${media}`, new Uint8Array([0]));
   for (const name of spec.soundFonts ?? []) add(`Media/${name}`, new Uint8Array([0]));
   const root: AssetRoot = spec.project === undefined ? PACKAGE_ROOT : { kind: "game", projectPath: "" };
@@ -274,6 +276,78 @@ test("a scripted game boots from start.prg to its first board with the ruled eff
   deepEqual({ x: state.camera.x, y: state.camera.y }, { x: 0, y: 0 });
   equal(state.vm.threads.some((thread) => thread.kind === "board" && thread.status !== "finished"), true);
 });
+
+test("E-02 requests initChar and creates its real party actor and sprite before startup and board entry", () => {
+  const game = authorGame({
+    startup: "start.prg",
+    initChar: "hero.tem",
+    boards: { "start.brd": {} },
+    programs: { "start.prg": "end()\n" },
+  });
+  let observed: GameState | null = null;
+  let presenceAtStartup: boolean | null = null;
+  const spriteRuntime = createSpriteRuntime();
+  const engine = createEngine({
+    seed: 11,
+    assetIndex: game.index,
+    assetRoot: game.root,
+    mainFile: game.main,
+    gameIdentity: "engine-boot-initial-player",
+    startup: {
+      presence: { hasPlayer: () => {
+        presenceAtStartup = spriteRuntime.hasPlayer();
+        return presenceAtStartup;
+      } },
+      savedGame: { load: () => ({ kind: "missing" }), restored: () => false },
+    },
+    width: 320,
+    height: 240,
+    maxTicks: 600,
+    spriteRuntime,
+    phaseRegistrations: [{ phase: "input", run: (state) => { observed = JSON.parse(JSON.stringify(state)) as GameState; } }],
+  });
+
+  const result = run(engine, game.files, 1);
+  ok(result.requests.includes("chrs/hero.tem"));
+  equal(presenceAtStartup, true);
+  ok(observed !== null);
+  equal(observed.world.board ?? null, null);
+  equal(observed.actors.actors.length, 1);
+  equal(observed.actors.actors[0]?.name, "Hero");
+  deepEqual(observed.party.members, [observed.actors.actors[0]?.id]);
+  equal(observed.sprites.players.length, 1);
+  equal(observed.sprites.players[0]?.source, "chrs/hero.tem");
+  equal(observed.sprites.players[0]?.actorId, observed.party.selected);
+  equal(spriteRuntime.section.players.length, 1);
+  equal(spriteRuntime.section.players[0]?.actorId, observed.party.selected);
+});
+
+test("an invalid initChar does not fabricate player presence", () => {
+  const game = authorGame({ initChar: "broken.tem", boards: { "start.brd": {} }, programs: {} });
+  game.files.set(assetKey("chrs/broken.tem"), new Uint8Array([0]));
+  const spriteRuntime = createSpriteRuntime();
+  const engine = createEngine({
+    seed: 11,
+    assetIndex: game.index,
+    assetRoot: game.root,
+    mainFile: game.main,
+    gameIdentity: "engine-boot-invalid-initial-player",
+    startup: {
+      presence: { hasPlayer: () => spriteRuntime.hasPlayer() },
+      savedGame: { load: () => ({ kind: "missing" }), restored: () => false },
+    },
+    width: 320,
+    height: 240,
+    maxTicks: 600,
+    spriteRuntime,
+  });
+
+  const result = run(engine, game.files, 1);
+  equal(spriteRuntime.hasPlayer(), false);
+  equal(result.diagnostics.some((diagnostic) => diagnostic.code === "startup.no-player"), true);
+  equal(result.requests.includes("boards/start.brd"), false);
+});
+
 test("battleEnded dispatches before boardReturned and restores active board music before audio", () => {
   const game = authorGame({
     startup: "start.prg",
