@@ -114,7 +114,8 @@ function renderBoth(input: Presentation): { actual: Uint8Array; worst: number; a
     renderer.render(input.list, options);
     reads.push(read());
   }
-  const flushStable = reads.every((frame) => frame.every((value, index) => value === reads[0][index]));
+  const first = reads[0]!;
+  const flushStable = reads.every((frame) => frame.every((value, index) => value === first[index]));
   renderer.dispose();
 
   // The oracle is the independent reference rasteriser replaying the same draw list; never the engine's own screen pixels.
@@ -129,10 +130,10 @@ function renderBoth(input: Presentation): { actual: Uint8Array; worst: number; a
   for (const [key, pixels] of input.surfaces) surfaces.set(Number(key.split(":")[0] ?? "0") as SurfaceId, pixels);
   const raster = rasterize(input.list, assets, surfaces);
   if (raster.error !== null) throw new Error(`agreement: the reference refused the frame: ${raster.error}`);
-  const reference = raster.rgba;
+  const reference = raster.rgba!;
 
-  const { worst, at } = worstChannel(reads[0], reference, input.list.width);
-  return { actual: reads[0], worst, at, stats, flushStable };
+  const { worst, at } = worstChannel(first, reference, input.list.width);
+  return { actual: first, worst, at, stats, flushStable };
 }
 
 /** Everything a scene needs: its own asset files, keyed by the paths the scene names. */
