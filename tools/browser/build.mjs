@@ -20,6 +20,7 @@ const entries = [
   { in: join(root, "packages/runner-web/app/agreement.ts"), out: "agreement.js" },
   { in: join(root, "packages/runner-web/app/audio.ts"), out: "audio.js" },
   { in: join(root, "packages/runner-web/app/video.ts"), out: "video.js" },
+  { in: join(root, "packages/runner-web/app/storage.ts"), out: "storage.js" },
 ];
 
 mkdirSync(out, { recursive: true });
