@@ -41,6 +41,7 @@ One checked-in edge list (`tools/deps/edges.json`) generates this graph and the 
 ```mermaid
 graph LR
   core --> scripttools[script-tools]
+  core --> scriptcli[script-cli]
   core --> synth
   core --> renderwebgl2[render-webgl2]
   core --> runnerharness[runner-harness]
@@ -52,6 +53,8 @@ graph LR
   core --> editormodel[editor-model]
   core --> plugintk2compat[plugin-tk2-compat]
   scripttools --> lsp
+  scripttools --> scriptcli
+  scriptspec --> scriptcli
   synth --> runnerharness
   synth --> runnerweb
   synth --> runnerdesktop

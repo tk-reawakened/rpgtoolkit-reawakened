@@ -27,6 +27,9 @@
     },
     {
       "path": "packages/script-spec"
+    },
+    {
+      "path": "packages/script-cli"
     }
   ]
 }

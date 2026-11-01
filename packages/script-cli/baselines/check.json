@@ -1,0 +1,22 @@
+{
+    "diagnostics": [],
+    "exitCode": 0,
+    "results": {},
+    "schema": "tkr-script-result/1",
+    "status": "ok",
+    "subcommand": "check",
+    "summary": {
+      "changed": 0,
+      "diagnostics": {
+        "error": 0,
+        "hint": 0,
+        "info": 0,
+        "warning": 0
+      },
+      "failed": 0,
+      "files": 7,
+      "passed": 0,
+      "skipped": 0
+    },
+    "tool": "tkr"
+  }

@@ -34,6 +34,7 @@ export const GROUPS = Object.freeze([
   "runner-headless",
   "runner-web",
   "script-tools",
+  "script-cli",
   "lsp",
   "script-spec",
 ]);

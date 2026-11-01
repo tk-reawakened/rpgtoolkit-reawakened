@@ -298,6 +298,25 @@ importers:
         specifier: workspace:*
         version: link:../synth
 
+  packages/script-cli:
+    dependencies:
+      '@tk-reawakened/core':
+        specifier: workspace:*
+        version: link:../core
+      '@tk-reawakened/runner-harness':
+        specifier: workspace:*
+        version: link:../runner-harness
+      '@tk-reawakened/script-spec':
+        specifier: workspace:*
+        version: link:../script-spec
+      '@tk-reawakened/script-tools':
+        specifier: workspace:*
+        version: link:../script-tools
+    devDependencies:
+      '@types/node':
+        specifier: 24.0.0
+        version: 24.0.0
+
   packages/script-spec:
     dependencies:
       '@tk-reawakened/core':
