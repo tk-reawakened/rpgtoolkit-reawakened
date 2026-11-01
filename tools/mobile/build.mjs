@@ -32,7 +32,7 @@ cpSync(join(root, "apps", "player-mobile.js"), join(mobile, "dist", "apps", "pla
 
 // The bundled-asset list the page reads, plus the actual font/cursor files, so fetches work on a device without a dev server.
 const { readdirSync, writeFileSync } = await import("node:fs");
-const folders = ["media/fonts", "media/cursors"];
+const folders = ["media/fonts", "media/cursors", "media/soundfonts"];
 const bundled = folders.flatMap((folder) => {
   mkdirSync(join(mobile, "dist", folder), { recursive: true });
   return readdirSync(join(root, folder), { withFileTypes: true })

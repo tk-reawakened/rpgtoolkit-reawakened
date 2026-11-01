@@ -243,6 +243,13 @@ test("a message for a loading voice waits for ready, then goes out in order", ()
   deepEqual(sent.map((message) => message.kind), ["load", "play", "setVolume"]);
 });
 
+test("a report's cues reach the sink in their original order", () => {
+  const { player, sent } = harness();
+  player.reach(10);
+  player.advance([playCue(9, 10, "sfx", "first.wav"), playCue(3, 10, "music", "second.wav")]);
+  deepEqual(sent.map((message) => message.kind === "load" ? message.asset : message.kind), ["media/first.wav", "media/second.wav"]);
+});
+
 test("a failed voice drops its held messages and never plays", () => {
   const { player, sent } = harness();
   player.reach(10);

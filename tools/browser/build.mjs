@@ -40,7 +40,7 @@ for (const entry of entries) {
 
 // The browser page needs the same bundled-asset manifest the desktop build produces, so both runners can resolve
 // shared fonts and cursors from the `apps/` static tree without fetching the whole package manifest on boot.
-const folders = ["media/fonts", "media/cursors"];
+const folders = ["media/fonts", "media/cursors", "media/soundfonts"];
 const bundled = folders.flatMap((folder) =>
   readdirSync(join(root, folder), { withFileTypes: true })
     .filter((entry) => entry.isFile())
