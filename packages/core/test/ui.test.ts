@@ -15,6 +15,11 @@ import {
   type Wait,
 } from "../src/index.ts";
 import { pollMenuScreen } from "../src/script/waits.ts";
+import type { DrawCommand } from "../src/ports/draw.ts";
+
+function textAdvance(cmd: DrawCommand, index: number): number | undefined {
+  return cmd.kind === "text" ? cmd.advances[index]?.advance : undefined;
+}
 
 function arg(value: Arg["value"], ref: string | null = null): Arg {
   return { value, ref: ref as never };
@@ -94,6 +99,22 @@ test("text and pixelText record draws and text metrics", () => {
   equal(state.ui.draws[1]?.x, 10);
   equal(state.ui.draws[1]?.cell, false);
   equal(command("gettextwidth", state, [arg("AB")]).value, 16);
+});
+
+test("cell text lays out multi-line strings with one cell row per line", () => {
+  const state = createGameState({ seed: 0 });
+  const effect = firstEffect(command("text", state, [arg(1), arg(1), arg("A\nB\nC")]));
+  applyUiEffect(state, "text", effect.args ?? []);
+  const commands = composeUi(state.ui, 800, 600).filter((entry) => entry.kind === "text");
+  equal(commands.length, 3);
+  equal(commands[0]?.x, 0);
+  equal(commands[0]?.y, 0);
+  equal(commands[1]?.x, 0);
+  equal(commands[1]?.y, 8);
+  equal(commands[2]?.x, 0);
+  equal(commands[2]?.y, 16);
+  // First glyph of the first line is the 8px-wide default bitmap cell.
+  equal(textAdvance(commands[0]!, 0), 8);
 });
 
 test("prompt and msgBox waits resolve from modal state or unclaimed keys", () => {
