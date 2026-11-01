@@ -2,12 +2,16 @@
  * Tests for `tkr script` subcommands and the result envelope.
  */
 
-import { equal, ok, strictEqual } from "node:assert/strict";
+import { equal, ok, strictEqual, throws } from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   isScriptResult,
+  parseArgs,
   RESULT_SCHEMA,
   runCheck,
   runDocs,
@@ -111,4 +115,78 @@ void test("stable output bytes are identical for identical inputs", () => {
   const first = runCheck([fixture("check", "ok.prg")], true).result;
   const second = runCheck([fixture("check", "ok.prg")], true).result;
   equal(stableStringify(first), stableStringify(second));
+});
+
+// ====================================================== real CLI process
+
+const cliPath = join(here, "..", "dist", "cli.js");
+
+function runCli(args: readonly string[], cwd?: string): { readonly exitCode: number | null; readonly stdout: string; readonly stderr: string } {
+  const result = spawnSync("node", [cliPath, ...args], { cwd, encoding: "utf8" });
+  return { exitCode: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
+function parseCliJson(stdout: string): ScriptResult {
+  return JSON.parse(stdout) as ScriptResult;
+}
+
+void test("parseArgs requires the script group", () => {
+  const missing = parseArgs(["node", "tkr"]);
+  strictEqual(missing.ok, false);
+  ok(missing.ok === false && missing.message.includes("script"));
+
+  const wrongGroup = parseArgs(["node", "tkr", "lint", "ok.prg"]);
+  strictEqual(wrongGroup.ok, false);
+  ok(wrongGroup.ok === false && wrongGroup.message.includes('"script"'));
+
+  const good = parseArgs(["node", "tkr", "script", "check", "ok.prg"]);
+  strictEqual(good.ok, true);
+  if (good.ok) strictEqual(good.args.subcommand, "check");
+});
+
+void test("tkr script check succeeds on a good path", () => {
+  const { exitCode, stdout } = runCli(["script", "check", fixture("check", "ok.prg"), "--json"]);
+  strictEqual(exitCode, 0);
+  const result = parseCliJson(stdout);
+  assertEnvelope(result);
+  strictEqual(result.subcommand, "check");
+  strictEqual(result.status, "ok");
+});
+
+void test("tkr script check exits 2 for an invalid project config", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tkr-invalid-config-"));
+  writeFileSync(join(dir, "tkr-lint.json"), "not json");
+  writeFileSync(join(dir, "ok.prg"), "// ok\n");
+  try {
+    const { exitCode, stdout } = runCli(["script", "check", ".", "--json"], dir);
+    strictEqual(exitCode, 2);
+    const result = parseCliJson(stdout);
+    assertEnvelope(result);
+    strictEqual(result.subcommand, "check");
+    strictEqual(result.status, "error");
+    ok(result.diagnostics.some((d) => d.code === "tkr.config" && d.message.includes("invalid JSON")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+void test("tkr script check exits 2 for a nonexistent path", () => {
+  const { exitCode, stdout } = runCli(["script", "check", fixture("check", "does-not-exist.prg"), "--json"]);
+  strictEqual(exitCode, 2);
+  const result = parseCliJson(stdout);
+  assertEnvelope(result);
+  strictEqual(result.subcommand, "check");
+  strictEqual(result.status, "error");
+  ok(result.diagnostics.some((d) => d.code === "tkr.usage" && d.message.includes("no such file or directory")));
+});
+
+void test("parse-failure envelope reports the attempted subcommand", () => {
+  const { exitCode, stdout } = runCli(["script", "frobnicate", "--json"]);
+  strictEqual(exitCode, 2);
+  const result = parseCliJson(stdout);
+  assertEnvelope(result);
+  strictEqual(result.subcommand, "check");
+  const results = result.results as Record<string, unknown> | null;
+  ok(results !== null && typeof results === "object");
+  strictEqual(results!.attemptedSubcommand, "frobnicate");
 });

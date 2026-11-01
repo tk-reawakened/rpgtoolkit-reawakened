@@ -35,7 +35,15 @@ export function runCheck(paths: readonly string[], json: boolean): CheckResult {
 
   const configResult = loadLintConfig();
   if (!configResult.ok) {
-    const result = makeResult("check", 2, [], emptySummary, { configError: configResult.message });
+    const diagnostic: ResultDiagnostic = {
+      code: "tkr.config",
+      severity: "error",
+      file: "tkr-lint.json",
+      range: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } },
+      message: configResult.message,
+    };
+    const summary = { ...emptySummary, files: 0, diagnostics: { error: 1, warning: 0, info: 0, hint: 0 } };
+    const result = makeResult("check", 2, [diagnostic], summary, { configError: configResult.message });
     return { result, text: json ? stableStringify(result) : `tkr script check: ${configResult.message}` };
   }
   const lintConfig = configResult.config;
@@ -95,9 +103,10 @@ export function runCheck(paths: readonly string[], json: boolean): CheckResult {
 }
 
 function loadLintConfig(): { readonly ok: true; readonly config: LintConfig } | { readonly ok: false; readonly message: string } {
-  const value = readProjectConfig("tkr-lint.json");
-  if (value === null) return { ok: true, config: {} };
-  const parsed = readLintConfig(value);
+  const read = readProjectConfig("tkr-lint.json");
+  if (read.kind === "absent") return { ok: true, config: {} };
+  if (read.kind === "error") return { ok: false, message: read.message };
+  const parsed = readLintConfig(read.value);
   if (parsed.ok) return { ok: true, config: parsed.config };
   return { ok: false, message: `tkr-lint.json: ${parsed.problems.join("; ")}` };
 }

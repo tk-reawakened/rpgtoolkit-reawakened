@@ -125,15 +125,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: tkr script check
-        run: node packages/script-cli/dist/cli.js check stock docs/spec/examples/game --json > /tmp/check.json && diff -u packages/script-cli/baselines/check.json /tmp/check.json
+        run: node packages/script-cli/dist/cli.js script check stock docs/spec/examples/game --json > /tmp/check.json && diff -u packages/script-cli/baselines/check.json /tmp/check.json
       - name: tkr script fmt --check
-        run: node packages/script-cli/dist/cli.js fmt --check stock docs/spec/examples/game --json > /tmp/fmt.json && diff -u packages/script-cli/baselines/fmt.json /tmp/fmt.json
+        run: node packages/script-cli/dist/cli.js script fmt --check stock docs/spec/examples/game --json > /tmp/fmt.json && diff -u packages/script-cli/baselines/fmt.json /tmp/fmt.json
       - name: tkr script index
-        run: node packages/script-cli/dist/cli.js index stock docs/spec/examples/game --json > /tmp/index.json && diff -u packages/script-cli/baselines/index.json /tmp/index.json
+        run: node packages/script-cli/dist/cli.js script index stock docs/spec/examples/game --json > /tmp/index.json && diff -u packages/script-cli/baselines/index.json /tmp/index.json
       - name: tkr script docs
-        run: node packages/script-cli/dist/cli.js docs --json > /tmp/docs.json && diff -u packages/script-cli/baselines/docs.json /tmp/docs.json
+        run: node packages/script-cli/dist/cli.js script docs --json > /tmp/docs.json && diff -u packages/script-cli/baselines/docs.json /tmp/docs.json
       - name: tkr script test
-        run: node packages/script-cli/dist/cli.js test packages/script-cli/test/fixtures/pass-project --json > /tmp/test.json && diff -u packages/script-cli/baselines/test.json /tmp/test.json
+        run: node packages/script-cli/dist/cli.js script test packages/script-cli/test/fixtures/pass-project --json > /tmp/test.json && diff -u packages/script-cli/baselines/test.json /tmp/test.json
   golden-bun:
     runs-on: ubuntu-24.04
     steps:

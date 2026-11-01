@@ -69,13 +69,25 @@ export function readJsonFile(path: string): unknown {
   return JSON.parse(text);
 }
 
-export function readProjectConfig(path: string): unknown | null {
+export type ProjectConfigRead =
+  | { readonly kind: "absent" }
+  | { readonly kind: "config"; readonly value: unknown }
+  | { readonly kind: "error"; readonly message: string };
+
+export function readProjectConfig(path: string): ProjectConfigRead {
+  let stat;
   try {
-    const stat = statSync(path);
-    if (!stat.isFile()) return null;
-    return readJsonFile(path);
-  } catch {
-    return null;
+    stat = statSync(path);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return { kind: "absent" };
+    return { kind: "error", message: `cannot read ${path}: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  if (!stat.isFile()) return { kind: "absent" };
+  try {
+    return { kind: "config", value: readJsonFile(path) };
+  } catch (error) {
+    return { kind: "error", message: `invalid JSON in ${path}: ${error instanceof Error ? error.message : String(error)}` };
   }
 }
 
