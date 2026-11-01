@@ -274,7 +274,7 @@ loop range and CC0-1.0 provenance.
 |---|---|---:|---|
 | `TK-16.sf2` (default) | Classic RPG | 563,992 | `a79fa6d4ae3b8ab8b3f3e3ddd4ab3d59a0ac24222caffcdd914435d76872ede2` |
 | `TK-16-Whimsical.sf2` | Whimsical | 618,322 | `280fa8d591c914747a30b297e703aefdbe63a428bae3d0a45fd2a5f20399700d` |
-| `TK-16-Arcade.sf2` | Arcade | 521,344 | `67468263962cee793bedb74b93f68b899ea2179cb660e8e798ef73036c140504` |
+| `TK-16-Arcade.sf2` | Arcade | 527,696 | `de883a27625f1a4443596864fcd518f540483aab3ccd2fbf2a84fa1ddf3909f6` |
 
 The owner chose Classic RPG as the default on 2026-11-01; the other two are
 selectable bundled banks.

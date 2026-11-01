@@ -1487,7 +1487,7 @@ program measured within 1 cent at notes 60, 64 and 72.
 |---|---|---:|---|
 | `TK-16.sf2` (**default**) | Classic RPG: a textbook chip table, saw and pulse blends with a static low-pass and a standard envelope per family | 563,992 | `a79fa6d4ae3b8ab8b3f3e3ddd4ab3d59a0ac24222caffcdd914435d76872ede2` |
 | `TK-16-Whimsical.sf2` | Whimsical: the classic table with cartoon physics: a toy marimba, a rubber bass, a kazoo reed, a boing lead, a late-vibrato whistle, a tack piano, scooped brass and voices, a water-drop boop and toy percussion | 618,322 | `280fa8d591c914747a30b297e703aefdbe63a428bae3d0a45fd2a5f20399700d` |
-| `TK-16-Arcade.sf2` | Arcade: slap bass, hard-clipped guitar and lead, a downward-blatting pulse brass, a swept kick and a gated snare | 521,344 | `67468263962cee793bedb74b93f68b899ea2179cb660e8e798ef73036c140504` |
+| `TK-16-Arcade.sf2` | Arcade: a cabinet board with 2-operator FM bass and chime, feedback-FM guitar and lead, a ripping pulse brass, a power chord, a clipped kick and a gated crack | 527,696 | `de883a27625f1a4443596864fcd518f540483aab3ccd2fbf2a84fa1ddf3909f6` |
 
 The owner chose Classic RPG as the bundled default on 2026-11-01; the other two
 are selectable bundled banks, picked by their `media/soundfonts/` id in the

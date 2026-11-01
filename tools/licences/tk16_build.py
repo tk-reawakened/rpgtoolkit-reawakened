@@ -264,32 +264,39 @@ for _name, _delta in WHIMSICAL_ATTEN_DELTA.items():
 WHIMSICAL_GM = {68: 9, 69: 9, 70: 9, 71: 9, 21: 9, 22: 9}
 
 
-def clip_partials(gain: float, shape):
-    """Band-limited partials of a hard-clipped waveform: clamp(gain * shape(phase), -1, 1) over one cycle.
+def fm_wave(ratio: float, index: float):
+    """Two-operator phase modulation, baked as one loop: sin(w t + index * sin(ratio * w t))."""
+    return lambda length, period: [math.sin(TAU * i / period + index * math.sin(TAU * ratio * i / period)) for i in range(length)]
 
-    The clip is computed on an oversampled cycle and kept only below the loop's Nyquist, so the flat-topped
-    harmonics do not alias inside the sample.
+
+def feedback_fm_wave(feedback: float, gain: float):
+    """x[n] = sin(w n + feedback * x[n-1]), clipped at gain, run at the loop's own (low) sample rate.
+
+    At this rate the recursion settles into a periodic orbit within a few cycles (checked for every loop size),
+    so the loop joins exactly; its aliased, flat-topped edge is the point.
     """
-    def partials(f0, lim):
-        count = 16 * int(2 * lim)
-        wave = [max(-1.0, min(1.0, gain * shape(TAU * k / count))) for k in range(count)]
+    def wave(length, period):
+        x = 0.0
+        for n in range(200 * period):
+            x = math.sin(TAU * (n % period) / period + feedback * x)
         out = []
-        for n in range(1, int(lim)):
-            a = 2.0 / count * sum(v * math.cos(TAU * n * k / count) for k, v in enumerate(wave))
-            b = 2.0 / count * sum(v * math.sin(TAU * n * k / count) for k, v in enumerate(wave))
-            if math.hypot(a, b) > 1e-3:
-                out.append((float(n), math.hypot(a, b), math.atan2(a, b)))
+        for i in range(length):
+            x = math.sin(TAU * (i % period) / period + feedback * x)
+            out.append(max(-1.0, min(1.0, gain * x)))
         return out
-    return partials
+    return wave
 
 
+ARCADE_WAVES = {
+    "fmbass": fm_wave(2.0, 0.4),
+    "fmbell": fm_wave(3.5, 1.2),
+    "fmfb": feedback_fm_wave(1.8, 1.4),
+}
 ARCADE_SPECTRA = {
     **CLASSIC_SPECTRA,
-    # A bright saw with a narrow pulse for odd-harmonic bite (sgn(sin - 0.2) is a 43.6% pulse).
-    "slap": series(lambda n: 0.6 * saw(n) + 0.4 * pulse(0.436)(n)),
-    # Baked distortion: three sines through a hard ceiling.
-    "clip": clip_partials(1.8, lambda x: math.sin(x) + 0.5 * math.sin(2 * x) + 0.3 * math.sin(3 * x)),
     "pulse20": series(pulse(0.2)),
+    # An open power chord: a saw, a saw a fifth up (3/2, two cycles per loop) and a saw an octave up.
+    "chord": lambda f0, lim: [(r * n, 1.0 / (3.0 * n), 0.0) for r in (1.0, 1.5, 2.0) for n in range(1, int(lim)) if r * n < lim],
 }
 
 
@@ -301,22 +308,31 @@ def _arcade_table():
         table[name] = (spectrum, cycles, venv, int(cutoff * 1.5), (vib[0], vib[1], int(round(vib[2] * 0.5))), wide, tier, atten, *rest)
     fast = {  # snappier entries
         "TK Strings": (0.04, 0.2, sus(0.82), 0.3), "TK Pad": (0.12, 0.5, sus(0.85), 0.5), "TK Choir": (0.06, 0.2, sus(0.8), 0.3),
-        "TK Flute": (0.03, 0.05, sus(0.95), 0.12), "TK Organ": (0.005, 0.05, 0, 0.05),
+        "TK Flute": (0.03, 0.05, sus(0.95), 0.12),
     }
     for name, venv in fast.items():
         row = list(table[name])
         row[2] = venv
         table[name] = tuple(row)
-    table["TK Bass"] = ("slap", 1, (0.0, 0.28, sus(0.2), 0.06), 9000, (0, 0, 0), False, 11025, 0, {"head": ("slap", 48)})
-    table["TK Guitar"] = ("clip", 1, (0.002, 0.15, sus(0.85), 0.09), 9000, (0, 0, 0), False, 16000, 0)
-    table["TK Lead"] = ("clip", 1, (0.002, 0.15, sus(0.85), 0.09), 9000, (0.18, 5.6, 9), True, 22050, 0)
-    table["TK Brass"] = ("pulse20", 1, (0.012, 0.2, sus(0.6), 0.075), 7500, (0, 0, 0), False, 22050, 0, {"pitch_env": (700, 0.03)})
-    table["TK Bell"] = ("bell", 3, (0.0, 0.4, sus(0.15), 0.1), 10000, (0, 0, 0), False, 16000, 0)
+    # 2-op FM slap bass: modulation index falls from 3.5 to 0.4 in the first 40 ms, with a +5 semitone drop in 15 ms.
+    table["TK Bass"] = ("fmbass", 1, (0.0, 0.22, sus(0.15), 0.045), 9000, (0, 0, 0), False, 4186, 0,
+                        {"head": ("fm", 0.04, {"ratio": 2.0, "i0": 3.5, "i1": 0.4, "tau": 0.013}), "pitch_env": (500, 0.015)})
+    # Biting guitar: clipped 1:1 feedback phase modulation, a 32-frame pick scratch, and a 1 semitone scoop in 10 ms.
+    table["TK Guitar"] = ("fmfb", 1, (0.002, 0.12, sus(0.9), 0.06), 9000, (0, 0, 0), False, 16000, 0,
+                          {"head": ("pick", 32), "pitch_env": (-100, 0.01)})
+    table["TK Lead"] = ("fmfb", 1, (0.002, 0.12, sus(0.9), 0.06), 9000, (0.18, 5.6, 9), True, 22050, 0, {"pitch_env": (-100, 0.01)})
+    # Brass stab: 20% pulse that rips down from an octave above in 22 ms.
+    table["TK Brass"] = ("pulse20", 1, (0.0, 0.18, sus(0.55), 0.05), 7500, (0, 0, 0), False, 22050, 0, {"pitch_env": (1200, 0.022)})
+    # Action power chord on the organ slot, with a 32-frame saturated strike.
+    table["TK Organ"] = ("chord", 2, (0.0, 0.35, sus(0.7), 0.08), 7500, (0, 0, 0), False, 16000, 0, {"head": ("slap", 32)})
+    # FM chime: a 1:3.5 bell whose index starts hot and settles.
+    table["TK Bell"] = ("fmbell", 2, (0.0, 0.5, sus(0.0), 0.1), 10000, (0, 0, 0), False, 16000, 0,
+                        {"head": ("fm", 0.06, {"ratio": 3.5, "i0": 3.5, "i1": 1.2, "tau": 0.02})})
     return table
 
 
 # Attenuation added to the classic value so the clipped and pulse voices sit at the classic loudness.
-ARCADE_ATTEN_DELTA = {"TK Guitar": 360, "TK Bass": -64, "TK Strings": 5, "TK Choir": 13, "TK Brass": 79, "TK Lead": 279, "TK Pad": 75, "TK SFX": -8}
+ARCADE_ATTEN_DELTA = {"TK Organ": 44, "TK Guitar": 360, "TK Bass": 7, "TK Strings": 5, "TK Choir": 13, "TK Brass": 60, "TK Bell": -28, "TK Lead": 290, "TK Pad": 75, "TK SFX": -8}
 
 
 def _arcade_leveled():
@@ -381,17 +397,18 @@ PROFILES = {
     "arcade": {
         "file": "TK-16-Arcade.sf2",
         "title": "TK-16 Arcade",
-        "feel": "hard transients and metallic bite: slap bass, hard-clipped guitar and lead, a downward-blatting pulse brass, a swept kick and a gated snare",
+        "feel": "a cabinet board: 2-operator FM bass and chime, feedback-FM guitar and lead, a ripping pulse brass, a power chord, a clipped kick and a gated crack",
         "rate": 24000,
-        # (low key, high key, loop frames, root key): a gritty 7 kHz bass zone, then 64, 32 and 16 frame loops.
-        "zones": ((0, 47, 128, 33), (48, 71, 64, 60), (72, 83, 32, 72), (84, 127, 16, 84)),
-        "table": ARCADE_TABLE, "spectra": ARCADE_SPECTRA, "tiers": False, "gm_overrides": ARCADE_GM,
+        # (low key, high key, loop frames, root key): a 4.2 kHz bass zone rooted at C2, then 64, 32 and 16 frame loops.
+        "zones": ((0, 47, 64, 36), (48, 71, 64, 60), (72, 83, 32, 72), (84, 127, 16, 84)),
+        "table": ARCADE_TABLE, "spectra": ARCADE_SPECTRA, "waves": ARCADE_WAVES, "tiers": False, "gm_overrides": ARCADE_GM,
+        "kit_swap": {"chat": "arc_hat", "ohat": "arc_ohat", "crash": "arc_crash"},
         "bits": 12, "dither": 0.3, "filter_shift": 0, "vibrato_scale": 1.0,
         "venv": {},
         "drive": {},
-        "drums": {"tom_len": 0.55, "tom_decay": 0.4, "snare_len": 0.18, "snare_decay": 0.12, "snare_gate": 0.15, "kick_decay": 0.12, "kick_click": 0.3,
-                  "kick_start": 45.0, "kick_sweep": 135.0, "kick_sweep_tau": 0.02,
-                  "drive": {"*": 1.4, "kick": 1.8, "snare": 1.8}},
+        "drums": {"tom_len": 0.55, "tom_decay": 0.4, "snare_len": 0.16, "snare_decay": 0.12, "snare_gate": 0.12, "snare_tones": (180.0, 330.0),
+                  "kick_decay": 0.1, "kick_click": 0.3, "kick_start": 50.0, "kick_sweep": 190.0, "kick_sweep_tau": 0.01, "kick_clip": 0.8,
+                  "drive": {"*": 1.4, "kick": 1.0, "snare": 1.4}},
     },
 }
 
@@ -437,23 +454,39 @@ def loop_cycle(spectrum: str, f0: float, period: int, cycles: int, profile, rate
                 smooth[index - length] = last
         return finish(smooth, profile, drive=drive), 0
     spectra = profile.get("spectra", {})
-    partials = (spectra.get(spectrum) or SPECTRA[spectrum])(f0, period / 2.0)
-    # Every partial must complete a whole number of cycles in the loop, so the join is exact.
-    partials = [(r, a, p) for r, a, p in partials if r < period / 2.0 and abs(r * cycles - round(r * cycles)) < 1e-9]
+    direct = profile.get("waves", {}).get(spectrum)
+    if direct is not None:
+        loop_values = direct(length, period)
+        partials = []
 
-    def wave(i: int) -> float:
-        return sum(a * math.sin(TAU * r * i / period + p) for r, a, p in partials)
+        def wave(i: int) -> float:
+            return loop_values[i % length]
+    else:
+        partials = (spectra.get(spectrum) or SPECTRA[spectrum])(f0, period / 2.0)
+        # Every partial must complete a whole number of cycles in the loop, so the join is exact.
+        partials = [(r, a, p) for r, a, p in partials if r < period / 2.0 and abs(r * cycles - round(r * cycles)) < 1e-9]
+
+        def wave(i: int) -> float:
+            return sum(a * math.sin(TAU * r * i / period + p) for r, a, p in partials)
 
     lead: list[float] = []
     if head is not None:
         kind, seconds, *arg = head
         # A whole number of fundamental cycles, so the loop continues in phase.
-        lead_length = (int(math.ceil(seconds / period)) if kind == "slap" else int(math.ceil(seconds * f0))) * period
+        if kind in ("slap", "pick"):
+            lead_length = (int(math.ceil(seconds / period)) if kind == "slap" else int(seconds))
+            lead_length = lead_length * period if kind == "slap" else lead_length
+        elif kind == "fm":
+            unit = period * cycles
+            lead_length = int(math.ceil(seconds * f0 / cycles)) * unit
+        else:
+            lead_length = int(math.ceil(seconds * f0)) * period
         rng = Lfsr(0x4845 + period)
         alt = None
         if kind == "alt":
             alt = [(r, a, p) for r, a, p in (spectra.get(arg[0]) or SPECTRA[arg[0]])(f0, period / 2.0) if r < period / 2.0 and abs(r * cycles - round(r * cycles)) < 1e-9]
         warp = 0.0
+        previous = 0.0
         flutter = [0.0] * lead_length
         if kind == "boing":
             # A 12 Hz flutter of about +-30 cents that dies away over the head, baked in as phase modulation.
@@ -465,7 +498,16 @@ def loop_cycle(spectrum: str, f0: float, period: int, cycles: int, profile, rate
             warp = (position - lead_length) / lead_length
         for i in range(lead_length):
             t = i / rate
-            if kind == "boing":
+            if kind == "pick":
+                # A metallic pick scratch: 32 frames of high-passed shift-register noise.
+                sample = rng.next()
+                value = 0.9 * (sample - previous) * (1.0 - i / lead_length)
+                previous = sample
+            elif kind == "fm":
+                cfg = arg[0]
+                index = cfg["i1"] + (cfg["i0"] - cfg["i1"]) * math.exp(-t / cfg["tau"])
+                value = math.sin(TAU * i / period + index * math.sin(TAU * cfg["ratio"] * i / period))
+            elif kind == "boing":
                 u = flutter[i] - warp * i  # ends exactly on a whole cycle so the loop joins in phase
                 value = sum(a * math.sin(TAU * r * u / period + p) for r, a, p in partials)
             elif alt is not None:
@@ -521,6 +563,7 @@ DRUM_SECONDS = {
     "timbale": 0.30, "agogo": 0.35, "cabasa": 0.10, "maracas": 0.07, "whistle_s": 0.15, "whistle_l": 0.50,
     "guiro_s": 0.12, "guiro_l": 0.40, "claves": 0.07, "block": 0.10, "cuica_m": 0.10, "cuica_o": 0.30,
     "tri_m": 0.15, "tri_o": 0.70,
+    "arc_hat": 0.09, "arc_ohat": 0.20, "arc_crash": 0.80,
     "toy_snare": 0.12, "toy_clap": 0.09, "shaker": 0.12, "agogo_bell": 0.35, "pip": 0.10,
 }
 
@@ -555,11 +598,20 @@ def drum(kind: str, profile) -> list[int]:
         if kind == "kick":
             phase += TAU * (dp.get("kick_start", 46.0) + dp.get("kick_sweep", 120.0) * math.exp(-t / dp.get("kick_sweep_tau", 0.028))) / rate
             v = math.sin(phase) * math.exp(-t / dp["kick_decay"]) + dp["kick_click"] * hp[i] * math.exp(-t / 0.003)
+            if dp.get("kick_clip"):
+                v = max(-dp["kick_clip"], min(dp["kick_clip"], v))  # flatten the top for a chest-hitting thud
         elif kind == "kick2":
-            phase += TAU * (58.0 + 90.0 * math.exp(-t / 0.02)) / rate
-            v = math.sin(phase) * math.exp(-t / 0.085) + 0.18 * hp[i] * math.exp(-t / 0.002)
+            cabinet = bool(dp.get("kick_clip"))  # the cabinet kit's lighter, snappier partner to the main kick
+            phase += TAU * ((75.0 + 150.0 * math.exp(-t / 0.015)) if cabinet else (58.0 + 90.0 * math.exp(-t / 0.02))) / rate
+            v = math.sin(phase) * math.exp(-t / (0.06 if cabinet else 0.085)) + 0.18 * hp[i] * math.exp(-t / 0.002)
+            if cabinet:
+                v = max(-0.9, min(0.9, v))
         elif kind == "snare":
-            if dp.get("snare_gate"):
+            if dp.get("snare_tones"):
+                # A gated crack: two tones and a shift-register noise burst that stops dead.
+                low, high = dp["snare_tones"]
+                v = 0.35 * (math.sin(TAU * low * t) + math.sin(TAU * high * t)) * math.exp(-t / 0.05) + 0.6 * hp[i] * (1.0 if t < dp["snare_gate"] else 0.0)
+            elif dp.get("snare_gate"):
                 # Half a triangle pop at 220 Hz, half shift-register noise, cut off abruptly.
                 triangle = 4.0 * abs((220.0 * t) % 1.0 - 0.5) - 1.0
                 v = 0.5 * triangle * math.exp(-t / 0.04) + 0.5 * hp[i] * (1.0 if t < dp["snare_gate"] else 0.0)
@@ -625,6 +677,20 @@ def drum(kind: str, profile) -> list[int]:
             f = 420.0 + (160.0 if kind == "cuica_m" else 700.0) * min(1.0, t / (0.08 if kind == "cuica_m" else 0.25))
             phase += TAU * f / rate
             v = (math.sin(phase) + 0.4 * math.sin(2.0 * phase)) * math.exp(-t / (0.05 if kind == "cuica_m" else 0.2))
+        elif kind in ("arc_hat", "arc_ohat"):
+            # A high-passed square ring-modulated with shift-register noise.
+            v = square(5200.0, t) * hp[i] * math.exp(-t / (0.018 if kind == "arc_hat" else 0.07))
+        elif kind == "arc_crash":
+            # Shift-register noise read slower and slower, falling four semitones over 800 ms.
+            if i == 0:
+                table = [rng.next() for _ in range(count + 2)]
+                position = 0.0
+                smooth = 0.0
+            position += 2.0 ** (-4.0 / 12.0 * (t / 0.8))
+            whole = int(position)
+            blend = position - whole
+            smooth += 0.5 * ((table[whole] + (table[whole + 1] - table[whole]) * blend) - smooth)
+            v = smooth * math.exp(-t / 0.25)
         elif kind == "toy_snare":
             # A toy woodblock: two short sine pings and no noise.
             v = (math.sin(TAU * 780.0 * t) + math.sin(TAU * 1150.0 * t)) * math.exp(-t / 0.018)
