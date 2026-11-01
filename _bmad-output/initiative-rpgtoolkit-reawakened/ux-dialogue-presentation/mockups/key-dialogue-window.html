@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dialogue window — speaker shown</title>
+<style>
+/* Governed by DESIGN.md: Layout & Spacing, Components; EXPERIENCE.md: Component Patterns, State Patterns. */
+:root { color-scheme: light dark; font: 16px/1.4 system-ui, sans-serif; }
+body { margin: 24px; color: CanvasText; background: Canvas; }
+figure { margin: 0; }
+figcaption { margin-bottom: 12px; }
+.window {
+  width: 600px;
+  height: 100px;
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  outline: 1px solid currentColor;
+}
+.portrait {
+  display: grid;
+  place-items: center;
+  border-right: 1px dashed currentColor;
+  font-size: 12px;
+  text-align: center;
+}
+.dialogue { min-width: 0; padding: 6px 10px; }
+.speaker { font-weight: 700; margin-bottom: 2px; }
+.message { margin: 0; }
+</style>
+</head>
+<body>
+<figure aria-label="Speaker-backed dialogue window">
+  <figcaption>Speaker-backed line · fixed 600 × 100 logical-pixel window</figcaption>
+  <section class="window" aria-label="Steven: I like pugs.">
+    <div class="portrait" role="img" aria-label="Steven's actor portrait">Steven<br>portrait</div>
+    <div class="dialogue">
+      <div class="speaker">Steven</div>
+      <p class="message">I like pugs.</p>
+    </div>
+  </section>
+</figure>
+</body>
+</html>
