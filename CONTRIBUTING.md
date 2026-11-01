@@ -292,10 +292,38 @@ Run `pnpm build` first because packages import each other's built output. Only `
 ## Open the pull request, review and merge
 
 1. Push your branch and open a pull request **against `tk-reawakened/rpgtoolkit-reawakened:main`**. Collaborators with write access can use `git push -u origin <branch>`; everyone else should use [a fork](#contribute-through-a-fork). Fill in [the template](.github/pull_request_template.md): the guard-rail checklist, the spec sections you implement, and any golden changes with the reason.
-2. **CI.** [.github/workflows/ci.yml](.github/workflows/ci.yml) defines five jobs: `checks` (typecheck, lint, licence, provenance, dependency graph, catalogue, command-docs, and tool self-tests), `unit` (an eight-shard matrix over `core-formats`, `core-script`, `core-engine`, `core-battle`, `synth`, `plugin-tk2-compat`, `runner-harness` and `runner-headless` that fetches the sample games and runs each shard once under the no-skips guard with V8 coverage), `golden`, `golden-bun`, and `gate`. `gate` fails unless all upstream jobs succeeded, merges the eight shard LCOV reports into `coverage/lcov.info`, and enforces the repository line and branch coverage thresholds.
-3. **Green before merge.** All required checks, gated by `gate`, must pass. The repository ruleset requires `gate`, which lists `checks`, `unit`, `golden`, and `golden-bun` in its `needs`, so any failed, skipped, or cancelled job blocks the merge. Every change goes through a reviewed pull request; never push changes straight to `main`.
+2. **CI.** [.github/workflows/ci.yml](.github/workflows/ci.yml) runs these jobs on every pull request: `changes` (the change classifier, below), `checks` (typecheck, lint, licence, provenance, dependency graph, catalogue, command-docs, and tool self-tests), `unit` (a fifteen-shard matrix that fetches the sample games and runs each shard once under the no-skips guard with V8 coverage), `golden`, `script-dogfood`, `golden-bun`, `browser`, `desktop` (Linux, macOS and Windows), `mobile` (an Android emulator), and `gate`. `gate` fails unless every one of those jobs succeeded, merges the fifteen shard LCOV reports into `coverage/lcov.info`, and enforces the repository line and branch coverage thresholds.
+3. **Green before merge.** All checks, gated by `gate`, must pass. The repository ruleset requires the single `gate` check, which lists every job above in its `needs`, so any failed, skipped, or cancelled job blocks the merge. No job is ever skipped: see "What CI does for a prose-only change" below. Every change goes through a reviewed pull request; never push changes straight to `main`.
 4. **Independent review.** Someone other than the author reviews the diff. They read it against the checklist, run the commands that matter for the change, and check that any changed golden is explained. A reviewer who is an AI agent must not be the session that wrote the change.
 5. **Behind `main`?** If GitHub says the branch can merge cleanly and checks are green, do not rebase or force-push just to catch up. Merge `origin/main` into your branch only when there is a conflict or `main` changed something your change depends on. Pull requests are merged with a merge commit, which keeps history intact.
+
+### What CI does for a prose-only change
+
+Installing, building, replaying goldens and booting an Android emulator is wasted on a typo fix, so each of `golden`, `golden-bun`, `browser`, `desktop` (each operating system), `mobile` and `script-dogfood` judges for itself whether its work applies ([ADR 0016](docs/adr/0016-ci-classified-steps.md)). The `changes` job lists the files your pull request changed and gives one verdict. Every one of those jobs still runs and still reports success; they only skip their own *steps* when the verdict is "defer". `checks`, `unit` and `gate` always do all of their work, so licence, provenance and coverage always see your change. Because no job is skipped, the required `gate` check keeps its meaning and the repository ruleset is unchanged.
+
+The verdict is "defer" only when **every** changed path is one of these, each of which is read by people and by no CI lane:
+
+- a Markdown file in the repository root (`README.md`, `CONTRIBUTING.md`, ...);
+- `docs/guardrails.md`;
+- Markdown under `docs/adr/`;
+- Markdown under `_bmad-output/` (plans and tickets);
+- issue forms under `.github/ISSUE_TEMPLATE/` (`.md`, `.yml`, `.yaml`).
+
+Anything else runs everything, including all of `packages/`, `tools/`, `stock/` and `golden/` (even a README there), all of `docs/spec/`, `.github/workflows/` and the pull request template, any other file in `docs/`, `package.json` and the lockfile, an empty diff, a path nobody has classified, and every push to `main`. The list is positive on purpose: a new kind of file runs everything until someone decides it is inert. A rename counts both its old and its new path.
+
+Open the job log to see which way it went. A job that defers prints one line, and its later steps show as skipped:
+
+```text
+CI classifier [golden]: DEFER - nothing this job guards could have changed; inert: _bmad-output/example/plan.md
+```
+
+A job that runs prints the path that forced it:
+
+```text
+CI classifier [golden]: RUN - full: tools/ci/classify-changes.mjs
+```
+
+If the classifier itself cannot decide (git fails, the diff cannot be parsed, it crashes, its tests fail), every job runs in full and `changes` fails, which fails `gate`. That is a CI problem to report, not something your pull request caused by being small. The classifier is `tools/ci/classify-changes.mjs`; its tests are `pnpm ci:classify:test`. CI runs the **base branch's** copy to judge your pull request, so changing the classifier cannot loosen the verdict on that same pull request (and a change under `tools/` always runs everything anyway).
 
 ### Contribute through a fork
 

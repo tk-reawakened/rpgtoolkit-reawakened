@@ -36,7 +36,7 @@ Mechanically, a `changes` job classifies the pull request's changed paths and pu
 When a job defers it prints one line naming the job, the verdict and the classifier's reason, which lists the inert paths examined:
 
 ```text
-CI classifier [golden]: DEFER steps - nothing this job guards changed: inert: _bmad-output/example/plan.md
+CI classifier [golden]: DEFER - nothing this job guards could have changed; inert: _bmad-output/example/plan.md
 ```
 
 When it runs it prints the reason it was forced, so both directions are legible:
@@ -53,13 +53,13 @@ The verdict is `defer` only when the classifier positively determined that every
 
 * a path that is not on the inert list (including anything under `packages/`, `tools/`, `stock/`, `golden/`, `docs/spec/` or `.github/workflows/`, even a `README.md` there);
 * an empty diff, a non-`pull_request` event (so every push to `main`), or a malformed path (absolute, drive letter, `..`, `.` or empty segment, backslash, control character, replacement character);
-* a missing or empty verdict, since the steps defer only on the exact value `false`.
+* a missing or empty verdict, or a `changes` job that failed before publishing one, since a step defers only on the exact value `false`.
 
-A **classifier failure** (git cannot produce the diff, the diff cannot be decoded or parsed, the classifier crashes, its output cannot be written) selects `run` **and fails the `changes` job**, which fails `gate`. A pull request whose base has no classifier yet selects `run` with that stated reason.
+A **classifier failure** (git cannot produce the diff, the diff cannot be decoded or parsed, the classifier crashes or prints an incomplete or inconsistent verdict, its own unit tests fail) selects `run` **and fails the `changes` job**, which fails `gate`; the dependent jobs still run in full so the pull request gets every result. `gate` also fails if the verdict is absent, if a defer arrives without its `inert:` evidence, or if a defer arrives outside a `pull_request`. A pull request whose base has no classifier yet selects `run` with that stated reason; that is a verdict, not a failure.
 
 ### Transport
 
-The diff is `git diff --no-renames --name-only -z <base sha> <merge sha>` with `fetch-depth: 0`. `--no-renames` makes a rename contribute both its old and its new path. Paths travel through files and the environment, never through a shell command line. The classifier executed is the **base branch's copy** (`git show <base sha>:tools/ci/classify-changes.mjs`), so a pull request cannot loosen the rules that judge it. The pull request's own copy is still tested, in `changes`.
+The diff is `git diff --no-renames --name-only -z <base sha> <merge sha>` with `fetch-depth: 0`. `--no-renames` makes a rename contribute both its old and its new path. Paths travel through files and the environment, never through a shell command line. The classifier executed is the **base branch's copy** (`git show <base sha>:tools/ci/classify-changes.mjs`), so a pull request cannot loosen the rules that judge it. The pull request's own copy is tested first, in `changes`, before any verdict is published.
 
 ### The inert set
 
