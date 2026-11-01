@@ -163,12 +163,12 @@ void (async () => {
     const right = new Float32Array(audioFrames);
     sink.render(left, right, audioFrames);
 
-    // The save this runner writes, under the descriptor's GameId, for the web runner to read back.
+    // A round trip through this host's own save store: written under a fixed key, then read back. It proves the
+    // desktop blob boundary works; it is not cross-runner evidence, since the browser keeps a separate store.
     const gameId = "desktop-probe-game";
     const savePath = "slot-1.json";
     const saveBytes = new TextEncoder().encode(JSON.stringify({ gameId, tick: frame.tick }));
     const written = await host.writeBlob("saves", gameId, savePath, saveBytes);
-    // The web runner reads it back through the same AD-17 key, which is what makes the save portable between runners.
     const readBack = await host.readBlob("saves", gameId, savePath);
 
     report.scheme = scheme;

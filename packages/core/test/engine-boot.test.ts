@@ -19,6 +19,7 @@ import {
   createSpriteRuntime,
   createEmptyBoard,
   createEmptyCharacter,
+  enqueueDirectionMove,
   IR_VERSION,
   createEmptyMainFile,
   ENGINE_DEFAULT_MANIFEST,
@@ -27,6 +28,7 @@ import {
   nextUint32,
   createEngine,
   PACKAGE_ROOT,
+  runMovementPhase,
   writeBoard,
   writeMainFile,
   promoteRecovery,
@@ -40,7 +42,7 @@ import {
   startThread,
 } from "../src/index.ts";
 import { engineEffect, pluginManifestFor, resolveManifestPlugins } from "../src/engine/boot.ts";
-import type { AssetIndex, AssetRoot, Engine, EffectRecord, EngineInit, GameState, InputRecord, PackageCatalogueEntry, PlainData, ResolvedPlugin, SpriteRuntime, TickReport } from "../src/index.ts";
+import type { AssetIndex, AssetRoot, Engine, EffectRecord, EngineInit, GameState, InputRecord, PackageCatalogueEntry, PlainData, ResolvedPlugin, SpriteDraw, SpriteRuntime, TickReport } from "../src/index.ts";
 import type { MainFileAudioSettings } from "../src/formats/main-file/model.ts";
 import type { AudioCue } from "../src/ports/audio.ts";
 import { BUILTIN_TRACKS } from "../src/audio/model.ts";
@@ -284,7 +286,7 @@ test("E-02 requests initChar and creates its real party actor and sprite before 
     boards: { "start.brd": {} },
     programs: { "start.prg": "end()\n" },
   });
-  let observed: GameState | null = null;
+  const observed: { current: GameState | null } = { current: null };
   let presenceAtStartup: boolean | null = null;
   const spriteRuntime = createSpriteRuntime();
   const engine = createEngine({
@@ -304,22 +306,75 @@ test("E-02 requests initChar and creates its real party actor and sprite before 
     height: 240,
     maxTicks: 600,
     spriteRuntime,
-    phaseRegistrations: [{ phase: "input", run: (state) => { observed = JSON.parse(JSON.stringify(state)) as GameState; } }],
+    phaseRegistrations: [{ phase: "input", run: (state) => { observed.current = JSON.parse(JSON.stringify(state)) as GameState; } }],
   });
 
   const result = run(engine, game.files, 1);
   ok(result.requests.includes("chrs/hero.tem"));
   equal(presenceAtStartup, true);
-  ok(observed !== null);
-  equal(observed.world.board ?? null, null);
-  equal(observed.actors.actors.length, 1);
-  equal(observed.actors.actors[0]?.name, "Hero");
-  deepEqual(observed.party.members, [observed.actors.actors[0]?.id]);
-  equal(observed.sprites.players.length, 1);
-  equal(observed.sprites.players[0]?.source, "chrs/hero.tem");
-  equal(observed.sprites.players[0]?.actorId, observed.party.selected);
+  const seen = observed.current;
+  ok(seen !== null);
+  equal(seen.world.board ?? null, null);
+  equal(seen.actors.actors.length, 1);
+  equal(seen.actors.actors[0]?.name, "Hero");
+  deepEqual(seen.party.members, [seen.actors.actors[0]?.id]);
+  equal(seen.sprites.players.length, 1);
+  equal(seen.sprites.players[0]?.source, "chrs/hero.tem");
+  equal(seen.sprites.players[0]?.actorId, seen.party.selected);
   equal(spriteRuntime.section.players.length, 1);
-  equal(spriteRuntime.section.players[0]?.actorId, observed.party.selected);
+  equal(spriteRuntime.section.players[0]?.actorId, seen.party.selected);
+});
+
+test("E-52: drawList draws the authoritative sprite section and keeps static scene sprites", () => {
+  const game = authorGame({
+    startup: "start.prg",
+    initChar: "hero.tem",
+    boards: { "start.brd": {} },
+    programs: { "start.prg": "end()\n" },
+  });
+  const staticSprite: SpriteDraw = { id: "scene", key: "item", layer: 1, x: 24, y: 24, drawId: 0 };
+  let walking = true;
+  const engine = createEngine({
+    seed: 11,
+    assetIndex: game.index,
+    assetRoot: game.root,
+    mainFile: game.main,
+    gameIdentity: "engine-boot-compositor",
+    startup: {
+      presence: { hasPlayer: () => true },
+      savedGame: { load: () => ({ kind: "missing" }), restored: () => false },
+    },
+    width: 320,
+    height: 240,
+    maxTicks: 600,
+    include: { shading: false, images: false, sprites: true },
+    sprites: [staticSprite],
+    phaseRegistrations: [{
+      phase: "movement",
+      run: (state) => {
+        const player = state.sprites.players[0];
+        if (walking && player !== undefined && player.queue.moves.length === 0) enqueueDirectionMove(state.sprites, player.id, "E");
+        runMovementPhase(state.sprites, state.world.board ?? null, state.time.tick, {});
+      },
+    }],
+  });
+  /** The fallback-coloured square the compositor draws for one sprite that has no artwork loaded. */
+  const squares = (): { readonly x: number; readonly rgb: { readonly r: number; readonly g: number; readonly b: number } }[] =>
+    engine.drawList(0, { shading: false, images: false, sprites: true }).commands.flatMap((command) => command.kind === "rect" && command.filled
+      ? [{ x: command.rect.x, rgb: command.rgb }]
+      : []);
+
+  run(engine, game.files, 10);
+  const first = squares();
+  ok(first.some((square) => square.rgb.r === 64 && square.rgb.g === 96 && square.rgb.b === 224), "the state section's player is drawn");
+  ok(first.some((square) => square.rgb.r === 192 && square.rgb.g === 128 && square.rgb.b === 32), "the static scene sprite stays additional");
+  const playerX = first.find((square) => square.rgb.b === 224)?.x;
+
+  run(engine, game.files, 40);
+  walking = false;
+  run(engine, game.files, 40);
+  const moved = squares().find((square) => square.rgb.b === 224)?.x;
+  ok(playerX !== undefined && moved !== undefined && moved > playerX, "moving the player in state moves the drawn sprite");
 });
 
 test("an invalid initChar does not fabricate player presence", () => {

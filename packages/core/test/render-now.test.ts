@@ -10,6 +10,7 @@ import {
   assetKey,
   createAssetIndex,
   createEmptyBoard,
+  createEmptyCharacter,
   createEmptyMainFile,
   createEngine,
   PACKAGE_ROOT,
@@ -17,6 +18,7 @@ import {
   renderNowEnabled,
   writeAnimation,
   writeBoard,
+  writeCharacter,
   writeMainFile,
   type Engine,
   type GameState,
@@ -50,7 +52,7 @@ function boot(program: string, extra: Readonly<Record<string, Uint8Array>> = {},
     ...empty, sizeX: 40, sizeY: 30, sizeL: 1, tileMatrix: Array.from({ length: 1200 }, () => 0), tileRuns: [{ lutIndex: 0, count: 1200, marker: true }],
     layerTitles: ["", ""], properties: { ...empty.properties, start: { x: 64, y: 64, layer: 1 } },
   })));
-  files.set(assetKey("chrs/hero.tem"), new Uint8Array([0]));
+  files.set(assetKey("chrs/hero.tem"), unwrap(writeCharacter({ ...createEmptyCharacter(), minor: 5, name: "Hero", movementAnimations: Array(8).fill(""), battleStances: ["", "", "", "", "", ""] })));
   files.set(assetKey("prg/start.prg"), encoder.encode(program));
   for (const [path, bytes] of Object.entries(extra)) files.set(assetKey(path), bytes);
   let latest: GameState | null = null;

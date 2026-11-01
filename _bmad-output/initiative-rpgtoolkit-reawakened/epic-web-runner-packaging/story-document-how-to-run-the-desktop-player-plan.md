@@ -34,11 +34,15 @@ Run from `origin/main` (`d4e2d29f`) with no build cache: `pnpm install --frozen-
 `pnpm fixtures:fetch`, `pnpm make-package fixtures/legacy/demo --closing-plan golden/closing/plan.json --game demo
 --out fixtures/packages/demo.tpk --title Demo`, `pnpm desktop:build`, `pnpm desktop:measure`.
 
-Observed results (macOS arm64): `pnpm desktop:measure` printed `"error": null`, `"tick": 120`,
-`"stateHash": "bff947dce3a11b4f"`, `"drawHash": "9a40be8a0b5ca816"`, `"frame": { "worst": 0 }`. A manual
-`electron packages/runner-desktop/dist --serve . --package … --page …` left a window open with the title
-`desktop: bff947dce3a11b4f` and no load/preload/renderer error, and the board was drawn off-screen (no canvas is
-attached to the document in `app/player.ts`).
+Observed results (macOS arm64, pre-E-02): `pnpm desktop:measure` printed `"error": null`, `"tick": 120`,
+the previous state hash (current demo closing-baseline state is `91172695de52cfd6`), draw hash `9a40be8a0b5ca816`,
+`"frame": { "worst": 0 }`. A manual `electron packages/runner-desktop/dist --serve . --package … --page …`
+left a window open with its title set to the previous state hash (no post-E-02 launch is recorded), no
+load/preload/renderer error, and the board drawn off-screen (no canvas is attached to the document in
+`app/player.ts`).
+**Historical measurement note:** These macOS results and the visible-window title were recorded before E-02. The previously recorded state hash is retained as historical and is superseded by the current demo closing baseline `91172695de52cfd6` (draw remains `9a40be8a0b5ca816`). This plan records no post-E-02 desktop measurement or launch.
+
+
 
 Two friction points documented, not hidden: on a fresh checkout the first `desktop:measure` can fail with
 `ENOENT …/Electron` while Electron's runtime is still downloading after `pnpm install`; and the node on this machine
@@ -46,8 +50,7 @@ Two friction points documented, not hidden: on a fresh checkout the first `deskt
 
 ## Acceptance
 
-- [x] The user-facing page and the CONTRIBUTING fragment contain only commands that were run, and state the expected
-      output each produced.
+- [x] At this ticket's original completion, both docs described commands and outputs actually observed in the pre-E-02 clean-worktree transcript. The later E-02 update preserves that transcript as history, points to the current closing baseline, and states that no post-E-02 desktop measurement or launch is recorded.
 - [x] Both docs state plainly that the board is measured off-screen and interactive play is not landed (web-runner-packaging
       entry 16 / #1018), and that mobile/Android is out of scope.
 - [x] No `docs/spec/` file is modified.

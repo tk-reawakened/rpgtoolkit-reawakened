@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TK Reawakened player measurement</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; min-height: 100vh; background: #111; color: #ddd; font: 13px/1.4 ui-monospace, monospace; display: grid; grid-template-rows: 1fr auto; }
+      canvas { image-rendering: pixelated; display: block; width: min(100vw, calc((100vh - 104px) * 4 / 3)); height: auto; max-height: calc(100vh - 104px); aspect-ratio: 4 / 3; margin: auto; background: #000; touch-action: none; outline: none; }
+      pre { margin: 8px 12px 12px; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <canvas id="screen" width="640" height="480" tabindex="0" aria-label="Game screen"></canvas>
+    <pre id="live-status">Starting measurement player…</pre>
+    <script src="/apps/player-desktop.js"></script>
+  </body>
+</html>

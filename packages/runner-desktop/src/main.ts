@@ -75,11 +75,14 @@ function blobRoot(area: "saves" | "files"): string {
 }
 
 function registerIpc(): void {
-  ipcMain.handle("desktop:package", (): { name: string; bytes: Uint8Array } | null => {
+  ipcMain.handle("desktop:package", (): { name: string; bytes: Uint8Array; descriptor: unknown } | null => {
     const path = packageArgument();
     if (path === null) return null;
     try {
-      return { name: path.split(sep).at(-1) ?? "game.tpk", bytes: new Uint8Array(readFileSync(path)) };
+      const bytes = new Uint8Array(readFileSync(path));
+      let descriptor: unknown = null;
+      try { descriptor = JSON.parse(readFileSync(`${path}.json`, "utf8")) as unknown; } catch { /* The player reports an invalid or missing sidecar. */ }
+      return { name: path.split(sep).at(-1) ?? "game.tpk", bytes, descriptor };
     } catch {
       return null;
     }
@@ -161,7 +164,8 @@ function createWindow(): BrowserWindow {
       devTools: process.argv.includes("--devtools"),
     },
   });
-  const page = process.argv.includes("--page") ? process.argv[process.argv.indexOf("--page") + 1] : "player.html";
+  const defaultPage = process.argv.includes("--report") ? "player-measure.html" : "player.html";
+  const page = process.argv.includes("--page") ? process.argv[process.argv.indexOf("--page") + 1] : defaultPage;
   // Diagnostics: a page that fails to load, or a renderer error, is reported on stderr instead of disappearing.
   window.webContents.on("console-message", (_event, level, message) => console.error(`renderer[${level}]: ${message}`));
   window.webContents.on("did-fail-load", (_event, code, description, url) => console.error(`load failed ${code} ${description} ${url}`));

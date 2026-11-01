@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createEmptyMainFile, loadPackage, writeMainFile } from "@tk-reawakened/core";
+import { createEmptyMainFile, deriveGameId, derivePackageIdentity, loadPackage, writeMainFile } from "@tk-reawakened/core";
 import { checkDescriptor, makePackage, packageManifest, readFolder, writePackage } from "../run.mjs";
 
 /** A minimal, valid game tree: one main file, one bitmap, one board folder (an entry that must be counted, not served). */
@@ -72,6 +72,35 @@ test("two exports of one asset tree are byte-identical", () => {
   equal(first.bytes.length, second.bytes.length);
   ok(first.bytes.every((value, index) => value === second.bytes[index]), "the same tree writes the same bytes");
   equal(first.descriptor.sha256, second.descriptor.sha256);
+});
+
+test("the descriptor gameId uses the canonical package identity, not the title", () => {
+  const root = gameTree();
+  const first = makePackage(root, { title: "First title" });
+  const renamed = makePackage(root, { title: "Different title" });
+  const loaded = loadPackage({ kind: "tpk", name: "First title.tpk", bytes: first.bytes });
+  ok(loaded.ok, loaded.ok ? "" : loaded.error.message);
+  const files = loaded.value.files.filter((file) => file.path !== "manifest.json");
+  const identity = derivePackageIdentity(files.map(({ path, bytes }) => ({ path, bytes })));
+  const main = files.find((file) => file.path === first.manifest.main);
+  ok(main !== undefined, "the manifest main is one of the distribution files");
+  equal(first.descriptor.gameId, deriveGameId(main.bytes, identity));
+  equal(renamed.descriptor.gameId, first.descriptor.gameId, "title does not affect game identity");
+  const rebuiltFiles = loaded.value.files.filter((file) => file.path !== "manifest.json");
+  equal(
+    derivePackageIdentity(rebuiltFiles.map(({ path, bytes }) => ({ path, bytes }))),
+    identity,
+    "rebuilding the identical distribution files gives the same package identity",
+  );
+});
+
+test("a changed non-main distribution file changes the descriptor gameId", () => {
+  const root = gameTree();
+  const first = makePackage(root, { title: "Tree" });
+  writeFileSync(join(root, "Bitmap", "tile.png"), Buffer.from([0x89, 0x50, 0x4e, 0x45]));
+  const changed = makePackage(root, { title: "Tree" });
+  equal(first.manifest.main, changed.manifest.main);
+  ok(first.descriptor.gameId !== changed.descriptor.gameId, "non-main content contributes to package identity");
 });
 
 test("the tool emits no executable and nothing but the package and its descriptor", () => {

@@ -7,7 +7,7 @@ import { contextBridge, ipcRenderer } from "electron";
 
 export type DesktopHost = {
   /** The package named by `--package`, as bytes; `null` when the launch names none. */
-  openPackage(): Promise<{ readonly name: string; readonly bytes: Uint8Array } | null>;
+  openPackage(): Promise<{ readonly name: string; readonly bytes: Uint8Array; readonly descriptor: unknown } | null>;
   readBlob(area: "saves" | "files", gameId: string, path: string): Promise<Uint8Array | null>;
   writeBlob(area: "saves" | "files", gameId: string, path: string, bytes: Uint8Array): Promise<boolean>;
   listBlobs(area: "saves" | "files", gameId: string): Promise<string[]>;

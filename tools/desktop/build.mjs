@@ -1,5 +1,5 @@
 // Build the desktop runner's three artefacts: the Electron main process and preload (Node/Electron targets, esbuild,
-// `electron` external), and the player page bundle the browser lane's build already knows how to produce.
+// `electron` external), and the player page bundles the browser lane's build already knows how to produce.
 //
 //   node tools/desktop/build.mjs            build into packages/runner-desktop/dist and apps/
 //   node tools/desktop/build.mjs --check    build to a temp dir and report whether dist is current
@@ -33,11 +33,20 @@ await build({
   entryPoints: [join(desktop, "src", "preload.ts")],
   outfile: join(desktop, "dist", "preload.js"),
 });
-// The page bundle: the same esbuild rules the browser lane uses, with the desktop entry.
+// The page bundles: shared engine and measurement page plus the attached interactive player.
 mkdirSync(join(root, "apps"), { recursive: true });
 await build({
   entryPoints: [join(desktop, "app", "player.ts")],
   outfile: join(root, "apps", "player-desktop.js"),
+  bundle: true,
+  format: "iife",
+  platform: "browser",
+  target: "chrome120",
+  logLevel: "warning",
+});
+await build({
+  entryPoints: [join(desktop, "app", "player-live.ts")],
+  outfile: join(root, "apps", "player-desktop-live.js"),
   bundle: true,
   format: "iife",
   platform: "browser",
@@ -51,13 +60,11 @@ const manifest = {
   productName: "TK Reawakened",
   version: "0.0.0",
   private: true,
-  // The manifest sits beside the bundle it names: `dist/main.js` is the file itself.
   main: "main.js",
   description: "The TK Reawakened player: the runner's web build in an Electron shell (ADR 0013).",
 };
 const { writeFileSync } = await import("node:fs");
 writeFileSync(join(desktop, "dist", "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-// The bundled asset list the page needs: a desktop origin has no directory listing, so the build writes the names.
 const { readdirSync } = await import("node:fs");
 const folders = ["media/fonts", "media/cursors"];
 const bundled = folders.flatMap((folder) =>
@@ -67,4 +74,4 @@ const bundled = folders.flatMap((folder) =>
     .sort(),
 );
 writeFileSync(join(root, "apps", "bundled.json"), `${JSON.stringify({ folders, files: bundled }, null, 2)}\n`);
-console.log(`built runner-desktop: dist/main.js, dist/preload.js, apps/player-desktop.js (${bundled.length} bundled assets listed)`);
+console.log(`built runner-desktop: dist/main.js, dist/preload.js, apps/player-desktop.js, apps/player-desktop-live.js (${bundled.length} bundled assets listed)`);

@@ -10,12 +10,14 @@ import {
   IR_VERSION,
   createAssetIndex,
   createEmptyBoard,
+  createEmptyCharacter,
   createEmptyMainFile,
   createEngine,
   newProjectMainFile,
   PACKAGE_ROOT,
   readMainFile,
   writeBoard,
+  writeCharacter,
   writeMainFile,
   STOCK_RPG_PLUGIN,
 } from "../src/index.ts";
@@ -98,7 +100,7 @@ function authoredGame(packagePlugins: readonly string[] = ["stock_battle", "stoc
   };
   files.set(assetKey("main.gam"), unwrap(writeMainFile(main)));
   files.set(assetKey("boards/start.brd"), boardBytes());
-  files.set(assetKey("chrs/hero.tem"), new Uint8Array([0]));
+  files.set(assetKey("chrs/hero.tem"), unwrap(writeCharacter({ ...createEmptyCharacter(), minor: 5, name: "Hero", movementAnimations: Array(8).fill(""), battleStances: ["", "", "", "", "", ""] })));
   files.set(assetKey("prg/start.prg"), new TextEncoder().encode('fight(1, "")\nfightenemy("slime", "")\nfightenemy("slime", "bat", "")\ninternalmenu(1)\nended = 1\nend()\n'));
   return { files, index: createAssetIndex(paths), main: "main.gam" };
 }

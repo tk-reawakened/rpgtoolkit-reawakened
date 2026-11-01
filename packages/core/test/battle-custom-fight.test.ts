@@ -837,7 +837,10 @@ function authorGame(programs: Readonly<Record<string, string>>, options: GameOpt
     minor: 9,
     startupPrg: "start.prg",
     initBoard: "start.brd",
-    initChar: "hero.tem",
+    // These fixtures place their own player (`createInitialPlayer`) and seed their own party, so the main file names
+    // no initial character: E-02 would otherwise add a second player at the board start, and the movement double
+    // that walks toward the encounter would move that one instead.
+    initChar: "",
     useCustomFightPrg: 1,
     ...(options.encounter === true ? { fightingDisabled: 0, fightType: 1, chances: 1 } : {}),
     customFightPrg: options.customFight ?? "fight.prg",
