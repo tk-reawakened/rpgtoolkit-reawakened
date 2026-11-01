@@ -15,7 +15,7 @@ The desktop player is a small Electron window that opens a packaged game and run
 | A save is written to the desktop host's own storage, under the package's canonical game key. | A save does **not** move between hosts yet: the browser and desktop keep separate stores, so a save made in one is not visible to the other. |
 | A rebuilt desktop measurement reports demo tick-120 state `91172695de52cfd6`, draw `9a40be8a0b5ca816` and frame worst 0. | Those values are from the closing configuration, not an interactive session. |
 
-Mobile is not included: the mobile wrapper does not exist yet.
+The mobile player is wrapped with Capacitor. The Android CI lane builds and launches the demo APK on an API 33 x86_64 emulator, clears app data in CI for a clean first launch, then drives title entry, a board tap, rotation and relaunch. The proof requires the initial host-blob probe to be absent and the first write to succeed, then confirms the blob is present after relaunch. It retains live page readings and four screenshots (title, tap, rotation and relaunch/save) as the `mobile-android-api33-proof` workflow artifact; the board-entry reading is retained in JSON. The tap reading records the trusted touch's canvas coordinate and the player's world position before and after input. This automated proof does not replace the human acceptance check for the mobile story.
 
 ## How the picture is sized
 
