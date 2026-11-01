@@ -5,6 +5,14 @@ status: blocked
 blocked_reason: awaiting the owner ruling on F-A and completion of the independently identified TOOL-5 runner and matcher gaps
 ---
 
+## Landing record — #1009
+
+The runner slice landed as **`d4e2d29f27100c4c67f6fdb0d27edff14b565785`** (merged 2026-11-01, reviewed at `bb817d6247df6f55564eda79f59694788963a29b`). It delivers project `*.spec.prg` discovery, project-wide focused narrowing, collect-only case registration, a fresh board/party/variable fixture per case, repeated-hook registration order, file-qualified failures with the spec file's own line, strict-skip failures, and the library reached by `#include` (TOOL-5's include branch; loading waits on PKG-7). Its A1–A9/B1/B4 acceptance suite is in `packages/script-spec/test/tool5-acceptance.test.ts`.
+
+**Still blocked**, and this entry stays `status: blocked`: F-A (array `toEqual`/`toContain`, `toThrow`), F-D (fractional closeness), F-E (group hooks under per-case re-run) and F-G (a missing `#include` is silent until called), plus PKG-7 (proposed load path) and F-F (tear-off proposal in #1010).
+
+**Commit-title note for `git log` readers.** The squash commit title inherits "bound class-method tear-offs" from the PR's stale title. That change was withdrawn before review and merged: the merged tree contains no class-method tear-off, no `@class-method:` `def`, and no `packages/core` diff against the base commit. The title is a record artefact; `main` was deliberately not rewritten to correct it.
+
 ## Intent
 
 Entry 10.8 builds `packages/script-spec`: an RPGCode package plus the single native `specResult` channel, the matcher surface, and a runner that discovers `*.spec.prg`, gives every case a fresh fixture, and is deterministic.
@@ -16,7 +24,7 @@ The story is [#948](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issue
 - **Slice 1 — `CommandView.pos`.** A getter fed by `ScriptServices.setCommandPos` at the `call` instruction, beside `thread`; two tests prove a command sees its call site. Rejected: stamping a position onto the effect channel (`recordEffect` stamps seq/tick/thread only, and the effect log is saveable data) and threading a position through arguments (no RPGCode expression produces one).
 - **Slice 2 — the package.** `manifest.json` (name `script-spec`, namespace `scriptspec`, requests, startup `startup.prg`), the `startup.prg` library (describe/it/test, four hooks, expect with seven matchers and `.not`, skip/only), and `SPEC_PLUGIN`, registering **only** `specresult` (the registry keys by folded name, so a camel-case registration is unreachable). Tests: manifest parses, the catalogue loads the package by name, `specResult` records kind/name/expected/actual and the call's position, an unknown kind records no outcome.
 - **Slice 3a — hook order.** beforeAll at registration; each case wrapped by beforeEach outermost-first, afterEach innermost-first; afterAll once when its describe returns; nested levels proved by the recorded order.
-- `specClose` compares the absolute difference (the earlier symmetric check passed both directions); a callable must be called with its declared arity (ERR-2), so the default tolerance is passed as `0`. **Superseded by slice 4**, which supplies real one- and two-argument overloads; F-D still limits it to integer precision.
+- `specClose` compares the absolute difference (the earlier symmetric check passed both directions); a callable must be called with its declared arity (ERR-2), so the default tolerance is passed as `0`. **Still the shipped shape**: the one- and two-argument overload design was withdrawn from the merge and is a proposal only (F-F, PR #1010), and F-D limits closeness to integer precision.
 
 ## Findings for the owner
 
@@ -121,7 +129,7 @@ The runner reaches the library by `#include`, and an include of a file the loade
 
 ## Limits recorded in the library
 
-`toEqual` is scalar equality and `toContain` is string-only (both say so where they are defined); `toThrow` always records a failure and its negated form is absent. `toBeCloseTo` now accepts its omitted or explicit tolerance, but compares at the language's integer precision (F-D). The library's comments identify these limitations, but they are not implementations of the approved behaviors.
+`toEqual` is scalar equality and `toContain` is string-only (both say so where they are defined); `toThrow` always records a failure and its negated form is absent. `toBeCloseTo` takes both arguments (one argument is a located `callable.arity` failure, F-F) and compares at the language's integer precision (F-D). The library's comments identify these limitations, but they are not implementations of the approved behaviors.
 
 ## Verify, mapped
 
