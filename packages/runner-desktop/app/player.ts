@@ -1,40 +1,13 @@
 /**
- * The desktop player page (entry 9.11): the same `runner-web` build, booted from a package the **main process** read from
- * disk. It reports what the entry's evidence needs — the tick-120 hashes, the four measurements and the save it wrote —
- * and nothing else; the window chrome, launch resolution and library are the player application's (entry 9.10).
+ * The desktop player page (entry 9.11): the shared page from `runner-web`, run against the preload bridge.
  */
 
-import { assetKey, DEFAULT_FONT_ASSET, rasterize, type AssetKey, type DrawList } from "@tk-reawakened/core";
-import { createWebgl2Renderer, presentationFrame } from "@tk-reawakened/render-webgl2";
-import { decodeAssetTexture, parseClosingPlan, runClosingFrames } from "@tk-reawakened/runner-harness";
-import { fontProvider, packageFiles, PcmSink } from "@tk-reawakened/runner-web";
-
-type DesktopHost = {
-  openPackage(): Promise<{ readonly name: string; readonly bytes: Uint8Array } | null>;
-  writeBlob(area: "saves" | "files", gameId: string, path: string, bytes: Uint8Array): Promise<boolean>;
-  readBlob(area: "saves" | "files", gameId: string, path: string): Promise<Uint8Array | null>;
-};
-
-type DesktopReport = {
-  readonly scheme: string;
-  readonly serviceWorkers: number;
-  readonly packageName: string;
-  readonly tick: number;
-  readonly stateHash: string;
-  readonly drawHash: string;
-  readonly commands: number;
-  readonly webgl2: string;
-  readonly blendWorst: number;
-  readonly audio: { readonly lengthTicks: number | null; readonly energy: number };
-  readonly frame: { readonly worst: number; readonly width: number; readonly height: number };
-  readonly save: { readonly gameId: string; readonly path: string; readonly written: boolean; readonly bytes: number };
-  readonly error: string | null;
-};
+import { bootPlayerPage } from "@tk-reawakened/runner-web";
 
 declare global {
   interface Window {
-    __desktop?: DesktopReport;
-    desktop?: DesktopHost;
+    __desktop?: Awaited<ReturnType<typeof bootPlayerPage>>;
+    desktop?: Parameters<typeof bootPlayerPage>[0] extends infer Host ? Host : never;
   }
 }
 
@@ -192,6 +165,5 @@ void (async () => {
     report.error = error instanceof Error ? error.message : String(error);
   }
   window.__desktop = report;
-  await window.desktop?.report(report);
   document.title = `desktop: ${report.error ?? report.stateHash}`;
 })();

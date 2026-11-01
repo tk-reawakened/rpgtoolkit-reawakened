@@ -225,4 +225,5 @@ export function runScriptedFrame(options: ScriptedFrameOptions): FrameReport {
 }
 
 export * from "./audio-sink.ts";
+export * from "./player-page.ts";
 export * from "./video.ts";
