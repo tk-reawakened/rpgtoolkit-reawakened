@@ -1,0 +1,17 @@
+{
+  "name": "@tk-reawakened/runner-mobile",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node ../../tools/mobile/build.mjs",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.5.3",
+    "@capacitor/filesystem": "8.1.1",
+    "@tk-reawakened/core": "workspace:*",
+    "@tk-reawakened/runner-web": "workspace:*"
+  }
+}
