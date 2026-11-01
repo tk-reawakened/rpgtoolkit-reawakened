@@ -55,7 +55,8 @@
     "make-package:test": "node --test tools/make-package/test/make-package.test.mjs",
     "desktop:build": "node tools/desktop/build.mjs",
     "desktop:measure": "node tools/desktop/measure.mjs",
-    "desktop:inventory": "node tools/licences/desktop-inventory.mjs"
+    "desktop:inventory": "node tools/licences/desktop-inventory.mjs",
+    "mobile:build": "node tools/mobile/build.mjs"
   },
   "devDependencies": {
     "@capacitor/android": "8.4.3",

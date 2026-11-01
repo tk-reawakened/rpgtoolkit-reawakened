@@ -53,13 +53,16 @@ test("an escaping path is refused before the platform sees it", async () => {
 });
 
 test("a base64 read is decoded, because Capacitor returns text for a binary file", async () => {
-  const bytes = Uint8Array.from(Buffer.from("hello"));
+  const bytes = new TextEncoder().encode("hello");
   const filesystem: MobileFilesystem = {
     async writeFile() {
       throw new Error("not used");
     },
     async readFile() {
-      return { data: Buffer.from(bytes).toString("base64") };
+      // base64 without a Node global: `types: []` keeps @types/node out of this project (G2).
+      let text = "";
+      for (const byte of bytes) text += String.fromCharCode(byte);
+      return { data: btoa(text) };
     },
     async readdir() {
       return { files: [] };
