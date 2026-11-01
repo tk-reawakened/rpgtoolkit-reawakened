@@ -40,42 +40,42 @@ One checked-in edge list (`tools/deps/edges.json`) generates this graph and the 
 
 ```mermaid
 graph LR
+  core --> scripttools[script-tools]
   core --> synth
   core --> renderwebgl2[render-webgl2]
   core --> runnerharness[runner-harness]
-  core --> plugintk2compat[plugin-tk2-compat]
-  scripttools[script-tools] --> lsp
-  plugintk2compat --> runnerharness
-  core --> lsp
-  core --> editormodel[editor-model]
-  synth --> runnerharness
-  synth --> runnerweb[runner-web]
-  renderwebgl2 --> runnerweb
   core --> runnerheadless[runner-headless]
-  core --> runnerweb
-  runnerharness --> runnerweb
-  runnerharness --> runnerheadless
-  runnerharness --> dap
+  core --> runnerweb[runner-web]
   core --> runnerdesktop[runner-desktop]
-  runnerharness --> runnerdesktop
-  renderwebgl2 --> runnerdesktop
+  core --> lsp
+  core --> scriptspec[script-spec]
+  core --> editormodel[editor-model]
+  core --> plugintk2compat[plugin-tk2-compat]
+  scripttools --> lsp
+  synth --> runnerharness
+  synth --> runnerweb
   synth --> runnerdesktop
+  renderwebgl2 --> runnerweb
+  renderwebgl2 --> runnerdesktop
+  renderwebgl2 --> editorui[editor-ui]
+  runnerharness --> runnerheadless
+  runnerharness --> runnerweb
+  runnerharness --> runnerdesktop
+  runnerharness --> scriptspec
+  runnerharness --> dap
   runnerweb --> runnerdesktop
   runnerweb --> runnermobile[runner-mobile]
-  runnerweb --> editorui[editor-ui]
-  renderwebgl2 --> editorui
-  editormodel --> editorui
-  editormodel --> hostvscode[host-vscode]
-  editorui --> hostvscode
-  editorui --> hostweb[host-web]
-  editorui --> hostdesktop[host-desktop]
-  lsp --> hostvscode
-  lsp --> hostweb
-  lsp --> hostdesktop
+  runnerweb --> editorui
+  lsp --> hostvscode[host-vscode]
+  lsp --> hostweb[host-web]
+  lsp --> hostdesktop[host-desktop]
   dap --> hostvscode
-  runnerharness --> scriptspec[script-spec]
-  core --> scripttools
-  core --> scriptspec
+  editormodel --> editorui
+  editormodel --> hostvscode
+  editorui --> hostvscode
+  editorui --> hostweb
+  editorui --> hostdesktop
+  plugintk2compat --> runnerharness
 ```
 
 ## Inherited Invariants
