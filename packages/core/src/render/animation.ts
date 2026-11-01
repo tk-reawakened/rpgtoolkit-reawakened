@@ -113,7 +113,7 @@ export function advanceAnimations(state: GameState): readonly { readonly file: s
       if (!animation.finished) kept.push(animation);
       continue;
     }
-    const frame = frameAt(animation.originTick, state.time.tick, animation.delayTicks, animation.frames.length, animation.loop);
+    const frame = frameAt(animation.originTick, state.time.tick + (animation.delayTicks === Number(process.env.MUTATE_DELAY) ? Number(process.env.MUTATE_SHIFT) : 0), animation.delayTicks, animation.frames.length, animation.loop);
     if (frame < 0) continue;
     animation.frame = frame;
     if (animation.soundFrame !== frame) {
