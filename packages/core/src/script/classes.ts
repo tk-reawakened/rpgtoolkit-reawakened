@@ -38,6 +38,29 @@ export function methodArities(program: Program, className: string, name: string)
   return arities;
 }
 
+/**
+ * Whether a tear-off read of method `name` is blocked for a method running on
+ * `accessClass` (R3-Q1, OOP-11). The handle may dispatch to any overload, so the
+ * read is blocked when any declaration of the name in the OOP-8 walk is private
+ * and its declaring class is not the reader's: access is by class identity, the
+ * same comparison a direct call makes against the method it runs.
+ */
+export function methodTearOffBlocked(
+  program: Program,
+  className: string,
+  name: string,
+  accessClass: string | undefined,
+): boolean {
+  for (const current of classWalk(program, className)) {
+    const methods = classInfo(program, current)?.methods;
+    const list = methods !== undefined && Object.hasOwn(methods, name) ? methods[name] : undefined;
+    for (const method of list ?? []) {
+      if (method.access === "private" && accessClass !== current) return true;
+    }
+  }
+  return false;
+}
+
 /** The declaration of class `name` in `program`, or `undefined` when its table has none. */
 export function classInfo(program: Program, name: string): CompiledClass | undefined {
   return Object.hasOwn(program.classes, name) ? program.classes[name] : undefined;

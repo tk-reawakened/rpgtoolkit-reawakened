@@ -222,7 +222,7 @@ export function verifyRestoredHandles(vm: VmState, services: RestoreCheckService
       const handle = value.receiver === null ? NaN : Number(value.receiver);
       const receiver = Number.isSafeInteger(handle) ? vm.objects.find((object) => object.handle === handle) : undefined;
       const ref = receiver?.program ?? null;
-      if (ref === null) {
+      if (receiver === undefined || ref === null) {
         throw new ScriptError(RESTORE_CALLABLE_UNKNOWN_DEF, `the snapshot's ${path} names "${value.def}" without a class-instance receiver`);
       }
       const key = programKey(ref);

@@ -74,6 +74,7 @@ import {
   findMember,
   findMethod,
   methodArities,
+  methodTearOffBlocked,
   parseClassMethodDef,
 } from "./classes.ts";
 import { hostMethodDef, parseHostMethodDef } from "./host.ts";
@@ -2029,9 +2030,9 @@ function performCallable(
     if (method === undefined || method.entry < 0) {
       throw new ScriptError(CALLABLE_ARITY, `"${classMethodName}" takes ${arities.join(" or ")} argument(s), got ${args.length}`, pos);
     }
-    if (method.access === "private" && frame.objectClass !== method.className) {
-      throw new ScriptError("object.inaccessible-member", `method ${classMethodName} is private`, pos);
-    }
+    // No access check here: a bound class method is created by its read, and the
+    // read already applied R3-Q1 (OOP-11). The handle is an ordinary value, so
+    // calling it is not an access; a direct `obj->method()` is checked where it runs.
     frame.ip += 1;
     thread.frames.push({
       program: owner.ref,
@@ -3204,6 +3205,13 @@ export function stepThread(
             findMember(owner, record.className, op.name) === undefined &&
             methodArities(owner, record.className, op.name).length > 0
           ) {
+            // OOP-11: the read is what binds the method, so the legacy access rule
+            // (R3-Q1) is decided here, at the read, exactly where a direct call
+            // decides it; calling the resulting handle is not a second access, so a
+            // private tear-off an allowed read handed out stays callable.
+            if (methodTearOffBlocked(owner, record.className, op.name, frame.objectClass)) {
+              throw new ScriptError("object.inaccessible-member", `method ${op.name} is private`, op.pos);
+            }
             frame.operands.push({
               value: { type: "callable", def: classMethodDef(op.name), captures: [], receiver: String(record.handle) },
               ref: objectRef(record.handle, op.name),

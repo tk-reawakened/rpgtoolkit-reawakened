@@ -173,7 +173,7 @@ function expect(actual) {
     toThrow: (body) => specCheck(0, "toThrow", "a runtime error", "no error"),
     not: {
       toBe: (expected) => { specNegate = 1; specCheck(actual == expected, "toBe", expected, actual) },
-      toEqual: (expected) => { specNegate = 1; specCheck(actual == expected, "toEqual", expected, actual) },
+      toEqual: (expected) => { specNegate = 1; specCheck(specEqual(actual, expected), "toEqual", expected, actual) },
       toBeTruthy: () => { specNegate = 1; specCheck(!!actual, "toBeTruthy", 1, actual) },
       toBeNull: () => { specNegate = 1; specCheck(actual == 0, "toBeNull", 0, actual) },
       toContain: (needle) => { specNegate = 1; specCheck(specContains(actual, needle), "toContain", needle, actual) },
@@ -190,8 +190,12 @@ function specContains(value, needle) {
   return 0
 }
 
-// |value - expected| <= tolerance. The one-argument overload supplies 1e-7;
-// an explicit zero remains an exact comparison.
+// |value - expected| <= tolerance, on whole numbers. SEM-3:209 truncates every
+// variable operand of arithmetic, and both the actual value and `expected` reach
+// here through a variable read, so closeness is decided on truncated whole
+// numbers: the one-argument overload's 1e-7 default is truncated to 0 on use, and
+// an explicit fraction such as 0.001 is 0 too. Honest fractional closeness needs a
+// native helper (an owner decision, not something this script can fake).
 function specClose(value, expected, tolerance) {
   local(diff)
   diff = value - expected

@@ -250,8 +250,8 @@ noArg = reader()
 withArg = reader(3)
 `);
 
-  equal(state.vm.globals.noArg, 2);
-  equal(state.vm.globals.withArg, 32);
+  equal(state.vm.globals.noarg, 2);
+  equal(state.vm.globals.witharg, 32);
   const reader = state.vm.globals.reader;
   if (reader === null || typeof reader !== "object" || !("type" in reader) || reader.type !== "callable") {
     throw new Error("expected a bound callable");
@@ -288,7 +288,7 @@ item = Guarded()
 inside = item.borrow()
 insideValue = inside()
 `);
-  equal(allowed.vm.globals.insideValue, 9);
+  equal(allowed.vm.globals.insidevalue, 9);
 
   const state = makeState(`
 class Guarded {
@@ -301,13 +301,16 @@ outside()
 `);
   const error = errorOf(() => advanceOrFail(state, createScriptServices(state)));
   equal(error.code, "object.inaccessible-member");
+  // The read is the access (R3-Q1, OOP-11): the outside tear-off fails on the
+  // line that reads it, not on the later call of a handle it never got.
+  equal(error.line, 7);
 
   const dictionary = runOnce(`
 values = { value: 7, read: () => this->value }
 read = values.read
 dictionaryValue = read()
 `);
-  equal(dictionary.vm.globals.dictionaryValue, 7);
+  equal(dictionary.vm.globals.dictionaryvalue, 7);
 });
 
 test("a bound class-method tear-off survives snapshot restore with its receiver", () => {
