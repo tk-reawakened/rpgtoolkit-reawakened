@@ -4,7 +4,6 @@ import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hasOnlyCases, runSpecFile, type SpecFileReport, type SpecRunOptions } from "./runner.ts";
 
-const LIBRARY_PATH = fileURLToPath(new URL("../package/startup.prg", import.meta.url));
 const compareNames = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
 
 function projectFiles(directory: string): string[] {
@@ -74,7 +73,6 @@ export type SpecProjectOptions = Pick<SpecRunOptions, "seed" | "strict">;
 /** Read and run every discovered project spec against its RPGCode files and the bundled API. */
 export function runSpecProject(projectRoot: string, options: SpecProjectOptions = {}): SpecProjectReport {
   const root = resolve(projectRoot);
-  const library = readFileSync(LIBRARY_PATH, "utf8");
   const loader = projectProgramLoader(root);
   const specs = discoverProjectSpecs(root).map((projectPath) => {
     const absolutePath = join(root, ...projectPath.split("/"));
@@ -83,7 +81,7 @@ export function runSpecProject(projectRoot: string, options: SpecProjectOptions 
   });
   const selected = specs.map((spec) => {
     try {
-      return { ...spec, hasOnly: hasOnlyCases(library, spec.source, options.seed ?? 0, loader), error: null };
+      return { ...spec, hasOnly: hasOnlyCases(spec.source, options.seed ?? 0, loader), error: null };
     } catch (error) {
       // One malformed spec must not abort the rest of the project run (TOOL-5).
       return { ...spec, hasOnly: false, error: error instanceof Error ? error.message : String(error) };
@@ -100,7 +98,7 @@ export function runSpecProject(projectRoot: string, options: SpecProjectOptions 
       continue;
     }
     try {
-      const report = runSpecFile(spec.projectPath, spec.source, { ...options, library, loader });
+      const report = runSpecFile(spec.projectPath, spec.source, { ...options, loader });
       reports.push(report);
       for (const failure of report.failures) failures.push(failure);
     } catch (error) {

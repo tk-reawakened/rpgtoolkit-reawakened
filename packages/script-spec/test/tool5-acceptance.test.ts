@@ -26,7 +26,6 @@ import { discoverProjectSpecs, ONLY_WARNING, runSpecFile, runSpecProject, SPEC_P
  * sibling describes never run each other's hooks.
  */
 
-const library = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package", "startup.prg"), "utf8");
 const packageFolder = join(dirname(fileURLToPath(import.meta.url)), "..", "package");
 
 function project(files: Record<string, string>): string {
@@ -63,7 +62,7 @@ test("A2 every case starts on a fresh board, party actor and variable set", () =
     'it("mutate", () => { backgroundRed = 9; HP! = 3; counted = 1; expect(backgroundRed).toBe(9); expect(HP!).toBe(3) })',
     'it("defaults", () => { expect(backgroundRed).toBe(0); expect(HP!).toBe(10); expect(counted).toBe(0) })',
   ].join("\n");
-  const report = runSpecFile("fixture.spec.prg", source, { library });
+  const report = runSpecFile("fixture.spec.prg", source, {});
   deepEqual(report.cases.map((item) => item.ok), [true, true]);
   deepEqual(report.failures, []);
 });
@@ -73,21 +72,21 @@ test("A3 the seeded RNG and injected clock are deterministic, and a different se
     'it("clock", () => { expect(gametime).toBe(0) })',
     'it("rng", () => { drawn = random(100); expect(drawn).toBe(drawn) })',
   ].join("\n");
-  const first = runSpecFile("determinism.spec.prg", source, { library, seed: 7 });
-  const second = runSpecFile("determinism.spec.prg", source, { library, seed: 7 });
+  const first = runSpecFile("determinism.spec.prg", source, { seed: 7 });
+  const second = runSpecFile("determinism.spec.prg", source, { seed: 7 });
   deepEqual(first, second);
   ok(first.cases.every((item) => item.stateHash.length > 0));
-  const moved = runSpecFile("determinism.spec.prg", source, { library, seed: 8 });
+  const moved = runSpecFile("determinism.spec.prg", source, { seed: 8 });
   equal(moved.cases.some((item, index) => item.stateHash !== first.cases[index]?.stateHash), true);
 });
 
 test("A4 a skip fails the strict aggregate and stays listed; lenient tolerates it", () => {
   const source = ['it("passes", () => { expect(1).toBe(1) })', 'skip("later", () => { expect(1).toBe(1) })'].join("\n");
-  const strict = runSpecFile("skip.spec.prg", source, { library, strict: true });
+  const strict = runSpecFile("skip.spec.prg", source, { strict: true });
   deepEqual(strict.skipped, ["later"]);
   equal(strict.cases.find((item) => item.name === "later")?.ok, false);
   ok(strict.failures.some((failure) => failure.includes("later")));
-  const lenient = runSpecFile("skip.spec.prg", source, { library, strict: false });
+  const lenient = runSpecFile("skip.spec.prg", source, { strict: false });
   deepEqual(lenient.skipped, ["later"]);
   equal(lenient.cases.find((item) => item.name === "later")?.ok, true);
 });
@@ -98,7 +97,7 @@ test("A5 only narrows the run: unmarked cases record no outcomes, the chosen one
     'only("chosen", () => { specResult("pass", "chosen-ran", "", "") })',
     'it("other", () => { specResult("pass", "other-ran", "", "") })',
   ].join("\n");
-  const report = runSpecFile("only.spec.prg", source, { library });
+  const report = runSpecFile("only.spec.prg", source, {});
   equal(report.warning, ONLY_WARNING);
   deepEqual(report.cases.map((item) => item.name), ["chosen"]);
   deepEqual(report.cases[0]?.outcomes.map((item) => item.label), ["chosen", "chosen-ran"]);
@@ -107,7 +106,7 @@ test("A5 only narrows the run: unmarked cases record no outcomes, the chosen one
 
 test("A6 a failure record names the spec file and that file's own assertion line", () => {
   const source = ["// lead", 'it("bad", () => {', "  expect(1).toBe(2)", "})"].join("\n");
-  const report = runSpecFile("nested/line.spec.prg", source, { library });
+  const report = runSpecFile("nested/line.spec.prg", source, {});
   const [failure] = report.failures;
   ok(failure?.includes("line.spec.prg") || report.file === "nested/line.spec.prg");
   equal(report.cases[0]?.outcomes[0]?.line, 3);
@@ -123,7 +122,7 @@ test("A7 the manifest parses and the catalogue resolves the start-up program; th
 
   // The runner uses TOOL-5's include branch, not the catalogue: a spec that only
   // calls the names works, and the program is not text-concatenated.
-  const report = runSpecFile("include.spec.prg", 'it("a", () => { expect(1).toBe(2) })', { library });
+  const report = runSpecFile("include.spec.prg", 'it("a", () => { expect(1).toBe(2) })', {});
   equal(report.cases[0]?.outcomes[0]?.line, 1);
 
   const without = createGameState({ seed: 0 });
@@ -134,10 +133,10 @@ test("A7 the manifest parses and the catalogue resolves the start-up program; th
 });
 
 test("B1 the optional tolerance is a recorded decision: one argument is an arity failure today", () => {
-  const report = runSpecFile("arity.spec.prg", 'it("one", () => { expect(3).toBeCloseTo(3) })', { library });
+  const report = runSpecFile("arity.spec.prg", 'it("one", () => { expect(3).toBeCloseTo(3) })', {});
   equal(report.cases[0]?.ok, false);
   ok(report.failures[0]?.includes("callable.arity"), report.failures[0]);
-  const two = runSpecFile("arity2.spec.prg", 'it("two", () => { expect(3).toBeCloseTo(3, 0) })', { library });
+  const two = runSpecFile("arity2.spec.prg", 'it("two", () => { expect(3).toBeCloseTo(3, 0) })', {});
   equal(two.cases[0]?.ok, true);
 });
 
@@ -156,7 +155,7 @@ test("B4 sibling describes never run each other's hooks", () => {
     '  it("b1", () => { specResult("pass", "b1", "", "") })',
     '})',
   ].join("\n");
-  const report = runSpecFile("siblings.spec.prg", source, { library });
+  const report = runSpecFile("siblings.spec.prg", source, {});
   deepEqual(report.cases.find((item) => item.name === "b1")?.outcomes.map((item) => item.label), ["b1"]);
   deepEqual(
     report.cases.find((item) => item.name === "a1")?.outcomes.map((item) => item.label),

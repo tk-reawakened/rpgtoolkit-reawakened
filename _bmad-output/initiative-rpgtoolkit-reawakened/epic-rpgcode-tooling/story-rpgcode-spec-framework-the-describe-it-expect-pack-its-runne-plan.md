@@ -101,6 +101,10 @@ TOOL-5 declares `toBeCloseTo(double expected, [double tolerance])`, but FUN-1/ER
 
 `docs/spec/engine/rpgcode-functions.md:664-665` says `beforeAll`/`afterAll` run once around the enclosing `describe`. The runner isolates every case by re-running the file, so a group's `beforeAll`/`afterAll` run once per rerun, including reruns of cases outside that group. Repeated registrations of the same hook kind now all run, in order. How a once-per-group setup is meant to survive a fresh fixture per case (captured value, or a snapshot taken after the group setup) is an owner decision.
 
+### F-G — a missing `#include` is silent until something calls into it (recorded, not fixed here)
+
+The runner reaches the library by `#include`, and an include of a file the loader cannot serve is silent at load time (MOD: "A missing file is ignored silently at load time", `docs/spec/engine/rpgcode-modules-and-objects.md`): a spec whose cases never call a library function would run and pass with no `describe`/`it` at all, and the mistake would surface only when a case tried to call one of the missing names. This is a MOD/compiler gap the tooling surfaces rather than creates; recording it here, not fixing it in a tooling PR.
+
 ## Slice 4 — project consumer, focused selection and hook multiplicity
 
 - The library reaches a spec program by `#include`, TOOL-5's documented "includes or loads the package" branch (`rpgcode-tooling.md:62`): the runner serves `script-spec/startup.prg` in the project's `Prg/` view and appends `#include` after the spec's own text, so no text is concatenated and every spec statement keeps its authored line. Loading waits on PKG-7, which is still a proposed ruling. The catalogue test proves only that the manifest parses and resolves a start-up program; it is not a load path.

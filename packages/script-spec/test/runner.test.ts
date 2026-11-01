@@ -15,7 +15,6 @@ import { discoverCases, failureMessage, ONLY_WARNING, runSpecFile, SPEC_PLUGIN }
  * toThrow) are deliberately absent from these fixtures.
  */
 
-const library = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package", "startup.prg"), "utf8");
 
 const SPEC = [
   'describe("math", () => {',
@@ -28,7 +27,7 @@ const SPEC = [
 ].join("\n");
 
 test("discovery lists every case in source order, the skipped one included", () => {
-  deepEqual(discoverCases(library, SPEC), ["adds", "subtracts", "fresh", "leaky", "omitted"]);
+  deepEqual(discoverCases(SPEC), ["adds", "subtracts", "fresh", "leaky", "omitted"]);
 });
 
 test("discovery registers duplicate and assertion-free cases without running their bodies", () => {
@@ -37,8 +36,8 @@ test("discovery registers duplicate and assertion-free cases without running the
     'it("same", () => { })',
     'it("empty", () => { })',
   ].join("\n");
-  deepEqual(discoverCases(library, source), ["same", "same", "empty"]);
-  const report = runSpecFile("cases.spec.prg", source, { library });
+  deepEqual(discoverCases(source), ["same", "same", "empty"]);
+  const report = runSpecFile("cases.spec.prg", source, {});
   equal(report.cases.length, 3);
   equal(report.cases[0]?.ok, false);
   // Both later cases assert nothing, which must not read as healthy.
@@ -49,11 +48,11 @@ test("discovery registers duplicate and assertion-free cases without running the
 });
 
 test("a top-level failure cannot turn discovery into a successful empty run", () => {
-  throws(() => discoverCases(library, "missingCommand()"), /discovery failed/);
+  throws(() => discoverCases("missingCommand()"), /discovery failed/);
 });
 
 test("every case runs on a fresh fixture: a global set by one case is unset in the next", () => {
-  const report = runSpecFile("math.spec.prg", SPEC, { library });
+  const report = runSpecFile("math.spec.prg", SPEC, {});
   equal(report.cases.find((item) => item.name === "fresh")?.ok, true);
   equal(report.cases.find((item) => item.name === "leaky")?.ok, true);
 });
@@ -63,7 +62,7 @@ test("board and selected party actor are fresh for every case", () => {
     'it("change", () => { HP! = 3; ambientRed = 7; expect(HP!).toBe(3); expect(ambientRed).toBe(7) })',
     'it("fresh", () => { expect(HP!).toBe(10); expect(ambientRed).toBe(0) })',
   ].join("\n");
-  const report = runSpecFile("fixtures.spec.prg", source, { library });
+  const report = runSpecFile("fixtures.spec.prg", source, {});
   deepEqual(report.cases.map((item) => item.ok), [true, true]);
 });
 
@@ -77,7 +76,7 @@ test("truthy matcher follows the RPGCode truth test for strings and numbers", ()
     '  expect(1).toBeTruthy()',
     '})',
   ].join("\n");
-  const report = runSpecFile("truth.spec.prg", source, { library });
+  const report = runSpecFile("truth.spec.prg", source, {});
   equal(report.cases[0]?.ok, true, JSON.stringify(report.failures));
   equal(report.cases[0]?.outcomes.length, 5);
 });
@@ -94,24 +93,24 @@ test("multiple hooks of the same kind all run in registration order", () => {
     '  it("example", () => { expect(1).toBe(1) })',
     '})',
   ].join("\n");
-  const report = runSpecFile("hooks.spec.prg", source, { library });
+  const report = runSpecFile("hooks.spec.prg", source, {});
   deepEqual(report.cases[0]?.outcomes.map((item) => item.label), [
     "before1", "before2", "example/toBe", "after1", "after2", "all1", "all2",
   ]);
 });
 
 test("two runs of the same file give identical outcomes and identical state hashes", () => {
-  const first = runSpecFile("math.spec.prg", SPEC, { library });
-  const second = runSpecFile("math.spec.prg", SPEC, { library });
+  const first = runSpecFile("math.spec.prg", SPEC, {});
+  const second = runSpecFile("math.spec.prg", SPEC, {});
   deepEqual(first, second);
   for (const item of first.cases) equal(item.stateHash.length > 0, true);
 });
 
 test("strict mode fails a skip; the lenient run tolerates it and still reports it", () => {
-  const strict = runSpecFile("math.spec.prg", SPEC, { library, strict: true });
+  const strict = runSpecFile("math.spec.prg", SPEC, { strict: true });
   equal(strict.cases.find((item) => item.name === "omitted")?.ok, false);
   deepEqual(strict.skipped, ["omitted"]);
-  const lenient = runSpecFile("math.spec.prg", SPEC, { library, strict: false });
+  const lenient = runSpecFile("math.spec.prg", SPEC, { strict: false });
   equal(lenient.cases.find((item) => item.name === "omitted")?.ok, true);
   deepEqual(lenient.skipped, ["omitted"]);
   equal(strict.failures.includes("math.spec.prg: omitted: skipped in strict mode"), true);
@@ -119,7 +118,7 @@ test("strict mode fails a skip; the lenient run tolerates it and still reports i
 });
 
 test("a failing scalar assertion reports the exact message, expected against actual", () => {
-  const report = runSpecFile("math.spec.prg", SPEC, { library });
+  const report = runSpecFile("math.spec.prg", SPEC, {});
   const failing = report.cases.find((item) => item.name === "subtracts");
   ok(failing);
   const [outcome] = failing.outcomes;
@@ -131,7 +130,7 @@ test("a failing scalar assertion reports the exact message, expected against act
 
 test("only narrows the run and warns with the documented text", () => {
   const source = ['it("marked", () => { expect(1).toBe(1) })', 'only("chosen", () => { expect(2).toBe(2) })'].join("\n");
-  const report = runSpecFile("only.spec.prg", source, { library });
+  const report = runSpecFile("only.spec.prg", source, {});
   equal(report.warning, ONLY_WARNING);
   equal(report.warning, "only() narrowed the run to the marked cases; unmarked cases were not run");
   deepEqual(report.cases.map((item) => item.name), ["chosen"]);

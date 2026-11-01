@@ -104,8 +104,7 @@ export type SpecFileReport = {
 };
 
 export type SpecRunOptions = {
-  /** The library source prepended to the file. */
-  readonly library: string;
+  /** Optional project program loader for includes made by the spec. */
   readonly seed?: number;
   readonly strict?: boolean;
   /** Optional project program loader for includes made by the spec. */
@@ -122,7 +121,7 @@ type IsolatedRun = {
   readonly errors: readonly { readonly code: string; readonly message: string; readonly line: number }[];
 };
 
-function runIsolated(library: string, source: string, onlyCase: number, seed: number, collect = false, loader?: ProgramLoader): IsolatedRun {
+function runIsolated(source: string, onlyCase: number, seed: number, collect = false, loader?: ProgramLoader): IsolatedRun {
   const state: GameState = createGameState({ seed });
   state.world = {
     board: {
@@ -203,8 +202,8 @@ export function failureMessage(outcome: SpecOutcome): string {
 
 type DiscoveredCase = { readonly name: string; readonly kind: "normal" | "skip" | "only" };
 
-function collectCases(library: string, source: string, seed: number, loader?: ProgramLoader): DiscoveredCase[] {
-  const discovery = runIsolated(library, source, -1, seed, true, loader);
+function collectCases(source: string, seed: number, loader?: ProgramLoader): DiscoveredCase[] {
+  const discovery = runIsolated(source, -1, seed, true, loader);
   if (discovery.errors.length > 0) {
     const error = discovery.errors[0]!;
     throw new Error(`spec discovery failed at line ${error.line} (${error.code}): ${error.message}`);
@@ -216,28 +215,28 @@ function collectCases(library: string, source: string, seed: number, loader?: Pr
 }
 
 /** The registered cases in source order, without executing their bodies. */
-export function discoverCases(library: string, source: string, seed = 0, loader?: ProgramLoader): string[] {
-  return collectCases(library, source, seed, loader).map((item) => item.name);
+export function discoverCases(source: string, seed = 0, loader?: ProgramLoader): string[] {
+  return collectCases(source, seed, loader).map((item) => item.name);
 }
 
 /** Whether the file registers at least one focused case, without running cases. */
-export function hasOnlyCases(library: string, source: string, seed = 0, loader?: ProgramLoader): boolean {
-  return collectCases(library, source, seed, loader).some((item) => item.kind === "only");
+export function hasOnlyCases(source: string, seed = 0, loader?: ProgramLoader): boolean {
+  return collectCases(source, seed, loader).some((item) => item.kind === "only");
 }
 
 /** Run one spec file: every case on a fresh fixture, twice, and compare. */
 export function runSpecFile(file: string, source: string, options: SpecRunOptions): SpecFileReport {
   const seed = options.seed ?? 0;
   const strict = options.strict ?? true;
-  const discovered = collectCases(options.library, source, seed, options.loader);
+  const discovered = collectCases(source, seed, options.loader);
   const onlySeen = discovered.some((item) => item.kind === "only");
   const cases: SpecCaseResult[] = [];
   const skipped: string[] = [];
   const failures: string[] = [];
   discovered.forEach(({ name, kind }, index) => {
     if (onlySeen && kind !== "only") return;
-    const first = runIsolated(options.library, source, index, seed, false, options.loader);
-    const second = runIsolated(options.library, source, index, seed, false, options.loader);
+    const first = runIsolated(source, index, seed, false, options.loader);
+    const second = runIsolated(source, index, seed, false, options.loader);
     if (first.hash !== second.hash) {
       throw new Error(`${name}: two runs gave different state hashes (${first.hash} vs ${second.hash})`);
     }
