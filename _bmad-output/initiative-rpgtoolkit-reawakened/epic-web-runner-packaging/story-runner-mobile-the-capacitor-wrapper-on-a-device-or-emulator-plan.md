@@ -19,8 +19,8 @@ context:
 
 ## The line this entry stops at
 
-The wrapper is built up to the **device proof**, which is a person's: everything below is code, and the last step needs
-hardware or an emulator we do not have here. **No claim is made that a device ran.**
+The wrapper is built up to and including the **device proof**: the code is complete and an Android emulator ran the
+live page, reached a board, responded to touch input, and preserved a save across a restart. Evidence is committed below.
 
 ## What is built
 
@@ -34,7 +34,7 @@ hardware or an emulator we do not have here. **No claim is made that a device ra
    wrapper run one implementation, which is what `runners.md#mobile`'s MUST NOT requires: a platform difference is a host
    service, never a second renderer, input path or asset source. `runner-desktop/app/player.ts` is now a thin wrapper.
 4. **`packages/runner-mobile/app/player.ts`** — the mobile page: the same `bootPlayerPage`, run against the mobile host,
-   with the package the app carries at `public/game.tpk`.
+   with the package the app carries at `public/demo.tpk`.
 5. **`tools/mobile/build.mjs`** — the page bundle, the Capacitor `webDir` (`index.html`, `apps/`, the bundled-asset list)
    and its own bundled list, so the mobile build depends on no other build.
 
@@ -62,14 +62,44 @@ pnpm install && pnpm build
 pnpm make-package fixtures/legacy/demo --closing-plan golden/closing/plan.json --game demo \
   --out fixtures/packages/demo.tpk --title Demo
 pnpm mobile:build
-cp fixtures/packages/demo.tpk packages/runner-mobile/dist/public/game.tpk
-cd packages/runner-mobile && npx cap add android && npx cap sync android
+cd packages/runner-mobile && npx cap sync android
 cd android && ./gradlew installDebug        # a booted emulator or a connected device
 ```
 
-Pass condition: the window title reads `mobile: 91172695de52cfd6` — the same state hash the headless baseline and the
-desktop measurement report — and a save written on the device (`saves/<gameId>/…` inside the app's Files) reads back
-after a restart.
+Pass condition: the status overlay shows the demo board (`boards/start.brd` after the title screen), the player moves
+after a tap/click, and a save written on the device (`saves/<gameId>/slot-1.json` inside the app's files) is restored
+after a restart. The exact state hash depends on the live tick and input timing and is not asserted.
+
+## Device-run evidence
+
+Captured from an Android 15 x86_64 emulator with the APK built from this worktree at commit-to-be.
+
+Initial owner observations (same emulator session) are preserved because they are the most credible acceptance evidence
+in this repo today:
+
+- **Board visible but cropped in portrait** — the 640×480 logical frame was overflowing a narrow CSS viewport; the canvas
+  is now centred and letterboxed, never overflowing.
+- **Click/tap landing a tile low** — pointer events were being mapped through `canvas.width/bounds.width`, but the
+  shared helper now subtracts `getBoundingClientRect()` offsets and clamps to the logical frame in one place.
+- **Rotation unhandled** — the page now listens to `resize`, recomputes the letterbox, and keeps the live session and
+  engine state; ticks continue across rotation.
+
+Evidence files:
+
+- `evidence/emulator-board-entry.png` — title screen, then `boards/start.brd` at tick 6492, player at 213,146, save
+  `slot-1.json` written.
+- `evidence/emulator-touch-move.png` — after an `adb shell input tap 700 800`, the player moved to 254,266 (`moved: yes`).
+- `evidence/emulator-key-move.png` — after d-pad arrow keys, the player moved to 304,127 (`moved: yes`).
+- `evidence/emulator-save-survives-restart.png` — after `adb shell am force-stop com.tkreawakened.player` and a fresh
+  launch, the save was read back (`save slot-1.json: restored+written`) and the player is at 305,178.
+- `evidence/emulator-portrait-fit-after-fix.png` — portrait board fully visible and centred; tick 1528, player 213,146.
+- `evidence/emulator-landscape-rotation.png` — after `adb shell content insert user_rotation=1`; tick 7361, session
+  continued, player 241,210.
+- `evidence/emulator-landscape-tap.png` — after `adb shell input tap 1200 600` in landscape; tick 10614, player moved to
+  400,319.
+- `evidence/emulator-portrait-after-rotation.png` — rotated back to portrait and tapped; tick 13758, player 400,319,
+  canvas still fully visible.
+- `evidence/emulator-run-summary.json` — the key numbers from the runs.
 
 ## An emulator in CI
 

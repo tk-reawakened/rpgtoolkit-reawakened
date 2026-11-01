@@ -98,12 +98,26 @@ export function createMobileHost(options: MobileHostOptions): {
     async listBlobs(area, gameId) {
       const safeGame = safeRelative(gameId);
       if (safeGame === null) return [];
-      try {
-        const listed = await filesystem.readdir({ path: areaPath(area, safeGame), directory: "DATA" });
-        return listed.files.filter((entry) => entry.type !== "directory").map((entry) => entry.name).sort();
-      } catch {
-        return [];
-      }
+      const base = areaPath(area, safeGame);
+      const walk = async (dir: string): Promise<string[]> => {
+        let listed;
+        try {
+          listed = await filesystem.readdir({ path: dir, directory: "DATA" });
+        } catch {
+          return [];
+        }
+        const names: string[] = [];
+        for (const entry of listed.files) {
+          const child = `${dir}/${entry.name}`;
+          if (entry.type === "directory") {
+            for (const nested of await walk(child)) names.push(`${entry.name}/${nested}`);
+          } else {
+            names.push(entry.name);
+          }
+        }
+        return names;
+      };
+      return (await walk(base)).sort();
     },
   };
 }

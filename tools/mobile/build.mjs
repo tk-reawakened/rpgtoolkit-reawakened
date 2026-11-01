@@ -1,7 +1,7 @@
 // Build the mobile wrapper's inputs: the page bundle the Capacitor project carries, and the `dist/` webDir a device
-// build syncs. It builds **the same page** the desktop shell runs (`runner-web`'s shared `bootPlayerPage`), which is
-// runners.md#mobile's MUST NOT: a platform difference is a host service, never a second renderer, input path or asset
-// source.
+// build syncs. It builds **the same live page** the desktop shell runs (`runner-web`'s shared `createLiveSession`),
+// which is runners.md#mobile's MUST NOT: a platform difference is a host service, never a second renderer, input path
+// or asset source.
 //
 //   node tools/mobile/build.mjs
 
@@ -54,21 +54,10 @@ if (!existsSync(demoPackage) || !existsSync(demoDescriptor)) {
   throw new Error("demo.tpk and its descriptor must be built first; run `pnpm make-package fixtures/packages/demo` or `pnpm fixtures:fetch`");
 }
 mkdirSync(join(mobile, "dist", "public"), { recursive: true });
-// The shared measurement page (`bootPlayerPage`) fetches the package from the webDir by its bundled name.
-cpSync(demoPackage, join(mobile, "dist", "public", "game.tpk"));
-
-// Measurement fixtures the shared page needs. The dev-server/browser-test path serves the repo root; on a device only
-// `dist/` is served, so copy the exact fetch paths the page uses.
-const fixtures = [
-  "golden/closing/plan.json",
-  "tools/fixtures/conformance/raster/vectors.json",
-  "packages/core/test/fixtures/audio/files/pcm16-mono-8000.wav",
-];
-for (const fixture of fixtures) {
-  const destination = join(mobile, "dist", fixture);
-  mkdirSync(dirname(destination), { recursive: true });
-  cpSync(join(root, fixture), destination);
-}
+// The live page fetches the package and its descriptor from the webDir by the bundled name.
+const demoName = "demo.tpk";
+cpSync(demoPackage, join(mobile, "dist", "public", demoName));
+cpSync(demoDescriptor, join(mobile, "dist", "public", `${demoName}.json`));
 
 console.log("built runner-mobile: apps/player-mobile.js and dist/ (the Capacitor webDir)");
 void readFileSync;
