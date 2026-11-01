@@ -5,9 +5,14 @@
 
 global(specDepth)
 global(specBeforeEach)
+global(specAfterEach)
 global(specAfterAll)
 global(specNegate)
 global(specOnlyUsed)
+
+specBeforeEach = {}
+specAfterEach = {}
+specAfterAll = {}
 
 function specCheck(ok, name, expected, actual) {
   local(result)
@@ -29,18 +34,29 @@ function specFlash(expected, actual) {
   return actual ~= expected
 }
 
+// Hook order inside one describe: beforeAll runs when it is registered (before
+// the cases below it), then each case is wrapped by its enclosing levels'
+// beforeEach outermost-first and afterEach innermost-first, and afterAll runs
+// once when the describe body returns.
 function describe(name, body) {
   specDepth = specDepth + 1
   body()
-  if (specAfterAll != 0) { specAfterAll() }
-  specBeforeEach = 0
-  specAfterAll = 0
+  if (specAfterAll[specDepth] != 0) { specAfterAll[specDepth]() }
+  specAfterAll[specDepth] = 0
+  specBeforeEach[specDepth] = 0
+  specAfterEach[specDepth] = 0
   specDepth = specDepth - 1
 }
 
 function it(name, body) {
-  if (specBeforeEach != 0) { specBeforeEach() }
+  local(level)
+  for (level = 1; level <= specDepth; level = level + 1) {
+    if (specBeforeEach[level] != 0) { specBeforeEach[level]() }
+  }
   body()
+  for (level = specDepth; level >= 1; level = level - 1) {
+    if (specAfterEach[level] != 0) { specAfterEach[level]() }
+  }
 }
 
 function test(name, body) {
@@ -48,10 +64,11 @@ function test(name, body) {
 }
 
 function beforeEach(body) {
-  specBeforeEach = body
+  specBeforeEach[specDepth] = body
 }
 
 function afterEach(body) {
+  specAfterEach[specDepth] = body
 }
 
 function beforeAll(body) {
@@ -59,7 +76,7 @@ function beforeAll(body) {
 }
 
 function afterAll(body) {
-  specAfterAll = body
+  specAfterAll[specDepth] = body
 }
 
 function skip(name, body) {
@@ -79,6 +96,7 @@ function expect(actual) {
     toBeTruthy: () => specCheck(actual != 0, "toBeTruthy", 1, actual),
     toBeNull: () => specCheck(actual == 0, "toBeNull", 0, actual),
     toContain: (needle) => specCheck(specContains(actual, needle), "toContain", needle, actual),
+    // The tolerance is optional; an omitted (or zero) argument means 1e-7.
     toBeCloseTo: (expected, tolerance) => specCheck(specClose(actual, expected, tolerance), "toBeCloseTo", expected, actual),
     toThrow: (body) => specCheck(0, "toThrow", "a runtime error", "no error"),
     not: {
@@ -100,12 +118,16 @@ function specContains(value, needle) {
   return 0
 }
 
+// |value - expected| <= limit. The limit is 1e-7 unless a non-zero tolerance is
+// given; a callable must be called with its declared arity (ERR-2), so the
+// "optional" argument is expressed as 0 rather than omitted.
 function specClose(value, expected, tolerance) {
   local(limit)
+  local(diff)
   limit = 0.0000001
   if (tolerance != 0) { limit = tolerance }
-  if (value - expected <= limit) {
-    if (expected - value <= limit) { return 1 }
-  }
+  diff = value - expected
+  if (diff < 0) { diff = 0 - diff }
+  if (diff <= limit) { return 1 }
   return 0
 }
