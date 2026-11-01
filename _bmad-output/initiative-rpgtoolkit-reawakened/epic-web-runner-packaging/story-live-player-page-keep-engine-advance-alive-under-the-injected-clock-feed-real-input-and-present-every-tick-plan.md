@@ -53,11 +53,11 @@ review: quick
 **Execution:**
 - [x] Fix the E-52 defect in `packages/core/src/engine/engine.ts` so the pure compositor receives the authoritative `state.sprites` view, not a separately owned sprite runtime. Prove the closing hashes remain unchanged immediately; stop if they move.
 - [x] Fix the E-02 step-6 initial-player defect: acquire and parse the real `initChar` and create the actual player in core before startup and board entry, using the existing contract. Keep presence truthful. The implementation landed in `672ec7dd`; after the director-authorized closing-baseline re-record (`79c4ffdd`), the expected state-hash change is recorded below. This re-record is for the required E-02 state transition, not to make a parity test pass.
-- [ ] Implement one persistent live engine and deterministic whole-tick host pacing, boot/asset and blob request handling, focus handling, disposal and presentation on the shared web runner path.
-- [ ] Connect real keyboard and pointer events to the existing input phase and single-claim protocol; map coordinates into canvas space. Register the existing input/movement owners and use core-owned sprite presentation.
-- [ ] Integrate that live path with the desktop page and existing host blob boundary; size and attach the visible canvas. Preserve desktop measurement and browser tracer evidence.
-- [ ] Add the distinct parity and interaction tests below, plus key-claim, alpha, focus and real host save/load checks.
-- [ ] Update the desktop guide and changelog only to describe demonstrated behavior.
+- [x] Implement one persistent live engine and deterministic whole-tick host pacing, boot/asset and blob request handling, focus handling, disposal and presentation on the shared web runner path.
+- [x] Connect real keyboard and pointer events to the existing input phase and single-claim protocol; map coordinates into canvas space. Register the existing input/movement owners and use core-owned sprite presentation.
+- [x] Integrate that live path with the desktop page and existing host blob boundary; size and attach the visible canvas. Preserve desktop measurement and browser tracer evidence.
+- [x] Add the distinct parity and interaction tests below, plus key-claim, alpha, focus and real host save/load checks.
+- [x] Update the desktop guide and changelog only to describe demonstrated behavior.
 
 **Acceptance criteria:**
 - Given the demo, when the live page runs, then a document-attached canvas sized for the board contains nonblank board pixels.
