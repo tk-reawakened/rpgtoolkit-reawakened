@@ -523,7 +523,7 @@ jobs:
           emulator-options: -no-window -no-audio -no-boot-anim -camera-back none
           disable-animations: true
           script: pnpm mobile:proof
-      - uses: actions/upload-artifact@v6
+      - name: Upload Android proof and failure diagnostics
         if: always() && (needs.changes.result != 'success' || needs.changes.outputs.full != 'false')
         with:
           name: mobile-android-api33-proof
