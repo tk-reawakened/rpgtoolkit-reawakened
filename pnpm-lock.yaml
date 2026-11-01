@@ -285,6 +285,10 @@ importers:
       '@tk-reawakened/runner-harness':
         specifier: workspace:*
         version: link:../runner-harness
+    devDependencies:
+      '@types/node':
+        specifier: 24.0.0
+        version: 24.0.0
 
   packages/script-tools:
     dependencies:
