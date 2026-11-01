@@ -12,6 +12,8 @@ import { SoundBankLoader, SpessaSynthProcessor } from "spessasynth_core";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..", "..");
+// `process` exists at runtime; the test project is typed without Node globals, so declare just what is read.
+declare const process: { readonly env: Record<string, string | undefined> };
 const bankDir = process.env["TK16_BANK_DIR"] ?? resolve(root, "media", "soundfonts");
 const BANKS = ["TK-16.sf2", "TK-16-Whimsical.sf2", "TK-16-Arcade.sf2"];
 
@@ -26,44 +28,51 @@ interface Sf2 {
   readonly pcm: Int16Array;
 }
 
-function parse(bytes: Buffer): Sf2 {
-  const chunks = new Map<string, Buffer>();
+function parse(bytes: Uint8Array): Sf2 {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const text = (at: number, length: number): string => String.fromCharCode(...bytes.subarray(at, at + length));
+  const chunks = new Map<string, Uint8Array>();
   const walk = (from: number, to: number): void => {
     let at = from;
     while (at + 8 <= to) {
-      const tag = bytes.toString("latin1", at, at + 4);
-      const size = bytes.readUInt32LE(at + 4);
+      const tag = text(at, 4);
+      const size = view.getUint32(at + 4, true);
       if (tag === "LIST") walk(at + 12, at + 8 + size);
       else chunks.set(tag, bytes.subarray(at + 8, at + 8 + size));
       at += 8 + size + (size & 1);
     }
   };
   walk(12, bytes.length);
-  const need = (tag: string): Buffer => chunks.get(tag) ?? Buffer.alloc(0);
-  const records = <T>(tag: string, size: number, read: (b: Buffer, o: number) => T): T[] => {
+  const need = (tag: string): Uint8Array => chunks.get(tag) ?? new Uint8Array(0);
+  const records = <T>(tag: string, size: number, read: (v: DataView, o: number) => T): T[] => {
     const b = need(tag);
-    return Array.from({ length: Math.floor(b.length / size) }, (_, i) => read(b, i * size));
+    const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    return Array.from({ length: Math.floor(b.length / size) }, (_, i) => read(v, i * size));
   };
-  const name = (b: Buffer, o: number): string => b.toString("latin1", o, o + 20).replace(/\0.*$/s, "");
+  const name = (v: DataView, o: number): string => {
+    let out = "";
+    for (let i = 0; i < 20 && v.getUint8(o + i) !== 0; i++) out += String.fromCharCode(v.getUint8(o + i));
+    return out;
+  };
   const smpl = need("smpl");
   return {
-    presets: records("phdr", 38, (b, o) => ({ name: name(b, o), preset: b.readUInt16LE(o + 20), bank: b.readUInt16LE(o + 22), bag: b.readUInt16LE(o + 24) })),
-    pbag: records("pbag", 4, (b, o) => b.readUInt16LE(o)),
-    pgen: records("pgen", 4, (b, o) => ({ op: b.readUInt16LE(o), amount: b.readInt16LE(o + 2) })),
-    insts: records("inst", 22, (b, o) => ({ name: name(b, o), bag: b.readUInt16LE(o + 20) })),
-    ibag: records("ibag", 4, (b, o) => b.readUInt16LE(o)),
-    igen: records("igen", 4, (b, o) => ({ op: b.readUInt16LE(o), amount: b.readInt16LE(o + 2) })),
-    shdr: records("shdr", 46, (b, o) => ({
-      name: name(b, o), start: b.readUInt32LE(o + 20), end: b.readUInt32LE(o + 24), loopStart: b.readUInt32LE(o + 28), loopEnd: b.readUInt32LE(o + 32),
-      rate: b.readUInt32LE(o + 36), root: b.readUInt8(o + 40), cents: b.readInt8(o + 41),
+    presets: records("phdr", 38, (v, o) => ({ name: name(v, o), preset: v.getUint16(o + 20, true), bank: v.getUint16(o + 22, true), bag: v.getUint16(o + 24, true) })),
+    pbag: records("pbag", 4, (v, o) => v.getUint16(o, true)),
+    pgen: records("pgen", 4, (v, o) => ({ op: v.getUint16(o, true), amount: v.getInt16(o + 2, true) })),
+    insts: records("inst", 22, (v, o) => ({ name: name(v, o), bag: v.getUint16(o + 20, true) })),
+    ibag: records("ibag", 4, (v, o) => v.getUint16(o, true)),
+    igen: records("igen", 4, (v, o) => ({ op: v.getUint16(o, true), amount: v.getInt16(o + 2, true) })),
+    shdr: records("shdr", 46, (v, o) => ({
+      name: name(v, o), start: v.getUint32(o + 20, true), end: v.getUint32(o + 24, true), loopStart: v.getUint32(o + 28, true), loopEnd: v.getUint32(o + 32, true),
+      rate: v.getUint32(o + 36, true), root: v.getUint8(o + 40), cents: v.getInt8(o + 41),
     })),
     pcm: new Int16Array(smpl.buffer.slice(smpl.byteOffset, smpl.byteOffset + smpl.length)),
   };
 }
 
 const GEN = { keyRange: 43, sample: 53, mode: 54, coarse: 51, scale: 56, release: 38 } as const;
-const loaded = new Map<string, { bytes: Buffer; sf2: Sf2 }>();
-function bank(file: string): { bytes: Buffer; sf2: Sf2 } {
+const loaded = new Map<string, { bytes: Uint8Array; sf2: Sf2 }>();
+function bank(file: string): { bytes: Uint8Array; sf2: Sf2 } {
   let hit = loaded.get(file);
   if (!hit) {
     const bytes = readFileSync(resolve(bankDir, file));

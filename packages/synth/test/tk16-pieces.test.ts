@@ -17,7 +17,7 @@ const SR = 22_050;
 const BUF = 128;
 const EXCERPT_SECONDS = 2;
 
-const midiBytes = (piece: string): Buffer => readFileSync(resolve(here, "fixtures", "pieces", `${piece}.mid`));
+const midiBytes = (piece: string): Uint8Array => readFileSync(resolve(here, "fixtures", "pieces", `${piece}.mid`));
 const parse = (piece: string): BasicMIDI => {
   const bytes = midiBytes(piece);
   return BasicMIDI.fromArrayBuffer(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) as ArrayBuffer);
