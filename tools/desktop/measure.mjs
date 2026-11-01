@@ -47,6 +47,8 @@ export async function measure(options = {}) {
     [
       // The app directory is the built one: its `package.json` names `main.js`, and the preload sits beside it.
       join(root, "packages", "runner-desktop", "dist"),
+      // Headless Linux CI runners (Xvfb) have no GPU; use Chromium's software WebGL2 path.
+      ...(process.platform === "linux" ? ["--enable-unsafe-swiftshader"] : []),
       "--serve", root,
       "--package", pkg,
       "--page", "packages/runner-desktop/app/player.html",
