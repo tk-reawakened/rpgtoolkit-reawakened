@@ -328,6 +328,8 @@ export type RigOptions = {
   readonly slimeHp?: number;
   /** Authored stance animations use this frame delay in whole ticks and two frames (default: one frame, 0.2 s). */
   readonly stanceDelayTicks?: number;
+  /** Override frame delays by fighter for mixed-cadence tests. */
+  readonly stanceDelays?: Readonly<Record<string, number>>;
   /** Extra battle-usable item stacks appended to the default inventory. */
   readonly extraItems?: number;
   /** Prefix for generated extra-item labels, useful for clipping tests. */
@@ -405,7 +407,7 @@ export function gameFiles(options: RigOptions = {}): { readonly files: Map<strin
       if (files.has(assetKey(`Misc/${anm}`))) continue;
       const picture = art(stance);
       put(`Bitmap/${png}`, encodePng(picture.w, picture.h, picture.rgba));
-      const ticks = options.stanceDelayTicks;
+      const ticks = options.stanceDelays?.[key] ?? options.stanceDelayTicks;
       if (ticks === undefined) {
         put(`Misc/${anm}`, animationBytes(png));
       } else {
