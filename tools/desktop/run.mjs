@@ -38,6 +38,15 @@ if (!process.argv.includes("--serve")) args.push("--serve", root);
 if (!process.argv.includes("--page")) args.push("--page", "packages/runner-desktop/app/player.html");
 if (!process.argv.includes("--package")) args.push("--package", packagePath());
 
-const child = spawn(electronBinary(), args, { cwd: root, stdio: "inherit" });
+const child = spawn(electronBinary(), args, {
+  cwd: root,
+  stdio: "inherit",
+  env: {
+    ...process.env,
+    // The npm-installed Electron binary is user-owned, so the Linux SUID sandbox helper is not configured.
+    // Disable sandboxing so `desktop:run` works out of the box on Linux; it can be overridden by setting the var externally.
+    ...(process.platform === "linux" && process.env.ELECTRON_DISABLE_SANDBOX === undefined ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
+  },
+});
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(signal));
 child.on("exit", (code) => process.exit(code ?? 0));

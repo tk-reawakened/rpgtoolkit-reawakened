@@ -53,7 +53,17 @@ export async function measure(options = {}) {
       "--report", reportPath,
       "--quit-after",
     ],
-    { cwd: root, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ELECTRON_ENABLE_LOGGING: "0" } },
+    {
+      cwd: root,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        ELECTRON_ENABLE_LOGGING: "0",
+        // The npm-installed Electron binary is user-owned, so the Linux SUID sandbox helper is not configured.
+        // Disable sandboxing for the measurement harness only; interactive play still uses the OS sandbox by default.
+        ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
+      },
+    },
   );
   const log = [];
   child.stdout.on("data", (chunk) => log.push(String(chunk)));
