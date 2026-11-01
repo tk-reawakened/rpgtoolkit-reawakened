@@ -104,8 +104,9 @@ export type SpecFileReport = {
 };
 
 export type SpecRunOptions = {
-  /** Optional project program loader for includes made by the spec. */
+  /** Seed for the fixture's injected RNG (default 0). */
   readonly seed?: number;
+  /** A skip fails the run unless this is `false` (default `true`). */
   readonly strict?: boolean;
   /** Optional project program loader for includes made by the spec. */
   readonly loader?: ProgramLoader;
