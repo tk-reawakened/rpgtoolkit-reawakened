@@ -68,7 +68,14 @@ import { collectStateGarbage, runEventsPhase } from "../events/dispatch.ts";
 import { applyEmitEffect, applyEmitterOp, EVENT_DISPATCH_WAIT, forgetEmitter, isEmitterMethod, isHostMethodDef, queueErrorEvent, queueNativeEvent, registerEmitter } from "../events/emitter.ts";
 import { GAME_EMITTER, type EventsSection } from "../events/model.ts";
 import { registerNativeListeners } from "../events/native.ts";
-import { classInfo, findMember, findMethod } from "./classes.ts";
+import {
+  classInfo,
+  classMethodDef,
+  findMember,
+  findMethod,
+  methodArities,
+  parseClassMethodDef,
+} from "./classes.ts";
 import { hostMethodDef, parseHostMethodDef } from "./host.ts";
 import {
   checkMemberAccess,
@@ -2006,6 +2013,38 @@ function performCallable(
   args: Arg[],
   pos: SourcePos,
 ): CallOutcome {
+  const classMethodName = parseClassMethodDef(value.def);
+  if (classMethodName !== null) {
+    const handle = value.receiver === null ? NaN : Number(value.receiver);
+    const receiver = Number.isSafeInteger(handle) ? findObject(vm, handle) : undefined;
+    if (receiver === undefined || receiver.program === null) {
+      throw new ScriptError("object.invalid", "bound class method receiver is not a live class instance", pos);
+    }
+    const owner = services.programs.get(receiver.program);
+    const arities = methodArities(owner, receiver.className, classMethodName);
+    if (arities.length === 0) {
+      throw new ScriptError(CALLABLE_UNKNOWN_DEF, `the callable's class method "${classMethodName}" is not defined`, pos);
+    }
+    const method = findMethod(owner, receiver.className, classMethodName, args.length);
+    if (method === undefined || method.entry < 0) {
+      throw new ScriptError(CALLABLE_ARITY, `"${classMethodName}" takes ${arities.join(" or ")} argument(s), got ${args.length}`, pos);
+    }
+    if (method.access === "private" && frame.objectClass !== method.className) {
+      throw new ScriptError("object.inaccessible-member", `method ${classMethodName} is private`, pos);
+    }
+    frame.ip += 1;
+    thread.frames.push({
+      program: owner.ref,
+      ip: method.entry,
+      locals: bindMethodLocals(method, args),
+      operands: [],
+      errorHandler: null,
+      autoLocal: frame.autoLocal,
+      objectHandle: handle,
+      objectClass: method.className ?? receiver.className,
+    });
+    return "continue";
+  }
   const hydrated = parseHostMethodDef(value.def);
   if (hydrated !== null) {
     const holder = value.receiver === null ? undefined : findObject(vm, Number(value.receiver));
@@ -3157,6 +3196,21 @@ export function stepThread(
           });
           frame.ip += 1;
           break;
+        }
+        if (op.op === "get_member_bound" && !isDictionary(record)) {
+          const owner = record.program === null ? undefined : services.programs.get(record.program);
+          if (
+            owner !== undefined &&
+            findMember(owner, record.className, op.name) === undefined &&
+            methodArities(owner, record.className, op.name).length > 0
+          ) {
+            frame.operands.push({
+              value: { type: "callable", def: classMethodDef(op.name), captures: [], receiver: String(record.handle) },
+              ref: objectRef(record.handle, op.name),
+            });
+            frame.ip += 1;
+            break;
+          }
         }
         checkMemberAccess(program, record, op.name, frame.objectClass, op.pos);
         const value = readObjectValue(services, record, op.name);

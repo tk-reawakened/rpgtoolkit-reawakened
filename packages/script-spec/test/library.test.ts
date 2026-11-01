@@ -59,3 +59,35 @@ test("hooks run in the documented order, nested describes included", () => {
     "pass:D",
   ]);
 });
+test("toBeCloseTo accepts its default and explicit tolerance at exact arities, including .not", () => {
+  const spec = [
+    'it("default-one-arg", () => { expect(0.00000005).toBeCloseTo(0) })',
+    'it("default-outside-one-arg", () => { expect(0.0000002).toBeCloseTo(0) })',
+    'it("default-negative-one-arg", () => { expect(-0.00000005).toBeCloseTo(0) })',
+    'it("explicit-two-arg", () => { expect(0.0005).toBeCloseTo(0, 0.001) })',
+    'it("explicit-negative-two-arg", () => { expect(-0.0005).toBeCloseTo(0, 0.001) })',
+    'it("explicit-two-arg-fails", () => { expect(0.002).toBeCloseTo(0, 0.001) })',
+    'it("zero-tolerance-is-exact", () => { expect(0.00000005).toBeCloseTo(0, 0) })',
+    'it("not-default-one-arg", () => { expect(0.0000002).not.toBeCloseTo(0) })',
+    'it("not-default-negative-one-arg", () => { expect(-0.0000002).not.toBeCloseTo(0) })',
+    'it("not-explicit-two-arg", () => { expect(0.002).not.toBeCloseTo(0, 0.001) })',
+    'it("not-explicit-negative-two-arg", () => { expect(-0.002).not.toBeCloseTo(0, 0.001) })',
+    'it("not-explicit-two-arg-fails", () => { expect(0.0005).not.toBeCloseTo(0, 0.001) })',
+    'it("not-explicit-negative-two-arg-fails", () => { expect(-0.0005).not.toBeCloseTo(0, 0.001) })',
+  ].join("\n");
+  deepEqual(run(spec), [
+    "pass:default-one-arg/toBeCloseTo",
+    "fail:default-outside-one-arg/toBeCloseTo",
+    "pass:default-negative-one-arg/toBeCloseTo",
+    "pass:explicit-two-arg/toBeCloseTo",
+    "pass:explicit-negative-two-arg/toBeCloseTo",
+    "fail:explicit-two-arg-fails/toBeCloseTo",
+    "fail:zero-tolerance-is-exact/toBeCloseTo",
+    "pass:not-default-one-arg/toBeCloseTo",
+    "pass:not-default-negative-one-arg/toBeCloseTo",
+    "pass:not-explicit-two-arg/toBeCloseTo",
+    "pass:not-explicit-negative-two-arg/toBeCloseTo",
+    "fail:not-explicit-two-arg-fails/toBeCloseTo",
+    "fail:not-explicit-negative-two-arg-fails/toBeCloseTo",
+  ]);
+});

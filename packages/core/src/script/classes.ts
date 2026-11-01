@@ -11,6 +11,33 @@
 import type { MemberDef } from "./ast.ts";
 import type { CompiledClass, FunctionInfo, Program } from "./program.ts";
 
+/** Prefix for a saved callable that names a class-method tear-off. */
+const CLASS_METHOD_PREFIX = "@class-method:";
+
+/** The plain-data definition name of a bound class-method callable. */
+export function classMethodDef(name: string): string {
+  return `${CLASS_METHOD_PREFIX}${name}`;
+}
+
+/** Return the method name in a bound class-method definition, or `null`. */
+export function parseClassMethodDef(def: string): string | null {
+  return def.startsWith(CLASS_METHOD_PREFIX) ? def.slice(CLASS_METHOD_PREFIX.length) : null;
+}
+
+/** The distinct implemented arities a class and its ancestors expose for `name`, nearest class first. */
+export function methodArities(program: Program, className: string, name: string): number[] {
+  const arities: number[] = [];
+  for (const current of classWalk(program, className)) {
+    const methods = classInfo(program, current)?.methods;
+    const list = methods !== undefined && Object.hasOwn(methods, name) ? methods[name] : undefined;
+    for (const method of list ?? []) {
+      if (method.entry < 0 || arities.includes(method.params.length)) continue;
+      arities.push(method.params.length);
+    }
+  }
+  return arities;
+}
+
 /** The declaration of class `name` in `program`, or `undefined` when its table has none. */
 export function classInfo(program: Program, name: string): CompiledClass | undefined {
   return Object.hasOwn(program.classes, name) ? program.classes[name] : undefined;
