@@ -2,12 +2,11 @@
 title: 'Rule the request counter participation in simulation hashes'
 type: 'feature'
 ticket: '40'
-status: 'blocked'
-blocked_reason: 'Awaiting an owner ruling on request-ID and hash semantics.'
+status: 'draft'
 tracker_id: '#1047'
 risk: 'high'
 ---
 
 # Plan
 
-Issue #1047 records both proposed options, the existing contract and E-02 evidence, and the outstanding-request and restore hazards. No change is authorized before the ruling.
+**Approved ruling (owner: Jensen, 2026-11-01)** — the request-id counter is retained in saved state but excluded from the state-hash projection; the outstanding-request list including each id remains hashed. Implementation is unstarted; #1047 records the required docs-first sequence, tests and perturbation proofs.
