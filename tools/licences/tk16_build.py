@@ -222,20 +222,44 @@ CLASSIC_TABLE = {
 WHIMSICAL_SPECTRA = {
     **CLASSIC_SPECTRA,
     "mallet": series(lambda n: 1.0 if n == 1 else 0.0),
-    "pulse33": series(pulse(0.33)),
-    "pulse35": series(pulse(0.35)),
+    "sine": series(lambda n: 1.0 if n == 1 else 0.0),
+    "tack": series(pulse(0.3)),
+    "tackb": series(pulse(0.2)),
+    "pulse12": series(pulse(0.12)),
+    "pulse15": series(pulse(0.15)),
+    "pulse25": series(pulse(0.25)),
 }
 PUFFED = (0.015, 0.12, sus(0.85), 0.08)
 WHIMSICAL_TABLE = {
     **CLASSIC_TABLE,
-    "TK Pluck":  ("mallet", 1, (0.001, 0.35, sus(0.0), 0.12), 9000, (0, 0, 0), False, 22050, 0, {"head": ("mallet", 0.14)}),
-    "TK Bass":   ("bass", 1, (0.001, 0.45, sus(0.0), 0.09), 4500, (0, 0, 0), False, 11025, 0, {"pitch_env": 400}),
-    "TK Synth":  ("pulse33", 1, PUFFED, 6500, (0, 0, 0), False, 22050, 248),
-    "TK Lead":   ("pulse35", 1, PUFFED, 7500, (0.18, 5.6, 18), True, 22050, 250),
-    "TK Flute":  ("flute", 1, (0.03, 0.05, sus(0.95), 0.1), 6750, (0.28, 5.0, 8), False, 16000, 266, {"head": ("chiff", 0.035)}),
-    "TK Bell":   ("bell", 3, (0.08, 1.2, sus(0.4), 0.45), 8000, (0, 0, 0), False, 16000, 73),
-    "TK Pad":    ("pad", 1, (0.08, 1.2, sus(0.4), 0.45), 5500, (0.5, 4.2, 6), True, 16000, 176),
+    # A worn parlor piano: two pulse waves a few cents apart, so the beating never settles.
+    "TK Piano":  ("tack", 1, (0.0, 0.9, sus(0.05), 0.12), 8500, (0, 0, 0), True, 22050, 43, {"detune": 3}),
+    "TK Bright": ("tackb", 1, (0.0, 0.9, sus(0.05), 0.12), 9000, (0, 0, 0), True, 22050, 5, {"detune": 4}),
+    # A toy marimba: sine with a fast-fading octave and a 16-frame strike.
+    "TK Pluck":  ("mallet", 1, (0.0, 0.22, sus(0.0), 0.06), 9000, (0, 0, 0), False, 22050, 9, {"head": ("mallet", 0.14)}),
+    # A rubber bass: round triangle that bounces down from three semitones above in 20 ms.
+    "TK Bass":   ("bass", 1, (0.0, 0.38, sus(0.1), 0.04), 4500, (0, 0, 0), False, 11025, 0, {"pitch_env": (300, 0.02)}),
+    # A kazoo / duck reed: 12% duty on the strike, 25% for the body, scooping up two semitones in 30 ms.
+    "TK Synth":  ("pulse25", 1, (0.01, 0.08, sus(0.9), 0.06), 6500, (0, 0, 0), False, 22050, 311,
+                  {"head": ("alt", 0.03, "pulse12"), "pitch_env": (-200, 0.03)}),
+    # A boing / jaw-harp lead: 15% pulse that starts an octave up and springs down in 40 ms, fluttering at 12 Hz.
+    "TK Lead":   ("pulse15", 1, PUFFED, 7500, (0, 0, 0), False, 22050, 244, {"head": ("boing", 0.2), "pitch_env": (1200, 0.04)}),
+    # A chirp whistle: triangle with a breath, steady for 300 ms and then a nervous 7 Hz vibrato.
+    "TK Flute":  ("flute", 1, (0.02, 0.05, sus(0.95), 0.07), 6750, (0.3, 7.0, 20), False, 16000, 270, {"head": ("chiff", 0.035)}),
+    # Brass, saxes and voices scoop up into the note from two semitones below in 35 ms.
+    "TK Brass":  (*CLASSIC_TABLE["TK Brass"], {"pitch_env": (-200, 0.035)}),
+    "TK Choir":  (*CLASSIC_TABLE["TK Choir"], {"pitch_env": (-200, 0.035)}),
+    "TK Bell":   ("bell", 3, (0.08, 1.2, sus(0.4), 0.45), 8000, (0, 0, 0), False, 16000, 0),
+    "TK Pad":    ("pad", 1, (0.08, 1.2, sus(0.4), 0.45), 5500, (0.5, 4.2, 6), True, 16000, 185),
+    # A water-drop boop: a pure sine that falls a octave and a half in about 35 ms and is gone.
+    "TK SFX":    ("sine", 1, (0.0, 0.12, 0, 0.02), 9000, (0, 0, 0), False, 16000, 174, {"pitch_env": (1800, 0.035)}),
 }
+# Attenuation added to the table value so each Whimsical voice sits at the classic loudness.
+WHIMSICAL_ATTEN_DELTA = {"TK Piano": 59, "TK Bright": 66, "TK Bass": -20, "TK Synth": -144, "TK Bell": 160, "TK Lead": -102, "TK Pad": -17, "TK Pluck": -259, "TK SFX": 84}
+for _name, _delta in WHIMSICAL_ATTEN_DELTA.items():
+    _row = list(WHIMSICAL_TABLE[_name])
+    _row[7] = max(0, _row[7] + _delta)
+    WHIMSICAL_TABLE[_name] = tuple(_row)
 # Whimsical reeds, accordion and harmonica take the pulse reed.
 WHIMSICAL_GM = {68: 9, 69: 9, 70: 9, 71: 9, 21: 9, 22: 9}
 
@@ -292,7 +316,7 @@ def _arcade_table():
 
 
 # Attenuation added to the classic value so the clipped and pulse voices sit at the classic loudness.
-ARCADE_ATTEN_DELTA = {"TK Piano": 0, "TK Bright": 0, "TK EP": 0, "TK Organ": 0, "TK Guitar": 324, "TK Bass": 0, "TK Strings": 12, "TK Choir": 19, "TK Brass": 84, "TK Synth": 0, "TK Bell": 5, "TK Lead": 316, "TK Pad": 79, "TK Pluck": 0, "TK Flute": 0, "TK SFX": -12}
+ARCADE_ATTEN_DELTA = {"TK Guitar": 360, "TK Bass": -64, "TK Strings": 5, "TK Choir": 13, "TK Brass": 79, "TK Lead": 279, "TK Pad": 75, "TK SFX": -8}
 
 
 def _arcade_leveled():
@@ -346,6 +370,8 @@ PROFILES = {
         "rate": 24000,
         "zones": ((0, 47, 128), (48, 71, 64), (72, 83, 32), (84, 127, 16)),
         "table": WHIMSICAL_TABLE, "spectra": WHIMSICAL_SPECTRA, "tiers": False, "gm_overrides": WHIMSICAL_GM,
+        # Toy percussion in place of the rock kit on the sounds that carry the beat.
+        "kit_swap": {"snare": "toy_snare", "clap": "toy_clap", "chat": "shaker", "cowbell": "agogo_bell", "claves": "pip"},
         "bits": 12, "dither": 0.0, "filter_shift": 0, "vibrato_scale": 1.0,
         "venv": {},
         "drive": {},
@@ -370,17 +396,18 @@ PROFILES = {
 }
 
 
-def to_int16(values, peak=0.82):
-    top = max(abs(v) for v in values) or 1.0
+def to_int16(values, peak=0.82, reference_from=0):
+    # The level follows the loop (from `reference_from`), so a transient head may exceed it and clip.
+    top = max(abs(v) for v in values[reference_from:]) or 1.0
     scale = peak * 32767.0 / top
     return [max(-32768, min(32767, int(round(v * scale)))) for v in values]
 
 
-def finish(values, profile, peak=0.82, drive=0.0):
+def finish(values, profile, peak=0.82, drive=0.0, reference_from=0):
     """Normalise, optionally saturate, then reduce to the profile's word length."""
-    ints = to_int16(values, peak)
+    ints = to_int16(values, peak, reference_from)
     if drive > 1.0:
-        ints = to_int16([math.tanh(drive * v / 32768.0) for v in ints], peak)
+        ints = to_int16([math.tanh(drive * v / 32768.0) for v in ints], peak, reference_from)
     bits = profile["bits"]
     if bits >= 16:
         return ints
@@ -419,13 +446,32 @@ def loop_cycle(spectrum: str, f0: float, period: int, cycles: int, profile, rate
 
     lead: list[float] = []
     if head is not None:
-        kind, seconds = head
+        kind, seconds, *arg = head
         # A whole number of fundamental cycles, so the loop continues in phase.
         lead_length = (int(math.ceil(seconds / period)) if kind == "slap" else int(math.ceil(seconds * f0))) * period
         rng = Lfsr(0x4845 + period)
+        alt = None
+        if kind == "alt":
+            alt = [(r, a, p) for r, a, p in (spectra.get(arg[0]) or SPECTRA[arg[0]])(f0, period / 2.0) if r < period / 2.0 and abs(r * cycles - round(r * cycles)) < 1e-9]
+        warp = 0.0
+        flutter = [0.0] * lead_length
+        if kind == "boing":
+            # A 12 Hz flutter of about +-30 cents that dies away over the head, baked in as phase modulation.
+            position = 0.0
+            for i in range(lead_length):
+                t = i / rate
+                flutter[i] = position
+                position += 1.0 + 0.0174 * math.sin(TAU * 12.0 * t) * math.exp(-t / 0.05)
+            warp = (position - lead_length) / lead_length
         for i in range(lead_length):
             t = i / rate
-            value = wave(i)
+            if kind == "boing":
+                u = flutter[i] - warp * i  # ends exactly on a whole cycle so the loop joins in phase
+                value = sum(a * math.sin(TAU * r * u / period + p) for r, a, p in partials)
+            elif alt is not None:
+                value = sum(a * math.sin(TAU * r * i / period + p) for r, a, p in alt)
+            else:
+                value = wave(i)
             if kind == "mallet":
                 # A rounded mallet: an octave-up partial that drops out fast, and a 16-frame strike.
                 value += 0.35 * math.sin(TAU * 2.0 * i / period) * math.exp(-t / 0.04)
@@ -435,12 +481,12 @@ def loop_cycle(spectrum: str, f0: float, period: int, cycles: int, profile, rate
                 # An unpitched, clipped thumb slap over the first 48 frames.
                 if i < seconds:
                     value += max(-1.0, min(1.0, 3.0 * rng.next())) * (1.0 - i / seconds)
-            else:
+            elif kind == "chiff":
                 # A breath of shift-register noise, about -12 dB, fading out over the first 35 ms.
                 value += 0.25 * rng.next() * max(0.0, 1.0 - t / seconds)
             lead.append(value)
     body = lead + [wave(i) for i in range(length)]
-    return finish(body, profile, drive=drive), len(lead)
+    return finish(body, profile, drive=drive, reference_from=len(lead)), len(lead)
 
 
 # --- percussion -----------------------------------------------------------
@@ -475,7 +521,22 @@ DRUM_SECONDS = {
     "timbale": 0.30, "agogo": 0.35, "cabasa": 0.10, "maracas": 0.07, "whistle_s": 0.15, "whistle_l": 0.50,
     "guiro_s": 0.12, "guiro_l": 0.40, "claves": 0.07, "block": 0.10, "cuica_m": 0.10, "cuica_o": 0.30,
     "tri_m": 0.15, "tri_o": 0.70,
+    "toy_snare": 0.12, "toy_clap": 0.09, "shaker": 0.12, "agogo_bell": 0.35, "pip": 0.10,
 }
+
+
+def bandpass(samples, rate: int, centre: float, q: float):
+    """RBJ biquad band-pass (constant 0 dB peak gain)."""
+    w = TAU * centre / rate
+    alpha = math.sin(w) / (2.0 * q)
+    b0, b2, a0, a1, a2 = alpha, -alpha, 1.0 + alpha, -2.0 * math.cos(w), 1.0 - alpha
+    x1 = x2 = y1 = y2 = 0.0
+    out = []
+    for x in samples:
+        y = (b0 * x + b2 * x2 - a1 * y1 - a2 * y2) / a0
+        out.append(y)
+        x2, x1, y2, y1 = x1, x, y1, y
+    return out
 
 
 def drum(kind: str, profile) -> list[int]:
@@ -485,6 +546,8 @@ def drum(kind: str, profile) -> list[int]:
     count = int(seconds * rate)
     rng = Lfsr(0x5442 + sum(map(ord, kind)))
     hp = noise_hp(rng, count)
+    if kind == "toy_clap":
+        hp = bandpass(hp, rate, 1200.0, 1.5)
     out = []
     phase = 0.0
     for i in range(count):
@@ -562,6 +625,18 @@ def drum(kind: str, profile) -> list[int]:
             f = 420.0 + (160.0 if kind == "cuica_m" else 700.0) * min(1.0, t / (0.08 if kind == "cuica_m" else 0.25))
             phase += TAU * f / rate
             v = (math.sin(phase) + 0.4 * math.sin(2.0 * phase)) * math.exp(-t / (0.05 if kind == "cuica_m" else 0.2))
+        elif kind == "toy_snare":
+            # A toy woodblock: two short sine pings and no noise.
+            v = (math.sin(TAU * 780.0 * t) + math.sin(TAU * 1150.0 * t)) * math.exp(-t / 0.018)
+        elif kind == "toy_clap":
+            # A cartoon slapstick: band-passed shift-register noise, gated at 60 ms.
+            v = hp[i] * (1.0 if t < 0.06 else 0.0) * math.exp(-t / 0.035)
+        elif kind == "shaker":
+            v = hp[i] * min(1.0, t / 0.01) * math.exp(-t / 0.02)
+        elif kind == "agogo_bell":
+            v = (math.sin(TAU * 700.0 * t) + 0.5 * math.sin(TAU * 1680.0 * t)) * math.exp(-t / 0.1)
+        elif kind == "pip":
+            v = math.sin(TAU * 2200.0 * t) * math.exp(-t / 0.03) + (0.8 * (1.0 if i % 2 else -1.0) if i < 8 else 0.0)
         else:  # tri_m, tri_o: triangle
             v = (math.sin(TAU * 3000.0 * t) + 0.3 * math.sin(TAU * 8400.0 * t)) * math.exp(-t / (0.05 if kind == "tri_m" else 0.4))
         out.append(v)
@@ -727,7 +802,8 @@ def build(profile_name: str = "classic") -> tuple[bytes, dict]:
                 base += [gen(G_VIB_PITCH, cents), gen(G_VIB_DELAY, tc(delay)), gen(G_VIB_FREQ, fc(rate_hz_vib))]
             if wide:
                 # A narrow chorus pair: the two zones beat slowly and average to the written pitch.
-                for fine, pan in ((-3, -350), (3, 350)):
+                spread = extras.get("detune", 3)
+                for fine, pan in ((-spread, -350), (spread, 350)):
                     zones.append(base + [gen(G_FINE, fine), gen(G_PAN, pan), gen(G_MODE, 1), gen(G_SAMPLE, sample)])
             else:
                 zones.append(base + [gen(G_MODE, 1), gen(G_SAMPLE, sample)])
@@ -738,7 +814,8 @@ def build(profile_name: str = "classic") -> tuple[bytes, dict]:
     drum_zones: list[list[bytes]] = []
     for kind, keys, scale, pan, release, excl, semitones, atten in KIT:
         if kind not in kit_samples:
-            kit_samples[kind] = bank.add_sample(f"TK {kind}", drum(kind, profile), rate_hz, 60, False, f"drum-{kind}", {"keyRange": None})
+            voice = profile.get("kit_swap", {}).get(kind, kind)
+            kit_samples[kind] = bank.add_sample(f"TK {voice}", drum(voice, profile), rate_hz, 60, False, f"drum-{voice}", {"keyRange": None})
         for key in keys:
             zone = [gen(G_KEYS, key_range(key, key)), gen(G_ATTEN, atten), gen(G_A, tc(0.001)), gen(G_R, tc(release)), gen(G_PAN, pan)]
             if semitones:

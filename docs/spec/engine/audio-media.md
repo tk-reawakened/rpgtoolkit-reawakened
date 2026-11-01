@@ -1486,8 +1486,8 @@ program measured within 1 cent at notes 60, 64 and 72.
 | File | Style | Bytes | SHA-256 |
 |---|---|---:|---|
 | `TK-16.sf2` (**default**) | Classic RPG: a textbook chip table, saw and pulse blends with a static low-pass and a standard envelope per family | 563,992 | `a79fa6d4ae3b8ab8b3f3e3ddd4ab3d59a0ac24222caffcdd914435d76872ede2` |
-| `TK-16-Whimsical.sf2` | Whimsical: the classic table with rounded mallets, a 33% pulse reed, a chiffy flute and a bouncy bass | 585,394 | `5f2d864ec3490055e22a0df8737ac659246b86db0a8865c0f72bfb90064e8b44` |
-| `TK-16-Arcade.sf2` | Arcade: slap bass, hard-clipped guitar and lead, a downward-blatting pulse brass, a swept kick and a gated snare | 521,344 | `f111fac49db34cdcd2cef424c24f3521306b496e69c9b58086603729f612def7` |
+| `TK-16-Whimsical.sf2` | Whimsical: the classic table with cartoon physics: a toy marimba, a rubber bass, a kazoo reed, a boing lead, a late-vibrato whistle, a tack piano, scooped brass and voices, a water-drop boop and toy percussion | 618,322 | `280fa8d591c914747a30b297e703aefdbe63a428bae3d0a45fd2a5f20399700d` |
+| `TK-16-Arcade.sf2` | Arcade: slap bass, hard-clipped guitar and lead, a downward-blatting pulse brass, a swept kick and a gated snare | 521,344 | `67468263962cee793bedb74b93f68b899ea2179cb660e8e798ef73036c140504` |
 
 The owner chose Classic RPG as the bundled default on 2026-11-01; the other two
 are selectable bundled banks, picked by their `media/soundfonts/` id in the
