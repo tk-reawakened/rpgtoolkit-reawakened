@@ -13,6 +13,7 @@
 
 import {
   assetKey,
+  loadPackage,
   DEFAULT_FONT_ASSET,
   readLegacyFont,
   readTrueTypeFont,
@@ -102,6 +103,23 @@ export type ScriptedFrameOptions = {
   /** Font assets by key, decoded by the core; a text command without one is counted deferred. */
   readonly fonts?: ReadonlyMap<AssetKey, RasterAsset>;
 };
+
+/**
+ * Boot from a distribution package: one file, no folder access (entry 9.7). `loadPackage` applies the untrusted-package
+ * limits L1–L21, so a tampered or malformed package is refused with the rule it hit before anything is served; what it
+ * returns is exactly the file map the folder path produces, which is why a package boot reaches the same hashes.
+ */
+export function packageFiles(name: string, bytes: Uint8Array): ClosingFiles {
+  const loaded = loadPackage({ kind: "tpk", name, bytes });
+  if (!loaded.ok) throw new Error(`runner-web: ${name} refused: ${loaded.error.message}`);
+  const files = new Map<string, Uint8Array>();
+  for (const file of loaded.value.files) {
+    // The manifest is the package's own bookkeeping (AD-6); the game never sees it.
+    if (file.path === "manifest.json") continue;
+    files.set(file.path, file.bytes);
+  }
+  return files;
+}
 
 /**
  * Decode the fonts a host carries into the map a text command's `asset` names (AD-15). Only formats the core reads

@@ -312,6 +312,7 @@ Its licence, and why it is a dev-only tool outside the production-tree scan, are
 |---|---|
 | [draw-list](#draw-list) and [webgl2-agreement](#webgl2-agreement) in full: every AD-3 command, the unified vector kit and every gating ledger row | 9.3, 9.4 |
 | [audio](#audio): the cue player, the PCM output, the bank path and the video policy | 9.5, 9.6 |
+| [install](#install): the make-package tool, the install descriptor and the package asset source | 9.7 |
 | [install](#install), [desktop-shell](#desktop-shell) (player) | 9.10, 9.11 |
 | [load-modes](#load-modes), [prefetch](#prefetch), [offline](#offline) | 9.8, 9.9 |
 | [mobile](#mobile) | 9.12 |

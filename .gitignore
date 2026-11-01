@@ -2,6 +2,7 @@ node_modules
 dist
 *.tsbuildinfo
 /fixtures/
+/fixtures/packages/
 
 # Generated dependency-graph inputs (tools/deps/graph.mjs)
 /.dependency-cruiser.mjs

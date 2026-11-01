@@ -50,10 +50,13 @@
     "dump:check": "tsc -b && node packages/runner-headless/dist/cli.js dump --check golden/legacy-corpus.json fixtures/legacy && node packages/runner-headless/dist/cli.js dump --check golden/spec-examples.json docs/spec/examples",
     "dump:record": "tsc -b && node packages/runner-headless/dist/cli.js dump --record golden/legacy-corpus.json fixtures/legacy",
     "dump:check:examples": "tsc -b && node packages/runner-headless/dist/cli.js dump --check golden/spec-examples.json docs/spec/examples",
-    "dump:record:examples": "tsc -b && node packages/runner-headless/dist/cli.js dump --record golden/spec-examples.json docs/spec/examples"
+    "dump:record:examples": "tsc -b && node packages/runner-headless/dist/cli.js dump --record golden/spec-examples.json docs/spec/examples",
+    "make-package": "node tools/make-package/run.mjs",
+    "make-package:test": "node --test tools/make-package/test/make-package.test.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",
+    "@tk-reawakened/core": "workspace:*",
     "@typescript/native": "npm:typescript@7.0.2",
     "dependency-cruiser": "18.5.0",
     "esbuild": "0.28.2",
