@@ -167,7 +167,7 @@ function createWindow(): BrowserWindow {
   const defaultPage = process.argv.includes("--report") ? "player-measure.html" : "player.html";
   const page = process.argv.includes("--page") ? process.argv[process.argv.indexOf("--page") + 1] : defaultPage;
   // Diagnostics: a page that fails to load, or a renderer error, is reported on stderr instead of disappearing.
-  window.webContents.on("console-message", (_event, level, message) => console.error(`renderer[${level}]: ${message}`));
+  window.webContents.on("console-message", (event) => console.error(`renderer[${event.level}]: ${event.message}`));
   window.webContents.on("did-fail-load", (_event, code, description, url) => console.error(`load failed ${code} ${description} ${url}`));
   window.webContents.on("preload-error", (_event, path, error) => console.error(`preload error ${path}: ${error.message}`));
   window.loadURL(`${APP_SCHEME}://player/${page}`).catch((error: unknown) => console.error(`loadURL: ${String(error)}`));

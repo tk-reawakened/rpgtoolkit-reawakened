@@ -32,6 +32,8 @@ type AudioReport = {
   readonly graphStarted: boolean;
   readonly analyserEnergy: number | null;
   readonly analyserSeconds: number | null;
+  /** The default graph buffer size used by the shipped path. */
+  readonly graphBufferSize: number | null;
   readonly errors: readonly string[];
   /** The bundled SoundFont: its hash as the cache keyed it, and the MIDI the bank rendered in this browser. */
   readonly bankSha: string | null;
@@ -165,13 +167,15 @@ void (async () => {
   sink.render(left, right, frames);
 
   // A real graph, attached for the shipped path. The autoplay policy is disabled for this lane, so resume() resolves
-  // and the analyser reads the actual non-silent output for about the length the sink reports.
+  // and the analyser reads the actual non-silent output for about the length the sink reports. We use a small buffer
+  // here so the analyser reads live audio within the fixture length; the shipped default is larger to avoid dropouts.
   let graphStarted = false;
   let analyserEnergy: number | null = null;
   let analyserSeconds: number | null = null;
+  let graphBufferSize: number | null = null;
   try {
     const context = new AudioContext({ sampleRate: 8_000 });
-    const graph = connectSinkToGraph(context, sink);
+    const graph = connectSinkToGraph(context, sink, 1_024);
     await context.resume();
     graphStarted = context.state === "running";
     const analyser = context.createAnalyser();
@@ -189,6 +193,12 @@ void (async () => {
     analyser.getFloatTimeDomainData(buffer);
     analyserEnergy = PcmSink.energy(buffer, buffer.length);
     graph.disconnect();
+    // Measure the shipped default buffer size without starting a second graph.
+    const defaultContext = new AudioContext({ sampleRate: 8_000 });
+    const defaultGraph = connectSinkToGraph(defaultContext, sink);
+    graphBufferSize = defaultGraph.node.bufferSize;
+    defaultGraph.disconnect();
+    await defaultContext.close();
   } catch {
     graphStarted = false;
   }
@@ -218,6 +228,7 @@ void (async () => {
     graphStarted,
     analyserEnergy,
     analyserSeconds,
+    graphBufferSize,
     errors,
     bankSha,
     midiEnergy: PcmSink.energy(midiLeft, midiFrames),
