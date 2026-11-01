@@ -184,7 +184,7 @@ test("the tool fails saying no test ran when a directory holds none", () => {
 
 // ====================================================== groups & LCOV merge
 
-test("verifyGroups confirms that the repository's 12 groups partition every package test file", () => {
+test("verifyGroups confirms that the repository's 13 groups partition every package test file", () => {
   const report = verifyGroups(repoRoot);
   equal(report.ok, true, JSON.stringify(report));
   equal(report.emptyGroups.length, 0);
@@ -195,7 +195,7 @@ test("verifyGroups confirms that the repository's 12 groups partition every pack
   }
   const result = runTool(repoRoot, ["--verify-groups"]);
   equal(result.status, 0, result.output);
-  match(result.stdout, /verified 12 test groups: \d+ files/);
+  match(result.stdout, /verified 13 test groups: \d+ files/);
   ok(report.byGroup["core-battle"].length > 0, "core-battle is non-empty");
   ok(report.byGroup["core-battle"].every((file) => /^packages\/core\/test\/battle-.*\.test\.ts$/.test(file)), "core-battle contains only battle-*.test.ts files");
   ok(report.byGroup["core-engine"].every((file) => !/^packages\/core\/test\/battle-.*\.test\.ts$/.test(file)), "core-engine excludes battle-*.test.ts files");
@@ -204,7 +204,7 @@ test("verifyGroups confirms that the repository's 12 groups partition every pack
 test("verifyGroups fails when an unmapped package has test files or a group is empty", () => {
   const root = makeDir("groups");
   // Every group but `runner-web` gets a file, so exactly one group is empty.
-  for (const pkg of ["core", "synth", "plugin-tk2-compat", "render-webgl2", "runner-harness", "runner-headless", "runner-web", "script-tools", "lsp", "extra-pkg"]) {
+  for (const pkg of ["core", "synth", "plugin-tk2-compat", "render-webgl2", "runner-harness", "runner-headless", "runner-web", "script-tools", "lsp", "script-spec", "extra-pkg"]) {
     mkdirSync(join(root, "packages", pkg, "test"), { recursive: true });
   }
   writeFileSync(join(root, "packages/core/test/format-one.test.ts"), "");
@@ -219,6 +219,7 @@ test("verifyGroups fails when an unmapped package has test files or a group is e
   writeFileSync(join(root, "packages/lsp/test/lsp.test.ts"), "");
   writeFileSync(join(root, "packages/script-tools/test/analyse.test.ts"), "");
   writeFileSync(join(root, "packages/lsp/test/diagnostics.test.ts"), "");
+  writeFileSync(join(root, "packages/script-spec/test/spec-result.test.ts"), "");
   writeFileSync(join(root, "packages/extra-pkg/test/unmapped.test.ts"), "");
 
   const report = verifyGroups(root);
