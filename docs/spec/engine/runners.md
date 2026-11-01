@@ -227,13 +227,19 @@ reader in every host.
 
 | Tier | What is in it |
 |---|---|
-| `now` | the current board's assets and `bkgMusic`, the `.anm` frame sounds of the animations the board uses, and the default bank when a MIDI is in this tier |
-| `next` | the music of boards reachable by edge links and literal `send(...)` targets, and the battle background's `music`, `selectSound`, `chooseSound`, `readySound` and `cantDoSound` |
+| `now` | the current board's resolved `bkgMusic`, and the default bank when that music is MIDI |
+| `next` | the resolved music of edge-linked boards whose bytes are already cached, excluding program links; the current battle background's nonempty `music`, `menuMoveSound`, `menuChooseSound`, `readySound` and `cantDoSound` fields when available |
 | `always` | the main file's `cursorMoveSound`, `cursorSelectSound` and `cursorCancelSound`, and the default bank |
 
+The planner does not currently hint other current-board assets, animation frame sounds, or literal `send(...)` targets.
+It deduplicates keys across tiers, keeping the earliest tier, and sorts keys within each tier. The battle background may
+need a separate prefetch-only asset request before its sound fields become available; the engine emits a changed plan
+when those facts are ready.
+
 A hint **never blocks**, **never changes state**, **never appears in a state or draw hash**, and **never earns a reply**.
-Core keeps the hint on [audio-media.md#audio-prefetch](audio-media.md#audio-prefetch)'s terms for audio's share; the wire
-record is an AD-5 and AD-17 amendment, added by entry 8.
+The wire record is an AD-5 and AD-17 amendment, added by entry 8. The owner approved this correction to the landed
+planner's behavior on 2026-11-01 (issue #934, OQ4); it supersedes the broader proposed table in
+[audio-media.md#audio-prefetch](audio-media.md#audio-prefetch).
 
 <a id="offline"></a>
 ## The PWA and offline play
