@@ -106,6 +106,8 @@ test("a real decode worker prepares images, WAV, MIDI and SoundFonts identically
   }
   const tooBig = report.stats.gaps.find((gap) => gap.key === "gaps/too-big.sf2");
   expect(tooBig?.reason.startsWith("unsupported:")).toBe(true);
+  const tbmGap = report.stats.gaps.find((gap) => gap.key === "gaps/tiles.tbm");
+  expect(tbmGap?.reason.includes("tile bitmap") || tbmGap?.reason.includes("animated tiles")).toBe(true);
 
   // 6. Caller buffers were not detached.
   expect(report.callerBytesIntact).toBe(true);

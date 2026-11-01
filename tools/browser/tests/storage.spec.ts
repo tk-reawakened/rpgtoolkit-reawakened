@@ -159,7 +159,7 @@ test("quota on the durable put streams the same single-file package, reports quo
   expect(await opfsFiles(page)).toEqual([]);
 });
 
-test("saves live in IndexedDB, survive a reload, stay apart per GameId, and never enter Cache Storage", async ({ page }) => {
+test("saves live in IndexedDB, survive a reload, stay apart per GameId string, and never enter Cache Storage", async ({ page }) => {
   await page.goto("/packages/runner-web/app/storage.html");
   await page.waitForFunction(() => window.__blobs !== undefined);
   expect(await page.evaluate(() => window.__blobs?.write("gameA", "slot1", [1, 2, 3]))).toBe(true);
@@ -196,6 +196,7 @@ test("the authored Save/Load fixture writes and restores a real full-engine save
   expect(first.launch.loadRequests).toEqual([{ ...expectation.baseline.loadRequest, found: false }]);
   expect(first.launch.fresh).toMatchObject(expectation.baseline.stateHashes.fresh);
   expect(first.launch.preSave).toMatchObject({ ...expectation.baseline.stateHashes.preSave, marker: 4242 });
+  // The script observed `saveOk = save("slot")` returning success.
   expect(first.launch.saveOk).toBe(true);
 
   // Reload: any in-memory copy is gone; launch two can only restore what IndexedDB kept.
@@ -224,6 +225,7 @@ test("a full save store returns ok=false to the engine script and leaves no save
   await page.waitForFunction(() => window.__blobs !== undefined);
   const first = await page.evaluate(() => window.__blobs!.runSaveLoadLaunch());
   expect(first.launch.saveRequests.length).toBe(1);
+  // The script observed `saveOk = save("slot")` returning failure (the VM pushes 0 for a failed blob wait).
   expect(first.launch.saveOk).toBe(false);
 
   // Reload proves nothing persisted: the engine script sees the same failed save again.

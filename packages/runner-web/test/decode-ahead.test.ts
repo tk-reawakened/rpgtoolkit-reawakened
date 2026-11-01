@@ -349,6 +349,8 @@ test("with the real preparation behind it, every format it cannot prepare is a n
   equal(stats.failed, 3, "only bytes of a covered format that failed to decode count as failed");
   ok(stats.gaps.every((gap) => gap.reason.includes(gap.key)), "every gap names its asset");
   ok(/animated tiles/.test(stats.gaps[0]?.reason ?? ""));
+  const tbmGap = stats.gaps.find((gap) => gap.key === key("tiles.tbm"));
+  ok(tbmGap !== undefined && (/tile bitmap/.test(tbmGap.reason) || /animated tiles/.test(tbmGap.reason)), ".tbm names the tile bitmap/animated-tiles branch");
   ahead.close();
   let settledThrew = false;
   try {

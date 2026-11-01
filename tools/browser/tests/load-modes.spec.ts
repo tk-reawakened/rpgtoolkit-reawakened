@@ -75,14 +75,17 @@ test("AC3: forced streaming with a delayed unhinted board asset records only unh
   // never block simulation or appear as a stall, yet must still reach the sink once ready. This exact timing exercises
   // the shared-report edge case from AC3: the same delayed music bytes satisfy both the prefetch hint and the audio cue.
   let boardDelayed = 0;
-  let musicDelayed = 0;
+  let parityMusicDelayed = 0;
+  let interactiveMusicDelayed = 0;
+  let inParity = true;
   await page.route(`**/${PACKAGE}`, async (route) => {
     const range = route.request().headers()["range"];
     if (overlaps(range, boardSpan)) {
       boardDelayed += 1;
       await new Promise((done) => setTimeout(done, 60));
     } else if (overlaps(range, musicSpan)) {
-      musicDelayed += 1;
+      if (inParity) parityMusicDelayed += 1;
+      else interactiveMusicDelayed += 1;
       await new Promise((done) => setTimeout(done, 60));
     }
     await route.continue();
@@ -102,7 +105,7 @@ test("AC3: forced streaming with a delayed unhinted board asset records only unh
     commands: number;
     error?: string;
     load: { mode: string };
-    assets: { stalls: { key: string; hinted: boolean; durationMs: number }[]; hints: { received: number; completed: number; failed: number }; failures: unknown[] };
+    assets: { stalls: { key: string; hinted: boolean; durationMs: number }[]; hints: { received: number; completed: number; failed: number }; failures: unknown[]; shared: string[] };
   });
   const baseline = demoBoardBaseline();
   expect(report.error).toBeUndefined();
@@ -119,11 +122,14 @@ test("AC3: forced streaming with a delayed unhinted board asset records only unh
   // Every stall is an asset the planner does not hint; no hinted asset ever stalled the simulation.
   expect(report.assets.stalls.every((stall) => !stall.hinted)).toBe(true);
   expect(report.assets.hints.received).toBeGreaterThan(0);
+  // In parity mode audio is never unlocked, so no cue is emitted; the delayed music range is fetched exactly once for
+  // the prefetch hint, proving real range reads under forced streaming.
+  expect(parityMusicDelayed).toBe(1);
 
   // Now run the interactive player (which carries the audio effect applier) under forced streaming with the music range
   // delayed, unlock audio with Enter through the title screen, and verify the first board's music is scheduled on the
   // sink once its delayed bytes arrive.
-  musicDelayed = 0;
+  inParity = false;
   await page.goto(`/packages/runner-web/app/index.html?package=${PACKAGE}&mode=streaming`);
   await page.waitForFunction(() => (window.__live?.tick ?? 0) >= 30, undefined, { timeout: 45_000 });
   for (let step = 0; step < 3; step += 1) {
@@ -142,9 +148,12 @@ test("AC3: forced streaming with a delayed unhinted board asset records only unh
     await window.__session?.cuesSettled();
     return { audio: window.__session?.audioState(), stalls: window.__session?.loadState().stalls };
   });
-  expect(musicDelayed).toBeGreaterThan(0);
+  expect(interactiveMusicDelayed).toBe(1);
   expect(audio.audio?.scheduled.some((play) => play.track === "music")).toBe(true);
-  expect(audio.stalls?.every((stall) => !stall.hinted)).toBe(true);
+  // The delayed music fetch is shared between the prefetch hint and the audio cue: only one range request is made and
+  // the key is recorded in `shared`, even though the cue's stall is recorded before the hint is applied.
+  const shared = await page.evaluate(() => window.__session?.loadState().shared ?? []);
+  expect(shared.map((key) => key.toLowerCase())).toContain("media/vip - village3.mid");
 });
 
 test("AC4: a quota exception on the durable package put exposes quota-limited and streaming, reports an unpersisted answer, and still reaches the committed tick-120 baseline by real ranges", async ({ page }) => {
