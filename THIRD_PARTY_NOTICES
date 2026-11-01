@@ -260,6 +260,16 @@ with this deed makes no warranties about the work, and disclaims liability for
 all uses of the work, to the fullest extent permitted by applicable law.
 ```
 
+### TK Reawakened authored MIDI test pieces — CC0-1.0
+
+`packages/synth/test/fixtures/pieces/` holds three short original pieces written
+to exercise the TK-16 banks in their intended styles: `1-classic-departure.mid`
+(an overworld theme), `2-whimsical-mushroom-market.mid` (a bouncy village piece)
+and `3-arcade-boss-rush.mid` (a battle theme). They are test fixtures only, are
+not bundled, and are not based on any existing game music. The contributors
+dedicate them to the public domain under the CC0 1.0 Universal dedication
+reproduced above.
+
 ### TK-16 authored General MIDI banks — CC0-1.0
 
 The project ships three compact, Super NES-flavoured General MIDI banks in
