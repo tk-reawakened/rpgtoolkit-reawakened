@@ -233,6 +233,8 @@ export default [
       ".worktrees/**",
       "fixtures/**",
       ".serena/**",
+      // Capacitor's generated native project (added by `npx cap add android`).
+      "packages/runner-mobile/android/**",
     ],
   },
   {

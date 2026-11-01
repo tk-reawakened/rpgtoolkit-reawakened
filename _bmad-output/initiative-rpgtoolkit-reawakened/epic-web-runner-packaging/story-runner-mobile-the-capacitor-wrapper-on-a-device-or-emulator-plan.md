@@ -43,7 +43,7 @@ hardware or an emulator we do not have here. **No claim is made that a device ra
 - `packages/runner-mobile/test/storage.test.ts` (4): the AD-17 save round trip, an escaping path refused (`..`, absolute,
   drive letter), a base64 read decoded, and an absent package as `null` rather than a crash.
 - `tools/browser/tests/mobile.spec.ts`: the mobile page, against a Capacitor-shaped `Filesystem` stub, boots the package to
-  **tick 120, state `bff947dce3a11b4f`, draw `9a40be8a0b5ca816`**, 128 commands, blend worst 0, frame worst 0, and writes
+  **tick 120, state `91172695de52cfd6`, draw `9a40be8a0b5ca816`**, 128 commands, blend worst 0, frame worst 0, and writes
   its save through the same four-call host.
 - The desktop and web lanes still pass after the shared-page extraction (8 browser tests).
 
@@ -67,7 +67,7 @@ cd packages/runner-mobile && npx cap add android && npx cap sync android
 cd android && ./gradlew installDebug        # a booted emulator or a connected device
 ```
 
-Pass condition: the window title reads `mobile: bff947dce3a11b4f` — the same state hash the headless baseline and the
+Pass condition: the window title reads `mobile: 91172695de52cfd6` — the same state hash the headless baseline and the
 desktop measurement report — and a save written on the device (`saves/<gameId>/…` inside the app's Files) reads back
 after a restart.
 

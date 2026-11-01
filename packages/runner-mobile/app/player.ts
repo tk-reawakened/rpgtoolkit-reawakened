@@ -23,13 +23,21 @@ void (async () => {
   }
   const host = createMobileHost({
     filesystem,
-    // The package the app carries: `capacitor.config.json` puts the built page and the package in `dist/`.
+    // The package the app carries in the webDir (`dist/public`). On a device the Capacitor WebView serves it by
+    // fetch; in browser tests the static host does not serve it there, so the host's filesystem stub supplies it.
     readPackage: async () => {
       try {
-        const file = await filesystem.readFile({ path: "public/game.tpk" });
-        const bytes = file.data instanceof Uint8Array
-          ? file.data
-          : Uint8Array.from(atob(file.data), (character) => character.charCodeAt(0));
+        const response = await fetch("/public/game.tpk");
+        if (response.ok) return { name: "game.tpk", bytes: new Uint8Array(await response.arrayBuffer()) };
+      } catch {
+        // fall through to the filesystem stub used in browser tests
+      }
+      try {
+        const file = await filesystem.readFile({ path: "public/game.tpk", encoding: "base64", directory: "DATA" });
+        const text = typeof file.data === "string" ? file.data : "";
+        const binary = atob(text);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
         return { name: "game.tpk", bytes };
       } catch {
         return null;

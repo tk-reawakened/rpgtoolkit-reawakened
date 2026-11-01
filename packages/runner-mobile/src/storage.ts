@@ -12,9 +12,11 @@
 
 /** The slice of Capacitor's `Filesystem` plugin this wrapper needs, so a test can stand in for it. */
 export type MobileFilesystem = {
-  writeFile(options: { readonly path: string; readonly data: Uint8Array; readonly recursive?: boolean }): Promise<unknown>;
-  readFile(options: { readonly path: string }): Promise<{ readonly data: string | Uint8Array }>;
-  readdir(options: { readonly path: string }): Promise<{ readonly files: readonly { readonly name: string; readonly type?: string }[] }>;
+  /** Capacitor's `writeFile` accepts a base64-encoded string with `encoding: "base64"`. `directory: "DATA"` is the app files dir. */
+  writeFile(options: { readonly path: string; readonly data: string; readonly encoding: "base64" | "utf8"; readonly directory?: "DATA"; readonly recursive?: boolean }): Promise<unknown>;
+  /** Capacitor returns base64 text for a binary read when `encoding: "base64"` is requested. */
+  readFile(options: { readonly path: string; readonly encoding?: "base64" | "utf8"; readonly directory?: "DATA" }): Promise<{ readonly data: string | Uint8Array }>;
+  readdir(options: { readonly path: string; readonly directory?: "DATA" }): Promise<{ readonly files: readonly { readonly name: string; readonly type?: string }[] }>;
 };
 
 export type MobileHostOptions = {
@@ -22,6 +24,16 @@ export type MobileHostOptions = {
   /** Where a package comes from: the app's bundle on a device, or a file the player picked. */
   readonly readPackage: () => Promise<{ readonly name: string; readonly bytes: Uint8Array } | null>;
 };
+
+/** Encode bytes as a base64 string without spreading, so large saves do not blow the stack. */
+function bytesToBase64(bytes: Uint8Array): string {
+  const chunk = 0x8000;
+  let text = "";
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    text += String.fromCharCode(...bytes.subarray(offset, offset + chunk));
+  }
+  return btoa(text);
+}
 
 /** Refuse a path that is absolute or climbs out of its area, before any platform call sees it. */
 export function safeRelative(path: string): string | null {
@@ -53,8 +65,15 @@ export function createMobileHost(options: MobileHostOptions): {
       const safe = safeRelative(path);
       const safeGame = safeRelative(gameId);
       if (safe === null || safeGame === null) return false;
+      const dir = areaPath(area, safeGame);
       try {
-        await filesystem.writeFile({ path: `${areaPath(area, safeGame)}/${safe}`, data: bytes, recursive: true });
+        await filesystem.writeFile({
+          path: `${dir}/${safe}`,
+          data: bytesToBase64(bytes),
+          encoding: "base64",
+          directory: "DATA",
+          recursive: true,
+        });
         return true;
       } catch {
         return false;
@@ -65,7 +84,7 @@ export function createMobileHost(options: MobileHostOptions): {
       const safeGame = safeRelative(gameId);
       if (safe === null || safeGame === null) return null;
       try {
-        const file = await filesystem.readFile({ path: `${areaPath(area, safeGame)}/${safe}` });
+        const file = await filesystem.readFile({ path: `${areaPath(area, safeGame)}/${safe}`, encoding: "base64", directory: "DATA" });
         if (file.data instanceof Uint8Array) return file.data;
         // Capacitor returns base64 text for a binary read; decode it the way the host bridge does.
         const binary = atob(file.data);
@@ -80,7 +99,7 @@ export function createMobileHost(options: MobileHostOptions): {
       const safeGame = safeRelative(gameId);
       if (safeGame === null) return [];
       try {
-        const listed = await filesystem.readdir({ path: areaPath(area, safeGame) });
+        const listed = await filesystem.readdir({ path: areaPath(area, safeGame), directory: "DATA" });
         return listed.files.filter((entry) => entry.type !== "directory").map((entry) => entry.name).sort();
       } catch {
         return [];

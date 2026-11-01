@@ -11,13 +11,22 @@ function memoryFilesystem(): MobileFilesystem & { readonly files: Map<string, Ui
   const files = new Map<string, Uint8Array>();
   return {
     files,
-    async writeFile({ path, data }) {
-      files.set(path, new Uint8Array(data));
+    async writeFile({ path, data, encoding, directory }) {
+      if (directory !== "DATA") throw new Error(`unexpected directory ${String(directory)}`);
+      if (encoding !== "base64" || typeof data !== "string") throw new Error("expected base64 string");
+      const binary = atob(data);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      files.set(path, bytes);
     },
-    async readFile({ path }) {
+    async readFile({ path, directory }) {
+      if (directory !== "DATA") throw new Error(`unexpected directory ${String(directory)}`);
       const found = files.get(path);
       if (found === undefined) throw new Error("absent");
-      return { data: found };
+      // Capacitor returns base64 text for a binary read.
+      let text = "";
+      for (const byte of found) text += String.fromCharCode(byte);
+      return { data: btoa(text) };
     },
     async readdir({ path }) {
       const names = [...files.keys()]

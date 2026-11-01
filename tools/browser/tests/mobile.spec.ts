@@ -23,10 +23,12 @@ test("the mobile page boots the package to the tick-120 hashes through a Capacit
     (window as unknown as { Capacitor: unknown }).Capacitor = {
       Plugins: {
         Filesystem: {
-          async writeFile({ path, data }: { path: string; data: Uint8Array }): Promise<void> {
-            files.set(path, new Uint8Array(data));
+          async writeFile({ path, data, encoding, directory }: { path: string; data: string; encoding: "base64" | "utf8"; directory?: "DATA" }): Promise<void> {
+            if (directory !== "DATA") throw new Error(`unexpected directory ${String(directory)}`);
+            if (encoding !== "base64") throw new Error(`expected base64, got ${encoding}`);
+            files.set(path, new Uint8Array([...atob(data)].map((character) => character.charCodeAt(0))));
           },
-          async readFile({ path }: { path: string }): Promise<{ data: string }> {
+          async readFile({ path, encoding, directory }: { path: string; encoding?: "base64" | "utf8"; directory?: "DATA" }): Promise<{ data: string }> {
             if (path === "public/game.tpk") {
               const response = await fetch("/fixtures/packages/demo.tpk");
               if (!response.ok) throw new Error(`missing package ${response.status}`);
@@ -67,7 +69,8 @@ test("the mobile page boots the package to the tick-120 hashes through a Capacit
 
   expect(report["error"]).toBeNull();
   expect(report["tick"]).toBe(120);
-  expect(report["stateHash"]).toBe("bff947dce3a11b4f");
+  // Current `golden/regression/closing.json` demo tick-120 baseline (post-E-02).
+  expect(report["stateHash"]).toBe("91172695de52cfd6");
   expect(report["drawHash"]).toBe("9a40be8a0b5ca816");
   expect(report["commands"]).toBe(128);
   // The save went through the same four-call host the wrapper implements.
