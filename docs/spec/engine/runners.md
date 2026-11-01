@@ -203,18 +203,20 @@ package's own manifest keeps exactly three fields, because AD-6 refuses any othe
 <a id="load-modes"></a>
 ## Load modes and the threshold
 
-The web player has two load modes. Below a threshold it downloads the whole distribution package once, behind a
-progress screen, and keeps it; above it, it streams assets on demand.
+The web player has two load modes. At or below the threshold it downloads the whole distribution package behind a
+progress screen and keeps it. Above the threshold it validates the whole archive first, then discards nonessential
+bytes and fetches entries on demand by validated ranges. **The first launch in streaming mode still transfers the
+whole package**; it bounds retained memory rather than avoiding that initial download. Validation preserves the
+archive's existing safety and integrity checks and verifies its size, SHA-256 and content-derived identity. This
+behavior follows the owner's OQ1 approval for issue #934.
 
-The threshold is **measured, not asserted**: it is the uncompressed size of the largest corpus package, rounded up to
-the next whole mebibyte, recorded here with the date it was measured. The table starts empty because no sample game
-ships a package — "no sample ships a package, so the package numbers have no corpus evidence at all"
-([../formats/packaging-and-paths.md](../formats/packaging-and-paths.md)) — and entry 9 measures the fetched corpus
-before the first number is written.
+The threshold is **measured, not asserted**: it is the uncompressed size of the largest corpus package, including its
+manifest, rounded up to the next whole mebibyte. The measurement builds packages from all games in the pinned fetched
+corpus, using the closing plan to select each main file, and checks the resulting archives.
 
 | Corpus | Largest package | Threshold | Measured |
 |---|---|---|---|
-| *pending entry 9* | — | — | — |
+| 8 fetched corpus games | ChimeranEmpire: 32175677 bytes | 31 MiB | 2026-11-01 |
 
 A package in the cache is keyed by the SHA-256 of its bytes. Per-entry hashes and delta updates are deferred until a
 second published package version exists, because they would otherwise amend AD-6 and the manifest contract for a
@@ -229,13 +231,19 @@ reader in every host.
 
 | Tier | What is in it |
 |---|---|
-| `now` | the current board's assets and `bkgMusic`, the `.anm` frame sounds of the animations the board uses, and the default bank when a MIDI is in this tier |
-| `next` | the music of boards reachable by edge links and literal `send(...)` targets, and the battle background's `music`, `selectSound`, `chooseSound`, `readySound` and `cantDoSound` |
+| `now` | the current board's resolved `bkgMusic`, and the default bank when that music is MIDI |
+| `next` | the resolved music of edge-linked boards whose bytes are already cached, excluding program links; the current battle background's nonempty `music`, `menuMoveSound`, `menuChooseSound`, `readySound` and `cantDoSound` fields when available |
 | `always` | the main file's `cursorMoveSound`, `cursorSelectSound` and `cursorCancelSound`, and the default bank |
 
+The planner does not currently hint other current-board assets, animation frame sounds, or literal `send(...)` targets.
+It deduplicates keys across tiers, keeping the earliest tier, and sorts keys within each tier. The battle background may
+need a separate prefetch-only asset request before its sound fields become available; the engine emits a changed plan
+when those facts are ready.
+
 A hint **never blocks**, **never changes state**, **never appears in a state or draw hash**, and **never earns a reply**.
-Core keeps the hint on [audio-media.md#audio-prefetch](audio-media.md#audio-prefetch)'s terms for audio's share; the wire
-record is an AD-5 and AD-17 amendment, added by entry 8.
+The wire record is an AD-5 and AD-17 amendment, added by entry 8. The owner approved this correction to the landed
+planner's behavior on 2026-11-01 (issue #934, OQ4); it supersedes the broader proposed table in
+[audio-media.md#audio-prefetch](audio-media.md#audio-prefetch).
 
 <a id="offline"></a>
 ## The PWA and offline play
