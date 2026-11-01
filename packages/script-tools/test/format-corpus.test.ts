@@ -35,6 +35,19 @@ function lowered(text: string): string | null {
   }
 }
 
+test("the corpus rewrites are real, not no-ops: two named files change and still lower identically", () => {
+  const named = ["fixtures/legacy/ChimeranEmpire/Prg/Blacksmith.prg", "fixtures/legacy/ChimeranEmpire/Prg/Project.prg"];
+  for (const file of named) {
+    const source = readFileSync(join(repoRoot, file), "utf8");
+    const formatted = formatSource(source).text;
+    ok(formatted !== source, `${file} is actually rewritten`);
+    const before = lowered(source);
+    const after = lowered(formatted);
+    ok(before !== null && after !== null, `${file} compiles before and after`);
+    equal(before, after, `${file} lowers identically`);
+  }
+});
+
 test("the fetched corpus formats idempotently and preserves every program that compiles", () => {
   const files = programs(corpus);
   ok(files.length > 0, `the corpus is fetched under ${relative(repoRoot, corpus)}`);
