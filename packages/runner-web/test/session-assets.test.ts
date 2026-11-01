@@ -180,6 +180,32 @@ test("ensure caches what a cue names, skips what the package lacks, and records 
   equal(assets.state().stalls.length, 0, "a cue's wait is not the simulation's stall");
 });
 
+test("shared records a cue's successful cached or in-flight read, not merely a hint", async () => {
+  const origin = manualOrigin(["playing.mid", "cached.mid", "failed.mid"]);
+  const cache = new Map<AssetKey, Uint8Array>();
+  const assets = createSessionAssets({ cache, origin: origin.origin, clock: fakeClock().now, concurrency: 3 });
+  assets.hint(hints(["now", "playing.mid"], ["now", "cached.mid"], ["now", "failed.mid"]));
+  const cue = assets.ensure([key("playing.mid")]);
+  deepEqual(assets.state().shared, [], "neither a hint nor a pending cue proves a successful read");
+  origin.settle("playing.mid", bytes(1, 2, 3));
+  await cue;
+  deepEqual(assets.peek(key("playing.mid")), bytes(1, 2, 3));
+  deepEqual(assets.state().shared, [key("playing.mid")], "the cue resolved from the in-flight hinted read");
+  equal(origin.started.filter((name) => name === key("playing.mid")).length, 1);
+
+  origin.settle("cached.mid", bytes(4));
+  await flush();
+  await assets.ensure([key("cached.mid")]);
+  deepEqual(assets.state().shared, [key("playing.mid"), key("cached.mid")], "the cue read the completed hinted cache");
+  equal(origin.started.filter((name) => name === key("cached.mid")).length, 1);
+
+  const failed = assets.ensure([key("failed.mid")]);
+  origin.fail("failed.mid", "offline");
+  await failed;
+  deepEqual(assets.state().shared, [key("playing.mid"), key("cached.mid")], "a failed read cannot be shared");
+  deepEqual(assets.state().failures.filter((failure) => failure.during === "ensure").map((failure) => failure.key), [key("failed.mid")]);
+});
+
 test("arriving assets are offered to the decode worker by kind, and only those its scope covers", async () => {
   const offered: [string, PrepareKind][] = [];
   const decode: DecodeAhead = {

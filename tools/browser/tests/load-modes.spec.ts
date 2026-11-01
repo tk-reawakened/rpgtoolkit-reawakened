@@ -71,9 +71,8 @@ test("AC3: forced streaming with a delayed unhinted board asset records only unh
 
   // Delay both the unhinted board and the board's hinted music on their on-demand range reads (never during validation,
   // which reads from OPFS staging and only probes the last archive byte). The board request freezes simulation and must
-  // be recorded as an unhinted stall; the music arrives for both a hint and a cue in the board-entry report and must
-  // never block simulation or appear as a stall, yet must still reach the sink once ready. This exact timing exercises
-  // the shared-report edge case from AC3: the same delayed music bytes satisfy both the prefetch hint and the audio cue.
+  // be recorded as an unhinted stall. The interactive run also checks that the cue actually reads the same bytes as
+  // the hint, without issuing another range request.
   let boardDelayed = 0;
   let parityMusicDelayed = 0;
   let interactiveMusicDelayed = 0;
@@ -148,12 +147,11 @@ test("AC3: forced streaming with a delayed unhinted board asset records only unh
     await window.__session?.cuesSettled();
     return { audio: window.__session?.audioState(), stalls: window.__session?.loadState().stalls };
   });
-  expect(interactiveMusicDelayed).toBe(1);
+  expect(interactiveMusicDelayed, "the hinted music has exactly one network range read").toBe(1);
   expect(audio.audio?.scheduled.some((play) => play.track === "music")).toBe(true);
-  // The delayed music fetch is shared between the prefetch hint and the audio cue: only one range request is made and
-  // the key is recorded in `shared`, even though the cue's stall is recorded before the hint is applied.
+  // `shared` is diagnostic evidence recorded only when the cue read resolves from a hinted cached/in-flight read.
   const shared = await page.evaluate(() => window.__session?.loadState().shared ?? []);
-  expect(shared.map((key) => key.toLowerCase())).toContain("media/vip - village3.mid");
+  expect(shared.map((key) => key.toLowerCase()), "the cue read resolved from the hinted cached or in-flight bytes").toContain("media/vip - village3.mid");
 });
 
 test("AC4: a quota exception on the durable package put exposes quota-limited and streaming, reports an unpersisted answer, and still reaches the committed tick-120 baseline by real ranges", async ({ page }) => {
