@@ -3,7 +3,7 @@ title: "Core: the prefetch planner and the AD-5 hint wire"
 type: 'feature'
 ticket: 8
 created: '2026-11-01'
-status: in-progress
+status: done
 tracker_id: "#933"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/933"
 baseline_revision: '4387b66a'
@@ -70,6 +70,16 @@ recovery resume and a return from battle.
 - `packages/runner-harness/test/runner-protocol.test.ts`: the kit covers the new kind (13 request vectors), and the
   schema's `prefetchRequest`/`prefetchHint` carry exactly the core type's keys.
 - `pnpm closing` 8/8 and `pnpm golden` 20 rows byte-identical, which is the suite-level version of the same proof.
+
+## Landing
+
+Merged as **`c6c2f620`** — "feat(9.8): the prefetch planner and the AD-5 hint wire" (PR
+[#1001](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/1001), squash; #933 closed as completed). One
+commit.
+
+The first draft drew a hint's `reqId` from the saved `nextRequestId` and drifted four closing baselines; the fix — the
+hint's own counter — is the entry's most important line, and the both-ways test is what would catch a regression. CI run
+41259174964 green on every check, including `unit (core-*)`, `golden`, `golden-bun`, `checks` and the coverage `gate`.
 
 ## Out of scope
 
