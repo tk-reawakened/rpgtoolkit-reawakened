@@ -50,7 +50,7 @@ export function effectiveBank(layers: BankLayers): EffectiveBank {
 export const BUNDLED_BANK: BankRef = {
   source: "bundled",
   id: "media/soundfonts/TK-16.sf2",
-  sha256: "dd0eb197092428340bd8b6a297c10cc070c4ecb874c68a4cecfb0d3113d9e716",
+  sha256: "a79fa6d4ae3b8ab8b3f3e3ddd4ab3d59a0ac24222caffcdd914435d76872ede2",
 };
 
 /** The runner's ceiling for a user or CDN bank: 8 MiB, the same number PB-8 sets for a bundled one. */

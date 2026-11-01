@@ -30,7 +30,7 @@ PROVENANCE = ROOT / "tools" / "licences" / "tk16-provenance.json"
 TAU = 2.0 * math.pi
 
 # SoundFont generator ids used below.
-G_VIB_PITCH, G_FC, G_Q, G_MOD_FC = 6, 8, 9, 11
+G_VIB_PITCH, G_MOD_PITCH, G_FC, G_Q, G_MOD_FC = 6, 7, 8, 9, 11
 G_VIB_DELAY, G_VIB_FREQ = 23, 24
 G_MOD_A, G_MOD_D, G_MOD_S, G_MOD_R = 26, 28, 29, 30
 G_A, G_H, G_D, G_S, G_R = 34, 35, 36, 37, 38
@@ -154,6 +154,102 @@ class Lfsr:
         return (word - 0x10000 if word >= 0x8000 else word) / 32768.0
 
 
+# --- table-driven styles ------------------------------------------------------
+# Classic and Whimsical build every timbre from one row of a table: waveform, loop cycles,
+# volume envelope (attack, decay, sustain cB, release), static low-pass cutoff, vibrato,
+# chorus pair, the rate tier its loop length aims for, attenuation, and optional extras
+# ("head": a transient before the loop; "pitch_env": cents of start-up pitch bend).
+
+def sus(fraction: float) -> int:
+    """Sustain as a fraction of peak, in SoundFont centibels of attenuation."""
+    return int(round(-200.0 * math.log10(max(fraction, 1e-3))))
+
+
+def pulse(duty: float):
+    return lambda n: abs((2.0 / (n * math.pi)) * math.sin(n * math.pi * duty))
+
+
+def series(weight):
+    return lambda f0, lim: [(float(n), weight(n), 0.0) for n in range(1, int(lim)) if abs(weight(n)) > 1e-4]
+
+
+def saw(n):
+    return 1.0 / n
+
+
+def tri(n):
+    return (1.0 / n ** 2) if n % 2 else 0.0
+
+
+CLASSIC_SPECTRA = {
+    "piano": series(lambda n: 0.6 * saw(n) + 0.4 * pulse(0.25)(n)),
+    "bright": series(lambda n: 0.5 * saw(n) + 0.5 * pulse(0.25)(n)),
+    "ep": series(lambda n: tri(n) * 3 + (0.5 if n == 2 else 0.0)),
+    "guitar": series(lambda n: 0.5 * pulse(0.2)(n) + 0.5 * saw(n)),
+    "bass": series(tri),
+    "strings": series(saw),
+    "choir": lambda f0, lim: [(float(n), saw(n), 0.0) for n in range(1, int(lim))] + [(0.5, 0.5, 0.0)],
+    "brass": series(lambda n: 0.6 * pulse(0.3)(n) + 0.4 * saw(n)),
+    "synth": series(lambda n: (1.0 / n) if n % 2 else 0.0),
+    "lead": series(saw),
+    "pad": series(lambda n: 0.5 * saw(n) + 0.5 * pulse(0.4)(n)),
+    "pluck": series(lambda n: tri(n) + 0.3 * saw(n)),
+    "flute": series(lambda n: tri(n) * 4),
+}
+
+#            spectrum, cycles, (attack, decay, sustain cB, release), cutoff Hz, vibrato, chorus, tier Hz, attenuation
+CLASSIC_TABLE = {
+    "TK Piano":   ("piano", 1, (0.003, 1.8, sus(0.08), 0.2), 8500, (0, 0, 0), False, 22050, 43),
+    "TK Bright":  ("bright", 1, (0.003, 1.2, sus(0.08), 0.2), 8500, (0, 0, 0), False, 22050, 5),
+    "TK EP":      ("ep", 1, (0.002, 0.55, sus(0.0), 0.2), 10000, (0, 0, 0), False, 22050, 0),
+    "TK Organ":   ("organ", 1, (0.002, 0.05, 0, 0.1), 7000, (0.2, 5.2, 4), False, 16000, 208),
+    "TK Guitar":  ("guitar", 1, (0.001, 0.8, sus(0.0), 0.1), 6500, (0, 0, 0), False, 16000, 0),
+    "TK Bass":    ("bass", 1, (0.001, 0.6, sus(0.0), 0.1), 4500, (0, 0, 0), False, 11025, 0),
+    "TK Strings": ("strings", 1, (0.15, 0.2, sus(0.82), 0.4), 7500, (0.35, 5.2, 10), True, 22050, 221),
+    "TK Choir":   ("choir", 2, (0.25, 0.2, sus(0.8), 0.5), 6000, (0.3, 5.0, 12), True, 16000, 205),
+    "TK Brass":   ("brass", 1, (0.06, 0.25, sus(0.72), 0.16), 8000, (0.25, 5.8, 5), False, 22050, 121),
+    "TK Synth":   ("synth", 1, (0.002, 0.1, 0, 0.1), 9000, (0, 0, 0), True, 22050, 311),
+    "TK Bell":    ("bell", 3, (0.002, 0.7, sus(0.0), 0.2), 8000, (0, 0, 0), False, 16000, 0),
+    "TK Lead":    ("lead", 1, (0.002, 0.1, 0, 0.1), 9000, (0.18, 5.6, 18), True, 22050, 244),
+    "TK Pad":     ("pad", 1, (0.8, 0.5, sus(0.85), 0.8), 5500, (0.5, 4.2, 6), True, 16000, 185),
+    "TK Pluck":   ("pluck", 1, (0.001, 0.8, sus(0.0), 0.1), 6500, (0, 0, 0), False, 16000, 9),
+    "TK Flute":   ("flute", 1, (0.04, 0.05, sus(0.95), 0.1), 6750, (0.28, 5.0, 8), False, 16000, 270),
+    "TK SFX":     ("noise", 1, (0.02, 0.2, 0, 0.4), 2400, (0, 0, 0), False, 16000, 174),
+}
+
+# Whimsical: the classic table with rounded mallets, a quirky 33% pulse reed, a chiffy flute, a bouncy
+# pizzicato bass and floaty pad/bell envelopes; releases stay under 120 ms on the melody voices.
+WHIMSICAL_SPECTRA = {
+    **CLASSIC_SPECTRA,
+    "mallet": series(lambda n: 1.0 if n == 1 else 0.0),
+    "pulse33": series(pulse(0.33)),
+    "pulse35": series(pulse(0.35)),
+}
+PUFFED = (0.015, 0.12, sus(0.85), 0.08)
+WHIMSICAL_TABLE = {
+    **CLASSIC_TABLE,
+    "TK Pluck":  ("mallet", 1, (0.001, 0.35, sus(0.0), 0.12), 9000, (0, 0, 0), False, 22050, 0, {"head": ("mallet", 0.14)}),
+    "TK Bass":   ("bass", 1, (0.001, 0.45, sus(0.0), 0.09), 4500, (0, 0, 0), False, 11025, 0, {"pitch_env": 400}),
+    "TK Synth":  ("pulse33", 1, PUFFED, 6500, (0, 0, 0), False, 22050, 248),
+    "TK Lead":   ("pulse35", 1, PUFFED, 7500, (0.18, 5.6, 18), True, 22050, 250),
+    "TK Flute":  ("flute", 1, (0.03, 0.05, sus(0.95), 0.1), 6750, (0.28, 5.0, 8), False, 16000, 266, {"head": ("chiff", 0.035)}),
+    "TK Bell":   ("bell", 3, (0.08, 1.2, sus(0.4), 0.45), 8000, (0, 0, 0), False, 16000, 73),
+    "TK Pad":    ("pad", 1, (0.08, 1.2, sus(0.4), 0.45), 5500, (0.5, 4.2, 6), True, 16000, 176),
+}
+# Whimsical reeds, accordion and harmonica take the pulse reed.
+WHIMSICAL_GM = {68: 9, 69: 9, 70: 9, 71: 9, 21: 9, 22: 9}
+
+
+def tier_zones(zones, tier_hz):
+    """Pick each zone's loop length so its sample rate lands nearest the family's rate tier."""
+    out = []
+    for lo, hi, _ in zones:
+        root = (lo + hi) // 2 if hi < 127 else 84
+        want = tier_hz / key_hz(min(root, 100))
+        out.append((lo, hi, min((16, 32, 64, 128, 256), key=lambda c: abs(math.log2(c / want)))))
+    return out
+
+
 # --- house styles ---------------------------------------------------------
 # rate: percussion sample rate; zones: (low key, high key, loop frames), with fewer
 # harmonics higher up so transposed samples do not alias into a second, faster pitch;
@@ -164,27 +260,28 @@ PROFILES = {
     "classic": {
         "file": "TK-16.sf2",
         "title": "TK-16 Classic RPG",
-        "feel": "warm 32 kHz, long harp and slow string swell, tidy drums",
-        "rate": 32000,
+        "feel": "textbook chip table: saw/pulse blends, a static low-pass and a standard envelope per family, loop lengths aimed at rate tiers",
+        "rate": 24000,
         "zones": ((0, 47, 256), (48, 71, 128), (72, 83, 64), (84, 95, 32), (96, 127, 16)),
+        "table": CLASSIC_TABLE, "spectra": CLASSIC_SPECTRA, "tiers": True,
         "bits": 12, "dither": 0.0, "filter_shift": 0, "vibrato_scale": 1.0,
-        "venv": {
-            "TK Strings": (0.2, 0.3, 0, 0.55), "TK Pluck": (0.003, 2.6, 1300, 0.3), "TK Brass": (0.03, 0.3, 120, 0.2),
-            "TK Flute": (0.015, 0.2, 0, 0.15), "TK Piano": (0.004, 5.5, 900, 0.4),
-        },
+        "venv": {},
         "drive": {},
-        "drums": {"tom_len": 0.6, "tom_decay": 0.2, "snare_len": 0.24, "snare_decay": 0.075, "kick_decay": 0.13, "kick_click": 0.25, "drive": {}},
+        "drums": {"tom_len": 0.45, "tom_decay": 0.15, "snare_len": 0.24, "snare_decay": 0.075, "kick_decay": 0.13, "kick_click": 0.25,
+                  "kick_start": 40.0, "kick_sweep": 80.0, "kick_sweep_tau": 0.03, "crash_len": 1.5, "crash_decay": 0.45, "chat_decay": 0.02, "drive": {}},
     },
     "whimsical": {
         "file": "TK-16-Whimsical.sf2",
         "title": "TK-16 Whimsical",
-        "feel": "chunky, bright and low-rate: short loops, 8-bit crush, quick string and brass entries",
-        "rate": 23720,
-        "zones": ((0, 47, 128), (48, 71, 64), (72, 83, 32), (84, 95, 16), (96, 127, 8)),
-        "bits": 8, "dither": 0.0, "filter_shift": 500, "vibrato_scale": 1.0,
-        "venv": {"TK Strings": (0.12, 0.3, 0, 0.5), "TK Brass": (0.05, 0.3, 120, 0.2)},
+        "feel": "the classic table with rounded mallets, a 33% pulse reed, a chiffy flute, a bouncy pizzicato bass and floaty pad and bell",
+        "rate": 24000,
+        "zones": ((0, 47, 128), (48, 71, 64), (72, 83, 32), (84, 127, 16)),
+        "table": WHIMSICAL_TABLE, "spectra": WHIMSICAL_SPECTRA, "tiers": False, "gm_overrides": WHIMSICAL_GM,
+        "bits": 12, "dither": 0.0, "filter_shift": 0, "vibrato_scale": 1.0,
+        "venv": {},
         "drive": {},
-        "drums": {"tom_len": 0.45, "tom_decay": 0.15, "snare_len": 0.24, "snare_decay": 0.075, "kick_decay": 0.13, "kick_click": 0.25, "drive": {}},
+        "drums": {"tom_len": 0.45, "tom_decay": 0.15, "snare_len": 0.24, "snare_decay": 0.075, "kick_decay": 0.13, "kick_click": 0.25,
+                  "kick_start": 40.0, "kick_sweep": 80.0, "kick_sweep_tau": 0.03, "crash_len": 1.5, "crash_decay": 0.45, "chat_decay": 0.02, "drive": {}},
     },
     "arcade": {
         "file": "TK-16-Arcade.sf2",
@@ -229,7 +326,8 @@ def finish(values, profile, peak=0.82, drive=0.0):
     return out
 
 
-def loop_cycle(spectrum: str, f0: float, period: int, cycles: int, profile) -> list[int]:
+def loop_cycle(spectrum: str, f0: float, period: int, cycles: int, profile, rate: int = 0, head=None) -> tuple[list[int], int]:
+    """One sample: an optional transient head, then a loop of whole cycles. Returns (frames, head length)."""
     # Whole cycles, repeated until the loop is a multiple of 16 frames (one BRR block).
     length = period * cycles
     length *= 16 // math.gcd(16, length)
@@ -243,12 +341,35 @@ def loop_cycle(spectrum: str, f0: float, period: int, cycles: int, profile) -> l
             last = 0.55 * last + 0.45 * raw[index % length]
             if index >= length:
                 smooth[index - length] = last
-        return finish(smooth, profile, drive=drive)
-    partials = SPECTRA[spectrum](f0, period / 2.0)
+        return finish(smooth, profile, drive=drive), 0
+    spectra = profile.get("spectra", {})
+    partials = (spectra.get(spectrum) or SPECTRA[spectrum])(f0, period / 2.0)
     # Every partial must complete a whole number of cycles in the loop, so the join is exact.
     partials = [(r, a, p) for r, a, p in partials if r < period / 2.0 and abs(r * cycles - round(r * cycles)) < 1e-9]
-    out = [sum(a * math.sin(TAU * r * i / period + p) for r, a, p in partials) for i in range(length)]
-    return finish(out, profile, drive=drive)
+
+    def wave(i: int) -> float:
+        return sum(a * math.sin(TAU * r * i / period + p) for r, a, p in partials)
+
+    lead: list[float] = []
+    if head is not None:
+        kind, seconds = head
+        # A whole number of fundamental cycles, so the loop continues in phase.
+        lead_length = int(math.ceil(seconds * f0)) * period
+        rng = Lfsr(0x4845 + period)
+        for i in range(lead_length):
+            t = i / rate
+            value = wave(i)
+            if kind == "mallet":
+                # A rounded mallet: an octave-up partial that drops out fast, and a 16-frame strike.
+                value += 0.35 * math.sin(TAU * 2.0 * i / period) * math.exp(-t / 0.04)
+                if i < 16:
+                    value += 0.3 * rng.next() * (1.0 - i / 16.0)
+            else:
+                # A breath of shift-register noise, about -12 dB, fading out over the first 35 ms.
+                value += 0.25 * rng.next() * max(0.0, 1.0 - t / seconds)
+            lead.append(value)
+    body = lead + [wave(i) for i in range(length)]
+    return finish(body, profile, drive=drive), len(lead)
 
 
 # --- percussion -----------------------------------------------------------
@@ -289,7 +410,7 @@ DRUM_SECONDS = {
 def drum(kind: str, profile) -> list[int]:
     dp = profile["drums"]
     rate = profile["rate"]
-    seconds = {"tom": dp["tom_len"], "snare": dp["snare_len"]}.get(kind, DRUM_SECONDS[kind])
+    seconds = {"tom": dp["tom_len"], "snare": dp["snare_len"], "crash": dp.get("crash_len", DRUM_SECONDS["crash"])}.get(kind, DRUM_SECONDS[kind])
     count = int(seconds * rate)
     rng = Lfsr(0x5442 + sum(map(ord, kind)))
     hp = noise_hp(rng, count)
@@ -298,7 +419,7 @@ def drum(kind: str, profile) -> list[int]:
     for i in range(count):
         t = i / rate
         if kind == "kick":
-            phase += TAU * (46.0 + 120.0 * math.exp(-t / 0.028)) / rate
+            phase += TAU * (dp.get("kick_start", 46.0) + dp.get("kick_sweep", 120.0) * math.exp(-t / dp.get("kick_sweep_tau", 0.028))) / rate
             v = math.sin(phase) * math.exp(-t / dp["kick_decay"]) + dp["kick_click"] * hp[i] * math.exp(-t / 0.003)
         elif kind == "kick2":
             phase += TAU * (58.0 + 90.0 * math.exp(-t / 0.02)) / rate
@@ -313,7 +434,7 @@ def drum(kind: str, profile) -> list[int]:
             bursts = sum(math.exp(-max(0.0, t - b) / 0.005) for b in (0.0, 0.011, 0.022) if t >= b)
             v = hp[i] * (bursts * 0.5 + 0.8 * math.exp(-t / 0.07) * (1.0 if t > 0.03 else 0.0))
         elif kind == "chat":
-            v = (0.6 * metallic(t) + 0.7 * hp[i]) * math.exp(-t / 0.014)
+            v = (0.6 * metallic(t) + 0.7 * hp[i]) * math.exp(-t / dp.get("chat_decay", 0.014))
         elif kind == "phat":
             v = (0.35 * metallic(t * 0.9) + 0.5 * hp[i]) * math.exp(-t / 0.022)
         elif kind == "ohat":
@@ -322,7 +443,7 @@ def drum(kind: str, profile) -> list[int]:
             phase += TAU * (260.0 * (1.0 + 0.9 * math.exp(-t / 0.022))) / rate
             v = math.sin(phase) * math.exp(-t / dp["tom_decay"]) + 0.2 * hp[i] * math.exp(-t / 0.004)
         elif kind == "crash":
-            v = (0.5 * metallic(t) + 0.8 * hp[i]) * math.exp(-t / 0.2)
+            v = (0.5 * metallic(t) + 0.8 * hp[i]) * math.exp(-t / dp.get("crash_decay", 0.2))
         elif kind == "chinese":
             v = (0.9 * metallic(t * 1.37) + 0.5 * hp[i]) * math.exp(-t / 0.17)
         elif kind == "splash":
@@ -459,13 +580,13 @@ class Bank:
         self.records: list[dict] = []
         self.inst: list[tuple[str, list[list[bytes]]]] = []
 
-    def add_sample(self, name, frames, rate, root, loop, generator, extra) -> int:
+    def add_sample(self, name, frames, rate, root, loop, generator, extra, head: int = 0) -> int:
         start = len(self.samples)
         self.samples.extend(frames)
         end = len(self.samples)
         self.samples.extend([0] * 46)
-        assert not loop or len(frames) % 16 == 0, f"{name}: loop of {len(frames)} frames is not a multiple of 16"
-        loop_range = (start, end) if loop else (start, start)
+        assert not loop or (len(frames) - head) % 16 == 0, f"{name}: loop of {len(frames) - head} frames is not a multiple of 16"
+        loop_range = (start + head, end) if loop else (start, start)
         self.shdr.append(struct.pack("<20sIIIIIBbHH", name20(name), start, end, loop_range[0], loop_range[1], rate, root, 0, 0, 1))
         index = len(self.shdr) - 1
         self.records.append(
@@ -476,7 +597,7 @@ class Bank:
                 "rootKey": root,
                 "sampleRateHz": rate,
                 "frames": len(frames),
-                "loopFrames": [0, len(frames)] if loop else None,
+                "loopFrames": [head, len(frames)] if loop else None,
                 "source": "Original deterministic mathematical waveform generated by tools/licences/tk16_build.py; no recorded or third-party sample data.",
                 "license": "CC0-1.0",
                 **extra,
@@ -489,29 +610,42 @@ def build(profile_name: str = "classic") -> tuple[bytes, dict]:
     profile = PROFILES[profile_name]
     rate_hz = profile["rate"]
     bank = Bank()
+    table = profile.get("table")
     for index, (name, spectrum, cycles, venv, filt, vib, wide, atten) in enumerate(INSTRUMENTS):
-        venv = profile["venv"].get(name, venv)
-        filt = (max(300.0, filt[0] * 2.0 ** (profile["filter_shift"] / 1200.0)),) + filt[1:]
-        vib = (vib[0], vib[1], int(round(vib[2] * profile["vibrato_scale"])))
+        extras: dict = {}
+        tier = None
+        if table:
+            spectrum, cycles, venv, cutoff, vib, wide, tier, atten, *rest = table[name]
+            extras = rest[0] if rest else {}
+            filt = (float(cutoff), 0, 0.01, 0.1, 1000, 80 if spectrum == "noise" else 0)
+        else:
+            venv = profile["venv"].get(name, venv)
+            filt = (max(300.0, filt[0] * 2.0 ** (profile["filter_shift"] / 1200.0)),) + filt[1:]
+            vib = (vib[0], vib[1], int(round(vib[2] * profile["vibrato_scale"])))
+        zone_plan = tier_zones(profile["zones"], tier) if table and profile.get("tiers") else profile["zones"]
         zones: list[list[bytes]] = []
-        for lo, hi, period in profile["zones"]:
+        for lo, hi, period in zone_plan:
             root = max(lo, min(hi, round(69 + 12 * math.log2((rate_hz / period) / 440.0))))
             # Tune the sample rate so the loop's pitch lands exactly on its root key.
             rate = int(round(key_hz(root) * period))
-            frames = loop_cycle(spectrum, key_hz(root), period, cycles, profile)
+            frames, head_len = loop_cycle(spectrum, key_hz(root), period, cycles, profile, rate, extras.get("head"))
             sample = bank.add_sample(
                 f"{name} {lo}-{hi}", frames, rate, root, True, spectrum,
-                {"periodFrames": period, "loopCycles": cycles, "keyRange": [lo, hi]},
+                {"periodFrames": period, "loopCycles": cycles, "keyRange": [lo, hi]}, head_len,
             )
             low, sweep, mod_a, mod_d, mod_s, q = filt
             va, vd, vs, vr = venv
+            pitch_env = extras.get("pitch_env", 0)
             base = [
                 gen(G_KEYS, key_range(lo, hi)),
                 gen(G_ATTEN, atten),
                 gen(G_A, tc(va)), gen(G_D, tc(vd)), gen(G_S, vs), gen(G_R, tc(vr)),
                 gen(G_FC, fc(low)), gen(G_Q, q),
-                gen(G_MOD_FC, sweep), gen(G_MOD_A, tc(mod_a)), gen(G_MOD_D, tc(mod_d)), gen(G_MOD_S, 1000 - mod_s if sweep else 0), gen(G_MOD_R, tc(vr)),
+                gen(G_MOD_FC, sweep), gen(G_MOD_A, tc(mod_a)), gen(G_MOD_D, tc(0.025 if pitch_env else mod_d)),
+                gen(G_MOD_S, 1000 if pitch_env else (1000 - mod_s if sweep else 0)), gen(G_MOD_R, tc(vr)),
             ]
+            if pitch_env:
+                base.append(gen(G_MOD_PITCH, pitch_env))  # a start-up bend that settles in 25 ms
             if vib[2]:
                 delay, rate_hz_vib, cents = vib
                 base += [gen(G_VIB_PITCH, cents), gen(G_VIB_DELAY, tc(delay)), gen(G_VIB_FREQ, fc(rate_hz_vib))]
@@ -541,11 +675,14 @@ def build(profile_name: str = "classic") -> tuple[bytes, dict]:
     bank.inst.append(("TK Drums", drum_zones))
 
     # Presets: GM programs 0-127 in bank 0, one kit in bank 128.
-    phdr = [struct.pack("<20sHHHIII", name20(INSTRUMENTS[GM_MAP[p]][0]), p, 0, p, 0, 0, 0) for p in range(128)]
+    gm_map = list(GM_MAP)
+    for program, timbre in profile.get("gm_overrides", {}).items():
+        gm_map[program] = timbre
+    phdr = [struct.pack("<20sHHHIII", name20(INSTRUMENTS[gm_map[p]][0]), p, 0, p, 0, 0, 0) for p in range(128)]
     phdr.append(struct.pack("<20sHHHIII", name20("TK Drums"), 0, 128, 128, 0, 0, 0))
     phdr.append(struct.pack("<20sHHHIII", name20("EOP"), 0, 0, 129, 0, 0, 0))
     pbag = [struct.pack("<HH", i, 0) for i in range(130)]
-    pgen = [gen(G_INSTRUMENT, GM_MAP[p]) for p in range(128)] + [gen(G_INSTRUMENT, len(INSTRUMENTS)), gen(0, 0)]
+    pgen = [gen(G_INSTRUMENT, gm_map[p]) for p in range(128)] + [gen(G_INSTRUMENT, len(INSTRUMENTS)), gen(0, 0)]
 
     inst_rec, ibag, igen = [], [], []
     for name, zones in bank.inst:
