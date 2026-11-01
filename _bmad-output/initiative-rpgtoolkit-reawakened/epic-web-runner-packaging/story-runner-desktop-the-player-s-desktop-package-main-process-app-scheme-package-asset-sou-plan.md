@@ -74,9 +74,9 @@ Merged as **`95cca777`** — "feat(9.11): runner-desktop, the player's Electron 
 [#1004](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/1004), squash; #938 closed as completed). #1003 was
 the same work on a stale base and is closed.
 
-**The CI job is handed over, not merged.** A workflow change cannot be pushed with this account's token, so
-`.github/workflows/ci.yml` is untouched in the PR; the owner applies `desktop-ci.patch` (a `desktop` matrix job on
-ubuntu/macOS/windows plus its `gate` dependency), which is what turns the Linux and Windows measurements on.
+**The CI job is now merged.** The `desktop` matrix job on ubuntu/macOS/windows and its `gate` dependency were
+added to `.github/workflows/ci.yml` by PR #1013; the patch file `tools/desktop/desktop-ci.patch` was deleted once
+it landed. This turns the Linux and Windows measurements on in CI.
 
 ## What the next entry inherits
 

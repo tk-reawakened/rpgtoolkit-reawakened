@@ -15,7 +15,7 @@ What the player can do **today** is narrower than what it will do:
 | Write a save and read it back under the game's key | Resume or list real in-game saves from the menu |
 | Report a machine-readable measurement (`error`, `tick`, the two hashes, the pixel difference) | Anything on mobile or Android |
 
-The missing row — turning this into an interactive, animated game you can sit down and play — is the project's next step: the "live input loop", entries 9.9 and 9.10 of the web-runner-packaging epic in the task list. Until that lands, "run the desktop player" means: watch it open a game, reach the board, and report that it rendered correctly. Think of it as a smoke test for now.
+The missing row — turning this into an interactive, animated game you can sit down and play — is the project's next step: the "live input loop" in the board-rendering epic (entry 19, #393). Until that lands, "run the desktop player" means: watch it open a game, reach the board, and report that it rendered correctly. Think of it as a smoke test for now.
 
 ## What you need
 
@@ -49,7 +49,7 @@ What each step does, and what you should see:
 | `pnpm desktop:build` | Builds the player's main process, its bridge, and its page. | Prints `built runner-desktop: dist/main.js, dist/preload.js, apps/player-desktop.js (9 bundled assets listed)`. |
 | `pnpm desktop:measure` | Launches the player, opens the package, runs it to the board, and prints the measurement. | A JSON report (below). |
 
-The report ends with the lines that prove it worked:
+The report contains these key lines that prove it worked (`error` is first, and a `save` block follows `frame`):
 
 ```json
 "error": null,
@@ -72,7 +72,7 @@ The report ends with the lines that prove it worked:
 pnpm desktop:run --package fixtures/packages/demo.tpk
 ```
 
-A window opens, and its title changes to `desktop: bff947dce3a11b4f`. That title is the sign the game booted to the board and rendered it correctly. As noted above, the board itself is drawn off-screen for now, so the window body stays black until the interactive loop lands.
+A window opens, and its title changes to `desktop: bff947dce3a11b4f`. That title is the sign the game booted to the board and reached a stable state (`desktop: ${error ?? stateHash}` in the player page); pixel-for-pixel drawing correctness is shown by `frame.worst` in the measurement report, not by the title. As noted above, the board itself is drawn off-screen for now, so the window body stays black until the interactive loop lands.
 
 `pnpm desktop:run` builds the `demo` package for you when you leave `--package` off, and passes the player's other flags through unchanged (`--serve <dir>`, `--page <path>`, `--devtools`, `--quit-after`, `--report <file>`).
 

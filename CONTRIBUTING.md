@@ -131,12 +131,15 @@ These packages exist today (`packages/`):
 | `runner-harness` | Shared headless runner logic: the scripted driver, golden, closing and corpus jobs. |
 | `runner-headless` | The Node/Bun command line (`golden`, `closing`, `corpus`, `dump`); `pnpm golden`, `pnpm closing` and `pnpm dump` call it. |
 | `render-webgl2` | The WebGL2 draw-list replayer: turns a draw list into pixels on a canvas (G4). |
-| `runner-web` | The browser/web runner: boots a game folder or package and presents frames; the desktop and mobile wrappers run the same build. |
+| `runner-web` | The browser/web runner: boots a game folder or package and presents frames; the desktop wrapper runs the same build, and a mobile wrapper is planned. |
 | `runner-desktop` | The desktop player: the Electron shell (`app://`) around the `runner-web` build, with a package asset source and save storage. See "Run the desktop player" below. |
+| `lsp` | The transport-free RPGCode language server (diagnostics, hover, completion, definition, outline). Host transports live outside this package. |
+| `script-spec` | Shared RPGCode tooling contracts: program, project and runner types used by the language server and script tools. |
+| `script-tools` | RPGCode analysis, indexing, formatting, diagnostics and quick-fixes used by the language server and stand-alone checks. |
 
 Outside `packages/`: `docs/` (spec, ADRs, guard-rails), `tools/` (the checks and generators CI runs), `golden/` (committed reference output), `fixtures/` (fetched sample games, never committed), `media/`, and `_bmad-output/` (tickets and plans, see below).
 
-The editor and its hosts (`editor-ui`, `host-vscode`, `host-web`, `host-desktop`) and the language and debug servers are **planned** and do not exist in this repository yet. The web and desktop runners do exist (`runner-web`, `runner-desktop`), but a fully interactive player loop does not yet: today the desktop player boots a game to the board and measures it off-screen. The dependency direction every package must follow is in G2.
+The editor and its hosts (`editor-ui`, `host-vscode`, `host-web`, `host-desktop`) and the debug server are **planned** and do not exist in this repository yet. The language server exists as `packages/lsp`. The web and desktop runners do exist (`runner-web`, `runner-desktop`), but a fully interactive player loop does not yet: today the desktop player boots a game to the board and measures it off-screen. The dependency direction every package must follow is in G2.
 
 ## Pick and claim an issue
 
