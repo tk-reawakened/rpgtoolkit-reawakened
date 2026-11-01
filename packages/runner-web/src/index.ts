@@ -37,6 +37,7 @@ import {
   type ClosingPlan,
 } from "@tk-reawakened/runner-harness";
 import { createWebgl2Renderer, type RenderStats, type TexturePixels } from "@tk-reawakened/render-webgl2";
+import { parseInstallDescriptor } from "./package-source.ts";
 
 /** One file of a served game or of the bundled assets, as the browser received it. */
 export type ServedFile = { readonly path: string; readonly bytes: Uint8Array };
@@ -74,6 +75,20 @@ export function fetchBundled(base: string, folders: readonly string[]): Promise<
   return getFiles(`${base}/api/bundled?folders=${encodeURIComponent(folders.join(","))}`);
 }
 
+/**
+ * Fetch the bundled assets one static file at a time, from the file list the build writes to `apps/bundled.json`. Unlike
+ * `fetchBundled` it asks the server for no API: every URL is an ordinary static path a service worker can cache, which
+ * is what lets a second launch boot with no network and no `/api/` request at all.
+ */
+export async function fetchBundledFiles(base: string, files: readonly string[]): Promise<ClosingFiles> {
+  const entries = await Promise.all(files.map(async (path) => {
+    const response = await fetch(`${base}/${path.split("/").map(encodeURIComponent).join("/")}`);
+    if (!response.ok) throw new Error(`runner-web: ${path} answered ${response.status}`);
+    return { path, bytes: new Uint8Array(await response.arrayBuffer()) };
+  }));
+  return toFiles(entries);
+}
+
 export type FrameReport = {
   readonly tick: number;
   readonly stateHash: string;
@@ -92,6 +107,33 @@ export function textureProvider(files: ClosingFiles): (asset: AssetKey) => Textu
     if (cached !== undefined) return cached;
     const bytes = byKey.get(asset);
     const decoded = bytes === undefined ? null : decodeAssetTexture(asset, bytes);
+    const pixels = decoded === null ? null : { w: decoded.w, h: decoded.h, rgba: decoded.rgba };
+    cache.set(asset, pixels);
+    return pixels;
+  };
+}
+
+/**
+ * Decoded textures for a session whose bytes arrive over time. `lookup` is the session's synchronous byte cache and
+ * `prepared` the decode worker's pixels, if any; a texture is decoded once, from the worker's pixels when they are ready
+ * and from the bytes otherwise. A key with no bytes yet is not cached as missing, because its bytes may still arrive.
+ */
+export function liveTextureProvider(
+  lookup: (asset: AssetKey) => Uint8Array | null,
+  prepared?: (asset: AssetKey) => TexturePixels | null,
+): (asset: AssetKey) => TexturePixels | null {
+  const cache = new Map<AssetKey, TexturePixels | null>();
+  return (asset: AssetKey): TexturePixels | null => {
+    const cached = cache.get(asset);
+    if (cached !== undefined) return cached;
+    const ready = prepared?.(asset) ?? null;
+    if (ready !== null) {
+      cache.set(asset, ready);
+      return ready;
+    }
+    const bytes = lookup(asset);
+    if (bytes === null) return null;
+    const decoded = decodeAssetTexture(asset, bytes);
     const pixels = decoded === null ? null : { w: decoded.w, h: decoded.h, rgba: decoded.rgba };
     cache.set(asset, pixels);
     return pixels;
@@ -138,15 +180,6 @@ export function distributionPackage(name: string, bytes: Uint8Array): Distributi
 export function packageFiles(name: string, bytes: Uint8Array): ClosingFiles {
   return distributionPackage(name, bytes).files;
 }
-export type InstallDescriptor = {
-  readonly schema: number;
-  readonly file: string;
-  readonly sha256: string;
-  readonly size: number;
-  readonly gameId: string;
-  readonly title: string;
-  readonly version: string;
-};
 
 export type InteractivePackage = DistributionPackage & {
   readonly gameId: string;
@@ -155,19 +188,8 @@ export type InteractivePackage = DistributionPackage & {
 
 /** Validate the install sidecar against the package and its descriptor-selected main file. */
 export async function interactivePackage(name: string, bytes: Uint8Array, value: unknown): Promise<InteractivePackage> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`runner-web: ${name}.json is not a descriptor object`);
-  const descriptor = value as Record<string, unknown>;
-  const fields = ["schema", "file", "sha256", "size", "gameId", "title", "version"];
-  if (Object.keys(descriptor).length !== fields.length || fields.some((field) => !Object.prototype.hasOwnProperty.call(descriptor, field))) {
-    throw new Error(`runner-web: ${name}.json must contain exactly ${fields.join(", ")}`);
-  }
-  if (!Number.isInteger(descriptor.schema) || (descriptor.schema as number) < 0) throw new Error(`runner-web: ${name}.json has an invalid schema`);
-  if (descriptor.file !== name) throw new Error(`runner-web: descriptor names ${String(descriptor.file)}, not ${name}`);
-  if (!Number.isInteger(descriptor.size) || descriptor.size !== bytes.length) throw new Error(`runner-web: descriptor size does not match ${name}`);
-  if (typeof descriptor.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(descriptor.sha256)) throw new Error("runner-web: descriptor SHA-256 is invalid");
-  if (typeof descriptor.gameId !== "string" || descriptor.gameId === "") throw new Error("runner-web: descriptor gameId is invalid");
-  if (typeof descriptor.title !== "string" || descriptor.title.trim() === "") throw new Error("runner-web: descriptor title is invalid");
-  if (typeof descriptor.version !== "string") throw new Error("runner-web: descriptor version is invalid");
+  const descriptor = parseInstallDescriptor(value, name);
+  if (descriptor.size !== bytes.length) throw new Error(`runner-web: descriptor size does not match ${name}`);
   const digestBytes = bytes.buffer instanceof ArrayBuffer
     ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     : Uint8Array.from(bytes);
@@ -228,5 +250,15 @@ export function runScriptedFrame(options: ScriptedFrameOptions): FrameReport {
 }
 
 export * from "./audio-sink.ts";
+export * from "./blob-host.ts";
+export * from "./decode-ahead.ts";
+export * from "./decode-types.ts";
+export * from "./load-mode.ts";
+export * from "./package-source.ts";
+export * from "./opfs-store.ts";
+export * from "./session-assets.ts";
+export * from "./stall-overlay.ts";
+export * from "./register-worker.ts";
+export * from "./service-worker-core.ts";
 export * from "./player-page.ts";
 export * from "./video.ts";

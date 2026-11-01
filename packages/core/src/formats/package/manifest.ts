@@ -182,23 +182,42 @@ function describeValue(value: unknown): string {
 export function readDistributionManifest(pkg: LoadedPackage): Result<DistributionManifest> {
   const wanted = foldPath(MANIFEST_FILE_NAME);
   const entry = pkg.files.find((file) => foldPath(file.path) === wanted);
-  if (entry === undefined) {
+  return readDistributionManifestFrom(
+    pkg.name,
+    entry?.bytes,
+    pkg.files.map((file) => file.path),
+  );
+}
+
+/**
+ * `readDistributionManifest` for a host that does not hold every file: the manifest's bytes (`undefined` when the
+ * package has none) and the path of every file in the package, in any order. It applies exactly the checks
+ * `readDistributionManifest` applies — that function is this one over a loaded package — so a streaming host and an
+ * in-memory host accept and refuse the same manifests with the same messages. `paths` includes the manifest's own.
+ */
+export function readDistributionManifestFrom(
+  name: string,
+  manifestBytes: Uint8Array | undefined,
+  paths: readonly string[],
+): Result<DistributionManifest> {
+  const wanted = foldPath(MANIFEST_FILE_NAME);
+  if (manifestBytes === undefined) {
     return err(
       failure(
         0,
-        `Package "${pkg.name}" has no ${MANIFEST_FILE_NAME} at its root; a distribution package requires ${MANIFEST_FILE_NAME} { schema, main, index } (manifest, AD-6).`,
+        `Package "${name}" has no ${MANIFEST_FILE_NAME} at its root; a distribution package requires ${MANIFEST_FILE_NAME} { schema, main, index } (manifest, AD-6).`,
       ),
     );
   }
 
   let decoded: unknown;
   try {
-    decoded = JSON.parse(strFromU8(entry.bytes));
+    decoded = JSON.parse(strFromU8(manifestBytes));
   } catch {
     return err(
       failure(
         0,
-        `The ${MANIFEST_FILE_NAME} in package "${pkg.name}" is not valid UTF-8 JSON (manifest JSON, AD-6).`,
+        `The ${MANIFEST_FILE_NAME} in package "${name}" is not valid UTF-8 JSON (manifest JSON, AD-6).`,
       ),
     );
   }
@@ -207,7 +226,7 @@ export function readDistributionManifest(pkg: LoadedPackage): Result<Distributio
     return err(
       failure(
         0,
-        `The ${MANIFEST_FILE_NAME} in package "${pkg.name}" is ${describeValue(decoded)}, not a JSON object { schema, main, index } (manifest shape, AD-6).`,
+        `The ${MANIFEST_FILE_NAME} in package "${name}" is ${describeValue(decoded)}, not a JSON object { schema, main, index } (manifest shape, AD-6).`,
       ),
     );
   }
@@ -222,10 +241,10 @@ export function readDistributionManifest(pkg: LoadedPackage): Result<Distributio
   // The asset tree is every file but the manifest itself, keyed as the resolver
   // keys it (AD-5), so the index rules check the same set the writer checked.
   const tree = new Map<string, string>();
-  for (const file of pkg.files) {
-    const folded = foldPath(file.path);
+  for (const path of paths) {
+    const folded = foldPath(path);
     if (folded === wanted) continue;
-    tree.set(folded, file.path);
+    tree.set(folded, path);
   }
   if (!tree.has(foldPath(manifest.main))) {
     return err(

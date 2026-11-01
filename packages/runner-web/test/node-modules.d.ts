@@ -17,3 +17,19 @@ declare module "node:path" {
 declare module "node:url" {
   export function fileURLToPath(url: string | URL): string;
 }
+declare module "node:http" {
+  export interface IncomingMessage {
+    readonly headers: Record<string, string | string[] | undefined>;
+  }
+  export interface ServerResponse {
+    writeHead(status: number, headers?: Record<string, string | number>): ServerResponse;
+    end(data?: Uint8Array | string): void;
+  }
+  export interface Server {
+    listen(port: number, host: string, listening: () => void): Server;
+    close(callback?: () => void): Server;
+    closeAllConnections(): void;
+    address(): { readonly port: number } | string | null;
+  }
+  export function createServer(handler: (request: IncomingMessage, response: ServerResponse) => void): Server;
+}

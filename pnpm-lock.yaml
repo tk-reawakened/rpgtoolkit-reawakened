@@ -187,6 +187,12 @@ importers:
       '@tk-reawakened/core':
         specifier: workspace:*
         version: link:packages/core
+      '@tk-reawakened/runner-harness':
+        specifier: workspace:*
+        version: link:packages/runner-harness
+      '@tk-reawakened/runner-web':
+        specifier: workspace:*
+        version: link:packages/runner-web
       '@typescript/native':
         specifier: npm:typescript@7.0.2
         version: typescript@7.0.2

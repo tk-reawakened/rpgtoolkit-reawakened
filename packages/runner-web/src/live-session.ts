@@ -24,8 +24,11 @@ import { inputPhaseRegistration, inputResetRegistration, movementPhaseRegistrati
 import { parseClosingPlan, type ClosingFiles } from "@tk-reawakened/runner-harness";
 import { createWebgl2Renderer, type RenderStats } from "@tk-reawakened/render-webgl2";
 import { BUNDLED_BANK, CuePlayer } from "@tk-reawakened/synth";
-import { connectSinkToGraph, PcmSink } from "./audio-sink.ts";
-import { fontProvider, textureProvider } from "./index.ts";
+import { connectSinkToGraph, PcmSink, type ScheduledPlay } from "./audio-sink.ts";
+import { fontProvider, liveTextureProvider } from "./index.ts";
+import type { DecodeAhead } from "./decode-types.ts";
+import type { PackageSource } from "./package-source.ts";
+import { createSessionAssets, packageOrigin, type AssetLoadState } from "./session-assets.ts";
 
 export type LiveBlobHost = {
   read(area: "saves" | "files", gameId: string, path: string): Promise<Uint8Array | null>;
@@ -43,17 +46,43 @@ export type LiveSession = {
   readonly playerPosition: () => { readonly x: number; readonly y: number } | null;
   /** The board the session is on, or `null` before board entry — the signal a host needs to tell "booting" from "playing". */
   readonly boardKey: () => string | null;
+  /** What the asset tiers are doing: the asset the engine waits on now, every completed stall, hint progress and failures. */
+  readonly loadState: () => AssetLoadState;
+  /** What the audio sink has scheduled and holds open, and a barrier for the cue chain — for a lane to assert on. */
+  readonly audioState: () => {
+    readonly scheduled: readonly ScheduledPlay[];
+    readonly open: readonly { readonly id: number; readonly track: string; readonly asset: AssetKey }[];
+  };
+  readonly cuesSettled: () => Promise<void>;
   readonly advance: (ticks: number, inputs?: readonly InputRecord[]) => Promise<void>;
 };
 type LiveSessionBase = {
-  readonly files: ClosingFiles;
   readonly bundled: ClosingFiles;
   readonly gl: WebGL2RenderingContext;
   readonly blobs?: LiveBlobHost;
+  /** Milliseconds, for stall timing. Defaults to `performance.now`; a test injects its own. */
+  readonly clock?: () => number;
+  /**
+   * Makes the decode-ahead worker once the session knows the audio output rate. Its results only ever replace work the
+   * host would do itself. A factory that throws fails the session: a page that can live without a worker catches that
+   * itself and says so, rather than the session pretending a worker exists.
+   */
+  readonly decode?: (outputRateHz: number) => DecodeAhead | null;
+  /** Called whenever `loadState()` changes, so a page can show a spinner without polling the session. */
+  readonly onLoadChange?: () => void;
 };
 export type LiveSessionOptions = LiveSessionBase & (
-  | { readonly interactive: true; readonly mainFile: string; readonly gameIdentity: string }
-  | { readonly interactive?: false; readonly planText: string; readonly gameName: string }
+  /** An interactive session over a validated package source: assets arrive on demand through the tiered source. */
+  | { readonly interactive: true; readonly source: PackageSource }
+  /** An interactive session over a fully populated file map (the desktop and mobile players). */
+  | { readonly interactive: true; readonly files: ClosingFiles; readonly mainFile: string; readonly gameIdentity: string }
+  | { readonly interactive?: false; readonly files: ClosingFiles; readonly planText: string; readonly gameName: string }
+  /**
+   * The closing-plan recipe over a package source: the plan supplies the seed, size and tick cap, the package supplies
+   * the game (its own main file, not a synthesised one). This is how the lane proves the tiered source reaches the
+   * committed baseline.
+   */
+  | { readonly interactive?: false; readonly source: PackageSource; readonly planText: string; readonly gameName: string }
 );
 
 /** The window resolution a main file asks for: 640×480, 800×600, 1024×768, or its custom `resX`×`resY`. */
@@ -93,30 +122,50 @@ export function createLiveSession(options: LiveSessionOptions): LiveSession {
   const plan = interactive ? null : parseClosingPlan(options.planText);
   const game = plan?.games.find((entry) => entry.name === (!interactive ? options.gameName : ""));
   if (!interactive && game === undefined) throw new Error(`runner-web: the plan does not list ${options.gameName}`);
+  const eagerFiles = "source" in options ? null : options.files;
+  const source = "source" in options ? options.source : null;
+  // The session's synchronous byte cache. An eager package arrives in it whole; a source fills it as assets are needed.
   const files = new Map<AssetKey, Uint8Array>();
-  for (const [path, bytes] of options.files) files.set(assetKey(path), bytes);
+  if (eagerFiles !== null) for (const [path, bytes] of eagerFiles) files.set(assetKey(path), bytes);
+  const synthesised = !interactive && game !== undefined && !("file" in game.main);
   let mainFile: string;
-  if (interactive) mainFile = options.mainFile;
+  if (synthesised) {
+    mainFile = "main.gam";
+    const data = { ...createEmptyMainFile(), major: 2, minor: 9, ...game.main.synthesised };
+    const encoded = writeMainFile(data);
+    if (!encoded.ok) throw new Error(`runner-web: ${encoded.error.message}`);
+    files.set(assetKey(mainFile), encoded.value);
+  } else if (source !== null) mainFile = source.main;
+  else if ("mainFile" in options) mainFile = options.mainFile;
   else {
-    if (game === undefined) throw new Error(`runner-web: the plan does not list ${options.gameName}`);
-    if ("file" in game.main) mainFile = game.main.file;
-    else {
-      mainFile = "main.gam";
-      const data = { ...createEmptyMainFile(), major: 2, minor: 9, ...game.main.synthesised };
-      const encoded = writeMainFile(data);
-      if (!encoded.ok) throw new Error(`runner-web: ${encoded.error.message}`);
-      files.set(assetKey(mainFile), encoded.value);
-    }
+    if (game === undefined || !("file" in game.main)) throw new Error(`runner-web: the plan does not list ${"gameName" in options ? options.gameName : "this game"}`);
+    mainFile = game.main.file;
   }
-  const index = createAssetIndex([...options.files.keys(), ...(!interactive && game !== undefined && !("file" in game.main) ? [mainFile] : [])]);
+  const index = source !== null
+    ? createAssetIndex([...source.entries.map((entry) => entry.path), ...(synthesised ? [mainFile] : [])])
+    : createAssetIndex([...(eagerFiles?.keys() ?? []), ...(synthesised ? [mainFile] : [])]);
   const bundled = new Map<AssetKey, Uint8Array>();
   for (const [path, bytes] of options.bundled) bundled.set(assetKey(path), bytes);
-  const gameIdentity = interactive
-    ? options.gameIdentity
-    : derivePackageIdentity([...files].map(([path, bytes]) => ({ path, bytes })));
-  const mainBytes = files.get(assetKey(mainFile));
+  const gameIdentity = source !== null
+    ? source.gameIdentity
+    : "gameIdentity" in options
+      ? options.gameIdentity
+      : derivePackageIdentity([...files].map(([path, bytes]) => ({ path, bytes })));
+  const mainBytes = source !== null ? source.peek(source.main) ?? undefined : files.get(assetKey(mainFile));
   if (mainBytes === undefined) throw new Error(`runner-web: main file ${mainFile} is absent`);
+  if (source !== null && !synthesised) files.set(assetKey(mainFile), mainBytes);
   const gameId = deriveGameId(mainBytes, gameIdentity);
+  if (source !== null && gameId !== source.gameId) throw new Error(`runner-web: the package source's GameId ${source.gameId} is not the session's ${gameId}`);
+  const clock = options.clock ?? ((): number => performance.now());
+  const audioContext = new AudioContext();
+  const decode = options.decode?.(audioContext.sampleRate) ?? null;
+  const assets = createSessionAssets({
+    cache: files,
+    origin: source === null ? null : packageOrigin(source),
+    clock,
+    decode: decode ?? null,
+    ...(options.onLoadChange === undefined ? {} : { onChange: options.onLoadChange }),
+  });
   const spriteRuntime = interactive ? createSpriteRuntime() : undefined;
   let hasPlayer = false;
   let cameraPosition: { x: number; y: number } | null = null;
@@ -180,19 +229,22 @@ export function createLiveSession(options: LiveSessionOptions): LiveSession {
     ],
   });
   const renderer = createWebgl2Renderer(options.gl, { mode: "letterbox", scale: 1 });
-  const textures = textureProvider(options.files);
+
+  const textures = liveTextureProvider((key) => assets.peek(key), decode === null ? undefined : (key) => decode.image(key));
   const fonts = fontProvider(options.bundled);
   let currentTick = 0;
   let currentStateHash = "";
   let closed = false;
+  let cueChain: Promise<void> = Promise.resolve();
   let processing: Promise<void> = Promise.resolve();
-  const audioContext = new AudioContext();
+
   const audioEvents: InputRecord[] = [];
   let player: CuePlayer;
   const sink = new PcmSink({
     outputRateHz: audioContext.sampleRate,
-    readAsset: (key) => files.get(key) ?? bundled.get(key) ?? null,
-    readBank: (bank) => files.get(assetKey(bank.id)) ?? bundled.get(assetKey(bank.id)) ?? null,
+    readAsset: (key) => assets.peek(key) ?? bundled.get(key) ?? null,
+    readBank: (bank) => assets.peek(assetKey(bank.id)) ?? bundled.get(assetKey(bank.id)) ?? null,
+    ...(decode === null ? {} : { readPrepared: (key: AssetKey) => decode.audio(key) }),
     onEvent(event) {
       if (event.kind === "ready") queueMicrotask(() => player.ready(event.voice, event.lengthTicks));
       else if (event.kind === "ended") player.ended(event.voice);
@@ -201,7 +253,7 @@ export function createLiveSession(options: LiveSessionOptions): LiveSession {
   });
   player = new CuePlayer({
     send: (message) => sink.handle(message),
-    readAsset: (key) => files.get(key) ?? bundled.get(key) ?? null,
+    readAsset: (key) => assets.peek(key) ?? bundled.get(key) ?? null,
     bankLayers: { player: null, runner: null, bundled: bundled.has(assetKey(BUNDLED_BANK.id)) ? BUNDLED_BANK : null },
     onEnded: (cueId) => audioEvents.push({ tick: currentTick, event: { kind: "audio.ended", cueId } }),
   });
@@ -219,7 +271,7 @@ export function createLiveSession(options: LiveSessionOptions): LiveSession {
 
   const hostReply = async (request: RunnerRequest, tick: number): Promise<InputRecord | null> => {
     switch (request.kind) {
-      case "asset": return { tick, event: { kind: "asset", reqId: request.reqId, bytes: files.get(request.key) ?? null } };
+      case "asset": return { tick, event: { kind: "asset", reqId: request.reqId, bytes: await assets.request(request.key) } };
       case "playVideo": return { tick, event: { kind: "video.ended", reqId: request.reqId } };
       case "loadBlob": {
         const prefix = `${gameId}/`;
@@ -241,7 +293,8 @@ export function createLiveSession(options: LiveSessionOptions): LiveSession {
         return { tick, event: { kind: "blob.listed", reqId: request.reqId, names } };
       }
       case "extension.call": return { tick, event: { kind: "extension.result", reqId: request.reqId, result: null } };
-      case "quit": case "openUrl": case "prefetch": return null;
+      case "prefetch": assets.hint(request.hints); return null;
+      case "quit": case "openUrl": return null;
     }
   };
 
@@ -261,14 +314,24 @@ export function createLiveSession(options: LiveSessionOptions): LiveSession {
       inputs = [];
       currentTick = report.tickAfter;
       currentStateHash = report.stateHash;
-      queueMicrotask(() => {
+      // Cues are handed to the player on their own chain, in report order, once the assets they name are cached (the
+      // player and the sink read assets synchronously). The simulation never waits on this chain, and a stall in the
+      // chain cannot reorder cues, because each report's cues run only after the previous report's.
+      const cues = report.audioCues;
+      const reachedTick = report.tickAfter;
+      cueChain = cueChain.then(async () => {
         if (closed) return;
-        player.reach(report.tickAfter);
-        player.advance(report.audioCues);
+        await assets.ensure(cues.flatMap((cue) => (cue.asset === null ? [] : [cue.asset])));
+        if (closed) return;
+        player.reach(reachedTick);
+        player.advance(cues);
       });
+      // Asset requests go out together (the engine is blocked on all of them); everything else is answered in order.
+      const started = report.requests.map((request) => (request.kind === "asset" ? hostReply(request, report.tickAfter) : undefined));
+      for (const answer of started) answer?.catch(() => undefined);
       const replies: InputRecord[] = [];
-      for (const request of report.requests) {
-        const reply = await hostReply(request, report.tickAfter);
+      for (const [position, request] of report.requests.entries()) {
+        const reply = await (started[position] ?? hostReply(request, report.tickAfter));
         if (reply !== null) replies.push(reply);
       }
       if (report.loading || replies.length > 0) { inputs = replies; continue; }
@@ -283,10 +346,15 @@ export function createLiveSession(options: LiveSessionOptions): LiveSession {
   };
   void queue(0);
   return {
+    loadState: () => assets.state(),
+    audioState: () => ({ scheduled: [...sink.scheduled], open: sink.open }),
+    cuesSettled: () => cueChain,
     engine,
     gameId,
     close() {
       closed = true;
+      assets.close();
+      decode?.close();
       window.removeEventListener("pointerdown", unlockAudio);
       window.removeEventListener("keydown", unlockAudio);
       graph.disconnect();

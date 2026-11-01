@@ -1,7 +1,7 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { assetKey } from "@tk-reawakened/core";
-import { fetchBundled, fetchGame, textureProvider, toFiles } from "../src/index.ts";
+import { fetchBundled, fetchBundledFiles, fetchGame, liveTextureProvider, textureProvider, toFiles } from "../src/index.ts";
 
 // `runner-web`'s transport helpers and its decode adapter are the shipped code a Node unit test reaches without a
 // browser; the drawing itself is entry 4's lane under Playwright.
@@ -102,4 +102,36 @@ test("an asset the game does not carry, and a kind still deferred, decode to nul
   equal(provide(assetKey("Tiles/missing.bmp")), null);
   equal(provide(assetKey("Tiles/anim.tan")), null);
   equal(provide(assetKey("Tiles/bit.tbm")), null);
+});
+
+test("fetchBundledFiles fetches each static path with no /api/ call and percent-encodes each segment", async () => {
+  const asked: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    asked.push(url);
+    return new Response(new Uint8Array([url.length]), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const files = await fetchBundledFiles("http://host", ["media/fonts/a b.ttf", "media/soundfonts/TK-16.sf2"]);
+    deepEqual(asked, ["http://host/media/fonts/a%20b.ttf", "http://host/media/soundfonts/TK-16.sf2"]);
+    ok(asked.every((url) => !url.includes("/api/")));
+    equal(files.get("media/fonts/a b.ttf")?.length, 1);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("liveTextureProvider does not lock in null before bytes arrive, and prefers pixels the decode worker prepared", () => {
+  const arrived = new Map<string, Uint8Array>();
+  const prepared = new Map<string, { w: number; h: number; rgba: Uint8Array }>();
+  const provide = liveTextureProvider((asset) => arrived.get(asset) ?? null, (asset) => prepared.get(asset) ?? null);
+  const arrow = assetKey("Tiles/arrow.bmp");
+  equal(provide(arrow), null, "not arrived yet");
+  arrived.set(arrow, bmp([0, 255, 0], [0, 0, 0]));
+  const decoded = provide(arrow);
+  ok(decoded !== null && decoded.rgba[1] === 255, "decodes once the bytes arrive");
+
+  const ready = { w: 1, h: 1, rgba: new Uint8Array([9, 8, 7, 255]) };
+  prepared.set(assetKey("Tiles/ready.bmp"), ready);
+  equal(provide(assetKey("Tiles/ready.bmp")), ready);
 });

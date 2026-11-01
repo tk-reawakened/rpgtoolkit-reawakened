@@ -11,7 +11,7 @@ export type { GameState, GameStateIsPlainData, SchemaState, SectionKey } from ".
 export { restoreGameState, snapshot } from "./snapshot.ts";
 export { snapshotGameSave, restoreGameSave, snapshotRecoveryCandidate, restoreRecoveryCandidate } from "./game-save.ts";
 export type { RestoredGameSave, RestoredRecoveryCandidate, RecoveryAssetFingerprint, RecoveryAssetManifest, RecoveryListenerAnchor } from "./game-save.ts";
-export { deriveGameId, derivePackageIdentity } from "./game-id.ts";
+export { deriveGameId, deriveGameIdFromContentHash, derivePackageIdentity, foldPackageIdentity, packageIdentityRecord } from "./game-id.ts";
 export type { PackageIdentityFile } from "./game-id.ts";
 export { hashGameState } from "./hash.ts";
 export { checkEquipmentConsistency } from "./equipment-check.ts";

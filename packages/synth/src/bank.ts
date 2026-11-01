@@ -87,24 +87,53 @@ export function validateBankBytes(bytes: Uint8Array): Uint8Array {
 
 /** Lower-case hex SHA-256. Written out so the runner needs no WebCrypto, no `node:crypto` and no async boundary. */
 export function sha256Hex(bytes: Uint8Array): string {
+  const hasher = createSha256();
+  hasher.update(bytes);
+  return hasher.hex();
+}
+
+/**
+ * An incremental SHA-256 for a host that sees its bytes a chunk at a time and cannot hold them all: absorb them in any
+ * chunking, then take the digest once. The result is the digest `sha256Hex` gives the same bytes whole.
+ */
+export type Sha256 = {
+  /** Absorb the next bytes. Throws once the digest has been taken. */
+  update(bytes: Uint8Array): void;
+  /** The 32-byte digest of every byte absorbed. Takes the digest: any later call throws. */
+  digest(): Uint8Array;
+  /** The digest as lower-case hex. Takes the digest like `digest`. */
+  hex(): string;
+};
+
+/** A fresh incremental SHA-256 (FIPS 180-4). The byte count is exact up to 2^53 bits, far above any package. */
+export function createSha256(): Sha256 {
   const k = SHA256_K;
-  const h = new Uint32Array([0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]);
-  const padded = new Uint8Array(((bytes.length + 9 + 63) >> 6) << 6);
-  padded.set(bytes);
-  padded[bytes.length] = 0x80;
-  const view = new DataView(padded.buffer);
-  const bits = bytes.length * 8;
-  view.setUint32(padded.length - 8, Math.floor(bits / 0x1_0000_0000), false);
-  view.setUint32(padded.length - 4, bits >>> 0, false);
+  const h = new Uint32Array(SHA256_INITIAL);
   const w = new Uint32Array(64);
-  for (let offset = 0; offset < padded.length; offset += 64) {
-    for (let index = 0; index < 16; index += 1) w[index] = view.getUint32(offset + index * 4, false);
+  const pending = new Uint8Array(64);
+  let pendingLength = 0;
+  let total = 0;
+  let done = false;
+
+  /** Fold the 64-byte block at `offset` of `data` into the running state. */
+  function compress(data: Uint8Array, offset: number): void {
+    for (let index = 0; index < 16; index += 1) {
+      const at = offset + index * 4;
+      w[index] = ((data[at]! << 24) | (data[at + 1]! << 16) | (data[at + 2]! << 8) | data[at + 3]!) >>> 0;
+    }
     for (let index = 16; index < 64; index += 1) {
       const s0 = rotr(w[index - 15]!, 7) ^ rotr(w[index - 15]!, 18) ^ (w[index - 15]! >>> 3);
       const s1 = rotr(w[index - 2]!, 17) ^ rotr(w[index - 2]!, 19) ^ (w[index - 2]! >>> 10);
       w[index] = (w[index - 16]! + s0 + w[index - 7]! + s1) >>> 0;
     }
-    let [a, b, c, d, e, f, g, hh] = [h[0]!, h[1]!, h[2]!, h[3]!, h[4]!, h[5]!, h[6]!, h[7]!];
+    let a = h[0]!;
+    let b = h[1]!;
+    let c = h[2]!;
+    let d = h[3]!;
+    let e = h[4]!;
+    let f = h[5]!;
+    let g = h[6]!;
+    let hh = h[7]!;
     for (let index = 0; index < 64; index += 1) {
       const s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
       const ch = (e & f) ^ (~e & g);
@@ -130,9 +159,56 @@ export function sha256Hex(bytes: Uint8Array): string {
     h[6] = (h[6]! + g) >>> 0;
     h[7] = (h[7]! + hh) >>> 0;
   }
-  let hex = "";
-  for (const word of h) hex += word.toString(16).padStart(8, "0");
-  return hex;
+
+  function digest(): Uint8Array {
+    if (done) throw new Error("sha256: the digest was already taken");
+    done = true;
+    const bits = total * 8;
+    pending[pendingLength] = 0x80;
+    pendingLength += 1;
+    if (pendingLength > 56) {
+      pending.fill(0, pendingLength, 64);
+      compress(pending, 0);
+      pendingLength = 0;
+    }
+    pending.fill(0, pendingLength, 56);
+    const lengthView = new DataView(pending.buffer);
+    lengthView.setUint32(56, Math.floor(bits / 0x1_0000_0000), false);
+    lengthView.setUint32(60, bits >>> 0, false);
+    compress(pending, 0);
+    const out = new Uint8Array(32);
+    const outView = new DataView(out.buffer);
+    for (let index = 0; index < 8; index += 1) outView.setUint32(index * 4, h[index]!, false);
+    return out;
+  }
+
+  return {
+    update(bytes) {
+      if (done) throw new Error("sha256: bytes were absorbed after the digest was taken");
+      total += bytes.length;
+      let at = 0;
+      if (pendingLength > 0) {
+        const take = Math.min(64 - pendingLength, bytes.length);
+        pending.set(bytes.subarray(0, take), pendingLength);
+        pendingLength += take;
+        at = take;
+        if (pendingLength < 64) return;
+        compress(pending, 0);
+        pendingLength = 0;
+      }
+      for (; at + 64 <= bytes.length; at += 64) compress(bytes, at);
+      if (at < bytes.length) {
+        pending.set(bytes.subarray(at), 0);
+        pendingLength = bytes.length - at;
+      }
+    },
+    digest,
+    hex() {
+      let hex = "";
+      for (const byte of digest()) hex += byte.toString(16).padStart(2, "0");
+      return hex;
+    },
+  };
 }
 
 function rotr(value: number, by: number): number {
@@ -149,6 +225,8 @@ const SHA256_K = new Uint32Array([
   0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
   0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 ]);
+
+const SHA256_INITIAL = new Uint32Array([0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]);
 
 /** One cached bank: its bytes, its hash and how many voices are holding it. */
 type CachedBank = {

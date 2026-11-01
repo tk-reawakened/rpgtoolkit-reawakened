@@ -2,7 +2,9 @@ import { defineConfig } from "@playwright/test";
 
 // The browser lane (D-9): one headless Chromium project, a required `gate` dependency, fixtures fetched first.
 // ADR 0015 records why Playwright is dev-only and why its licence needed no exception.
-const port = 4173;
+// Parallel local lanes must use different ports; CI and ordinary local runs keep the default.
+const port = Number(process.env.PLAYWRIGHT_PORT ?? "4173");
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PLAYWRIGHT_PORT must be a valid TCP port");
 
 export default defineConfig({
   testDir: "tools/browser/tests",
