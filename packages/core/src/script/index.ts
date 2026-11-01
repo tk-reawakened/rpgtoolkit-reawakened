@@ -47,7 +47,7 @@ export type {
   Statement,
   SwitchCase,
 } from "./ast.ts";
-export { foldAscii, tokenize } from "./lex.ts";
+export { foldAscii, scan, tokenize, tokenizeObjects } from "./lex.ts";
 export type { Token } from "./lex.ts";
 export { MODULE_COMMANDS, parse } from "./parse.ts";
 export type { ParseContext } from "./parse.ts";

@@ -12,6 +12,8 @@ export { analyse } from "./analyse.ts";
 export type { Analysis, AnalyseOptions } from "./analyse.ts";
 export { applyEdits, DIAGNOSTIC_ONLY_ROWS, legacyFixes, sameLowering } from "./fixes.ts";
 export type { LegacyFix } from "./fixes.ts";
+export { canonicalNames, formatChanged, formatSource } from "./format.ts";
+export type { FormatOptions, FormatResult } from "./format.ts";
 export { lint, readLintConfig, RULES } from "./lint.ts";
 export type { LintConfig, LintIgnore, LintResult, LintSeverity, LintSummary, LintOptions, RuleDefinition, RuleId } from "./lint.ts";
 export { rangeOf, sliceRange } from "./diagnostics.ts";
