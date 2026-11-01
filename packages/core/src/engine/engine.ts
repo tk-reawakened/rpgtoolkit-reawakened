@@ -1380,7 +1380,7 @@ export function createEngine(init: EngineInit): Engine {
         if (pending.size > 0 || prefetchLoading() || pendingImageEffects.length > 0 || pendingBoardPreviews.length > 0 || otherBlob) continue;
         try {
           const savedState = restoreGameState(snapshot(state));
-          replyToRequest(savedState.vm, entry.vmReqId, { ok: true, value: null });
+          replyToRequest(savedState.vm, entry.vmReqId, { ok: true, value: 1 });
           const bytes = utf8Encode(snapshotGameSave(savedState));
           requestsOut.push({ kind: "saveBlob", reqId: entry.reqId, blob: entry.blob, bytes });
           entry.published = true;
@@ -1537,7 +1537,9 @@ export function createEngine(init: EngineInit): Engine {
         value: event.bytes === null ? "" : encodeHex(event.bytes),
       });
     } else {
-      replyToRequest(state.vm, entry.vmReqId, { ok: event.ok, value: null });
+      // Game saves report success as 1 so scripts can observe the result; file writes keep the legacy null value.
+      const value = event.ok && entry.gameSave ? 1 : null;
+      replyToRequest(state.vm, entry.vmReqId, { ok: event.ok, value });
     }
     return "consumed";
   }
