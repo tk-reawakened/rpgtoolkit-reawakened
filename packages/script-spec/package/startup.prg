@@ -18,6 +18,12 @@ function specCheck(ok, name, expected, actual) {
   else { specResult("fail", name, expected, actual) }
 }
 
+// Scalar equality only; arrays need a type test the catalogue does not have.
+function specEqual(a, b) {
+  if (a == b) { return 1 }
+  return 0
+}
+
 function specFlash(expected, actual) {
   if (specNegate == 1) { specNegate = 0; return actual ~= expected }
   return actual ~= expected
@@ -69,7 +75,7 @@ function only(name, body) {
 function expect(actual) {
   return {
     toBe: (expected) => specCheck(actual == expected, "toBe", expected, actual),
-    toEqual: (expected) => specCheck(actual == expected, "toEqual", expected, actual),
+    toEqual: (expected) => specCheck(specEqual(actual, expected), "toEqual", expected, actual),
     toBeTruthy: () => specCheck(actual != 0, "toBeTruthy", 1, actual),
     toBeNull: () => specCheck(actual == 0, "toBeNull", 0, actual),
     toContain: (needle) => specCheck(specContains(actual, needle), "toContain", needle, actual),
@@ -86,20 +92,11 @@ function expect(actual) {
   }
 }
 
+// Strings only: the catalogue has no type test or array length, so an array
+// needle cannot be searched from script (reported in the 10.8 plan; needs an
+// owner ruling, not a silent wrong answer).
 function specContains(value, needle) {
-  local(i)
-  local(n)
-  if (typeOf(value) == "string") {
-    n = len(value) - len(needle) + 1
-    for (i = 1; i <= n; i = i + 1) {
-      if (substring(value, i, i + len(needle) - 1) == needle) { return 1 }
-    }
-    return 0
-  }
-  n = arrayCount(value)
-  for (i = 0; i <= n; i = i + 1) {
-    if (value[i] == needle) { return 1 }
-  }
+  if (instr(value, needle) > 0) { return 1 }
   return 0
 }
 
