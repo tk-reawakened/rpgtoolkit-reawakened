@@ -96,16 +96,21 @@ createServer((request, response) => {
   const type = TYPES[extname(full)] ?? "application/octet-stream";
   const size = statSync(full).size;
   const header = request.headers.range;
+  const extraHeaders = {};
+  if (relative === "apps/service-worker.js") {
+    // Allow /apps/service-worker.js to control scopes under /packages/runner-web/app/ (specifically the player page).
+    extraHeaders["service-worker-allowed"] = "/packages/runner-web/app/";
+  }
   if (header === undefined || request.headers["if-range"] !== undefined) {
     // No validators (ETag / Last-Modified) are issued, so a conditional If-Range can never match: serve the whole file.
-    response.writeHead(200, { "content-type": type, "content-length": size, "accept-ranges": "bytes" });
+    response.writeHead(200, { "content-type": type, "content-length": size, "accept-ranges": "bytes", ...extraHeaders });
     createReadStream(full).pipe(response);
     return;
   }
   const range = parseRange(header, size);
   if (range === null) {
     // Unsupported unit, multiple ranges, malformed spec, or outside the file: rejected, never silently served in full.
-    response.writeHead(416, { "content-range": `bytes */${size}`, "accept-ranges": "bytes", "content-length": 0 }).end();
+    response.writeHead(416, { "content-range": `bytes */${size}`, "accept-ranges": "bytes", "content-length": 0, ...extraHeaders }).end();
     return;
   }
   response.writeHead(206, {
@@ -113,6 +118,7 @@ createServer((request, response) => {
     "content-range": `bytes ${range.start}-${range.end}/${size}`,
     "content-length": range.end - range.start + 1,
     "accept-ranges": "bytes",
+    ...extraHeaders,
   });
   createReadStream(full, { start: range.start, end: range.end }).pipe(response);
 }).listen(port, "127.0.0.1", () => {
