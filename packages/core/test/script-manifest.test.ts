@@ -201,5 +201,5 @@ test("package entries patch and order exactly like native entries", () => {
 });
 
 test("every runner request kind is declarable", () => {
-  deepEqual([...HOST_REQUEST_KINDS].sort(), ["asset", "extension.call", "listBlobs", "loadBlob", "openUrl", "playVideo", "quit", "saveBlob"]);
+  deepEqual([...HOST_REQUEST_KINDS].sort(), ["asset", "extension.call", "listBlobs", "loadBlob", "openUrl", "playVideo", "prefetch", "quit", "saveBlob"]);
 });

@@ -201,6 +201,7 @@ const REQUEST_KEYS = {
   quit: { def: "quitRequest", keys: ["kind", "reqId"] },
   openUrl: { def: "openUrlRequest", keys: ["kind", "reqId", "url"] },
   playVideo: { def: "playVideoRequest", keys: ["kind", "reqId", "key", "presentation"] },
+  prefetch: { def: "prefetchRequest", keys: ["kind", "reqId", "hints"] },
 } as const satisfies KeyMap<RunnerRequest, string>;
 
 type AssertNoMissing<Family extends { kind: string }, Table extends KeyMap<Family, string>> =
@@ -239,7 +240,7 @@ test("the kit covers every draw command, input event and request kind", () => {
   deepEqual(covered("input"), Object.keys(INPUT_KEYS).sort());
   deepEqual(covered("request"), Object.keys(REQUEST_KEYS).sort());
   deepEqual(Object.keys(REQUEST_KEYS).sort(), [...HOST_REQUEST_KINDS].sort(), "the requests a package may declare and the kinds on the wire are the same set");
-  deepEqual(kit.counts, { draw: 12, input: 15, request: 11 });
+  deepEqual(kit.counts, { draw: 12, input: 15, request: 13 });
 });
 
 test("every schema definition carries exactly the keys its core type carries", () => {

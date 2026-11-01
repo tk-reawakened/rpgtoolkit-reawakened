@@ -880,6 +880,9 @@
         },
         {
           "$ref": "#/$defs/playVideoRequest"
+        },
+        {
+          "$ref": "#/$defs/prefetchRequest"
         }
       ]
     },
@@ -1067,6 +1070,50 @@
             "full",
             "small"
           ]
+        }
+      }
+    },
+    "prefetchHint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tier",
+        "key"
+      ],
+      "properties": {
+        "tier": {
+          "enum": [
+            "now",
+            "next",
+            "always"
+          ]
+        },
+        "key": {
+          "$ref": "#/$defs/assetKey"
+        }
+      }
+    },
+    "prefetchRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "reqId",
+        "hints"
+      ],
+      "properties": {
+        "kind": {
+          "const": "prefetch"
+        },
+        "reqId": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/prefetchHint"
+          }
         }
       }
     }
