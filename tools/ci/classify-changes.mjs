@@ -140,3 +140,5 @@ if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToP
     process.exitCode = 1;
   }
 }
+
+// Probe line for #664 active-path check (throwaway branch).
