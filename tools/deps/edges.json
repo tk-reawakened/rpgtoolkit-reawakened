@@ -20,6 +20,7 @@
     "plugin-tk2-compat"
   ],
   "edges": [
+<<<<<<< HEAD
     [
       "core",
       "synth"
@@ -148,6 +149,42 @@
       "core",
       "script-spec"
     ]
+=======
+    ["core", "synth"],
+    ["core", "render-webgl2"],
+    ["core", "runner-harness"],
+    ["core", "plugin-tk2-compat"],
+    ["core", "script-tools"],
+    ["script-tools", "lsp"],
+    ["plugin-tk2-compat", "runner-harness"],
+    ["core", "lsp"],
+    ["core", "editor-model"],
+    ["synth", "runner-harness"],
+    ["synth", "runner-web"],
+    ["render-webgl2", "runner-web"],
+    ["core", "runner-headless"],
+    ["core", "runner-web"],
+    ["runner-harness", "runner-web"],
+    ["runner-harness", "runner-headless"],
+    ["runner-harness", "dap"],
+    ["core", "runner-desktop"],
+    ["runner-harness", "runner-desktop"],
+    ["render-webgl2", "runner-desktop"],
+    ["synth", "runner-desktop"],
+    ["runner-web", "runner-desktop"],
+    ["runner-web", "runner-mobile"],
+    ["runner-web", "editor-ui"],
+    ["render-webgl2", "editor-ui"],
+    ["editor-model", "editor-ui"],
+    ["editor-model", "host-vscode"],
+    ["editor-ui", "host-vscode"],
+    ["editor-ui", "host-web"],
+    ["editor-ui", "host-desktop"],
+    ["lsp", "host-vscode"],
+    ["lsp", "host-web"],
+    ["lsp", "host-desktop"],
+    ["dap", "host-vscode"]
+>>>>>>> d94a9802 (fix(9.11): graph edges for runner-desktop and Electron's install script)
   ],
   "diagram": {
     "file": "_bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md",
