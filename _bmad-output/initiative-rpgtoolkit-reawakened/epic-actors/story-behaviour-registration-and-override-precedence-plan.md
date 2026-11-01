@@ -8,9 +8,9 @@ baseline_revision: 'ce05dd4d34d9c0f0fa998cb7d8614ab89d17a47a'
 route: 'full'
 route_source: 'pinned'
 review: 'approve'
-review_source: 'fresh independent remote-head fix reviewer'
-lenses_ran: ['implementation', 'migration', 'boundary-validation', 'regression-baselines', 'fresh-implementation', 'fresh-boundary', 'fresh-tests', 'remote-head-implementation', 'remote-head-boundary', 'remote-head-tests', 'latest-hydration-lifecycle', 'latest-contract-regression', 'latest-hydration-tests']
-review_loop_iteration: 5
+review_source: 'fresh independent exact-head fix reviewer'
+lenses_ran: ['implementation', 'migration', 'boundary-validation', 'regression-baselines', 'fresh-implementation', 'fresh-boundary', 'fresh-tests', 'remote-head-implementation', 'remote-head-boundary', 'remote-head-tests', 'latest-hydration-lifecycle', 'latest-contract-regression', 'latest-hydration-tests', 'exact-persistence-head']
+review_loop_iteration: 6
 risk: "high"
 context:
   - "spec - docs/spec/engine/actors.md"
@@ -332,3 +332,36 @@ this review did not self-approve.
 **APPROVE** the exact pushed PR head for implementation correctness. This is
 a plan/review disposition only; no implementation edit, GitHub approval,
 commit, or push was performed.
+
+## Exact persistence-head fix re-review (2026-10-21)
+
+The exact pushed head reviewed was
+`3e58a9c3ae7ae49fa9603ea1c3ca53922b36aec7`. The worktree was clean before
+this plan-only update. `origin/main` is
+`96f580a9300199b01b738250b13194216a7dc808`, and the merge base is identical;
+no rebase is required.
+
+The persistence-test fix is valid. The test now creates an actor with
+`stock-rpg.hero`, snapshots it, parses the saved JSON, asserts the behaviour
+name is present and hook members are absent, restores the state, rebuilds
+package startup, verifies the name remains, verifies the hook resolves to a
+callable, and proves the hook affects a subsequent actor operation
+(`packages/core/test/actor-behaviour.test.ts:52-88`). The focused behavior
+suite passed 7/7, including the restored-unused-actor diagnostic and the
+new persistence test.
+
+### Hosted checks
+
+GitHub Actions run `#39537085685` for commit `3e58a9c3ae7a` completed
+successfully. All nine jobs passed: unit, typecheck, lint, golden,
+golden-bun, graph, provenance, licence, and gate.
+
+### Findings and disposition
+
+No actionable implementation or persistence-contract finding remains. Prior
+hydration-time diagnostics, startup/restore ordering, hook validation, actor
+owner routing, manifest grammar, and registry lifecycle findings remain
+fixed. **APPROVE** the exact pushed head for implementation correctness.
+This is a plan/review disposition only; no implementation edit, commit, push,
+or GitHub review was performed. The PR author is the same identity, so no
+self-review was submitted.
