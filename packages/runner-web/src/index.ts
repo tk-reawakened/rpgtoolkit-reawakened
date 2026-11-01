@@ -13,7 +13,10 @@
 
 import {
   assetKey,
+  deriveGameId,
+  derivePackageIdentity,
   loadPackage,
+  readDistributionManifest,
   DEFAULT_FONT_ASSET,
   readLegacyFont,
   readTrueTypeFont,
@@ -109,16 +112,72 @@ export type ScriptedFrameOptions = {
  * limits L1–L21, so a tampered or malformed package is refused with the rule it hit before anything is served; what it
  * returns is exactly the file map the folder path produces, which is why a package boot reaches the same hashes.
  */
-export function packageFiles(name: string, bytes: Uint8Array): ClosingFiles {
+export type DistributionPackage = {
+  readonly files: ClosingFiles;
+  readonly main: string;
+};
+
+/** Load a distribution package and return its validated descriptor-selected main path. */
+export function distributionPackage(name: string, bytes: Uint8Array): DistributionPackage {
   const loaded = loadPackage({ kind: "tpk", name, bytes });
   if (!loaded.ok) throw new Error(`runner-web: ${name} refused: ${loaded.error.message}`);
+  const descriptor = readDistributionManifest(loaded.value);
+  if (!descriptor.ok) throw new Error(`runner-web: ${name} refused: ${descriptor.error.message}`);
   const files = new Map<string, Uint8Array>();
   for (const file of loaded.value.files) {
-    // The manifest is the package's own bookkeeping (AD-6); the game never sees it.
     if (file.path === "manifest.json") continue;
     files.set(file.path, file.bytes);
   }
-  return files;
+  return { files, main: descriptor.value.main };
+}
+
+/** Decode a distribution package to its game files (`path -> bytes`). */
+export function packageFiles(name: string, bytes: Uint8Array): ClosingFiles {
+  return distributionPackage(name, bytes).files;
+}
+export type InstallDescriptor = {
+  readonly schema: number;
+  readonly file: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly gameId: string;
+  readonly title: string;
+  readonly version: string;
+};
+
+export type InteractivePackage = DistributionPackage & {
+  readonly gameId: string;
+  readonly gameIdentity: string;
+};
+
+/** Validate the install sidecar against the package and its descriptor-selected main file. */
+export async function interactivePackage(name: string, bytes: Uint8Array, value: unknown): Promise<InteractivePackage> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`runner-web: ${name}.json is not a descriptor object`);
+  const descriptor = value as Record<string, unknown>;
+  const fields = ["schema", "file", "sha256", "size", "gameId", "title", "version"];
+  if (Object.keys(descriptor).length !== fields.length || fields.some((field) => !Object.prototype.hasOwnProperty.call(descriptor, field))) {
+    throw new Error(`runner-web: ${name}.json must contain exactly ${fields.join(", ")}`);
+  }
+  if (!Number.isInteger(descriptor.schema) || (descriptor.schema as number) < 0) throw new Error(`runner-web: ${name}.json has an invalid schema`);
+  if (descriptor.file !== name) throw new Error(`runner-web: descriptor names ${String(descriptor.file)}, not ${name}`);
+  if (!Number.isInteger(descriptor.size) || descriptor.size !== bytes.length) throw new Error(`runner-web: descriptor size does not match ${name}`);
+  if (typeof descriptor.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(descriptor.sha256)) throw new Error("runner-web: descriptor SHA-256 is invalid");
+  if (typeof descriptor.gameId !== "string" || descriptor.gameId === "") throw new Error("runner-web: descriptor gameId is invalid");
+  if (typeof descriptor.title !== "string" || descriptor.title.trim() === "") throw new Error("runner-web: descriptor title is invalid");
+  if (typeof descriptor.version !== "string") throw new Error("runner-web: descriptor version is invalid");
+  const digestBytes = bytes.buffer instanceof ArrayBuffer
+    ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    : Uint8Array.from(bytes);
+  const digest = await crypto.subtle.digest("SHA-256", digestBytes);
+  const actualHash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  if (actualHash !== descriptor.sha256) throw new Error(`runner-web: descriptor SHA-256 does not match ${name}`);
+  const pkg = distributionPackage(name, bytes);
+  const mainBytes = [...pkg.files].find(([path]) => assetKey(path) === assetKey(pkg.main))?.[1];
+  if (mainBytes === undefined) throw new Error(`runner-web: descriptor main ${pkg.main} is absent`);
+  const gameIdentity = derivePackageIdentity([...pkg.files].map(([path, fileBytes]) => ({ path, bytes: fileBytes })));
+  const gameId = deriveGameId(mainBytes, gameIdentity);
+  if (gameId !== descriptor.gameId) throw new Error(`runner-web: descriptor gameId does not match ${pkg.main} and its package identity`);
+  return { ...pkg, gameId, gameIdentity };
 }
 
 /**

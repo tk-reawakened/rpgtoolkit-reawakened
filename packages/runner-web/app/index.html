@@ -3,15 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TK Reawakened player (tracer)</title>
+    <title>TK Reawakened player</title>
     <style>
-      body { margin: 0; background: #111; color: #ddd; font: 13px/1.4 ui-monospace, monospace; }
-      canvas { image-rendering: pixelated; display: block; margin: 12px auto; background: #000; }
-      pre { margin: 0 12px 12px; white-space: pre-wrap; }
+      :root { color-scheme: dark; }
+      body { margin: 0; min-height: 100vh; background: #111; color: #ddd; font: 13px/1.4 ui-monospace, monospace; display: grid; grid-template-rows: 1fr auto; }
+      canvas { image-rendering: pixelated; display: block; margin: auto; background: #000; touch-action: none; outline: none; }
+      pre { margin: 8px 12px 12px; white-space: pre-wrap; }
     </style>
   </head>
   <body>
-    <canvas id="screen" width="640" height="480"></canvas>
+    <canvas id="screen" width="640" height="480" tabindex="0" aria-label="Game screen"></canvas>
     <pre id="report">booting…</pre>
     <script src="/apps/player.js"></script>
   </body>

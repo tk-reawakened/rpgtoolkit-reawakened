@@ -1,11 +1,18 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { TextEncoder } from "node:util";
 import { test } from "node:test";
-import { addActor, applyEmitterOp, assetKey, IR_VERSION, createAssetIndex, createEmptyBoard, createEmptyMainFile, createEngine, decodeSurfaceBytes, ENGINE_DEFAULT_MANIFEST, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, encodeSurfaceBytes, hashGameState, PACKAGE_ROOT, readSurfacePixels, TILE_BITMAP_MAGIC, writeBoard, writeMainFile, writeTileBitmap, writeTileset, type Board, type CommandView, type EffectRecord, type Engine, type EnginePhaseRegistration, type GameState, type PackageCatalogueEntry, type PluginDefinition, type ResolvedPlugin, type SurfaceId } from "../src/index.ts";
+import { addActor, applyEmitterOp, assetKey, IR_VERSION, createAssetIndex, createEmptyBoard, createEmptyCharacter, createEmptyMainFile, createEngine, decodeSurfaceBytes, ENGINE_DEFAULT_MANIFEST, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, encodeSurfaceBytes, hashGameState, PACKAGE_ROOT, readSurfacePixels, TILE_BITMAP_MAGIC, writeBoard, writeCharacter, writeMainFile, writeTileBitmap, writeTileset, type Board, type CommandView, type EffectRecord, type Engine, type EnginePhaseRegistration, type GameState, type PackageCatalogueEntry, type PluginDefinition, type ResolvedPlugin, type SurfaceId } from "../src/index.ts";
 import { resolveManifestPlugins } from "../src/engine/boot.ts";
 
 function boardBytes(board: Board): Uint8Array {
   const encoded = writeBoard(board);
+  if (!encoded.ok) throw new Error(encoded.error.message);
+  return encoded.value;
+}
+
+/** A decodable character for a fixture whose main file names one: E-02 reads and parses it during boot. */
+function heroBytes(): Uint8Array {
+  const encoded = writeCharacter({ ...createEmptyCharacter(), minor: 5, name: "Hero", movementAnimations: Array(8).fill(""), battleStances: ["", "", "", "", "", ""] });
   if (!encoded.ok) throw new Error(encoded.error.message);
   return encoded.value;
 }
@@ -183,7 +190,7 @@ test("createEngine preserves manifest package behaviours and actor operations ac
     ["main.gam", main.value],
     ["prg/start.prg", new TextEncoder().encode("seedactor()\nHP! = 5\nend()\n")],
     ["boards/start.brd", board.value],
-    ["chrs/hero.tem", new Uint8Array([0])],
+    ["chrs/hero.tem", heroBytes()],
   ]);
   const table = ENGINE_PLUGIN_TABLE as Record<string, PluginDefinition>;
   const previous = table["test-reset-package"];
@@ -212,7 +219,7 @@ test("createEngine preserves manifest package behaviours and actor operations ac
             }
           },
         },
-        { phase: "movement", run: (state) => { latestActor = state.actors.actors[0]; } },
+        { phase: "movement", run: (state) => { latestActor = state.actors.actors.find((actor) => actor.behaviour === "test-reset-package.hero"); } },
       ],
     });
     let report = engine.advance(0, []);
@@ -703,7 +710,7 @@ test("batching stays on for a main-file game with a package catalogue and phase 
     ["main.gam", main.value],
     ["prg/start.prg", new TextEncoder().encode(program)],
     ["boards/start.brd", boardBytes(createEmptyBoard())],
-    ["chrs/hero.tem", new Uint8Array([0])],
+    ["chrs/hero.tem", heroBytes()],
   ]);
   const catalogueEntry: PackageCatalogueEntry = { name: "unused-package", version: "1.0.0", requests: [], definition: { id: "unused-package", version: "1.0.0", commands: [] } };
   function boot(extra: EngineExtras) {

@@ -181,7 +181,7 @@ function authoredGame(enterProgram = ENTER_PROGRAM, startupProgram = "end()\n"):
   files.set(assetKey("main.gam"), unwrap(writeMainFile(main)));
   files.set(assetKey("boards/start.brd"), authoredBoard());
   files.set(assetKey("boards/other.brd"), authoredBoard("other.mid", "other.prg"));
-  files.set(assetKey("chrs/hero.tem"), new Uint8Array([0]));
+  files.set(assetKey("chrs/hero.tem"), unwrap(writeCharacter({ ...createEmptyCharacter(), minor: 5, name: "Hero", movementAnimations: Array(8).fill(""), battleStances: ["", "", "", "", "", ""] })));
   files.set(assetKey("prg/start.prg"), encoder.encode(startupProgram));
   // Restore battle music after B's normal entry cue, so the later return must start B's track again.
   files.set(assetKey("prg/other.prg"), encoder.encode('mediaPlay("battle.mid", { track: "music", loop: 1 })\nend()'));

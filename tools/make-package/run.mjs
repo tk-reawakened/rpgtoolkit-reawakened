@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import {
   createEmptyMainFile,
   deriveGameId,
+  derivePackageIdentity,
   loadPackage,
   writeMainFile,
   writeDistributionPackage,
@@ -138,8 +139,8 @@ export function makePackage(folder, options = {}) {
     file,
     sha256: sha256(written.value),
     size: written.value.length,
-    // The identity a library row keys by: core's own derivation over the main file's bytes and the package's title.
-    gameId: deriveGameId(mainBytes, title),
+    // The package's content identity is independent of its display title.
+    gameId: deriveGameId(mainBytes, derivePackageIdentity(files.map(({ path, bytes }) => ({ path, bytes })))),
     title,
     version,
   };

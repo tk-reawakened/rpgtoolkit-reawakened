@@ -9,6 +9,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./live-session": {
+      "types": "./dist/live-session.d.ts",
+      "default": "./dist/live-session.js"
+    },
     "./app": "./app/index.html"
   },
   "scripts": {

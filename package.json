@@ -58,6 +58,7 @@
     "desktop:build": "node tools/desktop/build.mjs",
     "desktop:run": "node tools/desktop/run.mjs",
     "desktop:measure": "node tools/desktop/measure.mjs",
+    "desktop:input": "node tools/desktop/probe-input.mjs",
     "desktop:inventory": "node tools/licences/desktop-inventory.mjs"
   },
   "devDependencies": {

@@ -51,7 +51,7 @@ export async function measure(options = {}) {
       ...(process.platform === "linux" ? ["--enable-unsafe-swiftshader"] : []),
       "--serve", root,
       "--package", pkg,
-      "--page", "packages/runner-desktop/app/player.html",
+      "--page", "packages/runner-desktop/app/player-measure.html",
       "--report", reportPath,
       "--quit-after",
     ],

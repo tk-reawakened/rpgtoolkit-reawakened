@@ -20,6 +20,7 @@ import { err, ok, type Result } from "../formats/result.ts";
 import { readCharacter } from "../formats/actor/character.ts";
 import { readItem } from "../formats/actor/item.ts";
 import type { Character, Item } from "../formats/actor/model.ts";
+import { actorInputFromCharacter } from "../actors/hydrate.ts";
 import { readMainFile } from "../formats/main-file/reader.ts";
 import { planPrefetch, prefetchSignature, type PrefetchFacts } from "../prefetch/plan.ts";
 import { readBattleBackground } from "../formats/battle/battle-background.ts";
@@ -66,7 +67,7 @@ import { applyCameraEffect, createCameraSection, initCameraForBoard, positionAt,
 import { applyInputEffect, applySpriteEffect } from "../script/packs/world.ts";
 import type { CameraPoint, CameraTarget } from "../ports/camera.ts";
 import type { SpriteActor, Facing } from "../sprites/model.ts";
-import { resetSpritesSection, placeSelectedPlayer, selectActor as selectPartyActor, removeActorSprite, type SpriteRuntime } from "../sprites/runtime.ts";
+import { resetSpritesSection, placeSelectedPlayer, selectActor as selectPartyActor, removeActorSprite, spriteDraws, createInitialPlayer, type SpriteRuntime } from "../sprites/runtime.ts";
 import { boardCollisionAt } from "../sprites/movement.ts";
 import { resetTriggersSection } from "../triggers/model.ts";
 import { applyTriggerEffect } from "../triggers/runtime.ts";
@@ -190,7 +191,7 @@ type EngineCommonInit = {
   readonly bundled?: ReadonlyMap<AssetKey, Uint8Array>;
   /** Additional scene/editor image commands, kept as draw-list data. */
   readonly blits?: readonly BoardBlit[];
-  /** Sprites composed over the board until the sprites section feeds the compositor (movement-triggers owns that). */
+  /** Additional static scene/editor sprite draw data; run-time actors come from `state.sprites` (E-52). */
   readonly sprites?: readonly SpriteDraw[];
   /** Script ambient summed with the board ambient once per tile blit (E-17). */
   readonly globalAmbient?: Tint;
@@ -315,8 +316,10 @@ export function createEngine(init: EngineInit): Engine {
   const defaultFontAsset = DEFAULT_FONT_ASSET;
   let root: AssetRoot = init.assetRoot;
   let mainFile: MainFile | null = null;
-  let loader: ProgramLoader | null = null;
   let sceneBoardKey: AssetKey | null = null;
+  let loader: ProgramLoader | null = null;
+  let initialCharacterKey: AssetKey | null = null;
+  let initialCharacterResolved = true;
   let mainKey: AssetKey | null = null;
   const installedFonts = new Map<AssetKey, Uint8Array>();
   const cache = new Map<AssetKey, Uint8Array>();
@@ -476,6 +479,50 @@ export function createEngine(init: EngineInit): Engine {
   });
   bus.register("sprites", (effect) => {
     const values = effect.args as readonly Value[]; // Script effects use the VM Value subset.
+    if (effect.name === "createplayer") {
+      const key = assetKey(typeof effect.args[0] === "string" ? effect.args[0] : "");
+      const bytes = cache.get(key);
+      if (bytes === undefined) return;
+      const character = readCharacter(new BinaryReader(bytes, key));
+      if (!character.ok) {
+        diagnostics.push({ code: "asset.invalid", file: key, line: character.error.offset, message: character.error.message });
+        return;
+      }
+      if (state.sprites.players.length !== 0) return;
+      const result = menuOwners.party.apply({ type: "add", actor: actorInputFromCharacter(key, "party", character.value) });
+      if (result.error !== null) {
+        diagnostics.push({ code: "party.invalid", file: key, line: 0, message: result.error.message });
+        return;
+      }
+      const actor = state.actors.actors.find((candidate) => candidate.kind === "party" && candidate.source === key);
+      if (actor === undefined) return;
+      createInitialPlayer(state.sprites, null, {
+        id: `player:${actor.id}`,
+        actorId: actor.id,
+        kind: "player",
+        source: key,
+        x: 64,
+        y: 64,
+        layer: 1,
+        controlled: state.party.selected === actor.id,
+        character: character.value,
+      });
+      const runtime = init.spriteRuntime;
+      if (runtime !== undefined && runtime.section !== state.sprites && !runtime.section.players.some((player) => player.actorId === actor.id)) {
+        runtime.createPlayer(null, {
+          id: `player:${actor.id}`,
+          actorId: actor.id,
+          kind: "player",
+          source: key,
+          x: 64,
+          y: 64,
+          layer: 1,
+          controlled: state.party.selected === actor.id,
+          character: character.value,
+        });
+      }
+      return;
+    }
     if (effect.name === "__party_addplayer_asset" || effect.name === "__party_newplyr_asset") {
       const file = typeof effect.args[0] === "string" ? effect.args[0] : "";
       const hex = typeof effect.args[1] === "string" ? effect.args[1] : "";
@@ -1363,6 +1410,15 @@ export function createEngine(init: EngineInit): Engine {
     if (entry === undefined) return;
     pending.delete(entry.reqId);
     consumed.push(record);
+    if (entry.kind === "initial-character") {
+      initialCharacterResolved = true;
+      if (record.event.bytes === null) {
+        diagnostics.push({ code: "asset.missing", file: entry.key, line: 0, message: `asset not found: ${entry.key}` });
+      } else {
+        cache.set(entry.key, new Uint8Array(record.event.bytes));
+      }
+      return;
+    }
     if (entry.kind === "script-character" || entry.kind === "script-item" || entry.kind === "script-asset") {
       if (record.event.bytes === null) {
         replyToRequest(state.vm, entry.reqId - SCRIPT_REQUEST_BASE, { ok: false, value: "" });
@@ -2071,6 +2127,16 @@ export function createEngine(init: EngineInit): Engine {
       if (root.kind === "game") root = { kind: "game", projectPath: mainFile.projectPath };
       refreshGameId();
       for (const key of [...privateFontKeys(index, root), ...programKeys(index, root)]) request(key, key.endsWith(".ttf") ? "font" : "program");
+      if (mainFile.initChar !== "") {
+        const resolved = resolveAsset(index, root, "characters", mainFile.initChar);
+        if (!resolved.ok) {
+          diagnostics.push({ code: "asset.missing", file: mainKey, line: 0, message: `initChar "${mainFile.initChar}" is not in the asset index` });
+        } else {
+          initialCharacterKey = resolved.value;
+          initialCharacterResolved = cache.has(resolved.value);
+          if (!initialCharacterResolved) request(resolved.value, "initial-character");
+        }
+      }
       boot.stage = "assets";
       return true;
     }
@@ -2078,7 +2144,7 @@ export function createEngine(init: EngineInit): Engine {
       if (mainFile === null) return false;
       const fonts = privateFontKeys(index, root);
       const programs = programKeys(index, root);
-      if (![...fonts, ...programs].every((key) => cache.has(key))) return false;
+      if (!initialCharacterResolved || ![...fonts, ...programs].every((key) => cache.has(key))) return false;
       for (const key of fonts) {
         const gated = gateTrueType(cache.get(key) ?? new Uint8Array(), key);
         if (!gated.ok) {
@@ -2101,10 +2167,8 @@ export function createEngine(init: EngineInit): Engine {
       }
       if (!startupServicesReady) services = makeServices(activePlugins, loader, true);
       if (failed) return false;
-      if (mainFile.initChar !== "") {
-        const player = resolveAsset(index, root, "characters", mainFile.initChar);
-        if (player.ok) bus.postEffect("sprites", engineEffect("sprites", "createplayer", [player.value]));
-        else diagnostics.push({ code: "asset.missing", file: mainKey, line: 0, message: `initChar "${mainFile.initChar}" is not in the asset index` });
+      if (initialCharacterKey !== null && cache.has(initialCharacterKey)) {
+        bus.postEffect("sprites", engineEffect("sprites", "createplayer", [initialCharacterKey]));
       }
       if (mainFile.startupPrg !== "") startFileProgram(mainFile.startupPrg, mainKey, "blocking");
       boot.stage = "startup";
@@ -2825,7 +2889,7 @@ export function createEngine(init: EngineInit): Engine {
     }
   }
   function currentDrawList(alpha = 0, include = init.include ?? { shading: false, images: false, sprites: false }): DrawList {
-    const spriteInput = init.spriteRuntime?.draws() ?? (presentation.sprites ?? []);
+    const spriteInput = [...spriteDraws(state.sprites), ...(presentation.sprites ?? [])];
     const board: WorldBoard | null = state.world.board ?? null;
     const camera = positionAt(state.camera, Number.isFinite(alpha) ? Math.min(1, Math.max(0, alpha)) : 0);
     const debugCommands = (): DrawList["commands"] => {

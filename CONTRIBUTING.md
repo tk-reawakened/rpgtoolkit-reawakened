@@ -139,7 +139,7 @@ These packages exist today (`packages/`):
 
 Outside `packages/`: `docs/` (spec, ADRs, guard-rails), `tools/` (the checks and generators CI runs), `golden/` (committed reference output), `fixtures/` (fetched sample games, never committed), `media/`, and `_bmad-output/` (tickets and plans, see below).
 
-The editor and its hosts (`editor-ui`, `host-vscode`, `host-web`, `host-desktop`) and the debug server are **planned** and do not exist in this repository yet. The language server exists as `packages/lsp`. The web and desktop runners do exist (`runner-web`, `runner-desktop`), but a fully interactive player loop does not yet: today the desktop player boots a game to the board and measures it off-screen. The dependency direction every package must follow is in G2.
+The editor and its hosts (`editor-ui`, `host-vscode`, `host-web`, `host-desktop`) and the debug server are **planned** and do not exist in this repository yet. The language server exists as `packages/lsp`. The web and desktop runners do exist (`runner-web`, `runner-desktop`), but a fully interactive player loop is not yet demonstrated: the last recorded desktop run, before E-02, measured the game off-screen and showed only the title screen; no post-E-02 desktop run is recorded. The dependency direction every package must follow is in G2.
 
 ## Pick and claim an issue
 
@@ -263,12 +263,12 @@ pnpm fixtures:fetch                                             # the sample gam
 pnpm make-package fixtures/legacy/demo --closing-plan golden/closing/plan.json \
   --game demo --out fixtures/packages/demo.tpk --title Demo      # one .tpk package + descriptor
 pnpm desktop:build                                              # dist/main.js, dist/preload.js, apps/player-desktop.js
-pnpm desktop:measure                                           # launch, boot to the board, print the report, quit
+pnpm desktop:measure                                           # run the closing-path measurement, print report, quit
 ```
 
-`pnpm desktop:measure` prints a JSON report that contains `"error": null`, `"tick": 120`, `"stateHash": "bff947dce3a11b4f"`, `"drawHash": "9a40be8a0b5ca816"` and `"frame": { "worst": 0 }` (a `save` block follows `frame`). It builds the package for you if you leave `--package` off. Point it at a package you built yourself with `pnpm desktop:measure --package path/to/your.tpk`.
+The current expected `demo` closing-baseline fields at tick 120 are `"stateHash": "91172695de52cfd6"` and `"drawHash": "9a40be8a0b5ca816"`. This is the committed closing-suite reference, not evidence of a post-E-02 desktop run. The recorded macOS desktop report predates E-02 and printed `"error": null`, with the previous state hash, draw hash `"9a40be8a0b5ca816"` and frame worst 0; that earlier state hash is retained as historical and superseded for current parity. No post-E-02 `desktop:measure` result is recorded here. The command builds the package for you if you leave `--package` off. Point it at a package you built yourself with `pnpm desktop:measure --package path/to/your.tpk`.
 
-To open the window and leave it open (the window title changes to `desktop: bff947dce3a11b4f` when the game boots):
+The recorded pre-E-02 launch titled its window with the previous state hash; this is historical output, not a post-E-02 title or desktop-pass claim.
 
 ```sh
 pnpm desktop:run --package fixtures/packages/demo.tpk
@@ -276,7 +276,7 @@ pnpm desktop:run --package fixtures/packages/demo.tpk
 
 `pnpm desktop:run` builds the `demo` package when `--package` is absent and passes the player's other flags through unchanged — `--serve <dir>` is the directory pages and data are served from, `--package <file.tpk>` is the game to open, `--page <path>` is the player page, and `--report <file>` / `--quit-after` are for the measurement harness. On Linux a headless machine runs the measurement with `xvfb-run -a pnpm desktop:measure`.
 
-Two things to expect on a fresh worktree: `pnpm install` can return before Electron's ~100 MB runtime has finished downloading in the background, so a first `desktop:measure` may fail with `ENOENT …/Electron` — wait and re-run; and the board is drawn off-screen for now (the window is black and only the title changes), because the interactive player loop is not built yet. The user-facing version of these steps is [docs/playing-the-desktop-player.md](docs/playing-the-desktop-player.md).
+Two things to expect on a fresh worktree: `pnpm install` can return before Electron's ~100 MB runtime has finished downloading in the background, so a first `desktop:measure` may fail with `ENOENT …/Electron` — wait and re-run; and the last recorded pre-E-02 launch drew the board off-screen. The live interactive loop and a post-E-02 visible desktop run remain unverified. The user-facing version of these steps is [docs/playing-the-desktop-player.md](docs/playing-the-desktop-player.md).
 
 ### The loop while you work
 

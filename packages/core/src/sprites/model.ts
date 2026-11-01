@@ -211,9 +211,9 @@ function actorBase(actor: Character | Item | undefined, fallback: SpriteBase, in
 }
 
 /** Turn a board placement into one canonical runtime sprite. */
-export function actorFromSource(source: SpriteActorSource, board: WorldBoard, index: number, handle: number | null): SpriteActor {
+export function actorFromSource(source: SpriteActorSource, board: WorldBoard | null, index: number, handle: number | null): SpriteActor {
   const actor = source.character ?? source.item;
-  const fallback = defaultBases((board.coordType & 3) !== 0);
+  const fallback = defaultBases(board !== null && (board.coordType & 3) !== 0);
   const item = source.boardItem;
   const multitask = source.item?.multitaskProgram ?? (item?.multitaskPrg || null);
   const link = source.actorId === undefined
