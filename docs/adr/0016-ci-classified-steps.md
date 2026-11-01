@@ -53,13 +53,13 @@ The verdict is `defer` only when the classifier positively determined that every
 
 * a path that is not on the inert list (including anything under `packages/`, `tools/`, `stock/`, `golden/`, `docs/spec/` or `.github/workflows/`, even a `README.md` there);
 * an empty diff, a non-`pull_request` event (so every push to `main`), or a malformed path (absolute, drive letter, `..`, `.` or empty segment, backslash, control character, replacement character);
-* a missing or empty verdict, or a `changes` job that failed before publishing one, since a step defers only on the exact value `false`.
+* a missing or empty verdict, or a `changes` job whose result is not `success`, since a step defers only when `changes` succeeded and its verdict is the exact value `false`.
 
 A **classifier failure** (git cannot produce the diff, the diff cannot be decoded or parsed, the classifier crashes or prints an incomplete or inconsistent verdict, its own unit tests fail) selects `run` **and fails the `changes` job**, which fails `gate`; the dependent jobs still run in full so the pull request gets every result. `gate` also fails if the verdict is absent, if a defer arrives without its `inert:` evidence, or if a defer arrives outside a `pull_request`. A pull request whose base has no classifier yet selects `run` with that stated reason; that is a verdict, not a failure.
 
 ### Transport
 
-The diff is `git diff --no-renames --name-only -z <base sha> <merge sha>` with `fetch-depth: 0`. `--no-renames` makes a rename contribute both its old and its new path. Paths travel through files and the environment, never through a shell command line. The classifier executed is the **base branch's copy** (`git show <base sha>:tools/ci/classify-changes.mjs`), so a pull request cannot loosen the rules that judge it. The pull request's own copy is tested first, in `changes`, before any verdict is published.
+The diff is `git --no-replace-objects diff --no-ext-diff --no-renames --name-only -z <base sha> <merge sha> --` with `fetch-depth: 0` and `GIT_NO_REPLACE_OBJECTS=1`. `--no-renames` makes a rename contribute both its old and its new path; `--no-replace-objects` stops replacement refs from rewriting history under either read. Paths travel through files and the environment, never through a shell command line. The classifier executed is the **base branch's copy** (`git --no-replace-objects show --no-textconv <base sha>:tools/ci/classify-changes.mjs`), copied with the diff into a temporary directory outside the checkout and run **first**, before any code from the pull request's head executes; the temporary directory is deleted before the step ends and its outputs are sealed. The pull request's own unit tests run in `changes` **after** the verdict is sealed; if they fail, `changes` fails, every classified job ignores any `defer` verdict and runs in full, and `gate` fails.
 
 ### The inert set
 
@@ -84,7 +84,7 @@ It deliberately **excludes**: all of `packages/`, `tools/`, `stock/` and `golden
 * `mobile`: Java and Android SDK setup, install, build, fixture fetch, package, APK build, KVM check, emulator proof, artefact upload.
 * `script-dogfood`: install, build, and the five `tkr script` baseline comparisons.
 
-Each of those jobs keeps its decision-report step, which always runs. `script-dogfood` still waits for `checks` to succeed.
+Each of those jobs keeps its decision-report step, which always runs. `script-dogfood` no longer depends on `checks`, so a `checks` failure does not cause GitHub to skip `script-dogfood` — every job runs and reports its own result.
 
 ### Wording added to guardrails.md
 

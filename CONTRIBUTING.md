@@ -323,7 +323,7 @@ A job that runs prints the path that forced it:
 CI classifier [golden]: RUN - full: tools/ci/classify-changes.mjs
 ```
 
-If the classifier itself cannot decide (git fails, the diff cannot be parsed, it crashes, its tests fail), every job runs in full and `changes` fails, which fails `gate`. That is a CI problem to report, not something your pull request caused by being small. The classifier is `tools/ci/classify-changes.mjs`; its tests are `pnpm ci:classify:test`. CI runs the **base branch's** copy to judge your pull request, so changing the classifier cannot loosen the verdict on that same pull request (and a change under `tools/` always runs everything anyway).
+If the classifier itself cannot decide (git fails, the diff cannot be parsed, it crashes, its tests fail), every job runs in full and `changes` fails, which fails `gate`. That is a CI problem to report, not something your pull request caused by being small. The classifier is `tools/ci/classify-changes.mjs`; its tests are `pnpm ci:classify:test`. CI reads and runs the **base branch's** copy (with git replacement objects disabled) before executing anything from your pull request, then runs your branch's classifier tests afterwards, so changing the classifier or its tests cannot loosen the verdict on that same pull request (and a change under `tools/` always runs everything anyway).
 
 ### Contribute through a fork
 
