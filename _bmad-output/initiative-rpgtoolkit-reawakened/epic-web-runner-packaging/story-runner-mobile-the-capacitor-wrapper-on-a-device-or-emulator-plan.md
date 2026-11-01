@@ -17,10 +17,9 @@ context:
 
 # runner-mobile: the Capacitor wrapper on a device or emulator
 
-## The line this entry stops at
-
-The wrapper is built up to the **device proof**, which is a person's: everything below is code, and the last step needs
-hardware or an emulator we do not have here. **No claim is made that a device ran.**
+The implementation is incomplete. The current shared page is a closing-suite measurement: it advances a scripted
+run to tick 120 and renders into a detached canvas. It does not provide a visible, interactive game loop. A passing
+browser stub is not native-device evidence; this ticket remains in progress and its PR remains draft.
 
 ## What is built
 
@@ -55,21 +54,13 @@ the spec showed **`HTTP 404` for the page itself** — the static host's `ROOTS`
 `packages/runner-mobile/app`, so the page never loaded and nothing ever ran. It was not a `deviceready` race, a double
 `await` or a base64 decode: the bundle was never requested. Adding the root to the host fixed it.
 
-## The device proof (a person's, in this order)
+## Device proof
 
-```bash
-pnpm install && pnpm build
-pnpm make-package fixtures/legacy/demo --closing-plan golden/closing/plan.json --game demo \
-  --out fixtures/packages/demo.tpk --title Demo
-pnpm mobile:build
-cp fixtures/packages/demo.tpk packages/runner-mobile/dist/public/game.tpk
-cd packages/runner-mobile && npx cap add android && npx cap sync android
-cd android && ./gradlew installDebug        # a booted emulator or a connected device
-```
-
-Pass condition: the window title reads `mobile: bff947dce3a11b4f` — the same state hash the headless baseline and the
-desktop measurement report — and a save written on the device (`saves/<gameId>/…` inside the app's Files) reads back
-after a restart.
+The previous device recipe was not verified and is withdrawn. A clean checkout must first fetch the sample fixtures
+with `pnpm fixtures:fetch`; `pnpm mobile:build` creates `dist/public` for the package. Native packaging and a real,
+visible demo run still need to be exercised before a device recipe can be presented as a working acceptance procedure.
+Acceptance requires a person to confirm the demo reaches the board on a device or emulator and the tick-120 state hash
+matches `bff947dce3a11b4f` (issue #940).
 
 ## An emulator in CI
 

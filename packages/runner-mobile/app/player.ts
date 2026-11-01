@@ -5,6 +5,7 @@
  * and the package is the one the app carries or the player picked. Nothing here knows it is on a phone.
  */
 
+import { Filesystem } from "@capacitor/filesystem";
 import { bootPlayerPage } from "@tk-reawakened/runner-web";
 import { createMobileHost, type MobileFilesystem } from "../src/storage.ts";
 
@@ -16,21 +17,18 @@ declare global {
 }
 
 void (async () => {
-  const filesystem = window.Capacitor?.Plugins?.Filesystem;
-  if (filesystem === undefined) {
-    window.__mobile = { error: "the Capacitor Filesystem plugin is absent; this page runs inside the wrapper" };
-    return;
-  }
+  const filesystem = window.Capacitor?.Plugins?.Filesystem ?? Filesystem;
   const host = createMobileHost({
     filesystem,
-    // The package the app carries: `capacitor.config.json` puts the built page and the package in `dist/`.
+    // The package is a web asset in Capacitor's bundled webDir, not writable native storage.
     readPackage: async () => {
       try {
-        const file = await filesystem.readFile({ path: "public/game.tpk" });
-        const bytes = file.data instanceof Uint8Array
-          ? file.data
-          : Uint8Array.from(atob(file.data), (character) => character.charCodeAt(0));
-        return { name: "game.tpk", bytes };
+        const response = await fetch("/public/game.tpk");
+        if (!response.ok) return null;
+        return {
+          name: "game.tpk",
+          bytes: new Uint8Array(await response.arrayBuffer()),
+        };
       } catch {
         return null;
       }

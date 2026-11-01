@@ -10,12 +10,31 @@
  * out. A path that escapes its area is refused, on every platform the same way.
  */
 
-/** The slice of Capacitor's `Filesystem` plugin this wrapper needs, so a test can stand in for it. */
-export type MobileFilesystem = {
-  writeFile(options: { readonly path: string; readonly data: Uint8Array; readonly recursive?: boolean }): Promise<unknown>;
-  readFile(options: { readonly path: string }): Promise<{ readonly data: string | Uint8Array }>;
-  readdir(options: { readonly path: string }): Promise<{ readonly files: readonly { readonly name: string; readonly type?: string }[] }>;
-};
+import { Directory } from "@capacitor/filesystem";
+import type { FilesystemPlugin } from "@capacitor/filesystem";
+
+/** The Capacitor calls this wrapper needs, kept injectable for tests. */
+export type MobileFilesystem = Pick<FilesystemPlugin, "writeFile" | "readFile" | "readdir">;
+
+/** Capacitor's native plugin stores binary writes as base64 strings, never as raw Uint8Array values. */
+function encodeBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length)));
+  }
+  return btoa(binary);
+}
+
+async function decodeBinary(data: string | Blob): Promise<Uint8Array> {
+  if (data instanceof Blob) return new Uint8Array(await data.arrayBuffer());
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+const DATA_DIRECTORY = Directory.Data;
 
 export type MobileHostOptions = {
   readonly filesystem: MobileFilesystem;
@@ -54,7 +73,12 @@ export function createMobileHost(options: MobileHostOptions): {
       const safeGame = safeRelative(gameId);
       if (safe === null || safeGame === null) return false;
       try {
-        await filesystem.writeFile({ path: `${areaPath(area, safeGame)}/${safe}`, data: bytes, recursive: true });
+        await filesystem.writeFile({
+          path: `${areaPath(area, safeGame)}/${safe}`,
+          directory: DATA_DIRECTORY,
+          data: encodeBase64(bytes),
+          recursive: true,
+        });
         return true;
       } catch {
         return false;
@@ -65,13 +89,11 @@ export function createMobileHost(options: MobileHostOptions): {
       const safeGame = safeRelative(gameId);
       if (safe === null || safeGame === null) return null;
       try {
-        const file = await filesystem.readFile({ path: `${areaPath(area, safeGame)}/${safe}` });
-        if (file.data instanceof Uint8Array) return file.data;
-        // Capacitor returns base64 text for a binary read; decode it the way the host bridge does.
-        const binary = atob(file.data);
-        const bytes = new Uint8Array(binary.length);
-        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-        return bytes;
+        const file = await filesystem.readFile({
+          path: `${areaPath(area, safeGame)}/${safe}`,
+          directory: DATA_DIRECTORY,
+        });
+        return await decodeBinary(file.data);
       } catch {
         return null;
       }
@@ -80,8 +102,21 @@ export function createMobileHost(options: MobileHostOptions): {
       const safeGame = safeRelative(gameId);
       if (safeGame === null) return [];
       try {
-        const listed = await filesystem.readdir({ path: areaPath(area, safeGame) });
-        return listed.files.filter((entry) => entry.type !== "directory").map((entry) => entry.name).sort();
+        const root = areaPath(area, safeGame);
+        const files: string[] = [];
+        const visit = async (directoryPath: string, relativePath: string): Promise<void> => {
+          const listed = await filesystem.readdir({ path: directoryPath, directory: DATA_DIRECTORY });
+          for (const entry of listed.files) {
+            const entryPath = relativePath === "" ? entry.name : `${relativePath}/${entry.name}`;
+            if (entry.type === "directory") {
+              await visit(`${directoryPath}/${entry.name}`, entryPath);
+            } else {
+              files.push(entryPath);
+            }
+          }
+        };
+        await visit(root, "");
+        return files.sort();
       } catch {
         return [];
       }

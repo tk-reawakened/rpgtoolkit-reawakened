@@ -11,7 +11,12 @@ import { expect, test } from "@playwright/test";
  * is what runs.
  */
 test("the mobile page boots the package to the tick-120 hashes through a Capacitor-shaped host", async ({ page }) => {
-  // A filesystem stub backed by the served package, installed before the page's bundle runs.
+  // The package is fetched from the app origin, not from writable native storage.
+  await page.route("**/public/game.tpk", async (route) => {
+    const response = await route.fetch({ url: "/fixtures/packages/demo.tpk" });
+    await route.fulfill({ response });
+  });
+  // Model native base64 strings, Directory.Data, and nonrecursive directory listings.
   await page.addInitScript(() => {
     const files = new Map<string, Uint8Array>();
     (window as unknown as { __files: Map<string, Uint8Array> }).__files = files;
@@ -20,30 +25,35 @@ test("the mobile page boots the package to the tick-120 hashes through a Capacit
       for (const byte of bytes) text += String.fromCharCode(byte);
       return btoa(text);
     };
+    const calls: string[] = [];
+    (window as unknown as { __nativeCalls: string[] }).__nativeCalls = calls;
     (window as unknown as { Capacitor: unknown }).Capacitor = {
-      Plugins: {
-        Filesystem: {
-          async writeFile({ path, data }: { path: string; data: Uint8Array }): Promise<void> {
-            files.set(path, new Uint8Array(data));
-          },
-          async readFile({ path }: { path: string }): Promise<{ data: string }> {
-            if (path === "public/game.tpk") {
-              const response = await fetch("/fixtures/packages/demo.tpk");
-              if (!response.ok) throw new Error(`missing package ${response.status}`);
-              return { data: toBase64(new Uint8Array(await response.arrayBuffer())) };
-            }
-            const found = files.get(path);
-            if (found === undefined) throw new Error(`absent ${path}`);
-            return { data: toBase64(found) };
-          },
-          async readdir({ path }: { path: string }): Promise<{ files: { name: string; type: string }[] }> {
-            return {
-              files: [...files.keys()]
-                .filter((key) => key.startsWith(`${path}/`))
-                .map((key) => ({ name: key.slice(path.length + 1), type: "file" })),
-            };
-          },
-        },
+      PluginHeaders: [{ name: "Filesystem", methods: ["writeFile", "readFile", "readdir"].map((name) => ({ name, rtype: "promise" })) }],
+      async nativePromise(plugin: string, method: string, options: { path: string; data?: string; directory: string }): Promise<unknown> {
+        if (plugin !== "Filesystem" || options.directory !== "DATA") throw new Error("invalid native request");
+        calls.push(method);
+        const { path, data } = options;
+        if (method === "writeFile") {
+          if (typeof data !== "string") throw new Error("invalid native write");
+          const binary = atob(data);
+          files.set(path, Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+          return { uri: path };
+        }
+        if (method === "readFile") {
+          const found = files.get(path);
+          if (found === undefined) throw new Error(`absent ${path}`);
+          return { data: toBase64(found) };
+        }
+        if (method === "readdir") {
+          const entries = new Map<string, string>();
+          for (const key of files.keys()) {
+            if (!key.startsWith(`${path}/`)) continue;
+            const [name, ...rest] = key.slice(path.length + 1).split("/");
+            if (name !== undefined) entries.set(name, rest.length === 0 ? "file" : "directory");
+          }
+          return { files: [...entries].map(([name, type]) => ({ name, type })) };
+        }
+        throw new Error(`unexpected native method ${method}`);
       },
     };
   });
@@ -73,4 +83,5 @@ test("the mobile page boots the package to the tick-120 hashes through a Capacit
   // The save went through the same four-call host the wrapper implements.
   const save = report["save"] as { written: boolean };
   expect(save.written).toBe(true);
+  expect(await page.evaluate(() => (window as unknown as { __nativeCalls: string[] }).__nativeCalls)).toEqual(["writeFile", "readFile"]);
 });

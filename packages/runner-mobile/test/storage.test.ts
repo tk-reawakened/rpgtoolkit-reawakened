@@ -4,38 +4,65 @@
 
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
+import { Directory } from "@capacitor/filesystem";
 import { createMobileHost, safeRelative, type MobileFilesystem } from "../src/storage.ts";
 
-/** A filesystem the tests can read back: a map keyed by the absolute path the wrapper asked for. */
-function memoryFilesystem(): MobileFilesystem & { readonly files: Map<string, Uint8Array> } {
-  const files = new Map<string, Uint8Array>();
+/** A filesystem stub stores the same base64 string the native plugin writes, keyed by its AD-17 path. */
+function memoryFilesystem(): MobileFilesystem & { readonly files: Map<string, string> } {
+  const files = new Map<string, string>();
   return {
     files,
-    async writeFile({ path, data }) {
-      files.set(path, new Uint8Array(data));
+    async writeFile({ path, data, directory }) {
+      equal(directory, Directory.Data, "native data stays in app-private storage");
+      if (typeof data !== "string") throw new TypeError("native binary writes must be base64 text");
+      files.set(path, data);
+      return { uri: `file://${path}` };
     },
-    async readFile({ path }) {
+    async readFile({ path, directory }) {
+      equal(directory, Directory.Data, "native data stays in app-private storage");
       const found = files.get(path);
       if (found === undefined) throw new Error("absent");
       return { data: found };
     },
-    async readdir({ path }) {
-      const names = [...files.keys()]
-        .filter((key) => key.startsWith(`${path}/`))
-        .map((key) => key.slice(path.length + 1));
-      return { files: names.map((name) => ({ name, type: "file" })) };
+    async readdir({ path, directory }) {
+      equal(directory, Directory.Data, "native data stays in app-private storage");
+      const prefix = `${path}/`;
+      const entries = new Map<string, "directory" | "file">();
+      for (const key of files.keys()) {
+        if (!key.startsWith(prefix)) continue;
+        const remainder = key.slice(prefix.length);
+        const separator = remainder.indexOf("/");
+        const name = separator < 0 ? remainder : remainder.slice(0, separator);
+        entries.set(name, separator < 0 ? "file" : "directory");
+      }
+      return {
+        files: [...entries].map(([name, type]) => ({
+          name,
+          type,
+          size: 0,
+          uri: `file://${path}/${name}`,
+          mtime: 0,
+        })),
+      };
     },
   };
 }
 
-test("a save round-trips under AD-17's keys, in the area and game the caller names", async () => {
+test("a save round-trips under AD-17's keys and native base64 storage", async () => {
   const filesystem = memoryFilesystem();
   const host = createMobileHost({ filesystem, readPackage: async () => null });
   const bytes = new Uint8Array([1, 2, 3]);
   equal(await host.writeBlob("saves", "game-a", "slot-1.json", bytes), true);
+  equal(await host.writeBlob("saves", "game-a", "nested/slot-1.json", bytes), true);
+  equal(await host.writeBlob("saves", "game-a", "nested/deep/value.dat", bytes), true);
+  equal(filesystem.files.get("saves/game-a/slot-1.json"), "AQID", "native writes receive base64 text");
   deepEqual([...(await host.readBlob("saves", "game-a", "slot-1.json")) ?? []], [1, 2, 3]);
   ok(filesystem.files.has("saves/game-a/slot-1.json"), "the key layout is the desktop's");
-  deepEqual(await host.listBlobs("saves", "game-a"), ["slot-1.json"]);
+  deepEqual(await host.listBlobs("saves", "game-a"), [
+    "nested/deep/value.dat",
+    "nested/slot-1.json",
+    "slot-1.json",
+  ]);
   deepEqual(await host.listBlobs("saves", "game-b"), [], "another game's area is empty");
 });
 
@@ -59,7 +86,6 @@ test("a base64 read is decoded, because Capacitor returns text for a binary file
       throw new Error("not used");
     },
     async readFile() {
-      // base64 without a Node global: `types: []` keeps @types/node out of this project (G2).
       let text = "";
       for (const byte of bytes) text += String.fromCharCode(byte);
       return { data: btoa(text) };

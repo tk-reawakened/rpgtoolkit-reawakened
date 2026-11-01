@@ -6,7 +6,7 @@
 //   node tools/mobile/build.mjs
 
 import { build } from "esbuild";
-import { cpSync, mkdirSync, readFileSync } from "node:fs";
+import { cpSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,9 +28,10 @@ await build({
 mkdirSync(join(mobile, "dist"), { recursive: true });
 cpSync(join(mobile, "app", "player.html"), join(mobile, "dist", "index.html"));
 mkdirSync(join(mobile, "dist", "apps"), { recursive: true });
+mkdirSync(join(mobile, "dist", "public"), { recursive: true });
 cpSync(join(root, "apps", "player-mobile.js"), join(mobile, "dist", "apps", "player-mobile.js"));
 // The bundled-asset list the page reads: written here too, so the mobile build does not depend on the desktop's.
-const { readdirSync, writeFileSync } = await import("node:fs");
+// Copy the exact resources used by the shared measurement page into the webDir.
 const folders = ["media/fonts", "media/cursors"];
 const bundled = folders.flatMap((folder) =>
   readdirSync(join(root, folder), { withFileTypes: true })
@@ -40,5 +41,14 @@ const bundled = folders.flatMap((folder) =>
 );
 writeFileSync(join(root, "apps", "bundled.json"), `${JSON.stringify({ folders, files: bundled }, null, 2)}\n`);
 cpSync(join(root, "apps", "bundled.json"), join(mobile, "dist", "apps", "bundled.json"));
+for (const name of [
+  "golden/closing/plan.json",
+  "tools/fixtures/conformance/raster/vectors.json",
+  "packages/core/test/fixtures/audio/files/pcm16-mono-8000.wav",
+  ...bundled,
+]) {
+  const destination = join(mobile, "dist", name);
+  mkdirSync(dirname(destination), { recursive: true });
+  cpSync(join(root, name), destination);
+}
 console.log("built runner-mobile: apps/player-mobile.js and dist/ (the Capacitor webDir)");
-void readFileSync;
