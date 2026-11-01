@@ -1,54 +1,105 @@
-# ADR 0016 — Classify CI work without skipping required jobs
+# ADR 0016 — Each CI job judges its own applicability: classified steps, no skipped jobs
 
-* **Status:** Proposed — awaiting owner ruling; not authority to change CI
+* **Status:** Accepted. Approved ruling (owner: Jensen, 2026-11-01)
 * **Date:** 2026-11-01
-* **Context:** [G5 and the rollout](../guardrails.md), issue #664
+* **Amends:** [guardrails.md](../guardrails.md) G5 (Enforcement) and Rollout item 4, by one sentence each; no rule is weakened
+* **Context documents:** [G5 and the rollout](../guardrails.md), issue #664 (prior art: closed PR #665, which skipped whole jobs; this ADR rejects that model)
+
+## Summary
+
+In plain terms:
+
+1. **Every CI job still runs on every pull request and still reports a real result.** No job is ever skipped. `gate` still needs every job, and the ruleset's single required check, `gate`, keeps its meaning.
+2. **A job decides for itself whether its expensive work is needed.** For a change that touches only inert files (prose and planning records, named below), the heavy steps (installs, builds, replays, emulators) are deferred. The job then says so, in one line, with the evidence, and reports success.
+3. **Uncertainty always means "run".** The only way a job says "fine" is a positive, printed determination that nothing it guards could have changed.
 
 ## Context
 
-CI runs costly test, replay and device jobs even for a prose-only pull request. G5 currently says the headless golden suite must **run** on every pull request, and the rollout requires every named job to succeed. A successful job that omits its replay does not literally run that suite. Whether to permit that exception is the owner's decision, not a conclusion this proposal can make.
+CI runs a fifteen-shard unit matrix, goldens under Node and Bun, a browser lane, a three-OS desktop matrix, an Android emulator and the script dogfood lane. A prose-only pull request pays for all of it.
 
-The active default-branch ruleset requires only `gate`. GitHub treats a job skipped by a condition as successful for required-check purposes; a whole workflow skipped by path filtering can leave its check pending. Therefore neither branch protection nor a green skipped job proves the expensive work ran. See [GitHub's required-check documentation](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks).
+G5 says the headless golden suite **MUST** run on every pull request as a required check, that merges are blocked if it fails or is skipped, and the rollout says `gate` fails unless every required job succeeded, "so a skipped job cannot merge".
 
-## Proposed decision: A
+GitHub counts a job skipped by a condition as a success for required-check purposes, and a workflow skipped by a path filter leaves its checks pending. The active ruleset (checked 2026-11-01) requires only `gate`. So a central scheduler that removes jobs would either contradict G5 and the rollout text or need a `gate` that tolerates `skipped`, and a tolerated `skipped` is indistinguishable from a job that silently stopped working. Closed PR #665 took that route.
 
-Keep all current jobs in `gate`'s `needs`, keep each job running, and keep the gate failing for every non-success result. A new `changes` job and `gate` must also succeed. Only after the owner accepts this decision may selected **steps** be conditional. Each job that omits work must report clearly that its steps were skipped and identify the documentation-only paths; its job result is still success. No ruleset or required-context change is proposed. A failed, cancelled, missing or ambiguous classifier must never select an omission; a failed required job must still fail the gate.
+## Decision
 
-Classify the complete pull-request diff with the classifier from the trusted base revision, not the version under review. Obtain both sides of renames (for example `git diff --no-renames --name-only -z`), treat malformed bytes, missing history, diff or classifier errors and missing outputs as full-suite inputs, and force full work on pushes to `main`. Do not interpolate changed paths into shell commands. Test the classifier, transport and gate so an unexpected omission or error cannot pass unnoticed. The classifier change itself, workflow changes, and unclassified paths always select full work.
+### The model: intelligence lives inside the job
 
-The only proposed inert paths are root-level `*.md`; `docs/guardrails.md`; `docs/adr/**/*.md`; `_bmad-output/**/*.md`; and `.github/ISSUE_TEMPLATE/**/*.{md,yml,yaml}`. These are prose, planning records or issue form metadata rather than lane inputs. `checks` still runs for them, including provenance. The allowlist deliberately does not include all Markdown or all `_bmad-output` files. Anything under `packages/`, `tools/`, `stock/`, `golden/`, `docs/spec/` or `.github/workflows/` always selects full work, even if named `README.md`; all other paths also select full work. An empty list, malformed or absolute path, traversal, backslash or unknown event selects full work.
+The owner's framing: **the job decides whether it needs to run; otherwise it reports that things are fine.** The job that owns a check is the one that judges whether the check applies. A central scheduler never deletes work before it is dispatched.
 
-### Proposed G5 clarification, requiring owner approval
+Mechanically, a `changes` job classifies the pull request's changed paths and publishes a verdict. Each of `golden`, `golden-bun`, `browser`, `desktop` (each matrix leg), `mobile` and `script-dogfood` always runs. Its first step prints the verdict. Every later step runs unless the verdict is exactly "defer". A job whose steps are all deferred still ends in `success`.
 
-If the owner chooses A, replace G5 rule 1 with this explicit sentence (and update its enforcement text consistently):
+`checks`, `unit` and `gate` are never deferred. The licence audit and provenance scan must see every diff, and `gate` merges the coverage from every unit shard. `changes` and `gate` are never deferred either.
 
-> A headless runner (Node/Bun, CPU rasteriser, null audio, scripted input) MUST exist from milestone 1, and its required CI job MUST run on every pull request; the golden execution steps MAY be omitted only when a fail-closed classifier proves that every changed path is in the ADR 0016 inert allowlist. All other changes MUST execute the golden suite.
+### "Fine" is evidenced, not asserted
 
-Add to G5 enforcement: “An intended omission of golden execution steps is reported by the successful job; a failed, cancelled or skipped job, classifier failure, or unexpected omission blocks merge.” The rollout still requires all named jobs to succeed, but should expressly distinguish a successful job with an allowed step omission from a skipped job. This proposal does not amend guardrails or assert that current G5 already permits A.
+When a job defers it prints one line naming the job, the verdict and the classifier's reason, which lists the inert paths examined:
 
-## Current graph and proposed step scope
+```text
+CI classifier [golden]: DEFER steps - nothing this job guards changed: inert: _bmad-output/example/plan.md
+```
 
-All eight rows remain required successful jobs. `script-dogfood` depends on `checks`; `gate` depends on all eight and merges unit coverage. “May omit” below means **only after approval**, for the exact inert-only PR above; it never means a GitHub job is skipped.
+When it runs it prints the reason it was forced, so both directions are legible:
 
-| Job | Guards and docs-only effect | Proposed step scope |
-|---|---|---|
-| `checks` | Typecheck, lint, dependency audit/licences, provenance, graph, fixture/corpus/catalogue and tool checks; documentation can affect its scans and generated-document checks. | Never omit steps. |
-| `unit` | Fifteen strict test and coverage shards; `gate` consumes their LCOV artefacts. | Never omit steps: preserving coverage merge and its thresholds requires every shard. |
-| `golden` | Node headless goldens, closing, reference oracle and corpus digests; inert prose cannot change their inputs. | May omit setup, fixture, build, replay and oracle/dump steps only with the proposed explicit G5 ruling. |
-| `golden-bun` | Bun replay of golden and closing suites; inert prose cannot change their inputs. | May omit setup, fixture and replay steps only with the proposed rollout ruling. |
-| `browser` | Real Chromium game and raster conformance; inert prose cannot change its inputs. | May omit setup, build, fixture, browser installation and test steps. |
-| `desktop` | Electron package and measurements on Linux, macOS and Windows; inert prose cannot change its inputs. | May omit setup, fixture, build, measurement, inventory and artefact steps on each matrix runner. |
-| `mobile` | Real Android build and emulator proof; inert prose cannot change its inputs. | May omit setup, SDK, build, emulator and proof artefact steps. |
-| `script-dogfood` | Script CLI check, formatting, index, docs and test baselines; inert prose cannot change its inputs. | May omit setup, build and dogfood commands; all RPGCode, `stock/`, spec, packages and tooling changes run them. |
+```text
+CI classifier [golden]: RUN - full: tools/ci/classify-changes.mjs
+```
 
-`changes` and `gate` themselves are never omitted. `gate` still checks all outcomes and always downloads, merges, checks and uploads coverage. A report-only step in each conditionally reduced job must always execute. Actual workflow wiring and real pull-request evidence are separate work after the owner ruling.
+A bare "skipped" is never acceptable: it looks the same as a job that stopped working.
+
+### Uncertainty is never "fine"
+
+The verdict is `defer` only when the classifier positively determined that every changed path is inert. Everything else selects `run`:
+
+* a path that is not on the inert list (including anything under `packages/`, `tools/`, `stock/`, `golden/`, `docs/spec/` or `.github/workflows/`, even a `README.md` there);
+* an empty diff, a non-`pull_request` event (so every push to `main`), or a malformed path (absolute, drive letter, `..`, `.` or empty segment, backslash, control character, replacement character);
+* a missing or empty verdict, since the steps defer only on the exact value `false`.
+
+A **classifier failure** (git cannot produce the diff, the diff cannot be decoded or parsed, the classifier crashes, its output cannot be written) selects `run` **and fails the `changes` job**, which fails `gate`. A pull request whose base has no classifier yet selects `run` with that stated reason.
+
+### Transport
+
+The diff is `git diff --no-renames --name-only -z <base sha> <merge sha>` with `fetch-depth: 0`. `--no-renames` makes a rename contribute both its old and its new path. Paths travel through files and the environment, never through a shell command line. The classifier executed is the **base branch's copy** (`git show <base sha>:tools/ci/classify-changes.mjs`), so a pull request cannot loosen the rules that judge it. The pull request's own copy is still tested, in `changes`.
+
+### The inert set
+
+Only these paths are inert, because they are read by people and not by any lane:
+
+| Path | Why it cannot move a hash or change a lane |
+|---|---|
+| root-level `*.md` (`README.md`, `CONTRIBUTING.md`, `AGENTS.md`...) | Prose for people; no job reads them |
+| `docs/guardrails.md` | The rules as prose; the checks that enforce them live in code |
+| `docs/adr/**/*.md` | Decision records |
+| `_bmad-output/**/*.md` | Plans and tickets; not read by any lane |
+| `.github/ISSUE_TEMPLATE/**/*.{md,yml,yaml}` | Issue forms; GitHub reads them, CI does not |
+
+It deliberately **excludes**: all of `packages/`, `tools/`, `stock/` and `golden/` (even Markdown there; fixtures and generators are inputs); `docs/spec/` (the normative spec, and `docs/spec/examples` is dump-checked by `golden`); `.github/workflows/` and `.github/pull_request_template.md`; non-Markdown files under `_bmad-output/`; every other file in `docs/`; the lockfile, `package.json`, and every root file that is not Markdown; and any path nobody has classified. The `checks` job still runs provenance over every inert change.
+
+### Which steps defer for an inert pull request
+
+* `golden`: install, fixture cache and fetch, `fixtures:check`, build, golden, closing, Pillow install, `oracle:check`, corpus dump check.
+* `golden-bun`: install, fixture cache and fetch, `golden:bun` (with the Node, pnpm and Bun setup).
+* `browser`: install, build, fixture fetch, Playwright install, `browser:test`.
+* `desktop` (each leg): install, fixture fetch, build, `make-package`, `desktop:build`, measurement, inventory, artefact upload.
+* `mobile`: Java and Android SDK setup, install, build, fixture fetch, package, APK build, KVM check, emulator proof, artefact upload.
+* `script-dogfood`: install, build, and the five `tkr script` baseline comparisons.
+
+Each of those jobs keeps its decision-report step, which always runs. `script-dogfood` still waits for `checks` to succeed.
+
+### Wording added to guardrails.md
+
+G5 (Enforcement) and Rollout item 4 each gain one sentence stating this reading and pointing at this ADR. G5 rule 1 is unchanged: the required job still runs on every pull request.
 
 ## Consequences
 
-* Short documentation-only PRs still start every job and all unit shards, but can avoid several expensive installations, builds, replays and emulators. Coverage and the actual required status context remain intact.
-* A classification mistake could hide a regression. The small positive allowlist, trusted base classifier, complete rename-aware diff, full default and adversarial tests reduce that risk; paths must be reviewed when the workflow gains new inputs.
-* A successful reduced job no longer means its expensive checks executed. The visible report and gate's strict success checks make that distinction explicit; they do not replace the requested owner ruling or real CI verification.
+* A prose-only pull request still starts every job but skips the installs, builds, replays and emulators. The saving is runner minutes, not job count.
+* A classification mistake could hide a regression. Mitigations: a small positive list, a denylist that wins over the list, the trusted base copy of the classifier, a full default, adversarial unit tests, and a printed reason a reviewer can audit.
+* A green job no longer means its checks ran. The printed `DEFER` line, with the paths examined, is the evidence, and `gate` still requires the job to have run and succeeded.
+* Every new input to a lane (a new directory a job reads) must be checked against the inert list; the list is positive, so a new path runs everything until someone decides otherwise.
+* This pull request, and any pull request that edits the classifier or the workflow, runs everything: they are not inert, and a base without a classifier selects `run`.
 
-## Rejected alternative: B
+## Alternatives rejected
 
-Skip whole jobs and let `gate` accept classifier-approved `skipped` results. That contradicts the current required-job success language and makes required-context semantics easy to misunderstand: GitHub can treat skipped jobs as successful. It would need an explicit guardrail amendment and a carefully reviewed gate and ruleset policy; avoiding runner startup is not worth that additional risk here.
+* **Design B: skip whole jobs** (a central `changes` job, job-level `if:`, a `gate` that accepts `skipped`). It contradicts G5's "merges are blocked if it fails or is skipped" and the rollout's "a skipped job cannot merge"; GitHub reports a conditionally skipped job as success, so it is easy to make `gate` pass vacuously; and a skipped job is indistinguishable from a broken one. Its only advantage was runner startup time.
+* **Workflow-level `paths` filters.** A skipped workflow leaves required checks pending and the filter is not fail-closed.
+* **Skipping `unit` or its shards.** The `gate` coverage merge and thresholds need every shard's report.
