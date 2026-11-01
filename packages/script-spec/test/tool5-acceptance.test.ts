@@ -114,12 +114,17 @@ test("A6 a failure record names the spec file and that file's own assertion line
   ok(failure?.includes("(line 3)"), failure);
 });
 
-test("A7 the library arrives through the package start-up seam and it is unknown without it", () => {
+test("A7 the manifest parses and the catalogue resolves the start-up program; the runner includes the library", () => {
   const manifestText = readFileSync(join(packageFolder, "manifest.json"), "utf8");
   const programSource = readFileSync(join(packageFolder, "startup.prg"), "utf8");
   const catalogue = buildPackageCatalogue([{ label: "script-spec", manifestText, programSource }]);
   ok(catalogue.ok);
   equal(catalogue.entries[0]?.name, "script-spec");
+
+  // The runner uses TOOL-5's include branch, not the catalogue: a spec that only
+  // calls the names works, and the program is not text-concatenated.
+  const report = runSpecFile("include.spec.prg", 'it("a", () => { expect(1).toBe(2) })', { library });
+  equal(report.cases[0]?.outcomes[0]?.line, 1);
 
   const without = createGameState({ seed: 0 });
   startProgram(without.vm, { kind: "inline", text: 'it("x", () => { })\n', ir: "1" });

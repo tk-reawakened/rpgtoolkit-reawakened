@@ -8,22 +8,70 @@
  * produce the same outcomes and the same state hash.
  */
 
+import { readFileSync } from "node:fs";
 import {
   addActor,
   assetKey,
   advanceScriptTick,
+  createAssetIndex,
   createGameState,
   createScriptServices,
   drainDiagnostics,
   drainEffects,
+  fileProgramRef,
   hashGameState,
+  PACKAGE_ROOT,
   startProgram,
   STEP_BUDGET,
+  encodeCp1252,
+  utf8Encode,
   type ProgramLoader,
   type ScriptServices,
   type GameState,
 } from "@tk-reawakened/core";
 import { SPEC_PLUGIN } from "./index.ts";
+
+/**
+ * TOOL-5 — "the API is a package, not a set of engine built-ins … a program that
+ * wants them includes or loads the package" (docs/spec/engine/rpgcode-tooling.md#tool-5).
+ * Loading waits on PKG-7 (a proposed ruling) and a package's script functions
+ * are not reachable by an unqualified name today, so the runner uses the
+ * documented **include** branch: the library is served as an includable unit of
+ * the project's `Prg/` view. `#include` merges only functions and is collected
+ * wherever it appears (MOD rules, docs/spec/engine/rpgcode-modules-and-objects.md),
+ * so it sits after the spec's own text: every spec statement keeps its authored
+ * line and positions come from the compiled units, not an offset guess.
+ */
+const PACKAGE_STARTUP = readFileSync(new URL("../package/startup.prg", import.meta.url), "utf8");
+const SPEC_PROGRAM = "__spec.prg";
+const LIBRARY_INCLUDE = "script-spec/startup.prg";
+const LIBRARY_PATH = `Prg/${LIBRARY_INCLUDE}`;
+const SPEC_FILE_KEY = assetKey(`Prg/${SPEC_PROGRAM}`);
+
+/** The project loader plus this spec file and the includable library unit. */
+function specLoader(base: ProgramLoader | undefined, source: string): ProgramLoader {
+  const specPath = `Prg/${SPEC_PROGRAM}`;
+  const specKey = assetKey(specPath);
+  const libraryKey = assetKey(LIBRARY_PATH);
+  // Program bytes are Windows-1252 (docs/spec/formats/rpgcode-program.md), so the
+  // source the project already decoded is encoded back with the same codec; the
+  // bundled library is converted the same way, not UTF-8.
+  const specEncoded = encodeCp1252(`${source}\n#include "${LIBRARY_INCLUDE}"\n`);
+  const libraryEncoded = encodeCp1252(PACKAGE_STARTUP);
+  if (!specEncoded.ok) throw new Error(`spec source is not Windows-1252: ${specEncoded.error.message}`);
+  if (!libraryEncoded.ok) throw new Error(`the bundled spec library is not Windows-1252: ${libraryEncoded.error.message}`);
+  const specBytes = specEncoded.value;
+  const libraryBytes = libraryEncoded.value;
+  return {
+    index: createAssetIndex([...(base?.index.paths ?? []), specPath, LIBRARY_PATH]),
+    root: base?.root ?? PACKAGE_ROOT,
+    read: (candidate) => {
+      if (candidate === specKey) return specBytes;
+      if (candidate === libraryKey) return libraryBytes;
+      return base?.read(candidate);
+    },
+  };
+}
 
 export type SpecOutcomeKind = "pass" | "fail" | "skip" | "only";
 
@@ -86,7 +134,7 @@ function runIsolated(library: string, source: string, onlyCase: number, seed: nu
   const actor = addActor(state.actors, { kind: "party", source: "spec-fixture.tem", stats: { hp: 10, maxHp: 10 } });
   state.party.members.push(actor.id);
   state.party.selected = actor.id;
-  const sourceOffset = library.split("\n").length;
+  // The library reaches the program by `#include`, so the spec keeps its own lines.
   // The record carries `specResult`'s own library position, not the assertion's,
   // so the spec-file line is captured where the handler runs and keyed by the
   // effect sequence the call is about to take: the effect log may evict records,
@@ -94,8 +142,10 @@ function runIsolated(library: string, source: string, onlyCase: number, seed: nu
   const positions = new Map<number, { line: number; column: number }>();
   state.vm.globals.speconlycase = onlyCase + 1;
   state.vm.globals.speccollect = collect ? 1 : 0;
-  startProgram(state.vm, { kind: "inline", text: `${library}\n${source}`, ir: "1" });
-  const services: ScriptServices = createScriptServices(state, [{ definition: SPEC_PLUGIN }], undefined, undefined, loader,
+  const specProgram = specLoader(loader, source);
+  const specRef = fileProgramRef(specProgram, SPEC_PROGRAM);
+  startProgram(state.vm, specRef);
+  const services: ScriptServices = createScriptServices(state, [{ definition: SPEC_PLUGIN }], undefined, undefined, specProgram,
     undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
       postHandler: (handler, threadId) => {
         if (handler.plugin !== "script-spec" || handler.name !== "specresult") return;
@@ -103,9 +153,11 @@ function runIsolated(library: string, source: string, onlyCase: number, seed: nu
         const thread = state.vm.threads.find((item) => item.id === threadId);
         for (let index = (thread?.frames.length ?? 0) - 1; index >= 0; index -= 1) {
           const frame = thread!.frames[index]!;
+          // Included code is part of the same compiled program, so the position's
+          // own file is what separates a spec statement from a library statement.
           const op = services.programs.get(frame.program).ops[frame.ip - 1];
-          if (op !== undefined && op.pos.line > sourceOffset) {
-            positions.set(seq, { line: op.pos.line - sourceOffset, column: op.pos.col ?? 0 });
+          if (op !== undefined && specRef.kind === "file" && op.pos.file === SPEC_FILE_KEY) {
+            positions.set(seq, { line: op.pos.line, column: op.pos.col ?? 0 });
             return;
           }
         }
@@ -121,7 +173,7 @@ function runIsolated(library: string, source: string, onlyCase: number, seed: nu
   const errors = drainDiagnostics(services).map((error) => ({
     code: error.code,
     message: error.message,
-    line: error.line > sourceOffset ? error.line - sourceOffset : 0,
+    line: error.line,
   }));
   if (!finished) errors.push({ code: "spec.timeout", message: "spec did not finish within 1000 ticks", line: 0 });
   const outcomes: SpecOutcome[] = [];

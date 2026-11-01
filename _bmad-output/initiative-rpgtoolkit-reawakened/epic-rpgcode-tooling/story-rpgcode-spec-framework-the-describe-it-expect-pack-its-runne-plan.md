@@ -103,6 +103,7 @@ TOOL-5 declares `toBeCloseTo(double expected, [double tolerance])`, but FUN-1/ER
 
 ## Slice 4 — project consumer, focused selection and hook multiplicity
 
+- The library reaches a spec program by `#include`, TOOL-5's documented "includes or loads the package" branch (`rpgcode-tooling.md:62`): the runner serves `script-spec/startup.prg` in the project's `Prg/` view and appends `#include` after the spec's own text, so no text is concatenated and every spec statement keeps its authored line. Loading waits on PKG-7, which is still a proposed ruling. The catalogue test proves only that the manifest parses and resolves a start-up program; it is not a load path.
 - `packages/script-spec/src/project.ts`: `discoverProjectSpecs` walks a project recursively and returns deterministic project-relative paths for files ending exactly `.spec.prg`; `runSpecProject` reads each with the core Windows-1252 decoder and loads includes through a `ProgramLoader` built from the project's `Prg/` tree, so the asset resolver's case rules apply (`#include "HELPER.prg"` finds `Prg/helper.prg`).
 - Focused runs narrow the whole project: every file is scanned in a collect-only pass that executes no case body, and when any file marks a case no unmarked file is run or reported. The warning text is unchanged.
 - Discovery no longer depends on recorded outcomes: the collect pass records each registered case with its kind, so duplicate names and cases with no assertions are discovered, and a failure during collection fails discovery instead of yielding an empty successful run.
