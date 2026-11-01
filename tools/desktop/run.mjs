@@ -12,16 +12,11 @@
 import { execFileSync, spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { electronBinary } from "./electron-binary.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
 const dist = join(root, "packages", "runner-desktop", "dist");
-
-/** The Electron binary this workspace installed. */
-function electronBinary() {
-  const fromPackage = join(root, "node_modules", "electron", "index.js");
-  return execFileSync(process.execPath, ["-e", `process.stdout.write(require(${JSON.stringify(fromPackage)}))`], { encoding: "utf8" }).trim();
-}
 
 /** The package to open: the one named by `--package`, or the demo package built from the fetched sample. */
 function packagePath() {

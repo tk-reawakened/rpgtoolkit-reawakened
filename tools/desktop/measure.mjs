@@ -13,6 +13,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { electronBinary } from "./electron-binary.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
@@ -20,13 +21,6 @@ const root = resolve(here, "..", "..");
 function argument(name, fallback) {
   const at = process.argv.indexOf(name);
   return at >= 0 ? process.argv[at + 1] : fallback;
-}
-
-/** The Electron binary this workspace installed. */
-function electronBinary() {
-  const fromPackage = join(root, "node_modules", "electron", "index.js");
-  const path = execFileSync(process.execPath, ["-e", `process.stdout.write(require(${JSON.stringify(fromPackage)}))`], { encoding: "utf8" });
-  return path.trim();
 }
 
 /** The package to open, built from the fetched sample game when the caller names none. */
