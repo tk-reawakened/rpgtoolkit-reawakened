@@ -15,6 +15,11 @@ import {
   type Wait,
 } from "../src/index.ts";
 import { pollMenuScreen } from "../src/script/waits.ts";
+import type { DrawCommand } from "../src/ports/draw.ts";
+
+function textAdvance(cmd: DrawCommand, index: number): number | undefined {
+  return cmd.kind === "text" ? cmd.advances[index]?.advance : undefined;
+}
 
 function arg(value: Arg["value"], ref: string | null = null): Arg {
   return { value, ref: ref as never };
@@ -94,6 +99,38 @@ test("text and pixelText record draws and text metrics", () => {
   equal(state.ui.draws[1]?.x, 10);
   equal(state.ui.draws[1]?.cell, false);
   equal(command("gettextwidth", state, [arg("AB")]).value, 16);
+});
+
+test("text truncates fractional cell coordinates toward zero", () => {
+  const state = createGameState({ seed: 0 });
+  const effect = firstEffect(command("text", state, [arg(5.9), arg(2.4), arg("X")]));
+  applyUiEffect(state, "text", effect.args ?? []);
+  // Cell (5, 2) -> (5 - 1) * 8, (2 - 1) * 8
+  equal(state.ui.draws[0]?.x, 32);
+  equal(state.ui.draws[0]?.y, 8);
+  equal(state.ui.cursorX, 32);
+  equal(state.ui.cursorY, 8);
+
+  const pixel = firstEffect(command("pixeltext", state, [arg(10.7), arg(20.3), arg("Y")]));
+  applyUiEffect(state, "pixeltext", pixel.args ?? []);
+  equal(state.ui.draws[1]?.x, 10);
+  equal(state.ui.draws[1]?.y, 20);
+});
+
+test("cell text lays out multi-line strings with one cell row per line", () => {
+  const state = createGameState({ seed: 0 });
+  const effect = firstEffect(command("text", state, [arg(1), arg(1), arg("A\nB\nC")]));
+  applyUiEffect(state, "text", effect.args ?? []);
+  const commands = composeUi(state.ui, 800, 600).filter((entry) => entry.kind === "text");
+  equal(commands.length, 3);
+  equal(commands[0]?.x, 0);
+  equal(commands[0]?.y, 0);
+  equal(commands[1]?.x, 0);
+  equal(commands[1]?.y, 8);
+  equal(commands[2]?.x, 0);
+  equal(commands[2]?.y, 16);
+  // First glyph of the first line is the 8px-wide default bitmap cell.
+  equal(textAdvance(commands[0]!, 0), 8);
 });
 
 test("prompt and msgBox waits resolve from modal state or unclaimed keys", () => {

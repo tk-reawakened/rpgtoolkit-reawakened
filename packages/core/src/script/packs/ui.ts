@@ -249,16 +249,20 @@ export function applyUiEffect(
     case "text": {
       // A canvas target (fourth argument) is drawn into that canvas by the engine, never onto the screen text layer.
       if (numberArg(args[3]) !== 0) return;
-      const x = (numberArg(args[0]) - 1) * ui.font.size;
-      const y = (numberArg(args[1]) - 1) * ui.font.size;
+      const col = Math.trunc(numberArg(args[0]));
+      const row = Math.trunc(numberArg(args[1]));
+      const x = (col - 1) * ui.font.size;
+      const y = (row - 1) * ui.font.size;
       ui.draws = [...ui.draws, { x, y, cell: true, text: stringArg(args[2]), font: ui.font, rgb: ui.color, underline: ui.underline }];
       ui.cursorX = x; ui.cursorY = y;
       return;
     }
     case "pixeltext": {
       if (numberArg(args[3]) !== 0) return;
-      ui.draws = [...ui.draws, { x: numberArg(args[0]), y: numberArg(args[1]), cell: false, text: stringArg(args[2]), font: ui.font, rgb: ui.color, underline: ui.underline }];
-      ui.cursorX = numberArg(args[0]); ui.cursorY = numberArg(args[1]);
+      const px = Math.trunc(numberArg(args[0]));
+      const py = Math.trunc(numberArg(args[1]));
+      ui.draws = [...ui.draws, { x: px, y: py, cell: false, text: stringArg(args[2]), font: ui.font, rgb: ui.color, underline: ui.underline }];
+      ui.cursorX = px; ui.cursorY = py;
       return;
     }
     case "print": {
