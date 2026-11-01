@@ -3,11 +3,12 @@ title: "runner-desktop: the player's desktop package — main process, app:// sc
 type: 'feature'
 ticket: 11
 created: '2026-11-01'
-status: in-progress
+status: done
 tracker_id: "#938"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/938"
 baseline_revision: 'c6c2f620'
 risk: 'medium'
+ticket_note: 'the `desktop` CI job ships as a patch for the owner: this account cannot push a workflow change'
 context:
   - 'docs/adr/0013-desktop-shell-electron.md, decisions 1 to 3 and the G6 exception'
   - 'docs/spec/engine/runners.md#desktop-shell and #mobile'
@@ -66,3 +67,22 @@ The window chrome, launch resolution (`--game`, `player.json`, the baked default
 entry 9.10's; the editor application is `host-desktop`'s. The cross-runner save proof — a save written by the desktop
 runner loading in the web runner under the same `GameId` — is written and read back inside the desktop runner here; the
 web side of that round trip lands with 9.10's save host, because the web runner has no blob host yet.
+
+## Landing
+
+Merged as **`95cca777`** — "feat(9.11): runner-desktop, the player's Electron shell over the same web build" (PR
+[#1004](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/1004), squash; #938 closed as completed). #1003 was
+the same work on a stale base and is closed.
+
+**The CI job is handed over, not merged.** A workflow change cannot be pushed with this account's token, so
+`.github/workflows/ci.yml` is untouched in the PR; the owner applies `desktop-ci.patch` (a `desktop` matrix job on
+ubuntu/macOS/windows plus its `gate` dependency), which is what turns the Linux and Windows measurements on.
+
+## What the next entry inherits
+
+- The shell and the four-call bridge; 9.10 adds launch resolution, the library and the window chrome on top of them.
+- `packageFiles` from a path, and an `--package` argument the launch resolver can feed.
+- The blob host's key layout (`userData/saves/<gameId>/…`); the web side of the cross-runner save round trip still needs
+  a blob host in the browser, which is 9.10's.
+- `tools/desktop/measure.mjs`, which measures any built shell and writes its record where the job uploads it — 9.10 and
+  9.12 can reuse it rather than inventing a second harness.
