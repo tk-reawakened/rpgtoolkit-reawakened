@@ -59,7 +59,18 @@ A **classifier failure** (git cannot produce the diff, the diff cannot be decode
 
 ### Transport
 
-The diff is `git --no-replace-objects diff --no-ext-diff --no-renames --name-only -z <base sha> <merge sha> --` with `fetch-depth: 0` and `GIT_NO_REPLACE_OBJECTS=1`. `--no-renames` makes a rename contribute both its old and its new path; `--no-replace-objects` stops replacement refs from rewriting history under either read. Paths travel through files and the environment, never through a shell command line. The classifier executed is the **base branch's copy** (`git --no-replace-objects show --no-textconv <base sha>:tools/ci/classify-changes.mjs`), copied with the diff into a temporary directory outside the checkout and run **first**, before any code from the pull request's head executes; the temporary directory is deleted before the step ends and its outputs are sealed. The pull request's own unit tests run in `changes` **after** the verdict is sealed; if they fail, `changes` fails, every classified job ignores any `defer` verdict and runs in full, and `gate` fails.
+The diff is `git --no-replace-objects diff --no-ext-diff --no-renames --name-only -z <base sha> <merge sha> --` with `fetch-depth: 0`, `persist-credentials: false` and `GIT_NO_REPLACE_OBJECTS=1`. `--no-renames` makes a rename contribute both its old and its new path; `--no-replace-objects` stops replacement refs from rewriting history under either read. Paths travel through files and the environment, never through a shell command line. The classifier **script** is the base branch's copy (`git --no-replace-objects show --no-textconv <base sha>:tools/ci/classify-changes.mjs`); it and the diff are written to a private temporary directory outside the checkout, executed there, and the directory is removed before the step ends. Within the step, the verdict is computed and published before the pull request's own classifier tests run, and invalid or unresolvable commit SHAs are a classifier failure.
+
+### This is a scheduling optimisation, not a trust boundary
+
+On a `pull_request` event GitHub runs the workflow **from the pull request's head tree**. A pull request can therefore rewrite the `changes` job — print `full=false` itself, skip the base read, delete the test step — and it can equally rewrite `golden` to `exit 0` or delete its steps, with or without this ADR. Branch protection only requires a status named `gate` to report success, so that bypass already exists for every job in this repository. Reading the classifier from the base makes the *script* trustworthy; it cannot make the *invoker* trustworthy, because the invoker is the pull request.
+
+What that means in practice:
+
+* The guarantees here are about **honest** changes. The verdict is computed by base code, a defer must carry its `inert:` evidence, and uncertainty runs everything. That survives a mistake, a stale allowlist, a broken runner, an accidental weakening, and a `git replace` in the environment — the last is proven by a test that runs the real step against armed replacement refs.
+* It is **not** a security control against a pull request that edits `.github/workflows/`. The control that matches that threat is review: [`.github/CODEOWNERS`](../../.github/CODEOWNERS) assigns `.github/workflows/**` and `tools/ci/**` to the repository owner, so a workflow or classifier change cannot merge without an owner reading it. Enforcing that needs the ruleset's "Require review from Code Owners" setting, which is a repository setting rather than a file; until it is on, CODEOWNERS documents intent and produces a review request.
+* `gate` recomputes the changed paths itself and fails if a `defer` verdict arrives while the diff touches `.github/workflows/**` or `tools/ci/**`. That catches a stale classifier, a bad merge, or an honest mistake; it does not stop a determined author, because `gate`'s own steps are as head-controlled as every other job. It is recorded here as belt-and-braces, not as a guarantee.
+* `pull_request_target` is **rejected**: a workflow that then executes head content hands secrets and a write token to untrusted code, which is strictly worse than the problem.
 
 ### The inert set
 
@@ -93,13 +104,15 @@ G5 (Enforcement) and Rollout item 4 each gain one sentence stating this reading 
 ## Consequences
 
 * A prose-only pull request still starts every job but skips the installs, builds, replays and emulators. The saving is runner minutes, not job count.
-* A classification mistake could hide a regression. Mitigations: a small positive list, a denylist that wins over the list, the trusted base copy of the classifier, a full default, adversarial unit tests, and a printed reason a reviewer can audit.
+* A classification mistake could hide a regression. Mitigations: a small positive list, a denylist that wins over the list, the base copy of the classifier, a full default, adversarial unit tests, the `gate` cross-check, and a printed reason a reviewer can audit.
 * A green job no longer means its checks ran. The printed `DEFER` line, with the paths examined, is the evidence, and `gate` still requires the job to have run and succeeded.
 * Every new input to a lane (a new directory a job reads) must be checked against the inert list; the list is positive, so a new path runs everything until someone decides otherwise.
-* This pull request, and any pull request that edits the classifier or the workflow, runs everything: they are not inert, and a base without a classifier selects `run`.
+* Any pull request that edits `.github/workflows/` or `tools/ci/` runs everything, and so does one whose base has no classifier. That is a scheduling rule, not a protection: the workflow file that a pull request runs is the pull request's own, so the real control over that path is the CODEOWNERS review described above.
+* **Repository setting still outstanding:** CODEOWNERS only blocks a merge once the default-branch ruleset also requires review from code owners. That is a settings change, not a file change, and it needs a second reviewer who can approve — currently the owner is the only collaborator. Until it is enabled, a workflow edit merges on `gate` alone.
 
 ## Alternatives rejected
 
 * **Design B: skip whole jobs** (a central `changes` job, job-level `if:`, a `gate` that accepts `skipped`). It contradicts G5's "merges are blocked if it fails or is skipped" and the rollout's "a skipped job cannot merge"; GitHub reports a conditionally skipped job as success, so it is easy to make `gate` pass vacuously; and a skipped job is indistinguishable from a broken one. Its only advantage was runner startup time.
 * **Workflow-level `paths` filters.** A skipped workflow leaves required checks pending and the filter is not fail-closed.
 * **Skipping `unit` or its shards.** The `gate` coverage merge and thresholds need every shard's report.
+* **`pull_request_target` with a base-owned pre-check that then runs head content.** It hands secrets and a write token to untrusted code. A base-owned job may only read the base tree and post a status; nothing here needs that.

@@ -323,7 +323,9 @@ A job that runs prints the path that forced it:
 CI classifier [golden]: RUN - full: tools/ci/classify-changes.mjs
 ```
 
-If the classifier itself cannot decide (git fails, the diff cannot be parsed, it crashes, its tests fail), every job runs in full and `changes` fails, which fails `gate`. That is a CI problem to report, not something your pull request caused by being small. The classifier is `tools/ci/classify-changes.mjs`; its tests are `pnpm ci:classify:test`. CI reads and runs the **base branch's** copy (with git replacement objects disabled) before executing anything from your pull request, then runs your branch's classifier tests afterwards, so changing the classifier or its tests cannot loosen the verdict on that same pull request (and a change under `tools/` always runs everything anyway).
+If the classifier itself cannot decide (git fails, the diff cannot be parsed, it crashes, its tests fail), every job runs in full and `changes` fails, which fails `gate`. That is a CI problem to report, not something your pull request caused by being small. The classifier is `tools/ci/classify-changes.mjs`; its tests are `pnpm ci:classify:test`. The verdict is computed by the **base branch's** copy of that file (with git replacement objects disabled), so editing the classifier cannot change the verdict on the same pull request — and a change under `tools/ci/` or `.github/workflows/` runs everything anyway.
+
+The classifier is a **scheduling optimisation, not a security boundary**. On a pull request, GitHub runs the workflow from your branch, so the workflow that does the classifying is yours — exactly as with every other job here, which you could also weaken by editing `ci.yml`. What protects the boundary is review: `.github/CODEOWNERS` makes `.github/workflows/**` and `tools/ci/**` owner-reviewed, and `gate` fails if a "defer" verdict arrives while the diff touches those paths. Do not treat a green `gate` as proof that the workflow itself was not changed; read such a diff.
 
 ### Contribute through a fork
 
