@@ -10,9 +10,9 @@
  * 3. **The focus hold pauses without losing position.** `focus.lost` sends `pause`, `focus.gained` sends `resume`.
  *
  * The audio itself is asserted by pulling frames through the sink — the same call an `AudioContext` graph makes — and
- * measuring their energy, so the lane distinguishes silence from sound without a speaker. A real graph is attached too,
- * and its analyser reading is reported for information only: a headless Chromium analyser is a timing race, so it is
- * never the assertion.
+ * measuring their energy, so the lane distinguishes silence from sound without a speaker. A real graph is attached too;
+ * with the autoplay policy disabled for the lane, its analyser reads non-silent output for about the same duration the
+ * sink reports, and both the energy and the elapsed seconds are asserted.
  */
 
 import type { AudioCue } from "@tk-reawakened/core";
@@ -31,6 +31,7 @@ type AudioReport = {
   readonly seconds: number;
   readonly graphStarted: boolean;
   readonly analyserEnergy: number | null;
+  readonly analyserSeconds: number | null;
   readonly errors: readonly string[];
   /** The bundled SoundFont: its hash as the cache keyed it, and the MIDI the bank rendered in this browser. */
   readonly bankSha: string | null;
@@ -163,22 +164,27 @@ void (async () => {
   const right = new Float32Array(frames);
   sink.render(left, right, frames);
 
-  // A real graph, attached for the shipped path. Its analyser reading is reported, never asserted: a headless
-  // `AudioContext` stays suspended until a gesture, so `resume()` is never awaited here (it would hang the page).
+  // A real graph, attached for the shipped path. The autoplay policy is disabled for this lane, so resume() resolves
+  // and the analyser reads the actual non-silent output for about the length the sink reports.
   let graphStarted = false;
   let analyserEnergy: number | null = null;
+  let analyserSeconds: number | null = null;
   try {
     const context = new AudioContext({ sampleRate: 8_000 });
     const graph = connectSinkToGraph(context, sink);
-    void context.resume().catch(() => undefined);
+    await context.resume();
     graphStarted = context.state === "running";
     const analyser = context.createAnalyser();
     analyser.fftSize = 2_048;
     graph.node.connect(analyser);
-    // The graph needs a moment of wall time to produce samples for the analyser reading (reported, never asserted).
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 200);
-    });
+    analyser.connect(context.destination);
+    // Run the graph for about the fixture length (0.5 s) so the analyser measures real output, not a race window.
+    const targetSeconds = ticksToSeconds(lengths.get(41) ?? 0);
+    const deadline = performance.now() + 2_000;
+    while (context.currentTime < targetSeconds && performance.now() < deadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    }
+    analyserSeconds = context.currentTime;
     const buffer = new Float32Array(analyser.fftSize);
     analyser.getFloatTimeDomainData(buffer);
     analyserEnergy = PcmSink.energy(buffer, buffer.length);
@@ -211,6 +217,7 @@ void (async () => {
     seconds: ticksToSeconds(lengths.get(41) ?? 0),
     graphStarted,
     analyserEnergy,
+    analyserSeconds,
     errors,
     bankSha,
     midiEnergy: PcmSink.energy(midiLeft, midiFrames),

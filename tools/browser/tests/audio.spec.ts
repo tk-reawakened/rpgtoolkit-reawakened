@@ -8,8 +8,8 @@ import { expect, test } from "@playwright/test";
  * music joins at `(gesture − cue) mod length`), the 15-tick drop is measured **at ready** (lateness 14 starts at 14;
  * lateness 15 is stopped, never played, never ended), and the focus hold pauses then resumes with its position intact.
  * The sound itself is asserted by the sink's own pull — the same call the audio graph makes — so the lane can tell
- * silence from sound without a speaker. The analyser reading is reported for information; a headless Chromium analyser
- * is a timing race, so it is never the assertion.
+ * silence from sound without a speaker. A real graph is attached too; with the autoplay policy disabled for the lane,
+ * the analyser reading is non-silent and its duration is asserted against the fixture length.
  */
 type AudioReport = {
   readonly musicLengthTicks: number | null;
@@ -23,6 +23,7 @@ type AudioReport = {
   readonly seconds: number;
   readonly graphStarted: boolean;
   readonly analyserEnergy: number | null;
+  readonly analyserSeconds: number | null;
   readonly errors: readonly string[];
   readonly bankSha: string | null;
   readonly midiEnergy: number;
@@ -59,12 +60,13 @@ test("the cue player and the PCM sink agree with the spec's three runner rules",
   expect(report.energy).toBeGreaterThan(0);
   expect(report.seconds).toBe(0.5);
 
-  // The real Web Audio graph path measured analyser energy. The value can be zero in a
-  // headless Chromium runner, so we assert the field exists and is numeric; that is enough
-  // to prove the graph path ran, and it fails if the code that sets it is removed.
+  // The real Web Audio graph path measured analyser energy and ran for about the fixture length.
   expect(report.analyserEnergy).not.toBeNull();
   expect(typeof report.analyserEnergy).toBe("number");
-  expect(report.analyserEnergy).toBeGreaterThanOrEqual(0);
+  expect(report.analyserEnergy).toBeGreaterThan(0.001);
+  expect(report.analyserSeconds).not.toBeNull();
+  expect(report.analyserSeconds).toBeGreaterThan(0.35);
+  expect(report.analyserSeconds).toBeLessThan(0.9);
 
   // The bundled bank loads and MIDI renders through it in the browser too: the file's SHA-256 keys the cache, and the
   // 120-tick fixture makes sound instead of silence.

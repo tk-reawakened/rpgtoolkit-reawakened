@@ -337,6 +337,14 @@ export function createEngine(init: EngineInit): Engine {
   const requestsOut: RunnerRequest[] = [];
   /** The last prefetch plan sent, so a board entry only sends a hint set that differs from it. */
   let lastPrefetch = "";
+  /** Backgrounds whose asset request came back missing; do not re-request them for prefetch. */
+  const missingBattleBackgrounds = new Set<AssetKey>();
+  /** Sound facts from battle backgrounds fetched only for prefetch; kept out of the saved asset cache so prefetch hints stay hash-neutral. */
+  const prefetchedBattleBackgrounds = new Map<AssetKey, PrefetchFacts["battle"]>();
+  /** In-flight prefetch-only asset requests and their ids; these deliberately do not live in the saved engine section. */
+  const prefetchPending = new Map<number, AssetKey>();
+  let nextPrefetchReqId = 1;
+  const prefetchLoading = (): boolean => prefetchPending.size > 0;
   /**
    * A hint's own counter, deliberately **not** `nextRequestId`: that one lives in the saved `engine` section, so drawing
    * from it would move a state hash for a request that must change nothing (AD-5). A hint earns no reply, so its id only
@@ -840,6 +848,7 @@ export function createEngine(init: EngineInit): Engine {
       (allowOpenTick || state.engine.openTick === undefined) &&
       pending.size === 0 &&
       pendingBlobs.size === 0 &&
+      !prefetchLoading() &&
       pendingImageEffects.length === 0 &&
       pendingBoardPreviews.length === 0 &&
       !state.vm.threads.some((thread) => thread.wait?.kind === "request") &&
@@ -1368,7 +1377,7 @@ export function createEngine(init: EngineInit): Engine {
         // Assets, deferred image effects and every other in-flight blob request
         // are therefore answered (or applied) before the snapshot is taken.
         const otherBlob = [...pendingBlobs.values()].some((other) => other !== entry);
-        if (pending.size > 0 || pendingImageEffects.length > 0 || pendingBoardPreviews.length > 0 || otherBlob) continue;
+        if (pending.size > 0 || prefetchLoading() || pendingImageEffects.length > 0 || pendingBoardPreviews.length > 0 || otherBlob) continue;
         try {
           const savedState = restoreGameState(snapshot(state));
           replyToRequest(savedState.vm, entry.vmReqId, { ok: true, value: null });
@@ -1406,6 +1415,27 @@ export function createEngine(init: EngineInit): Engine {
   }
   function consumeAsset(record: InputRecord, consumed: InputRecord[]): void {
     if (record.event.kind !== "asset") return;
+    const prefetchKey = prefetchPending.get(record.event.reqId);
+    if (prefetchKey !== undefined) {
+      prefetchPending.delete(record.event.reqId);
+      consumed.push(record);
+      if (record.event.bytes === null) {
+        missingBattleBackgrounds.add(prefetchKey);
+      } else {
+        const parsed = readBattleBackground(new BinaryReader(new Uint8Array(record.event.bytes), prefetchKey));
+        if (parsed.ok) {
+          prefetchedBattleBackgrounds.set(prefetchKey, {
+            music: parsed.value.music,
+            menuMoveSound: parsed.value.menuMoveSound,
+            menuChooseSound: parsed.value.menuChooseSound,
+            readySound: parsed.value.readySound,
+            cantDoSound: parsed.value.cantDoSound,
+          });
+        }
+        if (state.world.board !== undefined && state.world.board !== null) postPrefetch(state.world.board);
+      }
+      return;
+    }
     const entry = pending.get(record.event.reqId);
     if (entry === undefined) return;
     pending.delete(entry.reqId);
@@ -1798,17 +1828,15 @@ export function createEngine(init: EngineInit): Engine {
         const resolved = resolveAsset(index, root, "backgrounds", board.battleBackground ?? "");
         return resolved.ok ? resolved.value : null;
       })();
-    if (backgroundKey !== null) {
-      const bytes = cache.get(backgroundKey);
-      if (bytes !== undefined) {
-        const parsed = readBattleBackground(new BinaryReader(bytes, board.battleBackground ?? ""));
-        if (parsed.ok) battle = {
-          music: parsed.value.music,
-          menuMoveSound: parsed.value.menuMoveSound,
-          menuChooseSound: parsed.value.menuChooseSound,
-          readySound: parsed.value.readySound,
-          cantDoSound: parsed.value.cantDoSound,
-        };
+    if (backgroundKey !== null && !missingBattleBackgrounds.has(backgroundKey)) {
+      const cached = prefetchedBattleBackgrounds.get(backgroundKey);
+      if (cached !== undefined) {
+        battle = cached;
+      } else if (![...prefetchPending.values()].includes(backgroundKey)) {
+        // The planner needs the background's sound fields; use a prefetch-only request so the saved state hash is unchanged.
+        const reqId = nextPrefetchReqId++;
+        prefetchPending.set(reqId, backgroundKey);
+        requestsOut.push({ kind: "asset", reqId, key: backgroundKey });
       }
     }
     const sound = (name: string | undefined): AssetKey | null => {
@@ -2588,7 +2616,7 @@ export function createEngine(init: EngineInit): Engine {
   function drive(): void {
     requestRestoredAnimationAssets();
     for (let guard = 0; guard < 64; guard += 1) {
-      if (failed || pending.size > 0 || pendingBlobs.size > 0 || state.engine.openTick !== undefined) return;
+      if (failed || pending.size > 0 || pendingBlobs.size > 0 || prefetchLoading() || state.engine.openTick !== undefined) return;
       if (pendingBoardPreviews.length > 0 && !prepareBoardPreviews()) return;
       const boot = state.engine.boot;
       const transition = state.engine.transition;
@@ -2601,7 +2629,7 @@ export function createEngine(init: EngineInit): Engine {
   }
   /** Ticks run once nothing is outstanding: a scene needs its board, boot needs the start-up program or the main loop. */
   function canTick(): boolean {
-    if (failed || pending.size > 0 || pendingBlobs.size > 0 || state.engine.transition !== undefined) return false;
+    if (failed || pending.size > 0 || pendingBlobs.size > 0 || prefetchLoading() || state.engine.transition !== undefined) return false;
     if (state.engine.video !== undefined && !state.engine.video.ended) return false;
     const boot = state.engine.boot;
     if (boot === undefined) return state.world.board !== undefined && state.world.board !== null;
@@ -3074,7 +3102,7 @@ export function createEngine(init: EngineInit): Engine {
         audioCues: audio.drain(),
         requests: [...requestsOut],
         diagnostics: reportDiagnostics,
-        loading: !failed && (pending.size > 0 || pendingBlobs.size > 0),
+        loading: !failed && (pending.size > 0 || pendingBlobs.size > 0 || prefetchLoading()),
         paused,
         stateHash: hashGameState(state),
       };
