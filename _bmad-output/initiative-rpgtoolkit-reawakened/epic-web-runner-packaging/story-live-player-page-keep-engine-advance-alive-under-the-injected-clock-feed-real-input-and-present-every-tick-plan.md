@@ -9,6 +9,8 @@ risk: high
 review: quick
 ---
 
+> **This entry is open work.** Issue [#1018](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1018) was incorrectly closed as completed by PR [#1019](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/1019); that PR only created this backlog entry and corrected documentation references that had falsely attributed the missing live loop to the already-done board-rendering entry 19 / #393. No live player page has been built. The entry stays `status: draft` / `state: backlog` until the owner schedules it.
+
 ## Intent
 
 Wire the landed core engine loop (epic board-rendering entry 19 / #393) into the `runner-web` player page so the player is visible and interactive. Keep one `Engine` alive across animation frames, call `engine.advance()` once per frame under the injected clock, feed real keyboard/pointer events into the `core/input` section, present each tick's `DrawList` to the on-page canvas, route saves through the host blob boundary, and honour the presentation-only alpha ruling.
