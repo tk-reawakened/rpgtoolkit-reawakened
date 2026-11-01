@@ -80,6 +80,12 @@ function afterAll(body) {
 }
 
 function skip(name, body) {
+  // A skip respects the runner's per-case filter like `it`, so an isolated run of
+  // another case does not report it.
+  specCaseIndex = specCaseIndex + 1
+  if (specOnlyCase >= 0) {
+    if (specCaseIndex != specOnlyCase) { return }
+  }
   specResult("skip", name, "", "")
 }
 

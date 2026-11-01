@@ -2,7 +2,7 @@
 title: "RPGCode spec framework: the describe/it/expect pack, its runner and *.spec.prg discovery"
 ticket: 8
 status: blocked
-blocked_reason: awaiting the owner ruling on F-A (native helpers vs new language built-ins) and F-B (FUN-8 parameter capture vs a two-argument matcher API)
+blocked_reason: awaiting the owner ruling on F-A (native helpers vs new language built-ins) only; F-B was disproven by probe and needs no ruling
 ---
 
 ## Intent
@@ -34,7 +34,24 @@ Entry 10.8 builds `packages/script-spec`: an RPGCode package plus the single nat
 
 **Recommendation:** option 1, with the commands named in TOOL-5 and their rows in `rpgcode-functions.md`; it keeps the product catalogue unchanged and the surface test-only.
 
-### F-B — `expect(actual).toBe(expected)` cannot see the subject under FUN-8
+### F-B — DISPROVEN by a four-part probe (see below): the matcher chain works
+
+**Status:** not a language limitation. The matcher API can stay chained; FUN-8 does not stop a lambda created inside `f(x)` from reading `x`.
+
+Probe results (all with `SPEC_PLUGIN` and the real VM):
+
+| # | Program | Recorded |
+|---|---|---|
+| A | `m = { f: (x) => specResult("pass","ctl",x,"") }; m.f(5)` | `5` |
+| B | `f = (x) => { return { g: (y) => specResult("pass","g",y,"") } }; f(1).g(2)` | `2` |
+| C | `f = (x) => { return { g: () => specResult("pass","cap",x,"") } }; f(7).g()` | `7` — the capture works |
+| D | `f = (x) => { return { g: (y) => specResult("pass","both",y,x) } }; f(7).g(9)` | `9`, `7` |
+| E | the same through a top-level function (`h(y, x)`) | `9`, `7` |
+| F | `expect(3-1).toBe(1)` with the package library | `fail, toBe, expected 1, actual 2` — correct |
+
+The empty expected/actual seen by the first runner attempt was a **harness mismatch**, not an engine or library bug: the runner tests ran against a library revision that did not yet carry the per-case (`specCaseName`, `specCaseIndex`, `specOnlyCase`) changes the runner relied on. No spec amendment is needed for F-B.
+
+### F-B (original claim, retained for the record) — `expect(actual).toBe(expected)` under FUN-8
 
 **Claim.** The chained-matcher shape TOOL-5 rules is not implementable as written.
 
