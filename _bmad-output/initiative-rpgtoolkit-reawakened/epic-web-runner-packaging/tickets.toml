@@ -236,3 +236,59 @@ hitl = false
 risk = "high"
 plan_checkpoint = true
 references = ["spec - docs/spec/engine/main-loop-and-startup.md#e-03, docs/spec/engine/display-input-audio.md#e-113", "code - packages/runner-web/app/main.ts, packages/core/src/engine/engine.ts, packages/core/src/input/input.ts", "epic - epic-board-rendering entry 19 / #393 (the engine loop)", "epic - web-runner-packaging entry 3 / #928 (the player page), entry 11 / #938 (runner-desktop), entry 12 / #940 (runner-mobile)"]
+
+[[entry]]
+id = 17
+tracker_id = "#1043"
+type = "bug"
+title = "Live player audio stutters from ScriptProcessorNode underruns"
+description = "The live player's audio drops out because the default ScriptProcessorNode buffer can starve while the main thread is busy."
+verify = "A representative live run has no audible dropouts, and the browser lane checks the actual shipped graph buffer alongside non-silent output and duration; reverting the buffer default makes its assertion fail."
+covers = ["CAP-12"]
+after = [5]
+hitl = false
+risk = "medium"
+refine = true
+references = ["issue - #1043", "proposed fix - PR #1042", "code - packages/runner-web/src/audio-sink.ts"]
+
+[[entry]]
+id = 18
+tracker_id = "#1044"
+type = "story"
+title = "Migrate Web Audio output from ScriptProcessorNode to AudioWorklet"
+description = "Replace the deprecated runner-web audio output node with an AudioWorklet while preserving cue semantics and reducing the large-buffer latency trade-off."
+verify = "Browser and desktop exercise real Worklet playback with correct cues, duration, non-silent output and cleanup, report measured one-shot latency and dropout conditions, and load the bundle under the shipped policy."
+covers = ["CAP-12"]
+after = [17]
+hitl = false
+risk = "high"
+references = ["issue - #1044", "spec - docs/spec/engine/runners.md", "decision - docs/adr/0015-web-build-and-test-toolchain.md"]
+
+[[entry]]
+id = 19
+tracker_id = "#1049"
+type = "bug"
+title = "Desktop renderer lacks CSP and uses deprecated console-message callback"
+description = "The desktop app pages lack a Content-Security-Policy and the renderer console listener uses deprecated positional arguments."
+verify = "The shipped Electron-loaded pages enforce an appropriate policy, a disallowed script is blocked, required resources still load, and console diagnostics use the supported event object."
+covers = ["CAP-12"]
+after = [11]
+hitl = false
+risk = "high"
+refine = true
+references = ["issue - #1049", "proposed fix - PR #1042", "code - packages/runner-desktop/src/main.ts"]
+
+[[entry]]
+id = 20
+tracker_id = "#1050"
+type = "bug"
+title = "Desktop player clips frames larger than its fixed window"
+description = "A logical game frame larger than the fixed desktop window is centred at 1x and clipped."
+verify = "An owner-approved presentation rule keeps large frames visible under window and display constraints with correct input mapping, aspect ratio and unchanged simulation state."
+covers = ["CAP-12"]
+after = [11]
+hitl = true
+risk = "medium"
+refine = true
+unknown = "The owner must choose the compliant large-frame presentation behavior."
+references = ["issue - #1050", "spec - docs/spec/engine/runners.md"]

@@ -592,3 +592,61 @@ hitl = false
 risk = "low"
 references = ["audit - epic-board-rendering/discovery/epic-04-closure-audit.md", "golden - golden/ledger.json"]
 notes = ["Delivered by PR #887 (b93ee00c, Fixes #885), merged 2026-10-31. The audit row now names the 12 independent-reference scenes and the six S-LIGHT-* scenes, with a correction note quoting the superseded wording; golden/ledger.json is unchanged."]
+
+[[entry]]
+id = 38
+tracker_id = "#1045"
+type = "bug"
+title = "Title-screen text and menu persist after entering a board"
+description = "Board arrival replaces the world without clearing the startup screen text and message-window state."
+verify = "After the owner ruling, first-board and later-transition tests prove the required UI clearing and preservation; removing the clearing contribution fails a regression test."
+covers = ["CAP-2"]
+after = [20]
+hitl = true
+risk = "high"
+refine = true
+unknown = "First-board clearing and its UI scope await the owner ruling tracked by #642."
+references = ["issue - #1045", "ruling - #642", "proposed fix - PR #1042"]
+
+[[entry]]
+id = 39
+tracker_id = "#1046"
+type = "bug"
+title = "Menu text has inconsistent row spacing and tracking"
+description = "Menu text placement appears inconsistent; fractional coordinate handling, font resolution and alignment need independent investigation."
+verify = "Deterministic tests assert each line's baseline y and first-glyph x, including fractional coordinates and explicit newlines, and the actual menu's font and alignment are verified."
+covers = ["CAP-6"]
+after = [8]
+hitl = false
+risk = "medium"
+refine = true
+references = ["issue - #1046", "proposed fix - PR #1042", "spec - docs/spec/engine/rpgcode-functions.md#e-56"]
+
+[[entry]]
+id = 40
+tracker_id = "#1047"
+type = "story"
+title = "Rule the request counter's participation in simulation hashes"
+description = "Decide whether request-counter history belongs in hashes without breaking request correlation or saved-state replay."
+verify = "The owner-approved rule compares excluding the counter from the hash and per-tick scoping against outstanding and late replies, snapshot restore and deterministic replay; tests and any intentional golden changes follow the ruling."
+covers = ["CAP-2"]
+after = [19]
+hitl = true
+risk = "high"
+unknown = "The owner must rule on request-ID and hash semantics before implementation."
+references = ["issue - #1047", "evidence - PR #1022"]
+
+[[entry]]
+id = 41
+tracker_id = "#1048"
+type = "bug"
+title = "surfacePixels screen read mutates hashed surface state"
+description = "A host presentation read can refresh persisted surface 0 and change later state hashes and saves."
+verify = "After the owner-approved rule, replay with no, repeated and cache-flush-driven reads has identical state, revisions, hashes and diagnostics while script-visible screen operations remain correct."
+covers = ["CAP-2", "CAP-6"]
+after = [7, 19]
+hitl = true
+risk = "high"
+refine = true
+unknown = "The owner must rule on host read purity and deterministic script-visible screen refresh."
+references = ["issue - #1048", "evidence - PR #1022", "spec - docs/spec/engine/runners.md"]
