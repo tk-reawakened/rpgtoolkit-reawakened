@@ -4,3 +4,5 @@ packages:
 # Build scripts allowed to run on install: esbuild downloads its platform binary (ADR 0015, dev-only).
 allowBuilds:
   esbuild: true
+  # Electron's install script downloads the shell binary the desktop runner measures (ADR 0013, dev-only).
+  electron: true

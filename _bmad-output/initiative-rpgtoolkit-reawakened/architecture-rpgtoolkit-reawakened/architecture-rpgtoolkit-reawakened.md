@@ -57,7 +57,11 @@ graph LR
   runnerharness --> runnerweb
   runnerharness --> runnerheadless
   runnerharness --> dap
-  runnerweb --> runnerdesktop[runner-desktop]
+  core --> runnerdesktop[runner-desktop]
+  runnerharness --> runnerdesktop
+  renderwebgl2 --> runnerdesktop
+  synth --> runnerdesktop
+  runnerweb --> runnerdesktop
   runnerweb --> runnermobile[runner-mobile]
   runnerweb --> editorui[editor-ui]
   renderwebgl2 --> editorui
