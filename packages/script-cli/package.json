@@ -1,0 +1,28 @@
+{
+  "name": "@tk-reawakened/script-cli",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "tkr": "./dist/cli.js"
+  },
+  "scripts": {
+    "typecheck:tests": "tsc -p tsconfig.test.json"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@tk-reawakened/core": "workspace:*",
+    "@tk-reawakened/runner-harness": "workspace:*",
+    "@tk-reawakened/script-spec": "workspace:*",
+    "@tk-reawakened/script-tools": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.0.0"
+  }
+}
