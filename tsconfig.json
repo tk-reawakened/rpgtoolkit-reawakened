@@ -24,6 +24,9 @@
     },
     {
       "path": "packages/runner-web"
+    },
+    {
+      "path": "packages/script-spec"
     }
   ]
 }

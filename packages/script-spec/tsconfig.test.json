@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "composite": false, "declaration": false, "noEmit": true, "allowImportingTsExtensions": true, "rootDir": ".", "lib": ["ES2022"], "types": [] },
+  "include": ["src", "test", "../../types/node-test.d.ts"],
+  "references": []
+}

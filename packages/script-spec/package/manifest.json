@@ -1,0 +1,7 @@
+{
+  "name": "script-spec",
+  "version": "1.0.0",
+  "namespace": "scriptspec",
+  "requests": [],
+  "program": "startup.prg"
+}

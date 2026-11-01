@@ -44,8 +44,7 @@ graph LR
   core --> renderwebgl2[render-webgl2]
   core --> runnerharness[runner-harness]
   core --> plugintk2compat[plugin-tk2-compat]
-  core --> scripttools[script-tools]
-  scripttools --> lsp
+  scripttools[script-tools] --> lsp
   plugintk2compat --> runnerharness
   core --> lsp
   core --> editormodel[editor-model]
@@ -70,6 +69,9 @@ graph LR
   lsp --> hostweb
   lsp --> hostdesktop
   dap --> hostvscode
+  runnerharness --> scriptspec[script-spec]
+  core --> scripttools
+  core --> scriptspec
 ```
 
 ## Inherited Invariants

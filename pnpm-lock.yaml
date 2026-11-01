@@ -277,6 +277,15 @@ importers:
         specifier: workspace:*
         version: link:../synth
 
+  packages/script-spec:
+    dependencies:
+      '@tk-reawakened/core':
+        specifier: workspace:*
+        version: link:../core
+      '@tk-reawakened/runner-harness':
+        specifier: workspace:*
+        version: link:../runner-harness
+
   packages/script-tools:
     dependencies:
       '@tk-reawakened/core':
