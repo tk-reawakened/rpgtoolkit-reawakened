@@ -7,14 +7,14 @@ import { compileInline, compileTk2, ScriptError } from "@tk-reawakened/core";
 import { formatSource } from "../src/index.ts";
 
 /**
- * The formatter over the fetched corpus (TOOL-4, TOOL-7): every program formats
- * to byte-identical text on a second run, and the original and formatted text
- * lower to the same instruction array (positions ignored) wherever the original
- * compiles. A file that differs is a formatter bug, not an exclusion.
+ * The formatter over the **committed** corpus (stock plus the authored 3.1
+ * fixtures): idempotent, and the original and formatted text lower to the same
+ * instruction array (positions ignored). It reads only files in the repository,
+ * so this shard needs no network fetch; the fetched `fixtures/legacy` sweep runs
+ * in `fixtures:test`, where the tree exists.
  */
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const corpus = join(repoRoot, "fixtures", "legacy");
 
 function programs(dir: string): string[] {
   const found: string[] = [];
@@ -35,38 +35,46 @@ function lowered(text: string): string | null {
   }
 }
 
-test("the corpus rewrites are real, not no-ops: two named files change and still lower identically", () => {
-  const named = ["fixtures/legacy/ChimeranEmpire/Prg/Blacksmith.prg", "fixtures/legacy/ChimeranEmpire/Prg/Project.prg"];
-  for (const file of named) {
-    const source = readFileSync(join(repoRoot, file), "utf8");
-    const formatted = formatSource(source, { dialect: "tk3" }).text;
-    ok(formatted !== source, `${file} is actually rewritten`);
-    const before = lowered(source);
-    const after = lowered(formatted);
-    ok(before !== null && after !== null, `${file} compiles before and after`);
-    equal(before, after, `${file} lowers identically`);
-  }
-});
+const TK2 = new Set(["battle-action-wait.prg", "battle-loop.prg", "battle-outcome-levelup.prg", "battle-status-wait.prg", "program-call-error.prg", "program-call-wait.prg"]);
 
-test("the fetched corpus formats idempotently and preserves every program that compiles", () => {
-  const files = programs(corpus);
-  ok(files.length > 0, `the corpus is fetched under ${relative(repoRoot, corpus)}`);
+function committed(): { readonly path: string; readonly source: string; readonly dialect: "tk3" | "tk2" }[] {
+  const files = [...programs(join(repoRoot, "stock")), ...programs(join(repoRoot, "packages/core/test/fixtures/authored"))].sort();
+  return files.map((path) => ({
+    path: relative(repoRoot, path),
+    source: readFileSync(path, "utf8"),
+    dialect: TK2.has(path.split("/").pop() ?? "") ? "tk2" : "tk3",
+  }));
+}
+
+test("the committed corpus formats idempotently and preserves every program that compiles", () => {
   let compared = 0;
   const mismatched: string[] = [];
-  for (const file of files) {
-    const source = readFileSync(file, "utf8");
-    const once = formatSource(source, { dialect: "tk3" }).text;
-    equal(formatSource(once, { dialect: "tk3" }).text, once, `${relative(repoRoot, file)} is idempotent`);
-    const before = lowered(source);
+  for (const file of committed()) {
+    if (file.dialect === "tk2") continue;
+    const once = formatSource(file.source, { dialect: "tk3" }).text;
+    equal(formatSource(once, { dialect: "tk3" }).text, once, `${file.path} is idempotent`);
+    const before = lowered(file.source);
     if (before === null) continue;
     const after = lowered(once);
     if (after === null) {
-      mismatched.push(`${relative(repoRoot, file)}: the formatted text no longer compiles`);
+      mismatched.push(`${file.path}: the formatted text no longer compiles`);
       continue;
     }
-    if (before !== after) mismatched.push(`${relative(repoRoot, file)}: lowering changed`);
+    if (before !== after) mismatched.push(`${file.path}: lowering changed`);
     compared += 1;
   }
-  equal(compared > 0, true, "at least one corpus program compiled both before and after");
+  ok(compared > 0, "at least one committed program compiled both before and after");
   deepEqual(mismatched, []);
+});
+
+test("the authored files the rewrite made canonical report no change", () => {
+  for (const name of ["battle-actions.prg", "battle-ai.prg"]) {
+    const source = readFileSync(join(repoRoot, "packages/core/test/fixtures/authored", name), "utf8");
+    equal(formatSource(source, { dialect: "tk3" }).changed, false, `${name} is canonical`);
+  }
+});
+
+test("the formatter's output for a committed 3.1 file compiles", () => {
+  const text = formatSource(readFileSync(join(repoRoot, "stock/stock_rpg/startup.prg"), "utf8"), { dialect: "tk3" }).text;
+  ok(compileInline(text).ops.length > 0);
 });
