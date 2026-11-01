@@ -321,7 +321,7 @@ function clampVolume(volume: number): number {
  * Attach a sink to a browser `AudioContext`: a `ScriptProcessorNode` pulls it, a master `GainNode` feeds the graph. The
  * sink is the only thing that knows about voices, so the graph node is three lines and no policy.
  */
-export function connectSinkToGraph(context: AudioContext, sink: PcmSink, frames = 1024): { readonly node: ScriptProcessorNode; readonly disconnect: () => void } {
+export function connectSinkToGraph(context: AudioContext, sink: PcmSink, frames = 8192): { readonly node: ScriptProcessorNode; readonly disconnect: () => void } {
   const node = context.createScriptProcessor(frames, 2, 2);
   node.onaudioprocess = (event: AudioProcessingEvent): void => {
     const left = event.outputBuffer.getChannelData(0);
