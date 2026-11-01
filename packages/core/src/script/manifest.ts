@@ -24,6 +24,7 @@ export const HOST_REQUEST_KINDS = [
   "quit",
   "openUrl",
   "playVideo",
+  "prefetch",
 ] as const satisfies readonly RunnerRequest["kind"][];
 
 // Compile-time exhaustiveness: a new RunnerRequest kind must be listed above.

@@ -73,6 +73,19 @@ const vectors = [
   { id: "request-open-url", family: "request", valid: true, record: { kind: "openUrl", reqId: 7, url: "https://example.invalid/help" } },
   { id: "request-play-video", family: "request", valid: true,
     record: { kind: "playVideo", reqId: 8, key: "media/intro.webm", presentation: "small" } },
+  // A prefetch hint: tiered keys, ordered by tier then key, and no reply (runners.md#prefetch).
+  { id: "request-prefetch", family: "request", valid: true,
+    record: {
+      kind: "prefetch",
+      reqId: 9,
+      hints: [
+        { tier: "now", key: "media/town.mid" },
+        { tier: "next", key: "fight.mid" },
+        { tier: "always", key: "media/move.wav" },
+      ],
+    } },
+  { id: "refuse-prefetch-bad-tier", family: "request", valid: false, why: "a tier is now, next or always",
+    record: { kind: "prefetch", reqId: 10, hints: [{ tier: "later", key: "media/town.mid" }] } },
 
   // --- refusals: a conforming schema must reject these ------------------------
   { id: "refuse-unknown-command", family: "draw", valid: false, why: "no such draw command",

@@ -14,7 +14,6 @@ import { classifyImageReference } from "../formats/animation/image-reference.ts"
 import { decodeTexture, type DecodedTexture } from "../formats/image/index.ts";
 import { expandSingleTileToRgba, readSingleTile } from "../formats/single-tile/index.ts";
 import { expandTileToRgba, readTileset, tileDimensions } from "../formats/tileset/index.ts";
-import { BinaryReader } from "../formats/binary/reader.ts";
 import { compositeTileBitmap, readTileBitmap, tileBitmapCell, type TileBitmapTile } from "../formats/tile-bitmap/index.ts";
 import { readTileAnimation } from "../formats/tile-animation/reader.ts";
 import { err, ok, type Result } from "../formats/result.ts";
@@ -22,6 +21,9 @@ import { readCharacter } from "../formats/actor/character.ts";
 import { readItem } from "../formats/actor/item.ts";
 import type { Character, Item } from "../formats/actor/model.ts";
 import { readMainFile } from "../formats/main-file/reader.ts";
+import { planPrefetch, prefetchSignature, type PrefetchFacts } from "../prefetch/plan.ts";
+import { readBattleBackground } from "../formats/battle/battle-background.ts";
+import { BinaryReader } from "../formats/binary/reader.ts";
 import type { MainFile } from "../formats/main-file/model.ts";
 import { readLegacyFont } from "../formats/font/reader.ts";
 import { gateTrueType } from "../formats/font/truetype.ts";
@@ -330,6 +332,14 @@ export function createEngine(init: EngineInit): Engine {
   const pendingBoardPreviews: Array<{ readonly key: AssetKey; readonly effect: EffectRecord }> = [];
   const queuedInputs: InputRecord[] = [];
   const requestsOut: RunnerRequest[] = [];
+  /** The last prefetch plan sent, so a board entry only sends a hint set that differs from it. */
+  let lastPrefetch = "";
+  /**
+   * A hint's own counter, deliberately **not** `nextRequestId`: that one lives in the saved `engine` section, so drawing
+   * from it would move a state hash for a request that must change nothing (AD-5). A hint earns no reply, so its id only
+   * has to be unique within the run.
+   */
+  let nextHintId = 1;
   let recoveryCaptureRequested = false;
   let preBattleRecoveryCandidate: RecoveryCandidate | null = null;
   let recoveryLaunch: RecoveryLaunch | null = null;
@@ -1697,6 +1707,78 @@ export function createEngine(init: EngineInit): Engine {
     const asset = music !== null && music.ok ? music.value : null;
     bus.postEffect("audio", engineEffect("audio", "music.play", [asset, true, null, "board"], "draw-audio-cue"));
   }
+  /**
+   * Send the prefetch plan for `board` ([runners.md#prefetch]): a stream request with no reply that no hash reads. Only a
+   * plan that differs from the last one is sent, and every fact is one the engine already holds — no speculative read.
+   */
+  function postPrefetch(board: WorldBoard): void {
+    const boardMusic = board.backgroundMusic === undefined || board.backgroundMusic === ""
+      ? null
+      : (() => {
+        const resolved = resolveAsset(index, root, "media", board.backgroundMusic);
+        return resolved.ok ? resolved.value : null;
+      })();
+    const linkedBoardMusic: (AssetKey | null)[] = [];
+    for (const edge of ["north", "south", "east", "west"] as const) {
+      const link = board.links?.[edge] ?? "";
+      if (link === "" || link.toLowerCase().endsWith(".prg")) continue;
+      const target = resolveAsset(index, root, "boards", link);
+      if (!target.ok) continue;
+      const bytes = cache.get(target.value);
+      // A linked board is hinted only when its bytes are already here: the hint never causes a read (AD-5).
+      if (bytes === undefined) continue;
+      const hydrated = hydrateBoard(target.value, bytes, index, root, cache, state.time.tick);
+      const backgroundMusic = hydrated.error === null && hydrated.value?.board !== null && hydrated.value?.board !== undefined
+        ? hydrated.value.board.backgroundMusic ?? ""
+        : "";
+      if (backgroundMusic === "") continue;
+      const resolved = resolveAsset(index, root, "media", backgroundMusic);
+      linkedBoardMusic.push(resolved.ok ? resolved.value : null);
+    }
+    let battle: PrefetchFacts["battle"] = null;
+    const backgroundKey = board.battleBackground === undefined || board.battleBackground === ""
+      ? null
+      : (() => {
+        const resolved = resolveAsset(index, root, "backgrounds", board.battleBackground ?? "");
+        return resolved.ok ? resolved.value : null;
+      })();
+    if (backgroundKey !== null) {
+      const bytes = cache.get(backgroundKey);
+      if (bytes !== undefined) {
+        const parsed = readBattleBackground(new BinaryReader(bytes, board.battleBackground ?? ""));
+        if (parsed.ok) battle = {
+          music: parsed.value.music,
+          menuMoveSound: parsed.value.menuMoveSound,
+          menuChooseSound: parsed.value.menuChooseSound,
+          readySound: parsed.value.readySound,
+          cantDoSound: parsed.value.cantDoSound,
+        };
+      }
+    }
+    const sound = (name: string | undefined): AssetKey | null => {
+      if (name === undefined || name === "") return null;
+      const resolved = resolveAsset(index, root, "media", name);
+      return resolved.ok ? resolved.value : null;
+    };
+    const facts: PrefetchFacts = {
+      boardMusic,
+      boardMusicIsMidi: boardMusic !== null && /\.(mid|midi|kar)$/i.test(boardMusic),
+      linkedBoardMusic,
+      battle,
+      main: {
+        cursorMoveSound: sound(mainFile?.cursorMoveSound),
+        cursorSelectSound: sound(mainFile?.cursorSelectSound),
+        cursorCancelSound: sound(mainFile?.cursorCancelSound),
+      },
+      defaultBank: defaultSoundFont,
+    };
+    const plan = planPrefetch(facts);
+    const signature = prefetchSignature(plan);
+    if (signature === lastPrefetch) return;
+    lastPrefetch = signature;
+    if (plan.length > 0) requestsOut.push({ kind: "prefetch", reqId: nextHintId++, hints: plan });
+  }
+
   function eventType(event: number): string | null {
     const record = findObject(state.vm, event);
     const value = record === undefined ? null : readMember(record, "type");
@@ -1724,6 +1806,8 @@ export function createEngine(init: EngineInit): Engine {
     if (board === null || board === undefined) return;
     queueNativeEvent(state.vm, state.events, "game", "boardReturned", { boardKey: board.key });
     postBoardMusic(board);
+    // Returning to the same board re-hints nothing new, but a plan that differs (a changed bank, a new main) still goes.
+    postPrefetch(board);
   }
   /** The player's position when a sprites owner supplies one, else the arrival point converted by the board's own layout (E-11). */
   function cameraAim(board: WorldBoard, arrival: Arrival): CameraPoint {
@@ -1814,6 +1898,7 @@ export function createEngine(init: EngineInit): Engine {
     state.camera = realignCamera(state.camera, board, cameraAim(board, arrival));
     bus.postEffect("triggers", engineEffect("triggers", "deactivateat", placement));
     postBoardMusic(board);
+    postPrefetch(board);
     boardLifecycle("entered", board, player);
     // An empty list is stored as one empty string and empty entries are ignored (docs/spec/formats/board.md#threads-constants-and-settings).
     for (const name of board.threads ?? []) if (name !== "") startFileProgram(name, board.key, "board");
@@ -2323,6 +2408,7 @@ export function createEngine(init: EngineInit): Engine {
       return false;
     }
     postBoardMusic(prepared.board);
+    postPrefetch(prepared.board);
     state.vm.threads = stagedVm.threads;
     state.sprites.items = items;
     if (init.spriteRuntime !== undefined && init.spriteRuntime.section !== state.sprites) init.spriteRuntime.section.items = items;
@@ -2427,6 +2513,7 @@ export function createEngine(init: EngineInit): Engine {
     clearPathfindingCache();
     state.world = { board: loaded };
     state.camera = initCameraForBoard(state.camera, loaded, init.cameraTarget);
+    postPrefetch(loaded);
     boardLifecycle("entered", loaded, state.sprites.players[0]);
     return true;
   }

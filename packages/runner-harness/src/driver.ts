@@ -36,6 +36,16 @@ function isRequest(value: unknown): value is RunnerRequest {
       return request.area === "saves" || request.area === "files";
     case "extension.call":
       return typeof request.name === "string" && Array.isArray(request.args);
+    case "prefetch": {
+      // A hint is observed, never dropped: the harness validates its shape and records it like any other request.
+      const hints = request.hints;
+      if (!Array.isArray(hints)) return false;
+      return hints.every((hint) => {
+        if (typeof hint !== "object" || hint === null || Array.isArray(hint)) return false;
+        const entry = hint as { readonly tier?: unknown; readonly key?: unknown };
+        return (entry.tier === "now" || entry.tier === "next" || entry.tier === "always") && typeof entry.key === "string";
+      });
+    }
     case "quit":
       return true;
     case "openUrl":

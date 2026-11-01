@@ -157,6 +157,7 @@ export function checkRunnerRequestExhaustive(kind: RunnerRequest["kind"]): void 
     case "quit":
     case "openUrl":
     case "playVideo":
+    case "prefetch":
       return;
     default: {
       const _exhaustiveCheck: never = kind;
@@ -391,6 +392,12 @@ export const pinPlayVideoRequest: PlayVideoRequest = {
   reqId: 8,
   key: "intro.mp4" as AssetKey,
   presentation: "full",
+};
+
+export const pinPrefetchRequest: RunnerRequest = {
+  kind: "prefetch",
+  reqId: 9,
+  hints: [{ tier: "now", key: "media/town.mid" as AssetKey }, { tier: "always", key: "media/move.wav" as AssetKey }],
 };
 
 export const pinKeyInputWithChar: KeyInput = {

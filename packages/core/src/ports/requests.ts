@@ -9,6 +9,7 @@
  */
 
 import type { Bytes, PortData } from "./bytes.ts";
+import type { PrefetchHint } from "../prefetch/plan.ts";
 import type { AssetKey } from "./keys.ts";
 
 /** The two sandboxed storage areas a blob key can name (AD-17). */
@@ -63,6 +64,16 @@ export type QuitRequest = {
   readonly reqId: number;
 };
 
+/**
+ * Ask the runner to fetch and decode ahead ([runners.md#prefetch]). Stream, never blocking: no reply exists, state and the
+ * draw and state hashes never read it, and a host that discards hints changes no pixel, no sound and no hash.
+ */
+export type PrefetchRequest = {
+  readonly kind: "prefetch";
+  readonly reqId: number;
+  readonly hints: readonly PrefetchHint[];
+};
+
 /** Ask the runner to open an `https:` URL, after asking the user (AD-17). */
 export type OpenUrlRequest = {
   readonly kind: "openUrl";
@@ -87,4 +98,5 @@ export type RunnerRequest =
   | ExtensionCallRequest
   | QuitRequest
   | OpenUrlRequest
-  | PlayVideoRequest;
+  | PlayVideoRequest
+  | PrefetchRequest;

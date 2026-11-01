@@ -5,7 +5,7 @@
   "counts": {
     "draw": 12,
     "input": 15,
-    "request": 11
+    "request": 13
   },
   "vectors": [
     {
@@ -544,6 +544,45 @@
         "reqId": 8,
         "key": "media/intro.webm",
         "presentation": "small"
+      }
+    },
+    {
+      "id": "request-prefetch",
+      "family": "request",
+      "valid": true,
+      "record": {
+        "kind": "prefetch",
+        "reqId": 9,
+        "hints": [
+          {
+            "tier": "now",
+            "key": "media/town.mid"
+          },
+          {
+            "tier": "next",
+            "key": "fight.mid"
+          },
+          {
+            "tier": "always",
+            "key": "media/move.wav"
+          }
+        ]
+      }
+    },
+    {
+      "id": "refuse-prefetch-bad-tier",
+      "family": "request",
+      "valid": false,
+      "why": "a tier is now, next or always",
+      "record": {
+        "kind": "prefetch",
+        "reqId": 10,
+        "hints": [
+          {
+            "tier": "later",
+            "key": "media/town.mid"
+          }
+        ]
       }
     },
     {
