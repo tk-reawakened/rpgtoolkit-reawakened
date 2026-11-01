@@ -206,15 +206,13 @@ package's own manifest keeps exactly three fields, because AD-6 refuses any othe
 The web player has two load modes. Below a threshold it downloads the whole distribution package once, behind a
 progress screen, and keeps it; above it, it streams assets on demand.
 
-The threshold is **measured, not asserted**: it is the uncompressed size of the largest corpus package, rounded up to
-the next whole mebibyte, recorded here with the date it was measured. The table starts empty because no sample game
-ships a package — "no sample ships a package, so the package numbers have no corpus evidence at all"
-([../formats/packaging-and-paths.md](../formats/packaging-and-paths.md)) — and entry 9 measures the fetched corpus
-before the first number is written.
+The threshold is **measured, not asserted**: it is the uncompressed size of the largest corpus package, including its
+manifest, rounded up to the next whole mebibyte. The measurement builds packages from all games in the pinned fetched
+corpus, using the closing plan to select each main file, and checks the resulting archives.
 
 | Corpus | Largest package | Threshold | Measured |
 |---|---|---|---|
-| *pending entry 9* | — | — | — |
+| 8 fetched corpus games | ChimeranEmpire: 32175677 bytes | 31 MiB | 2026-11-01 |
 
 A package in the cache is keyed by the SHA-256 of its bytes. Per-entry hashes and delta updates are deferred until a
 second published package version exists, because they would otherwise amend AD-6 and the manifest contract for a
