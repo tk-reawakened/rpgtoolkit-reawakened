@@ -40,7 +40,7 @@
         "license": "CC0-1.0",
         "adr": "ADR-0003",
         "release": "TK-16 Classic RPG bank 2.0 (default)",
-        "sha256": "1530b366d1ae28b753e15215b633154a1d6ef6c7e90fab9391175b628943fcbe",
+        "sha256": "dd0eb197092428340bd8b6a297c10cc070c4ecb874c68a4cecfb0d3113d9e716",
         "sizeCeiling": 8388608,
         "notice": "TK-16 is an authored General MIDI bank built entirely from deterministic mathematical waveforms; it contains no third-party samples."
       },
@@ -49,7 +49,7 @@
         "license": "CC0-1.0",
         "adr": "ADR-0003",
         "release": "TK-16 Whimsical bank 2.0",
-        "sha256": "deb9d5bd3fb0587e8dd1e304e8ef81e57dbe7de4aaefeba001bf5735fbbce69d",
+        "sha256": "18a296a5dc4a8a1cfeef8ce23094ed2a166ca46eaf788d3031fdf184680783e8",
         "sizeCeiling": 8388608,
         "notice": "TK-16 is an authored General MIDI bank built entirely from deterministic mathematical waveforms; it contains no third-party samples."
       },
@@ -58,7 +58,7 @@
         "license": "CC0-1.0",
         "adr": "ADR-0003",
         "release": "TK-16 Arcade bank 2.0",
-        "sha256": "087dc8b2ff58c42ee3381f18506632b56b2d950020ba1c71adf44220a5c9c211",
+        "sha256": "c4dbde2c10932d4621bc283960c5b7864b3b3523765d0e126656c81249403ed6",
         "sizeCeiling": 8388608,
         "notice": "TK-16 is an authored General MIDI bank built entirely from deterministic mathematical waveforms; it contains no third-party samples."
       }

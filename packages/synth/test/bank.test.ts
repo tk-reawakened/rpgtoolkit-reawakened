@@ -25,7 +25,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const bankPath = resolve(here, "..", "..", "..", "media", "soundfonts", "TK-16.sf2");
 const bankBytes = new Uint8Array(readFileSync(bankPath));
 
-const bundled: BankRef = { source: "bundled", id: "TK-16", sha256: "1530b366d1ae28b753e15215b633154a1d6ef6c7e90fab9391175b628943fcbe" };
+const bundled: BankRef = { source: "bundled", id: "TK-16", sha256: "dd0eb197092428340bd8b6a297c10cc070c4ecb874c68a4cecfb0d3113d9e716" };
 const runner: BankRef = { source: "bundled", id: "runner-choice", sha256: null };
 const author: BankRef = { source: "game", id: "media/game.sf2", sha256: null };
 const player: BankRef = { source: "user", id: "player-bank", sha256: null };

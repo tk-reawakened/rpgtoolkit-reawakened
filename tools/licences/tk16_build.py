@@ -136,6 +136,24 @@ class Lcg:
         return self.state / 0x3FFFFFFF - 1.0
 
 
+class Lfsr:
+    """15-bit linear-feedback shift register, modelled on the SNES DSP noise source.
+
+    Feedback is bit 0 XOR bit 1 into bit 14 as the register shifts right, so the
+    sequence repeats every 2**15 - 1 = 32,767 steps, the short metallic
+    repetition heard in console percussion.
+    """
+
+    def __init__(self, seed: int) -> None:
+        self.state = (seed % 0x7FFF) or 1
+
+    def next(self) -> float:
+        feedback = (self.state ^ (self.state >> 1)) & 1
+        self.state = (self.state >> 1) | (feedback << 14)
+        word = (self.state << 1) & 0xFFFF
+        return (word - 0x10000 if word >= 0x8000 else word) / 32768.0
+
+
 # --- house styles ---------------------------------------------------------
 # rate: percussion sample rate; zones: (low key, high key, loop frames), with fewer
 # harmonics higher up so transposed samples do not alias into a second, faster pitch;
@@ -212,10 +230,12 @@ def finish(values, profile, peak=0.82, drive=0.0):
 
 
 def loop_cycle(spectrum: str, f0: float, period: int, cycles: int, profile) -> list[int]:
+    # Whole cycles, repeated until the loop is a multiple of 16 frames (one BRR block).
     length = period * cycles
+    length *= 16 // math.gcd(16, length)
     drive = profile["drive"].get(spectrum, 0.0)
     if spectrum == "noise":
-        rng = Lcg(0x544B31 + period)
+        rng = Lfsr(0x544B31 + period)
         raw = [rng.next() for _ in range(length)]
         smooth = [0.0] * length
         last = 0.0
@@ -271,7 +291,7 @@ def drum(kind: str, profile) -> list[int]:
     rate = profile["rate"]
     seconds = {"tom": dp["tom_len"], "snare": dp["snare_len"]}.get(kind, DRUM_SECONDS[kind])
     count = int(seconds * rate)
-    rng = Lcg(0x5442 + sum(map(ord, kind)))
+    rng = Lfsr(0x5442 + sum(map(ord, kind)))
     hp = noise_hp(rng, count)
     out = []
     phase = 0.0
@@ -444,6 +464,7 @@ class Bank:
         self.samples.extend(frames)
         end = len(self.samples)
         self.samples.extend([0] * 46)
+        assert not loop or len(frames) % 16 == 0, f"{name}: loop of {len(frames)} frames is not a multiple of 16"
         loop_range = (start, end) if loop else (start, start)
         self.shdr.append(struct.pack("<20sIIIIIBbHH", name20(name), start, end, loop_range[0], loop_range[1], rate, root, 0, 0, 1))
         index = len(self.shdr) - 1
@@ -592,7 +613,7 @@ def main() -> None:
     provenance = {
         "format": "SoundFont 2.1 RIFF sfbk",
         "license": "CC0-1.0",
-        "authoring": "Pure deterministic synthesis; no third-party or recorded samples. Timbre targets were set by listening and coarse measurement of reference sample sets; no waveform, table or envelope data from them is read or embedded.",
+        "authoring": "Pure deterministic synthesis (noise from a 15-bit shift register); no third-party or recorded samples. Timbre targets were set by listening and coarse measurement of reference sample sets; no waveform, table or envelope data from them is read or embedded.",
         "generator": "tools/licences/tk16_build.py",
         "banks": banks,
     }

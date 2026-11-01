@@ -1485,9 +1485,9 @@ program measured within 1 cent at notes 60, 64 and 72.
 
 | File | Style | Bytes | SHA-256 |
 |---|---|---:|---|
-| `TK-16.sf2` (**default**) | Classic RPG: warm, long harp and string swell, tidy drums | 701,432 | `1530b366d1ae28b753e15215b633154a1d6ef6c7e90fab9391175b628943fcbe` |
-| `TK-16-Whimsical.sf2` | Whimsical: chunky, bright, low-rate, 8-bit crush | 516,794 | `deb9d5bd3fb0587e8dd1e304e8ef81e57dbe7de4aaefeba001bf5735fbbce69d` |
-| `TK-16-Arcade.sf2` | Arcade: fast attacks, driven guitar and lead, ringing toms | 625,298 | `087dc8b2ff58c42ee3381f18506632b56b2d950020ba1c71adf44220a5c9c211` |
+| `TK-16.sf2` (**default**) | Classic RPG: warm, long harp and string swell, tidy drums | 701,432 | `dd0eb197092428340bd8b6a297c10cc070c4ecb874c68a4cecfb0d3113d9e716` |
+| `TK-16-Whimsical.sf2` | Whimsical: chunky, bright, low-rate, 8-bit crush | 517,082 | `18a296a5dc4a8a1cfeef8ce23094ed2a166ca46eaf788d3031fdf184680783e8` |
+| `TK-16-Arcade.sf2` | Arcade: fast attacks, driven guitar and lead, ringing toms | 625,298 | `c4dbde2c10932d4621bc283960c5b7864b3b3523765d0e126656c81249403ed6` |
 
 The owner chose Classic RPG as the bundled default on 2026-11-01; the other two
 are selectable bundled banks, picked by their `media/soundfonts/` id in the
