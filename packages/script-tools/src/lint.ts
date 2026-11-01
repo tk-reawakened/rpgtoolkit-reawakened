@@ -230,6 +230,9 @@ function rulesFor(program: IndexProgram, catalogue: Catalogue, resolveIncludes: 
   // lowering emits a load of that name before the call, so a name read anywhere in
   // the program is resolved at run time and is not an unknown command.
   const callableVariables = new Set(program.references.filter((site) => site.kind === "read" && site.name !== null).map((site) => foldAscii(site.name!)));
+  // A parameter is called as a callable without a load, so the index states the
+  // parameter names; a call to one is not an unknown command.
+  for (const param of program.parameters) callableVariables.add(foldAscii(param));
 
   for (const call of program.calls) {
     if (call.file !== null) continue;

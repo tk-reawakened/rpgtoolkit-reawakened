@@ -1,14 +1,6 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import test from "node:test";
-import {
-  BATTLE_PLUGIN,
-  CATALOGUE_PLUGIN,
-  CORE_PLUGIN,
-  MEDIA_PLUGIN,
-  NATIVE_PACK_TABLE,
-  type PluginDefinition,
-  type ResolvedPlugin,
-} from "@tk-reawakened/core";
+import { FIRST_PARTY_PLUGINS, type ResolvedPlugin } from "@tk-reawakened/core";
 import { analyse, applyEdits, buildIndex, lint, readLintConfig, RULES } from "../src/index.ts";
 
 /**
@@ -17,14 +9,7 @@ import { analyse, applyEdits, buildIndex, lint, readLintConfig, RULES } from "..
  * the summary names what was turned off.
  */
 
-const definitions: { readonly [id: string]: PluginDefinition } = {
-  core: CORE_PLUGIN,
-  media: MEDIA_PLUGIN,
-  battle: BATTLE_PLUGIN,
-  catalogue: CATALOGUE_PLUGIN,
-  ...NATIVE_PACK_TABLE,
-};
-const plugins: ResolvedPlugin[] = ["core", "media", "battle", "catalogue", "gsmisc", "triuken", "filereadwrite", "proplug", "xfmwin", "kaimu", "twbutton"].map((id) => ({ definition: definitions[id]! }));
+const plugins: ResolvedPlugin[] = FIRST_PARTY_PLUGINS.map((definition) => ({ definition }));
 
 function indexOf(text: string) {
   return buildIndex([{ name: "main.prg", ref: { kind: "inline", text, ir: "1" } }]);

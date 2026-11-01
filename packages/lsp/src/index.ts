@@ -9,20 +9,9 @@
  */
 
 import {
-  BATTLE_PLUGIN,
-  CATALOGUE_PLUGIN,
-  CORE_PLUGIN,
-  GSMISC_PLUGIN,
-  KAIMU_PLUGIN,
-  MEDIA_PLUGIN,
-  NATIVE_PACK_TABLE,
-  PROPLUG_PLUGIN,
-  TRIUKEN_PLUGIN,
-  TWBUTTON_PLUGIN,
-  XFMWIN_PLUGIN,
+  FIRST_PARTY_PLUGINS,
   commandDocumentation,
   foldAscii,
-  type PluginDefinition,
   type ProgramLoader,
   type ResolvedPlugin,
 } from "@tk-reawakened/core";
@@ -71,19 +60,9 @@ const SEVERITY: { readonly [severity in Severity]: DiagnosticSeverity } = {
   hint: DiagnosticSeverity.Hint,
 };
 
-/** The plugin definitions the catalogue is projected from; the same set the command-docs gate checks. */
-const PLUGIN_IDS = ["core", "media", "battle", "catalogue", "gsmisc", "triuken", "filereadwrite", "proplug", "xfmwin", "kaimu", "twbutton"] as const;
-
-const PLUGIN_DEFINITIONS: { readonly [id: string]: PluginDefinition } = {
-  core: CORE_PLUGIN,
-  media: MEDIA_PLUGIN,
-  battle: BATTLE_PLUGIN,
-  catalogue: CATALOGUE_PLUGIN,
-  ...NATIVE_PACK_TABLE,
-};
-
+/** Every first-party definition, so hover and completion cover the packs a host registers too. */
 function defaultPlugins(): readonly ResolvedPlugin[] {
-  return PLUGIN_IDS.map((id) => ({ definition: PLUGIN_DEFINITIONS[id]! }));
+  return FIRST_PARTY_PLUGINS.map((definition) => ({ definition }));
 }
 
 /**

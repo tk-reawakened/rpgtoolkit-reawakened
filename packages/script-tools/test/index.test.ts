@@ -235,6 +235,7 @@ test("includes: the explicit #include and the implicit file.func call, both reso
     ],
   );
   deepEqual(program.files, ["<inline>", "prg/lib.prg"]);
+  deepEqual(program.parameters, ["n", "a", "b", "e"]);
 });
 
 test("calls keep the folded name and the written spelling, and a file call keeps its file", () => {
