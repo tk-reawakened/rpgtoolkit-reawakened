@@ -1,0 +1,32 @@
+{
+  "os": "darwin",
+  "arch": "arm64",
+  "electron": "v45.2.1",
+  "measuredAt": "2026-11-01T01:28:28.148Z",
+  "package": "fixtures/packages/demo.tpk",
+  "error": null,
+  "scheme": "app",
+  "serviceWorkers": 0,
+  "packageName": "demo.tpk",
+  "tick": 120,
+  "stateHash": "bff947dce3a11b4f",
+  "drawHash": "9a40be8a0b5ca816",
+  "commands": 128,
+  "webgl2": "webgl2 WebGL 2.0 (OpenGL ES 3.0 Chromium) max 16384",
+  "blendWorst": 0,
+  "audio": {
+    "lengthTicks": 15,
+    "energy": 61.09423828125
+  },
+  "frame": {
+    "worst": 0,
+    "width": 640,
+    "height": 480
+  },
+  "save": {
+    "gameId": "desktop-probe-game",
+    "path": "slot-1.json",
+    "written": true,
+    "bytes": 42
+  }
+}

@@ -52,13 +52,17 @@
     "dump:check:examples": "tsc -b && node packages/runner-headless/dist/cli.js dump --check golden/spec-examples.json docs/spec/examples",
     "dump:record:examples": "tsc -b && node packages/runner-headless/dist/cli.js dump --record golden/spec-examples.json docs/spec/examples",
     "make-package": "node tools/make-package/run.mjs",
-    "make-package:test": "node --test tools/make-package/test/make-package.test.mjs"
+    "make-package:test": "node --test tools/make-package/test/make-package.test.mjs",
+    "desktop:build": "node tools/desktop/build.mjs",
+    "desktop:measure": "node tools/desktop/measure.mjs",
+    "desktop:inventory": "node tools/licences/desktop-inventory.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",
     "@tk-reawakened/core": "workspace:*",
     "@typescript/native": "npm:typescript@7.0.2",
     "dependency-cruiser": "18.5.0",
+    "electron": "45.2.1",
     "esbuild": "0.28.2",
     "eslint": "10.12.0",
     "typescript": "npm:@typescript/typescript6@6.0.2",
