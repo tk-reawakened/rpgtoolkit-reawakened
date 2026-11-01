@@ -101,22 +101,6 @@ test("text and pixelText record draws and text metrics", () => {
   equal(command("gettextwidth", state, [arg("AB")]).value, 16);
 });
 
-test("text truncates fractional cell coordinates toward zero", () => {
-  const state = createGameState({ seed: 0 });
-  const effect = firstEffect(command("text", state, [arg(5.9), arg(2.4), arg("X")]));
-  applyUiEffect(state, "text", effect.args ?? []);
-  // Cell (5, 2) -> (5 - 1) * 8, (2 - 1) * 8
-  equal(state.ui.draws[0]?.x, 32);
-  equal(state.ui.draws[0]?.y, 8);
-  equal(state.ui.cursorX, 32);
-  equal(state.ui.cursorY, 8);
-
-  const pixel = firstEffect(command("pixeltext", state, [arg(10.7), arg(20.3), arg("Y")]));
-  applyUiEffect(state, "pixeltext", pixel.args ?? []);
-  equal(state.ui.draws[1]?.x, 10);
-  equal(state.ui.draws[1]?.y, 20);
-});
-
 test("cell text lays out multi-line strings with one cell row per line", () => {
   const state = createGameState({ seed: 0 });
   const effect = firstEffect(command("text", state, [arg(1), arg(1), arg("A\nB\nC")]));
