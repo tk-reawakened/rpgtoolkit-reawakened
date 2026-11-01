@@ -10,7 +10,7 @@ The desktop player is a small Electron window that opens a packaged game and run
 |---|---|
 | `pnpm desktop:run --package <your.tpk>` opens any packaged game that has its `.tpk.json` descriptor beside it. A macOS launch of a small authored package showed that package's own board on the canvas, with the status reporting a player position. | This is one observed package, not a claim that every game is playable. |
 | Keyboard movement works in the Electron window: `pnpm desktop:input` sends a trusted right-arrow key event to the running player and the reported position moves one 32-pixel step (`208, 191` → `240, 191` on the authored probe package). | Pointer input (click to walk) is wired but not yet proven the same way. |
-| The window shows the game at the resolution its own main file asks for — 640×480, 800×600, 1024×768 or the custom size — scaled up by whole numbers only, so pixels stay square. | The Electron window itself is a fixed 960×720 frame, so a game larger than that is shown at 1:1 with room to spare rather than in a window sized to the game. |
+| The window shows the game at the resolution its own main file asks for — 640×480, 800×600, 1024×768 or the custom size — scaled up by whole numbers only, so pixels stay square. | The Electron window itself is a fixed 960×720 frame. A frame larger than 960×720 is shown at 1× and overflows; a smaller one is centred with a black surround. The window is not sized to the game. |
 | A board larger than the frame scrolls: the camera follows the player and clamps to the board's edges. A smaller board is centred. | — |
 | A save is written to the desktop host's own storage, under the package's canonical game key. | A save does **not** move between hosts yet: the browser and desktop keep separate stores, so a save made in one is not visible to the other. |
 | A rebuilt desktop measurement reports demo tick-120 state `91172695de52cfd6`, draw `9a40be8a0b5ca816` and frame worst 0. | Those values are from the closing configuration, not an interactive session. |
@@ -19,7 +19,7 @@ Mobile is not included: the mobile wrapper does not exist yet.
 
 ## How the picture is sized
 
-The game's own main file names the resolution it was authored for, and that is the frame the engine draws: the runner reads it, not a fixed default. What you see on screen is that frame scaled by a whole number (`1×`, `2×`, `3×` …) and centred, which keeps every tile and font pixel crisp. Anything the frame cannot show is a camera question, not a scaling one — a board wider than the frame scrolls with the player, and a board narrower than it sits centred on its own background.
+The game's own main file names the resolution it was authored for, and that is the frame the engine draws: the runner reads it, not a fixed default. What you see on screen is that frame scaled by the largest whole number that fits (`1×`, `2×`, `3×` …) and centred, which keeps every tile and font pixel crisp. A 1024×768 game inside a 960×720 window therefore stays at `1×` and overflows; the runner never scales below 1. Anything the logical frame cannot show is a camera question, not a scaling one — a board wider than the frame scrolls with the player, and a board narrower than it sits centred on its own background.
 
 ## Where saves live
 
