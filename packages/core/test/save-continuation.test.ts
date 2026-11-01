@@ -47,8 +47,9 @@ function runningGame(): { files: Files; mainBytes: Uint8Array; paths: string[] }
   return { files, mainBytes: written.value, paths };
 }
 
-type SavedThread = { readonly id: number; readonly status: string; readonly wait: { readonly kind: string; readonly reply: { readonly ok: boolean } | null } | null };
-type SavedState = { readonly vm: { readonly threads: readonly SavedThread[] } };
+type SavedThread = { readonly id: number; readonly status: string; readonly wait: { readonly kind: string; readonly reqId: number; readonly reply: { readonly ok: boolean } | null } | null };
+type SavedState = { readonly vm: { readonly threads: readonly SavedThread[] }; readonly engine: { readonly nextRequestId: number; readonly pending: readonly unknown[] } };
+
 
 test("a game save never captures a thread parked on an unanswered host request", () => {
   const game = runningGame();
@@ -71,18 +72,20 @@ test("a game save never captures a thread parked on an unanswered host request",
     phaseRegistrations: [{
       phase: "events",
       run: (state) => {
-        if (started || state.engine.boot?.stage !== "running") return;
-        started = true;
-        startThread(state.vm, {
-          ref: { kind: "inline", text: 'h = openfileoutput("log.txt", "files")\nend()\n', ir: IR_VERSION },
-          kind: "board",
-          owner: "script",
-        });
-        startThread(state.vm, {
-          ref: { kind: "inline", text: 'Save("slot")\nend()\n', ir: IR_VERSION },
-          kind: "board",
-          owner: "script",
-        });
+        if (!started) {
+          if (state.engine.boot?.stage !== "running") return;
+          started = true;
+          startThread(state.vm, {
+            ref: { kind: "inline", text: 'h = openfileoutput("log.txt", "files")\nend()\n', ir: IR_VERSION },
+            kind: "board",
+            owner: "script",
+          });
+          startThread(state.vm, {
+            ref: { kind: "inline", text: 'Save("slot")\nend()\n', ir: IR_VERSION },
+            kind: "board",
+            owner: "script",
+          });
+        }
       },
     }],
   });
@@ -125,5 +128,8 @@ test("a game save never captures a thread parked on an unanswered host request",
   equal(unanswered.length, 0, `a saved thread must never wait on a request the host never answered: ${JSON.stringify(unanswered.map((thread) => thread.id))}`);
   const answered = saved.vm.threads.filter((thread) => thread.wait?.kind === "blob" && thread.wait.reply !== null);
   equal(answered.length, 1, "the saving thread is the only parked blob thread, and its reply is recorded");
+  equal(saved.engine.pending.length, 0, "settled save has no outstanding request IDs");
+  ok(saved.engine.nextRequestId > 1, "settled save preserves the next request ID after issuing the file write and save");
+
 
 });
