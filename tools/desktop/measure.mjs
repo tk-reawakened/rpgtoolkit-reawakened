@@ -88,7 +88,14 @@ const measured = await measure();
 const record = {
   os: process.platform,
   arch: process.arch,
-  electron: execFileSync(electronBinary(), ["--version"], { encoding: "utf8" }).trim(),
+  electron: execFileSync(electronBinary(), ["--version"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ELECTRON_ENABLE_LOGGING: "0",
+      ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
+    },
+  }).trim(),
   measuredAt: new Date().toISOString(),
   // The path is relative to the repository so the record is portable between machines.
   package: measured.package.replace(`${root}/`, ""),
