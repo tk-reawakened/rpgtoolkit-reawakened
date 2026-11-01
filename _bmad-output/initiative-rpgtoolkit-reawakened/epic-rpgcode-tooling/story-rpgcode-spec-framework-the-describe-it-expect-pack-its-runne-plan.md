@@ -2,14 +2,16 @@
 title: "RPGCode spec framework: the describe/it/expect pack, its runner and *.spec.prg discovery"
 ticket: 8
 status: blocked
-blocked_reason: awaiting the owner ruling on F-A (native helpers vs new language built-ins) only; F-B was disproven by probe and needs no ruling
+blocked_reason: awaiting the owner ruling on F-A and completion of the independently identified TOOL-5 runner and matcher gaps
 ---
 
 ## Intent
 
 Entry 10.8 builds `packages/script-spec`: an RPGCode package plus the single native `specResult` channel, the matcher surface, and a runner that discovers `*.spec.prg`, gives every case a fresh fixture, and is deterministic.
 
-## Delivered on `feat/946-spec-framework`
+## Partial implementation merged in PR #1000
+
+The story is [#948](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/948). The implementation branch was named `feat/946-spec-framework` in error: #946 is the Epic 9 parent issue, not this story. The historical branch name and commit messages do not change the tracker identity.
 
 - **Slice 1 — `CommandView.pos`.** A getter fed by `ScriptServices.setCommandPos` at the `call` instruction, beside `thread`; two tests prove a command sees its call site. Rejected: stamping a position onto the effect channel (`recordEffect` stamps seq/tick/thread only, and the effect log is saveable data) and threading a position through arguments (no RPGCode expression produces one).
 - **Slice 2 — the package.** `manifest.json` (name `script-spec`, namespace `scriptspec`, requests, startup `startup.prg`), the `startup.prg` library (describe/it/test, four hooks, expect with seven matchers and `.not`, skip/only), and `SPEC_PLUGIN`, registering **only** `specresult` (the registry keys by folded name, so a camel-case registration is unreachable). Tests: manifest parses, the catalogue loads the package by name, `specResult` records kind/name/expected/actual and the call's position, an unknown kind records no outcome.
@@ -49,9 +51,9 @@ Probe results (all with `SPEC_PLUGIN` and the real VM):
 | E | the same through a top-level function (`h(y, x)`) | `9`, `7` |
 | F | `expect(3-1).toBe(1)` with the package library | `fail, toBe, expected 1, actual 2` — correct |
 
-The empty expected/actual seen by the first runner attempt was a **harness mismatch**, not an engine or library bug: the runner tests ran against a library revision that did not yet carry the per-case (`specCaseName`, `specCaseIndex`, `specOnlyCase`) changes the runner relied on. No spec amendment is needed for F-B.
+The first runner experiment produced empty expected/actual values. The direct probes above show the basic capture and forwarding paths work; they do not independently prove the cause of every result in that earlier experiment. No FUN-8 amendment is established by those observations.
 
-### F-B (original claim, retained for the record) — `expect(actual).toBe(expected)` under FUN-8
+### F-B (disproven original claim, retained for the record) — `expect(actual).toBe(expected)` under FUN-8
 
 **Claim.** The chained-matcher shape TOOL-5 rules is not implementable as written.
 
@@ -61,37 +63,34 @@ The empty expected/actual seen by the first runner attempt was a **harness misma
 1. *Reshape the API to two-argument matcher functions* — `toBe(actual, expected)`, `toEqual(actual, expected)`, …, with `.not` expressed as `notToBe(actual, expected)` or as a negation flag on a matcher object returned by a helper. No language change; changes TOOL-5's table and the documented calls.
 2. *Relax FUN-8* so a lambda defined inside the declaring function may capture that parameter. A language change with capture-list, save-format and closure-cell consequences.
 
-**Recommendation:** option 1 — a language change for a test API is disproportionate; the two-argument form is also what F-A's native helpers would expose.
+**Historical recommendation, superseded:** option 1 was recommended before the probe disproved the premise; it is not a current recommendation.
 
 ### F-C — the runner is built; F-B disproved (see the probe table), F-A still open
 
 **Delivered** (`packages/script-spec/src/runner.ts`):
 
-- **Discovery** by running the file once and grouping outcomes by the record label, which the library writes as `<case>/<matcher>` (no new record kind: TOOL-5 fixes pass/fail/skip/only).
+- **Case discovery implementation**: runs the supplied source and groups recorded outcome labels (`<case>/<matcher>`). It does not itself discover project `*.spec.prg` files, and a case without an outcome cannot be identified from those records.
 - **Fresh fixture per case**: each case is re-run in its own `GameState` with the library's `specOnlyCase` selector, so a global set by one case is unset in the next (tested).
 - **Determinism**: every case is run twice; outcomes and `hashGameState` must be identical, and the report carries each case's state hash (tested; two whole-file runs deep-equal).
 - **Strict mode** fails a skip (`skip` respects the selector, so an isolated run never reports another case's skip); **lenient** tolerates it and still lists it.
-- **`only`** narrows and warns with the stable text "only() narrowed the run to the marked cases; unmarked cases were not run" (asserted verbatim).
+- **`only` warning**: the current test asserts the warning text. It does not assert narrowing, and the library's `only` implementation records the marker and calls `it` without suppressing unmarked cases.
 - **Exact failure message**: `<matcher>: expected X, actual Y`, asserted as `toBe: expected 1, actual 2` and as the report's failure line.
 - **Manifest absence**: `ENGINE_DEFAULT_MANIFEST` does not contain `script-spec`, and the plugin registers only `specresult`.
 
 **Blocked on F-A**: element-wise `toEqual`, array `toContain` and `toThrow`. The seven runner tests deliberately do not use them; the library states the limits where they are defined.
 
-**Judgement on the entry**: the runner and `specResult` surface match the entry, but two of the seven matchers (`toEqual` element-wise, `toThrow`) and array `toContain` do not. The entry stays **in progress** until the owner rules on F-A; the code lands because it is green and self-contained.
-
-
-The runner slice (discovery, fresh fixture per case, determinism re-run with identical results and state hashes, strict mode failing a skip, `only` narrowing with a warning, exact failure-message text, engine-default-manifest absence) is untouched: its assertions are written against the matcher surface, so building it now would encode a shape the owner may change.
+**Judgement on the entry**: PR #1000 landed a partial implementation, not a completed TOOL-5 runner. In addition to F-A, `only` selection, project file discovery and the other independently verified acceptance gaps must be resolved and exercised through the real consumer before this story can be closed. Keep the tracker blocked; do not change TOOL-5 without an owner ruling.
 
 ## Limits recorded in the library
 
-`toEqual` is scalar equality and `toContain` is string-only (both say so where they are defined); `toThrow` reports a fixed failure; `afterEach`/`afterAll` are implemented for the library's own order but the runner has not exercised them across a fixture. None of these are silently wrong — each is a stated limit with the evidence above.
+`toEqual` is scalar equality and `toContain` is string-only (both say so where they are defined); `toThrow` always records a failure and its negated form is absent. `toBeCloseTo` is a two-parameter callable despite TOOL-5's optional tolerance. The library's comments identify these limitations, but they are not implementations of the approved behaviors.
 
 ## Verify, mapped
 
 | Ticket verify | Where |
 |---|---|
-| determinism re-run, identical results and state hashes | runner (F-C, not built) |
-| strict fails a skip; `only` warns | runner (F-C, not built) |
-| exact failure message | runner (F-C, not built) |
-| absent from the engine's default manifest | not yet tested; `ENGINE_DEFAULT_MANIFEST` lists only engine plugins, so a test asserting `script-spec` is absent is a one-liner for the runner slice |
+| determinism re-run, identical results and state hashes | `packages/script-spec/test/runner.test.ts` exercises repeated supplied-source runs; complete consumer-flow coverage remains outstanding |
+| strict fails a skip; `only` warns | `packages/script-spec/test/runner.test.ts` asserts skip status and warning; it does not prove `only` narrows execution |
+| exact failure message | `packages/script-spec/test/runner.test.ts` asserts one scalar message; file and source-line reporting remain to be verified end to end |
+| absent from the engine's default manifest | asserted by `packages/script-spec/test/runner.test.ts` |
 | `specResult` with kind, name, expected/actual and SourcePos | `packages/script-spec/test/spec-result.test.ts` (green) |
