@@ -3,8 +3,8 @@ global(replacementStart)
 global(replacementAfter)
 
 if (replacementStart == "random") {
-  Fight(1, "")
+    fight(1, "")
 } else {
-  FightEnemy("slime.ene", "")
+    fightenemy("slime.ene", "")
 }
 replacementAfter = replacementAfter + 1

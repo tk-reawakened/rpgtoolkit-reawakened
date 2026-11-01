@@ -157,6 +157,10 @@ type GoldenRow = { readonly id: string; readonly finalHash: string; readonly tic
 
 /** Read the pinned battle goldens; a row of the wrong shape is a hard error, never a silent miss. */
 function readGolden(): readonly GoldenRow[] {
+  // The per-tick hashes include each program's source hash (R-42), so a text-only
+  // edit that leaves the lowered instructions identical still moves them; the
+  // zelda rows were re-recorded when the formatter made the fixture canonical
+  // (entry 10.13) and were verified against identical lowering.
   const parsed: unknown = JSON.parse(readFileSync(join(repoRoot, "golden", "actors", "battle-scripts.json"), "utf8"));
   if (typeof parsed !== "object" || parsed === null || !("programs" in parsed) || !Array.isArray(parsed.programs)) {
     throw new Error("golden/actors/battle-scripts.json: root must be an object with a programs array");

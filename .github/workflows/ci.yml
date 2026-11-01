@@ -29,6 +29,7 @@ jobs:
       - run: pnpm provenance
       - run: pnpm graph:test
       - run: pnpm graph
+      - run: pnpm fixtures:fetch
       - run: pnpm fixtures:test
       - run: pnpm catalogue:check
       # Command metadata is checked after the TypeScript build; docs remain outside VM state.

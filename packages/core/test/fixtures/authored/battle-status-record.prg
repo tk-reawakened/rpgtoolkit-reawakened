@@ -9,8 +9,8 @@ global(statusProgramSmp)
 global(statusProgramSignature)
 statusProgramCount = statusProgramCount + 1
 statusProgramOrder = statusProgramOrder + context.status + ";"
-statusProgramSource = sourceHandle()
-statusProgramTarget = targetHandle()
+statusProgramSource = sourcehandle()
+statusProgramTarget = targethandle()
 statusProgramContext = context.status
 statusProgramHp = gethp(battle.fighter(0, 0))
 statusProgramSmp = getsmp(battle.fighter(0, 0))

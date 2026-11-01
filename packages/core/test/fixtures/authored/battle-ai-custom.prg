@@ -7,43 +7,43 @@ global(customErrorResumed)
 global(customSourceActorId)
 global(customTargetActorId)
 customCalls = customCalls + 1
-customSource = sourceHandle()
-customTarget = targetHandle()
+customSource = sourcehandle()
+customTarget = targethandle()
 if (customMode == "attack") {
-  sourceFighter = stockBattle.resolveFighter(sourceHandle())
-  targetFighter = stockBattle.resolveFighter(targetHandle())
-  if (sourceFighter != null) {
-    customSourceActorId = sourceFighter.id
-  }
-  if (targetFighter != null) {
-    customTargetActorId = targetFighter.id
-  }
-  stockBattle.attack(sourceFighter, targetFighter)
+    sourceFighter = stockBattle.resolveFighter(sourcehandle())
+    targetFighter = stockBattle.resolveFighter(targethandle())
+    if (sourceFighter != null) {
+        customSourceActorId = sourceFighter.id
+    }
+    if (targetFighter != null) {
+        customTargetActorId = targetFighter.id
+    }
+    stockBattle.attack(sourceFighter, targetFighter)
 }
 if (customMode == "actions") {
-  sourceFighter = stockBattle.resolveFighter(sourceHandle())
-  targetFighter = stockBattle.resolveFighter(targetHandle())
-  stockBattle.attack(sourceFighter, targetFighter)
-  customAttackHp = targetFighter.hp
-  stockBattle.special(sourceFighter, targetFighter, "hit.spc")
-  customMoveHp = targetFighter.hp
-  customMoveSmp = targetFighter.smp
-  customMoveSourceSmp = sourceFighter.smp
-  stockBattle.item(sourceFighter, targetFighter, "potion.itm", null)
-  customItemHp = targetFighter.hp
-  customItemSmp = targetFighter.smp
+    sourceFighter = stockBattle.resolveFighter(sourcehandle())
+    targetFighter = stockBattle.resolveFighter(targethandle())
+    stockBattle.attack(sourceFighter, targetFighter)
+    customAttackHp = targetFighter.hp
+    stockBattle.special(sourceFighter, targetFighter, "hit.spc")
+    customMoveHp = targetFighter.hp
+    customMoveSmp = targetFighter.smp
+    customMoveSourceSmp = sourceFighter.smp
+    stockBattle.item(sourceFighter, targetFighter, "potion.itm", null)
+    customItemHp = targetFighter.hp
+    customItemSmp = targetFighter.smp
 }
 if (customMode == "error") {
-  missing_battle_ai_command()
-  customErrorResumed = 1
-  sourceFighter = stockBattle.resolveFighter(sourceHandle())
-  targetFighter = stockBattle.resolveFighter(targetHandle())
-  stockBattle.attack(sourceFighter, targetFighter)
+    missing_battle_ai_command()
+    customErrorResumed = 1
+    sourceFighter = stockBattle.resolveFighter(sourcehandle())
+    targetFighter = stockBattle.resolveFighter(targethandle())
+    stockBattle.attack(sourceFighter, targetFighter)
 }
 if (customMode == "handoff") {
-  ai(2)
+    ai(2)
 }
 if (customMode == "invalid") {
-  ai(4)
-  customErrorResumed = 1
+    ai(4)
+    customErrorResumed = 1
 }
