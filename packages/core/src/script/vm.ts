@@ -170,6 +170,8 @@ export type ScriptServices = ScriptObservers & {
   readonly packageStartupForbidden: (operation: string) => ScriptError;
   readonly setPackageStartup: (active: boolean, packageName?: string) => void;
   readonly setCommandThread: (thread: number | undefined) => void;
+  /** Set the call site the command view reports as `pos` (TOOL-5). */
+  readonly setCommandPos: (pos: SourcePos | undefined) => void;
   /** Listener baseline captured before this service installs its plugin listeners. */
   readonly listenersBeforePackageStartup: readonly GameState["events"]["listeners"][number][];
   readonly commands: CommandLookup;
@@ -294,6 +296,7 @@ export function createScriptServices(
   const startupForbidden = (operation: string): ScriptError =>
     new ScriptError("package.startup-forbidden", `package "${packageStartupName.packageName ?? "unknown"}" startup cannot ${operation}`);
   let commandThread: number | undefined;
+  let commandPos: SourcePos | undefined;
   const listenersBeforePackageStartup = [...state.events.listeners];
   const commandState = new Proxy(state, {
     get(target, property, receiver) {
@@ -377,6 +380,7 @@ export function createScriptServices(
     gameId,
     get packageStartup() { return packageStartupActive.active; },
     get thread() { return commandThread; },
+    get pos() { return commandPos; },
   }) as CommandView;
   const virt = virtuals ?? createDefaultVirtuals(state, actors, media, battle);
   const registry = assembleCommands(observePlugins(plugins, observers?.postHandler), logger);
@@ -456,6 +460,7 @@ export function createScriptServices(
       packageStartupActive.packageName = packageName;
     },
     setCommandThread: (thread) => { commandThread = thread; },
+    setCommandPos: (pos) => { commandPos = pos; },
     listenersBeforePackageStartup,
     commands,
     programs,
@@ -3657,6 +3662,7 @@ export function stepThread(
 
       case "call": {
         const args = takeArgs(frame, op.argc, op.pos);
+        services.setCommandPos(op.pos);
         if (op.file === undefined && Object.hasOwn(MODULE_COMMANDS, op.name)) {
           runModuleCommand(op.name, args, vm, services.loader, services.programs, program, op.pos);
           frame.ip += 1;

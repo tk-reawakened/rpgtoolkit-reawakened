@@ -46,6 +46,7 @@ import type { Wait } from "../ports/wait.ts";
 import type { GameState, SectionKey } from "../save/state.ts";
 import type { ActorService } from "../actors/port.ts";
 import type { BattleOwner } from "../battle/port.ts";
+import type { SourcePos } from "./ops.ts";
 import type { Arg, BuiltinSpec } from "./builtins.ts";
 import type { EffectKind } from "./effects.ts";
 import type { HostObjectType } from "./host.ts";
@@ -99,6 +100,14 @@ export type CommandView = {
   readonly packageStartup?: boolean;
   /** The id of the thread whose call is running; the VM sets it before every call. */
   readonly thread?: number;
+  /**
+   * The call site's source position: the `pos` of the `call` instruction the VM is
+   * executing. A command that has to name where it was called (the spec runner's
+   * `specResult`, a formatter or linter diagnostic) reads it here instead of
+   * threading a position through its arguments, which the language has no
+   * expression for (TOOL-5).
+   */
+  readonly pos?: SourcePos;
   /** Main-file game-over program selected by the boot owner. */
   readonly gameOverProgram?: string | null;
   /** Mark the next eligible settled point for one engine recovery capture. */
