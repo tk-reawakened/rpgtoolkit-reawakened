@@ -59,9 +59,15 @@
     "desktop:run": "node tools/desktop/run.mjs",
     "desktop:measure": "node tools/desktop/measure.mjs",
     "desktop:input": "node tools/desktop/probe-input.mjs",
-    "desktop:inventory": "node tools/licences/desktop-inventory.mjs"
+    "desktop:inventory": "node tools/licences/desktop-inventory.mjs",
+    "mobile:build": "node tools/mobile/build.mjs"
   },
   "devDependencies": {
+    "@capacitor/android": "8.4.3",
+    "@capacitor/cli": "8.5.3",
+    "@capacitor/core": "8.5.3",
+    "@capacitor/filesystem": "8.1.1",
+    "@capacitor/ios": "8.4.3",
     "@playwright/test": "1.64.0",
     "@tk-reawakened/core": "workspace:*",
     "@typescript/native": "npm:typescript@7.0.2",

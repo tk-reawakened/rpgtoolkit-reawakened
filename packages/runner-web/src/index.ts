@@ -22,9 +22,12 @@ import {
   readTrueTypeFont,
   type AssetKey,
   type DrawList,
+  type InputRecord,
   type RasterAsset,
   type SurfaceId,
 } from "@tk-reawakened/core";
+
+export type { InputRecord };
 import {
   decodeAssetTexture,
   parseClosingPlan,
@@ -225,4 +228,5 @@ export function runScriptedFrame(options: ScriptedFrameOptions): FrameReport {
 }
 
 export * from "./audio-sink.ts";
+export * from "./player-page.ts";
 export * from "./video.ts";

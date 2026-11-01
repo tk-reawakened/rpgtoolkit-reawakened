@@ -1,0 +1,6 @@
+{
+  "appId": "com.tkreawakened.player",
+  "appName": "TK Reawakened",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}

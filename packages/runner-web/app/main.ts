@@ -1,6 +1,7 @@
 import { type InputRecord, type SurfaceId } from "@tk-reawakened/core";
 import { parseClosingPlan, type ClosingFiles } from "@tk-reawakened/runner-harness";
 import { fetchBundled, fetchGame, fontProvider, distributionPackage, interactivePackage, runScriptedFrame } from "../src/index.ts";
+import { pointerEventToLogical } from "../src/pointer.ts";
 import { createLiveSession, fitCanvas, type LiveSession } from "../src/live-session.ts";
 
 declare global {
@@ -173,11 +174,10 @@ function startLiveLoop(session: LiveSession, canvas: HTMLCanvasElement, report: 
   let accumulator = 0;
   let disposed = false;
   let pending: InputRecord[] = [];
+  const viewSize = session.viewSize();
   const pointer = (event: PointerEvent): void => {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    pending.push({ tick: session.tick(), event: { kind: "pointer", x: Math.floor((event.clientX - rect.left) * scaleX), y: Math.floor((event.clientY - rect.top) * scaleY), buttons: event.buttons } });
+    const { x, y } = pointerEventToLogical(event, canvas, viewSize);
+    pending.push({ tick: session.tick(), event: { kind: "pointer", x, y, buttons: event.buttons } });
   };
   const key = (event: KeyboardEvent, down: boolean): void => {
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) event.preventDefault();

@@ -1,0 +1,106 @@
+{
+  "device": "Android 15 x86_64 emulator",
+  "appId": "com.tkreawakened.player",
+  "apk": "packages/runner-mobile/android/app/build/outputs/apk/debug/app-debug.apk",
+  "notes": [
+    "Owner observations from the same session: board was cropped in portrait, click landed a tile low, rotation was unhandled.",
+    "The no-startup-program package was used to reach the board directly because the demo's title menu is keyboard-driven and the emulator's key injection did not focus the WebView menu reliably."
+  ],
+  "runs": [
+    {
+      "label": "board-entry",
+      "image": "evidence/emulator-board-entry.png",
+      "tick": 6492,
+      "stateHash": "2a098bf23b4bd017",
+      "drawHash": "0c89cb7482b89db2",
+      "board": "boards/start.brd",
+      "player": { "x": 213, "y": 146 },
+      "moved": false,
+      "save": { "path": "slot-1.json", "written": true, "restored": false }
+    },
+    {
+      "label": "touch-move",
+      "image": "evidence/emulator-touch-move.png",
+      "note": "After adb shell input tap 700 800 (and an unintended activity restart), the player ended at 254,266.",
+      "tick": 15126,
+      "stateHash": "d8dc52c748c03c4e",
+      "drawHash": "9dd8f9f7996d6a69",
+      "board": "boards/start.brd",
+      "player": { "x": 254, "y": 266 },
+      "moved": true,
+      "save": { "path": "slot-1.json", "written": true, "restored": false }
+    },
+    {
+      "label": "key-move",
+      "image": "evidence/emulator-key-move.png",
+      "note": "After adb shell input keyevent 20/22/19/21 (down/right/up/left d-pad keys).",
+      "tick": 11032,
+      "stateHash": "ff3417cba42a2ed3",
+      "drawHash": "211d9997a859d8ad",
+      "board": "boards/start.brd",
+      "player": { "x": 304, "y": 127 },
+      "moved": true,
+      "save": { "path": "slot-1.json", "written": true, "restored": true }
+    },
+    {
+      "label": "save-survives-restart",
+      "image": "evidence/emulator-save-survives-restart.png",
+      "note": "After adb shell am force-stop com.tkreawakened.player and a fresh launch.",
+      "tick": 3791,
+      "stateHash": "7e8c8109274c591f",
+      "drawHash": "b4d0d18a19897c88",
+      "board": "boards/start.brd",
+      "player": { "x": 305, "y": 178 },
+      "moved": true,
+      "save": { "path": "slot-1.json", "written": true, "restored": true }
+    },
+    {
+      "label": "portrait-fit-after-fix",
+      "image": "evidence/emulator-portrait-fit-after-fix.png",
+      "note": "After fitCanvas/pointer/rotation fixes; canvas centred and fully visible in portrait.",
+      "tick": 1528,
+      "stateHash": "c4fdd0f4b69a1f76",
+      "drawHash": "8a3b91fc497351f1",
+      "board": "boards/start.brd",
+      "player": { "x": 213, "y": 146 },
+      "moved": false,
+      "save": { "path": "slot-1.json", "written": true, "restored": true }
+    },
+    {
+      "label": "landscape-rotation",
+      "image": "evidence/emulator-landscape-rotation.png",
+      "note": "After adb shell content insert user_rotation=1; session tick continued without restart.",
+      "tick": 7361,
+      "stateHash": "24c45bea2a692ad2",
+      "drawHash": "71732f59a4dc89a5",
+      "board": "boards/start.brd",
+      "player": { "x": 341, "y": 210 },
+      "moved": true,
+      "save": { "path": "slot-1.json", "written": true, "restored": true }
+    },
+    {
+      "label": "landscape-tap",
+      "image": "evidence/emulator-landscape-tap.png",
+      "note": "After adb shell input tap 1200 600 in landscape, status reports player 400,319; the player square is not visible, so this does not establish the tap target or rule out a rendering defect.",
+      "tick": 10614,
+      "stateHash": "4d786dac3e60d2b7",
+      "drawHash": "1bb776939bd97926",
+      "board": "boards/start.brd",
+      "player": { "x": 400, "y": 319 },
+      "moved": true,
+      "save": { "path": "slot-1.json", "written": true, "restored": true }
+    },
+    {
+      "label": "portrait-after-rotation",
+      "image": "evidence/emulator-portrait-after-rotation.png",
+      "note": "Rotated back to portrait and tapped; status reports player 400,319, but the player square is not visible and the tap target is unverified.",
+      "tick": 13758,
+      "stateHash": "4e529d6242e3e175",
+      "drawHash": "26f198a125b9397e",
+      "board": "boards/start.brd",
+      "player": { "x": 400, "y": 319 },
+      "moved": true,
+      "save": { "path": "slot-1.json", "written": true, "restored": true }
+    }
+  ]
+}

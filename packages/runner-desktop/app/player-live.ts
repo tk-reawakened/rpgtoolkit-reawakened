@@ -1,5 +1,6 @@
 import type { InputRecord } from "@tk-reawakened/core";
 import { interactivePackage } from "@tk-reawakened/runner-web";
+import { pointerEventToLogical } from "@tk-reawakened/runner-web/pointer";
 import { createLiveSession, fitCanvas, type LiveSession } from "@tk-reawakened/runner-web/live-session";
 
 type Host = {
@@ -73,9 +74,10 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
   const onBlur = (): void => focus("lost");
   const onFocus = (): void => focus("gained");
   const onVisibility = (): void => focus(document.hidden ? "lost" : "gained");
+  const viewSize = session.viewSize();
   const onPointer = (event: PointerEvent): void => {
-    const bounds = canvas.getBoundingClientRect();
-    pending.push({ tick: session.tick(), event: { kind: "pointer", x: Math.floor((event.clientX - bounds.left) * canvas.width / bounds.width), y: Math.floor((event.clientY - bounds.top) * canvas.height / bounds.height), buttons: event.buttons } });
+    const { x, y } = pointerEventToLogical(event, canvas, viewSize);
+    pending.push({ tick: session.tick(), event: { kind: "pointer", x, y, buttons: event.buttons } });
   };
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
