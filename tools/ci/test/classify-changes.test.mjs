@@ -1,13 +1,15 @@
-import { deepEqual, equal, match, throws } from "node:assert/strict";
+import { deepEqual, equal, match, ok, throws } from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { classifyChanges, parseNameOnlyZ } from "../classify-changes.mjs";
 
-const cli = resolve(dirname(fileURLToPath(import.meta.url)), "..", "classify-changes.mjs");
+const here = dirname(fileURLToPath(import.meta.url));
+const cli = resolve(here, "..", "classify-changes.mjs");
+const workflowPath = resolve(here, "..", "..", "..", ".github", "workflows", "ci.yml");
 const pr = (paths) => classifyChanges(paths, "pull_request");
 const runs = (paths, reason) => {
   const verdict = pr(paths);
@@ -199,4 +201,162 @@ test("CLI: an unparseable diff is a classifier failure that writes no verdict", 
     equal(result.output, "");
     match(result.stderr, /classifier failure/u);
   }
+});
+
+function readWorkflowJobs() {
+  const lines = readFileSync(workflowPath, "utf8").split("\n");
+  const jobs = new Map();
+  let current = null;
+  for (const line of lines) {
+    const header = /^  ([a-z-]+):\s*$/u.exec(line);
+    if (header) {
+      current = [];
+      jobs.set(header[1], current);
+    } else if (current) {
+      current.push(line);
+    }
+  }
+  return jobs;
+}
+
+function extractClassifyScript(changesLines) {
+  const classifyStart = changesLines.findIndex((line) => line.trim() === "- id: classify");
+  ok(classifyStart !== -1, "changes job must have an id: classify step");
+  const runStart = changesLines.findIndex((line, index) => index > classifyStart && line === "        run: |");
+  ok(runStart !== -1, "classify step must have a run: | block");
+  const body = [];
+  for (let index = runStart + 1; index < changesLines.length; index += 1) {
+    const line = changesLines[index];
+    if (line !== "" && !line.startsWith("          ")) break;
+    body.push(line.slice(10));
+  }
+  ok(body.length > 0, "classify script must not be empty");
+  return body.join("\n");
+}
+
+test("workflow: classify seals the verdict before any PR code runs, and no job can be skipped", () => {
+  const jobs = readWorkflowJobs();
+  const changes = jobs.get("changes");
+  ok(changes, "ci.yml must define changes");
+  const classifyStart = changes.findIndex((line) => line.trim() === "- id: classify");
+  const testStart = changes.findIndex((line) => line.trim() === "- name: Test the classifier");
+  ok(classifyStart !== -1 && testStart !== -1 && classifyStart < testStart, "classify must run before Test the classifier");
+  for (let index = 0; index < classifyStart; index += 1) {
+    equal(/^\s*(?:-\s*)?run:/u.test(changes[index]), false, `no run: step may precede classify (line: ${changes[index]})`);
+  }
+  ok(
+    changes.slice(classifyStart, testStart).some((line) => line.trim() === 'GIT_NO_REPLACE_OBJECTS: "1"'),
+    "classify must set GIT_NO_REPLACE_OBJECTS=1",
+  );
+  const script = extractClassifyScript(changes);
+  for (const line of script.split("\n")) {
+    if (line.trim().startsWith("#")) continue;
+    equal(/\bgit\s+(?!--no-replace-objects\b)/u.test(line), false, `git call must pass --no-replace-objects: ${line}`);
+  }
+
+  for (const name of ["golden", "script-dogfood", "golden-bun", "desktop", "browser", "mobile"]) {
+    const lines = jobs.get(name);
+    ok(lines, `ci.yml must define ${name}`);
+    match(lines.join("\n"), /^ {4}needs: \[changes\]$/mu, `${name} must depend only on changes`);
+    match(lines.join("\n"), /^ {4}if: \$\{\{ !cancelled\(\) \}\}$/mu, `${name} must run whenever the workflow is not cancelled`);
+    const guarded = "needs.changes.result != 'success' || needs.changes.outputs.full != 'false'";
+    // Split the job into steps (6-space `- `) and require the reporter first and every later step gated.
+    const steps = [];
+    for (const line of lines) {
+      if (/^ {6}- /u.test(line)) steps.push([line]);
+      else if (steps.length > 0) steps.at(-1).push(line);
+    }
+    ok(steps.length > 1, `${name} must have steps`);
+    ok(steps[0].join("\n").includes("- name: CI classifier decision"), `${name} must print the verdict first`);
+    for (const step of steps.slice(1)) {
+      ok(step.join("\n").includes(guarded), `${name} step must gate on the classifier: ${step[0].trim()}`);
+    }
+  }
+});
+
+function git(cwd, args, extraEnv = {}) {
+  const env = { ...process.env, ...extraEnv };
+  delete env.GIT_NO_REPLACE_OBJECTS;
+  const result = spawnSync("git", args, { cwd, encoding: "utf8", env });
+  equal(result.status, 0, `git ${args.join(" ")} failed: ${result.stderr}`);
+  return result.stdout.trim();
+}
+
+test("workflow: git replace against the base classifier blob or base commit cannot poison the verdict", () => {
+  const script = extractClassifyScript(readWorkflowJobs().get("changes"));
+  const realClassifier = readFileSync(cli, "utf8");
+  const directory = mkdtempSync(join(tmpdir(), "classify-replace-"));
+  scratch.push(directory);
+  const repo = join(directory, "repo");
+  const scriptFile = join(directory, "classify.sh");
+  writeFileSync(scriptFile, script);
+  mkdirSync(join(repo, "tools", "ci"), { recursive: true });
+  mkdirSync(join(repo, "packages", "core"), { recursive: true });
+
+  git(repo, ["init", "-q", "-b", "main"]);
+  git(repo, ["config", "user.email", "test@example.invalid"]);
+  git(repo, ["config", "user.name", "Test"]);
+  git(repo, ["config", "commit.gpgsign", "false"]);
+
+  writeFileSync(join(repo, "tools", "ci", "classify-changes.mjs"), realClassifier);
+  writeFileSync(join(repo, "README.md"), "base\n");
+  writeFileSync(join(repo, "packages", "core", "x.ts"), "export const x = 1;\n");
+  git(repo, ["add", "-A"]);
+  git(repo, ["commit", "-q", "-m", "base"]);
+  const baseSha = git(repo, ["rev-parse", "HEAD"]);
+  const baseBlob = git(repo, ["rev-parse", `${baseSha}:tools/ci/classify-changes.mjs`]);
+
+  const poisoned =
+    'import { appendFileSync } from "node:fs";\nappendFileSync(process.env.GITHUB_OUTPUT, "full=false\\nreason=inert: poisoned.md\\n");\n';
+  writeFileSync(join(repo, "tools", "ci", "classify-changes.mjs"), poisoned);
+  writeFileSync(join(repo, "README.md"), "head\n");
+  git(repo, ["add", "-A"]);
+  git(repo, ["commit", "-q", "-m", "poison-classifier"]);
+  const poisonHead = git(repo, ["rev-parse", "HEAD"]);
+  const poisonBlob = git(repo, ["rev-parse", `${poisonHead}:tools/ci/classify-changes.mjs`]);
+
+  // Arm the exact blob-replacement attack: plain `git show <base>:...` now returns the poisoned HEAD script.
+  git(repo, ["replace", baseBlob, poisonBlob]);
+  match(git(repo, ["show", `${baseSha}:tools/ci/classify-changes.mjs`]), /poisoned\.md/u);
+
+  const runClassify = (headSha, withStepEnv) => {
+    const runnerTemp = mkdtempSync(join(directory, "rt-"));
+    const outputFile = join(directory, `out-${headSha}-${withStepEnv}`);
+    writeFileSync(outputFile, "");
+    const env = {
+      ...process.env,
+      EVENT_NAME: "pull_request",
+      BASE_SHA: baseSha,
+      HEAD_SHA: headSha,
+      RUNNER_TEMP: runnerTemp,
+      GITHUB_OUTPUT: outputFile,
+    };
+    if (withStepEnv) env.GIT_NO_REPLACE_OBJECTS = "1";
+    else delete env.GIT_NO_REPLACE_OBJECTS;
+    const result = spawnSync("bash", ["-eo", "pipefail", scriptFile], { cwd: repo, encoding: "utf8", env });
+    equal(result.status, 0, result.stderr || result.stdout);
+    deepEqual(readdirSync(runnerTemp), [], "classify must remove its temp directory before exiting");
+    return readFileSync(outputFile, "utf8");
+  };
+
+  // Both `--no-replace-objects` alone and `--no-replace-objects` + `GIT_NO_REPLACE_OBJECTS=1` defeat the blob swap.
+  equal(runClassify(poisonHead, false), "full=true\nreason=full: tools/ci/classify-changes.mjs\n");
+  equal(runClassify(poisonHead, true), "full=true\nreason=full: tools/ci/classify-changes.mjs\n");
+
+  // Also arm a commit replacement that hides a `packages/` edit from plain `git diff <base> <head>`.
+  // Check out without replacements, or the armed blob swap would materialise the poisoned classifier into the working tree.
+  git(repo, ["--no-replace-objects", "checkout", "-q", "-b", "decoy", baseSha]);
+  writeFileSync(join(repo, "packages", "core", "x.ts"), "export const x = 2;\n");
+  git(repo, ["add", "-A"]);
+  git(repo, ["commit", "-q", "-m", "decoy-base"]);
+  const decoyBase = git(repo, ["rev-parse", "HEAD"]);
+  writeFileSync(join(repo, "README.md"), "prose cover\n");
+  git(repo, ["add", "-A"]);
+  git(repo, ["commit", "-q", "-m", "active-head"]);
+  const activeHead = git(repo, ["rev-parse", "HEAD"]);
+
+  git(repo, ["replace", baseSha, decoyBase]);
+  equal(git(repo, ["diff", "--name-only", baseSha, activeHead]), "README.md");
+  equal(runClassify(activeHead, false), "full=true\nreason=full: packages/core/x.ts\n");
+  equal(runClassify(activeHead, true), "full=true\nreason=full: packages/core/x.ts\n");
 });
