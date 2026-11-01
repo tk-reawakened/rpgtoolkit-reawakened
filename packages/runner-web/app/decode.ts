@@ -168,13 +168,18 @@ async function main(): Promise<DecodeReport> {
 
   // Formats the worker cannot prepare, and bytes it can but that do not decode: each must be a named gap.
   const smpte = new Uint8Array([0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0xe7, 0x28]); // MThd, SMPTE division
+  const hugeBank = new Uint8Array(8 * 1024 * 1024 + 1);
+  // SoundFont validation checks the size ceiling before the container, but give it a recognisable RIFF/sfbk prefix.
+  hugeBank.set([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x73, 0x66, 0x62, 0x6b]);
   const unpreparable: readonly [string, Uint8Array, "image" | "audio" | "midi" | "soundfont"][] = [
     ["gaps/animation.tan", new Uint8Array(32), "image"],
+    ["gaps/tiles.tbm", new Uint8Array(32), "image"],
     ["gaps/broken.png", new Uint8Array([1, 2, 3, 4]), "image"],
     ["gaps/song.ogg", new Uint8Array([0x4f, 0x67, 0x67, 0x53, 0, 2, 0, 0]), "audio"],
     ["gaps/broken.wav", new Uint8Array([0x52, 0x49, 0x46, 0x46, 4, 0, 0, 0, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6d]), "audio"],
     ["gaps/smpte.mid", smpte, "midi"],
     ["gaps/not-a-bank.sf2", wavBytes.get(`media/${WAVS[0]}`) ?? new Uint8Array(0), "soundfont"],
+    ["gaps/too-big.sf2", hugeBank, "soundfont"],
   ];
 
   for (const [key, bytes] of imageBytes) {

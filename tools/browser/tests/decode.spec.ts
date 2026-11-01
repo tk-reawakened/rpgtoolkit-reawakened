@@ -91,17 +91,21 @@ test("a real decode worker prepares images, WAV, MIDI and SoundFonts identically
   expect(report.soundfont.workerSha).toBe(report.soundfont.hostSha);
   expect(report.soundfont.workerSize).toBe(report.soundfont.hostSize);
 
-  // 5. Gaps: unpreparable formats (.tan, .ogg, smpte .mid) and corrupt files are named gaps.
+  // 5. Gaps: unpreparable formats (.tan, .tbm, .ogg, smpte .mid), corrupt files and over-ceiling SoundFonts are named gaps.
   const gapKeys = report.stats.gaps.map((gap) => gap.key);
   expect(gapKeys).toContain("gaps/animation.tan");
+  expect(gapKeys).toContain("gaps/tiles.tbm");
   expect(gapKeys).toContain("gaps/broken.png");
   expect(gapKeys).toContain("gaps/song.ogg");
   expect(gapKeys).toContain("gaps/broken.wav");
   expect(gapKeys).toContain("gaps/smpte.mid");
   expect(gapKeys).toContain("gaps/not-a-bank.sf2");
+  expect(gapKeys).toContain("gaps/too-big.sf2");
   for (const gap of report.stats.gaps) {
     expect(gap.reason.includes(gap.key), `gap for ${gap.key} names the asset`).toBe(true);
   }
+  const tooBig = report.stats.gaps.find((gap) => gap.key === "gaps/too-big.sf2");
+  expect(tooBig?.reason.startsWith("unsupported:")).toBe(true);
 
   // 6. Caller buffers were not detached.
   expect(report.callerBytesIntact).toBe(true);

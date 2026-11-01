@@ -317,27 +317,33 @@ test("with the real preparation behind it, every format it cannot prepare is a n
   const wav = new Uint8Array(readFileSync(join(audioFiles, "pcm16-mono-8000.wav")));
   const smpte = new Uint8Array([0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0xe7, 0x28]);
   ahead.prepare(key("anim.tan"), new Uint8Array(16), "image");
+  ahead.prepare(key("tiles.tbm"), new Uint8Array(16), "image");
   ahead.prepare(key("junk.png"), new Uint8Array([1, 2, 3, 4]), "image");
   ahead.prepare(key("song.ogg"), new Uint8Array([0x4f, 0x67, 0x67, 0x53, 0, 2, 0, 0]), "audio");
   ahead.prepare(key("short.wav"), wav.slice(0, 30), "audio");
   ahead.prepare(key("smpte.mid"), smpte, "midi");
   ahead.prepare(key("broken.mid"), new Uint8Array([1, 2, 3]), "midi");
   ahead.prepare(key("not.sf2"), wav, "soundfont");
+  const hugeBank = new Uint8Array(8 * 1024 * 1024 + 1);
+  hugeBank.set([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x73, 0x66, 0x62, 0x6b]);
+  ahead.prepare(key("too-big.sf2"), hugeBank, "soundfont");
   await ahead.settled();
 
   const stats = ahead.stats();
-  equal(stats.submitted, 7);
+  equal(stats.submitted, 9);
   equal(stats.completed, 0);
   deepEqual(
     stats.gaps.map((gap) => [gap.key, gap.kind, gap.reason.split(":")[0]]),
     [
       ["anim.tan", "image", "unsupported"],
+      ["tiles.tbm", "image", "unsupported"],
       ["junk.png", "image", "unsupported"],
       ["song.ogg", "audio", "unsupported"],
       ["short.wav", "audio", "failed"],
       ["smpte.mid", "midi", "unsupported"],
       ["broken.mid", "midi", "failed"],
       ["not.sf2", "soundfont", "failed"],
+      ["too-big.sf2", "soundfont", "unsupported"],
     ],
   );
   equal(stats.failed, 3, "only bytes of a covered format that failed to decode count as failed");

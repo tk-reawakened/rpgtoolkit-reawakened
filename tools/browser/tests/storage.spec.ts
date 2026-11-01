@@ -177,7 +177,7 @@ test("saves live in IndexedDB, survive a reload, stay apart per GameId, and neve
   expect(await page.evaluate(() => window.__blobs?.cacheNames())).toEqual([]);
 });
 
-test("the authored Save/Load fixture writes and restores a real full-engine save across a reload to the headless baseline, with zero bytes in Cache Storage", async ({ page }) => {
+test("the authored Save/Load fixture writes and restores a real full-engine save across a reload to the headless baseline, with zero bytes in Cache Storage or OPFS", async ({ page }) => {
   const expectation = JSON.parse(readFileSync(resolve("packages/core/test/fixtures/saveload/saveload.expect.json"), "utf8")) as {
     fixture: { gameId: string };
     baseline: {
@@ -189,16 +189,19 @@ test("the authored Save/Load fixture writes and restores a real full-engine save
   };
   await page.goto("/packages/runner-web/app/storage.html");
   await page.waitForFunction(() => window.__blobs !== undefined);
+  expect(await opfsFiles(page)).toEqual([]);
   const first = await page.evaluate(() => window.__blobs!.runSaveLoadLaunch());
   expect(first.gameId).toBe(expectation.fixture.gameId);
   expect(first.launch.saveRequests).toEqual([expectation.baseline.saveRequest]);
   expect(first.launch.loadRequests).toEqual([{ ...expectation.baseline.loadRequest, found: false }]);
   expect(first.launch.fresh).toMatchObject(expectation.baseline.stateHashes.fresh);
   expect(first.launch.preSave).toMatchObject({ ...expectation.baseline.stateHashes.preSave, marker: 4242 });
+  expect(first.launch.saveOk).toBe(true);
 
   // Reload: any in-memory copy is gone; launch two can only restore what IndexedDB kept.
   await page.reload();
   await page.waitForFunction(() => window.__blobs !== undefined);
+  expect(await opfsFiles(page)).toEqual([]);
   const second = await page.evaluate(() => window.__blobs!.runSaveLoadLaunch());
   expect(second.launch.saveRequests).toEqual([]); // the restored thread resumed past Save("slot")
   expect(second.launch.loadRequests).toEqual([expectation.baseline.loadRequest]);
@@ -207,10 +210,27 @@ test("the authored Save/Load fixture writes and restores a real full-engine save
   expect(second.launch.final).toMatchObject({ ...expectation.baseline.stateHashes.final, marker: 17 });
   expect(second.launch.final.tick).toBe(expectation.baseline.tick);
 
-  // Isolation and absence from Cache Storage: another GameId sees nothing, and no cache holds any save.
+  // Isolation per GameId string: another GameId cannot read the save, and no cache or OPFS directory holds it.
   expect(await page.evaluate((id) => window.__blobs!.list(id), expectation.fixture.gameId)).toEqual(["saved/slot.sav"]);
   expect(await page.evaluate(() => window.__blobs!.list("other-game"))).toEqual([]);
   expect(await page.evaluate(() => window.__blobs!.read("other-game", "saved/slot.sav"))).toBeNull();
   expect(await page.evaluate(() => window.__blobs!.cacheNames())).toEqual([]);
   expect(await page.evaluate(() => window.__blobs!.cacheUrls())).toEqual([]);
+  expect(await opfsFiles(page)).toEqual([]);
+});
+
+test("a full save store returns ok=false to the engine script and leaves no save behind", async ({ page }) => {
+  await page.goto("/packages/runner-web/app/storage.html?saveCapacity=0");
+  await page.waitForFunction(() => window.__blobs !== undefined);
+  const first = await page.evaluate(() => window.__blobs!.runSaveLoadLaunch());
+  expect(first.launch.saveRequests.length).toBe(1);
+  expect(first.launch.saveOk).toBe(false);
+
+  // Reload proves nothing persisted: the engine script sees the same failed save again.
+  await page.reload();
+  await page.waitForFunction(() => window.__blobs !== undefined);
+  const second = await page.evaluate(() => window.__blobs!.runSaveLoadLaunch());
+  expect(second.launch.saveRequests.length).toBe(1);
+  expect(second.launch.saveOk).toBe(false);
+  expect(second.launch.loadRequests[0]?.found).toBe(false);
 });

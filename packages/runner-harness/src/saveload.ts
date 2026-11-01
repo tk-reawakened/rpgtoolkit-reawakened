@@ -68,6 +68,8 @@ export type SaveLoadLaunch = {
   readonly postLoad: SaveLoadMoment | null;
   /** After the last tick the launch ran. */
   readonly final: SaveLoadMoment;
+  /** `true` when the single save request was acknowledged by the host, `false` when the host refused it, `null` when no save request was issued. */
+  readonly saveOk: boolean | null;
   /** Located runtime diagnostics the engine reported, as `code`s in order. */
   readonly diagnostics: readonly string[];
 };
@@ -162,6 +164,7 @@ async function runLaunch(files: ReadonlyMap<AssetKey, Uint8Array>, gameIdentity:
   let postLoad: SaveLoadMoment | null = null;
   let final: SaveLoadMoment = { tick: 0, stateHash: "", marker: null };
   let loadReplyTick: number | null = null;
+  let saveOk: boolean | null = null;
   const prefix = `${gameId}/`;
   const relative = (path: string): string => (path.startsWith(prefix) ? path.slice(prefix.length) : path);
 
@@ -178,6 +181,7 @@ async function runLaunch(files: ReadonlyMap<AssetKey, Uint8Array>, gameIdentity:
       case "saveBlob": {
         saveRequests.push({ area: request.blob.area, path: request.blob.path, key: `${request.blob.area}:${request.blob.path}`, byteLength: request.bytes.length });
         const ok = await host.write(request.blob.area, gameId, relative(request.blob.path), request.bytes);
+        saveOk = ok;
         return { tick, event: { kind: "blob.saved", reqId: request.reqId, ok } };
       }
       case "listBlobs": return { tick, event: { kind: "blob.listed", reqId: request.reqId, names: await host.list?.(request.area, gameId) ?? [] } };
@@ -221,7 +225,7 @@ async function runLaunch(files: ReadonlyMap<AssetKey, Uint8Array>, gameIdentity:
   }
   if (!settled) throw new Error("saveload: the engine request loop did not settle");
   if (fresh === null) throw new Error("saveload: the fixture issued no blob request");
-  return { saveRequests, loadRequests, fresh, preSave, postLoad, final, diagnostics };
+  return { saveRequests, loadRequests, fresh, preSave, postLoad, final, saveOk, diagnostics };
 }
 
 /**

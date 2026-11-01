@@ -6,7 +6,7 @@
 
 import { loadPackage } from "@tk-reawakened/core";
 import { runSaveLoadLaunch, type SaveLoadLaunch } from "@tk-reawakened/runner-harness";
-import { createBlobHost, createIndexedDbBlobBackend, type BlobHost } from "../src/blob-host.ts";
+import { createBlobHost, createIndexedDbBlobBackend, createMemoryBlobBackend, type BlobHost } from "../src/blob-host.ts";
 import { createLoadController, type LoadState, type StorageManagerLike } from "../src/load-mode.ts";
 import { createOpfsPackageStore, createOpfsStaging } from "../src/opfs-store.ts";
 import { PackageSourceError, type DurablePackageStore, type PackageSourceStats } from "../src/package-source.ts";
@@ -97,7 +97,13 @@ async function main(): Promise<void> {
     }
   }
 
-  const host = createBlobHost({ backend: await createIndexedDbBlobBackend(indexedDB, "tkr-storage-lane"), storage: navigator.storage });
+  const saveCapacity = params.get("saveCapacity");
+  const host = createBlobHost({
+    backend: saveCapacity === null
+      ? await createIndexedDbBlobBackend(indexedDB, "tkr-storage-lane")
+      : createMemoryBlobBackend(Number(saveCapacity)),
+    storage: navigator.storage,
+  });
   window.__blobs = {
     write: (gameId, path, values) => host.write("saves", gameId, path, Uint8Array.from(values)),
     read: async (gameId, path) => {

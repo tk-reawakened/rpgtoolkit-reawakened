@@ -128,11 +128,17 @@ test("AC1: with the network blocked and the service worker in control, a relaunc
   expect(offlineFailed.filter((entry) => !entry.includes("service-worker.js"))).toEqual([]);
 
   // 4. Still offline, ask for a package that was never cached: the miss is reported as a load error, never hung or faked.
+  //    Note: the service-worker-controlled miss surfaces as `TypeError: Failed to fetch` (requestfailed `net::ERR_FAILED`),
+  //    not `ERR_INTERNET_DISCONNECTED`, because the fetch is issued by the controlled worker rather than the browser's
+  //    direct navigation path.
   await offline.goto(`${PLAYER}?package=fixtures/packages/never-cached.tpk`);
   await offline.waitForFunction(() => (window.__report as { error?: string } | undefined)?.error !== undefined, undefined, { timeout: 15_000 });
   const miss = await offline.evaluate(() => ({ report: window.__report as { error: string }, text: document.querySelector("#report")?.textContent ?? "" }));
   expect(miss.report.error.length).toBeGreaterThan(0);
+  expect(miss.report.error).toContain("Failed to fetch");
   expect(miss.text).toContain("player:");
+  // The descriptor fetch for the never-cached package is the one that fails under service-worker control.
+  expect(offlineFailed.some((entry) => entry.includes("never-cached.tpk.json"))).toBe(true);
   expect(apiRequests).toEqual([]);
 
   await offline.close();

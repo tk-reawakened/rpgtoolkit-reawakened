@@ -72,7 +72,8 @@ test("AC3: forced streaming with a delayed unhinted board asset records only unh
   // Delay both the unhinted board and the board's hinted music on their on-demand range reads (never during validation,
   // which reads from OPFS staging and only probes the last archive byte). The board request freezes simulation and must
   // be recorded as an unhinted stall; the music arrives for both a hint and a cue in the board-entry report and must
-  // never block simulation or appear as a stall, yet must still reach the sink once ready.
+  // never block simulation or appear as a stall, yet must still reach the sink once ready. This exact timing exercises
+  // the shared-report edge case from AC3: the same delayed music bytes satisfy both the prefetch hint and the audio cue.
   let boardDelayed = 0;
   let musicDelayed = 0;
   await page.route(`**/${PACKAGE}`, async (route) => {

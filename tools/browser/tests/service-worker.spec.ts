@@ -313,6 +313,21 @@ test("(c) changed worker script installs as waiting while open page keeps old ve
     }, PROBE_SCOPE);
     expect(waitingWorkerVersion).toBe(updatedVersion);
 
+    // Verify: while the open page is still controlled by v1, a precached bundled asset is still served from the v1 cache.
+    const v1CacheName = `tkr-shell-${v1}`;
+    const bundledUrl = "/media/fonts/LiberationMono-Regular.ttf";
+    const [v1Cached, fetched] = await page.evaluate(async ({ cacheName, url }) => {
+      const cache = await caches.open(cacheName);
+      const cached = await cache.match(url);
+      const response = await fetch(url).catch(() => null);
+      return [
+        cached === undefined ? null : { ok: cached.ok, status: cached.status },
+        response === null ? null : { ok: response.ok, status: response.status },
+      ];
+    }, { cacheName: v1CacheName, url: bundledUrl });
+    expect(v1Cached).toEqual({ ok: true, status: 200 });
+    expect(fetched).toEqual({ ok: true, status: 200 });
+
     // Close the open page so no clients remain bound to v1
     await page.close();
 
