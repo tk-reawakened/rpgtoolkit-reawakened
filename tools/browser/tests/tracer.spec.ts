@@ -1,4 +1,22 @@
 import { expect, test } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+/**
+ * The tracer's evidence (entry 9.3): a sample game boots in a real browser from the same core build the headless runner
+ * uses, reports the committed closing-suite hashes at tick 120, and presents the frame through WebGL2.
+ *
+ * `golden/regression/closing.json` carries both numbers; this lane reads them from the baseline instead of hardcoding them.
+ */
+
+function demoBoardBaseline() {
+  const baseline = JSON.parse(readFileSync(resolve("golden/regression/closing.json"), "utf8")) as {
+    games: Record<string, { frames: ReadonlyArray<{ label: string; tick: number; stateHash: string; drawHash: string; commands: number }> }>;
+  };
+  const frame = baseline.games.demo.frames.find((f) => f.label === "board" && f.tick === 120);
+  if (frame === undefined) throw new Error("demo board frame at tick 120 not found in golden/regression/closing.json");
+  return frame;
+}
 
 test("demo tracer reports the committed tick-120 hashes and presents its captured frame", async ({ page }) => {
   const started = Date.now();
@@ -7,12 +25,15 @@ test("demo tracer reports the committed tick-120 hashes and presents its capture
   const report = await page.evaluate(() => window.__report as Record<string, unknown>);
   const seconds = (Date.now() - started) / 1000;
   console.log(`demo boot to report: ${seconds.toFixed(2)}s`, JSON.stringify(report));
+
+  const baseline = demoBoardBaseline();
   expect(report["error"]).toBeUndefined();
   expect(report["package"]).toBeNull();
-  expect(report["tick"]).toBe(120);
-  expect(report["stateHash"]).toBe("91172695de52cfd6");
-  expect(report["drawHash"]).toBe("9a40be8a0b5ca816");
-  expect(report["commands"]).toBe(128);
+  expect(report["tick"]).toBe(baseline.tick);
+  expect(report["stateHash"]).toBe(baseline.stateHash);
+  expect(report["drawHash"]).toBe(baseline.drawHash);
+  expect(report["commands"]).toBe(baseline.commands);
+
   const render = report["render"] as { drawn: number; deferred: number; deferredByKind: Record<string, number> };
   expect(render.drawn).toBe(128);
   expect(render.deferred).toBe(0);

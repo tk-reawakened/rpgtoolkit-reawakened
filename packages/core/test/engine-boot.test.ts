@@ -23,6 +23,7 @@ import {
   IR_VERSION,
   createEmptyMainFile,
   ENGINE_DEFAULT_MANIFEST,
+  hashDrawList,
   hashGameLedger,
   hashGameState,
   nextUint32,
@@ -54,7 +55,7 @@ const repoRoot = join(testDir, "..", "..", "..");
 const encoder = new TextEncoder();
 
 type Files = Map<string, Uint8Array>;
-type BoardSpec = { readonly music?: string; readonly enter?: string; readonly threads?: readonly string[]; readonly tiles?: readonly [number, number]; readonly start?: readonly [number, number] };
+type BoardSpec = { readonly music?: string; readonly enter?: string; readonly threads?: readonly string[]; readonly tiles?: readonly [number, number]; readonly start?: readonly [number, number]; readonly battleBackground?: string };
 type GameSpec = {
   readonly startup?: string;
   readonly initChar?: string;
@@ -94,6 +95,7 @@ function boardBytes(spec: BoardSpec): Uint8Array {
       backgroundMusic: spec.music ?? "",
       enterPrg: spec.enter ?? "",
       start: { x: spec.start?.[0] ?? 64, y: spec.start?.[1] ?? 64, layer: 1 },
+      battleBackground: spec.battleBackground ?? "",
     },
   }));
 }
@@ -1942,3 +1944,5 @@ test("a reserved plugin id is an unknown plugin with a located diagnostic, never
   equal(core.plugins.length, 1);
   equal(core.diagnostics.length, 0);
 });
+
+

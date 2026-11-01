@@ -107,5 +107,37 @@ if (out !== null) {
   mkdirSync(dirname(resolve(out)), { recursive: true });
   writeFileSync(resolve(out), `${JSON.stringify(record, null, 2)}\n`);
 }
+// Compare against the committed closing baseline so the desktop lane fails if it rendered the wrong frame.
+const baselinePath = resolve(root, "golden", "regression", "closing.json");
+const baseline = JSON.parse(readFileSync(baselinePath, "utf8"));
+const demoBoard = baseline.games?.demo?.frames?.find((frame) => frame.label === "board" && frame.tick === 120);
+const expected = {
+  scheme: "app",
+  serviceWorkers: 0,
+  tick: demoBoard?.tick ?? 120,
+  stateHash: demoBoard?.stateHash ?? null,
+  drawHash: demoBoard?.drawHash ?? null,
+};
+const actual = {
+  scheme: record.scheme,
+  serviceWorkers: record.serviceWorkers,
+  tick: record.tick,
+  stateHash: record.stateHash,
+  drawHash: record.drawHash,
+};
+let assertionError = null;
+for (const key of Object.keys(expected)) {
+  if (expected[key] === null) continue;
+  if (actual[key] !== expected[key]) {
+    if (assertionError === null) assertionError = [];
+    assertionError.push(`${key}: expected ${JSON.stringify(expected[key])}, got ${JSON.stringify(actual[key])}`);
+  }
+}
+if (assertionError !== null) {
+  const diff = assertionError.join("\n  ");
+  console.error(`desktop measurement does not match committed baseline (${baselinePath}):\n  ${diff}`);
+  process.exitCode = 1;
+}
+
 console.log(JSON.stringify(record, null, 2));
 if (record.error !== null) process.exitCode = 1;
