@@ -74,14 +74,14 @@
       "stateHash": "24c45bea2a692ad2",
       "drawHash": "71732f59a4dc89a5",
       "board": "boards/start.brd",
-      "player": { "x": 241, "y": 210 },
+      "player": { "x": 341, "y": 210 },
       "moved": true,
       "save": { "path": "slot-1.json", "written": true, "restored": true }
     },
     {
       "label": "landscape-tap",
       "image": "evidence/emulator-landscape-tap.png",
-      "note": "After adb shell input tap 1200 600 in landscape; player moved to 400,319.",
+      "note": "After adb shell input tap 1200 600 in landscape, status reports player 400,319; the player square is not visible, so this does not establish the tap target or rule out a rendering defect.",
       "tick": 10614,
       "stateHash": "4d786dac3e60d2b7",
       "drawHash": "1bb776939bd97926",
@@ -93,7 +93,7 @@
     {
       "label": "portrait-after-rotation",
       "image": "evidence/emulator-portrait-after-rotation.png",
-      "note": "Rotated back to portrait (user_rotation=0) and tapped; canvas still fully visible.",
+      "note": "Rotated back to portrait and tapped; status reports player 400,319, but the player square is not visible and the tap target is unverified.",
       "tick": 13758,
       "stateHash": "4e529d6242e3e175",
       "drawHash": "26f198a125b9397e",

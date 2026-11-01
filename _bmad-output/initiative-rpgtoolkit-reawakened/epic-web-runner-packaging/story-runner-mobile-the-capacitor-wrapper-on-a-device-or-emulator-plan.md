@@ -12,15 +12,15 @@ hitl: true
 context:
   - 'docs/spec/engine/runners.md#mobile (Capacitor 8.5.3; the MUST NOT)'
   - 'spine AD-17 (blob keys and GameId)'
-  - 'packages/runner-web/src/player-page.ts (the shared page 9.11 extracted)'
+  - 'packages/runner-web/src/live-session.ts (shared live session)'
 ---
 
 # runner-mobile: the Capacitor wrapper on a device or emulator
 
 ## The line this entry stops at
 
-The wrapper is built up to and including the **device proof**: the code is complete and an Android emulator ran the
-live page, reached a board, responded to touch input, and preserved a save across a restart. Evidence is committed below.
+The code runs a live page on an Android emulator, but the captured evidence does not yet establish device acceptance.
+The story remains open for a coherent, person-confirmed device run with evidence for the title, tap, rotation and save.
 
 ## What is built
 
@@ -30,22 +30,18 @@ live page, reached a board, responded to touch input, and preserved a save acros
    preload exposes (`openPackage`, `readBlob`, `writeBlob`, `listBlobs`), over an injectable filesystem. AD-17's keys
    (`saves/<gameId>/…`, `files/<gameId>/…`), an escaping path refused before the platform sees it, and a base64 read
    decoded because Capacitor returns text for a binary file.
-3. **`packages/runner-web/src/player-page.ts`** — the player page **extracted** so the desktop shell and the mobile
-   wrapper run one implementation, which is what `runners.md#mobile`'s MUST NOT requires: a platform difference is a host
-   service, never a second renderer, input path or asset source. `runner-desktop/app/player.ts` is now a thin wrapper.
-4. **`packages/runner-mobile/app/player.ts`** — the mobile page: the same `bootPlayerPage`, run against the mobile host,
-   with the package the app carries at `public/demo.tpk`.
+3. **`packages/runner-web/src/live-session.ts`** — the shared live session used by the browser, desktop and mobile pages.
+4. **`packages/runner-mobile/app/player.ts`** — the mobile page creates a `createLiveSession` against the mobile host,
+   with the package the app carries at `public/demo.tpk`. `bootPlayerPage` is the separate measurement path.
 5. **`tools/mobile/build.mjs`** — the page bundle, the Capacitor `webDir` (`index.html`, `apps/`, the bundled-asset list)
    and its own bundled list, so the mobile build depends on no other build.
 
 ## Provably green today
 
-- `packages/runner-mobile/test/storage.test.ts` (4): the AD-17 save round trip, an escaping path refused (`..`, absolute,
-  drive letter), a base64 read decoded, and an absent package as `null` rather than a crash.
-- `tools/browser/tests/mobile.spec.ts`: the mobile page, against a Capacitor-shaped `Filesystem` stub, boots the package to
-  **tick 120, state `91172695de52cfd6`, draw `9a40be8a0b5ca816`**, 128 commands, blend worst 0, frame worst 0, and writes
-  its save through the same four-call host.
-- The desktop and web lanes still pass after the shared-page extraction (8 browser tests).
+- `packages/runner-mobile/test/storage.test.ts` (5): the AD-17 save round trip, escaping paths refused, base64 decoding,
+  recursive `listBlobs`, and an absent package as `null`.
+- `tools/browser/tests/mobile.spec.ts` exercises a live session against a Capacitor-shaped `Filesystem` stub: board
+  entry, input and save writes, plus viewport resizing. It does not assert a fixed tick-120 hash.
 
 ## The hang, and what settled it
 
@@ -72,33 +68,33 @@ after a restart. The exact state hash depends on the live tick and input timing 
 
 ## Device-run evidence
 
-Captured from an Android 15 x86_64 emulator with the APK built from this worktree at commit-to-be.
+The recorded summary identifies an Android 15 x86_64 emulator, not a Pixel 3a API 33. These captures use a modified
+no-startup-program package and report live ticks and hashes; they do not show a tick-120 golden or the demo title.
 
 Initial owner observations (same emulator session) are preserved because they are the most credible acceptance evidence
 in this repo today:
 
 - **Board visible but cropped in portrait** — the 640×480 logical frame was overflowing a narrow CSS viewport; the canvas
   is now centred and letterboxed, never overflowing.
-- **Click/tap landing a tile low** — pointer events were being mapped through `canvas.width/bounds.width`, but the
-  shared helper now subtracts `getBoundingClientRect()` offsets and clamps to the logical frame in one place.
+- **Click/tap landing a tile low** — the owner reported this; the shared pointer helper maps through the canvas
+  bounding rectangle and clamps to the logical frame. The captures below do not establish the targeted tile.
 - **Rotation unhandled** — the page now listens to `resize`, recomputes the letterbox, and keeps the live session and
   engine state; ticks continue across rotation.
 
 Evidence files:
 
-- `evidence/emulator-board-entry.png` — title screen, then `boards/start.brd` at tick 6492, player at 213,146, save
-  `slot-1.json` written.
+- `evidence/emulator-board-entry.png` — `boards/start.brd` at tick 6492, player at 213,146, save `slot-1.json` written;
+  no title screen is shown.
 - `evidence/emulator-touch-move.png` — after an `adb shell input tap 700 800`, the player moved to 254,266 (`moved: yes`).
 - `evidence/emulator-key-move.png` — after d-pad arrow keys, the player moved to 304,127 (`moved: yes`).
 - `evidence/emulator-save-survives-restart.png` — after `adb shell am force-stop com.tkreawakened.player` and a fresh
   launch, the save was read back (`save slot-1.json: restored+written`) and the player is at 305,178.
 - `evidence/emulator-portrait-fit-after-fix.png` — portrait board fully visible and centred; tick 1528, player 213,146.
-- `evidence/emulator-landscape-rotation.png` — after `adb shell content insert user_rotation=1`; tick 7361, session
-  continued, player 241,210.
-- `evidence/emulator-landscape-tap.png` — after `adb shell input tap 1200 600` in landscape; tick 10614, player moved to
-  400,319.
-- `evidence/emulator-portrait-after-rotation.png` — rotated back to portrait and tapped; tick 13758, player 400,319,
-  canvas still fully visible.
+- `evidence/emulator-landscape-rotation.png` — tick 7361, status reports player 341,210 and the player square is visible.
+- `evidence/emulator-landscape-tap.png` — after a landscape tap, tick 10614, status reports player 400,319; the player
+  square is not visible, so the image does not prove a correct landing or rule out a rendering defect.
+- `evidence/emulator-portrait-after-rotation.png` — tick 13758 after rotation and a tap, status reports player 400,319;
+  the player square is not visible, so the image does not establish where the tap landed.
 - `evidence/emulator-run-summary.json` — the key numbers from the runs.
 
 ## An emulator in CI
