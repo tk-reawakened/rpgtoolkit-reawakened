@@ -44,6 +44,22 @@ function allowed(relative) {
   return ROOTS.some((root) => relative === root || relative.startsWith(`${root}/`));
 }
 
+/** One `bytes=a-b` | `bytes=a-` | `bytes=-n` range against a file of `size` bytes; null when unsupported or unsatisfiable. */
+function parseRange(header, size) {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (match === null || (match[1] === "" && match[2] === "")) return null;
+  if (size === 0) return null;
+  if (match[1] === "") {
+    const length = Number(match[2]);
+    if (!Number.isSafeInteger(length) || length === 0) return null;
+    return { start: Math.max(0, size - length), end: size - 1 };
+  }
+  const start = Number(match[1]);
+  const end = match[2] === "" ? size - 1 : Number(match[2]);
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= size) return null;
+  return { start, end: Math.min(end, size - 1) };
+}
+
 createServer((request, response) => {
   const url = new URL(request.url ?? "/", "http://localhost");
   if (url.pathname === "/health") {
@@ -77,8 +93,28 @@ createServer((request, response) => {
     response.writeHead(404).end("not found");
     return;
   }
-  response.writeHead(200, { "content-type": TYPES[extname(full)] ?? "application/octet-stream" });
-  createReadStream(full).pipe(response);
+  const type = TYPES[extname(full)] ?? "application/octet-stream";
+  const size = statSync(full).size;
+  const header = request.headers.range;
+  if (header === undefined || request.headers["if-range"] !== undefined) {
+    // No validators (ETag / Last-Modified) are issued, so a conditional If-Range can never match: serve the whole file.
+    response.writeHead(200, { "content-type": type, "content-length": size, "accept-ranges": "bytes" });
+    createReadStream(full).pipe(response);
+    return;
+  }
+  const range = parseRange(header, size);
+  if (range === null) {
+    // Unsupported unit, multiple ranges, malformed spec, or outside the file: rejected, never silently served in full.
+    response.writeHead(416, { "content-range": `bytes */${size}`, "accept-ranges": "bytes", "content-length": 0 }).end();
+    return;
+  }
+  response.writeHead(206, {
+    "content-type": type,
+    "content-range": `bytes ${range.start}-${range.end}/${size}`,
+    "content-length": range.end - range.start + 1,
+    "accept-ranges": "bytes",
+  });
+  createReadStream(full, { start: range.start, end: range.end }).pipe(response);
 }).listen(port, "127.0.0.1", () => {
   console.log(`browser host on http://127.0.0.1:${port}/packages/runner-web/app/index.html`);
 });
