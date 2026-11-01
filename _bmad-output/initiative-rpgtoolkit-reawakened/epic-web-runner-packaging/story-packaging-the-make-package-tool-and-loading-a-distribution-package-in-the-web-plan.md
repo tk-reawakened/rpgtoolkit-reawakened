@@ -63,7 +63,7 @@ browser lane. The editor's T-70 button stays `epic-editor-assets-p0`'s and will 
 
 ## Landing
 
-Merged as **`8ae42bf2`** — "feat(9.7): make-package, the install descriptor, and a package-only boot in the browser"
+Merged as **`8ae42bf2`** — "feat(entry 7): make-package, the install descriptor, and a package-only boot in the browser"
 (PR [#995](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/995), squash; #932 closed as completed). One
 commit.
 
@@ -74,5 +74,5 @@ tool must import through the package entry point (G2.3f). CI run 41257230351 gre
 
 ## Out of scope
 
-The editor's T-70 command (`epic-editor-assets-p0`), the library registry UI and durable storage (9.9/9.10), the desktop
-shell's install flow (9.11), and any change to the writer's limits or the manifest/descriptor field sets.
+The editor's T-70 command (`epic-editor-assets-p0`), the library registry UI and durable storage (entry 9/entry 10), the desktop
+shell's install flow (entry 11), and any change to the writer's limits or the manifest/descriptor field sets.

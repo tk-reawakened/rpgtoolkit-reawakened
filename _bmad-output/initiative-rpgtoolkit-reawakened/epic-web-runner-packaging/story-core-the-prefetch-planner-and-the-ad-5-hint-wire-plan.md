@@ -73,7 +73,7 @@ recovery resume and a return from battle.
 
 ## Landing
 
-Merged as **`c6c2f620`** — "feat(9.8): the prefetch planner and the AD-5 hint wire" (PR
+Merged as **`c6c2f620`** — "feat(entry 8): the prefetch planner and the AD-5 hint wire" (PR
 [#1001](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/1001), squash; #933 closed as completed). One
 commit.
 
@@ -83,5 +83,5 @@ hint's own counter — is the entry's most important line, and the both-ways tes
 
 ## Out of scope
 
-The runner's consumer (load modes, the service worker and the decode-ahead worker are 9.9), bank prefetch policy (9.9),
-and the two table shares named in decision 4.
+The runner's consumer (load modes, the service worker and the decode-ahead worker are entry 9), bank prefetch policy
+(entry 9), and the two table shares named in decision 4. The live interactive player page is entry 16.

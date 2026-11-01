@@ -14,14 +14,14 @@ context: []
 
 # Document how to run the desktop player
 
-Documents the real, runnable behaviour of the landed desktop player (`runner-desktop`, entry 9.11). It changes no
+Documents the real, runnable behaviour of the landed desktop player (`runner-desktop`, entry 11). It changes no
 `docs/spec/` semantics — this is documentation of what already works, written from commands actually run.
 
 ## Files touched
 
 - `docs/playing-the-desktop-player.md` — **new**. User-facing page: what the desktop player is, what it needs, the exact
   build-and-launch commands with the expected output of each, honest OS notes, and a plain statement that the board is
-  currently measured off-screen and that interactive play (the live input loop, board-rendering entry 19 / #393) is not landed.
+  currently measured off-screen and that interactive play (the live player page, web-runner-packaging entry 16 / #1018) is not landed.
 - `CONTRIBUTING.md` — add the developer fragment "Run the desktop player" under Commands, and correct the stale
   "Where things are" table and the "web runner … do not exist" sentence to name `render-webgl2`, `runner-web` and
   `runner-desktop`.
@@ -48,8 +48,8 @@ Two friction points documented, not hidden: on a fresh checkout the first `deskt
 
 - [x] The user-facing page and the CONTRIBUTING fragment contain only commands that were run, and state the expected
       output each produced.
-- [x] Both docs state plainly that the board is measured off-screen and interactive play is not landed (board-rendering
-      entry 19 / #393), and that mobile/Android is out of scope.
+- [x] Both docs state plainly that the board is measured off-screen and interactive play is not landed (web-runner-packaging
+      entry 16 / #1018), and that mobile/Android is out of scope.
 - [x] No `docs/spec/` file is modified.
 - [x] `pnpm lint` and `pnpm provenance` pass (docs-only change).
 

@@ -72,7 +72,7 @@ vectors and on every gating golden scene:
 - **within one unit per channel** on the arithmetic a GPU may round differently, which is the `translucent` and
   `additive` blend of AD-3's pixel pipeline, with the worst per-channel difference reported per vector.
 
-**What is drawn today.** Entry 9.4 replays all eight commands of AD-3's union — `fill`, `rect`, `line`, `ellipse`, `blit`
+**What is drawn today.** Entry 4 replays all eight commands of AD-3's union — `fill`, `rect`, `line`, `ellipse`, `blit`
 (with the `.iso` projection and persistent surfaces), `text`, `pushTarget` and `popTarget` — at the draw list's logical
 resolution, with AD-33's two presentation modes as viewport geometry. The pixel sets a GPU cannot derive on its own come
 from `core/raster`'s leaves rather than from a second implementation: `linePixels`, `rectOutlinePixels`,
@@ -123,7 +123,7 @@ A runner also owns the player's preferences — per-bus volume and mute, and the
 of [audio-media.md#audio-soundfont-cache](audio-media.md#audio-soundfont-cache): banks keyed by the SHA-256 of their
 bytes, cached per runner and shared across games, with eviction that never removes the bank in use.
 
-**What is implemented today** (entries 9.5 and 9.6). `synth` carries the cue player: `cueStart` is the table's `media.play`,
+**What is implemented today** (entries 5 and 6). `synth` carries the cue player: `cueStart` is the table's `media.play`,
 `media.seek` and `media.fade` arithmetic as a pure function of the cue and the tick the voice became ready, and
 `CuePlayer` is the state machine over it — the `(track, voice)` map, the prepared voice from `media.load`, the
 pre-ready message queue, the autoplay lock's mirror and the focus hold. `runner-web` carries the output: `PcmSink` holds
@@ -141,7 +141,7 @@ The **video** half is
 [audio-media.md#video-request](audio-media.md#video-request): `VideoHost` answers every `playVideo` with exactly one `video.ended { reqId }`
 (including every failure), keeps one video outstanding, and holds the other realised voices through the cue player's
 `videoStarted`/`videoEnded` while the core's own restart cue returns the music. No VP9/WebM fixture ships yet, so the
-lane proves the missing, undecodable and busy paths; the played path is entry 9.7's.
+lane proves the missing, undecodable and busy paths; the played path is entry 7's.
 
 <a id="desktop-shell"></a>
 ## The desktop applications
@@ -209,12 +209,12 @@ progress screen, and keeps it; above it, it streams assets on demand.
 The threshold is **measured, not asserted**: it is the uncompressed size of the largest corpus package, rounded up to
 the next whole mebibyte, recorded here with the date it was measured. The table starts empty because no sample game
 ships a package — "no sample ships a package, so the package numbers have no corpus evidence at all"
-([../formats/packaging-and-paths.md](../formats/packaging-and-paths.md)) — and entry 9.9 measures the fetched corpus
+([../formats/packaging-and-paths.md](../formats/packaging-and-paths.md)) — and entry 9 measures the fetched corpus
 before the first number is written.
 
 | Corpus | Largest package | Threshold | Measured |
 |---|---|---|---|
-| *pending 9.9* | — | — | — |
+| *pending entry 9* | — | — | — |
 
 A package in the cache is keyed by the SHA-256 of its bytes. Per-entry hashes and delta updates are deferred until a
 second published package version exists, because they would otherwise amend AD-6 and the manifest contract for a
@@ -235,7 +235,7 @@ reader in every host.
 
 A hint **never blocks**, **never changes state**, **never appears in a state or draw hash**, and **never earns a reply**.
 Core keeps the hint on [audio-media.md#audio-prefetch](audio-media.md#audio-prefetch)'s terms for audio's share; the wire
-record is an AD-5 and AD-17 amendment, added by entry 9.8.
+record is an AD-5 and AD-17 amendment, added by entry 8.
 
 <a id="offline"></a>
 ## The PWA and offline play
@@ -310,13 +310,13 @@ Its licence, and why it is a dev-only tool outside the production-tree scan, are
 
 | Section | Delivered by |
 |---|---|
-| [draw-list](#draw-list) and [webgl2-agreement](#webgl2-agreement) in full: every AD-3 command, the unified vector kit and every gating ledger row | 9.3, 9.4 |
-| [audio](#audio): the cue player, the PCM output, the bank path and the video policy | 9.5, 9.6 |
-| [install](#install): the make-package tool, the install descriptor and the package asset source | 9.7 |
-| [install](#install), [desktop-shell](#desktop-shell) (player) | 9.10, 9.11 |
-| [load-modes](#load-modes), [prefetch](#prefetch), [offline](#offline) | 9.8, 9.9 |
-| [mobile](#mobile) | 9.12 |
-| [build](#build), [conformance-lane](#conformance-lane), [csp-and-banks](#csp-and-banks) | 9.3 |
-| the schema and the vector kit themselves | 9.2 |
-| [audio](#audio): the player-facing bank picker UI and the prefetch of banks | 9.9, 9.10 |
-| the whole page replayed end to end | 9.14 |
+| [draw-list](#draw-list) and [webgl2-agreement](#webgl2-agreement) in full: every AD-3 command, the unified vector kit and every gating ledger row | entries 3, 4 |
+| [audio](#audio): the cue player, the PCM output, the bank path and the video policy | entries 5, 6 |
+| [install](#install): the make-package tool, the install descriptor and the package asset source | entry 7 |
+| [install](#install), [desktop-shell](#desktop-shell) (player) | entries 10, 11 |
+| [load-modes](#load-modes), [prefetch](#prefetch), [offline](#offline) | entries 8, 9 |
+| [mobile](#mobile) | entry 12 |
+| [build](#build), [conformance-lane](#conformance-lane), [csp-and-banks](#csp-and-banks) | entry 3 |
+| the schema and the vector kit themselves | entry 2 |
+| [audio](#audio): the player-facing bank picker UI and the prefetch of banks | entries 9, 10 |
+| the whole page replayed end to end | entry 14 |

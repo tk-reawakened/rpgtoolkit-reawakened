@@ -13,7 +13,7 @@ context:
   - 'docs/adr/0013-desktop-shell-electron.md, decisions 1 to 3 and the G6 exception'
   - 'docs/spec/engine/runners.md#desktop-shell and #mobile'
   - 'spine AD-17 (blob keys and GameId)'
-  - 'packages/runner-web (the build this wraps) and entry 9.7''s packageFiles'
+  - 'packages/runner-web (the build this wraps) and entry 7''s packageFiles'
 ---
 
 # runner-desktop: the player's desktop package
@@ -22,7 +22,7 @@ context:
 
 A shell, not a second runner: the `runner-web` build inside Electron 45.2.1, its pages served over a privileged `app://`
 scheme, a package read from disk as bytes and a save-blob host behind AD-17's keys. Nothing of the editor, and no window
-chrome, launch resolution or library — those are the player application's (entry 9.10) and `host-desktop`'s (epic 15).
+chrome, launch resolution or library — those are the player application's (entry 10) and `host-desktop`'s (epic 15).
 
 ## Decisions taken here
 
@@ -64,13 +64,13 @@ the evidence for those two OSes, and it is wired but has not run yet. Nothing in
 ## What this entry does not include
 
 The window chrome, launch resolution (`--game`, `player.json`, the baked default, the library) and the library UI are
-entry 9.10's; the editor application is `host-desktop`'s. The cross-runner save proof — a save written by the desktop
+entry 10's; the editor application is `host-desktop`'s. The cross-runner save proof — a save written by the desktop
 runner loading in the web runner under the same `GameId` — is written and read back inside the desktop runner here; the
-web side of that round trip lands with 9.10's save host, because the web runner has no blob host yet.
+web side of that round trip lands with entry 10's save host, because the web runner has no blob host yet.
 
 ## Landing
 
-Merged as **`95cca777`** — "feat(9.11): runner-desktop, the player's Electron shell over the same web build" (PR
+Merged as **`95cca777`** — "feat(entry 11): runner-desktop, the player's Electron shell over the same web build" (PR
 [#1004](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/1004), squash; #938 closed as completed). #1003 was
 the same work on a stale base and is closed.
 
@@ -80,9 +80,9 @@ it landed. This turns the Linux and Windows measurements on in CI.
 
 ## What the next entry inherits
 
-- The shell and the four-call bridge; 9.10 adds launch resolution, the library and the window chrome on top of them.
+- The shell and the four-call bridge; entry 10 adds launch resolution, the library and the window chrome on top of them.
 - `packageFiles` from a path, and an `--package` argument the launch resolver can feed.
 - The blob host's key layout (`userData/saves/<gameId>/…`); the web side of the cross-runner save round trip still needs
-  a blob host in the browser, which is 9.10's.
-- `tools/desktop/measure.mjs`, which measures any built shell and writes its record where the job uploads it — 9.10 and
-  9.12 can reuse it rather than inventing a second harness.
+  a blob host in the browser, which is entry 10's.
+- `tools/desktop/measure.mjs`, which measures any built shell and writes its record where the job uploads it — entry 10 and
+  entry 12 can reuse it rather than inventing a second harness.

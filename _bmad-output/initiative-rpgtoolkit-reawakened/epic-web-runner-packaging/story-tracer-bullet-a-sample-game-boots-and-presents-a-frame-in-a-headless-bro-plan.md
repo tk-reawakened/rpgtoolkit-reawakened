@@ -52,10 +52,10 @@ plan's scripted keys, no desktop or mobile wrapper, no packaging.
 
 Merged in two PRs, both squash:
 
-- **`892fff18`** — "feat(9.3): boot a sample game in Chromium through the real WebGL2 replayer" (PR
+- **`892fff18`** — "feat(entry 3): boot a sample game in Chromium through the real WebGL2 replayer" (PR
   [#977](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/977)). The tracer, the replayer, the bundles, the
   static host and the two Playwright specs.
-- **`adb6c95b`** — "test(9.3): give runner-web its unit group and CI shard" (PR
+- **`adb6c95b`** — "test(entry 3): give runner-web its unit group and CI shard" (PR
   [#979](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/979)). The entry's own `tools/no-skips` group and
   `unit` matrix row, six Node-level tests over the transport helpers and the decode adapter, and the guard's
   self-tests moved to ten groups.
