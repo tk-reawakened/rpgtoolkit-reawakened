@@ -203,8 +203,12 @@ package's own manifest keeps exactly three fields, because AD-6 refuses any othe
 <a id="load-modes"></a>
 ## Load modes and the threshold
 
-The web player has two load modes. Below a threshold it downloads the whole distribution package once, behind a
-progress screen, and keeps it; above it, it streams assets on demand.
+The web player has two load modes. At or below the threshold it downloads the whole distribution package behind a
+progress screen and keeps it. Above the threshold it validates the whole archive first, then discards nonessential
+bytes and fetches entries on demand by validated ranges. **The first launch in streaming mode still transfers the
+whole package**; it bounds retained memory rather than avoiding that initial download. Validation preserves the
+archive's existing safety and integrity checks and verifies its size, SHA-256 and content-derived identity. This
+behavior follows the owner's OQ1 approval for issue #934.
 
 The threshold is **measured, not asserted**: it is the uncompressed size of the largest corpus package, including its
 manifest, rounded up to the next whole mebibyte. The measurement builds packages from all games in the pinned fetched
