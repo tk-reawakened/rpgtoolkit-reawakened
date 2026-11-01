@@ -2,7 +2,7 @@
 // #audio-soundfont-cache). The bank under test is the path that ships: `media/soundfonts/TK-16.sf2`, whose hash the
 // notice records — so these tests also prove the notice and the file still agree.
 
-import { deepEqual, equal, ok } from "node:assert/strict";
+import { deepEqual, equal, ok, throws } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,7 @@ import {
   BANK_SIZE_CEILING,
   BUNDLED_BANK,
   BankCache,
+  createSha256,
   BankError,
   effectiveBank,
   isSoundBankContainer,
@@ -50,6 +51,32 @@ test("the SHA-256 implementation matches the published vectors", () => {
   equal(sha256Hex(new Uint8Array([0x61, 0x62, 0x63])), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
   // A length that crosses the padding boundary: 56 bytes needs a second block.
   equal(sha256Hex(new Uint8Array(56)).length, 64);
+});
+
+test("the incremental SHA-256 gives the published digests for any chunking, across the padding boundaries", () => {
+  const split = createSha256();
+  split.update(new Uint8Array([0x61]));
+  split.update(new Uint8Array(0));
+  split.update(new Uint8Array([0x62, 0x63]));
+  equal(split.hex(), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+
+  // The 448-bit message of FIPS 180-4: its padding does not fit the first block.
+  const message = Uint8Array.from("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq", (character) => character.charCodeAt(0));
+  equal(sha256Hex(message), "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+  const bytewise = createSha256();
+  for (const byte of message) bytewise.update(new Uint8Array([byte]));
+  equal(bytewise.hex(), "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+
+  // A million 'a' in chunks that never line up with the 64-byte blocks.
+  const million = createSha256();
+  const chunk = new Uint8Array(997).fill(0x61);
+  for (let left = 1_000_000; left > 0; left -= chunk.length) million.update(chunk.subarray(0, Math.min(left, chunk.length)));
+  equal(million.hex(), "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
+
+  const taken = createSha256();
+  equal(taken.digest().length, 32);
+  throws(() => taken.update(new Uint8Array(1)));
+  throws(() => taken.digest());
 });
 
 test("a container that is not a bank is bank.invalid, and one over the ceiling is bank.unavailable", () => {
