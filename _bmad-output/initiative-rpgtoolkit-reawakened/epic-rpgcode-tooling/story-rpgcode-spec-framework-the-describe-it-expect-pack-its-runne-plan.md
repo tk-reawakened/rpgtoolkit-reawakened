@@ -16,7 +16,7 @@ The story is [#948](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issue
 - **Slice 1 — `CommandView.pos`.** A getter fed by `ScriptServices.setCommandPos` at the `call` instruction, beside `thread`; two tests prove a command sees its call site. Rejected: stamping a position onto the effect channel (`recordEffect` stamps seq/tick/thread only, and the effect log is saveable data) and threading a position through arguments (no RPGCode expression produces one).
 - **Slice 2 — the package.** `manifest.json` (name `script-spec`, namespace `scriptspec`, requests, startup `startup.prg`), the `startup.prg` library (describe/it/test, four hooks, expect with seven matchers and `.not`, skip/only), and `SPEC_PLUGIN`, registering **only** `specresult` (the registry keys by folded name, so a camel-case registration is unreachable). Tests: manifest parses, the catalogue loads the package by name, `specResult` records kind/name/expected/actual and the call's position, an unknown kind records no outcome.
 - **Slice 3a — hook order.** beforeAll at registration; each case wrapped by beforeEach outermost-first, afterEach innermost-first; afterAll once when its describe returns; nested levels proved by the recorded order.
-- `specClose` compares the absolute difference (the earlier symmetric check passed both directions); a callable must be called with its declared arity (ERR-2), so the default tolerance is passed as `0`.
+- `specClose` compares the absolute difference (the earlier symmetric check passed both directions); a callable must be called with its declared arity (ERR-2), so the default tolerance is passed as `0`. **Superseded by slice 4**, which supplies real one- and two-argument overloads; F-D still limits it to integer precision.
 
 ## Findings for the owner
 
@@ -81,16 +81,55 @@ The first runner experiment produced empty expected/actual values. The direct pr
 
 **Judgement on the entry**: PR #1000 landed a partial implementation, not a completed TOOL-5 runner. In addition to F-A, `only` selection, project file discovery and the other independently verified acceptance gaps must be resolved and exercised through the real consumer before this story can be closed. Keep the tracker blocked; do not change TOOL-5 without an owner ruling.
 
+### F-D — fractional closeness is not evaluable in RPGCode arithmetic (owner-gated)
+
+**Claim.** `toBeCloseTo` cannot compare fractional values from a package-defined matcher, because the language truncates a variable's number when it is used as an operand.
+
+**Evidence.** `docs/spec/engine/rpgcode-language.md:209` (compatibility note 3) — "Reading a variable truncates its number to an integer. `x = 1.5; y = x + 0` gives `y = 1`. Literals and intermediate results keep their fractions." The core implements it: a binary or unary operand whose `Arg` carries a `ref` is coerced with `| 0`. Probes against the built core: `q = 0.0000002 - 0.0000001` is `1e-7` (literals), while `v = 0.00000005; r = v - 0` is `0` (variable operand). Inside a callable, `actual`, `expected` and `tolerance` are always variables, so `expect(0.002).toBeCloseTo(0, 0.001)` compares `0` with `0` and passes.
+
+**Options.** 1. A test-only native comparison beside `specResult` (F-A option 1) that reads its arguments by reference, the way `isNaN`/`isFinite` do. 2. Change the language's numeric precision, which is a 3.1 compatibility decision.
+
+**Status:** not implemented. The library documents the integer-precision limit where `toBeCloseTo` is defined, and a test pins the truncation so any future precision change is visible. No silent claim of fractional closeness.
+
+### F-F — one-callable-with-two-arities needs a class-method tear-off read (owner-gated, not in this PR)
+
+TOOL-5 declares `toBeCloseTo(double expected, [double tolerance])`, but FUN-1/ERR-2 give a callable exactly its declared arity and the language has no default argument, so one callable cannot accept both one and two arguments. A working design was built and then withdrawn from this PR: a class with two `close` overloads, read as a bound method (`get_member_bound` → `@class-method:<class>:<name>`), stored in the dictionary ADR 0014 requires. It works (an inherited zero-argument overload, an overridden one-argument overload and `.not` all dispatch correctly), but it changes engine semantics and the saved callable format: a class-method name would read as a callable where OOP-10 (`docs/spec/engine/rpgcode-modules-and-objects.md:332`) says a class instance exposes "only declared members", OOP-11's auto-binding rule (`:349`) covers "a member that holds a callable", legacy methods are reached by calls (`:358`), and a new `def` prefix would enter saves. G7/ADR 0007 make that doc-first, and a tooling PR must not carry it.
+
+**Open sub-findings the withdrawn design exposed** (evidence for a future branch): access for a private method was decided at the read, so a legally obtained tear-off kept working when called; the granting class had to be recorded in the `def` so `bindThis` and a restore could not rebind it onto an unrelated class; and the receiver's program rather than the running program first answered the lookup, unlike a direct call (OOP-10). Those are all decisions for the OOP-11 ruling.
+
+### F-E — a fresh fixture per case conflicts with once-per-group hooks
+
+`docs/spec/engine/rpgcode-functions.md:664-665` says `beforeAll`/`afterAll` run once around the enclosing `describe`. The runner isolates every case by re-running the file, so a group's `beforeAll`/`afterAll` run once per rerun, including reruns of cases outside that group. Repeated registrations of the same hook kind now all run, in order. How a once-per-group setup is meant to survive a fresh fixture per case (captured value, or a snapshot taken after the group setup) is an owner decision.
+
+### F-G — a missing `#include` is silent until something calls into it (recorded, not fixed here)
+
+The runner reaches the library by `#include`, and an include of a file the loader cannot serve is silent at load time (MOD: "A missing file is ignored silently at load time", `docs/spec/engine/rpgcode-modules-and-objects.md`): a spec whose cases never call a library function would run and pass with no `describe`/`it` at all, and the mistake would surface only when a case tried to call one of the missing names. This is a MOD/compiler gap the tooling surfaces rather than creates; recording it here, not fixing it in a tooling PR.
+
+## Slice 4 — project consumer, focused selection and hook multiplicity
+
+- The library reaches a spec program by `#include`, TOOL-5's documented "includes or loads the package" branch (`rpgcode-tooling.md:62`): the runner serves `script-spec/startup.prg` in the project's `Prg/` view and appends `#include` after the spec's own text, so no text is concatenated and every spec statement keeps its authored line. Loading waits on PKG-7, which is still a proposed ruling. The catalogue test proves only that the manifest parses and resolves a start-up program; it is not a load path.
+- `packages/script-spec/src/project.ts`: `discoverProjectSpecs` walks a project recursively and returns deterministic project-relative paths for files ending exactly `.spec.prg`; `runSpecProject` reads each with the core Windows-1252 decoder and loads includes through a `ProgramLoader` built from the project's `Prg/` tree, so the asset resolver's case rules apply (`#include "HELPER.prg"` finds `Prg/helper.prg`).
+- Focused runs narrow the whole project: every file is scanned in a collect-only pass that executes no case body, and when any file marks a case no unmarked file is run or reported. The warning text is unchanged.
+- Discovery no longer depends on recorded outcomes: the collect pass records each registered case with its kind, so duplicate names and cases with no assertions are discovered, and a failure during collection fails discovery instead of yielding an empty successful run.
+- Repeated `beforeEach`/`afterEach`/`afterAll` registrations all run, in registration order.
+- `toBeTruthy` applies the RPGCode truth test (R-39); the previous numeric non-zero test called `""` and `"0"` false.
+- Every outcome carries the spec file's own line (`(line N)` on each report entry); a runtime error inside a case becomes a failing outcome with its code, message and line; a run that never finishes is `spec.timeout`; a strict run lists its skips as failures.
+- Each case starts on a fresh 1×1 board, one selected party actor and an empty variable set (tested with `HP!` and `ambientRed`).
+- `toBeCloseTo` stays the two-argument callable PR #1000 shipped (a callable takes exactly its declared arity, FUN-1/ERR-2), now honest about its precision: whole numbers only (F-D), with the caller passing the limit. One- and two-argument overloads are not in this branch; they need F-F first.
+
+**Still open:** F-A (array `toEqual`/`toContain`, `toThrow`), F-D, F-E, strict `toBe` type identity (numbers and strings currently compare by RPGCode `==`, which converts mixed numbers and strings), and `skip`/`only` on a `describe` group — both are declared `(name, body)` and are treated as cases, because no runtime distinction between a group body and a case body exists without executing the body during discovery.
+
 ## Limits recorded in the library
 
-`toEqual` is scalar equality and `toContain` is string-only (both say so where they are defined); `toThrow` always records a failure and its negated form is absent. `toBeCloseTo` is a two-parameter callable despite TOOL-5's optional tolerance. The library's comments identify these limitations, but they are not implementations of the approved behaviors.
+`toEqual` is scalar equality and `toContain` is string-only (both say so where they are defined); `toThrow` always records a failure and its negated form is absent. `toBeCloseTo` now accepts its omitted or explicit tolerance, but compares at the language's integer precision (F-D). The library's comments identify these limitations, but they are not implementations of the approved behaviors.
 
 ## Verify, mapped
 
 | Ticket verify | Where |
 |---|---|
 | determinism re-run, identical results and state hashes | `packages/script-spec/test/runner.test.ts` exercises repeated supplied-source runs; complete consumer-flow coverage remains outstanding |
-| strict fails a skip; `only` warns | `packages/script-spec/test/runner.test.ts` asserts skip status and warning; it does not prove `only` narrows execution |
-| exact failure message | `packages/script-spec/test/runner.test.ts` asserts one scalar message; file and source-line reporting remain to be verified end to end |
+| strict fails a skip; `only` warns | `packages/script-spec/test/runner.test.ts` and `test/project.test.ts` (a marked case in one file excludes an unmarked file; the marked file reports only its marked case) |
+| exact failure message | `packages/script-spec/test/runner.test.ts` asserts the message and its line; `test/project.test.ts` asserts the project-relative file prefix |
 | absent from the engine's default manifest | asserted by `packages/script-spec/test/runner.test.ts` |
 | `specResult` with kind, name, expected/actual and SourcePos | `packages/script-spec/test/spec-result.test.ts` (green) |
+| discovering project `*.spec.prg` and running a real consumer | `packages/script-spec/test/project.test.ts` (recursive discovery, `Prg/` include, Windows-1252 source) |

@@ -15,8 +15,11 @@ import { SPEC_PLUGIN } from "../src/index.ts";
 
 /**
  * The library's behaviours (TOOL-5): hook order across nested describes, and
- * `toBeCloseTo`'s optional tolerance. Both are proved through the recorded order
- * of `specResult` outcomes.
+ * `toBeCloseTo`'s arities (one argument, and the explicit tolerance) with `.not`.
+ * Both are proved through the recorded order of `specResult` outcomes. Closeness
+ * is decided on whole numbers, because SEM-3:209 truncates every variable operand
+ * of script arithmetic, so the tolerance cases use integers and one case pins the
+ * truncation of fractions.
  */
 
 const library = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package", "startup.prg"), "utf8");
@@ -57,5 +60,30 @@ test("hooks run in the documented order, nested describes included", () => {
     "pass:D2",
     "pass:B", "pass:o2", "pass:C",
     "pass:D",
+  ]);
+});
+test("toBeCloseTo takes both arguments today, compares whole numbers, and says so", () => {
+  // SEM-3:209 truncates every variable operand of arithmetic to an integer, and
+  // both the actual and the expected value reach the matcher through a variable
+  // read, so closeness is decided on whole numbers. TOOL-5's optional tolerance is
+  // not implemented: a callable takes exactly its declared arity (FUN-1/ERR-2) and
+  // one- and two-argument overloads would need a class-method tear-off read, an
+  // owner-gated language change (F-F). One-argument calls therefore fail loudly,
+  // and fractional closeness needs a native helper (F-D).
+  const spec = [
+    'it("two-arg-equal", () => { expect(3).toBeCloseTo(3, 0) })',
+    'it("two-arg-inside", () => { expect(5).toBeCloseTo(3, 2) })',
+    'it("two-arg-outside", () => { expect(6).toBeCloseTo(3, 2) })',
+    'it("not-inside", () => { expect(6).not.toBeCloseTo(3, 2) })',
+    'it("not-outside", () => { expect(5).not.toBeCloseTo(3, 2) })',
+    'it("fractions-truncate-to-equal", () => { expect(0.4).toBeCloseTo(0.1, 0) })',
+  ].join("\n");
+  deepEqual(run(spec), [
+    "pass:two-arg-equal/toBeCloseTo",
+    "pass:two-arg-inside/toBeCloseTo",
+    "fail:two-arg-outside/toBeCloseTo",
+    "pass:not-inside/toBeCloseTo",
+    "fail:not-outside/toBeCloseTo",
+    "pass:fractions-truncate-to-equal/toBeCloseTo",
   ]);
 });

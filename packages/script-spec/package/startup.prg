@@ -7,17 +7,24 @@ global(specDepth)
 global(specBeforeEach)
 global(specAfterEach)
 global(specAfterAll)
+global(specBeforeEachCount)
+global(specAfterEachCount)
+global(specAfterAllCount)
 global(specNegate)
-global(specOnlyUsed)
 global(specCaseName)
 global(specCaseIndex)
 global(specOnlyCase)
+global(specCollect)
+global(specOnlyMark)
 
 specCaseIndex = 0
 
 specBeforeEach = {}
 specAfterEach = {}
 specAfterAll = {}
+specBeforeEachCount = {}
+specAfterEachCount = {}
+specAfterAllCount = {}
 
 function specCheck(ok, name, expected, actual) {
   local(result)
@@ -38,41 +45,58 @@ function specEqual(a, b) {
   return 0
 }
 
-function specFlash(expected, actual) {
-  if (specNegate == 1) { specNegate = 0; return actual ~= expected }
-  return actual ~= expected
-}
-
 // Hook order inside one describe: beforeAll runs when it is registered (before
 // the cases below it), then each case is wrapped by its enclosing levels'
 // beforeEach outermost-first and afterEach innermost-first, and afterAll runs
 // once when the describe body returns.
 function describe(name, body) {
+  local(specHook)
   specDepth = specDepth + 1
   body()
-  if (specAfterAll[specDepth] != 0) { specAfterAll[specDepth]() }
-  specAfterAll[specDepth] = 0
-  specBeforeEach[specDepth] = 0
-  specAfterEach[specDepth] = 0
+  if (specCollect == 0) {
+    for (specHook = 1; specHook <= specAfterAllCount[specDepth]; specHook = specHook + 1) {
+      specAfterAll[specDepth + ":" + specHook]()
+    }
+  }
+  for (specHook = 1; specHook <= specAfterAllCount[specDepth]; specHook = specHook + 1) {
+    specAfterAll[specDepth + ":" + specHook] = 0
+  }
+  for (specHook = 1; specHook <= specBeforeEachCount[specDepth]; specHook = specHook + 1) {
+    specBeforeEach[specDepth + ":" + specHook] = 0
+  }
+  for (specHook = 1; specHook <= specAfterEachCount[specDepth]; specHook = specHook + 1) {
+    specAfterEach[specDepth + ":" + specHook] = 0
+  }
+  specAfterAllCount[specDepth] = 0
+  specBeforeEachCount[specDepth] = 0
+  specAfterEachCount[specDepth] = 0
   specDepth = specDepth - 1
 }
 
 function it(name, body) {
   local(level)
-  specCaseName = name
+  local(specHook)
   specCaseIndex = specCaseIndex + 1
-  // The runner re-runs the file once per case with specOnlyCase set, so each case
-  // gets a fresh fixture (TOOL-5); -1 runs them all.
-  // 0 means "run every case"; the runner sets 1-based case numbers otherwise.
+  if (specCollect) {
+    if (specOnlyMark) { specResult("pass", name, "case", "only") }
+    else { specResult("pass", name, "case", "normal") }
+    return
+  }
   if (specOnlyCase != 0) {
     if (specCaseIndex != specOnlyCase) { return }
   }
+  specCaseName = name
+  if (specOnlyMark) { specResult("only", name, "", "") }
   for (level = 1; level <= specDepth; level = level + 1) {
-    if (specBeforeEach[level] != 0) { specBeforeEach[level]() }
+    for (specHook = 1; specHook <= specBeforeEachCount[level]; specHook = specHook + 1) {
+      specBeforeEach[level + ":" + specHook]()
+    }
   }
   body()
   for (level = specDepth; level >= 1; level = level - 1) {
-    if (specAfterEach[level] != 0) { specAfterEach[level]() }
+    for (specHook = 1; specHook <= specAfterEachCount[level]; specHook = specHook + 1) {
+      specAfterEach[level + ":" + specHook]()
+    }
   }
 }
 
@@ -81,25 +105,30 @@ function test(name, body) {
 }
 
 function beforeEach(body) {
-  specBeforeEach[specDepth] = body
+  specBeforeEachCount[specDepth] = specBeforeEachCount[specDepth] + 1
+  specBeforeEach[specDepth + ":" + specBeforeEachCount[specDepth]] = body
 }
 
 function afterEach(body) {
-  specAfterEach[specDepth] = body
+  specAfterEachCount[specDepth] = specAfterEachCount[specDepth] + 1
+  specAfterEach[specDepth + ":" + specAfterEachCount[specDepth]] = body
 }
 
 function beforeAll(body) {
-  body()
+  if (specCollect == 0) { body() }
 }
 
 function afterAll(body) {
-  specAfterAll[specDepth] = body
+  specAfterAllCount[specDepth] = specAfterAllCount[specDepth] + 1
+  specAfterAll[specDepth + ":" + specAfterAllCount[specDepth]] = body
 }
 
 function skip(name, body) {
-  // A skip respects the runner's per-case filter like `it`, so an isolated run of
-  // another case does not report it.
   specCaseIndex = specCaseIndex + 1
+  if (specCollect) {
+    specResult("pass", name, "case", "skip")
+    return
+  }
   if (specOnlyCase != 0) {
     if (specCaseIndex != specOnlyCase) { return }
   }
@@ -107,25 +136,29 @@ function skip(name, body) {
 }
 
 function only(name, body) {
-  specOnlyUsed = 1
-  specResult("only", name, "", "")
+  specOnlyMark = 1
   it(name, body)
+  specOnlyMark = 0
 }
 
 function expect(actual) {
   return {
     toBe: (expected) => specCheck(actual == expected, "toBe", expected, actual),
     toEqual: (expected) => specCheck(specEqual(actual, expected), "toEqual", expected, actual),
-    toBeTruthy: () => specCheck(actual != 0, "toBeTruthy", 1, actual),
+    toBeTruthy: () => specCheck(!!actual, "toBeTruthy", 1, actual),
     toBeNull: () => specCheck(actual == 0, "toBeNull", 0, actual),
     toContain: (needle) => specCheck(specContains(actual, needle), "toContain", needle, actual),
-    // The tolerance is optional; an omitted (or zero) argument means 1e-7.
+    // TOOL-5 declares an optional tolerance, but a callable takes exactly its
+    // declared arity (FUN-1/ERR-2) and the language has no default argument, so
+    // the callable takes both and the caller passes the limit. Rendering that as
+    // one- and two-argument overloads needs a class-method tear-off read, which is
+    // an owner-gated language change (F-F), not something this package may add.
     toBeCloseTo: (expected, tolerance) => specCheck(specClose(actual, expected, tolerance), "toBeCloseTo", expected, actual),
     toThrow: (body) => specCheck(0, "toThrow", "a runtime error", "no error"),
     not: {
       toBe: (expected) => { specNegate = 1; specCheck(actual == expected, "toBe", expected, actual) },
-      toEqual: (expected) => { specNegate = 1; specCheck(actual == expected, "toEqual", expected, actual) },
-      toBeTruthy: () => { specNegate = 1; specCheck(actual != 0, "toBeTruthy", 1, actual) },
+      toEqual: (expected) => { specNegate = 1; specCheck(specEqual(actual, expected), "toEqual", expected, actual) },
+      toBeTruthy: () => { specNegate = 1; specCheck(!!actual, "toBeTruthy", 1, actual) },
       toBeNull: () => { specNegate = 1; specCheck(actual == 0, "toBeNull", 0, actual) },
       toContain: (needle) => { specNegate = 1; specCheck(specContains(actual, needle), "toContain", needle, actual) },
       toBeCloseTo: (expected, tolerance) => { specNegate = 1; specCheck(specClose(actual, expected, tolerance), "toBeCloseTo", expected, actual) }
@@ -141,16 +174,16 @@ function specContains(value, needle) {
   return 0
 }
 
-// |value - expected| <= limit. The limit is 1e-7 unless a non-zero tolerance is
-// given; a callable must be called with its declared arity (ERR-2), so the
-// "optional" argument is expressed as 0 rather than omitted.
+// |value - expected| <= tolerance, on whole numbers. SEM-3:209 truncates every
+// variable operand of arithmetic, and both the actual value and `expected` reach
+// here through a variable read, so closeness is decided on truncated whole
+// numbers: the one-argument overload's 1e-7 default is truncated to 0 on use, and
+// an explicit fraction such as 0.001 is 0 too. Honest fractional closeness needs a
+// native helper (an owner decision, not something this script can fake).
 function specClose(value, expected, tolerance) {
-  local(limit)
   local(diff)
-  limit = 0.0000001
-  if (tolerance != 0) { limit = tolerance }
   diff = value - expected
   if (diff < 0) { diff = 0 - diff }
-  if (diff <= limit) { return 1 }
+  if (diff <= tolerance) { return 1 }
   return 0
 }

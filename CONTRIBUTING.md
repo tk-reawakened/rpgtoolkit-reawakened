@@ -35,6 +35,31 @@ Code and contributions are licensed under the [MIT license](LICENSE).
 
 Also see [docs/architecture-options.md](docs/architecture-options.md) and the [editor feature list](docs/editor-features.md) for background.
 
+## Running RPGCode specs from a project
+
+The Node-side `@tk-reawakened/script-spec` API exposes `runSpecProject(projectRoot, options)`.
+It finds files ending in `.spec.prg` recursively, loads the bundled spec library,
+and returns per-file cases, failures, skips, and `only` warnings. It runs each
+selected case against a fresh board, party and variable set. Skips fail by
+default; pass `{ strict: false }` to tolerate them. A focused case narrows the
+entire project run. Failure reports include the project-relative file and
+assertion line.
+Includes resolve against the project's `Prg/` programs using the normal
+case-insensitive path rules; spec files use Windows-1252 RPGCode source encoding.
+
+This package is still incomplete: array equality and containment and `toThrow`
+remain subject to the owner's F-A ruling; strict `toBe` type identity also
+needs a type distinction the current library does not provide; and `toBeCloseTo`
+takes both arguments and compares truncated whole numbers only, because RPGCode
+truncates a variable's number in arithmetic (F-D) and one callable cannot accept
+both one and two arguments without a language change (F-F). The current
+`skip(name, body)` and `only(name, body)` forms mark cases, not groups. Group
+`beforeAll` and `afterAll` hooks are rerun for each isolated case, including
+when that case is outside the group; they do not yet satisfy the once-per-group
+contract. Consult [TOOL-5](docs/spec/engine/rpgcode-tooling.md#tool-5) for the
+intended API; do not treat the current runner as full conformance.
+
+
 ## Set up
 
 You need:
