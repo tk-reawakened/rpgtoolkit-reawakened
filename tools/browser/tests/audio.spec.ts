@@ -74,7 +74,7 @@ test("the cue player and the PCM sink agree with the spec's three runner rules",
 
   // The bundled bank loads and MIDI renders through it in the browser too: the file's SHA-256 keys the cache, and the
   // 120-tick fixture makes sound instead of silence.
-  expect(report.bankSha).toBe("5419f02b0a9e63534b35332842e29decbc53c5352236be85b92cc87d0267f62a");
+  expect(report.bankSha).toBe("1530b366d1ae28b753e15215b633154a1d6ef6c7e90fab9391175b628943fcbe");
   expect(report.midiLengthTicks).toBe(120);
   expect(report.midiEnergy).toBeGreaterThan(0);
 });

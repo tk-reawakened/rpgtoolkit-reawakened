@@ -39,8 +39,26 @@
         "path": "media/soundfonts/TK-16.sf2",
         "license": "CC0-1.0",
         "adr": "ADR-0003",
-        "release": "TK-16 authored bank 1.0",
-        "sha256": "5419f02b0a9e63534b35332842e29decbc53c5352236be85b92cc87d0267f62a",
+        "release": "TK-16 Classic RPG bank 2.0 (default)",
+        "sha256": "1530b366d1ae28b753e15215b633154a1d6ef6c7e90fab9391175b628943fcbe",
+        "sizeCeiling": 8388608,
+        "notice": "TK-16 is an authored General MIDI bank built entirely from deterministic mathematical waveforms; it contains no third-party samples."
+      },
+      {
+        "path": "media/soundfonts/TK-16-Whimsical.sf2",
+        "license": "CC0-1.0",
+        "adr": "ADR-0003",
+        "release": "TK-16 Whimsical bank 2.0",
+        "sha256": "deb9d5bd3fb0587e8dd1e304e8ef81e57dbe7de4aaefeba001bf5735fbbce69d",
+        "sizeCeiling": 8388608,
+        "notice": "TK-16 is an authored General MIDI bank built entirely from deterministic mathematical waveforms; it contains no third-party samples."
+      },
+      {
+        "path": "media/soundfonts/TK-16-Arcade.sf2",
+        "license": "CC0-1.0",
+        "adr": "ADR-0003",
+        "release": "TK-16 Arcade bank 2.0",
+        "sha256": "087dc8b2ff58c42ee3381f18506632b56b2d950020ba1c71adf44220a5c9c211",
         "sizeCeiling": 8388608,
         "notice": "TK-16 is an authored General MIDI bank built entirely from deterministic mathematical waveforms; it contains no third-party samples."
       }
