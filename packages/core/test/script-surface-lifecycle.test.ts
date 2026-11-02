@@ -126,7 +126,7 @@ test("a cursor-map hand is drawn only while the blocking runner executes (#1178,
     "map = createCursorMap()\ncursorMapAdd(20, 20, map)\ncursorMapAdd(40, 40, map)\nselected = cursorMapRun(map)\nend()",
   );
   const activeList = game.engine.drawList();
-  ok(activeList.commands.some((command) => command.kind === "blit" && command.source.asset === assetKey("media/cursors/tkr-hand.png")));
+  ok(activeList.commands.some((command) => command.kind === "blit" && "asset" in command.source && command.source.asset === assetKey("media/cursors/tkr-hand.png")));
   const active = game.state();
   ok(active.vm.threads.some((thread) => thread.wait?.kind === "input.key" && thread.wait.cursorMap === active.ui.activeCursorMap));
 
@@ -136,7 +136,7 @@ test("a cursor-map hand is drawn only while the blocking runner executes (#1178,
   equal(finished.vm.globals.selected, 0, "Enter chooses the first cursor-map point");
   ok(finished.ui.activeCursorMap !== undefined, "the map can remain active after its runner returns");
   ok(
-    !freeRoamList.commands.some((command) => command.kind === "blit" && command.source.asset === assetKey("media/cursors/tkr-hand.png")),
+    !freeRoamList.commands.some((command) => command.kind === "blit" && "asset" in command.source && command.source.asset === assetKey("media/cursors/tkr-hand.png")),
     "the stale active map does not draw its hand outside the runner",
   );
 });
