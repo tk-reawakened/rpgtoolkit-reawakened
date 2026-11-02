@@ -141,6 +141,35 @@ test("a cursor-map hand is drawn only while the blocking runner executes (#1178,
   );
 });
 
+test("cursor-map runner return retains its points while the same program continues (#1178, docs/spec/engine/rpgcode-functions.md#reawakened-cursor-map-runner)", () => {
+  const game = boot(
+    "map = createCursorMap()\ncursorMapAdd(20, 20, map)\ncursorMapAdd(40, 40, map)\nselected = cursorMapRun(map)\ncontinued = 1\nthreadSleep(getThreadId(), 0)\nend()",
+  );
+  const active = game.state();
+  const mapId = active.ui.activeCursorMap;
+  ok(mapId !== undefined, "the runner has an active map");
+  const cursorThread = active.vm.threads.find((thread) => thread.wait?.kind === "input.key" && thread.wait.cursorMap === mapId);
+  ok(cursorThread !== undefined, "the program is blocked in this map's runner");
+
+  game.advance(1, ["ENTER"]);
+  const resumedList = game.engine.drawList();
+  const resumed = sync(game);
+  equal(resumed.vm.globals.selected, 0, "Enter selects the first point");
+  equal(resumed.vm.globals.continued, 1, "the same program executes after cursorMapRun returns");
+  equal(resumed.ui.activeCursorMap, mapId, "the active-map handle remains in UI state");
+  deepEqual(
+    resumed.ui.cursorMaps?.find((map) => map.id === mapId)?.points,
+    [{ x: 20, y: 20 }, { x: 40, y: 40 }],
+    "the map's authored points are retained after its runner returns",
+  );
+  const continuedThread = resumed.vm.threads.find((thread) => thread.id === cursorThread.id);
+  ok(continuedThread?.wait?.kind === "sleep", "the same thread reaches its following indefinite sleep");
+  ok(
+    !resumedList.commands.some((command) => command.kind === "blit" && "asset" in command.source && command.source.asset === assetKey("media/cursors/tkr-hand.png")),
+    "the retained map's hand is hidden when its runner is no longer executing",
+  );
+});
+
 test("nested program end does not hide the message window while the outermost program runs", () => {
   const game = boot(
     'mwin("outer")\nexecuteprogram("nested.prg")\nwait()\nmwin("after")',

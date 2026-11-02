@@ -1,4 +1,4 @@
-import { deepEqual, equal } from "node:assert/strict";
+import { deepEqual, equal, ok } from "node:assert/strict";
 import test from "node:test";
 import {
   applyUiEffect,
@@ -148,12 +148,18 @@ test("cursor maps navigate with wrapping, select by keyboard, and ignore mouse a
   applyUiEffect(state, "cursormapadd", [50, 60, 1]);
   const run = command("cursormaprun", state, [arg(1)]);
   applyUiEffect(state, "cursormaprun", firstEffect(run).args ?? []);
+  const pointerCursor = command("mousecursor", state, [arg("TK DEFAULT"), arg(0), arg(0), arg(255), arg(0), arg(255)]);
+  applyUiEffect(state, "mousecursor", firstEffect(pointerCursor).args ?? []);
+  state.input.pointer = { x: 12, y: 14, buttons: 0 };
   const wait = run.wait as Wait;
   equal(wait.kind, "input.key");
   if (wait.kind !== "input.key") throw new Error("expected cursor map input wait");
   equal(wait.cursorSelection, 0, "selection starts at the first point");
 
-  const initial = composeUi(state.ui, 100, 100, undefined, true, wait.cursorSelection).at(-1);
+  const initialCommands = composeUi(state.ui, 100, 100, state.input, true, wait.cursorSelection);
+  const initial = initialCommands.at(-1);
+  ok(initialCommands.some((entry) => entry.kind === "blit" && "asset" in entry.source && entry.source.asset === "media/cursors/tkr-arrow.png"), "configured mouse cursor remains visible");
+  ok(initialCommands.some((entry) => entry.kind === "blit" && "asset" in entry.source && entry.source.asset === "media/cursors/tkr-hand.png"), "configured mouse cursor does not suppress the active map hand");
   equal(initial?.kind, "blit");
   if (initial?.kind === "blit") {
     equal(initial.dst.x, -30);
@@ -174,6 +180,14 @@ test("cursor maps navigate with wrapping, select by keyboard, and ignore mouse a
     claims: [],
   }, wait);
   equal(escape, null, "Escape does not cancel the runner");
+  const numberKey = pollInputKey({
+    tick: 0,
+    ui: state.ui as never,
+    input: { keys: [{ seq: 2, name: "1", code: "Digit1", char: "1" }], focused: true },
+    claims: [],
+  }, wait);
+  equal(numberKey, null, "numeric keys do not choose a cursor-map point");
+  equal(wait.cursorSelection, 0, "numeric keys do not change the selected point");
 
   for (const [seq, name, selected] of [[2, "Left", 1], [3, "Right", 0], [4, "Right", 1]] as const) {
     const navigation = pollInputKey({

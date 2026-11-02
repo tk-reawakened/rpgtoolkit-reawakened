@@ -146,7 +146,6 @@ function drawCursor(commands: DrawCommand[], ui: UiSection, input: InputSection 
   const pointer = input?.pointer ?? { x: 0, y: 0, buttons: 0 };
   if (ui.mouseCursor !== undefined && ui.mouseCursor !== null) {
     commands.push(cursorCommand(ui.mouseCursor, pointer));
-    return;
   }
   if (!cursorMapRunnerActive) return;
   const point = cursorMapPoint(ui, selection);

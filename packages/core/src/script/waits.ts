@@ -37,11 +37,6 @@ function pollCursorMapKey(wait: InputKeyWait, key: string, count: number, claim?
   else if (normalized === "right" || normalized === "down") selected = (selected + 1) % count;
   else if (normalized === "enter" || normalized === "return" || normalized === "space") {
     return claim === undefined ? { value: selected, ok: true } : { value: selected, ok: true, claim };
-  } else if (/^[0-9]+$/.test(normalized)) {
-    const direct = Number(normalized);
-    if (direct >= 0 && direct < count) {
-      return claim === undefined ? { value: direct, ok: true } : { value: direct, ok: true, claim };
-    }
   } else return null;
   wait.cursorSelection = selected;
   return null;
