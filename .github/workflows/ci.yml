@@ -391,7 +391,7 @@ jobs:
       - run: pnpm desktop:inventory
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - uses: actions/upload-artifact@v6
-        if: ${{ always() && (steps.measure_desktop.outcome == 'success' || steps.measure_desktop.outcome == 'failure' || steps.measure_linux.outcome == 'success' || steps.measure_linux.outcome == 'failure') }}
+        if: ${{ always() && (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && (steps.measure_desktop.outcome == 'success' || steps.measure_desktop.outcome == 'failure' || steps.measure_linux.outcome == 'success' || steps.measure_linux.outcome == 'failure') }}
         with:
           name: desktop-measurement-${{ runner.os }}
           path: ${{ runner.temp }}/desktop-measurement.json
