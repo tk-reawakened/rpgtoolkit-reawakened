@@ -45,7 +45,7 @@ function boot(program: string, extra: Readonly<Record<string, Uint8Array>> = {})
   files.set(assetKey("main.gam"), unwrap(writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, startupPrg: "start.prg", initBoard: "start.brd", initChar: "hero.tem" })));
   files.set(assetKey("boards/start.brd"), unwrap(writeBoard({
     ...empty, sizeX: 40, sizeY: 30, sizeL: 1, tileMatrix: Array.from({ length: 1200 }, () => 0), tileRuns: [{ lutIndex: 0, count: 1200, marker: true }],
-    layerTitles: ["", ""], properties: { ...empty.properties, start: { x: 64, y: 64, layer: 1 } },
+    layerTitles: ["", ""], properties: { ...empty.properties, start: { x: 64, y: 64, layer: 1 }, enterPrg: Object.hasOwn(extra, "prg/enter.prg") ? "enter.prg" : "" },
   })));
   files.set(assetKey("chrs/hero.tem"), unwrap(writeCharacter({ ...createEmptyCharacter(), minor: 5, name: "Hero", movementAnimations: Array(8).fill(""), battleStances: ["", "", "", "", "", ""] })));
   files.set(assetKey("prg/start.prg"), encoder.encode(program));
@@ -152,23 +152,38 @@ test("send and board load reset neither the message window nor the script surfac
   equal(state.ui.message.text, "send test", "message text is unchanged by board load");
 });
 
-test("thread end does not hide or reset the message window", () => {
-  const game = boot(
-    'msg = "thread"\nmwin("main")\ndummy = thread("mwin(msg)", 0)\nend()',
-  );
-  game.advance(10);
+test("a thread starting and ending while the outermost program runs neither hides nor resets the message window", () => {
+  // `thread` takes inline code, not a file name. The thread runs in the first tick's slack after the
+  // main program's step budget is spent, and ends there while the main program still waits for a key.
+  const game = boot('msg = "bg"\nmwin("main")\ndummy = thread("mwin(msg)", 0)\ni = 0\nwhile (i < 2500) { i = i + 1 }\nwait()\nmwin("after")');
   const list = game.engine.drawList();
   const state = sync(game);
-  // The thread runs after the outermost program ends; thread end does not
-  // hide or reset, so the state keeps the accumulated text and visible flag.
-  equal(state.ui.message.text, "main\nthread", "message text accumulates across the thread without resetting");
-  equal(state.ui.message.visible, true, "message window stays visible in state after a thread ends");
-  // Because no outermost program is running, the composed frame hides the surface.
-  ok(!hasText(list, "main"), "message-window text is not composed once the outermost program ends");
-  ok(!hasText(list, "thread"), "thread text is not composed once the outermost program ends");
+  ok(state.vm.threads.every((thread) => thread.kind === "blocking" || thread.status === "finished"), "the thread has ended");
+  equal(state.ui.message.text, "main\nbg", "thread start did not reset the text, and the thread's line was added");
+  equal(state.ui.message.visible, true, "thread end did not hide the window");
+  ok(hasText(list, "main") && hasText(list, "bg"), "both lines are composed while the outermost program waits");
+
+  game.advance(1, ["ENTER"]);
+  const ended = sync(game);
+  equal(ended.ui.message.visible, false, "the outermost program's end hides it");
+  equal(ended.ui.message.text, "main\nbg\nafter", "the stored text is kept");
 });
 
-test("renderNow survives a board change", () => {
+test("the next outermost program start resets the stored message text and the script text layer", () => {
+  // The start-up program ends with its window text and a screen text draw kept in state; the first board's
+  // blocking enter program is the next outermost program.
+  const game = boot('mwin("title")\ntext(1,1,"press a key")\nwait()', { "prg/enter.prg": encoder.encode('mwin("enter")\nwait()') });
+  game.advance(10, ["ENTER"]);
+  const state = sync(game);
+  equal(state.world.board?.key, "boards/start.brd", "the first board is up");
+  equal(state.ui.message.text, "enter", "the title text was reset when the enter program started");
+  equal(state.ui.message.visible, true, "the enter program's window is visible while it runs");
+  equal(state.ui.draws.length, 0, "the title screen's text draw did not survive into the next program");
+  const list = game.engine.drawList();
+  ok(hasText(list, "enter") && !hasText(list, "title") && !hasText(list, "press a key"), "only the enter program's own text is composed");
+});
+
+test("renderNow survives a board change and the end of the program that enabled it", () => {
   const nextBoard = unwrap(writeBoard({
     ...createEmptyBoard(),
     sizeX: 10, sizeY: 10, sizeL: 1,
@@ -190,6 +205,14 @@ test("renderNow survives a board change", () => {
   ok(
     list.commands.some((cmd: DrawCommand) => cmd.kind === "blit" && "surface" in cmd.source && cmd.source.surface === handle),
     "render-now canvas is still composed after the board change",
+  );
+
+  game.advance(1, ["ENTER"]);
+  const ended = game.engine.drawList();
+  equal(sync(game).vm.threads.some((thread) => thread.kind === "blocking" && thread.status !== "finished"), false, "the program has ended");
+  ok(
+    ended.commands.some((cmd: DrawCommand) => cmd.kind === "blit" && "surface" in cmd.source && cmd.source.surface === handle),
+    "render-now canvas is still composed after the program ends",
   );
 });
 
