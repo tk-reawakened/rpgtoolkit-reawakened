@@ -55,6 +55,17 @@ display in one of the two modes AD-33 allows — integer-scaled pixel-perfect le
 chosen by the player, never by the game state. `alpha` is presentation-only and is excluded from state and draw hashes,
 so a runner may interpolate between ticks and may not let interpolation reach anything the core reads.
 
+**Desktop fit — Approved ruling (owner: Jensen, 2026-11-02).** Show the whole game frame, centred on a black
+surround, even when the window or display is too small for its original size. Enlarge it in whole-number steps when
+possible, keeping its proportions; the only non-integer case is shrinking a frame that cannot fit at 1×.
+
+For logical dimensions `W × H` and available content dimensions `Cw × Ch`, let
+`r = min(Cw / W, Ch / H)`. Use `floor(r)` when `r >= 1`, otherwise use `r` without integer rounding. Present
+the frame at `W × scale` by `H × scale`, centred in the content area; any fractional margins are shared equally.
+Recompute on content-area resize, including changes imposed by display constraints. Map pointer coordinates through
+the same presented rectangle back to logical coordinates. This transformation is presentation only and changes
+neither simulation state nor its hash.
+
 **Textures come from the core, not from the runner's own decoder.** A runner fetches asset bytes through an AD-5
 request; the core decodes them (AD-28) and the runner pulls pixels it needs from surfaces with
 `engine.surfacePixels(id, rev)` (AD-27). A runner may keep a texture, glyph-atlas or tile cache keyed by `(id, rev)`,
@@ -290,6 +301,15 @@ The wire record is an AD-5 and AD-17 amendment, added by entry 8. The owner appr
 planner's behavior on 2026-11-01 (issue #934, OQ4); it supersedes the broader proposed table in
 [audio-media.md#audio-prefetch](audio-media.md#audio-prefetch).
 
+The web runner reports one diagnostic about hints, `shared`: the keys whose audio-cue read was served by a read that a
+hint began. In plain terms, it is evidence that a prefetch hint, and not an eager package, a blocking request or the cue
+itself, did the loading a cue then used. Technically a key is recorded only when the cue's own read of it, at that
+moment, found bytes in the cache or joined a read still in flight **and** those bytes came from a read that a hint
+started. A hint that names a key whose bytes were already cached, or whose read a blocking request or a cue had already
+started, earns no credit; neither do bytes the cache no longer holds (replaced or evicted and fetched again) or a read
+that failed. It is evidence a test can assert, not a performance metric, and like every hint it changes no state, hash or
+reply.
+
 <a id="offline"></a>
 ## The PWA and offline play
 
@@ -349,9 +369,28 @@ A runner proves itself by replaying vectors, not by sharing types. Two artefacts
   unknown kind, an omitted required key, an out-of-range value, a non-`https:` URL). A runner passes by validating and
   replaying them.
 
-The schema and the kit cannot drift from `core`: `packages/runner-harness/test/runner-protocol.test.ts` keeps an
-exhaustive kind map per family, so a command, input event or request added to `core` fails the type check until it has a
-vector, and `pnpm fixtures:test` fails if the committed kit differs from what the generator produces.
+<a id="drift-check"></a>
+The schema, the kit and the TypeScript types cannot drift from one another: **`pnpm runner-protocol:check`** fails when
+any one of them changes alone. It runs, in this order, and reports every problem it finds:
+
+1. **The kit is reproducible.** It regenerates the vectors and fails if the committed `vectors.json` differs.
+2. **The schema is well formed.** Every `$ref` resolves, every `$defs` entry is reachable from the three roots
+   (`drawList`, `inputRecord`, `request`), every object is closed (`additionalProperties: false`) with every `required`
+   key declared, and only the JSON Schema keywords the checker evaluates appear, so a keyword it would silently ignore
+   cannot weaken the schema.
+3. **The schema and the kit agree.** Every vector's verdict matches what the schema returns: a valid record is accepted
+   and a refusal is refused. A kit that holds no valid record for some kind the schema lists fails.
+4. **The schema and the TypeScript types agree.** The check reads `DrawList`, `InputRecord` and `RunnerRequest` from
+   `packages/core/src/ports/` with the TypeScript compiler and compares each with its schema definition in the JSON
+   projection, recursively: the keys a record carries, which are required (every key but `repeat`, AD-14), literal and
+   enum values, `null`, arrays, records and nested objects, with a `Uint8Array` leaf as a base64 string. It names the
+   path of every difference, so a type change with no schema change, or the reverse, fails. Numeric bounds, string
+   patterns and lengths exist only in the schema (TypeScript has no integer type), and the refusals in the kit hold
+   them.
+
+`packages/core` also fails its own type check when a request kind is missing from `HOST_REQUEST_KINDS`, so a request
+kind cannot be added to the wire without being declarable by a package. The same check, plus perturbation tests that
+prove schema-only, TypeScript-only and vector-only changes each fail, run under `pnpm fixtures:test`.
 
 The browser lane is **Playwright 1.64.0** (Apache-2.0, Blue Oak Gold), one headless Chromium project, a required `gate`
 dependency that runs `pnpm fixtures:fetch` first and serves the fetched `fixtures/` folder over the local static server.
