@@ -585,11 +585,28 @@ A committed buy emits exactly one `itemAdded`, followed by `goldChanged` if gold
 
 **Reawakened rule.** Script file I/O is **sandboxed to the game's save area**: a script's file commands can only reach files under the game's own folders, never an arbitrary host path.
 
+<a id="actions-and-bindings"></a>
+## Actions and bindings (Reawakened only)
+
+None of these names is one of the 282 catalogue names: Toolkit 3.1 had no actions, so there is nothing to alias, and a legacy script that happens to define a function with one of these names is unaffected (FUN-8). They are ordinary built-ins of the movement-and-input part, and the `input.action` wait kind they yield is the **VM's**, registered in the same wait registry as `input.key` (`wait.duplicate-kind`, `wait.unknown-kind`).
+
+| Command | Signature | Purpose | Notes |
+|---|---|---|---|
+| `registerAction` | `void registerAction(string name, object definition)` | Define a game action: its label, icon, group, default controls, and whether it is locked or hidden. | `name` must start with `game.` ([ACT-2](display-input-audio.md#act-2)); `definition` is plain data with exactly the `RegisteredAction` fields. Never waits and never runs game logic. After startup, a repeated registration updates label, icon and group but cannot change `locked`; changing it is a `builtin.bad-arg` refusal. |
+| `actionDown` | `bool actionDown(string name)` | Is the action held right now? | Never waits and never claims; an unknown name returns `false` and reports `input.unknown-action` once. |
+| `actionPressed` | `bool actionPressed(string name)` | Has the action been pressed since this call last claimed it? | Claims through the shared input-sequence protocol, exactly as `get` does, so a press is delivered once. Never waits. |
+| `actionWait` | `string actionWait(string name)` | Wait for the action to be pressed, then return its name. | Parks the thread on `input.action`; the thread resumes on the next unclaimed press at or after the park sequence, and the wait's claim is pruned like any other. |
+| `actionControls` | `string actionControls(string name)` | The action's bound control ids. | Comma-separated in binding order, `""` when unbound. Read-only. |
+| `rebindAction` | `bool rebindAction(string name, string controls)` | Replace an action's controls with the comma-separated list. | Returns `false` and changes nothing for a locked action, an invalid control id, or a duplicate within the engine set ([ACT-6](display-input-audio.md#act-6)). Writes the player override layer, so the change is saved. |
+| `resetBindings` | `void resetBindings()` | Discard every player override and return to the game's defaults. | Never waits; locked actions are unaffected because they were never overridable. |
+
+The legacy key surface is unchanged and is not a wrapper over these: `wait`, `get`, `clearBuffer`, `scan`, `mem`, the button commands and the plugin `checkKey` path keep their 3.1 names, return values and quirks ([E-110](display-input-audio.md#e-110)). A script may mix both in one program; both read the same incoming events.
+
 ## Ownership of names with no single owner
 
 The catalogue above groups names by capability, not by which part of the engine implements them, and a few names fell between two owners. This is the map the build uses so that every name resolves exactly once. It follows the command-effect catalogue's proposal; where it differs from a group label above, this map wins.
 
-* **Input** (`wait`, `get`, `mouseClick`, `mouseMove`, `scan`, `mem`, `clearBuffer`, `setButton`, `checkButton`, `clearButtons`) belongs to the **movement-and-input** part. The `input.key` and `sleep` wait *kinds* those commands yield are the **VM's** (the VM owns the wait registry); the built-in itself is the input part's.
+* **Input** (`wait`, `get`, `mouseClick`, `mouseMove`, `scan`, `mem`, `clearBuffer`, `setButton`, `checkButton`, `clearButtons`, and the Reawakened-only [action commands](#actions-and-bindings)) belongs to the **movement-and-input** part. The `input.key`, `input.action` and `sleep` wait *kinds* those commands yield are the **VM's** (the VM owns the wait registry); the built-in itself is the input part's.
 * **Cursor maps and the mouse cursor** (`createCursorMap`, `cursorMapAdd`, `cursorMapRun`, `killCursorMap`, `cursorMapHand`, `mouseCursor`) belong to **board-rendering**, even though the catalogue above files them under mouse, buttons and cursor maps: they draw onto the `ui` surface, so the section owner decides.
 * **`wait`** is the input part's built-in and its `input.key` wait kind is the VM's — a split name, both parts stated.
 * **`dirSav`** (the save/load picker) belongs to **menu-and-save**, which owns the save list and the `menu.screen` wait; board-rendering supplies the surface it draws on — a split name.
