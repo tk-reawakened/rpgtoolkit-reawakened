@@ -241,7 +241,8 @@ function cachedSurfaceField(value: unknown): string | undefined {
 export function hashGameState(state: GameState): string {
   const { stepCounters: _stepCounters, ...vm } = state.vm;
   const { nextRequestId: _nextRequestId, ...engine } = state.engine;
-  const projected = { ...state, vm, engine, audio: withoutSettings(state.audio) };
+  const { staleDraws: _staleDraws, ...ui } = state.ui;
+  const projected = { ...state, vm, engine, ui, audio: withoutSettings(state.audio) };
   const tagged = tagNonFinite(projected) as PlainData;
   let ascii: boolean | undefined;
   const parts = canonSplitRoot(tagged, "surfaces", (value) => {

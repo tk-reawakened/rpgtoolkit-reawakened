@@ -78,6 +78,8 @@ export type UiSection = {
   color: Rgb;
   message: UiMessageWindow;
   draws: UiTextDraw[];
+  /** Prefix retained from a finished outermost program, until a board thread next runs. */
+  staleDraws?: number;
   cursorX: number;
   cursorY: number;
   modal: UiModal | null;
@@ -134,5 +136,6 @@ export function resetUiForProgramStart(ui: UiSection): void {
   if (ui.message === undefined) return;
   ui.message = { ...ui.message, visible: false, text: "" };
   ui.draws = [];
+  delete ui.staleDraws;
   ui.modal = null;
 }

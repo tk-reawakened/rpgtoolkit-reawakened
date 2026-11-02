@@ -234,6 +234,47 @@ test("title program then first board shows no title text or message window over 
   equal(state.ui.message.visible, false, "message window is hidden after the title program ends");
 });
 
+test("board thread wait does not resurrect a finished program's text (#1146)", () => {
+  const empty = createEmptyBoard();
+  const board = unwrap(writeBoard({
+    ...empty, sizeX: 40, sizeY: 30, sizeL: 1,
+    tileMatrix: Array.from({ length: 1200 }, () => 0),
+    tileRuns: [{ lutIndex: 0, count: 1200, marker: true }],
+    layerTitles: ["", ""], threads: ["board.prg"],
+    properties: { ...empty.properties, start: { x: 64, y: 64, layer: 1 } },
+  }));
+  const game = boot('mwin("stale")\ntext(1,1,"old draw")\nwait()', {
+    "boards/start.brd": board,
+    "prg/board.prg": encoder.encode("wait()"),
+  });
+  ok(hasText(game.engine.drawList(), "old draw"), "startup draw is present before the program ends");
+  game.advance(15, ["ENTER"]);
+  const state = sync(game);
+  ok(state.vm.threads.some((thread) => thread.kind === "board" && thread.wait?.kind === "input.key"), "board thread is waiting");
+  equal(state.ui.message.text, "stale", "finished window text remains stored");
+  equal(state.ui.message.visible, false, "finished window remains hidden");
+  ok(!hasText(game.engine.drawList(), "old draw"), "the board thread does not compose the stale draw");
+});
+
+test("board thread retains its own text while waiting (#1146)", () => {
+  const empty = createEmptyBoard();
+  const board = unwrap(writeBoard({
+    ...empty, sizeX: 40, sizeY: 30, sizeL: 1,
+    tileMatrix: Array.from({ length: 1200 }, () => 0),
+    tileRuns: [{ lutIndex: 0, count: 1200, marker: true }],
+    layerTitles: ["", ""], threads: ["board.prg"],
+    properties: { ...empty.properties, start: { x: 64, y: 64, layer: 1 } },
+  }));
+  const game = boot('text(1,1,"old draw")\nwait()', {
+    "boards/start.brd": board,
+    "prg/board.prg": encoder.encode('text(1,1,"board draw")\nwait()'),
+  });
+  game.advance(15, ["ENTER"]);
+  const list = game.engine.drawList();
+  ok(hasText(list, "board draw"), "board thread's own draw is composed");
+  ok(!hasText(list, "old draw"), "finished program's draw is not composed");
+});
+
 test("enter program of a board reached by send is composed while waiting and hidden after it ends (#1132)", () => {
   const nextBoard = unwrap(writeBoard({
     ...createEmptyBoard(),
@@ -248,7 +289,7 @@ test("enter program of a board reached by send is composed while waiting and hid
     {
       "prg/enter.prg": encoder.encode('send("next.brd", 2, 2)'),
       "boards/next.brd": nextBoard,
-      "prg/next-enter.prg": encoder.encode('mwin("welcome")\nwait()'),
+      "prg/next-enter.prg": encoder.encode('mwin("welcome")\ntext(1,1,"enter draw")\nwait()'),
     },
   );
   // Advance past startup and the sending board's enter program.
@@ -259,6 +300,7 @@ test("enter program of a board reached by send is composed while waiting and hid
   equal(waitingState.ui.message.text, "welcome", "enter program message text is stored");
   const waitingList = game.engine.drawList();
   ok(hasText(waitingList, "welcome"), "enter program message is composed and drawn while waiting after send");
+  ok(hasText(waitingList, "enter draw"), "enter program's own text layer remains composed");
 
   // Dismiss the enter program's wait; it ends and hides the window.
   game.advance(1, ["ENTER"]);

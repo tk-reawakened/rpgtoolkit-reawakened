@@ -2860,23 +2860,30 @@ export function createEngine(init: EngineInit): Engine {
         pruneClaimed(state.input, state.engine.claims ?? []);
         return;
       case "threads": {
-        const liveBlockingBefore = new Set(
-          state.vm.threads.filter((thread) => thread.kind === "blocking" && thread.status !== "finished").map((thread) => thread.id),
-        );
-        withSurfaceBatch(() => runThreadsPhase(state.vm, services, STEP_BUDGET));
+        withSurfaceBatch(() => runThreadsPhase(state.vm, services, STEP_BUDGET, (thread) => {
+          // The destination enter program continues the sender's presentation; it is not a fresh board surface.
+          if (thread.kind !== "board" || thread.id === activeEnterThreadId || blockingAlive()) return;
+          const stale = state.ui.staleDraws;
+          if (stale !== undefined) {
+            state.ui.draws = state.ui.draws.slice(stale);
+            delete state.ui.staleDraws;
+          }
+        }, (thread) => {
+          if (thread.kind !== "blocking" || thread.status !== "finished") return;
+          if (activeEnterThreadId !== null) {
+            const enterThread = state.vm.threads.find((candidate) => candidate.id === activeEnterThreadId);
+            if (enterThread === undefined || enterThread.status === "finished") {
+              activeEnterThreadId = null;
+            } else if (!blockingAlive()) {
+              enterThread.kind = "blocking";
+              enterThread.owner = "script";
+            }
+          }
+          onBlockingThreadFinished(thread);
+        }));
         if (activeEnterThreadId !== null) {
           const enterThread = state.vm.threads.find((thread) => thread.id === activeEnterThreadId);
-          if (enterThread === undefined || enterThread.status === "finished") {
-            activeEnterThreadId = null;
-          } else if (!blockingAlive()) {
-            enterThread.kind = "blocking";
-            enterThread.owner = "script";
-          }
-        }
-        for (const thread of state.vm.threads) {
-          if (thread.kind === "blocking" && thread.status === "finished" && liveBlockingBefore.has(thread.id)) {
-            onBlockingThreadFinished(thread);
-          }
+          if (enterThread === undefined || enterThread.status === "finished") activeEnterThreadId = null;
         }
         expireProgramTileEdits(state);
         return;
@@ -2996,6 +3003,7 @@ export function createEngine(init: EngineInit): Engine {
     if (state.ui.message === undefined) return;
     state.ui.message = { ...state.ui.message, visible: false };
     state.ui.modal = null;
+    if (state.ui.draws.length > 0) state.ui.staleDraws = state.ui.draws.length;
   }
 
   function currentDrawList(alpha = 0, include = init.include ?? { shading: false, images: false, sprites: false }): DrawList {

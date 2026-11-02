@@ -736,7 +736,13 @@ export function replyToRequest(vm: VmState, reqId: number, reply: WaitReply): vo
  * of the phase. Threads started or woken during the phase take their first
  * turn next tick.
  */
-export function runThreadsPhase(vm: VmState, services: ScriptServices, budget: number): void {
+export function runThreadsPhase(
+  vm: VmState,
+  services: ScriptServices,
+  budget: number,
+  beforeStep?: (thread: Thread) => void,
+  afterStep?: (thread: Thread) => void,
+): void {
   if (!Number.isInteger(budget) || budget < 1) {
     throw new ScriptError("vm.bad-budget", `the step budget must be a positive whole number, got ${budget}`);
   }
@@ -745,7 +751,9 @@ export function runThreadsPhase(vm: VmState, services: ScriptServices, budget: n
   for (const thread of ready) {
     if (findBlockingThread(vm) !== null) break;
     if (thread.status !== "ready") continue;
+    beforeStep?.(thread);
     stepThread(thread, vm, services, budget);
+    afterStep?.(thread);
     refreshBlock(vm, services.clock.tick());
   }
   refreshBlock(vm, services.clock.tick());
