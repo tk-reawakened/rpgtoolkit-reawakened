@@ -85,7 +85,7 @@ Follow-up approved ruling (owner: Jensen, 2026-11-02), verbatim:
 A presented screen is a rebuildable picture, not game progress: its derived presentation cache is excluded
 from `hashGameState` and is rebuilt deterministically on restore before any script read.
 
-The script-screen layer also holds a program's **starting copy** of the last presented frame, which the core composes and replaces at every outermost program start ([engine/main-loop-and-startup.md#reawakened-starting-frame-capture](../engine/main-loop-and-startup.md#reawakened-starting-frame-capture), [ADR 0018](../../adr/0018-core-composed-program-starting-frame.md)). The copy is therefore hash-neutral for the same reason, is not stored separately from the layer, and is rebuilt from the loaded state on restore; a script that reads it and keeps the result in variables, `cnvX` canvases or screen slots stays hashed.
+A program's **starting copy** of the last presented frame is composed by the core ([engine/main-loop-and-startup.md#reawakened-starting-frame-capture](../engine/main-loop-and-startup.md#reawakened-starting-frame-capture), [ADR 0018](../../adr/0018-core-composed-program-starting-frame.md)). It is a derived presentation cache and is hash-neutral for the same reason as the presented screen; where it is stored, and whether a running program still composes the live board around it, are open in ADR 0018 (§4, §11). A script that reads it and keeps the result in variables, `cnvX` canvases or screen slots stays hashed, as any screen read does.
 
 **What leaves the hash:**
 - The presented frame (`surfaces.entries["0"]`), which is a derived presentation cache.

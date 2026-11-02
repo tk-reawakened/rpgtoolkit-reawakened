@@ -1,6 +1,6 @@
 # ADR 0018 — The core composes a program's starting frame; there is no host capture request
 
-* **Status:** Proposed. One owner question is open — adopt Toolkit 3.1's presentation model or record a deliberate difference (section 11). Implementation has not started.
+* **Status:** Proposed. **Accepted (owner, 2026-11-02):** the core composes the starting frame from game state alone; no host request, no reply, no record. **Open, and not decided by this ADR:** (1) adopt Toolkit 3.1's presentation model or record a deliberate difference (section 11 — the owner is deciding); (2) the six design questions, which this ADR answers only as proposals (section 7); (3) the cursor and the copy's fine contents where the engineer's evidence is a guess or source-labelled (section 4). Implementation has not started.
 * **Date:** 2026-11-02
 * **Amends:** [docs/spec/engine/main-loop-and-startup.md](../spec/engine/main-loop-and-startup.md#reawakened-starting-frame-capture) (replaces the deferred host-capture rule with the core-composed one); reuses the surface-hash projection ruling in [docs/spec/formats/save-game.md](../spec/formats/save-game.md#state-hash-surface-projection) (2026-11-02)
 * **Context documents:** [docs/spec/engine/runners.md](../spec/engine/runners.md#surface-read-and-state-hash), [docs/spec/formats/save-game.md](../spec/formats/save-game.md#state-hash-request-projection), AD-1 (engine API), AD-3 (draw commands), AD-5 (host requests), AD-14 (input events), AD-27 (`engine.surfacePixels`)
@@ -14,9 +14,11 @@ In plain terms:
 1. **A program starts on a copy of the last frame the screen showed.** Toolkit 3.1 copies the display and never redraws first; the program then draws over that copy, and whatever it clears stays clear. The copy is the whole picture at logical resolution: the board, thread animations and the render-now overlay as they were, and — when the copy comes from a previous program in the same frame — that program's message window as well. It has no transparency.
 2. **The core makes that copy itself, and never asks a host for pixels.** What the core needs is not the host's GPU pixels. It is the picture the game last presented, which is a pure function of the game's own tick history. The core already owns that picture: scripts have always read *its* screen surface, never a host readback ([runners.md#surface-read-and-state-hash](../spec/engine/runners.md#surface-read-and-state-hash), ruling on #1048).
 3. **No new request, no new reply, no new record.** `RunnerRequest` and `InputEvent` are unchanged. No pixel bytes cross the boundary, so a replay log holds nothing new and the same input log produces the same frame on every runner.
-4. **The copy is a derived cache, like the presented screen.** It is excluded from `hashGameState` and rebuilt from saved state when a save is loaded; it is not stored anywhere new, because the script-screen layer that holds it already travels in the `surfaces` section.
+4. **The copy is a derived cache, like the presented screen.** It is excluded from `hashGameState` and rebuilt from saved state when a save is loaded. Where it is kept is an implementation detail: if it lives in the script-screen layer, nothing new is stored, because that layer already travels in the `surfaces` section.
 5. **The copy replaces the script-screen layer at each outermost program start.** That is what stops a finished program's drawing from coming back over a later program (see [#1172](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1172)).
 6. **This engine does not have that model yet.** It has no program surface of its own: it composes the live board under a program and the live overlay and animations over it every frame, and no command redraws the board into a program surface. That single gap is #1171, #1172, #1182, #1183 and #1186 (section 3), and the copy rules here seed the surface that gap is missing.
+
+**Status of these items.** Item 1 is Toolkit 3.1 behaviour from the engineer's answers; items 2-4 are the direction the owner accepted on 2026-11-02; item 5 is this ADR's proposal (section 2); item 6 is the measured state of this engine. Sections 7 and 11 list what the owner still has to decide.
 
 ## Context
 
@@ -69,7 +71,9 @@ The engine keeps, outside `GameState`, a **presented frame**: the draw list the 
 
 There is no `captureFrame` request, no `frame.captured` event, no RGBA bytes in the request or event unions, no replay-log record, no failure mode, no fallback reply, no runner obligation and no dimension or size validation. AD-5 and AD-14 are unchanged.
 
-### 2. Rules R0–R5
+### 2. Rules R0–R5 (proposed implementation of the accepted direction)
+
+R0-R5 are how the accepted direction — the core composes the copy — would be implemented. They are a proposal for approval, not rulings, and every one of them that states a Toolkit 3.1 behaviour is grounded in the evidence table above. Where a rule depends on the presentation model, it says so.
 
 **R0 — Initial state.** At engine creation, after `reset()`, and in program-test mode (`engine <game.gam> <program.prg>`) the presented frame is **opaque black**: every pixel `r=g=b=0, a=255`. A start-up program, and the first board's enter program when there is no start-up program, copy that black frame (W2, W13).
 
@@ -87,7 +91,7 @@ There is no `captureFrame` request, no `frame.captured` event, no RGBA bytes in 
 
 **R5 — Start replaces the layer.** At every outermost program start the engine rasterises the presented frame and **replaces** the script-screen layer with it (`replaceSurface` on the reserved layer), after the existing reset of the message window and text layer. The script-screen layer is this engine's program surface: the reserved persistent surface a script draws to when it names no canvas. Nested program and thread starts do nothing. Replacing, not compositing over, is what makes a finished program's drawing disappear ([#1172](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1172)) and what makes the program's surface destructive, as the legacy copy is.
 
-### 3. Target presentation model, and the gap between it and this engine
+### 3. Toolkit 3.1's presentation model, and the gap between it and this engine
 
 **The model (Toolkit 3.1; engineer answers P1, P2 and P5, all labelled certain).** The program surface is a surface in its own right, not a layer over a board that keeps being drawn:
 
@@ -104,17 +108,17 @@ There is no `captureFrame` request, no `frame.captured` event, no RGBA bytes in 
 
 **One missing model, five facets.** #1171 (an empty frame between the start-up program's end and the first board), #1172 (a finished program's pixels composed into every later program), #1182, #1183 and #1186 are all the same gap: a program surface that is drawn once and redrawn only by the P2 commands. The copy this ADR rules (R0-R5) **seeds** that surface. It does not by itself produce the Toolkit 3.1 display, because the live board and the live overlay would still be composed around the surface until the model changes.
 
-**What the copy rules assume either way.** R0-R5, the overlay-as-snapshot ruling and the cursor ruling are the same under both options of the open question in section 11: free roam composes the overlay, so a copy of a free-roam frame contains it. What the open question decides is whether the **running** program's frame is the surface plus the window (3.1) or the live board plus the surface plus the live overlay (today).
+**What the copy rules assume either way.** R0-R5, the overlay-as-snapshot treatment and the proposed cursor exclusion are the same under both options of the open question in section 11: free roam composes the overlay, so a copy of a free-roam frame contains it. What the open question decides is whether the **running** program's frame is the surface plus the window (3.1) or the live board plus the surface plus the live overlay (today).
 
 ### 4. What the copy contains
 
 **Included:** the board with tint baked into its pixels (W11), thread animations and the render-now overlay **as a snapshot** at their last redraw (W7, W9); a previous program's surface and message-window pixels when R3 applies (W4).
 
-**Excluded:** the engine's and the system's cursor (W10): the copy is taken without the cursor blit, whatever `mouseCursor` or a cursor map says at that moment. A full-screen gamma ramp is a presentation effect and never part of the copy; the core's ambient shading is in the board pixels (W11).
+**Excluded, as a proposal pending the owner:** the engine's and the system's cursor. The evidence (W10) says the system pointer is usually not in the copy and the engine's hand pointer is in it only if it was on screen, with the menu case a guess; taking the copy without the cursor blit — whatever `mouseCursor` or a cursor map says at that moment — is the simpler rule this ADR proposes, not a fact from the source read. A full-screen gamma ramp is a presentation effect and never part of the copy; the core's ambient shading is in the board pixels (W11).
 
-**The overlay is in the copy, not composed live.** Free roam composes the render-now overlay, so a copy of a free-roam frame contains it; under the model in section 3 a running program's frame draws the overlay only as part of its surface, and only a board redraw updates it. The overlay is therefore **in** the copy and **not** composed above a running program.
+**The overlay is in the copy.** Free roam composes the render-now overlay, so a copy of a free-roam frame contains it, and that holds under either option of section 11. Whether a running program's frame *also* composes the live overlay is the model question: Toolkit 3.1 does not (W7, W9), and this engine does (`engine.ts:3065`, `:3068`), which is [#1183](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1183).
 
-**This engine does not do that today.** It composes the enabled canvas (`engine.ts:3065`) and the thread animations (`engine.ts:3068`) on every frame while a program runs, outside the gate at `engine.ts:3062-3063`, so the overlay, the animations and the live board are all still there. That is [#1183](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1183), and it stays open until the model in section 3 is adopted. This ADR states the required behaviour and does not assert that any part of it is implemented.
+**This engine composes it live today.** `engine.ts:3065` appends the enabled canvas and `engine.ts:3068` the thread-animation blits on every frame while a program runs, outside the gate at `engine.ts:3062-3063`, so the overlay, the animations and the live board are all still there. That is [#1183](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1183). Under Option A it would have to stop; under Option B it stays and the issue closes as a documented difference. Nothing in this ADR asserts which.
 
 ### 5. Determinism, hash, save and restore
 
@@ -139,11 +143,11 @@ There is no `captureFrame` request, no `frame.captured` event, no RGBA bytes in 
 * **G5 changes deliberately.** Program frames gain the copy; the golden re-record is part of the implementation PR.
 * **G6, G7 unchanged.**
 
-### 7. The owner's questions, answered
+### 7. The six design questions: proposed answers (not rulings)
 
-The six questions the superseded design left open are ruled as follows.
+The six questions the superseded design left open need an owner answer. What follows is **this ADR's proposal** for each; none of them is approved, and all of them are consistent with either option of section 11 unless the row says otherwise.
 
-| # | Question | Ruling |
+| # | Question | Proposed answer |
 |---|---|---|
 | 1 | Scope of programs that capture | Every outermost program start: start-up program, board enter program, item activation, step-on trigger, edge link to a `.prg`, run-time key program, menu-choice program, battle handoff, recovery resume. Nested programs and threads do not copy (W3). |
 | 2 | Overlay and cursor inclusion | The overlay and thread animations are included as the snapshot they were (W7, W9). The cursor is excluded (W10). The board tint is included because it is in the board pixels (W11); a full-screen gamma ramp is not, because it is presentation. |
@@ -191,7 +195,7 @@ Each row names the perturbation that must make it fail. Ordinary unit tests stay
 | T13 | Cost structure: a multi-tick batch with no program start writes neither the presented screen nor the script-screen layer more than once; no wall-clock assertion. | Rasterise per tick. |
 | T14 | The compositor excludes the cursor from the copy, and excludes the live overlay from a running program's frame. | Include the cursor blit; compose the live overlay above a program's surface. |
 | T15 | **Depends on landing 2 of section 8 (#1182).** A P2 redraw command (`forceRedraw` as the representative) erases what the program drew and bakes in the board, thread animations and overlay as a one-time snapshot; a later tick does not re-compose the live overlay over the program. | Draw the redraw as a composite layer instead of a replacement. |
-| T16 | **Depends on landing 1 of section 8 (#1183).** The live overlay is not composed over a program's surface (required behaviour, section 4). | Compose the enabled overlay while a program runs, as `engine.ts:3065-3068` does today. |
+| T16 | **Depends on the owner adopting Option A of section 11, and on #1183.** Under that option the live overlay is not composed over a program's surface (Toolkit 3.1 behaviour, W7). | Compose the enabled overlay while a program runs, as `engine.ts:3065-3068` does today. |
 | T17 | **Depends on the owner adopting the 3.1 model (section 11) and on landing 1.** A running program's frame is its surface then the window: no live board beneath, no thread animation, no live overlay. A program that only calls `wait()` shows the copy, not the board. | Recompose the live board or the live overlay around the surface. |
 | T18 | **Depends on landing 1 (#1186).** A program ends with its window open: the window's pixels stay on the display until something redraws, instead of vanishing on the next composed frame. | Hide the window and recompose on the frame the program ends. |
 | T19 | **Depends on landing 3 (#1184).** `rendernow(true)`, `rendernow(false)` and drawing into `cnvRenderNow` take effect at the next board redraw, not on the next composed frame. | Re-read the canvas every composed frame. |
@@ -214,6 +218,7 @@ The one thing this ADR does not decide. Section 3 describes Toolkit 3.1. This en
 
 **Option B — record a deliberate difference (the ADR 0009 route).** Keep composing the live board, the thread animations and the live overlay during a program. Then the starting copy exists only as script-visible pixels (`getpixel`, `canvasgetscreen`, `savescreen`), a program never gains the board through a redraw, and #1182 and #1183 are closed as documented differences. #1172 is still fixed by R5, because the copy replaces the layer whatever the model; #1171 and #1186 still need their own rulings, because they are about what the display keeps between draws, not about live composition.
 * *Costs:* every program that relies on P1, P2 or P5 displays differently from Toolkit 3.1, permanently; the E-57 wording must then say that the overlay composes every frame, and the copy's "snapshot" semantics become a statement about script-visible pixels only.
+* *Open consequence to settle after the decision:* where the copy lives under Option B. Replacing the script-screen layer with an **opaque** copy (R5) would hide the live board beneath it and so reproduce part of Option A; keeping B's live composition would need the copy somewhere else and a rule for which reads see it (a separate reserved surface, or a copy consulted only by screen reads at program start). This ADR does not design that, because the choice decides whether it is needed.
 
 The copy rules themselves (R0-R5, overlay-as-snapshot, cursor excluded, tint included, the `Load` sequence) are the same under both options. **The owner decides which.**
 
