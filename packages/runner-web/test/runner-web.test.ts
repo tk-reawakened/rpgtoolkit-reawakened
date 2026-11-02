@@ -140,5 +140,5 @@ test("liveTextureProvider does not lock in null before bytes arrive, and prefers
 test("interactive bindings route the browser Space event into the key queue", () => {
   const input = createInputSection({ bindings: INTERACTIVE_INPUT_BINDINGS });
   applyInputEvent(input, { kind: "key", name: " ", code: "Space", char: " ", down: true });
-  deepEqual(input.keys.map((key) => [key.name, key.code, key.action]), [["SPACE", "Space", "SPACE"]]);
+  deepEqual(input.keys.map((key) => [key.name, key.code, key.action]), [[" ", "Space", " "]]);
 });

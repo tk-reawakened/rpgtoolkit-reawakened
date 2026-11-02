@@ -197,7 +197,7 @@ test("interactive input bindings deliver host-shaped Space to a cursor-map runne
     "map = createCursorMap()\ncursorMapAdd(20, 20, map)\ncursorMapAdd(40, 40, map)\nselected = cursorMapRun(map)\nend()",
     {},
     [],
-    { bindings: { keys: { Enter: "ENTER", ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", KeyW: "up", KeyS: "down", KeyA: "left", KeyD: "right", Space: "SPACE" } } },
+    { bindings: { keys: { Enter: "ENTER", ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", KeyW: "up", KeyS: "down", KeyA: "left", KeyD: "right", Space: " " } } },
   );
   game.advance(1, [{ name: " ", code: "Space", char: " " }]);
   equal(game.state().vm.threads.some((thread) => thread.wait?.kind === "input.key"), false, "the configured host Space key resolves the cursor-map wait");

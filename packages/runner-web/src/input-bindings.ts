@@ -1,4 +1,4 @@
-/** Interactive player bindings; bind Space so the cursor-map runner receives the browser Space event. */
+/** Interactive player bindings; Space keeps its literal key name for wait/get and cursor maps. */
 export const INTERACTIVE_INPUT_BINDINGS = {
   keys: {
     Enter: "ENTER",
@@ -10,6 +10,6 @@ export const INTERACTIVE_INPUT_BINDINGS = {
     KeyS: "down",
     KeyA: "left",
     KeyD: "right",
-    Space: "SPACE",
+    Space: " ",
   },
 };
