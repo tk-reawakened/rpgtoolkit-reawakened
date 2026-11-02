@@ -99,9 +99,10 @@ Host accessor purity is guaranteed structurally rather than by trusting runners 
 **Two surfaces, not one.** A script that draws and names no canvas draws to the **script-screen layer**, a persistent
 surface with the reserved id `-1`. The id is fixed, never taken from the monotonic counter, so the first draw to the
 screen moves neither the counter nor any canvas handle, and a script cannot name the layer (handles are never
-negative). The layer is created on first use at the frame's size. While an outermost program runs it is composited
-between the board and the render-now overlay into surface 0, the **presented frame**; outside a program it is retained
-but not composed. Drawing to the layer never overwrites the board, and rebuilding the frame never discards what the script drew.
+negative). The layer is created on first use — the first outermost program start counts as use, because that start replaces the layer with the program's starting copy — at the frame's size. While an outermost program runs it is composited
+between the board and the render-now overlay into surface 0, the **presented frame** (the starting copy is opaque, so the
+board beneath it is not visible, and the live overlay is not drawn above it; [ADR 0018](../../adr/0018-core-composed-program-starting-frame.md) §3);
+outside a program it is retained but not composed. Drawing to the layer never overwrites the board, and rebuilding the frame never discards what the script drew. At every outermost program start the core **replaces** the layer with its starting copy of the last presented frame ([main-loop-and-startup.md#reawakened-starting-frame-capture](main-loop-and-startup.md#reawakened-starting-frame-capture)); the core composes and rasterises that copy itself, so no runner is ever asked for pixels and a runner has no capture obligation ([ADR 0018](../../adr/0018-core-composed-program-starting-frame.md)).
 Both surfaces are saved; neither is hashed.
 
 **When the core rebuilds the frame.** The core rebuilds surface 0 from game state alone, and only at three points: at
