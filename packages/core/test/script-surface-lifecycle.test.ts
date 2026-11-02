@@ -227,6 +227,26 @@ test("runWaitsPhase refuses to resolve an input key without a claim callback", (
   equal(state.input.keys.length, 1, "the unclaimed key stays available");
 });
 
+test("runWaitsPhase permits an idle cursor-map wait without a claim callback", () => {
+  const game = boot("map = createCursorMap()\ncursorMapAdd(20, 20, map)\nselected = cursorMapRun(map)\nend()");
+  const state = game.state();
+  const view = { tick: state.time.tick, events: state.events, input: state.input, ui: state.ui, claims: [] };
+
+  runWaitsPhase(state.vm, view);
+  const waitingThread = state.vm.threads.find((thread) => thread.wait?.kind === "input.key");
+  ok(waitingThread?.wait?.kind === "input.key", "an idle runner remains parked");
+  equal(waitingThread.wait.cursorSelection, 0, "an idle poll leaves selection at the first point");
+});
+
+test("runWaitsPhase accepts a custom claim-free cursor-map poll without a claim callback", () => {
+  const game = boot("map = createCursorMap()\ncursorMapAdd(20, 20, map)\nselected = cursorMapRun(map)\nend()");
+  const state = game.state();
+  const view = { tick: state.time.tick, events: state.events, input: state.input, ui: state.ui, claims: [] };
+
+  runWaitsPhase(state.vm, view, () => ({ value: 0, ok: true }));
+  equal(state.vm.threads.some((thread) => thread.wait?.kind === "input.key"), false, "the claim-free result resolves the wait");
+});
+
 test("runWaitsPhase requires a claim callback for cursor-map navigation (#1187, docs/spec/engine/rpgcode-functions.md#reawakened-cursor-map-runner)", () => {
   const game = boot("map = createCursorMap()\ncursorMapAdd(20, 20, map)\ncursorMapAdd(40, 40, map)\nselected = cursorMapRun(map)\nend()");
   const state = game.state();
