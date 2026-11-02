@@ -68,9 +68,13 @@ test("the cue player and the PCM sink agree with the spec's three runner rules",
   expect(report.analyserSeconds).toBeGreaterThan(0.35);
   expect(report.analyserSeconds).toBeLessThan(0.9);
 
+  // The shipped graph uses a buffer large enough to survive main-thread stalls (dropouts), not the tiny 1024-sample default.
+  expect(report.graphBufferSize).not.toBeNull();
+  expect(report.graphBufferSize).toBeGreaterThanOrEqual(4096);
+
   // The bundled bank loads and MIDI renders through it in the browser too: the file's SHA-256 keys the cache, and the
   // 120-tick fixture makes sound instead of silence.
-  expect(report.bankSha).toBe("5419f02b0a9e63534b35332842e29decbc53c5352236be85b92cc87d0267f62a");
+  expect(report.bankSha).toBe("a79fa6d4ae3b8ab8b3f3e3ddd4ab3d59a0ac24222caffcdd914435d76872ede2");
   expect(report.midiLengthTicks).toBe(120);
   expect(report.midiEnergy).toBeGreaterThan(0);
 });

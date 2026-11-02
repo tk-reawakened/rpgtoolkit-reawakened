@@ -30,8 +30,13 @@ function textCommands(
   font: FontRef,
   maxWidth?: number,
   underline = false,
+  cell = false,
 ): DrawCommand[] {
-  return emitText(text, x, y, color, font, { ...(maxWidth === undefined ? {} : { maxWidth }), underline });
+  return emitText(text, x, y, color, font, {
+    ...(maxWidth === undefined ? {} : { maxWidth }),
+    ...(cell ? { lineHeight: font.size } : {}),
+    underline,
+  });
 }
 
 function background(
@@ -176,7 +181,7 @@ export function composeUi(ui: UiSection, width: number, height: number, input?: 
   const commands: DrawCommand[] = [];
   if (Array.isArray(ui.draws)) {
     for (const draw of ui.draws) {
-      commands.push(...textCommands(draw.text, draw.x, draw.y, draw.rgb, draw.font, undefined, draw.underline));
+      commands.push(...textCommands(draw.text, draw.x, draw.y, draw.rgb, draw.font, undefined, draw.underline, draw.cell));
     }
   }
   drawMessage(commands, ui, width);
