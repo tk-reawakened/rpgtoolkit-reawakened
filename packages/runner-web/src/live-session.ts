@@ -24,11 +24,12 @@ import { inputPhaseRegistration, inputResetRegistration, movementPhaseRegistrati
 import { parseClosingPlan, type ClosingFiles } from "@tk-reawakened/runner-harness";
 import { createWebgl2Renderer, type RenderStats } from "@tk-reawakened/render-webgl2";
 import { BUNDLED_BANK, CuePlayer, describePatchGap } from "@tk-reawakened/synth";
-import { connectSinkToGraph, PcmSink, type ScheduledPlay } from "./audio-sink.ts";
+import { connectSinkToGraph, defaultWorkletUrl, PcmSink, type ScheduledPlay } from "./audio-sink.ts";
 import { fontProvider, liveTextureProvider } from "./index.ts";
 import type { DecodeAhead } from "./decode-types.ts";
 import type { PackageSource } from "./package-source.ts";
 import { createSessionAssets, packageOrigin, type AssetLoadState } from "./session-assets.ts";
+import { dispatchRequests } from "./dispatch-requests.ts";
 
 export type LiveBlobHost = {
   read(area: "saves" | "files", gameId: string, path: string): Promise<Uint8Array | null>;
@@ -133,7 +134,7 @@ export function observeViewport(
 }
 
 /** Persistent engine and host request pump shared by browser and desktop players. */
-export function createLiveSession(options: LiveSessionOptions): LiveSession {
+export async function createLiveSession(options: LiveSessionOptions): Promise<LiveSession> {
   const interactive = options.interactive === true;
   const plan = interactive ? null : parseClosingPlan(options.planText);
   const game = plan?.games.find((entry) => entry.name === (!interactive ? options.gameName : ""));
@@ -270,13 +271,13 @@ export function createLiveSession(options: LiveSessionOptions): LiveSession {
       } else if (event.kind === "bank.substitution") console.warn(describePatchGap(event)); // playback continues; not game state
     },
   });
+  const graph = await connectSinkToGraph(audioContext, sink, { workletUrl: defaultWorkletUrl() });
   player = new CuePlayer({
-    send: (message) => sink.handle(message),
+    send: (message) => graph.send(message),
     readAsset: (key) => assets.peek(key) ?? bundled.get(key) ?? null,
     bankLayers: { player: null, runner: null, bundled: bundled.has(assetKey(BUNDLED_BANK.id)) ? BUNDLED_BANK : null },
     onEnded: (cueId) => audioEvents.push({ tick: currentTick, event: { kind: "audio.ended", cueId } }),
   });
-  const graph = connectSinkToGraph(audioContext, sink);
   if (audioContext.state !== "running") player.lock();
   audioContext.addEventListener("statechange", () => {
     if (audioContext.state === "running") player.unlock(currentTick);
@@ -345,14 +346,10 @@ export function createLiveSession(options: LiveSessionOptions): LiveSession {
         player.reach(reachedTick);
         player.advance(cues);
       });
-      // Asset requests go out together (the engine is blocked on all of them); everything else is answered in order.
-      const started = report.requests.map((request) => (request.kind === "asset" ? hostReply(request, report.tickAfter) : undefined));
-      for (const answer of started) answer?.catch(() => undefined);
-      const replies: InputRecord[] = [];
-      for (const [position, request] of report.requests.entries()) {
-        const reply = await (started[position] ?? hostReply(request, report.tickAfter));
-        if (reply !== null) replies.push(reply);
-      }
+      // Prefetch hints go out before blocking asset requests so a hint for the same key starts its origin read first
+      // and the later blocking request joins it. Asset requests still go out together (the engine is blocked on all
+      // of them); replies are awaited in report order so input records stay in the order the engine expects.
+      const replies = await dispatchRequests(report.requests, report.tickAfter, hostReply);
       if (report.loading || replies.length > 0) { inputs = replies; continue; }
       if (ticks > 0 && report.ticksRun > 0) continue;
       return;
