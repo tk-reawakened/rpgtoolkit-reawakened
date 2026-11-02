@@ -19,7 +19,7 @@ context:
   - 'docs/guardrails.md'
 ---
 
-**Delivered:** PR #1041 merged as `62c2ba14`; the last review approved `c2d5a874` after independently rerunning the three F6 perturbations. OQ1 remains as recorded below: first streaming launch transfers the whole archive once for validation; this is an approved property, not a gap.
+**Delivered:** PR #1041 merged as `62c2ba14`. OQ1 remains as recorded below: first streaming launch transfers the whole archive once for validation; this is an approved property, not a gap. The cited PR does not record independent review approval or the three F6 perturbation reruns; their provenance is unverified here.
 
 **What changed since 454230a1:** The web and desktop pages now use a persistent `createLiveSession`, with fixed-tick accumulation, presentation and pointer/keyboard/focus input; the scripted page remains a measurement/tracer path, not the player. Package creation and interactive loading now agree on the content-derived `GameId`. The browser build already emits `apps/bundled.json`, although the web player still obtains its bytes through `/api/bundled`. The demo state baseline moved: use the board record in `golden/regression/closing.json`, not the old literal. The live pump still has no tiered source, discards prefetch and audio cues, and its current package and blob adapters are not this story's offline implementation.
 
