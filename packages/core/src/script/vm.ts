@@ -543,7 +543,7 @@ export function runWaitsPhase(
   refreshBlock(vm, view.tick);
 }
 
-/** Poll one thread's wait; on a result, make the thread ready and hand it the wake value. */
+/** Poll one thread's wait; claim input progress or hand a wake value to a resolved thread. */
 function resolveWait(vm: VmState, view: WaitView, poll: WaitPoll, thread: Thread, claim?: (seq: number | undefined, discardBefore?: number) => void, services?: ScriptServices, onResolved?: (wait: Wait) => void): void {
   const wait = thread.wait;
   if (wait === null) return;
@@ -555,6 +555,7 @@ function resolveWait(vm: VmState, view: WaitView, poll: WaitPoll, thread: Thread
   const result = poll(view, wait);
   if (result === null) return;
   if (result.claim !== undefined || result.discardBefore !== undefined) claim?.(result.claim, result.discardBefore);
+  if (result.keepWaiting === true) return;
   thread.status = "ready";
   thread.wait = null;
   const frame = thread.frames[thread.frames.length - 1];

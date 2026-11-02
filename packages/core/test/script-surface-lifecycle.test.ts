@@ -185,6 +185,27 @@ test("cursor-map navigation accepts browser-shaped arrow key names through the e
   equal(waitingThread.wait.cursorSelection, 1, "ArrowLeft wraps from the first point to the second");
 });
 
+test("cursor-map key press moves selection once across engine waits phases (#1187, docs/spec/engine/rpgcode-functions.md#reawakened-cursor-map-runner)", () => {
+  const game = boot("map = createCursorMap()\ncursorMapAdd(20, 20, map)\ncursorMapAdd(40, 40, map)\nselected = cursorMapRun(map)\nend()");
+  const right = { name: "ARROWRIGHT", code: "ArrowRight", char: null };
+
+  game.advance(1, [right]);
+  game.advance(3);
+  const first = game.state();
+  const firstWaiter = first.vm.threads.find((thread) => thread.wait?.kind === "input.key");
+  ok(firstWaiter?.wait?.kind === "input.key", "navigation leaves the runner blocked");
+  equal(firstWaiter.wait.cursorSelection, 1, "one queued press moves to the second point only once");
+  equal(first.input.keys.length, 0, "the navigation key is consumed");
+
+  game.advance(1, [right]);
+  game.advance(3);
+  const second = game.state();
+  const secondWaiter = second.vm.threads.find((thread) => thread.wait?.kind === "input.key");
+  ok(secondWaiter?.wait?.kind === "input.key", "a second navigation press also leaves the runner blocked");
+  equal(secondWaiter.wait.cursorSelection, 0, "a distinct press advances once and wraps to the first point");
+  equal(second.input.keys.length, 0, "the second navigation key is consumed");
+});
+
 test("cursor-map selection accepts the browser's literal Space key through the engine", () => {
   const game = boot("map = createCursorMap()\ncursorMapAdd(20, 20, map)\nselected = cursorMapRun(map)\nend()");
   game.advance(1, [{ name: " ", code: "Space", char: " " }]);
