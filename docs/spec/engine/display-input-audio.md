@@ -74,6 +74,22 @@ Input is read only while the player is idle; during blocking scripts keys go to 
 
 **Reawakened rule (entry 7.11 corrects a gap).** `Get()` and `ClearBuffer()` claim keys while a thread runs. A claimed key is removed from the queue at the start of the next tick's waits phase, before that phase rebuilds the claim list for waiting threads, so a key `Get()` returned is never returned again and `ClearBuffer()` empties what was buffered.
 
+<a id="reawakened-key-name"></a>
+**Reawakened rule (OWNER; the legacy key name is derived by `core`; ruled 2026-11-01).** In plain terms: every key press that reaches a script is named the way Toolkit 3.1 named it, whatever keyboard, layout or host it came from.
+
+The runner reports a key as `{ name?, code, char, vk, down, repeat? }` and **`core` derives the name**, ignoring a supplied `name` so a browser, a desktop shell and a mobile WebView cannot disagree:
+
+| The key | Name the queue holds |
+|---|---|
+| Enter, Escape, the four arrows | `ENTER`, `ESC`, `LEFT`, `RIGHT`, `UP`, `DOWN` |
+| Space | `" "` (one space; 3.0 said `SPACE`, 3.1 does not) |
+| any key that produces a character | that character, as typed (`char`) |
+| any key that produces no character | the character whose code is `vk`, which is 3.1's virtual-key fallback: F1 is `P` (112), PgUp is `!` (33), Delete is `.` (46) |
+
+`vk` is an integer or `null`: the host's virtual-key number, which a browser supplies from the key event and a native host from its own key code. The collisions are kept: `%`, `&`, `'` and `(` have codes 37–40, so **shifted 7, 8, ' and 9 return `LEFT`, `UP`, `RIGHT` and `DOWN`**, exactly as 3.1 did. A key-down appends one entry, **including a host auto-repeat**, so a held key keeps filling the queue; a key-up appends nothing. A key with no character and a `null` `vk` appends nothing and reports one `input.key-name` diagnostic, because 3.1 had no such key.
+
+3.1's rule that `Wait()` **clears the queue before blocking** is kept in effect by the park-sequence rule above: a wait parks at the current sequence number and only sees keys at or after it, so keys pressed earlier are discarded for that waiter without a queue write. `Get()` claims from the same sequence and therefore still sees them.
+
 <a id="e-111"></a>
 **E-111 Mouse.** Click (blocking or polling) and move coordinates for scripts, click-to-move, cursor maps and on-screen buttons.
 
