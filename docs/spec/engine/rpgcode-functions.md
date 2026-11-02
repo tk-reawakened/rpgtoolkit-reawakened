@@ -49,7 +49,7 @@ The Toolkit 3.1 engine registers 282 command names, grouped by area; 14 are alia
 | `getcolor` | `void getcolor(int &r, int &g, int &b)` | Get the current colour. |  |
 | `getfontsize` | `int getfontsize([int &ret])` | Get the current font size. |  |
 | `statictext` | `void statictext()` | obsolete. | obsolete: raises an error and the statement is skipped |
-| `msgbox` | `int msgbox(string text [,string title [, int style [, int textColor [, int backColor [, string bitmap]]]]])` | Display a message box containing one or two buttons, handled using a cursor map (keyboard input only). | The panel is sized from the wrapped text; buttons are 80×28 and read `OK` or `Yes`/`No`; returns 1 (OK), 6 (Yes) or 7 (No), as defined below. |
+| `msgbox` | `int msgbox(string text [,string title [, int style [, int textColor [, int backColor [, string bitmap]]]]])` | Display a message box with one or two buttons. Toolkit 3.1 used cursor maps for some choices; this does not establish that Reawakened msgbox uses cursor maps. | The panel is sized from the wrapped text; buttons are 80×28 and read `OK` or `Yes`/`No`; returns 1 (OK), 6 (Yes) or 7 (No), as defined below. |
 | `gettextwidth` | `int gettextwidth(string text)` | Get the width of a string of text in pixels, relative to the current font and size. |  |
 | `gettextheight` | `int gettextheight(string text)` | Get the height of a string of text in pixels, relative to the current font and size. |  |
 | `setmwintranslucency` | `void setmwintranslucency(int percent)` | Set the translucency of the message window. 0% is invisible; 100% is opaque. | The default is 50%. |
