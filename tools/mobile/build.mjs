@@ -29,6 +29,7 @@ mkdirSync(join(mobile, "dist"), { recursive: true });
 cpSync(join(mobile, "app", "player.html"), join(mobile, "dist", "index.html"));
 mkdirSync(join(mobile, "dist", "apps"), { recursive: true });
 cpSync(join(root, "apps", "player-mobile.js"), join(mobile, "dist", "apps", "player-mobile.js"));
+cpSync(join(root, "apps", "audio-worklet.js"), join(mobile, "dist", "apps", "audio-worklet.js"));
 
 // The bundled-asset list the page reads, plus the actual font/cursor files, so fetches work on a device without a dev server.
 const { readdirSync, writeFileSync } = await import("node:fs");
