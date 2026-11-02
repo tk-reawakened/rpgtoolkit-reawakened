@@ -79,6 +79,7 @@ operation, separate from host presentation reads. A runner cannot trigger that o
 The hash includes the application store: script variables and globals, script-owned canvases (`cnvX`), and game-loop
 globals needed to store coordinates. Drawing to `cnvX` changes the hash when it changes that store, just as changing a
 global variable does. Drawing to, reading or refreshing the derived presented screen surface is hash-neutral.
+Moving a player changes character state and therefore should change the hash; viewing the screen more often must not.
 See [the surface hash projection](../formats/save-game.md#state-hash-surface-projection).
 Jensen's principle is: “Drawing to the surfaces shouldn't cause a hash change. The only reason the hash should change
 is if the application store changed, e.g. rpgcode surface plus some of the game-loop globals needed to store
