@@ -99,16 +99,16 @@ Host accessor purity is guaranteed structurally rather than by trusting runners 
 **Two surfaces, not one.** A script that draws and names no canvas draws to the **script-screen layer**, a persistent
 surface with the reserved id `-1`. The id is fixed, never taken from the monotonic counter, so the first draw to the
 screen moves neither the counter nor any canvas handle, and a script cannot name the layer (handles are never
-negative). The layer is created on first use at the frame's size. While an outermost program runs it is composited
-between the board and the render-now overlay into surface 0, the **presented frame**; outside a program it is retained
-but not composed. Drawing to the layer never overwrites the board, and rebuilding the frame never discards what the script drew.
-A program's starting copy is composed and rasterised **by the core**, so no runner is ever asked for pixels and a runner
-has no capture obligation ([ADR 0018](../../adr/0018-core-composed-program-starting-frame.md); [main-loop-and-startup.md#reawakened-starting-frame-capture](main-loop-and-startup.md#reawakened-starting-frame-capture)).
-Where that copy is stored, and whether a running program's frame still composes the live board and the live overlay around
-it, is the open owner question in [ADR 0018](../../adr/0018-core-composed-program-starting-frame.md#11-open-owner-question-adopt-the-31-presentation-model-or-record-a-deliberate-difference) §11.
-Both surfaces are saved; neither is hashed.
+negative). In the current implementation the layer is composited between the live board and overlay while an
+outermost program runs; this is an implementation gap, not the target. The owner chose the Toolkit 3.1 model
+for now: a running program presents its own surface with the message window on top, without live board or overlay
+composition. Board redraws replace that surface. The starting frame is core-composed, with no host pixel request.
+See [ADR 0018](../../adr/0018-core-composed-program-starting-frame.md) and
+[main-loop-and-startup.md#reawakened-starting-frame-capture](main-loop-and-startup.md#reawakened-starting-frame-capture).
+Both existing surfaces are saved; neither is hashed. The storage and save/hash treatment of retained prior-frame
+history are unresolved and are not decided by these existing exclusions.
 
-**When the core rebuilds the frame.** The core rebuilds surface 0 from game state alone, and only at three points: at
+**Current implementation: when the core rebuilds the frame.** The core rebuilds surface 0 from game state alone, and only at three points: at
 the end of every `advance` call; immediately before a script reads the screen (`getpixel` on the screen,
 `canvasgetscreen`, `savescreen`, and a canvas draw whose source is the screen); and when a saved game is restored,
 before any script runs. A rebuild is skipped when the frame it would render is the one already rebuilt — the same
