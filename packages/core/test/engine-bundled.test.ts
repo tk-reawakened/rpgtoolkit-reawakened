@@ -98,7 +98,7 @@ test("a font name the game does not ship draws in the default bitmap font", () =
   const named = runProgram('font("Comic Sans MS")\ntext(1, 1, "hi")\nwait()\nend()\n', bundledFiles);
   const plain = runProgram('text(1, 1, "hi")\nwait()\nend()\n', bundledFiles);
   const blank = runProgram('wait()\nend()\n', bundledFiles);
-  equal(paintedPixels(screen(named.engine)), paintedPixels(screen(plain.engine)));
+  equal(screen(named.engine).join(","), screen(plain.engine).join(","), "the fallback renders the same glyph pixels as the plain bitmap font");
   equal(paintedPixels(screen(named.engine)) > 0, true);
   assertScreenTextDiffersFromBlank(named.engine, blank.engine);
   equal(named.engine.advance(0, []).diagnostics.length, 0);
