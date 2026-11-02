@@ -1083,24 +1083,41 @@ device reintroduces device timing.
 
 <a id="midi-bank-fallback"></a>
 <!-- OWNER: 6.3/F5 -->
-**Proposed ruling (pending owner review; F5; XG/GS missing-bank fallback).** In
-plain terms, if an old MIDI song asks for an instrument set the SoundFont does
-not have, it plays the plain General MIDI instrument instead of going quiet.
+**Ruling (owner decision 2026-11-01, issue #1074, for items 1, 2 and 4; items 3
+and 5 are still proposed; F5; XG/GS missing-bank fallback).** In plain terms, if
+an old MIDI song asks for an instrument the SoundFont does not have, it plays the
+nearest General MIDI instrument instead of going quiet, and the log says so once.
 Technically, every MIDI source applies this pure function of the bank's preset
 table and the file's events, with no stored state:
 
 1. A melodic Program Change selects preset `(bank, program)` where `bank` is
    the last bank-select MSB (CC0) on that channel (0 if none); the LSB (CC32) is
-   ignored. If that preset is missing the source uses `(0, program)`; if that is
-   also missing the channel is silent for that program.
+   ignored. If that preset is missing the source uses `(0, program)`, then
+   `(0, 0)`. The channel is silent only if none of the three exists. A channel
+   that plays a note before any Program Change asks for program 0.
 2. Percussion (MIDI channel 10) selects preset `(128, program)`, the SoundFont
-   percussion bank; if missing, `(128, 0)`; if missing, the channel is silent.
+   percussion bank; if missing, `(128, 0)`. It is silent only if neither exists,
+   and never falls back to a melodic preset.
 3. GM System On, GS Reset and XG System On reset channel state to defaults. Every
    other GS or XG system-exclusive message (effects, drum maps, tuning) is
    ignored; emulating them is not required and is not tested.
-4. Each first use of a fallback per `(file, bank, program)` raises one
-   diagnostic `synth.bank-fallback`; it is not an `error` event because the
-   voice keeps playing.
+4. Each missing instrument is logged once per SoundFont, identified by its
+   SHA-256, per player session (so two paths to the same `.sf2` log once, and a
+   different `.sf2` logs again), not once per file. The sink compares a MIDI
+   file's program changes with the bank's preset table when the voice loads and
+   emits one `bank.substitution` `SinkEvent`: the bank id and SHA-256, the
+   requested bank and program, the substitute or that the channel is silent,
+   and the first MIDI asset that asked. The host logs it with `console.warn`, giving
+   the raw 0-127 values labelled (for example `program 48 (0-based; GM program
+   49)`, because General MIDI counts from 1). It is not an `error` event: the
+   voice keeps playing, and nothing enters core state, saves, hashes or goldens.
+   A bank failure that belongs to no voice (an `error` event with no voice) is
+   logged through the same `console.warn` path.
+   SpessaSynth's own choice does not follow this order (it may take another
+   bank's program, the first preset it lists, or any drum preset, and it never
+   goes silent), so the wrapper rewrites each program change into an exact bank
+   and program resolved by items 1 and 2 before the synth sees it
+   (`packages/synth/src/patch.ts`); tests compare what plays with the ruling.
 5. `AudioInfo.bank` records `{ kind: "soundfont", dialect, bankSelect }` (a pure
    byte scan: `dialect` is `"xg"` when XG system-exclusive data is found, else
    `"gs"` when GS data is found, else `"gm"`; `bankSelect` is true when a
@@ -1494,6 +1511,24 @@ are selectable bundled banks, picked by their `media/soundfonts/` id in the
 same layers as any bank ([soundfont-layers](#soundfont-layers)). All three are
 registered as `CC0-1.0` under `ADR-0003` with an 8 MiB ceiling in
 `tools/licences/config.json`.
+
+**Verification (issue #1074).** The old bank on `main` and the banks here were
+rendered through the live player's own sink (`PcmSink`, 48 kHz, MIDI program 0,
+steady part of a held note). Before: a sustained E4 showed 49 sharp transients
+in 1.6 s, 43 of them exactly 1,548 frames apart (the loop rate of the shared
+64-960 loop), and sat +59 cents off pitch; across 30 notes (ten programs at
+keys 60, 64 and 72) the worst pitch error was 106 cents and the mean 68. After:
+the same E4 shows no transients and 0 cents error, and all 30 notes are within
+a cent of the written note. This is an offline render through the player's sink,
+not a screen recording of the desktop app. A full rebuild of the generator
+reproduces the committed banks and provenance record byte for byte
+(`tools/licences/test/tk16-build.test.mjs`).
+
+**Owner review (2026-11-01).** The owner listened to rendered demos of all three
+banks and to three original pieces and a set of the legacy demo game's MIDI
+files through each, revised the Whimsical and Arcade voices after listening,
+and chose Classic RPG as the bundled default (`TK-16.sf2`). That choice is the
+listening approval #1074 asks for; the bundled-default layer is therefore active.
 
 Every waveform is original deterministic synthesis; no recorded or commercial
 sample is included. The style targets (attack time, brightness, decay, grit)
