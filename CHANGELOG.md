@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- A package's RPGCode functions now join the ordinary lookup: a function its startup program (and that program's includes) defines is callable bare (`pkgfn()`) and package-qualified (`demo.pkgfn()`), per the approved rules in `docs/spec/engine/rpgcode-modules-and-objects.md#pkg-script-function-lookup-proposal` (issue #1051). Bare calls keep the existing priority — callable variable and `registerPlugin` layer, built-in, program or included function, then the package export (last enabled package first), then a plugin command — and a package qualifier reaches that package's own function before its own native layer. Each conflict warns once as `command.overridden` with both owners, the arity and the winner; a repeated package identity is `manifest.duplicate-package`. The export index is session data rebuilt by package start-up, so no save or state hash gains a field, and a save taken inside a package function resumes the same binding.
 - Specify and test no-active-audio save continuation equivalence without changing replay hashes or cue allocation; active-voice equivalence needs a separate specification and remains untested.
 - Android mobile proof retries WebView attachment without restarting the app when `pidof` times out or reports a transport error; failed runs record `result: "failed"` alongside their diagnostics.
 - Parallel local Playwright browser lanes can set `PLAYWRIGHT_PORT` to distinct TCP ports instead of colliding on the default 4173.
