@@ -122,3 +122,13 @@ export function createUiSection(): UiSection {
     backgroundRev: 0,
   };
 }
+
+/**
+ * Reset the message window for the start of a new outermost program.
+ * Has no effect until the UI section has been installed by the engine.
+ */
+export function resetUiForProgramStart(ui: UiSection): void {
+  if (ui.message === undefined) return;
+  ui.message = { ...ui.message, visible: false, text: "" };
+  ui.modal = null;
+}
