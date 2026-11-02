@@ -83,8 +83,8 @@ test("the bundled default bitmap font the host ships draws script text on the sc
 });
 
 test("a font name the game does not ship draws in the default bitmap font", () => {
-  const named = runProgram('font("Comic Sans MS")\ntext(1, 1, "hi")\nend()\n', bundledFiles);
-  const plain = runProgram('text(1, 1, "hi")\nend()\n', bundledFiles);
+  const named = runProgram('font("Comic Sans MS")\ntext(1, 1, "hi")\nwait()\nend()\n', bundledFiles);
+  const plain = runProgram('text(1, 1, "hi")\nwait()\nend()\n', bundledFiles);
   equal(paintedPixels(screen(named.engine)), paintedPixels(screen(plain.engine)));
   equal(paintedPixels(screen(named.engine)) > 0, true);
   equal(named.engine.advance(0, []).diagnostics.length, 0);
@@ -98,8 +98,8 @@ test("a family name resolves to the Liberation face the project ships, not an as
     ...bundledFiles,
     [liberation, new Uint8Array(readFileSync(join(repoRoot, "media", "fonts", "LiberationSans-Regular.ttf")))],
   ]);
-  const substituted = runProgram('font("Arial")\ntext(1, 1, "hi")\nend()\n', withFont, [liberation]);
-  const bitmap = runProgram('text(1, 1, "hi")\nend()\n', bundledFiles);
+  const substituted = runProgram('font("Arial")\ntext(1, 1, "hi")\nwait()\nend()\n', withFont, [liberation]);
+  const bitmap = runProgram('text(1, 1, "hi")\nwait()\nend()\n', bundledFiles);
   equal(substituted.engine.advance(0, []).diagnostics.length, 0);
   equal(bitmap.engine.advance(0, []).diagnostics.length, 0);
   equal(paintedPixels(screen(substituted.engine)) > 0, true, "the substituted face draws text");
@@ -114,10 +114,10 @@ test("a family name resolves to the Liberation face the project ships, not an as
     ...bundledFiles,
     [projectFace, new Uint8Array(readFileSync(join(repoRoot, "media", "fonts", "LiberationSans-Regular.ttf")))],
   ]);
-  const familyMatch = runProgram('font("Arial")\ntext(1, 1, "hi")\nend()\n', withProject, [projectFace]);
+  const familyMatch = runProgram('font("Arial")\ntext(1, 1, "hi")\nwait()\nend()\n', withProject, [projectFace]);
   equal(familyMatch.engine.advance(0, []).diagnostics.length, 0);
   // The shipped face must be drawn: the bitmap fallback would paint different bytes.
-  const unknownFamily = runProgram('font("Comic Sans MS")\ntext(1, 1, "hi")\nend()\n', withProject, [projectFace]);
+  const unknownFamily = runProgram('font("Comic Sans MS")\ntext(1, 1, "hi")\nwait()\nend()\n', withProject, [projectFace]);
   equal(
     screen(familyMatch.engine).join(",") === screen(unknownFamily.engine).join(","),
     false,

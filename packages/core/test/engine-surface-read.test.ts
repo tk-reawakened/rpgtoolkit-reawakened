@@ -522,3 +522,105 @@ test("the first draw to the screen takes no canvas handle and does not move the 
   equal(withScreenDraw.surfaces.nextId, without.surfaces.nextId, "the hashed id counter is unchanged");
   ok(withScreenDraw.surfaces.entries[String(SCRIPT_SCREEN)] !== undefined, "the layer exists in the run that drew");
 });
+
+/** Every way a host can look at the presented frame during a tick. */
+type Cadence = "none" | "presented" | "repeated" | "flush" | "stale";
+
+function readFor(cadence: Cadence, engine: Engine, state: GameState | null): void {
+  if (state === null) return;
+  const revision = state.surfaces.entries["0"]?.rev ?? 0;
+  const screen = 0 as SurfaceId;
+  switch (cadence) {
+    case "none":
+      return;
+    case "presented":
+      engine.surfacePixels(screen, revision);
+      return;
+    case "repeated":
+      engine.surfacePixels(screen, revision);
+      engine.surfacePixels(screen, revision);
+      engine.surfacePixels(screen, revision);
+      return;
+    case "flush": {
+      // A cache flush drops the runner's copy and refills it, then discards the refill.
+      const copy = engine.surfacePixels(screen, revision);
+      copy?.rgba.fill(0);
+      const refill = engine.surfacePixels(screen, revision);
+      ok(refill !== null, "a transient re-read returns the stored revision");
+      return;
+    }
+    case "stale":
+      equal(engine.surfacePixels(screen, revision - 1), null, "a stale revision reads as a miss");
+      equal(engine.surfacePixels(screen, revision + 1), null, "an unavailable revision reads as a miss");
+      equal(engine.surfacePixels(9999 as SurfaceId, 0), null, "an unknown id reads as a miss");
+      return;
+  }
+}
+
+type TickRecord = {
+  readonly hash: string;
+  readonly save: string;
+  readonly revision: number;
+  readonly diagnostics: readonly Diagnostic[];
+};
+
+/** Runs one identical game with a fixed batch of `advance` calls, varying only how often the host looks at the frame. */
+function runWithCadence(cadence: Cadence): TickRecord[] {
+  const item = scene({ enabled: true });
+  const start = item.engine.advance(0, []);
+  item.engine.advance(1, [{
+    tick: start.tickAfter,
+    event: { kind: "asset", reqId: boardRequest(start).reqId, bytes: new Uint8Array(movementBoardBytes) },
+  }]);
+  const first = item.state();
+  ok(first !== null);
+  const board = first.world.board;
+  ok(board !== null && board !== undefined);
+  first.sprites = hydrateSprites({
+    board,
+    players: [{ id: "hero", kind: "player", source: "hero.tem", x: 64, y: 64, layer: 1, controlled: true }],
+  });
+  enqueueDirectionMove(first.sprites, "hero", "E", 0);
+
+  const records: TickRecord[] = [];
+  for (let tick = 0; tick < 24; tick += 1) {
+    readFor(cadence, item.engine, item.state());
+    const report = item.engine.advance(1, []);
+    readFor(cadence, item.engine, item.state());
+    const state = item.state();
+    ok(state !== null);
+    records.push({
+      hash: report.stateHash,
+      save: snapshot(state),
+      revision: state.surfaces.entries["0"]!.rev,
+      diagnostics: report.diagnostics,
+    });
+  }
+  return records;
+}
+
+test("no reads, a presented frame, repeated reads, cache flushes and stale revisions all agree on hash, save, revision and diagnostics", () => {
+  const baseline = runWithCadence("none");
+  ok(baseline.length === 24, "the control run advanced every tick");
+  for (const cadence of ["presented", "repeated", "flush", "stale"] as const) {
+    const compared = runWithCadence(cadence);
+    equal(compared.length, baseline.length);
+    for (let tick = 0; tick < baseline.length; tick += 1) {
+      equal(compared[tick]!.hash, baseline[tick]!.hash, `${cadence} cadence leaves tick ${tick}'s state hash alone`);
+      equal(compared[tick]!.save, baseline[tick]!.save, `${cadence} cadence leaves tick ${tick}'s save bytes alone`);
+      equal(compared[tick]!.revision, baseline[tick]!.revision, `${cadence} cadence leaves tick ${tick}'s screen revision alone`);
+      deepEqual(compared[tick]!.diagnostics, baseline[tick]!.diagnostics, `${cadence} cadence leaves tick ${tick}'s diagnostics alone`);
+    }
+  }
+});
+
+test("a save taken before any presentation equals one taken after every tick was presented", () => {
+  const unpresented = runWithCadence("none");
+  const presented = runWithCadence("presented");
+  /**
+   * The control run never read the frame; the presented run read it before and after every `advance`. Both runs issue
+   * the same `advance` calls, so an identical save at the last tick proves presentation left no trace in saved state.
+   */
+  equal(presented.at(-1)!.save, unpresented.at(-1)!.save, "the save without any presentation equals the presented save");
+  deepEqual(presented.at(-1)!.diagnostics, unpresented.at(-1)!.diagnostics);
+});
