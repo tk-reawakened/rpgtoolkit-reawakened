@@ -121,6 +121,26 @@ test("outermost program end hides the message window and stops composing the scr
   equal(state.ui.draws.length, 1, "screen text draw is kept in state");
 });
 
+test("a cursor-map hand is drawn only while the blocking runner executes (#1178, docs/spec/engine/rpgcode-functions.md#reawakened-cursor-map-runner)", () => {
+  const game = boot(
+    "map = createCursorMap()\ncursorMapAdd(20, 20, map)\ncursorMapAdd(40, 40, map)\nselected = cursorMapRun(map)\nend()",
+  );
+  const activeList = game.engine.drawList();
+  ok(activeList.commands.some((command) => command.kind === "blit" && command.source.asset === assetKey("media/cursors/tkr-hand.png")));
+  const active = game.state();
+  ok(active.vm.threads.some((thread) => thread.wait?.kind === "input.key" && thread.wait.cursorMap === active.ui.activeCursorMap));
+
+  game.advance(1, ["ENTER"]);
+  const freeRoamList = game.engine.drawList();
+  const finished = sync(game);
+  equal(finished.vm.globals.selected, 0, "Enter chooses the first cursor-map point");
+  ok(finished.ui.activeCursorMap !== undefined, "the map can remain active after its runner returns");
+  ok(
+    !freeRoamList.commands.some((command) => command.kind === "blit" && command.source.asset === assetKey("media/cursors/tkr-hand.png")),
+    "the stale active map does not draw its hand outside the runner",
+  );
+});
+
 test("nested program end does not hide the message window while the outermost program runs", () => {
   const game = boot(
     'mwin("outer")\nexecuteprogram("nested.prg")\nwait()\nmwin("after")',

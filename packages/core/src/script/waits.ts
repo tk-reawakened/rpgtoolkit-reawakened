@@ -60,19 +60,6 @@ export function pollInputKey(view: WaitView, wait: Wait): WaitResult | null {
       wait.key = null;
       return null;
     }
-    const pointer = view.input?.pointer;
-    if (pointer !== undefined && pointer.buttons !== 0) {
-      let best = 0;
-      let distance = Number.POSITIVE_INFINITY;
-      for (let index = 0; index < map.points.length; index += 1) {
-        const point = map.points[index]!;
-        const dx = point.x - pointer.x;
-        const dy = point.y - pointer.y;
-        const candidate = dx * dx + dy * dy;
-        if (candidate < distance) { distance = candidate; best = index; }
-      }
-      return { value: best, ok: true };
-    }
     if (view.input !== undefined) {
       for (const key of view.input.keys) {
         if (key.seq < floor || claimed.has(key.seq)) continue;
