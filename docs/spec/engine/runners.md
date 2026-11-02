@@ -95,8 +95,8 @@ operation, separate from host presentation reads. A runner cannot trigger that o
 
 **Enforcement by type/API rather than convention (answering the open question on #1048):**
 Host accessor purity is guaranteed structurally rather than by trusting runners or developers to follow convention:
-1. **Type signature:** `surfacePixels(id: SurfaceId, rev: number): SurfacePixels | null` is typed as a read-only query taking primitive values and returning `{ width: number, height: number, revision: number, rgba: Uint8Array } | null`. It accepts no callbacks, configuration flags, or mutable contexts.
-2. **API separation:** The presentation query is separated entirely from the screen composition pipeline. `surfacePixels` performs only a dictionary lookup into `surfaces.entries[String(id)]` and checks `entry.rev === rev`. It never invokes `refreshFrame()`. A stale or unknown revision returns `null` immediately.
+1. **Type signature:** `surfacePixels(id: SurfaceId, rev: number): SurfacePixels | null` is typed as a read-only query taking primitive values and returning `{ readonly w: number, readonly h: number, readonly rgba: Bytes } | null`. It accepts no callbacks, configuration flags, or mutable contexts.
+2. **API separation:** The presentation query is separated entirely from the screen composition pipeline. `surfacePixels` resolves the stored entry for `id`, compares its `rev` and returns `null` on any mismatch; it never invokes the core's frame rebuild. Only a deterministic core operation — the end of `advance`, a script screen read, or a restore — rebuilds surface 0.
 3. **Detached buffer ownership:** The returned `rgba` byte buffer is a newly allocated copy (`new Uint8Array(entry.bitmap.data)`), so runners can retain, wrap, or mutate it without corrupting the engine's internal state.
 
 **Two surfaces, not one.** A script that draws and names no canvas draws to the **script-screen layer**, a persistent
