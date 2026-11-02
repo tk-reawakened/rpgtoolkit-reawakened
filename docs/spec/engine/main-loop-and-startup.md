@@ -196,6 +196,28 @@ Ambient light (board ambient colour plus script changes) is applied as a gamma r
 
 **Reawakened rule (entry 7.11 corrects a gap; the placement follows the E-57 line above).** *In plain terms:* once a script calls `rendernow(true)`, whatever it draws on the canvas `cnvRenderNow` shows on screen above the board, the sprites and the animations, and below the message window and screen text; clear pixels let the game show through. *Precisely:* the composed frame appends one 1:1 blit of the enabled canvas at (0, 0) after the board, effects and animations and before pinned animations ([`pinnedanimation`](rpgcode-functions.md#reawakened-pinnedanimation)), the debug overlays, the text layer, the message window and the cursor; a canvas that is switched off or no longer live adds nothing. *Lifecycle:* `cnvRenderNow` is one reserved canvas with its own on/off flag. `rendernow(true)` creates the canvas (cleared, screen-sized) the first time, or again if the script killed it, and turns drawing on; on an existing canvas it only turns drawing on and leaves its pixels. `rendernow(false)` only turns drawing off: the canvas, its handle and its pixels persist, and a later `rendernow(true)` shows it as it was. `cnvRenderNow` reads the canvas's handle once it exists (0 before) whether or not it is drawn, and `rendernowenabled()` ([rpgcode-functions.md](rpgcode-functions.md)) reads the flag. The saved surfaces section records the flag next to the handle; a save written before the flag existed means "on" when it names a handle. Handle 0 is the screen, never a canvas. The blit references the canvas's revision, so the draw-list hash changes with every edit of the canvas.
 
+<a id="reawakened-script-surface-lifecycle"></a>
+### RPGCode screen surface and message-window lifecycle
+
+**Reawakened rule (OWNER; #1045).** The RPGCode screen surface — the script text layer (`text`, `pixeltext`, `print`) and the message window (`mwin` / `mbox` / `show`) — has the following lifecycle. The source for the legacy behaviour is the TK engineer's source-read answers recorded in GitHub issue #1045; the engineer did not run the game to confirm them.
+
+| Transition | Message window | Script text surface | Certainty |
+|---|---|---|---|
+| Outermost program start | Hide and reset (clear stored text / line position) | Begin composing | Certain |
+| Outermost program end (via `end()` or falling off the last line) | Hide without resetting text / line | Stop composing | Certain |
+| Nested `executeProgram` start / end | No lifecycle action | Keep composing while the outermost program runs | Certain |
+| `send` to another board | No change | No change | Certain |
+| Edge link to a `.prg` (starts a new outermost program) | Reset at program start | No change from the transition itself | Certain |
+| Board load from any cause | No change unless the load starts a blocking `enterPrg` | No change | Certain |
+| Background `thread` start / end | No lifecycle action | No lifecycle action | Certain (threads are exempt from this cleanup) |
+| `rendernow(true)` / `rendernow(false)` | No change | The render-now canvas keeps composing independently | Certain |
+
+The message window is hidden at outermost program end but its stored text and line position are kept. The next outermost program start hides it again and resets the stored text / line. The script surface's draws are never cleared by the engine; they simply stop being included in composed frames while no outermost program is running, and resume on the next outermost start. Scripted `send` and ordinary board load leave both the message window and the surface draws untouched because the sending program is still running and the load does not itself start or end a program. An edge link that runs a `.prg` starts a new outermost program and therefore resets the message window; recovery resume starts board threads and any entry program following the same rules.
+
+At boot, the start-up program is the first outermost program. The screen before it starts is solid black on a fresh launch with only built-in plugins (certain); custom plugins in the main-file plugin list can draw during load, and an invalid plugin produces a blocking load-error dialog before startup (source-read, untested). Whether `reset()` recreates the screen or retains it remains unverified.
+
+The program's starting image copies what is on the display. The rebuild obtains that image as host-supplied presentation input and does not read the host display in core. In this change the starting image stays black in headless/golden runs; interactive runners receive the presented frame. The full host-supplied copy is deferred to #1067, so games that fully redraw each frame are unaffected, while games that rely on the leftover frame may differ until #1067 lands.
+
 ## Shutdown and reset
 
 - **Exit** (window closed, or script `windows()` / its alias `dos()`): plugins are shut down first, then threads, graphics, audio and fonts; the frame-rate estimate is saved and any PAK temporary folder is deleted.
