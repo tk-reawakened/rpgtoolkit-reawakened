@@ -13,7 +13,7 @@ Technically, the commitment is **WCAG 2.2 level AA** for **engine-owned chrome a
 | The cursor-map hand, the focus ring, engine cursor images | Custom cursor graphics, custom menu graphics (`MenuGraphic`) |
 | Engine effects: fades, wipes, shakes, flashes | A script's own effects on its own canvases |
 
-The engine gives authors the means to comply (remapping, a reduce-motion preference, a pause, target size, the accessibility tree) and cannot certify a game that uses them badly. A game MAY declare its intentions in an `a11yProfile`; the registry records the claim and the engine reports, but never rewrites, what a game does.
+The split is deliberate. For **its own chrome** the engine holds itself to AA and is tested against it. For **a game's own content** the engine does its best — it projects what a script draws into the tree without being asked ([A11Y-14](#a11y-14)), offers the author the tools below ([A11Y-12](#a11y-12)), and reports what it cannot describe — but it cannot make every author follow best practice, and it never rewrites a game's own decisions. A game MAY declare its intentions in an `a11yProfile`; the registry records the claim and the engine reports, but never enforces it. A published guide for authors is tracked in [#1111](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1111).
 
 <a id="a11y-2"></a>
 **A11Y-2 Keyboard operability (SC 2.1.1).** Every function performed by the engine's own chrome is operable by keyboard alone: opening and closing the menu, moving the cursor, choosing, cancelling, paging a list, scrolling a dialog, save and load, and remapping. No function of the chrome requires a pointer. A script's own screen is out of scope but is reached, left and paused by keyboard alone.
@@ -72,7 +72,10 @@ Rules: the tree is rebuilt each frame from the same state the draw list uses, so
 Runners bridge it: the browser and mobile hosts maintain a hidden ARIA mirror, the desktop host forwards to the platform accessibility API, and the headless harness dumps it as text. A node with an empty label, two focused leaves in one surface, or a `listitem` outside a `list` FAILS the harness suite; a stock surface without any tree node fails as well. The tree is opt-in per host request so that no existing draw-list golden moves.
 
 <a id="a11y-12"></a>
-**What the engine gives authors (support, not certification).** The engine exposes: the action table and remapping ([ACT-6](display-input-audio.md#act-6)), the reduce-motion preference, the large-cursor option, the accessibility tree for script-drawn surfaces (a script may post nodes for its own screen), a pause the author can offer, and the contrast checker as a callable so a script's own colours can be measured. An author who needs narration beyond label and value supplies it through the message window, which is announced.
+**What the engine gives authors (support, not certification).** The engine exposes: the action table and remapping ([ACT-6](display-input-audio.md#act-6)), the reduce-motion preference, the large-cursor option, the automatic projection of [A11Y-14](#a11y-14) for script-drawn surfaces, and these ordinary RPGCode commands, none of which is one of the 282 catalogue names:
+
+The commands are `a11yLabel`, `a11yRole`, `a11yAnnounce`, `a11yPref` and `contrastRatio`, specified with their signatures in the [Reawakened additions](rpgcode-functions.md#reawakened-additions) table. They change no drawing and never wait.
+An author who needs narration beyond label and value supplies it through the message window, which is announced. The guide that puts these together for authors is [#1111](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1111).
 
 <a id="a11y-13"></a>
 **A11Y-13 Many actions and dense surfaces (SC 1.4.1, 2.4.3, 2.4.6).** A spell-and-skill game can register hundreds of actions ([ACT-2](display-input-audio.md#act-2)) and draw them as a bar, a grid or a paged list ([ACT-8](display-input-audio.md#act-8)). Four rules keep that usable:
@@ -83,3 +86,19 @@ Runners bridge it: the browser and mobile hosts maintain a hidden ARIA mirror, t
 4. **Cooldowns are announced at the edges, not continuously.** A cooldown produces one polite announcement when it starts and one when the action becomes ready; it never updates per frame, so a screen reader is not flooded while a timer runs.
 
 A surface with more slots than fit on the frame scrolls or pages; it MUST NOT shrink its slots below the target-size rule ([A11Y-7](#a11y-7)) to fit them.
+
+<a id="a11y-14"></a>
+**A11Y-14 Script-drawn content is described by default (OWNER; ruled 2026-11-01).** In plain terms: a game made with ordinary RPGCode commands is already described to a screen reader, because the engine describes what the script drew — the message window reads its own text out, and `text()` lines become readable text without the author doing anything.
+
+`core` projects the primitives a script already calls into the accessibility tree of [A11Y-11](#a11y-11), from the same call that produces the drawing, in the same frame:
+
+| The script calls | The tree gets |
+|---|---|
+| `mwin(str)`, `msgbox(...)`, `prompt(question)` | a `message` node (a `dialog` for `msgbox`/`prompt`) whose label is the visible text **after `<var>` splicing**, plus one announcement — `polite` for `mwin`, `assertive` for an error |
+| `text(x, y, str)` | a `text` node with `str` and the cell rectangle it occupies; consecutive `text` calls on the same row coalesce into one node |
+| `cursorMapRun(map, ...)` | a `list` node with one `listitem` per point, `focused` on the selected index, `value: "<index+1> of <count>"`, and a polite announcement when the selection changes |
+| `setButton(file, slot, x, y, w, h)` | a `button` node whose label is the script's `a11yLabel` for that slot, or the slot's registered name; an unlabelled slot is reported, not guessed |
+| `createCanvas` + `renderNow` | one `surface` node over the canvas, labelled by the script's `a11yLabel`, or reported as unlabelled |
+| any image draw | an `image` node labelled by `a11yLabel`, or reported as unlabelled |
+
+Rules: **projection is on by default and costs a script nothing** — a script using only `mwin`, `text`, `prompt` and cursor maps needs no accessibility code at all. A script MAY override the label or role, hide a decorative node, or add nodes for a screen it drew pixel by pixel ([A11Y-12](#a11y-12)). A node that the engine cannot label is reported in the harness as `a11y.unlabelled` and **never** fails gameplay: an author who ignores the guidance still ships, they just ship an undescribed screen. Projection adds no drawing commands, changes no pixels, hashes or goldens, and is produced only when the host asks for a tree.
