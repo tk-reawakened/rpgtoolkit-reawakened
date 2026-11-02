@@ -141,7 +141,7 @@ press edge; `pointer` in logical integer pixels; `gamepad` with a **physical** s
 
 **A runner maps, it does not name.** `core` turns each key into its binding control (`key:<code>`,
 [ACT-3](display-input-audio.md#act-3)) and into its legacy queue name, so a script sees `LEFT` and `" "` on every host
-([E-110](display-input-audio.md#reawakened-key-name)). A runner supplies the identifiers its host actually reports; it
+([E-110: key names](display-input-audio.md#reawakened-key-name)). A runner supplies the identifiers its host actually reports; it
 never decides what a key is called and never decides what it does.
 
 Focus is the core's, not the runner's: after `focus.lost` the core consumes no ticks until `focus.gained` (E-03). A

@@ -57,7 +57,7 @@ The engine computes the ratio with the deterministic maths of [ADR 0002](../../a
 A11yNode = {
   id:      string,                    // stable for the surface's life, not per frame
   role:    "surface" | "menu" | "menuitem" | "dialog" | "message" | "button"
-         | "list" | "listitem" | "text" | "label" | "status",
+         | "list" | "listitem" | "text" | "label" | "status" | "image",
   label:   string,                    // MUST be non-empty; the visible text, not a key name
   value:   string | null,             // e.g. "3 of 12", the gold amount; null means none
   state:   { disabled: boolean, selected: boolean, checked: boolean | null },
@@ -131,7 +131,7 @@ The commands are `uiBegin`, `uiItem`, `uiEnd`, `uiSelection`, `uiFocus`, `uiActi
 <a id="a11y-16"></a>
 **A11Y-16 Ported games: what a 3.1 game gets without being touched (OWNER; ruled 2026-11-01).** In plain terms: a game written for Toolkit 3.1 runs with no edit, and the engine still gives it real accessibility. Where it cannot, it says so — so somebody porting a game knows exactly what needs changing instead of guessing.
 
-Notice first what needs **no** change: the game file may carry no input block ([ACT-6](display-input-audio.md#act-6) rule 1), the scripts may call `wait()`, `get()` and `clearBuffer()` exactly as before ([E-110](display-input-audio.md#reawakened-key-name)), a controller works by default ([ACT-5](display-input-audio.md#act-5)), and a player's remap **adds** a control without taking away a key a script reads ([ACT-6](display-input-audio.md#act-6) rule 3). Those four rules are the backwards-compatibility guarantee.
+Notice first what needs **no** change: the game file may carry no input block ([ACT-6](display-input-audio.md#act-6) rule 1), the scripts may call `wait()`, `get()` and `clearBuffer()` exactly as before ([E-110](display-input-audio.md#e-110)), a controller works by default ([ACT-5](display-input-audio.md#act-5)), and a player's remap **adds** a control without taking away a key a script reads ([ACT-6](display-input-audio.md#act-6) rule 3). Those four rules are the backwards-compatibility guarantee.
 
 What the game's own screens get is tiered, and the tier is reported rather than assumed:
 

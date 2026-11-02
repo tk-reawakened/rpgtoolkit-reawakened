@@ -77,7 +77,7 @@ Input is read only while the player is idle; during blocking scripts keys go to 
 <a id="reawakened-key-name"></a>
 **Reawakened rule (OWNER; the legacy key name is derived by `core`; ruled 2026-11-01).** In plain terms: every key press that reaches a script is named the way Toolkit 3.1 named it, whatever keyboard, layout or host it came from.
 
-The runner reports a key as `{ name?, code, char, vk, down, repeat? }` and **`core` derives the name**, ignoring a supplied `name` so a browser, a desktop shell and a mobile WebView cannot disagree:
+The runner reports a key as `{ code, char, vk, down, repeat? }` and never names it. **`core` derives the name**; a `name` field that a host or runner nonetheless supplies is ignored, never read, so a browser, a desktop shell and a mobile WebView cannot disagree:
 
 | The key | Name the queue holds |
 |---|---|
@@ -192,7 +192,7 @@ A `ControlId` is one of three canonical ASCII strings:
 | `pointer { x, y, buttons }` | none — the pointer drives the surface cursor and its own actions |
 | `gamepad { device, connected, axes, buttons }` | `pad:<n>` for each changed bit, `pad:axis…` for each axis that crosses the dead-zone |
 
-Rules: the **same** `key` event appends its legacy queue entry and updates its action's held set, in that order, so a script and a surface see one event and not two — **one key press appends exactly one queue entry, the derived key name of [E-110](#reawakened-key-name)**, never also the action's compatibility name; a host auto-repeat (`repeat: true`) never produces a new action press edge and never appends a second queue entry; a press edge that comes from a gamepad (or from a pointer on a button slot) appends the action's compatibility entry as [E-112](#reawakened-gamepad-contract) rule 4 describes, so `wait()` can still be satisfied by a controller; a control bound to two actions holds both, and the order they resolve in is the action table's order, which is the engine set first (in the order `up`, `down`, `left`, `right`, `confirm`, `cancel`, `menu`) and then registered names in registration order.
+Rules: the **same** `key` event appends its legacy queue entry and updates its action's held set, in that order, so a script and a surface see one event and not two — **one key press appends exactly one queue entry, the derived key name of [E-110: key names](#reawakened-key-name)**, never also the action's compatibility name; a host auto-repeat (`repeat: true`) never produces a new action press edge and never appends a second queue entry; a press edge that comes from a gamepad (or from a pointer on a button slot) appends the action's compatibility entry as [E-112](#reawakened-gamepad-contract) rule 4 describes, so `wait()` can still be satisfied by a controller; a control bound to two actions holds both, and the order they resolve in is the action table's order, which is the engine set first (in the order `up`, `down`, `left`, `right`, `confirm`, `cancel`, `menu`) and then registered names in registration order.
 
 <a id="act-5"></a>
 **ACT-5 Controllers are on by default (OWNER; ruled 2026-11-01).** A standard-layout controller works in a new game with no configuration: the game file's controller flag defaults to **enabled** when the game file does not say otherwise, and the default bindings are:
