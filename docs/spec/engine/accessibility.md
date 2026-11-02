@@ -102,3 +102,28 @@ A surface with more slots than fit on the frame scrolls or pages; it MUST NOT sh
 | any image draw | an `image` node labelled by `a11yLabel`, or reported as unlabelled |
 
 Rules: **projection is on by default and costs a script nothing** — a script using only `mwin`, `text`, `prompt` and cursor maps needs no accessibility code at all. A script MAY override the label or role, hide a decorative node, or add nodes for a screen it drew pixel by pixel ([A11Y-12](#a11y-12)). A node that the engine cannot label is reported in the harness as `a11y.unlabelled` and **never** fails gameplay: an author who ignores the guidance still ships, they just ship an undescribed screen. Projection adds no drawing commands, changes no pixels, hashes or goldens, and is produced only when the host asks for a tree.
+
+<a id="a11y-15"></a>
+**A11Y-15 The custom-UI insertion point (OWNER; ruled 2026-11-01).** In plain terms: a game that builds its own screen — a title menu, a spellbook, a character sheet — hands the engine a list of what is on it, and gets the same keyboard, controller and mouse navigation, the same focus ring and the same screen-reader description the stock menu gets. The author writes the screen; the engine provides the behaviour.
+
+A script declares a surface for the frame and fills it:
+
+```
+uiBegin("title", "menu", 40, 60, 560, 320)   // id, role, bounds in logical pixels
+  uiItem("New Game", { id: "new" })
+  uiItem("Continue", { id: "load", enabled: 0 })
+  uiItem("Options",  { id: "opts" })
+uiEnd()                                       // publishes the tree, drives the cursor
+```
+
+Rules:
+
+1. **One model, no second-class path.** A declared surface gets exactly what `stock_menu` gets: the engine cursor ([A11Y-5](#a11y-5)) driven by `up`/`down`/`left`/`right`, activation by `confirm`, `cancel` to leave, pointer hover to move the cursor and pointer **release** to activate ([A11Y-6](#a11y-6)), one accessibility-tree subtree ([A11Y-11](#a11y-11)), and the target-size and contrast rules. The author never re-implements navigation, hit-testing or announcement.
+2. **The engine owns the cursor, the script may move it.** `uiSelection()` reads the focused item index; `uiFocus(i)` sets it. The pointer and the actions write the same value, so a mouse hover and an arrow key cannot disagree.
+3. **Activation is claimed, not polled per frame.** `uiActivated()` and `uiCancelled()` return 1 on the one frame the event happened and claim it through the shared input-sequence protocol, so a script loop cannot act twice on one press and cannot miss a press between frames.
+4. **Nodes come from items.** Each `uiItem` becomes one tree node: `label` is required, `id` is stable while the surface is open, `value`, `enabled` and `bounds` are optional and default to sane values (bounds laid out by the engine, enabled). The list order is the tree order and the navigation order — one order, not two.
+5. **Projection yields inside a declared surface.** Primitives drawn inside an open surface's bounds are **not** projected into the tree; the declared items are the description. An author who deliberately draws extra readable text inside the surface adds an item with role `"text"`. This is what stops a stock-shaped screen being described twice.
+6. **A malformed surface never breaks the game.** A duplicate `id` in one surface, no item at all, a negative size, more than 256 items, or an item whose label is empty is a located `a11y.surface` refusal: the surface is dropped for that frame, the script keeps running, and the harness reports it. Nothing about declaring a surface may raise into gameplay.
+7. **An undeclared frame is not an error.** A script that draws with primitives and never declares a surface is described by [A11Y-14](#a11y-14). Declaring a surface is the upgrade path for a screen whose structure the primitives cannot express; it is never a requirement.
+
+The commands are `uiBegin`, `uiItem`, `uiEnd`, `uiSelection`, `uiFocus`, `uiActivated` and `uiCancelled`, specified with their signatures in the [Reawakened additions](rpgcode-functions.md#reawakened-additions) table. They draw nothing themselves: the script keeps its own art and the engine adds the focus ring and the tree.
