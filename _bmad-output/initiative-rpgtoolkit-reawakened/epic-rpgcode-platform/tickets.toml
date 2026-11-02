@@ -361,5 +361,5 @@ after = [17, 20]
 hitl = true
 risk = "high"
 refine = true
-unknown = "Applicable package-loader policy remains pending owner review."
-references = ["issue - #1051", "spec - docs/spec/engine/rpgcode-modules-and-objects.md#pkg-1", "evidence - _bmad-output/initiative-rpgtoolkit-reawakened/deferred-work.md"]
+unknown = "Owner ruled both bare and qualified access (2026-11-02); collision rules are proposed pending owner approval, and applicable package-loader policy remains independently pending."
+references = ["issue - #1051", "spec - docs/spec/engine/rpgcode-modules-and-objects.md#pkg-script-function-lookup-proposal", "evidence - _bmad-output/initiative-rpgtoolkit-reawakened/deferred-work.md"]
