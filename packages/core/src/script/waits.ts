@@ -33,9 +33,9 @@ type InputKeyWait = Extract<Wait, { readonly kind: "input.key" }>;
 function pollCursorMapKey(wait: InputKeyWait, key: string, count: number, claim?: number): WaitResult | null {
   const normalized = key.toLowerCase();
   let selected = Math.max(0, Math.min(count - 1, Math.trunc(wait.cursorSelection ?? 0)));
-  if (normalized === "left" || normalized === "up") selected = (selected + count - 1) % count;
-  else if (normalized === "right" || normalized === "down") selected = (selected + 1) % count;
-  else if (normalized === "enter" || normalized === "return" || normalized === "space") {
+  if (normalized === "left" || normalized === "up" || normalized === "arrowleft" || normalized === "arrowup") selected = (selected + count - 1) % count;
+  else if (normalized === "right" || normalized === "down" || normalized === "arrowright" || normalized === "arrowdown") selected = (selected + 1) % count;
+  else if (normalized === "enter" || normalized === "return" || normalized === "space" || normalized === " ") {
     return claim === undefined ? { value: selected, ok: true } : { value: selected, ok: true, claim };
   } else return null;
   wait.cursorSelection = selected;
