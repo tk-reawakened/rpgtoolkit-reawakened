@@ -24,6 +24,17 @@ await build({
   logLevel: "warning",
 });
 
+// The AudioWorklet module the mobile player loads from `apps/audio-worklet.js`.
+await build({
+  entryPoints: [join(root, "packages/runner-web/src/audio-worklet.ts")],
+  outfile: join(root, "apps", "audio-worklet.js"),
+  bundle: true,
+  format: "iife",
+  platform: "browser",
+  target: "chrome120",
+  logLevel: "warning",
+});
+
 // The webDir Capacitor syncs into the native projects: the page, its bundle, the bundled-asset list and the assets themselves.
 mkdirSync(join(mobile, "dist"), { recursive: true });
 cpSync(join(mobile, "app", "player.html"), join(mobile, "dist", "index.html"));
