@@ -22,6 +22,7 @@ import hashlib
 import json
 import math
 import struct
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -955,12 +956,18 @@ def build(profile_name: str = "classic") -> tuple[bytes, dict]:
     return data, record
 
 
-def main() -> None:
-    SOUNDFONTS.mkdir(parents=True, exist_ok=True)
+def main(argv: list[str]) -> None:
+    """Write the banks and the provenance record; `--out DIR` writes both there instead (used to check a rebuild)."""
+    out_dir = SOUNDFONTS
+    provenance_path = PROVENANCE
+    if len(argv) == 3 and argv[1] == "--out":
+        out_dir = Path(argv[2])
+        provenance_path = out_dir / "tk16-provenance.json"
+    out_dir.mkdir(parents=True, exist_ok=True)
     banks = []
     for name, profile in PROFILES.items():
         data, record = build(name)
-        path = SOUNDFONTS / profile["file"]
+        path = out_dir / profile["file"]
         path.write_bytes(data)
         record["bytes"] = len(data)
         record["sha256"] = hashlib.sha256(data).hexdigest()
@@ -973,8 +980,8 @@ def main() -> None:
         "generator": "tools/licences/tk16_build.py",
         "banks": banks,
     }
-    PROVENANCE.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+    provenance_path.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv)
