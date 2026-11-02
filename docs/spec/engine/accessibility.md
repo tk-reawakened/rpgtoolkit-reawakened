@@ -57,7 +57,7 @@ The engine computes the ratio with the deterministic maths of [ADR 0002](../../a
 A11yNode = {
   id:      string,                    // stable for the surface's life, not per frame
   role:    "surface" | "menu" | "menuitem" | "dialog" | "message" | "button"
-         | "list" | "listitem" | "text" | "label" | "status" | "image",
+         | "list" | "listitem" | "text" | "label" | "status" | "image" | "heading",
   label:   string,                    // MUST be non-empty; the visible text, not a key name
   value:   string | null,             // e.g. "3 of 12", the gold amount; null means none
   state:   { disabled: boolean, selected: boolean, checked: boolean | null },
@@ -80,7 +80,7 @@ An author who needs narration beyond label and value supplies it through the mes
 <a id="a11y-13"></a>
 **A11Y-13 Many actions and dense surfaces (SC 1.4.1, 2.4.3, 2.4.6).** A spell-and-skill game can register hundreds of actions ([ACT-2](display-input-audio.md#act-2)) and draw them as a bar, a grid or a paged list ([ACT-8](display-input-audio.md#act-8)). Four rules keep that usable:
 
-1. **Grouping is a heading, not a colour.** The options screen and any grouped surface present a `group` as a labelled heading in the accessibility tree, and the reading order equals the visual order.
+1. **Grouping is a heading, not a colour.** The options screen and any grouped surface present a `group` as a `heading` node, whose `label` is the group name and which precedes the group's items, in the accessibility tree (an unlabelled heading is reported as `a11y.unlabelled`), and the reading order equals the visual order.
 2. **Paging never loses the player.** A paged options list keeps the cursor on a real row after a page turn, announces the new page (`value: "2 of 5"` on the list node), and `cancel` leaves in one step. The stock item list's `left`/`right` paging rule is the only paging gesture.
 3. **State is never colour alone.** Enabled, disabled, on cooldown, selected and "unusable here" are each conveyed by a distinct icon, glyph or text as well as a tint, and the accessibility tree carries the same state (`state.disabled`, `value` for a cooldown). A player who cannot distinguish the tints loses no information.
 4. **Cooldowns are announced at the edges, not continuously.** A cooldown produces one polite announcement when it starts and one when the action becomes ready; it never updates per frame, so a screen reader is not flooded while a timer runs.
@@ -120,13 +120,15 @@ Rules:
 
 1. **One model, no second-class path.** A declared surface gets exactly what `stock_menu` gets: the engine cursor ([A11Y-5](#a11y-5)) driven by `up`/`down`/`left`/`right`, activation by `confirm`, `cancel` to leave, pointer hover to move the cursor and pointer **release** to activate ([A11Y-6](#a11y-6)), one accessibility-tree subtree ([A11Y-11](#a11y-11)), and the target-size and contrast rules. The author never re-implements navigation, hit-testing or announcement.
 2. **The engine owns the cursor, the script may move it.** `uiSelection()` reads the focused item index; `uiFocus(i)` sets it. The pointer and the actions write the same value, so a mouse hover and an arrow key cannot disagree.
-3. **Activation is claimed, not polled per frame.** `uiActivated()` and `uiCancelled()` return 1 on the one frame the event happened and claim it through the shared input-sequence protocol, so a script loop cannot act twice on one press and cannot miss a press between frames.
+3. **Activation is claimed, not polled per frame.** `uiActivated()` returns the 0-based index of the item that was confirmed, on the one frame it happened, and `-1` on every other frame (so item 0 is distinguishable from "not activated"; a script tests `uiActivated() >= 0`); `uiCancelled()` returns 1 on the one frame the event happened and 0 otherwise. Both claim the event through the shared input-sequence protocol, so a script loop cannot act twice on one press and cannot miss a press between frames.
 4. **Nodes come from items.** Each `uiItem` becomes one tree node: `label` is required, `id` is stable while the surface is open, `value`, `enabled` and `bounds` are optional and default to sane values (bounds laid out by the engine, enabled). The list order is the tree order and the navigation order — one order, not two.
 5. **Projection yields inside a declared surface.** Primitives drawn inside an open surface's bounds are **not** projected into the tree; the declared items are the description. An author who deliberately draws extra readable text inside the surface adds an item with role `"text"`. This is what stops a stock-shaped screen being described twice.
 6. **A malformed surface never breaks the game.** A duplicate `id` in one surface, no item at all, a negative size, more than 256 items, or an item whose label is empty is a located `a11y.surface` refusal: the surface is dropped for that frame, the script keeps running, and the harness reports it. Nothing about declaring a surface may raise into gameplay.
 7. **An undeclared frame is not an error.** A script that draws with primitives and never declares a surface is described by [A11Y-14](#a11y-14). Declaring a surface is the upgrade path for a screen whose structure the primitives cannot express; it is never a requirement.
 
 The commands are `uiBegin`, `uiItem`, `uiEnd`, `uiSelection`, `uiFocus`, `uiActivated` and `uiCancelled`, specified with their signatures in the [Reawakened additions](rpgcode-functions.md#reawakened-additions) table. They draw nothing themselves: the script keeps its own art and the engine adds the focus ring and the tree.
+
+Example: with items `"Fire"` (index 0) and `"Ice"` (index 1), confirming the first item makes `uiActivated()` return `0` on that frame and `-1` on every other, so `if (uiActivated() >= 0)` fires for `"Fire"` and never fires on an idle frame.
 
 <a id="a11y-16"></a>
 **A11Y-16 Ported games: what a 3.1 game gets without being touched (OWNER; ruled 2026-11-01).** In plain terms: a game written for Toolkit 3.1 runs with no edit, and the engine still gives it real accessibility. Where it cannot, it says so — so somebody porting a game knows exactly what needs changing instead of guessing.
