@@ -69,9 +69,19 @@ code and is released under its MIT licence (the repository's `LICENSE`). The pro
 bundled-asset record is `THIRD_PARTY_NOTICES` at the repository root and
 `tools/licences/config.json`, which also carry each file's hash.
 
-### Music you make with them
+Music made with these banks is yours. You never need to credit the banks, though a mention is
+always welcome.
 
-Songs, rendered audio and game soundtracks made with these banks belong to whoever composed them.
-You can use rendered audio in commercial and non-commercial games with no credit, no notice and no
-licence text in your game. The only thing the licence ever asks of you is nothing: the banks are in
-the public domain.
+## Credits
+
+Made by the RPG Toolkit Reawakened project, led by Jensen Chappell, by combining two AI
+assistants with listening:
+
+- **Gemini** did the research side: the history and character of 16-bit console and arcade sound,
+  and the recipes and vocabulary for each style.
+- **Claude** did the mathematical and scientific side: the synthesis maths, the generator code, the
+  tuning and loop rules, the measurements, and the tests.
+- **The owner chose by ear.** Each style went through rounds of rendering, listening and
+  rebuilding.
+
+Neither assistant supplied any audio. Every sample is computed by the generator.
