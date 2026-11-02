@@ -2,6 +2,7 @@
 
 ## Unreleased
 - The desktop player fits the entire logical frame inside its actual resizable content area, centred on black: it uses the largest fitting integer scale, or a fractional downscale when 1× cannot fit. Pointer coordinates follow the same canvas transform; presentation does not change simulation state. The desktop CI lane exercises actual Electron layout, scaling and input across resized content areas.
+- `pnpm runner-protocol:check` now fails when the runner protocol schema, vector kit or TypeScript wire types change alone. It validates the schema, every vector, kind coverage and a recursive TypeScript-to-schema conformance comparison (docs/spec/engine/runners.md#drift-check; issue #1066).
 - Specify and test no-active-audio save continuation equivalence without changing replay hashes or cue allocation; active-voice equivalence needs a separate specification and remains untested.
 - Android mobile proof retries WebView attachment without restarting the app when `pidof` times out or reports a transport error; failed runs record `result: "failed"` alongside their diagnostics.
 - Parallel local Playwright browser lanes can set `PLAYWRIGHT_PORT` to distinct TCP ports instead of colliding on the default 4173.
