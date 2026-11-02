@@ -121,7 +121,7 @@ const TICKET_4_29_DOCS: Readonly<Record<string, BuiltinDoc>> = {
     see: ["docs/spec/engine/rpgcode-functions.md#reawakened-zoom"],
   },
   cursormaphand: {
-    summary: "Change the cursor used everywhere cursors are used (e.g. cursor maps, the menu, the battle system), optionally not stretching it to 32 by 32 pixels.",
+    summary: "Choose the image used for the cursor-map hand.",
     behaviour: "Changes the pointing hand used by cursor maps. Technically, the bundled hand is 32 by 32 pixels with no hot spot and is drawn at an offset of (-40, -10) from the cursor-map point; the stretch option scales a supplied image to 32 by 32; the call does not wait.",
     groups: ["mouse-buttons-cursor-maps-11"],
     waits: { kind: "never", summary: "Does not wait." },
