@@ -164,6 +164,30 @@ async function main() {
     if (opened === null) throw new Error("the live page published no status");
     if (opened.error !== undefined) throw new Error(String(opened.error));
 
+    // Exercise the live desktop page at two constrained content sizes, not the separate measurement page.
+    const fits = [];
+    for (const [width, height] of [[480, 360], [960, 720]]) {
+      await page.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+      const geometry = await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+        const canvas = document.querySelector("#screen");
+        const box = canvas.getBoundingClientRect();
+        const area = document.querySelector("#viewport").getBoundingClientRect();
+        resolve({ frame: { width: canvas.width, height: canvas.height },
+          box: { x: box.x, y: box.y, width: box.width, height: box.height },
+          area: { x: area.x, y: area.y, width: area.width, height: area.height } });
+      })))`);
+      const { frame, box, area } = geometry;
+      const ratio = Math.min(area.width / frame.width, area.height / frame.height);
+      const scale = ratio >= 1 ? Math.floor(ratio) : ratio;
+      if (Math.abs(box.width - frame.width * scale) > 0.05 || Math.abs(box.height - frame.height * scale) > 0.05
+        || Math.abs(box.x - (area.x + (area.width - box.width) / 2)) > 0.05
+        || Math.abs(box.y - (area.y + (area.height - box.height) / 2)) > 0.05) {
+        throw new Error(`desktop frame is not fitted and centred: ${JSON.stringify(geometry)}`);
+      }
+      fits.push(geometry);
+    }
+    await page.send("Emulation.clearDeviceMetricsOverride");
+
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const live = await status();
       if (live.board !== null && live.board !== undefined) break;
@@ -206,6 +230,7 @@ async function main() {
       error: moved === null ? "a dispatched key did not move the player" : null,
       tick: (await status()).tick,
       opened: { tick: opened.tick, player: opened.player ?? null },
+      fits,
       attempts,
       moved,
     };
