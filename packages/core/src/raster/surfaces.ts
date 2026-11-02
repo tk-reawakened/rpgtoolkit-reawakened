@@ -381,24 +381,29 @@ export function createSurfacesSection(width?: number, height?: number): Surfaces
 }
 
 /**
- * The script-screen layer's surface: the persistent surface a script draws on when it draws to the screen. It is
- * created on first use at the presented frame's size and its id is kept in the section, so ids stay monotonic.
+ * The script-screen layer: the persistent surface a script draws on when it draws to the screen. It has a fixed,
+ * reserved id (`-1`) that never comes from the monotonic counter, so creating it moves neither `nextId` nor any
+ * script-visible canvas handle, and scripts cannot name it (handles are never negative). It is created on first
+ * use at the presented frame's size.
  */
+export const SCRIPT_SCREEN = -1 as SurfaceId;
+
+/** Create the script-screen layer if it does not exist yet, and return its id. */
 export function ensureScriptScreen(state: SurfacesSection): SurfaceId {
-  const existing = state.scriptScreen;
-  if (existing !== undefined && Object.hasOwn(state.entries, String(existing))) return existing;
+  if (Object.hasOwn(state.entries, String(SCRIPT_SCREEN))) return SCRIPT_SCREEN;
   const frame = entry(state, 0 as SurfaceId);
   const width = frame?.bitmap.w ?? 640;
   const height = frame?.bitmap.h ?? 480;
-  const id = createSurface(state, width, height);
-  state.scriptScreen = id;
-  return id;
+  const pixels = new Uint8Array(byteCount(width, height));
+  const current: SurfaceState = { id: SCRIPT_SCREEN, rev: 0, bitmap: snapshot(width, height, pixels) };
+  state.entries[String(SCRIPT_SCREEN)] = current;
+  decodedRecords.set(current, { rev: 0, bitmap: current.bitmap, b64: current.bitmap.b64, w: width, h: height, rgba: pixels, canonical: true });
+  return SCRIPT_SCREEN;
 }
 
-/** The script-screen layer's id, or `null` when the section has none yet. */
+/** The script-screen layer's id, or `null` when nothing has drawn to the screen yet. */
 export function scriptScreen(state: SurfacesSection): SurfaceId | null {
-  const id = state.scriptScreen;
-  return id === undefined || !Object.hasOwn(state.entries, String(id)) ? null : id;
+  return Object.hasOwn(state.entries, String(SCRIPT_SCREEN)) ? SCRIPT_SCREEN : null;
 }
 
 /** Allocate a monotonically increasing surface id. Ids are never reused. */
@@ -444,7 +449,7 @@ export function renderNowEnabled(state: SurfacesSection): boolean {
 
 /** Delete a surface. The allocation counter remains untouched. Surface 0 is permanent. */
 export function killSurface(state: SurfacesSection, id: SurfaceId): boolean {
-  if (id === (0 as SurfaceId) || id === state.scriptScreen || !Object.hasOwn(state.entries, String(id))) return false;
+  if (id === (0 as SurfaceId) || id === SCRIPT_SCREEN || !Object.hasOwn(state.entries, String(id))) return false;
   delete state.entries[String(id)];
   for (const slot of Object.keys(state.slots)) if (state.slots[slot] === id) delete state.slots[slot];
   for (const colour of Object.keys(state.colours)) if (state.colours[colour] === id) delete state.colours[colour];

@@ -7,6 +7,7 @@ import {
   createEmptyBoard,
   createEmptyMainFile,
   createEngine,
+  editSurface,
   enqueueDirectionMove,
   hashGameState,
   hydrateSprites,
@@ -26,6 +27,7 @@ import {
   type SurfaceId,
   type TickReport,
 } from "../src/index.ts";
+import { SCRIPT_SCREEN } from "../src/raster/surfaces.ts";
 
 const BOARD_COLOUR = { r: 19, g: 37, b: 53 } as const;
 const boardBytes = (() => {
@@ -378,11 +380,7 @@ test("restore rebuilds the screen before script pixel reads and preserves saved 
     ok(capture !== null, `restored surface ${id} is readable at its current revision`);
     deepEqual([...capture.rgba.slice(0, 4)], boardColour, `restored surface ${id} carries the composed frame`);
   }
-  const layer = state.surfaces.scriptScreen;
-  ok(layer !== undefined, "the restored section keeps its script-screen layer");
-  const layerPixels = restored.engine.surfacePixels(layer, state.surfaces.entries[String(layer)]!.rev);
-  ok(layerPixels !== null);
-  deepEqual([...layerPixels.rgba.slice(0, 4)], [0, 0, 0, 0], "the layer holds only what the script drew, which was nothing");
+  equal(state.surfaces.entries[String(SCRIPT_SCREEN)], undefined, "a game that never draws to the screen never creates a script-screen layer");
 });
 
 /**
@@ -482,4 +480,45 @@ test("a script reads the frame it just changed in the same tick through getpixel
   deepEqual([globals.canvasr, globals.canvasg, globals.canvasb], [255, 0, 0]);
   deepEqual([globals.slotr, globals.slotg, globals.slotb], [255, 0, 0]);
   deepEqual([globals.farr, globals.farg, globals.farb], [BOARD_COLOUR.r, BOARD_COLOUR.g, BOARD_COLOUR.b], "pixels outside the overlay keep the board colour");
+});
+
+test("a cnvX draw moves the state hash while a draw to the screen or the presented frame does not", () => {
+  // The program draws once on the screen and once on a canvas; its effect log (hashed) is the same for every edit below.
+  const result = runBoot(bootGame("createcanvas(8, 8, cv)\ncolorrgb(255, 0, 0)\nfillrect(0, 0, 3, 3)\nfillrect(0, 0, 3, 3, cv)\nend()\n"), null, false);
+  const state = result.state;
+  ok(state !== null);
+  const layer = SCRIPT_SCREEN;
+  ok(state.surfaces.entries[String(layer)] !== undefined, "drawing to the screen created the script-screen layer");
+  const canvas = (state.vm.globals as Record<string, unknown>).cv;
+  ok(typeof canvas === "number", "the canvas handle is a script global");
+  const flip = (id: SurfaceId) => ok(editSurface(state.surfaces, id, (rgba) => { rgba[0] = rgba[0]! ^ 0xff; }), `surface ${id} is live`);
+
+  const before = hashGameState(state);
+  flip(layer);
+  equal(hashGameState(state), before, "drawing to the screen layer is hash-neutral");
+  flip(0 as SurfaceId);
+  equal(hashGameState(state), before, "the presented frame is hash-neutral");
+  flip(canvas as SurfaceId);
+  ok(hashGameState(state) !== before, "drawing to a cnvX canvas moves the hash");
+});
+
+test("script drawing on the screen persists across the core's own frame rebuilds", () => {
+  const read = (state: GameState | null, name: string): number[] => {
+    const globals = state?.vm.globals as Record<string, unknown>;
+    return [globals[`${name}r`], globals[`${name}g`], globals[`${name}b`]] as number[];
+  };
+  // sleep spans many `advance` calls; each one rebuilds the presented frame, which must keep what the script drew.
+  const program = "colorrgb(255, 0, 0)\nfillrect(0, 0, 3, 3)\nsleep(1)\ngetpixel(1, 1, nr, ng, nb)\ngetpixel(6, 6, fr, fg, fb)\nend()\n";
+  const result = runBoot(bootGame(program), null, false);
+  deepEqual(read(result.state, "n"), [255, 0, 0], "the drawn pixel survived the rebuilds");
+  deepEqual(read(result.state, "f"), [BOARD_COLOUR.r, BOARD_COLOUR.g, BOARD_COLOUR.b], "an undrawn pixel shows the board");
+});
+
+test("the first draw to the screen takes no canvas handle and does not move the id counter", () => {
+  const withScreenDraw = runBoot(bootGame("colorrgb(255, 0, 0)\nfillrect(0, 0, 3, 3)\ncreatecanvas(8, 8, cv)\nend()\n"), null, false).state;
+  const without = runBoot(bootGame("colorrgb(255, 0, 0)\ncreatecanvas(8, 8, cv)\nend()\n"), null, false).state;
+  ok(withScreenDraw !== null && without !== null);
+  equal((withScreenDraw.vm.globals as Record<string, unknown>).cv, (without.vm.globals as Record<string, unknown>).cv, "the first canvas keeps its handle");
+  equal(withScreenDraw.surfaces.nextId, without.surfaces.nextId, "the hashed id counter is unchanged");
+  ok(withScreenDraw.surfaces.entries[String(SCRIPT_SCREEN)] !== undefined, "the layer exists in the run that drew");
 });

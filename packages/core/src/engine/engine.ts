@@ -1018,9 +1018,6 @@ export function createEngine(init: EngineInit): Engine {
       // A save may carry a bare section; the restored continuation must still render, so the engine completes
       // the surface section it owns, exactly as it does at creation (never inventing game data).
       if (Object.keys(state.surfaces).length === 0) state.surfaces = createSurfacesSection(init.width, init.height);
-      // A save that names a script-screen layer whose surface is gone gets a fresh one; a save that never had one
-      // keeps none, so an engine that never draws to the screen writes exactly the saves it always did.
-      if (state.surfaces.scriptScreen !== undefined) ensureScriptScreen(state.surfaces);
       // A loaded continuation replaces the object table, so no startup lifetime identity survives.
       clearStartupAnchors();
       if (typeof candidate.engine.nextRequestId === "number" && Number.isSafeInteger(candidate.engine.nextRequestId) && candidate.engine.nextRequestId >= 1) {
@@ -3028,7 +3025,9 @@ export function createEngine(init: EngineInit): Engine {
    */
   function refreshFrame(report: boolean): void {
     const list = currentDrawList(0);
-    const nextHash = hashDrawList(list);
+    // The rasteriser reads the list's size and commands, never its tick, so a static scene is rebuilt once, not every
+    // tick. A rebuild is also forced when an asset has arrived, because a command that named it may now replay.
+    const nextHash = `${hashDrawList({ ...list, tick: 0 })}:${cache.size}:${installedFonts.size}`;
     if (nextHash === frameHash) {
       if (report && frameFailure !== null && frameFailure.hash === nextHash) reportRenderFailure(frameFailure.message);
       return;

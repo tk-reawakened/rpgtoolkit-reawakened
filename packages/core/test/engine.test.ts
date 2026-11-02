@@ -3,6 +3,7 @@ import { TextEncoder } from "node:util";
 import { test } from "node:test";
 import { addActor, applyEmitterOp, assetKey, IR_VERSION, createAssetIndex, createEmptyBoard, createEmptyCharacter, createEmptyMainFile, createEngine, decodeSurfaceBytes, ENGINE_DEFAULT_MANIFEST, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, encodeSurfaceBytes, hashGameState, PACKAGE_ROOT, readSurfacePixels, TILE_BITMAP_MAGIC, writeBoard, writeCharacter, writeMainFile, writeTileBitmap, writeTileset, type Board, type CommandView, type EffectRecord, type Engine, type EnginePhaseRegistration, type GameState, type PackageCatalogueEntry, type PluginDefinition, type ResolvedPlugin, type SurfaceId } from "../src/index.ts";
 import { resolveManifestPlugins } from "../src/engine/boot.ts";
+import { ensureScriptScreen, SCRIPT_SCREEN } from "../src/raster/surfaces.ts";
 
 function boardBytes(board: Board): Uint8Array {
   const encoded = writeBoard(board);
@@ -540,8 +541,7 @@ function screenSnapshotWrites() {
       run: (state) => {
         // A script that draws to the screen draws on the script-screen layer; that is the surface whose batching
         // these tests count (surface 0 is the derived frame).
-        const layer = state.surfaces.scriptScreen;
-        tracked = state.surfaces.entries[String(layer ?? 0)]!;
+        tracked = state.surfaces.entries[String(ensureScriptScreen(state.surfaces))]!;
         held = tracked.bitmap;
         track();
       },
@@ -825,7 +825,7 @@ function captureState(): { readonly registration: EnginePhaseRegistration; state
 /** The program's own canvas: surface 0 is the presented frame and the section also holds a script-screen layer. */
 function programCanvas(state: GameState | undefined) {
   if (state === undefined) throw new Error("expected engine state");
-  const canvas = Object.values(state.surfaces.entries).find((entry) => entry.id !== (0 as never) && entry.id !== state.surfaces.scriptScreen);
+  const canvas = Object.values(state.surfaces.entries).find((entry) => entry.id !== (0 as never) && entry.id !== SCRIPT_SCREEN);
   if (canvas === undefined) throw new Error("expected the program's canvas");
   return canvas;
 }

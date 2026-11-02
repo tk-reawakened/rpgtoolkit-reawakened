@@ -86,8 +86,9 @@ Host `surfacePixels(id, rev)` reads must not change game state, revisions, hashe
 diagnostics. Script-visible screen refresh is a separate deterministic core operation; the complete
 contract and conformance cases are in [runners.md#surface-read-and-state-hash](../engine/runners.md#surface-read-and-state-hash).
 The engine implements this contract (issue #1048): `hashGameState` omits the presented frame (`surfaces.entries["0"]`)
-and the script-screen layer it is composited from (the entry `surfaces.scriptScreen` names, and that id itself), and
-keeps every other surface entry, the slots, the colour table and the render-now fields.
+and the script-screen layer it is composited from (the reserved entry `surfaces.entries["-1"]`), and keeps every other
+surface entry, the slots, the colour table, the id counter and the render-now fields. Both omitted entries are still
+saved, so a restore returns what the script drew.
 
 <a id="continuation-equivalence"></a>
 **Approved ruling (owner: Jensen, 2026-11-02).** A separate continuation-equivalence comparison checks a settled save against uninterrupted execution without changing the replay state hash. For the no-active-audio case, both checkpoints must have no active voices and agree on the whole replay-hash projection, including pending request IDs and game variables, except the next audio cue ID. The loaded side must have exactly one greater cue ID, accounted for by its single load-time `soundfont.set` cue; the saved counter must match the uninterrupted counter and the load's prior live counter must not exceed it. The comparison is valid only when no other audio cues occur between the save and the compared checkpoints. Verify the actual cue and its ID, not merely the numeric difference.

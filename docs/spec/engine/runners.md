@@ -88,14 +88,17 @@ Refreshing the screen for script-visible `getpixel`, `canvasgetscreen` or `saves
 operation, separate from host presentation reads. A runner cannot trigger that operation by polling.
 
 **Two surfaces, not one.** A script that draws and names no canvas draws to the **script-screen layer**, a persistent
-surface the section records. That layer is composited between the board and the render-now overlay into surface 0, the
-**presented frame**. Drawing to the layer never overwrites the board, and rebuilding the frame never discards what the
-script drew.
+surface with the reserved id `-1`. The id is fixed, never taken from the monotonic counter, so the first draw to the
+screen moves neither the counter nor any canvas handle, and a script cannot name the layer (handles are never
+negative). The layer is created on first use at the frame's size, and is composited between the board and the
+render-now overlay into surface 0, the **presented frame**. Drawing to the layer never overwrites the board, and
+rebuilding the frame never discards what the script drew. Both surfaces are saved; neither is hashed.
 
 **When the core rebuilds the frame.** The core rebuilds surface 0 from game state alone, and only at three points: at
 the end of every `advance` call; immediately before a script reads the screen (`getpixel` on the screen,
 `canvasgetscreen`, `savescreen`, and a canvas draw whose source is the screen); and when a saved game is restored,
-before any script runs. A rebuild is skipped when the draw list it would render equals the last rebuilt one, and a
+before any script runs. A rebuild is skipped when the frame it would render is the one already rebuilt — the same
+draw-list size and commands (the tick stamp is not part of the comparison) and no asset has arrived since — and a
 restore always rebuilds. The frame's pixels and revision therefore depend on the game and on how `advance` calls were
 batched, never on how often a host read them; its revision and bytes may differ between batchings, which is harmless
 because surface 0 is excluded from the state hash. A state edit made between `advance` calls shows in the frame at the

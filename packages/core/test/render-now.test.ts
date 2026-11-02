@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TextEncoder } from "node:util";
+import { SCRIPT_SCREEN } from "../src/raster/surfaces.ts";
 import {
   assetKey,
   createAssetIndex,
@@ -131,7 +132,7 @@ test("an enabled render-now canvas is composed above the board and a disabled on
 /** Screen-sized surfaces that are canvases: the presented frame and the script-screen layer are not. */
 function bigSurfaces(game: Game): number {
   const surfaces = game.state().surfaces;
-  return Object.values(surfaces.entries).filter((entry) => entry.id !== (0 as never) && entry.id !== surfaces.scriptScreen && entry.bitmap.w === SIZE && entry.bitmap.h === SIZE).length;
+  return Object.values(surfaces.entries).filter((entry) => entry.id !== (0 as never) && entry.id !== SCRIPT_SCREEN && entry.bitmap.w === SIZE && entry.bitmap.h === SIZE).length;
 }
 
 test("rendernow(false) only switches drawing off: the reserved canvas, its handle and its pixels persist, and rendernow(true) shows it as it was", () => {

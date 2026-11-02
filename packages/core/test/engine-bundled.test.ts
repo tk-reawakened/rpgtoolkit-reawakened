@@ -47,7 +47,7 @@ function runProgram(program: string, bundled?: ReadonlyMap<AssetKey, Uint8Array>
   return { engine, diagnostics };
 }
 
-/** The screen surface's pixels; its revision depends on how often the frame was refreshed, so scan for the current one. */
+/** The screen surface's pixels; its revision depends on how the ticks were batched, so scan for the current one. */
 function screen(engine: Engine): Uint8Array {
   for (let rev = 0; rev < 64; rev += 1) {
     const surface = engine.surfacePixels(0 as never, rev);
