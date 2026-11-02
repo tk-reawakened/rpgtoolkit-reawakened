@@ -85,7 +85,9 @@ refreshing the presented screen does not. Host `surfacePixels` polls are also ha
 Host `surfacePixels(id, rev)` reads must not change game state, revisions, hashes, saves or future
 diagnostics. Script-visible screen refresh is a separate deterministic core operation; the complete
 contract and conformance cases are in [runners.md#surface-read-and-state-hash](../engine/runners.md#surface-read-and-state-hash).
-This is the intended contract for #1048, not a claim that its implementation has landed.
+The engine implements this contract (issue #1048): `hashGameState` omits the presented frame (`surfaces.entries["0"]`)
+and the script-screen layer it is composited from (the entry `surfaces.scriptScreen` names, and that id itself), and
+keeps every other surface entry, the slots, the colour table and the render-now fields.
 
 ### Save compatibility and instruction versions (owner ruling)
 

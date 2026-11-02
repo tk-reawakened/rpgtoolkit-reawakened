@@ -28,4 +28,10 @@ export type SurfacesSection = {
   renderNow?: SurfaceId;
   /** Whether the reserved canvas is drawn. Absent in a save written before the flag existed, where a named handle meant "on". */
   renderNowOn?: boolean;
+  /**
+   * The persistent script-screen layer: what a script draws when it draws to the screen. Surface 0 is the derived
+   * presented frame — board composite, this layer, then the overlay — so a rebuild never loses script drawing
+   * (docs/spec/engine/runners.md#surface-read-and-state-hash).
+   */
+  scriptScreen?: SurfaceId;
 };

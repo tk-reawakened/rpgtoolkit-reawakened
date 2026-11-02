@@ -380,6 +380,27 @@ export function createSurfacesSection(width?: number, height?: number): Surfaces
   return state;
 }
 
+/**
+ * The script-screen layer's surface: the persistent surface a script draws on when it draws to the screen. It is
+ * created on first use at the presented frame's size and its id is kept in the section, so ids stay monotonic.
+ */
+export function ensureScriptScreen(state: SurfacesSection): SurfaceId {
+  const existing = state.scriptScreen;
+  if (existing !== undefined && Object.hasOwn(state.entries, String(existing))) return existing;
+  const frame = entry(state, 0 as SurfaceId);
+  const width = frame?.bitmap.w ?? 640;
+  const height = frame?.bitmap.h ?? 480;
+  const id = createSurface(state, width, height);
+  state.scriptScreen = id;
+  return id;
+}
+
+/** The script-screen layer's id, or `null` when the section has none yet. */
+export function scriptScreen(state: SurfacesSection): SurfaceId | null {
+  const id = state.scriptScreen;
+  return id === undefined || !Object.hasOwn(state.entries, String(id)) ? null : id;
+}
+
 /** Allocate a monotonically increasing surface id. Ids are never reused. */
 export function createSurface(state: SurfacesSection, width: number, height: number, rgba?: Uint8Array): SurfaceId {
   const pixels = rgba === undefined ? new Uint8Array(byteCount(width, height)) : new Uint8Array(rgba);
@@ -423,7 +444,7 @@ export function renderNowEnabled(state: SurfacesSection): boolean {
 
 /** Delete a surface. The allocation counter remains untouched. Surface 0 is permanent. */
 export function killSurface(state: SurfacesSection, id: SurfaceId): boolean {
-  if (id === (0 as SurfaceId) || !Object.hasOwn(state.entries, String(id))) return false;
+  if (id === (0 as SurfaceId) || id === state.scriptScreen || !Object.hasOwn(state.entries, String(id))) return false;
   delete state.entries[String(id)];
   for (const slot of Object.keys(state.slots)) if (state.slots[slot] === id) delete state.slots[slot];
   for (const colour of Object.keys(state.colours)) if (state.colours[colour] === id) delete state.colours[colour];

@@ -285,6 +285,7 @@ export function createScriptServices(
   onThreadRemoved?: (threadId: number) => void,
   requestRecoveryCapture?: () => void,
   beforeBattleStart?: () => void,
+  refreshScreen?: () => void,
 ): ScriptServices {
   const loader = typeof loaderOrGameId === "string" ? undefined : loaderOrGameId;
   const gameId = typeof loaderOrGameId === "string" ? loaderOrGameId : explicitGameId ?? null;
@@ -373,6 +374,7 @@ export function createScriptServices(
     actors,
     battle,
     ...(battleStartView === undefined ? {} : { battleStart: battleStartView }),
+    ...(refreshScreen === undefined ? {} : { refreshScreen }),
     ...(requestRecoveryCapture === undefined ? {} : { requestRecoveryCapture }),
     ...(media === undefined ? {} : { media }),
     objectMembers: (handle: number) => state.vm.objects.find((record) => record.handle === handle)?.members,

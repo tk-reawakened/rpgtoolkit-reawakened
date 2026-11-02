@@ -128,6 +128,40 @@ function numberEntries(value: unknown): readonly (readonly [string, number])[] |
   }
   return result;
 }
+/**
+ * Canonicalize unusual surface shapes after omitting the derived screen entry.
+ * Ordinary surface state takes the cached fast path below.
+ */
+function projectedSurfaceField(value: unknown): string | undefined {
+  const fields = dataFields(value);
+  if (fields === null) return undefined;
+  const entriesValue = fields["entries"];
+  if (entriesValue === null || typeof entriesValue !== "object" || Array.isArray(entriesValue)) return undefined;
+  const excluded = screenEntryKeys(fields);
+  const entries: Record<string, unknown> = Object.create(null);
+  for (const key of Object.keys(entriesValue)) {
+    if (excluded.has(key)) continue;
+    const descriptor = Object.getOwnPropertyDescriptor(entriesValue, key);
+    if (descriptor === undefined || descriptor.get !== undefined || descriptor.set !== undefined) return undefined;
+    entries[key] = descriptor.value;
+  }
+  fields["entries"] = entries;
+  delete fields["scriptScreen"];
+  return '"surfaces":' + canon(fields as PlainData);
+}
+
+/**
+ * The entries that are the screen rather than application store: the derived presented frame (0) and the persistent
+ * script-screen layer it is composited from. Both are hash-neutral; script canvases and every other surface are not
+ * (docs/spec/engine/runners.md#surface-read-and-state-hash).
+ */
+function screenEntryKeys(fields: Record<string, unknown>): ReadonlySet<string> {
+  const keys = new Set<string>(["0"]);
+  const script = fields["scriptScreen"];
+  if (typeof script === "number") keys.add(String(script));
+  return keys;
+}
+
 
 /**
  * Reuse the canonical surface field only for its ordinary all-plain shape.
@@ -137,16 +171,16 @@ function numberEntries(value: unknown): readonly (readonly [string, number])[] |
 function cachedSurfaceField(value: unknown): string | undefined {
   const fields = dataFields(value);
   if (fields === null || value === null || typeof value !== "object") return undefined;
-  const keys = Object.keys(fields).sort().join(",");
-  if (![
-    "colours,entries,nextId,slots",
-    "colours,entries,nextId,renderNow,slots",
-    "colours,entries,nextId,renderNowOn,slots",
-    "colours,entries,nextId,renderNow,renderNowOn,slots",
-  ].includes(keys)) return undefined;
+  // The optional fields are checked by name, so a section written by an older build and one with the script screen
+  // take the same fast path.
+  const optional = new Set(["renderNow", "renderNowOn", "scriptScreen"]);
+  const required = ["colours", "entries", "nextId", "slots"];
+  const keys = Object.keys(fields);
+  if (!required.every((key) => keys.includes(key)) || keys.some((key) => !required.includes(key) && !optional.has(key))) return undefined;
   if (!finite(fields["nextId"])
     || (Object.hasOwn(fields, "renderNow") && !finite(fields["renderNow"]))
-    || (Object.hasOwn(fields, "renderNowOn") && typeof fields["renderNowOn"] !== "boolean")) return undefined;
+    || (Object.hasOwn(fields, "renderNowOn") && typeof fields["renderNowOn"] !== "boolean")
+    || (Object.hasOwn(fields, "scriptScreen") && !finite(fields["scriptScreen"]))) return undefined;
   const entries = dataFields(fields["entries"]);
   const slots = numberEntries(fields["slots"]);
   const colours = numberEntries(fields["colours"]);
@@ -154,7 +188,9 @@ function cachedSurfaceField(value: unknown): string | undefined {
   const metadataEntries: unknown[] = [];
   const bitmaps: string[] = [];
   const fragments: Array<{ key: string; entry: Record<string, unknown>; bitmap: Record<string, unknown>; bitmapObject: object }> = [];
+  const excluded = screenEntryKeys(fields);
   for (const key of Object.keys(entries).sort()) {
+    if (excluded.has(key)) continue;
     const entry = dataFields(entries[key]);
     if (entry === null || Object.keys(entry).sort().join(",") !== "bitmap,id,rev" || !finite(entry["id"]) || !finite(entry["rev"])) return undefined;
     const bitmap = dataFields(entry["bitmap"]);
@@ -208,7 +244,8 @@ function cachedSurfaceField(value: unknown): string | undefined {
  * Canonical surface fragments are reused after checking their metadata and
  * immutable b64 values, including writes that do not increment rev. An exact
  * prefix cache skips FNV work when both the prefix and surfaces are unchanged.
- * Other shapes fall back to the ordinary canonicalizer.
+ * A derived screen entry is excluded from the projection; unusual surface
+ * shapes use the canonical projection helper after omitting that entry.
  */
 export function hashGameState(state: GameState): string {
   const { stepCounters: _stepCounters, ...vm } = state.vm;
@@ -217,7 +254,7 @@ export function hashGameState(state: GameState): string {
   const tagged = tagNonFinite(projected) as PlainData;
   let ascii: boolean | undefined;
   const parts = canonSplitRoot(tagged, "surfaces", (value) => {
-    const field = cachedSurfaceField(value);
+    const field = cachedSurfaceField(value) ?? projectedSurfaceField(value);
     if (field !== undefined && value !== null && typeof value === "object") ascii = canonicalSurfaces.get(value)?.ascii;
     return field;
   });

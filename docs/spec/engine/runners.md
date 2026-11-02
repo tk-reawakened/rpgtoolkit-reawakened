@@ -68,7 +68,7 @@ any time, and a test that flushes every cache every frame must produce identical
 looks at its pixels. The presented screen surface is a derived presentation cache, not game progress. It is excluded
 from the state hash and is rebuilt deterministically on restore before any script reads it. This combines the
 2026-11-01 option C ruling with the read-only host-accessor rule; it replaces the earlier wording that an owner
-decision on that rule was required. Implementation is pending issue #1048.
+decision on that rule was required. The core implements it as described below (issue #1048).
 
 `engine.surfacePixels(id, rev)` **MUST** be observationally read-only. It returns an owned copy of the requested
 stored revision, or `null` if the id or revision is unavailable. It **MUST NOT** mutate `GameState`, surface revisions,
@@ -76,9 +76,25 @@ the state hash or save data, or change future diagnostics, regardless of host po
 Refreshing the screen for script-visible `getpixel`, `canvasgetscreen` or `savescreen` is a deterministic core
 operation, separate from host presentation reads. A runner cannot trigger that operation by polling.
 
+**Two surfaces, not one.** A script that draws and names no canvas draws to the **script-screen layer**, a persistent
+surface the section records. That layer is composited between the board and the render-now overlay into surface 0, the
+**presented frame**. Drawing to the layer never overwrites the board, and rebuilding the frame never discards what the
+script drew.
+
+**When the core rebuilds the frame.** The core rebuilds surface 0 from game state alone, and only at three points: at
+the end of every `advance` call; immediately before a script reads the screen (`getpixel` on the screen,
+`canvasgetscreen`, `savescreen`, and a canvas draw whose source is the screen); and when a saved game is restored,
+before any script runs. A rebuild is skipped when the draw list it would render equals the last rebuilt one, and a
+restore always rebuilds. The frame's pixels and revision therefore depend on the game and on how `advance` calls were
+batched, never on how often a host read them; its revision and bytes may differ between batchings, which is harmless
+because surface 0 is excluded from the state hash. A state edit made between `advance` calls shows in the frame at the
+next `advance` or script read, never on a host read.
+
 The hash includes the application store: script variables and globals, script-owned canvases (`cnvX`), and game-loop
 globals needed to store coordinates. Drawing to `cnvX` changes the hash when it changes that store, just as changing a
-global variable does. Drawing to, reading or refreshing the derived presented screen surface is hash-neutral.
+global variable does. Drawing to, reading or refreshing the screen — the script-screen layer and the presented frame
+alike — is hash-neutral. A script that needs screen content later captures it into a canvas or a numbered slot, and
+those are store.
 Moving a player changes character state and therefore should change the hash; viewing the screen more often must not.
 See [the surface hash projection](../formats/save-game.md#state-hash-surface-projection).
 Jensen's principle is: “Drawing to the surfaces shouldn't cause a hash change. The only reason the hash should change

@@ -128,9 +128,10 @@ test("an enabled render-now canvas is composed above the board and a disabled on
   equal(off.engine.drawList().commands.some((command) => command.kind === "blit" && "surface" in command.source), false);
 });
 
+/** Screen-sized surfaces that are canvases: the presented frame and the script-screen layer are not. */
 function bigSurfaces(game: Game): number {
   const surfaces = game.state().surfaces;
-  return Object.values(surfaces.entries).filter((entry) => entry.id !== (0 as never) && entry.bitmap.w === SIZE && entry.bitmap.h === SIZE).length;
+  return Object.values(surfaces.entries).filter((entry) => entry.id !== (0 as never) && entry.id !== surfaces.scriptScreen && entry.bitmap.w === SIZE && entry.bitmap.h === SIZE).length;
 }
 
 test("rendernow(false) only switches drawing off: the reserved canvas, its handle and its pixels persist, and rendernow(true) shows it as it was", () => {
