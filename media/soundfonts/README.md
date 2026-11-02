@@ -74,11 +74,19 @@ bundled-asset record is `THIRD_PARTY_NOTICES` at the repository root and
 - **Can I use them in a commercial game?** Yes.
 - **Can I ship the `.sf2` file inside my game or tool?** Yes. You do not need to include a licence
   text, a notice or a credits line.
-- **Do I have to credit anyone?** No. A mention is welcome but never required.
+- **Do I have to credit anyone?** No. Credit is recommended and a link back is appreciated, but
+  neither is required, and nothing in the licence depends on them.
 - **Can I change them, remix them or rebuild them?** Yes. Edit the generator and rebuild, or edit
   the files directly.
 - **Who owns the music I make or render with them?** You do.
 - **Can I put them in my own SoundFont collection or sell a pack that includes them?** Yes.
+
+## If you would like to credit them
+
+Entirely optional. If you do, something like this is plenty:
+
+> Sounds: TK-16 SoundFonts from RPG Toolkit Reawakened
+> https://github.com/tk-reawakened/rpgtoolkit-reawakened
 
 ## Credits
 
