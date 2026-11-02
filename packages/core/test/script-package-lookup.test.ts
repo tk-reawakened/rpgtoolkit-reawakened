@@ -144,7 +144,8 @@ function overrides(rig: Rig): Record<string, unknown>[] {
     .map((record) => {
       const data = record.data as Record<string, unknown>;
       return (data.notice ?? data) as Record<string, unknown>;
-    });
+    })
+    .filter((data) => data.kind === "package-function");
 }
 
 const DEMO: PackageSpec = { name: "demo", source: "function pkgfn(n) { return n + 100 }\n" };
@@ -475,4 +476,24 @@ test("a program recompiled for a run-time include does not repeat the package co
   deepEqual(run(rig), []);
   equal(rig.state.vm.globals.a, "program");
   equal(overrides(rig).length, 1);
+});
+
+test("a built-in shadowed while a package also supplies the name still names the engine pack as the earlier binding", () => {
+  const rig = boot(
+    {
+      packages: [{
+        name: "demo",
+        source: "function castint(n) { return 777 }\n",
+        commands: [native("castint", "native", [{ name: "n", optional: false, byRef: false, variadic: false }])],
+      }],
+    },
+    "a = castint(1.5)\nb = demo.castint(1.5)\n",
+  );
+  deepEqual(run(rig), []);
+  equal(rig.state.vm.globals.a, "native");
+  equal(rig.state.vm.globals.b, 777);
+  const warnings = overrides(rig);
+  equal(warnings.length, 1);
+  deepEqual(warnings[0]!.previous, 'built-in "core"');
+  deepEqual(warnings[0]!.winner, 'built-in "core"');
 });

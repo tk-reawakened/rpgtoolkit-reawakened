@@ -420,6 +420,7 @@ export function createScriptServices(
     namespace: { has: (namespace) => registry.hasNamespace(namespace), get: (namespace, name) => registry.getIn(namespace, name) },
     packageFunction,
     owner: (name) => registry.layerPlugins(name).at(-1),
+    builtinOwner: (name) => registry.layerPlugins(name).filter((id) => builtinPacks.has(id)).at(-1),
   });
   const hydratedTypes = new Map<string, HostObjectType>();
   hydratedTypes.set("actor", createActorHostType(actors));

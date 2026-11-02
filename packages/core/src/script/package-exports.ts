@@ -148,7 +148,7 @@ export function sealPackageExport(
       const argc = info.params.length;
       const owner = services.commands.owner(name);
       if (services.commands.builtin(name) !== undefined) {
-        const builtin: OverrideLabel = { kind: "built-in", id: owner ?? name };
+        const builtin: OverrideLabel = { kind: "built-in", id: services.commands.builtinOwner(name) ?? owner ?? name };
         warnPackageOverride(services.logger, name, argc, builtin, self, builtin);
       } else if (services.commands.extension(name) !== undefined) {
         warnPackageOverride(services.logger, name, argc, { kind: "plugin", id: owner ?? name }, self, self);

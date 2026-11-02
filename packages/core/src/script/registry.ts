@@ -145,6 +145,8 @@ export type CommandLookup = {
   packageFunction: PackageFunctionSource;
   /** The id of the plugin whose layer is on top of `name`, if any (diagnostics only). */
   owner: (name: string) => string | undefined;
+  /** The id of the engine pack that supplies the built-in `name`, if any (diagnostics only). */
+  builtinOwner: (name: string) => string | undefined;
 };
 
 const NO_PACKAGE_FUNCTIONS: PackageFunctionSource = {
@@ -162,6 +164,7 @@ export function createCommandLookup(
     readonly namespace?: NamespaceSource;
     readonly packageFunction?: PackageFunctionSource;
     readonly owner?: (name: string) => string | undefined;
+    readonly builtinOwner?: (name: string) => string | undefined;
   },
 ): CommandLookup {
   const builtin = sources.builtin ?? (() => undefined);
@@ -174,6 +177,7 @@ export function createCommandLookup(
     namespace,
     packageFunction: sources.packageFunction ?? NO_PACKAGE_FUNCTIONS,
     owner: sources.owner ?? (() => undefined),
+    builtinOwner: sources.builtinOwner ?? (() => undefined),
   };
 }
 
