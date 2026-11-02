@@ -127,3 +127,24 @@ Rules:
 7. **An undeclared frame is not an error.** A script that draws with primitives and never declares a surface is described by [A11Y-14](#a11y-14). Declaring a surface is the upgrade path for a screen whose structure the primitives cannot express; it is never a requirement.
 
 The commands are `uiBegin`, `uiItem`, `uiEnd`, `uiSelection`, `uiFocus`, `uiActivated` and `uiCancelled`, specified with their signatures in the [Reawakened additions](rpgcode-functions.md#reawakened-additions) table. They draw nothing themselves: the script keeps its own art and the engine adds the focus ring and the tree.
+
+<a id="a11y-16"></a>
+**A11Y-16 Ported games: what a 3.1 game gets without being touched (OWNER; ruled 2026-11-01).** In plain terms: a game written for Toolkit 3.1 runs with no edit, and the engine still gives it real accessibility. Where it cannot, it says so — so somebody porting a game knows exactly what needs changing instead of guessing.
+
+Notice first what needs **no** change: the game file may carry no input block ([ACT-6](display-input-audio.md#act-6) rule 1), the scripts may call `wait()`, `get()` and `clearBuffer()` exactly as before ([E-110](display-input-audio.md#reawakened-key-name)), a controller works by default ([ACT-5](display-input-audio.md#act-5)), and a player's remap **adds** a control without taking away a key a script reads ([ACT-6](display-input-audio.md#act-6) rule 3). Those four rules are the backwards-compatibility guarantee.
+
+What the game's own screens get is tiered, and the tier is reported rather than assumed:
+
+| Tier | How the screen is drawn | Provided with no game change | Not provided |
+|---|---|---|---|
+| **A — engine-owned** | stock menu, battle, options, save/load, message box, error boxes | everything in [A11Y-1](#a11y-1)…[A11Y-15](#a11y-15) | — |
+| **B — documented primitives** | `mwin`, `msgbox`, `prompt`, `text`, cursor maps, `setButton`, canvases | automatic projection ([A11Y-14](#a11y-14)), announcements, pointer activation where the primitive already has it, the cursor model for cursor maps | structure the primitives do not express: no list semantics for a hand-laid-out grid, no per-item disabled state, no labels for art drawn without text |
+| **C — pixels only** | image blits, `scan`/`mem` screens, custom canvases with no text primitive | the keyboard and controller still drive the script; one `surface` node exists | any label, any list, any focus order — reported as `a11y.unlabelled` |
+| **D — script key polling** | a loop reading `get()` or checking held keys, choosing its own behaviour | the additive remap keeps the game's keys working; the loop keeps running | a cursor the engine can describe or move; the screen is content the engine cannot see into — reported as `a11y.unstructured` |
+
+**The upgrade path is additive and small.** A tier-C or tier-D screen becomes tier-B by drawing its text with `text()`, or tier-A-quality by declaring a surface ([A11Y-15](#a11y-15)); no game logic changes. Nothing in the engine rewrites, guesses at or "improves" a game's own screen.
+
+<a id="a11y-17"></a>
+**A11Y-17 The accessibility report for a port (OWNER; ruled 2026-11-01).** Every engine surface and every script-drawn surface reachable in a run contributes a row to a report the harness can emit: its id and tier, the labels it produced, the nodes it left unlabelled, whether a cursor model applies, and the script location that drew it. The report is how a porter answers "can this game be made accessible, and what would it cost" without reading the game.
+
+Rules: the report is produced by the harness from a run, never statically guessed at, and any inference (a screen never reached, a branch never taken) is marked inferred, not asserted; it never changes gameplay, goldens or hashes; and it is available from the headless runner and from the editor's preview, so a porter sees it without writing a test.

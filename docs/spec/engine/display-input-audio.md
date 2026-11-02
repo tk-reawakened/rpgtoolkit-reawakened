@@ -149,17 +149,29 @@ Rules:
 <a id="act-3"></a>
 **ACT-3 The binding table (OWNER; ruled 2026-11-01).** A binding names an action and the **controls** that produce it, as plain data:
 
+Two layers, and they are different shapes on purpose ([ACT-6](#act-6)):
+
 ```
-InputBindings = {
+GameBindings = {                       // .gam block, or a registration's defaults
   version: 3,
-  actions: {
-    [action: string]: {
-      controls: readonly ControlId[],   // ordered; first bound control wins on a tie
-      locked: boolean,                  // true: the game fixes this action (ACT-6)
-    },
-  },
+  actions: { [action: string]: {
+    controls: readonly ControlId[],    // ordered; first bound control wins on a tie
+    locked: boolean,                   // true: the game fixes this action (ACT-6)
+  } },
 }
+
+PlayerOverrides = {                    // the save's input section
+  version: 1,
+  actions: { [action: string]: {
+    added:   readonly ControlId[],     // controls the player put on this action
+    removed: readonly ControlId[],     // game-default controls the player took off
+  } },
+}
+
+// effective controls = (game controls − removed) + added, deduplicated in that order
 ```
+
+**Removal is explicit and addition never deletes.** A player who adds `KeyZ` to `confirm` keeps `Enter`, so a 3.1 script that polls `ENTER` still receives it; a control leaves an action only when the player removes that exact game default. That is what makes remapping safe for a ported game whose scripts read raw key names ([A11Y-16](accessibility.md#a11y-16)).
 
 A `ControlId` is one of three canonical ASCII strings:
 
@@ -180,7 +192,7 @@ A `ControlId` is one of three canonical ASCII strings:
 | `pointer { x, y, buttons }` | none — the pointer drives the surface cursor and its own actions |
 | `gamepad { device, connected, axes, buttons }` | `pad:<n>` for each changed bit, `pad:axis…` for each axis that crosses the dead-zone |
 
-Rules: the **same** `key` event appends its legacy queue entry and updates its action's held set, in that order, so a script and a surface see one event and not two; a host auto-repeat (`repeat: true`) never produces a new action press edge and never appends a second queue entry; a press edge on an action appends the compatibility key entry [E-112](#reawakened-gamepad-contract) rule 4 describes, so `wait()` can still be satisfied by a controller; a control bound to two actions holds both, and the order they resolve in is the action table's order, which is the engine set first (in the order `up`, `down`, `left`, `right`, `confirm`, `cancel`, `menu`) and then registered names in registration order.
+Rules: the **same** `key` event appends its legacy queue entry and updates its action's held set, in that order, so a script and a surface see one event and not two — **one key press appends exactly one queue entry, the derived key name of [E-110](#reawakened-key-name)**, never also the action's compatibility name; a host auto-repeat (`repeat: true`) never produces a new action press edge and never appends a second queue entry; a press edge that comes from a gamepad (or from a pointer on a button slot) appends the action's compatibility entry as [E-112](#reawakened-gamepad-contract) rule 4 describes, so `wait()` can still be satisfied by a controller; a control bound to two actions holds both, and the order they resolve in is the action table's order, which is the engine set first (in the order `up`, `down`, `left`, `right`, `confirm`, `cancel`, `menu`) and then registered names in registration order.
 
 <a id="act-5"></a>
 **ACT-5 Controllers are on by default (OWNER; ruled 2026-11-01).** A standard-layout controller works in a new game with no configuration: the game file's controller flag defaults to **enabled** when the game file does not say otherwise, and the default bindings are:
@@ -201,11 +213,12 @@ A game may disable the controller in its own file, and a player may disable it i
 **ACT-6 Remapping, override and locking (OWNER; ruled 2026-11-01).** Two layers, one effective table:
 
 1. **Game defaults** live in the game file for the engine set and in the registration for a game action ([TKR input extension](../formats/main-file.md#tkr-input-extension)). Absent, the defaults above and the legacy rows' meanings apply, so an untouched 3.1 game behaves exactly as it did.
-2. **Player overrides** live in the save's `input` section. At boot the overrides are applied over the defaults into one effective table; the effective table is the state that is snapshotted, restored and hashed.
-3. An override may add a control, remove one, or empty an action's list (explicitly unbound, not absent). It may not change an action's `locked` flag: a locked action is fixed by the game and stays fixed after a restore.
-4. Rebinding rejects a **duplicate within the engine's own set** with a located refusal that names the conflicting action, so two actions cannot accidentally share a control through the options screen. A game's own defaults, a game action's registration and a script's `rebindAction` may still bind a control twice; the resolution order of [ACT-4](#act-4) then applies, exactly as the legacy movement rows behave when one scan code is bound to two directions.
-5. `resetBindings()` discards the overrides and returns to the game defaults; there is always a way back that a player can reach from the options screen.
-6. The options screen is reachable from the title screen, from the running game and from the pause menu, works with all three devices, lists game actions by `group` with paging on `left`/`right` (the stock item list's rule), and is itself covered by [A11Y-2](accessibility.md#a11y-2), [A11Y-4](accessibility.md#a11y-4) and [A11Y-13](accessibility.md#a11y-13).
+2. **Player overrides** are `{ added, removed }` per action ([ACT-3](#act-3)) in the save's `input` section. At boot they are folded into one effective table; the effective table is the state that is snapshotted, restored and hashed.
+3. **Adding is the default action of remapping; removing is a separate, explicit one.** The options screen's ordinary remap adds a control to the action. Removing a game default is its own action, is shown as such, and is the only way a control stops producing an action. This keeps a ported game working when a player rebinds: an engine action moved to another key does not take the old key away from a script that reads it.
+4. An override may not change an action's `locked` flag: a locked action is fixed by the game and stays fixed after a restore.
+5. Rebinding rejects a **duplicate within the engine's own set** with a located refusal that names the conflicting action, so two actions cannot accidentally share a control through the options screen. A game's own defaults, a game action's registration and a script's `rebindAction` may still bind a control twice; the resolution order of [ACT-4](#act-4) then applies, exactly as the legacy movement rows behave when one scan code is bound to two directions.
+6. `resetBindings()` discards every override and returns to the game defaults; there is always a way back that a player can reach from the options screen.
+7. The options screen is reachable from the title screen, from the running game and from the pause menu, works with all three devices, lists game actions by `group` with paging on `left`/`right` (the stock item list's rule), and is itself covered by [A11Y-2](accessibility.md#a11y-2), [A11Y-4](accessibility.md#a11y-4) and [A11Y-13](accessibility.md#a11y-13).
 
 <a id="act-7"></a>
 **ACT-7 Determinism, replay and restore (OWNER; ruled 2026-11-01).** The binding table, the effective table, the registry order and every held action are part of the `input` section, so they are snapshotted and hashed with the rest of the state (G1). A replay is the logged input events plus the state they landed in: because the table is state and not a host setting, replaying the same log on another machine produces the same action edges, the same queue entries and the same state hash (G3).
