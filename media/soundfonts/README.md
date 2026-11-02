@@ -62,7 +62,16 @@ node --test packages/synth/test/tk16-bank.test.ts packages/synth/test/tk16-piece
 
 ## Licence
 
-CC0 1.0 Universal. You can copy, modify, distribute and use these banks for any purpose, including
-commercially, without asking or crediting anyone. See [LICENSE](LICENSE) for the legal code. The
-project's bundled-asset record is `THIRD_PARTY_NOTICES` at the repository root and
+The banks are CC0 1.0 Universal: you can copy, modify, distribute and use them for any purpose,
+including commercially, without asking or crediting anyone. See [LICENSE](LICENSE) for the legal
+code. The generator that makes them (`tools/licences/tk16_build.py`) is part of the project's own
+code and is released under its MIT licence (the repository's `LICENSE`). The project's
+bundled-asset record is `THIRD_PARTY_NOTICES` at the repository root and
 `tools/licences/config.json`, which also carry each file's hash.
+
+### Music you make with them
+
+Songs, rendered audio and game soundtracks made with these banks belong to whoever composed them.
+You can use rendered audio in commercial and non-commercial games with no credit, no notice and no
+licence text in your game. The only thing the licence ever asks of you is nothing: the banks are in
+the public domain.
