@@ -119,8 +119,12 @@ class ChoreTicketTests(unittest.TestCase):
     def test_duplicate_tracker_ids_still_fail(self):
         (self.epic / "tickets.toml").write_text(
             '[[entry]]\nid = 23\ntype = "bug"\ntitle = "First"\ntracker_id = "#1045"\n'
-            '[[entry]]\nid = 24\ntype = "story"\ntitle = "Second"\ntracker_id = "#1045"\n',
+            '[[entry]]\nid = 24\ntype = "story"\ntitle = "Second"\n',
             encoding="utf-8",
+        )
+        (self.epic / "story-second.md").write_text(
+            "---\nid: 24\ntype: story\nticket: 'legacy metadata'\n"
+            "title: Second\ntracker_id: '#1045'\n---\n# Second\n", encoding="utf-8",
         )
         result = self.run_ticket("status", str(self.epic))
         self.assertNotEqual(result.returncode, 0)
