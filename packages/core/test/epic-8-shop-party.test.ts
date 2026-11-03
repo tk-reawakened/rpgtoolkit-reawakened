@@ -1,20 +1,24 @@
 // Epic 8.6 integrated shop, gold, party, and Inn coverage (#595).
 // Contracts: docs/spec/engine/rpgcode-functions.md#e-83 and #e-84;
-// docs/spec/engine/plugins-and-battle.md#e-83 and #e-85.
+// docs/spec/engine/plugins-and-battle.md#e-80-stock-menu (item 15) and #e-85.
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
   assetKey,
+  type GameState,
   createAssetIndex,
   createEmptyItem,
   IR_VERSION,
+  restoreGameState,
+  snapshot,
   STOCK_RPG_PLUGIN,
   writeItem,
   type PackageCatalogueEntry,
 } from "../src/index.ts";
-import { authoredGame, bootHost, catalogue as menuCatalogue, repoRoot, type HostGame } from "./stock-menu-rig.ts";
+import { shopStockFromThreads } from "../src/menu/shop.ts";
+import { authoredGame, bootHost, catalogue as menuCatalogue, drawnTexts, pad, pointer, press, repoRoot, type HostGame, type Session } from "./stock-menu-rig.ts";
 
 const shopPackage = (() => {
   const path = join(repoRoot, "stock", "stock_rpg");
@@ -48,49 +52,109 @@ function gameWithShopItems(): HostGame {
   return { ...base, files, index: createAssetIndex([...base.index.paths, ...itemPaths]) };
 }
 
-test("full-engine CallShop resolves stock then real owner buy/sell and party swap actions affect state and gold", () => {
-  // Full-engine duration is intentional: a focused owner test cannot prove RPGCode filename resolution,
-  // host-served item bytes, a parked CallShop stock payload, and owner actions while that live context exists.
-  // The scenario stays minimal (two listed items, one buy and one sale) to avoid replaying unrelated engine behavior.
-  let ownerActionsApplied = false;
+type Visible = Pick<GameState, "menu">;
+
+/** The shop frame the screen opened, or `undefined` while it is closed. */
+function shopFrame(state: Visible): { screen: string; selection: number } | undefined {
+  return state.menu.screens.find((frame) => frame.screen === "shop");
+}
+
+function showing(state: GameState, text: string): void {
+  const texts = drawnTexts(state).texts;
+  ok(texts.includes(text), `the shop screen drew "${text}": ${JSON.stringify(texts)}`);
+}
+
+function openShop(): Session {
+  // Full-engine duration is intentional: a focused owner test cannot prove RPGCode filename resolution, host-served
+  // item bytes, a live `shop` menu provider frame and owner transactions driven by real input while it runs. The
+  // scenario stays minimal (two listed items, one buy, one sale, two refusals) to avoid unrelated engine behaviour.
   const session = bootHost({ game: gameWithShopItems(), catalogue, width: 320, height: 240,
-    startup: 'givegp(100)\naddplayer("ally1.tem")\ncallshop("stock-potion", "stock-tonic.itm")\n',
-    phaseRegistrations: [{ phase: "events", run: (state, postEffect) => {
-      const waiter = state.vm.threads.find((thread) => thread.wait?.kind === "menu.screen" && thread.wait.id === "callshop");
-      if (ownerActionsApplied || waiter === undefined || postEffect === undefined) return;
-      ownerActionsApplied = true;
-      const post = (section: "inventory" | "party" | "menu", action: Record<string, string | number>): void => {
-        postEffect(section, {
-          name: "state",
-          kind: "state-write",
-          args: [action],
-          thread: waiter.id,
-          out: {},
-          result: null,
-          patch: { section, path: [], op: "merge", value: null },
-          wait: null,
-          request: null,
-        });
-      };
-      post("inventory", { type: "buyItem", source: stock[0], amount: 2 });
-      const bought = state.inventory.items.find((item) => item.source === stock[0]);
-      if (bought === undefined) throw new Error("inventory owner did not commit the shop buy");
-      post("inventory", { type: "sellItem", entryId: bought.id, amount: 1 });
-      const [firstActorId, secondActorId] = state.party.members;
-      if (firstActorId === undefined || secondActorId === undefined) throw new Error("party fixture needs two members");
-      post("party", { type: "swap", firstActorId, secondActorId });
-      // Closing through the menu owner releases the real CallShop waiter on the next waits phase.
-      post("menu", { type: "shop.close" });
-    } }] });
-  const state = session.pump((current) => current.vm.threads.every((thread) => thread.wait?.kind !== "menu.screen" || thread.wait.id !== "callshop"));
-  const waiter = state.vm.effects;
-  ok(session.requests.filter((request) => request === "asset").length >= 2, "both item definitions were loaded by the headless host");
-  equal(ownerActionsApplied, true, "the live CallShop stock context reached the owner-dispatch phase");
-  equal(state.inventory.gold, 85, "buy debits 20 GP and sale credits 5 GP through inventory owner");
-  equal(state.inventory.items.find((item) => item.source === stock[0])?.quantity, 1, "two bought units, one sold unit remain");
-  deepEqual(state.party.members, [2, 1], "party owner swaps the two actor IDs without copying actor state");
-  ok(waiter.some((effect) => effect.name === "state" && effect.kind === "state-write"), "owner actions were recorded through the normal effect bus");
-  equal(state.menu.screens.length, 0);
+    startup: 'givegp(15)\naddplayer("ally1.tem")\ncallshop("stock-potion", "stock-tonic")\nafter = 1\n' });
+  session.pump((current) => current.menu.screens.some((frame) => frame.screen === "shop"));
+  return session;
+}
+
+test("full-engine CallShop opens the stock menu's shop screen and scripted input buys, sells, refuses and closes", () => {
+  const session = openShop();
+  const opened = session.state();
+  equal(shopFrame(opened)?.screen, "shop", "the CallShop command entered the registered shop provider");
+  ok(session.requests.includes("asset"), "the headless host served the shop's item definitions");
+  showing(opened, "Shop");
+  showing(opened, "Stock Potion");
+  showing(opened, "Buy 10 / Sell 5");
+  showing(opened, "Stock Tonic");
+  showing(opened, "Buy 20 / Sell 8");
+  showing(opened, "Gold 15");
+  // The session is plain data (G1): its stock rides on the provider frame's saved continuation, so a canonical
+  // snapshot taken inside the shop restores with the session intact and nothing added to `GameState`.
+  const restored = restoreGameState(snapshot(opened));
+  deepEqual(shopStockFromThreads(restored.vm.threads), [...stock], "the saved shop frame carries its stock");
+
+  // Buy one potion: stock row -> Buy -> amount 1.
+  const actions = press(session, "ENTER");
+  showing(actions, "Buy");
+  showing(actions, "Sell");
+  const amounts = press(session, "ENTER");
+  showing(amounts, "1 x 10 = 10 GP");
+  const bought = press(session, "ENTER");
+  equal(bought.inventory.gold, 5, "the inventory owner debited the item's buy price once");
+  equal(bought.inventory.items.find((item) => item.source === stock[0])?.quantity, 1, "the bought unit is one available stack");
+  showing(bought, "Bought Stock Potion x 1");
+  showing(bought, "Gold 5");
+  ok(bought.vm.effects.some((effect) => effect.kind === "state-write" && effect.patch?.section === "inventory" &&
+    JSON.stringify(effect.args).includes('"buyItem"')), "the purchase reached the owner through the normal effect bus");
+
+  // Sell refusal: the party holds one potion, so amount 2 cannot be sold.
+  press(session, "ENTER");
+  press(session, "DOWN");
+  press(session, "ENTER");
+  const refusedSale = press(session, "DOWN");
+  showing(refusedSale, "2 x 5 = 10 GP");
+  const saleRefusal = press(session, "ENTER");
+  showing(saleRefusal, "Not enough to sell");
+  equal(saleRefusal.inventory.gold, 5, "a refused sale changes no gold");
+  equal(saleRefusal.inventory.items.find((item) => item.source === stock[0])?.quantity, 1, "a refused sale keeps the stack");
+
+  // Sell it for real: amount 1.
+  press(session, "UP");
+  const sold = press(session, "ENTER");
+  equal(sold.inventory.gold, 10, "the inventory owner credited the item's sell price once");
+  equal(sold.inventory.items.find((item) => item.source === stock[0]), undefined, "the emptied stack is retired");
+  showing(sold, "Sold Stock Potion x 1");
+  showing(sold, "Gold 10");
+
+  // Buy refusal: 10 GP cannot cover two potions.
+  press(session, "ENTER");
+  press(session, "ENTER");
+  press(session, "DOWN");
+  const buyRefusal = press(session, "ENTER");
+  showing(buyRefusal, "Not enough gold");
+  equal(buyRefusal.inventory.gold, 10, "a refused purchase changes no gold");
+  equal(buyRefusal.inventory.items.find((item) => item.source === stock[0]), undefined, "a refused purchase adds nothing");
+  press(session, "ESC");
+  showing(press(session, "ESC"), "Buy 20 / Sell 8");
+
+  // The pointer and the pad reach the same rows as the keyboard (menu navigation ruling).
+  const pressed = pointer(session, 100, 84, 1);
+  equal(shopFrame(pressed)?.selection, 1, "a press over the second row moves the cursor to it");
+  showing(pressed, "Buy 20 / Sell 8");
+  const released = pointer(session, 100, 84, 0);
+  equal(shopFrame(released)?.selection, 0, "the release activates the pressed row's own screen");
+  showing(released, "Stock Tonic");
+  showing(released, "20 GP each");
+  const padded = pad(session, 2);
+  equal(shopFrame(padded)?.selection, 1, "the pad's down action moves the same cursor");
+  showing(padded, "8 GP each");
+  press(session, "ESC");
+  equal(shopFrame(session.state())?.selection, 1, "cancel returns to the stock list with its cursor");
+  showing(session.state(), "Stock Tonic");
+
+  // Close: cancel on the stock list clears the session and the CallShop caller resumes at its next instruction.
+  const closed = press(session, "ESC");
+  equal(shopFrame(closed), undefined, "closing the shop leaves no menu frame");
+  equal((closed.vm.globals as Record<string, unknown>).after, 1, "the parked CallShop script resumed and ran its next line");
+  equal(closed.inventory.gold, 10, "closing changes no gold");
+  deepEqual(session.diagnostics, [], "the whole session ran without diagnostics");
 });
 
 test("RPGCode Inn restores active party members including fallen members without charging gold", () => {

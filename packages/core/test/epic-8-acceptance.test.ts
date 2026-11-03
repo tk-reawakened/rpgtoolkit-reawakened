@@ -51,6 +51,9 @@ function readGolden(): AcceptanceGolden | null {
   return JSON.parse(readFileSync(goldenPath, "utf8")) as AcceptanceGolden;
 }
 
+// Recorded state hashes moved once, in #1234: the menu context and the menu's own item cache carry the E-83
+// shop data (prices from `menuitemdata`), and only `stateHash` changed - every `drawHash` and event list is
+// byte-identical to the previous recording, so the recorded screens, actions and events are unchanged.
 function recordCheckpoint(checkpoints: GoldenCheckpoint[], id: string, session: Session, events: EventView[]): void {
   const state = session.state();
   const stateHash = hashGameState(state);

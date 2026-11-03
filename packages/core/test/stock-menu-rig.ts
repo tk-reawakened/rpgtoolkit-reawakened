@@ -428,12 +428,19 @@ export function overlayBlits(engine: Engine): number {
   return engine.drawList().commands.filter((command) => command.kind === "blit" && "surface" in command.source).length;
 }
 
+export type Redraw = { readonly texts: string[]; readonly bars: string[] };
+
 /**
  * What the screen's latest redraw drew, read from the script's own effect log: every `pixelText` string in order, and
  * every focus bar (a `fillRect` that starts at x = 16, below the panel fill), since the last panel fill `(8, 8, …)`.
  */
-export function drawn(session: Session): { readonly texts: string[]; readonly bars: string[] } {
-  const effects = session.state().vm.effects;
+export function drawn(session: Session): Redraw {
+  return drawnTexts(session.state());
+}
+
+/** The same read against a state a test already holds (for example the one a key press returned). */
+export function drawnTexts(state: GameState): Redraw {
+  const effects = state.vm.effects;
   let start = 0;
   for (let index = effects.length - 1; index >= 0; index -= 1) {
     const effect = effects[index]!;
