@@ -53,6 +53,7 @@ import {
   tileToPixel,
   fileProgramRef,
   resolveProgram,
+  type AssetKey,
 } from "../src/index.ts";
 import { engineEffect, pluginManifestFor, resolveManifestPlugins } from "../src/engine/boot.ts";
 import { hashWithRequestCounter } from "./hash-projections.ts";
@@ -1284,7 +1285,7 @@ test("send arrival places the destination-layout pixel and deactivates the regio
     const destination = tileToPixel(layout, 32, spec.x, spec.y);
     const loader = { index: game.index, root: PACKAGE_ROOT, read: (key: AssetKey) => game.files.get(key) };
     const spriteRuntime = createSpriteRuntime();
-    let latest: GameState | null = null;
+    const stateRef: { current: GameState | null } = { current: null };
     const engine = createEngine({
       seed: 11,
       assetIndex: game.index,
@@ -1300,15 +1301,15 @@ test("send arrival places the destination-layout pixel and deactivates the regio
       maxTicks: 600,
       spriteRuntime,
       phaseRegistrations: [
-        { phase: "audio", run: (state) => { latest = state; } },
+        { phase: "audio", run: (state) => { stateRef.current = state; } },
         triggerPhaseRegistration({
           programRef: (name) => resolveProgram(loader, name) === undefined ? null : fileProgramRef(loader, name),
         }),
       ],
     });
     const result = run(engine, game.files, 12);
-    const state = latest;
-    ok(state !== null);
+    const state = stateRef.current;
+    if (state === null) throw new Error("no tick ran");
     const label = `the ${layout} board`;
     deepEqual(result.diagnostics, []);
     deepEqual(state.world.board?.key, `boards/${spec.board}`);
