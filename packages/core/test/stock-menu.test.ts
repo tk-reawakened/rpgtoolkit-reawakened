@@ -571,12 +571,31 @@ for (const [label, reference, detail] of [
   });
 }
 
-test("Quit closes the screen and sends the normal host request", () => {
+test("Quit asks first: No and cancel return to Quit and send nothing, Yes sends one request", () => {
   const session = boot({ startup: "mainmenu()\n" });
   session.pump((state) => state.menu.screens.length === 1);
   press(session, "UP");
-  const state = press(session, "ENTER");
-  equal(state.menu.screens.length, 0);
+  equal(session.state().menu.screens[0]!.selection, 5, "the cursor is on Quit");
+  let state = press(session, "ENTER");
+  equal(state.menu.screens.length, 1, "the first confirm only opens the question");
+  equal(state.menu.screens[0]!.selection, 0, "No is focused first");
+  equal(session.requests.filter((kind) => kind === "quit").length, 0, "nothing is quit yet");
+  state = press(session, "ENTER");
+  equal(state.menu.screens[0]!.selection, 5, "No returns to Quit");
+  equal(session.requests.filter((kind) => kind === "quit").length, 0);
+  press(session, "ENTER");
+  state = press(session, "ESC");
+  equal(state.menu.screens[0]!.selection, 5, "cancel returns to Quit");
+  press(session, "ENTER");
+  state = press(session, "M");
+  equal(state.menu.screens.length, 0, "the menu key closes everything from the question");
+  equal(session.requests.filter((kind) => kind === "quit").length, 0, "closing the question quits nothing");
+  startThread(session.state().vm, { ref: { kind: "inline", text: "mainmenu()\n", ir: IR_VERSION }, kind: "blocking", owner: "script" });
+  session.pump((current) => current.menu.screens.length === 1);
+  for (const key of ["UP", "ENTER", "DOWN"]) press(session, key);
+  equal(session.state().menu.screens[0]!.selection, 1, "Yes is the second row");
+  state = press(session, "ENTER");
+  equal(state.menu.screens.length, 0, "Yes closes the menu");
   session.pump(() => session.requests.includes("quit"));
   equal(session.requests.filter((kind) => kind === "quit").length, 1);
 });

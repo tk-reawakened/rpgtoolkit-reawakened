@@ -406,6 +406,14 @@ stockMenu = {
         commands[5] = "Quit"
         local(selection) = stockMenu.selection()
         local(dim) = 0
+        if (stockMenu.mode == "quit") {
+            stockMenu.clearPanel()
+            stockMenu.header("Quit the game?")
+            stockMenu.row(stockMenu.listTop + 28, "No", "", selection == 0, 0)
+            stockMenu.row(stockMenu.listTop + 28 + stockMenu.rowH, "Yes", "", selection == 1, 0)
+            stockMenu.footer()
+            return 0
+        }
         stockMenu.clearPanel()
         for (index = 0; index < stockMenu.memberCount; index = index + 1) {
             member = members[index]
@@ -438,6 +446,7 @@ stockMenu = {
         local(name) = ""
         local(selection) = 0
         local(parent) = stockMenu.begin(context, "main")
+        stockMenu.mode = "list"
         while (done == 0) {
             stockMenu.drawMain(context)
             key = wait()
@@ -445,6 +454,35 @@ stockMenu = {
                 key = stockMenu.normalize(key)
                 selection = stockMenu.selection()
                 stockMenu.message = ""
+                if (stockMenu.mode == "quit") {
+                    if (key == "up" || key == "down") {
+                        if (key == "up") { selection = stockMenu.wrap(selection - 1, 2) }
+                        if (key == "down") { selection = stockMenu.wrap(selection + 1, 2) }
+                        stockMenu.choose(selection)
+                        stockMenu.cue("move")
+                    }
+                    if (key == "cancel") {
+                        stockMenu.mode = "list"
+                        stockMenu.choose(5)
+                        stockMenu.cue("cancel")
+                    }
+                    if (key == "menu") {
+                        done = 1
+                        stockMenu.cue("cancel")
+                    }
+                    if (key == "confirm") {
+                        if (selection == 1) {
+                            done = 1
+                            stockMenu.cue("choose")
+                            dos()
+                        } else {
+                            stockMenu.mode = "list"
+                            stockMenu.choose(5)
+                            stockMenu.cue("cancel")
+                        }
+                    }
+                    key = ""
+                }
                 if (key == "up" || key == "down") {
                     if (key == "up") { selection = stockMenu.wrap(selection - 1, 6) }
                     if (key == "down") { selection = stockMenu.wrap(selection + 1, 6) }
@@ -499,9 +537,9 @@ stockMenu = {
                         }
                     }
                     if (selection == 5) {
-                        done = 1
+                        stockMenu.mode = "quit"
+                        stockMenu.choose(0)
                         stockMenu.cue("choose")
-                        dos()
                     }
                 }
             }
