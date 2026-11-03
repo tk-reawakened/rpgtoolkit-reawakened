@@ -121,17 +121,21 @@ function isHook(value: unknown): boolean {
 function selectionIssue(selection: { readonly [key: string]: unknown }, action: ItemActionRequest): boolean {
   if (selection.kind !== action.kind) return false;
   if (typeof selection.actorId !== "number" || !Number.isSafeInteger(selection.actorId) || selection.actorId < 1) return false;
+  if (selection.actorId !== action.actorId) return false;
   if (typeof selection.actorSource !== "string") return false;
   if (selection.entryId !== null && (typeof selection.entryId !== "number" || !Number.isSafeInteger(selection.entryId))) return false;
+  if (action.kind === "removeEquipment" && selection.entryId !== null) return false;
   if (selection.entryId === null) {
     if (selection.entrySource !== null || selection.entryHandle !== null) return false;
   } else if (typeof selection.entrySource !== "string" || typeof selection.entryHandle !== "string") return false;
   if ("entryId" in action && selection.entryId !== action.entryId) return false;
   const displaced = selection.displaced;
+  if (action.kind === "use" && displaced !== null) return false;
   if (displaced !== null) {
     if (!plain(displaced)) return false;
     if (typeof displaced.slot !== "string" || typeof displaced.source !== "string" || typeof displaced.handle !== "string") return false;
     if (typeof displaced.entryId !== "number" || !Number.isSafeInteger(displaced.entryId)) return false;
+    if ("slot" in action && displaced.slot !== action.slot) return false;
   }
   if (selection.slot !== null && typeof selection.slot !== "string") return false;
   if ("slot" in action && selection.slot !== action.slot) return false;

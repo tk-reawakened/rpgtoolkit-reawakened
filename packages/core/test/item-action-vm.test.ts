@@ -705,6 +705,24 @@ test("a malformed or inconsistent pending action is refused as restore.shape", (
   refuse((raw) => { record(raw).requested = [1]; }, "requested keys");
   refuse((raw) => { raw.vm.threads[0]!.pending = null; }, "completion with no pending dispatch");
   refuse((raw) => { raw.vm.threads[0]!.frames[0]!.itemActions = []; }, "empty stack");
+  // The saved selection must name its own action's actor, slot and stack (a corrupted save, not a runtime error).
+  const withSelection = (edit: (selection: Record<string, unknown>) => void, label: string): void => {
+    const boundary = boundarySave();
+    const raw = JSON.parse(boundary.saved) as Raw & { vm: { threads: Array<{ frames: Array<{ itemActions?: Array<Record<string, unknown>> }> }> } };
+    const record = raw.vm.threads[0]!.frames[0]!.itemActions![0]!;
+    record.phase = "preflight";
+    // Parsed save JSON: the selection shape is what the validator under test must accept or refuse.
+    const selection: Record<string, unknown> = {
+      kind: "use", actorId: boundary.action.actorId, actorSource: "hero.tem",
+      entryId: 1, entrySource: "item/potion.itm", entryHandle: "Potion", displaced: null, slot: null,
+    };
+    record.selection = selection;
+    edit(selection);
+    throws(() => restoreGameState(JSON.stringify(raw)), (error: unknown) => error instanceof ScriptError && error.code === "restore.shape", label);
+  };
+  withSelection((selection) => { selection.actorId = 999; }, "selection for another actor");
+  withSelection((selection) => { selection.displaced = { slot: "left-hand", entryId: 2, source: "item/a.itm", handle: "A" }; }, "use with a displaced tuple");
+  withSelection((selection) => { selection.slot = "right-hand"; }, "use with a slot");
 });
 
 test("restore requires the saved native provider identity to resolve before any thread resumes", () => {
