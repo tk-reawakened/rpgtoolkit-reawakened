@@ -12,6 +12,7 @@ import {
   createEmptyItem,
   IR_VERSION,
   restoreGameState,
+  startThread,
   snapshot,
   STOCK_RPG_PLUGIN,
   writeItem,
@@ -54,6 +55,13 @@ function gameWithShopItems(): HostGame {
 
 type Visible = Pick<GameState, "menu">;
 
+/**
+ * A game-shipped prompt read: one menu provider that copies the script-visible party view into a global, so the
+ * test asserts the E-87 step count through the script interface rather than the state field
+ * (docs/spec/engine/plugins-and-battle.md#e-80; docs/spec/engine/rpgcode-language.md#e-87).
+ */
+const STEP_PROBE = 'registerplugin({ name: "steps-probe", commands: {}, menuProviders: { main: (context) => {\n  stepsseen = context.party.steps\n} } })\n';
+
 /** The shop frame the screen opened, or `undefined` while it is closed. */
 function shopFrame(state: Visible): { screen: string; selection: number } | undefined {
   return state.menu.screens.find((frame) => frame.screen === "shop");
@@ -68,8 +76,23 @@ function openShop(): Session {
   // Full-engine duration is intentional: a focused owner test cannot prove RPGCode filename resolution, host-served
   // item bytes, a live `shop` menu provider frame and owner transactions driven by real input while it runs. The
   // scenario stays minimal (two listed items, one buy, one sale, two refusals) to avoid unrelated engine behaviour.
-  const session = bootHost({ game: gameWithShopItems(), catalogue, width: 320, height: 240,
-    startup: 'givegp(15)\naddplayer("ally1.tem")\ncallshop("stock-potion", "stock-tonic")\nafter = 1\n' });
+  const session = bootHost({ game: gameWithShopItems(), catalogue, width: 320, height: 240, startup: "end()\n",
+    // A package start-up that reads an owner section leaves that section's live object frozen for readers; the walk
+    // below mutates the party section through the movement owner, so thaw it into a fresh plain object first.
+    phaseRegistrations: [{ phase: "movement", rank: -10, run: (state) => {
+      if (Object.isFrozen(state.party)) state.party = { ...state.party };
+    } }] });
+  // A real held ArrowRight walks the board player one 32-pixel tile before the script runs, so the step count is
+  // earned by completed travel (a script that owns input would hold the direction rule off).
+  const start = session.state().time.tick;
+  session.advance(4, [{ tick: start, event: { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true } }]);
+  for (let step = 0; step < 10 && session.state().party.steps < 1; step += 1) session.advance(4);
+  const walked = session.state();
+  session.advance(1, [{ tick: walked.time.tick, event: { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: false } }]);
+  startThread(session.state().vm, {
+    ref: { kind: "inline", text: STEP_PROBE + 'givegp(15)\naddplayer("ally1.tem")\nmainmenu()\ncallshop("stock-potion", "stock-tonic")\nafter = 1\n', ir: IR_VERSION },
+    kind: "blocking", owner: "script",
+  });
   session.pump((current) => current.menu.screens.some((frame) => frame.screen === "shop"));
   return session;
 }
@@ -89,6 +112,12 @@ test("full-engine CallShop opens the stock menu's shop screen and scripted input
   // snapshot taken inside the shop restores with the session intact and nothing added to `GameState`.
   const restored = restoreGameState(snapshot(opened));
   deepEqual(shopStockFromThreads(restored.vm.threads), [...stock], "the saved shop frame carries its stock");
+  // E-87 steps: the walk above moved the selected player with real held input, and the game-shipped provider read
+  // the count back through the script-visible party view before the shop opened.
+  const stepsSeen = (opened.vm.globals as Record<string, unknown>).stepsseen;
+  ok(typeof stepsSeen === "number" && stepsSeen >= 1, `the script-visible party view reports the walk (${String(stepsSeen)})`);
+  equal(stepsSeen, opened.party.steps, "the script sees exactly the counted steps");
+  deepEqual(restored.party, opened.party, "the step count and its sub-tile remainder survive a canonical save/restore");
 
   // Buy one potion: stock row -> Buy -> amount 1.
   const actions = press(session, "ENTER");

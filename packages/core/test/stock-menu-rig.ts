@@ -16,6 +16,7 @@ import {
   createEmptySpecialMove,
   createEngine,
   inputPhaseRegistration,
+  movementPhaseRegistration,
   PACKAGE_ROOT,
   writeBoard,
   writeCharacter,
@@ -332,7 +333,9 @@ export function bootHost(config: HostConfig): Session {
     maxTicks: config.maxTicks ?? 4000,
     packageCatalogue: config.catalogue,
     bundled: BUNDLED,
-    phaseRegistrations: [inputPhaseRegistration(), { phase: "audio", run: (state) => { latest = state; } }, ...(config.phaseRegistrations ?? [])],
+    // The movement phase is what turns held input into travel (the runner registers it too), so a rig test can walk
+    // the board player with a real held key and observe the resulting `party.steps`.
+    phaseRegistrations: [inputPhaseRegistration(), movementPhaseRegistration(), { phase: "audio", run: (state) => { latest = state; } }, ...(config.phaseRegistrations ?? [])],
   });
   const state = (): GameState => {
     if (latest === null) throw new Error("the engine has not advanced");
