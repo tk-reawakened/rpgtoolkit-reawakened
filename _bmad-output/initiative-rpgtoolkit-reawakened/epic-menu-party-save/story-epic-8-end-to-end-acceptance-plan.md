@@ -8,6 +8,9 @@ context:
   - "spec - docs/spec/engine/plugins-and-battle.md#e-80 to E-87, E-123"
   - "spec - docs/spec/formats/save-game.md"
   - "initiative - CAP-5, CAP-9, CAP-10, CAP-11"
+status: blocked
+baseline_revision: eacdf6a9d04678caf389e228a4973def315cb827
+blocked_reason: "E-87 player steps are not recorded; see #1231."
 ---
 
 ## Intent
@@ -29,3 +32,33 @@ Execute the fixture under the project's deterministic runner and compare committ
 ## Implementation map
 
 Run only after the refactor sweep. Link each assertion to an E-xx or CAP id and preserve existing unrelated golden baselines.
+
+## Acceptance evidence
+
+- `packages/core/test/epic-8-acceptance.test.ts`: stock menu item/equipment/ability flows,
+  key-item refusal, graphic, cursor sounds, gold, game-time display, and the E-123 board gate;
+  `golden/epic8/acceptance.json` pins state and draw checkpoints for the authored scenario.
+- `packages/core/test/epic-8-shop-party.test.ts`: CallShop stock acquisition and real owner buy/sell
+  dispatch, party swap and Inn restoration.
+- `packages/core/test/epic-8-restore-acceptance.test.ts`: host save bytes, canonical round trip,
+  deterministic replay, newer-IR refusal and older-thread restart.
+- `packages/core/test/epic-8-restore-dialogue.test.ts`: real package bridge, actor-specific
+  completion and killed-dialogue suppression.
+- `packages/core/test/epic-8-battle-consume.test.ts`: real stock battle item use, exact
+  inventory consumption and one-time HP/SMP application.
+
+Perturbations exercised: removing the battle inventory dispatch left both stacks at 2 rather than 1;
+disabling the stock dialogue bridge removed the expected actor event; bypassing the save gate
+opened the picker; bypassing key-item protection removed the key; suppressing sale proceeds left
+80 rather than 85 gold; disabling Inn left HP at 0; skipping older-IR restart gave counter 3 rather
+than 4; disabling newer-IR refusal lost the expected diagnostic; skipping loaded-state adoption
+left counter 9 rather than 3. Each mutated production file was restored after its run.
+
+## Blocker
+
+E-87's total-step behavior is not proven: a headless real-engine keyboard movement advanced the
+player from `(64, 64)` to `(96, 64)` while `party.steps` remained `0`. Issue #1231 tracks the
+missing runtime integration and the unresolved counting semantics. This ticket cannot claim
+every E-80–E-87 behavior until that defect is resolved and covered. The CallShop test dispatches
+owner actions from a test phase hook during the live shop wait; it does not demonstrate a
+player-operated shop screen.

@@ -54,3 +54,20 @@ At **`dc09ccd1`** plus the sweep's own commits. Every child of the epic is now `
 
 Sweep-specific: one rule gained a single owner (the E-82 slot flag indices, F-01 in the plan) and one spec paragraph was
 corrected to the shipped contract (F-02); no behaviour, draw list, state hash or baseline moved.
+
+## Epic 8 end-to-end acceptance (8.14 / #595)
+
+The acceptance branch adds a real-engine stock-menu play-through and a new
+`golden/epic8/acceptance.json` with state and draw checkpoints. The fixture exercises item use,
+equipment, ability information and execution, key-item refusal, custom menu graphics and UI sounds,
+with a separate saving-disabled board case. Real-engine companion scenarios exercise CallShop
+owner transactions and party swap, Inn, save bytes and instruction-version compatibility, the
+stock dialogue bridge, and battle item consumption. These are additional acceptance evidence;
+the separate unit and integration suites listed above remain relevant.
+
+**Remaining blocker:** E-87's player-step counter is not covered by this acceptance suite.
+A headless engine probe with input and movement phases moved the player one tile from
+`(64, 64)` to `(96, 64)` while `party.steps` stayed `0`; see [#1231](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1231).
+The CallShop scenario drives owner effects from a test phase hook, not a player-operated shop
+screen. Consequently the earlier broad “proven” verdicts do not establish every behavior
+requested by #595, and the epic acceptance remains blocked.

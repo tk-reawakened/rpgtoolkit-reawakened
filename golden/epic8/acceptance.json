@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "checkpoints": [
+    {
+      "id": "main-opened",
+      "stateHash": "2c61625ee5f67b9f",
+      "drawHash": "5c03e81d30e61f2d"
+    },
+    {
+      "id": "items-opened",
+      "stateHash": "d9c6fd09ba626fba",
+      "drawHash": "b08933a37ac2025a"
+    },
+    {
+      "id": "equip-opened",
+      "stateHash": "3b614bdf1c966abe",
+      "drawHash": "cbf43114b1105ce6"
+    },
+    {
+      "id": "abilities-opened",
+      "stateHash": "574f61e89d9ff1c3",
+      "drawHash": "9c91bb37186799e9"
+    }
+  ]
+}
