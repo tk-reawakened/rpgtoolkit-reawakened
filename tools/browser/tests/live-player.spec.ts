@@ -3,11 +3,16 @@ import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import {
   BinaryReader,
+  createEmptyBoard,
+  createEmptyCharacter,
+  createEmptyMainFile,
   deriveGameId,
   derivePackageIdentity,
   loadPackage,
   readDistributionManifest,
   readMainFile,
+  writeBoard,
+  writeCharacter,
   writeDistributionPackage,
   writeMainFile,
 } from "@tk-reawakened/core";
@@ -16,7 +21,7 @@ declare global {
   interface Window { liveAnalyser?: AnalyserNode }
 }
 
-type LiveReport = { tick: number; stateHash: string; drawHash: string; player: { x: number; y: number } | null; error?: string };
+type LiveReport = { tick: number; stateHash: string; drawHash: string; player: { x: number; y: number } | null; board: string | null; error?: string };
 type LiveFixture = { readonly name: string; readonly packageBytes: Uint8Array; readonly descriptor: Record<string, unknown> };
 
 /**
@@ -71,6 +76,91 @@ async function servePackage(page: Page, fixture: LiveFixture): Promise<void> {
   });
   await page.route(`**/fixtures/packages/${fixture.name}.json`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(fixture.descriptor) }));
+}
+
+function triggerPhaseFixture(name: string): LiveFixture {
+  const emptyBoard = createEmptyBoard();
+  const boardBytes = (program: string | null): Uint8Array => {
+    const cells = 8 * 8;
+    const written = writeBoard({
+      ...emptyBoard,
+      sizeX: 8,
+      sizeY: 8,
+      sizeL: 1,
+      tileMatrix: Array.from({ length: cells }, () => 0),
+      tileRuns: [{ lutIndex: 0, count: cells, marker: true }],
+      threads: [],
+      layerTitles: ["", ""],
+      programs: program === null ? [] : [{
+        program,
+        graphic: "",
+        initialVar: "",
+        initialValue: "",
+        finalVar: "",
+        finalValue: "",
+        activate: 0,
+        activationType: 1,
+        repeatDistance: 0,
+        layer: 1,
+        points: [{ x: 16, y: 31 }, { x: 80, y: 31 }, { x: 80, y: 95 }, { x: 16, y: 95 }],
+        closed: 1,
+        handle: `region-${program}`,
+      }],
+      properties: {
+        ...emptyBoard.properties,
+        enterPrg: "",
+        start: { x: 64, y: 64, layer: 1 },
+      },
+    });
+    if (!written.ok) throw new Error(written.error.message);
+    return written.value;
+  };
+  const main = {
+    ...createEmptyMainFile(),
+    major: 2,
+    minor: 9,
+    startupPrg: "wait-for-start.prg",
+    initBoard: "start.brd",
+    initChar: "hero.tem",
+  };
+  const writtenMain = writeMainFile(main);
+  if (!writtenMain.ok) throw new Error(writtenMain.error.message);
+  const writtenCharacter = writeCharacter({
+    ...createEmptyCharacter(),
+    minor: 5,
+    name: "Hero",
+    movementAnimations: Array(8).fill(""),
+    battleStances: Array(6).fill(""),
+  });
+  if (!writtenCharacter.ok) throw new Error(writtenCharacter.error.message);
+  const tree = [
+    { path: "Main/test.gam", bytes: writtenMain.value },
+    { path: "Boards/start.brd", bytes: boardBytes("boot-to-second.prg") },
+    { path: "Boards/second.brd", bytes: boardBytes("send-to-third.prg") },
+    { path: "Boards/third.brd", bytes: boardBytes(null) },
+    { path: "Prg/wait-for-start.prg", bytes: new TextEncoder().encode("wait()\nend()\n") },
+    { path: "Prg/boot-to-second.prg", bytes: new TextEncoder().encode('send("second.brd", 2, 2, 1)\nend()\n') },
+    { path: "Prg/send-to-third.prg", bytes: new TextEncoder().encode('send("third.brd", 2, 2, 1)\nend()\n') },
+    { path: "Chrs/hero.tem", bytes: writtenCharacter.value },
+  ];
+  const writtenPackage = writeDistributionPackage({
+    files: tree,
+    manifest: { schema: 1, main: "Main/test.gam", index: tree.map((file) => file.path) },
+  });
+  if (!writtenPackage.ok) throw new Error(writtenPackage.error.message);
+  return {
+    name,
+    packageBytes: writtenPackage.value,
+    descriptor: {
+      schema: 1,
+      file: name,
+      sha256: createHash("sha256").update(writtenPackage.value).digest("hex"),
+      size: writtenPackage.value.length,
+      gameId: deriveGameId(writtenMain.value, derivePackageIdentity(tree)),
+      title: "Trigger phase probe",
+      version: "1",
+    },
+  };
 }
 
 test("live demo attaches a board canvas and movement changes the player and presented frame", async ({ page }) => {
@@ -180,4 +270,54 @@ test("the live player sends title music to the Web Audio graph", async ({ page }
     analyser.getFloatTimeDomainData(samples);
     return samples.some((sample) => Math.abs(sample) > 0.001);
   }, undefined, { timeout: 45_000 });
+});
+
+test("live session runs a held boot-key region program and deactivates send arrivals", async ({ page }) => {
+  const fixture = triggerPhaseFixture("trigger-phase.tpk");
+  await servePackage(page, fixture);
+  await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${fixture.name}`);
+  await page.waitForFunction(() => {
+    const live = window.__live;
+    return live !== undefined && (live.error !== undefined || (live.tick >= 5 && live.board === null));
+  }, undefined, { timeout: 15_000 });
+  const waiting = await page.evaluate(() => window.__live as LiveReport);
+  expect(waiting.error).toBeUndefined();
+  expect(waiting.board).toBeNull();
+  // The startup `wait()` consumes Start's key; keeping Enter down through board entry exercises #1176's first-free-roam poll.
+  await page.keyboard.down("Enter");
+  let firstArrival: LiveReport;
+  try {
+    await page.waitForFunction(
+      () => window.__live?.board === "boards/second.brd" || window.__live?.error !== undefined,
+      undefined,
+      { timeout: 10_000 },
+    );
+    firstArrival = await page.evaluate(() => window.__live as LiveReport);
+  } finally {
+    await page.keyboard.up("Enter");
+  }
+  expect(firstArrival.error).toBeUndefined();
+  expect(firstArrival.board).toBe("boards/second.brd");
+  // Let the send arrival finish before a fresh key tests whether its overlapping region was deactivated.
+  await page.waitForFunction(
+    (tick) => window.__live?.error !== undefined || (window.__live?.tick ?? 0) >= tick + 2,
+    firstArrival.tick,
+    { timeout: 10_000 },
+  );
+  const settledArrival = await page.evaluate(() => window.__live as LiveReport);
+  expect(settledArrival.error).toBeUndefined();
+  expect(settledArrival.board).toBe("boards/second.brd");
+
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(
+    (tick) => {
+      const live = window.__live;
+      return live !== undefined && (live.error !== undefined || live.tick >= tick + 5);
+    },
+    firstArrival.tick,
+    { timeout: 10_000 },
+  );
+  const afterSendArrival = await page.evaluate(() => window.__live as LiveReport);
+  expect(afterSendArrival.error).toBeUndefined();
+  expect(afterSendArrival.board).toBe("boards/second.brd");
 });

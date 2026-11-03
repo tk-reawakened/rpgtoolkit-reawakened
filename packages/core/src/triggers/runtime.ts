@@ -7,6 +7,7 @@ import type { GameState } from "../save/state.ts";
 import { resetUiForProgramStart } from "../save/sections/ui.ts";
 import type { Facing, SpriteActor } from "../sprites/model.ts";
 import type { WorldItem, WorldProgram, WorldPoint } from "../world/model.ts";
+import { coordLayout, tileToPixel } from "../world/coords.ts";
 import { createTriggersSection, resetTriggersSection, type TriggerActive, type TriggersSection } from "./model.ts";
 
 const FP = 256;
@@ -226,8 +227,15 @@ export function applyTriggerEffect(state: GameState, effect: EffectRecord): void
     return;
   }
   if (effect.name === "deactivateat") {
-    const [x, y, layer] = effect.args;
-    if (typeof x === "number" && typeof y === "number" && typeof layer === "number") state.triggers.deactivateAt = { x, y, layer };
+    const [x, y, layer, unit] = effect.args;
+    if (typeof x === "number" && typeof y === "number" && typeof layer === "number") {
+      const board = state.world.board;
+      // `send` reports one-based tiles; trigger regions use the board's pixel coordinates.
+      const point = unit === "tile" && board !== null && board !== undefined
+        ? tileToPixel(coordLayout(board.coordType), board.sizeX, x, y)
+        : { x, y };
+      state.triggers.deactivateAt = { ...point, layer };
+    }
   }
 }
 

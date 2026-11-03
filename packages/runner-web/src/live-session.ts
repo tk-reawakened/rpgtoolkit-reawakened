@@ -7,8 +7,13 @@ import {
   createSpriteRuntime,
   deriveGameId,
   derivePackageIdentity,
+  fileProgramRef,
   DEFAULT_FONT_ASSET,
   hashDrawList,
+  inputPhaseRegistration,
+  inputResetRegistration,
+  movementPhaseRegistration,
+  triggerPhaseRegistration,
   PACKAGE_ROOT,
   readMainFile,
   writeMainFile,
@@ -20,7 +25,6 @@ import {
   type RunnerRequest,
   type SurfaceId,
 } from "@tk-reawakened/core";
-import { inputPhaseRegistration, inputResetRegistration, movementPhaseRegistration } from "@tk-reawakened/core";
 import { parseClosingPlan, type ClosingFiles } from "@tk-reawakened/runner-harness";
 import { createWebgl2Renderer, type RenderStats } from "@tk-reawakened/render-webgl2";
 import { BUNDLED_BANK, CuePlayer, describePatchGap } from "@tk-reawakened/synth";
@@ -190,10 +194,12 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   let hasPlayer = false;
   let cameraPosition: { x: number; y: number } | null = null;
   let latest: GameState | null = null;
+  const triggerProgramLoader = { index, root: PACKAGE_ROOT, read: (key: AssetKey) => files.get(key) };
   const phaseRegistrations = interactive
     ? [
       inputPhaseRegistration({ pixelStep: 8, menuKey: interactiveInput.menuKey }),
       movementPhaseRegistration(),
+      triggerPhaseRegistration({ programRef: (name) => fileProgramRef(triggerProgramLoader, name) }),
       { phase: "audio" as const, rank: 0, run: (state: GameState) => { latest = state; } },
     ]
     : [{ phase: "audio" as const, run: (state: GameState) => { latest = state; } }];
