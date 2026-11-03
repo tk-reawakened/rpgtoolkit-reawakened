@@ -2,9 +2,13 @@
 // docs/spec/engine/plugins-and-battle.md#e-80-stock-menu
 //
 // The four screens are RPGCode `menuProviders` and the save/load picker is the `dirsav` command layer. Each
-// provider is its screen's own blocking loop on the calling script thread: draw, wait for one key, handle it, repeat.
-// The package owns navigation and drawing only; party, inventory, equipment and
+// provider is its screen's own blocking loop on the calling script thread: draw, `waitinput` for one key or pointer
+// change, handle it, repeat. The package owns navigation and drawing only; party, inventory, equipment and
 // menu state are read through the read-only provider context and changed only through the owner actions.
+//
+// The one cursor is the menu frame's `selection` (the focused list's cursor) and its `actorId` (the member being
+// operated). A screen keeps its mode and the cursors it returns to as locals in its own `ui` dictionary, so nothing
+// about a screen lives in a package global and nothing pushes an extra frame.
 //
 // Everything drawn goes into the reserved render-now overlay, whose previous pixels are stashed and restored when
 // the screen closes, so the menu is one blit in the core draw list and holds no state a renderer could own.
@@ -30,11 +34,11 @@ stockMenu = {
     markG: 224,
     markB: 64,
 
-    // ---- layout ----------------------------------------------------------------------------------------------
-    rowH: 20,
+    // ---- layout (A11Y-7: a row is a 24 x 24 target; every position derives from w and h) --------------------
+    rowH: 24,
     listTop: 24,
     labelX: 24,
-    pageSize: 8,
+    rowTop: 48,
     w: 0,
     h: 0,
     screen: 0,
@@ -45,10 +49,6 @@ stockMenu = {
     savedG: 0,
     savedB: 0,
     screenName: "",
-    mode: "list",
-    selection: 0,
-    member: 0,
-    slot: 0,
     message: "",
     closeAll: 0,
     context: null,
@@ -100,7 +100,8 @@ stockMenu = {
         stockMenu.frame(8, 8, stockMenu.w - 9, stockMenu.h - 9, stockMenu.lineR, stockMenu.lineG, stockMenu.lineB)
         return 0
     },
-    // A row's focus indicator is the selection bar, two pixels larger than the row on every side (A11Y-5).
+    // A row is the rectangle [16, w - 16) x [y - 4, y + 20): its text is at y and its focus bar fills the whole
+    // rectangle, so rows tile exactly and the bar is the pointer hit rectangle (A11Y-5, A11Y-7).
     row: (y, label, value, focused, dim) => {
         local(r) = stockMenu.inkR
         local(g) = stockMenu.inkG
@@ -112,7 +113,7 @@ stockMenu = {
             b = stockMenu.dimB
         }
         if (focused != 0) {
-            stockMenu.box(16, y - 2, stockMenu.w - 17, y + 18, stockMenu.barR, stockMenu.barG, stockMenu.barB)
+            stockMenu.box(16, y - 4, stockMenu.w - 17, y + 19, stockMenu.barR, stockMenu.barG, stockMenu.barB)
             r = stockMenu.markR
             g = stockMenu.markG
             b = stockMenu.markB
@@ -138,14 +139,73 @@ stockMenu = {
         return 0
     },
 
+    // ---- paging (one viewport capacity for every list) -------------------------------------------------------
+    // The rows that fit between the first row bar (y = 48) and the message line (y = h - 40): 6 at 320 x 240, 16 at 640 x 480.
+    pageRows: () => {
+        local(rows) = integermuldiv(stockMenu.h - 90, 1, stockMenu.rowH)
+        if (rows < 1) {
+            rows = 1
+        }
+        return rows
+    },
+    // The first row of the page that holds `selection`; a list that fits is one page.
+    firstOf: (selection, rows, cap) => {
+        if (rows <= cap) {
+            return 0
+        }
+        return integermuldiv(selection, 1, cap) * cap
+    },
+    pager: (selection, rows, cap) => {
+        if (rows > cap) {
+            local(pages) = integermuldiv(rows + cap - 1, 1, cap)
+            local(page) = integermuldiv(selection, 1, cap) + 1
+            stockMenu.words(stockMenu.w - 168, stockMenu.listTop, "Page " + page + " of " + pages, 16, stockMenu.inkR, stockMenu.inkG, stockMenu.inkB)
+        }
+        return 0
+    },
+    // Draw one list: the header, the page that holds the cursor and the page indicator. `labels`, `values` and `dims`
+    // are dictionaries indexed from 0 (value text and a 0/1 dim flag per row).
+    list: (ui, title, labels, values, dims, rows, empty) => {
+        local(selection) = stockMenu.getSel(ui)
+        local(cap) = stockMenu.pageRows()
+        local(first) = stockMenu.firstOf(selection, rows, cap)
+        local(position) = 0
+        local(y) = stockMenu.rowTop + 4
+        ui.cap = cap
+        ui.y0 = stockMenu.rowTop
+        ui.rows = rows
+        stockMenu.clearPanel()
+        stockMenu.header(title)
+        for (position = first; position < rows && position < first + cap; position = position + 1) {
+            stockMenu.row(y, labels[position], values[position], selection == position, dims[position])
+            y = y + stockMenu.rowH
+        }
+        if (rows == 0) {
+            stockMenu.words(stockMenu.labelX, stockMenu.rowTop + 4, empty, 16, stockMenu.dimR, stockMenu.dimG, stockMenu.dimB)
+        }
+        stockMenu.pager(selection, rows, cap)
+        stockMenu.footer()
+        return 0
+    },
+    // A screen with no rows: a header and one line of text.
+    note: (ui, title, text) => {
+        ui.cap = stockMenu.pageRows()
+        ui.y0 = stockMenu.rowTop
+        ui.rows = 0
+        stockMenu.clearPanel()
+        stockMenu.header(title)
+        stockMenu.words(stockMenu.labelX, stockMenu.rowTop + 4, text, 16, stockMenu.inkR, stockMenu.inkG, stockMenu.inkB)
+        stockMenu.footer()
+        return 0
+    },
+
     // ---- frame lifecycle -------------------------------------------------------------------------------------
     begin: (context, screenName) => {
         local(parent) = {
             context: stockMenu.context, screenName: stockMenu.screenName, w: stockMenu.w, h: stockMenu.h,
             screen: stockMenu.screen, stash: stockMenu.stash, stashOn: stockMenu.stashOn,
             savedFont: stockMenu.savedFont, savedR: stockMenu.savedR, savedG: stockMenu.savedG, savedB: stockMenu.savedB,
-            mode: stockMenu.mode, member: stockMenu.member, slot: stockMenu.slot, message: stockMenu.message,
-            charCache: stockMenu.charCache, itemCache: stockMenu.itemCache
+            message: stockMenu.message, charCache: stockMenu.charCache, itemCache: stockMenu.itemCache
         }
         local(w) = 0
         local(h) = 0
@@ -198,9 +258,6 @@ stockMenu = {
         stockMenu.savedR = parent.savedR
         stockMenu.savedG = parent.savedG
         stockMenu.savedB = parent.savedB
-        stockMenu.mode = parent.mode
-        stockMenu.member = parent.member
-        stockMenu.slot = parent.slot
         stockMenu.message = parent.message
         stockMenu.charCache = parent.charCache
         stockMenu.itemCache = parent.itemCache
@@ -232,13 +289,22 @@ stockMenu = {
         return 0
     },
 
-    // ---- selection -------------------------------------------------------------------------------------------
+    // ---- the one cursor --------------------------------------------------------------------------------------
+    // The frame's `selection`, or 0 when no frame exists.
     selection: () => {
         local(frames) = stockMenu.context.menu.screens
         if (frames.length < 1) {
             return 0
         }
         return frames[frames.length - 1].selection
+    },
+    // The frame's `actorId`, or null when no frame exists.
+    actorOf: (context) => {
+        local(frames) = context.menu.screens
+        if (frames.length < 1) {
+            return null
+        }
+        return frames[frames.length - 1].actorId
     },
     choose: (index) => {
         local(frames) = stockMenu.context.menu.screens
@@ -253,6 +319,64 @@ stockMenu = {
         stockMenu.context.menu.updateCurrent({ actorId: actorId, selection: index })
         return 0
     },
+    // A screen's state: `framed` says whether a menu frame holds the cursor (the picker may run with none, and then
+    // keeps a local `sel`), `follow` says the cursor is on a member list and the frame's actor follows it.
+    newUi: (context) => {
+        local(framed) = 0
+        local(actor) = null
+        if (context != null) {
+            if (context.menu.screens.length > 0) {
+                framed = 1
+                actor = stockMenu.actorOf(context)
+            }
+        }
+        local(ui) = {
+            mode: "list", framed: framed, follow: 0, sel: 0, actor0: actor, actor: actor,
+            last: null, pressed: -1, dirty: 1, cap: 1, y0: 48, rows: 0,
+            memberSel: 0, slotSel: 0, stack: 0, stackSel: 0, actionSel: 0, move: 0, moveSel: 0
+        }
+        return ui
+    },
+    getSel: (ui) => {
+        if (ui.framed == 1) {
+            return stockMenu.selection()
+        }
+        return ui.sel
+    },
+    setSel: (ui, index) => {
+        ui.dirty = 1
+        if (ui.framed == 1) {
+            if (ui.follow == 1) {
+                stockMenu.withMember(stockMenu.memberIds[index], index)
+            } else {
+                stockMenu.choose(index)
+            }
+        } else {
+            ui.sel = index
+        }
+        return 0
+    },
+    // Move to another list of the same screen: the mode, the member being operated and the cursor in the new list.
+    enter: (ui, mode, actor, index, follow) => {
+        ui.mode = mode
+        ui.follow = follow
+        ui.dirty = 1
+        ui.pressed = -1
+        if (ui.framed == 1) {
+            stockMenu.withMember(actor, index)
+        } else {
+            ui.sel = index
+        }
+        return 0
+    },
+    // After any call that can block (a nested screen, a prompt, an item program) the pointer baseline is stale: take
+    // the record as it is now, so an old press cannot be replayed on a screen that has changed.
+    resync: (ui) => {
+        ui.last = null
+        ui.pressed = -1
+        ui.dirty = 1
+        return 0
+    },
     wrap: (value, count) => {
         if (count < 1) {
             return 0
@@ -262,6 +386,130 @@ stockMenu = {
             next = next + count
         }
         return next % count
+    },
+    // up/down wrap over the whole list; left/right turn one whole page and clamp. Returns 1 when the cursor moved
+    // (a refused key is silent).
+    nav: (ui, key, rows) => {
+        local(selection) = stockMenu.getSel(ui)
+        local(next) = selection
+        local(cap) = stockMenu.pageRows()
+        if (rows > 0) {
+            if (key == "up") { next = stockMenu.wrap(selection - 1, rows) }
+            if (key == "down") { next = stockMenu.wrap(selection + 1, rows) }
+            if (rows > cap) {
+                if (key == "left") {
+                    next = selection - cap
+                    if (next < 0) { next = 0 }
+                }
+                if (key == "right") {
+                    next = selection + cap
+                    if (next > rows - 1) { next = rows - 1 }
+                }
+            }
+        }
+        if (next != selection) {
+            stockMenu.setSel(ui, next)
+            stockMenu.cue("move")
+            return 1
+        }
+        return 0
+    },
+    // Keep the cursor on a real row after the list shrank.
+    clampSel: (ui, rows) => {
+        local(selection) = stockMenu.getSel(ui)
+        if (rows > 0) {
+            if (selection >= rows) {
+                stockMenu.setSel(ui, rows - 1)
+            }
+        }
+        return 0
+    },
+
+    // ---- the pointer (E-111, menu navigation rule 3) ---------------------------------------------------------
+    // The visible row under (x, y), or -1: rows tile the rectangle [16, w - 16) x [y0, y0 + 24 * visible).
+    rowAt: (x, y, rows, first, y0, cap) => {
+        if (x < 16) { return -1 }
+        if (x >= stockMenu.w - 16) { return -1 }
+        if (y < y0) { return -1 }
+        local(k) = integermuldiv(y - y0, 1, stockMenu.rowH)
+        if (k >= cap) { return -1 }
+        if (first + k >= rows) { return -1 }
+        return first + k
+    },
+    // One pointer event, turned into the keyboard's own vocabulary: hover and press move the cursor here, a release
+    // over the row that was pressed returns "confirm" (the very path the keyboard takes), a secondary release returns
+    // "cancel", and everything else returns "". A press only arms a row; leaving the row cancels the press for good.
+    pointer: (ui, ev, rows, first, y0) => {
+        local(result) = ""
+        local(row) = -1
+        local(primary) = 0
+        local(selection) = stockMenu.getSel(ui)
+        if (ev.newdowns > 0) {
+            if (ev.button == 1) { primary = 1 }
+            if (ev.buttons % 2 == 1) { primary = 1 }
+            if (primary == 1) {
+                row = stockMenu.rowAt(ev.downx, ev.downy, rows, first, y0, ui.cap)
+                ui.pressed = row
+                if (row >= 0) {
+                    if (row != selection) {
+                        stockMenu.setSel(ui, row)
+                        stockMenu.cue("move")
+                        selection = row
+                    }
+                }
+            }
+        }
+        if (ev.moved == 1) {
+            row = stockMenu.rowAt(ev.x, ev.y, rows, first, y0, ui.cap)
+            if (ui.pressed >= 0) {
+                if (row != ui.pressed) {
+                    ui.pressed = -1
+                }
+            }
+            if (row >= 0) {
+                if (row != selection) {
+                    stockMenu.setSel(ui, row)
+                    stockMenu.cue("move")
+                    selection = row
+                }
+            }
+        }
+        if (ev.newups > 0) {
+            if (ev.button == 2) {
+                result = "cancel"
+            }
+            if (ev.button == 1) {
+                if (ui.pressed >= 0) {
+                    row = stockMenu.rowAt(ev.x, ev.y, rows, first, y0, ui.cap)
+                    if (row == ui.pressed) {
+                        if (row != selection) {
+                            stockMenu.setSel(ui, row)
+                        }
+                        result = "confirm"
+                    }
+                }
+                ui.pressed = -1
+            }
+        }
+        return result
+    },
+    // The one input wait of every screen: one key (normalised) or one pointer change.
+    read: (ui) => {
+        local(ev) = waitinput(ui.last)
+        local(key) = ""
+        local(first) = 0
+        ui.last = ev
+        if (ev.kind == "key") {
+            key = stockMenu.normalize(ev.key)
+        } else {
+            first = stockMenu.firstOf(stockMenu.getSel(ui), ui.rows, ui.cap)
+            key = stockMenu.pointer(ui, ev, ui.rows, first, ui.y0)
+        }
+        if (key != "") {
+            stockMenu.message = ""
+            ui.dirty = 1
+        }
+        return key
     },
 
     // ---- owner data ------------------------------------------------------------------------------------------
@@ -388,56 +636,98 @@ stockMenu = {
         if (secs < 10) { ss = "0" + secs }
         return hours + ":" + mm + ":" + ss
     },
-
-    // ---- the main screen -------------------------------------------------------------------------------------
-    drawMain: (context) => {
+    // The names of the party members as list rows.
+    memberRows: (context, labels, values, dims) => {
         local(members) = stockMenu.members(context)
         local(index) = 0
-        local(y) = stockMenu.listTop
+        for (index = 0; index < stockMenu.memberCount; index = index + 1) {
+            labels[index] = members[index].name
+            values[index] = ""
+            dims[index] = 0
+        }
+        return stockMenu.memberCount
+    },
+
+    // ---- the main screen -------------------------------------------------------------------------------------
+    // Layout: the top line (Gold and Time, or the message), the party block in 18-pixel lines, and the six commands
+    // pinned to the bottom of the panel so they never move: the last bar ends at y = h - 11.
+    drawMain: (context, ui) => {
+        local(members) = stockMenu.members(context)
+        local(index) = 0
+        local(y) = 0
         local(member)
         local(portrait)
         local(caption)
-        local(commands) = {}
-        commands[0] = "Items"
-        commands[1] = "Equip"
-        commands[2] = "Abilities"
-        commands[3] = "Save"
-        commands[4] = "Load"
-        commands[5] = "Quit"
-        local(selection) = stockMenu.selection()
-        local(dim) = 0
-        if (stockMenu.mode == "quit") {
-            stockMenu.clearPanel()
-            stockMenu.header("Quit the game?")
-            stockMenu.row(stockMenu.listTop + 28, "No", "", selection == 0, 0)
-            stockMenu.row(stockMenu.listTop + 28 + stockMenu.rowH, "Yes", "", selection == 1, 0)
-            stockMenu.footer()
+        local(labels) = {}
+        local(values) = {}
+        local(dims) = {}
+        local(commandTop) = stockMenu.h - 155
+        local(lines) = integermuldiv(stockMenu.h - 203, 1, 18)
+        local(shown) = stockMenu.memberCount
+        local(extra) = 0
+        local(selection) = stockMenu.getSel(ui)
+        if (ui.mode == "quit") {
+            labels[0] = "No"
+            labels[1] = "Yes"
+            values[0] = ""
+            values[1] = ""
+            dims[0] = 0
+            dims[1] = 0
+            stockMenu.list(ui, "Quit the game?", labels, values, dims, 2, "")
             return 0
         }
+        labels[0] = "Items"
+        labels[1] = "Equip"
+        labels[2] = "Abilities"
+        labels[3] = "Save"
+        labels[4] = "Load"
+        labels[5] = "Quit"
+        for (index = 0; index < 6; index = index + 1) {
+            values[index] = ""
+            dims[index] = 0
+        }
+        if (context.menu.saveallowed == 0) {
+            dims[3] = 1
+        }
+        if (lines < 1) {
+            lines = 1
+        }
+        if (shown > lines) {
+            shown = lines - 1
+            if (shown < 1) {
+                shown = 1
+            }
+            extra = stockMenu.memberCount - shown
+        }
+        ui.cap = 6
+        ui.y0 = commandTop
+        ui.rows = 6
         stockMenu.clearPanel()
-        for (index = 0; index < stockMenu.memberCount; index = index + 1) {
+        if (stockMenu.message != "") {
+            stockMenu.words(stockMenu.labelX, stockMenu.listTop, stockMenu.message, 16, stockMenu.markR, stockMenu.markG, stockMenu.markB)
+        } else {
+            stockMenu.words(stockMenu.labelX, stockMenu.listTop, "Gold " + context.inventory.gold, 16, stockMenu.inkR, stockMenu.inkG, stockMenu.inkB)
+            stockMenu.words(stockMenu.w - 168, stockMenu.listTop, "Time " + stockMenu.timeText(gametime), 16, stockMenu.inkR, stockMenu.inkG, stockMenu.inkB)
+        }
+        y = 44
+        for (index = 0; index < shown; index = index + 1) {
             member = members[index]
             caption = member.name + "  HP " + member.hp + "/" + member.maxhp + "  SMP " + member.smp + "/" + member.maxsmp + "  Lv " + member.level
-            stockMenu.row(y, caption, "", 0, 0)
+            stockMenu.words(44, y, caption, 16, stockMenu.inkR, stockMenu.inkG, stockMenu.inkB)
             portrait = stockMenu.characterData(member.source, member.id).portrait
             if (portrait != 0 && portrait != "") {
                 setimage(portrait, 24, y, 16, 16, stockMenu.screen)
             }
-            y = y + stockMenu.rowH
+            y = y + 18
         }
-        y = y + 4
-        stockMenu.words(stockMenu.labelX, y, "Gold " + context.inventory.gold, 16, stockMenu.inkR, stockMenu.inkG, stockMenu.inkB)
-        stockMenu.words(stockMenu.w - 168, y, "Time " + stockMenu.timeText(gametime), 16, stockMenu.inkR, stockMenu.inkG, stockMenu.inkB)
-        y = y + stockMenu.rowH + 4
+        if (extra > 0) {
+            stockMenu.words(stockMenu.labelX, y, "+" + extra + " more", 16, stockMenu.dimR, stockMenu.dimG, stockMenu.dimB)
+        }
+        y = commandTop + 4
         for (index = 0; index < 6; index = index + 1) {
-            dim = 0
-            if (index == 3 && context.menu.saveallowed == 0) {
-                dim = 1
-            }
-            stockMenu.row(y, commands[index], "", selection == index, dim)
+            stockMenu.row(y, labels[index], values[index], selection == index, dims[index])
             y = y + stockMenu.rowH
         }
-        stockMenu.footer()
         return 0
     },
     mainScreen: (context) => {
@@ -446,24 +736,19 @@ stockMenu = {
         local(name) = ""
         local(selection) = 0
         local(parent) = stockMenu.begin(context, "main")
-        stockMenu.mode = "list"
+        local(ui) = stockMenu.newUi(context)
         while (done == 0) {
-            stockMenu.drawMain(context)
-            key = wait()
+            if (ui.dirty == 1) {
+                stockMenu.drawMain(context, ui)
+                ui.dirty = 0
+            }
+            key = stockMenu.read(ui)
             if (key != "") {
-                key = stockMenu.normalize(key)
-                selection = stockMenu.selection()
-                stockMenu.message = ""
-                if (stockMenu.mode == "quit") {
-                    if (key == "up" || key == "down") {
-                        if (key == "up") { selection = stockMenu.wrap(selection - 1, 2) }
-                        if (key == "down") { selection = stockMenu.wrap(selection + 1, 2) }
-                        stockMenu.choose(selection)
-                        stockMenu.cue("move")
-                    }
+                selection = stockMenu.getSel(ui)
+                if (ui.mode == "quit") {
+                    stockMenu.nav(ui, key, 2)
                     if (key == "cancel") {
-                        stockMenu.mode = "list"
-                        stockMenu.choose(5)
+                        stockMenu.enter(ui, "list", ui.actor0, 5, 0)
                         stockMenu.cue("cancel")
                     }
                     if (key == "menu") {
@@ -476,19 +761,13 @@ stockMenu = {
                             stockMenu.cue("choose")
                             dos()
                         } else {
-                            stockMenu.mode = "list"
-                            stockMenu.choose(5)
+                            stockMenu.enter(ui, "list", ui.actor0, 5, 0)
                             stockMenu.cue("cancel")
                         }
                     }
                     key = ""
                 }
-                if (key == "up" || key == "down") {
-                    if (key == "up") { selection = stockMenu.wrap(selection - 1, 6) }
-                    if (key == "down") { selection = stockMenu.wrap(selection + 1, 6) }
-                    stockMenu.choose(selection)
-                    stockMenu.cue("move")
-                }
+                stockMenu.nav(ui, key, 6)
                 if (key == "menu") {
                     done = 1
                     stockMenu.cue("cancel")
@@ -502,16 +781,19 @@ stockMenu = {
                         stockMenu.cue("choose")
                         itemmenu()
                         if (stockMenu.closeAll == 1) { done = 1 }
+                        stockMenu.resync(ui)
                     }
                     if (selection == 1) {
                         stockMenu.cue("choose")
                         equipmentmenu()
                         if (stockMenu.closeAll == 1) { done = 1 }
+                        stockMenu.resync(ui)
                     }
                     if (selection == 2) {
                         stockMenu.cue("choose")
                         abilitiesmenu()
                         if (stockMenu.closeAll == 1) { done = 1 }
+                        stockMenu.resync(ui)
                     }
                     if (selection == 3) {
                         if (context.menu.saveallowed == 0) {
@@ -525,6 +807,7 @@ stockMenu = {
                                 save(name)
                                 stockMenu.message = "Saved " + name
                             }
+                            stockMenu.resync(ui)
                         }
                     }
                     if (selection == 4) {
@@ -535,10 +818,10 @@ stockMenu = {
                             load(name)
                             done = 1
                         }
+                        stockMenu.resync(ui)
                     }
                     if (selection == 5) {
-                        stockMenu.mode = "quit"
-                        stockMenu.choose(0)
+                        stockMenu.enter(ui, "quit", ui.actor0, 0, 0)
                         stockMenu.cue("choose")
                     }
                 }
@@ -549,57 +832,44 @@ stockMenu = {
     },
 
     // ---- the items screen ------------------------------------------------------------------------------------
-    drawItems: (context) => {
+    drawItems: (context, ui) => {
         local(count) = stockMenu.stacks(context)
         local(index) = 0
-        local(position) = 0
-        local(y) = 0
-        local(selection) = stockMenu.selection()
-        local(actions) = {}
-        actions[0] = "Use"
-        actions[1] = "Info"
-        actions[2] = "Drop"
-        local(page) = integermuldiv(selection, 1, stockMenu.pageSize)
-        local(first) = page * stockMenu.pageSize
-        stockMenu.clearPanel()
-        if (stockMenu.mode == "list") {
-            stockMenu.header("Items")
-            y = stockMenu.listTop + 28
-            for (position = first; position < count && position < first + stockMenu.pageSize; position = position + 1) {
-                stockMenu.row(y, stockMenu.stackHandles[position], "x " + stockMenu.stackQty[position], selection == position, 0)
-                y = y + stockMenu.rowH
+        local(labels) = {}
+        local(values) = {}
+        local(dims) = {}
+        local(data)
+        if (ui.mode == "list") {
+            stockMenu.clampSel(ui, count)
+            for (index = 0; index < count; index = index + 1) {
+                labels[index] = stockMenu.stackHandles[index]
+                values[index] = "x " + stockMenu.stackQty[index]
+                dims[index] = 0
             }
-            if (count == 0) {
-                stockMenu.words(stockMenu.labelX, stockMenu.listTop + 28, "Nothing carried", 16, stockMenu.dimR, stockMenu.dimG, stockMenu.dimB)
-            }
+            stockMenu.list(ui, "Items", labels, values, dims, count, "Nothing carried")
         }
-        if (stockMenu.mode == "action") {
-            stockMenu.header(stockMenu.stackHandles[selection])
-            y = stockMenu.listTop + 28
+        if (ui.mode == "action") {
+            labels[0] = "Use"
+            labels[1] = "Info"
+            labels[2] = "Drop"
             for (index = 0; index < 3; index = index + 1) {
-                stockMenu.row(y, actions[index], "", stockMenu.slot == index, 0)
-                y = y + stockMenu.rowH
+                values[index] = ""
+                dims[index] = 0
             }
+            stockMenu.list(ui, stockMenu.stackHandles[ui.stack], labels, values, dims, 3, "")
         }
-        if (stockMenu.mode == "member") {
-            local(members) = stockMenu.members(context)
-            stockMenu.header("Use on")
-            y = stockMenu.listTop + 28
-            for (index = 0; index < stockMenu.memberCount; index = index + 1) {
-                stockMenu.row(y, members[index].name, "", stockMenu.member == index, 0)
-                y = y + stockMenu.rowH
-            }
+        if (ui.mode == "member") {
+            count = stockMenu.memberRows(context, labels, values, dims)
+            stockMenu.list(ui, "Use on", labels, values, dims, count, "")
         }
-        if (stockMenu.mode == "info") {
-            local(data) = stockMenu.itemData(stockMenu.stackSources[selection])
-            stockMenu.header(stockMenu.stackHandles[selection])
+        if (ui.mode == "info") {
+            data = stockMenu.itemData(stockMenu.stackSources[ui.stack])
             if (data.description == "") {
-                stockMenu.words(stockMenu.labelX, stockMenu.listTop + 28, stockMenu.stackHandles[selection], 16, stockMenu.inkR, stockMenu.inkG, stockMenu.inkB)
+                stockMenu.note(ui, stockMenu.stackHandles[ui.stack], stockMenu.stackHandles[ui.stack])
             } else {
-                stockMenu.words(stockMenu.labelX, stockMenu.listTop + 28, data.description, 16, stockMenu.inkR, stockMenu.inkG, stockMenu.inkB)
+                stockMenu.note(ui, stockMenu.stackHandles[ui.stack], data.description)
             }
         }
-        stockMenu.footer()
         return 0
     },
     itemScreen: (context) => {
@@ -610,38 +880,22 @@ stockMenu = {
         local(data)
         local(actorId) = 0
         local(parent) = stockMenu.begin(context, "items")
-        local(previousMode) = ""
-        stockMenu.mode = "list"
-        stockMenu.slot = 0
-        stockMenu.member = 0
+        local(ui) = stockMenu.newUi(context)
         while (done == 0) {
-            stockMenu.drawItems(context)
-            key = wait()
+            if (ui.dirty == 1) {
+                stockMenu.drawItems(context, ui)
+                ui.dirty = 0
+            }
+            key = stockMenu.read(ui)
             if (key != "") {
-                key = stockMenu.normalize(key)
-                previousMode = stockMenu.mode
-                stockMenu.message = ""
-                selection = stockMenu.selection()
-                if (previousMode == "list") {
-                    if (key == "up" || key == "down" || key == "left" || key == "right") {
-                        if (key == "up") { selection = stockMenu.wrap(selection - 1, stockMenu.stackCount) }
-                        if (key == "down") { selection = stockMenu.wrap(selection + 1, stockMenu.stackCount) }
-                        if (key == "left") {
-                            selection = selection - stockMenu.pageSize
-                            if (selection < 0) { selection = 0 }
-                        }
-                        if (key == "right") {
-                            selection = selection + stockMenu.pageSize
-                            if (selection > stockMenu.stackCount - 1) { selection = stockMenu.stackCount - 1 }
-                            if (selection < 0) { selection = 0 }
-                        }
-                        stockMenu.choose(selection)
-                        stockMenu.cue("move")
-                    }
+                selection = stockMenu.getSel(ui)
+                if (ui.mode == "list") {
+                    stockMenu.nav(ui, key, stockMenu.stackCount)
                     if (key == "confirm") {
                         if (stockMenu.stackCount > 0) {
-                            stockMenu.mode = "action"
-                            stockMenu.slot = 0
+                            ui.stackSel = selection
+                            ui.stack = selection
+                            stockMenu.enter(ui, "action", ui.actor0, 0, 0)
                             stockMenu.cue("choose")
                         }
                     }
@@ -651,66 +905,10 @@ stockMenu = {
                         stockMenu.cue("cancel")
                     }
                 } else {
-                    // Every sub-screen keeps its own index: `selection` is the stack while the list has the cursor.
-                    stockMenu.withMember(stockMenu.context.party.selected, selection)
-                }
-                if (previousMode == "action") {
-                    if (key == "up" || key == "down") {
-                        if (key == "up") { stockMenu.slot = stockMenu.wrap(stockMenu.slot - 1, 3) }
-                        if (key == "down") { stockMenu.slot = stockMenu.wrap(stockMenu.slot + 1, 3) }
-                        stockMenu.cue("move")
-                    }
-                    if (key == "cancel") {
-                        stockMenu.mode = "list"
-                        stockMenu.cue("cancel")
-                    }
-                    if (key == "menu") {
-                        done = 1
-                        stockMenu.closeAll = 1
-                        stockMenu.cue("cancel")
-                    }
-                    if (key == "confirm") {
-                        if (stockMenu.slot == 0) {
-                            if (stockMenu.stackQty[selection] < 1) {
-                                stockMenu.message = "Nothing to use"
-                                stockMenu.cue("cancel")
-                            } else {
-                                stockMenu.mode = "member"
-                                stockMenu.member = 0
-                                stockMenu.cue("choose")
-                            }
-                        }
-                        if (stockMenu.slot == 1) {
-                            stockMenu.mode = "info"
-                            stockMenu.cue("choose")
-                        }
-                        if (stockMenu.slot == 2) {
-                            data = stockMenu.itemData(stockMenu.stackSources[selection])
-                            if (data.keyitem != 0) {
-                                stockMenu.message = "Key items cannot be dropped"
-                                stockMenu.cue("cancel")
-                            } else {
-                                if (stockMenu.stackQty[selection] < 1) {
-                                    stockMenu.message = "Nothing to drop"
-                                    stockMenu.cue("cancel")
-                                } else {
-                                    context.inventory.removeItem({ entryId: stockMenu.stackIds[selection], amount: 1 })
-                                    stockMenu.mode = "list"
-                                    stockMenu.message = "Dropped " + stockMenu.stackHandles[selection]
-                                    stockMenu.cue("choose")
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    if (previousMode == "member") {
-                        if (key == "up" || key == "down") {
-                            if (key == "up") { stockMenu.member = stockMenu.wrap(stockMenu.member - 1, stockMenu.memberCount) }
-                            if (key == "down") { stockMenu.member = stockMenu.wrap(stockMenu.member + 1, stockMenu.memberCount) }
-                            stockMenu.cue("move")
-                        }
+                    if (ui.mode == "action") {
+                        stockMenu.nav(ui, key, 3)
                         if (key == "cancel") {
-                            stockMenu.mode = "action"
+                            stockMenu.enter(ui, "list", ui.actor0, ui.stackSel, 0)
                             stockMenu.cue("cancel")
                         }
                         if (key == "menu") {
@@ -719,29 +917,78 @@ stockMenu = {
                             stockMenu.cue("cancel")
                         }
                         if (key == "confirm") {
-                            if (stockMenu.memberCount > 0) {
-                                actorId = stockMenu.memberIds[stockMenu.member]
-                                result = context.inventory.use({ entryId: stockMenu.stackIds[selection], actorId: actorId })
-                                if (result.status == "complete") {
-                                    stockMenu.mode = "list"
-                                    stockMenu.message = "Used " + stockMenu.stackHandles[selection]
-                                    stockMenu.cue("choose")
-                                } else {
-                                    stockMenu.message = result.error.message
+                            if (selection == 0) {
+                                if (stockMenu.stackQty[ui.stack] < 1) {
+                                    stockMenu.message = "Nothing to use"
                                     stockMenu.cue("cancel")
+                                } else {
+                                    ui.actionSel = 0
+                                    stockMenu.members(context)
+                                    stockMenu.enter(ui, "member", stockMenu.memberIds[0], 0, 1)
+                                    stockMenu.cue("choose")
+                                }
+                            }
+                            if (selection == 1) {
+                                ui.actionSel = 1
+                                stockMenu.enter(ui, "info", ui.actor0, 1, 0)
+                                stockMenu.cue("choose")
+                            }
+                            if (selection == 2) {
+                                data = stockMenu.itemData(stockMenu.stackSources[ui.stack])
+                                if (data.keyitem != 0) {
+                                    stockMenu.message = "Key items cannot be dropped"
+                                    stockMenu.cue("cancel")
+                                } else {
+                                    if (stockMenu.stackQty[ui.stack] < 1) {
+                                        stockMenu.message = "Nothing to drop"
+                                        stockMenu.cue("cancel")
+                                    } else {
+                                        context.inventory.removeItem({ entryId: stockMenu.stackIds[ui.stack], amount: 1 })
+                                        stockMenu.message = "Dropped " + stockMenu.stackHandles[ui.stack]
+                                        stockMenu.enter(ui, "list", ui.actor0, ui.stackSel, 0)
+                                        stockMenu.cue("choose")
+                                    }
                                 }
                             }
                         }
                     } else {
-                        if (previousMode == "info") {
+                        if (ui.mode == "member") {
+                            stockMenu.nav(ui, key, stockMenu.memberCount)
                             if (key == "cancel") {
-                                stockMenu.mode = "action"
+                                stockMenu.enter(ui, "action", ui.actor0, ui.actionSel, 0)
                                 stockMenu.cue("cancel")
                             }
                             if (key == "menu") {
                                 done = 1
                                 stockMenu.closeAll = 1
                                 stockMenu.cue("cancel")
+                            }
+                            if (key == "confirm") {
+                                if (stockMenu.memberCount > 0) {
+                                    actorId = stockMenu.memberIds[selection]
+                                    result = context.inventory.use({ entryId: stockMenu.stackIds[ui.stack], actorId: actorId })
+                                    if (result.status == "complete") {
+                                        stockMenu.message = "Used " + stockMenu.stackHandles[ui.stack]
+                                        stockMenu.enter(ui, "list", ui.actor0, ui.stackSel, 0)
+                                        stockMenu.cue("choose")
+                                    } else {
+                                        stockMenu.message = result.error.message
+                                        stockMenu.cue("cancel")
+                                    }
+                                    stockMenu.resync(ui)
+                                }
+                            }
+                        } else {
+                            if (ui.mode == "info") {
+                                if (key == "cancel") {
+                                    stockMenu.enter(ui, "action", ui.actor0, ui.actionSel, 0)
+                                    stockMenu.cue("cancel")
+                                }
+                                if (key == "menu") {
+                                    done = 1
+                                    stockMenu.closeAll = 1
+                                    stockMenu.cue("cancel")
+                                }
                             }
                         }
                     }
@@ -753,73 +1000,62 @@ stockMenu = {
     },
 
     // ---- the equipment screen --------------------------------------------------------------------------------
-    drawEquipment: (context) => {
+    drawEquipment: (context, ui) => {
         local(index) = 0
-        local(y) = 0
         local(actorId) = 0
         local(slot) = ""
         local(itemId) = 0
-        local(handle) = "-"
-        local(character)
-        local(data)
         local(position) = 0
         local(shown) = 0
-        stockMenu.clearPanel()
-        if (stockMenu.mode == "member") {
-            local(members) = stockMenu.members(context)
-            stockMenu.header("Equip")
-            y = stockMenu.listTop + 28
-            for (index = 0; index < stockMenu.memberCount; index = index + 1) {
-                stockMenu.row(y, members[index].name, "", stockMenu.member == index, 0)
-                y = y + stockMenu.rowH
-            }
+        local(labels) = {}
+        local(values) = {}
+        local(dims) = {}
+        local(count) = 0
+        stockMenu.members(context)
+        if (ui.mode == "member") {
+            count = stockMenu.memberRows(context, labels, values, dims)
+            stockMenu.list(ui, "Equip", labels, values, dims, count, "")
         }
-        if (stockMenu.mode == "slot") {
-            actorId = stockMenu.memberIds[stockMenu.member]
+        if (ui.mode == "slot") {
             stockMenu.stacks(context)
-            stockMenu.header("Slot")
-            y = stockMenu.listTop + 28
             for (index = 0; index < 16; index = index + 1) {
                 slot = stockMenu.slotTokens[index]
-                itemId = stockMenu.equippedAt(context, actorId, slot)
-                handle = "-"
+                itemId = stockMenu.equippedAt(context, ui.actor, slot)
+                labels[index] = slot
+                values[index] = "-"
+                dims[index] = 0
                 if (itemId != 0) {
-                    handle = stockMenu.handleOfEntry(context, itemId)
+                    values[index] = stockMenu.handleOfEntry(context, itemId)
                 }
-                stockMenu.row(y, slot, handle, stockMenu.slot == index, 0)
-                y = y + stockMenu.rowH
             }
+            stockMenu.list(ui, "Slot", labels, values, dims, 16, "")
         }
-        if (stockMenu.mode == "item") {
-            actorId = stockMenu.memberIds[stockMenu.member]
-            slot = stockMenu.slotTokens[stockMenu.slot]
-            stockMenu.buildItemList(context)
-            stockMenu.header(slot)
-            y = stockMenu.listTop + 28
+        if (ui.mode == "item") {
+            slot = stockMenu.slotTokens[ui.slotSel]
+            stockMenu.buildItemList(context, ui)
+            shown = 0
             if (stockMenu.listHasRemove == 1) {
-                stockMenu.row(y, "Remove", "", stockMenu.selection() == 0, 0)
-                y = y + stockMenu.rowH
+                labels[0] = "Remove"
+                values[0] = ""
+                dims[0] = 0
+                shown = 1
             }
             for (position = 0; position < stockMenu.itemcount; position = position + 1) {
-                shown = position
-                if (stockMenu.listHasRemove == 1) {
-                    shown = position + 1
-                }
-                stockMenu.row(y, stockMenu.stackHandles[stockMenu.listPositions[position]], "", stockMenu.selection() == shown, 0)
-                y = y + stockMenu.rowH
+                labels[shown] = stockMenu.stackHandles[stockMenu.listPositions[position]]
+                values[shown] = ""
+                dims[shown] = 0
+                shown = shown + 1
             }
-            if (stockMenu.itemcount == 0 && stockMenu.listHasRemove == 0) {
-                stockMenu.words(stockMenu.labelX, stockMenu.listTop + 28, "Nothing fits", 16, stockMenu.dimR, stockMenu.dimG, stockMenu.dimB)
-            }
+            stockMenu.clampSel(ui, shown)
+            stockMenu.list(ui, slot, labels, values, dims, shown, "Nothing fits")
         }
-        stockMenu.footer()
         return 0
     },
     // The stacks whose definition fits the chosen slot for this character, in stack-id order (E-82 filter).
-    buildItemList: (context) => {
-        local(actorId) = stockMenu.memberIds[stockMenu.member]
-        local(slot) = stockMenu.slotTokens[stockMenu.slot]
-        local(member) = stockMenu.members(context)[stockMenu.member]
+    buildItemList: (context, ui) => {
+        local(actorId) = ui.actor
+        local(slot) = stockMenu.slotTokens[ui.slotSel]
+        local(member) = stockMenu.members(context)[ui.memberSel]
         local(character) = stockMenu.characterData(member.source, actorId)
         local(position) = 0
         local(data)
@@ -850,34 +1086,25 @@ stockMenu = {
     equipmentScreen: (context) => {
         local(key) = ""
         local(done) = 0
-        local(actorId) = 0
         local(slot) = ""
         local(result)
-        local(member)
-        local(character)
         local(position) = 0
         local(shown) = 0
-        local(usable) = 0
-        local(data)
-        local(hasRemove) = 0
-        local(cursor) = 0
+        local(selection) = 0
         local(parent) = stockMenu.begin(context, "equipment")
-        stockMenu.mode = "member"
-        stockMenu.member = 0
-        stockMenu.slot = 0
+        local(ui) = stockMenu.newUi(context)
+        ui.mode = "member"
+        ui.follow = 1
         while (done == 0) {
-            stockMenu.drawEquipment(context)
-            key = wait()
+            if (ui.dirty == 1) {
+                stockMenu.drawEquipment(context, ui)
+                ui.dirty = 0
+            }
+            key = stockMenu.read(ui)
             if (key != "") {
-                key = stockMenu.normalize(key)
-                stockMenu.message = ""
-                cursor = stockMenu.selection()
-                if (stockMenu.mode == "member") {
-                    if (key == "up" || key == "down") {
-                        if (key == "up") { stockMenu.member = stockMenu.wrap(stockMenu.member - 1, stockMenu.memberCount) }
-                        if (key == "down") { stockMenu.member = stockMenu.wrap(stockMenu.member + 1, stockMenu.memberCount) }
-                        stockMenu.cue("move")
-                    }
+                selection = stockMenu.getSel(ui)
+                if (ui.mode == "member") {
+                    stockMenu.nav(ui, key, stockMenu.memberCount)
                     if (key == "cancel" || key == "menu") {
                         done = 1
                         if (key == "menu") { stockMenu.closeAll = 1 }
@@ -885,22 +1112,17 @@ stockMenu = {
                     }
                     if (key == "confirm") {
                         if (stockMenu.memberCount > 0) {
-                            stockMenu.mode = "slot"
-                            stockMenu.slot = 0
-                            stockMenu.withMember(stockMenu.memberIds[stockMenu.member], 0)
+                            ui.memberSel = selection
+                            ui.actor = stockMenu.memberIds[selection]
+                            stockMenu.enter(ui, "slot", ui.actor, 0, 0)
                             stockMenu.cue("choose")
                         }
                     }
                 } else {
-                    if (stockMenu.mode == "slot") {
-                        if (key == "up" || key == "down") {
-                            if (key == "up") { stockMenu.slot = stockMenu.wrap(stockMenu.slot - 1, 16) }
-                            if (key == "down") { stockMenu.slot = stockMenu.wrap(stockMenu.slot + 1, 16) }
-                            stockMenu.choose(stockMenu.slot)
-                            stockMenu.cue("move")
-                        }
+                    if (ui.mode == "slot") {
+                        stockMenu.nav(ui, key, 16)
                         if (key == "cancel") {
-                            stockMenu.mode = "member"
+                            stockMenu.enter(ui, "member", ui.actor, ui.memberSel, 1)
                             stockMenu.cue("cancel")
                         }
                         if (key == "menu") {
@@ -909,29 +1131,20 @@ stockMenu = {
                             stockMenu.cue("cancel")
                         }
                         if (key == "confirm") {
-                            stockMenu.mode = "item"
-                            stockMenu.choose(0)
+                            ui.slotSel = selection
+                            stockMenu.enter(ui, "item", ui.actor, 0, 0)
                             stockMenu.cue("choose")
                         }
                     } else {
-                        if (stockMenu.mode == "item") {
-                            actorId = stockMenu.memberIds[stockMenu.member]
-                            slot = stockMenu.slotTokens[stockMenu.slot]
-                            hasRemove = stockMenu.listHasRemove
+                        if (ui.mode == "item") {
+                            slot = stockMenu.slotTokens[ui.slotSel]
                             shown = stockMenu.itemcount
-                            if (hasRemove == 1) {
+                            if (stockMenu.listHasRemove == 1) {
                                 shown = shown + 1
                             }
-                            if (key == "up" || key == "down") {
-                                cursor = stockMenu.wrap(cursor, shown)
-                                if (key == "up") { cursor = stockMenu.wrap(cursor - 1, shown) }
-                                if (key == "down") { cursor = stockMenu.wrap(cursor + 1, shown) }
-                                stockMenu.choose(cursor)
-                                stockMenu.cue("move")
-                            }
+                            stockMenu.nav(ui, key, shown)
                             if (key == "cancel") {
-                                stockMenu.mode = "slot"
-                                stockMenu.choose(stockMenu.slot)
+                                stockMenu.enter(ui, "slot", ui.actor, ui.slotSel, 0)
                                 stockMenu.cue("cancel")
                             }
                             if (key == "menu") {
@@ -940,25 +1153,28 @@ stockMenu = {
                                 stockMenu.cue("cancel")
                             }
                             if (key == "confirm") {
-                                if (hasRemove == 1 && cursor == 0) {
-                                    result = context.inventory.removeEquipment({ actorId: actorId, slot: slot })
+                                result = null
+                                if (stockMenu.listHasRemove == 1 && selection == 0) {
+                                    result = context.inventory.removeEquipment({ actorId: ui.actor, slot: slot })
                                 } else {
-                                    position = cursor
-                                    if (hasRemove == 1) {
-                                        position = cursor - 1
+                                    position = selection
+                                    if (stockMenu.listHasRemove == 1) {
+                                        position = selection - 1
                                     }
                                     if (position < stockMenu.itemcount) {
-                                        result = context.inventory.replace({ entryId: stockMenu.stackIds[stockMenu.listPositions[position]], actorId: actorId, slot: slot })
+                                        result = context.inventory.replace({ entryId: stockMenu.stackIds[stockMenu.listPositions[position]], actorId: ui.actor, slot: slot })
                                     }
                                 }
-                                if (result.status == "complete") {
-                                    stockMenu.mode = "slot"
-                                    stockMenu.choose(stockMenu.slot)
-                                    stockMenu.message = "Equipped"
-                                    stockMenu.cue("choose")
-                                } else {
-                                    stockMenu.message = result.error.message
-                                    stockMenu.cue("cancel")
+                                if (result != null) {
+                                    if (result.status == "complete") {
+                                        stockMenu.enter(ui, "slot", ui.actor, ui.slotSel, 0)
+                                        stockMenu.message = "Equipped"
+                                        stockMenu.cue("choose")
+                                    } else {
+                                        stockMenu.message = result.error.message
+                                        stockMenu.cue("cancel")
+                                    }
+                                    stockMenu.resync(ui)
                                 }
                             }
                         }
@@ -1018,52 +1234,41 @@ stockMenu = {
         }
         return spc.description
     },
-    drawAbilities: (context) => {
+    drawAbilities: (context, ui) => {
         local(index) = 0
-        local(y) = 0
-        local(actions) = {}
-        actions[0] = "Use"
-        actions[1] = "Info"
-        local(selection) = stockMenu.selection()
-        stockMenu.clearPanel()
-        if (stockMenu.mode == "member") {
-            local(members) = stockMenu.members(context)
-            stockMenu.header("Abilities")
-            y = stockMenu.listTop + 28
-            for (index = 0; index < stockMenu.memberCount; index = index + 1) {
-                stockMenu.row(y, members[index].name, "", stockMenu.member == index, 0)
-                y = y + stockMenu.rowH
-            }
+        local(labels) = {}
+        local(values) = {}
+        local(dims) = {}
+        local(count) = 0
+        local(text) = ""
+        if (ui.mode == "member") {
+            count = stockMenu.memberRows(context, labels, values, dims)
+            stockMenu.list(ui, "Abilities", labels, values, dims, count, "")
         }
-        if (stockMenu.mode == "list") {
-            stockMenu.header("Abilities")
-            y = stockMenu.listTop + 28
+        if (ui.mode == "list") {
             for (index = 0; index < stockMenu.moveCount; index = index + 1) {
-                stockMenu.row(y, stockMenu.moveNames[index], "SMP " + stockMenu.moveCosts[index], selection == index, 0)
-                y = y + stockMenu.rowH
+                labels[index] = stockMenu.moveNames[index]
+                values[index] = "SMP " + stockMenu.moveCosts[index]
+                dims[index] = 0
             }
-            if (stockMenu.moveCount == 0) {
-                stockMenu.words(stockMenu.labelX, stockMenu.listTop + 28, "No usable moves", 16, stockMenu.dimR, stockMenu.dimG, stockMenu.dimB)
-            }
+            stockMenu.list(ui, "Abilities", labels, values, dims, stockMenu.moveCount, "No usable moves")
         }
-        if (stockMenu.mode == "action") {
-            stockMenu.header(stockMenu.moveNames[selection])
-            y = stockMenu.listTop + 28
+        if (ui.mode == "action") {
+            labels[0] = "Use"
+            labels[1] = "Info"
             for (index = 0; index < 2; index = index + 1) {
-                stockMenu.row(y, actions[index], "", stockMenu.slot == index, 0)
-                y = y + stockMenu.rowH
+                values[index] = ""
+                dims[index] = 0
             }
+            stockMenu.list(ui, stockMenu.moveNames[ui.move], labels, values, dims, 2, "")
         }
-        if (stockMenu.mode == "info") {
-            local(text) = stockMenu.moveDescription(stockMenu.moveFiles[selection])
-            stockMenu.header(stockMenu.moveNames[selection])
+        if (ui.mode == "info") {
+            text = stockMenu.moveDescription(stockMenu.moveFiles[ui.move])
             if (text == "") {
-                stockMenu.words(stockMenu.labelX, stockMenu.listTop + 28, stockMenu.moveNames[selection], 16, stockMenu.inkR, stockMenu.inkG, stockMenu.inkB)
-            } else {
-                stockMenu.words(stockMenu.labelX, stockMenu.listTop + 28, text, 16, stockMenu.inkR, stockMenu.inkG, stockMenu.inkB)
+                text = stockMenu.moveNames[ui.move]
             }
+            stockMenu.note(ui, stockMenu.moveNames[ui.move], text)
         }
-        stockMenu.footer()
         return 0
     },
     abilitiesScreen: (context) => {
@@ -1072,22 +1277,21 @@ stockMenu = {
         local(member)
         local(spc)
         local(program) = ""
+        local(selection) = 0
         local(parent) = stockMenu.begin(context, "abilities")
-        stockMenu.mode = "member"
-        stockMenu.member = 0
-        stockMenu.slot = 0
+        local(ui) = stockMenu.newUi(context)
+        ui.mode = "member"
+        ui.follow = 1
         while (done == 0) {
-            stockMenu.drawAbilities(context)
-            key = wait()
+            if (ui.dirty == 1) {
+                stockMenu.drawAbilities(context, ui)
+                ui.dirty = 0
+            }
+            key = stockMenu.read(ui)
             if (key != "") {
-                key = stockMenu.normalize(key)
-                stockMenu.message = ""
-                if (stockMenu.mode == "member") {
-                    if (key == "up" || key == "down") {
-                        if (key == "up") { stockMenu.member = stockMenu.wrap(stockMenu.member - 1, stockMenu.memberCount) }
-                        if (key == "down") { stockMenu.member = stockMenu.wrap(stockMenu.member + 1, stockMenu.memberCount) }
-                        stockMenu.cue("move")
-                    }
+                selection = stockMenu.getSel(ui)
+                if (ui.mode == "member") {
+                    stockMenu.nav(ui, key, stockMenu.memberCount)
                     if (key == "cancel" || key == "menu") {
                         done = 1
                         if (key == "menu") { stockMenu.closeAll = 1 }
@@ -1095,22 +1299,19 @@ stockMenu = {
                     }
                     if (key == "confirm") {
                         if (stockMenu.memberCount > 0) {
-                            member = stockMenu.members(context)[stockMenu.member]
+                            member = stockMenu.members(context)[selection]
+                            ui.memberSel = selection
+                            ui.actor = member.id
                             stockMenu.moves(context, member)
-                            stockMenu.mode = "list"
-                            stockMenu.withMember(member.id, 0)
+                            stockMenu.enter(ui, "list", ui.actor, 0, 0)
                             stockMenu.cue("choose")
                         }
                     }
                 } else {
-                    if (stockMenu.mode == "list") {
-                        if (key == "up" || key == "down") {
-                            if (key == "up") { stockMenu.choose(stockMenu.wrap(stockMenu.selection() - 1, stockMenu.moveCount)) }
-                            if (key == "down") { stockMenu.choose(stockMenu.wrap(stockMenu.selection() + 1, stockMenu.moveCount)) }
-                            stockMenu.cue("move")
-                        }
+                    if (ui.mode == "list") {
+                        stockMenu.nav(ui, key, stockMenu.moveCount)
                         if (key == "cancel") {
-                            stockMenu.mode = "member"
+                            stockMenu.enter(ui, "member", ui.actor, ui.memberSel, 1)
                             stockMenu.cue("cancel")
                         }
                         if (key == "menu") {
@@ -1120,20 +1321,17 @@ stockMenu = {
                         }
                         if (key == "confirm") {
                             if (stockMenu.moveCount > 0) {
-                                stockMenu.mode = "action"
-                                stockMenu.slot = 0
+                                ui.moveSel = selection
+                                ui.move = selection
+                                stockMenu.enter(ui, "action", ui.actor, 0, 0)
                                 stockMenu.cue("choose")
                             }
                         }
                     } else {
-                        if (stockMenu.mode == "action") {
-                            if (key == "up" || key == "down") {
-                                if (key == "up") { stockMenu.slot = stockMenu.wrap(stockMenu.slot - 1, 2) }
-                                if (key == "down") { stockMenu.slot = stockMenu.wrap(stockMenu.slot + 1, 2) }
-                                stockMenu.cue("move")
-                            }
+                        if (ui.mode == "action") {
+                            stockMenu.nav(ui, key, 2)
                             if (key == "cancel") {
-                                stockMenu.mode = "list"
+                                stockMenu.enter(ui, "list", ui.actor, ui.moveSel, 0)
                                 stockMenu.cue("cancel")
                             }
                             if (key == "menu") {
@@ -1142,11 +1340,12 @@ stockMenu = {
                                 stockMenu.cue("cancel")
                             }
                             if (key == "confirm") {
-                                if (stockMenu.slot == 1) {
-                                    stockMenu.mode = "info"
+                                if (selection == 1) {
+                                    ui.actionSel = 1
+                                    stockMenu.enter(ui, "info", ui.actor, 1, 0)
                                     stockMenu.cue("choose")
                                 } else {
-                                    spc = battlemovedata(stockMenu.moveFiles[stockMenu.selection()])
+                                    spc = battlemovedata(stockMenu.moveFiles[ui.move])
                                     program = ""
                                     if (spc != null) {
                                         program = spc.program
@@ -1154,18 +1353,19 @@ stockMenu = {
                                     if (program == "") {
                                         stockMenu.message = "Nothing happens"
                                     } else {
-                                        member = stockMenu.members(context)[stockMenu.member]
+                                        member = stockMenu.members(context)[ui.memberSel]
                                         executeprogram(program, { source: "" + member.handle, target: "" + member.handle })
-                                        stockMenu.message = "Used " + stockMenu.moveNames[stockMenu.selection()]
+                                        stockMenu.message = "Used " + stockMenu.moveNames[ui.move]
                                     }
-                                    stockMenu.mode = "list"
+                                    stockMenu.enter(ui, "list", ui.actor, ui.moveSel, 0)
                                     stockMenu.cue("choose")
+                                    stockMenu.resync(ui)
                                 }
                             }
                         } else {
-                            if (stockMenu.mode == "info") {
+                            if (ui.mode == "info") {
                                 if (key == "cancel") {
-                                    stockMenu.mode = "action"
+                                    stockMenu.enter(ui, "action", ui.actor, ui.actionSel, 0)
                                     stockMenu.cue("cancel")
                                 }
                                 if (key == "menu") {
@@ -1184,6 +1384,8 @@ stockMenu = {
     },
 
     // ---- the save/load picker (dirsav) -----------------------------------------------------------------------
+    // The cursor lives in the menu frame when one exists (and the opening screen's selection comes back when the
+    // picker closes); a direct `dirsav()` call has no frame and keeps the cursor in `ui.sel`.
     pick: (context, title, allowNew) => {
         local(key) = ""
         local(done) = 0
@@ -1193,10 +1395,11 @@ stockMenu = {
         local(selection) = 0
         local(name) = ""
         local(answer) = ""
-        local(y) = 0
-        local(first) = 0
-        local(shown) = 0
         local(choice) = ""
+        local(entrySel) = 0
+        local(labels) = {}
+        local(values) = {}
+        local(dims) = {}
         stockMenu.saveNames = {}
         stockMenu.saveCount = 0
         for (index = 0; index < list.length; index = index + 1) {
@@ -1213,28 +1416,30 @@ stockMenu = {
             count = count + 1
         }
         local(parent) = stockMenu.begin(context, "picker")
+        local(ui) = stockMenu.newUi(context)
+        if (ui.framed == 1) {
+            entrySel = stockMenu.selection()
+            stockMenu.setSel(ui, 0)
+        }
+        for (index = 0; index < stockMenu.saveCount; index = index + 1) {
+            labels[index] = stockMenu.saveNames[index]
+            values[index] = ""
+            dims[index] = 0
+        }
+        if (allowNew != 0) {
+            labels[stockMenu.saveCount] = "New save"
+            values[stockMenu.saveCount] = ""
+            dims[stockMenu.saveCount] = 0
+        }
         while (done == 0) {
-            stockMenu.clearPanel()
-            stockMenu.header(title)
-            y = stockMenu.listTop + 28
-            for (index = 0; index < stockMenu.saveCount; index = index + 1) {
-                stockMenu.row(y, stockMenu.saveNames[index], "", selection == index, 0)
-                y = y + stockMenu.rowH
+            if (ui.dirty == 1) {
+                stockMenu.list(ui, title, labels, values, dims, count, "No saves")
+                ui.dirty = 0
             }
-            if (allowNew != 0) {
-                stockMenu.row(y, "New save", "", selection == stockMenu.saveCount, 0)
-            }
-            if (stockMenu.saveCount == 0 && allowNew == 0) {
-                stockMenu.words(stockMenu.labelX, stockMenu.listTop + 28, "No saves", 16, stockMenu.dimR, stockMenu.dimG, stockMenu.dimB)
-            }
-            key = wait()
+            key = stockMenu.read(ui)
             if (key != "") {
-                key = stockMenu.normalize(key)
-                if (key == "up" || key == "down") {
-                    if (key == "up") { selection = stockMenu.wrap(selection - 1, count) }
-                    if (key == "down") { selection = stockMenu.wrap(selection + 1, count) }
-                    stockMenu.cue("move")
-                }
+                selection = stockMenu.getSel(ui)
+                stockMenu.nav(ui, key, count)
                 if (key == "cancel" || key == "menu") {
                     choice = "CANCEL"
                     done = 1
@@ -1258,6 +1463,9 @@ stockMenu = {
                     }
                 }
             }
+        }
+        if (ui.framed == 1) {
+            stockMenu.choose(entrySel)
         }
         stockMenu.close(parent)
         return choice

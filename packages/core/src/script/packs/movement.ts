@@ -258,7 +258,8 @@ const WAIT: BuiltinSpec = { name: "wait", aliases: [], params: [{ name: "dest", 
 const POINTER_FIELDS = ["x", "y", "buttons", "downs", "ups"] as const;
 /** The baseline a `waitinput` call passes back: the five compared pointer fields of a previous result, or the record as it is now. */
 function pointerBaseline(view: CommandView, last: Value | undefined): NonNullable<Extract<Wait, { readonly kind: "input.key" }>["pointer"]> {
-  if (last === undefined || last === null) {
+  // RPGCode's `null` is 0, so an omitted, null or zero `last` all mean "the record as it is now".
+  if (last === undefined || last === null || last === 0 || last === "") {
     const now = view.state?.input.pointer;
     return { x: now?.x ?? 0, y: now?.y ?? 0, buttons: now?.buttons ?? 0, downs: now?.downs ?? 0, ups: now?.ups ?? 0 };
   }
@@ -277,7 +278,7 @@ const WAIT_INPUT: BuiltinSpec = {
   name: "waitinput", aliases: [], params: [{ name: "last", optional: true, byRef: false, variadic: false }],
   doc: {
     summary: "Wait for the next key or pointer change.",
-    behaviour: "In plain terms: like `wait()`, but it also wakes for the mouse or a finger, so a menu written in RPGCode can answer hovers and taps; pass back the dictionary the previous call returned as `last` so nothing that happened while the script was busy is missed. Technically: parks as an input wait exactly like `wait()` (global, the lowest unclaimed key with the same sequence floor) and also resumes when the pointer record's `x`, `y`, `buttons`, `downs` or `ups` differs from the baseline, `last` when given or the record as it was when the command ran. Returns a dictionary `{ kind, key, x, y, buttons, downs, ups, downx, downy, button }`: `kind` is \"key\" or \"pointer\" (a key wins a same-tick tie), `key` is the key name or the empty string, and for a key the first five pointer fields repeat the baseline so the next call still sees a pointer change that arrived with it. `wait()` and `get()` never wake for the pointer.",
+    behaviour: "In plain terms: like `wait()`, but it also wakes for the mouse or a finger, so a menu written in RPGCode can answer hovers and taps; pass back the dictionary the previous call returned as `last` (omitted, `null` or 0 means the record as it is now) so nothing that happened while the script was busy is missed. Technically: parks as an input wait exactly like `wait()` (global, the lowest unclaimed key with the same sequence floor) and also resumes when the pointer record's `x`, `y`, `buttons`, `downs` or `ups` differs from the baseline, `last` when given or the record as it was when the command ran. Returns a dictionary `{ kind, key, x, y, buttons, downs, ups, downx, downy, button }`: `kind` is \"key\" or \"pointer\" (a key wins a same-tick tie), `key` is the key name or the empty string, and for a key the first five pointer fields repeat the baseline so the next call still sees a pointer change that arrived with it. `wait()` and `get()` never wake for the pointer.",
     groups: ["mouse-buttons-cursor-maps-11", "reawakened-additions-not-part-of-the-282-legacy-catalogue"],
     waits: { kind: "until-input", summary: "Waits for a key press or a pointer change." },
     throws: [{ code: "builtin.bad-arg", when: "`last` is not a dictionary carrying numeric x, y, buttons, downs and ups" }],

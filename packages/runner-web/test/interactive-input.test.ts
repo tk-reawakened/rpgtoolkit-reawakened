@@ -119,11 +119,15 @@ test("interactive Space selects a cursor-map point through the live binding", ()
 
 test("the shipped bindings open, navigate, confirm and cancel the stock menu", () => {
   const game = boot("end()", true);
+  // A screen reads keys only once its thread has parked: a key that arrives while it is still drawing is older than its
+  // park floor and is ignored, exactly as for `wait()`. So each step waits for the settled state and for the park.
+  const parked = (state: GameState): boolean => state.vm.threads.some((thread) => thread.status === "waiting" && thread.wait?.kind === "input.key") || state.menu.screens.length === 0;
   const press = (name: string, code: string, settled: (state: GameState) => boolean): void => {
     game.step([{ kind: "key", name, code, char: null, down: true }]);
     game.step([{ kind: "key", name, code, char: null, down: false }]);
-    for (let i = 0; i < 12 && !settled(game.state()); i += 1) game.step();
+    for (let i = 0; i < 40 && !(settled(game.state()) && parked(game.state())); i += 1) game.step();
     ok(settled(game.state()), `${code} took effect`);
+    ok(parked(game.state()), `the menu is waiting for input after ${code}`);
   };
   const stack = (): string[] => game.state().menu.screens.map((screen) => screen.screen);
   press("Enter", "Enter", (state) => state.menu.screens[0]?.screen === "main");

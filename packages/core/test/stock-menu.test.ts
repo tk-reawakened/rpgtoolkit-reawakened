@@ -128,6 +128,9 @@ type GameOptions = {
   readonly startup: string;
   readonly disableSaving?: number;
   readonly sounds?: boolean;
+  /** The logical resolution; the stock menu derives every position from it (E-80 stock item 4). */
+  readonly width?: number;
+  readonly height?: number;
 };
 
 function authoredGame(options: GameOptions): { readonly files: Files; readonly index: AssetIndex; readonly main: string } {
@@ -226,9 +229,9 @@ function boot(options: GameOptions): Session {
     mainFile: game.main,
     gameIdentity: "stock-menu-test",
     startup: { presence: { hasPlayer: () => true }, savedGame: { load: () => ({ kind: "missing" }), restored: () => false } },
-    width: 320,
-    height: 240,
-    input: { bindings: { keys: { KeyM: "menu", Escape: "cancel", Enter: "confirm", ArrowUp: "up", ArrowDown: "down", ArrowRight: "right" } } },
+    width: options.width ?? 320,
+    height: options.height ?? 240,
+    input: { bindings: { keys: { KeyM: "menu", Escape: "cancel", Enter: "confirm", ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" } } },
     maxTicks: 4000,
     packageCatalogue: catalogue(),
     bundled: BUNDLED,
@@ -260,7 +263,7 @@ function boot(options: GameOptions): Session {
     for (let step = 0; step < limit; step += 1) {
       if (queued !== undefined && latest !== null) {
         const tick = state().time.tick;
-        const code = queued === "ENTER" ? "Enter" : queued === "ESC" ? "Escape" : queued === "UP" ? "ArrowUp" : queued === "DOWN" ? "ArrowDown" : queued === "M" ? "KeyM" : queued;
+        const code = queued === "ENTER" ? "Enter" : queued === "ESC" ? "Escape" : queued === "UP" ? "ArrowUp" : queued === "DOWN" ? "ArrowDown" : queued === "LEFT" ? "ArrowLeft" : queued === "RIGHT" ? "ArrowRight" : queued === "M" ? "KeyM" : queued;
         replies.push(
           { tick, event: { kind: "key", name: queued, code, char: null, down: true } },
           { tick: tick + 1, event: { kind: "key", name: queued, code, char: null, down: false } },
@@ -473,8 +476,8 @@ test("an equipped item whose every unit is worn still prints its name on the slo
   for (const key of ["ENTER", "DOWN", "DOWN", "ENTER", "ENTER"]) press(session, key);
   deepEqual(session.state().inventory.equipment.map((entry) => entry.slot), ["right-hand"]);
   equal(session.state().inventory.items[0]?.quantity, 0, "the only unit is worn");
-  const worn = inkExtent(session, 52 + 20 * 2, 152, 300);
-  const empty = inkExtent(session, 52 + 20 * 3, 152, 300);
+  const worn = inkExtent(session, 52 + 24 * 2, 152, 300);
+  const empty = inkExtent(session, 52 + 24 * 3, 152, 300);
   ok(worn !== null && worn > 40, `the worn sword's name is drawn (ink width ${String(worn)})`);
   ok(empty !== null && empty <= 16, `an empty slot draws only the dash (ink width ${String(empty)})`);
 });
