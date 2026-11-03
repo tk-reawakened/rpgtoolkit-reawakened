@@ -28,6 +28,9 @@ export const BODY_SLOT_TOKENS = ["head", "neck", "right-hand", "left-hand", "bod
 /** The one token every named accessory shares in the item-side flag table (E-82). */
 export const ACCESSORY_SLOT_TOKEN = "accessory";
 
+/** The `.itm` flag index every named accessory shares (E-82). */
+export const ACCESSORY_FLAG_INDEX = 7;
+
 /** The editor locations of the named accessory slots, `accessory-7` … `accessory-16` (E-82). */
 export const ACCESSORY_LOCATIONS: readonly number[] = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
 
@@ -54,7 +57,7 @@ export function slotFlagIndex(slot: string): number | null {
   if (location === null) return null;
   if (location === 3) return 4;
   if (location === 4) return 3;
-  return location <= 6 ? location : 7;
+  return location <= 6 ? location : ACCESSORY_FLAG_INDEX;
 }
 
 /** The character array index that names one accessory slot's accessory (E-82). */

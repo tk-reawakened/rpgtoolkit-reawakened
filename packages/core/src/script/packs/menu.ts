@@ -12,7 +12,7 @@ import { readItem } from "../../formats/actor/item.ts";
 import { readCharacter } from "../../formats/actor/character.ts";
 import { specialAvailable } from "./battle.ts";
 import type { Item } from "../../formats/actor/model.ts";
-import { ACCESSORY_LOCATIONS, ACCESSORY_SLOT_TOKEN, accessoryNameIndex, BODY_SLOT_TOKENS, slotFlagIndex } from "../../menu/equipment.ts";
+import { ACCESSORY_FLAG_INDEX, ACCESSORY_LOCATIONS, ACCESSORY_SLOT_TOKEN, accessoryNameIndex, BODY_SLOT_TOKENS, slotFlagIndex } from "../../menu/equipment.ts";
 import type { Result } from "../../formats/result.ts";
 import { objectValue } from "../../audio/script.ts";
 import type { PlainData } from "../../ports/plain-data.ts";
@@ -112,7 +112,7 @@ function replyBytes(args: readonly Arg[], what: string): Uint8Array {
 function slotDictionary(vm: Parameters<typeof createObject>[0], item: Item): Value {
   const record = createObject(vm, null);
   for (const token of [...BODY_SLOT_TOKENS, ACCESSORY_SLOT_TOKEN]) {
-    const index = slotFlagIndex(token);
+    const index = token === ACCESSORY_SLOT_TOKEN ? ACCESSORY_FLAG_INDEX : slotFlagIndex(token);
     writeMember(record, token, index !== null && item.equipSlots[index] === 1 ? 1 : 0);
   }
   return objectValue(record);
