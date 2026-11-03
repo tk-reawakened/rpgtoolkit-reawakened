@@ -109,6 +109,7 @@ Evidence: this page's Input table ("queue a step ... when the player is idle"); 
 
 <a id="e-110"></a>
 **E-110 Keyboard.** Named keys are returned to scripts (`Wait()` returns e.g. `"ENTER"`, `"LEFT"`, `"A"`); movement uses the configured scan codes; the menu, activation and run-time keys are character-coded. The buffered key queue can be cleared.
+**Interactive-player compatibility bridge.** Until the separate action and legacy-key queues of ACT-1 are implemented, the shared web, desktop and mobile player keeps its existing script-facing Enter, Space and arrow names. It exposes Escape as `ESC`. On an idle input phase, a press of the main file's character-coded `menuKey` opens the menu; when a script owns input, that same press stays available to the script instead. A zero menu key uses Enter as the new-project default. The stock screens accept Enter or Space to confirm and Escape to cancel. This bridge does not reinterpret Space or arrow names in `wait()`/`get()`.
 
 **Reawakened rule (entry 7.11 corrects a gap).** `Get()` and `ClearBuffer()` claim keys while a thread runs. A claimed key is removed from the queue at the start of the next tick's waits phase, before that phase rebuilds the claim list for waiting threads, so a key `Get()` returned is never returned again and `ClearBuffer()` empties what was buffered.
 
