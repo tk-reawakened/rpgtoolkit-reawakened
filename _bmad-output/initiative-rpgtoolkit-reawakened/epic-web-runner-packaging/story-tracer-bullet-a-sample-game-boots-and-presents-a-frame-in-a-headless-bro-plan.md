@@ -84,11 +84,11 @@ No golden, state hash, draw hash or snapshot moved.
 ## Close-out record
 
 Merged in PR #977 (merge commit `892fff188`, 2026-10-31). Honest caveat on the
-verify text: its literal hash `91172695de52cfd6` was the current demo tick-120
-baseline when this landed but is retired; the committed baseline in
-`golden/regression/closing.json` is now `dde3e5c5c8d43c4f` (draw hash
-`9c0e4d56e59619da`) and the browser lane reads the committed baseline at test
-time, so the equality check kept its force (satisfied, not fossilised). The
+verify text: its literal demo tick-120 hash was the current baseline when this
+landed but is retired; the committed baseline is the `demo` game's `board`
+frame at tick 120 in `golden/regression/closing.json`, and the browser lane
+reads that committed baseline at test time, so the equality check kept its
+force (satisfied, not fossilised). The
 lane is a required `gate` dependency and the VP9+Opus / no-WebAssembly probes
 run in the committed `tracer.spec.ts`. Ledger entry reconciled to closed issue
 #928 in the 2026-11-03 ticket audit.

@@ -95,7 +95,6 @@ Merged in PR #984 (merge commit `a95cebbf1`, 2026-10-31). The conformance
 browser lane (`tools/browser/tests/conformance.spec.ts`) replays every raster
 vector and every gating golden row through WebGL2 against the independent
 reference at main; it passed both the #1218 gate and the 2026-11-03 audit
-gate. The verify's literal hash `91172695de52cfd6` is retired; the lanes read
-`golden/regression/closing.json` (demo tick-120 `dde3e5c5c8d43c4f`, draw hash
-`9c0e4d56e59619da`) — satisfied, not fossilised. Ledger entry reconciled to
-closed issue #929.
+gate. The verify's literal demo tick-120 hash is retired; the lanes read the
+`demo` game's `board` frame at tick 120 in `golden/regression/closing.json` —
+satisfied, not fossilised. Ledger entry reconciled to closed issue #929.

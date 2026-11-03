@@ -172,8 +172,8 @@ Closing that gap is a product decision, not a defect fix: it needs either an exp
 
 The web leg of acceptance is provable from the merged battery at main:
 `tools/browser/tests/live-player.spec.ts` boots demo to the board on a visible canvas and moves the
-player under a held key; `package.spec.ts`/`tracer.spec.ts` pin the tick-120 baseline
-(`golden/regression/closing.json`: state `dde3e5c5c8d43c4f`) on the live page; `mobile.spec.ts`,
+player under a held key; `tools/browser/tests/live-parity.spec.ts` pins the
+live page's tick-120 parity against `golden/regression/closing.json`; `mobile.spec.ts`,
 `storage.spec.ts` and `package.spec.ts` cover the wrapper, per-host durable saves and the
 no-start-up-program package; and the trigger phase is live since PR #1218 (merged 3fa7f68d).
 Remaining gap precisely: no committed evidence shows the desktop shell running the shared live loop

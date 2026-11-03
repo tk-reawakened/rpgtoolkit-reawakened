@@ -88,8 +88,14 @@ video path and its fixture (entry 7), and any change to TK-16's licence record.
 
 ## Close-out record
 
-Merged in PR #991 (merge commit `888db1c67`, 2026-11-01). Verified: the
-browser audio spec asserts the bundled-bank SHA-256 keying the cache, and the
-bank-cache unit tests cover cross-game sharing and eviction that never removes
-the bank in use. Ledger entry reconciled to closed issue #931 in the
+Merged in PR #991 (merge commit `888db1c67`, 2026-11-01). What is proven: the
+four-rank precedence with the bundled bank, the SHA-256 bank cache with one
+stored bank shared across two games, the `bank.invalid` refusal for a
+mismatched hash, and eviction that never removes the bank in use — at unit
+level (the committed audio spec asserts the bundled bank's SHA-256 through the
+player). Honest caveat, recorded rather than rewritten into the verify: the
+user-`.sf2` picker limb was never built — `packages/runner-web/app/audio.ts`
+hard-codes the bundled bank in `bankLayers` with no file input, so a person
+cannot choose a bank in the shipped player. Tracked for the player page as
+issue #1227 (bug). Ledger entry reconciled to closed issue #931 in the
 2026-11-03 ticket audit.

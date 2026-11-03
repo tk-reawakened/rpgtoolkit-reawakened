@@ -94,5 +94,11 @@ background and menu sounds; `HOST_REQUEST_KINDS` and the request union compile
 and an exhaustive switch keeps `never`; `pnpm golden` and `pnpm closing`
 hashes are identical with and without hint consumption, and the
 withholding-host and undecodable-background edges were later hardened by PR
-#1144 (`4eb1c9f8`) for #1081/#1142. Ledger entry reconciled to closed issue
-#933.
+#1144 (`4eb1c9f8`) for #1081/#1142. Honest caveat, recorded rather than
+rewritten into the verify: the verify's latency-fuzz replay test was never
+implemented; the order-independence evidence instead lives in `engine-boot.test.ts`
+("boot keeps simultaneous asset requests waiting across delayed replies and
+hashes their completion independent of order", ~line 2471) plus the golden
+suites' per-tick batching rows (1/3/5/7 and the mocked batching rows), which
+are the substitute evidence for the same property. Ledger entry reconciled to
+closed issue #933.

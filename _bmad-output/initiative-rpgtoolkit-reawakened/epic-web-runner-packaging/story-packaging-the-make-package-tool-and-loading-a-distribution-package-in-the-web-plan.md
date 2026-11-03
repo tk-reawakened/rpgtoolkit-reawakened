@@ -87,12 +87,12 @@ shell's install flow (entry 11), and any change to the writer's limits or the ma
 ## Close-out record
 
 Merged in PR #995 (merge commit `8ae42bf29`, 2026-11-01). Honest caveat on the
-verify text: its literal hash `91172695de52cfd6` is retired (superseded by the
+verify text: its literal demo tick-120 hash is retired (superseded by the
 #1048 re-record); the committed package lane
-(`tools/browser/tests/package.spec.ts`) reads `golden/regression/closing.json`'s
-demo tick-120 baseline (`dde3e5c5c8d43c4f`, draw hash `9c0e4d56e59619da`) with
-no folder access, so the no-folder check kept its force — satisfied, not
-fossilised. Two exports of one asset tree produce byte-identical package
+(`tools/browser/tests/package.spec.ts`) reads the `demo` game's `board` frame
+at tick 120 in `golden/regression/closing.json` with no folder access, so the
+no-folder check kept its force — satisfied, not fossilised. Two exports of one
+asset tree produce byte-identical package
 bytes; the regenerated descriptor records SHA-256 `d9576c7f90a52d…` for demo
 0.0.0 (re-derived during the #1218 audit). Ledger entry reconciled to closed
 issue #932.

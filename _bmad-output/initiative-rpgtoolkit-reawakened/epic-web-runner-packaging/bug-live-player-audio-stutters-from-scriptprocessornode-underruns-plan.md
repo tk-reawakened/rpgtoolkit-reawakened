@@ -13,8 +13,10 @@ PR #1042 proposes the buffer mitigation. Issue #1043 records the original eviden
 
 ## Gap record (2026-11-03 audit; in-review, no status change here)
 
-The mitigation this plan stubs (the buffer default) is superseded: PR #1042 (`ee3db47e`) shipped the
-1024-frame stopgap and PR #1165 (`0ddb39b9`, closed as #1044) migrated the shipped path to AudioWorklet
+The mitigation this plan stubs (the buffer default) is superseded: the
+ScriptProcessorNode default was the too-small 1024 frames, PR #1042 (`ee3db47e`)
+raised it 1024 to 8192 as the stopgap, and PR #1165 (`0ddb39b9`, closed as
+#1044) migrated the shipped path to AudioWorklet
 — same-origin `apps/audio-worklet.js` (and the `app://` path on desktop) with 128-frame quanta, measured
 8.7 ms onset latency against the 50 ms target, committed as CHANGELOG evidence. The browser
 `audio.spec.ts` asserts the shipped graph is the worklet (`graphKind === "worklet"`), the onset latency
