@@ -106,3 +106,16 @@ and it would need a workflow change, which this account cannot push. It is not c
 
 Store submission, signing, icons, splash screens and per-platform chrome; and any fork of the renderer, input path or
 asset source.
+
+## Gap record (2026-11-03 audit; open work, no status change)
+
+The wrapper and its mobile storage host are merged (PR #1006 `436c78d6`, #1028
+`9954e783`; tap/hold probe PR #1141 `3b121ad3`), but the acceptance is a person-confirmed run on a real
+device or emulator, and the two recorded attempts failed technically: `Pixel_3a_API_33` QEMU main-loop hang
+(`adb wait-for-device` timed out), and `Nexus_5_API_33` reached a title capture but the post-Enter
+screenshots came back blank and a further capture timed out after 90 s. The earlier Android 15 x86_64
+captures were declared not a substitute. Remaining gap precisely: one coherent run delivering the
+four-image evidence set (title, tap landing on the target tile, the same session after rotation, the save
+restored) with hashes read from `golden/regression/closing.json` and the person's confirmation. The
+pre-tap player-square concern was investigated and is intended under-vector tile occlusion, not a
+clipping bug — no fix is owed there.

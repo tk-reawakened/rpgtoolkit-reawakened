@@ -85,3 +85,11 @@ coverage `gate`.
 
 The player-facing bank picker UI and durable storage of a user bank (entry 9/entry 10), bank prefetch tiers (entry 9), the played
 video path and its fixture (entry 7), and any change to TK-16's licence record.
+
+## Close-out record
+
+Merged in PR #991 (merge commit `888db1c67`, 2026-11-01). Verified: the
+browser audio spec asserts the bundled-bank SHA-256 keying the cache, and the
+bank-cache unit tests cover cross-game sharing and eviction that never removes
+the bank in use. Ledger entry reconciled to closed issue #931 in the
+2026-11-03 ticket audit.

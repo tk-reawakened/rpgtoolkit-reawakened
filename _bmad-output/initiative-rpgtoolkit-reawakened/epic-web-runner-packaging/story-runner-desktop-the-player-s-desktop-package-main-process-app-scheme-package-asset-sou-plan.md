@@ -88,3 +88,15 @@ it landed. This turns the Linux and Windows measurements on in CI.
   a blob host in the browser, which is entry 10's.
 - `tools/desktop/measure.mjs`, which measures any built shell and writes its record where the job uploads it — entry 10 and
   entry 12 can reuse it rather than inventing a second harness.
+
+## Close-out record
+
+Merged in PR #1004 (merge commit `95cca777f`, 2026-11-01). Honest caveat kept
+in the record: Windows and Linux are wired to the required `desktop` CI job
+but were not measured on that landing; the macOS measurement is the committed
+`tools/desktop/measurements/macos.json` (Electron 45.2.1, scheme `app`, zero
+service workers, blend worst 0, audio length ticks 15). The G6 inventory check
+reports `LICENSES.chromium.html` and `libffmpeg*` per built artefact. The
+player application itself — launch resolution, library, baked-default export,
+three-OS cold-start acceptance — is entry 9.10 / #936 and stays open. Ledger
+entry reconciled to closed issue #938 in the 2026-11-03 ticket audit.
