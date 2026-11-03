@@ -73,8 +73,8 @@ Both previously blocked items are closed:
   dispatches owner actions any more; the session ends and the caller resumes.
 - **Player steps (E-87, #1231).** The same scenario walks one 32-pixel tile with a held arrow and
   reads the count back through a game-shipped RPGCode provider's `context.party.steps`; the count
-  and its sub-tile remainder survive a canonical save/restore. A third case opens and closes
-  `MainMenu()` and then walks one tile, which proves a menu frame no longer freezes the party
+  and its sub-tile remainder survive a canonical save/restore. A third case opens the main screen
+  with the engine menu key, closes it and then walks one tile, which proves a menu frame no longer freezes the party
   section (the menu owner now publishes a frozen copy and the movement accumulator writes
   copy-on-write).
 

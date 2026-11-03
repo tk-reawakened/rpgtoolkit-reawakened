@@ -44,8 +44,8 @@ Run only after the refactor sweep. Link each assertion to an E-xx or CAP id and 
   A pointer press/release and a pad press exercise the same rows ([menu-navigation]). No phase hook:
   every transaction comes from input. A game-shipped RPGCode provider reads `context.party.steps`
   after a held-arrow walk, and the count with its sub-tile remainder survives a canonical
-  save/restore. A third case opens `MainMenu()`, closes it and walks one tile, proving a menu frame
-  no longer freezes the party section. Inn restoration is covered here too.
+  save/restore. A third case opens the main screen with the engine menu key, closes it and walks one tile,
+  proving a menu frame no longer freezes the party section. Inn restoration is covered here too.
 - `packages/core/test/epic-8-restore-acceptance.test.ts`: host save bytes, canonical round trip,
   post-load gameplay sections compared with an uninterrupted run, deterministic replay, newer-IR
   refusal and older-thread restart.
