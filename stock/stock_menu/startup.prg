@@ -962,6 +962,9 @@ stockMenu = {
                     if (spc.menu == 0) {
                         stockMenu.moveFiles[stockMenu.moveCount] = move.file
                         stockMenu.moveNames[stockMenu.moveCount] = move.file
+                        if (spc.name != "") {
+                            stockMenu.moveNames[stockMenu.moveCount] = spc.name
+                        }
                         stockMenu.moveCosts[stockMenu.moveCount] = spc.smp
                         stockMenu.moveCount = stockMenu.moveCount + 1
                     }

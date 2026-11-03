@@ -73910,7 +73910,7 @@
                   "col": 1,
                   "endCol": 14,
                   "file": "<inline>",
-                  "line": 1246
+                  "line": 1249
                 },
                 "written": "registerplugin"
               },
@@ -76154,7 +76154,7 @@
                   "col": 22,
                   "endCol": 35,
                   "file": "<inline>",
-                  "line": 974
+                  "line": 977
                 },
                 "written": "battlemovedata"
               },
@@ -76166,7 +76166,7 @@
                   "col": 28,
                   "endCol": 36,
                   "file": "<inline>",
-                  "line": 986
+                  "line": 989
                 },
                 "written": "stockMenu"
               },
@@ -76178,7 +76178,7 @@
                   "col": 9,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 987
+                  "line": 990
                 },
                 "written": "stockMenu"
               },
@@ -76190,7 +76190,7 @@
                   "col": 30,
                   "endCol": 38,
                   "file": "<inline>",
-                  "line": 989
+                  "line": 992
                 },
                 "written": "stockMenu"
               },
@@ -76201,24 +76201,24 @@
                 "pos": {
                   "col": 13,
                   "endCol": 21,
-                  "file": "<inline>",
-                  "line": 990
-                },
-                "written": "stockMenu"
-              },
-              {
-                "arity": 5,
-                "file": "stockmenu",
-                "name": "row",
-                "pos": {
-                  "col": 17,
-                  "endCol": 25,
                   "file": "<inline>",
                   "line": 993
                 },
                 "written": "stockMenu"
               },
               {
+                "arity": 5,
+                "file": "stockmenu",
+                "name": "row",
+                "pos": {
+                  "col": 17,
+                  "endCol": 25,
+                  "file": "<inline>",
+                  "line": 996
+                },
+                "written": "stockMenu"
+              },
+              {
                 "arity": 1,
                 "file": "stockmenu",
                 "name": "header",
@@ -76226,7 +76226,7 @@
                   "col": 13,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 998
+                  "line": 1001
                 },
                 "written": "stockMenu"
               },
@@ -76238,7 +76238,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1001
+                  "line": 1004
                 },
                 "written": "stockMenu"
               },
@@ -76250,7 +76250,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1005
+                  "line": 1008
                 },
                 "written": "stockMenu"
               },
@@ -76262,7 +76262,7 @@
                   "col": 13,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 1009
+                  "line": 1012
                 },
                 "written": "stockMenu"
               },
@@ -76274,7 +76274,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1012
+                  "line": 1015
                 },
                 "written": "stockMenu"
               },
@@ -76286,7 +76286,7 @@
                   "col": 27,
                   "endCol": 35,
                   "file": "<inline>",
-                  "line": 1017
+                  "line": 1020
                 },
                 "written": "stockMenu"
               },
@@ -76298,7 +76298,7 @@
                   "col": 13,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 1018
+                  "line": 1021
                 },
                 "written": "stockMenu"
               },
@@ -76310,7 +76310,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1020
+                  "line": 1023
                 },
                 "written": "stockMenu"
               },
@@ -76322,7 +76322,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1022
+                  "line": 1025
                 },
                 "written": "stockMenu"
               },
@@ -76334,7 +76334,7 @@
                   "col": 9,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 1025
+                  "line": 1028
                 },
                 "written": "stockMenu"
               },
@@ -76346,7 +76346,7 @@
                   "col": 25,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1034
+                  "line": 1037
                 },
                 "written": "stockMenu"
               },
@@ -76358,7 +76358,7 @@
                   "col": 13,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 1039
+                  "line": 1042
                 },
                 "written": "stockMenu"
               },
@@ -76370,7 +76370,7 @@
                   "col": 19,
                   "endCol": 22,
                   "file": "<inline>",
-                  "line": 1040
+                  "line": 1043
                 },
                 "written": "wait"
               },
@@ -76382,7 +76382,7 @@
                   "col": 23,
                   "endCol": 31,
                   "file": "<inline>",
-                  "line": 1042
+                  "line": 1045
                 },
                 "written": "stockMenu"
               },
@@ -76394,7 +76394,7 @@
                   "col": 63,
                   "endCol": 71,
                   "file": "<inline>",
-                  "line": 1046
+                  "line": 1049
                 },
                 "written": "stockMenu"
               },
@@ -76406,7 +76406,7 @@
                   "col": 65,
                   "endCol": 73,
                   "file": "<inline>",
-                  "line": 1047
+                  "line": 1050
                 },
                 "written": "stockMenu"
               },
@@ -76418,7 +76418,7 @@
                   "col": 25,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1048
+                  "line": 1051
                 },
                 "written": "stockMenu"
               },
@@ -76430,7 +76430,7 @@
                   "col": 25,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1053
+                  "line": 1056
                 },
                 "written": "stockMenu"
               },
@@ -76442,7 +76442,7 @@
                   "col": 38,
                   "endCol": 46,
                   "file": "<inline>",
-                  "line": 1057
+                  "line": 1060
                 },
                 "written": "stockMenu"
               },
@@ -76454,7 +76454,7 @@
                   "col": 29,
                   "endCol": 37,
                   "file": "<inline>",
-                  "line": 1058
+                  "line": 1061
                 },
                 "written": "stockMenu"
               },
@@ -76466,7 +76466,7 @@
                   "col": 29,
                   "endCol": 37,
                   "file": "<inline>",
-                  "line": 1060
+                  "line": 1063
                 },
                 "written": "stockMenu"
               },
@@ -76478,7 +76478,7 @@
                   "col": 29,
                   "endCol": 37,
                   "file": "<inline>",
-                  "line": 1061
+                  "line": 1064
                 },
                 "written": "stockMenu"
               },
@@ -76490,7 +76490,7 @@
                   "col": 80,
                   "endCol": 88,
                   "file": "<inline>",
-                  "line": 1067
+                  "line": 1070
                 },
                 "written": "stockMenu"
               },
@@ -76502,7 +76502,7 @@
                   "col": 65,
                   "endCol": 73,
                   "file": "<inline>",
-                  "line": 1067
+                  "line": 1070
                 },
                 "written": "stockMenu"
               },
@@ -76514,7 +76514,7 @@
                   "col": 48,
                   "endCol": 56,
                   "file": "<inline>",
-                  "line": 1067
+                  "line": 1070
                 },
                 "written": "stockMenu"
               },
@@ -76526,7 +76526,7 @@
                   "col": 82,
                   "endCol": 90,
                   "file": "<inline>",
-                  "line": 1068
+                  "line": 1071
                 },
                 "written": "stockMenu"
               },
@@ -76538,7 +76538,7 @@
                   "col": 67,
                   "endCol": 75,
                   "file": "<inline>",
-                  "line": 1068
+                  "line": 1071
                 },
                 "written": "stockMenu"
               },
@@ -76550,7 +76550,7 @@
                   "col": 50,
                   "endCol": 58,
                   "file": "<inline>",
-                  "line": 1068
+                  "line": 1071
                 },
                 "written": "stockMenu"
               },
@@ -76562,7 +76562,7 @@
                   "col": 29,
                   "endCol": 37,
                   "file": "<inline>",
-                  "line": 1069
+                  "line": 1072
                 },
                 "written": "stockMenu"
               },
@@ -76574,7 +76574,7 @@
                   "col": 29,
                   "endCol": 37,
                   "file": "<inline>",
-                  "line": 1073
+                  "line": 1076
                 },
                 "written": "stockMenu"
               },
@@ -76586,7 +76586,7 @@
                   "col": 29,
                   "endCol": 37,
                   "file": "<inline>",
-                  "line": 1078
+                  "line": 1081
                 },
                 "written": "stockMenu"
               },
@@ -76598,7 +76598,7 @@
                   "col": 33,
                   "endCol": 41,
                   "file": "<inline>",
-                  "line": 1084
+                  "line": 1087
                 },
                 "written": "stockMenu"
               },
@@ -76610,7 +76610,7 @@
                   "col": 69,
                   "endCol": 77,
                   "file": "<inline>",
-                  "line": 1090
+                  "line": 1093
                 },
                 "written": "stockMenu"
               },
@@ -76622,7 +76622,7 @@
                   "col": 71,
                   "endCol": 79,
                   "file": "<inline>",
-                  "line": 1091
+                  "line": 1094
                 },
                 "written": "stockMenu"
               },
@@ -76634,7 +76634,7 @@
                   "col": 33,
                   "endCol": 41,
                   "file": "<inline>",
-                  "line": 1092
+                  "line": 1095
                 },
                 "written": "stockMenu"
               },
@@ -76646,7 +76646,7 @@
                   "col": 33,
                   "endCol": 41,
                   "file": "<inline>",
-                  "line": 1096
+                  "line": 1099
                 },
                 "written": "stockMenu"
               },
@@ -76658,7 +76658,7 @@
                   "col": 33,
                   "endCol": 41,
                   "file": "<inline>",
-                  "line": 1101
+                  "line": 1104
                 },
                 "written": "stockMenu"
               },
@@ -76670,7 +76670,7 @@
                   "col": 37,
                   "endCol": 45,
                   "file": "<inline>",
-                  "line": 1106
+                  "line": 1109
                 },
                 "written": "stockMenu"
               },
@@ -76682,7 +76682,7 @@
                   "col": 78,
                   "endCol": 86,
                   "file": "<inline>",
-                  "line": 1108
+                  "line": 1111
                 },
                 "written": "stockMenu"
               },
@@ -76694,7 +76694,7 @@
                   "col": 43,
                   "endCol": 56,
                   "file": "<inline>",
-                  "line": 1108
+                  "line": 1111
                 },
                 "written": "battlemovedata"
               },
@@ -76706,7 +76706,7 @@
                   "col": 50,
                   "endCol": 58,
                   "file": "<inline>",
-                  "line": 1116
+                  "line": 1119
                 },
                 "written": "stockMenu"
               },
@@ -76718,7 +76718,7 @@
                   "col": 41,
                   "endCol": 54,
                   "file": "<inline>",
-                  "line": 1117
+                  "line": 1120
                 },
                 "written": "executeprogram"
               },
@@ -76729,18 +76729,6 @@
                 "pos": {
                   "col": 91,
                   "endCol": 99,
-                  "file": "<inline>",
-                  "line": 1118
-                },
-                "written": "stockMenu"
-              },
-              {
-                "arity": 1,
-                "file": "stockmenu",
-                "name": "cue",
-                "pos": {
-                  "col": 37,
-                  "endCol": 45,
                   "file": "<inline>",
                   "line": 1121
                 },
@@ -76754,7 +76742,7 @@
                   "col": 37,
                   "endCol": 45,
                   "file": "<inline>",
-                  "line": 1128
+                  "line": 1124
                 },
                 "written": "stockMenu"
               },
@@ -76766,7 +76754,19 @@
                   "col": 37,
                   "endCol": 45,
                   "file": "<inline>",
-                  "line": 1133
+                  "line": 1131
+                },
+                "written": "stockMenu"
+              },
+              {
+                "arity": 1,
+                "file": "stockmenu",
+                "name": "cue",
+                "pos": {
+                  "col": 37,
+                  "endCol": 45,
+                  "file": "<inline>",
+                  "line": 1136
                 },
                 "written": "stockMenu"
               },
@@ -76778,7 +76778,7 @@
                   "col": 9,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 1141
+                  "line": 1144
                 },
                 "written": "stockMenu"
               },
@@ -76790,7 +76790,7 @@
                   "col": 23,
                   "endCol": 30,
                   "file": "<inline>",
-                  "line": 1149
+                  "line": 1152
                 },
                 "written": "savelist"
               },
@@ -76802,7 +76802,7 @@
                   "col": 17,
                   "endCol": 19,
                   "file": "<inline>",
-                  "line": 1164
+                  "line": 1167
                 },
                 "written": "len"
               },
@@ -76814,7 +76814,7 @@
                   "col": 35,
                   "endCol": 38,
                   "file": "<inline>",
-                  "line": 1164
+                  "line": 1167
                 },
                 "written": "left"
               },
@@ -76826,7 +76826,7 @@
                   "col": 64,
                   "endCol": 68,
                   "file": "<inline>",
-                  "line": 1164
+                  "line": 1167
                 },
                 "written": "right"
               },
@@ -76838,7 +76838,7 @@
                   "col": 41,
                   "endCol": 43,
                   "file": "<inline>",
-                  "line": 1165
+                  "line": 1168
                 },
                 "written": "len"
               },
@@ -76850,7 +76850,7 @@
                   "col": 29,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1165
+                  "line": 1168
                 },
                 "written": "right"
               },
@@ -76862,7 +76862,7 @@
                   "col": 57,
                   "endCol": 59,
                   "file": "<inline>",
-                  "line": 1165
+                  "line": 1168
                 },
                 "written": "len"
               },
@@ -76874,7 +76874,7 @@
                   "col": 24,
                   "endCol": 27,
                   "file": "<inline>",
-                  "line": 1165
+                  "line": 1168
                 },
                 "written": "left"
               },
@@ -76886,7 +76886,7 @@
                   "col": 25,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1174
+                  "line": 1177
                 },
                 "written": "stockMenu"
               },
@@ -76898,7 +76898,7 @@
                   "col": 13,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 1176
+                  "line": 1179
                 },
                 "written": "stockMenu"
               },
@@ -76909,18 +76909,6 @@
                 "pos": {
                   "col": 13,
                   "endCol": 21,
-                  "file": "<inline>",
-                  "line": 1177
-                },
-                "written": "stockMenu"
-              },
-              {
-                "arity": 5,
-                "file": "stockmenu",
-                "name": "row",
-                "pos": {
-                  "col": 17,
-                  "endCol": 25,
                   "file": "<inline>",
                   "line": 1180
                 },
@@ -76934,7 +76922,19 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1184
+                  "line": 1183
+                },
+                "written": "stockMenu"
+              },
+              {
+                "arity": 5,
+                "file": "stockmenu",
+                "name": "row",
+                "pos": {
+                  "col": 17,
+                  "endCol": 25,
+                  "file": "<inline>",
+                  "line": 1187
                 },
                 "written": "stockMenu"
               },
@@ -76946,7 +76946,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1187
+                  "line": 1190
                 },
                 "written": "stockMenu"
               },
@@ -76958,7 +76958,7 @@
                   "col": 19,
                   "endCol": 22,
                   "file": "<inline>",
-                  "line": 1189
+                  "line": 1192
                 },
                 "written": "wait"
               },
@@ -76970,7 +76970,7 @@
                   "col": 23,
                   "endCol": 31,
                   "file": "<inline>",
-                  "line": 1191
+                  "line": 1194
                 },
                 "written": "stockMenu"
               },
@@ -76982,7 +76982,7 @@
                   "col": 52,
                   "endCol": 60,
                   "file": "<inline>",
-                  "line": 1193
+                  "line": 1196
                 },
                 "written": "stockMenu"
               },
@@ -76994,7 +76994,7 @@
                   "col": 54,
                   "endCol": 62,
                   "file": "<inline>",
-                  "line": 1194
+                  "line": 1197
                 },
                 "written": "stockMenu"
               },
@@ -77006,7 +77006,7 @@
                   "col": 21,
                   "endCol": 29,
                   "file": "<inline>",
-                  "line": 1195
+                  "line": 1198
                 },
                 "written": "stockMenu"
               },
@@ -77018,7 +77018,7 @@
                   "col": 21,
                   "endCol": 29,
                   "file": "<inline>",
-                  "line": 1201
+                  "line": 1204
                 },
                 "written": "stockMenu"
               },
@@ -77030,7 +77030,7 @@
                   "col": 38,
                   "endCol": 43,
                   "file": "<inline>",
-                  "line": 1208
+                  "line": 1211
                 },
                 "written": "prompt"
               },
@@ -77042,7 +77042,7 @@
                   "col": 25,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1216
+                  "line": 1219
                 },
                 "written": "stockMenu"
               },
@@ -77054,7 +77054,7 @@
                   "col": 9,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 1221
+                  "line": 1224
                 },
                 "written": "stockMenu"
               },
@@ -77066,7 +77066,7 @@
                   "col": 20,
                   "endCol": 23,
                   "file": "<inline>",
-                  "line": 1250
+                  "line": 1253
                 },
                 "written": "next"
               },
@@ -77078,7 +77078,7 @@
                   "col": 31,
                   "endCol": 39,
                   "file": "<inline>",
-                  "line": 1253
+                  "line": 1256
                 },
                 "written": "stockMenu"
               },
@@ -77090,7 +77090,7 @@
                   "col": 20,
                   "endCol": 28,
                   "file": "<inline>",
-                  "line": 1262
+                  "line": 1265
                 },
                 "written": "stockMenu"
               },
@@ -77102,7 +77102,7 @@
                   "col": 20,
                   "endCol": 28,
                   "file": "<inline>",
-                  "line": 1265
+                  "line": 1268
                 },
                 "written": "stockMenu"
               },
@@ -77114,7 +77114,7 @@
                   "col": 20,
                   "endCol": 28,
                   "file": "<inline>",
-                  "line": 1268
+                  "line": 1271
                 },
                 "written": "stockMenu"
               },
@@ -77126,7 +77126,7 @@
                   "col": 20,
                   "endCol": 28,
                   "file": "<inline>",
-                  "line": 1271
+                  "line": 1274
                 },
                 "written": "stockMenu"
               }
@@ -78263,7 +78263,7 @@
                 "endCol": 36,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 986,
+                "line": 989,
                 "path": "stockmenu.prg"
               },
               {
@@ -78271,7 +78271,7 @@
                 "endCol": 17,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 987,
+                "line": 990,
                 "path": "stockmenu.prg"
               },
               {
@@ -78279,36 +78279,28 @@
                 "endCol": 38,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 989,
+                "line": 992,
                 "path": "stockmenu.prg"
               },
               {
                 "col": 13,
                 "endCol": 21,
-                "file": "<inline>",
-                "implicit": true,
-                "line": 990,
-                "path": "stockmenu.prg"
-              },
-              {
-                "col": 17,
-                "endCol": 25,
                 "file": "<inline>",
                 "implicit": true,
                 "line": 993,
                 "path": "stockmenu.prg"
               },
               {
-                "col": 13,
-                "endCol": 21,
+                "col": 17,
+                "endCol": 25,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 998,
+                "line": 996,
                 "path": "stockmenu.prg"
               },
               {
-                "col": 17,
-                "endCol": 25,
+                "col": 13,
+                "endCol": 21,
                 "file": "<inline>",
                 "implicit": true,
                 "line": 1001,
@@ -78319,15 +78311,7 @@
                 "endCol": 25,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1005,
-                "path": "stockmenu.prg"
-              },
-              {
-                "col": 13,
-                "endCol": 21,
-                "file": "<inline>",
-                "implicit": true,
-                "line": 1009,
+                "line": 1004,
                 "path": "stockmenu.prg"
               },
               {
@@ -78335,7 +78319,23 @@
                 "endCol": 25,
                 "file": "<inline>",
                 "implicit": true,
+                "line": 1008,
+                "path": "stockmenu.prg"
+              },
+              {
+                "col": 13,
+                "endCol": 21,
+                "file": "<inline>",
+                "implicit": true,
                 "line": 1012,
+                "path": "stockmenu.prg"
+              },
+              {
+                "col": 17,
+                "endCol": 25,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 1015,
                 "path": "stockmenu.prg"
               },
               {
@@ -78343,7 +78343,7 @@
                 "endCol": 35,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1017,
+                "line": 1020,
                 "path": "stockmenu.prg"
               },
               {
@@ -78351,7 +78351,7 @@
                 "endCol": 21,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1018,
+                "line": 1021,
                 "path": "stockmenu.prg"
               },
               {
@@ -78359,7 +78359,7 @@
                 "endCol": 25,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1020,
+                "line": 1023,
                 "path": "stockmenu.prg"
               },
               {
@@ -78367,7 +78367,7 @@
                 "endCol": 25,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1022,
+                "line": 1025,
                 "path": "stockmenu.prg"
               },
               {
@@ -78375,7 +78375,7 @@
                 "endCol": 17,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1025,
+                "line": 1028,
                 "path": "stockmenu.prg"
               },
               {
@@ -78383,7 +78383,7 @@
                 "endCol": 33,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1034,
+                "line": 1037,
                 "path": "stockmenu.prg"
               },
               {
@@ -78391,7 +78391,7 @@
                 "endCol": 21,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1039,
+                "line": 1042,
                 "path": "stockmenu.prg"
               },
               {
@@ -78399,7 +78399,7 @@
                 "endCol": 31,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1042,
+                "line": 1045,
                 "path": "stockmenu.prg"
               },
               {
@@ -78407,7 +78407,7 @@
                 "endCol": 71,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1046,
+                "line": 1049,
                 "path": "stockmenu.prg"
               },
               {
@@ -78415,7 +78415,7 @@
                 "endCol": 73,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1047,
+                "line": 1050,
                 "path": "stockmenu.prg"
               },
               {
@@ -78423,7 +78423,7 @@
                 "endCol": 33,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1048,
+                "line": 1051,
                 "path": "stockmenu.prg"
               },
               {
@@ -78431,28 +78431,12 @@
                 "endCol": 33,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1053,
+                "line": 1056,
                 "path": "stockmenu.prg"
               },
               {
                 "col": 38,
                 "endCol": 46,
-                "file": "<inline>",
-                "implicit": true,
-                "line": 1057,
-                "path": "stockmenu.prg"
-              },
-              {
-                "col": 29,
-                "endCol": 37,
-                "file": "<inline>",
-                "implicit": true,
-                "line": 1058,
-                "path": "stockmenu.prg"
-              },
-              {
-                "col": 29,
-                "endCol": 37,
                 "file": "<inline>",
                 "implicit": true,
                 "line": 1060,
@@ -78467,11 +78451,27 @@
                 "path": "stockmenu.prg"
               },
               {
+                "col": 29,
+                "endCol": 37,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 1063,
+                "path": "stockmenu.prg"
+              },
+              {
+                "col": 29,
+                "endCol": 37,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 1064,
+                "path": "stockmenu.prg"
+              },
+              {
                 "col": 80,
                 "endCol": 88,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1067,
+                "line": 1070,
                 "path": "stockmenu.prg"
               },
               {
@@ -78479,7 +78479,7 @@
                 "endCol": 73,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1067,
+                "line": 1070,
                 "path": "stockmenu.prg"
               },
               {
@@ -78487,7 +78487,7 @@
                 "endCol": 56,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1067,
+                "line": 1070,
                 "path": "stockmenu.prg"
               },
               {
@@ -78495,7 +78495,7 @@
                 "endCol": 90,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1068,
+                "line": 1071,
                 "path": "stockmenu.prg"
               },
               {
@@ -78503,7 +78503,7 @@
                 "endCol": 75,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1068,
+                "line": 1071,
                 "path": "stockmenu.prg"
               },
               {
@@ -78511,7 +78511,7 @@
                 "endCol": 58,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1068,
+                "line": 1071,
                 "path": "stockmenu.prg"
               },
               {
@@ -78519,7 +78519,7 @@
                 "endCol": 37,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1069,
+                "line": 1072,
                 "path": "stockmenu.prg"
               },
               {
@@ -78527,7 +78527,7 @@
                 "endCol": 37,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1073,
+                "line": 1076,
                 "path": "stockmenu.prg"
               },
               {
@@ -78535,7 +78535,7 @@
                 "endCol": 37,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1078,
+                "line": 1081,
                 "path": "stockmenu.prg"
               },
               {
@@ -78543,7 +78543,7 @@
                 "endCol": 41,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1084,
+                "line": 1087,
                 "path": "stockmenu.prg"
               },
               {
@@ -78551,7 +78551,7 @@
                 "endCol": 77,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1090,
+                "line": 1093,
                 "path": "stockmenu.prg"
               },
               {
@@ -78559,7 +78559,7 @@
                 "endCol": 79,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1091,
+                "line": 1094,
                 "path": "stockmenu.prg"
               },
               {
@@ -78567,7 +78567,7 @@
                 "endCol": 41,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1092,
+                "line": 1095,
                 "path": "stockmenu.prg"
               },
               {
@@ -78575,7 +78575,7 @@
                 "endCol": 41,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1096,
+                "line": 1099,
                 "path": "stockmenu.prg"
               },
               {
@@ -78583,7 +78583,7 @@
                 "endCol": 41,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1101,
+                "line": 1104,
                 "path": "stockmenu.prg"
               },
               {
@@ -78591,7 +78591,7 @@
                 "endCol": 45,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1106,
+                "line": 1109,
                 "path": "stockmenu.prg"
               },
               {
@@ -78599,7 +78599,7 @@
                 "endCol": 86,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1108,
+                "line": 1111,
                 "path": "stockmenu.prg"
               },
               {
@@ -78607,20 +78607,12 @@
                 "endCol": 58,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1116,
+                "line": 1119,
                 "path": "stockmenu.prg"
               },
               {
                 "col": 91,
                 "endCol": 99,
-                "file": "<inline>",
-                "implicit": true,
-                "line": 1118,
-                "path": "stockmenu.prg"
-              },
-              {
-                "col": 37,
-                "endCol": 45,
                 "file": "<inline>",
                 "implicit": true,
                 "line": 1121,
@@ -78631,7 +78623,7 @@
                 "endCol": 45,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1128,
+                "line": 1124,
                 "path": "stockmenu.prg"
               },
               {
@@ -78639,7 +78631,15 @@
                 "endCol": 45,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1133,
+                "line": 1131,
+                "path": "stockmenu.prg"
+              },
+              {
+                "col": 37,
+                "endCol": 45,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 1136,
                 "path": "stockmenu.prg"
               },
               {
@@ -78647,7 +78647,7 @@
                 "endCol": 17,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1141,
+                "line": 1144,
                 "path": "stockmenu.prg"
               },
               {
@@ -78655,28 +78655,20 @@
                 "endCol": 33,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1174,
-                "path": "stockmenu.prg"
-              },
-              {
-                "col": 13,
-                "endCol": 21,
-                "file": "<inline>",
-                "implicit": true,
-                "line": 1176,
-                "path": "stockmenu.prg"
-              },
-              {
-                "col": 13,
-                "endCol": 21,
-                "file": "<inline>",
-                "implicit": true,
                 "line": 1177,
                 "path": "stockmenu.prg"
               },
               {
-                "col": 17,
-                "endCol": 25,
+                "col": 13,
+                "endCol": 21,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 1179,
+                "path": "stockmenu.prg"
+              },
+              {
+                "col": 13,
+                "endCol": 21,
                 "file": "<inline>",
                 "implicit": true,
                 "line": 1180,
@@ -78687,7 +78679,7 @@
                 "endCol": 25,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1184,
+                "line": 1183,
                 "path": "stockmenu.prg"
               },
               {
@@ -78699,11 +78691,19 @@
                 "path": "stockmenu.prg"
               },
               {
+                "col": 17,
+                "endCol": 25,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 1190,
+                "path": "stockmenu.prg"
+              },
+              {
                 "col": 23,
                 "endCol": 31,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1191,
+                "line": 1194,
                 "path": "stockmenu.prg"
               },
               {
@@ -78711,7 +78711,7 @@
                 "endCol": 60,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1193,
+                "line": 1196,
                 "path": "stockmenu.prg"
               },
               {
@@ -78719,7 +78719,7 @@
                 "endCol": 62,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1194,
+                "line": 1197,
                 "path": "stockmenu.prg"
               },
               {
@@ -78727,7 +78727,7 @@
                 "endCol": 29,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1195,
+                "line": 1198,
                 "path": "stockmenu.prg"
               },
               {
@@ -78735,7 +78735,7 @@
                 "endCol": 29,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1201,
+                "line": 1204,
                 "path": "stockmenu.prg"
               },
               {
@@ -78743,7 +78743,7 @@
                 "endCol": 33,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1216,
+                "line": 1219,
                 "path": "stockmenu.prg"
               },
               {
@@ -78751,7 +78751,7 @@
                 "endCol": 17,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1221,
+                "line": 1224,
                 "path": "stockmenu.prg"
               },
               {
@@ -78759,15 +78759,7 @@
                 "endCol": 39,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 1253,
-                "path": "stockmenu.prg"
-              },
-              {
-                "col": 20,
-                "endCol": 28,
-                "file": "<inline>",
-                "implicit": true,
-                "line": 1262,
+                "line": 1256,
                 "path": "stockmenu.prg"
               },
               {
@@ -78792,6 +78784,14 @@
                 "file": "<inline>",
                 "implicit": true,
                 "line": 1271,
+                "path": "stockmenu.prg"
+              },
+              {
+                "col": 20,
+                "endCol": 28,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 1274,
                 "path": "stockmenu.prg"
               }
             ],
@@ -78874,114 +78874,6 @@
                   "col": 1,
                   "endCol": 9,
                   "file": "<inline>",
-                  "line": 1226
-                },
-                "scope": null,
-                "written": "stockMenu"
-              },
-              {
-                "kind": "member",
-                "name": "slottokens",
-                "pos": {
-                  "col": 11,
-                  "endCol": 20,
-                  "file": "<inline>",
-                  "line": 1226
-                },
-                "scope": null,
-                "written": "slotTokens"
-              },
-              {
-                "kind": "store",
-                "name": null,
-                "pos": {
-                  "col": 25,
-                  "endCol": 25,
-                  "file": "<inline>",
-                  "line": 1226
-                },
-                "scope": null,
-                "written": null
-              },
-              {
-                "kind": "read",
-                "name": "stockmenu",
-                "pos": {
-                  "col": 1,
-                  "endCol": 9,
-                  "file": "<inline>",
-                  "line": 1227
-                },
-                "scope": null,
-                "written": "stockMenu"
-              },
-              {
-                "kind": "member",
-                "name": "slottokens",
-                "pos": {
-                  "col": 11,
-                  "endCol": 20,
-                  "file": "<inline>",
-                  "line": 1227
-                },
-                "scope": null,
-                "written": "slotTokens"
-              },
-              {
-                "kind": "store",
-                "name": null,
-                "pos": {
-                  "col": 25,
-                  "endCol": 25,
-                  "file": "<inline>",
-                  "line": 1227
-                },
-                "scope": null,
-                "written": null
-              },
-              {
-                "kind": "read",
-                "name": "stockmenu",
-                "pos": {
-                  "col": 1,
-                  "endCol": 9,
-                  "file": "<inline>",
-                  "line": 1228
-                },
-                "scope": null,
-                "written": "stockMenu"
-              },
-              {
-                "kind": "member",
-                "name": "slottokens",
-                "pos": {
-                  "col": 11,
-                  "endCol": 20,
-                  "file": "<inline>",
-                  "line": 1228
-                },
-                "scope": null,
-                "written": "slotTokens"
-              },
-              {
-                "kind": "store",
-                "name": null,
-                "pos": {
-                  "col": 25,
-                  "endCol": 25,
-                  "file": "<inline>",
-                  "line": 1228
-                },
-                "scope": null,
-                "written": null
-              },
-              {
-                "kind": "read",
-                "name": "stockmenu",
-                "pos": {
-                  "col": 1,
-                  "endCol": 9,
-                  "file": "<inline>",
                   "line": 1229
                 },
                 "scope": null,
@@ -79255,8 +79147,8 @@
                 "kind": "store",
                 "name": null,
                 "pos": {
-                  "col": 26,
-                  "endCol": 26,
+                  "col": 25,
+                  "endCol": 25,
                   "file": "<inline>",
                   "line": 1236
                 },
@@ -79291,8 +79183,8 @@
                 "kind": "store",
                 "name": null,
                 "pos": {
-                  "col": 26,
-                  "endCol": 26,
+                  "col": 25,
+                  "endCol": 25,
                   "file": "<inline>",
                   "line": 1237
                 },
@@ -79327,8 +79219,8 @@
                 "kind": "store",
                 "name": null,
                 "pos": {
-                  "col": 26,
-                  "endCol": 26,
+                  "col": 25,
+                  "endCol": 25,
                   "file": "<inline>",
                   "line": 1238
                 },
@@ -79439,6 +79331,114 @@
                   "endCol": 26,
                   "file": "<inline>",
                   "line": 1241
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "stockmenu",
+                "pos": {
+                  "col": 1,
+                  "endCol": 9,
+                  "file": "<inline>",
+                  "line": 1242
+                },
+                "scope": null,
+                "written": "stockMenu"
+              },
+              {
+                "kind": "member",
+                "name": "slottokens",
+                "pos": {
+                  "col": 11,
+                  "endCol": 20,
+                  "file": "<inline>",
+                  "line": 1242
+                },
+                "scope": null,
+                "written": "slotTokens"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 26,
+                  "endCol": 26,
+                  "file": "<inline>",
+                  "line": 1242
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "stockmenu",
+                "pos": {
+                  "col": 1,
+                  "endCol": 9,
+                  "file": "<inline>",
+                  "line": 1243
+                },
+                "scope": null,
+                "written": "stockMenu"
+              },
+              {
+                "kind": "member",
+                "name": "slottokens",
+                "pos": {
+                  "col": 11,
+                  "endCol": 20,
+                  "file": "<inline>",
+                  "line": 1243
+                },
+                "scope": null,
+                "written": "slotTokens"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 26,
+                  "endCol": 26,
+                  "file": "<inline>",
+                  "line": 1243
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "stockmenu",
+                "pos": {
+                  "col": 1,
+                  "endCol": 9,
+                  "file": "<inline>",
+                  "line": 1244
+                },
+                "scope": null,
+                "written": "stockMenu"
+              },
+              {
+                "kind": "member",
+                "name": "slottokens",
+                "pos": {
+                  "col": 11,
+                  "endCol": 20,
+                  "file": "<inline>",
+                  "line": 1244
+                },
+                "scope": null,
+                "written": "slotTokens"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 26,
+                  "endCol": 26,
+                  "file": "<inline>",
+                  "line": 1244
                 },
                 "scope": null,
                 "written": null
@@ -102881,12 +102881,120 @@
               },
               {
                 "kind": "read",
+                "name": "spc",
+                "pos": {
+                  "col": 29,
+                  "endCol": 31,
+                  "file": "<inline>",
+                  "line": 965
+                },
+                "scope": null,
+                "written": "spc"
+              },
+              {
+                "kind": "member",
+                "name": "name",
+                "pos": {
+                  "col": 33,
+                  "endCol": 36,
+                  "file": "<inline>",
+                  "line": 965
+                },
+                "scope": null,
+                "written": "name"
+              },
+              {
+                "kind": "read",
+                "name": "stockmenu",
+                "pos": {
+                  "col": 29,
+                  "endCol": 37,
+                  "file": "<inline>",
+                  "line": 966
+                },
+                "scope": null,
+                "written": "stockMenu"
+              },
+              {
+                "kind": "member",
+                "name": "movenames",
+                "pos": {
+                  "col": 39,
+                  "endCol": 47,
+                  "file": "<inline>",
+                  "line": 966
+                },
+                "scope": null,
+                "written": "moveNames"
+              },
+              {
+                "kind": "read",
+                "name": "stockmenu",
+                "pos": {
+                  "col": 49,
+                  "endCol": 57,
+                  "file": "<inline>",
+                  "line": 966
+                },
+                "scope": null,
+                "written": "stockMenu"
+              },
+              {
+                "kind": "member",
+                "name": "movecount",
+                "pos": {
+                  "col": 59,
+                  "endCol": 67,
+                  "file": "<inline>",
+                  "line": 966
+                },
+                "scope": null,
+                "written": "moveCount"
+              },
+              {
+                "kind": "read",
+                "name": "spc",
+                "pos": {
+                  "col": 72,
+                  "endCol": 74,
+                  "file": "<inline>",
+                  "line": 966
+                },
+                "scope": null,
+                "written": "spc"
+              },
+              {
+                "kind": "member",
+                "name": "name",
+                "pos": {
+                  "col": 76,
+                  "endCol": 79,
+                  "file": "<inline>",
+                  "line": 966
+                },
+                "scope": null,
+                "written": "name"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 70,
+                  "endCol": 70,
+                  "file": "<inline>",
+                  "line": 966
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
                 "name": "stockmenu",
                 "pos": {
                   "col": 25,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 965
+                  "line": 968
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -102898,7 +103006,7 @@
                   "col": 35,
                   "endCol": 43,
                   "file": "<inline>",
-                  "line": 965
+                  "line": 968
                 },
                 "scope": null,
                 "written": "moveCosts"
@@ -102910,7 +103018,7 @@
                   "col": 45,
                   "endCol": 53,
                   "file": "<inline>",
-                  "line": 965
+                  "line": 968
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -102922,7 +103030,7 @@
                   "col": 55,
                   "endCol": 63,
                   "file": "<inline>",
-                  "line": 965
+                  "line": 968
                 },
                 "scope": null,
                 "written": "moveCount"
@@ -102934,7 +103042,7 @@
                   "col": 68,
                   "endCol": 70,
                   "file": "<inline>",
-                  "line": 965
+                  "line": 968
                 },
                 "scope": null,
                 "written": "spc"
@@ -102946,7 +103054,7 @@
                   "col": 72,
                   "endCol": 74,
                   "file": "<inline>",
-                  "line": 965
+                  "line": 968
                 },
                 "scope": null,
                 "written": "smp"
@@ -102958,7 +103066,7 @@
                   "col": 66,
                   "endCol": 66,
                   "file": "<inline>",
-                  "line": 965
+                  "line": 968
                 },
                 "scope": null,
                 "written": null
@@ -102970,7 +103078,7 @@
                   "col": 25,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 966
+                  "line": 969
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -102982,7 +103090,7 @@
                   "col": 35,
                   "endCol": 43,
                   "file": "<inline>",
-                  "line": 966
+                  "line": 969
                 },
                 "scope": null,
                 "written": "moveCount"
@@ -102994,7 +103102,7 @@
                   "col": 47,
                   "endCol": 55,
                   "file": "<inline>",
-                  "line": 966
+                  "line": 969
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -103006,7 +103114,7 @@
                   "col": 57,
                   "endCol": 65,
                   "file": "<inline>",
-                  "line": 966
+                  "line": 969
                 },
                 "scope": null,
                 "written": "moveCount"
@@ -103018,7 +103126,7 @@
                   "col": 45,
                   "endCol": 45,
                   "file": "<inline>",
-                  "line": 966
+                  "line": 969
                 },
                 "scope": null,
                 "written": null
@@ -103066,7 +103174,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 974
+                  "line": 977
                 },
                 "scope": "local",
                 "written": "local"
@@ -103078,7 +103186,7 @@
                   "col": 37,
                   "endCol": 40,
                   "file": "<inline>",
-                  "line": 974
+                  "line": 977
                 },
                 "scope": null,
                 "written": "file"
@@ -103090,7 +103198,7 @@
                   "col": 20,
                   "endCol": 20,
                   "file": "<inline>",
-                  "line": 974
+                  "line": 977
                 },
                 "scope": null,
                 "written": null
@@ -103102,7 +103210,7 @@
                   "col": 13,
                   "endCol": 15,
                   "file": "<inline>",
-                  "line": 975
+                  "line": 978
                 },
                 "scope": null,
                 "written": "spc"
@@ -103114,7 +103222,7 @@
                   "col": 16,
                   "endCol": 18,
                   "file": "<inline>",
-                  "line": 978
+                  "line": 981
                 },
                 "scope": null,
                 "written": "spc"
@@ -103126,7 +103234,7 @@
                   "col": 20,
                   "endCol": 30,
                   "file": "<inline>",
-                  "line": 978
+                  "line": 981
                 },
                 "scope": null,
                 "written": "description"
@@ -103138,7 +103246,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 981
+                  "line": 984
                 },
                 "scope": "local",
                 "written": "local"
@@ -103150,7 +103258,7 @@
                   "col": 22,
                   "endCol": 22,
                   "file": "<inline>",
-                  "line": 981
+                  "line": 984
                 },
                 "scope": null,
                 "written": null
@@ -103162,7 +103270,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 982
+                  "line": 985
                 },
                 "scope": "local",
                 "written": "local"
@@ -103174,7 +103282,7 @@
                   "col": 18,
                   "endCol": 18,
                   "file": "<inline>",
-                  "line": 982
+                  "line": 985
                 },
                 "scope": null,
                 "written": null
@@ -103186,7 +103294,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 983
+                  "line": 986
                 },
                 "scope": "local",
                 "written": "local"
@@ -103198,7 +103306,7 @@
                   "col": 24,
                   "endCol": 24,
                   "file": "<inline>",
-                  "line": 983
+                  "line": 986
                 },
                 "scope": null,
                 "written": null
@@ -103210,7 +103318,7 @@
                   "col": 20,
                   "endCol": 20,
                   "file": "<inline>",
-                  "line": 984
+                  "line": 987
                 },
                 "scope": null,
                 "written": null
@@ -103222,7 +103330,7 @@
                   "col": 20,
                   "endCol": 20,
                   "file": "<inline>",
-                  "line": 985
+                  "line": 988
                 },
                 "scope": null,
                 "written": null
@@ -103234,7 +103342,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 986
+                  "line": 989
                 },
                 "scope": "local",
                 "written": "local"
@@ -103246,7 +103354,7 @@
                   "col": 26,
                   "endCol": 26,
                   "file": "<inline>",
-                  "line": 986
+                  "line": 989
                 },
                 "scope": null,
                 "written": null
@@ -103258,7 +103366,7 @@
                   "col": 13,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 988
+                  "line": 991
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -103270,7 +103378,7 @@
                   "col": 23,
                   "endCol": 26,
                   "file": "<inline>",
-                  "line": 988
+                  "line": 991
                 },
                 "scope": null,
                 "written": "mode"
@@ -103282,7 +103390,7 @@
                   "col": 13,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 989
+                  "line": 992
                 },
                 "scope": "local",
                 "written": "local"
@@ -103294,7 +103402,7 @@
                   "col": 48,
                   "endCol": 54,
                   "file": "<inline>",
-                  "line": 989
+                  "line": 992
                 },
                 "scope": null,
                 "written": "context"
@@ -103306,7 +103414,7 @@
                   "col": 28,
                   "endCol": 28,
                   "file": "<inline>",
-                  "line": 989
+                  "line": 992
                 },
                 "scope": null,
                 "written": null
@@ -103318,7 +103426,7 @@
                   "col": 13,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 991
+                  "line": 994
                 },
                 "scope": null,
                 "written": "y"
@@ -103330,7 +103438,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 991
+                  "line": 994
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -103342,7 +103450,7 @@
                   "col": 27,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 991
+                  "line": 994
                 },
                 "scope": null,
                 "written": "listTop"
@@ -103354,7 +103462,7 @@
                   "col": 15,
                   "endCol": 15,
                   "file": "<inline>",
-                  "line": 991
+                  "line": 994
                 },
                 "scope": null,
                 "written": null
@@ -103366,7 +103474,7 @@
                   "col": 18,
                   "endCol": 22,
                   "file": "<inline>",
-                  "line": 992
+                  "line": 995
                 },
                 "scope": null,
                 "written": "index"
@@ -103378,7 +103486,7 @@
                   "col": 24,
                   "endCol": 24,
                   "file": "<inline>",
-                  "line": 992
+                  "line": 995
                 },
                 "scope": null,
                 "written": null
@@ -103390,7 +103498,7 @@
                   "col": 29,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 992
+                  "line": 995
                 },
                 "scope": null,
                 "written": "index"
@@ -103402,7 +103510,7 @@
                   "col": 37,
                   "endCol": 45,
                   "file": "<inline>",
-                  "line": 992
+                  "line": 995
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -103414,7 +103522,7 @@
                   "col": 47,
                   "endCol": 57,
                   "file": "<inline>",
-                  "line": 992
+                  "line": 995
                 },
                 "scope": null,
                 "written": "memberCount"
@@ -103426,7 +103534,7 @@
                   "col": 31,
                   "endCol": 31,
                   "file": "<inline>",
-                  "line": 993
+                  "line": 996
                 },
                 "scope": null,
                 "written": "y"
@@ -103438,7 +103546,7 @@
                   "col": 42,
                   "endCol": 46,
                   "file": "<inline>",
-                  "line": 993
+                  "line": 996
                 },
                 "scope": null,
                 "written": "index"
@@ -103450,7 +103558,7 @@
                   "col": 49,
                   "endCol": 52,
                   "file": "<inline>",
-                  "line": 993
+                  "line": 996
                 },
                 "scope": null,
                 "written": "name"
@@ -103462,7 +103570,7 @@
                   "col": 59,
                   "endCol": 67,
                   "file": "<inline>",
-                  "line": 993
+                  "line": 996
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -103474,7 +103582,7 @@
                   "col": 69,
                   "endCol": 74,
                   "file": "<inline>",
-                  "line": 993
+                  "line": 996
                 },
                 "scope": null,
                 "written": "member"
@@ -103486,7 +103594,7 @@
                   "col": 79,
                   "endCol": 83,
                   "file": "<inline>",
-                  "line": 993
+                  "line": 996
                 },
                 "scope": null,
                 "written": "index"
@@ -103498,7 +103606,7 @@
                   "col": 17,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 994
+                  "line": 997
                 },
                 "scope": null,
                 "written": "y"
@@ -103510,7 +103618,7 @@
                   "col": 21,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 994
+                  "line": 997
                 },
                 "scope": null,
                 "written": "y"
@@ -103522,7 +103630,7 @@
                   "col": 25,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 994
+                  "line": 997
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -103534,7 +103642,7 @@
                   "col": 35,
                   "endCol": 38,
                   "file": "<inline>",
-                  "line": 994
+                  "line": 997
                 },
                 "scope": null,
                 "written": "rowH"
@@ -103546,7 +103654,7 @@
                   "col": 19,
                   "endCol": 19,
                   "file": "<inline>",
-                  "line": 994
+                  "line": 997
                 },
                 "scope": null,
                 "written": null
@@ -103558,7 +103666,7 @@
                   "col": 60,
                   "endCol": 64,
                   "file": "<inline>",
-                  "line": 992
+                  "line": 995
                 },
                 "scope": null,
                 "written": "index"
@@ -103570,7 +103678,7 @@
                   "col": 68,
                   "endCol": 72,
                   "file": "<inline>",
-                  "line": 992
+                  "line": 995
                 },
                 "scope": null,
                 "written": "index"
@@ -103582,7 +103690,7 @@
                   "col": 66,
                   "endCol": 66,
                   "file": "<inline>",
-                  "line": 992
+                  "line": 995
                 },
                 "scope": null,
                 "written": null
@@ -103594,7 +103702,7 @@
                   "col": 13,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 997
+                  "line": 1000
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -103606,7 +103714,7 @@
                   "col": 23,
                   "endCol": 26,
                   "file": "<inline>",
-                  "line": 997
+                  "line": 1000
                 },
                 "scope": null,
                 "written": "mode"
@@ -103618,7 +103726,7 @@
                   "col": 13,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 999
+                  "line": 1002
                 },
                 "scope": null,
                 "written": "y"
@@ -103630,7 +103738,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 999
+                  "line": 1002
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -103642,7 +103750,7 @@
                   "col": 27,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 999
+                  "line": 1002
                 },
                 "scope": null,
                 "written": "listTop"
@@ -103654,7 +103762,7 @@
                   "col": 15,
                   "endCol": 15,
                   "file": "<inline>",
-                  "line": 999
+                  "line": 1002
                 },
                 "scope": null,
                 "written": null
@@ -103666,7 +103774,7 @@
                   "col": 18,
                   "endCol": 22,
                   "file": "<inline>",
-                  "line": 1000
+                  "line": 1003
                 },
                 "scope": null,
                 "written": "index"
@@ -103678,7 +103786,7 @@
                   "col": 24,
                   "endCol": 24,
                   "file": "<inline>",
-                  "line": 1000
+                  "line": 1003
                 },
                 "scope": null,
                 "written": null
@@ -103690,7 +103798,7 @@
                   "col": 29,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1000
+                  "line": 1003
                 },
                 "scope": null,
                 "written": "index"
@@ -103702,7 +103810,7 @@
                   "col": 37,
                   "endCol": 45,
                   "file": "<inline>",
-                  "line": 1000
+                  "line": 1003
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -103714,7 +103822,7 @@
                   "col": 47,
                   "endCol": 55,
                   "file": "<inline>",
-                  "line": 1000
+                  "line": 1003
                 },
                 "scope": null,
                 "written": "moveCount"
@@ -103726,7 +103834,7 @@
                   "col": 31,
                   "endCol": 31,
                   "file": "<inline>",
-                  "line": 1001
+                  "line": 1004
                 },
                 "scope": null,
                 "written": "y"
@@ -103738,7 +103846,7 @@
                   "col": 34,
                   "endCol": 42,
                   "file": "<inline>",
-                  "line": 1001
+                  "line": 1004
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -103750,7 +103858,7 @@
                   "col": 44,
                   "endCol": 52,
                   "file": "<inline>",
-                  "line": 1001
+                  "line": 1004
                 },
                 "scope": null,
                 "written": "moveNames"
@@ -103762,7 +103870,7 @@
                   "col": 54,
                   "endCol": 58,
                   "file": "<inline>",
-                  "line": 1001
+                  "line": 1004
                 },
                 "scope": null,
                 "written": "index"
@@ -103774,7 +103882,7 @@
                   "col": 71,
                   "endCol": 79,
                   "file": "<inline>",
-                  "line": 1001
+                  "line": 1004
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -103786,7 +103894,7 @@
                   "col": 81,
                   "endCol": 89,
                   "file": "<inline>",
-                  "line": 1001
+                  "line": 1004
                 },
                 "scope": null,
                 "written": "moveCosts"
@@ -103798,7 +103906,7 @@
                   "col": 91,
                   "endCol": 95,
                   "file": "<inline>",
-                  "line": 1001
+                  "line": 1004
                 },
                 "scope": null,
                 "written": "index"
@@ -103810,7 +103918,7 @@
                   "col": 99,
                   "endCol": 107,
                   "file": "<inline>",
-                  "line": 1001
+                  "line": 1004
                 },
                 "scope": null,
                 "written": "selection"
@@ -103822,7 +103930,7 @@
                   "col": 112,
                   "endCol": 116,
                   "file": "<inline>",
-                  "line": 1001
+                  "line": 1004
                 },
                 "scope": null,
                 "written": "index"
@@ -103834,7 +103942,7 @@
                   "col": 17,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 1002
+                  "line": 1005
                 },
                 "scope": null,
                 "written": "y"
@@ -103846,7 +103954,7 @@
                   "col": 21,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 1002
+                  "line": 1005
                 },
                 "scope": null,
                 "written": "y"
@@ -103858,7 +103966,7 @@
                   "col": 25,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1002
+                  "line": 1005
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -103870,7 +103978,7 @@
                   "col": 35,
                   "endCol": 38,
                   "file": "<inline>",
-                  "line": 1002
+                  "line": 1005
                 },
                 "scope": null,
                 "written": "rowH"
@@ -103882,7 +103990,7 @@
                   "col": 19,
                   "endCol": 19,
                   "file": "<inline>",
-                  "line": 1002
+                  "line": 1005
                 },
                 "scope": null,
                 "written": null
@@ -103894,7 +104002,7 @@
                   "col": 58,
                   "endCol": 62,
                   "file": "<inline>",
-                  "line": 1000
+                  "line": 1003
                 },
                 "scope": null,
                 "written": "index"
@@ -103906,7 +104014,7 @@
                   "col": 66,
                   "endCol": 70,
                   "file": "<inline>",
-                  "line": 1000
+                  "line": 1003
                 },
                 "scope": null,
                 "written": "index"
@@ -103918,7 +104026,7 @@
                   "col": 64,
                   "endCol": 64,
                   "file": "<inline>",
-                  "line": 1000
+                  "line": 1003
                 },
                 "scope": null,
                 "written": null
@@ -103930,7 +104038,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1004
+                  "line": 1007
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -103942,7 +104050,7 @@
                   "col": 27,
                   "endCol": 35,
                   "file": "<inline>",
-                  "line": 1004
+                  "line": 1007
                 },
                 "scope": null,
                 "written": "moveCount"
@@ -103954,7 +104062,7 @@
                   "col": 33,
                   "endCol": 41,
                   "file": "<inline>",
-                  "line": 1005
+                  "line": 1008
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -103966,7 +104074,7 @@
                   "col": 43,
                   "endCol": 48,
                   "file": "<inline>",
-                  "line": 1005
+                  "line": 1008
                 },
                 "scope": null,
                 "written": "labelX"
@@ -103978,7 +104086,7 @@
                   "col": 51,
                   "endCol": 59,
                   "file": "<inline>",
-                  "line": 1005
+                  "line": 1008
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -103990,7 +104098,7 @@
                   "col": 61,
                   "endCol": 67,
                   "file": "<inline>",
-                  "line": 1005
+                  "line": 1008
                 },
                 "scope": null,
                 "written": "listTop"
@@ -104002,7 +104110,7 @@
                   "col": 98,
                   "endCol": 106,
                   "file": "<inline>",
-                  "line": 1005
+                  "line": 1008
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104014,7 +104122,7 @@
                   "col": 108,
                   "endCol": 111,
                   "file": "<inline>",
-                  "line": 1005
+                  "line": 1008
                 },
                 "scope": null,
                 "written": "dimR"
@@ -104026,7 +104134,7 @@
                   "col": 114,
                   "endCol": 122,
                   "file": "<inline>",
-                  "line": 1005
+                  "line": 1008
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104038,7 +104146,7 @@
                   "col": 124,
                   "endCol": 127,
                   "file": "<inline>",
-                  "line": 1005
+                  "line": 1008
                 },
                 "scope": null,
                 "written": "dimG"
@@ -104050,7 +104158,7 @@
                   "col": 130,
                   "endCol": 138,
                   "file": "<inline>",
-                  "line": 1005
+                  "line": 1008
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104062,7 +104170,7 @@
                   "col": 140,
                   "endCol": 143,
                   "file": "<inline>",
-                  "line": 1005
+                  "line": 1008
                 },
                 "scope": null,
                 "written": "dimB"
@@ -104074,7 +104182,7 @@
                   "col": 13,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 1008
+                  "line": 1011
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104086,7 +104194,7 @@
                   "col": 23,
                   "endCol": 26,
                   "file": "<inline>",
-                  "line": 1008
+                  "line": 1011
                 },
                 "scope": null,
                 "written": "mode"
@@ -104098,7 +104206,7 @@
                   "col": 30,
                   "endCol": 38,
                   "file": "<inline>",
-                  "line": 1009
+                  "line": 1012
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104110,7 +104218,7 @@
                   "col": 40,
                   "endCol": 48,
                   "file": "<inline>",
-                  "line": 1009
+                  "line": 1012
                 },
                 "scope": null,
                 "written": "moveNames"
@@ -104122,7 +104230,7 @@
                   "col": 50,
                   "endCol": 58,
                   "file": "<inline>",
-                  "line": 1009
+                  "line": 1012
                 },
                 "scope": null,
                 "written": "selection"
@@ -104134,7 +104242,7 @@
                   "col": 13,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1010
+                  "line": 1013
                 },
                 "scope": null,
                 "written": "y"
@@ -104146,7 +104254,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1010
+                  "line": 1013
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104158,7 +104266,7 @@
                   "col": 27,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1010
+                  "line": 1013
                 },
                 "scope": null,
                 "written": "listTop"
@@ -104170,7 +104278,7 @@
                   "col": 15,
                   "endCol": 15,
                   "file": "<inline>",
-                  "line": 1010
+                  "line": 1013
                 },
                 "scope": null,
                 "written": null
@@ -104182,7 +104290,7 @@
                   "col": 18,
                   "endCol": 22,
                   "file": "<inline>",
-                  "line": 1011
+                  "line": 1014
                 },
                 "scope": null,
                 "written": "index"
@@ -104194,7 +104302,7 @@
                   "col": 24,
                   "endCol": 24,
                   "file": "<inline>",
-                  "line": 1011
+                  "line": 1014
                 },
                 "scope": null,
                 "written": null
@@ -104206,7 +104314,7 @@
                   "col": 29,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1011
+                  "line": 1014
                 },
                 "scope": null,
                 "written": "index"
@@ -104218,7 +104326,7 @@
                   "col": 31,
                   "endCol": 31,
                   "file": "<inline>",
-                  "line": 1012
+                  "line": 1015
                 },
                 "scope": null,
                 "written": "y"
@@ -104230,7 +104338,7 @@
                   "col": 42,
                   "endCol": 46,
                   "file": "<inline>",
-                  "line": 1012
+                  "line": 1015
                 },
                 "scope": null,
                 "written": "index"
@@ -104242,7 +104350,7 @@
                   "col": 54,
                   "endCol": 62,
                   "file": "<inline>",
-                  "line": 1012
+                  "line": 1015
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104254,7 +104362,7 @@
                   "col": 64,
                   "endCol": 67,
                   "file": "<inline>",
-                  "line": 1012
+                  "line": 1015
                 },
                 "scope": null,
                 "written": "slot"
@@ -104266,7 +104374,7 @@
                   "col": 72,
                   "endCol": 76,
                   "file": "<inline>",
-                  "line": 1012
+                  "line": 1015
                 },
                 "scope": null,
                 "written": "index"
@@ -104278,7 +104386,7 @@
                   "col": 17,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 1013
+                  "line": 1016
                 },
                 "scope": null,
                 "written": "y"
@@ -104290,7 +104398,7 @@
                   "col": 21,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 1013
+                  "line": 1016
                 },
                 "scope": null,
                 "written": "y"
@@ -104302,7 +104410,7 @@
                   "col": 25,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1013
+                  "line": 1016
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104314,7 +104422,7 @@
                   "col": 35,
                   "endCol": 38,
                   "file": "<inline>",
-                  "line": 1013
+                  "line": 1016
                 },
                 "scope": null,
                 "written": "rowH"
@@ -104326,7 +104434,7 @@
                   "col": 19,
                   "endCol": 19,
                   "file": "<inline>",
-                  "line": 1013
+                  "line": 1016
                 },
                 "scope": null,
                 "written": null
@@ -104338,7 +104446,7 @@
                   "col": 40,
                   "endCol": 44,
                   "file": "<inline>",
-                  "line": 1011
+                  "line": 1014
                 },
                 "scope": null,
                 "written": "index"
@@ -104350,7 +104458,7 @@
                   "col": 48,
                   "endCol": 52,
                   "file": "<inline>",
-                  "line": 1011
+                  "line": 1014
                 },
                 "scope": null,
                 "written": "index"
@@ -104362,7 +104470,7 @@
                   "col": 46,
                   "endCol": 46,
                   "file": "<inline>",
-                  "line": 1011
+                  "line": 1014
                 },
                 "scope": null,
                 "written": null
@@ -104374,7 +104482,7 @@
                   "col": 13,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 1016
+                  "line": 1019
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104386,7 +104494,7 @@
                   "col": 23,
                   "endCol": 26,
                   "file": "<inline>",
-                  "line": 1016
+                  "line": 1019
                 },
                 "scope": null,
                 "written": "mode"
@@ -104398,7 +104506,7 @@
                   "col": 13,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 1017
+                  "line": 1020
                 },
                 "scope": "local",
                 "written": "local"
@@ -104410,7 +104518,7 @@
                   "col": 53,
                   "endCol": 61,
                   "file": "<inline>",
-                  "line": 1017
+                  "line": 1020
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104422,7 +104530,7 @@
                   "col": 63,
                   "endCol": 71,
                   "file": "<inline>",
-                  "line": 1017
+                  "line": 1020
                 },
                 "scope": null,
                 "written": "moveFiles"
@@ -104434,7 +104542,7 @@
                   "col": 73,
                   "endCol": 81,
                   "file": "<inline>",
-                  "line": 1017
+                  "line": 1020
                 },
                 "scope": null,
                 "written": "selection"
@@ -104446,7 +104554,7 @@
                   "col": 25,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1017
+                  "line": 1020
                 },
                 "scope": null,
                 "written": null
@@ -104458,7 +104566,7 @@
                   "col": 30,
                   "endCol": 38,
                   "file": "<inline>",
-                  "line": 1018
+                  "line": 1021
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104470,7 +104578,7 @@
                   "col": 40,
                   "endCol": 48,
                   "file": "<inline>",
-                  "line": 1018
+                  "line": 1021
                 },
                 "scope": null,
                 "written": "moveNames"
@@ -104482,7 +104590,7 @@
                   "col": 50,
                   "endCol": 58,
                   "file": "<inline>",
-                  "line": 1018
+                  "line": 1021
                 },
                 "scope": null,
                 "written": "selection"
@@ -104494,7 +104602,7 @@
                   "col": 17,
                   "endCol": 20,
                   "file": "<inline>",
-                  "line": 1019
+                  "line": 1022
                 },
                 "scope": null,
                 "written": "text"
@@ -104506,7 +104614,7 @@
                   "col": 33,
                   "endCol": 41,
                   "file": "<inline>",
-                  "line": 1020
+                  "line": 1023
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104518,7 +104626,7 @@
                   "col": 43,
                   "endCol": 48,
                   "file": "<inline>",
-                  "line": 1020
+                  "line": 1023
                 },
                 "scope": null,
                 "written": "labelX"
@@ -104530,7 +104638,7 @@
                   "col": 51,
                   "endCol": 59,
                   "file": "<inline>",
-                  "line": 1020
+                  "line": 1023
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104542,7 +104650,7 @@
                   "col": 61,
                   "endCol": 67,
                   "file": "<inline>",
-                  "line": 1020
+                  "line": 1023
                 },
                 "scope": null,
                 "written": "listTop"
@@ -104554,7 +104662,7 @@
                   "col": 75,
                   "endCol": 83,
                   "file": "<inline>",
-                  "line": 1020
+                  "line": 1023
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104566,7 +104674,7 @@
                   "col": 85,
                   "endCol": 93,
                   "file": "<inline>",
-                  "line": 1020
+                  "line": 1023
                 },
                 "scope": null,
                 "written": "moveNames"
@@ -104578,7 +104686,7 @@
                   "col": 95,
                   "endCol": 103,
                   "file": "<inline>",
-                  "line": 1020
+                  "line": 1023
                 },
                 "scope": null,
                 "written": "selection"
@@ -104590,7 +104698,7 @@
                   "col": 111,
                   "endCol": 119,
                   "file": "<inline>",
-                  "line": 1020
+                  "line": 1023
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104602,7 +104710,7 @@
                   "col": 121,
                   "endCol": 124,
                   "file": "<inline>",
-                  "line": 1020
+                  "line": 1023
                 },
                 "scope": null,
                 "written": "inkR"
@@ -104614,7 +104722,7 @@
                   "col": 127,
                   "endCol": 135,
                   "file": "<inline>",
-                  "line": 1020
+                  "line": 1023
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104626,7 +104734,7 @@
                   "col": 137,
                   "endCol": 140,
                   "file": "<inline>",
-                  "line": 1020
+                  "line": 1023
                 },
                 "scope": null,
                 "written": "inkG"
@@ -104638,7 +104746,7 @@
                   "col": 143,
                   "endCol": 151,
                   "file": "<inline>",
-                  "line": 1020
+                  "line": 1023
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104650,7 +104758,7 @@
                   "col": 153,
                   "endCol": 156,
                   "file": "<inline>",
-                  "line": 1020
+                  "line": 1023
                 },
                 "scope": null,
                 "written": "inkB"
@@ -104662,7 +104770,7 @@
                   "col": 33,
                   "endCol": 41,
                   "file": "<inline>",
-                  "line": 1022
+                  "line": 1025
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104674,7 +104782,7 @@
                   "col": 43,
                   "endCol": 48,
                   "file": "<inline>",
-                  "line": 1022
+                  "line": 1025
                 },
                 "scope": null,
                 "written": "labelX"
@@ -104686,7 +104794,7 @@
                   "col": 51,
                   "endCol": 59,
                   "file": "<inline>",
-                  "line": 1022
+                  "line": 1025
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104698,7 +104806,7 @@
                   "col": 61,
                   "endCol": 67,
                   "file": "<inline>",
-                  "line": 1022
+                  "line": 1025
                 },
                 "scope": null,
                 "written": "listTop"
@@ -104710,7 +104818,7 @@
                   "col": 75,
                   "endCol": 78,
                   "file": "<inline>",
-                  "line": 1022
+                  "line": 1025
                 },
                 "scope": null,
                 "written": "text"
@@ -104722,7 +104830,7 @@
                   "col": 85,
                   "endCol": 93,
                   "file": "<inline>",
-                  "line": 1022
+                  "line": 1025
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104734,7 +104842,7 @@
                   "col": 95,
                   "endCol": 98,
                   "file": "<inline>",
-                  "line": 1022
+                  "line": 1025
                 },
                 "scope": null,
                 "written": "inkR"
@@ -104746,7 +104854,7 @@
                   "col": 101,
                   "endCol": 109,
                   "file": "<inline>",
-                  "line": 1022
+                  "line": 1025
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104758,7 +104866,7 @@
                   "col": 111,
                   "endCol": 114,
                   "file": "<inline>",
-                  "line": 1022
+                  "line": 1025
                 },
                 "scope": null,
                 "written": "inkG"
@@ -104770,7 +104878,7 @@
                   "col": 117,
                   "endCol": 125,
                   "file": "<inline>",
-                  "line": 1022
+                  "line": 1025
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104782,7 +104890,7 @@
                   "col": 127,
                   "endCol": 130,
                   "file": "<inline>",
-                  "line": 1022
+                  "line": 1025
                 },
                 "scope": null,
                 "written": "inkB"
@@ -104794,7 +104902,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1029
+                  "line": 1032
                 },
                 "scope": "local",
                 "written": "local"
@@ -104806,7 +104914,7 @@
                   "col": 20,
                   "endCol": 20,
                   "file": "<inline>",
-                  "line": 1029
+                  "line": 1032
                 },
                 "scope": null,
                 "written": null
@@ -104818,7 +104926,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1030
+                  "line": 1033
                 },
                 "scope": "local",
                 "written": "local"
@@ -104830,7 +104938,7 @@
                   "col": 21,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 1030
+                  "line": 1033
                 },
                 "scope": null,
                 "written": null
@@ -104842,7 +104950,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1031
+                  "line": 1034
                 },
                 "scope": "local",
                 "written": "local"
@@ -104854,7 +104962,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1032
+                  "line": 1035
                 },
                 "scope": "local",
                 "written": "local"
@@ -104866,7 +104974,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1033
+                  "line": 1036
                 },
                 "scope": "local",
                 "written": "local"
@@ -104878,7 +104986,7 @@
                   "col": 24,
                   "endCol": 24,
                   "file": "<inline>",
-                  "line": 1033
+                  "line": 1036
                 },
                 "scope": null,
                 "written": null
@@ -104890,7 +104998,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1034
+                  "line": 1037
                 },
                 "scope": "local",
                 "written": "local"
@@ -104902,7 +105010,7 @@
                   "col": 41,
                   "endCol": 47,
                   "file": "<inline>",
-                  "line": 1034
+                  "line": 1037
                 },
                 "scope": null,
                 "written": "context"
@@ -104914,7 +105022,7 @@
                   "col": 23,
                   "endCol": 23,
                   "file": "<inline>",
-                  "line": 1034
+                  "line": 1037
                 },
                 "scope": null,
                 "written": null
@@ -104926,7 +105034,7 @@
                   "col": 9,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 1035
+                  "line": 1038
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104938,7 +105046,7 @@
                   "col": 19,
                   "endCol": 22,
                   "file": "<inline>",
-                  "line": 1035
+                  "line": 1038
                 },
                 "scope": null,
                 "written": "mode"
@@ -104950,7 +105058,7 @@
                   "col": 24,
                   "endCol": 24,
                   "file": "<inline>",
-                  "line": 1035
+                  "line": 1038
                 },
                 "scope": null,
                 "written": null
@@ -104962,7 +105070,7 @@
                   "col": 9,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 1036
+                  "line": 1039
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -104974,7 +105082,7 @@
                   "col": 19,
                   "endCol": 24,
                   "file": "<inline>",
-                  "line": 1036
+                  "line": 1039
                 },
                 "scope": null,
                 "written": "member"
@@ -104986,7 +105094,7 @@
                   "col": 26,
                   "endCol": 26,
                   "file": "<inline>",
-                  "line": 1036
+                  "line": 1039
                 },
                 "scope": null,
                 "written": null
@@ -104998,7 +105106,7 @@
                   "col": 9,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 1037
+                  "line": 1040
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105010,7 +105118,7 @@
                   "col": 19,
                   "endCol": 22,
                   "file": "<inline>",
-                  "line": 1037
+                  "line": 1040
                 },
                 "scope": null,
                 "written": "slot"
@@ -105022,7 +105130,7 @@
                   "col": 24,
                   "endCol": 24,
                   "file": "<inline>",
-                  "line": 1037
+                  "line": 1040
                 },
                 "scope": null,
                 "written": null
@@ -105034,7 +105142,7 @@
                   "col": 16,
                   "endCol": 19,
                   "file": "<inline>",
-                  "line": 1038
+                  "line": 1041
                 },
                 "scope": null,
                 "written": "done"
@@ -105046,7 +105154,7 @@
                   "col": 37,
                   "endCol": 43,
                   "file": "<inline>",
-                  "line": 1039
+                  "line": 1042
                 },
                 "scope": null,
                 "written": "context"
@@ -105058,7 +105166,7 @@
                   "col": 13,
                   "endCol": 15,
                   "file": "<inline>",
-                  "line": 1040
+                  "line": 1043
                 },
                 "scope": null,
                 "written": "key"
@@ -105070,7 +105178,7 @@
                   "col": 17,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 1040
+                  "line": 1043
                 },
                 "scope": null,
                 "written": null
@@ -105082,7 +105190,7 @@
                   "col": 17,
                   "endCol": 19,
                   "file": "<inline>",
-                  "line": 1041
+                  "line": 1044
                 },
                 "scope": null,
                 "written": "key"
@@ -105094,7 +105202,7 @@
                   "col": 17,
                   "endCol": 19,
                   "file": "<inline>",
-                  "line": 1042
+                  "line": 1045
                 },
                 "scope": null,
                 "written": "key"
@@ -105106,7 +105214,7 @@
                   "col": 43,
                   "endCol": 45,
                   "file": "<inline>",
-                  "line": 1042
+                  "line": 1045
                 },
                 "scope": null,
                 "written": "key"
@@ -105118,7 +105226,7 @@
                   "col": 21,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 1042
+                  "line": 1045
                 },
                 "scope": null,
                 "written": null
@@ -105130,7 +105238,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1043
+                  "line": 1046
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105142,7 +105250,7 @@
                   "col": 27,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1043
+                  "line": 1046
                 },
                 "scope": null,
                 "written": "message"
@@ -105154,7 +105262,7 @@
                   "col": 35,
                   "endCol": 35,
                   "file": "<inline>",
-                  "line": 1043
+                  "line": 1046
                 },
                 "scope": null,
                 "written": null
@@ -105166,7 +105274,7 @@
                   "col": 21,
                   "endCol": 29,
                   "file": "<inline>",
-                  "line": 1044
+                  "line": 1047
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105178,7 +105286,7 @@
                   "col": 31,
                   "endCol": 34,
                   "file": "<inline>",
-                  "line": 1044
+                  "line": 1047
                 },
                 "scope": null,
                 "written": "mode"
@@ -105190,7 +105298,7 @@
                   "col": 25,
                   "endCol": 27,
                   "file": "<inline>",
-                  "line": 1045
+                  "line": 1048
                 },
                 "scope": null,
                 "written": "key"
@@ -105202,7 +105310,7 @@
                   "col": 40,
                   "endCol": 42,
                   "file": "<inline>",
-                  "line": 1045
+                  "line": 1048
                 },
                 "scope": null,
                 "written": "key"
@@ -105214,7 +105322,7 @@
                   "col": 29,
                   "endCol": 31,
                   "file": "<inline>",
-                  "line": 1046
+                  "line": 1049
                 },
                 "scope": null,
                 "written": "key"
@@ -105226,7 +105334,7 @@
                   "col": 44,
                   "endCol": 52,
                   "file": "<inline>",
-                  "line": 1046
+                  "line": 1049
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105238,7 +105346,7 @@
                   "col": 54,
                   "endCol": 59,
                   "file": "<inline>",
-                  "line": 1046
+                  "line": 1049
                 },
                 "scope": null,
                 "written": "member"
@@ -105250,7 +105358,7 @@
                   "col": 78,
                   "endCol": 86,
                   "file": "<inline>",
-                  "line": 1046
+                  "line": 1049
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105262,7 +105370,7 @@
                   "col": 88,
                   "endCol": 93,
                   "file": "<inline>",
-                  "line": 1046
+                  "line": 1049
                 },
                 "scope": null,
                 "written": "member"
@@ -105274,7 +105382,7 @@
                   "col": 100,
                   "endCol": 108,
                   "file": "<inline>",
-                  "line": 1046
+                  "line": 1049
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105286,7 +105394,7 @@
                   "col": 110,
                   "endCol": 120,
                   "file": "<inline>",
-                  "line": 1046
+                  "line": 1049
                 },
                 "scope": null,
                 "written": "memberCount"
@@ -105298,7 +105406,7 @@
                   "col": 61,
                   "endCol": 61,
                   "file": "<inline>",
-                  "line": 1046
+                  "line": 1049
                 },
                 "scope": null,
                 "written": null
@@ -105310,7 +105418,7 @@
                   "col": 29,
                   "endCol": 31,
                   "file": "<inline>",
-                  "line": 1047
+                  "line": 1050
                 },
                 "scope": null,
                 "written": "key"
@@ -105322,7 +105430,7 @@
                   "col": 46,
                   "endCol": 54,
                   "file": "<inline>",
-                  "line": 1047
+                  "line": 1050
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105334,7 +105442,7 @@
                   "col": 56,
                   "endCol": 61,
                   "file": "<inline>",
-                  "line": 1047
+                  "line": 1050
                 },
                 "scope": null,
                 "written": "member"
@@ -105346,7 +105454,7 @@
                   "col": 80,
                   "endCol": 88,
                   "file": "<inline>",
-                  "line": 1047
+                  "line": 1050
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105358,7 +105466,7 @@
                   "col": 90,
                   "endCol": 95,
                   "file": "<inline>",
-                  "line": 1047
+                  "line": 1050
                 },
                 "scope": null,
                 "written": "member"
@@ -105370,7 +105478,7 @@
                   "col": 102,
                   "endCol": 110,
                   "file": "<inline>",
-                  "line": 1047
+                  "line": 1050
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105382,7 +105490,7 @@
                   "col": 112,
                   "endCol": 122,
                   "file": "<inline>",
-                  "line": 1047
+                  "line": 1050
                 },
                 "scope": null,
                 "written": "memberCount"
@@ -105394,7 +105502,7 @@
                   "col": 63,
                   "endCol": 63,
                   "file": "<inline>",
-                  "line": 1047
+                  "line": 1050
                 },
                 "scope": null,
                 "written": null
@@ -105406,7 +105514,7 @@
                   "col": 25,
                   "endCol": 27,
                   "file": "<inline>",
-                  "line": 1050
+                  "line": 1053
                 },
                 "scope": null,
                 "written": "key"
@@ -105418,7 +105526,7 @@
                   "col": 44,
                   "endCol": 46,
                   "file": "<inline>",
-                  "line": 1050
+                  "line": 1053
                 },
                 "scope": null,
                 "written": "key"
@@ -105430,7 +105538,7 @@
                   "col": 25,
                   "endCol": 28,
                   "file": "<inline>",
-                  "line": 1051
+                  "line": 1054
                 },
                 "scope": null,
                 "written": "done"
@@ -105442,7 +105550,7 @@
                   "col": 30,
                   "endCol": 30,
                   "file": "<inline>",
-                  "line": 1051
+                  "line": 1054
                 },
                 "scope": null,
                 "written": null
@@ -105454,7 +105562,7 @@
                   "col": 29,
                   "endCol": 31,
                   "file": "<inline>",
-                  "line": 1052
+                  "line": 1055
                 },
                 "scope": null,
                 "written": "key"
@@ -105466,7 +105574,7 @@
                   "col": 46,
                   "endCol": 54,
                   "file": "<inline>",
-                  "line": 1052
+                  "line": 1055
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105478,7 +105586,7 @@
                   "col": 56,
                   "endCol": 63,
                   "file": "<inline>",
-                  "line": 1052
+                  "line": 1055
                 },
                 "scope": null,
                 "written": "closeAll"
@@ -105490,7 +105598,7 @@
                   "col": 65,
                   "endCol": 65,
                   "file": "<inline>",
-                  "line": 1052
+                  "line": 1055
                 },
                 "scope": null,
                 "written": null
@@ -105502,7 +105610,7 @@
                   "col": 25,
                   "endCol": 27,
                   "file": "<inline>",
-                  "line": 1055
+                  "line": 1058
                 },
                 "scope": null,
                 "written": "key"
@@ -105514,7 +105622,7 @@
                   "col": 29,
                   "endCol": 37,
                   "file": "<inline>",
-                  "line": 1056
+                  "line": 1059
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105526,7 +105634,7 @@
                   "col": 39,
                   "endCol": 49,
                   "file": "<inline>",
-                  "line": 1056
+                  "line": 1059
                 },
                 "scope": null,
                 "written": "memberCount"
@@ -105538,7 +105646,7 @@
                   "col": 29,
                   "endCol": 34,
                   "file": "<inline>",
-                  "line": 1057
+                  "line": 1060
                 },
                 "scope": null,
                 "written": "member"
@@ -105550,7 +105658,7 @@
                   "col": 56,
                   "endCol": 62,
                   "file": "<inline>",
-                  "line": 1057
+                  "line": 1060
                 },
                 "scope": null,
                 "written": "context"
@@ -105562,7 +105670,7 @@
                   "col": 65,
                   "endCol": 73,
                   "file": "<inline>",
-                  "line": 1057
+                  "line": 1060
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105574,7 +105682,7 @@
                   "col": 75,
                   "endCol": 80,
                   "file": "<inline>",
-                  "line": 1057
+                  "line": 1060
                 },
                 "scope": null,
                 "written": "member"
@@ -105586,7 +105694,7 @@
                   "col": 36,
                   "endCol": 36,
                   "file": "<inline>",
-                  "line": 1057
+                  "line": 1060
                 },
                 "scope": null,
                 "written": null
@@ -105598,7 +105706,7 @@
                   "col": 45,
                   "endCol": 51,
                   "file": "<inline>",
-                  "line": 1058
+                  "line": 1061
                 },
                 "scope": null,
                 "written": "context"
@@ -105610,7 +105718,7 @@
                   "col": 54,
                   "endCol": 59,
                   "file": "<inline>",
-                  "line": 1058
+                  "line": 1061
                 },
                 "scope": null,
                 "written": "member"
@@ -105622,7 +105730,7 @@
                   "col": 29,
                   "endCol": 37,
                   "file": "<inline>",
-                  "line": 1059
+                  "line": 1062
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105634,7 +105742,7 @@
                   "col": 39,
                   "endCol": 42,
                   "file": "<inline>",
-                  "line": 1059
+                  "line": 1062
                 },
                 "scope": null,
                 "written": "mode"
@@ -105646,7 +105754,7 @@
                   "col": 44,
                   "endCol": 44,
                   "file": "<inline>",
-                  "line": 1059
+                  "line": 1062
                 },
                 "scope": null,
                 "written": null
@@ -105658,7 +105766,7 @@
                   "col": 50,
                   "endCol": 55,
                   "file": "<inline>",
-                  "line": 1060
+                  "line": 1063
                 },
                 "scope": null,
                 "written": "member"
@@ -105670,7 +105778,7 @@
                   "col": 57,
                   "endCol": 58,
                   "file": "<inline>",
-                  "line": 1060
+                  "line": 1063
                 },
                 "scope": null,
                 "written": "id"
@@ -105682,7 +105790,7 @@
                   "col": 25,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1065
+                  "line": 1068
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105694,7 +105802,7 @@
                   "col": 35,
                   "endCol": 38,
                   "file": "<inline>",
-                  "line": 1065
+                  "line": 1068
                 },
                 "scope": null,
                 "written": "mode"
@@ -105706,7 +105814,7 @@
                   "col": 29,
                   "endCol": 31,
                   "file": "<inline>",
-                  "line": 1066
+                  "line": 1069
                 },
                 "scope": null,
                 "written": "key"
@@ -105718,7 +105826,7 @@
                   "col": 44,
                   "endCol": 46,
                   "file": "<inline>",
-                  "line": 1066
+                  "line": 1069
                 },
                 "scope": null,
                 "written": "key"
@@ -105730,7 +105838,7 @@
                   "col": 33,
                   "endCol": 35,
                   "file": "<inline>",
-                  "line": 1067
+                  "line": 1070
                 },
                 "scope": null,
                 "written": "key"
@@ -105742,7 +105850,7 @@
                   "col": 107,
                   "endCol": 115,
                   "file": "<inline>",
-                  "line": 1067
+                  "line": 1070
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105754,7 +105862,7 @@
                   "col": 117,
                   "endCol": 125,
                   "file": "<inline>",
-                  "line": 1067
+                  "line": 1070
                 },
                 "scope": null,
                 "written": "moveCount"
@@ -105766,7 +105874,7 @@
                   "col": 33,
                   "endCol": 35,
                   "file": "<inline>",
-                  "line": 1068
+                  "line": 1071
                 },
                 "scope": null,
                 "written": "key"
@@ -105778,7 +105886,7 @@
                   "col": 109,
                   "endCol": 117,
                   "file": "<inline>",
-                  "line": 1068
+                  "line": 1071
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105790,7 +105898,7 @@
                   "col": 119,
                   "endCol": 127,
                   "file": "<inline>",
-                  "line": 1068
+                  "line": 1071
                 },
                 "scope": null,
                 "written": "moveCount"
@@ -105802,7 +105910,7 @@
                   "col": 29,
                   "endCol": 31,
                   "file": "<inline>",
-                  "line": 1071
+                  "line": 1074
                 },
                 "scope": null,
                 "written": "key"
@@ -105814,7 +105922,7 @@
                   "col": 29,
                   "endCol": 37,
                   "file": "<inline>",
-                  "line": 1072
+                  "line": 1075
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105826,7 +105934,7 @@
                   "col": 39,
                   "endCol": 42,
                   "file": "<inline>",
-                  "line": 1072
+                  "line": 1075
                 },
                 "scope": null,
                 "written": "mode"
@@ -105838,7 +105946,7 @@
                   "col": 44,
                   "endCol": 44,
                   "file": "<inline>",
-                  "line": 1072
+                  "line": 1075
                 },
                 "scope": null,
                 "written": null
@@ -105850,7 +105958,7 @@
                   "col": 29,
                   "endCol": 31,
                   "file": "<inline>",
-                  "line": 1075
+                  "line": 1078
                 },
                 "scope": null,
                 "written": "key"
@@ -105862,7 +105970,7 @@
                   "col": 29,
                   "endCol": 32,
                   "file": "<inline>",
-                  "line": 1076
+                  "line": 1079
                 },
                 "scope": null,
                 "written": "done"
@@ -105874,7 +105982,7 @@
                   "col": 34,
                   "endCol": 34,
                   "file": "<inline>",
-                  "line": 1076
+                  "line": 1079
                 },
                 "scope": null,
                 "written": null
@@ -105886,7 +105994,7 @@
                   "col": 29,
                   "endCol": 37,
                   "file": "<inline>",
-                  "line": 1077
+                  "line": 1080
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105898,7 +106006,7 @@
                   "col": 39,
                   "endCol": 46,
                   "file": "<inline>",
-                  "line": 1077
+                  "line": 1080
                 },
                 "scope": null,
                 "written": "closeAll"
@@ -105910,7 +106018,7 @@
                   "col": 48,
                   "endCol": 48,
                   "file": "<inline>",
-                  "line": 1077
+                  "line": 1080
                 },
                 "scope": null,
                 "written": null
@@ -105922,7 +106030,7 @@
                   "col": 29,
                   "endCol": 31,
                   "file": "<inline>",
-                  "line": 1080
+                  "line": 1083
                 },
                 "scope": null,
                 "written": "key"
@@ -105934,7 +106042,7 @@
                   "col": 33,
                   "endCol": 41,
                   "file": "<inline>",
-                  "line": 1081
+                  "line": 1084
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105946,7 +106054,7 @@
                   "col": 43,
                   "endCol": 51,
                   "file": "<inline>",
-                  "line": 1081
+                  "line": 1084
                 },
                 "scope": null,
                 "written": "moveCount"
@@ -105958,7 +106066,7 @@
                   "col": 33,
                   "endCol": 41,
                   "file": "<inline>",
-                  "line": 1082
+                  "line": 1085
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -105970,7 +106078,7 @@
                   "col": 43,
                   "endCol": 46,
                   "file": "<inline>",
-                  "line": 1082
+                  "line": 1085
                 },
                 "scope": null,
                 "written": "mode"
@@ -105982,7 +106090,7 @@
                   "col": 48,
                   "endCol": 48,
                   "file": "<inline>",
-                  "line": 1082
+                  "line": 1085
                 },
                 "scope": null,
                 "written": null
@@ -105994,7 +106102,7 @@
                   "col": 33,
                   "endCol": 41,
                   "file": "<inline>",
-                  "line": 1083
+                  "line": 1086
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106006,7 +106114,7 @@
                   "col": 43,
                   "endCol": 46,
                   "file": "<inline>",
-                  "line": 1083
+                  "line": 1086
                 },
                 "scope": null,
                 "written": "slot"
@@ -106018,7 +106126,7 @@
                   "col": 48,
                   "endCol": 48,
                   "file": "<inline>",
-                  "line": 1083
+                  "line": 1086
                 },
                 "scope": null,
                 "written": null
@@ -106030,7 +106138,7 @@
                   "col": 29,
                   "endCol": 37,
                   "file": "<inline>",
-                  "line": 1088
+                  "line": 1091
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106042,7 +106150,7 @@
                   "col": 39,
                   "endCol": 42,
                   "file": "<inline>",
-                  "line": 1088
+                  "line": 1091
                 },
                 "scope": null,
                 "written": "mode"
@@ -106054,7 +106162,7 @@
                   "col": 33,
                   "endCol": 35,
                   "file": "<inline>",
-                  "line": 1089
+                  "line": 1092
                 },
                 "scope": null,
                 "written": "key"
@@ -106066,7 +106174,7 @@
                   "col": 48,
                   "endCol": 50,
                   "file": "<inline>",
-                  "line": 1089
+                  "line": 1092
                 },
                 "scope": null,
                 "written": "key"
@@ -106078,7 +106186,7 @@
                   "col": 37,
                   "endCol": 39,
                   "file": "<inline>",
-                  "line": 1090
+                  "line": 1093
                 },
                 "scope": null,
                 "written": "key"
@@ -106090,7 +106198,7 @@
                   "col": 52,
                   "endCol": 60,
                   "file": "<inline>",
-                  "line": 1090
+                  "line": 1093
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106102,7 +106210,7 @@
                   "col": 62,
                   "endCol": 65,
                   "file": "<inline>",
-                  "line": 1090
+                  "line": 1093
                 },
                 "scope": null,
                 "written": "slot"
@@ -106114,7 +106222,7 @@
                   "col": 84,
                   "endCol": 92,
                   "file": "<inline>",
-                  "line": 1090
+                  "line": 1093
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106126,7 +106234,7 @@
                   "col": 94,
                   "endCol": 97,
                   "file": "<inline>",
-                  "line": 1090
+                  "line": 1093
                 },
                 "scope": null,
                 "written": "slot"
@@ -106138,7 +106246,7 @@
                   "col": 67,
                   "endCol": 67,
                   "file": "<inline>",
-                  "line": 1090
+                  "line": 1093
                 },
                 "scope": null,
                 "written": null
@@ -106150,7 +106258,7 @@
                   "col": 37,
                   "endCol": 39,
                   "file": "<inline>",
-                  "line": 1091
+                  "line": 1094
                 },
                 "scope": null,
                 "written": "key"
@@ -106162,7 +106270,7 @@
                   "col": 54,
                   "endCol": 62,
                   "file": "<inline>",
-                  "line": 1091
+                  "line": 1094
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106174,7 +106282,7 @@
                   "col": 64,
                   "endCol": 67,
                   "file": "<inline>",
-                  "line": 1091
+                  "line": 1094
                 },
                 "scope": null,
                 "written": "slot"
@@ -106186,7 +106294,7 @@
                   "col": 86,
                   "endCol": 94,
                   "file": "<inline>",
-                  "line": 1091
+                  "line": 1094
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106198,7 +106306,7 @@
                   "col": 96,
                   "endCol": 99,
                   "file": "<inline>",
-                  "line": 1091
+                  "line": 1094
                 },
                 "scope": null,
                 "written": "slot"
@@ -106210,7 +106318,7 @@
                   "col": 69,
                   "endCol": 69,
                   "file": "<inline>",
-                  "line": 1091
+                  "line": 1094
                 },
                 "scope": null,
                 "written": null
@@ -106222,7 +106330,7 @@
                   "col": 33,
                   "endCol": 35,
                   "file": "<inline>",
-                  "line": 1094
+                  "line": 1097
                 },
                 "scope": null,
                 "written": "key"
@@ -106234,7 +106342,7 @@
                   "col": 33,
                   "endCol": 41,
                   "file": "<inline>",
-                  "line": 1095
+                  "line": 1098
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106246,7 +106354,7 @@
                   "col": 43,
                   "endCol": 46,
                   "file": "<inline>",
-                  "line": 1095
+                  "line": 1098
                 },
                 "scope": null,
                 "written": "mode"
@@ -106258,7 +106366,7 @@
                   "col": 48,
                   "endCol": 48,
                   "file": "<inline>",
-                  "line": 1095
+                  "line": 1098
                 },
                 "scope": null,
                 "written": null
@@ -106270,7 +106378,7 @@
                   "col": 33,
                   "endCol": 35,
                   "file": "<inline>",
-                  "line": 1098
+                  "line": 1101
                 },
                 "scope": null,
                 "written": "key"
@@ -106282,7 +106390,7 @@
                   "col": 33,
                   "endCol": 36,
                   "file": "<inline>",
-                  "line": 1099
+                  "line": 1102
                 },
                 "scope": null,
                 "written": "done"
@@ -106294,7 +106402,7 @@
                   "col": 38,
                   "endCol": 38,
                   "file": "<inline>",
-                  "line": 1099
+                  "line": 1102
                 },
                 "scope": null,
                 "written": null
@@ -106306,7 +106414,7 @@
                   "col": 33,
                   "endCol": 41,
                   "file": "<inline>",
-                  "line": 1100
+                  "line": 1103
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106318,7 +106426,7 @@
                   "col": 43,
                   "endCol": 50,
                   "file": "<inline>",
-                  "line": 1100
+                  "line": 1103
                 },
                 "scope": null,
                 "written": "closeAll"
@@ -106330,7 +106438,7 @@
                   "col": 52,
                   "endCol": 52,
                   "file": "<inline>",
-                  "line": 1100
+                  "line": 1103
                 },
                 "scope": null,
                 "written": null
@@ -106342,7 +106450,7 @@
                   "col": 33,
                   "endCol": 35,
                   "file": "<inline>",
-                  "line": 1103
+                  "line": 1106
                 },
                 "scope": null,
                 "written": "key"
@@ -106354,7 +106462,7 @@
                   "col": 37,
                   "endCol": 45,
                   "file": "<inline>",
-                  "line": 1104
+                  "line": 1107
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106366,7 +106474,7 @@
                   "col": 47,
                   "endCol": 50,
                   "file": "<inline>",
-                  "line": 1104
+                  "line": 1107
                 },
                 "scope": null,
                 "written": "slot"
@@ -106378,7 +106486,7 @@
                   "col": 37,
                   "endCol": 45,
                   "file": "<inline>",
-                  "line": 1105
+                  "line": 1108
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106390,7 +106498,7 @@
                   "col": 47,
                   "endCol": 50,
                   "file": "<inline>",
-                  "line": 1105
+                  "line": 1108
                 },
                 "scope": null,
                 "written": "mode"
@@ -106402,7 +106510,7 @@
                   "col": 52,
                   "endCol": 52,
                   "file": "<inline>",
-                  "line": 1105
+                  "line": 1108
                 },
                 "scope": null,
                 "written": null
@@ -106414,7 +106522,7 @@
                   "col": 37,
                   "endCol": 39,
                   "file": "<inline>",
-                  "line": 1108
+                  "line": 1111
                 },
                 "scope": null,
                 "written": "spc"
@@ -106426,7 +106534,7 @@
                   "col": 58,
                   "endCol": 66,
                   "file": "<inline>",
-                  "line": 1108
+                  "line": 1111
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106438,7 +106546,7 @@
                   "col": 68,
                   "endCol": 76,
                   "file": "<inline>",
-                  "line": 1108
+                  "line": 1111
                 },
                 "scope": null,
                 "written": "moveFiles"
@@ -106450,7 +106558,7 @@
                   "col": 41,
                   "endCol": 41,
                   "file": "<inline>",
-                  "line": 1108
+                  "line": 1111
                 },
                 "scope": null,
                 "written": null
@@ -106462,7 +106570,7 @@
                   "col": 37,
                   "endCol": 43,
                   "file": "<inline>",
-                  "line": 1109
+                  "line": 1112
                 },
                 "scope": null,
                 "written": "program"
@@ -106474,7 +106582,7 @@
                   "col": 45,
                   "endCol": 45,
                   "file": "<inline>",
-                  "line": 1109
+                  "line": 1112
                 },
                 "scope": null,
                 "written": null
@@ -106486,7 +106594,7 @@
                   "col": 41,
                   "endCol": 43,
                   "file": "<inline>",
-                  "line": 1110
+                  "line": 1113
                 },
                 "scope": null,
                 "written": "spc"
@@ -106498,7 +106606,7 @@
                   "col": 41,
                   "endCol": 47,
                   "file": "<inline>",
-                  "line": 1111
+                  "line": 1114
                 },
                 "scope": null,
                 "written": "program"
@@ -106510,7 +106618,7 @@
                   "col": 51,
                   "endCol": 53,
                   "file": "<inline>",
-                  "line": 1111
+                  "line": 1114
                 },
                 "scope": null,
                 "written": "spc"
@@ -106522,7 +106630,7 @@
                   "col": 55,
                   "endCol": 61,
                   "file": "<inline>",
-                  "line": 1111
+                  "line": 1114
                 },
                 "scope": null,
                 "written": "program"
@@ -106534,7 +106642,7 @@
                   "col": 49,
                   "endCol": 49,
                   "file": "<inline>",
-                  "line": 1111
+                  "line": 1114
                 },
                 "scope": null,
                 "written": null
@@ -106546,7 +106654,7 @@
                   "col": 41,
                   "endCol": 47,
                   "file": "<inline>",
-                  "line": 1113
+                  "line": 1116
                 },
                 "scope": null,
                 "written": "program"
@@ -106558,7 +106666,7 @@
                   "col": 41,
                   "endCol": 49,
                   "file": "<inline>",
-                  "line": 1114
+                  "line": 1117
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106570,7 +106678,7 @@
                   "col": 51,
                   "endCol": 57,
                   "file": "<inline>",
-                  "line": 1114
+                  "line": 1117
                 },
                 "scope": null,
                 "written": "message"
@@ -106582,7 +106690,7 @@
                   "col": 59,
                   "endCol": 59,
                   "file": "<inline>",
-                  "line": 1114
+                  "line": 1117
                 },
                 "scope": null,
                 "written": null
@@ -106594,7 +106702,7 @@
                   "col": 41,
                   "endCol": 46,
                   "file": "<inline>",
-                  "line": 1116
+                  "line": 1119
                 },
                 "scope": null,
                 "written": "member"
@@ -106606,7 +106714,7 @@
                   "col": 68,
                   "endCol": 74,
                   "file": "<inline>",
-                  "line": 1116
+                  "line": 1119
                 },
                 "scope": null,
                 "written": "context"
@@ -106618,7 +106726,7 @@
                   "col": 77,
                   "endCol": 85,
                   "file": "<inline>",
-                  "line": 1116
+                  "line": 1119
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106630,7 +106738,7 @@
                   "col": 87,
                   "endCol": 92,
                   "file": "<inline>",
-                  "line": 1116
+                  "line": 1119
                 },
                 "scope": null,
                 "written": "member"
@@ -106642,7 +106750,7 @@
                   "col": 48,
                   "endCol": 48,
                   "file": "<inline>",
-                  "line": 1116
+                  "line": 1119
                 },
                 "scope": null,
                 "written": null
@@ -106654,7 +106762,7 @@
                   "col": 56,
                   "endCol": 62,
                   "file": "<inline>",
-                  "line": 1117
+                  "line": 1120
                 },
                 "scope": null,
                 "written": "program"
@@ -106666,7 +106774,7 @@
                   "col": 80,
                   "endCol": 85,
                   "file": "<inline>",
-                  "line": 1117
+                  "line": 1120
                 },
                 "scope": null,
                 "written": "member"
@@ -106678,7 +106786,7 @@
                   "col": 87,
                   "endCol": 92,
                   "file": "<inline>",
-                  "line": 1117
+                  "line": 1120
                 },
                 "scope": null,
                 "written": "handle"
@@ -106690,7 +106798,7 @@
                   "col": 108,
                   "endCol": 113,
                   "file": "<inline>",
-                  "line": 1117
+                  "line": 1120
                 },
                 "scope": null,
                 "written": "member"
@@ -106702,7 +106810,7 @@
                   "col": 115,
                   "endCol": 120,
                   "file": "<inline>",
-                  "line": 1117
+                  "line": 1120
                 },
                 "scope": null,
                 "written": "handle"
@@ -106714,7 +106822,7 @@
                   "col": 41,
                   "endCol": 49,
                   "file": "<inline>",
-                  "line": 1118
+                  "line": 1121
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106726,7 +106834,7 @@
                   "col": 51,
                   "endCol": 57,
                   "file": "<inline>",
-                  "line": 1118
+                  "line": 1121
                 },
                 "scope": null,
                 "written": "message"
@@ -106738,7 +106846,7 @@
                   "col": 71,
                   "endCol": 79,
                   "file": "<inline>",
-                  "line": 1118
+                  "line": 1121
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106750,7 +106858,7 @@
                   "col": 81,
                   "endCol": 89,
                   "file": "<inline>",
-                  "line": 1118
+                  "line": 1121
                 },
                 "scope": null,
                 "written": "moveNames"
@@ -106762,7 +106870,7 @@
                   "col": 59,
                   "endCol": 59,
                   "file": "<inline>",
-                  "line": 1118
+                  "line": 1121
                 },
                 "scope": null,
                 "written": null
@@ -106774,7 +106882,7 @@
                   "col": 37,
                   "endCol": 45,
                   "file": "<inline>",
-                  "line": 1120
+                  "line": 1123
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106786,7 +106894,7 @@
                   "col": 47,
                   "endCol": 50,
                   "file": "<inline>",
-                  "line": 1120
+                  "line": 1123
                 },
                 "scope": null,
                 "written": "mode"
@@ -106798,7 +106906,7 @@
                   "col": 52,
                   "endCol": 52,
                   "file": "<inline>",
-                  "line": 1120
+                  "line": 1123
                 },
                 "scope": null,
                 "written": null
@@ -106810,7 +106918,7 @@
                   "col": 33,
                   "endCol": 41,
                   "file": "<inline>",
-                  "line": 1125
+                  "line": 1128
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106822,7 +106930,7 @@
                   "col": 43,
                   "endCol": 46,
                   "file": "<inline>",
-                  "line": 1125
+                  "line": 1128
                 },
                 "scope": null,
                 "written": "mode"
@@ -106834,7 +106942,7 @@
                   "col": 37,
                   "endCol": 39,
                   "file": "<inline>",
-                  "line": 1126
+                  "line": 1129
                 },
                 "scope": null,
                 "written": "key"
@@ -106846,7 +106954,7 @@
                   "col": 37,
                   "endCol": 45,
                   "file": "<inline>",
-                  "line": 1127
+                  "line": 1130
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106858,7 +106966,7 @@
                   "col": 47,
                   "endCol": 50,
                   "file": "<inline>",
-                  "line": 1127
+                  "line": 1130
                 },
                 "scope": null,
                 "written": "mode"
@@ -106870,7 +106978,7 @@
                   "col": 52,
                   "endCol": 52,
                   "file": "<inline>",
-                  "line": 1127
+                  "line": 1130
                 },
                 "scope": null,
                 "written": null
@@ -106882,7 +106990,7 @@
                   "col": 37,
                   "endCol": 39,
                   "file": "<inline>",
-                  "line": 1130
+                  "line": 1133
                 },
                 "scope": null,
                 "written": "key"
@@ -106894,7 +107002,7 @@
                   "col": 37,
                   "endCol": 40,
                   "file": "<inline>",
-                  "line": 1131
+                  "line": 1134
                 },
                 "scope": null,
                 "written": "done"
@@ -106906,7 +107014,7 @@
                   "col": 42,
                   "endCol": 42,
                   "file": "<inline>",
-                  "line": 1131
+                  "line": 1134
                 },
                 "scope": null,
                 "written": null
@@ -106918,7 +107026,7 @@
                   "col": 37,
                   "endCol": 45,
                   "file": "<inline>",
-                  "line": 1132
+                  "line": 1135
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -106930,7 +107038,7 @@
                   "col": 47,
                   "endCol": 54,
                   "file": "<inline>",
-                  "line": 1132
+                  "line": 1135
                 },
                 "scope": null,
                 "written": "closeAll"
@@ -106942,7 +107050,7 @@
                   "col": 56,
                   "endCol": 56,
                   "file": "<inline>",
-                  "line": 1132
+                  "line": 1135
                 },
                 "scope": null,
                 "written": null
@@ -106954,7 +107062,7 @@
                   "col": 25,
                   "endCol": 30,
                   "file": "<inline>",
-                  "line": 1141
+                  "line": 1144
                 },
                 "scope": null,
                 "written": "parent"
@@ -106966,7 +107074,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1147
+                  "line": 1150
                 },
                 "scope": "local",
                 "written": "local"
@@ -106978,7 +107086,7 @@
                   "col": 20,
                   "endCol": 20,
                   "file": "<inline>",
-                  "line": 1147
+                  "line": 1150
                 },
                 "scope": null,
                 "written": null
@@ -106990,7 +107098,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1148
+                  "line": 1151
                 },
                 "scope": "local",
                 "written": "local"
@@ -107002,7 +107110,7 @@
                   "col": 21,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 1148
+                  "line": 1151
                 },
                 "scope": null,
                 "written": null
@@ -107014,7 +107122,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1149
+                  "line": 1152
                 },
                 "scope": "local",
                 "written": "local"
@@ -107026,7 +107134,7 @@
                   "col": 21,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 1149
+                  "line": 1152
                 },
                 "scope": null,
                 "written": null
@@ -107038,7 +107146,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1150
+                  "line": 1153
                 },
                 "scope": "local",
                 "written": "local"
@@ -107050,7 +107158,7 @@
                   "col": 22,
                   "endCol": 22,
                   "file": "<inline>",
-                  "line": 1150
+                  "line": 1153
                 },
                 "scope": null,
                 "written": null
@@ -107062,7 +107170,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1151
+                  "line": 1154
                 },
                 "scope": "local",
                 "written": "local"
@@ -107074,7 +107182,7 @@
                   "col": 22,
                   "endCol": 22,
                   "file": "<inline>",
-                  "line": 1151
+                  "line": 1154
                 },
                 "scope": null,
                 "written": null
@@ -107086,7 +107194,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1152
+                  "line": 1155
                 },
                 "scope": "local",
                 "written": "local"
@@ -107098,7 +107206,7 @@
                   "col": 26,
                   "endCol": 26,
                   "file": "<inline>",
-                  "line": 1152
+                  "line": 1155
                 },
                 "scope": null,
                 "written": null
@@ -107110,7 +107218,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1153
+                  "line": 1156
                 },
                 "scope": "local",
                 "written": "local"
@@ -107122,7 +107230,7 @@
                   "col": 21,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 1153
+                  "line": 1156
                 },
                 "scope": null,
                 "written": null
@@ -107134,7 +107242,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1154
+                  "line": 1157
                 },
                 "scope": "local",
                 "written": "local"
@@ -107146,7 +107254,7 @@
                   "col": 23,
                   "endCol": 23,
                   "file": "<inline>",
-                  "line": 1154
+                  "line": 1157
                 },
                 "scope": null,
                 "written": null
@@ -107158,7 +107266,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1155
+                  "line": 1158
                 },
                 "scope": "local",
                 "written": "local"
@@ -107170,7 +107278,7 @@
                   "col": 18,
                   "endCol": 18,
                   "file": "<inline>",
-                  "line": 1155
+                  "line": 1158
                 },
                 "scope": null,
                 "written": null
@@ -107182,7 +107290,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1156
+                  "line": 1159
                 },
                 "scope": "local",
                 "written": "local"
@@ -107194,7 +107302,7 @@
                   "col": 22,
                   "endCol": 22,
                   "file": "<inline>",
-                  "line": 1156
+                  "line": 1159
                 },
                 "scope": null,
                 "written": null
@@ -107206,7 +107314,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1157
+                  "line": 1160
                 },
                 "scope": "local",
                 "written": "local"
@@ -107218,7 +107326,7 @@
                   "col": 22,
                   "endCol": 22,
                   "file": "<inline>",
-                  "line": 1157
+                  "line": 1160
                 },
                 "scope": null,
                 "written": null
@@ -107230,7 +107338,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1158
+                  "line": 1161
                 },
                 "scope": "local",
                 "written": "local"
@@ -107242,7 +107350,7 @@
                   "col": 23,
                   "endCol": 23,
                   "file": "<inline>",
-                  "line": 1158
+                  "line": 1161
                 },
                 "scope": null,
                 "written": null
@@ -107254,7 +107362,7 @@
                   "col": 9,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 1159
+                  "line": 1162
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -107266,7 +107374,7 @@
                   "col": 19,
                   "endCol": 27,
                   "file": "<inline>",
-                  "line": 1159
+                  "line": 1162
                 },
                 "scope": null,
                 "written": "saveNames"
@@ -107278,7 +107386,7 @@
                   "col": 29,
                   "endCol": 29,
                   "file": "<inline>",
-                  "line": 1159
+                  "line": 1162
                 },
                 "scope": null,
                 "written": null
@@ -107290,7 +107398,7 @@
                   "col": 9,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 1160
+                  "line": 1163
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -107302,7 +107410,7 @@
                   "col": 19,
                   "endCol": 27,
                   "file": "<inline>",
-                  "line": 1160
+                  "line": 1163
                 },
                 "scope": null,
                 "written": "saveCount"
@@ -107314,7 +107422,7 @@
                   "col": 29,
                   "endCol": 29,
                   "file": "<inline>",
-                  "line": 1160
+                  "line": 1163
                 },
                 "scope": null,
                 "written": null
@@ -107326,7 +107434,7 @@
                   "col": 14,
                   "endCol": 18,
                   "file": "<inline>",
-                  "line": 1161
+                  "line": 1164
                 },
                 "scope": null,
                 "written": "index"
@@ -107338,7 +107446,7 @@
                   "col": 20,
                   "endCol": 20,
                   "file": "<inline>",
-                  "line": 1161
+                  "line": 1164
                 },
                 "scope": null,
                 "written": null
@@ -107350,7 +107458,7 @@
                   "col": 25,
                   "endCol": 29,
                   "file": "<inline>",
-                  "line": 1161
+                  "line": 1164
                 },
                 "scope": null,
                 "written": "index"
@@ -107362,7 +107470,7 @@
                   "col": 33,
                   "endCol": 36,
                   "file": "<inline>",
-                  "line": 1161
+                  "line": 1164
                 },
                 "scope": null,
                 "written": "list"
@@ -107374,7 +107482,7 @@
                   "col": 38,
                   "endCol": 43,
                   "file": "<inline>",
-                  "line": 1161
+                  "line": 1164
                 },
                 "scope": null,
                 "written": "length"
@@ -107386,7 +107494,7 @@
                   "col": 13,
                   "endCol": 16,
                   "file": "<inline>",
-                  "line": 1162
+                  "line": 1165
                 },
                 "scope": null,
                 "written": "name"
@@ -107398,7 +107506,7 @@
                   "col": 25,
                   "endCol": 29,
                   "file": "<inline>",
-                  "line": 1162
+                  "line": 1165
                 },
                 "scope": null,
                 "written": "index"
@@ -107410,7 +107518,7 @@
                   "col": 32,
                   "endCol": 35,
                   "file": "<inline>",
-                  "line": 1162
+                  "line": 1165
                 },
                 "scope": null,
                 "written": "name"
@@ -107422,7 +107530,7 @@
                   "col": 18,
                   "endCol": 18,
                   "file": "<inline>",
-                  "line": 1162
+                  "line": 1165
                 },
                 "scope": null,
                 "written": null
@@ -107434,7 +107542,7 @@
                   "col": 21,
                   "endCol": 24,
                   "file": "<inline>",
-                  "line": 1164
+                  "line": 1167
                 },
                 "scope": null,
                 "written": "name"
@@ -107446,7 +107554,7 @@
                   "col": 40,
                   "endCol": 43,
                   "file": "<inline>",
-                  "line": 1164
+                  "line": 1167
                 },
                 "scope": null,
                 "written": "name"
@@ -107458,7 +107566,7 @@
                   "col": 70,
                   "endCol": 73,
                   "file": "<inline>",
-                  "line": 1164
+                  "line": 1167
                 },
                 "scope": null,
                 "written": "name"
@@ -107470,7 +107578,7 @@
                   "col": 17,
                   "endCol": 20,
                   "file": "<inline>",
-                  "line": 1165
+                  "line": 1168
                 },
                 "scope": null,
                 "written": "name"
@@ -107482,7 +107590,7 @@
                   "col": 35,
                   "endCol": 38,
                   "file": "<inline>",
-                  "line": 1165
+                  "line": 1168
                 },
                 "scope": null,
                 "written": "name"
@@ -107494,7 +107602,7 @@
                   "col": 45,
                   "endCol": 48,
                   "file": "<inline>",
-                  "line": 1165
+                  "line": 1168
                 },
                 "scope": null,
                 "written": "name"
@@ -107506,7 +107614,7 @@
                   "col": 61,
                   "endCol": 64,
                   "file": "<inline>",
-                  "line": 1165
+                  "line": 1168
                 },
                 "scope": null,
                 "written": "name"
@@ -107518,7 +107626,7 @@
                   "col": 22,
                   "endCol": 22,
                   "file": "<inline>",
-                  "line": 1165
+                  "line": 1168
                 },
                 "scope": null,
                 "written": null
@@ -107530,7 +107638,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1166
+                  "line": 1169
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -107542,7 +107650,7 @@
                   "col": 27,
                   "endCol": 35,
                   "file": "<inline>",
-                  "line": 1166
+                  "line": 1169
                 },
                 "scope": null,
                 "written": "saveNames"
@@ -107554,7 +107662,7 @@
                   "col": 37,
                   "endCol": 45,
                   "file": "<inline>",
-                  "line": 1166
+                  "line": 1169
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -107566,7 +107674,7 @@
                   "col": 47,
                   "endCol": 55,
                   "file": "<inline>",
-                  "line": 1166
+                  "line": 1169
                 },
                 "scope": null,
                 "written": "saveCount"
@@ -107578,7 +107686,7 @@
                   "col": 60,
                   "endCol": 63,
                   "file": "<inline>",
-                  "line": 1166
+                  "line": 1169
                 },
                 "scope": null,
                 "written": "name"
@@ -107590,7 +107698,7 @@
                   "col": 58,
                   "endCol": 58,
                   "file": "<inline>",
-                  "line": 1166
+                  "line": 1169
                 },
                 "scope": null,
                 "written": null
@@ -107602,7 +107710,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1167
+                  "line": 1170
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -107614,7 +107722,7 @@
                   "col": 27,
                   "endCol": 35,
                   "file": "<inline>",
-                  "line": 1167
+                  "line": 1170
                 },
                 "scope": null,
                 "written": "saveCount"
@@ -107626,7 +107734,7 @@
                   "col": 39,
                   "endCol": 47,
                   "file": "<inline>",
-                  "line": 1167
+                  "line": 1170
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -107638,7 +107746,7 @@
                   "col": 49,
                   "endCol": 57,
                   "file": "<inline>",
-                  "line": 1167
+                  "line": 1170
                 },
                 "scope": null,
                 "written": "saveCount"
@@ -107650,7 +107758,7 @@
                   "col": 37,
                   "endCol": 37,
                   "file": "<inline>",
-                  "line": 1167
+                  "line": 1170
                 },
                 "scope": null,
                 "written": null
@@ -107662,7 +107770,7 @@
                   "col": 46,
                   "endCol": 50,
                   "file": "<inline>",
-                  "line": 1161
+                  "line": 1164
                 },
                 "scope": null,
                 "written": "index"
@@ -107674,7 +107782,7 @@
                   "col": 54,
                   "endCol": 58,
                   "file": "<inline>",
-                  "line": 1161
+                  "line": 1164
                 },
                 "scope": null,
                 "written": "index"
@@ -107686,7 +107794,7 @@
                   "col": 52,
                   "endCol": 52,
                   "file": "<inline>",
-                  "line": 1161
+                  "line": 1164
                 },
                 "scope": null,
                 "written": null
@@ -107698,7 +107806,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1170
+                  "line": 1173
                 },
                 "scope": null,
                 "written": "count"
@@ -107710,7 +107818,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1170
+                  "line": 1173
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -107722,7 +107830,7 @@
                   "col": 27,
                   "endCol": 35,
                   "file": "<inline>",
-                  "line": 1170
+                  "line": 1173
                 },
                 "scope": null,
                 "written": "saveCount"
@@ -107734,7 +107842,7 @@
                   "col": 15,
                   "endCol": 15,
                   "file": "<inline>",
-                  "line": 1170
+                  "line": 1173
                 },
                 "scope": null,
                 "written": null
@@ -107746,7 +107854,7 @@
                   "col": 13,
                   "endCol": 20,
                   "file": "<inline>",
-                  "line": 1171
+                  "line": 1174
                 },
                 "scope": null,
                 "written": "allowNew"
@@ -107758,7 +107866,7 @@
                   "col": 13,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 1172
+                  "line": 1175
                 },
                 "scope": null,
                 "written": "count"
@@ -107770,7 +107878,7 @@
                   "col": 21,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1172
+                  "line": 1175
                 },
                 "scope": null,
                 "written": "count"
@@ -107782,7 +107890,7 @@
                   "col": 19,
                   "endCol": 19,
                   "file": "<inline>",
-                  "line": 1172
+                  "line": 1175
                 },
                 "scope": null,
                 "written": null
@@ -107794,7 +107902,7 @@
                   "col": 9,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1174
+                  "line": 1177
                 },
                 "scope": "local",
                 "written": "local"
@@ -107806,7 +107914,7 @@
                   "col": 41,
                   "endCol": 47,
                   "file": "<inline>",
-                  "line": 1174
+                  "line": 1177
                 },
                 "scope": null,
                 "written": "context"
@@ -107818,7 +107926,7 @@
                   "col": 23,
                   "endCol": 23,
                   "file": "<inline>",
-                  "line": 1174
+                  "line": 1177
                 },
                 "scope": null,
                 "written": null
@@ -107830,7 +107938,7 @@
                   "col": 16,
                   "endCol": 19,
                   "file": "<inline>",
-                  "line": 1175
+                  "line": 1178
                 },
                 "scope": null,
                 "written": "done"
@@ -107842,7 +107950,7 @@
                   "col": 30,
                   "endCol": 34,
                   "file": "<inline>",
-                  "line": 1177
+                  "line": 1180
                 },
                 "scope": null,
                 "written": "title"
@@ -107854,7 +107962,7 @@
                   "col": 13,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 1178
+                  "line": 1181
                 },
                 "scope": null,
                 "written": "y"
@@ -107866,7 +107974,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1178
+                  "line": 1181
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -107878,7 +107986,7 @@
                   "col": 27,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1178
+                  "line": 1181
                 },
                 "scope": null,
                 "written": "listTop"
@@ -107890,7 +107998,7 @@
                   "col": 15,
                   "endCol": 15,
                   "file": "<inline>",
-                  "line": 1178
+                  "line": 1181
                 },
                 "scope": null,
                 "written": null
@@ -107902,7 +108010,7 @@
                   "col": 18,
                   "endCol": 22,
                   "file": "<inline>",
-                  "line": 1179
+                  "line": 1182
                 },
                 "scope": null,
                 "written": "index"
@@ -107914,7 +108022,7 @@
                   "col": 24,
                   "endCol": 24,
                   "file": "<inline>",
-                  "line": 1179
+                  "line": 1182
                 },
                 "scope": null,
                 "written": null
@@ -107926,7 +108034,7 @@
                   "col": 29,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1179
+                  "line": 1182
                 },
                 "scope": null,
                 "written": "index"
@@ -107938,7 +108046,7 @@
                   "col": 37,
                   "endCol": 45,
                   "file": "<inline>",
-                  "line": 1179
+                  "line": 1182
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -107950,7 +108058,7 @@
                   "col": 47,
                   "endCol": 55,
                   "file": "<inline>",
-                  "line": 1179
+                  "line": 1182
                 },
                 "scope": null,
                 "written": "saveCount"
@@ -107962,7 +108070,7 @@
                   "col": 31,
                   "endCol": 31,
                   "file": "<inline>",
-                  "line": 1180
+                  "line": 1183
                 },
                 "scope": null,
                 "written": "y"
@@ -107974,7 +108082,7 @@
                   "col": 34,
                   "endCol": 42,
                   "file": "<inline>",
-                  "line": 1180
+                  "line": 1183
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -107986,7 +108094,7 @@
                   "col": 44,
                   "endCol": 52,
                   "file": "<inline>",
-                  "line": 1180
+                  "line": 1183
                 },
                 "scope": null,
                 "written": "saveNames"
@@ -107998,7 +108106,7 @@
                   "col": 54,
                   "endCol": 58,
                   "file": "<inline>",
-                  "line": 1180
+                  "line": 1183
                 },
                 "scope": null,
                 "written": "index"
@@ -108010,7 +108118,7 @@
                   "col": 66,
                   "endCol": 74,
                   "file": "<inline>",
-                  "line": 1180
+                  "line": 1183
                 },
                 "scope": null,
                 "written": "selection"
@@ -108022,7 +108130,7 @@
                   "col": 79,
                   "endCol": 83,
                   "file": "<inline>",
-                  "line": 1180
+                  "line": 1183
                 },
                 "scope": null,
                 "written": "index"
@@ -108034,7 +108142,7 @@
                   "col": 17,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 1181
+                  "line": 1184
                 },
                 "scope": null,
                 "written": "y"
@@ -108046,7 +108154,7 @@
                   "col": 21,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 1181
+                  "line": 1184
                 },
                 "scope": null,
                 "written": "y"
@@ -108058,7 +108166,7 @@
                   "col": 25,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1181
+                  "line": 1184
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -108070,7 +108178,7 @@
                   "col": 35,
                   "endCol": 38,
                   "file": "<inline>",
-                  "line": 1181
+                  "line": 1184
                 },
                 "scope": null,
                 "written": "rowH"
@@ -108082,7 +108190,7 @@
                   "col": 19,
                   "endCol": 19,
                   "file": "<inline>",
-                  "line": 1181
+                  "line": 1184
                 },
                 "scope": null,
                 "written": null
@@ -108094,7 +108202,7 @@
                   "col": 58,
                   "endCol": 62,
                   "file": "<inline>",
-                  "line": 1179
+                  "line": 1182
                 },
                 "scope": null,
                 "written": "index"
@@ -108106,7 +108214,7 @@
                   "col": 66,
                   "endCol": 70,
                   "file": "<inline>",
-                  "line": 1179
+                  "line": 1182
                 },
                 "scope": null,
                 "written": "index"
@@ -108118,7 +108226,7 @@
                   "col": 64,
                   "endCol": 64,
                   "file": "<inline>",
-                  "line": 1179
+                  "line": 1182
                 },
                 "scope": null,
                 "written": null
@@ -108130,7 +108238,7 @@
                   "col": 17,
                   "endCol": 24,
                   "file": "<inline>",
-                  "line": 1183
+                  "line": 1186
                 },
                 "scope": null,
                 "written": "allowNew"
@@ -108142,7 +108250,7 @@
                   "col": 31,
                   "endCol": 31,
                   "file": "<inline>",
-                  "line": 1184
+                  "line": 1187
                 },
                 "scope": null,
                 "written": "y"
@@ -108154,7 +108262,7 @@
                   "col": 50,
                   "endCol": 58,
                   "file": "<inline>",
-                  "line": 1184
+                  "line": 1187
                 },
                 "scope": null,
                 "written": "selection"
@@ -108166,7 +108274,7 @@
                   "col": 63,
                   "endCol": 71,
                   "file": "<inline>",
-                  "line": 1184
+                  "line": 1187
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -108178,7 +108286,7 @@
                   "col": 73,
                   "endCol": 81,
                   "file": "<inline>",
-                  "line": 1184
+                  "line": 1187
                 },
                 "scope": null,
                 "written": "saveCount"
@@ -108190,7 +108298,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1186
+                  "line": 1189
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -108202,7 +108310,7 @@
                   "col": 27,
                   "endCol": 35,
                   "file": "<inline>",
-                  "line": 1186
+                  "line": 1189
                 },
                 "scope": null,
                 "written": "saveCount"
@@ -108214,7 +108322,7 @@
                   "col": 45,
                   "endCol": 52,
                   "file": "<inline>",
-                  "line": 1186
+                  "line": 1189
                 },
                 "scope": null,
                 "written": "allowNew"
@@ -108226,7 +108334,7 @@
                   "col": 33,
                   "endCol": 41,
                   "file": "<inline>",
-                  "line": 1187
+                  "line": 1190
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -108238,7 +108346,7 @@
                   "col": 43,
                   "endCol": 48,
                   "file": "<inline>",
-                  "line": 1187
+                  "line": 1190
                 },
                 "scope": null,
                 "written": "labelX"
@@ -108250,7 +108358,7 @@
                   "col": 51,
                   "endCol": 59,
                   "file": "<inline>",
-                  "line": 1187
+                  "line": 1190
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -108262,7 +108370,7 @@
                   "col": 61,
                   "endCol": 67,
                   "file": "<inline>",
-                  "line": 1187
+                  "line": 1190
                 },
                 "scope": null,
                 "written": "listTop"
@@ -108274,7 +108382,7 @@
                   "col": 91,
                   "endCol": 99,
                   "file": "<inline>",
-                  "line": 1187
+                  "line": 1190
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -108286,7 +108394,7 @@
                   "col": 101,
                   "endCol": 104,
                   "file": "<inline>",
-                  "line": 1187
+                  "line": 1190
                 },
                 "scope": null,
                 "written": "dimR"
@@ -108298,7 +108406,7 @@
                   "col": 107,
                   "endCol": 115,
                   "file": "<inline>",
-                  "line": 1187
+                  "line": 1190
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -108310,7 +108418,7 @@
                   "col": 117,
                   "endCol": 120,
                   "file": "<inline>",
-                  "line": 1187
+                  "line": 1190
                 },
                 "scope": null,
                 "written": "dimG"
@@ -108322,7 +108430,7 @@
                   "col": 123,
                   "endCol": 131,
                   "file": "<inline>",
-                  "line": 1187
+                  "line": 1190
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -108334,7 +108442,7 @@
                   "col": 133,
                   "endCol": 136,
                   "file": "<inline>",
-                  "line": 1187
+                  "line": 1190
                 },
                 "scope": null,
                 "written": "dimB"
@@ -108346,7 +108454,7 @@
                   "col": 13,
                   "endCol": 15,
                   "file": "<inline>",
-                  "line": 1189
+                  "line": 1192
                 },
                 "scope": null,
                 "written": "key"
@@ -108358,7 +108466,7 @@
                   "col": 17,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 1189
+                  "line": 1192
                 },
                 "scope": null,
                 "written": null
@@ -108370,7 +108478,7 @@
                   "col": 17,
                   "endCol": 19,
                   "file": "<inline>",
-                  "line": 1190
+                  "line": 1193
                 },
                 "scope": null,
                 "written": "key"
@@ -108382,7 +108490,7 @@
                   "col": 17,
                   "endCol": 19,
                   "file": "<inline>",
-                  "line": 1191
+                  "line": 1194
                 },
                 "scope": null,
                 "written": "key"
@@ -108394,7 +108502,7 @@
                   "col": 43,
                   "endCol": 45,
                   "file": "<inline>",
-                  "line": 1191
+                  "line": 1194
                 },
                 "scope": null,
                 "written": "key"
@@ -108406,7 +108514,7 @@
                   "col": 21,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 1191
+                  "line": 1194
                 },
                 "scope": null,
                 "written": null
@@ -108418,7 +108526,7 @@
                   "col": 21,
                   "endCol": 23,
                   "file": "<inline>",
-                  "line": 1192
+                  "line": 1195
                 },
                 "scope": null,
                 "written": "key"
@@ -108430,7 +108538,7 @@
                   "col": 36,
                   "endCol": 38,
                   "file": "<inline>",
-                  "line": 1192
+                  "line": 1195
                 },
                 "scope": null,
                 "written": "key"
@@ -108442,7 +108550,7 @@
                   "col": 25,
                   "endCol": 27,
                   "file": "<inline>",
-                  "line": 1193
+                  "line": 1196
                 },
                 "scope": null,
                 "written": "key"
@@ -108454,7 +108562,7 @@
                   "col": 40,
                   "endCol": 48,
                   "file": "<inline>",
-                  "line": 1193
+                  "line": 1196
                 },
                 "scope": null,
                 "written": "selection"
@@ -108466,7 +108574,7 @@
                   "col": 67,
                   "endCol": 75,
                   "file": "<inline>",
-                  "line": 1193
+                  "line": 1196
                 },
                 "scope": null,
                 "written": "selection"
@@ -108478,7 +108586,7 @@
                   "col": 82,
                   "endCol": 86,
                   "file": "<inline>",
-                  "line": 1193
+                  "line": 1196
                 },
                 "scope": null,
                 "written": "count"
@@ -108490,7 +108598,7 @@
                   "col": 50,
                   "endCol": 50,
                   "file": "<inline>",
-                  "line": 1193
+                  "line": 1196
                 },
                 "scope": null,
                 "written": null
@@ -108502,7 +108610,7 @@
                   "col": 25,
                   "endCol": 27,
                   "file": "<inline>",
-                  "line": 1194
+                  "line": 1197
                 },
                 "scope": null,
                 "written": "key"
@@ -108514,7 +108622,7 @@
                   "col": 42,
                   "endCol": 50,
                   "file": "<inline>",
-                  "line": 1194
+                  "line": 1197
                 },
                 "scope": null,
                 "written": "selection"
@@ -108526,7 +108634,7 @@
                   "col": 69,
                   "endCol": 77,
                   "file": "<inline>",
-                  "line": 1194
+                  "line": 1197
                 },
                 "scope": null,
                 "written": "selection"
@@ -108538,7 +108646,7 @@
                   "col": 84,
                   "endCol": 88,
                   "file": "<inline>",
-                  "line": 1194
+                  "line": 1197
                 },
                 "scope": null,
                 "written": "count"
@@ -108550,7 +108658,7 @@
                   "col": 52,
                   "endCol": 52,
                   "file": "<inline>",
-                  "line": 1194
+                  "line": 1197
                 },
                 "scope": null,
                 "written": null
@@ -108562,7 +108670,7 @@
                   "col": 21,
                   "endCol": 23,
                   "file": "<inline>",
-                  "line": 1197
+                  "line": 1200
                 },
                 "scope": null,
                 "written": "key"
@@ -108574,7 +108682,7 @@
                   "col": 40,
                   "endCol": 42,
                   "file": "<inline>",
-                  "line": 1197
+                  "line": 1200
                 },
                 "scope": null,
                 "written": "key"
@@ -108586,7 +108694,7 @@
                   "col": 21,
                   "endCol": 26,
                   "file": "<inline>",
-                  "line": 1198
+                  "line": 1201
                 },
                 "scope": null,
                 "written": "choice"
@@ -108598,7 +108706,7 @@
                   "col": 28,
                   "endCol": 28,
                   "file": "<inline>",
-                  "line": 1198
+                  "line": 1201
                 },
                 "scope": null,
                 "written": null
@@ -108610,7 +108718,7 @@
                   "col": 21,
                   "endCol": 24,
                   "file": "<inline>",
-                  "line": 1199
+                  "line": 1202
                 },
                 "scope": null,
                 "written": "done"
@@ -108622,7 +108730,7 @@
                   "col": 26,
                   "endCol": 26,
                   "file": "<inline>",
-                  "line": 1199
+                  "line": 1202
                 },
                 "scope": null,
                 "written": null
@@ -108634,7 +108742,7 @@
                   "col": 25,
                   "endCol": 27,
                   "file": "<inline>",
-                  "line": 1200
+                  "line": 1203
                 },
                 "scope": null,
                 "written": "key"
@@ -108646,7 +108754,7 @@
                   "col": 42,
                   "endCol": 50,
                   "file": "<inline>",
-                  "line": 1200
+                  "line": 1203
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -108658,7 +108766,7 @@
                   "col": 52,
                   "endCol": 59,
                   "file": "<inline>",
-                  "line": 1200
+                  "line": 1203
                 },
                 "scope": null,
                 "written": "closeAll"
@@ -108670,7 +108778,7 @@
                   "col": 61,
                   "endCol": 61,
                   "file": "<inline>",
-                  "line": 1200
+                  "line": 1203
                 },
                 "scope": null,
                 "written": null
@@ -108682,7 +108790,7 @@
                   "col": 21,
                   "endCol": 23,
                   "file": "<inline>",
-                  "line": 1203
+                  "line": 1206
                 },
                 "scope": null,
                 "written": "key"
@@ -108694,7 +108802,7 @@
                   "col": 25,
                   "endCol": 29,
                   "file": "<inline>",
-                  "line": 1204
+                  "line": 1207
                 },
                 "scope": null,
                 "written": "count"
@@ -108706,7 +108814,7 @@
                   "col": 29,
                   "endCol": 37,
                   "file": "<inline>",
-                  "line": 1205
+                  "line": 1208
                 },
                 "scope": null,
                 "written": "selection"
@@ -108718,7 +108826,7 @@
                   "col": 41,
                   "endCol": 49,
                   "file": "<inline>",
-                  "line": 1205
+                  "line": 1208
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -108730,7 +108838,7 @@
                   "col": 51,
                   "endCol": 59,
                   "file": "<inline>",
-                  "line": 1205
+                  "line": 1208
                 },
                 "scope": null,
                 "written": "saveCount"
@@ -108742,7 +108850,7 @@
                   "col": 29,
                   "endCol": 34,
                   "file": "<inline>",
-                  "line": 1206
+                  "line": 1209
                 },
                 "scope": null,
                 "written": "choice"
@@ -108754,7 +108862,7 @@
                   "col": 38,
                   "endCol": 46,
                   "file": "<inline>",
-                  "line": 1206
+                  "line": 1209
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -108766,7 +108874,7 @@
                   "col": 48,
                   "endCol": 56,
                   "file": "<inline>",
-                  "line": 1206
+                  "line": 1209
                 },
                 "scope": null,
                 "written": "saveNames"
@@ -108778,7 +108886,7 @@
                   "col": 58,
                   "endCol": 66,
                   "file": "<inline>",
-                  "line": 1206
+                  "line": 1209
                 },
                 "scope": null,
                 "written": "selection"
@@ -108790,7 +108898,7 @@
                   "col": 36,
                   "endCol": 36,
                   "file": "<inline>",
-                  "line": 1206
+                  "line": 1209
                 },
                 "scope": null,
                 "written": null
@@ -108802,7 +108910,7 @@
                   "col": 29,
                   "endCol": 34,
                   "file": "<inline>",
-                  "line": 1208
+                  "line": 1211
                 },
                 "scope": null,
                 "written": "answer"
@@ -108814,7 +108922,7 @@
                   "col": 36,
                   "endCol": 36,
                   "file": "<inline>",
-                  "line": 1208
+                  "line": 1211
                 },
                 "scope": null,
                 "written": null
@@ -108826,7 +108934,7 @@
                   "col": 33,
                   "endCol": 38,
                   "file": "<inline>",
-                  "line": 1209
+                  "line": 1212
                 },
                 "scope": null,
                 "written": "answer"
@@ -108838,7 +108946,7 @@
                   "col": 33,
                   "endCol": 38,
                   "file": "<inline>",
-                  "line": 1210
+                  "line": 1213
                 },
                 "scope": null,
                 "written": "choice"
@@ -108850,7 +108958,7 @@
                   "col": 40,
                   "endCol": 40,
                   "file": "<inline>",
-                  "line": 1210
+                  "line": 1213
                 },
                 "scope": null,
                 "written": null
@@ -108862,7 +108970,7 @@
                   "col": 33,
                   "endCol": 38,
                   "file": "<inline>",
-                  "line": 1212
+                  "line": 1215
                 },
                 "scope": null,
                 "written": "choice"
@@ -108874,7 +108982,7 @@
                   "col": 42,
                   "endCol": 47,
                   "file": "<inline>",
-                  "line": 1212
+                  "line": 1215
                 },
                 "scope": null,
                 "written": "answer"
@@ -108886,7 +108994,7 @@
                   "col": 40,
                   "endCol": 40,
                   "file": "<inline>",
-                  "line": 1212
+                  "line": 1215
                 },
                 "scope": null,
                 "written": null
@@ -108898,7 +109006,7 @@
                   "col": 25,
                   "endCol": 28,
                   "file": "<inline>",
-                  "line": 1215
+                  "line": 1218
                 },
                 "scope": null,
                 "written": "done"
@@ -108910,7 +109018,7 @@
                   "col": 30,
                   "endCol": 30,
                   "file": "<inline>",
-                  "line": 1215
+                  "line": 1218
                 },
                 "scope": null,
                 "written": null
@@ -108922,7 +109030,7 @@
                   "col": 25,
                   "endCol": 30,
                   "file": "<inline>",
-                  "line": 1221
+                  "line": 1224
                 },
                 "scope": null,
                 "written": "parent"
@@ -108934,7 +109042,7 @@
                   "col": 16,
                   "endCol": 21,
                   "file": "<inline>",
-                  "line": 1222
+                  "line": 1225
                 },
                 "scope": null,
                 "written": "choice"
@@ -108946,7 +109054,7 @@
                   "col": 25,
                   "endCol": 28,
                   "file": "<inline>",
-                  "line": 1250
+                  "line": 1253
                 },
                 "scope": null,
                 "written": "menu"
@@ -108958,7 +109066,7 @@
                   "col": 13,
                   "endCol": 17,
                   "file": "<inline>",
-                  "line": 1253
+                  "line": 1256
                 },
                 "scope": "local",
                 "written": "local"
@@ -108970,7 +109078,7 @@
                   "col": 46,
                   "endCol": 54,
                   "file": "<inline>",
-                  "line": 1253
+                  "line": 1256
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -108982,7 +109090,7 @@
                   "col": 56,
                   "endCol": 62,
                   "file": "<inline>",
-                  "line": 1253
+                  "line": 1256
                 },
                 "scope": null,
                 "written": "context"
@@ -108994,7 +109102,7 @@
                   "col": 65,
                   "endCol": 69,
                   "file": "<inline>",
-                  "line": 1253
+                  "line": 1256
                 },
                 "scope": null,
                 "written": "title"
@@ -109006,7 +109114,7 @@
                   "col": 72,
                   "endCol": 83,
                   "file": "<inline>",
-                  "line": 1253
+                  "line": 1256
                 },
                 "scope": null,
                 "written": "allowNewFile"
@@ -109018,7 +109126,7 @@
                   "col": 29,
                   "endCol": 29,
                   "file": "<inline>",
-                  "line": 1253
+                  "line": 1256
                 },
                 "scope": null,
                 "written": null
@@ -109030,7 +109138,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1254
+                  "line": 1257
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -109042,7 +109150,7 @@
                   "col": 27,
                   "endCol": 33,
                   "file": "<inline>",
-                  "line": 1254
+                  "line": 1257
                 },
                 "scope": null,
                 "written": "context"
@@ -109054,7 +109162,7 @@
                   "col": 17,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 1255
+                  "line": 1258
                 },
                 "scope": null,
                 "written": "stockMenu"
@@ -109066,7 +109174,7 @@
                   "col": 27,
                   "endCol": 34,
                   "file": "<inline>",
-                  "line": 1255
+                  "line": 1258
                 },
                 "scope": null,
                 "written": "closeAll"
@@ -109078,7 +109186,7 @@
                   "col": 36,
                   "endCol": 36,
                   "file": "<inline>",
-                  "line": 1255
+                  "line": 1258
                 },
                 "scope": null,
                 "written": null
@@ -109090,22 +109198,10 @@
                   "col": 20,
                   "endCol": 27,
                   "file": "<inline>",
-                  "line": 1257
+                  "line": 1260
                 },
                 "scope": null,
                 "written": "selected"
-              },
-              {
-                "kind": "read",
-                "name": "context",
-                "pos": {
-                  "col": 41,
-                  "endCol": 47,
-                  "file": "<inline>",
-                  "line": 1262
-                },
-                "scope": null,
-                "written": "context"
               },
               {
                 "kind": "read",
@@ -109123,8 +109219,8 @@
                 "kind": "read",
                 "name": "context",
                 "pos": {
-                  "col": 46,
-                  "endCol": 52,
+                  "col": 41,
+                  "endCol": 47,
                   "file": "<inline>",
                   "line": 1268
                 },
@@ -109139,6 +109235,18 @@
                   "endCol": 52,
                   "file": "<inline>",
                   "line": 1271
+                },
+                "scope": null,
+                "written": "context"
+              },
+              {
+                "kind": "read",
+                "name": "context",
+                "pos": {
+                  "col": 46,
+                  "endCol": 52,
+                  "file": "<inline>",
+                  "line": 1274
                 },
                 "scope": null,
                 "written": "context"

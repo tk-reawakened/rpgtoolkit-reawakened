@@ -479,6 +479,17 @@ test("an equipped item whose every unit is worn still prints its name on the slo
   ok(empty !== null && empty <= 16, `an empty slot draws only the dash (ink width ${String(empty)})`);
 });
 
+test("the abilities list prints the move's stored display name, not its file name", () => {
+  const session = boot({ startup: "abilitiesmenu()\n" });
+  session.pump((state) => state.menu.screens.length === 1);
+  press(session, "ENTER");
+  const label = inkExtent(session, 52, 24, 150);
+  const cost = inkExtent(session, 52, 152, 300);
+  ok(label !== null && cost !== null, "the move row is drawn");
+  // The stored name is `Fire` (four glyphs) and the file is `fire.spc` (eight); the cost column `SMP 0` is five.
+  ok(label < cost, `four glyphs are narrower than the five-glyph cost (label ${label}, cost ${cost})`);
+});
+
 test("abilities show info and run a board-usable move", () => {
   const session = boot({ startup: "abilitiesmenu()\n" });
   session.pump((state) => state.menu.screens.length === 1);
