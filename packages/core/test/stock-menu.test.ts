@@ -15,6 +15,7 @@ import {
   createEmptyBoard,
   createEmptyCharacter,
   hashGameState,
+  utf8Decode,
   restoreGameState,
   snapshot,
   createEmptyItem,
@@ -142,6 +143,8 @@ type GameOptions = {
   readonly saves?: number;
   /** `ally1.tem` … `allyN.tem`: extra characters a script can `addplayer`. */
   readonly allies?: number;
+  /** The host keeps the bytes it is asked to save and lists, loads and overwrites them like a real save area. */
+  readonly persist?: boolean;
 };
 
 function authoredGame(options: GameOptions): { readonly files: Files; readonly index: AssetIndex; readonly main: string } {
@@ -243,6 +246,8 @@ type Session = {
   readonly loads: string[];
   readonly diagnostics: string[];
   readonly saves: string[];
+  /** The save area a persistent host holds: path (`<GameId>/saved/slotK.sav`) to the bytes saved there. */
+  readonly store: Map<string, Uint8Array>;
 };
 
 function boot(options: GameOptions): Session {
@@ -252,6 +257,7 @@ function boot(options: GameOptions): Session {
   const saves: string[] = [];
   const loads: string[] = [];
   const diagnostics: string[] = [];
+  const store = new Map<string, Uint8Array>();
   const engine = createEngine({
     seed: 7,
     assetIndex: game.index,
@@ -271,16 +277,23 @@ function boot(options: GameOptions): Session {
     if (latest === null) throw new Error("the engine has not advanced");
     return latest;
   };
-  function answer(request: { readonly kind: string; readonly reqId: number; readonly key?: string; readonly blob?: { readonly path: string } }): InputEvent[] {
+  function answer(request: { readonly kind: string; readonly reqId: number; readonly key?: string; readonly blob?: { readonly path: string }; readonly bytes?: Uint8Array }): InputEvent[] {
     requests.push(request.kind);
     if (request.kind === "asset") return [{ kind: "asset", reqId: request.reqId, bytes: game.files.get(request.key as never) ?? null }];
+    // A real host lists the names relative to the game's own folder, so `<GameId>/saved/slot1.sav` is `saved/slot1.sav`.
+    if (request.kind === "listBlobs" && options.persist === true) {
+      const names = new Set([...store.keys()].map((path) => path.slice(path.indexOf("/") + 1)));
+      for (let index = 1; index <= (options.saves ?? 0); index += 1) names.add(`saved/slot${index}.sav`);
+      return [{ kind: "blob.listed", reqId: request.reqId, names: [...names] }];
+    }
     if (request.kind === "listBlobs") return [{ kind: "blob.listed", reqId: request.reqId, names: options.saves === undefined ? ["files/other.sav", "saved/not-a-save.txt", "saved/slot1.sav"] : Array.from({ length: options.saves }, (_, index) => `saved/slot${index + 1}.sav`) }];
     if (request.kind === "loadBlob") {
       loads.push(request.blob?.path ?? "");
-      return [{ kind: "blob.loaded", reqId: request.reqId, bytes: null }];
+      return [{ kind: "blob.loaded", reqId: request.reqId, bytes: options.persist === true ? store.get(request.blob?.path ?? "") ?? null : null }];
     }
     if (request.kind === "saveBlob") {
       saves.push(request.blob?.path ?? "");
+      if (options.persist === true && request.bytes !== undefined) store.set(request.blob?.path ?? "", new Uint8Array(request.bytes));
       return [{ kind: "blob.saved", reqId: request.reqId, ok: true }];
     }
     return [];
@@ -302,7 +315,7 @@ function boot(options: GameOptions): Session {
         queued = undefined;
       }
       // A key needs its down tick, its up tick and one to be handled; an injected report needs its tick and one to be handled.
-      const ticks = keyEndTick !== null && replies.some((record) => record.event.kind === "key") ? 3 : step === 0 && initial.length > 0 ? 2 : 1;
+      const ticks = keyEndTick !== null && replies.some((record) => record.event.kind === "key") ? 3 : 2;
       const report = engine.advance(ticks, replies);
       diagnostics.push(...report.diagnostics.map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`));
       replies = report.requests.flatMap((request) => answer(request as never).map((event) => ({ tick: report.tickAfter, event })));
@@ -313,7 +326,7 @@ function boot(options: GameOptions): Session {
     const current = latest;
     throw new Error(`the menu did not reach the expected state: screens=${JSON.stringify(current?.menu.screens ?? null)} threads=${(current?.vm.threads ?? []).map((thread) => `${thread.kind}:${thread.status}:${thread.wait?.kind ?? "-"}`).join(",")} requests=${requests.join(",")} diagnostics=${diagnostics.join("; ")}`);
   }
-  const session = { engine, state, pump, requests, saves, loads, diagnostics };
+  const session = { engine, state, pump, requests, saves, loads, diagnostics, store };
   pump((current) => current.engine.boot?.stage === "running" && !current.vm.threads.some((thread) => thread.kind === "blocking" && thread.status !== "finished"));
   if (options.startup !== "end()\n") {
     startThread(state().vm, { ref: { kind: "inline", text: options.startup, ir: IR_VERSION }, kind: "blocking", owner: "script" });
@@ -349,6 +362,24 @@ function overlayBlits(engine: Engine): number {
   return engine.drawList().commands.filter((command) => command.kind === "blit" && "surface" in command.source).length;
 }
 
+/**
+ * What the screen's latest redraw drew, read from the script's own effect log: every `pixelText` string in order, and
+ * every focus bar (a `fillRect` that starts at x = 16, below the panel fill), since the last panel fill `(8, 8, …)`.
+ */
+function drawn(session: Session): { readonly texts: string[]; readonly bars: string[] } {
+  const effects = session.state().vm.effects;
+  let start = 0;
+  for (let index = effects.length - 1; index >= 0; index -= 1) {
+    const effect = effects[index]!;
+    if (effect.name === "fillrect" && effect.args[0] === 8 && effect.args[1] === 8) { start = index; break; }
+  }
+  const redraw = effects.slice(start);
+  return {
+    texts: redraw.filter((effect) => effect.name === "pixeltext").map((effect) => String(effect.args[2])),
+    bars: redraw.filter((effect) => effect.name === "fillrect" && effect.args[0] === 16).map((effect) => `${String(effect.args[1])}-${String(effect.args[3])}`),
+  };
+}
+
 test("three separately delivered keys move the selection in order", () => {
   const session = boot({ startup: "mainmenu()\n" });
   equal(session.pump((state) => state.menu.screens.length === 1).menu.screens[0]!.selection, 0);
@@ -382,22 +413,30 @@ test("a direction pressed on the tick the menu key opens the menu queues no move
   deepEqual([after.x, after.y], [before.x, before.y]);
 });
 
-for (const [startup, expected] of [
-    ["mainmenu()\n", "main"],
-    ["itemmenu()\n", "items"],
-    ["equipmentmenu()\n", "equipment"],
-    ["abilitiesmenu()\n", "abilities"],
-    ["internalmenu(0)\n", "main"],
-    ["internalmenu(1)\n", "items"],
-    ["internalmenu(2)\n", "equipment"],
-    ["internalmenu(4)\n", "abilities"],
-] as const) {
-  test(`${startup.trim()} opens ${expected} directly`, () => {
-    const session = boot({ startup });
+const HERO = "Hero  HP 10/20  SMP 0/0  Lv 1";
+const GIVE = 'giveitem("potion")\ngiveitem("key")\n';
+/** [the call, the screen it opens, everything its first redraw prints in order, the focus bar's y range]. */
+const DIRECT_ENTRIES: readonly (readonly [string, string, readonly string[], string])[] = [
+  ["mainmenu()", "main", ["Gold 0", "Time 0:00:00", HERO, "Items", "Equip", "Abilities", "Save", "Load", "Quit"], "85-108"],
+  ["itemmenu()", "items", ["Items", "Potion", "x 1", "Brass key", "x 1"], "48-71"],
+  ["equipmentmenu()", "equipment", ["Equip", "Hero"], "48-71"],
+  ["abilitiesmenu()", "abilities", ["Abilities", "Hero"], "48-71"],
+  ["internalmenu(0)", "main", ["Gold 0", "Time 0:00:00", HERO, "Items", "Equip", "Abilities", "Save", "Load", "Quit"], "85-108"],
+  ["internalmenu(1)", "items", ["Items", "Potion", "x 1", "Brass key", "x 1"], "48-71"],
+  ["internalmenu(2)", "equipment", ["Equip", "Hero"], "48-71"],
+  ["internalmenu(4)", "abilities", ["Abilities", "Hero"], "48-71"],
+];
+for (const [call, expected, texts, bar] of DIRECT_ENTRIES) {
+  test(`${call} opens ${expected} directly and draws its rows`, () => {
+    const session = boot({ startup: `${GIVE}${call}\n` });
     const state = session.pump((current) => current.menu.screens.length === 1);
-    equal(state.menu.screens[0]!.screen, expected, `${startup.trim()} opens ${expected}`);
-    ok(overlayBlits(session.engine) >= 1, `${expected} draws its overlay`);
+    equal(state.menu.screens[0]!.screen, expected, `${call} opens ${expected}`);
+    const redraw = drawn(session);
+    deepEqual(redraw.texts, texts, `${expected} prints exactly these lines, in this order`);
+    deepEqual(redraw.bars, [bar], "the first row is focused");
+    ok(overlayBlits(session.engine) >= 1, `${expected} reaches the draw list as an overlay blit`);
     equal(press(session, "ESC").menu.screens.length, 0, `${expected} closes on cancel`);
+    deepEqual(session.diagnostics, []);
   });
 }
 
@@ -456,15 +495,25 @@ test("a key item cannot be dropped and an ordinary item is dropped once", () => 
   equal(state.inventory.items.find((entry) => entry.handle === "Brass key")?.quantity, 1, "the key is untouched");
 });
 
-test("item info returns to actions and item use consumes the chosen stack", () => {
+test("item info prints the stored description, returns to the actions, and use consumes the chosen stack", () => {
   const session = boot({ startup: 'giveitem("potion")\nitemmenu()\n' });
   session.pump((state) => state.menu.screens.length === 1);
   for (const key of ["ENTER", "DOWN", "ENTER"]) press(session, key);
+  deepEqual(drawn(session).texts, ["Potion", "Restores 10 HP"], "Info prints the item's stored description under its handle");
   equal(session.state().inventory.items[0]?.quantity, 1, "Info does not consume the item");
-  for (const key of ["ESC", "UP", "ENTER", "ENTER"]) press(session, key);
+  press(session, "ESC");
+  deepEqual(drawn(session).texts, ["Potion", "Use", "Info", "Drop"], "cancel returns to the action rows");
+  for (const key of ["UP", "ENTER", "ENTER"]) press(session, key);
   equal(session.state().inventory.items.length, 0, "Use consumes the item");
   equal(session.state().actors.actors[0]?.stats.hp, 20, "Use applies the menu HP effect");
   deepEqual(session.diagnostics, []);
+});
+
+test("item info prints the handle when the stored description is empty", () => {
+  const session = boot({ gear: 1, startup: giveGear(1, "itemmenu()") });
+  session.pump((state) => state.menu.screens.length === 1);
+  for (const key of ["ENTER", "DOWN", "ENTER"]) press(session, key);
+  deepEqual(drawn(session).texts, ["Gear 1", "Gear 1"], "no description: the handle is the text");
 });
 
 test("equipment selects a member, slot and item, then removes it", () => {
@@ -501,21 +550,41 @@ function inkExtent(session: Session, y: number, fromX: number, toX: number): num
   return first < 0 ? null : last - first + 1;
 }
 
-test("equipment offers only items whose own slot flag fits, including both hands", () => {
-  const session = boot({ startup: 'giveitem("potion")\ngiveitem("potion")\ngiveitem("sword")\nequipmentmenu()\n' });
+const FITTING = 'giveitem("potion")\ngiveitem("sword")\nequipmentmenu()\n';
+
+test("the head slot offers the potion that fits it and not the sword that does not", () => {
+  const session = boot({ startup: FITTING });
   session.pump((state) => state.menu.screens.length === 1);
-  // Head: the Potion fits and the sword does not, so the list has one row and `down` stays on it.
-  for (const key of ["ENTER", "ENTER", "DOWN"]) press(session, key);
-  equal(session.state().menu.screens.at(-1)?.selection, 0, "the head list holds only the potion");
+  for (const key of ["ENTER", "ENTER"]) press(session, key);
+  deepEqual(drawn(session).texts, ["head", "Potion"], "the item list holds only the potion");
+  press(session, "DOWN");
+  equal(session.state().menu.screens.at(-1)?.selection, 0, "so `down` stays on its one row");
   press(session, "ENTER");
-  // Right hand: the sword fits and the potion (one still carried) does not.
-  for (const key of ["DOWN", "DOWN", "ENTER", "DOWN"]) press(session, key);
-  equal(session.state().menu.screens.at(-1)?.selection, 0, "the right-hand list holds only the sword");
+  deepEqual(session.state().inventory.equipment.map((entry) => [entry.slot, entry.itemId]), [["head", 1]]);
+  deepEqual(session.diagnostics, []);
+});
+
+test("the right hand offers the sword that fits it and not the potion that does not", () => {
+  const session = boot({ startup: FITTING });
+  session.pump((state) => state.menu.screens.length === 1);
   press(session, "ENTER");
-  deepEqual(session.state().inventory.equipment.map((entry) => [entry.slot, entry.itemId]), [["head", 1], ["right-hand", 2]]);
-  // Left hand: neither carried item fits it, so confirming changes nothing.
-  for (const key of ["DOWN", "ENTER", "ENTER"]) press(session, key);
-  equal(session.state().inventory.equipment.length, 2, "nothing fits the left hand");
+  pointer(session, 60, rowY(2), 0);
+  press(session, "ENTER");
+  deepEqual(drawn(session).texts, ["right-hand", "Iron sword"], "the item list holds only the sword");
+  press(session, "ENTER");
+  deepEqual(session.state().inventory.equipment.map((entry) => [entry.slot, entry.itemId]), [["right-hand", 2]]);
+  deepEqual(session.diagnostics, []);
+});
+
+test("the left hand has nothing that fits, so the list says so and confirming changes nothing", () => {
+  const session = boot({ startup: FITTING });
+  session.pump((state) => state.menu.screens.length === 1);
+  press(session, "ENTER");
+  pointer(session, 60, rowY(3), 0);
+  press(session, "ENTER");
+  deepEqual(drawn(session).texts, ["left-hand", "Nothing fits"]);
+  press(session, "ENTER");
+  equal(session.state().inventory.equipment.length, 0, "nothing was equipped");
   deepEqual(session.diagnostics, []);
 });
 
@@ -542,10 +611,14 @@ test("the abilities list prints the move's stored display name, not its file nam
   ok(label < cost, `four glyphs are narrower than the five-glyph cost (label ${label}, cost ${cost})`);
 });
 
-test("abilities show info and run a board-usable move", () => {
+test("abilities show the stored description, and Use runs the move's board program", () => {
   const session = boot({ startup: "abilitiesmenu()\n" });
   session.pump((state) => state.menu.screens.length === 1);
-  for (const key of ["ENTER", "ENTER", "DOWN", "ENTER", "ESC", "UP", "ENTER"]) press(session, key);
+  for (const key of ["ENTER", "ENTER", "DOWN", "ENTER"]) press(session, key);
+  deepEqual(drawn(session).texts, ["Fire", "A spark"], "Info prints the move's stored description under its name");
+  press(session, "ESC");
+  deepEqual(drawn(session).texts, ["Fire", "Use", "Info"], "cancel returns to the action rows");
+  for (const key of ["UP", "ENTER"]) press(session, key);
   equal(session.state().vm.globals.abilityused, 1, "Use runs the move's board program");
   deepEqual(session.diagnostics, []);
 });
@@ -559,28 +632,43 @@ test("Save is gated by the board's disable-saving flag", () => {
   equal(state.menu.screens.length, 1, "the menu stays open");
 });
 
-test("Save overwrites and Load requests the same listed save path", () => {
-  const session = boot({ startup: "mainmenu()\n" });
+// Full-engine scenarios, kept on purpose (AGENTS.md: tests stay fast): Save and Load go through the picker, the host's
+// save area, the engine's real save (one `snapshotGameSave` of the whole state, about half a second by itself) and its
+// real restore. A smaller test would not exercise the contract they pin: which bytes leave the engine, under which name,
+// and what comes back.
+test("Save through the picker overwrites the chosen listed file with a whole saved game", () => {
+  const session = boot({ persist: true, saves: 1, startup: 'marker = 11\nmainmenu()\n' });
   session.pump((current) => current.menu.screens.length === 1);
-  for (const key of ["DOWN", "DOWN", "DOWN", "ENTER"]) press(session, key);
-  ok(session.requests.includes("listBlobs"), "the picker reads the save area");
+  pointer(session, 60, commandY(3), 0);
+  press(session, "ENTER");
+  deepEqual(drawn(session).texts, ["Save game", "slot1", "New save"], "the picker lists the saved file and the new-save row");
   session.pump(() => session.saves.length === 1, "ENTER");
-  const savedPath = session.saves[0]!;
-  ok(/^[^/]+\/saved\/slot1\.sav$/.test(savedPath), `overwrite path: ${savedPath}`);
-  for (const key of ["DOWN", "ENTER", "ENTER"]) press(session, key);
-  deepEqual(session.loads, [savedPath], "Load requests the same path Save overwrote");
+  ok(/^[^/]+\/saved\/slot1\.sav$/.test(session.saves[0]!), `Save wrote ${session.saves[0]}: the listed name under the game's folder, one prefix`);
+  const bytes = session.store.get(session.saves[0]!)!;
+  const text = utf8Decode(bytes);
+  ok(bytes.length > 1000 && text.startsWith("{") && text.includes('"marker":11'), "the file is a whole saved game holding the script's variable");
+  equal(session.store.size, 1, "one entry in the save area");
   deepEqual(session.diagnostics, []);
 });
 
-test("Load lists the save area and requests the chosen save", () => {
-  const session = boot({ startup: "mainmenu()\n" });
+test("Load restores a real saved game through the picker: the saved variable and inventory come back, with no diagnostic", () => {
+  const session = boot({ persist: true, startup: 'giveitem("potion")\nmarker = 11\nsave("slot1")\nmainmenu()\n' });
   session.pump((current) => current.menu.screens.length === 1);
-  for (const key of ["UP", "UP", "ENTER"]) press(session, key);
-  ok(session.requests.includes("listBlobs"), "Load lists the save area");
+  const [savedPath] = [...session.store.keys()];
+  ok(savedPath !== undefined && /^[^/]+\/saved\/slot1\.sav$/.test(savedPath), `the script's save is in the host's area at ${String(savedPath)}`);
+  // The game moves on after the save (another script would be frozen behind the open menu, so the state is changed
+  // directly); Load must bring the saved values back.
+  const live = session.state();
+  live.vm.globals.marker = 99;
+  for (const entry of live.inventory.items) entry.quantity = 0;
+  pointer(session, 60, commandY(4), 0);
   press(session, "ENTER");
-  equal(session.loads.length, 1, "Load reads one selected save");
-  ok(session.loads[0]!.endsWith("/slot1.sav"), `selected save: ${session.loads[0]}`);
-  equal(session.saves.length, 0);
+  deepEqual(drawn(session).texts, ["Load game", "slot1"], "the Load picker lists the file the way a host lists it");
+  session.pump(() => session.loads.length === 1, "ENTER");
+  deepEqual(session.loads, [savedPath], "Load asked for the file that was saved");
+  const restored = session.pump((current) => current.menu.screens.length === 1 && current.vm.globals.marker === 11);
+  equal(restored.inventory.items.find((entry) => entry.handle === "Potion")?.quantity, 1, "the saved inventory came back");
+  deepEqual(session.diagnostics, [], "restoring raised no diagnostic");
 });
 
 test("dirsav can be entered directly and returns the selected base name", () => {
@@ -623,7 +711,7 @@ for (const [label, reference, detail] of [
   });
 }
 
-test("Quit asks first: No and cancel return to Quit and send nothing, Yes sends one request", () => {
+test("Quit asks first: the first confirm only opens the question, No and cancel return to Quit, and nothing is sent", () => {
   const session = boot({ startup: "mainmenu()\n" });
   session.pump((state) => state.menu.screens.length === 1);
   press(session, "UP");
@@ -631,23 +719,27 @@ test("Quit asks first: No and cancel return to Quit and send nothing, Yes sends 
   let state = press(session, "ENTER");
   equal(state.menu.screens.length, 1, "the first confirm only opens the question");
   equal(state.menu.screens[0]!.selection, 0, "No is focused first");
+  deepEqual(drawn(session).texts, ["Quit the game?", "No", "Yes"]);
   equal(session.requests.filter((kind) => kind === "quit").length, 0, "nothing is quit yet");
   state = press(session, "ENTER");
   equal(state.menu.screens[0]!.selection, 5, "No returns to Quit");
-  equal(session.requests.filter((kind) => kind === "quit").length, 0);
   press(session, "ENTER");
   state = press(session, "ESC");
   equal(state.menu.screens[0]!.selection, 5, "cancel returns to Quit");
-  press(session, "ENTER");
-  state = press(session, "M");
-  equal(state.menu.screens.length, 0, "the menu key closes everything from the question");
+  equal(session.requests.filter((kind) => kind === "quit").length, 0, "neither quit anything");
+});
+
+test("Yes on the Quit question closes the menu and sends exactly one quit request; the menu key closes it without quitting", () => {
+  const session = boot({ startup: "mainmenu()\n" });
+  session.pump((state) => state.menu.screens.length === 1);
+  for (const key of ["UP", "ENTER", "M"]) press(session, key);
+  equal(session.state().menu.screens.length, 0, "the menu key closes everything from the question");
   equal(session.requests.filter((kind) => kind === "quit").length, 0, "closing the question quits nothing");
   startThread(session.state().vm, { ref: { kind: "inline", text: "mainmenu()\n", ir: IR_VERSION }, kind: "blocking", owner: "script" });
   session.pump((current) => current.menu.screens.length === 1);
   for (const key of ["UP", "ENTER", "DOWN"]) press(session, key);
   equal(session.state().menu.screens[0]!.selection, 1, "Yes is the second row");
-  state = press(session, "ENTER");
-  equal(state.menu.screens.length, 0, "Yes closes the menu");
+  equal(press(session, "ENTER").menu.screens.length, 0, "Yes closes the menu");
   session.pump(() => session.requests.includes("quit"));
   equal(session.requests.filter((kind) => kind === "quit").length, 1);
 });
@@ -687,7 +779,8 @@ test("the same input log replays to the same draw list and state hash", () => {
     ok(entry);
     const surface = session.engine.surfacePixels(entry.id, entry.rev);
     ok(surface);
-    return { draw: hashDrawList(session.engine.drawList()), pixels: fnv1a64(surface.rgba), hash: hashState(state) };
+    // The engine's own per-advance state hash (the projection that skips audio settings and step counters).
+    return { draw: hashDrawList(session.engine.drawList()), pixels: fnv1a64(surface.rgba), hash: hashGameState(state) };
   };
   deepEqual(runOnce("DOWN"), runOnce("DOWN"), "two runs of one input log agree");
 });
