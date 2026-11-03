@@ -321,7 +321,7 @@ test("a scripted game boots from start.prg to its first board with the ruled eff
 });
 
 test("boot first free-roam frame polls held and queued activation without arrival deactivation (#1176)", () => {
-  for (const scenario of ["held", "queued", "none", "direction", "deactivated", "enter"] as const) {
+  for (const scenario of ["held", "queued", "none", "direction", "queued-direction", "deactivated", "enter"] as const) {
     const game = authorGame({
       startup: "start.prg", initChar: "hero.tem",
       boards: { "start.brd": { keyTrigger: true, ...(scenario === "enter" ? { enter: "enter.prg" } : {}) } },
@@ -354,11 +354,16 @@ test("boot first free-roam frame polls held and queued activation without arriva
       tick, event: { kind: "key", name, code, char: null, down },
     });
     run(engine, game.files, 1, [key(state.time.tick, true)]);
-    if (scenario === "none" || scenario === "queued") {
+    if (scenario === "none" || scenario === "queued" || scenario === "queued-direction") {
       run(engine, game.files, 1, [key(state.time.tick, false)]);
     }
     if (scenario === "queued") {
       run(engine, game.files, 2, [key(state.time.tick, true), key(state.time.tick + 1, false)]);
+    }
+    if (scenario === "queued-direction") {
+      run(engine, game.files, 1, [{
+        tick: state.time.tick, event: { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true },
+      }]);
     }
     for (let guard = 0; state.world.board == null && guard < 100; guard += 1) {
       run(engine, game.files, 1);
@@ -370,6 +375,7 @@ test("boot first free-roam frame polls held and queued activation without arriva
       equal(state.input.keys.length, 0, `${scenario}: title consumed the key`);
     }
     if (scenario === "queued") equal(state.input.keys.length, 1, "second key remains queued");
+    if (scenario === "queued-direction") deepEqual(state.input.keys.map((entry) => entry.name), ["right"]);
     if (scenario === "deactivated") state.triggers.deactivateAt = { x: 64, y: 64, layer: 1 };
     const beforeX = state.sprites.players[0]!.x;
     run(engine, game.files, 1);
@@ -388,7 +394,7 @@ test("boot first free-roam frame polls held and queued activation without arriva
     } else {
       equal(state.triggers.active, null, `${scenario}: trigger does not start`);
     }
-    if (scenario === "direction") ok(state.sprites.players[0]!.x > beforeX, "held direction starts walking immediately");
+    if (scenario === "direction" || scenario === "queued-direction") ok(state.sprites.players[0]!.x > beforeX, "held direction starts walking immediately");
     if (scenario === "deactivated") deepEqual(state.triggers.deactivated, ["region:0"], "restoring boot deactivation suppresses the held key");
   }
 });

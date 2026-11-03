@@ -285,7 +285,8 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
       && (state.input.held.ENTER === true || state.input.held.Enter === true
         || state.input.held.Space === true || state.input.held[" "] === true));
   const step = stepTick(player) === state.time.tick;
-  const key = (bootPoll && heldActivation) || state.input.keys.some((entry) => entry.seq > section.lastKeySeq);
+  const key = (bootPoll && heldActivation) || state.input.keys.some((entry) => entry.seq > section.lastKeySeq
+    && (!bootPoll || entry.name === "confirm" || entry.name === "ENTER" || entry.name === " " || entry.action === "confirm"));
   if (bootPoll) section.lastKeySeq = 0;
   for (const entry of state.input.keys) if (entry.seq > section.lastKeySeq) section.lastKeySeq = entry.seq;
   if (!step && !key) return events;
