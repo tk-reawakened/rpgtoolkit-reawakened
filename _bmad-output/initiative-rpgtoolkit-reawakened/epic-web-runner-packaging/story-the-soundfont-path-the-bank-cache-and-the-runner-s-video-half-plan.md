@@ -97,5 +97,5 @@ player). Honest caveat, recorded rather than rewritten into the verify: the
 user-`.sf2` picker limb was never built — `packages/runner-web/app/audio.ts`
 hard-codes the bundled bank in `bankLayers` with no file input, so a person
 cannot choose a bank in the shipped player. Tracked for the player page as
-issue #1227 (bug). Ledger entry reconciled to closed issue #931 in the
+issue #1228 (bug). Ledger entry reconciled to closed issue #931 in the
 2026-11-03 ticket audit.
