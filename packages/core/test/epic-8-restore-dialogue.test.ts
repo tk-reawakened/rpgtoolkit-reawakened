@@ -23,23 +23,40 @@ const manifest = JSON.parse(readFileSync(join(stockFolder, "manifest.json"), "ut
   name: string; version: string; namespace: string; requests: PackageCatalogueEntry["requests"]; program: string;
 };
 const heard: EventView[] = [];
+const completed: EventView[] = [];
 const probe: PluginDefinition = {
   id: "restore-dialogue-probe", version: "1.0.0",
-  commands: [{
-    name: "recordtalked", aliases: [],
-    params: [{ name: "event", optional: false, byRef: false, variadic: false }],
-    call: (view, args) => {
-      if (view.state !== undefined) {
-        const event = readEvent(view.state, args[0]?.value);
-        if (event !== undefined) heard.push(event);
-      }
-      return { value: null };
+  commands: [
+    {
+      name: "recordtalked", aliases: [],
+      params: [{ name: "event", optional: false, byRef: false, variadic: false }],
+      call: (view, args) => {
+        if (view.state !== undefined) {
+          const event = readEvent(view.state, args[0]?.value);
+          if (event !== undefined) heard.push(event);
+        }
+        return { value: null };
+      },
     },
+    {
+      name: "recordcompleted", aliases: [],
+      params: [{ name: "event", optional: false, byRef: false, variadic: false }],
+      call: (view, args) => {
+        if (view.state !== undefined) {
+          const event = readEvent(view.state, args[0]?.value);
+          if (event !== undefined) completed.push(event);
+        }
+        return { value: null };
+      },
+    },
+  ],
+  listeners: [{ emitter: "actor:*", type: "talked", command: "recordtalked" }, {
+    emitter: "game", type: "dialogue.completed", command: "recordcompleted",
   }],
-  listeners: [{ emitter: "actor:*", type: "talked", command: "recordtalked" }],
 };
 
 function runDialogue(killAtWait: boolean): { readonly state: GameState; readonly speakerId: number; readonly targetId: number } {
+  completed.length = 0;
   heard.length = 0;
   const boardResult = ((): Uint8Array => {
     const result = createEmptyBoard();
@@ -92,13 +109,13 @@ function runDialogue(killAtWait: boolean): { readonly state: GameState; readonly
         // Probe listens to every actor emitter; the assertion below verifies the
         // real event was routed only to the speaking actor.
         const thread = startThread(state.vm, {
-          ref: { kind: "inline", text: 'result = dialogue("Hello, Ada")\nend()\n', ir: IR_VERSION },
+          ref: { kind: "inline", text: 'result = dialogue("Hello, <heroName>")\nend()\n', ir: IR_VERSION },
           kind: "board", owner: "script",
         });
         thread.source = "speaker";
         thread.target = "target";
         threadId = thread.id;
-        state.vm.globals.name = "Ada";
+        state.vm.globals.heroName = "Hero";
       },
     }],
   });
@@ -133,14 +150,21 @@ function runDialogue(killAtWait: boolean): { readonly state: GameState; readonly
 
 test("stock_rpg completed dialogue emits actor-isolated talked; killed dialogue emits none", () => {
   const complete = runDialogue(false);
+  equal(complete.state.ui.message.text, "Hello, Hero", "the message window displayed the interpolated dialogue");
   equal(complete.state.vm.threads.some((candidate) => candidate.source === "speaker" && candidate.status === "finished"), true, "real input completed the dialogue thread");
+  deepEqual(completed.map(({ emitter, type, detail }) => ({ emitter, type, detail })), [{
+    emitter: "game",
+    type: "dialogue.completed",
+    detail: { actorId: complete.speakerId, targetId: complete.targetId, text: "Hello, Hero" },
+  }], "real dialogue completion queued the interpolated text");
   deepEqual(heard.map(({ emitter, type, detail }) => ({ emitter, type, detail })), [{
     emitter: actorEmitterKey(complete.speakerId),
     type: "talked",
-    detail: { actorId: complete.speakerId, targetId: complete.targetId, text: "Hello, Ada" },
+    detail: { actorId: complete.speakerId, targetId: complete.targetId, text: "Hello, Hero" },
   }]);
 
   const interrupted = runDialogue(true);
   equal(interrupted.state.vm.threads.some((candidate) => candidate.source === "speaker" && candidate.status === "finished"), false);
   equal(heard.length, 0, "killing while dialogue waits emits no talked event");
+  equal(completed.length, 0, "killing while dialogue waits queues no dialogue.completed event");
 });

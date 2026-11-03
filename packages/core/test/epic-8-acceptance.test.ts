@@ -27,6 +27,7 @@ import {
   type PackageCatalogueEntry,
   type PluginDefinition,
 } from "../src/index.ts";
+import { readEvent, type EventView } from "../src/events/native.ts";
 import { bootHost, drawn, press, repoRoot, type Files, type HostGame, type Session } from "./stock-menu-rig.ts";
 import { encodePng } from "./battle-ui-rig.ts";
 
@@ -37,6 +38,7 @@ type GoldenCheckpoint = {
   readonly id: string;
   readonly stateHash: string;
   readonly drawHash: string;
+  readonly events: readonly EventView[];
 };
 
 type AcceptanceGolden = {
@@ -49,11 +51,11 @@ function readGolden(): AcceptanceGolden | null {
   return JSON.parse(readFileSync(goldenPath, "utf8")) as AcceptanceGolden;
 }
 
-function recordCheckpoint(checkpoints: GoldenCheckpoint[], id: string, session: Session): void {
+function recordCheckpoint(checkpoints: GoldenCheckpoint[], id: string, session: Session, events: EventView[]): void {
   const state = session.state();
   const stateHash = hashGameState(state);
   const drawHash = hashDrawList(session.engine.drawList());
-  checkpoints.push({ id, stateHash, drawHash });
+  checkpoints.push({ id, stateHash, drawHash, events: events.splice(0) });
 }
 
 function verifyOrSaveGolden(checkpoints: GoldenCheckpoint[]): void {
@@ -132,11 +134,11 @@ function boardWithSaving(disableSaving: number): Uint8Array {
   return res.value;
 }
 
-function makeAcceptanceGame(options: { readonly disableSaving?: number; readonly startup?: string } = {}): HostGame {
+function makeAcceptanceGame(options: { readonly disableSaving?: number; readonly startup?: string; readonly extraPlugins?: readonly string[] } = {}): HostGame {
   const files: Files = new Map();
   const paths = [
     "main.gam", "Boards/start.brd", "Chrs/hero.tem", "Chrs/ally1.tem", "Prg/start.prg",
-    "Item/potion.itm", "Item/sword.itm", "Item/key.itm", "Item/amulet.itm", "Item/elixir.itm",
+    "Item/potion.itm", "Item/sword.itm", "Item/axe.itm", "Item/key.itm", "Item/amulet.itm", "Item/elixir.itm",
     "SpcMove/fire.spc", "Prg/fire.prg",
     "Bitmap/layout.png", "Bitmap/ghost.png",
     "Media/move.wav", "Media/confirm.wav", "Media/cancel.wav",
@@ -149,7 +151,7 @@ function makeAcceptanceGame(options: { readonly disableSaving?: number; readonly
     startupPrg: "start.prg",
     initBoard: "start.brd",
     initChar: "hero.tem",
-    packagePlugins: ["stock_menu", "stock_rpg", "stock_battle"],
+    packagePlugins: ["stock_menu", "stock_rpg", "stock_battle", ...(options.extraPlugins ?? [])],
     cursorMoveSound: "move.wav",
     cursorSelectSound: "confirm.wav",
     cursorCancelSound: "cancel.wav",
@@ -217,11 +219,19 @@ function makeAcceptanceGame(options: { readonly disableSaving?: number; readonly
     description: "Cuts things",
     equipable: 1,
     equipSlots: [0, 0, 0, 0, 1, 0, 0, 0],
+    equipBonus: [0, 0, 5, 0],
     buyPrice: 50,
     sellPrice: 25,
   });
   if (!swordBytes.ok) throw new Error(swordBytes.error.message);
   files.set(assetKey("item/sword.itm"), swordBytes.value);
+
+  const axeBytes = writeItem({
+    ...createEmptyItem(), minor: 4, movementAnimations: Array(8).fill(""), name: "Iron axe",
+    equipable: 1, equipSlots: [0, 0, 0, 0, 1, 0, 0, 0], equipBonus: [0, 0, 8, 0],
+  });
+  if (!axeBytes.ok) throw new Error(axeBytes.error.message);
+  files.set(assetKey("item/axe.itm"), axeBytes.value);
 
   const keyBytes = writeItem({
     ...createEmptyItem(),
@@ -246,6 +256,7 @@ function makeAcceptanceGame(options: { readonly disableSaving?: number; readonly
     equipable: 1,
     equipSlots: [0, 0, 0, 0, 0, 0, 0, 1],
     accessoryName: "Amulet",
+    equipBonus: [0, 3, 0, 0],
     buyPrice: 100,
     sellPrice: 50,
   });
@@ -312,16 +323,35 @@ test("[E-80, E-81, E-82, E-87, CAP-10] integrated stock menu play-through covers
     'giveitem("sword")',
     'giveitem("key")',
     'giveitem("amulet")',
+    'giveitem("axe")',
     'givegp(120)',
     'menugraphic("layout.png")',
     'mainmenu()',
     'end()',
   ].join("\n");
-  const game = makeAcceptanceGame({ startup });
+  const events: EventView[] = [];
+  const probe: PluginDefinition = {
+    id: "acceptance-events", version: "1.0.0",
+    commands: [{
+      name: "recordinventory", aliases: [],
+      params: [{ name: "event", optional: false, byRef: false, variadic: false }],
+      call: (view, args) => {
+        if (view.state !== undefined) {
+          const event = readEvent(view.state, args[0]?.value);
+          if (event !== undefined) events.push(event);
+        }
+        return { value: null };
+      },
+    }],
+    listeners: ["itemAdded", "itemRemoved", "goldChanged"].map((type) => ({
+      emitter: "inventory", type, command: "recordinventory",
+    })),
+  };
+  const game = makeAcceptanceGame({ startup, extraPlugins: [probe.id] });
   const checkpoints: GoldenCheckpoint[] = [];
   const session = bootHost({
     game,
-    catalogue: epic8Catalogue(),
+    catalogue: epic8Catalogue([probe]),
     width: 640,
     height: 480,
     startup,
@@ -329,19 +359,32 @@ test("[E-80, E-81, E-82, E-87, CAP-10] integrated stock menu play-through covers
 
   // [E-80, E-87, E-86] Main screen opened: gold, time, party members with stats rendered
   session.pump((state) => state.menu.screens.length === 1);
-  recordCheckpoint(checkpoints, "main-opened", session);
+  recordCheckpoint(checkpoints, "main-opened", session, events);
   equal(session.state().menu.screens[0]?.screen, "main");
   equal(session.state().inventory.gold, 120);
   equal(session.state().party.members.length, 2);
+  const hero = () => {
+    const actor = session.state().actors.actors.find((candidate) => candidate.name === "Hero");
+    ok(actor);
+    return actor;
+  };
+  const baseFp = hero().stats.fp;
+  const baseDp = hero().stats.dp;
   equal(session.state().menu.graphic, "layout.png");
   const surfaceEntry = session.state().surfaces.entries[String(session.state().surfaces.renderNow)];
   ok(surfaceEntry);
   const pixels = session.engine.surfacePixels(surfaceEntry.id, surfaceEntry.rev);
   ok(pixels);
   deepEqual([...pixels.rgba.subarray((15 * 640 + 15) * 4, (15 * 640 + 15) * 4 + 4)], [200, 40, 40, 255]);
+  // Advance exactly 120 engine ticks and redraw with a round-trip cursor move.
+  const tickBefore = session.state().time.tick;
+  session.advance(120);
+  equal(session.state().time.tick, tickBefore + 120);
+  press(session, "DOWN");
+  press(session, "UP");
   const mainTexts = drawn(session).texts;
   ok(mainTexts.includes("Gold 120"), "main screen renders gold");
-  ok(mainTexts.some((t) => t.startsWith("Time ")), "main screen renders game time virtual");
+  ok(mainTexts.includes("Time 0:00:02"), "120 elapsed ticks display two whole seconds");
   ok(mainTexts.some((t) => t.includes("Hero") && t.includes("HP 10/20")), "main screen renders Hero HP");
   ok(mainTexts.some((t) => t.includes("Ally") && t.includes("HP 8/15")), "main screen renders Ally HP");
 
@@ -349,12 +392,14 @@ test("[E-80, E-81, E-82, E-87, CAP-10] integrated stock menu play-through covers
   press(session, "ENTER"); // Open Items
   equal(session.state().menu.screens.at(-1)?.screen, "items");
   ok(session.cues.some((cue) => cue.kind === "media.play" && cue.track === "ui" && cue.asset === assetKey("media/confirm.wav")), "confirm cue plays on ui track");
-  recordCheckpoint(checkpoints, "items-opened", session);
+  recordCheckpoint(checkpoints, "items-opened", session, events);
   press(session, "ENTER"); // Select Potion -> action menu (Use, Info, Drop)
   press(session, "ENTER"); // Select Use -> member list (Hero, Ally)
   press(session, "ENTER"); // Use on Hero
   equal(session.state().actors.actors.find((a) => a.name === "Hero")?.stats.hp, 20, "Potion restored Hero HP to max");
   equal(session.state().inventory.items.find((i) => i.handle === "Potion")?.quantity, 1, "Potion stack quantity decremented to 1");
+  ok(events.some((event) => event.emitter === "inventory" && event.type === "itemRemoved"), "item use emits an inventory removal");
+  recordCheckpoint(checkpoints, "item-used", session, events);
 
   press(session, "ENTER"); // Open the remaining Potion's actions
   press(session, "DOWN");
@@ -381,7 +426,7 @@ test("[E-80, E-81, E-82, E-87, CAP-10] integrated stock menu play-through covers
   press(session, "DOWN");  // Move to Equip
   press(session, "ENTER"); // Open Equip -> member list
   equal(session.state().menu.screens.at(-1)?.screen, "equipment");
-  recordCheckpoint(checkpoints, "equip-opened", session);
+  recordCheckpoint(checkpoints, "equip-opened", session, events);
   press(session, "ENTER"); // Select Hero -> slot list
   // Move down to right-hand (index 2: head=0, neck=1, right-hand=2)
   press(session, "DOWN");
@@ -389,11 +434,30 @@ test("[E-80, E-81, E-82, E-87, CAP-10] integrated stock menu play-through covers
   press(session, "ENTER"); // Open item list for right-hand
   press(session, "ENTER"); // Equip Iron sword
   deepEqual(session.state().inventory.equipment.map((e) => [e.slot, e.itemId]), [["right-hand", 2]], "Sword equipped in right-hand");
-  // Unequip: select right-hand slot again, choose Remove row
-  press(session, "ENTER"); // Re-enter right-hand slot
-  // Remove is the first row for an occupied slot.
-  press(session, "ENTER"); // Remove sword
-  equal(session.state().inventory.equipment.length, 0, "Sword removed from equipment");
+  equal(hero().stats.fp, baseFp + 5, "sword adds five FP");
+  recordCheckpoint(checkpoints, "sword-equipped", session, events);
+  // Replace the occupied hand slot with the axe; its different bonus must replace, not stack with, the sword.
+  press(session, "ENTER");
+  press(session, "DOWN"); // Remove is first; axe is the first fitting available item.
+  press(session, "ENTER");
+  equal(hero().stats.fp, baseFp + 8, "replacement removes the sword bonus and applies the axe bonus");
+  equal(session.state().inventory.items.find((item) => item.handle === "Iron sword")?.quantity, 1, "replaced sword returns to inventory");
+  recordCheckpoint(checkpoints, "sword-replaced", session, events);
+  press(session, "ENTER");
+  press(session, "ENTER"); // Remove the axe.
+  equal(hero().stats.fp, baseFp, "removing the axe restores FP");
+  equal(session.state().inventory.equipment.length, 0, "hand slot is empty");
+  for (let i = 0; i < 4; i++) press(session, "DOWN"); // right-hand -> accessory-7
+  press(session, "ENTER");
+  press(session, "ENTER");
+  equal(session.state().inventory.equipment[0]?.slot, "accessory-7");
+  equal(hero().stats.dp, baseDp + 3, "amulet adds three DP");
+  recordCheckpoint(checkpoints, "accessory-equipped", session, events);
+  press(session, "ENTER");
+  press(session, "ENTER");
+  equal(hero().stats.dp, baseDp, "removing the amulet restores DP");
+  equal(session.state().inventory.equipment.length, 0, "accessory slot is empty");
+  recordCheckpoint(checkpoints, "equipment-removed", session, events);
   press(session, "ESC");   // Exit slots
   press(session, "ESC");   // Exit Equip back to Main
 
@@ -401,7 +465,7 @@ test("[E-80, E-81, E-82, E-87, CAP-10] integrated stock menu play-through covers
   press(session, "DOWN");  // Move from Equip to Abilities
   press(session, "ENTER"); // Open Abilities
   equal(session.state().menu.screens.at(-1)?.screen, "abilities");
-  recordCheckpoint(checkpoints, "abilities-opened", session);
+  recordCheckpoint(checkpoints, "abilities-opened", session, events);
   press(session, "ENTER"); // Select Hero -> moves list
   press(session, "ENTER"); // Select Fire -> actions (Use, Info)
   press(session, "DOWN");  // Select Info
@@ -411,6 +475,7 @@ test("[E-80, E-81, E-82, E-87, CAP-10] integrated stock menu play-through covers
   press(session, "UP");    // Select Use
   press(session, "ENTER"); // Use Fire
   equal(session.state().vm.globals.abilityused, 1, "Board-usable special move executed program");
+  recordCheckpoint(checkpoints, "ability-used", session, events);
   press(session, "ESC");   // Exit moves
   press(session, "ESC");   // Exit Abilities back to Main
 

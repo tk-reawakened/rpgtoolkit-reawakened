@@ -36,14 +36,16 @@ Run only after the refactor sweep. Link each assertion to an E-xx or CAP id and 
 ## Acceptance evidence
 
 - `packages/core/test/epic-8-acceptance.test.ts`: stock menu item/equipment/ability flows,
-  key-item refusal, graphic, cursor sounds, gold, game-time display, and the E-123 board gate;
-  `golden/epic8/acceptance.json` pins state and draw checkpoints for the authored scenario.
+  key-item refusal, graphic, cursor sounds, gold, exact game-time display after 120 ticks, and the
+  E-123 board gate. Sword and accessory bonuses, occupied-slot replacement and removal are checked;
+  `golden/epic8/acceptance.json` pins state, draw and delivered inventory-event checkpoints.
 - `packages/core/test/epic-8-shop-party.test.ts`: CallShop stock acquisition and real owner buy/sell
   dispatch, party swap and Inn restoration.
 - `packages/core/test/epic-8-restore-acceptance.test.ts`: host save bytes, canonical round trip,
-  deterministic replay, newer-IR refusal and older-thread restart.
-- `packages/core/test/epic-8-restore-dialogue.test.ts`: real package bridge, actor-specific
-  completion and killed-dialogue suppression.
+  post-load gameplay sections compared with an uninterrupted run, deterministic replay, newer-IR
+  refusal and older-thread restart.
+- `packages/core/test/epic-8-restore-dialogue.test.ts`: spliced displayed and completion-event text,
+  real package bridge, actor-specific completion and killed-dialogue suppression.
 - `packages/core/test/epic-8-battle-consume.test.ts`: real stock battle item use, exact
   inventory consumption and one-time HP/SMP application.
 
@@ -53,6 +55,10 @@ opened the picker; bypassing key-item protection removed the key; suppressing sa
 80 rather than 85 gold; disabling Inn left HP at 0; skipping older-IR restart gave counter 3 rather
 than 4; disabling newer-IR refusal lost the expected diagnostic; skipping loaded-state adoption
 left counter 9 rather than 3. Each mutated production file was restored after its run.
+Additional review perturbations: suppressing weapon FP or accessory DP bonuses failed the respective
+stat assertions; fixing `gametime` at zero failed the exact time assertion; suppressing item-use event
+emission failed the event assertion; corrupting completion text failed the dialogue event comparison;
+and adding a gold unit on Load failed the uninterrupted inventory comparison. Each mutation was restored.
 
 ## Blocker
 

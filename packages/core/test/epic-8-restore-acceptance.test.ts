@@ -97,9 +97,33 @@ test("full-engine Save bytes load mid-script and produce canonical deterministic
   const roundTrip = restoreGameState(canonical);
   equal(snapshot(roundTrip), canonical, "the saved state has a stable canonical representation");
   equal(hashGameState(roundTrip), hashGameState(captured), "canonical hash survives restoration of the real save bytes");
+  const reference = boot(SAVER);
+  run(reference, null);
+  equal(globals(reference).counter, 3, "the uninterrupted reference completed the Save continuation");
   const first = boot(LOADER);
   const firstRun = run(first, bytes);
   equal(globals(first).counter, 3, "the saved thread resumed after Save and completed its continuation");
+  const loadedState = first.state();
+  const referenceState = reference.state();
+  ok(loadedState !== null && referenceState !== null, "both engine runs expose their final state");
+  const loadedCanonical = JSON.parse(snapshot(loadedState)) as Record<string, unknown>;
+  const referenceCanonical = JSON.parse(snapshot(referenceState)) as Record<string, unknown>;
+  // VM and engine bookkeeping differ because the loaded run also executes a Load caller.
+  // Surfaces are a derived presentation-resource cache: their revision counters need not
+  // match after Load. Audio cueId is monotonic and Load emits its own reset cue, so only
+  // that counter is excluded; all other canonical audio fields are compared exactly.
+  for (const section of [
+    "world", "sprites", "actors", "party", "inventory", "triggers", "battle",
+    "menu", "input", "ui", "camera", "fx", "audio", "rng", "events",
+  ] as const) {
+    if (section === "audio") {
+      const { cueId: _loadSpecificCueId, ...loadedAudio } = loadedCanonical.audio as Record<string, unknown>;
+      const { cueId: _referenceCueId, ...referenceAudio } = referenceCanonical.audio as Record<string, unknown>;
+      deepEqual(loadedAudio, referenceAudio, "post-Load audio state matches uninterrupted execution apart from its next cue ID");
+    } else {
+      deepEqual(loadedCanonical[section], referenceCanonical[section], `post-Load ${section} matches uninterrupted execution`);
+    }
+  }
   const second = boot(LOADER);
   const secondRun = run(second, bytes);
   equal(globals(second).counter, 3);
