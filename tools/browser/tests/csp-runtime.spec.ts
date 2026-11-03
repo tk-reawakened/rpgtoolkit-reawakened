@@ -4,10 +4,10 @@ const PLAYER_PAGE = "/packages/runner-web/app/index.html?game=demo&package=fixtu
 const POLICY = /<meta\s+http-equiv="Content-Security-Policy"[^>]*>/i;
 
 test("runner page boots a package with allowed scripts and blocks injected inline script at runtime", async ({ page }) => {
-  // This switch is only for the explicit perturbation run: remove the actual shipped page's CSP
-  // response tag, then prove this same assertion fails because the forbidden code executes.
+  let routeInvoked = false;
   if (process.env.CSP_PROBE_WEAKENED === "1") {
-    await page.route("**/packages/runner-web/app/index.html", async (route: Route) => {
+    await page.route((url) => url.pathname.endsWith("/index.html"), async (route: Route) => {
+      routeInvoked = true;
       const response = await route.fetch();
       const html = await response.text();
       expect(html).toMatch(POLICY);
@@ -27,6 +27,7 @@ test("runner page boots a package with allowed scripts and blocks injected inlin
   );
   await page.goto(PLAYER_PAGE);
   await allowedScript;
+  if (process.env.CSP_PROBE_WEAKENED === "1") expect(routeInvoked).toBe(true);
   await expect.poll(() => page.evaluate(() => (window as Window & { __report?: { error?: string; tick?: number } }).__report)).toMatchObject({ tick: 120 });
   await expect(page.locator("#report")).toContainText("demo tick 120");
   await expect(page.locator("#report")).not.toContainText(/player:|load failed/);
