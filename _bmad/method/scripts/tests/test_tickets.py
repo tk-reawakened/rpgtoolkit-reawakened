@@ -33,6 +33,27 @@ class ChoreTicketTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def assert_chore_in_status_and_next(self, expected_state):
+        status = self.run_ticket("status", str(self.epic))
+        self.assertEqual(status.returncode, 0, status.stderr)
+        status_rows = [row for row in json.loads(status.stdout)["tickets"] if row["ref"] == "23"]
+        self.assertEqual(len(status_rows), 1)
+        self.assertEqual(status_rows[0]["type"], "chore")
+        self.assertEqual(status_rows[0]["state"], expected_state)
+
+        next_result = self.run_ticket("next", str(self.epic))
+        self.assertEqual(next_result.returncode, 0, next_result.stderr)
+        next_payload = json.loads(next_result.stdout)
+        next_rows = [
+            row
+            for group in ("ready_to_refine", "ready_to_start", "in_progress", "blocked")
+            for row in next_payload.get(group, [])
+            if row["ref"] == "23"
+        ]
+        self.assertEqual(len(next_rows), 1)
+        self.assertEqual(next_rows[0]["type"], "chore")
+        self.assertEqual(next_rows[0]["state"], expected_state)
+
     def test_find_pull_and_plan_join_for_chore_entry(self):
         found = self.run_ticket("find", str(self.epic), "23")
         self.assertEqual(found.returncode, 0, found.stderr)
@@ -40,9 +61,7 @@ class ChoreTicketTests(unittest.TestCase):
         self.assertEqual(row["type"], "chore")
         self.assertIsNone(row["story_file"])
         self.assertEqual(Path(row["plan"]).name, "chore-ci-change-classifier-plan.md")
-        for command in ("status", "next"):
-            result = self.run_ticket(command, str(self.epic))
-            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_chore_in_status_and_next("planned")
 
         pulled = self.run_ticket("pull", str(self.epic), "23")
         self.assertEqual(pulled.returncode, 0, pulled.stderr)
@@ -54,7 +73,8 @@ class ChoreTicketTests(unittest.TestCase):
 
         plan = self.epic / "chore-ci-change-classifier-plan.md"
         plan.write_text(
-            "---\ntitle: CI classifier plan\ntype: chore\nticket: 23\nstatus: in-progress\n---\n# Plan\n",
+            "---\ntitle: 'CI classifier plan'\ntype: 'chore'\nticket: 23\n"
+            "created: '2026-10-29'\nstatus: 'in-progress'\n---\n# Plan\n",
             encoding="utf-8",
         )
         found = self.run_ticket("find", str(self.epic), "23")
@@ -62,6 +82,21 @@ class ChoreTicketTests(unittest.TestCase):
         row = json.loads(found.stdout)
         self.assertEqual(Path(row["plan"]).resolve(), plan.resolve())
         self.assertEqual(row["status"], "in-progress")
+        self.assert_chore_in_status_and_next("in-progress")
+
+    def test_legacy_story_leaf_with_ticket_field_remains_a_leaf(self):
+        self.write_entry("story")
+        leaf = self.epic / "story-ci-change-classifier.md"
+        leaf.write_text(
+            "---\nid: 23\ntype: story\nticket: 'legacy metadata'\n"
+            "title: 'CI change classifier'\n---\n# Story\n",
+            encoding="utf-8",
+        )
+        result = self.run_ticket("find", str(self.epic), "23")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        row = json.loads(result.stdout)
+        self.assertEqual(row["type"], "story")
+        self.assertEqual(Path(row["story_file"]).resolve(), leaf.resolve())
 
     def test_unknown_entry_types_remain_rejected(self):
         self.write_entry("task")
@@ -69,6 +104,6 @@ class ChoreTicketTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("is not one of story, spike, bug, chore", result.stderr)
 
-
 if __name__ == "__main__":
     unittest.main()
+
