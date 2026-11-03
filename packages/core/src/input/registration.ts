@@ -82,12 +82,14 @@ export function runInputPhase(state: GameState, options: InputPhaseOptions = {})
   // A running program or any global wait owns script input until it finishes. Keys and clicks are still recorded
   // (the key queue and the pointer state keep receiving them), but none of them turns into movement
   // (docs/spec/engine/display-input-audio.md#reawakened-held-direction-movement, #reawakened-click-movement-freeze).
-  const directionBlocked = scriptOwnsInput(state.vm);
+  let directionBlocked = scriptOwnsInput(state.vm);
   const configured = options.menuKey;
   const lastConfiguredEdge = configured === undefined ? undefined : [...state.input.keys].reverse().find((key) => key.action === configured.action);
   if (!directionBlocked && (actions.includes("menu") ||
       (configured !== undefined && actions.includes(configured.action) && lastConfiguredEdge?.code === configured.code))) {
-    (options.openMenu ?? openMainMenu)(state);
+    // A menu opened by this very press owns input from now on, so a direction pressed on the same tick queues no step
+    // (docs/spec/engine/display-input-audio.md#reawakened-held-direction-movement: a blocking script freezes movement).
+    if ((options.openMenu ?? openMainMenu)(state)) directionBlocked = true;
   }
   if (id === null) return;
   if (!directionBlocked && actions.some((action) => FACING_BY_ACTION[action] !== undefined) && canAcceptDirection(state, id)) {

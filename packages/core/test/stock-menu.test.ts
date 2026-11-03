@@ -218,7 +218,7 @@ function boot(options: GameOptions): Session {
     startup: { presence: { hasPlayer: () => true }, savedGame: { load: () => ({ kind: "missing" }), restored: () => false } },
     width: 320,
     height: 240,
-    input: { bindings: { keys: { KeyM: "menu", Escape: "cancel", Enter: "confirm", ArrowUp: "up", ArrowDown: "down" } } },
+    input: { bindings: { keys: { KeyM: "menu", Escape: "cancel", Enter: "confirm", ArrowUp: "up", ArrowDown: "down", ArrowRight: "right" } } },
     maxTicks: 4000,
     packageCatalogue: catalogue(),
     bundled: BUNDLED,
@@ -303,6 +303,21 @@ test("the menu key opens the main screen and the menu key closes it", () => {
   ok(overlayBlits(session.engine) >= 1, "the screen is one overlay blit in the draw list");
   const closed = press(session, "ESC");
   equal(closed.menu.screens.length, 0, "cancel closes the outermost screen");
+});
+
+test("a direction pressed on the tick the menu key opens the menu queues no movement", () => {
+  const session = boot({ startup: "end()\n" });
+  const before = session.state().sprites.players[0]!;
+  const tick = session.state().time.tick;
+  session.engine.advance(1, [
+    { tick, event: { kind: "key", name: "M", code: "KeyM", char: null, down: true } },
+    { tick, event: { kind: "key", name: "ArrowRight", code: "ArrowRight", char: null, down: true } },
+  ]);
+  const after = session.state().sprites.players[0]!;
+  ok(session.state().vm.threads.some((thread) => thread.kind === "blocking" && thread.status !== "finished"), "the menu key started the menu thread");
+  deepEqual(after.queue.moves, [], "no step is queued behind the menu");
+  equal(after.movement.active, null);
+  deepEqual([after.x, after.y], [before.x, before.y]);
 });
 
 for (const [startup, expected] of [
