@@ -280,12 +280,12 @@ test("a trigger program naming a .prg that is not in the index reports a located
   // A step frame picks the region; the missing .prg is one located report and no thread.
   state.time.tick = 1;
   state.sprites.players = state.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: 1, lastStepDistance: 8 } }));
-  let reported: { readonly code: string; readonly file: string; readonly line: number; readonly message: string } | null = null;
-  const events = runTriggersPhase(state, { ...missing, onDiagnostic: (diagnostic) => { reported = diagnostic; } });
+  const reported: { current: { readonly code: string; readonly file: string; readonly line: number; readonly message: string } | null } = { current: null };
+  const events = runTriggersPhase(state, { ...missing, onDiagnostic: (diagnostic) => { reported.current = diagnostic; } });
   equal(events.length, 0, "the tick continues and starts no thread");
-  ok(reported !== null, "the failure is reported");
-  equal(reported.code, "program.missing");
-  equal(reported.file, world.key, "the report locates the authored board");
+  ok(reported.current !== null, "the failure is reported");
+  equal(reported.current.code, "program.missing");
+  equal(reported.current.file, world.key, "the report locates the authored board");
   equal(state.triggers.active, null, "no trigger runs");
   // The trigger is marked run: the next step frame does not repeat the report, and the game continues.
   state.time.tick += 1;
