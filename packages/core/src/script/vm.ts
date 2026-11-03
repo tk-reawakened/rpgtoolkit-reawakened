@@ -90,7 +90,7 @@ import { createPackageFunctionSource, followPackageInclude } from "./package-exp
 import { runModuleCommand } from "./modules.ts";
 import { MODULE_COMMANDS } from "./parse.ts";
 import type { SourcePos, StepOp } from "./ops.ts";
-import type { CommandResult, CommandRequest, CommandView, ResolvedPlugin, MenuProvider, MenuProviderEvent, MenuProviderResult, MenuScreenId } from "./plugin.ts";
+import type { CommandResult, CommandRequest, CommandView, ResolvedPlugin, MenuProvider, MenuProviderContext, MenuProviderEvent, MenuProviderResult, MenuScreenId } from "./plugin.ts";
 import {
   assetKey,
   isHookStage,
@@ -247,14 +247,14 @@ function isMenuProviderResult(value: unknown): value is MenuProviderResult {
  * action capabilities, but not the internal item-action preflight/commit operations: only the returned
  * `item.action` transition runs those, on the calling thread with the item programs.
  */
-function nativeMenuContext(services: ScriptServices): MenuOwnerPorts {
+function nativeMenuContext(services: ScriptServices): MenuProviderContext {
   const owners = services.menuOwners;
   return {
     party: owners.party,
     menu: owners.menu,
     shop: owners.shop,
     inventory: { read: owners.inventory.read, apply: owners.inventory.apply },
-  } as MenuOwnerPorts;
+  };
 }
 
 function handleMenuProviderFailure(

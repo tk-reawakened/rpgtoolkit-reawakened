@@ -10,10 +10,13 @@ import { TextEncoder } from "node:util";
 import {
   addActor,
   advanceScriptTick,
+  applyMenuStateEffect,
   assetKey,
   CATALOGUE_PLUGIN,
   CORE_PLUGIN,
+  createActorService,
   createAssetIndex,
+  createEmptyCharacter,
   createEmptyItem,
   createGameState,
   createMenuOwnerPorts,
@@ -28,6 +31,7 @@ import {
   replyToRequest,
   projectGameLedger,
   restoreGameState,
+  runPackageStartup,
   restoreRecoveryCandidate,
   ScriptError,
   snapshot,
@@ -39,20 +43,34 @@ import {
   verifyRestoredHandles,
   writeItem,
   type CommandRequest,
+  type EffectRecord,
   type GameState,
+  type Item,
   type ItemActionHooks,
   type ItemActionPhase,
   type ItemActionRequest,
   type ItemActionResult,
+  type InventoryRuntime,
   type ItemActionSelection,
   type MenuOwnerPorts,
+  type MenuProvider,
   type PluginDefinition,
   type PluginLayers,
   type ProgramLoader,
   type ScriptServices,
+  type SectionKey,
 } from "../src/index.ts";
 import { INVENTORY_COMMANDS } from "../src/script/packs/inventory.ts";
 import { advanceOrFail } from "./script-failures.ts";
+
+// Type-level guard for the public provider context: the VM's item-action preflight/commit operations are
+// internal, and a native provider must use the returned `item.action` transition instead.
+const publicProviderContext: MenuProvider = ({ context }) => {
+  // @ts-expect-error native providers must not reach the VM's item-action commit surface
+  void context.inventory.preflightItemAction;
+  return { kind: "complete" };
+};
+void publicProviderContext;
 
 type Asset = { readonly area: "items" | "characters"; readonly path: string };
 type Script = {
@@ -69,6 +87,7 @@ type Harness = {
   events: string[];
   results: ItemActionResult[];
   providerStates: unknown[];
+  inventoryEvents: { readonly type: string; readonly detail: unknown }[];
 };
 
 const NO_HOOKS: ItemActionHooks = { use: null, remove: null, equip: null };
@@ -82,6 +101,7 @@ function harness(script: Partial<Script> = {}): Harness {
     events: [],
     results: [],
     providerStates: [],
+    inventoryEvents: [],
   };
 }
 
@@ -150,12 +170,41 @@ function portsFor(state: GameState, h: Harness): MenuOwnerPorts {
   };
 }
 
+const SLOT_FLAGS = [0, 0, 0, 1, 1, 0, 0, 0];
+function realItemDefinitions(): Record<string, Item> {
+  return {
+    "item/potion.itm": { ...createEmptyItem(), name: "Potion", menuUsable: 1, menuUseHp: 4 },
+    "item/sword.itm": {
+      ...createEmptyItem(), name: "Sword", equipable: 1, equipSlots: SLOT_FLAGS, onRemoveProgram: "remove.prg",
+    },
+    "item/axe.itm": {
+      ...createEmptyItem(), name: "Axe", equipable: 1, equipSlots: SLOT_FLAGS,
+    },
+  };
+}
+function realRuntime(state: GameState, items: Record<string, Item>): InventoryRuntime {
+  const service = createActorService(state.actors);
+  return {
+    item: (source) => items[source],
+    character: () => ({ ...createEmptyCharacter(), bodySlots: [0, 1, 1, 1, 1, 1, 1] }),
+    applyEquipment: (actorId, equipped, catalog) => service.applyEquipment(actorId, equipped, catalog) !== null,
+    updateStats: (actorId, patch) => service.updateStats(actorId, patch, { cause: "script", source: null }) !== null,
+    prepareEquipment: (actorId, equipped, catalog) => service.prepareEquipment(actorId, equipped, catalog),
+    commitPreparedEquipment: (prepared) => service.commitPreparedEquipment(prepared) !== null,
+    discardPreparedEquipment: (prepared) => service.discardPreparedEquipment(prepared),
+  };
+}
+function realPortsFor(state: GameState, h: Harness, items: Record<string, Item>): MenuOwnerPorts {
+  return createMenuOwnerPorts(state, undefined, realRuntime(state, items), (event) => h.inventoryEvents.push(event));
+}
 function servicesFor(
   state: GameState,
   h: Harness,
   loader: ProgramLoader,
   provider: PluginDefinition | null = null,
   layers: PluginLayers = createPluginLayers(),
+  ports: MenuOwnerPorts = portsFor(state, h),
+  postEffect?: (section: SectionKey, effect: EffectRecord) => void,
 ): ScriptServices {
   return createScriptServices(
     state,
@@ -169,14 +218,14 @@ function servicesFor(
     undefined,
     loader,
     "default",
-    undefined,
+    postEffect,
     (request) => h.requests.push(request),
     layers,
     [],
     false,
     undefined,
     undefined,
-    portsFor(state, h),
+    ports,
   );
 }
 
@@ -364,6 +413,78 @@ test("a restore with a cold definition cache asks for the missing definitions ag
   deepEqual(cold.events, ["item.action.completed"]);
 });
 
+test("a native action re-resolves a changed inventory after its definition reply was pending", () => {
+  const { state, hero } = newState();
+  const items: Record<string, Item> = {};
+  const h = harness();
+  const ports = realPortsFor(state, h, items);
+  const loader = loaderOf({ "game.prg": "itemmenu()\nafter = 1\nend()\n" });
+  const action: ItemActionRequest = { kind: "use", entryId: 1, actorId: hero };
+  const services = servicesFor(state, h, loader, nativeProvider(h, action), undefined, ports);
+  startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+  advanceOrFail(state, services);
+  equal(h.requests.length, 1, "the missing definition was requested");
+
+  // The state changes while the reply is pending: the stack is gone and the definition arrives.
+  state.inventory.items[0]!.quantity = 0;
+  items["item/potion.itm"] = { ...createEmptyItem(), name: "Potion", menuUsable: 1, menuUseHp: 4 };
+  answer(state, h, true, true);
+  runToEnd(state, services);
+
+  equal(h.results[0]?.status, "refused");
+  equal(h.results[0]?.error?.path, "inventory.items.quantity");
+  equal(state.vm.globals.log, "", "no effect or item program ran");
+  equal(state.vm.globals.after, 1);
+});
+
+test("an item program mutating the selected stack before commit is revalidated with committed quantities", () => {
+  const { state, hero } = newState();
+  const items = realItemDefinitions();
+  state.inventory.items = [
+    { id: 1, source: "item/sword.itm", handle: "Sword", quantity: 0 },
+    { id: 2, source: "item/axe.itm", handle: "Axe", quantity: 2 },
+  ];
+  state.inventory.nextId = 3;
+  state.inventory.equipment = [{ actorId: hero, slot: "right-hand", itemId: 1 }];
+  const h = harness();
+  const ports = realPortsFor(state, h, items);
+  const loader = loaderOf({
+    "game.prg": "itemmenu()\nafter = 1\nend()\n",
+    "remove.prg": 'log = log + "remove-start;"\ngiveitem("axe")\nlog = log + "remove-end;"\n',
+  });
+  const action: ItemActionRequest = { kind: "replace", entryId: 2, actorId: hero, slot: "right-hand" };
+  const services = servicesFor(
+    state, h, loader, nativeProvider(h, action), undefined, ports,
+    (section, effect) => applyMenuStateEffect(ports, effect),
+  );
+  startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+  advanceOrFail(state, services);
+  equal(state.vm.globals.log, "remove-start;", "the remove program mutated the selected stack");
+  equal(h.requests.length, 1, "giveitem requested its definition");
+  const request = h.requests.at(-1)!;
+  h.loaded.add(`${String(request.area)}:${String(request.path).toLowerCase()}`);
+  replyToRequest(state.vm, Number(request.reqId), { ok: true, value: itemBytes("Axe") });
+  runToEnd(state, services);
+
+  equal(state.vm.globals.log, "remove-start;remove-end;");
+  deepEqual(h.inventoryEvents, [
+    {
+      type: "itemAdded",
+      detail: { entryId: 2, source: "item/axe.itm", handle: "Axe", amount: 1, previousQuantity: 2, currentQuantity: 3 },
+    },
+    {
+      type: "itemRemoved",
+      detail: { entryId: 2, source: "item/axe.itm", handle: "Axe", amount: 1, previousQuantity: 3, currentQuantity: 2 },
+    },
+    {
+      type: "itemAdded",
+      detail: { entryId: 1, source: "item/sword.itm", handle: "Sword", amount: 1, previousQuantity: 0, currentQuantity: 1 },
+    },
+  ], "the program's mutation is followed by commit events using the quantities at commit");
+  equal(state.inventory.items.find((entry) => entry.id === 2)?.quantity, 2);
+  equal(state.vm.globals.after, 1);
+});
+
 // --- RPGCode providers: the blocking context methods ---------------------------------------------
 
 function rpgcodeProgram(call: string, readError: boolean): string {
@@ -450,6 +571,53 @@ end()
     (error: unknown) => error instanceof ScriptError && error.code === "assign.read-only",
   );
   equal(second.state.inventory.gold, 0);
+});
+
+test("an RPGCode action saved while its definition request is pending restores cold and re-requests it", () => {
+  const { state, hero } = newState();
+  state.actors.actors[0]!.stats = { ...state.actors.actors[0]!.stats, hp: 5, maxHp: 10 };
+  const startup = `registerPlugin({ name: "rpg-items", commands: {}, menuProviders: { items: (context) => {
+  outcome = context.inventory.use({ entryId: 1, actorId: ${hero} })
+  outcomeStatus = outcome.status
+} } })
+`;
+  const loader = loaderOf({
+    "startup.prg": startup,
+    "game.prg": "itemmenu()\nafter = 1\nend()\n",
+  });
+  const items: Record<string, Item> = {};
+  const h = harness();
+  const layers = createPluginLayers();
+  const ports = realPortsFor(state, h, items);
+  const services = servicesFor(state, h, loader, null, layers, ports);
+  runPackageStartup(state, services, [fileProgramRef(loader, "startup.prg")], []);
+  startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+  advanceOrFail(state, services);
+  equal(h.requests.length, 1, "the RPGCode caller requested its missing definition");
+  const saved = snapshot(state);
+
+  const cold = harness();
+  const coldItems: Record<string, Item> = {};
+  const restoredLayers = createPluginLayers();
+  const scratch = createGameState({ seed: 0 });
+  const scratchServices = servicesFor(scratch, cold, loader, null, restoredLayers, realPortsFor(scratch, cold, coldItems));
+  runPackageStartup(scratch, scratchServices, [fileProgramRef(loader, "startup.prg")], []);
+  const restored = restoreGameState(saved);
+  const restoredServices = servicesFor(restored, cold, loader, null, restoredLayers, realPortsFor(restored, cold, coldItems));
+  verifyRestoredHandles(restored.vm, restoredServices);
+  equal(restored.vm.threads[0]?.wait, null, "an unanswered request is not pretended to survive the restore");
+  advanceOrFail(restored, restoredServices);
+  deepEqual(cold.requests.map((request) => request.path), ["potion.itm"], "the definition is requested again");
+  equal(restored.vm.globals.outcomestatus, undefined, "the call has not returned before definitions arrive");
+
+  coldItems["item/potion.itm"] = { ...createEmptyItem(), name: "Potion", menuUsable: 1, menuUseHp: 4 };
+  answer(restored, cold, true, true);
+  runToEnd(restored, restoredServices);
+
+  equal(restored.vm.globals.outcomestatus, "complete");
+  equal(restored.actors.actors[0]?.stats.hp, 9);
+  equal(restored.inventory.items[0]?.quantity, 1, "the restored action consumed exactly once");
+  equal(restored.vm.globals.after, 1);
 });
 
 test("a restored native action whose hook kills the thread still removes the menu frame it opened", () => {
@@ -634,6 +802,121 @@ test("saved mid equip program, an action restores to its phase and commits exact
   runToEnd(restored, restoredServices);
   equal(restored.vm.globals.log, "commit:replace:started=false;equip-start;equip-end;", "the commit is not redone");
   equal(restored.vm.globals.after, 1);
+});
+
+test("saved mid use and remove programs, an action restores its phase and commits exactly once", () => {
+  for (const [name, kind, hookName, action, loaderFiles] of [
+    [
+      "use",
+      "use",
+      "use",
+      { kind: "use", entryId: 1, actorId: 0 } as ItemActionRequest,
+      { "game.prg": "itemmenu()\nafter = 1\nend()\n", "use.prg": 'log = log + "use-start;"\nsleep(1)\nlog = log + "use-end;"\n' },
+    ],
+    [
+      "remove",
+      "remove",
+      "remove",
+      { kind: "replace", entryId: 1, actorId: 0, slot: "right-hand" } as ItemActionRequest,
+      { "game.prg": "itemmenu()\nafter = 1\nend()\n", "remove.prg": 'log = log + "remove-start;"\nsleep(1)\nlog = log + "remove-end;"\n' },
+    ],
+  ] as const) {
+    const { state, hero } = newState();
+    const resolvedAction = { ...action, actorId: hero } as ItemActionRequest;
+    const h = harness({
+      needed: kind === "use" ? [{ area: "items", path: "potion.itm" }] : [],
+      displaced: kind === "remove",
+      hooks: { ...NO_HOOKS, [hookName]: hook(`${hookName}.prg`, kind === "use" ? "Potion" : "Old") },
+    });
+    const loader = loaderOf(loaderFiles);
+    const services = servicesFor(state, h, loader, nativeProvider(h, resolvedAction));
+    startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+    advanceOrFail(state, services);
+    if (kind === "use") {
+      answer(state, h, true, true);
+      advanceOrFail(state, services);
+    }
+    equal(state.vm.globals.log, `${kind === "use" ? "commit:use:effects:started=false;" : ""}${hookName}-start;`, `${name}: saved inside its hook`);
+    const saved = snapshot(state);
+    const raw = JSON.parse(saved) as { vm: { threads: Array<{ frames: Array<{ itemActions?: Array<{ phase: string }> }> }> } };
+    equal(raw.vm.threads[0]?.frames[0]?.itemActions?.[0]?.phase, `${hookName}.hook`, `${name}: the saved phase is its hook`);
+
+    const resumed = harness({
+      needed: h.script.needed,
+      displaced: h.script.displaced,
+      hooks: h.script.hooks,
+    });
+    const restored = restoreGameState(saved);
+    const restoredServices = servicesFor(restored, resumed, loader, nativeProvider(resumed, resolvedAction));
+    verifyRestoredHandles(restored.vm, restoredServices);
+    runToEnd(restored, restoredServices);
+    equal(
+      restored.vm.globals.log,
+      `${kind === "use" ? "commit:use:effects:started=false;" : ""}${hookName}-start;${hookName}-end;${kind === "use" ? "commit:use:consume:started=true;" : "commit:replace:started=true;"}`,
+      `${name}: the program resumes and the commit is not redone`,
+    );
+    deepEqual(resumed.events, ["item.action.completed"], `${name}: exactly one completion`);
+    equal(restored.vm.globals.after, 1);
+  }
+});
+
+test("an interrupted native action completes with its result, and an interrupted adapter raises", () => {
+  const interrupted: ItemActionResult = {
+    status: "interrupted",
+    error: { path: "inventory.items.quantity", message: "the selected stack changed" },
+  };
+  {
+    const { state, hero } = newState();
+    const h = harness({
+      needed: [{ area: "items", path: "potion.itm" }],
+      commit: (_request, phase) => phase.step === "consume" ? interrupted : null,
+    });
+    const loader = loaderOf({ "game.prg": "itemmenu()\nafter = 1\nend()\n" });
+    const services = servicesFor(state, h, loader, nativeProvider(h, { kind: "use", entryId: 1, actorId: hero }));
+    startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+    advanceOrFail(state, services);
+    answer(state, h, true, true);
+    runToEnd(state, services);
+    deepEqual(h.events, ["enter", "item.action.completed"], "the native provider receives one completion");
+    deepEqual(h.results, [interrupted], "the interrupted result crosses item.action.completed");
+    equal(state.vm.globals.log, "commit:use:effects:started=false;commit:use:consume:started=true;");
+    equal(state.vm.globals.after, 1);
+  }
+  {
+    const { state } = newState();
+    const h = harness({
+      displaced: true,
+      hooks: { ...NO_HOOKS, remove: hook("remove.prg", "Old") },
+      commit: () => interrupted,
+    });
+    const loader = loaderOf({ "game.prg": EQUIP_PROGRAM, "remove.prg": "" });
+    const services = servicesFor(state, h, loader);
+    startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+    throws(
+      () => advanceOrFail(state, services),
+      (error: unknown) => error instanceof ScriptError && error.code === "menu.state-invalid" &&
+        error.message.includes("inventory.items.quantity: the selected stack changed"),
+      "the adapter raises the interrupted result at its caller",
+    );
+  }
+});
+
+test("a hook-local program error is reported and continues, unlike a missing hook program", () => {
+  for (const [name, files, program, expected] of [
+    ["missing hook program", {}, "missing.prg", "program.missing"],
+    ["hook-local error", { "error.prg": "missingCall()\nhookAfter = 1\n" }, "error.prg", "unknown.command"],
+  ] as const) {
+    const { state } = newState();
+    const h = harness({ hooks: { ...NO_HOOKS, equip: hook(program, "Potion") } });
+    const loader = loaderOf({ "game.prg": EQUIP_PROGRAM, ...files });
+    const services = servicesFor(state, h, loader);
+    startProgram(state.vm, fileProgramRef(loader, "game.prg"));
+    runQuiet(state, services);
+    deepEqual(drainDiagnostics(services).map((diagnostic) => diagnostic.code), [expected], `${name}: the located diagnostic`);
+    equal(state.vm.globals.log, "commit:replace:started=false;", `${name}: the action committed and continued`);
+    equal(state.vm.globals.after, 1, `${name}: the caller continued`);
+    if (name === "hook-local error") equal(state.vm.globals.hookafter, 1, "the hook program continued after its own error");
+  }
 });
 
 test("a recovery candidate captured mid equip program carries no pending action into the durable ledger", () => {

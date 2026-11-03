@@ -36,7 +36,15 @@
  * docs/adr/0004 (decisions 2 and 6); AD-8, AD-10.
  */
 
-import type { ItemActionRequest, ItemActionResult, MenuOwnerPorts } from "../menu/ports.ts";
+import type {
+  InventoryAction,
+  ItemActionRequest,
+  ItemActionResult,
+  MenuAction,
+  PartyAction,
+  SectionOwnerPort,
+} from "../menu/ports.ts";
+import type { InventorySection, MenuSection, MenuStateResult, PartySection } from "../menu/model.ts";
 import type { PlainData } from "../ports/plain-data.ts";
 import type { RngPort } from "../ports/rng.ts";
 import type { ClockPort } from "../ports/time.ts";
@@ -201,9 +209,26 @@ export type ItemActionProviderResult = {
   readonly state: PlainData;
   readonly action: ItemActionCommand;
 };
+/**
+ * The menu context a native provider may use. It exposes the same owner sections a script provider
+ * sees, but not the VM's item-action preflight/commit operations: a native provider requests an
+ * `item.action` transition and the VM runs the composed operation on the calling thread.
+ */
+export type MenuProviderContext = {
+  readonly party: SectionOwnerPort<PartySection, PartyAction>;
+  readonly menu: SectionOwnerPort<MenuSection, MenuAction> & {
+    updateCurrent(input: { readonly actorId: number | null; readonly selection: number }): MenuStateResult;
+  };
+  readonly shop: {
+    readonly stock: () => readonly string[];
+    activate(sources: unknown): MenuStateResult;
+    close(): void;
+  };
+  readonly inventory: SectionOwnerPort<InventorySection, InventoryAction>;
+};
 export type MenuProviderInput = {
   readonly providerId: string;
-  readonly context: MenuOwnerPorts;
+  readonly context: MenuProviderContext;
   readonly state: PlainData;
   readonly event: MenuProviderEvent;
 };
