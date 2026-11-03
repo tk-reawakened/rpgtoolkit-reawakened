@@ -1332,7 +1332,7 @@ const ENEMY_DATA = {
  * (progression-and-levels.md#special-moves): experience at least `minExp`, level at least `minLevel`, or the named
  * script variable equal to the required value (compared as text, or as numbers when both read as finite numbers).
  */
-function specialAvailable(view: CommandView, actorId: number, slot: { readonly minExp: number; readonly minLevel: number; readonly condVar: string; readonly condValue: string }): boolean {
+export function specialAvailable(view: CommandView, actorId: number, slot: { readonly minExp: number; readonly minLevel: number; readonly condVar: string; readonly condValue: string }): boolean {
   const actor = actorRecord(view, actorId);
   if (actor !== null && (actor.stats.experience >= slot.minExp || actor.stats.level >= slot.minLevel)) return true;
   if (slot.condVar === "") return false;
