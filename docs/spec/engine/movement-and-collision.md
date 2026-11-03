@@ -140,7 +140,7 @@ A trigger fires according to its activation type ([../formats/board.md](../forma
 | repeat | again every `distanceRepeat` pixels of movement inside the area |
 | + stop movement | additionally clears the player's queued movement |
 
-Conditional triggers fire only when their variable condition holds. The program to run may be a file or inline code. It runs to completion before the game continues. A file program that names nothing in `Prg` is one located `program.missing` diagnostic (`rpgcode-functions.md:136`; Reawakened makes board programs the same as every other caller there): no thread runs, the trigger *counts as run* so the report does not repeat every step or key press, and the game carries on.
+Conditional triggers fire only when their variable condition holds. The program to run may be a file or inline code. It runs to completion before the game continues. A file program that names nothing in `Prg` is one located `program.missing` diagnostic (`rpgcode-functions.md:136`; Reawakened makes board programs the same as every other caller there): no thread runs, the trigger *counts as run* so a step-on region does not repeat its report until the player leaves, and a key-press region reports once per activation-key press, and the game carries on.
 
 <a id="e-40"></a>
 **E-40 Board program region, step-on.** Fires once when the player's collision base enters the region on the same layer; it re-arms on leaving.

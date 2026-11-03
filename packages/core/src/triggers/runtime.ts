@@ -223,11 +223,36 @@ function programRef(name: string, resolver: TriggerProgramResolver | null | unde
     if (resolved !== null) return resolved;
   }
   if (name.toLowerCase().endsWith(".prg")) {
-    // A file name the resolver declined is a missing program, reported like every other world
-    // program start (`startFileProgram`, docs/spec/engine/rpgcode-runtime.md) — never silently null.
     throw new ScriptError("program.missing", `no program "${name}" is in the asset index`);
   }
   return { kind: "inline", text: name, ir: IR_VERSION, dialect: "tk3" };
+}
+
+/**
+ * A program the trigger cannot start is one located `program.missing` (docs/spec/engine/rpgcode-functions.md:136,
+ * "a blank or missing file"): with a sink the report goes out, the tick continues and the returned `null`
+ * marks the trigger run so the report does not repeat every step; any other thrown value — a resolver
+ * defect — keeps throwing (`startFileProgram`'s rule, docs/spec/engine/main-loop-and-startup.md). A call
+ * with no sink keeps raising the ScriptError for the host.
+ */
+function resolveTriggerProgramRef(
+  name: string,
+  options: TriggerPhaseOptions,
+  boardKey: string,
+): ProgramRef | null {
+  try {
+    return programRef(name, options.programRef);
+  } catch (error) {
+    if (!(error instanceof ScriptError)) throw error;
+    if (options.onDiagnostic === undefined) throw error;
+    options.onDiagnostic({
+      code: error.code,
+      file: error.pos?.file ?? boardKey,
+      line: error.pos?.line ?? 0,
+      message: error.message,
+    });
+    return null;
+  }
 }
 function emit(events: TriggerEvent[], options: TriggerPhaseOptions, value: TriggerEvent): void {
   events.push(value);
@@ -380,25 +405,12 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     winner = itemCandidates[0] ?? qualifying.filter((candidate) => candidate.source === "region").at(-1);
   }
   if (winner === undefined || hasLiveBlockingThread(state.vm)) return events;
-  // A program the game does not carry is `program.missing` (docs/spec/engine/rpgcode-functions.md:136,
-  // "a blank or missing file"): one located report, no thread, the tick continues. The trigger counts as
-  // run so the report does not repeat every frame.
-  let ref: ProgramRef | null = null;
-  try {
-    ref = programRef(winner.program, options.programRef);
-  } catch (error) {
-    if (options.onDiagnostic === undefined) throw error;
-    const scriptError = error instanceof ScriptError ? error : undefined;
-    options.onDiagnostic({
-      code: scriptError?.code ?? "program.missing",
-      file: board.key,
-      line: 0,
-      message: scriptError?.message ?? String(error),
-    });
+  const ref = resolveTriggerProgramRef(winner.program, options, board.key);
+  // The `null` fall-through is the reported missing-program branch (empty names never reach here).
+  if (ref === null) {
     section.fired[winner.key] = true;
     return events;
   }
-  if (ref === null) return events;
   if (winner.source === "item" && winner.actor !== undefined) {
     state.sprites.items = state.sprites.items.map((actor) => actor.id === winner!.actor!.id ? { ...actor, facing: facingToward(actor, player) } : actor);
     clearQueue(state, player);

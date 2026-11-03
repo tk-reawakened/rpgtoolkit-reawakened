@@ -1415,6 +1415,83 @@ test("demo start region responds to the held title key on its first free-roam fr
   equal(current().triggers.active?.key, "region:0");
 });
 
+test("a region naming an absent .prg reports one located program.missing and the engine keeps running", () => {
+  const game = authorGame({
+    startup: "start.prg",
+    initChar: "hero.tem",
+    boards: {
+      "start.brd": { keyTrigger: true },
+    },
+    programs: {
+      "start.prg": "end()\n",
+      // keyTrigger authors a key region whose trigger.prg is not part of the game.
+    },
+  });
+  const loader = { index: game.index, root: PACKAGE_ROOT, read: (key: AssetKey) => game.files.get(key) };
+  const spriteRuntime = createSpriteRuntime();
+  const stateRef: { current: GameState | null } = { current: null };
+  const engine = createEngine({
+    seed: 11,
+    assetIndex: game.index,
+    assetRoot: game.root,
+    mainFile: game.main,
+    gameIdentity: "engine-boot-long-running",
+    startup: {
+      presence: { hasPlayer: () => spriteRuntime.hasPlayer() },
+      savedGame: { load: () => ({ kind: "missing" }), restored: () => false },
+    },
+    width: 320,
+    height: 240,
+    maxTicks: 600,
+    spriteRuntime,
+    input: { bindings: { keys: { Enter: "ENTER", ArrowRight: "right" } } },
+    phaseRegistrations: [
+      inputPhaseRegistration({ pixelStep: 8 }),
+      movementPhaseRegistration(),
+      triggerPhaseRegistration({
+        programRef: (name) => resolveProgram(loader, name) === undefined ? null : fileProgramRef(loader, name),
+      }),
+      { phase: "audio", run: (state) => { stateRef.current = state; } },
+    ],
+  });
+  interface RunFold { readonly diagnostics: RunResult["diagnostics"]; }
+  const play = (ticks: number, inputs: readonly InputRecord[] = []): RunFold => {
+    let remaining = ticks;
+    const diagnostics: RunResult["diagnostics"] = [];
+    let replies = [...inputs];
+    for (let guard = 0; guard < 400; guard += 1) {
+      const report = engine.advance(remaining, replies);
+      replies = [];
+      remaining -= report.ticksRun;
+      diagnostics.push(...report.diagnostics);
+      if (report.loading) { replies = report.requests.flatMap((request) => (request.kind === "asset" ? [{ tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: game.files.get(request.key) ?? null } }] : [])); continue; }
+      if (remaining <= 0 || report.ticksRun === 0) return { diagnostics };
+    }
+    throw new Error("the host loop did not settle");
+  };
+  play(5);
+  const state = stateRef.current;
+  if (state === null) throw new Error("no tick ran");
+  ok(state.world.board !== null, "boot reached its board");
+  const pressed = play(2, [{ tick: state.time.tick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } }]);
+  // The region's trigger starts, reports the missing program once through the engine's own
+  // diagnostic routing, and the game keeps running afterwards.
+  const missing = (pressed as { readonly diagnostics: RunResult["diagnostics"] }).diagnostics.filter((diagnostic) => diagnostic.code === "program.missing");
+  equal(missing.length, 1, "exactly one located report");
+  equal(missing[0]?.file, "boards/start.brd", "the report locates the authored board");
+  equal(missing[0]?.line, 0);
+  equal(state.triggers.active, null, "no trigger runs");
+  ok(state.time.tick > 0, "ticks ran past the diagnostic");
+  const afterTick = stateRef.current?.time.tick ?? 0;
+  const after = play(12, [{ tick: afterTick, event: { kind: "key", name: "ArrowRight", code: "ArrowRight", char: null, down: true } }]);
+  equal(after.diagnostics.filter((diagnostic) => diagnostic.code === "program.missing").length, 0, "one held press reports once, never per frame");
+  const afterState = stateRef.current;
+  if (afterState === null) throw new Error("no tick ran");
+  ok(afterState.time.tick > afterTick, "the engine keeps ticking after the diagnostic");
+  // The vm effect audit carries the diagnostic record this report came from.
+  equal(state.vm.effects.filter((effect) => effect.name === "diagnostic").length, 1, "one engine diagnostic effect");
+});
+
 for (const name of ["demo", "Basic"]) {
   test(`the ${name} sample game's start.prg boots through the real engine`, { skip: haveLegacy ? false : "run pnpm fixtures:fetch" }, () => {
     const sample = sampleGame(name);

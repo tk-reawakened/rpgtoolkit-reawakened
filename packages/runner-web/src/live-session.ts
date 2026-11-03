@@ -62,6 +62,8 @@ export type LiveSession = {
     readonly open: readonly { readonly id: number; readonly track: string; readonly asset: AssetKey }[];
   };
   readonly cuesSettled: () => Promise<void>;
+  /** The located diagnostics the engine has reported so far, capped like the effect audit. */
+  readonly diagnostics: () => readonly { code: string; file: string; line: number; message: string }[];
   readonly advance: (ticks: number, inputs?: readonly InputRecord[]) => Promise<void>;
 };
 type LiveSessionBase = {
@@ -266,6 +268,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   const fonts = fontProvider(options.bundled);
   let currentTick = 0;
   let currentStateHash = "";
+  const sessionDiagnostics: { code: string; file: string; line: number; message: string }[] = [];
   let closed = false;
   let cueChain: Promise<void> = Promise.resolve();
   let processing: Promise<void> = Promise.resolve();
@@ -349,6 +352,10 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
       inputs = [];
       currentTick = report.tickAfter;
       currentStateHash = report.stateHash;
+      for (const diagnostic of report.diagnostics) {
+        sessionDiagnostics.push({ code: diagnostic.code, file: diagnostic.file, line: diagnostic.line, message: diagnostic.message });
+      }
+      if (sessionDiagnostics.length > 256) sessionDiagnostics.splice(0, sessionDiagnostics.length - 256);
       // Cues are handed to the player on their own chain, in report order, once the assets they name are cached (the
       // player and the sink read assets synchronously). The simulation never waits on this chain, and a stall in the
       // chain cannot reorder cues, because each report's cues run only after the previous report's.
@@ -380,6 +387,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     loadState: () => assets.state(),
     audioState: () => ({ scheduled: [...sink.scheduled], open: sink.open }),
     cuesSettled: () => cueChain,
+    diagnostics: () => [...sessionDiagnostics],
     engine,
     gameId,
     close() {

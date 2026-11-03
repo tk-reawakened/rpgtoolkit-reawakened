@@ -1,10 +1,11 @@
-import { deepEqual, equal, ok } from "node:assert/strict";
+import { deepEqual, equal, ok, throws } from "node:assert/strict";
 import { test } from "node:test";
 import { assetKey } from "../src/formats/resolver/resolver.ts";
 import { createGameState, type GameState } from "../src/save/state.ts";
 import { actorFromSource, type SpriteActor } from "../src/sprites/model.ts";
-import { applyTriggerEffect, runTriggersPhase } from "../src/triggers/runtime.ts";
+import { applyTriggerEffect, runTriggersPhase, type TriggerEvent, type TriggerPhaseOptions } from "../src/triggers/runtime.ts";
 import { fileProgramRef } from "../src/script/program.ts";
+import { ScriptError } from "../src/script/errors.ts";
 import { resolveProgram } from "../src/script/loader.ts";
 import { PACKAGE_ROOT } from "../src/formats/resolver/model.ts";
 import { createAssetIndex } from "../src/formats/resolver/resolver.ts";
@@ -275,6 +276,7 @@ test("arrival-suppressed items re-arm on layer change and on being hidden", () =
 test("a trigger program naming a .prg that is not in the index reports a located missing program", () => {
   const loader = { index: createAssetIndex([]), root: PACKAGE_ROOT, read: (): Uint8Array | undefined => undefined };
   const missing = { programRef: (name: string) => resolveProgram(loader, name) === undefined ? null : fileProgramRef(loader, name) };
+  let throwValue: unknown = null;
   const world = board([region(0, 0, "", "", "", "", 1, "missing.prg")]);
   const state = stateWith(world);
   // A step frame picks the region; the missing .prg is one located report and no thread.
@@ -287,6 +289,35 @@ test("a trigger program naming a .prg that is not in the index reports a located
   equal(reported.current.code, "program.missing");
   equal(reported.current.file, world.key, "the report locates the authored board");
   equal(state.triggers.active, null, "no trigger runs");
+  // A pos-carrying ScriptError reports its own location instead of the board (fresh state: the previous
+  // miss marked the region run).
+  throwValue = new ScriptError("program.missing", "located", { file: "located.prg", line: 7 });
+  const locatedWorld = board([region(0, 0, "", "", "", "", 1, "located.prg")]);
+  const locatedState = stateWith(locatedWorld);
+  locatedState.time.tick = 1;
+  locatedState.sprites.players = locatedState.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: 1, lastStepDistance: 8 } }));
+  const located: { current: { readonly code: string; readonly file: string; readonly line: number; readonly message: string } | null } = { current: null };
+  runTriggersPhase(locatedState, { programRef: () => { throw throwValue; }, onDiagnostic: (diagnostic) => { located.current = diagnostic; } });
+  equal(located.current?.file, "located.prg", "the report keeps the error's own position");
+  equal(located.current?.line, 7);
+  // A step frame (a fresh one per case: the report marks the region run) raises the ScriptError when
+  // no sink is wired; with a sink it is reported and the tick continues.
+  const steppedWith = (resolver: TriggerPhaseOptions): TriggerEvent[] => {
+    const stepped = stateWith(board([region(0, 0, "", "", "", "", 1, "missing.prg")]));
+    stepped.time.tick = 1;
+    stepped.sprites.players = stepped.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: 1, lastStepDistance: 8 } }));
+    return runTriggersPhase(stepped, resolver);
+  };
+  // A direct call with no sink raises the catchable program.missing….
+  throwValue = new ScriptError("program.missing", "no program");
+  throws(() => steppedWith({ programRef: () => { throw throwValue; } }), ScriptError, "no sink throws the ScriptError to the host");
+  // …and a non-ScriptError from a resolver is a real defect: it rethrows with or without a sink.
+  const defect = new TypeError("a real defect");
+  const defectResolver = { programRef: (): never => { throw defect; } };
+  let escaped: unknown = null;
+  try { steppedWith(defectResolver); } catch (error) { escaped = error; }
+  equal(escaped, defect, "a non-ScriptError keeps throwing without a sink");
+  throws(() => steppedWith({ ...defectResolver, onDiagnostic: () => undefined }), TypeError, "a non-ScriptError keeps throwing with a sink too");
   // The trigger is marked run: the next step frame does not repeat the report, and the game continues.
   state.time.tick += 1;
   state.sprites.players = state.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: state.time.tick, lastStepDistance: 8 } }));

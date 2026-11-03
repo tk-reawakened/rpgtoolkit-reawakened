@@ -21,7 +21,11 @@ declare global {
   interface Window { liveAnalyser?: AnalyserNode }
 }
 
-type LiveReport = { tick: number; stateHash: string; drawHash: string; player: { x: number; y: number } | null; board: string | null; error?: string };
+type LiveReport = {
+  tick: number; stateHash: string; drawHash: string; player: { x: number; y: number } | null; board: string | null; error?: string;
+  /** The engine's located diagnostics so far, so a probe can assert a report by code. */
+  diagnostics?: readonly { code: string; file: string; line: number; message: string }[];
+};
 type LiveFixture = { readonly name: string; readonly packageBytes: Uint8Array; readonly descriptor: Record<string, unknown> };
 
 /**
@@ -426,6 +430,8 @@ test("a missing region program is a diagnostic and the live player keeps ticking
   expect(report.error).toBeUndefined();
   expect(report.board).toBe("boards/second.brd");
   expect(report.tick).toBeGreaterThan(afterPress.tick + 10);
+  // The missing program is the reported diagnostic itself, not a vacuously quiet session.
+  expect(report.diagnostics?.some((diagnostic) => diagnostic.code === "program.missing" && diagnostic.message.includes("does-not-exist.prg"))).toBe(true);
   // The player still controls the game: walking is possible after the diagnostic.
   const walkedAfter = await walkTo(page, "ArrowRight", 96);
   expectNoError(walkedAfter);
