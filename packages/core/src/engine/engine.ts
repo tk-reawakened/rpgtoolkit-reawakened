@@ -2084,8 +2084,11 @@ export function createEngine(init: EngineInit): Engine {
     // Keep the boot poll pending through any blocking board-enter program.
     if (!fromSend) state.triggers.lastKeySeq = -1;
     const placement: PlainData[] = [arrival.x, arrival.y, arrival.layer, arrival.unit];
-    placeSelectedPlayer(state.sprites, arrival.x, arrival.y, arrival.layer, arrival.unit);
-    bus.postEffect("sprites", engineEffect("sprites", "placeplayer", placement));
+    const spritePlacement = arrival.unit === "tile"
+      ? [...placement, board.coordType, board.sizeX]
+      : placement;
+    placeSelectedPlayer(state.sprites, arrival.x, arrival.y, arrival.layer, arrival.unit, coordLayout(board.coordType), board.sizeX);
+    bus.postEffect("sprites", engineEffect("sprites", "placeplayer", spritePlacement));
     state.camera = realignCamera(state.camera, board, cameraAim(board, arrival));
     if (fromSend) bus.postEffect("triggers", engineEffect("triggers", "deactivateat", placement));
     postBoardMusic(board);

@@ -3,7 +3,10 @@ import { test } from "node:test";
 import { assetKey } from "../src/formats/resolver/resolver.ts";
 import { createGameState, type GameState } from "../src/save/state.ts";
 import { actorFromSource, type SpriteActor } from "../src/sprites/model.ts";
-import { runTriggersPhase } from "../src/triggers/runtime.ts";
+import { applyTriggerEffect, runTriggersPhase } from "../src/triggers/runtime.ts";
+import { coordLayout, tileToPixel, boardPixelSize } from "../src/world/coords.ts";
+import { placeSelectedPlayer } from "../src/sprites/runtime.ts";
+import type { EffectRecord } from "../src/script/effects.ts";
 import type { WorldBoard, WorldItem, WorldProgram } from "../src/world/model.ts";
 
 const ref = (text: string) => ({ kind: "inline" as const, text, ir: "1", dialect: "tk3" as const });
@@ -86,9 +89,19 @@ test("a key-press trigger fires on a key and a step-on trigger fires on a step, 
   // A key press at the same place: now only the key region (type 1) qualifies.
   const pressed = stateWith(world);
   pressed.time.tick = 1;
-  pressed.input.keys.push({ seq: 1, name: "A", code: "KeyA", char: "a" });
+  pressed.input.keys.push({ seq: 1, name: "ENTER", code: "Enter", char: "\n" });
   const keyEvents = runTriggersPhase(pressed, { programRef: (name) => ref(name) });
   equal(keyEvents[0]?.key, "region:0", "a key press starts the key region, not the step-on region");
+
+  // A configured direction edge is movement, not activation: it neither starts a key region nor eats the press.
+  const walked = stateWith(world);
+  walked.time.tick = 1;
+  walked.input.bindings = { keys: { ArrowRight: "right", Enter: "ENTER" } };
+  walked.input.keys.push({ seq: 1, name: "right", code: "ArrowRight", char: null, action: "right" });
+  walked.sprites.players = walked.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: 1, lastStepDistance: 32 } }));
+  const walkedEvents = runTriggersPhase(walked, { programRef: (name) => ref(name) });
+  equal(walkedEvents[0]?.key, "region:1", "a direction edge with a step only steps on (regions:1), never counts as activation");
+  equal(walked.input.keys.length, 1, "the direction press stays queued for movement");
 });
 
 test("trigger layer matching ignores a region on another layer", () => {
@@ -131,4 +144,70 @@ test("snapshot trigger state is plain and resettable", () => {
   state.triggers.active = null;
   equal(before.includes("region:0"), true);
   deepEqual(state.triggers.active, null);
+});
+
+test("send-arrival deactivation suppresses the arrival frame only and re-arms when the player leaves", () => {
+  const world = board([region(0)]);
+  const state = stateWith(world);
+  // The engine sets the board key inside arrive() before it posts deactivateat; mirror that here.
+  state.triggers.boardKey = world.key;
+  applyTriggerEffect(state, { name: "deactivateat", args: [0, 0, 1, "pixel"] } as EffectRecord);
+  equal(state.triggers.deactivateAt?.x, 0);
+  equal(state.triggers.deactivateAt?.layer, 1);
+  state.time.tick = 1;
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: 1, lastStepDistance: 32 } }));
+  equal(state.triggers.deactivated.length, 0, "the arrival has not been consumed yet");
+  const arrival = runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(arrival.length, 0, "the same-unit arrival frame fires nothing on the arrival phase");
+  equal(state.triggers.deactivated.length > 0, true, "the region is deactivated");
+  // A step inside the still-suppressed candidate fires nothing...
+  const second = runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(second.length, 0, "the arrival suppresses the region while it still overlaps");
+  // ...but a step outside the candidate re-arms it.
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, x: 256, movement: { ...player.movement, lastStepTick: state.time.tick, lastStepDistance: 32 } }));
+  const leaving = runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(leaving.length, 0, "leaving never triggers");
+  state.time.tick += 1;
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, x: 0, movement: { ...player.movement, lastStepTick: state.time.tick, lastStepDistance: 32 } }));
+  const reentered = runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(reentered[0]?.key, "region:0", "the region re-arms after the player leaves and re-enters");
+});
+
+test("send-arrival tile placement and deactivation agree on stacked and rotated boards", () => {
+  // The destination region sits exactly on the arrival tile (3, 2) of each layout's own pixel conversion.
+  for (const coordType of [0, 1, 2]) {
+    const layout = coordLayout(coordType);
+    const request = coordType === 0 ? { x: 3, y: 2 } : coordType === 1 ? { x: 4, y: 4 } : { x: 5, y: 3 };
+    const world: WorldBoard = {
+      ...board([region(0)]),
+      coordType,
+      sizeX: 8,
+      sizeY: 8,
+      width: boardPixelSize(layout, 8, 8).width,
+      height: boardPixelSize(layout, 8, 8).height,
+    };
+    const destination = tileToPixel(layout, world.sizeX, request.x, request.y);
+    // A region whose points translate to the arrival pixel: regionCandidate translates its authored points.
+    const worldArrival: WorldBoard = {
+      ...world,
+      programs: [{
+        ...region(0),
+        points: [{ x: destination.x - 4, y: destination.y - 4 }, { x: destination.x + 4, y: destination.y - 4 }, { x: destination.x + 4, y: destination.y + 4 }, { x: destination.x - 4, y: destination.y + 4 }],
+      }],
+    };
+    const state = stateWith(worldArrival);
+    state.triggers.boardKey = worldArrival.key;
+    // The engine posts the raw send tile coordinates; trigger's applyTriggerEffect must convert them with the
+    // same destination-layout conversion the sprites owner uses when it places the player.
+    applyTriggerEffect(state, { name: "deactivateat", args: [request.x, request.y, 1, "tile"] } as EffectRecord);
+    placeSelectedPlayer(state.sprites, request.x, request.y, 1, "tile", layout, world.sizeX);
+    const placed = state.sprites.players[0]!;
+    deepEqual({ x: placed.x, y: placed.y }, destination, `${layout}: the player sits at the destination-layout pixel`);
+    state.time.tick = 1;
+    state.sprites.players = state.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: 1, lastStepDistance: 8 } }));
+    runTriggersPhase(state, { programRef: (name) => ref(name) });
+    equal(state.triggers.deactivated.length > 0, true, `${layout}: the arrival deactivation covers the actually placed destination`);
+    const arrivalEvents = runTriggersPhase(state, { programRef: (name) => ref(name) });
+    equal(arrivalEvents.length, 0, `${layout}: nothing fires on the arrival tick`);
+  }
 });

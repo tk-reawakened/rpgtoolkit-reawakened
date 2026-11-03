@@ -198,6 +198,10 @@ function stepTick(player: SpriteActor): number {
   const movement = player.movement as typeof player.movement & { readonly lastStepTick?: number };
   return movement.lastStepTick ?? -1;
 }
+function isActivationKey(name: string, action: string | undefined, unbound: boolean): boolean {
+  if (action !== undefined) return action === "confirm" || action === "ENTER" || action === " ";
+  return unbound && (name === "ENTER" || name === "Enter" || name === " " || name === "Space");
+}
 function clearQueue(state: GameState, player: SpriteActor): void {
   state.sprites.players = state.sprites.players.map((actor) => actor.id === player.id ? { ...actor, queue: { moves: [], waypoint: null } } : actor);
 }
@@ -293,8 +297,9 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
       && (state.input.held.ENTER === true || state.input.held.Enter === true
         || state.input.held.Space === true || state.input.held[" "] === true));
   const step = stepTick(player) === state.time.tick;
+  const unbound = Object.keys(state.input.bindings.keys).length === 0;
   const key = (bootPoll && heldActivation) || state.input.keys.some((entry) => entry.seq > section.lastKeySeq
-    && (!bootPoll || entry.name === "confirm" || entry.name === "ENTER" || entry.name === " " || entry.action === "confirm"));
+    && isActivationKey(entry.name, entry.action, unbound));
   if (bootPoll) section.lastKeySeq = 0;
   for (const entry of state.input.keys) if (entry.seq > section.lastKeySeq) section.lastKeySeq = entry.seq;
   if (!step && !key) return events;
@@ -308,11 +313,14 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
   }
   const all = [...regions, ...items];
   for (const candidate of all) {
-    const inArea = candidate.layer === player.layer && !section.suppressed.includes(candidate.key) && !section.deactivated.includes(candidate.key)
+    const overlapsArea = candidate.layer === player.layer
       && (candidate.source === "item" ? overlaps(shape, itemShape(candidate)) : overlaps(shape, polygon(candidate.points), candidate.closed !== 0));
-    if (!inArea) {
+    if (!overlapsArea) {
       delete section.fired[candidate.key];
       delete section.repeat[candidate.key];
+      if (section.deactivated.includes(candidate.key)) {
+        section.deactivated = section.deactivated.filter((key) => key !== candidate.key);
+      }
     }
   }
   const qualifying = all.filter((candidate) => {

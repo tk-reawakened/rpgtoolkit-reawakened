@@ -48,6 +48,8 @@ import {
   snapshotGameSave,
   startProgram,
   startThread,
+  tileToPixel,
+  coordLayout,
 } from "../src/index.ts";
 import { engineEffect, pluginManifestFor, resolveManifestPlugins } from "../src/engine/boot.ts";
 import { hashWithRequestCounter } from "./hash-projections.ts";
@@ -210,8 +212,10 @@ function makeDoubles(
             sprites.push(effect);
             if (effect.name === "createplayer") players.push(effect.args[0] ?? null);
             if (effect.name === "placeplayer") {
-              const [x, y, , unit] = effect.args as [number, number, number, string];
-              position = unit === "tile" ? { x: (x - 1) * 32 + 16, y: (y - 1) * 32 + 31 } : { x, y };
+              const [x, y, , unit, coordType, sizeX] = effect.args as [number, number, number, string, number, number];
+              position = unit === "tile" && typeof coordType === "number"
+                ? tileToPixel(coordLayout(coordType), sizeX ?? 0, x, y)
+                : unit === "tile" ? { x: (x - 1) * 32 + 16, y: (y - 1) * 32 + 31 } : { x, y };
             }
           },
         },
@@ -1193,7 +1197,7 @@ test("send leaves the ruled state: old board threads dead, a persistent thread a
   equal(state.engine.transition, undefined);
   // Tile (30, 20) is pixel (944, 639) on a 2D board (E-11): the camera centres on it without smoothing.
   deepEqual({ x: state.camera.x, y: state.camera.y, prevX: state.camera.prevX, prevY: state.camera.prevY }, { x: 784, y: 519, prevX: 784, prevY: 519 });
-  deepEqual(doubles.sprites.map((effect) => [effect.name, ...effect.args]).slice(-1), [["placeplayer", 30, 20, 1, "tile"]]);
+  deepEqual(doubles.sprites.map((effect) => [effect.name, ...effect.args]).slice(-1), [["placeplayer", 30, 20, 1, "tile", 0, 50]]);
   deepEqual(doubles.triggers.map((effect) => [effect.name, ...effect.args]).slice(-1), [["deactivateat", 30, 20, 1, "tile"]]);
   // Both boards name theme.mid and every arrival posts its music; the audio applier, not the engine, decides to carry on (E-16).
   deepEqual(doubles.audio.map((effect) => [effect.name, ...effect.args]), [

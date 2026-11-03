@@ -78,9 +78,13 @@ async function servePackage(page: Page, fixture: LiveFixture): Promise<void> {
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(fixture.descriptor) }));
 }
 
-function triggerPhaseFixture(name: string): LiveFixture {
+function triggerPhaseFixture(
+  name: string,
+  boards: { readonly path: string; readonly regions: readonly { readonly program: string; readonly activationType: number }[] }[],
+  programs: Record<string, string> = {},
+): LiveFixture {
   const emptyBoard = createEmptyBoard();
-  const boardBytes = (program: string | null): Uint8Array => {
+  const boardBytes = (regions: readonly { readonly program: string; readonly activationType: number }[]): Uint8Array => {
     const cells = 8 * 8;
     const written = writeBoard({
       ...emptyBoard,
@@ -91,21 +95,26 @@ function triggerPhaseFixture(name: string): LiveFixture {
       tileRuns: [{ lutIndex: 0, count: cells, marker: true }],
       threads: [],
       layerTitles: ["", ""],
-      programs: program === null ? [] : [{
-        program,
-        graphic: "",
-        initialVar: "",
-        initialValue: "",
-        finalVar: "",
-        finalValue: "",
-        activate: 0,
-        activationType: 1,
-        repeatDistance: 0,
-        layer: 1,
-        points: [{ x: 16, y: 31 }, { x: 80, y: 31 }, { x: 80, y: 95 }, { x: 16, y: 95 }],
-        closed: 1,
-        handle: `region-${program}`,
-      }],
+      programs: regions.map(({ program, activationType }, index) => {
+        // One closed 128x64 region around the start tile (2, 2) at (64, 64): the player's 30x15
+        // collision base stays inside it until roughly 40 px of walking takes it out.
+        const points = [{ x: 16, y: 31 }, { x: 80, y: 31 }, { x: 80, y: 95 }, { x: 16, y: 95 }];
+        return {
+          program,
+          graphic: "",
+          initialVar: "",
+          initialValue: "",
+          finalVar: "",
+          finalValue: "",
+          activate: 0,
+          activationType,
+          repeatDistance: 0,
+          layer: 1,
+          points,
+          closed: 1,
+          handle: `region-${name}-${index}`,
+        };
+      }),
       properties: {
         ...emptyBoard.properties,
         enterPrg: "",
@@ -135,12 +144,10 @@ function triggerPhaseFixture(name: string): LiveFixture {
   if (!writtenCharacter.ok) throw new Error(writtenCharacter.error.message);
   const tree = [
     { path: "Main/test.gam", bytes: writtenMain.value },
-    { path: "Boards/start.brd", bytes: boardBytes("boot-to-second.prg") },
-    { path: "Boards/second.brd", bytes: boardBytes("send-to-third.prg") },
-    { path: "Boards/third.brd", bytes: boardBytes(null) },
+    ...boards.map((board) => ({ path: `Boards/${board.path}`, bytes: boardBytes(board.regions) })),
     { path: "Prg/wait-for-start.prg", bytes: new TextEncoder().encode("wait()\nend()\n") },
-    { path: "Prg/boot-to-second.prg", bytes: new TextEncoder().encode('send("second.brd", 2, 2, 1)\nend()\n') },
-    { path: "Prg/send-to-third.prg", bytes: new TextEncoder().encode('send("third.brd", 2, 2, 1)\nend()\n') },
+    { path: "Prg/send-third.prg", bytes: new TextEncoder().encode('send("third.brd", 2, 2, 1)\nend()\n') },
+    ...Object.entries(programs).map(([file, text]) => ({ path: `Prg/${file}`, bytes: new TextEncoder().encode(text) })),
     { path: "Chrs/hero.tem", bytes: writtenCharacter.value },
   ];
   const writtenPackage = writeDistributionPackage({
@@ -272,8 +279,36 @@ test("the live player sends title music to the Web Audio graph", async ({ page }
   }, undefined, { timeout: 45_000 });
 });
 
+const HELD_KEY_BOARDS = [
+  // An inline region program (board format field 26 allows inline RPGCode): the held boot key must run it.
+  { path: "start.brd", regions: [{ program: 'send("second.brd", 2, 2, 1)\nend()', activationType: 1 }] },
+  { path: "second.brd", regions: [{ program: "send-third.prg", activationType: 1 }] },
+  { path: "third.brd", regions: [] },
+];
+
+/** Hold `key` until the player's reported x passes `target` (right: x >= target, left: x <= target). */
+async function walkTo(page: Page, key: "ArrowRight" | "ArrowLeft", target: number): Promise<LiveReport> {
+  await page.keyboard.down(key);
+  try {
+    await page.waitForFunction(({ key: which, target: bound }) => {
+      const live = window.__live;
+      if (live === undefined) return false;
+      if (live.error !== undefined) return true;
+      if (live.player === null) return false;
+      return which === "ArrowRight" ? live.player.x >= bound : live.player.x <= bound;
+    }, { key, target }, { timeout: 20_000 });
+  } finally {
+    await page.keyboard.up(key);
+  }
+  return await page.evaluate(() => window.__live as LiveReport);
+}
+
+const expectNoError = (report: LiveReport): void => {
+  if (report.error !== undefined) throw new Error(report.error);
+};
+
 test("live session runs a held boot-key region program and deactivates send arrivals", async ({ page }) => {
-  const fixture = triggerPhaseFixture("trigger-phase.tpk");
+  const fixture = triggerPhaseFixture("trigger-phase.tpk", HELD_KEY_BOARDS);
   await servePackage(page, fixture);
   await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${fixture.name}`);
   await page.waitForFunction(() => {
@@ -283,7 +318,8 @@ test("live session runs a held boot-key region program and deactivates send arri
   const waiting = await page.evaluate(() => window.__live as LiveReport);
   expect(waiting.error).toBeUndefined();
   expect(waiting.board).toBeNull();
-  // The startup `wait()` consumes Start's key; keeping Enter down through board entry exercises #1176's first-free-roam poll.
+  // The startup `wait()` consumes Start's key; keeping Enter down through board entry exercises #1176's first-free-roam poll,
+  // here against an inline region program: indexed-file-only resolution would report program.missing before this line.
   await page.keyboard.down("Enter");
   let firstArrival: LiveReport;
   try {
@@ -298,26 +334,103 @@ test("live session runs a held boot-key region program and deactivates send arri
   }
   expect(firstArrival.error).toBeUndefined();
   expect(firstArrival.board).toBe("boards/second.brd");
-  // Let the send arrival finish before a fresh key tests whether its overlapping region was deactivated.
+  // Let the send arrival finish before sampling the tick the negative assertion starts from.
   await page.waitForFunction(
-    (tick) => window.__live?.error !== undefined || (window.__live?.tick ?? 0) >= tick + 2,
+    (tick) => window.__live?.error !== undefined || (window.__live?.tick ?? 0) >= tick + 5,
     firstArrival.tick,
     { timeout: 10_000 },
   );
   const settledArrival = await page.evaluate(() => window.__live as LiveReport);
-  expect(settledArrival.error).toBeUndefined();
+  expectNoError(settledArrival);
   expect(settledArrival.board).toBe("boards/second.brd");
-
+  // Negative assertion, re-anchored to a tick sampled after the press itself: the key was delivered to a live
+  // engine state at or before this sample, so waiting five ticks the sample does not cover return the press's
+  // own outcome. The send arrival's deactivation must suppress the region the player arrived on, so a fresh
+  // Enter fires nothing here.
   await page.keyboard.press("Enter");
+  const sampledAfterPress = await page.evaluate(() => window.__live as LiveReport);
   await page.waitForFunction(
     (tick) => {
       const live = window.__live;
       return live !== undefined && (live.error !== undefined || live.tick >= tick + 5);
     },
+    sampledAfterPress.tick,
+    { timeout: 10_000 },
+  );
+  const afterPress = await page.evaluate(() => window.__live as LiveReport);
+  expectNoError(afterPress);
+  expect(afterPress.board).toBe("boards/second.brd");
+  // The player's 30px collision base leaves the 16..80 region only past x = 96: walk out and back in
+  // (E-40 re-arms the region on leaving), then press the activation key again. The same destination
+  // program must now run and deliver the player to the third board — the positive control for the negative.
+  const walkedOut = await walkTo(page, "ArrowRight", 96);
+  expectNoError(walkedOut);
+  expect(walkedOut.board).toBe("boards/second.brd");
+  await walkTo(page, "ArrowLeft", 60);
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(
+    () => window.__live?.board === "boards/third.brd" || window.__live?.error !== undefined,
+    undefined,
+    { timeout: 10_000 },
+  );
+  const resumed = await page.evaluate(() => window.__live as LiveReport);
+  expect(resumed.error).toBeUndefined();
+  expect(resumed.board).toBe("boards/third.brd");
+});
+
+const STEP_REGION_BOARDS = [
+  { path: "start.brd", regions: [{ program: "send-second.prg", activationType: 1 }] },
+  // The step-on region covers the arrival tile itself: without arrival deactivation or without the
+  // re-arm-on-leaving rule the player could never walk off and onto it again, which is exactly what
+  // #1175 asks the live player to regress.
+  { path: "second.brd", regions: [{ program: "send-third.prg", activationType: 0 }] },
+  { path: "third.brd", regions: [] },
+];
+
+test("a live step-on region stays silent through a send arrival and fires after the player leaves and re-enters", async ({ page }) => {
+  const fixture = triggerPhaseFixture("step-region.tpk", STEP_REGION_BOARDS, { "send-second.prg": 'send("second.brd", 2, 2, 1)\nend()\n' });
+  await servePackage(page, fixture);
+  await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${fixture.name}`);
+  await page.waitForFunction(() => {
+    const live = window.__live;
+    return live !== undefined && (live.error !== undefined || (live.tick >= 5 && live.board === null));
+  }, undefined, { timeout: 15_000 });
+  await page.keyboard.down("Enter");
+  let firstArrival: LiveReport;
+  try {
+    await page.waitForFunction(
+      () => window.__live?.board === "boards/second.brd" || window.__live?.error !== undefined,
+      undefined,
+      { timeout: 10_000 },
+    );
+    firstArrival = await page.evaluate(() => window.__live as LiveReport);
+  } finally {
+    await page.keyboard.up("Enter");
+  }
+  expect(firstArrival.error).toBeUndefined();
+  expect(firstArrival.board).toBe("boards/second.brd");
+  // The step-on region sits under the arrival tile: idling on it must not run it (E-19 deactivation);
+  // a broken resolver would turn the region's file program into a live error here instead.
+  await page.waitForFunction(
+    (tick) => window.__live?.error !== undefined || (window.__live?.tick ?? 0) >= tick + 5,
     firstArrival.tick,
     { timeout: 10_000 },
   );
-  const afterSendArrival = await page.evaluate(() => window.__live as LiveReport);
-  expect(afterSendArrival.error).toBeUndefined();
-  expect(afterSendArrival.board).toBe("boards/second.brd");
+  const settledArrival = await page.evaluate(() => window.__live as LiveReport);
+  expectNoError(settledArrival);
+  expect(settledArrival.board).toBe("boards/second.brd");
+  // Walk out of the region (E-40 re-arms on leaving) and back in: the step-on region now fires on a step
+  // and the destination program delivers the player to the third board.
+  const walkedOut = await walkTo(page, "ArrowRight", 96);
+  expectNoError(walkedOut);
+  expect(walkedOut.board).toBe("boards/second.brd");
+  await walkTo(page, "ArrowLeft", 60);
+  await page.waitForFunction(
+    () => window.__live?.board === "boards/third.brd" || window.__live?.error !== undefined,
+    undefined,
+    { timeout: 10_000 },
+  );
+  const entered = await page.evaluate(() => window.__live as LiveReport);
+  expect(entered.error).toBeUndefined();
+  expect(entered.board).toBe("boards/third.brd");
 });

@@ -8,6 +8,9 @@ import {
   deriveGameId,
   derivePackageIdentity,
   fileProgramRef,
+  resolveProgram,
+  tileToPixel,
+  coordLayout,
   DEFAULT_FONT_ASSET,
   hashDrawList,
   inputPhaseRegistration,
@@ -199,7 +202,11 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     ? [
       inputPhaseRegistration({ pixelStep: 8, menuKey: interactiveInput.menuKey }),
       movementPhaseRegistration(),
-      triggerPhaseRegistration({ programRef: (name) => fileProgramRef(triggerProgramLoader, name) }),
+      triggerPhaseRegistration({
+        programRef: (name) => resolveProgram(triggerProgramLoader, name) === undefined
+          ? null
+          : fileProgramRef(triggerProgramLoader, name),
+      }),
       { phase: "audio" as const, rank: 0, run: (state: GameState) => { latest = state; } },
     ]
     : [{ phase: "audio" as const, run: (state: GameState) => { latest = state; } }];
@@ -245,8 +252,10 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
         applier(effect) {
           if (effect.name === "createplayer") hasPlayer = true;
           if (effect.name === "placeplayer") {
-            const [x, y, , unit] = effect.args as [number, number, number, string];
-            cameraPosition = unit === "tile" ? { x: (x - 1) * 32 + 16, y: (y - 1) * 32 + 31 } : { x, y };
+            const [x, y, , unit, coordType, sizeX] = effect.args as [number, number, number, string, number, number];
+            cameraPosition = unit === "tile" && typeof coordType === "number"
+              ? tileToPixel(coordLayout(coordType), sizeX ?? 0, x, y)
+              : unit === "tile" ? { x: (x - 1) * 32 + 16, y: (y - 1) * 32 + 31 } : { x, y };
           }
         },
       },
