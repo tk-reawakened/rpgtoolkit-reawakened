@@ -208,6 +208,7 @@ stockMenu = {
         if (name == "LEFT") { return "left" }
         if (name == "RIGHT") { return "right" }
         if (name == "ENTER") { return "confirm" }
+        if (name == " ") { return "confirm" }
         if (name == "ESC") { return "cancel" }
         return name
     },

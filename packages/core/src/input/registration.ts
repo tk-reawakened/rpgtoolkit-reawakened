@@ -30,6 +30,8 @@ export type InputPhaseOptions = {
   readonly pixelStep?: number;
   /** Replaces the engine-owned menu-key entry; tests use it to observe the key without opening a screen. */
   readonly openMenu?: (state: GameState) => boolean;
+  /** Script-facing action corresponding to the configured keyboard menu key. */
+  readonly menuKey?: { readonly action: string; readonly code: string };
 };
 
 /**
@@ -81,7 +83,12 @@ export function runInputPhase(state: GameState, options: InputPhaseOptions = {})
   // (the key queue and the pointer state keep receiving them), but none of them turns into movement
   // (docs/spec/engine/display-input-audio.md#reawakened-held-direction-movement, #reawakened-click-movement-freeze).
   const directionBlocked = scriptOwnsInput(state.vm);
-  if (!directionBlocked && actions.includes("menu")) (options.openMenu ?? openMainMenu)(state);
+  const configured = options.menuKey;
+  const lastConfiguredEdge = configured === undefined ? undefined : [...state.input.keys].reverse().find((key) => key.action === configured.action);
+  if (!directionBlocked && (actions.includes("menu") ||
+      (configured !== undefined && actions.includes(configured.action) && lastConfiguredEdge?.code === configured.code))) {
+    (options.openMenu ?? openMainMenu)(state);
+  }
   if (id === null) return;
   if (!directionBlocked && actions.some((action) => FACING_BY_ACTION[action] !== undefined) && canAcceptDirection(state, id)) {
     const facing = heldFacing(state);
