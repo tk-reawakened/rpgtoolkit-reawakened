@@ -3,6 +3,7 @@ import type { EnginePhaseRegistration, EngineResetRegistration } from "../engine
 import type { EffectRecord } from "../script/effects.ts";
 import { IR_VERSION, type ProgramRef } from "../script/program.ts";
 import { findThread, hasLiveBlockingThread, startThread } from "../script/state.ts";
+import { ScriptError } from "../script/errors.ts";
 import type { GameState } from "../save/state.ts";
 import { resetUiForProgramStart } from "../save/sections/ui.ts";
 import type { Facing, SpriteActor } from "../sprites/model.ts";
@@ -199,6 +200,9 @@ function stepTick(player: SpriteActor): number {
   return movement.lastStepTick ?? -1;
 }
 function isActivationKey(name: string, action: string | undefined, unbound: boolean): boolean {
+  // A pressed button slot queues the confirm name with the slot's own action (`input.ts`); the
+  // name alone carries the activation decision there (E-41; docs/spec/engine/movement-and-collision.md).
+  if (name === "confirm") return true;
   if (action !== undefined) return action === "confirm" || action === "ENTER" || action === " ";
   return unbound && (name === "ENTER" || name === "Enter" || name === " " || name === "Space");
 }
@@ -215,7 +219,11 @@ function programRef(name: string, resolver: TriggerProgramResolver | null | unde
     const resolved = resolver(name);
     if (resolved !== null) return resolved;
   }
-  if (name.toLowerCase().endsWith(".prg")) return null;
+  if (name.toLowerCase().endsWith(".prg")) {
+    // A file name the resolver declined is a missing program, reported like every other world
+    // program start (`startFileProgram`, docs/spec/engine/rpgcode-runtime.md) — never silently null.
+    throw new ScriptError("program.missing", `no program "${name}" is in the asset index`);
+  }
   return { kind: "inline", text: name, ir: IR_VERSION, dialect: "tk3" };
 }
 function emit(events: TriggerEvent[], options: TriggerPhaseOptions, value: TriggerEvent): void {
@@ -307,14 +315,23 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
   const shape = playerShape(player);
   const regions = (board.programs ?? []).map(regionCandidate);
   const items: Candidate[] = [];
+  // The re-arm pool covers every authored item: an arrival-suppressed item on another layer or with
+  // visibility off must leave `deactivated` too (E-40 re-arms on leaving the candidate's area), even
+  // though only visible, same-layer items can ever become candidates.
+  const rearmPool: Candidate[] = [...regions];
   for (const [index, item] of (board.items ?? []).entries()) {
     const actor = state.sprites.items.find((value) => value.index === index);
-    if (actor?.visible && item.layer === player.layer) items.push(itemCandidate(item, actor, index));
+    if (actor === undefined) continue;
+    const candidate = itemCandidate(item, actor, index);
+    rearmPool.push(candidate);
+    if (actor.visible && item.layer === player.layer) items.push(candidate);
   }
   const all = [...regions, ...items];
-  for (const candidate of all) {
+  for (const candidate of rearmPool) {
     const overlapsArea = candidate.layer === player.layer
-      && (candidate.source === "item" ? overlaps(shape, itemShape(candidate)) : overlaps(shape, polygon(candidate.points), candidate.closed !== 0));
+      && (candidate.source === "item"
+        ? candidate.actor !== undefined && candidate.actor.visible && overlaps(shape, itemShape(candidate))
+        : overlaps(shape, polygon(candidate.points), candidate.closed !== 0));
     if (!overlapsArea) {
       delete section.fired[candidate.key];
       delete section.repeat[candidate.key];
@@ -360,12 +377,14 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     winner = itemCandidates[0] ?? qualifying.filter((candidate) => candidate.source === "region").at(-1);
   }
   if (winner === undefined || hasLiveBlockingThread(state.vm)) return events;
+  // Resolve the program before the winner's own mutations: a missing `.prg` reports a located error
+  // (`startFileProgram`'s rule, docs/spec/engine/rpgcode-runtime.md) instead of half-applying the start.
+  const ref = programRef(winner.program, options.programRef);
+  if (ref === null) return events;
   if (winner.source === "item" && winner.actor !== undefined) {
     state.sprites.items = state.sprites.items.map((actor) => actor.id === winner!.actor!.id ? { ...actor, facing: facingToward(actor, player) } : actor);
     clearQueue(state, player);
   } else if ((winner.activationType & 4) !== 0) clearQueue(state, player);
-  const ref = programRef(winner.program, options.programRef);
-  if (ref === null) return events;
   resetUiForProgramStart(state.ui);
   const thread = startThread(state.vm, { ref, kind: "blocking", owner: "script", source: winner.source === "item" ? winner.actor?.id ?? null : winner.key, target: player.id });
   const active: TriggerActive = {

@@ -8,9 +8,8 @@ import {
   deriveGameId,
   derivePackageIdentity,
   fileProgramRef,
+  placeplayerPixel,
   resolveProgram,
-  tileToPixel,
-  coordLayout,
   DEFAULT_FONT_ASSET,
   hashDrawList,
   inputPhaseRegistration,
@@ -253,9 +252,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
           if (effect.name === "createplayer") hasPlayer = true;
           if (effect.name === "placeplayer") {
             const [x, y, , unit, coordType, sizeX] = effect.args as [number, number, number, string, number, number];
-            cameraPosition = unit === "tile" && typeof coordType === "number"
-              ? tileToPixel(coordLayout(coordType), sizeX ?? 0, x, y)
-              : unit === "tile" ? { x: (x - 1) * 32 + 16, y: (y - 1) * 32 + 31 } : { x, y };
+            cameraPosition = placeplayerPixel(x, y, unit, coordType, sizeX);
           }
         },
       },

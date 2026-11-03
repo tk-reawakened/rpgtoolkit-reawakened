@@ -48,8 +48,11 @@ import {
   snapshotGameSave,
   startProgram,
   startThread,
-  tileToPixel,
+  placeplayerPixel,
   coordLayout,
+  tileToPixel,
+  fileProgramRef,
+  resolveProgram,
 } from "../src/index.ts";
 import { engineEffect, pluginManifestFor, resolveManifestPlugins } from "../src/engine/boot.ts";
 import { hashWithRequestCounter } from "./hash-projections.ts";
@@ -65,7 +68,7 @@ const repoRoot = join(testDir, "..", "..", "..");
 const encoder = new TextEncoder();
 
 type Files = Map<string, Uint8Array>;
-type BoardSpec = { readonly music?: string; readonly enter?: string; readonly threads?: readonly string[]; readonly tiles?: readonly [number, number]; readonly start?: readonly [number, number]; readonly battleBackground?: string; readonly keyTrigger?: boolean };
+type BoardSpec = { readonly music?: string; readonly enter?: string; readonly threads?: readonly string[]; readonly tiles?: readonly [number, number]; readonly start?: readonly [number, number]; readonly battleBackground?: string; readonly keyTrigger?: boolean; readonly coordType?: number; /** A step-on region centred on the arrival tile's own-layout pixel, to pin send-arrival deactivation. */ readonly arrivalRegion?: { readonly tile: readonly [number, number] } };
 type GameSpec = {
   readonly startup?: string;
   readonly initChar?: string;
@@ -93,23 +96,39 @@ function unwrap<T>(result: { readonly ok: true; readonly value: T } | { readonly
 
 function boardBytes(spec: BoardSpec): Uint8Array {
   const [sizeX, sizeY] = spec.tiles ?? [40, 30];
-  const cells = sizeX * sizeY;
   const empty = createEmptyBoard();
+  const layout = coordLayout(spec.coordType ?? 0);
+  // Isometric boards store the projected grid, which is (sizeX + sizeY) square for both layouts.
+  const cells = layout === "2d" ? sizeX * sizeY : (sizeX + sizeY) ** 2;
+  const arrivalRegion = spec.arrivalRegion === undefined ? [] : (() => {
+    const centre = tileToPixel(layout, sizeX, spec.arrivalRegion.tile[0], spec.arrivalRegion.tile[1]);
+    return [{
+      program: "arrival.prg", graphic: "", initialVar: "", initialValue: "", finalVar: "", finalValue: "",
+      activate: 0, activationType: 0, repeatDistance: 0, layer: 1,
+      // A square no bigger than the player's base around the destination tile's own-layout pixel.
+      points: [{ x: centre.x - 6, y: centre.y - 6 }, { x: centre.x + 6, y: centre.y - 6 }, { x: centre.x + 6, y: centre.y + 6 }, { x: centre.x - 6, y: centre.y + 6 }],
+      closed: 1, handle: "arrival-region",
+    }];
+  })();
   return unwrap(writeBoard({
     ...empty,
     sizeX,
     sizeY,
     sizeL: 1,
+    coordType: spec.coordType ?? 0,
     tileMatrix: Array.from({ length: cells }, () => 0),
     tileRuns: [{ lutIndex: 0, count: cells, marker: true }],
     threads: [...(spec.threads ?? [])],
     layerTitles: ["", ""],
-    programs: spec.keyTrigger ? [{
-      program: "trigger.prg", graphic: "", initialVar: "", initialValue: "", finalVar: "", finalValue: "",
-      activate: 0, activationType: 1, repeatDistance: 0, layer: 1,
-      points: [{ x: 32, y: 32 }, { x: 96, y: 32 }, { x: 96, y: 96 }, { x: 32, y: 96 }],
-      closed: 1, handle: "start-trigger",
-    }] : [],
+    programs: [
+      ...(spec.keyTrigger ? [{
+        program: "trigger.prg", graphic: "", initialVar: "", initialValue: "", finalVar: "", finalValue: "",
+        activate: 0, activationType: 1, repeatDistance: 0, layer: 1,
+        points: [{ x: 32, y: 32 }, { x: 96, y: 32 }, { x: 96, y: 96 }, { x: 32, y: 96 }],
+        closed: 1, handle: "start-trigger",
+      }] : []),
+      ...arrivalRegion,
+    ],
     properties: {
       ...empty.properties,
       backgroundMusic: spec.music ?? "",
@@ -213,9 +232,7 @@ function makeDoubles(
             if (effect.name === "createplayer") players.push(effect.args[0] ?? null);
             if (effect.name === "placeplayer") {
               const [x, y, , unit, coordType, sizeX] = effect.args as [number, number, number, string, number, number];
-              position = unit === "tile" && typeof coordType === "number"
-                ? tileToPixel(coordLayout(coordType), sizeX ?? 0, x, y)
-                : unit === "tile" ? { x: (x - 1) * 32 + 16, y: (y - 1) * 32 + 31 } : { x, y };
+              position = placeplayerPixel(x, y, unit, coordType, sizeX);
             }
           },
         },
@@ -1236,6 +1253,79 @@ test("send validates its arguments with a catchable script error", () => {
   const game = authorGame({ ...SEND_GAME, programs: { ...SEND_GAME.programs, "enter.prg": 'send("", 1, 1)\nend()\n' } });
   const result = run(bootEngine(game, makeDoubles()), game.files, 4);
   equal(result.diagnostics.some((diagnostic) => diagnostic.message.includes("send")), true, JSON.stringify(result.diagnostics));
+});
+
+/** Destination boards for the send-arrival layout rule: a stacked and a rotated 32x32 board, each with a region exactly under the arrival tile. */
+const ISO_SEND_GAME: GameSpec = {
+  startup: "start.prg",
+  initChar: "hero.tem",
+  boards: {
+    "start.brd": { enter: "enter.prg" },
+    "stacked.brd": { coordType: 1, tiles: [32, 32], arrivalRegion: { tile: [4, 4] } },
+    "rotated.brd": { coordType: 2, tiles: [32, 32], arrivalRegion: { tile: [5, 3] } },
+  },
+  programs: {
+    "start.prg": "end()\n",
+    "enter.prg": "end()\n",
+    "arrival.prg": "arrived = 1\nend()\n",
+  },
+};
+
+test("send arrival places the destination-layout pixel and deactivates the region under it on iso boards", () => {
+  for (const spec of [
+    { board: "stacked.brd", coordType: 1, x: 4, y: 4 },
+    { board: "rotated.brd", coordType: 2, x: 5, y: 3 },
+  ]) {
+    const game = authorGame({
+      ...ISO_SEND_GAME,
+      programs: { ...ISO_SEND_GAME.programs, "enter.prg": `send("${spec.board}", ${spec.x}, ${spec.y}, 1)\nend()` },
+    });
+    const layout = coordLayout(spec.coordType);
+    const destination = tileToPixel(layout, 32, spec.x, spec.y);
+    const loader = { index: game.index, root: PACKAGE_ROOT, read: (key: AssetKey) => game.files.get(key) };
+    const spriteRuntime = createSpriteRuntime();
+    let latest: GameState | null = null;
+    const engine = createEngine({
+      seed: 11,
+      assetIndex: game.index,
+      assetRoot: game.root,
+      mainFile: game.main,
+      gameIdentity: "engine-boot-iso-send",
+      startup: {
+        presence: { hasPlayer: () => spriteRuntime.hasPlayer() },
+        savedGame: { load: () => ({ kind: "missing" }), restored: () => false },
+      },
+      width: 320,
+      height: 240,
+      maxTicks: 600,
+      spriteRuntime,
+      phaseRegistrations: [
+        { phase: "audio", run: (state) => { latest = state; } },
+        triggerPhaseRegistration({
+          programRef: (name) => resolveProgram(loader, name) === undefined ? null : fileProgramRef(loader, name),
+        }),
+      ],
+    });
+    const result = run(engine, game.files, 12);
+    const state = latest;
+    ok(state !== null);
+    const label = `the ${layout} board`;
+    deepEqual(result.diagnostics, []);
+    deepEqual(state.world.board?.key, `boards/${spec.board}`);
+    // The placed player is the destination board's own-layout pixel (E-11), and the `placeplayer`
+    // effect carries the board's coordType and sizeX so every consumer can convert the same way.
+    deepEqual({ x: state.sprites.players[0]!.x, y: state.sprites.players[0]!.y }, destination, `${label}: the placed pixel`);
+    deepEqual(state.vm.effects.filter((effect) => effect.name === "placeplayer" && effect.args[3] === "tile").map((effect) => effect.args), [
+      [spec.x, spec.y, 1, "tile", spec.coordType, 32],
+    ], `${label}: the placeplayer effect args`);
+    deepEqual(state.vm.effects.filter((effect) => effect.name === "deactivateat").map((effect) => effect.args), [
+      [spec.x, spec.y, 1, "tile"],
+    ], `${label}: the deactivateat effect args`);
+    // The trigger phase consumed the arrival between ticks, so the region under the destination is deactivated.
+    ok(state.triggers.deactivated.includes("region:0"), `${label}: the arrival region is deactivated`);
+    equal(state.triggers.active, null, `${label}: nothing fires on the arrival`);
+    equal(state.vm.globals.arrived, undefined, `${label}: the region program did not run`);
+  }
 });
 
 // The sample games: their start.prg boots through the real engine with the doubles above.

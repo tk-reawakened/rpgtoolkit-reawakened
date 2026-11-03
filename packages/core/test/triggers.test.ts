@@ -1,9 +1,14 @@
-import { deepEqual, equal } from "node:assert/strict";
+import { deepEqual, equal, throws } from "node:assert/strict";
 import { test } from "node:test";
 import { assetKey } from "../src/formats/resolver/resolver.ts";
 import { createGameState, type GameState } from "../src/save/state.ts";
 import { actorFromSource, type SpriteActor } from "../src/sprites/model.ts";
 import { applyTriggerEffect, runTriggersPhase } from "../src/triggers/runtime.ts";
+import { ScriptError } from "../src/script/errors.ts";
+import { fileProgramRef } from "../src/script/program.ts";
+import { resolveProgram } from "../src/script/loader.ts";
+import { PACKAGE_ROOT } from "../src/formats/resolver/model.ts";
+import { createAssetIndex } from "../src/formats/resolver/resolver.ts";
 import { coordLayout, tileToPixel, boardPixelSize } from "../src/world/coords.ts";
 import { placeSelectedPlayer } from "../src/sprites/runtime.ts";
 import type { EffectRecord } from "../src/script/effects.ts";
@@ -17,8 +22,8 @@ const rectangle = (left: number, top: number, right: number, bottom: number) => 
 function item(index: number, x: number, y: number, activationType = 0, initialVar = "", initialValue = ""): WorldItem {
   return { slot: index, itemFile: `item-${index}.itm`, activationPrg: `item-${index}`, multitaskPrg: "", initialVar, initialValue, finalVar: "", finalValue: "", loadingVar: "", loadingValue: "", activate: initialVar === "" ? 0 : 1, activationType, x, y, layer: 1, reserved: 0 };
 }
-function region(index: number, activationType = 0, initialVar = "", initialValue = "", finalVar = "", finalValue = "", layer = 1): WorldProgram {
-  return { program: `region-${index}`, graphic: "", initialVar, initialValue, finalVar, finalValue, activate: initialVar === "" ? 0 : 1, activationType, repeatDistance: 0, layer, points: rectangle(-32, -32, 32, 32), closed: 1, handle: `r${index}` };
+function region(index: number, activationType = 0, initialVar = "", initialValue = "", finalVar = "", finalValue = "", layer = 1, program?: string): WorldProgram {
+  return { program: program ?? `region-${index}`, graphic: "", initialVar, initialValue, finalVar, finalValue, activate: initialVar === "" ? 0 : 1, activationType, repeatDistance: 0, layer, points: rectangle(-32, -32, 32, 32), closed: 1, handle: `r${index}` };
 }
 function board(programs: WorldProgram[] = [], items: WorldItem[] = []): WorldBoard {
   return { key: assetKey("boards/test.brd"), coordType: 0, sizeX: 10, sizeY: 10, sizeL: 1, width: 320, height: 320, background: { r: 0, g: 0, b: 0 }, ambient: { r: 255, g: 255, b: 255 }, layers: [], programs, items };
@@ -210,4 +215,80 @@ test("send-arrival tile placement and deactivation agree on stacked and rotated 
     const arrivalEvents = runTriggersPhase(state, { programRef: (name) => ref(name) });
     equal(arrivalEvents.length, 0, `${layout}: nothing fires on the arrival tick`);
   }
+});
+
+test("a pressed button slot's confirm name fires a key-press region", () => {
+  const world = board([region(0, 1)]);
+  const state = stateWith(world);
+  state.time.tick = 1;
+  // `input.ts` queues a button-slot press as the confirm name with the slot's own action.
+  state.input.bindings = { keys: { Enter: "ENTER" } };
+  state.input.keys.push({ seq: 1, name: "confirm", code: "confirm", char: null, action: "slot:attack" });
+  const events = runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(events[0]?.key, "region:0", "the slot press starts the key region");
+  // And a boot-hold of the same slot press works where the boot poll accepted the confirm name before.
+  const booted = stateWith(world);
+  booted.triggers.lastKeySeq = -1;
+  booted.input.bindings = { keys: { Enter: "ENTER" } };
+  booted.input.keys.push({ seq: 1, name: "confirm", code: "confirm", char: null, action: "slot:attack" });
+  equal(runTriggersPhase(booted, { programRef: (name) => ref(name) })[0]?.key, "region:0", "the boot poll accepts the confirm name too");
+});
+
+test("arrival-suppressed items re-arm on layer change and on being hidden", () => {
+  const world = board([], [item(0, 16, 32)]);
+  const actor = itemActor(world, world.items![0]!, 0);
+  const state = stateWith(world, [actor]);
+  state.triggers.boardKey = world.key;
+  // A send arrives right under the item: two board pixels above its centre (the base starts at y - 15).
+  applyTriggerEffect(state, { name: "deactivateat", args: [16, 48, 1, "pixel"] } as EffectRecord);
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, x: 16, y: 48 }));
+  state.time.tick = 1;
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: 1, lastStepDistance: 8 } }));
+  runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(state.triggers.deactivated.includes("item:0"), true, "the item under the arrival is deactivated");
+  // A step inside the suppressed item fires nothing.
+  equal(runTriggersPhase(state, { programRef: (name) => ref(name) }).length, 0, "the suppressed item stays silent");
+
+  // The player walks to another layer: the item leaves the deactivated list even off the player's layer.
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, layer: 2, movement: { ...player.movement, lastStepTick: state.time.tick, lastStepDistance: 8 } }));
+  runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(state.triggers.deactivated.includes("item:0"), false, "re-arm runs over the authored item, not only its visible candidates");
+  // Hide the item: a later step also re-arms it, so a script's showItem can never resurrect the suppression.
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, layer: 1 }));
+  for (let guard = 0; guard < 40 && !state.triggers.deactivated.includes("item:0"); guard += 1) {
+    state.time.tick += 1;
+    applyTriggerEffect(state, { name: "deactivateat", args: [16, 48, 1, "pixel"] } as EffectRecord);
+    runTriggersPhase(state, { programRef: (name) => ref(name) });
+  }
+  equal(state.triggers.deactivated.includes("item:0"), true, "re-suppression re-applies before the hide check");
+  state.sprites.items = state.sprites.items.map((value) => value.id === actor.id ? { ...value, visible: false } : value);
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: state.time.tick, lastStepDistance: 8 } }));
+  runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(state.triggers.deactivated.includes("item:0"), false, "an item hidden while suppressed re-arms");
+  // Shown again, a step inside it fires.
+  state.sprites.items = state.sprites.items.map((value) => value.id === actor.id ? { ...value, visible: true } : value);
+  state.time.tick += 1;
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: state.time.tick, lastStepDistance: 8 } }));
+  const shown = runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(shown[0]?.key, "item:0", "the shown item fires on the step");
+});
+
+test("a trigger program naming a .prg that is not in the index reports a missing program", () => {
+  const loader = { index: createAssetIndex([]), root: PACKAGE_ROOT, read: (): Uint8Array | undefined => undefined };
+  const missing = { programRef: (name: string) => resolveProgram(loader, name) === undefined ? null : fileProgramRef(loader, name) };
+  const world = board([region(0, 0, "", "", "", "", 1, "missing.prg")]);
+  const state = stateWith(world);
+  state.time.tick = 1;
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: 1, lastStepDistance: 8 } }));
+  throws(
+    () => runTriggersPhase(state, missing),
+    ScriptError,
+    "the resolver never reaches the inline fallback for a .prg name",
+  );
+  // and a non-`.prg` name falls through to inline RPGCode exactly as before.
+  const inlineWorld = board([region(0, 0, "", "", "", "", 1, "wait()\nend()")]);
+  const inlineState = stateWith(inlineWorld);
+  inlineState.time.tick = 1;
+  inlineState.sprites.players = inlineState.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: 1, lastStepDistance: 8 } }));
+  equal(runTriggersPhase(inlineState, missing)[0]?.key, "region:0", "inline fallback still applies");
 });
