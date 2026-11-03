@@ -1754,6 +1754,18 @@ export function createEngine(init: EngineInit): Engine {
   /** `send` posts its request here; the engine swaps boards between ticks (E-19). A later send replaces an earlier one. */
   function applyEngineEffect(effect: EffectRecord): void {
     const [, second] = effect.args;
+    if (effect.name === "diagnostic") {
+      // Phases without a host diagnostics reporter (the core trigger phase and friends) post a located
+      // report here; it reaches the tick report beside every script diagnostic.
+      const [code, file, line, message] = effect.args;
+      diagnostics.push({
+        code: typeof code === "string" ? code : "engine.diagnostic",
+        file: typeof file === "string" ? file : "",
+        line: typeof line === "number" ? line : 0,
+        message: typeof message === "string" ? message : "",
+      });
+      return;
+    }
     if (effect.name === "send") {
       const [board, x, y, layer] = effect.args;
       if (typeof board === "string" && typeof x === "number" && typeof y === "number" && typeof layer === "number") state.engine.transition = { board, x, y, layer };

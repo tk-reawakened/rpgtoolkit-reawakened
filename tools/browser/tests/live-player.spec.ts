@@ -378,6 +378,61 @@ test("live session runs a held boot-key region program and deactivates send arri
   expect(resumed.board).toBe("boards/third.brd");
 });
 
+const MISSING_PRG_BOARDS = [
+  { path: "start.brd", regions: [{ program: 'send("second.brd", 2, 2, 1)\nend()', activationType: 1 }] },
+  // The activation region names a program the package does not carry: one located program.missing
+  // diagnostic, no thread, and the shipped player keeps ticking.
+  { path: "second.brd", regions: [{ program: "does-not-exist.prg", activationType: 1 }] },
+  { path: "third.brd", regions: [] },
+];
+
+test("a missing region program is a diagnostic and the live player keeps ticking", async ({ page }) => {
+  const fixture = triggerPhaseFixture("missing-prg.tpk", MISSING_PRG_BOARDS);
+  await servePackage(page, fixture);
+  await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${fixture.name}`);
+  await page.waitForFunction(() => {
+    const live = window.__live;
+    return live !== undefined && (live.error !== undefined || (live.tick >= 5 && live.board === null));
+  }, undefined, { timeout: 15_000 });
+  await page.keyboard.down("Enter");
+  let firstArrival: LiveReport;
+  try {
+    await page.waitForFunction(
+      () => window.__live?.board === "boards/second.brd" || window.__live?.error !== undefined,
+      undefined,
+      { timeout: 10_000 },
+    );
+    firstArrival = await page.evaluate(() => window.__live as LiveReport);
+  } finally {
+    await page.keyboard.up("Enter");
+  }
+  expect(firstArrival.error).toBeUndefined();
+  expect(firstArrival.board).toBe("boards/second.brd");
+  // The arrival suppresses the region; walk out and back so it re-arms, then press the activation key:
+  // the missing program is reported, the tick goes on and the board stays playable.
+  await walkTo(page, "ArrowRight", 96);
+  await walkTo(page, "ArrowLeft", 60);
+  await page.keyboard.press("Enter");
+  const afterPress = await page.evaluate(() => window.__live as LiveReport);
+  await page.waitForFunction(
+    (tick) => {
+      const live = window.__live;
+      return live !== undefined && (live.error !== undefined || live.tick >= tick + 15);
+    },
+    afterPress.tick,
+    { timeout: 10_000 },
+  );
+  const report = await page.evaluate(() => window.__live as LiveReport);
+  expect(report.error).toBeUndefined();
+  expect(report.board).toBe("boards/second.brd");
+  expect(report.tick).toBeGreaterThan(afterPress.tick + 10);
+  // The player still controls the game: walking is possible after the diagnostic.
+  const walkedAfter = await walkTo(page, "ArrowRight", 96);
+  expectNoError(walkedAfter);
+  expect(walkedAfter.board).toBe("boards/second.brd");
+});
+
+
 const STEP_REGION_BOARDS = [
   { path: "start.brd", regions: [{ program: "send-second.prg", activationType: 1 }] },
   // The step-on region covers the arrival tile itself: without arrival deactivation or without the

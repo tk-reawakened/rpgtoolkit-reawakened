@@ -1,10 +1,9 @@
-import { deepEqual, equal, throws } from "node:assert/strict";
+import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { assetKey } from "../src/formats/resolver/resolver.ts";
 import { createGameState, type GameState } from "../src/save/state.ts";
 import { actorFromSource, type SpriteActor } from "../src/sprites/model.ts";
 import { applyTriggerEffect, runTriggersPhase } from "../src/triggers/runtime.ts";
-import { ScriptError } from "../src/script/errors.ts";
 import { fileProgramRef } from "../src/script/program.ts";
 import { resolveProgram } from "../src/script/loader.ts";
 import { PACKAGE_ROOT } from "../src/formats/resolver/model.ts";
@@ -273,18 +272,27 @@ test("arrival-suppressed items re-arm on layer change and on being hidden", () =
   equal(shown[0]?.key, "item:0", "the shown item fires on the step");
 });
 
-test("a trigger program naming a .prg that is not in the index reports a missing program", () => {
+test("a trigger program naming a .prg that is not in the index reports a located missing program", () => {
   const loader = { index: createAssetIndex([]), root: PACKAGE_ROOT, read: (): Uint8Array | undefined => undefined };
   const missing = { programRef: (name: string) => resolveProgram(loader, name) === undefined ? null : fileProgramRef(loader, name) };
   const world = board([region(0, 0, "", "", "", "", 1, "missing.prg")]);
   const state = stateWith(world);
+  // A step frame picks the region; the missing .prg is one located report and no thread.
   state.time.tick = 1;
   state.sprites.players = state.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: 1, lastStepDistance: 8 } }));
-  throws(
-    () => runTriggersPhase(state, missing),
-    ScriptError,
-    "the resolver never reaches the inline fallback for a .prg name",
-  );
+  let reported: { readonly code: string; readonly file: string; readonly line: number; readonly message: string } | null = null;
+  const events = runTriggersPhase(state, { ...missing, onDiagnostic: (diagnostic) => { reported = diagnostic; } });
+  equal(events.length, 0, "the tick continues and starts no thread");
+  ok(reported !== null, "the failure is reported");
+  equal(reported.code, "program.missing");
+  equal(reported.file, world.key, "the report locates the authored board");
+  equal(state.triggers.active, null, "no trigger runs");
+  // The trigger is marked run: the next step frame does not repeat the report, and the game continues.
+  state.time.tick += 1;
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: state.time.tick, lastStepDistance: 8 } }));
+  let repeats = 0;
+  runTriggersPhase(state, { ...missing, onDiagnostic: () => { repeats += 1; } });
+  equal(repeats, 0, "the marked trigger does not repeat the report");
   // and a non-`.prg` name falls through to inline RPGCode exactly as before.
   const inlineWorld = board([region(0, 0, "", "", "", "", 1, "wait()\nend()")]);
   const inlineState = stateWith(inlineWorld);

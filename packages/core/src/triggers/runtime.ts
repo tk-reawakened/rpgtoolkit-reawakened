@@ -4,6 +4,7 @@ import type { EffectRecord } from "../script/effects.ts";
 import { IR_VERSION, type ProgramRef } from "../script/program.ts";
 import { findThread, hasLiveBlockingThread, startThread } from "../script/state.ts";
 import { ScriptError } from "../script/errors.ts";
+import { engineEffect } from "../engine/boot.ts";
 import type { GameState } from "../save/state.ts";
 import { resetUiForProgramStart } from "../save/sections/ui.ts";
 import type { Facing, SpriteActor } from "../sprites/model.ts";
@@ -45,6 +46,8 @@ export type TriggerPhaseOptions = {
   readonly rank?: number;
   readonly programRef?: TriggerProgramResolver | null;
   readonly onEvent?: (event: TriggerEvent) => void;
+  /** A located report for a trigger whose program cannot start; without it, a missing program is thrown. */
+  readonly onDiagnostic?: (diagnostic: { readonly code: string; readonly file: string; readonly line: number; readonly message: string }) => void;
 };
 
 function fixed(value: number): number {
@@ -377,9 +380,24 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     winner = itemCandidates[0] ?? qualifying.filter((candidate) => candidate.source === "region").at(-1);
   }
   if (winner === undefined || hasLiveBlockingThread(state.vm)) return events;
-  // Resolve the program before the winner's own mutations: a missing `.prg` reports a located error
-  // (`startFileProgram`'s rule, docs/spec/engine/rpgcode-runtime.md) instead of half-applying the start.
-  const ref = programRef(winner.program, options.programRef);
+  // A program the game does not carry is `program.missing` (docs/spec/engine/rpgcode-functions.md:136,
+  // "a blank or missing file"): one located report, no thread, the tick continues. The trigger counts as
+  // run so the report does not repeat every frame.
+  let ref: ProgramRef | null = null;
+  try {
+    ref = programRef(winner.program, options.programRef);
+  } catch (error) {
+    if (options.onDiagnostic === undefined) throw error;
+    const scriptError = error instanceof ScriptError ? error : undefined;
+    options.onDiagnostic({
+      code: scriptError?.code ?? "program.missing",
+      file: board.key,
+      line: 0,
+      message: scriptError?.message ?? String(error),
+    });
+    section.fired[winner.key] = true;
+    return events;
+  }
   if (ref === null) return events;
   if (winner.source === "item" && winner.actor !== undefined) {
     state.sprites.items = state.sprites.items.map((actor) => actor.id === winner!.actor!.id ? { ...actor, facing: facingToward(actor, player) } : actor);
@@ -403,7 +421,21 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
 }
 
 export function triggerPhaseRegistration(options: TriggerPhaseOptions = {}): EnginePhaseRegistration {
-  return { phase: "triggers", rank: options.rank ?? 0, run: (state) => { runTriggersPhase(state, options); } };
+  return {
+    phase: "triggers",
+    rank: options.rank ?? 0,
+    run: (state, postEffect?) => {
+      // Without a host-supplied sink, a missing trigger program posts the engine's own diagnostic
+      // effect, which the engine turns into a located report (engine.ts's engine-section applier).
+      const phaseOptions: TriggerPhaseOptions = postEffect === undefined
+        ? options
+        : {
+          ...options,
+          onDiagnostic: options.onDiagnostic ?? ((diagnostic) => { postEffect("engine", engineEffect("engine", "diagnostic", [diagnostic.code, diagnostic.file, diagnostic.line, diagnostic.message], "diagnostic")); }),
+        };
+      runTriggersPhase(state, phaseOptions);
+    },
+  };
 }
 export const triggersPhaseRegistration = triggerPhaseRegistration;
 export function triggerResetRegistration(rank = 0): EngineResetRegistration {
