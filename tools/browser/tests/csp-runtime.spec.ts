@@ -1,13 +1,13 @@
 import { expect, test, type Route } from "@playwright/test";
 
-const PLAYER_PAGE = "/packages/runner-web/app/index.html";
+const PLAYER_PAGE = "/packages/runner-web/app/index.html?game=demo&package=fixtures/packages/demo.tpk&tracer=1";
 const POLICY = /<meta\s+http-equiv="Content-Security-Policy"[^>]*>/i;
 
-test("runner page executes allowed scripts and blocks injected inline script at runtime", async ({ page }) => {
+test("runner page boots a package with allowed scripts and blocks injected inline script at runtime", async ({ page }) => {
   // This switch is only for the explicit perturbation run: remove the actual shipped page's CSP
   // response tag, then prove this same assertion fails because the forbidden code executes.
   if (process.env.CSP_PROBE_WEAKENED === "1") {
-    await page.route(`**${PLAYER_PAGE}`, async (route: Route) => {
+    await page.route("**/packages/runner-web/app/index.html", async (route: Route) => {
       const response = await route.fetch();
       const html = await response.text();
       expect(html).toMatch(POLICY);
@@ -27,8 +27,9 @@ test("runner page executes allowed scripts and blocks injected inline script at 
   );
   await page.goto(PLAYER_PAGE);
   await allowedScript;
-  await expect.poll(() => page.locator("#report").textContent()).not.toBe("booting…");
-  await expect.poll(() => page.evaluate(() => (window as Window & { __report?: unknown }).__report)).not.toBeUndefined();
+  await expect.poll(() => page.evaluate(() => (window as Window & { __report?: { error?: string; tick?: number } }).__report)).toMatchObject({ tick: 120 });
+  await expect(page.locator("#report")).toContainText("demo tick 120");
+  await expect(page.locator("#report")).not.toContainText(/player:|load failed/);
 
   await page.evaluate(() => {
     const script = document.createElement("script");
