@@ -36,7 +36,7 @@
  * docs/adr/0004 (decisions 2 and 6); AD-8, AD-10.
  */
 
-import type { MenuOwnerPorts } from "../menu/ports.ts";
+import type { ItemActionRequest, ItemActionResult, MenuOwnerPorts } from "../menu/ports.ts";
 import type { PlainData } from "../ports/plain-data.ts";
 import type { RngPort } from "../ports/rng.ts";
 import type { ClockPort } from "../ports/time.ts";
@@ -192,7 +192,15 @@ export type MenuScreenId = "main" | "items" | "equipment" | "abilities";
 export type MenuProviderEvent =
   | { readonly type: "enter" }
   | { readonly type: "input"; readonly key: string }
-  | { readonly type: "child.closed"; readonly screen: MenuScreenId };
+  | { readonly type: "child.closed"; readonly screen: MenuScreenId }
+  | { readonly type: "item.action.completed"; readonly result: ItemActionCompletion };
+export type ItemActionCommand = ItemActionRequest;
+export type ItemActionCompletion = ItemActionResult;
+export type ItemActionProviderResult = {
+  readonly kind: "item.action";
+  readonly state: PlainData;
+  readonly action: ItemActionCommand;
+};
 export type MenuProviderInput = {
   readonly providerId: string;
   readonly context: MenuOwnerPorts;
@@ -202,7 +210,8 @@ export type MenuProviderInput = {
 export type MenuProviderResult =
   | { readonly kind: "wait"; readonly state: PlainData; readonly wait: Wait }
   | { readonly kind: "open"; readonly state: PlainData; readonly screen: MenuScreenId }
-  | { readonly kind: "complete" };
+  | { readonly kind: "complete" }
+  | ItemActionProviderResult;
 export type MenuProvider = (input: MenuProviderInput) => MenuProviderResult;
 
 /** Package-scoped actor behaviour registration available during start-up. */

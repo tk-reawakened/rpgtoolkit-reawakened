@@ -241,6 +241,7 @@ export {
   advanceScriptTick,
   collectGarbage,
   drainDiagnostics,
+  discardMenuFrames,
   createScriptServices,
   replyToRequest,
   runThreadsPhase,
