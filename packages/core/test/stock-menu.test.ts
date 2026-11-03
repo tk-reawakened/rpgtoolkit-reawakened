@@ -231,7 +231,7 @@ function boot(options: GameOptions): Session {
   function answer(request: { readonly kind: string; readonly reqId: number; readonly key?: string; readonly blob?: { readonly path: string } }): InputEvent[] {
     requests.push(request.kind);
     if (request.kind === "asset") return [{ kind: "asset", reqId: request.reqId, bytes: game.files.get(request.key as never) ?? null }];
-    if (request.kind === "listBlobs") return [{ kind: "blob.listed", reqId: request.reqId, names: ["slot1.sav"] }];
+    if (request.kind === "listBlobs") return [{ kind: "blob.listed", reqId: request.reqId, names: ["files/other.sav", "saved/not-a-save.txt", "saved/slot1.sav"] }];
     if (request.kind === "loadBlob") {
       loads.push(request.blob?.path ?? "");
       return [{ kind: "blob.loaded", reqId: request.reqId, bytes: null }];
@@ -386,14 +386,16 @@ test("Save is gated by the board's disable-saving flag", () => {
   equal(state.menu.screens.length, 1, "the menu stays open");
 });
 
-test("Save lists the save area and then writes the chosen slot", () => {
+test("Save overwrites and Load requests the same listed save path", () => {
   const session = boot({ startup: "mainmenu()\n" });
-  let state = session.pump((current) => current.menu.screens.length === 1);
-  for (const key of ["DOWN", "DOWN", "DOWN", "ENTER"]) state = press(session, key);
+  session.pump((current) => current.menu.screens.length === 1);
+  for (const key of ["DOWN", "DOWN", "DOWN", "ENTER"]) press(session, key);
   ok(session.requests.includes("listBlobs"), "the picker reads the save area");
   session.pump(() => session.saves.length === 1, "ENTER");
-  equal(session.saves.length, 1, "the chosen slot is written once through the ordinary save path");
-  ok(session.saves[0]!.endsWith("/slot1.sav"), `selected save: ${session.saves[0]}`);
+  const savedPath = session.saves[0]!;
+  ok(/^[^/]+\/saved\/slot1\.sav$/.test(savedPath), `overwrite path: ${savedPath}`);
+  for (const key of ["DOWN", "ENTER", "ENTER"]) press(session, key);
+  deepEqual(session.loads, [savedPath], "Load requests the same path Save overwrote");
   deepEqual(session.diagnostics, []);
 });
 

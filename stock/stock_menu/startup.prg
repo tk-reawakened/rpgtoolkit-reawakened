@@ -1131,11 +1131,9 @@ stockMenu = {
         stockMenu.saveCount = 0
         for (index = 0; index < list.length; index = index + 1) {
             name = list[index].name
-            // The picker shows the base name: `save(name)`/`load(name)` append the extension themselves.
-            if (name != "") {
-                if (len(name) > 4 && right(name, 4) == ".sav") {
-                    name = left(name, len(name) - 4)
-                }
+            // Host names are relative to the game identity; save/load add this directory and extension.
+            if (len(name) > 10 && left(name, 6) == "saved/" && right(name, 4) == ".sav") {
+                name = left(right(name, len(name) - 6), len(name) - 10)
                 stockMenu.saveNames[stockMenu.saveCount] = name
                 stockMenu.saveCount = stockMenu.saveCount + 1
             }
