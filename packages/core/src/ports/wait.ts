@@ -177,6 +177,7 @@ export type WaitResult =
       readonly ok: true;
       readonly claim: number;
       readonly discardBefore?: never;
+      readonly record?: never;
       readonly keepWaiting: true;
     };
 
