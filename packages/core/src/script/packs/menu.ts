@@ -118,6 +118,7 @@ function slotDictionary(vm: Parameters<typeof createObject>[0], item: Item): Val
     ["left-hand", item.equipSlots[3] ?? 0],
     ["body", item.equipSlots[5] ?? 0],
     ["legs", item.equipSlots[6] ?? 0],
+    ["accessory", item.equipSlots[7] ?? 0],
   ];
   for (const [token, flag] of flags) writeMember(record, token, flag === 1 ? 1 : 0);
   return objectValue(record);

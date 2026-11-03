@@ -346,27 +346,33 @@ stockMenu = {
         }
         return 0
     },
-    handleOfStack: (itemId) => {
+    // The handle of the inventory entry an equipped tuple names. A stack whose every unit is equipped has quantity 0,
+    // so this reads every entry, not only the listed stacks.
+    handleOfEntry: (context, itemId) => {
+        local(items) = context.inventory.items
         local(index) = 0
-        for (index = 0; index < stockMenu.stackCount; index = index + 1) {
-            if (stockMenu.stackIds[index] == itemId) {
-                return stockMenu.stackHandles[index]
+        for (index = 0; index < items.length; index = index + 1) {
+            if (items[index].id == itemId) {
+                return items[index].handle
             }
         }
         return "-"
     },
     slotTokens: {},
+    // E-82: the item's own flag for the slot, the member's own slot, and (for accessories) the matching name.
     fits: (item, character, slot) => {
         if (item.equipable != 1) {
             return 0
         }
-        if (slot == "head") { return character.bodyslots.head }
-        if (slot == "neck") { return character.bodyslots.neck }
-        if (slot == "right-hand") { return character.bodyslots.right-hand }
-        if (slot == "left-hand") { return character.bodyslots.left-hand }
-        if (slot == "body") { return character.bodyslots.body }
-        if (slot == "legs") { return character.bodyslots.legs }
-        // A named accessory fits when the file names one and the character's slot carries the same name.
+        if (slot == "head") { return item.slots.head == 1 && character.bodyslots.head == 1 }
+        if (slot == "neck") { return item.slots.neck == 1 && character.bodyslots.neck == 1 }
+        if (slot == "right-hand") { return item.slots["right-hand"] == 1 && character.bodyslots["right-hand"] == 1 }
+        if (slot == "left-hand") { return item.slots["left-hand"] == 1 && character.bodyslots["left-hand"] == 1 }
+        if (slot == "body") { return item.slots.body == 1 && character.bodyslots.body == 1 }
+        if (slot == "legs") { return item.slots.legs == 1 && character.bodyslots.legs == 1 }
+        if (item.slots.accessory != 1) {
+            return 0
+        }
         if (item.accessory == "") {
             return 0
         }
@@ -740,7 +746,7 @@ stockMenu = {
                 itemId = stockMenu.equippedAt(context, actorId, slot)
                 handle = "-"
                 if (itemId != 0) {
-                    handle = stockMenu.handleOfStack(itemId)
+                    handle = stockMenu.handleOfEntry(context, itemId)
                 }
                 stockMenu.row(y, slot, handle, stockMenu.slot == index, 0)
                 y = y + stockMenu.rowH

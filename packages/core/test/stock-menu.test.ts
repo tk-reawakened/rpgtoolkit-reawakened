@@ -134,7 +134,7 @@ function authoredGame(options: GameOptions): { readonly files: Files; readonly i
   const files: Files = new Map();
   const paths = [
     "main.gam", "Boards/start.brd", "Chrs/hero.tem", "Prg/start.prg",
-    "Item/potion.itm", "Item/key.itm", "Bitmap/layout.png", "Bitmap/ghost.png", "Media/move.wav", "Media/confirm.wav", "Media/cancel.wav",
+    "Item/potion.itm", "Item/key.itm", "Item/sword.itm", "Bitmap/layout.png", "Bitmap/ghost.png", "Media/move.wav", "Media/confirm.wav", "Media/cancel.wav",
     "SpcMove/fire.spc", "Prg/fire.prg",
   ];
   const main = {
@@ -171,6 +171,16 @@ function authoredGame(options: GameOptions): { readonly files: Files; readonly i
     equipable: 1,
     equipSlots: [0, 1, 0, 0, 0, 0, 0, 0],
     menuUseHp: 10,
+  })));
+  files.set(assetKey("item/sword.itm"), unwrap(writeItem({
+    ...createEmptyItem(),
+    minor: 4,
+    movementAnimations: Array(8).fill(""),
+    name: "Iron sword",
+    description: "Cuts things",
+    equipable: 1,
+    // Stored slot order: the hands are swapped, so index 4 is the canonical right hand (docs/spec: slotLocation).
+    equipSlots: [0, 0, 0, 0, 1, 0, 0, 0],
   })));
   files.set(assetKey("item/key.itm"), unwrap(writeItem({
     ...createEmptyItem(),
@@ -414,6 +424,59 @@ test("equipment selects a member, slot and item, then removes it", () => {
   equal(session.state().inventory.equipment.length, 0, "Remove clears the slot");
   equal(session.state().inventory.items[0]?.quantity, 1, "Remove returns the item to inventory");
   deepEqual(session.diagnostics, []);
+});
+
+/** The horizontal extent of the ink drawn in one 16-pixel text band between two columns, or null when the row is blank there. */
+function inkExtent(session: Session, y: number, fromX: number, toX: number): number | null {
+  const state = session.state();
+  const entry = state.surfaces.entries[String(state.surfaces.renderNow)];
+  if (entry === undefined) throw new Error("the render-now surface does not exist");
+  const surface = session.engine.surfacePixels(entry.id, entry.rev);
+  if (surface === null) throw new Error("the drawn menu pixels are not available");
+  let first = -1;
+  let last = -1;
+  for (let x = fromX; x < toX; x += 1) {
+    for (let row = y; row < y + 16; row += 1) {
+      const at = (row * surface.w + x) * 4;
+      const background = (row * surface.w + toX) * 4;
+      const differs = [0, 1, 2].some((channel) => surface.rgba[at + channel] !== surface.rgba[background + channel]);
+      if (differs) {
+        if (first < 0) first = x;
+        last = x;
+      }
+    }
+  }
+  return first < 0 ? null : last - first + 1;
+}
+
+test("equipment offers only items whose own slot flag fits, including both hands", () => {
+  const session = boot({ startup: 'giveitem("potion")\ngiveitem("potion")\ngiveitem("sword")\nequipmentmenu()\n' });
+  session.pump((state) => state.menu.screens.length === 1);
+  // Head: the Potion fits and the sword does not, so the list has one row and `down` stays on it.
+  for (const key of ["ENTER", "ENTER", "DOWN"]) press(session, key);
+  equal(session.state().menu.screens.at(-1)?.selection, 0, "the head list holds only the potion");
+  press(session, "ENTER");
+  // Right hand: the sword fits and the potion (one still carried) does not.
+  for (const key of ["DOWN", "DOWN", "ENTER", "DOWN"]) press(session, key);
+  equal(session.state().menu.screens.at(-1)?.selection, 0, "the right-hand list holds only the sword");
+  press(session, "ENTER");
+  deepEqual(session.state().inventory.equipment.map((entry) => [entry.slot, entry.itemId]), [["head", 1], ["right-hand", 2]]);
+  // Left hand: neither carried item fits it, so confirming changes nothing.
+  for (const key of ["DOWN", "ENTER", "ENTER"]) press(session, key);
+  equal(session.state().inventory.equipment.length, 2, "nothing fits the left hand");
+  deepEqual(session.diagnostics, []);
+});
+
+test("an equipped item whose every unit is worn still prints its name on the slot row", () => {
+  const session = boot({ startup: 'giveitem("sword")\nequipmentmenu()\n' });
+  session.pump((state) => state.menu.screens.length === 1);
+  for (const key of ["ENTER", "DOWN", "DOWN", "ENTER", "ENTER"]) press(session, key);
+  deepEqual(session.state().inventory.equipment.map((entry) => entry.slot), ["right-hand"]);
+  equal(session.state().inventory.items[0]?.quantity, 0, "the only unit is worn");
+  const worn = inkExtent(session, 52 + 20 * 2, 152, 300);
+  const empty = inkExtent(session, 52 + 20 * 3, 152, 300);
+  ok(worn !== null && worn > 40, `the worn sword's name is drawn (ink width ${String(worn)})`);
+  ok(empty !== null && empty <= 16, `an empty slot draws only the dash (ink width ${String(empty)})`);
 });
 
 test("abilities show info and run a board-usable move", () => {
