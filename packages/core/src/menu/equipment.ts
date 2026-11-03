@@ -48,9 +48,9 @@ export function slotLocation(slot: string): number | null {
  * The `.itm` / `.tem` array index that stores one canonical slot token's value (E-82).
  *
  * The two hand locations are stored in the opposite order to the canonical tokens, so `right-hand` reads index 4 and
- * `left-hand` index 3; every named accessory shares index 7. The item-side flags and the character-side body slots use
- * the same indices, and `packs/menu.ts` exposes them to the screens through this function, so the list a screen offers
- * and this module's refusal cannot disagree. Null for a token that names no slot.
+ * `left-hand` index 3; every named accessory shares `ACCESSORY_FLAG_INDEX`. The item-side flags and the character-side
+ * body slots use the same indices, and `packs/menu.ts` exposes them to the screens through this function, so the list a
+ * screen offers and this module's refusal cannot disagree. Null for a token that names no slot.
  */
 export function slotFlagIndex(slot: string): number | null {
   const location = slotLocation(slot);
@@ -60,13 +60,20 @@ export function slotFlagIndex(slot: string): number | null {
   return location <= 6 ? location : ACCESSORY_FLAG_INDEX;
 }
 
+/** The canonical slot token an editor equipment location names (E-82), the inverse of `slotLocation`. */
+export function slotTokenAt(location: number): string | null {
+  const clamped = Math.trunc(location);
+  for (const token of BODY_SLOT_TOKENS) if (STANDARD_SLOTS[token] === clamped) return token;
+  return ACCESSORY_LOCATIONS.includes(clamped) ? `accessory-${clamped}` : null;
+}
+
 /** The character array index that names one accessory slot's accessory (E-82). */
 export function accessoryNameIndex(location: number): number {
   return location - 6;
 }
 
 /** The deterministic actor-scoped reference a saved tuple derives (E-82). */
-export function equippedReference(actorId: number, slot: string, itemId: number): string {
+function equippedReference(actorId: number, slot: string, itemId: number): string {
   return `tkr-equipment:${JSON.stringify([actorId, slot, itemId])}`;
 }
 

@@ -321,7 +321,7 @@ const DRAW_GRAPHIC: BuiltinSpec = {
 /** The hydrated `context.menu` object of an RPGCode menu provider (E-80, #585). */
 export const MENU_HOST_TYPE: HostObjectType = {
   name: MENU_HOST_TYPE_NAME,
-  methods: { updatecurrent: UPDATE_CURRENT_COMMAND, updateCurrent: UPDATE_CURRENT_COMMAND, drawgraphic: DRAW_GRAPHIC_COMMAND, drawGraphic: DRAW_GRAPHIC_COMMAND },
+  methods: { updatecurrent: UPDATE_CURRENT_COMMAND, drawgraphic: DRAW_GRAPHIC_COMMAND },
   readOnlyMembers: ["screens", "graphic", "saveallowed", "movesound", "choosesound", "cancelsound"],
   read(context, name) {
     const state = context.state;
