@@ -1748,7 +1748,7 @@ export function createEngine(init: EngineInit): Engine {
       resetLifecycle(second);
       return;
     }
-    if (effect.name === "quit" && !quitRequested) {
+    if ((effect.name === "quitgame" || effect.name === "dos" || effect.name === "windows") && !quitRequested) {
       quitRequested = true;
       requestsOut.push({ kind: "quit", reqId: nextRequestId++ });
     }
@@ -3013,12 +3013,12 @@ export function createEngine(init: EngineInit): Engine {
       const record = records[index]!;
       if (record.event.kind === "asset") {
         consumeAsset(record, consumed);
-      } else if (record.event.kind === "blob.loaded" || record.event.kind === "blob.saved") {
+      } else if (record.event.kind === "blob.loaded" || record.event.kind === "blob.saved" || record.event.kind === "blob.listed") {
         const result = consumeBlob(record, consumed);
         if (result === "ignored") deferred.push(record);
         if (result === "loaded") {
           for (const queued of records.slice(index + 1)) {
-            if (queued.event.kind === "asset" || queued.event.kind === "blob.loaded" || queued.event.kind === "blob.saved") continue;
+            if (queued.event.kind === "asset" || queued.event.kind === "blob.loaded" || queued.event.kind === "blob.saved" || queued.event.kind === "blob.listed") continue;
             deferred.push({ ...queued, tick: state.time.tick });
           }
           break;

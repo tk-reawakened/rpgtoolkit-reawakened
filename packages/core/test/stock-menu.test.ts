@@ -16,16 +16,20 @@ import {
   createEmptyCharacter,
   createEmptyItem,
   createEmptyMainFile,
+  createEmptySpecialMove,
   createEngine,
+  fnv1a64,
   hashDrawList,
   hashState,
   IR_VERSION,
-  openMainMenu,
+  inputPhaseRegistration,
   PACKAGE_ROOT,
+  startThread,
   writeBoard,
   writeCharacter,
   writeItem,
   writeMainFile,
+  writeSpecialMove,
   type AssetIndex,
   type AssetKey,
   type Engine,
@@ -131,6 +135,7 @@ function authoredGame(options: GameOptions): { readonly files: Files; readonly i
   const paths = [
     "main.gam", "Boards/start.brd", "Chrs/hero.tem", "Prg/start.prg",
     "Item/potion.itm", "Item/key.itm", "Bitmap/layout.png", "Media/move.wav", "Media/confirm.wav", "Media/cancel.wav",
+    "SpcMove/fire.spc", "Prg/fire.prg",
   ];
   const main = {
     ...createEmptyMainFile(),
@@ -148,7 +153,11 @@ function authoredGame(options: GameOptions): { readonly files: Files; readonly i
     ...createEmptyCharacter(),
     minor: 5,
     name: "Hero",
+    stats: { ...createEmptyCharacter().stats, hp: 10, maxHp: 20, level: 1 },
+    bodySlots: [0, 1, 1, 1, 1, 1, 1],
     profilePicture: "layout.png",
+    hasSpecialMoves: 0,
+    specialMoves: createEmptyCharacter().specialMoves.map((slot, index) => index === 0 ? { ...slot, file: "fire.spc" } : slot),
     movementAnimations: Array(8).fill(""),
     battleStances: ["", "", "", "", "", ""],
   })));
@@ -159,6 +168,8 @@ function authoredGame(options: GameOptions): { readonly files: Files; readonly i
     name: "Potion",
     description: "Restores 10 HP",
     menuUsable: 1,
+    equipable: 1,
+    equipSlots: [0, 1, 0, 0, 0, 0, 0, 0],
     menuUseHp: 10,
   })));
   files.set(assetKey("item/key.itm"), unwrap(writeItem({
@@ -170,9 +181,13 @@ function authoredGame(options: GameOptions): { readonly files: Files; readonly i
     menuUsable: 1,
     keyItem: 1,
   })));
+  files.set(assetKey("spcmove/fire.spc"), unwrap(writeSpecialMove({
+    ...createEmptySpecialMove(), minor: 3, name: "Fire", description: "A spark", program: "fire.prg",
+  })));
+  files.set(assetKey("prg/fire.prg"), new TextEncoder().encode("abilityused = 1\n"));
   files.set(assetKey("bitmap/layout.png"), encodePng(1, 1, new Uint8Array([200, 40, 40, 255])));
   for (const name of ["move", "confirm", "cancel"]) files.set(assetKey(`media/${name}.wav`), waveBytes());
-  files.set(assetKey("prg/start.prg"), new TextEncoder().encode(options.startup));
+  files.set(assetKey("prg/start.prg"), new TextEncoder().encode("end()\n"));
   return { files, index: createAssetIndex(paths), main: "main.gam" };
 }
 
@@ -182,6 +197,8 @@ type Session = {
   /** Advance until `until` holds, answering every host request with the authored game's files. */
   pump(until: (state: GameState) => boolean, key?: string, limit?: number): GameState;
   readonly requests: string[];
+  readonly loads: string[];
+  readonly diagnostics: string[];
   readonly saves: string[];
 };
 
@@ -190,6 +207,8 @@ function boot(options: GameOptions): Session {
   let latest: GameState | null = null;
   const requests: string[] = [];
   const saves: string[] = [];
+  const loads: string[] = [];
+  const diagnostics: string[] = [];
   const engine = createEngine({
     seed: 7,
     assetIndex: game.index,
@@ -199,59 +218,68 @@ function boot(options: GameOptions): Session {
     startup: { presence: { hasPlayer: () => true }, savedGame: { load: () => ({ kind: "missing" }), restored: () => false } },
     width: 320,
     height: 240,
+    input: { bindings: { keys: { KeyM: "menu", Escape: "cancel", Enter: "confirm", ArrowUp: "up", ArrowDown: "down" } } },
     maxTicks: 4000,
     packageCatalogue: catalogue(),
     bundled: BUNDLED,
-    phaseRegistrations: [{ phase: "audio", run: (state) => { latest = state; } }],
+    phaseRegistrations: [inputPhaseRegistration(), { phase: "audio", run: (state) => { latest = state; } }],
   });
   const state = (): GameState => {
     if (latest === null) throw new Error("the engine has not advanced");
     return latest;
   };
-  function answer(request: { readonly kind: string; readonly reqId: number; readonly key?: string }): InputEvent[] {
+  function answer(request: { readonly kind: string; readonly reqId: number; readonly key?: string; readonly blob?: { readonly path: string } }): InputEvent[] {
     requests.push(request.kind);
     if (request.kind === "asset") return [{ kind: "asset", reqId: request.reqId, bytes: game.files.get(request.key as never) ?? null }];
     if (request.kind === "listBlobs") return [{ kind: "blob.listed", reqId: request.reqId, names: ["slot1.sav"] }];
-    if (request.kind === "loadBlob") return [{ kind: "blob.loaded", reqId: request.reqId, bytes: null }];
+    if (request.kind === "loadBlob") {
+      loads.push(request.blob?.path ?? "");
+      return [{ kind: "blob.loaded", reqId: request.reqId, bytes: null }];
+    }
     if (request.kind === "saveBlob") {
-      saves.push("save");
+      saves.push(request.blob?.path ?? "");
       return [{ kind: "blob.saved", reqId: request.reqId, ok: true }];
     }
     return [];
   }
-  function pump(until: (state: GameState) => boolean, key?: string, limit = 150): GameState {
+  function pump(until: (state: GameState) => boolean, key?: string, limit = 20): GameState {
     let replies: InputRecord[] = [];
     let queued = key;
+    let keyEndTick: number | null = null;
 
     for (let step = 0; step < limit; step += 1) {
-      const report = engine.advance(1, replies);
-      const tick = report.tickAfter;
-      replies = [];
-      if (report.loading) {
-        replies = report.requests.flatMap((request) => answer(request as never).map((event) => ({ tick, event })));
-        step -= 1;
-        continue;
-      }
-      if (queued !== undefined) {
-        const code = queued === "ENTER" ? "Enter" : queued === "ESC" ? "Escape" : queued === "UP" ? "ArrowUp" : queued === "DOWN" ? "ArrowDown" : queued;
+      if (queued !== undefined && latest !== null) {
+        const tick = state().time.tick;
+        const code = queued === "ENTER" ? "Enter" : queued === "ESC" ? "Escape" : queued === "UP" ? "ArrowUp" : queued === "DOWN" ? "ArrowDown" : queued === "M" ? "KeyM" : queued;
         replies.push(
           { tick, event: { kind: "key", name: queued, code, char: null, down: true } },
-          { tick, event: { kind: "key", name: queued, code, char: null, down: false } },
+          { tick: tick + 1, event: { kind: "key", name: queued, code, char: null, down: false } },
         );
+        keyEndTick = tick + 1;
         queued = undefined;
       }
-      if (until(state())) return state();
+      const report = engine.advance(keyEndTick !== null && replies.some((record) => record.event.kind === "key") ? 2 : 1, replies);
+      diagnostics.push(...report.diagnostics.map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`));
+      replies = report.requests.flatMap((request) => answer(request as never).map((event) => ({ tick: report.tickAfter, event })));
+      if (report.loading) continue;
+      const ready = state().menu.screens.length === 0 || state().vm.threads.some((thread) => thread.status === "waiting" && (thread.wait?.kind === "input.key" || thread.wait?.kind === "render.msgbox"));
+      if (queued === undefined && replies.length === 0 && ready && (keyEndTick === null || state().time.tick > keyEndTick) && until(state())) return state();
     }
     const current = latest;
-    throw new Error(`the menu did not reach the expected state: screens=${JSON.stringify(current?.menu.screens ?? null)} threads=${(current?.vm.threads ?? []).map((thread) => `${thread.kind}:${thread.status}:${thread.wait?.kind ?? "-"}`).join(",")} requests=${requests.join(",")}`);
+    throw new Error(`the menu did not reach the expected state: screens=${JSON.stringify(current?.menu.screens ?? null)} threads=${(current?.vm.threads ?? []).map((thread) => `${thread.kind}:${thread.status}:${thread.wait?.kind ?? "-"}`).join(",")} requests=${requests.join(",")} diagnostics=${diagnostics.join("; ")}`);
   }
-  return { engine, state, pump, requests, saves };
+  const session = { engine, state, pump, requests, saves, loads, diagnostics };
+  pump((current) => current.engine.boot?.stage === "running" && !current.vm.threads.some((thread) => thread.kind === "blocking" && thread.status !== "finished"));
+  if (options.startup !== "end()\n") {
+    startThread(state().vm, { ref: { kind: "inline", text: options.startup, ir: IR_VERSION }, kind: "blocking", owner: "script" });
+  }
+  return session;
 }
 
 /** Send one key on the next tick and let the screen handle it. */
 function press(session: Session, key: string): GameState {
-  const state = session.state();
-  return session.pump((current) => current.time.tick > state.time.tick, key);
+  const tick = session.state().time.tick;
+  return session.pump((current) => current.time.tick > tick, key);
 }
 
 /** The overlay blit the menu contributes to the draw list (E-80 §4). */
@@ -259,19 +287,25 @@ function overlayBlits(engine: Engine): number {
   return engine.drawList().commands.filter((command) => command.kind === "blit" && "surface" in command.source).length;
 }
 
+test("three separately delivered keys move the selection in order", () => {
+  const session = boot({ startup: "mainmenu()\n" });
+  equal(session.pump((state) => state.menu.screens.length === 1).menu.screens[0]!.selection, 0);
+  equal(press(session, "DOWN").menu.screens[0]!.selection, 1);
+  equal(press(session, "DOWN").menu.screens[0]!.selection, 2);
+  equal(press(session, "UP").menu.screens[0]!.selection, 1);
+});
+
 test("the menu key opens the main screen and the menu key closes it", () => {
-  const session = boot({ startup: "wait()\n" });
-  session.pump((state) => state.vm.threads.some((thread) => thread.kind === "blocking"));
-  ok(openMainMenu(session.state()), "the menu key starts the main screen");
-  const opened = session.pump((state) => state.menu.screens.length === 1);
+  const session = boot({ startup: "end()\n" });
+  session.pump((state) => state.engine.boot?.stage === "running" && !state.vm.threads.some((thread) => thread.kind === "blocking" && thread.status !== "finished"));
+  const opened = session.pump((state) => state.menu.screens.length === 1, "M");
   equal(opened.menu.screens[0]!.screen, "main");
   ok(overlayBlits(session.engine) >= 1, "the screen is one overlay blit in the draw list");
   const closed = press(session, "ESC");
   equal(closed.menu.screens.length, 0, "cancel closes the outermost screen");
 });
 
-test("every screen opens directly through its facade and the compatibility index", () => {
-  for (const [startup, expected] of [
+for (const [startup, expected] of [
     ["mainmenu()\n", "main"],
     ["itemmenu()\n", "items"],
     ["equipmentmenu()\n", "equipment"],
@@ -280,13 +314,23 @@ test("every screen opens directly through its facade and the compatibility index
     ["internalmenu(1)\n", "items"],
     ["internalmenu(2)\n", "equipment"],
     ["internalmenu(4)\n", "abilities"],
-  ] as const) {
+] as const) {
+  test(`${startup.trim()} opens ${expected} directly`, () => {
     const session = boot({ startup });
     const state = session.pump((current) => current.menu.screens.length === 1);
     equal(state.menu.screens[0]!.screen, expected, `${startup.trim()} opens ${expected}`);
     ok(overlayBlits(session.engine) >= 1, `${expected} draws its overlay`);
     equal(press(session, "ESC").menu.screens.length, 0, `${expected} closes on cancel`);
-  }
+  });
+}
+
+test("a child screen returns to the same usable main menu", () => {
+  const session = boot({ startup: "mainmenu()\n" });
+  session.pump((state) => state.menu.screens.length === 1);
+  equal(press(session, "ENTER").menu.screens.at(-1)?.screen, "items");
+  equal(press(session, "ESC").menu.screens.at(-1)?.screen, "main");
+  equal(press(session, "DOWN").menu.screens[0]?.selection, 1);
+  deepEqual(session.diagnostics, []);
 });
 
 test("a key item cannot be dropped and an ordinary item is dropped once", () => {
@@ -296,11 +340,41 @@ test("a key item cannot be dropped and an ordinary item is dropped once", () => 
   // Stack 1 is the key, stack 2 the potion. Confirm opens the action rows, two downs select Drop, confirm drops.
   for (const key of ["ENTER", "DOWN", "DOWN", "ENTER"]) state = press(session, key);
   equal(state.inventory.items.find((entry) => entry.handle === "Brass key")?.quantity, 1, "the key item is still carried");
-  ok(session.requests.includes("asset"), "the refusal read the item definition first");
+  equal(state.inventory.items.length, 2, "the attempted drop did not remove any stack");
   // Back to the list, move to the potion, and drop it: one unit leaves the stack.
   for (const key of ["ESC", "DOWN", "ENTER", "DOWN", "DOWN", "ENTER"]) state = press(session, key);
   equal(state.inventory.items.find((entry) => entry.handle === "Potion"), undefined, "the potion stack is gone");
   equal(state.inventory.items.find((entry) => entry.handle === "Brass key")?.quantity, 1, "the key is untouched");
+});
+
+test("item info returns to actions and item use consumes the chosen stack", () => {
+  const session = boot({ startup: 'giveitem("potion")\nitemmenu()\n' });
+  session.pump((state) => state.menu.screens.length === 1);
+  for (const key of ["ENTER", "DOWN", "ENTER"]) press(session, key);
+  equal(session.state().inventory.items[0]?.quantity, 1, "Info does not consume the item");
+  for (const key of ["ESC", "UP", "ENTER", "ENTER"]) press(session, key);
+  equal(session.state().inventory.items.length, 0, "Use consumes the item");
+  equal(session.state().actors.actors[0]?.stats.hp, 20, "Use applies the menu HP effect");
+  deepEqual(session.diagnostics, []);
+});
+
+test("equipment selects a member, slot and item, then removes it", () => {
+  const session = boot({ startup: 'giveitem("potion")\nequipmentmenu()\n' });
+  session.pump((state) => state.menu.screens.length === 1);
+  for (const key of ["ENTER", "ENTER", "ENTER"]) press(session, key);
+  equal(session.state().inventory.equipment[0]?.slot, "head", "the selected item is equipped in the head slot");
+  for (const key of ["ENTER", "ENTER"]) press(session, key);
+  equal(session.state().inventory.equipment.length, 0, "Remove clears the slot");
+  equal(session.state().inventory.items[0]?.quantity, 1, "Remove returns the item to inventory");
+  deepEqual(session.diagnostics, []);
+});
+
+test("abilities show info and run a board-usable move", () => {
+  const session = boot({ startup: "abilitiesmenu()\n" });
+  session.pump((state) => state.menu.screens.length === 1);
+  for (const key of ["ENTER", "ENTER", "DOWN", "ENTER", "ESC", "UP", "ENTER"]) press(session, key);
+  equal(session.state().vm.globals.abilityused, 1, "Use runs the move's board program");
+  deepEqual(session.diagnostics, []);
 });
 
 test("Save is gated by the board's disable-saving flag", () => {
@@ -319,13 +393,49 @@ test("Save lists the save area and then writes the chosen slot", () => {
   ok(session.requests.includes("listBlobs"), "the picker reads the save area");
   session.pump(() => session.saves.length === 1, "ENTER");
   equal(session.saves.length, 1, "the chosen slot is written once through the ordinary save path");
+  ok(session.saves[0]!.endsWith("/slot1.sav"), `selected save: ${session.saves[0]}`);
+  deepEqual(session.diagnostics, []);
+});
+
+test("Load lists the save area and requests the chosen save", () => {
+  const session = boot({ startup: "mainmenu()\n" });
+  session.pump((current) => current.menu.screens.length === 1);
+  for (const key of ["UP", "UP", "ENTER"]) press(session, key);
+  ok(session.requests.includes("listBlobs"), "Load lists the save area");
+  press(session, "ENTER");
+  equal(session.loads.length, 1, "Load reads one selected save");
+  ok(session.loads[0]!.endsWith("/slot1.sav"), `selected save: ${session.loads[0]}`);
+  equal(session.saves.length, 0);
+});
+
+test("dirsav can be entered directly and returns the selected base name", () => {
+  const session = boot({ startup: 'choice = dirsav("Load", 0, 0, 0, "")\n' });
+  session.pump((state) => session.requests.includes("listBlobs") && state.vm.threads.some((thread) => thread.wait?.kind === "input.key"));
+  const state = press(session, "ENTER");
+  equal(state.vm.globals.choice, "slot1");
+  deepEqual(session.diagnostics, []);
 });
 
 test("MenuGraphic is stored on the menu section and drawn by the screen", () => {
   const session = boot({ startup: 'menugraphic("layout.png")\nmainmenu()\n' });
   const state = session.pump((current) => current.menu.screens.length === 1);
   equal(state.menu.graphic, "layout.png", "menugraphic writes the menu section through its owner");
-  ok(overlayBlits(session.engine) >= 1);
+  const entry = state.surfaces.entries[String(state.surfaces.renderNow)];
+  ok(entry, "the render-now surface exists");
+  const surface = session.engine.surfacePixels(entry.id, entry.rev);
+  ok(surface, "the drawn menu pixels are available");
+  const offset = (15 * 320 + 15) * 4;
+  deepEqual([...surface.rgba.subarray(offset, offset + 4)], [200, 40, 40, 255], "the custom image is drawn behind the rows");
+});
+
+test("Quit closes the screen and sends the normal host request", () => {
+  const session = boot({ startup: "mainmenu()\n" });
+  session.pump((state) => state.menu.screens.length === 1);
+  press(session, "UP");
+  const state = press(session, "ENTER");
+  equal(state.menu.screens.length, 0);
+  session.pump(() => session.requests.includes("quit"));
+  equal(session.requests.filter((kind) => kind === "quit").length, 1);
 });
 
 /** The files the `ui` track has started, most recent last. */
@@ -347,12 +457,23 @@ test("a cursor move plays the main file's move sound on the ui track, and no nam
   deepEqual(uiFiles(silentState), [], "without a main-file name the move is silent");
 });
 
+test("confirm and cancel play their configured ui cues", () => {
+  const session = boot({ startup: "mainmenu()\n", sounds: true });
+  session.pump((state) => state.menu.screens.length === 1);
+  ok(uiFiles(press(session, "ENTER")).includes(assetKey("media/confirm.wav")), "confirm plays its cue");
+  ok(uiFiles(press(session, "ESC")).includes(assetKey("media/cancel.wav")), "cancel plays its cue");
+});
+
 test("the same input log replays to the same draw list and state hash", () => {
-  const runOnce = (): { readonly draw: string; readonly hash: string } => {
+  const runOnce = (first: string): { readonly draw: string; readonly pixels: string; readonly hash: string } => {
     const session = boot({ startup: "mainmenu()\n", sounds: true });
     let state = session.pump((current) => current.menu.screens.length === 1);
-    for (const key of ["DOWN", "DOWN", "ENTER", "ESC", "ESC"]) state = press(session, key);
-    return { draw: hashDrawList(session.engine.drawList()), hash: hashState(state) };
+    state = press(session, first);
+    const entry = state.surfaces.entries[String(state.surfaces.renderNow)];
+    ok(entry);
+    const surface = session.engine.surfacePixels(entry.id, entry.rev);
+    ok(surface);
+    return { draw: hashDrawList(session.engine.drawList()), pixels: fnv1a64(surface.rgba), hash: hashState(state) };
   };
-  deepEqual(runOnce(), runOnce(), "two runs of one input log agree");
+  deepEqual(runOnce("DOWN"), runOnce("DOWN"), "two runs of one input log agree");
 });

@@ -55,6 +55,12 @@ function internalDocs(summary: string, behaviour: string, waits: NonNullable<Bui
 const NO_WAIT: NonNullable<BuiltinDoc["waits"]> = { kind: "never", summary: "Does not wait." };
 const ASSET_WAIT: NonNullable<BuiltinDoc["waits"]> = { kind: "host-request", summary: "Waits for the host to load and return the requested asset." };
 
+function record(vm: Parameters<typeof createObject>[0], fields: Readonly<Record<string, Value>>): Value {
+  const object = createObject(vm, null);
+  for (const [key, value] of Object.entries(fields)) writeMember(object, key, value);
+  return objectValue(object);
+}
+
 /** A fresh RPGCode dictionary whose entries are the given plain records, indexed 0..n-1. */
 function dictionary(vm: Parameters<typeof createObject>[0], rows: readonly { readonly [key: string]: Value }[]): Value {
   const array = createObject(vm, null);
@@ -151,7 +157,7 @@ const ITEM_ASSET: BuiltinSpec = {
     allowed.forEach((name, index) => writeMember(names, String(index), name));
     writeMember(names, "length", allowed.length);
     return {
-      value: dictionary(view.state!.vm, [{
+      value: record(view.state!.vm, {
         name: item.name,
         description: item.description,
         keyitem: item.keyItem,
@@ -161,7 +167,7 @@ const ITEM_ASSET: BuiltinSpec = {
         accessory: item.accessoryName,
         usedby: item.usedBy,
         allowed: objectValue(names),
-      }]),
+      }),
     };
   },
 };
@@ -224,7 +230,7 @@ const CHARACTER_ASSET: BuiltinSpec = {
     }
     writeMember(moves, "length", count);
     return {
-      value: dictionary(vm, [{
+      value: record(vm, {
         name: character.name,
         portrait: character.profilePicture,
         bodyslots: objectValue(body),
@@ -233,7 +239,7 @@ const CHARACTER_ASSET: BuiltinSpec = {
         hasspecial: character.hasSpecialMoves === 0 ? 1 : 0,
         specialcount: count,
         specialmoves: objectValue(moves),
-      }]),
+      }),
     };
   },
 };
@@ -253,7 +259,7 @@ const SAVE_LIST: BuiltinSpec = {
 };
 
 const SAVE_LIST_REPLY: BuiltinSpec = {
-  name: SAVE_LIST_CONTINUATION, aliases: [], params: [parameter("names")],
+  name: SAVE_LIST_CONTINUATION, aliases: [], params: [parameter("ok"), parameter("names")],
   doc: internalDocs("Resume a save-area listing.", "Splits the host's newline-separated names into the dictionary `savelist` returns.", NO_WAIT),
   call: (view, args) => {
     const raw = text(args, 1);

@@ -326,7 +326,7 @@ export const INVENTORY_HOST_TYPE: HostObjectType = {
     }
     if (name === "equipment") {
       return dictionary(context.vm, state.inventory.equipment.map((entry) => ({
-        actorId: entry.actorId, slot: entry.slot, itemId: entry.itemId,
+        actorid: entry.actorId, slot: entry.slot, itemid: entry.itemId,
       })));
     }
     return undefined;

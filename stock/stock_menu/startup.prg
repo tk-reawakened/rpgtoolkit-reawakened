@@ -2,8 +2,8 @@
 // docs/spec/engine/plugins-and-battle.md#e-80-stock-menu
 //
 // The four screens are RPGCode `menuProviders` and the save/load picker is the `dirsav` command layer. Each
-// provider is its screen's own blocking loop on the calling script thread: draw, `threadsleep(1/60)`, read one key
-// with `get()`, handle it, repeat. The package owns navigation and drawing only; party, inventory, equipment and
+// provider is its screen's own blocking loop on the calling script thread: draw, wait for one key, handle it, repeat.
+// The package owns navigation and drawing only; party, inventory, equipment and
 // menu state are read through the read-only provider context and changed only through the owner actions.
 //
 // Everything drawn goes into the reserved render-now overlay, whose previous pixels are stashed and restored when
@@ -139,6 +139,13 @@ stockMenu = {
 
     // ---- frame lifecycle -------------------------------------------------------------------------------------
     begin: (context, screenName) => {
+        local(parent) = {
+            context: stockMenu.context, screenName: stockMenu.screenName, w: stockMenu.w, h: stockMenu.h,
+            screen: stockMenu.screen, stash: stockMenu.stash, stashOn: stockMenu.stashOn,
+            savedFont: stockMenu.savedFont, savedR: stockMenu.savedR, savedG: stockMenu.savedG, savedB: stockMenu.savedB,
+            mode: stockMenu.mode, member: stockMenu.member, slot: stockMenu.slot, message: stockMenu.message,
+            charCache: stockMenu.charCache, itemCache: stockMenu.itemCache
+        }
         local(w) = 0
         local(h) = 0
         getres(w, h)
@@ -146,9 +153,6 @@ stockMenu = {
         stockMenu.screenName = screenName
         stockMenu.w = w
         stockMenu.h = h
-        stockMenu.mode = "list"
-        stockMenu.member = 0
-        stockMenu.slot = 0
         stockMenu.message = ""
         stockMenu.savedFont = getfontsize()
         stockMenu.savedR = 0
@@ -163,9 +167,9 @@ stockMenu = {
         }
         rendernow(1)
         stockMenu.screen = cnvrendernow
-        return 0
+        return parent
     },
-    close: () => {
+    close: (parent) => {
         clear(stockMenu.screen)
         if (stockMenu.stash != 0) {
             drawcanvas(stockMenu.stash, 0, 0, stockMenu.w, stockMenu.h, stockMenu.screen)
@@ -177,10 +181,23 @@ stockMenu = {
         }
         fontsize(stockMenu.savedFont)
         colorrgb(stockMenu.savedR, stockMenu.savedG, stockMenu.savedB)
-        stockMenu.screen = 0
-        stockMenu.context = null
-        stockMenu.charCache = {}
-        stockMenu.itemCache = {}
+        stockMenu.context = parent.context
+        stockMenu.screenName = parent.screenName
+        stockMenu.w = parent.w
+        stockMenu.h = parent.h
+        stockMenu.screen = parent.screen
+        stockMenu.stash = parent.stash
+        stockMenu.stashOn = parent.stashOn
+        stockMenu.savedFont = parent.savedFont
+        stockMenu.savedR = parent.savedR
+        stockMenu.savedG = parent.savedG
+        stockMenu.savedB = parent.savedB
+        stockMenu.mode = parent.mode
+        stockMenu.member = parent.member
+        stockMenu.slot = parent.slot
+        stockMenu.message = parent.message
+        stockMenu.charCache = parent.charCache
+        stockMenu.itemCache = parent.itemCache
         return 0
     },
     // One key press, normalised: a game with bindings delivers action names, a game without delivers legacy names.
@@ -407,7 +424,7 @@ stockMenu = {
         local(done) = 0
         local(name) = ""
         local(selection) = 0
-        stockMenu.begin(context, "main")
+        local(parent) = stockMenu.begin(context, "main")
         while (done == 0) {
             stockMenu.drawMain(context)
             key = wait()
@@ -448,7 +465,7 @@ stockMenu = {
                             stockMenu.cue("cancel")
                         } else {
                             stockMenu.cue("choose")
-                            name = stockMenu.pick(context, "Save game", 1)
+                            name = dirsav("Save game", 1, 0, 0, "")
                             if (name != "CANCEL") {
                                 save(name)
                                 stockMenu.message = "Saved " + name
@@ -457,7 +474,7 @@ stockMenu = {
                     }
                     if (selection == 4) {
                         stockMenu.cue("choose")
-                        name = stockMenu.pick(context, "Load game", 0)
+                        name = dirsav("Load game", 0, 0, 0, "")
                         if (name != "CANCEL") {
                             load(name)
                             done = 1
@@ -471,7 +488,7 @@ stockMenu = {
                 }
             }
         }
-        stockMenu.close()
+        stockMenu.close(parent)
         return 0
     },
 
@@ -536,18 +553,20 @@ stockMenu = {
         local(result)
         local(data)
         local(actorId) = 0
+        local(parent) = stockMenu.begin(context, "items")
+        local(previousMode) = ""
         stockMenu.mode = "list"
         stockMenu.slot = 0
         stockMenu.member = 0
-        stockMenu.begin(context, "items")
         while (done == 0) {
             stockMenu.drawItems(context)
             key = wait()
             if (key != "") {
                 key = stockMenu.normalize(key)
+                previousMode = stockMenu.mode
                 stockMenu.message = ""
                 selection = stockMenu.selection()
-                if (stockMenu.mode == "list") {
+                if (previousMode == "list") {
                     if (key == "up" || key == "down" || key == "left" || key == "right") {
                         if (key == "up") { selection = stockMenu.wrap(selection - 1, stockMenu.stackCount) }
                         if (key == "down") { selection = stockMenu.wrap(selection + 1, stockMenu.stackCount) }
@@ -578,7 +597,7 @@ stockMenu = {
                     // Every sub-screen keeps its own index: `selection` is the stack while the list has the cursor.
                     stockMenu.withMember(stockMenu.context.party.selected, selection)
                 }
-                if (stockMenu.mode == "action") {
+                if (previousMode == "action") {
                     if (key == "up" || key == "down") {
                         if (key == "up") { stockMenu.slot = stockMenu.wrap(stockMenu.slot - 1, 3) }
                         if (key == "down") { stockMenu.slot = stockMenu.wrap(stockMenu.slot + 1, 3) }
@@ -626,7 +645,7 @@ stockMenu = {
                         }
                     }
                 } else {
-                    if (stockMenu.mode == "member") {
+                    if (previousMode == "member") {
                         if (key == "up" || key == "down") {
                             if (key == "up") { stockMenu.member = stockMenu.wrap(stockMenu.member - 1, stockMenu.memberCount) }
                             if (key == "down") { stockMenu.member = stockMenu.wrap(stockMenu.member + 1, stockMenu.memberCount) }
@@ -655,7 +674,7 @@ stockMenu = {
                             }
                         }
                     } else {
-                        if (stockMenu.mode == "info") {
+                        if (previousMode == "info") {
                             if (key == "cancel") {
                                 stockMenu.mode = "action"
                                 stockMenu.cue("cancel")
@@ -669,7 +688,7 @@ stockMenu = {
                 }
             }
         }
-        stockMenu.close()
+        stockMenu.close(parent)
         return 0
     },
 
@@ -782,10 +801,10 @@ stockMenu = {
         local(data)
         local(hasRemove) = 0
         local(cursor) = 0
+        local(parent) = stockMenu.begin(context, "equipment")
         stockMenu.mode = "member"
         stockMenu.member = 0
         stockMenu.slot = 0
-        stockMenu.begin(context, "equipment")
         while (done == 0) {
             stockMenu.drawEquipment(context)
             key = wait()
@@ -884,7 +903,7 @@ stockMenu = {
                 }
             }
         }
-        stockMenu.close()
+        stockMenu.close(parent)
         return 0
     },
     namesInclude: (allowed, name) => {
@@ -987,10 +1006,10 @@ stockMenu = {
         local(member)
         local(spc)
         local(program) = ""
+        local(parent) = stockMenu.begin(context, "abilities")
         stockMenu.mode = "member"
         stockMenu.member = 0
         stockMenu.slot = 0
-        stockMenu.begin(context, "abilities")
         while (done == 0) {
             stockMenu.drawAbilities(context)
             key = wait()
@@ -1090,7 +1109,7 @@ stockMenu = {
                 }
             }
         }
-        stockMenu.close()
+        stockMenu.close(parent)
         return 0
     },
 
@@ -1114,8 +1133,8 @@ stockMenu = {
             name = list[index].name
             // The picker shows the base name: `save(name)`/`load(name)` append the extension themselves.
             if (name != "") {
-                if (name.length > 4 && name.substring(name.length - 4, name.length) == ".sav") {
-                    name = name.substring(0, name.length - 4)
+                if (len(name) > 4 && right(name, 4) == ".sav") {
+                    name = left(name, len(name) - 4)
                 }
                 stockMenu.saveNames[stockMenu.saveCount] = name
                 stockMenu.saveCount = stockMenu.saveCount + 1
@@ -1125,7 +1144,7 @@ stockMenu = {
         if (allowNew != 0) {
             count = count + 1
         }
-        stockMenu.begin(context, "picker")
+        local(parent) = stockMenu.begin(context, "picker")
         while (done == 0) {
             stockMenu.clearPanel()
             stockMenu.header(title)
@@ -1171,7 +1190,7 @@ stockMenu = {
                 }
             }
         }
-        stockMenu.close()
+        stockMenu.close(parent)
         return choice
     },
 }
@@ -1202,8 +1221,8 @@ registerplugin({
         internalmenu: (menu, next) => {
             return next(menu)
         },
-        dirsav: (title, allowNewFile, textColor, backColor, image) => {
-            local(selected) = stockMenu.pick(null, title, allowNewFile)
+        dirsav: (title, allowNewFile, textColor, backColor, image, next) => {
+            local(selected) = stockMenu.pick(stockMenu.context, title, allowNewFile)
             return selected
         },
     },
