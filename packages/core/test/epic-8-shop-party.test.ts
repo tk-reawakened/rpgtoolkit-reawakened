@@ -76,12 +76,7 @@ function openShop(): Session {
   // Full-engine duration is intentional: a focused owner test cannot prove RPGCode filename resolution, host-served
   // item bytes, a live `shop` menu provider frame and owner transactions driven by real input while it runs. The
   // scenario stays minimal (two listed items, one buy, one sale, two refusals) to avoid unrelated engine behaviour.
-  const session = bootHost({ game: gameWithShopItems(), catalogue, width: 320, height: 240, startup: "end()\n",
-    // A package start-up that reads an owner section leaves that section's live object frozen for readers; the walk
-    // below mutates the party section through the movement owner, so thaw it into a fresh plain object first.
-    phaseRegistrations: [{ phase: "movement", rank: -10, run: (state) => {
-      if (Object.isFrozen(state.party)) state.party = { ...state.party };
-    } }] });
+  const session = bootHost({ game: gameWithShopItems(), catalogue, width: 320, height: 240, startup: "end()\n" });
   // A real held ArrowRight walks the board player one 32-pixel tile before the script runs, so the step count is
   // earned by completed travel (a script that owns input would hold the direction rule off).
   const start = session.state().time.tick;
@@ -199,4 +194,24 @@ test("RPGCode Inn restores active party members including fallen members without
     equal(actor.stats.smp, actor.stats.maxSmp);
   }
   deepEqual(session.diagnostics, []);
+});
+
+
+test("opening a stock menu frame does not freeze the party section: a later walk counts one step", () => {
+  // Regression for the menu owner publishing a frozen copy instead of freezing the live section: the movement
+  // accumulator writes the party section after any menu has opened (docs/spec/engine/plugins-and-battle.md#e-80,
+  // docs/spec/engine/movement-and-collision.md#reawakened-party-steps).
+  const session = bootHost({ game: gameWithShopItems(), catalogue, width: 320, height: 240, startup: "end()\n" });
+  const opened = press(session, "M");
+  equal(opened.menu.screens[0]?.screen, "main", "the menu key opened the stock main screen");
+  const closed = press(session, "ESC");
+  equal(closed.menu.screens.length, 0, "cancel closed the menu");
+  const start = session.state().time.tick;
+  session.advance(1, [{ tick: start, event: { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true } }]);
+  session.advance(1, [{ tick: start + 1, event: { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: false } }]);
+  for (let step = 0; step < 20 && session.state().party.steps < 1; step += 1) session.advance(2);
+  const walked = session.state();
+  equal(walked.party.steps, 1, "one completed 32-pixel tile is exactly one step");
+  equal(walked.party.stepRemainder, 0, "a whole-tile move leaves no sub-tile remainder");
+  deepEqual(session.diagnostics, [], "the walk after a menu ran without a diagnostics entry");
 });
