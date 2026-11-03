@@ -12,30 +12,30 @@
       "checkpoints": [
         {
           "tick": 30,
-          "stateHash": "e567b2bcdc5c468f"
+          "stateHash": "025bc876935710d1"
         },
         {
           "tick": 60,
-          "stateHash": "fa6f2e07e63796e9"
+          "stateHash": "922b3d097a1fd0bb"
         },
         {
           "tick": 90,
-          "stateHash": "a8e2f300126cad31"
+          "stateHash": "a22601e6a3a4a863"
         },
         {
           "tick": 120,
-          "stateHash": "1572b3583023b0ab"
+          "stateHash": "4ca772da15aac8d5"
         },
         {
           "tick": 600,
-          "stateHash": "de047f6d4d1bee1e"
+          "stateHash": "44c032c08416480e"
         }
       ],
       "frames": [
         {
           "label": "title",
           "tick": 30,
-          "stateHash": "e567b2bcdc5c468f",
+          "stateHash": "025bc876935710d1",
           "drawHash": "e9d1e41266eb0d94",
           "pixelHash": "d8e1caa95e9e4249",
           "commands": 6,
@@ -46,7 +46,7 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "1572b3583023b0ab",
+          "stateHash": "4ca772da15aac8d5",
           "drawHash": "9c0e4d56e59619da",
           "pixelHash": "11119c84367c565f",
           "commands": 122,
@@ -57,7 +57,7 @@
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "de047f6d4d1bee1e",
+          "stateHash": "44c032c08416480e",
           "drawHash": "a0d501bd6cdf7837",
           "pixelHash": "11119c84367c565f",
           "commands": 122,
@@ -77,30 +77,30 @@
       "checkpoints": [
         {
           "tick": 30,
-          "stateHash": "355b65989968f644"
+          "stateHash": "e2372c4ff1cb12ec"
         },
         {
           "tick": 60,
-          "stateHash": "bd2dfd534d151da0"
+          "stateHash": "8c2a8f3afa8888d0"
         },
         {
           "tick": 90,
-          "stateHash": "a690977cdd15e7e8"
+          "stateHash": "0b312cfe240d8298"
         },
         {
           "tick": 120,
-          "stateHash": "a1a5118d36e7b0fe"
+          "stateHash": "1d524f2078f50c96"
         },
         {
           "tick": 600,
-          "stateHash": "4bf1c5b0ffb00d05"
+          "stateHash": "6e4ec7dd011badef"
         }
       ],
       "frames": [
         {
           "label": "title",
           "tick": 30,
-          "stateHash": "355b65989968f644",
+          "stateHash": "e2372c4ff1cb12ec",
           "drawHash": "0fcb9b8ab34b515c",
           "pixelHash": "d8e1caa95e9e4249",
           "commands": 6,
@@ -111,7 +111,7 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "a1a5118d36e7b0fe",
+          "stateHash": "1d524f2078f50c96",
           "drawHash": "ecb1ee38ded5da74",
           "pixelHash": "0a31791bdaaf1e65",
           "commands": 301,
@@ -122,7 +122,7 @@
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "4bf1c5b0ffb00d05",
+          "stateHash": "6e4ec7dd011badef",
           "drawHash": "009f616f91048cf1",
           "pixelHash": "0a31791bdaaf1e65",
           "commands": 301,

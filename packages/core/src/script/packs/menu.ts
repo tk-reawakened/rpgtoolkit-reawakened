@@ -49,6 +49,9 @@ function numeric(args: readonly Arg[], index: number): number {
 function docs(summary: string, behaviour: string, waits: NonNullable<BuiltinDoc["waits"]>): BuiltinDoc {
   return { summary, behaviour, groups: [MENU_GROUP], waits };
 }
+function nativeDocs(summary: string, behaviour: string, waits: NonNullable<BuiltinDoc["waits"]>): BuiltinDoc {
+  return { ...docs(summary, behaviour, waits), groups: [MENU_GROUP, "reawakened-additions-not-part-of-the-282-legacy-catalogue"] };
+}
 function internalDocs(summary: string, behaviour: string, waits: NonNullable<BuiltinDoc["waits"]>): BuiltinDoc {
   return { ...docs(summary, behaviour, waits), access: "internal" };
 }
@@ -132,7 +135,7 @@ const MENU_GRAPHIC: BuiltinSpec = {
 
 const ITEM_DATA: BuiltinSpec = {
   name: "menuitemdata", aliases: [], params: [parameter("file")],
-  doc: docs(
+  doc: nativeDocs(
     "Read an item file's menu fields and description.",
     "Loads Item/<file>.itm (the prefix and extension may be omitted) and returns its stored menu-relevant values as a dictionary without changing any actor, inventory or menu state: `name` and `description` (the text exactly as stored, the empty string when none), `keyitem` and `menuy` (the stored bytes passed through unchanged: a non-zero `keyitem` is a key item, and `menuy` follows the file's own 1 = usable-from-the-menu rule), `equipable`, `slots` (the six body slots keyed by their canonical E-82 tokens, 1 when the file fits that slot), `accessory` (the file's accessory name, the empty string when it names none), and `usedby` with `allowed` (the stored flag and the stored character names). It refuses nothing itself, checks no quantity and waits for the host to load the file.",
     ASSET_WAIT,
@@ -174,8 +177,8 @@ const ITEM_ASSET: BuiltinSpec = {
 
 const CHARACTER_DATA: BuiltinSpec = {
   name: "menucharacterdata", aliases: [], params: [parameter("file"), parameter("actorId")],
-  doc: docs(
-    "Read a character file's portrait, slot names and special moves for the stock menu.",
+  doc: nativeDocs(
+    "Read a character file's portrait, slot names and special moves.",
     "Loads Chrs/<file>.tem (the prefix and extension may be omitted) and returns `name`, `portrait` (the stored profile-picture reference, the empty string when none), `bodyslots` (the six body slots keyed by their canonical E-82 tokens, 1 when the character accepts that slot), `accessoryslots` (a dictionary from `accessory-7` through `accessory-16` of the stored accessory name for each, the empty string when the slot has none), `specialname` and `hasspecial` (the stored menu label and the stored flag, passed through unchanged), and `specialmoves` — a dictionary indexed from 0 through `specialcount - 1` of the non-empty slots, each `{ file, minexp, minlevel, available }`, where `available` follows the same learn-condition rule `battlecharacterdata` uses and is evaluated against the actor named by `actorId`, so the same list works on the board where no battle exists. It reads the file and changes no actor, sprite, equipment or battle state; the owner still validates every equip and every move the screen runs.",
     ASSET_WAIT,
   ),
@@ -246,7 +249,7 @@ const CHARACTER_ASSET: BuiltinSpec = {
 
 const SAVE_LIST: BuiltinSpec = {
   name: "savelist", aliases: [], params: [],
-  doc: docs(
+  doc: nativeDocs(
     "List the save area's file names.",
     "Issues one host request for the names in the game's save area and returns them as a dictionary indexed from 0 through `length - 1`, in the order the host reported them. An engine with no game identity or no save area returns an empty list and its ordinary refusal diagnostic rather than an error the script must catch. It reads no save and changes no state; the stock `dirsav` picker draws its rows from it.",
     { kind: "host-request", summary: "Waits for the host to list the save area." },

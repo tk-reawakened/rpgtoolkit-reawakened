@@ -360,15 +360,17 @@ test("corpus: whole fetched corpus suite over fixtures/legacy runs all 10 progra
   // screen (`clear()`); the other programs never put a screen entry into the saved state.
   // Re-pinned by #589: `vm` moved to schema version 7 (the per-frame `itemActions` stack). Nothing else moved:
   // with the version put back to 6 every previous value (see git history) is reproduced exactly.
+  // #585: only both sample-start hashes move because their menuGraphic("layout.png") now writes menu.graphic.
+  // Restoring the old mixed/ui responder reproduces both previous hashes and all eight closing baselines exactly.
   const expectedHashes: Record<string, string> = {
-    "sample-start-demo": "3c9570df369b99ee",
+    "sample-start-demo": "35f8f59cdb36bc78",
     "sample-system-demo": "7eea74147387c5ce",
     "sample-sys-test-demo": "7eea74147387c5ce",
     "sample-win-demo": "ca4bcc0a4d207f84",
     "sample-oldman-demo": "793d61748a516877",
     "sample-man-demo": "32680483084d42f5",
     "sample-man-wander-demo": "b7261458ac67e304",
-    "sample-start-basic": "22ee04bf53f84146",
+    "sample-start-basic": "6a2681637aea3c40",
     "sample-system-basic": "7eea74147387c5ce",
     "sample-wander-basic": "48c259bcfb158d0a",
   };
