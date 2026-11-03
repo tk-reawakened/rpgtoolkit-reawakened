@@ -381,7 +381,7 @@ test("corpus: whole fetched corpus suite over fixtures/legacy runs all 10 progra
   };
 
   for (const res of results) {
-    if (res.stateHash !== expectedHashes[res.id]) console.log("REPIN", res.id, res.stateHash);
+    equal(res.stateHash, expectedHashes[res.id], `hash mismatch for ${res.id}`);
   }
 });
 

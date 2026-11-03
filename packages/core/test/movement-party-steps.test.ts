@@ -14,6 +14,7 @@ import {
   createAssetIndex,
   createEmptyBoard,
   createEngine,
+  createGameState,
   createScriptServices,
   enqueueDirectionMove,
   fileProgramRef,
@@ -21,6 +22,7 @@ import {
   inputPhaseRegistration,
   movementPhaseRegistration,
   PACKAGE_ROOT,
+  projectGameLedger,
   restoreGameSave,
   snapshotGameSave,
   startProgram,
@@ -32,6 +34,7 @@ import {
   type ProgramLoader,
   type WorldBoard,
 } from "../src/index.ts";
+import { applyRecoveryLedger } from "../src/engine/recovery.ts";
 
 /** A wall segment: `left` and `right` board pixels, spanning the board vertically. */
 type Wall = { readonly left: number; readonly right: number };
@@ -82,7 +85,7 @@ function makeRig(options: Options) {
           handle: "wall", attributes: 0, closed: 1, layer: 1, type: 1,
           points: [{ x: wall.left, y: 32 }, { x: wall.right, y: 32 }, { x: wall.right, y: 200 }, { x: wall.left, y: 200 }],
         }];
-        const board = { ...base, key: assetKey("boards/test.brd"), width: 320, height: 240, vectors } as unknown as WorldBoard;
+        const board = { ...base, key: assetKey("boards/test.brd"), width: 320, height: 240, sizeX: 10, sizeY: 8, sizeL: 1, vectors } as unknown as WorldBoard;
         current.world = { board };
         world = board;
         const hero = addActor(current.actors, { kind: "party", source: "hero.tem", name: "Hero" });
@@ -192,9 +195,14 @@ test("a blocked move contributes no distance, not even its partial advance", () 
   equal(rig.state.party.stepRemainder, 8 * 256);
   const stepsBefore = rig.state.party.steps;
   const remainderBefore = rig.state.party.stepRemainder;
+  rig.events.length = 0;
 
   rig.move(["ArrowRight"]);
   ok(rig.events.some((event) => event.type === "blocked" && event.vector === "wall"), "the second move hit the wall");
+  ok(
+    !rig.events.some((event) => event.type === "step-complete"),
+    "a blocked step reports no completion at all, so nothing can reach the counter",
+  );
   equal(rig.player().x, 60, "the blocked 8 px move retained its 4 px partial advance");
   equal(rig.state.party.steps, stepsBefore, "the blocked move does not increment the counter");
   equal(
@@ -217,6 +225,39 @@ test("a wall slide that completes the move contributes its displacement", () => 
   deepEqual(completions.map((event) => event.partyDistance256), [2865], "the slide completes as a successful step");
   equal(rig.state.party.steps, 0);
   equal(rig.state.party.stepRemainder, 2865, "the completed slide's distance is in the remainder");
+});
+
+test("the counter follows the input-selected sprite, not the party's roster selection", () => {
+  const rig = makeRig({ pixelMovement: 1, pixelStep: 8 });
+  const other = rig.state.party.members[1]!;
+  // A script may select another party member without moving the sprite selection; the walked sprite still walks.
+  rig.state.party.selected = other;
+  equal(rig.state.sprites.selectedPlayer, "hero", "the input layer still drives hero");
+  for (let index = 0; index < 4; index += 1) rig.move(["ArrowRight"]);
+  equal(rig.state.party.steps, 1, "the sprite the input drives is the one the counter follows");
+  equal(rig.state.party.selected, other, "the roster selection is not rewritten by walking");
+
+  rig.state.party.selected = rig.state.party.members[0]!;
+  enqueueDirectionMove(rig.state.sprites, "other", "E", 1, 8);
+  for (let tick = 0; tick < 12; tick += 1) rig.engine.advance(1, []);
+  equal(rig.state.party.steps, 1, "a sprite the input does not drive contributes nothing even while its actor is selected");
+});
+
+test("the interruption-recovery ledger carries the sub-tile remainder", () => {
+  const rig = makeRig({ pixelMovement: 1, pixelStep: 8 });
+  rig.move(["ArrowRight"]);
+  rig.move(["ArrowRight"]);
+  rig.move(["ArrowRight"]);
+  equal(rig.state.party.steps, 0);
+  equal(rig.state.party.stepRemainder, 24 * 256);
+
+  const ledger = projectGameLedger(rig.state);
+  equal(ledger.party.steps, 0);
+  equal(ledger.party.stepRemainder, 24 * 256, "the ledger projection carries the remainder");
+  const target = createGameState({ seed: 3 });
+  applyRecoveryLedger(target, ledger);
+  equal(target.party.steps, 0);
+  equal(target.party.stepRemainder, 24 * 256, "a recovered game keeps the accumulation");
 });
 
 test("an RPGCode menu provider reads the movement counter from context.party.steps", () => {
