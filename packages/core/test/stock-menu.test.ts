@@ -222,6 +222,7 @@ function boot(options: GameOptions): Session {
   function pump(until: (state: GameState) => boolean, key?: string, limit = 150): GameState {
     let replies: InputRecord[] = [];
     let queued = key;
+
     for (let step = 0; step < limit; step += 1) {
       const report = engine.advance(1, replies);
       const tick = report.tickAfter;

@@ -93,7 +93,7 @@ stockMenu = {
         if (stockMenu.context != null) {
             graphic = stockMenu.context.menu.graphic
         }
-        if (graphic != "") {
+        if (graphic != 0 && graphic != "") {
             setimage(graphic, 8, 8, stockMenu.w - 16, stockMenu.h - 16, stockMenu.screen)
         }
         stockMenu.frame(8, 8, stockMenu.w - 9, stockMenu.h - 9, stockMenu.lineR, stockMenu.lineG, stockMenu.lineB)
@@ -382,7 +382,7 @@ stockMenu = {
             caption = member.name + "  HP " + member.hp + "/" + member.maxhp + "  SMP " + member.smp + "/" + member.maxsmp + "  Lv " + member.level
             stockMenu.row(y, caption, "", 0, 0)
             portrait = stockMenu.characterData(member.source, member.id).portrait
-            if (portrait != "") {
+            if (portrait != 0 && portrait != "") {
                 setimage(portrait, 24, y, 16, 16, stockMenu.screen)
             }
             y = y + stockMenu.rowH
@@ -410,8 +410,7 @@ stockMenu = {
         stockMenu.begin(context, "main")
         while (done == 0) {
             stockMenu.drawMain(context)
-            threadsleep(getthreadid(), 1/60)
-            key = get()
+            key = wait()
             if (key != "") {
                 key = stockMenu.normalize(key)
                 selection = stockMenu.selection()
@@ -543,8 +542,7 @@ stockMenu = {
         stockMenu.begin(context, "items")
         while (done == 0) {
             stockMenu.drawItems(context)
-            threadsleep(getthreadid(), 1/60)
-            key = get()
+            key = wait()
             if (key != "") {
                 key = stockMenu.normalize(key)
                 stockMenu.message = ""
@@ -790,8 +788,7 @@ stockMenu = {
         stockMenu.begin(context, "equipment")
         while (done == 0) {
             stockMenu.drawEquipment(context)
-            threadsleep(getthreadid(), 1/60)
-            key = get()
+            key = wait()
             if (key != "") {
                 key = stockMenu.normalize(key)
                 stockMenu.message = ""
@@ -996,8 +993,7 @@ stockMenu = {
         stockMenu.begin(context, "abilities")
         while (done == 0) {
             stockMenu.drawAbilities(context)
-            threadsleep(getthreadid(), 1/60)
-            key = get()
+            key = wait()
             if (key != "") {
                 key = stockMenu.normalize(key)
                 stockMenu.message = ""
@@ -1144,8 +1140,7 @@ stockMenu = {
             if (stockMenu.saveCount == 0 && allowNew == 0) {
                 stockMenu.words(stockMenu.labelX, stockMenu.listTop + 28, "No saves", 16, stockMenu.dimR, stockMenu.dimG, stockMenu.dimB)
             }
-            threadsleep(getthreadid(), 1/60)
-            key = get()
+            key = wait()
             if (key != "") {
                 key = stockMenu.normalize(key)
                 if (key == "up" || key == "down") {
