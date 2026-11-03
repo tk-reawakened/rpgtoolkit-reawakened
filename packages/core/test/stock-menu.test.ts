@@ -14,6 +14,9 @@ import {
   createAssetIndex,
   createEmptyBoard,
   createEmptyCharacter,
+  hashGameState,
+  restoreGameState,
+  snapshot,
   createEmptyItem,
   createEmptyMainFile,
   createEmptySpecialMove,
@@ -131,6 +134,14 @@ type GameOptions = {
   /** The logical resolution; the stock menu derives every position from it (E-80 stock item 4). */
   readonly width?: number;
   readonly height?: number;
+  /** `gear1.itm` … `gearN.itm`: extra equippable items, each fitting the head slot. */
+  readonly gear?: number;
+  /** `Move 1` … `Move N` in the hero's special-move slots (`mv1.spc` …), all usable from the menu. */
+  readonly moves?: number;
+  /** The names the host lists in the save area: `saved/slot1.sav` … `saved/slotN.sav` (default: one save and two decoys). */
+  readonly saves?: number;
+  /** `ally1.tem` … `allyN.tem`: extra characters a script can `addplayer`. */
+  readonly allies?: number;
 };
 
 function authoredGame(options: GameOptions): { readonly files: Files; readonly index: AssetIndex; readonly main: string } {
@@ -139,6 +150,9 @@ function authoredGame(options: GameOptions): { readonly files: Files; readonly i
     "main.gam", "Boards/start.brd", "Chrs/hero.tem", "Prg/start.prg",
     "Item/potion.itm", "Item/key.itm", "Item/sword.itm", "Bitmap/layout.png", "Bitmap/ghost.png", "Media/move.wav", "Media/confirm.wav", "Media/cancel.wav",
     "SpcMove/fire.spc", "Prg/fire.prg",
+    ...Array.from({ length: options.allies ?? 0 }, (_, index) => `Chrs/ally${index + 1}.tem`),
+    ...Array.from({ length: options.gear ?? 0 }, (_, index) => `Item/gear${index + 1}.itm`),
+    ...Array.from({ length: options.moves ?? 0 }, (_, index) => `SpcMove/mv${index + 1}.spc`),
   ];
   const main = {
     ...createEmptyMainFile(),
@@ -160,10 +174,18 @@ function authoredGame(options: GameOptions): { readonly files: Files; readonly i
     bodySlots: [0, 1, 1, 1, 1, 1, 1],
     profilePicture: "layout.png",
     hasSpecialMoves: 0,
-    specialMoves: createEmptyCharacter().specialMoves.map((slot, index) => index === 0 ? { ...slot, file: "fire.spc" } : slot),
+    specialMoves: createEmptyCharacter().specialMoves.map((slot, index) => index === 0
+      ? { ...slot, file: "fire.spc" }
+      : index <= (options.moves ?? 0) ? { ...slot, file: `mv${index}.spc` } : slot),
     movementAnimations: Array(8).fill(""),
     battleStances: ["", "", "", "", "", ""],
   })));
+  for (let index = 1; index <= (options.allies ?? 0); index += 1) {
+    files.set(assetKey(`chrs/ally${index}.tem`), unwrap(writeCharacter({
+      ...createEmptyCharacter(), minor: 5, name: `Ally ${index}`, stats: { ...createEmptyCharacter().stats, hp: 8, maxHp: 8, level: 1 },
+      bodySlots: [0, 1, 1, 1, 1, 1, 1], hasSpecialMoves: 0, movementAnimations: Array(8).fill(""), battleStances: ["", "", "", "", "", ""],
+    })));
+  }
   files.set(assetKey("item/potion.itm"), unwrap(writeItem({
     ...createEmptyItem(),
     minor: 4,
@@ -197,6 +219,14 @@ function authoredGame(options: GameOptions): { readonly files: Files; readonly i
   files.set(assetKey("spcmove/fire.spc"), unwrap(writeSpecialMove({
     ...createEmptySpecialMove(), minor: 3, name: "Fire", description: "A spark", program: "fire.prg",
   })));
+  for (let index = 1; index <= (options.gear ?? 0); index += 1) {
+    files.set(assetKey(`item/gear${index}.itm`), unwrap(writeItem({
+      ...createEmptyItem(), minor: 4, movementAnimations: Array(8).fill(""), name: `Gear ${index}`, description: "", equipable: 1, equipSlots: [0, 1, 0, 0, 0, 0, 0, 0],
+    })));
+  }
+  for (let index = 1; index <= (options.moves ?? 0); index += 1) {
+    files.set(assetKey(`spcmove/mv${index}.spc`), unwrap(writeSpecialMove({ ...createEmptySpecialMove(), minor: 3, name: `Move ${index}`, description: "", program: "" })));
+  }
   files.set(assetKey("prg/fire.prg"), new TextEncoder().encode("abilityused = 1\n"));
   files.set(assetKey("bitmap/layout.png"), encodePng(1, 1, new Uint8Array([200, 40, 40, 255])));
   for (const name of ["move", "confirm", "cancel"]) files.set(assetKey(`media/${name}.wav`), waveBytes());
@@ -208,7 +238,7 @@ type Session = {
   readonly engine: Engine;
   state(): GameState;
   /** Advance until `until` holds, answering every host request with the authored game's files. */
-  pump(until: (state: GameState) => boolean, key?: string, limit?: number): GameState;
+  pump(until: (state: GameState) => boolean, key?: string, limit?: number, initial?: InputRecord[]): GameState;
   readonly requests: string[];
   readonly loads: string[];
   readonly diagnostics: string[];
@@ -244,7 +274,7 @@ function boot(options: GameOptions): Session {
   function answer(request: { readonly kind: string; readonly reqId: number; readonly key?: string; readonly blob?: { readonly path: string } }): InputEvent[] {
     requests.push(request.kind);
     if (request.kind === "asset") return [{ kind: "asset", reqId: request.reqId, bytes: game.files.get(request.key as never) ?? null }];
-    if (request.kind === "listBlobs") return [{ kind: "blob.listed", reqId: request.reqId, names: ["files/other.sav", "saved/not-a-save.txt", "saved/slot1.sav"] }];
+    if (request.kind === "listBlobs") return [{ kind: "blob.listed", reqId: request.reqId, names: options.saves === undefined ? ["files/other.sav", "saved/not-a-save.txt", "saved/slot1.sav"] : Array.from({ length: options.saves }, (_, index) => `saved/slot${index + 1}.sav`) }];
     if (request.kind === "loadBlob") {
       loads.push(request.blob?.path ?? "");
       return [{ kind: "blob.loaded", reqId: request.reqId, bytes: null }];
@@ -255,8 +285,8 @@ function boot(options: GameOptions): Session {
     }
     return [];
   }
-  function pump(until: (state: GameState) => boolean, key?: string, limit = 20): GameState {
-    let replies: InputRecord[] = [];
+  function pump(until: (state: GameState) => boolean, key?: string, limit = 20, initial: InputRecord[] = []): GameState {
+    let replies: InputRecord[] = [...initial];
     let queued = key;
     let keyEndTick: number | null = null;
 
@@ -271,7 +301,9 @@ function boot(options: GameOptions): Session {
         keyEndTick = tick + 1;
         queued = undefined;
       }
-      const report = engine.advance(keyEndTick !== null && replies.some((record) => record.event.kind === "key") ? 2 : 1, replies);
+      // A key needs its down tick, its up tick and one to be handled; an injected report needs its tick and one to be handled.
+      const ticks = keyEndTick !== null && replies.some((record) => record.event.kind === "key") ? 3 : step === 0 && initial.length > 0 ? 2 : 1;
+      const report = engine.advance(ticks, replies);
       diagnostics.push(...report.diagnostics.map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`));
       replies = report.requests.flatMap((request) => answer(request as never).map((event) => ({ tick: report.tickAfter, event })));
       if (report.loading) continue;
@@ -293,6 +325,23 @@ function boot(options: GameOptions): Session {
 function press(session: Session, key: string): GameState {
   const tick = session.state().time.tick;
   return session.pump((current) => current.time.tick > tick, key);
+}
+
+/** Deliver one pointer report on the next tick; a press and its release are two reports on two ticks, like a real host. */
+function pointer(session: Session, x: number, y: number, buttons: number): GameState {
+  const tick = session.state().time.tick;
+  return session.pump((current) => current.time.tick > tick, undefined, 20, [{ tick, event: { kind: "pointer", x, y, buttons } }]);
+}
+
+/** Deliver one gamepad report (the action bitmask: up 1, down 2, left 4, right 8, confirm 16, cancel 32, menu 64). */
+function pad(session: Session, buttons: number): GameState {
+  const tick = session.state().time.tick;
+  return session.pump((current) => current.time.tick > tick, undefined, 20, [{ tick, event: { kind: "gamepad", device: 0, connected: true, axes: { x: 0, y: 0 }, buttons } }]);
+}
+
+/** A key script that gives one of each of `count` gear items, then opens `screen`. */
+function giveGear(count: number, screen: string): string {
+  return `${Array.from({ length: count }, (_, index) => `giveitem("gear${index + 1}")`).join("\n")}\n${screen}\n`;
 }
 
 /** The overlay blit the menu contributes to the draw list (E-80 §4). */
@@ -641,4 +690,280 @@ test("the same input log replays to the same draw list and state hash", () => {
     return { draw: hashDrawList(session.engine.drawList()), pixels: fnv1a64(surface.rgba), hash: hashState(state) };
   };
   deepEqual(runOnce("DOWN"), runOnce("DOWN"), "two runs of one input log agree");
+});
+
+// ---- pixels: what the paged lists and the focus bar look like (E-80 stock items 4 and 5) ----------------------
+
+type Pixels = { readonly w: number; readonly h: number; readonly rgba: Uint8Array };
+function pixelsOf(session: Session): Pixels {
+  const state = session.state();
+  const entry = state.surfaces.entries[String(state.surfaces.renderNow)];
+  if (entry === undefined) throw new Error("the render-now surface does not exist");
+  const surface = session.engine.surfacePixels(entry.id, entry.rev);
+  if (surface === null) throw new Error("the drawn menu pixels are not available");
+  return surface;
+}
+/** True when any pixel of the 16-pixel text band at `top` between two columns differs from the row's own background (x = 18). */
+function hasInk(pixels: Pixels, top: number, fromX: number, toX: number): boolean {
+  for (let y = top; y < top + 16 && y < pixels.h; y += 1) {
+    const background = (y * pixels.w + 18) * 4;
+    for (let x = fromX; x < toX; x += 1) {
+      const at = (y * pixels.w + x) * 4;
+      if ([0, 1, 2].some((channel) => pixels.rgba[at + channel] !== pixels.rgba[background + channel])) return true;
+    }
+  }
+  return false;
+}
+/** The page positions k (0-based, 24 px apart from y = 52) whose label column holds text. */
+function textRows(session: Session): number[] {
+  const pixels = pixelsOf(session);
+  const rows: number[] = [];
+  for (let k = 0; 52 + 24 * k + 16 <= pixels.h; k += 1) if (hasInk(pixels, 52 + 24 * k, 24, 150)) rows.push(k);
+  return rows;
+}
+/** Whether the page indicator's ink is on the header line, right of the header's own text. */
+function hasPageIndicator(session: Session): boolean {
+  return hasInk(pixelsOf(session), 24, 190, 300);
+}
+/** The first and last y of the focus bar (the rows whose pixel at x = 20 is the bar colour), or null. */
+function focusBar(session: Session): { readonly top: number; readonly bottom: number } | null {
+  const pixels = pixelsOf(session);
+  let top = -1;
+  let bottom = -1;
+  for (let y = 0; y < pixels.h; y += 1) {
+    const at = (y * pixels.w + 20) * 4;
+    if (pixels.rgba[at] === 40 && pixels.rgba[at + 1] === 64 && pixels.rgba[at + 2] === 140) {
+      if (top < 0) top = y;
+      bottom = y;
+    }
+  }
+  return top < 0 ? null : { top, bottom };
+}
+const selectionOf = (session: Session): number | undefined => session.state().menu.screens.at(-1)?.selection;
+
+function openSlotList(size: { readonly width?: number; readonly height?: number } = {}): Session {
+  const session = boot({ startup: "equipmentmenu()\n", ...size });
+  session.pump((state) => state.menu.screens.length === 1);
+  press(session, "ENTER");
+  return session;
+}
+
+test("equipment slots page at 320x240: six rows, an indicator, and the focused row stays in the frame", () => {
+  const session = openSlotList();
+  deepEqual(textRows(session), [0, 1, 2, 3, 4, 5], "six of the sixteen slots are drawn");
+  ok(hasPageIndicator(session), "the page indicator is drawn");
+  deepEqual(focusBar(session), { top: 48, bottom: 71 }, "the first row's 24-pixel bar");
+  press(session, "UP");
+  equal(selectionOf(session), 15, "up wraps over the whole list, not the page");
+  const last = focusBar(session);
+  deepEqual(last, { top: 48 + 24 * 3, bottom: 48 + 24 * 3 + 23 }, "slot 15 is row 3 of the last page");
+  ok(last !== null && last.bottom < 240 - 42, "the focus bar ends above the message line");
+  deepEqual(textRows(session), [0, 1, 2, 3], "the last page holds the remaining four slots");
+});
+
+test("equipment slots all fit at 640x480: sixteen rows, no indicator, nothing pages", () => {
+  const session = openSlotList({ width: 640, height: 480 });
+  deepEqual(textRows(session), Array.from({ length: 16 }, (_, index) => index));
+  ok(!hasPageIndicator(session), "no indicator when everything fits");
+  press(session, "RIGHT");
+  equal(selectionOf(session), 0, "left and right do nothing on a list that fits");
+  press(session, "UP");
+  equal(selectionOf(session), 15);
+  deepEqual(focusBar(session), { top: 48 + 24 * 15, bottom: 48 + 24 * 15 + 23 }, "slot 15 is drawn in place on the one page");
+});
+
+test("left and right page by a whole page and clamp at both ends", () => {
+  const session = openSlotList();
+  const walk = (key: string): number | undefined => { press(session, key); return selectionOf(session); };
+  deepEqual([walk("RIGHT"), walk("RIGHT"), walk("RIGHT")], [6, 12, 15], "right turns a page, and from 12 stops on the last row (12 + 6 would pass it)");
+  deepEqual([walk("LEFT"), walk("LEFT"), walk("LEFT")], [9, 3, 0], "left turns a page, and from 3 stops on the first row (3 - 6 would pass it)");
+});
+
+// [list, session, keys to open it, rows, the page size P for its height, the logical height]. The equipment item list is
+// drawn on a 200-pixel-high screen (P = 4) so five fixture items are enough to page it: each item costs the engine
+// asset round trips, and seven would push the test past the one-second budget.
+for (const [label, make, keys, rows, page, height] of [
+  ["the equipment item list", () => boot({ gear: 5, height: 200, startup: giveGear(5, "equipmentmenu()") }), ["ENTER", "ENTER"], 5, 4, 200],
+  ["the abilities list", () => boot({ moves: 8, startup: "abilitiesmenu()\n" }), ["ENTER"], 9, 6, 240],
+  ["the save picker", () => boot({ saves: 9, startup: "mainmenu()\n" }), ["DOWN", "DOWN", "DOWN", "ENTER"], 10, 6, 240],
+] as const) {
+  test(`${label} pages at ${height} pixels high and keeps the focused row in the frame`, () => {
+    const session = make();
+    session.pump((state) => state.menu.screens.length === 1);
+    for (const key of keys) press(session, key);
+    equal(textRows(session).length, page, `${page} of the ${rows} rows are drawn`);
+    ok(hasPageIndicator(session), "the page indicator is drawn");
+    press(session, "RIGHT");
+    equal(selectionOf(session), page, "right turns to the second page");
+    deepEqual(focusBar(session), { top: 48, bottom: 71 }, "the cursor is the first row of the new page");
+    press(session, "RIGHT");
+    equal(selectionOf(session), rows - 1, "right clamps on the last row (for the picker that is `New save`)");
+    const bar = focusBar(session);
+    ok(bar !== null && bar.top === 48 + 24 * (rows - 1 - page) && bar.bottom < height - 42, "the last row is drawn on its page, above the message line");
+    deepEqual(textRows(session), Array.from({ length: rows - page }, (_, index) => index), "the second page holds the rest");
+  });
+}
+
+/** The y of row `k` of a list's visible page, in the middle of its 24-pixel bar (first bar top 48). */
+const rowY = (k: number): number => 48 + 24 * k + 12;
+/** The y of command `k` of the main screen at 240 pixels high (bars from h - 155 = 85). */
+const commandY = (k: number): number => 85 + 24 * k + 12;
+
+test("hovering a row moves the cursor without activating it, and a stationary pointer never overrides the keyboard", () => {
+  const session = boot({ startup: "mainmenu()\n" });
+  session.pump((state) => state.menu.screens.length === 1);
+  pointer(session, 60, commandY(3), 0);
+  equal(selectionOf(session), 3, "hovering Save moves the cursor to it");
+  equal(session.state().menu.screens.length, 1, "hovering opens nothing");
+  pointer(session, 60, 30, 0);
+  equal(selectionOf(session), 3, "a pointer over no row leaves the cursor where it was");
+  press(session, "UP");
+  equal(selectionOf(session), 2, "a key still moves the cursor");
+  pointer(session, 60, 30, 1);
+  pointer(session, 60, 30, 0);
+  equal(selectionOf(session), 2, "a pointer that has not moved onto a row does not take the cursor back");
+});
+
+test("pointer rows map through the visible page", () => {
+  const session = openSlotList();
+  press(session, "RIGHT");
+  equal(selectionOf(session), 6);
+  pointer(session, 60, rowY(1), 0);
+  equal(selectionOf(session), 7, "the second row of page two is slot 7, not slot 1");
+  pointer(session, 60, rowY(5), 0);
+  equal(selectionOf(session), 11);
+  pointer(session, 60, rowY(6), 0);
+  equal(selectionOf(session), 11, "the space below the page is no row");
+  pointer(session, 4, rowY(2), 0);
+  equal(selectionOf(session), 11, "the panel margin is no row");
+});
+
+test("release over the pressed row activates it; the press alone never does", () => {
+  const session = boot({ startup: "mainmenu()\n" });
+  session.pump((state) => state.menu.screens.length === 1);
+  let state = pointer(session, 60, commandY(1), 1);
+  equal(state.menu.screens.length, 1, "pressing Equip activates nothing");
+  equal(state.menu.screens[0]!.selection, 1, "but the press puts the cursor on it (a touch has no hover)");
+  state = pointer(session, 60, commandY(1), 0);
+  deepEqual(state.menu.screens.map((screen) => screen.screen), ["main", "equipment"], "the release opened Equip, by the same path as confirm");
+});
+
+test("moving off the pressed row cancels the press, and returning to it does not re-arm it", () => {
+  const session = boot({ startup: "mainmenu()\n" });
+  session.pump((state) => state.menu.screens.length === 1);
+  pointer(session, 60, commandY(1), 1);
+  pointer(session, 60, commandY(2), 1);
+  let state = pointer(session, 60, commandY(2), 0);
+  equal(state.menu.screens.length, 1, "released over another row: nothing opens");
+  equal(state.menu.screens[0]!.selection, 2, "the cursor followed the pointer");
+  pointer(session, 60, commandY(1), 1);
+  pointer(session, 60, 30, 1);
+  pointer(session, 60, commandY(1), 1);
+  state = pointer(session, 60, commandY(1), 0);
+  equal(state.menu.screens.length, 1, "off the row and back again: the press stays cancelled");
+});
+
+test("a secondary-button release is cancel", () => {
+  const session = boot({ startup: 'giveitem("potion")\nitemmenu()\n' });
+  session.pump((state) => state.menu.screens.length === 1);
+  pointer(session, 60, rowY(0), 2);
+  equal(session.state().menu.screens.length, 1, "the secondary press alone does nothing");
+  const state = pointer(session, 60, rowY(0), 0);
+  equal(state.menu.screens.length, 0, "its release left the screen");
+});
+
+/** Whether two sessions' overlays hold exactly the same pixels. */
+function sameOverlay(left: Session, right: Session): boolean {
+  const a = pixelsOf(left).rgba;
+  const b = pixelsOf(right).rgba;
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) if (a[index] !== b[index]) return false;
+  return true;
+}
+
+test("the pointer and the keyboard reach the same state and the same pixels", () => {
+  const startup = 'giveitem("potion")\ngiveitem("key")\nmainmenu()\n';
+  const byKeys = boot({ startup });
+  byKeys.pump((state) => state.menu.screens.length === 1);
+  for (const key of ["ENTER", "DOWN"]) press(byKeys, key);
+
+  const byPointer = boot({ startup });
+  byPointer.pump((state) => state.menu.screens.length === 1);
+  pointer(byPointer, 60, commandY(0), 1);
+  pointer(byPointer, 60, commandY(0), 0);
+  pointer(byPointer, 60, rowY(1), 0);
+
+  deepEqual(byPointer.state().menu, byKeys.state().menu, "the same menu section: stack and cursor");
+  deepEqual(byKeys.state().menu.screens.map((screen) => [screen.screen, screen.selection]), [["main", 0], ["items", 1]]);
+  ok(sameOverlay(byPointer, byKeys), "the same overlay pixels");
+});
+
+test("the cursor lives in the menu frame in every sub-mode, with the member being operated beside it", () => {
+  const session = boot({ startup: 'giveitem("potion")\ngiveitem("key")\nmainmenu()\n' });
+  session.pump((state) => state.menu.screens.length === 1);
+  const top = () => session.state().menu.screens.at(-1);
+  for (const key of ["ENTER", "DOWN"]) press(session, key);
+  deepEqual([top()?.screen, top()?.selection], ["items", 1], "the item list's cursor is the frame's");
+  press(session, "ENTER");
+  deepEqual([top()?.screen, top()?.selection], ["items", 0], "the action list starts at its own first row");
+  press(session, "DOWN");
+  equal(top()?.selection, 1, "the action cursor is the frame's too");
+  press(session, "ENTER");
+  press(session, "ESC");
+  equal(top()?.selection, 1, "back on the action list at the row that was left");
+  press(session, "ESC");
+  equal(top()?.selection, 1, "back on the item list at the stack that was chosen");
+});
+
+test("the equipment cursor follows the member and the slot in the frame, and survives a save and restore mid-menu", () => {
+  const session = boot({ allies: 1, startup: 'addplayer("ally1.tem")\nequipmentmenu()\n' });
+  session.pump((state) => state.menu.screens.length === 1);
+  const top = () => session.state().menu.screens.at(-1);
+  press(session, "DOWN");
+  deepEqual([top()?.actorId, top()?.selection], [2, 1], "on the member list the frame's actor follows the cursor");
+  press(session, "ENTER");
+  deepEqual([top()?.actorId, top()?.selection], [2, 0], "the slot list operates on the chosen member");
+  press(session, "RIGHT");
+  deepEqual([top()?.actorId, top()?.selection], [2, 6], "the slot cursor is the frame's");
+  const before = hashGameState(session.state());
+  const restored = restoreGameState(snapshot(session.state()));
+  equal(hashGameState(restored), before, "the saved menu restores to the same state");
+  deepEqual(restored.menu.screens, session.state().menu.screens);
+  press(session, "ESC");
+  deepEqual([top()?.actorId, top()?.selection], [2, 1], "cancelling returns to the member the player came from");
+});
+
+test("a gamepad pages, confirms and cancels through the same actions", () => {
+  const session = boot({ startup: "mainmenu()\n" });
+  session.pump((state) => state.menu.screens.length === 1);
+  const stack = (): string[] => session.state().menu.screens.map((screen) => screen.screen);
+  // The action bitmask changes from one report to the next, so each new bit is one press edge: no release needed between.
+  pad(session, 2);
+  equal(selectionOf(session), 1, "down moved the cursor to Equip");
+  pad(session, 16);
+  deepEqual(stack(), ["main", "equipment"], "confirm opened Equip");
+  pad(session, 0);
+  pad(session, 16);
+  pad(session, 8);
+  equal(selectionOf(session), 6, "right turned a page of the slot list");
+  pad(session, 4);
+  equal(selectionOf(session), 0, "left turned it back");
+  pad(session, 32);
+  deepEqual(stack(), ["main", "equipment"], "cancel left the slot list for the member list");
+  pad(session, 64);
+  deepEqual(stack(), [], "the menu button closed the whole menu");
+});
+
+test("the main screen keeps every command visible with five party members", () => {
+  const session = boot({ allies: 4, startup: 'addplayer("ally1.tem")\naddplayer("ally2.tem")\naddplayer("ally3.tem")\naddplayer("ally4.tem")\nmainmenu()\n' });
+  session.pump((state) => state.menu.screens.length === 1);
+  equal(session.state().party.members.length, 5);
+  press(session, "UP");
+  const bar = focusBar(session);
+  deepEqual(bar, { top: 85 + 24 * 5, bottom: 85 + 24 * 5 + 23 }, "Quit, the last command, is on screen at its pinned place");
+  ok(bar !== null && bar.bottom <= 240 - 11, "the last command ends inside the panel");
+  const pixels = pixelsOf(session);
+  const dim = (y: number): boolean => hasInk(pixels, y, 24, 120);
+  ok(dim(44), "the first party line is drawn");
+  ok(dim(62), "and a `+k more` line follows it instead of four more lines that would run into the commands");
 });
