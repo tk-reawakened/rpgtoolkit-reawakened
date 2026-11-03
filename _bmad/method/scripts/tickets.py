@@ -21,8 +21,9 @@ when the entry sets them: the orchestrator of an unattended run reads them, and 
 (low, medium, high) is the ticket's proposed risk, the leaf file's once it is pulled; the build settles it
 in its plan.
 
-A plan is any other `.md` whose frontmatter has `ticket` and whose `type` is not a leaf type. A
-`ticket` that is an id joins the entry with that id in the plan's folder; any other string joins the
+A plan is any `.md` whose frontmatter has `ticket`; that field distinguishes a plan from a leaf file
+(story, spike, bug, or chore), and the plan's `type` describes the plan rather than the linked leaf.
+A `ticket` that is an id joins the entry with that id in the plan's folder; any other string joins the
 leaf file with that stem (a backlog leaf). A plan is never a row of its own. It holds the ticket's
 `status`, `assignee`, `blocked_at`, and `blocked_reason`; a leaf file's own fields are read only when
 the ticket has no plan, and a plan with no `assignee` key leaves the leaf file's. A plan whose `ticket`
@@ -120,9 +121,9 @@ STATE_OF = {
     "done": "done",
     "dropped": "dropped",
 }
-LEAF_TYPES = ("story", "spike", "bug")
+LEAF_TYPES = ("story", "spike", "bug", "chore")
 CONTAINER_TYPES = ("initiative", "epic")
-NAME_RE = re.compile(r"^(story|spike|bug)-(.+)\.md$")
+NAME_RE = re.compile(r"^(story|spike|bug|chore)-(.+)\.md$")
 ID_RE = re.compile(r"^[0-9A-Za-z]+$")
 CROSS_RE = re.compile(r"^([0-9A-Za-z]+)\.([0-9A-Za-z]+)$")
 EPIC_RE = re.compile(r"^epic-[^/]+$")
@@ -352,9 +353,10 @@ def load_folder(folder: Path, problems: list[str]) -> list[dict]:
         fm = parse_frontmatter(text, lenient=True)
         if not fm and text.startswith("---") and NAME_RE.match(path.name):
             raise TicketError(f"{where}/{path.name}: frontmatter does not close")
+        if "ticket" in fm:
+            plans.append((path.name, fm))
+            continue
         if fm.get("type") not in LEAF_TYPES:
-            if "ticket" in fm:
-                plans.append((path.name, fm))
             continue
         try:
             fm = parse_frontmatter(text)
