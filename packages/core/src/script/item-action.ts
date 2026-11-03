@@ -130,7 +130,7 @@ function selectionIssue(selection: { readonly [key: string]: unknown }, action: 
   } else if (typeof selection.entrySource !== "string" || typeof selection.entryHandle !== "string") return false;
   if ("entryId" in action && selection.entryId !== action.entryId) return false;
   const displaced = selection.displaced;
-  if (action.kind === "use" && displaced !== null) return false;
+  if (action.kind === "use" && (displaced !== null || selection.slot !== null)) return false;
   if (displaced !== null) {
     if (!plain(displaced)) return false;
     if (typeof displaced.slot !== "string" || typeof displaced.source !== "string" || typeof displaced.handle !== "string") return false;

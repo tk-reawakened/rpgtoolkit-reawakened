@@ -711,6 +711,8 @@ test("a malformed or inconsistent pending action is refused as restore.shape", (
     const raw = JSON.parse(boundary.saved) as Raw & { vm: { threads: Array<{ frames: Array<{ itemActions?: Array<Record<string, unknown>> }> }> } };
     const record = raw.vm.threads[0]!.frames[0]!.itemActions![0]!;
     record.phase = "preflight";
+    record.result = null;
+    raw.vm.threads[0]!.pending = null;
     // Parsed save JSON: the selection shape is what the validator under test must accept or refuse.
     const selection: Record<string, unknown> = {
       kind: "use", actorId: boundary.action.actorId, actorSource: "hero.tem",
