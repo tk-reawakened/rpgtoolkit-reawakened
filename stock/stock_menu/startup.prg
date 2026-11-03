@@ -50,6 +50,7 @@ stockMenu = {
     member: 0,
     slot: 0,
     message: "",
+    closeAll: 0,
     context: null,
     charCache: {},
     itemCache: {},
@@ -181,6 +182,11 @@ stockMenu = {
         }
         fontsize(stockMenu.savedFont)
         colorrgb(stockMenu.savedR, stockMenu.savedG, stockMenu.savedB)
+        if (stockMenu.screenName != "picker") {
+            if (stockMenu.context.menu.screens.length <= 1) {
+                stockMenu.closeAll = 0
+            }
+        }
         stockMenu.context = parent.context
         stockMenu.screenName = parent.screenName
         stockMenu.w = parent.w
@@ -451,14 +457,17 @@ stockMenu = {
                     if (selection == 0) {
                         stockMenu.cue("choose")
                         itemmenu()
+                        if (stockMenu.closeAll == 1) { done = 1 }
                     }
                     if (selection == 1) {
                         stockMenu.cue("choose")
                         equipmentmenu()
+                        if (stockMenu.closeAll == 1) { done = 1 }
                     }
                     if (selection == 2) {
                         stockMenu.cue("choose")
                         abilitiesmenu()
+                        if (stockMenu.closeAll == 1) { done = 1 }
                     }
                     if (selection == 3) {
                         if (context.menu.saveallowed == 0) {
@@ -467,6 +476,7 @@ stockMenu = {
                         } else {
                             stockMenu.cue("choose")
                             name = dirsav("Save game", 1, 0, 0, "")
+                            if (stockMenu.closeAll == 1) { done = 1 }
                             if (name != "CANCEL") {
                                 save(name)
                                 stockMenu.message = "Saved " + name
@@ -476,6 +486,7 @@ stockMenu = {
                     if (selection == 4) {
                         stockMenu.cue("choose")
                         name = dirsav("Load game", 0, 0, 0, "")
+                        if (stockMenu.closeAll == 1) { done = 1 }
                         if (name != "CANCEL") {
                             load(name)
                             done = 1
@@ -592,6 +603,7 @@ stockMenu = {
                     }
                     if (key == "cancel" || key == "menu") {
                         done = 1
+                        if (key == "menu") { stockMenu.closeAll = 1 }
                         stockMenu.cue("cancel")
                     }
                 } else {
@@ -610,6 +622,7 @@ stockMenu = {
                     }
                     if (key == "menu") {
                         done = 1
+                        stockMenu.closeAll = 1
                         stockMenu.cue("cancel")
                     }
                     if (key == "confirm") {
@@ -658,6 +671,7 @@ stockMenu = {
                         }
                         if (key == "menu") {
                             done = 1
+                            stockMenu.closeAll = 1
                             stockMenu.cue("cancel")
                         }
                         if (key == "confirm") {
@@ -682,6 +696,7 @@ stockMenu = {
                             }
                             if (key == "menu") {
                                 done = 1
+                                stockMenu.closeAll = 1
                                 stockMenu.cue("cancel")
                             }
                         }
@@ -821,6 +836,7 @@ stockMenu = {
                     }
                     if (key == "cancel" || key == "menu") {
                         done = 1
+                        if (key == "menu") { stockMenu.closeAll = 1 }
                         stockMenu.cue("cancel")
                     }
                     if (key == "confirm") {
@@ -845,6 +861,7 @@ stockMenu = {
                         }
                         if (key == "menu") {
                             done = 1
+                            stockMenu.closeAll = 1
                             stockMenu.cue("cancel")
                         }
                         if (key == "confirm") {
@@ -875,6 +892,7 @@ stockMenu = {
                             }
                             if (key == "menu") {
                                 done = 1
+                                stockMenu.closeAll = 1
                                 stockMenu.cue("cancel")
                             }
                             if (key == "confirm") {
@@ -1025,6 +1043,7 @@ stockMenu = {
                     }
                     if (key == "cancel" || key == "menu") {
                         done = 1
+                        if (key == "menu") { stockMenu.closeAll = 1 }
                         stockMenu.cue("cancel")
                     }
                     if (key == "confirm") {
@@ -1049,6 +1068,7 @@ stockMenu = {
                         }
                         if (key == "menu") {
                             done = 1
+                            stockMenu.closeAll = 1
                             stockMenu.cue("cancel")
                         }
                         if (key == "confirm") {
@@ -1071,6 +1091,7 @@ stockMenu = {
                             }
                             if (key == "menu") {
                                 done = 1
+                                stockMenu.closeAll = 1
                                 stockMenu.cue("cancel")
                             }
                             if (key == "confirm") {
@@ -1102,6 +1123,7 @@ stockMenu = {
                                 }
                                 if (key == "menu") {
                                     done = 1
+                                    stockMenu.closeAll = 1
                                     stockMenu.cue("cancel")
                                 }
                             }
@@ -1169,6 +1191,7 @@ stockMenu = {
                 if (key == "cancel" || key == "menu") {
                     choice = "CANCEL"
                     done = 1
+                    if (key == "menu") { stockMenu.closeAll = 1 }
                     stockMenu.cue("cancel")
                 }
                 if (key == "confirm") {
@@ -1222,6 +1245,9 @@ registerplugin({
         },
         dirsav: (title, allowNewFile, textColor, backColor, image, next) => {
             local(selected) = stockMenu.pick(stockMenu.context, title, allowNewFile)
+            if (stockMenu.context == null) {
+                stockMenu.closeAll = 0
+            }
             return selected
         },
     },

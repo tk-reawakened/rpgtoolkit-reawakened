@@ -339,6 +339,38 @@ for (const [startup, expected] of [
   });
 }
 
+/** Every screen depth of the stock menu, as the keys that reach it from the main screen (E-80 #menu-navigation rule 2). */
+const NESTED_DEPTHS: readonly (readonly [string, readonly string[], readonly string[]])[] = [
+  ["items list", ["ENTER"], ["main", "items"]],
+  ["items action", ["ENTER", "ENTER"], ["main", "items"]],
+  ["items member", ["ENTER", "ENTER", "ENTER"], ["main", "items"]],
+  ["items info", ["ENTER", "ENTER", "DOWN", "ENTER"], ["main", "items"]],
+  ["equipment member", ["DOWN", "ENTER"], ["main", "equipment"]],
+  ["equipment slot", ["DOWN", "ENTER", "ENTER"], ["main", "equipment"]],
+  ["equipment item", ["DOWN", "ENTER", "ENTER", "ENTER"], ["main", "equipment"]],
+  ["abilities member", ["DOWN", "DOWN", "ENTER"], ["main", "abilities"]],
+  ["abilities list", ["DOWN", "DOWN", "ENTER", "ENTER"], ["main", "abilities"]],
+  ["abilities action", ["DOWN", "DOWN", "ENTER", "ENTER", "ENTER"], ["main", "abilities"]],
+  ["abilities info", ["DOWN", "DOWN", "ENTER", "ENTER", "ENTER", "DOWN", "ENTER"], ["main", "abilities"]],
+  ["save picker", ["DOWN", "DOWN", "DOWN", "ENTER"], ["main"]],
+  ["load picker", ["DOWN", "DOWN", "DOWN", "DOWN", "ENTER"], ["main"]],
+];
+for (const [label, keys, stack] of NESTED_DEPTHS) {
+  test(`the menu key closes the whole stack from the ${label}`, () => {
+    const session = boot({ startup: 'giveitem("potion")\nmainmenu()\n' });
+    session.pump((state) => state.menu.screens.length === 1);
+    for (const key of keys) press(session, key);
+    deepEqual(session.state().menu.screens.map((screen) => screen.screen), stack, `${label} is open before the menu key`);
+    const closed = press(session, "M");
+    equal(closed.menu.screens.length, 0, `${label}: the menu key closed every screen`);
+    equal(session.saves.length + session.loads.length, 0, "closing wrote and read no save");
+    // A later menu opens and behaves normally, so the unwinding left nothing behind.
+    startThread(session.state().vm, { ref: { kind: "inline", text: "mainmenu()\n", ir: IR_VERSION }, kind: "blocking", owner: "script" });
+    equal(session.pump((state) => state.menu.screens.length === 1).menu.screens[0]!.screen, "main");
+    equal(press(session, "DOWN").menu.screens[0]!.selection, 1, "the reopened menu still takes input");
+  });
+}
+
 test("a child screen returns to the same usable main menu", () => {
   const session = boot({ startup: "mainmenu()\n" });
   session.pump((state) => state.menu.screens.length === 1);
