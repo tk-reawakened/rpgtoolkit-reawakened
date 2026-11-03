@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Completed selected-player movement now advances the party step counter by the distance walked; blocked steps do not count, and the counter survives save and load (#1231).
 - The stock save picker now turns host entries such as `saved/slot1.sav` into bare slot names, so Load and overwriting a save address the original file rather than adding a second `saved/` directory.
 - The shared web, desktop and mobile player now binds Escape to `ESC` and opens the menu on the main file's `menuKey` (Enter when zero) when no script owns input, and the stock screens confirm with Space as well as Enter, so a player can open, navigate, confirm and cancel the stock menu with the shipped bindings (#585; `docs/spec/engine/display-input-audio.md#e-110`).
 - A menu graphic that names no asset, or whose bytes the host cannot supply, now reports one `asset.missing` diagnostic and the engine keeps running: the stock screens draw it through the new `context.menu.drawGraphic(x, y, w, h, canvas)` action, which is optional decoration and never stops the engine the way a script's own `setimage` does (#585; `docs/spec/engine/plugins-and-battle.md#e-80`). The script-cli stock index baseline is re-recorded for the changed `startup.prg`.

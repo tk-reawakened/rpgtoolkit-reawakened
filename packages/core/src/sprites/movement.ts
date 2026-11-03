@@ -36,6 +36,7 @@ export type MovementEvent = {
   readonly to?: number;
   readonly vector?: string;
   readonly blocked?: boolean;
+  readonly distance?: number;
   readonly direction?: Facing;
   readonly mode?: number;
   readonly goal?: SpritePoint;
@@ -286,7 +287,9 @@ function finishActor(actor: SpriteActor, active: SpriteActiveMove, blocked: bool
   const queue = actor.queue.moves.length > 0 || nextWaypoint !== null;
   const dx = actor.x - active.start.x;
   const dy = actor.y - active.start.y;
-  const movement = { ...cloneMovement(actor.movement), active: null, waitTicks: 0, lastStepTick: tick, lastStepDistance: blocked ? 0 : Math.sqrt(dx * dx + dy * dy) };
+  const distance = blocked ? 0 : Math.sqrt(dx * dx + dy * dy);
+  const movement = { ...cloneMovement(actor.movement), active: null, waitTicks: 0, lastStepTick: tick, lastStepDistance: distance };
+  event(tick, "step-complete", { actor: actor.id, blocked, distance }, sink);
   const state = queue ? "moving" : "waiting";
   if (!queue) event(tick, "movement-complete", { actor: actor.id, blocked }, sink);
   return { ...actor, state, movement, queue: { ...actor.queue, waypoint: nextWaypoint }, ...(queue ? {} : { frozenUntil: null }), prev: { x: actor.x, y: actor.y } };
@@ -536,7 +539,16 @@ export function movementPhaseRegistration(options: MovementOptions & { readonly 
     phase: "movement",
     rank: options.rank ?? 0,
     run(state: GameState): void {
-      runMovementPhase(state.sprites, state.world.board ?? null, state.time.tick, { ...options, freezePointer: scriptOwnsInput(state.vm) });
+      runMovementPhase(state.sprites, state.world.board ?? null, state.time.tick, {
+        ...options,
+        freezePointer: scriptOwnsInput(state.vm),
+        onEvent: (ev) => {
+          options.onEvent?.(ev);
+          if (ev.type === "step-complete" && ev.actor === state.sprites.selectedPlayer && !ev.blocked && ev.distance !== undefined && ev.distance >= 16) {
+            state.party.steps += Math.max(1, Math.round(ev.distance / 32));
+          }
+        },
+      });
     },
   };
 }
