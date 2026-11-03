@@ -60,9 +60,14 @@ export function slotFlagIndex(slot: string): number | null {
   return location <= 6 ? location : ACCESSORY_FLAG_INDEX;
 }
 
-/** The canonical slot token an editor equipment location names (E-82), the inverse of `slotLocation`. */
+/**
+ * The canonical slot token an editor equipment location names (E-82), the inverse of `slotLocation`. Null for a
+ * location that is not a whole number: a fractional or non-finite value names no slot, so the caller must not round it
+ * into a neighbouring one.
+ */
 export function slotTokenAt(location: number): string | null {
-  const clamped = Math.trunc(location);
+  if (!Number.isInteger(location)) return null;
+  const clamped = location;
   for (const token of BODY_SLOT_TOKENS) if (STANDARD_SLOTS[token] === clamped) return token;
   return ACCESSORY_LOCATIONS.includes(clamped) ? `accessory-${clamped}` : null;
 }

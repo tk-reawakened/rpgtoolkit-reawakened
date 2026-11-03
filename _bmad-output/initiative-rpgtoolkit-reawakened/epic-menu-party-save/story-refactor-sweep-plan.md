@@ -111,7 +111,7 @@ A11Y-6 defect that needs a behaviour change).
   `catalogue:check` and `command-docs:check` enforce.
 - E-80 item 11 was the only epic spec paragraph that disagreed with the code: it promised a member `portrait` the
   context does not carry, described the native context as dictionaries rather than section-owner ports, and listed four
-  of `menucharacterdata`'s eight fields and five of `context.menu`'s nine members. It now lists all of them (F-02),
+  of `menucharacterdata`'s eight fields and six of `context.menu`'s eight members. It now lists all of them (F-02),
   including `movesound`/`choosesound`/`cancelsound`, which review noticed were still missing while the plan claimed the
   paragraph matched.
 

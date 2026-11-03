@@ -103,7 +103,10 @@ function partyActor(view: CommandView, handle: unknown): number | undefined {
     (String(candidate.id) === value || candidate.name.toLowerCase() === value.toLowerCase() || candidate.source.toLowerCase() === value.toLowerCase()))?.id;
 }
 function slotAt(location: number): string {
-  return slotTokenAt(Math.min(16, Math.max(1, location))) ?? "";
+  const clamped = Math.min(16, Math.max(1, location));
+  // A location that names no slot keeps the old `accessory-<location>` token, which the owner then refuses; it must not
+  // be rounded into a neighbouring slot.
+  return slotTokenAt(clamped) ?? `accessory-${clamped}`;
 }
 function params(names: readonly { name: string; optional?: boolean; byRef?: boolean }[]): BuiltinSpec["params"] {
   return names.map(({ name, optional = false, byRef = false }) => ({ name, optional, byRef, variadic: false }));
