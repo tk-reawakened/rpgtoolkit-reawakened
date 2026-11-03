@@ -22,6 +22,15 @@ const STANDARD_SLOTS: Readonly<Record<string, number>> = {
   legs: 6,
 };
 
+/** The six body slots in the order the screens list them (E-82). */
+export const BODY_SLOT_TOKENS = ["head", "neck", "right-hand", "left-hand", "body", "legs"] as const;
+
+/** The one token every named accessory shares in the item-side flag table (E-82). */
+export const ACCESSORY_SLOT_TOKEN = "accessory";
+
+/** The editor locations of the named accessory slots, `accessory-7` … `accessory-16` (E-82). */
+export const ACCESSORY_LOCATIONS: readonly number[] = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+
 /** The editor's equipment location for a canonical slot token, or null when it is unknown. */
 export function slotLocation(slot: string): number | null {
   const standard = STANDARD_SLOTS[slot];
@@ -29,7 +38,28 @@ export function slotLocation(slot: string): number | null {
   const match = /^accessory-(\d{1,2})$/.exec(slot);
   if (match === null) return null;
   const location = Number(match[1]);
-  return location >= 7 && location <= 16 ? location : null;
+  return ACCESSORY_LOCATIONS.includes(location) ? location : null;
+}
+
+/**
+ * The `.itm` / `.tem` array index that stores one canonical slot token's value (E-82).
+ *
+ * The two hand locations are stored in the opposite order to the canonical tokens, so `right-hand` reads index 4 and
+ * `left-hand` index 3; every named accessory shares index 7. The item-side flags and the character-side body slots use
+ * the same indices, and `packs/menu.ts` exposes them to the screens through this function, so the list a screen offers
+ * and this module's refusal cannot disagree. Null for a token that names no slot.
+ */
+export function slotFlagIndex(slot: string): number | null {
+  const location = slotLocation(slot);
+  if (location === null) return null;
+  if (location === 3) return 4;
+  if (location === 4) return 3;
+  return location <= 6 ? location : 7;
+}
+
+/** The character array index that names one accessory slot's accessory (E-82). */
+export function accessoryNameIndex(location: number): number {
+  return location - 6;
 }
 
 /** The deterministic actor-scoped reference a saved tuple derives (E-82). */
@@ -85,13 +115,12 @@ export function equipmentCatalog(
  */
 export function validEquipmentSlot(slot: string, item: Item, character: Character): boolean {
   const location = slotLocation(slot);
-  if (location === null || item.equipable !== 1) return false;
-  const slotIndex = location === 3 ? 4 : location === 4 ? 3 : location;
-  const slotFlag = location <= 6 ? item.equipSlots[slotIndex] : item.equipSlots[7];
-  if (slotFlag !== 1) return false;
-  if (location <= 6 && character.bodySlots[slotIndex] !== 1) return false;
+  const flagIndex = slotFlagIndex(slot);
+  if (location === null || flagIndex === null || item.equipable !== 1) return false;
+  if (item.equipSlots[flagIndex] !== 1) return false;
+  if (location <= 6 && character.bodySlots[flagIndex] !== 1) return false;
   if (location >= 7) {
-    const characterSlot = character.accessorySlots[location - 6];
+    const characterSlot = character.accessorySlots[accessoryNameIndex(location)];
     return characterSlot !== undefined && characterSlot !== "" && characterSlot === item.accessoryName;
   }
   return true;
