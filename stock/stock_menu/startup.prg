@@ -94,7 +94,7 @@ stockMenu = {
             graphic = stockMenu.context.menu.graphic
         }
         if (graphic != 0 && graphic != "") {
-            setimage(graphic, 8, 8, stockMenu.w - 16, stockMenu.h - 16, stockMenu.screen)
+            stockMenu.context.menu.drawGraphic(8, 8, stockMenu.w - 16, stockMenu.h - 16, stockMenu.screen)
         }
         stockMenu.frame(8, 8, stockMenu.w - 9, stockMenu.h - 9, stockMenu.lineR, stockMenu.lineG, stockMenu.lineB)
         return 0

@@ -34,6 +34,9 @@ export const PARTY_HOST_TYPE_NAME = "party";
 const ITEM_DATA_CONTINUATION = "__menu_item_asset";
 const SAVE_LIST_CONTINUATION = "__save_list_continue";
 const UPDATE_CURRENT_COMMAND = "__menu_update_current";
+const DRAW_GRAPHIC_COMMAND = "__menu_draw_graphic";
+/** The recorded name of `context.menu.drawGraphic`: the image effect the engine treats as optional decoration. */
+export const MENU_GRAPHIC_EFFECT = "host:menu:drawgraphic";
 
 function parameter(name: string, optional = false): ParamSpec {
   return { name, optional, byRef: false, variadic: false };
@@ -305,10 +308,30 @@ const UPDATE_CURRENT: BuiltinSpec = {
   },
 };
 
+const DRAW_GRAPHIC: BuiltinSpec = {
+  name: DRAW_GRAPHIC_COMMAND, aliases: [], params: [parameter("self"), parameter("x"), parameter("y"), parameter("width"), parameter("height"), parameter("canvas")],
+  doc: internalDocs(
+    "Draw the stored menu graphic into a rectangle of a canvas.",
+    "Does nothing when no graphic is stored. Otherwise records an image draw of the stored reference at the integer rectangle on the canvas; a reference that resolves to no asset, or whose bytes the host cannot supply, is reported once as `asset.missing` and the engine keeps running.",
+    NO_WAIT,
+  ),
+  call: (view, args) => {
+    for (let index = 1; index <= 5; index += 1) {
+      if (!Number.isFinite(numeric(args, index))) throw new ScriptError("builtin.bad-arg", `${DRAW_GRAPHIC_COMMAND}: x, y, width, height and canvas must be numbers`);
+    }
+    const graphic = view.state?.menu.graphic ?? "";
+    if (graphic === "") return { value: null, effects: [] };
+    return {
+      value: null,
+      effects: [{ kind: "state-write", section: "surfaces", args: [graphic, numeric(args, 1), numeric(args, 2), numeric(args, 3), numeric(args, 4), numeric(args, 5)] }],
+    };
+  },
+};
+
 /** The hydrated `context.menu` object of an RPGCode menu provider (E-80, #585). */
 export const MENU_HOST_TYPE: HostObjectType = {
   name: MENU_HOST_TYPE_NAME,
-  methods: { updatecurrent: UPDATE_CURRENT_COMMAND, updateCurrent: UPDATE_CURRENT_COMMAND },
+  methods: { updatecurrent: UPDATE_CURRENT_COMMAND, updateCurrent: UPDATE_CURRENT_COMMAND, drawgraphic: DRAW_GRAPHIC_COMMAND, drawGraphic: DRAW_GRAPHIC_COMMAND },
   readOnlyMembers: ["screens", "graphic", "saveallowed", "movesound", "choosesound", "cancelsound"],
   read(context, name) {
     const state = context.state;
@@ -390,12 +413,12 @@ export const PARTY_HOST_TYPE: HostObjectType = {
 };
 
 export const STOCK_MENU_COMMANDS: readonly BuiltinSpec[] = [
-  MENU_GRAPHIC, ITEM_DATA, ITEM_ASSET, CHARACTER_DATA, CHARACTER_ASSET, SAVE_LIST, SAVE_LIST_REPLY, UPDATE_CURRENT,
+  MENU_GRAPHIC, ITEM_DATA, ITEM_ASSET, CHARACTER_DATA, CHARACTER_ASSET, SAVE_LIST, SAVE_LIST_REPLY, UPDATE_CURRENT, DRAW_GRAPHIC,
 ];
 
 /** The names the menu pack owns, so the catalogue layer does not also answer them. */
 export const STOCK_MENU_COMMAND_NAMES = new Set<string>([
-  "menugraphic", "menuitemdata", "menucharacterdata", "savelist", ITEM_DATA_CONTINUATION, CHARACTER_DATA_CONTINUATION, SAVE_LIST_CONTINUATION, UPDATE_CURRENT_COMMAND,
+  "menugraphic", "menuitemdata", "menucharacterdata", "savelist", ITEM_DATA_CONTINUATION, CHARACTER_DATA_CONTINUATION, SAVE_LIST_CONTINUATION, UPDATE_CURRENT_COMMAND, DRAW_GRAPHIC_COMMAND,
 ]);
 
 export const STOCK_MENU_PLUGIN: PluginDefinition = pack(

@@ -134,7 +134,7 @@ function authoredGame(options: GameOptions): { readonly files: Files; readonly i
   const files: Files = new Map();
   const paths = [
     "main.gam", "Boards/start.brd", "Chrs/hero.tem", "Prg/start.prg",
-    "Item/potion.itm", "Item/key.itm", "Bitmap/layout.png", "Media/move.wav", "Media/confirm.wav", "Media/cancel.wav",
+    "Item/potion.itm", "Item/key.itm", "Bitmap/layout.png", "Bitmap/ghost.png", "Media/move.wav", "Media/confirm.wav", "Media/cancel.wav",
     "SpcMove/fire.spc", "Prg/fire.prg",
   ];
   const main = {
@@ -429,6 +429,26 @@ test("MenuGraphic is stored on the menu section and drawn by the screen", () => 
   const offset = (15 * 320 + 15) * 4;
   deepEqual([...surface.rgba.subarray(offset, offset + 4)], [200, 40, 40, 255], "the custom image is drawn behind the rows");
 });
+
+for (const [label, reference, detail] of [
+  ["a graphic that is not in the asset index", "absent.png", "is not in the asset index"],
+  ["a graphic the host cannot supply bytes for", "ghost.png", "asset not found"],
+] as const) {
+  test(`a named MenuGraphic that is ${label} reports one diagnostic and the engine keeps running`, () => {
+    const session = boot({ startup: `menugraphic("${reference}")\nmainmenu()\n` });
+    session.pump((current) => current.menu.screens.length === 1);
+    // Every key redraws the panel, so a diagnostic per draw would show here.
+    press(session, "DOWN");
+    const state = press(session, "DOWN");
+    equal(state.menu.screens[0]!.selection, 2, "the menu still takes input after the failed picture");
+    equal(state.engine.boot?.stage, "running", "the engine did not stop");
+    ok(state.engine.failed !== true, "the engine did not fail");
+    const missing = session.diagnostics.filter((entry) => entry.startsWith("asset.missing"));
+    equal(missing.length, 1, session.diagnostics.join("; "));
+    ok(missing[0]!.includes(detail), missing[0]);
+    equal(session.diagnostics.length, 1, "nothing else is reported");
+  });
+}
 
 test("Quit closes the screen and sends the normal host request", () => {
   const session = boot({ startup: "mainmenu()\n" });

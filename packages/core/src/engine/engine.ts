@@ -3,6 +3,7 @@ import { restoreGameSave, snapshotGameSave, restoreRecoveryCandidate, snapshotRe
 import { deriveGameId } from "../save/game-id.ts";
 import { restoreGameState, snapshot } from "../save/snapshot.ts";
 import { createPluginLayers, type PluginLayers } from "../script/layers.ts";
+import { MENU_GRAPHIC_EFFECT } from "../script/packs/menu.ts";
 import { actorEmitterKey, actorId } from "../actors/model.ts";
 import type { AudioSaveProjection } from "../audio/save.ts";
 import { projectGameLedger, type GameLedgerV1, type LedgerProgramRef, type LedgerTile } from "../save/ledger.ts";
@@ -341,6 +342,8 @@ export function createEngine(init: EngineInit): Engine {
   let lastPrefetch = "";
   /** Backgrounds unavailable for prefetch, including decode failures; do not request them again. */
   const missingBattleBackgrounds = new Set<AssetKey>();
+  /** Menu-graphic references already reported missing (E-80 item 12): one `asset.missing` each, and never fatal. */
+  const missingMenuGraphics = new Set<string>();
   /** Sound facts from battle backgrounds fetched only for prefetch; kept out of the saved asset cache so prefetch hints stay hash-neutral. */
   const prefetchedBattleBackgrounds = new Map<AssetKey, PrefetchFacts["battle"]>();
   /** In-flight prefetch-only asset requests and their ids; these deliberately do not live in the saved engine section. */
@@ -1122,6 +1125,7 @@ export function createEngine(init: EngineInit): Engine {
     setimagetransparent: true,
     setimagetranslucent: true,
     setimageadditive: true,
+    [MENU_GRAPHIC_EFFECT]: true,
   };
   function imageTexture(key: AssetKey): DecodedTexture | null {
     const cached = decodedImages.get(key);
@@ -1404,8 +1408,16 @@ export function createEngine(init: EngineInit): Engine {
       }
       return;
     }
+    const optional = effect.name === MENU_GRAPHIC_EFFECT;
+    const reference = typeof effect.args[0] === "string" ? effect.args[0] : "";
+    if (optional && missingMenuGraphics.has(reference)) return;
     const key = imageAsset(effect.args[0]);
     if (key === null) {
+      if (optional) {
+        missingMenuGraphics.add(reference);
+        diagnostics.push({ code: "asset.missing", file: reference, line: 0, message: `menu graphic: image "${reference}" is not in the asset index` });
+        return;
+      }
       imageDiagnostic(effect.args[0], `${effect.name}: image is not in the asset index`);
       return;
     }
@@ -1538,6 +1550,13 @@ export function createEngine(init: EngineInit): Engine {
     }
     if (record.event.bytes === null) {
       diagnostics.push({ code: "asset.missing", file: entry.key, line: 0, message: `asset not found: ${entry.key}` });
+      const waiting = pendingImageEffects.filter((item) => item.key === entry.key);
+      if (waiting.length > 0 && waiting.every((item) => item.effect.name === MENU_GRAPHIC_EFFECT)) {
+        // An optional menu graphic that the host cannot supply is reported once and skipped on every later redraw.
+        for (const item of waiting) if (typeof item.effect.args[0] === "string") missingMenuGraphics.add(item.effect.args[0]);
+        pendingImageEffects.splice(0, pendingImageEffects.length, ...pendingImageEffects.filter((item) => item.key !== entry.key));
+        return;
+      }
       failed = true;
       pendingImageEffects.splice(0, pendingImageEffects.length, ...pendingImageEffects.filter((item) => item.key !== entry.key));
       pendingBoardPreviews.splice(0, pendingBoardPreviews.length, ...pendingBoardPreviews.filter((item) => item.key !== entry.key));
