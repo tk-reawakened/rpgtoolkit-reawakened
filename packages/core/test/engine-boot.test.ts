@@ -390,7 +390,7 @@ test("boot first free-roam frame polls held and queued activation without arriva
       spriteRuntime: createSpriteRuntime(),
       input: { bindings: { keys: { Enter: "ENTER", ArrowRight: "right" } } },
       phaseRegistrations: [
-        inputPhaseRegistration({ pixelStep: 8 }), movementPhaseRegistration(),
+        inputPhaseRegistration(), movementPhaseRegistration(),
         triggerPhaseRegistration({ programRef: () => ({ kind: "inline", text: "wait()\nend()", ir: IR_VERSION }) }),
         { phase: "audio", run: (state) => { latest = state; } },
       ],
@@ -1525,7 +1525,7 @@ test("a region naming an absent .prg reports one located program.missing and the
     spriteRuntime,
     input: { bindings: { keys: { Enter: "ENTER", ArrowRight: "right" } } },
     phaseRegistrations: [
-      inputPhaseRegistration({ pixelStep: 8 }),
+      inputPhaseRegistration(),
       movementPhaseRegistration(),
       triggerPhaseRegistration({
         programRef: (name) => resolveProgram(loader, name) === undefined ? null : fileProgramRef(loader, name),
