@@ -108,8 +108,8 @@ function tilePixel(x: number, y: number, sizeX: number, coordType: number): Boar
  * on a 2D board, in the winding order (top-left, top-right, bottom-right,
  * bottom-left). The pre-vector layout's program rectangle `((x−1)·32, (y−1)·32)`–`(x·32, y·32)`
  * is the single-cell case (`xEnd === x`, `yEnd === y`), and [coordinates](../../../../../../docs/spec/formats/board.md#coordinates) fixes the 32×32 extent.
- * The original emits the opposite winding; winding has no runtime effect here,
- * because a slide's direction comes from R-54's facing index, not from the edge sign.
+ * The original emits the opposite winding. Current collision code can choose
+ * a different edge at a corner for the two orders (#1284); parity is unknown.
  */
 function tileCellRect(x: number, y: number, xEnd: number, yEnd: number): BoardPoint[] {
   const left = (x - 1) * 32;
