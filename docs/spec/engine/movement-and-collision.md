@@ -129,6 +129,8 @@ Evidence: E-23, E-136's legacy fact (the original's keyboard step is frame-rate 
 <a id="e-138"></a>
 **E-138 The board edge is part of the step — selected player only.** The selected player's step target is also compared with the board's pixel extent: if any part of the collision base would fall outside, then with **no link** on that edge the step is blocked exactly as if a solid vector were there (the edge result is combined with the vector result, so a link never clears a solid), and with a **link** the edge contributes nothing to the test and the step completes — the board change then happens after the tick's movement update (E-28, and R-53 for where the player arrives). Other players and items are not tested against the board's edges at all; keeping them on the board is the path-finder's job.
 
+**Implementation gap ([#1281](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1281)).** The current movement phase checks the board edge on each intermediate advance and requests a transition as soon as the base crosses it, rather than completing a linked step first. Its edge check also runs before the vector check and applies to every player, not just the selected one. The behavior above is not yet implemented.
+
 ## Speed
 
 - A sprite's `speed` (seconds, from its character or item file) is converted to milliseconds. While moving, it advances **4 pixels per `speed`**, so one 32-pixel tile takes `8 × speed` (0.4 s at the default 0.05 s).
