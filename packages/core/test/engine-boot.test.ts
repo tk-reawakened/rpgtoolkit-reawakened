@@ -25,6 +25,7 @@ import {
   BATTLE_BACKGROUND_MAGIC,
   BinaryReader,
   readBoard,
+  readMainFile,
   createEmptyMainFile,
   ENGINE_DEFAULT_MANIFEST,
   hashDrawList,
@@ -1447,12 +1448,16 @@ function sampleGame(name: string): { readonly files: Files; readonly index: Asse
   return { files, index: createAssetIndex(paths), startup: "start.prg", initBoard, initChar };
 }
 
-// This full-game regression may exceed a unit test's usual time budget: only the
-// unmodified packaged demo, startup menu, real input, collision and both board programs prove
-// that an off-centre wall approach can reach the authored activation-key region.
-test("packaged demo returns through its key-activated door after off-centre wall contact (#1274)", { skip: haveLegacy ? false : "run pnpm fixtures:fetch" }, () => {
+// The fetched demo has no main file. Exercise its real boards and scripts with authored pixel-mode
+// main files; these settings are not a claim about the original demo's missing configuration.
+// These full-engine cases may exceed one second: packaging the fetched game and running its real
+// startup and both board transitions is necessary to prove the authored pixel-mode door route.
+for (const pixelMovement of [1, 2]) test(`packaged demo returns through its door after wall contact in authored pixel mode ${pixelMovement} (#1274)`, { skip: haveLegacy ? false : "run pnpm fixtures:fetch" }, () => {
   const sample = sampleGame("demo");
   if (sample === null) throw new Error("demo fixture is missing");
+  const mainKey = assetKey("main.gam");
+  const authoredMain = unwrap(readMainFile(new BinaryReader(sample.files.get(mainKey)!)));
+  sample.files.set(mainKey, unwrap(writeMainFile({ ...authoredMain, pixelMovement })));
   const inputFiles = [...sample.files].map(([path, bytes]) => ({ path, bytes }));
   const archive = unwrap(writeDistributionPackage({
     files: inputFiles,
@@ -1461,6 +1466,8 @@ test("packaged demo returns through its key-activated door after off-centre wall
   const packaged = unwrap(loadPackage({ kind: "tpk", name: "demo.tpk", bytes: archive }));
   const files = new Map(packaged.files.filter(({ path }) => path !== "manifest.json").map(({ path, bytes }) => [assetKey(path), bytes]));
   const index = createAssetIndex(packaged.files.map(({ path }) => path));
+  const packagedMain = unwrap(readMainFile(new BinaryReader(files.get(mainKey)!)));
+  equal(packagedMain.pixelMovement, pixelMovement, "the packaged main selects the authored pixel mode");
   const boardBytes = files.get(assetKey("boards/out.brd"));
   if (boardBytes === undefined) throw new Error("demo out board missing");
   const door = unwrap(readBoard(new BinaryReader(boardBytes))).programs[0];
@@ -1477,7 +1484,7 @@ test("packaged demo returns through its key-activated door after off-centre wall
     width: 640, height: 480, maxTicks: 10000, spriteRuntime: runtime,
     input: { bindings: { keys: { Enter: "ENTER", ArrowUp: "up", ArrowDown: "down", ArrowRight: "right", ArrowLeft: "left", Space: " " } } },
     phaseRegistrations: [
-      inputPhaseRegistration(), movementPhaseRegistration(),
+      inputPhaseRegistration({ pixelMovement: packagedMain.pixelMovement }), movementPhaseRegistration({ pixelMovement: packagedMain.pixelMovement }),
       triggerPhaseRegistration({ programRef: (name) => resolveProgram(loader, name) === undefined ? null : fileProgramRef(loader, name) }),
       { phase: "audio", run: (state) => { latest = state; } },
     ],
@@ -1499,19 +1506,19 @@ test("packaged demo returns through its key-activated door after off-centre wall
   deepEqual(current().sprites.players[0]?.collisionBase.points, [{ x: -15, y: -15 }, { x: 15, y: -15 }, { x: 15, y: 0 }, { x: -15, y: 0 }]);
   key("ArrowRight", true); advance(24); key("ArrowRight", false);
   key("ArrowDown", true); advance(45); key("ArrowDown", false); advance(10);
-  deepEqual(position(), [277, 190], "wall contact turns the movement away from the original x");
-  key("ArrowRight", true); advance(18); key("ArrowRight", false);
+  deepEqual(position(), [249, 190], "the player remains at the wall after moving down");
+  key("ArrowRight", true); advance(39); key("ArrowRight", false);
   deepEqual(position(), [301, 190]);
   key("ArrowDown", true);
   for (let guard = 0; guard < 160 && current().world.board?.key !== "boards/out.brd"; guard += 1) advance(1);
   equal(current().world.board?.key, "boards/out.brd");
   deepEqual(position(), [112, 192], "the authored send uses destination-board pixels");
   key("ArrowDown", false); advance(5);
-  key("ArrowRight", true); advance(8); key("ArrowRight", false); advance(6);
+  key("ArrowRight", true); advance(14); key("ArrowRight", false); advance(6);
   deepEqual(position(), [136, 192], "approach is intentionally away from the doorway centre");
   key("ArrowUp", true); advance(40); key("ArrowUp", false); advance(5);
   equal(current().world.board?.key, "boards/out.brd", "walking into the wall cannot fire a key-press region");
-  deepEqual(position(), [144, 176], "the base touches the solid wall and still overlaps the return region");
+  deepEqual(position(), [136, 176], "the base touches the solid wall and still overlaps the return region");
   key("Enter", true); key("Enter", false); advance(10);
   equal(current().world.board?.key, "boards/start.brd");
   deepEqual(position(), [306, 306], "activation runs the real return send without snapping");
