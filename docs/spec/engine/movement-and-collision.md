@@ -31,6 +31,8 @@ Movement is queued: the keyboard, the mouse, scripts (`Push`, `PlayerPath`, `Ite
 <a id="e-23"></a>
 **E-23 Move size.** *Tile movement:* each step is 32 px. *Pixel movement:* each step is **4 px**, the same in modes 1 and 2 (R-62; the original derived 1–4 px from the measured frame rate, E-136). Scripted direction strings still move a whole tile, or a quarter tile (8 px) when the main file selects pixel pushes. What one step does with that size is in [Walking a step](#walking-a-step) (E-134 to E-136).
 
+**Implementation gap ([#1283](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1283)).** The current script movement implementation does not yet apply the main-file setting to direction pushes; its push vectors are fixed at 32 px. The mode-dependent scripted push size above describes the intended behavior, not completed implementation.
+
 <a id="reawakened-party-steps"></a>
 **Reawakened rule — party steps (OWNER; issue #1231).** The party's step counter is `party.steps`, the legacy layout's field 24 — "steps taken, in tiles" ([../formats/save-game.md](../formats/save-game.md#layout-minor-4)) — and it is the "total step count" E-87 exposes to scripts as `party.steps` ([rpgcode-language.md](rpgcode-language.md#e-87)). It counts **completed travel by the input-selected player** — the sprite the input layer drives, `sprites.selectedPlayer` (the sprite `activeplayer` and `selectPlayer` set, and the only sprite the keyboard and pointer move) — whoever queued the move: the keyboard (E-24), the pointer (E-25), a script or path (`Push`, `PlayerPath`, `ItemPath`, E-22), path-finding, or a waypoint vector. The party section's own `party.selected` is the party's roster selection and is **not** consulted: a script that selects another party member without moving the sprite selection keeps the counter with the sprite that walks, and a sprite that is not the input-selected one never contributes. Items never contribute. The count does not depend on the movement mode (E-23) or the main file's pixel settings.
 
@@ -96,6 +98,8 @@ Consequences of E-133 and E-134, in both modes: a step is uninterruptible once s
 - A boundary that covers only part of a tile — a triangle, a free-hand polygon, a passage line — still blocks the **whole** tile step, because the base at the target overlaps it and tile movement does not slide.
 - A vector, sprite or closing door that becomes blocking **after** the step began does not stop the sprite: it finishes the tile. Only queued-point and path steps re-test sprites per pixel, and stair vectors are re-read per pixel on those steps.
 
+**Implementation gap ([#1281](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1281)).** The current movement phase tests intermediate 4 px advances instead of testing the tile destination once. A blocked move can therefore stop between tile centers, and a boundary added during a move can interrupt it. Linked board-edge behavior and saved in-flight steps must be preserved when this is corrected.
+
 <a id="e-136"></a>
 **E-136 Pixel movement: one boundary test per short step, with sliding.** In pixel movement one step is a few pixels (E-23), and each step re-samples input, so a held key produces a chain of short steps. The sprite is therefore tested against the board's vectors every few pixels: it respects boundaries continuously, may stand **between** grid lines, may stop part-way into a tile, and the base is free to slip through gaps narrower than a tile. Every pixel-movement step is also tested with wall sliding (E-26, R-54):
 
@@ -114,6 +118,8 @@ Because the step is short, pixel movement is sensitive to the **step granularity
 1. A direction step's length is **32 px** when `pixelMovement = 0` and **4 px** when it is `1` or `2`. `4` is the same 4 px that R-50 advances per cadence interval, so in pixel movement every step is exactly one advance and no advance is ever shortened.
 2. The two pixel modes walk alike; the main-file value governs the size of **scripted** direction pushes only (E-23), which the original already did.
 3. This fixes the step length only. The cadence of advances stays R-50's, and the movement phase sizes a direction step this way (`packages/core/src/sprites/movement.ts:500-508`).
+
+**Implementation gap ([#1282](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1282)).** The current diagonal pixel step reaches the 4-by-4 target over two advances, not one: its first advance is approximately 2.828 px on each axis. The target size is implemented, but the one-advance timing and collision sampling above are not.
 
 Evidence: E-23, E-136's legacy fact (the original's keyboard step is frame-rate derived and mode-independent), and R-50's 4 px advance. **Rejected alternatives:** 8 px for mode 1 and 1 px for mode 2 (echoes the scripted push sizes, but invents a difference the original does not have between the modes and makes a pixel-mode step take several advances or a fraction of one), and 1 px for both (finest sampling, but four times the movement phases and no counterpart in the original's step range at ordinary frame rates). Consumers: entries 5.2, 5.4.
 
