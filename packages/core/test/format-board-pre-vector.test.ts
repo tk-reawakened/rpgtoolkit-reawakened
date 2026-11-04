@@ -404,10 +404,9 @@ test("each legacy tile type vectorizes to the pre-vector shape", () => {
 });
 
 test("same-type cells merge into greedy rectangles, scanned column by column", () => {
-  // The original merges a rectangle at a time: scan x ascending (then y), grow down the column, then
-  // grow right over whole columns, and consume the block. Two shapes tell this apart from a per-row
-  // rule: a 2 x 2 block is ONE polygon, and an L of four cells is a 1 x 3 column plus a single cell
-  // (a per-row rule would emit three row runs for the L).
+  // Scan x ascending (then y), grow down and then right over unconsumed cells. Two shapes
+  // distinguish this from per-row runs: a 2 x 2 block is one polygon, and an L of four cells
+  // is a 1 x 3 column plus a single cell.
   const solid = (n: number) => ({ count: 1, index: n, r: 0, g: 0, b: 0, tileType: 1 });
   const block = buildPreVectorBoard({
     sizeX: 2,
@@ -444,6 +443,23 @@ test("same-type cells merge into greedy rectangles, scanned column by column", (
       { x: 64, y: 32 },
       { x: 32, y: 32 },
     ],
+  ]);
+  deepEqual(converted.vectors.map((vector) => vector.type), [TT_SOLID, TT_SOLID]);
+});
+
+test("greedy rectangles never grow through consumed cells in a reverse L (#1280)", () => {
+  const solid = { count: 1, index: 1, r: 0, g: 0, b: 0, tileType: 1 };
+  const normal = { count: 1, index: 0, r: 0, g: 0, b: 0, tileType: 0 };
+  const board = buildPreVectorBoard({
+    sizeX: 2,
+    sizeY: 3,
+    sizeL: 1,
+    cells: [normal, solid, solid, solid, solid, solid],
+  });
+  const { converted } = readAndConvert(board);
+  deepEqual(converted.vectors.map((vector) => vector.points), [
+    [{ x: 0, y: 32 }, { x: 64, y: 32 }, { x: 64, y: 96 }, { x: 0, y: 96 }],
+    [{ x: 32, y: 0 }, { x: 64, y: 0 }, { x: 64, y: 32 }, { x: 32, y: 32 }],
   ]);
   deepEqual(converted.vectors.map((vector) => vector.type), [TT_SOLID, TT_SOLID]);
 });

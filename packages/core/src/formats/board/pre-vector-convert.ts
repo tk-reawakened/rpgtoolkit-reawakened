@@ -196,10 +196,9 @@ function passageEdges(type: number, x: number, y: number, layer: number, board: 
  * blocking edges, and stairs closed polygons carrying the target layer.
  *
  * Per the pre-vector layout's "Merge" rule a 2D board merges **greedy
- * rectangles**, cell for cell as the original routine does: scan column by
- * column (x ascending, then y), take the first unconsumed non-zero cell, grow
- * down its column, then grow right one whole column at a time, and consume the
- * block. The scan order fixes where the seams fall, so it is part of the rule.
+ * rectangles**: scan column by column (x ascending, then y), take the first
+ * unconsumed non-zero cell, grow down and then right over unconsumed matching
+ * cells, and consume the block. The scan order fixes the seams.
  * An iso-stacked board emits one diamond per tile: the original merges in the
  * rotated grid instead, which is unverified and recorded as Unknown in the
  * docs. Unlisted tile types (5…10 and values above 18) emit nothing rather
@@ -268,14 +267,14 @@ function buildTileVectors(board: PreVectorBoard): BoardVector[] {
           continue;
         }
         let yEnd = y;
-        while (yEnd < board.sizeY && typeAt(base, x, yEnd + 1) === type) {
+        while (yEnd < board.sizeY && consumed[yEnd * board.sizeX + (x - 1)] === 0 && typeAt(base, x, yEnd + 1) === type) {
           yEnd += 1;
         }
         let xEnd = x;
         while (xEnd < board.sizeX) {
           let columnMatches = true;
           for (let yy = y; yy <= yEnd; yy += 1) {
-            if (typeAt(base, xEnd + 1, yy) !== type) {
+            if (consumed[(yy - 1) * board.sizeX + xEnd] !== 0 || typeAt(base, xEnd + 1, yy) !== type) {
               columnMatches = false;
               break;
             }
