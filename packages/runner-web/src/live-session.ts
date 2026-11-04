@@ -201,7 +201,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   const triggerProgramLoader = { index, root: PACKAGE_ROOT, read: (key: AssetKey) => files.get(key) };
   const phaseRegistrations = interactive
     ? [
-      inputPhaseRegistration({ pixelStep: 8, menuKey: interactiveInput.menuKey }),
+      inputPhaseRegistration({ menuKey: interactiveInput.menuKey }),
       movementPhaseRegistration(),
       triggerPhaseRegistration({
         programRef: (name) => resolveProgram(triggerProgramLoader, name) === undefined
