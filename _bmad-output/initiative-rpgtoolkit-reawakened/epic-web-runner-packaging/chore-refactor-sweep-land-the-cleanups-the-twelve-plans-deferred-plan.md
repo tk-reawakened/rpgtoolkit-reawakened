@@ -49,6 +49,14 @@ each.
    - `src/library.ts`: re-registering a package copied `customSettings` even when the earlier entry had none, which
      `exactOptionalPropertyTypes` refuses; the key is now omitted instead of written as `undefined`.
 
+## A defect the gates found
+
+Running `pnpm browser:test` on this clean checkout failed two specs: `tools/browser/tests/desktop-parity.spec.ts` launches
+the built Electron player, but the lane relied on somebody having run `pnpm desktop:build` first. The web server command
+in `playwright.config.ts` builds the desktop bundles now, beside the browser bundles it already builds, and the redundant
+CI step is gone. Proved by deleting `packages/runner-desktop/dist` and `apps/` and running only the parity spec: both
+cases pass and the lane recreates the player.
+
 ## Verification
 
 - `pnpm typecheck` — the new project is included and clean.
