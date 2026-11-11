@@ -41,6 +41,7 @@ None of this replaces the five editor epics. It changes **how** their editors ar
 | [benchmark.md](benchmark.md) | What do Godot, GDevelop and RPG Maker give an author that our plan does not, and what do we already do better? |
 | [architecture.md](architecture.md) | The proposed solution: kinds, the document contract, the shared tools and where each lives in the package graph. |
 | [document-kinds.md](document-kinds.md) | The catalogue: legacy kinds, native kinds already in flight, candidate new kinds, files from other tools, and the test a new kind must pass. |
+| [screen-layouts.md](screen-layouts.md) | Menu, HUD and battle screens as layouts the stock RPGCode packages read, and battle settings. |
 | [extensions.md](extensions.md) | How a plugin adds to the editor, in three levels, and what is still open about trust and hosts. |
 | [roadmap.md](roadmap.md) | Phases against the existing epics, the new epics this would need, and the decisions the owner is asked for. |
 | [ADR 0026](../adr/0026-editors-are-registered-by-document-kind.md) | The one structural decision, written as a Proposed ADR. |

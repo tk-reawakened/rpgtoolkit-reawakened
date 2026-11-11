@@ -70,7 +70,8 @@ Each row names the need and what Toolkit 3 does today. "First editor" is the che
 |---|---|---|---|---|---|
 | **Project definition** | "Make a game without opening a settings screen; change the keys or the screen size when I need to." | The main file: 61 layout rows, fixed-size tables, an inverted flag, stored outside the project folder ([study](../../_bmad-output/initiative-rpgtoolkit-reawakened/research-editor-ux-for-beginners/flows/08-project-file-by-convention.md)) | Lowered to `.gam` | Form, with effective value and its source | Godot's `project.godot` |
 | **Data table** | "My game has elements, classes and weapon types, and I want to pick them from a list everywhere." | Free text repeated in each file; names of accessory slots per character | Editor-only at first: it feeds choices to forms. Read by scripts only after a ruling | Database list with a row editor | RPG Maker's Types and Terms |
-| **Screen layout** | "Redesign my menu, my battle screen, my title screen, by dragging things." | Drawn by plugin code; a skin is two images (T-64) | Read by the menu or battle subsystem that owns the screen; needs that subsystem's contract | Specialist canvas with the form as inspector | Godot's control scenes |
+| **Screen layout** | "Redesign my menu, add a health bar while I walk around, change my battle screen, by dragging things." | Drawn by plugin code; a skin is two images (T-64) | Lowered: the editor builds a JSON file and the RPGCode package that draws the screen reads it ([screen-layouts.md](screen-layouts.md)). No engine reader | Specialist canvas with the form as inspector | Godot's control scenes |
+| **Battle settings** | "Make battles faster, change the party size, without writing a program." | Fixed in the battle plugin | Lowered the same way: a JSON file the battle package reads at start | Form | RPG Maker's System tab |
 | **Encounter group** | "These three enemies appear together in the forest." | An enemy pool in the main file plus per-board battle settings | Lowered to the main file's pool and board settings, where they can hold it | Database list | RPG Maker's Troops |
 | **String table** | "Translate my game; fix a typo without hunting through programs." | None; text lives in programs | Needs an engine ruling; not lowerable | Table view | Godot's translation files |
 | **Test scenario** | "Start here, with this party, press these keys, and check what happens." | None | A fixture and action list for creator tests; representation is ruled in 14.1 | Form, then the visual builder of 14.7 | None of the three |
@@ -82,7 +83,7 @@ Notes on the table:
 
 * **Project definition comes first** for three reasons. ADR 0024 lists it as an unwritten contract that per-project plugin configuration needs. It is the natural home of the list of installed contributions. And every author meets it.
 * **Data tables come second** because the form's "choice" control needs somewhere to get its choices that is not hard-coded.
-* **Screen layout is the largest** and depends on the menu and battle subsystems publishing what a screen can bind to. The plugin-editor study treats it as the model case for a specialist panel.
+* **Screen layout is the largest.** It depends on each package publishing what a screen can show and do, and on the `json*` commands of [rpgcode-functions.md](../spec/engine/rpgcode-json.md). The owner's direction of 2026-11-11 and the whole design are on [screen-layouts.md](screen-layouts.md).
 * The last four are listed so the mechanism is tested against them, not because they are near.
 
 ## 4. Files from other tools

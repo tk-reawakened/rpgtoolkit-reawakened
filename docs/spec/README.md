@@ -15,6 +15,7 @@ This is a behaviour and file-format specification of **RPG Toolkit 3.1** (the ed
 | [engine/display-input-audio.md](engine/display-input-audio.md) | Window modes, transparency, input mapping, music and sound, video, fonts |
 | [engine/rpgcode-language.md](engine/rpgcode-language.md) | The scripting language: syntax, semantics, execution, threads, objects, virtual variables, quirks |
 | [engine/rpgcode-functions.md](engine/rpgcode-functions.md) | All 282 built-in commands with signatures |
+| [engine/rpgcode-json.md](engine/rpgcode-json.md) | Reawakened: the rules of `jsonParse`, `jsonFile` and `jsonText` (specification only) |
 | [engine/plugins-and-battle.md](engine/plugins-and-battle.md) | Menu, battle and command plugins; the battle model and enemy AI; the 140-method callback interface |
 | [engine/battle.md](engine/battle.md) | The Reawakened battle rules: boundary, state, loop, damage, status, AI, outcomes and starts (BAT-1 to BAT-15) |
 | [engine/plugin-constants.md](engine/plugin-constants.md) | Info codes and enumerations used by the callback interface |
