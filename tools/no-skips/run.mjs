@@ -21,6 +21,8 @@ const TOOL = "tools/no-skips/run.mjs";
 const DEFAULT_PATTERNS = ["packages/*/test/*.test.ts"];
 const DEFAULT_LINES_THRESHOLD = 91;
 const DEFAULT_BRANCHES_THRESHOLD = 81;
+// Keep in step with `--max-semi-space-size` in the root `test` and `coverage` scripts and in `.github/workflows/ci.yml` (#1885).
+export const TEST_SEMI_SPACE_FLAG = "--max-semi-space-size=128";
 
 export const GROUPS = Object.freeze([
   "core-formats",
@@ -322,7 +324,9 @@ export function run(root, patterns, options = {}) {
     const env = { ...(options.env ?? process.env) };
     // A nested `node --test` must not think it is a child of the outer runner.
     delete env.NODE_TEST_CONTEXT;
-    const nodeArgs = [];
+    // A larger young generation: the heavy core tests allocate many short-lived buffers and spend about half their
+    // time in the scavenger without it (#1885). Node passes this flag to each per-file child as well.
+    const nodeArgs = [TEST_SEMI_SPACE_FLAG];
     if (options.lcov !== undefined) {
       const lcovPath = resolve(rootPath, options.lcov);
       mkdirSync(dirname(lcovPath), { recursive: true });

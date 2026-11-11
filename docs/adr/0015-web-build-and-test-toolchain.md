@@ -31,6 +31,7 @@ G6's enforcement paragraph already anticipates this: "Dev-only tools that are ne
 3. **Playwright 1.64.0 (Apache-2.0, Blue Oak Gold) is the browser lane**: one headless Chromium project, a required `gate` dependency that runs `pnpm fixtures:fetch` first, serving the fetched `fixtures/` folder over the local static server. No test reaches the network.
 4. **Both tools are listed dev-only, with their licences.** Playwright needs no licence exception — Apache-2.0 passes G6 rule 1 outright — but it is recorded here because the enforcement paragraph asks for every never-shipped tool to be named. The npm packages and the browser binaries Playwright downloads at install time are never bundled, linked or shipped; the production-tree scan never sees them, and it still fails if either tool appears in a shipped tree.
 5. **A stray dev tool is a gate failure, not a judgement call.** Adding a tool to this list means adding its line here first, with its licence.
+6. **The browser job runs in the official Playwright container image** (`mcr.microsoft.com/playwright:v1.64.0-noble`, #1884). It is CI infrastructure, never shipped, bundled or linked: it carries Playwright's own browser binaries and Ubuntu packages, and the job uses it in place of a per-run browser install. Its Playwright version must equal the pinned `@playwright/test`; `pnpm ci:playwright-image:check` fails when they differ.
 
 ## Consequences
 
