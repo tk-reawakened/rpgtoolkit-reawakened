@@ -33,7 +33,8 @@ type SurfaceBatch = { depth: number; entries: Map<SurfaceState, BatchEntry> };
 const decodedRecords = new WeakMap<SurfaceState, DecodedRecord>();
 const pendingEntries = new WeakMap<SurfaceState, BatchEntry>();
 const batches = new WeakMap<SurfacesSection, SurfaceBatch>();
-const BASE64_PAIRS = Array.from({ length: 4096 }, (_, i) => BASE64[i >> 6]! + BASE64[i & 63]!);
+const BASE64_CODES = Uint8Array.from(BASE64, (c) => c.charCodeAt(0));
+const ENCODE_SLICE = 8192;
 
 /** A decoded-pixel cache owned by a runner/core facade, never by save state. */
 export type SurfacePixelCache = Map<string, Uint8Array>;
@@ -52,27 +53,40 @@ function byteCount(width: number, height: number): number {
 }
 
 
-/** Encode bytes without relying on host `btoa`/`Buffer` APIs (G2). */
+/**
+ * Encode bytes without relying on host `btoa`/`Buffer` APIs (G2).
+ *
+ * Fills a byte buffer of base64 character codes, then turns it into text in
+ * fixed-size slices. This avoids building the string by repeated concatenation,
+ * which was about ten times slower for a full-screen frame.
+ */
 export function encodeSurfaceBytes(bytes: Uint8Array): string {
-  const chunks: string[] = [];
-  let output = "";
+  const length = bytes.length;
+  const out = new Uint8Array(((length + 2) / 3 | 0) * 4);
+  const limit = length - (length % 3);
   let i = 0;
-  const limit = bytes.length - (bytes.length % 3);
+  let o = 0;
   for (; i < limit; i += 3) {
     const bits = (bytes[i]! << 16) | (bytes[i + 1]! << 8) | bytes[i + 2]!;
-    output += BASE64_PAIRS[bits >>> 12]! + BASE64_PAIRS[bits & 4095]!;
-    if (output.length >= 8192) {
-      chunks.push(output);
-      output = "";
-    }
+    out[o] = BASE64_CODES[bits >>> 18]!;
+    out[o + 1] = BASE64_CODES[(bits >>> 12) & 63]!;
+    out[o + 2] = BASE64_CODES[(bits >>> 6) & 63]!;
+    out[o + 3] = BASE64_CODES[bits & 63]!;
+    o += 4;
   }
-  if (i < bytes.length) {
+  if (i < length) {
     const a = bytes[i]!;
     const b = bytes[i + 1];
-    output += BASE64[a >> 2]! + BASE64[((a & 3) << 4) | ((b ?? 0) >> 4)]!;
-    output += b === undefined ? "==" : BASE64[(b & 15) << 2]! + "=";
+    out[o] = BASE64_CODES[a >> 2]!;
+    out[o + 1] = BASE64_CODES[((a & 3) << 4) | ((b ?? 0) >> 4)]!;
+    out[o + 2] = b === undefined ? 61 : BASE64_CODES[(b & 15) << 2]!;
+    out[o + 3] = 61;
   }
-  chunks.push(output);
+  if (out.length <= ENCODE_SLICE) return String.fromCharCode.apply(null, out as unknown as number[]);
+  const chunks: string[] = [];
+  for (let start = 0; start < out.length; start += ENCODE_SLICE) {
+    chunks.push(String.fromCharCode.apply(null, out.subarray(start, start + ENCODE_SLICE) as unknown as number[]));
+  }
   return chunks.join("");
 }
 
