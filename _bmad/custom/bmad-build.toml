@@ -2,5 +2,6 @@
 persistent_facts = [
   "Human-facing docs (docs/, ADRs, guardrails.md, architecture-options.md, CLAUDE.md) are written in plain language: open with a short plain summary of what changes and why; give each rule or decision a one-sentence reason; define jargon on first use; put AD ids, E-xx/T-xx ids and spec section numbers in a References list at the end, not inline.",
   "Agent-facing artifacts (plans, the architecture spine, tickets) may stay dense, but every summary or checkpoint presented to the user is in plain language: say what changed and why it matters before citing ids.",
+  "For epic creation or recovery, use tools/github-epic-workflow.md. A parent issue alone is not a Project item; verify Project membership, tracker_id and native sub-issues.",
   "All epics and stories are tracked in the GitHub Project: 'RPG Toolkit Reawakened Roadmap & Tasks' (https://github.com/orgs/tk-reawakened/projects/3). Whenever an epic or ticket is planned, created, or refined, it must have a corresponding GitHub Issue with tracker_id recorded in tickets.toml (#<num>). Pull requests must reference their issue ('Fixes #<num>'). Active tasks belong to the active Sprint, while future epics sit in Backlog.",
 ]

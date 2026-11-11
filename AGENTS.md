@@ -36,6 +36,7 @@ Setup, choosing a ticket, the checks to run and the pull-request flow are in [CO
   - Every BMAD ticket in `_bmad-output/` must have a corresponding GitHub issue with `tracker_id = "#<num>"` recorded in its `tickets.toml` (or leaf frontmatter).
   - New Epics are created as GitHub Parent Issues (`[Epic <num>] <title>`) with their stories attached as native sub-issues (`addSubIssue`).
   - Active sprint tasks belong to the current sprint (`sprint:@current`); unstarted future epics sit in the Backlog (`no:sprint`).
+  - When creating or recovering an epic, follow [the GitHub epic workflow](tools/github-epic-workflow.md): a parent issue alone does not put it on the roadmap. Verify its Project membership and native sub-issues, and record its `tracker_id` in the initiative index.
   - Branches name the ticket/issue (`feat/<ticket>-<short-name>`), and pull requests must cite their issue (`Fixes #<num>`).
 
 <!-- CODEGRAPH_START -->

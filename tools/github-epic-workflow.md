@@ -1,0 +1,10 @@
+# Put an epic on the GitHub roadmap
+
+An epic needs a BMAD record, a parent issue, and membership in Project 3. An issue can exist with all its sub-issues and still be invisible on the roadmap if the parent was never added to the project.
+
+1. Create the epic's initiative-index row, epic document and story `tickets.toml` using the ticket store. Search GitHub for an existing parent and story issues first; inspect open planning PRs as well so concurrent work is not duplicated. If a matching parent exists, record its `#number` as the epic row's `tracker_id`. Record existing story issue numbers in the story entries too.
+2. Preview with `python3 tools/create-epic-on-github.py <epic-slug> --dry-run`. This is a local preview, not a GitHub membership or duplicate check. Resolve any missing story tracker IDs before expecting a complete hierarchy. The older story migrator matches issues by ticket reference in their title, not by `tracker_id`; inspect its behavior and existing issues before running it, especially for stories with pre-existing issues.
+3. Run `python3 tools/create-epic-on-github.py <epic-slug>`. It creates the parent if needed, records its tracker ID, adds it and already-tracked stories to Project 3, and links the stories as native sub-issues. It preserves a non-empty parent issue body. If it reports a title match or a story already parented elsewhere, resolve that case rather than creating a duplicate or silently moving the story.
+4. Verify the parent and every expected story on [the roadmap](https://github.com/orgs/tk-reawakened/projects/3), confirm the native sub-issue links, and check the tracker IDs in both initiative and story records. The command reports stories without tracker IDs and linking errors; those are incomplete work, not success. Assign active tasks to the current sprint; leave future work without a sprint.
+
+The script derives Project status from the ticket store and may update existing Project statuses. Review the store's status and the planned changes before running it against established work. Keep planning changes in the normal branch and PR workflow.

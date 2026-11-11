@@ -126,9 +126,19 @@ def project_item_status(item: dict) -> str:
     return ""
 
 
+def project_status_name(status: str) -> str:
+    """The Project Status name for a store status."""
+    return status if status in STATUS_OPTION_IDS else STATE_TO_STATUS[status]
+
+
+def parent_status_needs_update(item: dict, status: str) -> bool:
+    """Compare the displayed status name with the store status."""
+    return project_item_status(item) != project_status_name(status)
+
+
 def project_option(status: str) -> str:
     """The Project 3 single-select id for an epic status; `backlog` reads as `draft` there."""
-    return STATUS_OPTION_IDS[status] if status in STATUS_OPTION_IDS else STATUS_OPTION_IDS[STATE_TO_STATUS[status]]
+    return STATUS_OPTION_IDS[project_status_name(status)]
 
 
 def gh_api(endpoint: str, payload: dict | None = None, method: str = "POST") -> dict:
@@ -308,7 +318,7 @@ def main() -> None:
         value:{singleSelectOptionId:$option}
       }) { projectV2Item { id } }
     }"""
-    if project_item_status(project_item) != project_option(epic_state):
+    if parent_status_needs_update(project_item, epic_state):
         graphql(status_query, {
             "project": PROJECT_ID,
             "item": project_item["id"],
