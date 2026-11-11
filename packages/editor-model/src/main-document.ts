@@ -1,5 +1,5 @@
-import { BinaryReader, readMainFile, writeMainFile, type FormatError, type MainFile } from "@tk-reawakened/core";
-import type { FileSystemService, PlatformError } from "@tk-reawakened/platform-services";
+import { BinaryReader, MAIN_MAGIC, readMainFile, writeMainFile, type FormatError, type MainFile } from "@tk-reawakened/core";
+import type { FileSystemService, PlatformError, PlatformResult } from "@tk-reawakened/platform-services";
 import type { DocumentIdentity } from "./identity.ts";
 
 /**
@@ -38,7 +38,7 @@ export interface SaveFailure {
   readonly document: string;
   /** `write`: the host refused the bytes; `format`: the model could not be encoded; `read-only`: no writer exists. */
   readonly kind: "write" | "format" | "read-only";
-  /** The host's error code when `kind` is `write`. */
+  /** The host's error code when `kind` is `write`; `null` when the host gave none (it threw or rejected instead of answering). */
   readonly code: PlatformError["code"] | null;
   /** One sentence naming the document and the cause, safe to show. */
   readonly message: string;
@@ -94,7 +94,8 @@ export interface MainDocument {
   redo(editId?: string): HistoryResult;
   /**
    * Write the current model through the host and mark the document clean only when the host reports the bytes written
-   * (ADR 0022 D3.3). Edits made while the write is in flight stay dirty. Saves run one after another.
+   * (ADR 0022 D3.3). Edits made while the write is in flight stay dirty. Saves run one after another. The promise never
+   * rejects: a refused, thrown or rejected write is a `SaveFailure` value, and one failed save does not stop the next.
    */
   save(): Promise<SaveResult>;
 }
@@ -127,13 +128,26 @@ export async function openMainDocument(storage: DocumentStorage, identity: Docum
  */
 export function createMainDocument(storage: DocumentStorage, identity: DocumentIdentity, bytes: Uint8Array): OpenResult {
   const opened = bytes.slice();
-  const read = readMainFile(new BinaryReader(opened, identity.path));
+  const reader = new BinaryReader(opened, identity.path);
+  const read = readMainFile(reader);
   if (!read.ok) return { ok: false, error: { kind: "format", document: identity.path, error: read.error } };
   return { ok: true, document: new MainDocumentImpl(storage, identity, read.value, readOnlyReason(read.value, opened)) };
 }
 
-/** `null` when the writer reproduces `bytes` exactly, which is what a same-version writer means for this file. */
+/**
+ * `null` when the writer reproduces `bytes` exactly, which is what a same-version writer means for this file. A
+ * Toolkit 2 text main file is named as such first: `readMainFile` tells it from a binary one by the byte after the magic
+ * (`formats/README.md#header-and-version`), and the binary writer has no text form, so what it would say about the
+ * model (its reserved runs are empty, because a text file has none) is not the reason.
+ */
 function readOnlyReason(model: MainFile, bytes: Uint8Array): ReadOnlyReason | null {
+  const probe = new BinaryReader(bytes).isBinaryAt(MAIN_MAGIC.length);
+  if (probe.ok && !probe.value) {
+    return {
+      code: "no-same-version-writer",
+      message: `This is a Toolkit 2 text main file, and the editor has no writer for the text form, so it is shown read-only and never converted on open.`,
+    };
+  }
   const written = writeMainFile(model);
   if (!written.ok) {
     return {
@@ -149,7 +163,7 @@ function readOnlyReason(model: MainFile, bytes: Uint8Array): ReadOnlyReason | nu
   };
 }
 
-function firstDifference(a: Uint8Array, b: Uint8Array): number | null {
+export function firstDifference(a: Uint8Array, b: Uint8Array): number | null {
   const shared = Math.min(a.length, b.length);
   for (let index = 0; index < shared; index += 1) if (a[index] !== b[index]) return index;
   return a.length === b.length ? null : shared;
@@ -262,7 +276,10 @@ class MainDocumentImpl implements MainDocument {
     }
     const bytes = encoded.value;
     this.#pending += 1;
+    // A later save starts: the failure of an earlier one is no longer news, and is not shown beside "Saving…".
+    this.#saveError = null;
     this.#publish();
+    // `#write` settles every outcome into a `SaveResult`, so the chain never holds a rejection and the next save runs.
     const run = this.#queue.then(() => this.#write(path, bytes, revision, head));
     this.#queue = run;
     return run;
@@ -270,17 +287,16 @@ class MainDocumentImpl implements MainDocument {
 
   async #write(path: string, bytes: Uint8Array, revision: number, head: string | null): Promise<SaveResult> {
     try {
-      if (this.#savedAt === revision && this.#isRevision(revision, head)) return { ok: true };
       this.#saveError = null;
-      const written = await this.#storage.write(path, bytes);
-      if (!written.ok) {
-        return this.#fail({
-          document: path,
-          kind: "write",
-          code: written.error.code,
-          message: `Could not save ${path}: ${written.error.message}`,
-        });
+      if (this.#savedAt === revision && this.#isRevision(revision, head)) return { ok: true };
+      let written: PlatformResult<void>;
+      try {
+        written = await this.#storage.write(path, bytes);
+      } catch (thrown) {
+        // A host that throws or rejects instead of answering is a failed write like any other (ADR 0022 D3.3).
+        return this.#failWrite(path, null, thrown instanceof Error ? thrown.message : String(thrown));
       }
+      if (!written.ok) return this.#failWrite(path, written.error.code, written.error.message);
       // Clean only if that revision is still part of the history: an edit made during the write stays dirty, and an
       // undo followed by a different edit during the write means the written state is gone from the history.
       this.#savedAt = this.#isRevision(revision, head) ? revision : null;
@@ -289,6 +305,16 @@ class MainDocumentImpl implements MainDocument {
       this.#pending -= 1;
       this.#publish();
     }
+  }
+
+  /**
+   * A write the host did not complete. `fs.write` may leave the file in any state when it fails (platform-services
+   * fs.ts), so no revision is known to be on disk any more: the document is dirty until a save succeeds, even if undo
+   * brings the commands back to the last state that was saved.
+   */
+  #failWrite(path: string, code: PlatformError["code"] | null, reason: string): SaveResult {
+    this.#savedAt = null;
+    return this.#fail({ document: path, kind: "write", code, message: `Could not save ${path}: ${reason}` });
   }
 
   /** Whether the commands that were in force at `revision` are still the first `revision` commands of the stack. */
@@ -335,7 +361,14 @@ class MainDocumentImpl implements MainDocument {
 
   #publish(): void {
     this.#snapshot = this.#makeSnapshot();
-    for (const listener of [...this.#listeners]) listener();
+    for (const listener of [...this.#listeners]) {
+      // A listener is somebody else's code. If it throws, the document's state and the other listeners are not its to spoil.
+      try {
+        listener();
+      } catch {
+        // Nothing to do here: a view that cannot update is that view's fault, and the snapshot it missed is still current.
+      }
+    }
   }
 }
 

@@ -150,3 +150,56 @@ test("project, settings and the edit stream keep what they are given", async () 
   host.document.edited({ document: "d", editId: "edit-1", label: "Set game title" });
   deepEqual(host.editedEvents, [{ document: "d", editId: "edit-1", label: "Set game title" }]);
 });
+
+test("a file cannot be written below another file, as on a real file system", async () => {
+  const host = createMemoryPlatformServices({ files: { "a/b": bytes(1) } });
+  const refused = await host.fs.write("a/b/c", bytes(2));
+  equal(refused.ok, false);
+  if (!refused.ok) equal(refused.error.code, "not-a-directory");
+  deepEqual([...(host.bytesOf("a/b") ?? [])], [1], "the file is untouched");
+  equal(host.bytesOf("a/b/c"), undefined);
+  const deeper = await host.fs.write("A/B/c/d", bytes(3));
+  equal(deeper.ok, false, "the ancestor is found whatever its case");
+  const sibling = await host.fs.write("a/c", bytes(4));
+  equal(sibling.ok, true, "a sibling of the file is fine");
+});
+
+test("a folder cannot be moved into itself, and a file cannot be moved below a file", async () => {
+  const host = createMemoryPlatformServices({ files: { "a/b.txt": bytes(1), "f.txt": bytes(2) } });
+  const into = await host.fs.rename("a", "a/sub");
+  equal(into.ok, false);
+  if (!into.ok) equal(into.error.code, "invalid-path");
+  equal(host.bytesOf("a/sub/b.txt"), undefined);
+  deepEqual([...(host.bytesOf("a/b.txt") ?? [])], [1], "a refused rename changes nothing");
+  const below = await host.fs.rename("a/b.txt", "f.txt/b.txt");
+  equal(below.ok, false);
+  if (!below.ok) equal(below.error.code, "not-a-directory");
+  equal((await host.fs.rename("a", "a2")).ok, true, "a sibling name still works");
+  equal(host.bytesOf("a/b.txt"), undefined);
+  deepEqual([...(host.bytesOf("a2/b.txt") ?? [])], [1]);
+});
+
+test("a case-only rename changes the stored case and keeps the content; a taken name still refuses", async () => {
+  const host = createMemoryPlatformServices({
+    files: { "Main/Game.gam": bytes(1), "Dir/x.txt": bytes(2), "Other/y.txt": bytes(3) },
+  });
+  const seen: FileChange[] = [];
+  await host.fs.watch("", (change) => seen.push(change));
+  equal((await host.fs.rename("Main/Game.gam", "Main/game.gam")).ok, true);
+  const listed = await host.fs.list("Main");
+  ok(listed.ok);
+  deepEqual(listed.value, [{ name: "game.gam", kind: "file" }]);
+  deepEqual([...(host.bytesOf("Main/GAME.gam") ?? [])], [1], "same file, content kept");
+  equal((await host.fs.rename("Dir", "DIR")).ok, true, "a folder too");
+  const root = await host.fs.list("");
+  ok(root.ok);
+  ok(root.value.some((entry) => entry.name === "DIR"), JSON.stringify(root.value));
+  deepEqual([...(host.bytesOf("dir/x.txt") ?? [])], [2]);
+  deepEqual(seen.slice(0, 2), [
+    { kind: "deleted", path: "Main/Game.gam" },
+    { kind: "created", path: "Main/game.gam" },
+  ]);
+  const taken = await host.fs.rename("Other/y.txt", "main/GAME.GAM");
+  equal(taken.ok, false);
+  if (!taken.ok) equal(taken.error.code, "already-exists");
+});

@@ -95,6 +95,16 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
     for (const candidate of files.keys()) if (candidate.startsWith(`${key}/`)) return true;
     return false;
   };
+  /** The first proper ancestor of `key` that is a file, as its stored path; such a path cannot have anything below it. */
+  const fileAncestor = (key: string): string | undefined => {
+    let slash = key.indexOf("/");
+    while (slash !== -1) {
+      const entry = files.get(key.slice(0, slash));
+      if (entry !== undefined) return entry.path;
+      slash = key.indexOf("/", slash + 1);
+    }
+    return undefined;
+  };
   const put = (path: string, bytes: Uint8Array): FileChange["kind"] => {
     const key = fold(path);
     const existing = files.get(key);
@@ -140,6 +150,8 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
       if (writeFailure !== null) return Promise.resolve({ ok: false, error: writeFailure });
       const key = fold(path);
       if (folderExists(key)) return Promise.resolve(platformError("is-a-directory", `${path} is a folder`));
+      const blocker = fileAncestor(key);
+      if (blocker !== undefined) return Promise.resolve(platformError("not-a-directory", `${blocker} is a file`));
       const kind = put(path, bytes);
       emit({ kind, path: files.get(key)?.path ?? path });
       return Promise.resolve(platformOk(undefined));
@@ -180,9 +192,15 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
       const toKey = fold(to);
       const moving = [...files].filter(([key]) => key === fromKey || key.startsWith(`${fromKey}/`));
       if (moving.length === 0) return Promise.resolve(platformError("not-found", `${from} does not exist`));
-      if (files.has(toKey) || folderExists(toKey)) {
+      if (toKey.startsWith(`${fromKey}/`)) {
+        return Promise.resolve(platformError("invalid-path", `${from} cannot be moved into itself (${to})`));
+      }
+      // The destination may be the source itself under another case; it is taken only when something else holds it.
+      if (toKey !== fromKey && (files.has(toKey) || folderExists(toKey))) {
         return Promise.resolve(platformError("already-exists", `${to} already exists`));
       }
+      const blocker = fileAncestor(toKey);
+      if (blocker !== undefined) return Promise.resolve(platformError("not-a-directory", `${blocker} is a file`));
       for (const [key, entry] of moving) {
         files.delete(key);
         const movedPath = `${to}${entry.path.slice(from.length)}`;
