@@ -19,6 +19,7 @@ import {
   createAudioSourceRegistry,
   createPcmSource,
   createSpessaMidiSource,
+  SilentVoice,
   openPrepared,
   validateBankBytes,
   missingPatches,
@@ -204,17 +205,7 @@ export class PcmSink {
           return;
         }
         this.reportMissingPatches(message.asset, fetched);
-        this.voices.set(message.voice, {
-          id: message.voice,
-          track: message.track,
-          asset: message.asset,
-          source: source.value,
-          cue: 0,
-          volume: 100,
-          bus: message.track,
-          ended: false,
-        });
-        this.event({ kind: "ready", voice: message.voice, lengthTicks: source.value.lengthTicks });
+        this.installVoice(message, source.value);
         return;
       }
       case "play": {
@@ -401,7 +392,25 @@ export class PcmSink {
     this.fail(voice, code, detail);
   }
 
+  /** The worklet owns decoding and playback; the host only mirrors timing and reports patch substitutions. */
+  notifyWorkletReady(message: Extract<AudioMessage, { kind: "load" }>, lengthTicks: number | null): void {
+    this.reportMissingPatches(message.asset, message.data);
+    this.installVoice(message, new SilentVoice(lengthTicks, this.outputRateHz));
+  }
 
+  private installVoice(message: Extract<AudioMessage, { kind: "load" }>, source: SourceVoice): void {
+    this.voices.set(message.voice, {
+      id: message.voice,
+      track: message.track,
+      asset: message.asset,
+      source,
+      cue: 0,
+      volume: 100,
+      bus: message.track,
+      ended: false,
+    });
+    this.event({ kind: "ready", voice: message.voice, lengthTicks: source.lengthTicks });
+  }
 
   /** Compare a MIDI file's instruments with the current bank's and report each one that needs a substitute, once. */
   private reportMissingPatches(asset: AssetKey, bytes: Uint8Array | null): void {
@@ -496,7 +505,7 @@ export async function connectSinkToGraph(context: AudioContext, sink: PcmSink, o
           const load = pendingLoads.get(data.voice);
           if (load !== undefined) {
             pendingLoads.delete(data.voice);
-            sink.handle(load);
+            sink.notifyWorkletReady(load, data.lengthTicks);
           }
         } else if (data.kind === "ended") sink.notifyEnded(data.voice);
         else if (data.kind === "error" && data.voice !== null) {

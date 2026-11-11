@@ -69,7 +69,6 @@
     "catalogue/callplayerswap",
     "catalogue/destroyitem",
     "catalogue/putitem",
-    "catalogue/eraseitem",
     "catalogue/itemcount",
     "catalogue/onboard",
     "catalogue/spritetranslucency",

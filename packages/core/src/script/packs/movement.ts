@@ -72,11 +72,9 @@ function itemIdFor(state: SpritesSection | undefined, arg: number | string | und
 
 function itemIdForThread(state: GameState | undefined, threadId: number | undefined, arg: number | string | undefined): string {
   if (typeof arg === "string" && arg.toLowerCase() === "source") {
-    const thread = state?.vm.threads.find((candidate) => candidate.id === threadId);
-    if (thread?.kind === "item") {
-      const source = state?.sprites.items.find((candidate) => itemKey(candidate) === thread.source);
-      if (source !== undefined) return source.id;
-    }
+    const handle = state?.vm.threads.find((candidate) => candidate.id === threadId)?.source;
+    const source = state?.sprites.items.find((candidate) => candidate.id === handle || itemKey(candidate) === handle);
+    if (source !== undefined) return source.id;
   }
   return itemIdFor(state?.sprites, arg);
 }
@@ -342,7 +340,19 @@ const MOUSE_CLICK: BuiltinSpec = { name: "mouseclick", aliases: [], params: [{ n
 const PLAYER_STANCE: BuiltinSpec = { name: "playerstance", aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }, { name: "stance", optional: false, byRef: false, variadic: false }, { name: "flags", optional: true, byRef: false, variadic: false }], doc: docs("Play a player's stance animation.", "Starts the named stance through the sprite animation owner, then waits for that owner to report completion."), call: (view, args) => stanceResult(view, playerId(view, args[0]?.value as number | string ?? ""), "player", string(args, 1), args) };
 const ITEM_STANCE: BuiltinSpec = { ...PLAYER_STANCE, name: "itemstance", doc: docs("Play an item's stance animation.", "Starts the named item stance through the sprite animation owner, then waits for that owner to report completion."), call: (view, args) => stanceResult(view, itemId(view, args[0]?.value as number | string ?? ""), "item", string(args, 1), args) };
 
-export const MOVEMENT_COMMANDS: readonly BuiltinSpec[] = [PUSH, PUSH_ITEM, PLAYER_STEP, ITEM_STEP, pathCommand("playerpath"), pathCommand("itempath"), PLAYER_LOCATION, ITEM_LOCATION, ACTIVE_PLAYER, ADD_PLAYER, REMOVE_PLAYER, RESTORE_PLAYER, DESTROY_PLAYER, NEW_PLAYER, ADD_PLAYER_ASSET, NEW_PLAYER_ASSET, PLAYER_DIRECTION, ITEM_DIRECTION, PLAYER_SPEED, ITEM_SPEED, PLAYER_GET_PATH, ITEM_GET_PATH, WANDER, WAIT, WAIT_INPUT, GET, CLEAR_BUFFER, SET_BUTTON, CHECK_BUTTON, CLEAR_BUTTONS, MOUSE_MOVE, MOUSE_CLICK, PLAYER_STANCE, ITEM_STANCE];
+const ERASE_ITEM: BuiltinSpec = {
+  name: "eraseitem", aliases: [],
+  params: [{ name: "handle", optional: false, byRef: false, variadic: false }],
+  doc: docs("Hide a board item while keeping it in memory.",
+    "Hides the item identified by the handle or the program's source immediately. Its multitask thread stops, or finishes battle cleanup first when it owns the current fight."),
+  call: (view, args) => {
+    const handle = args[0]?.value;
+    const id = typeof handle === "string" || typeof handle === "number" ? itemId(view, handle) : "";
+    return { value: null, effects: [{ kind: "state-write", section: "sprites", args: [id] }] };
+  },
+};
+
+export const MOVEMENT_COMMANDS: readonly BuiltinSpec[] = [PUSH, PUSH_ITEM, PLAYER_STEP, ITEM_STEP, pathCommand("playerpath"), pathCommand("itempath"), PLAYER_LOCATION, ITEM_LOCATION, ACTIVE_PLAYER, ADD_PLAYER, REMOVE_PLAYER, RESTORE_PLAYER, DESTROY_PLAYER, NEW_PLAYER, ADD_PLAYER_ASSET, NEW_PLAYER_ASSET, PLAYER_DIRECTION, ITEM_DIRECTION, PLAYER_SPEED, ITEM_SPEED, PLAYER_GET_PATH, ITEM_GET_PATH, WANDER, WAIT, WAIT_INPUT, GET, CLEAR_BUFFER, SET_BUTTON, CHECK_BUTTON, CLEAR_BUTTONS, MOUSE_MOVE, MOUSE_CLICK, PLAYER_STANCE, ITEM_STANCE, ERASE_ITEM];
 
 export function applyInputEffect(state: GameState, name: string, args: readonly Value[]): void {
   state.engine.claims ??= [];

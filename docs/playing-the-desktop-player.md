@@ -164,6 +164,12 @@ system delivers the link as a command-line argument** (Linux and Windows). macOS
 needs a signed application bundle; no such bundle exists yet, so that path is wired and parser-tested but not observed on
 a real machine. Naming the game with `--game` works everywhere today.
 
+The terminal shows game diagnostics with their tick and source location, battle starts and outcomes, and renderer failures. It also shows the display and window bounds when the player moves between displays or switches fullscreen. To save that output while playing, run:
+
+```sh
+pnpm desktop:run 2>&1 | tee player.log
+```
+
 ## Operating-system notes
 
 - **macOS** — use a running desktop session to see the window.

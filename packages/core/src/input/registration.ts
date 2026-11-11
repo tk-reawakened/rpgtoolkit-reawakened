@@ -1,6 +1,7 @@
 import type { EnginePhaseRegistration, EngineResetRegistration } from "../engine/engine.ts";
 import { IR_VERSION } from "../script/program.ts";
 import { scriptOwnsInput, startThread } from "../script/state.ts";
+import { battleInProgress } from "../script/packs/battle.ts";
 import { enqueueDirectionMove } from "../sprites/movement.ts";
 import type { Facing } from "../sprites/model.ts";
 import { enqueuePathMove } from "../sprites/runtime.ts";
@@ -40,7 +41,7 @@ export type InputPhaseOptions = {
 export function openMainMenu(state: GameState): boolean {
   const boot = state.engine.boot;
   if (boot !== undefined && boot.stage !== "running") return false;
-  if (state.menu.screens.length > 0 || state.battle !== null) return false;
+  if (state.menu.screens.length > 0 || battleInProgress(state)) return false;
   if (state.vm.threads.some((thread) => thread.kind === "blocking" && thread.status !== "finished")) return false;
   if (state.world.board == null) return false;
   if (!state.actors.actors.some((actor) => actor.kind === "party" && state.party.members.includes(actor.id) && actor.stats.hp > 0)) return false;
@@ -107,7 +108,7 @@ export function runInputPhase(state: GameState, options: InputPhaseOptions = {})
   let directionBlocked = scriptOwnsInput(state.vm);
   const configured = options.menuKey;
   const configuredMenuPress = configured !== undefined && currentKeys.some((key) => key.code === configured.code && key.action === configured.action);
-  if (!directionBlocked && state.battle === null && (actions.includes("menu") || configuredMenuPress)) {
+  if (!directionBlocked && (actions.includes("menu") || configuredMenuPress) && !battleInProgress(state)) {
     // A menu opened by this very press owns input from now on, so a direction pressed on the same tick queues no step
     // (docs/spec/engine/display-input-audio.md#reawakened-held-direction-movement: a blocking script freezes movement).
     if ((options.openMenu ?? openMainMenu)(state)) directionBlocked = true;

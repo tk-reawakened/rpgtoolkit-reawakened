@@ -65,10 +65,11 @@ class SpessaVoice implements SourceVoice {
   }
 
   start(positionTicks: number, loop: boolean): void {
+    // Opening already built and scheduled a processor at the beginning of the track.
+    if (this.position !== 0) this.processor = this.createProcessor();
     this.loop = loop;
     this.position = Math.max(0, Math.floor((positionTicks * this.sampleRate) / 60));
     if (this.loop) this.position %= this.lengthFrames;
-    this.processor = this.createProcessor();
     this.skipTo(this.position);
     this.playing = !this.ended;
   }

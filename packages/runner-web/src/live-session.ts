@@ -23,6 +23,8 @@ import {
   readMainFile,
   writeMainFile,
   type AssetKey,
+  type BattleState,
+  type Diagnostic,
   type DrawList,
   type Engine,
   type GameState,
@@ -87,7 +89,7 @@ export type LiveSession = {
   };
   readonly cuesSettled: () => Promise<void>;
   /** The located diagnostics the engine has reported so far, capped like the effect audit. */
-  readonly diagnostics: () => readonly { code: string; file: string; line: number; message: string }[];
+  readonly diagnostics: () => readonly Diagnostic[];
   /** Persistent host audio initialization failure, if one occurred. */
   readonly audioError: () => string | null;
   readonly advance: (ticks: number, inputs?: readonly InputRecord[]) => Promise<void>;
@@ -110,6 +112,10 @@ type LiveSessionBase = {
   /** Browser host surface measured before the engine is created; omitted by deterministic closing sessions. */
   readonly hostViewport?: HostViewport;
   readonly onQuit?: () => void;
+  /** Delivers each engine or runner diagnostic when it is reported. */
+  readonly onDiagnostic?: (diagnostic: Diagnostic, tick: number) => void;
+  /** Reports a new battle or a change to its recorded outcome. */
+  readonly onBattleChange?: (battle: Pick<BattleState, "id" | "boardKey" | "outcome"> | null, tick: number) => void;
 };
 export type LiveSessionOptions = LiveSessionBase & (
   /** An interactive session over a validated package source: assets arrive on demand through the tiered source. */
@@ -209,6 +215,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   let hasPlayer = false;
   let cameraPosition: { x: number; y: number } | null = null;
   let latest: GameState | null = null;
+  let lastBattle: GameState["battle"] = null;
   const triggerProgramLoader = { index, root: PACKAGE_ROOT, read: (key: AssetKey) => files.get(key) };
   const phaseRegistrations = interactive
     ? [
@@ -219,7 +226,16 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
           ? null
           : fileProgramRef(triggerProgramLoader, name),
       }),
-      { phase: "audio" as const, rank: 0, run: (state: GameState) => { latest = state; } },
+      { phase: "audio" as const, rank: 0, run: (state: GameState) => {
+        latest = state;
+        const battle = state.battle;
+        if (battle?.id !== lastBattle?.id || battle?.outcome !== lastBattle?.outcome) {
+          lastBattle = battle;
+          options.onBattleChange?.(battle === null ? null : {
+            id: battle.id, boardKey: battle.boardKey, outcome: battle.outcome,
+          }, state.time.tick);
+        }
+      } },
     ]
     : [{ phase: "audio" as const, run: (state: GameState) => { latest = state; } }];
   // The window and its resolution are the runner's job (`docs/spec/engine/main-loop-and-startup.md` steps 4-5): a
@@ -304,7 +320,12 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   let renderedSurfaceEpoch = engine.surfaceCacheEpoch();
   let currentTick = 0;
   let currentStateHash = "";
-  const sessionDiagnostics: { code: string; file: string; line: number; message: string }[] = [];
+  const sessionDiagnostics: Diagnostic[] = [];
+  const reportDiagnostic = (diagnostic: Diagnostic): void => {
+    sessionDiagnostics.push(diagnostic);
+    if (sessionDiagnostics.length > 256) sessionDiagnostics.shift();
+    options.onDiagnostic?.(diagnostic, currentTick);
+  };
   let audioError: string | null = null;
   let closed = false;
   let closePromise: Promise<void> | null = null;
@@ -325,7 +346,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
       else if (event.kind === "error") {
         if (event.code === "audio.decoder-unavailable") {
           audioError = event.detail;
-          sessionDiagnostics.push({ code: event.code, file: "", line: 0, message: event.detail });
+          reportDiagnostic({ code: event.code, file: "", line: 0, message: event.detail });
         }
         if (event.voice !== null) queueMicrotask(() => player.failed(event.voice!));
         else console.warn(`audio: ${event.code}: ${event.detail}`); // a bank failure belongs to no voice
@@ -416,10 +437,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
       inputs = [];
       currentTick = report.tickAfter;
       currentStateHash = report.stateHash;
-      for (const diagnostic of report.diagnostics) {
-        sessionDiagnostics.push({ code: diagnostic.code, file: diagnostic.file, line: diagnostic.line, message: diagnostic.message });
-      }
-      if (sessionDiagnostics.length > 256) sessionDiagnostics.splice(0, sessionDiagnostics.length - 256);
+      for (const diagnostic of report.diagnostics) reportDiagnostic(diagnostic);
       // Cues are handed to the player on their own chain, in report order, once the assets they name are cached (the
       // player and the sink read assets synchronously). The simulation never waits on this chain, and a stall in the
       // chain cannot reorder cues, because each report's cues run only after the previous report's.

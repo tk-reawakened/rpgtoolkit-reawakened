@@ -11,6 +11,7 @@ import { test } from "node:test";
 import { UI_PLUGIN } from "../src/script/packs/ui.ts";
 import {
   addActor,
+  actorFromSource,
   assetKey,
   BATTLE_BACKGROUND_MAGIC,
   BATTLE_PLUGIN,
@@ -35,7 +36,9 @@ import {
   hashDrawList,
   hashGameState,
   hashState,
+  itemKey,
   nextUint32,
+  openMainMenu,
   PACKAGE_ROOT,
   registerActorObject,
   restoreGameState,
@@ -58,6 +61,7 @@ import {
   writeMainFile,
   type Engine,
   type GameState,
+  type InputRecord,
   type PackageCatalogueEntry,
   type PluginLayers,
   type ProgramLoader,
@@ -219,7 +223,7 @@ const authoredAssets: Readonly<Record<string, Uint8Array>> = {
  * pass: the enemy order is REST, FIGHT, DEFEND, SPECIAL MOVE, DIE
  * (docs/spec/engine/rpgcode-functions.md#fighteranimationfile, BAT-3 callback 122).
  */
-function stanceEnemyBytes(name: string): Uint8Array {
+function stanceEnemyBytes(name: string, defeatProgram = ""): Uint8Array {
   return unwrap(writeEnemy({
     magic: "RPGTLKIT ENEMY",
     major: 2,
@@ -240,7 +244,7 @@ function stanceEnemyBytes(name: string): Uint8Array {
     aiProgram: "",
     experienceReward: 0,
     goldReward: 0,
-    defeatProgram: "",
+    defeatProgram,
     runAwayProgram: "",
     stances: ["enemy-rest.anm", "enemy-fight.anm", "enemy-defend.anm", "enemy-special.anm", "enemy-die.anm", ""],
     customStances: [],
@@ -485,6 +489,28 @@ function tickUntil(rig: Rig, poll: WaitPoll, ready: () => boolean, limit = 600):
 function runToEnd(rig: Rig, poll = pollAssets(rig)): void {
   tickUntil(rig, poll, () => !alive(rig.state));
 }
+
+test("a second fight cannot replace a running handler and a later fight can start", () => {
+  const rig = makeRig({ mode: "record", stock: false, replacement: true });
+  Object.assign(rig.state.vm.globals, { replacementpause: 1, replacementoutcome: 3 });
+  const start = (enemy: string) => startThread(rig.state.vm, {
+    ref: { kind: "inline", text: `FightEnemy("${enemy}", "night.bkg")`, ir: IR_VERSION },
+    kind: "board", owner: "world",
+  });
+  const poll = pollAssets(rig);
+  start("slime.ene");
+  start("bat.ene");
+  runToEnd(rig, poll);
+  equal(rig.state.battle?.id, 1);
+  equal(rig.state.vm.globals.replacementbattlecalls, 1);
+  deepEqual(rig.state.actors.actors.filter((actor) => actor.kind === "enemy").map((actor) => actor.source), ["slime.ene"]);
+  deepEqual(rig.services.diagnostics.map(({ code }) => code), ["battle.already-active"]);
+
+  start("bat.ene");
+  runToEnd(rig, poll);
+  equal(rig.state.battle?.id, 2);
+  equal(rig.state.vm.globals.replacementbattlecalls, 2);
+});
 
 function globals(rig: Rig): Record<string, unknown> {
   return rig.state.vm.globals;
@@ -971,8 +997,8 @@ function bootGame(mode: string, program = "fight.prg", extra: Readonly<Record<st
 }
 
 /** Play the host: answer every asset request from the game's files until `done` holds or the guard runs out. */
-function play(booted: Booted, done: (state: GameState) => boolean): void {
-  let replies: { readonly tick: number; readonly event: { readonly kind: "asset"; readonly reqId: number; readonly bytes: Uint8Array | null } }[] = [];
+function play(booted: Booted, done: (state: GameState) => boolean, inputs: readonly InputRecord[] = []): void {
+  let replies = inputs;
   for (let guard = 0; guard < 4000; guard += 1) {
     const report = booted.engine.advance(1, replies);
     replies = [];
@@ -1013,6 +1039,41 @@ test("the engine reports a custom request whose program is not in the game as pr
   equal(booted.state().battle, null);
   for (let tick = 0; tick < 5; tick += 1) booted.engine.advance(1, []);
   equal(booted.state().engine.boot?.stage, "running");
+});
+
+test("an item-thread encounter shows both prompts and erases its board item on victory", () => {
+  const booted = bootGame("record", "fight.prg", {
+    "item-win.prg": 'mwin("Victory!")\nwait()\nmwincls()\neraseitem("source")\nwinProgramRan = 1',
+  }, { assets: { "enemy/slime.ene": stanceEnemyBytes("Challenger", "item-win.prg") } });
+  play(booted, (state) => state.vm.globals.afterfight === 1);
+  const state = booted.state();
+  const item = actorFromSource({ kind: "item", id: "challenger", source: "challenger.itm", x: 64, y: 64, layer: 1 },
+    state.world.board ?? null, 0, 0);
+  const itemThread = startThread(state.vm, {
+    ref: { kind: "inline", text: 'on(game, "boardReturned", (event) => { boardReturned = 1 })\nmwin("Ready to fight?")\nwait()\nmwincls()\nFightEnemy("slime.ene", "night.bkg")\nitemContinued = 1', ir: IR_VERSION },
+    kind: "item", owner: "world", source: itemKey(item),
+  });
+  state.sprites.items = [{ ...item, multitaskThread: itemThread.id }];
+  const confirm = (): InputRecord[] => [true, false].map((down) => ({
+    tick: state.time.tick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down },
+  }));
+  const shows = (text: string): boolean => booted.engine.drawList().commands.some((command) => command.kind === "text" && command.text === text);
+  play(booted, (state) => state.vm.block?.kind === "input.key");
+  ok(shows("Ready to fight?"));
+  play(booted, (state) => (state.battle?.parties[1][0]?.charge ?? 0) > 0, confirm());
+  startThread(state.vm, { ref: { kind: "inline", text: "battle.finish(2)", ir: IR_VERSION }, kind: "board", owner: "world" });
+  play(booted, (state) => state.battle?.outcome === 2 && state.vm.block?.kind === "input.key");
+  ok(shows("Victory!"));
+  equal(openMainMenu(state), false, "the outcome still owns the screen while waiting");
+  play(booted, (state) => state.vm.globals.boardreturned === 1, confirm());
+  equal(state.battle?.outcome, 2);
+  equal(state.vm.globals.winprogramran, 1);
+  equal(state.sprites.items[0]?.visible, false);
+  equal(state.sprites.items[0]?.multitaskThread, null);
+  equal(state.vm.threads.some((thread) => thread.id === itemThread.id), false);
+  equal(state.vm.globals.itemcontinued, undefined);
+  equal(shows("Victory!"), false);
+  equal(openMainMenu(state), true, "the retained outcome no longer blocks the board menu");
 });
 
 test("the engine hands a custom program's FightEnemy call to the stock loop with the BAT-9 setup and no draw before the loop seeds", () => {

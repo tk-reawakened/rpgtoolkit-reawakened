@@ -255,6 +255,8 @@ The AudioWorklet has its own SoundFont decoder instance. While a compressed bank
 voices and their controls continue; a replacement bank supersedes the pending bank. A voice is ready only when the worklet has opened it, so the cue player can
 apply the late-start rule at the actual ready tick. If worklet decoder initialization fails, the player reports an
 attempt to use a compressed bank and retains the previous bank; uncompressed banks and PCM remain available.
+The worklet's ready reply supplies the voice duration to the renderer's timing mirror. Only the worklet opens and
+seeks the audio source on that path. The renderer still reports instrument substitutions from the asset and bank metadata.
 This does not describe the desktop page's separate decoder initialization, which currently fails the player startup
 when it cannot initialize.
 
@@ -287,6 +289,10 @@ and both:
 **The player's window is its game.** Closing the player's last window exits the player application on every platform,
 macOS included: the shell never stays alive with no window, and the process that launched the game ends with it
 ([E-06](main-loop-and-startup.md#e-06), where closing the engine's window exits the game).
+
+On macOS, fullscreen follows the display that held the player window before the transition. If the native transition
+lands on a different display and the intended display is still connected, the player restores the window's last bounds
+and retries fullscreen once there (#1922).
 
 **The player's launch resolution** is fixed, in this order, and is the only mechanism:
 

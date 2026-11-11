@@ -107,13 +107,6 @@ const STUBS: readonly CatalogueStub[] = [
     params: [{ name: "h", optional: false, byRef: false, variadic: false }, { name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, { name: "layer", optional: false, byRef: false, variadic: false }],
   },
   {
-    name: "eraseitem",
-    kind: "state-write",
-    sections: ["sprites"],
-    obsolete: false,
-    params: [{ name: "itemnum", optional: false, byRef: false, variadic: false }],
-  },
-  {
     name: "itemcount",
     kind: "pure",
     sections: [],

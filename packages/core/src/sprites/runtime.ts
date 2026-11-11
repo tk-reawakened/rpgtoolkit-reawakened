@@ -55,15 +55,15 @@ function startsItemThread(actor: SpriteActor, vm: VmState | undefined, resolver:
   return thread.id;
 }
 
-function stopItemThread(actor: SpriteActor, vm: VmState | undefined, cleanup?: ItemThreadCleanup): void {
+function stopItemThread(actor: SpriteActor, vm: VmState | undefined, cleanup?: ItemThreadCleanup, keepThread?: number): void {
   if (vm === undefined) return;
   const source = itemKey(actor);
   if (cleanup !== undefined) {
     for (const thread of [...vm.threads]) {
-      if (thread.kind === "item" && thread.source === source) cleanup(thread);
+      if (thread.id !== keepThread && thread.kind === "item" && thread.source === source) cleanup(thread);
     }
   }
-  endItemThreads(vm, source);
+  endItemThreads(vm, source, keepThread);
 }
 
 function withItemThread(actor: SpriteActor, thread: number | null): SpriteActor {
@@ -143,11 +143,11 @@ export function placeSelectedPlayer(
 }
 
 /** Change item visibility and own its multitask thread lifecycle. */
-export function setItemVisible(section: SpritesSection, id: string | number, visible: boolean, vm?: VmState, resolver?: SpriteThreadResolver | null, cleanup?: ItemThreadCleanup): boolean {
+export function setItemVisible(section: SpritesSection, id: string | number, visible: boolean, vm?: VmState, resolver?: SpriteThreadResolver | null, cleanup?: ItemThreadCleanup, keepThread?: number): boolean {
   const index = itemById(section, id);
   const item = section.items[index];
   if (item === undefined || item.visible === visible) return item !== undefined;
-  if (!visible) stopItemThread(item, vm, cleanup);
+  if (!visible) stopItemThread(item, vm, cleanup, keepThread);
   const replacement = updateItem(section, index, (value) => ({ ...value, visible, state: visible ? "waiting" : "hidden", multitaskThread: null }));
   if (visible && replacement !== null) {
     const thread = startsItemThread(replacement, vm, resolver);

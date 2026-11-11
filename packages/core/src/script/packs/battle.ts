@@ -14,7 +14,7 @@ import { actorInputFromEnemy } from "../../actors/hydrate.ts";
 import { registerActorObject } from "../../actors/object.ts";
 import type { BattleAction, BattleOperationResult } from "../../battle/port.ts";
 import type { ObjectValue, Value } from "../../ports/value.ts";
-import type { ObjectRecord } from "../state.ts";
+import type { Frame, ObjectRecord, Thread } from "../state.ts";
 import type { Arg, BuiltinDoc, BuiltinSpec, ParamSpec } from "../builtins.ts";
 import { ScriptError } from "../errors.ts";
 import { recordDiagnostic } from "../effects.ts";
@@ -23,9 +23,34 @@ import { IR_VERSION } from "../program.ts";
 import type { PlainData } from "../../ports/plain-data.ts";
 import { surfaceSize } from "../../raster/surfaces.ts";
 import type { SurfaceId } from "../../ports/keys.ts";
+import { itemKey } from "../../sprites/runtime.ts";
+import type { GameState } from "../../save/state.ts";
 
 const GROUP = "battle-stats-menus-33";
 const NO_WAIT = { kind: "never", summary: "Completes in the current script turn." } as const;
+const BATTLE_LOOP = "battle()";
+const ITEM_BATTLE_LOOP = "battle()\n__battle_end_hidden_item_thread()";
+
+function registeredBattleFrame(thread: Readonly<Thread> | undefined): Frame | undefined {
+  return thread?.frames.find((frame) => frame.program.kind === "inline" &&
+    (frame.program.text === BATTLE_LOOP || frame.program.text === ITEM_BATTLE_LOOP) && frame.programRoot !== undefined);
+}
+
+/** The item thread owns the handler until it has finished closing the battle. */
+export function itemBattleHandlerRunning(thread: Readonly<Thread> | undefined): boolean {
+  const frame = registeredBattleFrame(thread);
+  return frame?.program.kind === "inline" && frame.program.text === ITEM_BATTLE_LOOP;
+}
+
+export function battleInProgress(state: Pick<GameState, "battle" | "vm"> | undefined): boolean {
+  return state?.battle?.outcome === null || state?.vm.threads.some((thread) => registeredBattleFrame(thread) !== undefined) === true;
+}
+
+function requireIdleBattle(view: CommandView): void {
+  if (battleInProgress(view.state)) {
+    throw new ScriptError("battle.already-active", "another battle is already running");
+  }
+}
 const STATUS_WAIT = { kind: "host-request", summary: "Waits for the host to load and return the requested StatusE `.ste` asset." } as const;
 const FIGHTER_HANDLES = "Handles accept `source` or `target` from the current script thread, a party-member name resolved in the actor store's ordered party, an actor object (including the object returned by `battle.fighter(...)`), or an enemy reference `{ party: 0, index }` with a zero-based index.";
 const STAT_THROWS: NonNullable<BuiltinDoc["throws"]> = [
@@ -232,7 +257,7 @@ if (outcome == 2) {
   }
   runProgram = reward.winprogram
   if (runProgram != "") {
-    executeProgram(runProgram, { source: null, target: null })
+    executeProgram(runProgram, { source: __battle_encounter_item(), target: null })
   }
 }
 clearIndex = 0
@@ -639,18 +664,20 @@ function pendingStart(
   };
 }
 
-function registeredBattleLoop(): CommandEffect {
+function registeredBattleLoop(view: CommandView): CommandEffect {
+  const thread = view.state?.vm.threads.find((entry) => entry.id === view.thread);
   return {
     kind: "vm.control",
     args: ["executeProgramRef", {
       kind: "inline",
-      text: "battle()",
+      text: thread?.kind === "item" ? ITEM_BATTLE_LOOP : BATTLE_LOOP,
       ir: IR_VERSION,
     }, null, null],
   };
 }
 
 function finishBattleStart(view: CommandView, pending: BattleStartPending, backgroundMusic: string): CommandResult {
+  requireIdleBattle(view);
   const state = view.state;
   const actors = view.actors;
   const battle = view.battle;
@@ -677,7 +704,7 @@ function finishBattleStart(view: CommandView, pending: BattleStartPending, backg
   });
   if (!started.ok) throw new ScriptError(started.error.code, started.error.message);
   if (backgroundMusic !== "") view.media?.playBattleMusic(backgroundMusic);
-  return pending.runStock ? { value: null, effects: [registeredBattleLoop()] } : { value: null };
+  return pending.runStock ? { value: null, effects: [registeredBattleLoop(view)] } : { value: null };
 }
 
 function battleStartAssetContinuation(view: CommandView, args: readonly Arg[]): CommandResult {
@@ -700,6 +727,7 @@ function battleStartBackgroundAssetContinuation(view: CommandView, args: readonl
 }
 
 function beginBattleStart(view: CommandView, boardKey: string, background: string, sources: readonly string[], runLoop: boolean): CommandResult {
+  requireIdleBattle(view);
   if (boardKey === "" || typeof background !== "string") throw new ScriptError("battle.bad-handoff", "battle start requires a board key and background");
   if (runLoop && !hasBattleHandler(view)) {
     throw new ScriptError("battle.package-missing", "no battle handler is registered");
@@ -708,6 +736,7 @@ function beginBattleStart(view: CommandView, boardKey: string, background: strin
 }
 
 function beginRandomBattle(view: CommandView, skill: number, background: string, runLoop: boolean): CommandResult {
+  requireIdleBattle(view);
   const state = view.state;
   const setup = view.battleStart;
   const board = state?.world.board;
@@ -1141,6 +1170,34 @@ const APPLY_OUTCOME = {
     } else if (current !== code) resolve(battle.decideOutcome(code));
     return { value: null, effects: [outcomeAdapterEffect()] };
   },
+} satisfies BuiltinSpec;
+
+function encounterItem(view: CommandView) {
+  const thread = view.state?.vm.threads.find((entry) => entry.id === view.thread);
+  if (thread?.kind === "item" && !itemBattleHandlerRunning(thread)) return undefined;
+  const source = registeredBattleFrame(thread)?.programRoot?.restore?.source;
+  if (source == null || view.state?.world.board?.key !== view.state?.battle?.boardKey) return undefined;
+  return view.state?.sprites.items.find((item) => item.id === source || itemKey(item) === source);
+}
+
+const ENCOUNTER_ITEM = {
+  name: "__battle_encounter_item", aliases: [], params: [],
+  doc: internalDocumentation("Read the encounter's board item.", "Returns the originating item handle on the battle's board, or null."),
+  call: (view: CommandView) => {
+    const item = encounterItem(view);
+    return { value: item?.visible ? itemKey(item) : null };
+  },
+} satisfies BuiltinSpec;
+
+const END_HIDDEN_ITEM_THREAD = {
+  name: "__battle_end_hidden_item_thread", aliases: [], params: [],
+  doc: internalDocumentation("Stop the erased encounter's thread.", "Ends the originating item thread after battle cleanup if its item has been hidden."),
+  call: (view: CommandView) => ({
+    value: null,
+    effects: encounterItem(view)?.visible === false && view.thread !== undefined
+      ? [{ kind: "vm.control", args: ["threadKill", view.thread] }]
+      : [],
+  }),
 } satisfies BuiltinSpec;
 
 const ASSET_WAIT = { kind: "host-request", summary: "Waits for the host to load and return the requested asset." } as const;
@@ -1938,6 +1995,7 @@ const FIGHT: BuiltinSpec = {
     behaviour: "Draws a uniformly selected count of one to four enemies, then independently draws each enemy uniformly from the main-file pool entries at the requested skill. The seeded game RNG owns every draw. It loads the selected enemy files, builds party 0 in draw order and party 1 from the ordered player party (including fallen members), stores the requested background and the run permission derived from every enemy, then waits for the registered battle handler to return. An empty matching pool shows the exact “No enemies of skill level N found.” message and starts nothing.",
     groups: [GROUP], tags: ["legacy"], waits: ASSET_WAIT,
     throws: [
+      { code: "battle.already-active", when: "another fight or its outcome is still running" },
       { code: "battle.no-board", when: "there is no loaded board" },
       { code: "battle.empty-party", when: "the ordered player party is empty" },
       { code: "battle.package-missing", when: "no battle handler is registered" },
@@ -1962,6 +2020,7 @@ const FIGHT_ENEMY: BuiltinSpec = {
     behaviour: "Treats the final argument as the background and each preceding argument as one enemy file, loads them in source order, and builds party 0 in that order and party 1 from the ordered player party (including fallen members). The saved background and run permission from all loaded enemies are passed to the registered battle handler, which this command waits for. This command consumes no enemy-selection randomness.",
     groups: [GROUP], tags: ["legacy"], waits: ASSET_WAIT,
     throws: [
+      { code: "battle.already-active", when: "another fight or its outcome is still running" },
       { code: "battle.no-board", when: "there is no loaded board" },
       { code: "battle.empty-party", when: "the ordered player party is empty" },
       { code: "battle.package-missing", when: "no battle handler is registered" },
@@ -1981,7 +2040,7 @@ export const BATTLE_COMMANDS: readonly BuiltinSpec[] = [
   MOVE_DATA, MOVE_ASSET, ITEM_DATA, ITEM_ASSET, ENEMY_DATA, ENEMY_DATA_ASSET, CHARACTER_DATA, CHARACTER_DATA_ASSET, BACKGROUND_DATA, BACKGROUND_DATA_ASSET, ANIMATION_FILE, ANIMATION_ASSET, CONSUME, BATTLE_INVENTORY, BATTLE_SCREEN, UNAFFORDABLE, INTEGER_MUL_DIV,
   STATUS_SIGNATURE, PROGRAM_CONTEXT, STATUS_DELTA, STATUS_ADVANCE,
   OUTCOME_REWARDS, GAME_OVER_PROGRAM, END_LOSS, GAIN_GOLD, BATTLE_ACTOR_REF, EXPERIENCE_BEGIN,
-  EXPERIENCE_STEP_READY, LEVELUP_CONTEXT, EXPERIENCE_STEP, CLEAR_STATUSES, APPLY_OUTCOME,
+  EXPERIENCE_STEP_READY, LEVELUP_CONTEXT, EXPERIENCE_STEP, CLEAR_STATUSES, APPLY_OUTCOME, ENCOUNTER_ITEM, END_HIDDEN_ITEM_THREAD,
 ];
 export const BATTLE_COMMAND_NAMES = new Set<string>(BATTLE_COMMANDS.flatMap((command) => [command.name, ...command.aliases]));
 export const BATTLE_PLUGIN: PluginDefinition = {

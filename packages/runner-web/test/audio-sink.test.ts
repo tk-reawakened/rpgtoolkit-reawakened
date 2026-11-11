@@ -328,18 +328,24 @@ test("worklet decoder failures reach the host diagnostic callback", async () => 
   }
 });
 
-test("the mirror reports ready only after the worklet opens the voice", async () => {
+test("the mirror uses the worklet's ready duration without opening a second source", async () => {
   const original = (globalThis as { AudioWorkletNode?: unknown }).AudioWorkletNode;
   (globalThis as { AudioWorkletNode?: unknown }).AudioWorkletNode = FakeWorkletNode;
   try {
     const events: SinkEvent[] = [];
-    const graph = await connectSinkToGraph(fakeContext(), sink({ onEvent: (event) => events.push(event) }));
+    const mirror = sink({ onEvent: (event) => events.push(event) });
+    const graph = await connectSinkToGraph(fakeContext(), mirror);
     const node = FakeWorkletNode.last;
     ok(node !== null && node.port.onmessage !== null);
-    graph.send({ kind: "load", voice: 1, track: "sfx", asset: `media/${MONO}` as AssetKey, data: wav(MONO) });
+    // The fake worklet owns source loading. The mirror cannot open these bytes itself.
+    graph.send({ kind: "load", voice: 1, track: "music", asset: "media/track.mid" as AssetKey, data: new Uint8Array([0x4d, 0x54, 0x68, 0x64]) });
     deepEqual(events, []);
     node.port.onmessage({ data: { kind: "ready", voice: 1, lengthTicks: 15 } } as MessageEvent);
     deepEqual(events, [{ kind: "ready", voice: 1, lengthTicks: 15 }]);
+    graph.send({ kind: "play", voice: 1, cue: 1, volume: 100, positionTicks: 8, loop: false });
+    deepEqual(mirror.scheduled, [{ voice: 1, track: "music", positionTicks: 8, loop: false, lengthTicks: 15 }]);
+    node.port.onmessage({ data: { kind: "ended", voice: 1 } } as MessageEvent);
+    deepEqual(mirror.open, []);
     graph.disconnect();
   } finally {
     if (original === undefined) delete (globalThis as { AudioWorkletNode?: unknown }).AudioWorkletNode;

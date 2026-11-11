@@ -387,9 +387,9 @@ export function endBoardThreads(state: VmState): void {
 }
 
 /** An item leaves the board: its `item` threads die with it; `source` names the item (E-46, E-93). */
-export function endItemThreads(state: VmState, item: string): void {
+export function endItemThreads(state: VmState, item: string, keepThread?: number): void {
   for (const thread of [...state.threads]) {
-    if (thread.kind === "item" && thread.source === item) killThread(state, thread.id);
+    if (thread.id !== keepThread && thread.kind === "item" && thread.source === item) killThread(state, thread.id);
   }
 }
 
