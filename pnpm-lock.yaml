@@ -368,6 +368,10 @@ importers:
       '@tk-reawakened/synth':
         specifier: workspace:*
         version: link:../synth
+    devDependencies:
+      '@types/node':
+        specifier: 24.0.0
+        version: 24.0.0
 
   packages/runner-harness:
     dependencies:

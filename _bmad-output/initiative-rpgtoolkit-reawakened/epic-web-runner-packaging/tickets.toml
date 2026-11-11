@@ -191,7 +191,8 @@ references = ["spec - _bmad-output/initiative-rpgtoolkit-reawakened/spec-rpgtool
 [[entry]]
 id = 13
 tracker_id = "#942"
-notes = ["Open with the gap recorded 2026-11-03 (audit): not started — no sweep plan paper exists for this epic and the ledger's `after` correctly keeps it blocked on 9.10 (implementation) and 9.12 (device acceptance). Cleanup list must come from the twelve landed plans when the sweep starts; nothing to accept today."]
+tracker_status = "done"
+notes = ["Open with the gap recorded 2026-11-03 (audit): not started — no sweep plan paper exists for this epic and the ledger's `after` correctly keeps it blocked on 9.10 (implementation) and 9.12 (device acceptance). Cleanup list must come from the twelve landed plans when the sweep starts; nothing to accept today.", "Swept 2026-11-11 at `c33ea5dc` with 9.10 merged; 9.12 stays open on a person, which does not hold a cleanup-only entry. All 29 plan files and the `tickets.toml` notes were read: 25 name no sweep work (their deferrals are excluded scope), and four candidates were decided in `chore-refactor-sweep-land-the-cleanups-the-twelve-plans-deferred-plan.md`. Landed: `runner-desktop` joins the typecheck graph, which immediately found two real type errors (a `string | undefined` `--report` path and an `exactOptionalPropertyTypes` breach in `registerPackage`), both fixed without behaviour change. Recorded with reasons: the deprecated 2048-frame `ScriptProcessorNode` fallback is the spec's compatibility path (`runners.md#audio`), and the `fetchBundled` + `/api/bundled` duplicate feeds the scripted parity route that 9.16's proof rides on. Recorded as already gone: the 2048→8192 buffer workaround. No golden changed."]
 type = "story"
 title = "Refactor sweep"
 description = "Land the cleanups deferred during this epic from the twelve preceding plans and their review findings, taking cleanup only: no scope pushed out of another entry and no behaviour change, with the goldens untouched."
