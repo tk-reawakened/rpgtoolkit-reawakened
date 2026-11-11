@@ -456,17 +456,25 @@ jobs:
         shell: bash
         if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && runner.os != 'Linux'
         run: |
+          status=0
           for name in argument player-json baked library library-empty; do
-            pnpm desktop:measure --case "$name" --out "${{ runner.temp }}/desktop-$name.json"
+            echo "::group::launch case $name"
+            pnpm desktop:measure --case "$name" --out "${{ runner.temp }}/desktop-$name.json" || status=1
+            echo "::endgroup::"
           done
+          exit "$status"
       - name: Measure every launch case under Xvfb
         id: measure_linux
         shell: bash
         if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && runner.os == 'Linux'
         run: |
+          status=0
           for name in argument player-json baked library library-empty; do
-            xvfb-run -a pnpm desktop:measure --case "$name" --out "${{ runner.temp }}/desktop-$name.json"
+            echo "::group::launch case $name"
+            xvfb-run -a pnpm desktop:measure --case "$name" --out "${{ runner.temp }}/desktop-$name.json" || status=1
+            echo "::endgroup::"
           done
+          exit "$status"
       - name: Probe live desktop fitting and input
         if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && runner.os != 'Linux'
         run: pnpm desktop:input

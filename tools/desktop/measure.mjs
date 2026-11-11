@@ -92,6 +92,19 @@ export function caseSetup(name, pkg) {
   }
 }
 
+/**
+ * Delete a case's temporary world once its child has exited. Windows keeps a handle open for a moment after `kill()`, so
+ * this retries and then gives up: failing to delete a temporary directory must never turn a passing case into an error.
+ */
+function removeCaseDirectory(directory) {
+  if (directory === null) return;
+  try {
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch (error) {
+    console.error(`measure: left ${directory} behind (${error instanceof Error ? error.message : String(error)})`);
+  }
+}
+
 /** Launch the shell, wait for the page's report, and return it. */
 export async function measure(options = {}) {
   const pkg = options.game ?? packagePath();
@@ -231,8 +244,7 @@ async function main() {
   try {
     measured = await measure({ out, case: setup.case, launchArgs: setup.launchArgs });
   } finally {
-    // The case's temporary world is only needed while the child runs.
-    if (setup.directory !== null) rmSync(setup.directory, { recursive: true, force: true });
+    removeCaseDirectory(setup.directory);
   }
   const record = {
     os: process.platform,
