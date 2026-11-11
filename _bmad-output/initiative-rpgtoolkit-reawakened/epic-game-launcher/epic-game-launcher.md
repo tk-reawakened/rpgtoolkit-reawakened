@@ -56,3 +56,7 @@ launcher DOM or library registry (G2).
 - ruling - docs/adr/0013-desktop-shell-electron.md, decisions 4 and 5
 - spine - _bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md, AD-6, AD-17
 - constraint - docs/guardrails.md, G1, G2, G3, G6
+
+## Notes
+
+- Decision (2026-11-10, owner): **the desktop launch resolution and the `library.schema = 1` registry are epic 9's entry 9.10, not this epic's.** 9.10 builds `--game`, the `tkr://play` deep link, `player.json`, the baked-default read slot and the library fallback in `runner-desktop`, and proves them on macOS, Windows and Linux. This epic keeps the conformance suite over that seam across desktop, web and mobile (25.5, re-scoped), the Launcher UI the seam feeds (25.4), marketplace and local ingestion (25.3, 25.2), the registry's install and marketplace enrichment (25.1) and the standalone export pipeline that writes the baked package and `player.json` (25.6). Rationale: one resolver, no duplicate launch logic, and epic 9's closure does not wait on this envelope. Recorded in `tickets.toml` entries 25.5 and 25.6 and in `epic-web-runner-packaging/tickets.toml` entry 10.
