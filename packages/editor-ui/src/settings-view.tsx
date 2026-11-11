@@ -1,7 +1,10 @@
 import type { DocumentEdited } from "@tk-reawakened/platform-services";
-import type { MainDocument } from "@tk-reawakened/editor-model";
-import { useEffect, useId, useState } from "preact/hooks";
+import type { MainDocument, SaveFailure } from "@tk-reawakened/editor-model";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { useDocumentSnapshot } from "./use-document.ts";
+
+/** How many views have been given ids. Ids must be unique in the page, and two views mounted by one host are two render roots. */
+let viewsMade = 0;
 
 export interface SettingsViewProps {
   readonly doc: MainDocument;
@@ -19,7 +22,15 @@ export function SettingsView({ doc, onEdited }: SettingsViewProps) {
   const snapshot = useDocumentSnapshot(doc);
   const [draft, setDraft] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
-  const ids = useId();
+  // `useId` numbers a component by its place in its own render tree, so two mounted views would both be `P0-0`: their
+  // labels and descriptions would point into each other. The view takes its prefix once, when it is first made.
+  const [ids] = useState(() => {
+    viewsMade += 1;
+    return `tkr-settings-${viewsMade}`;
+  });
+  // A live region announces an inserted element, not an unchanged one: a failure that arrives as a new value is rendered
+  // under a new key, so the same words twice are announced twice.
+  const failureShown = useRef<{ readonly failure: SaveFailure | null; readonly key: number }>({ failure: null, key: 0 });
   const titleId = `${ids}-title`;
   const stateId = `${ids}-state`;
   const errorId = `${ids}-error`;
@@ -48,6 +59,7 @@ export function SettingsView({ doc, onEdited }: SettingsViewProps) {
   };
 
   const failure = snapshot.saveError;
+  if (failure !== failureShown.current.failure) failureShown.current = { failure, key: failureShown.current.key + 1 };
 
   return (
     <section class="tkr-settings" aria-label="Game settings">
@@ -87,13 +99,15 @@ export function SettingsView({ doc, onEdited }: SettingsViewProps) {
         disabled={readOnly || snapshot.saving || (!snapshot.dirty && draft === null)}
         onClick={() => {
           commit();
-          void doc.save();
+          // A save reports failure as a value and the failure is on the snapshot; a document that rejects instead has
+          // broken that contract, and there is nothing more the view could show, so the rejection is not left unhandled.
+          doc.save().catch(() => undefined);
         }}
       >
         Save
       </button>
       {failure === null ? null : (
-        <p class="tkr-settings-error" role="alert">
+        <p key={failureShown.current.key} class="tkr-settings-error" role="alert">
           {failure.message}
         </p>
       )}

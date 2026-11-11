@@ -3,11 +3,18 @@
 // Preact internals.
 import { after, before, test } from "node:test";
 import { deepEqual, equal, match, notEqual, ok } from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { createDocumentIdentity, openMainDocument, type MainDocument } from "@tk-reawakened/editor-model";
+import {
+  createDocumentIdentity,
+  openMainDocument,
+  type MainDocument,
+  type MainDocumentSnapshot,
+  type SaveFailure,
+} from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { exampleMain, exampleTextMain, titleOf, withTitle } from "./fixtures.ts";
 
@@ -252,14 +259,292 @@ test("the rendered view carries no style attribute and no inline handler attribu
   }
 });
 
+/** Every complaint about the `.ts` and `.tsx` files under `dir`, in any subfolder (ADR 0025 decision 6). */
+function cspViolations(dir: string): { readonly files: number; readonly problems: string[] } {
+  const names = readdirSync(dir, { recursive: true, encoding: "utf8" }).filter((name) => /\.(?:ts|tsx)$/.test(name));
+  const problems: string[] = [];
+  for (const name of names) {
+    const text = readFileSync(join(dir, name), "utf8");
+    if (/\bstyle\s*=/.test(text)) problems.push(`${name} sets a style attribute`);
+    if (/dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|setAttribute\(\s*["']style/.test(text)) problems.push(`${name} writes raw markup`);
+    if (/<style[\s>]/.test(text)) problems.push(`${name} injects a <style> element`);
+  }
+  return { files: names.length, problems };
+}
+
 test("no source file of the package writes a style attribute or raw HTML into the page", () => {
   const src = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
-  const files = readdirSync(src).filter((name) => /\.(?:ts|tsx)$/.test(name));
-  ok(files.length >= 3, "the scan sees the package's sources");
-  for (const name of files) {
-    const text = readFileSync(join(src, name), "utf8");
-    ok(!/\bstyle\s*=/.test(text), `${name} sets a style attribute`);
-    ok(!/dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|setAttribute\(\s*["']style/.test(text), `${name} writes raw markup`);
-    ok(!/<style[\s>]/.test(text), `${name} injects a <style> element`);
+  const found = cspViolations(src);
+  ok(found.files >= 3, "the scan sees the package's sources");
+  deepEqual(found.problems, []);
+});
+
+test("the source scan looks inside subfolders", () => {
+  const dir = mkdtempSync(join(tmpdir(), "csp-scan-"));
+  try {
+    mkdirSync(join(dir, "deep", "deeper"), { recursive: true });
+    writeFileSync(join(dir, "top.ts"), "export const a = 1;\n");
+    writeFileSync(join(dir, "deep", "deeper", "view.tsx"), 'export const V = () => <p style="color:red">x</p>;\n');
+    const found = cspViolations(dir);
+    equal(found.files, 2);
+    equal(found.problems.length, 1, JSON.stringify(found));
+    match(found.problems[0] ?? "", /view\.tsx sets a style attribute/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** Click Save and let the save finish. */
+async function save(s: Setup): Promise<void> {
+  await act(async () => {
+    button(s.el).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+test("two mounted views have distinct ids, and each label and description points into its own view (defect 3)", async () => {
+  const first = await setup();
+  const second = await setup();
+  show(first);
+  show(second);
+  const ids = [first.el, second.el].flatMap((el) => [...el.querySelectorAll("[id]")].map((node) => node.id));
+  equal(ids.length, 4, "a field and a status line per view");
+  equal(new Set(ids).size, ids.length, `no id is used twice: ${ids.join(", ")}`);
+  for (const view of [first, second]) {
+    const field = input(view.el);
+    const label = view.el.querySelector("label");
+    equal(label?.getAttribute("for"), field.id, "the label names its own field");
+    equal(document.getElementById(field.id), field, "and the page resolves that id to this field");
+    const described = field.getAttribute("aria-describedby") ?? "";
+    for (const id of described.split(" ")) {
+      equal(document.getElementById(id)?.closest("section"), view.el.querySelector("section"), `${id} is inside its own view`);
+    }
+  }
+});
+
+test("Save commits the text still in the field and saves it, without a change event", async () => {
+  const s = await setup();
+  show(s);
+  await act(() => {
+    const field = input(s.el);
+    field.value = "Typed, never left";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  equal(s.doc.getSnapshot().gameTitle, "Example Game", "nothing is committed yet");
+  equal(button(s.el).disabled, false, "Save is on offer for a draft");
+  await save(s);
+  equal(titleOf(s.host.bytesOf(PATH) ?? new Uint8Array(0)), "Typed, never left");
+  equal(s.host.editedEvents.length, 1, "committed once, then saved");
+});
+
+test("Enter in the field commits the title as one edit", async () => {
+  const s = await setup();
+  show(s);
+  await act(() => {
+    const field = input(s.el);
+    field.value = "Entered";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(() => {
+    input(s.el).dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  equal(s.doc.getSnapshot().gameTitle, "Entered");
+  equal(s.host.editedEvents.length, 1);
+  await act(() => {
+    input(s.el).dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true }));
+  });
+  equal(s.host.editedEvents.length, 1, "another key commits nothing");
+});
+
+test("Save is disabled and the state says Saving while a save is in flight", async () => {
+  const s = await setup();
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const slow = await openMainDocument(
+    {
+      read: (path) => s.host.fs.read(path),
+      write: async (path, bytes) => {
+        await gate;
+        return s.host.fs.write(path, bytes);
+      },
+    },
+    identity,
+  );
+  ok(slow.ok);
+  await act(() => {
+    mount(s.el, { document: slow.document, services: s.host });
+  });
+  await type(s.el, "Slow");
+  equal(button(s.el).disabled, false);
+  await act(() => {
+    button(s.el).click();
+  });
+  equal(slow.document.getSnapshot().saving, true);
+  equal(status(s.el), "Saving…");
+  equal(button(s.el).disabled, true, "a second click cannot start another save");
+  await act(async () => {
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  equal(status(s.el), "All changes saved");
+  equal(button(s.el).disabled, true, "clean again");
+});
+
+test("a refusal sets aria-describedby to the error's id, and the id is on the error", async () => {
+  const s = await setup();
+  show(s);
+  await type(s.el, "日本語");
+  const field = input(s.el);
+  const error = s.el.querySelector(".tkr-settings-error");
+  ok(error !== null);
+  ok(error.id.length > 0, "the error has an id");
+  ok((field.getAttribute("aria-describedby") ?? "").split(" ").includes(error.id), "the field is described by it");
+  const stateId = s.el.querySelector('[role="status"]')?.id ?? "";
+  ok((field.getAttribute("aria-describedby") ?? "").split(" ").includes(stateId), "and still by the state line");
+});
+
+test("typing the title the document already has is not an edit", async () => {
+  const s = await setup();
+  show(s);
+  await type(s.el, "Example Game");
+  equal(s.doc.getSnapshot().edits.length, 0);
+  equal(s.doc.getSnapshot().dirty, false);
+  equal(s.host.editedEvents.length, 0, "no document.edited");
+  equal(input(s.el).value, "Example Game");
+});
+
+test("a refusal goes away when the document's title changes under it", async () => {
+  const s = await setup();
+  show(s);
+  await type(s.el, "日本語");
+  equal(alerts(s.el).length, 1);
+  await act(() => {
+    s.doc.apply({ type: "set-game-title", title: "From elsewhere" });
+  });
+  deepEqual(alerts(s.el), [], "the refusal belonged to the old title");
+  equal(input(s.el).getAttribute("aria-invalid"), null);
+  equal(input(s.el).value, "From elsewhere");
+});
+
+test("a change made between the first render and the subscription is not missed", async () => {
+  const s = await setup();
+  await act(() => {
+    mount(s.el, { document: s.doc, services: s.host });
+    // The view has rendered but its effects have not run, so it is not listening yet.
+    s.doc.apply({ type: "set-game-title", title: "Slipped in" });
+  });
+  equal(input(s.el).value, "Slipped in");
+  equal(status(s.el), "Unsaved changes");
+});
+
+test("undoing after a failed save never shows a clean document beside the old failure (defect 7)", async () => {
+  const s = await setup();
+  show(s);
+  await type(s.el, "Edited");
+  s.host.failWrites({ code: "io-error", message: "disk full" });
+  await save(s);
+  equal(alerts(s.el).length, 1);
+  await act(() => {
+    s.doc.undo();
+  });
+  const shown = alerts(s.el);
+  ok(!(status(s.el) === "All changes saved" && shown.length > 0), `status "${status(s.el)}" beside ${JSON.stringify(shown)}`);
+  equal(status(s.el), "Unsaved changes", "the file may not hold the opened state any more");
+  s.host.failWrites(null);
+  await save(s);
+  deepEqual(alerts(s.el), []);
+  equal(status(s.el), "All changes saved");
+  deepEqual(s.host.bytesOf(PATH), exampleMain(9), "the undone state was really written");
+});
+
+test("each failed save is announced: the same failure twice is a new alert element, not the old one kept", async () => {
+  const s = await setup();
+  show(s);
+  await type(s.el, "Edited");
+  s.host.failWrites({ code: "io-error", message: "disk full" });
+  const seen: Element[] = [];
+  const watcher = new MutationObserver(() => undefined);
+  watcher.observe(s.el, { childList: true, subtree: true });
+  await save(s);
+  const firstAlert = s.el.querySelector('[role="alert"]');
+  ok(firstAlert !== null);
+  seen.push(firstAlert);
+  await save(s);
+  const secondAlert = s.el.querySelector('[role="alert"]');
+  ok(secondAlert !== null);
+  equal(secondAlert.textContent, firstAlert.textContent, "the very same words");
+  notEqual(secondAlert, firstAlert, "a live region announces an inserted node, not an unchanged one");
+  watcher.disconnect();
+});
+
+test("a failure that replaces another with the same words, with no clean state between, is a new alert element", async () => {
+  const s = await setup();
+  const failure = (): SaveFailure => ({ document: PATH, kind: "write", code: "io-error", message: `Could not save ${PATH}: disk full` });
+  let snapshot: MainDocumentSnapshot = { ...s.doc.getSnapshot(), dirty: true, saveError: failure() };
+  const listeners = new Set<() => void>();
+  const stub: MainDocument = {
+    identity: s.doc.identity,
+    getSnapshot: () => snapshot,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+    apply: (command) => s.doc.apply(command),
+    undo: (editId) => s.doc.undo(editId),
+    redo: (editId) => s.doc.redo(editId),
+    save: () => Promise.resolve({ ok: true }),
+  };
+  await act(() => {
+    mount(s.el, { document: stub, services: s.host });
+  });
+  const before = s.el.querySelector('[role="alert"]');
+  ok(before !== null);
+  // The same words again, as a new failure value, and no snapshot without an error in between.
+  await act(() => {
+    snapshot = { ...snapshot, saveError: failure() };
+    for (const listener of listeners) listener();
+  });
+  const after = s.el.querySelector('[role="alert"]');
+  ok(after !== null);
+  equal(after.textContent, before.textContent);
+  notEqual(after, before, "re-rendered with a new key");
+  // The same failure value shown again is not announced again.
+  await act(() => {
+    snapshot = { ...snapshot, saving: false };
+    for (const listener of listeners) listener();
+  });
+  equal(s.el.querySelector('[role="alert"]'), after, "an unrelated change keeps the alert as it was");
+});
+
+test("a save that is rejected rather than answered leaves no unhandled rejection (defect 2)", async () => {
+  const s = await setup();
+  const rejecting: MainDocument = {
+    identity: s.doc.identity,
+    getSnapshot: () => ({ ...s.doc.getSnapshot(), dirty: true }),
+    subscribe: (listener) => s.doc.subscribe(listener),
+    apply: (command) => s.doc.apply(command),
+    undo: (editId) => s.doc.undo(editId),
+    redo: (editId) => s.doc.redo(editId),
+    save: () => Promise.reject(new Error("a document that breaks its contract")),
+  };
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown): void => {
+    unhandled.push(reason);
+  };
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    await act(() => {
+      mount(s.el, { document: rejecting, services: s.host });
+    });
+    await act(async () => {
+      button(s.el).click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
   }
 });
