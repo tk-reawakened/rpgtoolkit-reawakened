@@ -89,7 +89,7 @@ tracker_id = "#1719"
 type = "story"
 title = "Package game and install descriptor"
 description = "Provide a host-capability-aware packaging workflow over the existing distribution writer that outputs a playable TPK and sibling install descriptor with explicit preflight and exclusions."
-verify = "A freshly authored saved project produces a valid package and descriptor, rejects unsafe or incomplete inputs, excludes test-only material and the editor's reserved history folder ([ADR 0022](../../../docs/adr/0022-shared-editor-authoring-contracts.md) D12.7), and boots the produced archive in the web runner without folder access."
+verify = "A freshly authored saved project produces a valid package and descriptor, rejects unsafe or incomplete inputs, excludes test-only material, the editor-only `.tkrscn`, `.tkrtile` and `.tkrpack` documents ([ADR 0019](../../../docs/adr/0019-tkr-authoring-formats.md) decision 6) and the editor's reserved history folder ([ADR 0022](../../../docs/adr/0022-shared-editor-authoring-contracts.md) D12.7), and boots the produced archive in the web runner without folder access."
 covers = ["CAP-15"]
 after = ["11.1", "11.3", "11.4", "9.7"]
 hitl = false
@@ -144,6 +144,45 @@ hitl = false
 risk = "medium"
 
 [[entry]]
+id = 15
+tracker_id = "#1850"
+type = "story"
+title = "A scene builds its board, with vectors made from tile and asset collision"
+description = "Implements the lowering of a scene to a legacy `.brd` in `editor-model`, through the board writer `core` already has: tiles and their lookup table, placed pack assets expanded into images or tiles, and the board's solid and under vectors built from the collision stored with each tile and each asset. The build is repeatable, never reorders existing slots, and records the hash of what it wrote so an outside edit to the `.brd` is found and offered as an import, not overwritten."
+verify = "On an authored scene: two builds give identical bytes; the built board loads in the headless runner and its draw list matches the scene's own preview; a tile marked solid yields a solid vector over its cells and a pack asset's under vector appears moved to its placement; adding one object leaves every earlier slot index unchanged; a byte changed in the built `.brd` is reported before the next build writes."
+covers = ["CAP-15", "CAP-20"]
+references = ["Decision: ADR 0019 decision 4 and consequences 2 and 3", "Spec: docs/spec/formats/tkr-authoring.md section 5, as replaced by the contract pages of 27.8, 27.11 and 27.12", "Constraint: G2 (the YAML reader stays out of `core`), G5 (the runner's inputs are ordinary boards)"]
+after = [1, "27.13", "27.14"]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 16
+tracker_id = "#1851"
+type = "story"
+title = "The scene editor saves a board directly or a scene, and converts only when asked"
+description = "Writes the board editor's views against the scene model with two storage adapters: a `.brd` opened and saved directly, and a `.tkrscn` that builds its board (12.15). A feature only a scene can store is shown and unavailable on a `.brd`, with its reason and one action, convert to a scene. Conversion is reviewed before it writes, creates the scene beside the board with a new document identity, and never happens on open or on save."
+verify = "In both hosts: a `.brd` is edited and saved with no scene created and reopens identically; the same edit on a `.tkrscn` saves as a small text diff and rebuilds the board; a scene-only control on a `.brd` is disabled, says why, and its convert action shows what will be written before writing; cancelling writes nothing; the kind-conformance checks pass for both adapters."
+covers = ["CAP-15", "CAP-20"]
+references = ["Decision: ADR 0019 amendment of 2026-11-11, point 4", "Decision: ADR 0022 D1.3, D2 and D3", "Proposal: docs/editor-ecosystem/architecture.md (one contract, more than one kind); ADR 0026 is Proposed and this story does not depend on its approval", "Prerequisite proof: 27.6 (a view edits a native text document through the host's text authority)"]
+after = [10, 11, 15, "27.6"]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 17
+tracker_id = "#1852"
+type = "story"
+title = "Set collision and walk-behind on tiles and assets, and place packs that stay packs"
+description = "Lets an author mark a tile walkable or solid and draw an asset's solid and walk-behind shapes once, in the shared tileset and asset browser, saved to the tileset or pack document. Painting such a tile or placing such an asset in a scene needs no vectors drawn by hand, and a placed asset remains one selectable thing that knows which pack it came from."
+verify = "In both hosts: marking a tile solid changes one line of its tileset document; after painting it in a scene and saving, the built board stops the player there in a board test; an asset's under shape hides the player behind it; a placed asset moves, copies and deletes as one object and its board records go with it; on a `.brd` these controls are unavailable with the reason of 12.16."
+covers = ["CAP-15", "CAP-20"]
+references = ["Decision: ADR 0019 amendment of 2026-11-11, point 5", "Owner direction, 2026-11-11: storing solid and under masking with tiles and assets is a feature to include"]
+after = [2, 16]
+hitl = false
+risk = "medium"
+
+[[entry]]
 id = 13
 tracker_id = "#1724"
 type = "story"
@@ -151,7 +190,7 @@ title = "Refactor sweep"
 description = "Remove duplication and address deferred review cleanup across the completed P0 asset editor stories without adding feature scope."
 verify = "The sweep accounts for prior review findings and preserves the asset editor and host conformance checks."
 covers = ["CAP-15"]
-after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17]
 hitl = false
 risk = "low"
 

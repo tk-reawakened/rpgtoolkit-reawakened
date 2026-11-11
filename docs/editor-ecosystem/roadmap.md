@@ -96,7 +96,7 @@ From the owner's answers on [#1839](https://github.com/tk-reawakened/rpgtoolkit-
 * The scene editor is one editor written against the scene model. It opens and saves a `.brd` directly, or works on a `.tkrscn` that builds the `.brd`. Converting is explicit.
 * Those three formats come forward into the first release.
 
-**Effect on the phases above:** the scene contract (27.8), the tile recipe and asset pack contracts and the scene save path move from phase 3 into the first release, after the board tracer (12.1) and after the text-authority proof on the animation clip (27.6). No ticket is changed by this page; the stories are re-planned through BMAD.
+**Effect on the phases above:** the scene contract (27.8), the tile recipe and asset pack contracts and the scene save path move from phase 3 into the first release, after the board tracer (12.1) and after the text-authority proof on the animation clip (27.6). The re-plan is done: the contracts and their readers and writers are stories 27.8 (re-cut) and 27.11 to 27.14 ([#1846](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1846) to [#1849](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1849)), and the editor work is 12.15 to 12.17 ([#1850](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1850) to [#1852](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1852)).
 
 ## Risks
 
