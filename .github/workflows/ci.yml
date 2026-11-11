@@ -449,14 +449,24 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm desktop:build
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-      - name: Measure the desktop runner
+      # Entry 9.10's cold-start cases: each lays out the directory its rule reads and reports which step named the game
+      # plus the four measurements. The uploaded records are the three-OS observation, one file per case.
+      - name: Measure every launch case
         id: measure_desktop
+        shell: bash
         if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && runner.os != 'Linux'
-        run: pnpm desktop:measure --out "${{ runner.temp }}/desktop-measurement.json"
-      - name: Measure the desktop runner under Xvfb
+        run: |
+          for name in argument player-json baked library library-empty; do
+            pnpm desktop:measure --case "$name" --out "${{ runner.temp }}/desktop-$name.json"
+          done
+      - name: Measure every launch case under Xvfb
         id: measure_linux
+        shell: bash
         if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && runner.os == 'Linux'
-        run: xvfb-run -a pnpm desktop:measure --out "${{ runner.temp }}/desktop-measurement.json"
+        run: |
+          for name in argument player-json baked library library-empty; do
+            xvfb-run -a pnpm desktop:measure --case "$name" --out "${{ runner.temp }}/desktop-$name.json"
+          done
       - name: Probe live desktop fitting and input
         if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && runner.os != 'Linux'
         run: pnpm desktop:input
@@ -470,7 +480,7 @@ jobs:
         if: ${{ always() && (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && (steps.measure_desktop.outcome == 'success' || steps.measure_desktop.outcome == 'failure' || steps.measure_linux.outcome == 'success' || steps.measure_linux.outcome == 'failure') }}
         with:
           name: desktop-measurement-${{ runner.os }}
-          path: ${{ runner.temp }}/desktop-measurement.json
+          path: ${{ runner.temp }}/desktop-*.json
           if-no-files-found: error
   # The browser lane (ADR 0015, D-9): one headless Chromium project. Playwright and its browser binaries are dev-only,
   # never shipped; the lane boots a sample game to the committed tick-120 hashes and replays the raster vectors.
@@ -511,7 +521,11 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm exec playwright install --with-deps chromium
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-      - run: pnpm browser:test
+      # The parity spec launches the built Electron player beside the PWA page, so the desktop artefacts must exist and
+      # Linux needs the virtual display the desktop lane uses. Electron's binary is installed by `pnpm install`.
+      - run: pnpm desktop:build
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - run: xvfb-run -a pnpm browser:test
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
   # The mobile lane builds and drives the real Capacitor APK on Android 16.
   # The proof script captures the page's own readings and fails instead of

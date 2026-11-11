@@ -1,7 +1,7 @@
 // Prove one real key press reaches the live engine inside the Electron window (entry 9.16).
 //
 //   node tools/desktop/probe-input.mjs --host-metrics
-//   node tools/desktop/probe-input.mjs --package /path/to/game.tpk
+//   node tools/desktop/probe-input.mjs --game /path/to/game.tpk
 //
 // It launches the built desktop player exactly as `desktop:run` does, but with Chromium's remote debugging port open,
 // then drives real input through the DevTools protocol (`Input.dispatchKeyEvent`, which delivers trusted key events to
@@ -91,7 +91,7 @@ function hostMetricsPackagePath() {
 
 function packagePath() {
   if (process.argv.includes("--host-metrics")) return hostMetricsPackagePath();
-  const named = argument("--package", null);
+  const named = argument("--game", null);
   if (named !== null) return named;
   const out = join(root, "fixtures", "packages", "demo.tpk");
   execFileSync(
@@ -323,7 +323,7 @@ async function main() {
       ...(process.platform === "linux" ? ["--enable-unsafe-swiftshader"] : []),
       dist,
       "--serve", root,
-      "--package", pkg,
+      "--game", pkg,
       "--page", "packages/runner-desktop/app/player.html",
     ],
     {

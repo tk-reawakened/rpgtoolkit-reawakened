@@ -1,15 +1,18 @@
-// Measure the desktop runner on this machine (entry 9.11). It launches the built Electron shell against the same
-// workspace, opens a distribution package **from disk** through the desktop asset source, and reports what the page
-// measured: the app:// scheme, no service worker, the tick-120 hashes, WebGL2, the D-7 blend bound, audio of the
-// expected length, and the same draw list rendering the same frame as the reference rasteriser.
+// Measure the desktop runner on this machine (entry 9.11; the launch cases are entry 9.10). It launches the built
+// Electron shell against the same workspace and reports what the page measured: which launch step named the game, the
+// app:// scheme, no service worker, the tick-120 hashes, WebGL2, the D-7 blend bound, audio of the expected length, and
+// the same draw list rendering the same frame as the reference rasteriser.
 //
-//   node tools/desktop/measure.mjs --package fixtures/packages/demo.tpk --out tools/desktop/measurements/<os>.json
+//   node tools/desktop/measure.mjs --case argument --out tools/desktop/measurements/<os>-argument.json
+//   node tools/desktop/measure.mjs --case player-json|baked|library|library-empty --out <file>
 //
-// The report is written by the Electron main process (`--report`), so nothing here is inferred from stdout. Running it
+// Each case lays out the directories its rule reads — a `player.json`, a baked `resources/game.tpk`, a `library.json`,
+// an empty one — and launches with its own `--user-data-dir`, so nothing leaks between cases or between runs. The
+// record is written by the Electron main process (`--report`), so no number here is inferred from stdout. Running it
 // needs a display: macOS and Windows runners have one; Linux needs Xvfb (`xvfb-run -a`).
 
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,14 +21,17 @@ import { electronBinary } from "./electron-binary.mjs";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
 
+/** The cases this harness can run, and the launch step each must report. */
+export const CASES = ["argument", "player-json", "baked", "library", "library-empty"];
+
 function argument(name, fallback) {
   const at = process.argv.indexOf(name);
   return at >= 0 ? process.argv[at + 1] : fallback;
 }
 
-/** The package to open, built from the fetched sample game when the caller names none. */
+/** The demo package and its descriptor, built from the fetched sample game. */
 function packagePath() {
-  const named = argument("--package", null);
+  const named = argument("--game", null);
   if (named !== null) return resolve(named);
   const out = join(root, "fixtures", "packages", "demo.tpk");
   execFileSync(
@@ -37,9 +43,58 @@ function packagePath() {
   return out;
 }
 
+/**
+ * Lay out one case's world and return the arguments that reach it. Each case gets a fresh temporary directory: a
+ * `--user-data-dir` of its own, plus `player.json` or `library.json` inside it when the case reads one, or a separate
+ * `--resources` directory for the baked default.
+ */
+export function caseSetup(name, pkg) {
+  const descriptor = JSON.parse(readFileSync(`${pkg}.json`, "utf8"));
+  const directory = mkdtempSync(join(tmpdir(), `tkr-launch-${name}-`));
+  const dataDir = join(directory, "data");
+  mkdirSync(dataDir, { recursive: true });
+  const base = ["--user-data-dir", dataDir];
+  switch (name) {
+    case "argument":
+      return { case: name, expected: "argument", picked: null, launchArgs: [...base, "--game", pkg] };
+    case "player-json":
+      writeFileSync(join(dataDir, "player.json"), `${JSON.stringify({ schema: 1, defaultGame: pkg }, null, 2)}\n`);
+      return { case: name, expected: "config", picked: null, launchArgs: base };
+    case "baked": {
+      const resources = join(directory, "resources");
+      mkdirSync(resources, { recursive: true });
+      copyFileSync(pkg, join(resources, "game.tpk"));
+      copyFileSync(`${pkg}.json`, join(resources, "game.tpk.json"));
+      return { case: name, expected: "baked", picked: null, launchArgs: [...base, "--resources", resources] };
+    }
+    case "library": {
+      const registry = {
+        schema: 1,
+        defaultGameId: descriptor.gameId,
+        entries: [{
+          gameId: descriptor.gameId,
+          title: descriptor.title,
+          version: descriptor.version,
+          sha256: descriptor.sha256,
+          size: descriptor.size,
+          packageLocation: pkg,
+          installedAt: new Date().toISOString(),
+          lastPlayedAt: null,
+        }],
+      };
+      writeFileSync(join(dataDir, "library.json"), `${JSON.stringify(registry, null, 2)}\n`);
+      return { case: name, expected: "library", picked: descriptor.gameId, launchArgs: base };
+    }
+    case "library-empty":
+      return { case: name, expected: "none", picked: null, launchArgs: base };
+    default:
+      throw new Error(`unknown --case ${name}; expected one of ${CASES.join(", ")}`);
+  }
+}
+
 /** Launch the shell, wait for the page's report, and return it. */
 export async function measure(options = {}) {
-  const pkg = options.package ?? packagePath();
+  const pkg = options.game ?? packagePath();
   const reportPath = join(mkdtempSync(join(tmpdir(), "desktop-measure-")), "report.json");
   const binary = options.command?.[0] ?? electronBinary();
   const child = spawn(
@@ -50,7 +105,7 @@ export async function measure(options = {}) {
       // Headless Linux CI runners (Xvfb) have no GPU; use Chromium's software WebGL2 path.
       ...(process.platform === "linux" ? ["--enable-unsafe-swiftshader"] : []),
       "--serve", root,
-      "--package", pkg,
+      ...(options.launchArgs ?? ["--game", pkg]),
       "--page", "packages/runner-desktop/app/player-measure.html",
       "--report", reportPath,
     ],
@@ -116,6 +171,7 @@ export async function measure(options = {}) {
       os: process.platform,
       arch: process.arch,
       measuredAt: new Date().toISOString(),
+      case: options.case ?? null,
       package: pkg.replace(`${root}/`, ""),
       error: message,
       exitCode: exit.code,
@@ -129,9 +185,48 @@ export async function measure(options = {}) {
   throw new Error(message);
 }
 
+/**
+ * The expectations for one case, checked against the page's report. A case that names a game must open it and agree
+ * with the committed closing baseline; the empty-library case must say why nothing opened, which is its whole point.
+ */
+export function caseProblem(setup, record) {
+  if (setup.expected === "none") {
+    if (typeof record.error !== "string" || !record.error.includes("No game was chosen")) {
+      return `expected the stated reason for an empty library, got ${JSON.stringify(record.error)}`;
+    }
+    return null;
+  }
+  if (record.resolvedBy !== setup.expected) {
+    return `expected launch step ${setup.expected}, got ${JSON.stringify(record.resolvedBy)}`;
+  }
+  if (setup.picked !== null && record.picked !== setup.picked) {
+    return `expected the library entry ${setup.picked}, got ${JSON.stringify(record.picked)}`;
+  }
+  return null;
+}
+
+/** The committed closing baseline for `demo`'s board frame, or nulls when the file or frame is absent. */
+function baselineExpectation() {
+  const baselinePath = resolve(root, "golden", "regression", "closing.json");
+  const baseline = JSON.parse(readFileSync(baselinePath, "utf8"));
+  const demoBoard = baseline.games?.demo?.frames?.find((frame) => frame.label === "board" && frame.tick === 120);
+  return {
+    path: baselinePath,
+    expected: {
+      scheme: "app",
+      serviceWorkers: 0,
+      tick: demoBoard?.tick ?? 120,
+      stateHash: demoBoard?.stateHash ?? null,
+      drawHash: demoBoard?.drawHash ?? null,
+    },
+  };
+}
+
 async function main() {
   const out = argument("--out", null);
-  const measured = await measure({ out });
+  const name = argument("--case", null);
+  const setup = name === null ? { case: null, expected: "argument", picked: null, launchArgs: undefined } : caseSetup(name, packagePath());
+  const measured = await measure({ out, case: setup.case, launchArgs: setup.launchArgs });
   const record = {
     os: process.platform,
     arch: process.arch,
@@ -144,6 +239,7 @@ async function main() {
       },
     }).trim(),
     measuredAt: new Date().toISOString(),
+    case: setup.case,
     // The path is relative to the repository so the record is portable between machines.
     package: measured.package.replace(`${root}/`, ""),
     ...measured.report,
@@ -152,40 +248,25 @@ async function main() {
     mkdirSync(dirname(resolve(out)), { recursive: true });
     writeFileSync(resolve(out), `${JSON.stringify(record, null, 2)}\n`);
   }
-  // Compare against the committed closing baseline so the desktop lane fails if it rendered the wrong frame.
-  const baselinePath = resolve(root, "golden", "regression", "closing.json");
-  const baseline = JSON.parse(readFileSync(baselinePath, "utf8"));
-  const demoBoard = baseline.games?.demo?.frames?.find((frame) => frame.label === "board" && frame.tick === 120);
-  const expected = {
-    scheme: "app",
-    serviceWorkers: 0,
-    tick: demoBoard?.tick ?? 120,
-    stateHash: demoBoard?.stateHash ?? null,
-    drawHash: demoBoard?.drawHash ?? null,
-  };
-  const actual = {
-    scheme: record.scheme,
-    serviceWorkers: record.serviceWorkers,
-    tick: record.tick,
-    stateHash: record.stateHash,
-    drawHash: record.drawHash,
-  };
-  let assertionError = null;
-  for (const key of Object.keys(expected)) {
-    if (expected[key] === null) continue;
-    if (actual[key] !== expected[key]) {
-      if (assertionError === null) assertionError = [];
-      assertionError.push(`${key}: expected ${JSON.stringify(expected[key])}, got ${JSON.stringify(actual[key])}`);
+
+  const problems = [];
+  const launchProblem = caseProblem(setup, record);
+  if (launchProblem !== null) problems.push(launchProblem);
+
+  // A case that opened a game also has to have rendered the committed frame: the launch step must not change the answer.
+  if (setup.expected !== "none") {
+    const baseline = baselineExpectation();
+    for (const [key, expected] of Object.entries(baseline.expected)) {
+      if (expected === null) continue;
+      if (record[key] !== expected) problems.push(`${key}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(record[key])}`);
     }
   }
-  if (assertionError !== null) {
-    const diff = assertionError.join("\n  ");
-    console.error(`desktop measurement does not match committed baseline (${baselinePath}):\n  ${diff}`);
+  if (problems.length > 0) {
+    console.error(`desktop measurement ${setup.case ?? ""} does not match its expectation (${resolve(root, "golden", "regression", "closing.json")}):\n  ${problems.join("\n  ")}`);
     process.exitCode = 1;
   }
 
   console.log(JSON.stringify(record, null, 2));
-  if (record.error !== null) process.exitCode = 1;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

@@ -1,25 +1,22 @@
 import type { InputRecord } from "@tk-reawakened/core";
 import { interactivePackage } from "@tk-reawakened/runner-web";
+import type { LaunchInfo } from "@tk-reawakened/runner-web";
+import type { DesktopHost } from "../src/preload.ts";
 import { createFallbackTouchControls, isFallbackTouchControlTarget, shouldSuppressGameplayKey } from "@tk-reawakened/runner-web/touch-controls";
 import { attachPointerInput } from "@tk-reawakened/runner-web/pointer";
 import { soundFontDecoderReady } from "@tk-reawakened/synth";
 import { createLiveSession, type LiveSession } from "@tk-reawakened/runner-web/live-session";
 import { createObservedHostGeometry, observeHostState, reapplyObservedGeometryBeforePointer, reconcileObservedGeometryAfterAdvance, reconcileObservedHostFeaturesAfterAdvance, stampPendingInputs, type HostViewport, type PendingInput } from "@tk-reawakened/runner-web/host-state";
 
-type Host = {
-  openPackage(): Promise<{ readonly name: string; readonly bytes: Uint8Array; readonly descriptor: unknown } | null>;
-  readBlob(area: "saves" | "files", gameId: string, path: string): Promise<Uint8Array | null>;
-  writeBlob(area: "saves" | "files", gameId: string, path: string, bytes: Uint8Array): Promise<boolean>;
-  listBlobs(area: "saves" | "files", gameId: string): Promise<string[]>;
-  quit(): Promise<boolean>;
-};
-declare global { interface Window { desktop?: Host; __live?: { tick: number; stateHash: string; drawHash: string; board: string | null; player: { x: number; y: number } | null; error?: string }; __session?: LiveSession } }
+declare global { interface Window { desktop?: DesktopHost; __live?: { tick: number; stateHash: string; drawHash: string; board: string | null; player: { x: number; y: number } | null; error?: string }; __session?: LiveSession } }
 
 void start().catch((error: unknown) => {
   const status = document.querySelector<HTMLElement>("#live-status");
   if (status !== null) status.textContent = `player: ${String(error)}`;
   window.__live = { tick: 0, stateHash: "", drawHash: "", board: null, player: null, error: String(error) };
 });
+
+type Stage = { readonly canvas: HTMLCanvasElement; readonly status: HTMLElement; readonly viewport: HTMLElement };
 
 async function start(): Promise<void> {
   await soundFontDecoderReady;
@@ -28,8 +25,51 @@ async function start(): Promise<void> {
   const status = document.querySelector<HTMLElement>("#live-status");
   const viewport = document.querySelector<HTMLElement>("#viewport");
   if (host === undefined || canvas === null || status === null || viewport === null) throw new Error("desktop player host or attached canvas is absent");
+  const stage: Stage = { canvas, status, viewport };
+  const info = await host.launchInfo?.();
+  if (info !== undefined && (info.step === "library" || info.step === "none")) {
+    offerLibrary(host, info, stage);
+    return;
+  }
   const opened = await host.openPackage();
-  if (opened === null) throw new Error("no package was named on the command line");
+  if (opened === null) throw new Error("no game was chosen and the library is empty");
+  await play(host, opened, stage);
+}
+
+/**
+ * The fallback the ruled order names: the installed games and the sentence that says why none opened. This is the seam
+ * epic 25's Launcher UI replaces (entry 25.4); it is deliberately a list of buttons and nothing else.
+ */
+function offerLibrary(host: DesktopHost, info: LaunchInfo, stage: Stage): void {
+  stage.status.textContent = info.reason ?? "No game was chosen.";
+  window.__live = { tick: 0, stateHash: "", drawHash: "", board: null, player: null };
+  const list = document.createElement("div");
+  list.id = "library";
+  list.style.cssText = "padding: 0 12px 12px; display: flex; flex-wrap: wrap; gap: 8px;";
+  for (const row of info.rows) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `${row.title} (${row.version})`;
+    button.addEventListener("click", () => {
+      list.remove();
+      stage.status.textContent = `opening ${row.title}…`;
+      void host.openPackage(row.gameId).then(async (opened) => {
+        if (opened === null) throw new Error(`the library no longer offers ${row.gameId}`);
+        await play(host, opened, stage);
+      }).catch((error: unknown) => {
+        stage.status.textContent = `player: ${error instanceof Error ? error.message : String(error)}`;
+        window.__live = { tick: 0, stateHash: "", drawHash: "", board: null, player: null, error: String(error) };
+      });
+    });
+    list.append(button);
+  }
+  if (info.rows.length === 0) list.remove();
+  else stage.viewport.after(list);
+}
+
+/** Boot the live session for one resolved game: the bytes arrive already chosen, whatever rule chose them. */
+async function play(host: DesktopHost, opened: { readonly name: string; readonly bytes: Uint8Array; readonly descriptor: unknown }, stage: Stage): Promise<void> {
+  const { canvas, status, viewport } = stage;
   const pkg = await interactivePackage(opened.name, new Uint8Array(opened.bytes), opened.descriptor);
   const files = pkg.files;
   const listed = (await (await fetch("/apps/bundled.json")).json()) as { readonly files: readonly string[] };
@@ -76,7 +116,9 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
     if (shouldSuppressGameplayKey(event.code, event.repeat, false, isFallbackTouchControlTarget(event.target), fallbackControlKeys)) return;
     pending.push({ tick: session.tick(), event: { kind: "key", name: event.key.toUpperCase(), code: event.code, char: event.key.length === 1 ? event.key : null, down: false }, pointerGeometry: null });
   };
-  const focus = (state: "lost" | "gained"): void => pending.push({ tick: session.tick(), event: { kind: "focus", state }, pointerGeometry: null });
+  const focus = (state: "lost" | "gained"): void => {
+    pending.push({ tick: session.tick(), event: { kind: "focus", state }, pointerGeometry: null });
+  };
   const onBlur = (): void => {
     fallbackControlKeys.clear();
     focus("lost");
