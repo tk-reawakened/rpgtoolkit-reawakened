@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { electronBinary } from "../../desktop/electron-binary.mjs";
+import { electronBinary, reportElectronLaunchFailure } from "../../desktop/electron-binary.mjs";
 
 /**
  * Entry 9.10's two acceptance limbs that need a real host:
@@ -64,6 +64,9 @@ async function launchPlayer(page: string, dataDir: string, game: string | null) 
       ELECTRON_ENABLE_LOGGING: "0",
       ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
     },
+  }).catch((error: unknown) => {
+    reportElectronLaunchFailure(error);
+    throw error;
   });
 }
 

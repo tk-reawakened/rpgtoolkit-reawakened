@@ -23,7 +23,7 @@ import {
 } from "@tk-reawakened/core";
 import { distributionPackage } from "@tk-reawakened/runner-web";
 import { writePackage } from "../../make-package/run.mjs";
-import { electronBinary } from "../../desktop/electron-binary.mjs";
+import { electronBinary, reportElectronLaunchFailure } from "../../desktop/electron-binary.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..", "..");
@@ -197,6 +197,9 @@ test("a per-run desktop flag adds one overlay without touching the package", asy
       "--diagnostics",
     ],
     env: { ...process.env, ELECTRON_ENABLE_LOGGING: "0", ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}) },
+  }).catch((error: unknown) => {
+    reportElectronLaunchFailure(error);
+    throw error;
   });
   try {
     const playerWindow = await player.firstWindow();
