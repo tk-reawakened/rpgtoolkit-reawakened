@@ -129,6 +129,23 @@ present, the worst blend-arithmetic channel delta, the audio length, and the pac
 game-opening cases must also agree with the committed baseline; the empty case must print the stated reason and exit 0.
 The CI `desktop` job runs all five on macOS, Linux and Windows and uploads one record per case.
 
+## The closing suite
+
+One command plays every sample game in every host and compares the results with the committed baseline:
+
+```sh
+pnpm closing:suite
+```
+
+It runs the headless suite, then the same suite in headless Chromium, then the same suite inside the built Electron
+player, and prints a verdict per part. Each host boots all eight games in `golden/closing/plan.json` — the two that play
+and the six Toolkit 2 games that still stop with a recorded diagnostic — at all three tick batchings, and compares every
+frame's state, draw, pixel and command hash with `golden/regression/closing.json`. The demo is also opened from its
+packaged `.tpk` in the browser page and in the player, so the packaged single-file load is covered in both.
+
+A part that fails does not stop the others; the command exits non-zero and names which part did. `--skip=browser` (or
+`--skip=node`, `--skip=desktop`) runs the rest.
+
 ## Open the window yourself
 
 A macOS launch showed the room on the attached canvas, with the title/menu text still overlaid. The status showed a

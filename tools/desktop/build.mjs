@@ -76,6 +76,7 @@ const manifest = {
 const { writeFileSync } = await import("node:fs");
 writeFileSync(join(desktop, "dist", "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 const { readdirSync } = await import("node:fs");
+const { writeClosingManifest } = await import("../closing/manifest.mjs");
 const folders = ["media/fonts", "media/cursors", "media/soundfonts", "stock/stock_menu", "stock/stock_battle", "stock/stock_rpg"];
 const bundled = folders.flatMap((folder) =>
   readdirSync(join(root, folder), { withFileTypes: true })
@@ -84,4 +85,5 @@ const bundled = folders.flatMap((folder) =>
     .sort(),
 );
 writeFileSync(join(root, "apps", "bundled.json"), `${JSON.stringify({ folders, files: bundled }, null, 2)}\n`);
+console.log(`built apps/closing-files.json (${writeClosingManifest(root)} fetched games listed)`);
 console.log(`built runner-desktop: dist/main.js, dist/preload.js, apps/player-desktop.js, apps/player-desktop-live.js (${bundled.length} bundled assets listed)`);

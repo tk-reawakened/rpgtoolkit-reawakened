@@ -11,6 +11,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { bundleOptions } from "./bundle-options.mjs";
+import { writeClosingManifest } from "../closing/manifest.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
@@ -21,6 +22,7 @@ const entries = [
   { in: join(root, "packages/runner-web/app/vectors.ts"), out: "vectors.js" },
   { in: join(root, "packages/runner-web/app/agreement.ts"), out: "agreement.js" },
   { in: join(root, "packages/runner-web/app/parity.ts"), out: "parity.js" },
+  { in: join(root, "packages/runner-web/app/closing.ts"), out: "closing.js" },
   { in: join(root, "packages/runner-web/app/audio.ts"), out: "audio.js" },
   { in: join(root, "packages/runner-web/app/video.ts"), out: "video.js" },
   { in: join(root, "packages/runner-web/app/storage.ts"), out: "storage.js" },
@@ -51,6 +53,7 @@ const bundled = folders.flatMap((folder) =>
     .sort(),
 );
 writeFileSync(join(out, "bundled.json"), `${JSON.stringify({ folders, files: bundled }, null, 2)}\n`);
+console.log(`built apps/closing-files.json (${writeClosingManifest(root)} fetched games listed)`);
 console.log(`built apps/bundled.json (${bundled.length} bundled assets listed)`);
 
 // Precache manifest (issue #934): listing app shell files, content-derived version, and bundled assets.

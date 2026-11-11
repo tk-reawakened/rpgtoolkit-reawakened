@@ -294,6 +294,10 @@ pnpm desktop:run --game fixtures/packages/demo.tpk
 
 Two things to expect on a fresh worktree: `pnpm install` can return before Electron's ~100 MB runtime has finished downloading in the background, so a first `desktop:measure` may fail with `ENOENT …/Electron` — wait and re-run; and the last recorded pre-E-02 launch drew the board off-screen. The live interactive loop and a post-E-02 visible desktop run remain unverified. The user-facing version of these steps is [docs/playing-the-desktop-player.md](docs/playing-the-desktop-player.md).
 
+`pnpm closing:suite` is the epic's closing check: the headless closing suite, the same suite in headless Chromium, and
+the same suite inside the built desktop player, each compared with `golden/regression/closing.json`, plus the demo opened
+from its `.tpk` in both page hosts. Run it before a PR that touches a runner, the core loop or the closing baselines.
+
 ### Run the Android proof
 
 The mobile proof drives the built Capacitor APK on a booted Android device or emulator. It uses Playwright's experimental [Android device and WebView API](https://playwright.dev/docs/api/class-android), rather than a manually forwarded debugging port. It still checks the rendered title and screenshots, trusted canvas touch, rotation, and host-blob presence after force-stop and relaunch; blob presence is not a claim that game state was restored.

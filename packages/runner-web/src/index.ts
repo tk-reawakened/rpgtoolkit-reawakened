@@ -279,4 +279,5 @@ export * from "./register-worker.ts";
 export * from "./service-worker-core.ts";
 export * from "./player-page.ts";
 export * from "./closing-frame.ts";
+export * from "./closing-run.ts";
 export * from "./video.ts";
