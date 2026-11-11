@@ -44,6 +44,8 @@ The rules of the three commands `jsonParse`, `jsonFile` and `jsonText`. Their si
 
 **Guard-rails.** G1: the result is plain dictionaries in the `objects` list and no hidden state. G2: `jsonParse` and `jsonText` touch no host; `jsonFile` reaches the file only through an AD-17 `asset` request. G3: the same text gives the same values, key order and state hash on every engine.
 
+Related surprises of the language, such as key spelling and number text, are collected in [RPGCode: quirks](rpgcode-quirks.md).
+
 **Not decided.**
 
 * What a dictionary is in a condition. The truth test is stated for numbers and strings only. Until it is ruled, `if (cfg.visible)` on a typed pair is not a test of the JSON value, and the help text must say so.
