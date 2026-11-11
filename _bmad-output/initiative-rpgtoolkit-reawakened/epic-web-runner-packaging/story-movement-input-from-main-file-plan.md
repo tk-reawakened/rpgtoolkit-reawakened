@@ -69,7 +69,7 @@ context: ['docs/guardrails.md']
 ## Open Questions
 
 1. **All-zero fallback:** Row 60 present zero disables the bits and row 61 present zero is unbound; #1865 requires an all-zero file to use the fixed table. (A) Apply defaults only to absent old-version rows and amend the ticket. (B) Define a narrow all-zero sentinel, including joystick scope, and amend the normative rows. Which should win?
-2. **Collisions:** ACT-4 dispatches every bound action in engine then game-registration order; #1865/#1866 describe one winner and a diagnostic. (A) Keep multi-action dispatch, specify movement arbitration and report collisions. (B) Define one winning action and priority, amending ACT-4 and affected consumers. Which is intended?
+2. **Collisions:** ACT-4 dispatches every bound action in engine then game-registration order; #1865/#1867 describe one winner and a diagnostic. (A) Keep multi-action dispatch, specify movement arbitration and report collisions. (B) Define one winning action and priority, amending ACT-4 and affected consumers. Which is intended?
 3. **Diagonals disabled:** #1865 asks for two axial steps in turn; the spec only disallows diagonals, and current `heldFacing` favors the most recently pressed held axis. (A) Alternate axes and specify the initial/same-tick order. (B) Keep most-recent-held priority and amend acceptance. Which sequence should apply?
 
 ## Implementation Notes
