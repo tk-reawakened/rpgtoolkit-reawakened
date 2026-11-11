@@ -77,3 +77,33 @@ export function trailingBlocks(): Uint8Array {
 export function concat(...parts: readonly Uint8Array[]): Uint8Array {
   return Uint8Array.from(parts.flatMap((part) => [...part]));
 }
+
+/** The Windows-1252 bytes of `text`, from a hand-written table of the 0x80-0x9F block (not `core`'s decoder), for the characters the tests use. */
+const HIGH_BLOCK: Readonly<Record<string, number>> = {
+  "\u20ac": 0x80,
+  "\u201a": 0x82,
+  "\u2026": 0x85,
+  "\u2018": 0x91,
+  "\u2019": 0x92,
+  "\u201c": 0x93,
+  "\u201d": 0x94,
+  "\u2013": 0x96,
+  "\u2014": 0x97,
+  "\u2122": 0x99,
+};
+
+export function cp1252Bytes(text: string): Uint8Array {
+  return Uint8Array.from(text, (char) => {
+    const high = HIGH_BLOCK[char];
+    if (high !== undefined) return high;
+    const code = char.charCodeAt(0);
+    if (code > 0xff || (code >= 0x80 && code < 0xa0)) throw new Error(`the oracle has no byte for U+${code.toString(16)}`);
+    return code;
+  });
+}
+
+/** `bytes` with only the title's bytes replaced by `title`. */
+export function withTitleBytes(bytes: Uint8Array, title: Uint8Array): Uint8Array {
+  const { start, end } = titleSpan(bytes);
+  return Uint8Array.from([...bytes.subarray(0, start), ...title, ...bytes.subarray(end)]);
+}
