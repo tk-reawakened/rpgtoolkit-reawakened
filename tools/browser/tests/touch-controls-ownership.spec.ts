@@ -79,6 +79,45 @@ async function closeLiveSession(page: Page): Promise<void> {
   });
 }
 
+/**
+ * Waits until the engine owns the thing that should win the press: the author surface item (author fixture) or the
+ * open modal (modal fixture). The author item is read from the engine's accessibility tree, which lists canvas-drawn
+ * UI by label, state and game-coordinate bounds, so no DOM position is converted into game coordinates. A converted,
+ * once-measured position could go stale if the fallback controls re-laid out, and then the wait could never succeed.
+ * Whether the Confirm button really overlaps the author item is still proven by the press itself: the later
+ * assertions require that the press yields no `runner.fallback` action.
+ */
+async function waitForPreemptionReady(page: Page, kind: "author" | "modal"): Promise<void> {
+  type Engine = {
+    runnerControlPointerPreemption(x: number, y: number): number | "author" | null;
+    accessibilityTree(): readonly { readonly children?: readonly { readonly label: string; readonly state: { readonly disabled: boolean } }[] }[];
+  };
+  type Probe = Window & { __session?: { readonly engine?: Engine; readonly tick?: () => number } };
+  try {
+    await page.waitForFunction((expected) => {
+      const engine = (window as Probe).__session?.engine;
+      if (engine === undefined) return false;
+      if (expected === "modal") return engine.runnerControlPointerPreemption(0, 0) === 1;
+      return engine.accessibilityTree().some((surface) => surface.children?.some((item) => item.label === "Author target" && !item.state.disabled) ?? false);
+    }, kind, { timeout: 45_000 });
+  } catch (cause) {
+    const observed = await page.evaluate(() => {
+      const session = (window as Probe).__session;
+      const confirm = document.querySelector<HTMLElement>('.fallback-touch-button[data-action="confirm"]')?.getBoundingClientRect();
+      return {
+        engine: session?.engine !== undefined,
+        tick: session?.tick?.(),
+        preemption: session?.engine?.runnerControlPointerPreemption(0, 0),
+        tree: session?.engine?.accessibilityTree().map((surface) => (surface.children ?? []).map((item) => `${item.label}${item.state.disabled ? " (disabled)" : ""}`)),
+        confirm: confirm === undefined ? null : { x: confirm.x, y: confirm.y, w: confirm.width, h: confirm.height },
+        viewport: { w: window.innerWidth, h: window.innerHeight },
+        hidden: document.hidden,
+      };
+    }).catch((error: unknown) => ({ unreadable: String(error) }));
+    throw new Error(`the ${kind} fixture never became ready: ${JSON.stringify(observed)}`, { cause });
+  }
+}
+
 async function openSilentDemo(page: Page, name: string): Promise<void> {
   const fixture = packageWithSilentDemoStartup(name);
   await servePackage(page, fixture);
@@ -256,21 +295,9 @@ test("fallback DOM yields overlapping author and modal pointers to core", async 
         });
         expect(suspended).toBe(true);
       }
+      await waitForPreemptionReady(page, fixture === author ? "author" : "modal");
       const box = await confirm.boundingBox();
       if (box === null) throw new Error("Confirm fallback button has no bounds");
-      await page.waitForFunction(({ screenX, screenY, expected }) => {
-        const target = window as Window & { __session?: { readonly engine?: { runnerControlPointerPreemption(x: number, y: number): number | "author" | null }; readonly displayGeometry?: () => { readonly game: { readonly x: number; readonly y: number; readonly width: number; readonly height: number } }; readonly viewSize?: () => { readonly width: number; readonly height: number } } };
-        const session = target.__session;
-        const geometry = session?.displayGeometry?.();
-        const size = session?.viewSize?.();
-        if (session?.engine === undefined || geometry === undefined || size === undefined) return false;
-        const stage = document.querySelector(".fallback-touch-controls")?.parentElement?.getBoundingClientRect();
-        if (stage === undefined) return false;
-        const x = Math.floor((screenX - stage.left - geometry.game.x) / (geometry.game.width / size.width));
-        const y = Math.floor((screenY - stage.top - geometry.game.y) / (geometry.game.height / size.height));
-        const claim = session.engine.runnerControlPointerPreemption(x, y);
-        return expected === "author" ? claim === "author" : claim === 1;
-      }, { screenX: box.x + box.width / 2, screenY: box.y + box.height / 2, expected: fixture === author ? "author" : "modal" }, { timeout: 45_000 });
       await installInputTrace(page);
       await confirm.click();
       if (fixture === modal) {
