@@ -19,13 +19,15 @@ void test("no registered extension is a classic legacy one, so a legacy file and
   }
 });
 
-void test("a registry needs unique extensions and unique contracts, each extension in the .tkr + three letters form", () => {
+void test("a registry needs unique extensions and unique contracts, each extension in the .tkr + three or more letters form", () => {
   const entry = { extension: ".tkrwth", contract: "weather" };
   validateRegistry([entry, { extension: ".tkrrai", contract: "rain" }]);
   throws(() => validateRegistry([entry, { extension: ".tkrwth", contract: "other" }]), /registered twice/);
   throws(() => validateRegistry([entry, { extension: ".tkrrai", contract: "weather" }]), /more than one extension/);
   throws(() => validateRegistry([{ extension: ".tkrwth", contract: " " }]), /no contract name/);
-  for (const bad of [".anm", ".yaml", "tkrwth", ".tkr", ".tkrwt", ".tkrweth", ".TKRWTH", ".tkrw1h", ".tkr-th", ".tkrwth "]) {
+  // A kind code has no fixed length above three letters (native-contracts.md#file-names, rule 1).
+  validateRegistry([{ extension: ".tkrtile", contract: "tileset" }, { extension: ".tkrpack", contract: "asset-pack" }]);
+  for (const bad of [".anm", ".yaml", "tkrwth", ".tkr", ".tkrw", ".tkrwt", ".TKRWTH", ".tkrw1h", ".tkr-th", ".tkrwth ", ".tkrTile", ".tkrtil3"]) {
     throws(() => validateRegistry([{ extension: bad, contract: "weather" }]), RangeError, bad);
   }
 });

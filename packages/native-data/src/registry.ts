@@ -13,7 +13,7 @@
 import { foldId } from "./fold.ts";
 
 export type RegistryEntry = {
-  /** Lowercase, with the leading dot: `.tkr` and a three-letter kind code. */
+  /** Lowercase, with the leading dot: `.tkr` and a kind code of three or more letters. */
   readonly extension: string;
   /** The `contract` a document with this extension must name in its stamp. */
   readonly contract: string;
@@ -27,8 +27,8 @@ export type Registry = readonly RegistryEntry[];
  */
 export const REGISTRY: Registry = [{ extension: ".tkranm", contract: "animation-clip" }];
 
-/** The form of every registered extension: `.tkr` and three lowercase ASCII letters. */
-const EXTENSION_FORM = /^\.tkr[a-z]{3}$/;
+/** The form of every registered extension: `.tkr` and three or more lowercase ASCII letters. */
+const EXTENSION_FORM = /^\.tkr[a-z]{3,}$/;
 
 /**
  * The extension of a path: the text from the last dot of the last `/` part, dot included, as
@@ -63,7 +63,7 @@ export function validateRegistry(registry: Registry): void {
   const contracts = new Set<string>();
   for (const entry of registry) {
     if (!EXTENSION_FORM.test(entry.extension)) {
-      throw new RangeError(`\`${entry.extension}\` is not a native extension: it must be \`.tkr\` and three lowercase ASCII letters`);
+      throw new RangeError(`\`${entry.extension}\` is not a native extension: it must be \`.tkr\` and three or more lowercase ASCII letters`);
     }
     if (entry.contract.trim() === "") throw new RangeError(`the extension \`${entry.extension}\` has no contract name`);
     if (extensions.has(entry.extension)) throw new RangeError(`the extension \`${entry.extension}\` is registered twice`);
