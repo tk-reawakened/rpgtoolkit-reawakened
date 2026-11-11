@@ -543,20 +543,8 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm fixtures:fetch
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-      # `--with-deps` reaches apt, and the hosted runners intermittently fail to resolve the Ubuntu mirror
-      # ("Temporary failure resolving 'azure.archive.ubuntu.com'"), which has failed this lane before the suite runs.
-      # Retry here rather than after the fact, and keep the failure visible when every attempt fails.
-      - name: Install Chromium and its system dependencies
-        shell: bash
+      - run: pnpm exec playwright install --with-deps chromium
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-        run: |
-          for attempt in 1 2 3; do
-            if pnpm exec playwright install --with-deps chromium; then exit 0; fi
-            echo "::warning::playwright install --with-deps failed (attempt $attempt of 3); retrying"
-            sleep $((attempt * 20))
-          done
-          echo "::error::playwright install --with-deps failed after three attempts"
-          exit 1
       # The parity spec launches the built Electron player beside the PWA page, so the lane builds the desktop bundles
       # itself (`playwright.config.ts`); Linux needs the virtual display the desktop lane uses, and Electron's binary
       # is installed by `pnpm install`.
