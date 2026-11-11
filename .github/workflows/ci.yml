@@ -288,7 +288,8 @@ jobs:
         run: node extensions/rpgcode/build.mjs
       - name: Package RPGCode VSIX
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-        run: npm --prefix extensions/rpgcode exec -- vsce package --no-dependencies -o rpgcode-language.vsix
+        working-directory: extensions/rpgcode
+        run: npx --no-install vsce package --no-dependencies -o rpgcode-language.vsix
       - uses: actions/upload-artifact@v6
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
         with:
