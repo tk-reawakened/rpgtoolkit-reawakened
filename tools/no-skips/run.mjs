@@ -9,10 +9,11 @@
 // test failed, skipped, or was left as a todo. When `--lcov <file>` is given, enables V8 test coverage
 // and writes the shard's LCOV report to `<file>`.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { evaluateDurations, formatDurationReport, parseTapDurations } from "./durations.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const repoRoot = resolve(here, "..", "..");
@@ -360,8 +361,9 @@ export function run(root, patterns, options = {}) {
       text = "";
     }
     const counts = parseTap(text);
+    const tests = parseTapDurations(text);
     const code = status !== 0 ? 1 : counts.tests === 0 || markedCount(counts) > 0 ? 1 : 0;
-    return { code, counts, status };
+    return { code, counts, status, tests };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -379,6 +381,8 @@ function parseArguments(argv) {
   let mergeLcovOut;
   let linesThreshold = DEFAULT_LINES_THRESHOLD;
   let branchesThreshold = DEFAULT_BRANCHES_THRESHOLD;
+  let durationMode = "warn";
+  let durationLedger;
 
   for (let position = 0; position < argv.length; position += 1) {
     const argument = argv[position];
@@ -402,6 +406,17 @@ function parseArguments(argv) {
       position += 1;
     } else if (argument === "--verify-groups") {
       verifyGroupsFlag = true;
+    } else if (argument === "--duration-mode") {
+      const value = argv[position + 1];
+      if (value !== "warn" && value !== "fail") throw new Error("--duration-mode needs warn or fail");
+      durationMode = value;
+      position += 1;
+    } else if (argument === "--duration-ledger") {
+      const value = argv[position + 1];
+      if (value === undefined || value.startsWith("-")) throw new Error("--duration-ledger needs a file path");
+      if (durationLedger !== undefined) throw new Error("--duration-ledger given more than once");
+      durationLedger = value;
+      position += 1;
     } else if (argument === "--merge-lcov") {
       const value = argv[position + 1];
       if (value === undefined || value.startsWith("-")) throw new Error("--merge-lcov needs an output file path");
@@ -437,9 +452,33 @@ function parseArguments(argv) {
     mergeLcovOut,
     linesThreshold,
     branchesThreshold,
+    durationMode,
+    durationLedger,
     positional,
     patterns: positional.length > 0 ? positional : DEFAULT_PATTERNS,
   };
+}
+
+/**
+ * The 1-second test rule's report for one run (AGENTS.md; #1892). Prints the slowest tests and the rule
+ * findings, and appends them to the workflow step summary when there is one. Returns the findings; the
+ * caller decides whether they fail the run (`--duration-mode fail`).
+ */
+function reportDurations(tests, ledger) {
+  const findings = evaluateDurations(tests, ledger);
+  const report = formatDurationReport(tests, findings);
+  for (const line of report.annotations) console.log(line);
+  console.log(report.markdown);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, report.markdown);
+  return findings;
+}
+
+/** The exception ledger's test-duration entries, or none when no ledger file is given. */
+function loadLedger(file) {
+  if (file === undefined) return [];
+  const data = JSON.parse(readFileSync(resolve(file), "utf8"));
+  if (!data || !Array.isArray(data.entries)) throw new Error(`${file}: expected an object with an "entries" array`);
+  return data.entries;
 }
 
 function runVerifyGroups(root) {
@@ -521,7 +560,15 @@ function main(argv) {
     }
   }
 
-  const { code, counts, status } = run(args.root, patterns, { lcov: args.lcov });
+  let ledger;
+  try {
+    ledger = loadLedger(args.durationLedger);
+  } catch (error) {
+    console.error(`${TOOL}: cannot read the exception ledger: ${error.message}`);
+    return 1;
+  }
+  const { code, counts, status, tests } = run(args.root, patterns, { lcov: args.lcov });
+  const durationFindings = reportDurations(tests, ledger);
   if (status !== 0) return 1;
   if (counts.tests === 0) {
     console.error(`${TOOL}: no test ran`);
@@ -532,6 +579,10 @@ function main(argv) {
       `${TOOL}: ${markedCount(counts)} test(s) skipped or todo; the golden job must run every test`,
     );
     for (const { name, reason } of counts.skippedNames) console.error(`${name}: ${reason}`);
+    return 1;
+  }
+  if (args.durationMode === "fail" && durationFindings.length > 0) {
+    console.error(`${TOOL}: ${durationFindings.length} test-duration finding(s); --duration-mode fail`);
     return 1;
   }
   console.log(`no skipped tests: ${counts.tests} tests, ${counts.pass} passed`);
