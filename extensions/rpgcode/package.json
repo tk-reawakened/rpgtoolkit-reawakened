@@ -37,6 +37,7 @@
     "package": "pnpm run build && vsce package --no-dependencies"
   },
   "dependencies": {
+    "@tk-reawakened/lsp": "file:../../packages/lsp",
     "vscode-languageclient": "9.0.1",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.12"

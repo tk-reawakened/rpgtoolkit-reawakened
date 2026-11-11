@@ -1,7 +1,7 @@
 import { createConnection, BrowserMessageReader, BrowserMessageWriter } from "vscode-languageserver/browser.js";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { TextDocuments } from "vscode-languageserver";
-import { createServer } from "../../../packages/lsp/src/index.ts";
+import { createServer } from "@tk-reawakened/lsp";
 
 // Browser worker host for the RPGCode language server (TOOL-1, D-4 web target).
 // Bundled into dist/server.worker.js as a self-contained worker.
