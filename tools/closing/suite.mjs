@@ -1,11 +1,11 @@
 // The closing suite, one command (entry 9.14): every game of `golden/closing/plan.json` played in both hosts against the
-// committed baseline, in three parts, plus the packaged single-file game in both.
+// committed baseline, plus the packaged single-file game in both.
 //
 //   pnpm closing:suite
 //
 // 1. node     — `runner-headless closing`: the reference run, which is also what wrote `golden/regression/closing.json`
 // 2. browser  — `tools/browser/tests/closing.spec.ts`: all eight games in headless Chromium, with the packaged demo
-// 3. desktop  — `tools/desktop/measure.mjs --closing`: the same suite inside the built Electron player
+// 3. desktop  — `tools/desktop/build.mjs` then `measure.mjs --closing`: the same suite inside the built Electron player
 //
 // Every part runs even when an earlier one fails, so one broken host cannot hide the others, and the command exits
 // non-zero if any part did not pass. `--skip=<part>` runs the rest (used when a CI job already covers a part).
