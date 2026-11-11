@@ -138,8 +138,8 @@ function callArity(spec: BuiltinSpec): number {
 test("every catalogue stub name resolves to its own spec, folded to lower case", () => {
   const services = createScriptServices(createGameState({ seed: 0 }));
 
-  equal(COMMANDS.length, 34);
-  equal(new Set(COMMANDS.map((spec) => spec.name)).size, 34);
+  equal(COMMANDS.length, 33);
+  equal(new Set(COMMANDS.map((spec) => spec.name)).size, 33);
   for (const spec of COMMANDS) {
     equal(spec.name, spec.name.toLowerCase());
     const resolved = services.commands.get(spec.name);
