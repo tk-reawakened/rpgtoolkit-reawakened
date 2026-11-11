@@ -114,5 +114,6 @@ test("a case's expectation fails on the wrong launch step, the wrong pick, or a 
   assert.match(caseProblem({ expected: "library", picked: "g" }, { resolvedBy: "library", picked: "other" }), /expected the library entry g/);
 
   assert.match(caseProblem({ expected: "none", picked: null }, { resolvedBy: "none", error: null }), /expected the stated reason/);
+  assert.match(caseProblem({ expected: "none", picked: null }, { resolvedBy: "library", error: "No game was chosen: pass --game" }), /expected launch step none/);
   assert.equal(caseProblem({ expected: "none", picked: null }, { resolvedBy: "none", error: "No game was chosen: pass --game" }), null);
 });

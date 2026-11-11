@@ -55,8 +55,13 @@ export type PlayerReport = {
   webgl2: string;
   blendWorst: number;
   audio: { lengthTicks: number | null; energy: number };
-  /** `rgba` is the presented frame's base64 pixels, present only when the caller asked to capture them. */
-  frame: { worst: number; width: number; height: number; rgba?: string };
+  /**
+   * The presented frame and its agreement with the reference rasteriser. Absent when nothing was measured — a launch that
+   * named no game reports its reason instead, and a reader must not assume a frame exists.
+   *
+   * `rgba` carries the base64 pixels only when the caller asked to capture them.
+   */
+  frame?: { worst: number; width: number; height: number; rgba?: string };
   save: { gameId: string; path: string; written: boolean; bytes: number };
   error: string | null;
 };
@@ -84,6 +89,8 @@ export async function bootPlayerPage(bridge: PlayerHost | undefined, options: { 
 
     // Which rule named the game (entry 9.10). A wrapper without a resolution reports `host` and opens its one package.
     const info = await host.launchInfo?.();
+    // Recorded before the refusal below, so a launch that names no game still reports which step decided that.
+    report.resolvedBy = info?.step ?? "host";
     if (info !== undefined && info.step === "none") throw new Error(info.reason);
     // The `library` step has no game until someone picks one; this measurement picks the first row, which is the only
     // entry its case registers, and records which one it took.
@@ -178,7 +185,6 @@ export async function bootPlayerPage(bridge: PlayerHost | undefined, options: { 
 
     report.scheme = scheme;
     report.serviceWorkers = serviceWorkers;
-    report.resolvedBy = info?.step ?? "host";
     report.picked = picked;
     report.packageName = opened.name;
     report.tick = rendered.tick;

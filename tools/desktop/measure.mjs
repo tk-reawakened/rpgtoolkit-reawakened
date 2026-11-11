@@ -12,7 +12,7 @@
 // needs a display: macOS and Windows runners have one; Linux needs Xvfb (`xvfb-run -a`).
 
 import { execFileSync, spawn } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,16 +56,16 @@ export function caseSetup(name, pkg) {
   const base = ["--user-data-dir", dataDir];
   switch (name) {
     case "argument":
-      return { case: name, expected: "argument", picked: null, launchArgs: [...base, "--game", pkg] };
+      return { case: name, expected: "argument", picked: null, directory, launchArgs: [...base, "--game", pkg] };
     case "player-json":
       writeFileSync(join(dataDir, "player.json"), `${JSON.stringify({ schema: 1, defaultGame: pkg }, null, 2)}\n`);
-      return { case: name, expected: "config", picked: null, launchArgs: base };
+      return { case: name, expected: "config", picked: null, directory, launchArgs: base };
     case "baked": {
       const resources = join(directory, "resources");
       mkdirSync(resources, { recursive: true });
       copyFileSync(pkg, join(resources, "game.tpk"));
       copyFileSync(`${pkg}.json`, join(resources, "game.tpk.json"));
-      return { case: name, expected: "baked", picked: null, launchArgs: [...base, "--resources", resources] };
+      return { case: name, expected: "baked", picked: null, directory, launchArgs: [...base, "--resources", resources] };
     }
     case "library": {
       const registry = {
@@ -83,10 +83,10 @@ export function caseSetup(name, pkg) {
         }],
       };
       writeFileSync(join(dataDir, "library.json"), `${JSON.stringify(registry, null, 2)}\n`);
-      return { case: name, expected: "library", picked: descriptor.gameId, launchArgs: base };
+      return { case: name, expected: "library", picked: descriptor.gameId, directory, launchArgs: base };
     }
     case "library-empty":
-      return { case: name, expected: "none", picked: null, launchArgs: base };
+      return { case: name, expected: "none", picked: null, directory, launchArgs: base };
     default:
       throw new Error(`unknown --case ${name}; expected one of ${CASES.join(", ")}`);
   }
@@ -191,6 +191,7 @@ export async function measure(options = {}) {
  */
 export function caseProblem(setup, record) {
   if (setup.expected === "none") {
+    if (record.resolvedBy !== "none") return `expected launch step none, got ${JSON.stringify(record.resolvedBy)}`;
     if (typeof record.error !== "string" || !record.error.includes("No game was chosen")) {
       return `expected the stated reason for an empty library, got ${JSON.stringify(record.error)}`;
     }
@@ -225,8 +226,14 @@ function baselineExpectation() {
 async function main() {
   const out = argument("--out", null);
   const name = argument("--case", null);
-  const setup = name === null ? { case: null, expected: "argument", picked: null, launchArgs: undefined } : caseSetup(name, packagePath());
-  const measured = await measure({ out, case: setup.case, launchArgs: setup.launchArgs });
+  const setup = name === null ? { case: null, expected: "argument", picked: null, directory: null, launchArgs: undefined } : caseSetup(name, packagePath());
+  let measured;
+  try {
+    measured = await measure({ out, case: setup.case, launchArgs: setup.launchArgs });
+  } finally {
+    // The case's temporary world is only needed while the child runs.
+    if (setup.directory !== null) rmSync(setup.directory, { recursive: true, force: true });
+  }
   const record = {
     os: process.platform,
     arch: process.arch,

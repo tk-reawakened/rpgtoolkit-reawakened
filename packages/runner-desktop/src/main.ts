@@ -119,15 +119,21 @@ type OpenedGame = {
   readonly path: string;
 };
 
-function readGame(path: string): OpenedGame {
-  const bytes = new Uint8Array(readFileSync(path));
-  let descriptor: unknown = null;
+/** The install descriptor beside a package, or `null`. A missing sidecar is the page's to report. */
+function descriptorOf(path: string): unknown {
   try {
-    descriptor = JSON.parse(readFileSync(`${path}.json`, "utf8")) as unknown;
+    return JSON.parse(readFileSync(`${path}.json`, "utf8")) as unknown;
   } catch {
-    // A missing or unreadable sidecar is the page's to report; the bytes are still a package.
+    return null;
   }
-  return { name: path.split(sep).at(-1) ?? "game.tpk", bytes, descriptor, path };
+}
+
+function openBytes(path: string, bytes: Uint8Array): OpenedGame {
+  return { name: path.split(sep).at(-1) ?? "game.tpk", bytes, descriptor: descriptorOf(path), path };
+}
+
+function readGame(path: string): OpenedGame {
+  return openBytes(path, new Uint8Array(readFileSync(path)));
 }
 
 /** A library entry is opened only after its `sha256` and `size` match the bytes (`launcher.md#storage-and-registry`). */
@@ -136,10 +142,11 @@ function readLibraryGame(gameId: string): OpenedGame {
   if (registry === null) throw new Error(`no library registry at ${libraryPath()}`);
   const entry = registry.entries.find((candidate) => candidate.gameId === gameId);
   if (entry === undefined) throw new Error(`the library has no entry ${gameId}`);
+  // Read once, verify those bytes, open those bytes: re-reading after a check would leave a window for a swap.
   const bytes = new Uint8Array(readFileSync(entry.packageLocation));
   const verified = verifyEntry(entry, bytes);
   if (!verified.ok) throw new Error(verified.reason);
-  return { ...readGame(entry.packageLocation), bytes };
+  return openBytes(entry.packageLocation, bytes);
 }
 
 /**
@@ -313,17 +320,23 @@ app.on("open-url", (event, url) => {
   acceptDeepLink(url);
 });
 // One player per data directory: a second launch hands its link to the first and exits.
-if (!app.requestSingleInstanceLock()) app.quit();
-else app.on("second-instance", (_event, argv) => {
-  const link = deepLinkFromArgv(argv);
-  if (link !== null) acceptDeepLink(link);
-});
+const singleInstance = app.requestSingleInstanceLock();
+if (!singleInstance) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, argv) => {
+    const link = deepLinkFromArgv(argv);
+    if (link !== null) acceptDeepLink(link);
+  });
+}
 
 registerIpc();
-app.whenReady().then(() => {
-  serveAppProtocol();
-  createWindow();
-});
+if (singleInstance) {
+  app.whenReady().then(() => {
+    serveAppProtocol();
+    createWindow();
+  });
+}
 
 // One game, one window: closing it ends the player, so no `activate` handler recreates a window on macOS.
 quitWhenLastWindowCloses(app);

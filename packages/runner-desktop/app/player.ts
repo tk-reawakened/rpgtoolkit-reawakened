@@ -21,9 +21,9 @@ void (async () => {
   const capture = new URLSearchParams(location.search).has("capture");
   const report = await bootPlayerPage(window.desktop, { captureFrame: capture });
   window.__desktop = report;
-  window.__frame = report.frame.rgba === undefined
-    ? null
-    : { width: report.frame.width, height: report.frame.height, worst: report.frame.worst, rgba: report.frame.rgba };
+  const frame = report.frame;
+  // Nothing was measured when no game opened: the report carries the reason and there are no pixels to publish.
+  window.__frame = frame?.rgba === undefined ? null : { width: frame.width, height: frame.height, worst: frame.worst, rgba: frame.rgba };
   document.title = `desktop: ${report.error ?? report.stateHash}`;
   await window.desktop?.report(report);
 })();
