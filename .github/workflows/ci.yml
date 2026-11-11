@@ -550,6 +550,11 @@ jobs:
       # is installed by `pnpm install`.
       - run: xvfb-run -a pnpm browser:test
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      # Entry 9.14: one command plays every closing-plan game in Node, in Chromium and in the Electron player, loads the
+      # packaged demo in both page hosts, and fails unless every host matches the committed baseline.
+      - name: Closing suite across hosts
+        run: xvfb-run -a pnpm closing:suite
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
   # The mobile lane builds and drives the real Capacitor APK on Android 16.
   # The proof script captures the page's own readings and fails instead of
   # substituting browser stubs or synthetic reports.

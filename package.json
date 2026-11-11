@@ -70,7 +70,8 @@
     "mobile:proof": "node tools/mobile/proof.mjs",
     "mobile:proof:test": "node --test tools/mobile/test/*.test.mjs",
     "saveload:record": "tsc -b && node tools/fixtures/saveload/record.mjs",
-    "saveload:check": "tsc -b && node tools/fixtures/saveload/record.mjs --check"
+    "saveload:check": "tsc -b && node tools/fixtures/saveload/record.mjs --check",
+    "closing:suite": "tsc -b && node tools/closing/suite.mjs"
   },
   "devDependencies": {
     "@capacitor/android": "8.4.3",

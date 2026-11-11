@@ -9,6 +9,15 @@ import { createWebgl2Renderer } from "@tk-reawakened/render-webgl2";
 import { fontProvider, packageFiles, PcmSink } from "@tk-reawakened/runner-web";
 
 import { frameBase64, renderClosingDemoFrame } from "./closing-frame.ts";
+import {
+  closingBundled,
+  closingManifestLoader,
+  packagedDemoRecord,
+  runClosingCheck,
+  type ClosingManifest,
+  type ClosingPageReport,
+  type PackagedClosingReport,
+} from "./closing-run.ts";
 
 /** One row of the fallback listing: what a person picks from when nothing named a game. No hashes, no settings. */
 export type LibraryRow = {
@@ -63,6 +72,8 @@ export type PlayerReport = {
    */
   frame?: { worst: number; width: number; height: number; rgba?: string };
   save: { gameId: string; path: string; written: boolean; bytes: number };
+  /** The closing suite's verdict, present only when the page was asked to run it (entry 9.14). */
+  closing?: ClosingPageReport & { readonly packaged?: PackagedClosingReport };
   error: string | null;
 };
 
@@ -71,11 +82,44 @@ export type PlayerReport = {
  * desktop shell and the mobile wrapper (runners.md#mobile's MUST NOT: a platform difference is a host service, never a
  * second rendering, input or asset path).
  */
-export async function bootPlayerPage(bridge: PlayerHost | undefined, options: { readonly captureFrame?: boolean } = {}): Promise<PlayerReport> {
+export async function bootPlayerPage(
+  bridge: PlayerHost | undefined,
+  options: { readonly captureFrame?: boolean; readonly closing?: boolean } = {},
+): Promise<PlayerReport> {
   const report = { error: null as string | null, resolvedBy: "unknown", picked: null, reason: null } as PlayerReport;
   try {
     const host = bridge;
     if (host === undefined) throw new Error("the host bridge is absent");
+
+    // The closing suite (entry 9.14): the same check the headless runner and the PWA page run, over `app://`. It needs no
+    // launched game — the fixtures and the baseline are static files under the served root — so it returns before the
+    // single-game measurement below.
+    if (options.closing === true) {
+      const planText = await (await fetch("/golden/closing/plan.json")).text();
+      const manifest = (await (await fetch("/apps/closing-files.json")).json()) as ClosingManifest;
+      const bundled = await closingBundled();
+      const suite = await runClosingCheck({
+        planText,
+        baselineText: await (await fetch("/golden/regression/closing.json")).text(),
+        ledgerText: await (await fetch("/golden/ledger.json")).text(),
+        bundled,
+        load: closingManifestLoader("", manifest),
+        readPng: async (path) => {
+          const response = await fetch(`/${path}`);
+          return response.ok ? new Uint8Array(await response.arrayBuffer()) : undefined;
+        },
+      });
+      const packaged = await packagedDemoRecord({
+        planText,
+        bundled,
+        reference: suite.games,
+        packageFiles: (name, bytes) => packageFiles(name, bytes),
+      });
+      report.closing = { ...suite, ...(packaged === undefined ? {} : { packaged }) };
+      report.resolvedBy = "closing-suite";
+      report.error = suite.ok ? null : (suite.lines.at(-1) ?? "the closing suite failed");
+      return report;
+    }
     // The page is on `app://`, and no service worker is registered or claimed.
     const scheme = location.protocol.replace(":", "");
     // The scheme is registered without `allowServiceWorkers`, so the API refuses here; that refusal is the proof that no

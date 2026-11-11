@@ -119,7 +119,7 @@ export async function measure(options = {}) {
       ...(process.platform === "linux" ? ["--enable-unsafe-swiftshader"] : []),
       "--serve", root,
       ...(options.launchArgs ?? ["--game", pkg]),
-      "--page", "packages/runner-desktop/app/player-measure.html",
+      "--page", options.page ?? "packages/runner-desktop/app/player-measure.html",
       "--report", reportPath,
     ],
     {
@@ -239,6 +239,32 @@ function baselineExpectation() {
 async function main() {
   const out = argument("--out", null);
   const name = argument("--case", null);
+  // The closing suite (entry 9.14): the page runs the whole plan in Electron and compares it with the committed baseline,
+  // so this mode reports the suite's own verdict and has no single-frame expectation to check.
+  if (process.argv.includes("--closing")) {
+    const measured = await measure({ out, case: "closing", page: "packages/runner-desktop/app/player-measure.html?closing" });
+    const record = { os: process.platform, arch: process.arch, measuredAt: new Date().toISOString(), ...measured.report };
+    if (out !== null) {
+      mkdirSync(dirname(resolve(out)), { recursive: true });
+      writeFileSync(resolve(out), `${JSON.stringify(record, null, 2)}\n`);
+    }
+    const closing = record.closing;
+    for (const line of closing?.lines ?? []) console.log(line);
+    const problems = [];
+    if (closing === undefined) problems.push("the page reported no closing suite");
+    else {
+      if (closing.ok !== true) problems.push("the closing suite failed");
+      if ((closing.packaged?.ok ?? false) !== true) problems.push(`the packaged demo failed: ${closing.packaged?.error ?? "not run"}`);
+      for (const game of closing.games) if (game.batchProblems.length > 0) problems.push(`${game.name}: ${game.batchProblems.join("; ")}`);
+    }
+    if (record.error !== null) problems.push(record.error);
+    if (problems.length > 0) {
+      console.error(`desktop closing suite failed:\n  ${problems.join("\n  ")}`);
+      process.exitCode = 1;
+    }
+    console.log(JSON.stringify({ os: record.os, closing: { ok: closing?.ok ?? false, games: closing?.games.length ?? 0, packaged: closing?.packaged?.ok ?? false } }));
+    return;
+  }
   const setup = name === null ? { case: null, expected: "argument", picked: null, directory: null, launchArgs: undefined } : caseSetup(name, packagePath());
   let measured;
   try {
