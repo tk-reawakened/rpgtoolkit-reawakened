@@ -26,6 +26,9 @@
       "path": "packages/runner-web"
     },
     {
+      "path": "packages/lsp"
+    },
+    {
       "path": "packages/script-spec"
     },
     {

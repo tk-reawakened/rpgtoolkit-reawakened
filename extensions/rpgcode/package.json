@@ -1,0 +1,50 @@
+{
+  "name": "rpgcode-language",
+  "displayName": "RPGCode Language",
+  "description": "Diagnostics, hover, completion, go-to-definition, outline and quick fixes for RPGCode (.prg, .rnc).",
+  "version": "0.0.1",
+  "publisher": "tk-reawakened",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:rpgcode"
+  ],
+  "main": "./dist/extension.js",
+  "browser": "./dist/extension.browser.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "rpgcode",
+        "aliases": [
+          "RPGCode",
+          "rpgcode"
+        ],
+        "extensions": [
+          ".prg",
+          ".rnc"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "package": "pnpm run build && vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "vscode-languageclient": "9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.12"
+  },
+  "devDependencies": {
+    "@types/node": "24.0.0",
+    "@types/vscode": "1.90.0",
+    "@vscode/vsce": "3.2.1",
+    "typescript": "5.9.3"
+  }
+}
