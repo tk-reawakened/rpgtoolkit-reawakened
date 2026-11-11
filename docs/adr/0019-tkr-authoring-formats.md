@@ -1,6 +1,6 @@
 # ADR 0019 — Native authoring formats are `.tkr*` YAML documents; the editor builds legacy files from them
 
-* **Status:** Accepted (owner decisions, 2026-11-09). **Amendment proposed 2026-11-11** ([below](#amendment-proposed-2026-11-11-one-editor-two-files-the-common-stamp)), awaiting the owner's approval; it closes [#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839).
+* **Status:** Accepted (owner decisions, 2026-11-09). **Amended 2026-11-11** ([below](#amendment-2026-11-11-one-editor-two-files-the-common-stamp)), approved by the owner on 2026-11-11 by merging [#1843](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/1843); the amendment closed [#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839).
 * **Date:** 2026-11-09
 * **Settles:** the follow-up ADR 0005 calls for ("before the editor writes any project to disk"), for authoring documents only
 * **Context documents:** [ADR 0005](0005-independent-product-v1-and-native-format.md), [ADR 0009](0009-compatibility-layer-not-the-model.md), [spec/formats/tkr-authoring.md](../spec/formats/tkr-authoring.md), research [flow 11](../../_bmad-output/initiative-rpgtoolkit-reawakened/research-editor-ux-for-beginners/flows/11-tile-asset-and-board-architecture.md)
@@ -45,9 +45,9 @@ The editor research (flows 01, 03, 10 and 11) found authoring data the legacy bo
 * **JSON.** Rejected by the owner: no comments, noisier diffs. YAML under the restrictions above keeps JSON's determinism.
 * **`.tkscn`.** Rejected: new formats use the `tkr` prefix (decision 1).
 
-## Amendment (proposed 2026-11-11): one editor, two files; the common stamp
+## Amendment (2026-11-11): one editor, two files; the common stamp
 
-Proposed from the owner's answers of 2026-11-11 on [#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839). Merging the change that adds this section is his approval. Until then the text above stands.
+From the owner's answers of 2026-11-11 on [#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839). It was approved by the owner on 2026-11-11 by merging [#1843](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/1843). Where it replaces a sentence above, this section is the rule.
 
 In plain terms: the scene editor is one editor. It can open and save an old board as it is, or work on a scene, which can hold more. Nothing is converted unless the author asks.
 

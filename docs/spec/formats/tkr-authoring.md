@@ -4,7 +4,7 @@ This specification defines the normative structure of TK Reawakened's native YAM
 
 These files are created and maintained in the authoring workspace (`editor-model` / `editor-ui`) and **compile/lower** deterministically into legacy runtime targets (`.brd`, `.tst`, `.iso`, `.tbm`, `.tan`) so the `@tk-reawakened/core` runtime engine can play them without requiring immediate changes to its runtime format decoders.
 
-> **Status: draft, pre-release (proposed amendment, 2026-11-11, [#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839)).** These three formats follow [native-contracts.md](native-contracts.md). Brought into line here: the stamp (`contract` and `version` as the first two keys, in place of `schema: tkr-<kind>/1.0`) and the pre-release version. **Not yet in line, and to be settled when each becomes a contract page (story 27.8 for the scene):**
+> **Status: draft, pre-release (amendment of 2026-11-11, [#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839)).** These three formats follow [native-contracts.md](native-contracts.md). Brought into line here: the stamp (`contract` and `version` as the first two keys, in place of `schema: tkr-<kind>/1.0`) and the pre-release version. **Not yet in line, and to be settled when each becomes a contract page (story 27.8 for the scene):**
 >
 > * The contract names `scene`, `tileset` and `asset-pack` are placeholders.
 > * The examples carry a document-level `id`, and a scene refers to a pack as `<pack id>:<asset id>`. Under native-contracts a document's identity is its path and references use it.

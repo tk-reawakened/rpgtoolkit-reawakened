@@ -1,6 +1,6 @@
 # The editor ecosystem: going beyond the Toolkit 3 file types
 
-* **Status:** Proposal, 2026-11-11. Nothing on these pages is decided. They change no ADR, no specification page and no ticket. The one decision they ask for first is [ADR 0026](../adr/0026-editors-are-registered-by-document-kind.md) (Proposed).
+* **Status:** Proposal, 2026-11-11. These pages decide nothing by themselves and change no ticket. Two of the roadmap's questions were answered by the owner on 2026-11-11 and are recorded in ADR 0005, ADR 0019 and ADR 0023. The one decision they ask for first is [ADR 0026](../adr/0026-editors-are-registered-by-document-kind.md) (Proposed).
 * **Scope:** the editor only. The engine, the RPGCode VM and the runners are not changed by anything here.
 * **Starting point:** the editors RPG Toolkit 3.1 shipped, as inventoried in [editor-features.md](../editor-features.md). The legacy source was not opened ([ADR 0006](../adr/0006-clean-room-spec-extraction.md)).
 * **Evidence limits:** the review of our own editors was done by reading the code and the planning records on 2026-11-11. The comparison with other tools was written **without network access** to their documentation, so every statement about Godot, GDevelop and RPG Maker is marked unverified ([benchmark](benchmark.md#evidence-status)).
@@ -24,7 +24,7 @@ None of this replaces the five editor epics. It changes **how** their editors ar
 | Rule | Where it comes from | Effect here |
 |---|---|---|
 | TK Reawakened is its own product, and Toolkit 3 is a compatibility layer | [ADR 0005](../adr/0005-independent-product-v1-and-native-format.md), [ADR 0009](../adr/0009-compatibility-layer-not-the-model.md) | The editor is organised around our kinds; a legacy file is an adapter onto them. |
-| The Toolkit 3 formats stay first-class editable. Native documents are deferred, except (proposed 2026-11-11) the scene, tileset and asset-pack formats | ADR 0005, amendment of 2026-11-09 and the second amendment proposed 2026-11-11 | The registry must be useful with legacy kinds alone. The scene editor is its first case of one editor over a legacy file and a native one. |
+| The Toolkit 3 formats stay first-class editable. Native documents are deferred, except the scene, tileset and asset-pack formats | ADR 0005, amendment of 2026-11-09 and the second amendment of 2026-11-11 | The registry must be useful with legacy kinds alone. The scene editor is its first case of one editor over a legacy file and a native one. |
 | One document per file; the host owns undo and save timing | AD-19, [ADR 0022](../adr/0022-shared-editor-authoring-contracts.md) D1 to D4 | The document contract here is ADR 0022's, made general. It adds no new promise. |
 | `editor-ui` reaches the host only through `platform-services` | [G2](../guardrails.md), AD-20 | Kinds and views register in `editor-model` and `editor-ui`. A host holds adapters and chrome only. |
 | The core does no I/O and gains no reader by accident | G2, [ADR 0019](../adr/0019-tkr-authoring-formats.md) decision 3 | A new kind is an editor document first. The engine reads it only after its own ADR. |

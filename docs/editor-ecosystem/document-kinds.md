@@ -58,7 +58,7 @@ A file with no same-version writer (a pre-vector board, a compiled program) regi
 | Actor family; scene placements | none yet | Stories 27.7, 27.8 | Not written | Not ruled |
 | Item, enemy, tileset | none yet | native-contracts.md registry note | Not written | Not ruled |
 
-The scene, tile recipe and asset pack formats are proposed for the first release (ADR 0005, second amendment proposed 2026-11-11); the rest are deferred. The three are drafts until each has a contract page, and none is in the native registry yet.
+The scene, tile recipe and asset pack formats are in scope for the first release (ADR 0005, second amendment of 2026-11-11); the rest are deferred. The three are drafts until each has a contract page, and none is in the native registry yet.
 
 **Collision and walk-behind stored with the art** is what the tile and pack formats add that no Toolkit 3 file has. A tile carries `collision` and, for a block, `wallCapUnder`. A pack asset carries its own `solid` and `under` vectors. When a tile is painted or an asset is placed, the editor builds the board's vectors from them, so an author draws a wall once, on the art, and not again on every board.
 

@@ -78,17 +78,17 @@ None for phases 0 to 2: the work fits stories that exist or small additions to t
 | # | Decision | Recommendation |
 |---|---|---|
 | 1 | **Accept ADR 0026?** Editors are bound to document kinds through one registry and one document contract, and legacy file types are kinds like any other. | Accept. It costs little now and removes a rewrite later. |
-| 2 | **Answered in draft, 2026-11-11.** See below the table. Original question: one naming rule for native files. ADR 0019 (Accepted) uses `.tkrscn`, `.tkrtile`, `.tkrpack` and `schema: tkr-scn/1.0`. ADR 0023 (Proposed) requires three letters after `tkr` and a `contract` and `version` stamp. ADR 0019 also makes `.tkrscn` the board editor's document, while the ADR 0005 amendment keeps `.brd` first-class editable and defers native YAML. | Bring ADR 0019 under ADR 0023 when 0023 is accepted: three-letter codes for tile recipes and packs, the common stamp, and a note that for the first release the board editor's document is the `.brd`, with the scene arriving in phase 3. |
-| 3 | **Does the first release ship any native kind?** | **Answered in draft, 2026-11-11:** yes, three, for the scene editor: scene, tile recipes and asset pack. Every other native kind stays deferred. |
+| 2 | **Answered, 2026-11-11.** See below the table. Original question: one naming rule for native files. ADR 0019 (Accepted) uses `.tkrscn`, `.tkrtile`, `.tkrpack` and `schema: tkr-scn/1.0`. ADR 0023 (Proposed) requires three letters after `tkr` and a `contract` and `version` stamp. ADR 0019 also makes `.tkrscn` the board editor's document, while the ADR 0005 amendment keeps `.brd` first-class editable and defers native YAML. | Bring ADR 0019 under ADR 0023 when 0023 is accepted: three-letter codes for tile recipes and packs, the common stamp, and a note that for the first release the board editor's document is the `.brd`, with the scene arriving in phase 3. |
+| 3 | **Does the first release ship any native kind?** | **Answered, 2026-11-11:** yes, three, for the scene editor: scene, tile recipes and asset pack. Every other native kind stays deferred. |
 | 4 | **Extensions for plugin-defined kinds.** | One shared extension, the stamp names the contract ([extensions, question 1](extensions.md#open-questions)). |
 | 5 | **Trust for editor contributions.** Data-only levels load from a project; a view with code is author-installed. | Confirm this as an application of ADR 0008, or ask for a new ADR. |
 | 6 | **Which candidate kinds first?** | Project definition, then data tables. Screen layouts when a subsystem contract exists. |
 | 7 | **Which outside formats first?** | Sprite sheets and Aseprite for clips, then Tiled for scenes. LDtk after. |
 | 8 | **The non-goals.** | Confirm the list in the [benchmark](benchmark.md#explicit-non-goals). |
 
-### Decisions 2 and 3, as drafted on 2026-11-11
+### Decisions 2 and 3, as answered on 2026-11-11
 
-From the owner's answers on [#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839), written as proposed amendments to ADR 0005, ADR 0019 and ADR 0023 in the same change as this page. Merging it is the approval.
+From the owner's answers on [#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839), written as amendments to ADR 0005, ADR 0019 and ADR 0023 and approved by the owner on 2026-11-11 by merging [#1843](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/1843).
 
 * A kind code is three or more letters. `.tkrtile` and `.tkrpack` stand. The recommendation in row 2 to rename them is withdrawn.
 * Every `.tkr*` document uses the `contract` and `version` stamp.
@@ -96,7 +96,7 @@ From the owner's answers on [#1839](https://github.com/tk-reawakened/rpgtoolkit-
 * The scene editor is one editor written against the scene model. It opens and saves a `.brd` directly, or works on a `.tkrscn` that builds the `.brd`. Converting is explicit.
 * Those three formats come forward into the first release.
 
-**Effect on the phases above:** the scene contract (27.8), the tile recipe and asset pack contracts and the scene save path move from phase 3 into the first release, after the board tracer (12.1) and after the text-authority proof on the animation clip (27.6). `packages/native-data` still enforces three letters and changes in its own commit after approval. No ticket is changed by this page; the stories are re-planned through BMAD once the amendments are approved.
+**Effect on the phases above:** the scene contract (27.8), the tile recipe and asset pack contracts and the scene save path move from phase 3 into the first release, after the board tracer (12.1) and after the text-authority proof on the animation clip (27.6). No ticket is changed by this page; the stories are re-planned through BMAD.
 
 ## Risks
 
