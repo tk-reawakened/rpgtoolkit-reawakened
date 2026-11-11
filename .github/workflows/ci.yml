@@ -597,6 +597,15 @@ jobs:
       - name: Closing suite across hosts
         run: xvfb-run -a pnpm closing:suite
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      # Playwright writes `error-context.md` (a page snapshot) per failed test. The runner is discarded afterwards, so
+      # keep it, or an intermittent browser failure cannot be diagnosed from the log alone.
+      - uses: actions/upload-artifact@v6
+        if: ${{ failure() && (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') }}
+        with:
+          name: browser-test-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 14
   # The mobile lane builds and drives the real Capacitor APK on Android 16.
   # The proof script captures the page's own readings and fails instead of
   # substituting browser stubs or synthetic reports.
