@@ -25,7 +25,9 @@ export default defineConfig({
   webServer: {
     command:
       // The package fixture is generated from the fetched sample game, so the package boot needs no committed archive.
-      "node tools/browser/build.mjs && (test -d fixtures/legacy/demo && node tools/make-package/run.mjs fixtures/legacy/demo" +
+      // The desktop bundles too: `desktop-parity.spec.ts` launches the built player beside the PWA page, and a lane that
+      // needs an artefact must build it rather than trusting the developer to have run another script.
+      "node tools/desktop/build.mjs && node tools/browser/build.mjs && (test -d fixtures/legacy/demo && node tools/make-package/run.mjs fixtures/legacy/demo" +
       " --closing-plan golden/closing/plan.json --game demo --out fixtures/packages/demo.tpk --title Demo || true)" +
       " && node tools/mobile/build.mjs && node tools/browser/serve.mjs --port " + port,
     url: `http://127.0.0.1:${port}/health`,

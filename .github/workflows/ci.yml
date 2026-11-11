@@ -545,10 +545,9 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm exec playwright install --with-deps chromium
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-      # The parity spec launches the built Electron player beside the PWA page, so the desktop artefacts must exist and
-      # Linux needs the virtual display the desktop lane uses. Electron's binary is installed by `pnpm install`.
-      - run: pnpm desktop:build
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      # The parity spec launches the built Electron player beside the PWA page, so the lane builds the desktop bundles
+      # itself (`playwright.config.ts`); Linux needs the virtual display the desktop lane uses, and Electron's binary
+      # is installed by `pnpm install`.
       - run: xvfb-run -a pnpm browser:test
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
   # The mobile lane builds and drives the real Capacitor APK on Android 16.

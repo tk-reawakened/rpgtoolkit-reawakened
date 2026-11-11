@@ -171,7 +171,15 @@ export function registerPackage(options: {
     lastPlayedAt: null,
   };
   const previous = options.registry.entries.find((candidate) => candidate.gameId === entry.gameId);
-  const kept = previous === undefined ? entry : { ...entry, installedAt: previous.installedAt, customSettings: previous.customSettings };
+  // `exactOptionalPropertyTypes`: a re-register keeps the earlier install date and settings, and omits the settings key
+  // entirely when the earlier entry had none rather than writing `undefined` into it.
+  const kept: LibraryEntry = previous === undefined
+    ? entry
+    : {
+        ...entry,
+        installedAt: previous.installedAt,
+        ...(previous.customSettings === undefined ? {} : { customSettings: previous.customSettings }),
+      };
   const entries = [kept, ...options.registry.entries.filter((candidate) => candidate.gameId !== entry.gameId)];
   return { ok: true, registry: { ...options.registry, entries } };
 }

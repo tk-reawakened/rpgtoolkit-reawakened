@@ -5,7 +5,8 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "node ../../tools/desktop/build.mjs"
+    "build": "node ../../tools/desktop/build.mjs",
+    "typecheck:tests": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@tk-reawakened/core": "workspace:*",
@@ -13,5 +14,8 @@
     "@tk-reawakened/runner-harness": "workspace:*",
     "@tk-reawakened/runner-web": "workspace:*",
     "@tk-reawakened/synth": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.0.0"
   }
 }

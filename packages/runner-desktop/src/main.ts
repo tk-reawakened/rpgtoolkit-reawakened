@@ -241,8 +241,8 @@ function registerIpc(): void {
 
   ipcMain.handle("desktop:report", (_event, report: unknown): boolean => {
     // The measurement harness reads this back; the player itself logs it.
-    const at = process.argv.findIndex((argument) => argument === "--report");
-    if (at >= 0 && process.argv[at + 1] !== undefined) writeFileSync(resolve(process.argv[at + 1]), `${JSON.stringify(report, null, 2)}\n`);
+    const path = argumentValue(process.argv, "--report");
+    if (path !== null) writeFileSync(resolve(path), `${JSON.stringify(report, null, 2)}\n`);
     return true;
   });
 }
