@@ -7,7 +7,7 @@ import { fetchBundled, fetchBundledFiles, fetchGame, fontProvider, distributionP
 import { createLoadController, type LoadModeRequest, type LoadState } from "../src/load-mode.ts";
 import { createOpfsPackageStore, createOpfsStaging } from "../src/opfs-store.ts";
 import { attachPointerInput } from "../src/pointer.ts";
-import { createLiveSession, type LiveSession } from "../src/live-session.ts";
+import { createLiveSession, formatTitleBar, type LiveSession } from "../src/live-session.ts";
 import { createObservedHostGeometry, observeHostState, reapplyObservedGeometryBeforePointer, reconcileObservedGeometryAfterAdvance, reconcileObservedHostFeaturesAfterAdvance, stampPendingInputs, type HostViewport, type PendingInput } from "../src/host-state.ts";
 import { registerPlayerWorker, type RegistrationResult } from "../src/register-worker.ts";
 import { createStallOverlay, type StallOverlay } from "../src/stall-overlay.ts";
@@ -356,6 +356,8 @@ function startLiveLoop(
   let advancing = false;
   let frameId: number | null = null;
   let pending: PendingInput[] = [];
+  let titleFrames = 0;
+  let titleWindowStart = performance.now();
   const viewSize = session.viewSize();
   const displayGeometry = createObservedHostGeometry(session.displayGeometry());
   const fallbackControlKeys = new Set<string>();
@@ -512,6 +514,17 @@ function startLiveLoop(
       }
     } else if (window.__live !== undefined) {
       window.__live = { ...window.__live, stalls: summary(spinner) };
+    }
+    // The project's window title (main-file row 56, `bFpsInTitleBar`) is the host's presentation measurement, so it is
+    // recomputed once a second from frames actually presented and never enters simulation state.
+    titleFrames += 1;
+    const nowMs = performance.now();
+    if (nowMs - titleWindowStart >= 1_000) {
+      const bar = session.titleBar();
+      const fps = titleFrames * 1_000 / (nowMs - titleWindowStart);
+      titleFrames = 0;
+      titleWindowStart = nowMs;
+      if (bar !== undefined && bar.showFps) document.title = formatTitleBar(bar, fps);
     }
     if (!disposed) frameId = window.requestAnimationFrame(frame);
   };

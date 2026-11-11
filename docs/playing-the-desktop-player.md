@@ -129,6 +129,24 @@ present, the worst blend-arithmetic channel delta, the audio length, and the pac
 game-opening cases must also agree with the committed baseline; the empty case must print the stated reason and exit 0.
 The CI `desktop` job runs all five on macOS, Linux and Windows and uploads one record per case.
 
+## Debug overlays and the diagnostics strip
+
+A project's Graphics tab means what it says. When its main file has `drawVectors` ticked, the player draws those outlines
+over the game — board vectors, sprite vectors, the queued path and the destination marker, in the project's own
+`pathColor` (white for a project saved before that setting existed). Ticking `bFpsInTitleBar` puts the game's title, its
+board-vector count and the measured frame rate in the window title, for example `Debug Overlays 1 vectors, 60 FPS`.
+
+For one run you can turn a single overlay on without touching the project:
+
+```sh
+pnpm desktop:run --game <your.tpk> --debug-vectors
+pnpm desktop:run --game <your.tpk> --debug-sprites --debug-path --debug-destination
+```
+
+The flags are a debugger's override: the project's own values stay what a save writes back, and the package is never
+rewritten. `--diagnostics` shows a strip of the runner's own readings — tick, state and draw hashes, the drawn and
+deferred command counts, and the located diagnostics — and it appears only when that flag is passed.
+
 ## The closing suite
 
 One command plays every sample game in every host and compares the results with the committed baseline:

@@ -1,36 +1,51 @@
-// Resolve the Electron executable installed in this workspace.
-//
-// The `electron` npm package's main entry logs to stdout before it returns the path when the binary is missing, which
-// pollutes any stdout capture. We read its `path.txt` directly and, if the binary is not on disk, run its install script
-// synchronously. This keeps measurement and the run script deterministic on a fresh checkout.
-
+// Resolve Electron without letting concurrent lazy installers write the same executable.
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
+const lockWaitMs = 300_000;
+const pause = new Int32Array(new SharedArrayBuffer(4));
 
 function electronRoot() {
-  // Resolve from the repository root so this helper works wherever it is imported.
   return dirname(require.resolve("electron/package.json", { paths: [join(here, "..", "..")] }));
 }
 
-function ensureDownloaded(root) {
-  const pathFile = join(root, "path.txt");
-  if (!existsSync(pathFile)) {
-    execFileSync(process.execPath, [join(root, "install.js")], { cwd: root, stdio: "inherit" });
+// All callers take the lock, even if the executable already exists: another caller may still be extracting it.
+// A killed process leaves its lock behind; fail explicitly instead of risking a second concurrent writer.
+export function electronBinaryAt(root) {
+  const lock = join(root, ".tkr-electron-install.lock");
+  const deadline = Date.now() + lockWaitMs;
+  for (;;) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      if (Date.now() >= deadline) {
+        throw new Error(`Electron installation lock timed out: ${lock}. If no installer is running, remove this directory and try again.`);
+      }
+      Atomics.wait(pause, 0, 0, 50);
+    }
   }
-  const relative = readFileSync(pathFile, "utf8").trim();
-  const full = join(root, "dist", relative);
-  if (!existsSync(full)) {
-    execFileSync(process.execPath, [join(root, "install.js")], { cwd: root, stdio: "inherit" });
+  try {
+    const pathFile = join(root, "path.txt");
+    if (!existsSync(pathFile)) {
+      execFileSync(process.execPath, [join(root, "install.js")], { cwd: root, stdio: "inherit" });
+    }
+    const full = join(root, "dist", readFileSync(pathFile, "utf8").trim());
+    if (!existsSync(full)) {
+      execFileSync(process.execPath, [join(root, "install.js")], { cwd: root, stdio: "inherit" });
+    }
+    return full;
+  } finally {
+    rmdirSync(lock);
   }
-  return full;
 }
 
 export function electronBinary() {
-  return ensureDownloaded(electronRoot());
+  return electronBinaryAt(electronRoot());
 }

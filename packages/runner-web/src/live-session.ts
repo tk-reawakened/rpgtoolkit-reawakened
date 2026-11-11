@@ -88,6 +88,11 @@ export type LiveSession = {
     readonly open: readonly { readonly id: number; readonly track: string; readonly asset: AssetKey }[];
   };
   readonly cuesSettled: () => Promise<void>;
+  /**
+   * The window title the project asks for (main-file row 56, `bFpsInTitleBar`): the game title, the current board's
+   * vector count and whether a host should append its measured frame rate. `showFps` is the project's own flag.
+   */
+  readonly titleBar: () => { readonly gameTitle: string; readonly vectors: number; readonly showFps: boolean };
   /** The located diagnostics the engine has reported so far, capped like the effect audit. */
   readonly diagnostics: () => readonly Diagnostic[];
   /** Persistent host audio initialization failure, if one occurred. */
@@ -117,7 +122,13 @@ type LiveSessionBase = {
   /** Reports a new battle or a change to its recorded outcome. */
   readonly onBattleChange?: (battle: Pick<BattleState, "id" | "boardKey" | "outcome"> | null, tick: number) => void;
 };
-export type LiveSessionOptions = LiveSessionBase & (
+/** A runner's per-run debug override (E-05); the project's own values stay the default. */
+export type LiveSessionDebug = {
+  readonly drawVectorsFlags?: number;
+  readonly pathColor?: { readonly r: number; readonly g: number; readonly b: number };
+};
+
+export type LiveSessionOptions = LiveSessionBase & { readonly debug?: LiveSessionDebug } & (
   /** An interactive session over a validated package source: assets arrive on demand through the tiered source. */
   | { readonly interactive: true; readonly source: PackageSource }
   /** An interactive session over a fully populated file map (the desktop and mobile players). */
@@ -292,6 +303,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
       resetRegistrations: [inputResetRegistration()],
     } : {}),
     ...(spriteRuntime === undefined ? {} : { spriteRuntime }),
+    ...(options.debug === undefined ? {} : { debug: options.debug }),
     phaseRegistrations,
     effectAppliers: interactive ? [] : [
       {
@@ -495,6 +507,11 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     audioState: () => ({ scheduled: [...sink.scheduled], open: sink.open }),
     cuesSettled: () => cueChain,
     diagnostics: () => [...sessionDiagnostics],
+    titleBar: () => ({
+      gameTitle: mainInput.ok && mainInput.value.gameTitle !== "" ? mainInput.value.gameTitle : "TK Reawakened",
+      vectors: latest === null ? 0 : latest.world.board?.vectors?.length ?? 0,
+      showFps: mainInput.ok && mainInput.value.showFpsInTitle !== 0,
+    }),
     audioError: () => audioError,
     engine,
     gameId,
@@ -533,4 +550,12 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
       return { drawHash: hashDrawList(list), commands: list.commands.length + list.marginCommands.length, render };
     },
   };
+}
+
+/**
+ * The window title a project asks for (main-file row 56, `bFpsInTitleBar`): `"title N vectors, F FPS"`, with the frame
+ * count the host measured. A document title collapses whitespace, so the separator is one space.
+ */
+export function formatTitleBar(bar: { readonly gameTitle: string; readonly vectors: number }, fps: number): string {
+  return `${bar.gameTitle} ${bar.vectors} vectors, ${Math.round(fps)} FPS`;
 }

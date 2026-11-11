@@ -5,7 +5,7 @@
  * and the package is the one the app carries or the player picked. Nothing here knows it is on a phone.
  */
 
-import { interactivePackage, type InputRecord } from "@tk-reawakened/runner-web";
+import { formatTitleBar, interactivePackage, type InputRecord } from "@tk-reawakened/runner-web";
 import { createFallbackTouchControls, isFallbackTouchControlTarget, shouldSuppressGameplayKey } from "@tk-reawakened/runner-web/touch-controls";
 import { attachPointerInput } from "@tk-reawakened/runner-web/pointer";
 import { createLiveSession, type LiveSession } from "@tk-reawakened/runner-web/live-session";
@@ -202,6 +202,8 @@ function run(
   const stepMs = 1000 / 60;
   let previous = performance.now();
   let accumulator = 0;
+  let titleFrames = 0;
+  let titleWindowStart = performance.now();
   let pending: PendingInput[] = [];
     const fallbackControlKeys = new Set<string>();
       let fallbackActionSequence = 0;
@@ -355,6 +357,17 @@ function run(
           diagnostics: frame.render.diagnostics,
         },
       });
+      // Main-file row 56 (`bFpsInTitleBar`): the project's title with its board-vector count and the measured frame
+      // rate, computed on the host clock. When the project does not ask, the report title above stays in place.
+      titleFrames += 1;
+      const nowMs = performance.now();
+      if (nowMs - titleWindowStart >= 1_000) {
+        const bar = session.titleBar();
+        const fps = titleFrames * 1_000 / (nowMs - titleWindowStart);
+        titleFrames = 0;
+        titleWindowStart = nowMs;
+        if (bar.showFps) document.title = formatTitleBar(bar, fps);
+      }
       status.textContent = [
         `tick ${session.tick()}`,
         `state ${session.stateHash()}`,
