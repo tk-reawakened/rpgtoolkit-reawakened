@@ -31,6 +31,8 @@ Mechanically, a `changes` job classifies the pull request's changed paths and pu
 
 `checks`, `unit` and `gate` are never deferred. The licence audit and provenance scan must see every diff, and `gate` merges the coverage from every unit shard. `changes` and `gate` are never deferred either.
 
+**Mobile amendment (#1935).** While mobile work is paused, Android and any future iOS proof are advisory. The Android job still follows the classifier and retains its proof artifacts. Job-level `continue-on-error` allows CI to succeed if the proof fails, and `gate` has no mobile dependency, so a slow emulator cannot delay the required check.
+
 ### "Fine" is evidenced, not asserted
 
 When a job defers it prints one line naming the job, the verdict and the classifier's reason, which lists the inert paths examined:
@@ -123,7 +125,7 @@ cannot arrive as inert.
 
 * A prose-only pull request still starts every job but skips the installs, builds, replays and emulators. The saving is runner minutes, not job count.
 * A classification mistake could hide a regression. Mitigations: a small positive list, a denylist that wins over the list, the base copy of the classifier, a full default, adversarial unit tests, the `gate` cross-check, and a printed reason a reviewer can audit.
-* A green job no longer means its checks ran. The printed `DEFER` line, with the paths examined, is the evidence, and `gate` still requires the job to have run and succeeded.
+* A green job no longer means its checks ran. The printed `DEFER` line, with the paths examined, is the evidence. `gate` still requires each required job to have run and succeeded.
 * Every new input to a lane (a new directory a job reads) must be checked against the inert list; the list is positive, so a new path runs everything until someone decides otherwise.
 * Any pull request that edits `.github/workflows/` or `tools/ci/` runs everything, and so does one whose base has no classifier. That is a scheduling rule, not a protection: the workflow file that a pull request runs is the pull request's own, so the real control over that path is the CODEOWNERS review described above.
 * **Repository setting still outstanding:** CODEOWNERS only blocks a merge once the default-branch ruleset also requires review from code owners. That is a settings change, not a file change, and it needs a second reviewer who can approve — currently the owner is the only collaborator. Until it is enabled, a workflow edit merges on `gate` alone.

@@ -589,10 +589,12 @@ jobs:
           retention-days: 14
   # The mobile lane builds and drives the real Capacitor APK on Android 16.
   # The proof script captures the page's own readings and fails instead of
-  # substituting browser stubs or synthetic reports.
+  # substituting browser stubs or synthetic reports. Mobile results are
+  # advisory while mobile work is paused (#1935).
   mobile:
     needs: [changes]
     if: ${{ !cancelled() }}
+    continue-on-error: true
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -724,8 +726,8 @@ jobs:
           path: artifacts/mobile-proof/
           if-no-files-found: error
   gate:
-    # Gate checks all required jobs, including the Android 16 mobile emulator proof (#1621).
-    needs: [changes, checks, unit, golden, golden-bun, browser, desktop, script-dogfood, mobile]
+    # The advisory mobile proof runs independently of the required gate.
+    needs: [changes, checks, unit, golden, golden-bun, browser, desktop, script-dogfood]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

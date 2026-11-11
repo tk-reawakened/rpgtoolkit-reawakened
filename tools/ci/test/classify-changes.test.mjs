@@ -275,6 +275,8 @@ test("workflow: classify seals the verdict before any PR code runs, and no job c
 
   // `gate` recomputes the diff itself, so a workflow or classifier change can never arrive as "inert".
   const gate = jobs.get("gate")?.join("\n") ?? "";
+  match(gate, /^ {4}needs: \[changes, checks, unit, golden, golden-bun, browser, desktop, script-dogfood\]$/mu,
+    "gate must wait for every required job and finish independently of mobile");
   match(gate, /uses: actions\/checkout@v7\n {8}with:\n {10}fetch-depth: 0/u, "gate must check out full history");
   ok(gate.includes("cannot be inert"), "gate must refuse a defer for a workflow or classifier change");
   ok(gate.includes(".github/workflows/|tools/ci/"), "gate must look for workflow and classifier paths");
@@ -285,6 +287,7 @@ test("mobile CI reserves AVD space and keeps the real emulator proof", () => {
   const lines = readWorkflowJobs().get("mobile");
   ok(lines, "mobile job must exist");
   const text = lines.join("\n");
+  match(text, /^ {4}continue-on-error: true$/mu, "mobile proof failures must be advisory");
   const cleanup = text.indexOf("- name: Reclaim unused hosted-runner toolchains");
   const sdk = text.indexOf("- run: sdkmanager ");
   const assemble = text.indexOf("- name: Assemble debug APK");
