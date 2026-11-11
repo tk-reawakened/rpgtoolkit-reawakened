@@ -17,6 +17,7 @@ import {
   runMovementPhase,
   snapshot,
   startProgram,
+  startThread,
   writeBoard,
   writeMainFile,
   type AssetKey,
@@ -337,7 +338,7 @@ type RunResult = {
   readonly state: GameState | null;
 };
 
-function runBoot(game: BootGame, loadBytes: Uint8Array | null, polling: boolean): RunResult {
+function runBoot(game: BootGame, loadBytes: Uint8Array | null, polling: boolean, onTick?: (state: GameState) => void): RunResult {
   let replies: InputRecord[] = [];
   let saved: Uint8Array | null = null;
   let loadRequests = 0;
@@ -348,6 +349,8 @@ function runBoot(game: BootGame, loadBytes: Uint8Array | null, polling: boolean)
     const report = game.engine.advance(1, replies);
     replies = [];
     hashes.push(report.stateHash);
+    const current = game.state();
+    if (onTick !== undefined && current !== null) onTick(current);
     diagnostics.push(...report.diagnostics);
     for (const request of report.requests) {
       if (request.kind === "asset") {
@@ -827,4 +830,57 @@ test("pixels a finished program drew on the script screen are reset at later out
   const screenPixels2 = engine.surfacePixels(0 as SurfaceId, screenSurface2.rev);
   ok(screenPixels2 !== null);
   deepEqual([...screenPixels2.rgba.slice(0, 3)], [BOARD_COLOUR.r, BOARD_COLOUR.g, BOARD_COLOUR.b], "composed frame contains board colour, not enter.prg's green pixels");
+});
+
+test("a save taken while a program's final screen is held restores that screen, not the live board (#1880)", () => {
+  const program = [
+    "colorrgb(200, 100, 50)",
+    "fillrect(0, 0, 8, 8)",
+    "done = 1",
+    "end()",
+  ].join("\n");
+  const saver = 'if (done == 1) {\nSave("slot")\n}\nend()\n';
+  const game = bootGame(program);
+  let replies: InputRecord[] = [];
+  let saved: Uint8Array | null = null;
+  let threadStarted = false;
+  for (let tick = 0; tick < 40 && saved === null; tick += 1) {
+    const state = game.state();
+    if (state !== null && !threadStarted && state.vm.threads.some((t) => t.kind === "blocking" && t.status !== "finished")) {
+      threadStarted = true;
+      startThread(state.vm, { ref: { kind: "inline", text: saver, ir: IR_VERSION }, kind: "board", owner: "world" });
+    }
+    const report = game.engine.advance(1, replies);
+    replies = [];
+    for (const request of report.requests) {
+      if (request.kind === "asset") replies.push({ tick: report.tickAfter, event: { kind: "asset", reqId: request.reqId, bytes: game.files.get(request.key) ?? null } });
+      else if (request.kind === "saveBlob") {
+        if (request.blob.path.endsWith(".sav")) saved = new Uint8Array(request.bytes);
+        replies.push({ tick: report.tickAfter, event: { kind: "blob.saved", reqId: request.reqId, ok: true } });
+      }
+    }
+  }
+  ok(saved !== null, "the board thread saved");
+  const loader = bootGame("end()\n");
+  let loadReplies: InputRecord[] = [];
+  let loaded = false;
+  let probed = false;
+  for (let tick = 0; tick < 60; tick += 1) {
+    const state = loader.state();
+    if (state !== null && !loaded && state.world.board != null && state.vm.threads.every((t) => t.status === "finished")) {
+      loaded = true;
+      startThread(state.vm, { ref: { kind: "inline", text: 'Load("slot")\nend()\n', ir: IR_VERSION }, kind: "board", owner: "world" });
+    } else if (state !== null && loaded && !probed && (state.vm.globals as Record<string, unknown>).done === 1 && state.vm.threads.every((t) => t.status === "finished")) {
+      probed = true;
+      startProgram(state.vm, { kind: "inline", text: "getpixel(1, 1, pr, pg, pb)\nprobed = pr * 65536 + pg * 256 + pb\nend()\n", ir: IR_VERSION });
+    }
+    const report = loader.engine.advance(1, loadReplies);
+    loadReplies = [];
+    for (const request of report.requests) {
+      if (request.kind === "asset") loadReplies.push({ tick: report.tickAfter, event: { kind: "asset", reqId: request.reqId, bytes: loader.files.get(request.key) ?? null } });
+      else if (request.kind === "loadBlob") loadReplies.push({ tick: report.tickAfter, event: { kind: "blob.loaded", reqId: request.reqId, bytes: saved } });
+    }
+  }
+  const globals = loader.state()!.vm.globals as Record<string, unknown>;
+  equal(globals.probed, 200 * 65536 + 100 * 256 + 50, "the next program reads the held program screen, not the live board");
 });

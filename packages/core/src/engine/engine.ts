@@ -1530,13 +1530,18 @@ export function createEngine(init: EngineInit): Engine {
       surfaceCache.clear();
       frameHash = null;
       frameFailure = null;
-      endedProgramThisTick = false;
-      holdProgramFrame = false;
+      // A save taken while the final program screen was held keeps that screen (surface 0 was restored with it)
+      // rather than rebuilding it from the live board (#1880). The flag is consumed so state hashes match a
+      // run that was never interrupted.
+      const restoredHold = candidate.engine.heldFrame === true;
+      delete state.engine.heldFrame;
+      holdProgramFrame = restoredHold;
+      endedProgramThisTick = restoredHold;
       presentedFrameDirty = false;
       blockingWasAlive = blockingAlive();
       pendingTileBitmapAnimations.clear();
       surfaceCacheEpoch += 1;
-      boardRedraw();
+      if (!restoredHold) boardRedraw();
     } catch (error) {
       Object.assign(state, previous);
       init.spriteRuntime?.bindState(state.sprites, state.vm, resolveSpriteProgram, state.world.board ?? null);
@@ -2012,6 +2017,10 @@ export function createEngine(init: EngineInit): Engine {
     }
     applySurfaceImage(effect, texture, key);
   }
+  /** True while surface 0 holds an ended outermost program's final screen (or the boot-interval frame). */
+  function programFrameHeld(): boolean {
+    return holdProgramFrame || (state.world.board === null && !blockingAlive() && frameHash !== null);
+  }
   function syncEngineState(): void {
     if (cacheKeysDirty) {
       cacheKeysSnapshot = Array.from(cache.keys()).sort();
@@ -2048,6 +2057,8 @@ export function createEngine(init: EngineInit): Engine {
         if (pending.size > 0 || pendingImageEffects.length > 0 || pendingBoardPreviews.length > 0 || otherBlob) continue;
         try {
           const savedState = restoreGameState(snapshot(state));
+          // The hold lives in engine-local variables; record it in the save so restore keeps the held screen (#1880).
+          if (programFrameHeld()) savedState.engine = { ...savedState.engine, heldFrame: true };
           replyToRequest(savedState.vm, entry.vmReqId, { ok: true, value: 1 });
           const bytes = utf8Encode(snapshotGameSave(savedState));
           requestsOut.push({ kind: "saveBlob", reqId: entry.reqId, blob: entry.blob, bytes });
