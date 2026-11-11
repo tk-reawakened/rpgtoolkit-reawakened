@@ -1,5 +1,5 @@
 import { test } from "node:test";
-import { equal, ok } from "node:assert/strict";
+import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -62,6 +62,26 @@ test("SoundFont sample headers distinguish compressed banks and fail closed on i
   equal(soundBankHasCompressedSamples(new Uint8Array(readFileSync(BANK_PATH))), false);
   equal(soundBankHasCompressedSamples(new Uint8Array(readFileSync(join(TEST_DIR, "fixtures/test-minimal.sf3")))), true);
   equal(soundBankHasCompressedSamples(new Uint8Array([1, 2, 3])), true);
+});
+
+test("a MIDI voice starts and restarts from the same nonzero position", () => {
+  const bank = new Uint8Array(readFileSync(BANK_PATH));
+  const source = createSpessaMidiSource({ bank, maxBufferSize: MAX_BUFFER_SIZE });
+  const opened = source.open(new Uint8Array(readFileSync(MIDI_PATH)), {
+    outputRateHz: OUTPUT_RATE_HZ,
+    bank: { source: "bundled", id: "test-minimal", sha256: null },
+  });
+  ok(opened.ok);
+  const readAtStart = (): Float32Array => {
+    const left = new Float32Array(MAX_BUFFER_SIZE);
+    const right = new Float32Array(MAX_BUFFER_SIZE);
+    opened.value.start(60, false);
+    opened.value.render(left, right, MAX_BUFFER_SIZE);
+    return left;
+  };
+  const first = readAtStart();
+  ok(first.some((sample) => sample !== 0));
+  deepEqual(readAtStart(), first);
 });
 
 test("compressed SoundFont samples render after decoder initialization", async () => {
