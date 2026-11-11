@@ -290,6 +290,10 @@ and both:
 macOS included: the shell never stays alive with no window, and the process that launched the game ends with it
 ([E-06](main-loop-and-startup.md#e-06), where closing the engine's window exits the game).
 
+On macOS, fullscreen follows the display that held the player window before the transition. If the native transition
+lands on a different display and the intended display is still connected, the player restores the window's last bounds
+and retries fullscreen once there (#1922).
+
 **The player's launch resolution** is fixed, in this order, and is the only mechanism:
 
 1. an explicit `--game <path>` argument, or a deep link;
