@@ -97,6 +97,8 @@ jobs:
     needs: [changes]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
+    env:
+      NODE_OPTIONS: --max-semi-space-size=128
     steps:
       - name: CI classifier decision
         shell: bash
@@ -127,6 +129,9 @@ jobs:
       - run: pnpm typecheck
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm lint
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      # The browser lane's container image must stay at the same Playwright version as `@playwright/test` (#1884).
+      - run: pnpm ci:playwright-image:test && pnpm ci:playwright-image:check
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm audit --prod
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
@@ -175,6 +180,9 @@ jobs:
     needs: [changes]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
+    # Heavy core tests allocate many short-lived buffers; a larger young generation cuts the GC time (#1885).
+    env:
+      NODE_OPTIONS: --max-semi-space-size=128
     strategy:
       fail-fast: false
       matrix:
@@ -251,6 +259,8 @@ jobs:
     needs: [changes]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
+    env:
+      NODE_OPTIONS: --max-semi-space-size=128
     steps:
       - name: CI classifier decision
         shell: bash
@@ -512,6 +522,12 @@ jobs:
     needs: [changes]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
+    # The official Playwright image ships Chromium and its system libraries, at the same version as `@playwright/test`.
+    # `pnpm ci:playwright-image:check` fails when the two disagree. This replaces the per-run apt install, which took
+    # about 11 of the lane's 15 minutes and failed on the Azure mirror (#1878, #1884).
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.0-noble
+      options: --ipc=host
     steps:
       - name: CI classifier decision
         shell: bash
@@ -543,35 +559,23 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm fixtures:fetch
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-      # `--with-deps` runs apt on the runner, and the Azure Ubuntu mirror intermittently fails DNS ("Temporary failure
-      # resolving 'azure.archive.ubuntu.com'", #1878). So apt gets retries and short timeouts, and the install is
-      # retried; from the second attempt it uses archive.ubuntu.com, and from the third it adds public DNS resolvers.
-      - name: Install Chromium and its system dependencies (apt-resilient)
+      # The image should already provide `xvfb-run`. Install that one package only if it is missing, so a missing
+      # package is visible in the log rather than hidden. The parity spec launches the built Electron player beside the
+      # PWA page (`ELECTRON_DISABLE_SANDBOX` covers root in the container), so the lane builds the desktop bundles
+      # itself (`playwright.config.ts`); Electron's binary is installed by `pnpm install`.
+      - name: Ensure Xvfb is available
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
         shell: bash
         run: |
-          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "15";' 'Acquire::https::Timeout "15";' \
-            | sudo tee /etc/apt/apt.conf.d/80-ci-retries >/dev/null
-          for attempt in 1 2 3; do
-            if [ "$attempt" -ge 2 ]; then
-              echo "::warning::playwright install attempt $((attempt - 1)) failed; switching apt mirror and DNS (attempt $attempt)"
-              # The runner's sources use `mirror+file:/etc/apt/apt-mirrors.txt`, and the Azure host lives in that list,
-              # so rewrite the list and also point the sources straight at the main archive (no mirror list).
-              sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt 2>/dev/null || true
-              sudo sed -i -e 's|mirror+file:/etc/apt/apt-mirrors\.txt|http://archive.ubuntu.com/ubuntu/|g' \
-                -e 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' \
-                /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
-              printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | sudo tee -a /etc/resolv.conf >/dev/null
-              grep -rhE '^(URIs|deb )' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null | head -n 8 || true
-            fi
-            if pnpm exec playwright install --with-deps chromium; then exit 0; fi
-            sleep $((attempt * 10))
-          done
-          echo "::error::playwright install failed after 3 attempts"
-          exit 1
-      # The parity spec launches the built Electron player beside the PWA page, so the lane builds the desktop bundles
-      # itself (`playwright.config.ts`); Linux needs the virtual display the desktop lane uses, and Electron's binary
-      # is installed by `pnpm install`.
+          if command -v xvfb-run >/dev/null 2>&1; then
+            echo "xvfb-run already present in the Playwright image"
+            exit 0
+          fi
+          echo "::notice::xvfb-run is not in the Playwright image; installing the xvfb package"
+          SUDO=""
+          if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
+          $SUDO apt-get update -qq
+          $SUDO apt-get install -y -qq --no-install-recommends xvfb
       - run: xvfb-run -a pnpm browser:test
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       # Entry 9.14: one command plays every closing-plan game in Node, in Chromium and in the Electron player, loads the
