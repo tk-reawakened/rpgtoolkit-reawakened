@@ -1,10 +1,10 @@
 // Launch the built desktop player and leave it open (entry 9.11). This is the developer-facing "run the game" command:
 //
-//   pnpm desktop:run --package fixtures/packages/demo.tpk
+//   pnpm desktop:run --game fixtures/packages/demo.tpk
 //
-// It builds the demo package when `--package` is absent (so `pnpm desktop:run` works after `pnpm fixtures:fetch` and
+// It builds the demo package when `--game` is absent (so `pnpm desktop:run` works after `pnpm fixtures:fetch` and
 // `pnpm desktop:build`), and passes every flag through to the Electron main process in `runner-desktop`, which knows
-// `--serve <dir>`, `--package <file.tpk>`, `--page <path>`, `--report <file>` and `--devtools`.
+// `--serve <dir>`, `--game <file.tpk>`, `--page <path>`, `--report <file>` and `--devtools`.
 //
 // It is the same launch `tools/desktop/measure.mjs` performs, minus the report file, so the window stays open. Closing
 // that window quits the player (on every platform); this script then exits with it, so the game leaves no process
@@ -19,9 +19,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
 const dist = join(root, "packages", "runner-desktop", "dist");
 
-/** The package to open: the one named by `--package`, or the demo package built from the fetched sample. */
+/** The package to open: the one named by `--game`, or the demo package built from the fetched sample. */
 function packagePath() {
-  const at = process.argv.indexOf("--package");
+  const at = process.argv.indexOf("--game");
   if (at >= 0) return resolve(process.argv[at + 1] ?? "");
   const out = join(root, "fixtures", "packages", "demo.tpk");
   execFileSync(
@@ -37,7 +37,7 @@ function packagePath() {
 const args = [dist, ...process.argv.slice(2)];
 if (!process.argv.includes("--serve")) args.push("--serve", root);
 if (!process.argv.includes("--page")) args.push("--page", "packages/runner-desktop/app/player.html");
-if (!process.argv.includes("--package")) args.push("--package", packagePath());
+if (!process.argv.includes("--game")) args.push("--game", packagePath());
 
 const child = spawn(electronBinary(), args, {
   cwd: root,

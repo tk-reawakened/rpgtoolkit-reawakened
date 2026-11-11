@@ -176,3 +176,31 @@ all exist, so this entry adds a resolver, a registry, two views and the proof, n
 - Signing, notarisation, installers and updaters; store accounts (the epic's accepted risk).
 - Moving saves between the browser and desktop players (no seam exists; `docs/playing-the-desktop-player.md` says so).
 - The editor application (`host-desktop`, epic desktop-shell).
+
+## What changed during implementation
+
+Recorded against `origin/main` at `ba739779`; each line is a place where building the plan disagreed with it.
+
+1. **Decision 4 is the spec's, not the cheaper one.** The plan proposed hashing at registration and comparing only `size`
+   before a launch. `docs/spec/engine/launcher.md#storage-and-registry` requires `sha256` **and** `size` to match "before
+   any entry is launched or registered", so `verifyEntry` hashes on launch too (~100 ms on the corpus's largest package)
+   and the plan's cheaper check is gone.
+2. **The bridge kept one shape for every wrapper.** Instead of renaming `openPackage` and adding library methods, the
+   shared `PlayerHost` gained optional `launchInfo()` and an optional `gameId` on `openPackage`; the desktop preload
+   answers `desktop:launch` (bytes for a resolved game or a named library entry) and `desktop:launch.info` (step, rows,
+   reason). The mobile wrapper and its tests compile unchanged, which is what the shared-page rule wanted.
+3. **One comparison implementation, three callers.** The closing-frame replay moved out of `player-page.ts` into
+   `packages/runner-web/src/closing-frame.ts`, because the parity check needs the same pixels from a second host. The
+   parity page is `packages/runner-web/app/parity.html` (`apps/parity.js`), and
+   `tools/browser/tests/desktop-parity.spec.ts` compares it with the player via Playwright's `_electron` — it attaches to
+   Electron 45.2.1, so the fallback in decision 6 was not needed. Measured worst channel delta on the demo board: **0**.
+4. **The escape row in the matrix was wrong.** A `player.json` may name an absolute path or a relative one resolved
+   against its own directory, exactly as the added spec sentence says; containment is not enforced there, because a
+   person who can write `player.json` can also pass `--game`. What *is* enforced is a library entry's `sha256` and size.
+5. **The same spec covers the library pick.** The second spec in the parity file launches with an empty configuration and
+   a seeded `library.json`, asserts the stated reason and the offered entry, clicks it, and waits for a live session's
+   state hash — so "the library case opens the entry someone picks" is observed, not inferred.
+6. **Two latent type errors fixed on the way.** `packages/runner-desktop` is not in `tsc -b`'s references, so the ad-hoc
+   `tsc --noEmit` run that checked the new files found a `void`-annotated arrow returning a number and a second
+   `Window.desktop` declaration; both are fixed and the page now imports `DesktopHost`. Adding the package to the build
+   graph is a sensible follow-up and is **not** done here.

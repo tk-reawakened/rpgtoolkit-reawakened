@@ -296,6 +296,14 @@ macOS included: the shell never stays alive with no window, and the process that
 3. an embedded default project baked in at export;
 4. if none of those name a project, the installed-game library.
 
+**The argument and the configuration file are exact.** `--game` names a distribution package file (`.tpk`), whose
+descriptor is the sibling `<package>.tpk.json`. A deep link is `tkr://play?game=<percent-encoded path>`. `player.json`
+carries `{ "schema": 1, "defaultGame": "<path>" }`: a relative `defaultGame` resolves against the directory that holds
+`player.json`, an absolute one is taken as written, and a copy beside the executable wins over the one in the
+configuration directory. On the desktop the library file is `library.json` in the application-data directory, shaped as
+`library.schema = 1` in [launcher.md](launcher.md#storage-and-registry), and an entry is opened only after its `sha256`
+and `size` match the package's bytes.
+
 Handing somebody "the player plus my game" is therefore a pre-configured build or a configuration file, never a
 per-game stub. There is **no file association to rely on**: an association is a promise the OS lets a user break and
 does not exist in the PWA. A cold start with nothing configured shows the library and says why, never a blank window.

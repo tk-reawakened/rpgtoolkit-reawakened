@@ -1,13 +1,21 @@
 /**
- * The desktop host bridge (entry 9.11): four calls and no more, so the page keeps one asset source and one input path as
- * it has in the browser (runners.md#mobile's "must not fork" rule binds every wrapper).
+ * The desktop host bridge (entry 9.11; launch resolution added by entry 9.10): the shared player page's calls and no
+ * more, so the page keeps one asset source and one input path as it does in the browser (runners.md#mobile's "must not
+ * fork" rule binds every wrapper).
  */
 
 import { contextBridge, ipcRenderer } from "electron";
 
+import type { LaunchInfo } from "@tk-reawakened/runner-web";
+
 export type DesktopHost = {
-  /** The package named by `--package`, as bytes; `null` when the launch names none. */
-  openPackage(): Promise<{ readonly name: string; readonly bytes: Uint8Array; readonly descriptor: unknown } | null>;
+  /**
+   * The game this launch opens, as bytes; `gameId` names a library entry the page offered and is omitted for the ruled
+   * order. `null` when the resolution names no game, and a refusal rejects with its reason.
+   */
+  openPackage(gameId?: string): Promise<{ readonly name: string; readonly bytes: Uint8Array; readonly descriptor: unknown } | null>;
+  /** Which rule named the game, the rows to offer, and the sentence that says why nothing opened. */
+  launchInfo(): Promise<LaunchInfo>;
   readBlob(area: "saves" | "files", gameId: string, path: string): Promise<Uint8Array | null>;
   writeBlob(area: "saves" | "files", gameId: string, path: string, bytes: Uint8Array): Promise<boolean>;
   listBlobs(area: "saves" | "files", gameId: string): Promise<string[]>;
@@ -18,7 +26,8 @@ export type DesktopHost = {
 };
 
 contextBridge.exposeInMainWorld("desktop", {
-  openPackage: () => ipcRenderer.invoke("desktop:package"),
+  openPackage: (gameId?: string) => ipcRenderer.invoke("desktop:launch", gameId ?? null),
+  launchInfo: () => ipcRenderer.invoke("desktop:launch.info"),
   readBlob: (area, gameId, path) => ipcRenderer.invoke("desktop:blob.read", area, gameId, path),
   writeBlob: (area, gameId, path, bytes) => ipcRenderer.invoke("desktop:blob.write", area, gameId, path, bytes),
   listBlobs: (area, gameId) => ipcRenderer.invoke("desktop:blob.list", area, gameId),
