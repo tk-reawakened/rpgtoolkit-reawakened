@@ -64,6 +64,7 @@ after = [4]
 hitl = true
 risk = "medium"
 references = ["spec - docs/spec/engine/launcher.md#launch-resolution", "ruling - docs/adr/0013-desktop-shell-electron.md"]
+notes = ["Re-scoped 2026-11-10 by the owner's ruling that epic 9's entry 9.10 builds the launch seam (recorded in epic-web-runner-packaging/tickets.toml entry 10): this entry no longer wires `--game`, `player.json` or the baked default into `runner-desktop` — 9.10 does that and proves it on three OSes. What stays here is the conformance suite over that seam: the same resolution vectors run against all three hosts, the web `?package=` parameter and the shared `tkr://play` link, the Launcher UI's selection feeding the seam (entry 25.4), and the web and mobile limbs. Its `verify` keeps `hitl: true` because the launcher-facing behaviour needs an owner read."]
 
 [[entry]]
 id = 6
@@ -77,4 +78,5 @@ after = [5]
 hitl = false
 risk = "low"
 references = ["spec - docs/spec/engine/launcher.md#standalone-distribution"]
+notes = ["Re-scoped 2026-11-10 (same owner ruling as entry 25.5): the desktop read slot for a baked default — `resources/game.tpk` plus its sibling descriptor, and the `player.json` that names it beside the executable — is built and proven by epic 9's entry 9.10, with a harness-baked package standing in for an exported one. This entry owns the export pipeline that writes those files for all three harnesses, so 9.10 does not grow an exporter and this entry does not build a second resolver."]
 
