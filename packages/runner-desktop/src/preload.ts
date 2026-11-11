@@ -16,6 +16,8 @@ export type DesktopHost = {
   openPackage(gameId?: string): Promise<{ readonly name: string; readonly bytes: Uint8Array; readonly descriptor: unknown } | null>;
   /** Which rule named the game, the rows to offer, and the sentence that says why nothing opened. */
   launchInfo(): Promise<LaunchInfo>;
+  /** This run's overlay override and whether the diagnostics strip was asked for (E-05, main-file row 58). */
+  debug(): Promise<{ readonly drawVectorsFlags: number; readonly diagnostics: boolean }>;
   readBlob(area: "saves" | "files", gameId: string, path: string): Promise<Uint8Array | null>;
   writeBlob(area: "saves" | "files", gameId: string, path: string, bytes: Uint8Array): Promise<boolean>;
   listBlobs(area: "saves" | "files", gameId: string): Promise<string[]>;
@@ -28,6 +30,7 @@ export type DesktopHost = {
 contextBridge.exposeInMainWorld("desktop", {
   openPackage: (gameId?: string) => ipcRenderer.invoke("desktop:launch", gameId ?? null),
   launchInfo: () => ipcRenderer.invoke("desktop:launch.info"),
+  debug: () => ipcRenderer.invoke("desktop:debug"),
   readBlob: (area, gameId, path) => ipcRenderer.invoke("desktop:blob.read", area, gameId, path),
   writeBlob: (area, gameId, path, bytes) => ipcRenderer.invoke("desktop:blob.write", area, gameId, path, bytes),
   listBlobs: (area, gameId) => ipcRenderer.invoke("desktop:blob.list", area, gameId),

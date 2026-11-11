@@ -73,7 +73,7 @@ import { applyWorldEffect, expireProgramTileEdits } from "../world/effects.ts";
 import { applyCameraEffect, createCameraSection, initCameraForBoard, positionAt, realignCamera, updateCamera } from "../world/camera.ts";
 import { applyInputEffect, applySpriteEffect } from "../script/packs/world.ts";
 import type { CameraPoint, CameraTarget } from "../ports/camera.ts";
-import type { SpriteActor, Facing } from "../sprites/model.ts";
+import type { SpriteActor, SpritePoint, Facing } from "../sprites/model.ts";
 import { placeSelectedPlayer, selectActor as selectPartyActor, removeActorSprite, spriteDraws, createInitialPlayer, hydrateSprites, itemKey, type SpriteRuntime, type SpriteThreadResolver } from "../sprites/runtime.ts";
 import { runAnimationPhase as runActorAnimationPhase } from "../sprites/animation.ts";
 import { boardCollisionAt } from "../sprites/movement.ts";
@@ -351,6 +351,12 @@ export function createEngine(init: EngineInit): Engine {
   const defaultFontAsset = DEFAULT_FONT_ASSET;
   let root: AssetRoot = init.assetRoot;
   let mainFile: MainFile | null = null;
+  /**
+   * The project's debug overlays (E-05), read from the main file when it boots: `drawVectors`'s bit mask and the
+   * `pathColor` row. They are the default a runner may override through `init.debug`, never the other way round: a
+   * per-run flag is a debugger's override, and the project's own values stay what a save writes back.
+   */
+  let projectDebug: DebugOverlayConfig = {};
   let scenePixelMovement = 0;
   function movementDefaults(main: MainFile | null): { walking: number; pushing: number } {
     const mode = main?.pixelMovement ?? scenePixelMovement;
@@ -3015,6 +3021,18 @@ export function createEngine(init: EngineInit): Engine {
     registerAudio();
   }
 
+  /**
+   * The project's overlay settings as `init.debug` wants them (main-file rows 58 and 59;
+   * docs/spec/engine/display-input-audio.md#e-05). `pathColor` is only carried when the file's minor version has the row,
+   * because an absent row reads as `{0,0,0}` in the model and the engine's own default is white.
+   */
+  function debugFromMainFile(main: MainFile): DebugOverlayConfig {
+    return {
+      ...(main.drawVectorsFlags === 0 ? {} : { drawVectorsFlags: main.drawVectorsFlags }),
+      ...(main.minor >= 9 ? { pathColor: { r: main.pathColor.r, g: main.pathColor.g, b: main.pathColor.b } } : {}),
+    };
+  }
+
   function startBoot(boot: NonNullable<EngineSection["boot"]>): boolean {
     if (mainKey === null) return false;
     if (boot.stage === "main") {
@@ -3029,6 +3047,7 @@ export function createEngine(init: EngineInit): Engine {
         return false;
       }
       mainFile = parsed.value;
+      projectDebug = debugFromMainFile(mainFile);
       state.world = { ...state.world, movement: movementDefaults(mainFile) };
       if (root.kind === "game") root = { kind: "game", projectPath: mainFile.projectPath };
       refreshGameId();
@@ -4573,11 +4592,26 @@ export function createEngine(init: EngineInit): Engine {
     const spriteInput = [...spriteDraws(state.sprites, spriteFrameFor), ...(presentation.sprites ?? [])];
     const board: WorldBoard | null = state.world.board ?? null;
     const camera = positionAt(state.camera, Number.isFinite(alpha) ? Math.min(1, Math.max(0, alpha)) : 0);
+    /** The selected player's remaining route, or `null` when it has nothing queued. */
+    const queuedRoute = (): { readonly path: readonly SpritePoint[]; readonly destination: SpritePoint } | null => {
+      const players = state.sprites.players;
+      const actor = players.find((candidate) => candidate.id === state.sprites.selectedPlayer)
+        ?? players.find((candidate) => candidate.controlled)
+        ?? null;
+      if (actor === null) return null;
+      const waypoint = actor.queue.waypoint?.points ?? [];
+      if (actor.queue.moves.length === 0 && waypoint.length === 0) return null;
+      const path: SpritePoint[] = [{ x: actor.x, y: actor.y }, ...actor.queue.moves.map((move) => move.target), ...waypoint];
+      const destination = path[path.length - 1];
+      return destination === undefined ? null : { path, destination };
+    };
+
     const debugCommands = (): DrawList["commands"] => {
-      const debug = init.debug;
-      if (debug === undefined) return [];
+      const flags = init.debug?.drawVectorsFlags ?? projectDebug.drawVectorsFlags ?? 0;
+      const fps = init.debug?.fps;
+      if (flags === 0 && fps === undefined) return [];
       const commands: DrawList["commands"] = [];
-      const colour = debug.pathColor ?? { r: 255, g: 255, b: 255 };
+      const colour = init.debug?.pathColor ?? projectDebug.pathColor ?? { r: 255, g: 255, b: 255 };
       const linePoints = (points: readonly { readonly x: number; readonly y: number }[], rgb: Rgb, closed = false): void => {
         for (let i = 1; i < points.length; i += 1) {
           const a = points[i - 1]!;
@@ -4590,16 +4624,20 @@ export function createEngine(init: EngineInit): Engine {
           commands.push({ kind: "line", x1: Math.round(a.x - camera.x), y1: Math.round(a.y - camera.y), x2: Math.round(b.x - camera.x), y2: Math.round(b.y - camera.y), rgb });
         }
       };
-      const flags = debug.drawVectorsFlags ?? 0;
       if ((flags & 1) !== 0) for (const vector of board?.vectors ?? []) linePoints(vector.points, colour, vector.closed !== 0);
       if ((flags & 2) !== 0) for (const sprite of spriteInput) if (sprite.collisionBase !== undefined) linePoints(sprite.collisionBase, { r: 255, g: 128, b: 0 }, true);
-      if ((flags & 4) !== 0 && debug.path !== undefined) linePoints(debug.path, colour);
-      if ((flags & 8) !== 0 && debug.destination !== undefined) {
-        const x = Math.round(debug.destination.x - camera.x);
-        const y = Math.round(debug.destination.y - camera.y);
+      // Bits 4/8 are the player's queued path and destination; 16/32 are the selected player's. Core has one selected
+      // player and one movement owner, so the pairs name the same route and draw once (main-file row 58).
+      const route = ((flags & 12) !== 0 || (flags & 48) !== 0) ? queuedRoute() : null;
+      const path = init.debug?.path ?? route?.path;
+      const destination = init.debug?.destination ?? route?.destination;
+      if (((flags & 4) !== 0 || (flags & 16) !== 0) && path !== undefined) linePoints(path, colour);
+      if (((flags & 8) !== 0 || (flags & 32) !== 0) && destination !== undefined) {
+        const x = Math.round(destination.x - camera.x);
+        const y = Math.round(destination.y - camera.y);
         commands.push({ kind: "ellipse", rect: { x: x - 5, y: y - 5, w: 10, h: 10 }, rgb: colour, filled: false });
       }
-      if (debug.fps !== undefined) commands.push({ kind: "text", x: 4, y: 4, text: `FPS ${Math.round(debug.fps)}`, font: state.ui.font, rgb: colour, advances: [] });
+      if (fps !== undefined) commands.push({ kind: "text", x: 4, y: 4, text: `FPS ${Math.round(fps)}`, font: state.ui.font, rgb: colour, advances: [] });
       return commands;
     };
     const empty = { tick: state.time.tick, width: init.width, height: init.height, commands: [] as DrawList["commands"], marginCommands: [] as DrawList["marginCommands"] };

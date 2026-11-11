@@ -77,6 +77,19 @@ function resourcesRoot(): string {
   return app.isPackaged ? process.resourcesPath : join(app.getAppPath(), "resources");
 }
 
+/**
+ * The per-run debug override (E-05). Each flag turns one overlay on for this launch only; it never writes back to the
+ * project, which is the rule the story set: the project's value is the default and a flag is a debugger's override.
+ */
+function debugOverride(): { readonly drawVectorsFlags: number; readonly diagnostics: boolean } {
+  let flags = 0;
+  if (process.argv.includes("--debug-vectors")) flags |= 1;
+  if (process.argv.includes("--debug-sprites")) flags |= 2;
+  if (process.argv.includes("--debug-path")) flags |= 4;
+  if (process.argv.includes("--debug-destination")) flags |= 8;
+  return { drawVectorsFlags: flags, diagnostics: process.argv.includes("--diagnostics") };
+}
+
 /** The installed `library.json`, in the application-data directory beside the saves. */
 function libraryPath(): string {
   return join(app.getPath("userData"), "library.json");
@@ -197,6 +210,7 @@ function registerIpc(): void {
   // a package (a hash or size mismatch, a missing file) rejects, so the page shows the reason instead of a blank canvas.
   ipcMain.handle("desktop:launch", (_event, gameId: string | null): OpenedGame | null => openGame(gameId ?? null));
   ipcMain.handle("desktop:launch.info", (): LaunchInfo => launchInfo());
+  ipcMain.handle("desktop:debug", (): { readonly drawVectorsFlags: number; readonly diagnostics: boolean } => debugOverride());
   ipcMain.handle("desktop:quit", (): boolean => {
     quitPlayer(app);
     return true;

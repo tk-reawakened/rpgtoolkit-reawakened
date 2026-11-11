@@ -1,6 +1,6 @@
 import type { InputRecord } from "@tk-reawakened/core";
 import { interactivePackage } from "@tk-reawakened/runner-web";
-import type { LaunchInfo } from "@tk-reawakened/runner-web";
+import { formatTitleBar, type LaunchInfo } from "@tk-reawakened/runner-web";
 import type { DesktopHost } from "../src/preload.ts";
 import { createFallbackTouchControls, isFallbackTouchControlTarget, shouldSuppressGameplayKey } from "@tk-reawakened/runner-web/touch-controls";
 import { attachPointerInput } from "@tk-reawakened/runner-web/pointer";
@@ -80,8 +80,10 @@ async function play(host: DesktopHost, opened: { readonly name: string; readonly
   }
   const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, antialias: false, alpha: false, preserveDrawingBuffer: true });
   if (gl === null) throw new Error("no WebGL2 context for the visible player");
+  const debug = await host.debug?.();
   const session = await createLiveSession({
     interactive: true,
+    ...(debug === undefined || debug.drawVectorsFlags === 0 ? {} : { debug: { drawVectorsFlags: debug.drawVectorsFlags } }),
     mainFile: pkg.main,
     gameIdentity: pkg.gameIdentity,
     files,
@@ -96,13 +98,18 @@ async function play(host: DesktopHost, opened: { readonly name: string; readonly
     onQuit: () => { void host.quit(); },
   });
   window.__session = session;
-  run(session, canvas, status, { canvas, viewport }, viewport);
+  // The diagnostics strip is a runner feature, not a project setting: it appears only when this run asked for it.
+  const diagnostics = debug?.diagnostics === true ? document.querySelector<HTMLElement>("#diagnostics") : null;
+  if (diagnostics !== null) diagnostics.hidden = false;
+  run(session, canvas, status, { canvas, viewport }, viewport, diagnostics);
 }
 
-function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElement, hostViewport: HostViewport, stage: HTMLElement): void {
+function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElement, hostViewport: HostViewport, stage: HTMLElement, diagnostics: HTMLElement | null): void {
   const stepMs = 1000 / 60;
   let previous = performance.now();
   let accumulator = 0;
+  let titleFrames = 0;
+  let titleWindowStart = performance.now();
   let pending: PendingInput[] = [];
   const fallbackControlKeys = new Set<string>();
   let fallbackActionSequence = 0;
@@ -218,6 +225,24 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
       const result = { tick: session.tick(), stateHash: session.stateHash(), drawHash: frame.drawHash, board: session.boardKey(), player };
       window.__live = result;
       const audioError = session.audioError();
+      // The project's title (main-file row 56): the game's own title, its board-vector count and the measured frame rate.
+      titleFrames += 1;
+      const nowMs = performance.now();
+      if (nowMs - titleWindowStart >= 1_000) {
+        const bar = session.titleBar();
+        const fps = titleFrames * 1_000 / (nowMs - titleWindowStart);
+        titleFrames = 0;
+        titleWindowStart = nowMs;
+        if (bar.showFps) document.title = formatTitleBar(bar, fps);
+        if (diagnostics !== null) {
+          const located = session.diagnostics();
+          diagnostics.textContent = [
+            `tick ${result.tick} state ${result.stateHash} draw ${result.drawHash}`,
+            `commands ${frame.commands} (drawn ${frame.render.drawn}, deferred ${frame.render.deferred})`,
+            ...located.map((entry) => `${entry.code}@${entry.file}:${entry.line}: ${entry.message}`),
+          ].join("\n");
+        }
+      }
       status.textContent = [`tick ${result.tick}`, `state ${result.stateHash}`, `draw ${result.drawHash}`, player === null ? "player position unavailable" : `player ${player.x}, ${player.y}`, ...(audioError === null ? [] : [`audio: ${audioError}`]), "Move: arrows or WASD; click to walk."].join("\n");
       requestAnimationFrame(draw);
     }).catch((error: unknown) => {
