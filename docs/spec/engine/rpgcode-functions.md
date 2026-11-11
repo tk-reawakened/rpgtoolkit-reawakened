@@ -415,7 +415,7 @@ Unlike 3.1, Reawakened saves and restores both runtime settings. For an older sa
 | `takegp` | `void takegp(int gp)` | Remove gold through the inventory owner. | Requires a non-negative safe integer; zero does nothing, and invalid or unaffordable removals are refused atomically. |
 | `getgp` | `int getgp([int &ret])` | Read current inventory gold. | Returns the balance and writes it through the optional reference. |
 | `callshop` | `void callshop(string item1, string item2, string item3, ...)` | Run a blocking shop session with the listed items. | Requires at least 1 item filename. Reawakened `CallShop` waits for `menu.screen`; menu owns screen presentation and performs transactions through the E-83 owner actions. Arguments resolve strictly as filenames relative to the Item directory (appends `.itm` if missing); 0 arguments or missing/invalid files raise a script error and fail to open. |
-| `eraseitem` | `void eraseitem(variant handle)` | Erase an item from the screen, but keep it in memory. |  |
+| `eraseitem` | `void eraseitem(variant handle)` | Hide a board item while keeping it in memory. | Resolves an item handle or the calling program's `source` item, hides it immediately and ends its multitask thread. When a win program erases the item whose thread owns the fight, the thread ends after battle cleanup ([BAT-8](battle.md#bat-8)). The command does not wait. |
 | `putitem` | `void putitem(variant handle, int x, int y, int layer)` | Place the item on the board at the given location. |  |
 | `createitem` | `int createitem(string filename[, int &pos])` | Load an item and return the slot into which it was loaded. |  |
 | `destroyitem` | `void destroyitem(variant handle)` | Remove an item from memory. |  |
