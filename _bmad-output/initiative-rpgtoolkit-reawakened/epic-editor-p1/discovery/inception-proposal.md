@@ -19,6 +19,7 @@ CAP-16 and the epic envelope require usable legacy-format editors, runner loadin
 | T-32, F-03 | 14 current/whole board PNG from the AD-29 compositor, no overlays; indexed at ≤256 colours, as the owner-approved images storage policy requires rather than the legacy PNG/JPEG/BMP inventory. |
 | T-30/T-31 | 15 explicit coordinate and pre-vector upgrades, including objects and preserved originals. |
 | T-42–44/T-46, F-11 | 16 reviewable formatter and migration UI consumes 10.5/10.7, with actual missing transformations supplied at the provider rather than a competing implementation. |
+| T-65 | 20 bitmap font editor saves glyph edits to `.fnt`, reopens with untouched glyphs intact, and uses the saved font in the runner. |
 | T-73, F-13 | The spec identifies 2.x folder-layout upgrade as a non-priority non-goal; no implementation is allocated without a future owner scope decision. |
 | CAP-16 overall | 18 cleanup sweep, 19 integrated acceptance including every epic Done-when criterion. |
 
@@ -33,7 +34,8 @@ After 13.2's human-approved reuse decision, the first runnable proof is **13.1**
 | Battle definitions 9–11 | 1, 11.3/11.4/11.6, 12.4 shared sprite editing; serial shared database module changes; linked encounter pool uses foundation settings. | Verify available format writers and provider interpretation, including special-move flags; preserve unknown fields and disclose unavailable provider. |
 | Board enhancements 12–15 | 1, 12.1 and 12.11 object modes/inspector; serial shared board module changes. | Verify bake and coordinate conversion semantics from current specs and fixtures; upgrade is explicit and scripts are not rewritten. |
 | Migration 16 | 1, 11.3/11.7 and existing 10.5 language actions/10.7 formatter. | Verify individual rewrite coverage and docs-first fill missing provider primitives; disclose unsupported fragments and host operations. |
-| Integration 18–19 | 18 waits on all 1–16, 19 on 18 and the board/browser providers. | Evidence required from real saves, reopen, runner and both available hosts; report capability limits rather than silently substituting them. |
+| Bitmap font editor 20 | 1 supplies shared feature registration and the document route. The existing `.fnt` reader, writer and rasterizer supply the font data and rendering. | The old manual shows the glyph and preview controls. Keyboard editing and shared undo follow T-65. |
+| Integration 18–19 | 18 waits on 1–16 and 20, and 19 waits on 18 and the board/browser providers. | Evidence required from real saves, reopen, runner and both available hosts; report capability limits rather than silently substituting them. |
 
 The independent lanes use separate feature modules, and 1 owns their P1 integration registration contract; changes to shared registries/config must go through that owner or be explicitly ordered before work starts, never edited simultaneously. 11.1 decides shared schemas, document services, host integration and language ownership; this epic consumes those decisions. 12.2 owns one browser and its action routing, 12.4 owns shared sprite controls, 12.11 owns existing board object modes. None of these entries duplicates their models. Parent integration must declare each actual cross-epic dependency in the initiative.
 

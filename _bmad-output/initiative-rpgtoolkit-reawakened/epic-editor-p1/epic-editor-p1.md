@@ -13,7 +13,7 @@ remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1359"
 
 ## Description
 
-Tile editor, tile grabber, tileset editor, enemy, special move, status effect and battle background editors, lighting and shading, the auto-tiler, undo and clipboard, export image and legacy upgrade wizards.
+Tile editor, tile grabber, tileset and bitmap font editors, enemy, special move, status effect and battle background editors, lighting and shading, the auto-tiler, undo and clipboard, export image and legacy upgrade wizards.
 
 ## Outcome
 
@@ -52,7 +52,7 @@ P1 tools of editor-features section 11. Not P0 or P2.
 - Source conflict: T-42–44 and T-46 are not assigned a priority in section 11; CAP-14 and 10.5/10.7 own language rewrites and formatting, while entry 16 owns the P1 editor-facing review/apply workflows, including project-wide upgrade and cleanup, without a second formatter or syntax engine.
 - Source conflict: T-73's 2.x project-layout upgrade is listed in the feature inventory but the initiative spec explicitly makes it a non-priority non-goal; no implementation is assigned without a future owner scope decision, and unpublished entry 17 is retired. T-71 is not a distinct compiler tool; P0 packaging owns the distribution package.
 - Source conflict: AD-18's same-version preservation and the Done-when legacy save obligation cannot be met by assuming every reader has a matching writer; enemy's minor-0 text reader and binary-only `writeEnemy` are a concrete example (`packages/core/src/formats/actor/enemy.ts`); each affected entry must prove or implement same-version writing from the normative format spec, or obtain a docs-first owner ruling before changing format, never silently upgrade.
-- Requirement map to CAP-16: T-36 → 1–3; T-37 → 4; T-38 → 5; T-39 → 6; T-25 → 7–8; T-56 → 9; T-57/58 → 10; T-63 → 11; T-23/26 lighting and shading → 12; T-28 expanded clipboard → 13 (basic board undo belongs to 12.1); T-32 → 14; T-30/31 → 15; T-42–44/46 editor presentation → 16 (transform providers 10.5/10.7); integrated acceptance → 19.
+- Requirement map to CAP-16: T-36 → 1–3; T-37 → 4; T-38 → 5; T-39 → 6; T-25 → 7–8; T-56 → 9; T-57/58 → 10; T-63 → 11; T-23/26 lighting and shading → 12; T-28 expanded clipboard → 13 (basic board undo belongs to 12.1); T-32 → 14; T-30/31 → 15; T-42–44/46 editor presentation → 16 (transform providers 10.5/10.7); integrated acceptance → 19; T-65 → 20.
 - External dependencies: 11.1–11.4 supply shared contracts, lifecycle and linked visits; 11.7 supplies text integration; 12.1 board tracer, 12.2 the one contextual browser, 12.3 board properties, 12.11 board object modes and inspector, and 12.4 shared sprite editing; 10.5 and 10.7 are existing language-tool provider entries. Each leaf names the actual provider it needs; parent must declare the cross-epic edges.
 - Art-tool reuse remains an evidence-gated choice, not a selected dependency: entry 2 compares suitable maintained candidates and an in-house route for license/transitives G6, host/keyboard/offline support, document/undo integration and required pixel operations before any new dependency is installed; if no candidate qualifies, implement in-house.
 - Auto-tiler ordering is not established by the generic blob rule: entry 7 must obtain and document rights-cleared community samples and independently verify indexed variants, recording provenance and ambiguous cases before entry 8 may implement a mapping; absence of adequate evidence blocks parity, never invent an order or read GPL source.

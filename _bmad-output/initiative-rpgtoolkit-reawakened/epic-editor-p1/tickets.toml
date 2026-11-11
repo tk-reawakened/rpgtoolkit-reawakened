@@ -200,7 +200,7 @@ title = "Refactor sweep"
 description = "Remove duplication and address cleanup findings from the completed P1 entries without adding deferred feature scope."
 verify = "Review maps each change to completed work and focused regression cases exercise affected document, browser, board and asset seams."
 covers = ["CAP-16"]
-after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20]
 hitl = false
 risk = "medium"
 
@@ -210,8 +210,20 @@ tracker_id = "#1743"
 type = "story"
 title = "Epic 13 end to end acceptance"
 description = "Exercise every P1 tool across its actual editor and runner integration after the sweep, including asset creation, board use, conversions and error recovery."
-verify = "A documented web and VS Code journey round-trips all P1 legacy assets, verifies sample-backed auto-tiling and overlay-free exports, and proves upgrades and failure paths preserve source."
+verify = "A documented web and VS Code journey round-trips all P1 legacy assets, uses an edited bitmap font in the runner, verifies sample-backed auto-tiling and overlay-free exports, and proves upgrades and failure paths preserve source."
 covers = ["CAP-16"]
 after = [18, "12.1", "12.2"]
 hitl = false
 risk = "high"
+
+[[entry]]
+id = 20
+tracker_id = "#1939"
+type = "story"
+title = "Restore the legacy bitmap font editor"
+description = "Build the T-65 shared editor for Toolkit 2 bitmap fonts: choose among 256 glyphs, edit an 8×8 monochrome grid, preview styled sample text, and save a .fnt through the project document lifecycle."
+verify = "In both editor hosts, create or open a font, edit and undo with pointer and keyboard, preview crisp styled glyphs at 8 and 20 pixels without altering them, save and reopen with all unedited glyphs intact, and draw the edited glyph in the runner using font()."
+covers = ["CAP-16"]
+after = [1]
+hitl = false
+risk = "medium"
