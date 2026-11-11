@@ -43,6 +43,15 @@ for (const entry of entries) {
   console.log(`built apps/${entry.out}`);
 }
 
+// No browser artefact may contain a WebAssembly module: the page's strict `script-src 'self'` forbids instantiation, and
+// the only dependency that ships one (the Vorbis decoder) is aliased to a stub (#1325,
+// `docs/spec/engine/runners.md#csp-and-banks`). A bundle that starts carrying `AGFzbQ` again would violate the policy at
+// runtime, so the build says so here rather than in a browser console.
+for (const entry of entries) {
+  const bundled = readFileSync(join(out, entry.out), "utf8");
+  if (bundled.includes("AGFzbQ")) throw new Error(`apps/${entry.out} contains a WebAssembly module; the browser player forbids instantiation`);
+}
+
 // The browser page needs the same bundled-asset manifest the desktop build produces, so both runners can resolve
 // shared fonts and cursors from the `apps/` static tree without fetching the whole package manifest on boot.
 const folders = ["media/fonts", "media/cursors", "media/soundfonts", "stock/stock_menu", "stock/stock_battle", "stock/stock_rpg"];

@@ -6,6 +6,12 @@
 //   node tools/mobile/build.mjs
 
 import { build } from "esbuild";
+
+// The mobile wrapper carries the same strict policy as the browser page (no `'wasm-unsafe-eval'`), and the MIDI
+// dependency instantiates its Vorbis decoder at import time (#1325, `docs/spec/engine/runners.md#csp-and-banks`), so the
+// same stub alias applies here. The desktop bundle keeps the real decoder; SF3 is a desktop-only path for now.
+const decoderStub = fileURLToPath(new URL("../browser/stb-vorbis-stub.mjs", import.meta.url));
+const alias = { "stb-vorbis": decoderStub };
 import { cpSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +28,7 @@ await build({
   platform: "browser",
   target: "chrome120",
   logLevel: "warning",
+  alias,
 });
 
 // The AudioWorklet module the mobile player loads from `apps/audio-worklet.js`.
@@ -33,6 +40,7 @@ await build({
   platform: "browser",
   target: "chrome120",
   logLevel: "warning",
+  alias,
 });
 
 // The webDir Capacitor syncs into the native projects: the page, its bundle, the bundled-asset list and the assets themselves.
