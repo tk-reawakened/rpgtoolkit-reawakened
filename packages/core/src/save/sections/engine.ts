@@ -63,6 +63,12 @@ export type EngineSection = {
   transition?: BoardTransition;
   /** Board enter program awaiting promotion after a sending program ends. */
   pendingEnterThread?: number;
+  /**
+   * Written only into a save taken while an outermost program's final screen is held in surface 0 (ADR 0018 R5).
+   * Restore keeps the saved screen instead of rebuilding it from the live board, then removes the flag, so the next
+   * outermost program copies the same screen as in an uninterrupted run (#1880).
+   */
+  heldFrame?: true;
   /** The one outstanding video and whether its completion reply has arrived. */
   video?: { readonly reqId: number; readonly key: string; readonly presentation: "full" | "small"; readonly ended: boolean };
 };

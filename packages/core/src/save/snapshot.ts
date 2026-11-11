@@ -1240,6 +1240,9 @@ function validateEngineShape(value: unknown): void {
       shapeError(`the snapshot's engine.${key} must be a positive whole number`);
     }
   }
+  if (engine.heldFrame !== undefined && engine.heldFrame !== true) {
+    shapeError("the snapshot's engine.heldFrame must be true when present");
+  }
 }
 function validateHostFeaturesShape(value: unknown): void {
   const features = recordAt(value, "features");
