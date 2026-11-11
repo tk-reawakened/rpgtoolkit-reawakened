@@ -24,7 +24,7 @@ None of this replaces the five editor epics. It changes **how** their editors ar
 | Rule | Where it comes from | Effect here |
 |---|---|---|
 | TK Reawakened is its own product, and Toolkit 3 is a compatibility layer | [ADR 0005](../adr/0005-independent-product-v1-and-native-format.md), [ADR 0009](../adr/0009-compatibility-layer-not-the-model.md) | The editor is organised around our kinds; a legacy file is an adapter onto them. |
-| The Toolkit 3 formats stay first-class editable, and native YAML documents are not required for the first release | ADR 0005, amendment of 2026-11-09 | The registry must be useful with legacy kinds alone. Native kinds arrive later through the same door. |
+| The Toolkit 3 formats stay first-class editable. Native documents are deferred, except (proposed 2026-11-11) the scene, tileset and asset-pack formats | ADR 0005, amendment of 2026-11-09 and the second amendment proposed 2026-11-11 | The registry must be useful with legacy kinds alone. The scene editor is its first case of one editor over a legacy file and a native one. |
 | One document per file; the host owns undo and save timing | AD-19, [ADR 0022](../adr/0022-shared-editor-authoring-contracts.md) D1 to D4 | The document contract here is ADR 0022's, made general. It adds no new promise. |
 | `editor-ui` reaches the host only through `platform-services` | [G2](../guardrails.md), AD-20 | Kinds and views register in `editor-model` and `editor-ui`. A host holds adapters and chrome only. |
 | The core does no I/O and gains no reader by accident | G2, [ADR 0019](../adr/0019-tkr-authoring-formats.md) decision 3 | A new kind is an editor document first. The engine reads it only after its own ADR. |

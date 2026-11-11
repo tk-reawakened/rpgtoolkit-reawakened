@@ -4,6 +4,14 @@ This specification defines the normative structure of TK Reawakened's native YAM
 
 These files are created and maintained in the authoring workspace (`editor-model` / `editor-ui`) and **compile/lower** deterministically into legacy runtime targets (`.brd`, `.tst`, `.iso`, `.tbm`, `.tan`) so the `@tk-reawakened/core` runtime engine can play them without requiring immediate changes to its runtime format decoders.
 
+> **Status: draft, pre-release (proposed amendment, 2026-11-11, [#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839)).** These three formats follow [native-contracts.md](native-contracts.md). Brought into line here: the stamp (`contract` and `version` as the first two keys, in place of `schema: tkr-<kind>/1.0`) and the pre-release version. **Not yet in line, and to be settled when each becomes a contract page (story 27.8 for the scene):**
+>
+> * The contract names `scene`, `tileset` and `asset-pack` are placeholders.
+> * The examples carry a document-level `id`, and a scene refers to a pack as `<pack id>:<asset id>`. Under native-contracts a document's identity is its path and references use it.
+> * The top level is not yet stated as closed, and `pluginData` is not shown.
+> * None of the three extensions is in [the registry](native-contracts.md#the-registry) until its contract page is written.
+> * Which fields a `.brd` cannot hold, and so what the scene editor shows as unavailable on a `.brd` ([ADR 0019](../../adr/0019-tkr-authoring-formats.md), amendment).
+
 ---
 
 ## 1. Shared Conventions
@@ -23,10 +31,11 @@ These files are created and maintained in the authoring workspace (`editor-model
 
 ## 2. Scene Document (`.tkrscn`)
 
-A `.tkrscn` file is the source of truth for one board/scene. It supersedes `.brd` during authoring. When saved, the editor builds the paired `.brd` file (plus auxiliary stamps/tiles if needed).
+A `.tkrscn` file is the source of truth for one board/scene. When saved, the editor builds the paired `.brd` file (plus auxiliary stamps/tiles if needed). A `.brd` that has no scene is still opened and saved directly; making a scene from it is an explicit conversion ([ADR 0019](../../adr/0019-tkr-authoring-formats.md), amendment of 2026-11-11).
 
 ```yaml
-schema: tkr-scn/1.0
+contract: scene
+version: 1.0.0-pre.1
 id: town-square
 name: Town Square
 projection: 2d       # 2d | iso-stacked | iso-rotated
@@ -114,7 +123,8 @@ placedPacks:
 A `.tkrtile` manages a cohesive tileset palette, including source sheets, non-destructive transformations, procedural 3-plane isometric blocks, and autotile transition sets.
 
 ```yaml
-schema: tkr-tile/1.0
+contract: tileset
+version: 1.0.0-pre.1
 id: village-tileset
 name: Village Master Tileset
 projection: 2d       # 2d | iso-stacked | iso-rotated
@@ -190,7 +200,8 @@ outputBinding:
 A `.tkrpack` groups reusable art assets (props, architectural stamps, whole-room pre-rendered backdrops) along with their ground anchors, collision footprints, and walk-behind overhangs.
 
 ```yaml
-schema: tkr-pack/1.0
+contract: asset-pack
+version: 1.0.0-pre.1
 id: medieval-iso-kit
 name: Medieval Isometric Props & Architecture
 projection: iso-rotated

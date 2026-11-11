@@ -3,6 +3,7 @@
 * **Status:** Accepted
 * **Date:** 2026-10-11
 * **Context documents:** [0001-typescript-core.md](0001-typescript-core.md), [spec/README.md](../spec/README.md), [editor-features.md](../editor-features.md)
+* **Amended:** 2026-11-09 (accepted); a second amendment is proposed 2026-11-11, at the end of this file.
 * **Refined by:** [0023-native-data-contracts-versioning-identity-and-sidecars.md](0023-native-data-contracts-versioning-identity-and-sidecars.md) (stamp, per-contract versions and identity for native documents).
 
 ## Context
@@ -47,3 +48,11 @@ Owner decision, 2026-11-09. It answers the open question above for the first rel
 1. The TK3 formats `.gam`, `.brd`, `.tem`, `.anm`, `.itm`, `.ene` and `.prg` stay **first-class editable**, not only importable.
 2. Native YAML documents (epic 27, [ADR 0023](0023-native-data-contracts-versioning-identity-and-sidecars.md)) are **deferred**. They are not required for the first release.
 3. Decisions 1 to 5 and the status above are unchanged. This amendment changes only the open question.
+
+## Second amendment (proposed 2026-11-11): the scene, tileset and asset-pack formats come forward
+
+Proposed from the owner's direction of 2026-11-11 ([#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839)): the scene editor is to be full-featured in the first release, and storing collision and walk-behind with tiles and assets is a feature to include. Merging the change that adds this section is his approval.
+
+1. Point 1 of the first amendment is unchanged: the TK3 formats stay first-class editable. A `.brd` is opened and saved directly.
+2. Point 2 gains one exception. The three authoring formats of [ADR 0019](0019-tkr-authoring-formats.md) (`.tkrscn`, `.tkrtile`, `.tkrpack`) are **in scope for the first release**, for the scene editor. Every other native contract of epic 27 stays deferred.
+3. This is decision 3 applied: a native format where the legacy format limits a feature. A board cannot store an object's identity, what a placed asset was, or collision that belongs to a tile or an asset.

@@ -29,10 +29,10 @@ ADR 0009 already says Toolkit 3 shapes are adapters onto our model. This ADR car
 
 ## What this ADR does not decide
 
-* That any native kind ships in the first release. It does not (ADR 0005 amendment).
+* Which native kinds ship in the first release. That is ADR 0005 and its amendments.
 * Any new kind, extension or contract. Each needs its own page ([admission test](../editor-ecosystem/document-kinds.md#admission-test-for-a-new-kind)).
 * The form, the Database view, the project index, import or contributions. They are proposals on the ecosystem pages and are decided when built.
-* The difference between ADR 0019's and ADR 0023's naming rules ([roadmap, decision 2](../editor-ecosystem/roadmap.md#decisions-asked-of-the-owner)).
+* The naming and stamp of native files ([#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839), answered by the amendments proposed to ADR 0019 and ADR 0023).
 * The exact TypeScript shapes. The first story that implements a decision fixes its shape against a real caller.
 
 ## Consequences
