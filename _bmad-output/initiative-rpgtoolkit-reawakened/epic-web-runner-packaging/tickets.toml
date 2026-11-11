@@ -464,3 +464,60 @@ hitl = false
 risk = "low"
 references = ["merged docs correction - PR #1154 (503ea161)", "unrelated issue closed by that PR's mistaken reference - #1146", "independent stale-draw fix - PR #1153 (9e497a33)", "doc - docs/playing-the-desktop-player.md"]
 notes = ["PR #1154 (503ea161) delivered this docs correction and referenced #1146 in error; it has no established separate issue. #1146's distinct stale-draw behavior was fixed independently by PR #1153 before #1154 closed it.", "The closing-baseline re-record was delivered by board-rendering entry 4.41 / #1048 (PR #1131, d3838a7e); this cross-epic prerequisite is entry 4.41."]
+
+[[entry]]
+id = 32
+tracker_id = "#1863"
+type = "story"
+title = "The player applies the project's debug overlays, and runner diagnostics stay off unless asked"
+description = "Passes the main file's `showFpsInTitle`, `drawVectorsFlags` and `pathColor` into the engine's `init.debug` at boot, so a project's Graphics tab means what it says: the frame count in the window title, and board-vector, sprite-vector, active-path and destination outlines over the game. The engine already turns `init.debug` into draw commands and the main-file reader and writer already carry the fields, but no runner supplies them, so a project with those boxes ticked boots without them. One mapping serves the browser, desktop and mobile players, and the desktop player gains per-overlay flags for a single run that override the project without writing back to it. The desktop player's diagnostics strip is a runner feature, not a game setting, and stays behind its own flag."
+verify = "On the demo package with `drawVectors` set and `bFpsInTitleBar` on, the visible player and the headless measurement run emit the same overlay commands and the window title carries the frame count; clearing the fields draws nothing and leaves the draw-list golden unchanged; a per-overlay flag turns one overlay on with the main file byte-identical after a later save; the diagnostics strip appears only with its own flag."
+covers = ["CAP-12"]
+after = [4, 11, 16]
+hitl = false
+risk = "medium"
+references = ["spec - docs/spec/engine/display-input-audio.md (Window and display; Debug drawing)", "spec - docs/spec/formats/main-file.md rows 56, 58 and 59", "code - packages/core/src/engine/engine.ts `init.debug`", "doc - docs/playing-the-desktop-player.md"]
+unknown = "Frame-count placement: the window title, as Toolkit 3 does, or a canvas overlay, which the engine already emits. The owner chooses before the story starts."
+notes = ["Direction (tentative, owner-stated, not a decision): Jensen, 2026-11-10: \"I would nearly say it would be a command line option to turn those things on or at least a .gam update.\" Both are honoured: the project's value is the default, a per-run flag overrides it.", "Found by the 2026-11-10 mapping audit: the three fields round-trip through `packages/core/src/formats/main-file` but no runner sets `init.debug`, so a project with the Graphics boxes ticked boots without them."]
+
+[[entry]]
+id = 33
+tracker_id = "#1865"
+type = "story"
+title = "Movement keys, mouse and diagonal gating, and joystick come from the main file"
+description = "Takes the interactive player's movement input from the main file: the eight `movementScanCodes` bind the directions, `movementControls` decides whether the keyboard and the pointer walk and whether two cardinal keys 90 degrees apart become a diagonal step, and `useJoystick` decides whether a connected pad moves the player, where the host exposes one. The fixed arrow, WASD and Space table stays as the fallback when the fields are zero or absent, so an older package keeps playing, and a key that collides with another binding follows one documented precedence and is reported."
+verify = "On the demo package, clearing the east scan code stops the east arrow from stepping the player and a remapped key steps it; clearing the keyboard bit makes the arrows inert while the pointer still walks, and clearing the mouse bit does the reverse; with diagonals enabled two cardinal keys give one diagonal step, and with diagonals disabled they give two axial steps in turn; a pad is inert with `useJoystick` off and steps the player with it on; a main file whose fields are all zero still plays through the fallback table."
+covers = ["CAP-12"]
+after = [16]
+hitl = false
+risk = "medium"
+references = ["spec - docs/spec/engine/display-input-audio.md (Input: movement keys, mouse, diagonals)", "spec - docs/spec/formats/main-file.md rows 60 and 61", "code today - packages/runner-web/src/input-bindings.ts (the fixed table)", "related - 9.35, which shares the binding table and its collision rules"]
+notes = ["Found by the 2026-11-10 mapping audit: `movementControls` and `movementScanCodes` are parsed and re-written but no runner reads them, so every editor remap is inert.", "The joystick half needs a decision if a host cannot expose a pad: report the setting unsupported rather than silently ignoring it."]
+
+[[entry]]
+id = 34
+tracker_id = "#1866"
+type = "story"
+title = "The window shows the project's title, screen mode and cursor"
+description = "Makes the player's window and pointer the game's: `gameTitle` becomes the window title, `extendToFullScreen` and `screenType` choose a full-screen or fixed-size window instead of the constant 960x720 desktop window, `resolution`, `resX` and `resY` size that window rather than only the canvas inside it, and the project's own cursor image, hot spot and transparent colour are shown without the game calling `MouseCursor()`. `colorDepth` is reported where the host cannot honour it instead of being silently ignored."
+verify = "A package whose main file sets a title shows that title in the window; full screen fills the display and the host's exit leaves it; a 1024x768 project opens a 1024x768 window rather than a 960x720 window holding a scaled canvas; a custom cursor with a non-zero hot spot clicks at the hot spot and shows its transparent colour; a 16- or 24-bit project on a host that cannot honour it reports that and plays."
+covers = ["CAP-12"]
+after = [11, 16]
+hitl = false
+risk = "medium"
+references = ["spec - docs/spec/engine/display-input-audio.md (Window and display)", "spec - docs/spec/formats/main-file.md rows 7, 43 to 46, 48 and 52 to 54", "code today - packages/runner-desktop/src/main.ts (fixed window, no title), packages/runner-web/src/live-session.ts:128-135 (canvas only)", "related - 9.32 (frame-count placement), 9.11 (runner-desktop)"]
+notes = ["Found by the 2026-11-10 mapping audit: `gameTitle`, `screenType`, `extendToFullScreen`, `colorDepth` and the cursor fields are parsed and re-written but never applied; `resolution` reaches the canvas only, so the desktop window scales it.", "Full screen in a browser needs a user gesture and the desktop shell does not; the story accepts the host difference rather than hiding it."]
+
+[[entry]]
+id = 35
+tracker_id = "#1867"
+type = "story"
+title = "The run-time key, its program and the general activation key work as the project sets them"
+description = "Registers the main file's `runTimeKey` and `runTimePrg` as the player's run-time action and `activationKey` as the interact action that board items and programs respond to, in place of the hard-coded Space. The run-time program follows the documented blocking rules, so it does not fire while a blocking script owns the key queue, and a key that collides with a movement or menu binding follows one documented precedence and is reported as a diagnostic."
+verify = "On a fixture whose main file binds the run-time key to R and its program to one that increments a variable, pressing R changes it once per press and does nothing while a blocking script owns the queue; rebinding the activation key to E makes board item activation take E and not Space; a key already bound to movement or the menu wins and the collision is reported; the shipped demo, whose activation key is Space, plays unchanged."
+covers = ["CAP-12"]
+after = [16]
+hitl = false
+risk = "medium"
+references = ["spec - docs/spec/engine/display-input-audio.md (Input: activation key, menu key, run-time keys)", "spec - docs/spec/formats/main-file.md (action-key rows)", "code today - packages/runner-web/src/input-bindings.ts (Space fixed), packages/core/src/engine/engine.ts (run-time program never started)", "related - 9.33, which shares the binding table and its collision rules"]
+notes = ["Found by the 2026-11-10 mapping audit: `runTimePrg`, `runTimeKey` and `activationKey` are parsed and re-written but never consulted; the demo only activates because its activation key happens to be Space, which the fixed table already sends.", "The extended run-time keys (Key 0 to Key 50 with their own programs) are out of scope unless the owner asks for them here."]
