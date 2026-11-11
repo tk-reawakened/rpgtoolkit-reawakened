@@ -39,7 +39,7 @@
     "icons:test": "node --test tools/icons/test/icons.test.mjs",
     "editor-ui-toolchain:test": "node --test tools/editor-ui-toolchain/test/*.test.mjs",
     "editor-ui-toolchain:check": "node tools/editor-ui-toolchain/check-bundles.mjs",
-    "no-skips:test": "node --test tools/no-skips/test/no-skips.test.mjs",
+    "no-skips:test": "node --test tools/no-skips/test/*.test.mjs",
     "audio-protocol:check": "node tools/fixtures/audio-protocol/generate.mjs --check",
     "runner-protocol:check": "node tools/fixtures/runner-protocol/generate.mjs --check && node tools/fixtures/runner-protocol/generate-v2.mjs --check",
     "browser:build": "node tools/browser/build.mjs",
@@ -73,7 +73,8 @@
     "mobile:proof:test": "node --test tools/mobile/test/*.test.mjs",
     "saveload:record": "tsc -b && node tools/fixtures/saveload/record.mjs",
     "saveload:check": "tsc -b && node tools/fixtures/saveload/record.mjs --check",
-    "closing:suite": "tsc -b && node tools/closing/suite.mjs"
+    "closing:suite": "tsc -b && node tools/closing/suite.mjs",
+    "test:affected": "node tools/no-skips/affected.mjs"
   },
   "devDependencies": {
     "@capacitor/android": "8.4.3",
