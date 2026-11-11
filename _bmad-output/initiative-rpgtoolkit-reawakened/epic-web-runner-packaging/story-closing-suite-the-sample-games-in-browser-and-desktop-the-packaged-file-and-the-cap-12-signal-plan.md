@@ -81,5 +81,17 @@ The browser test additionally asserts, game by game, that the Chromium record eq
 (dialect, outcome, ticks, boot stage, board, diagnostics, checkpoints, and every frame's state, draw, pixel and command
 hash) and that no game reports a batching disagreement. The packaged demo reports `packaged: true` in both page hosts.
 
+### What "per-tick" means here, precisely
+
+The plan drives one recorded key log and the suite runs it at all three tick batchings. What is committed and compared
+across hosts is the record: a **state hash at every plan checkpoint** and a **state, draw and pixel hash at every captured
+frame**, plus diagnostics, audio cues, tick counts and batching disagreements. The batching comparison itself is the
+harness's `traceDifferences`, which walks every checkpoint and every frame of the reference run against each other batch.
+
+A trace of *every* tick would mean serialising the full engine state 600 × 3 × 8 times per host. That is a different,
+much more expensive artefact than the golden the epic committed (4.28 recorded checkpoints and frames deliberately), so
+this entry compares what the baseline records rather than silently claiming per-tick hashes it does not produce. If the
+owner wants literal per-tick traces, that is a new golden shape and its own entry.
+
 Not claimed: the six TK2 games still stop — that is the recorded `tk2-support` expectation, not a regression; and the
 suite is a correctness gate, not a performance measurement.
