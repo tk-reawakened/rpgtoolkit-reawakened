@@ -238,8 +238,8 @@ function buildRules() {
     name: "r6-testing-entry-only-in-tests",
     severity: "error",
     comment:
-      "a package's `./testing` entry (src/testing.ts) is for tests: no file under packages/<pkg>/src/ imports another package's (AD-22).",
-    from: { path: "^packages/([^/]+)/src/" },
+      "a package's `./testing` entry (src/testing.ts) is for tests: only a file under packages/<pkg>/test/ imports another package's (AD-22). Every other file of a package is guarded, not only src/, because the `./testing` path mapping stops r2 seeing it.",
+    from: { path: "^packages/([^/]+)/", pathNot: "^packages/[^/]+/test/" },
     to: { path: "^packages/[^/]+/src/testing\\.ts$", pathNot: "^packages/$1/" },
   });
   rules.push({
