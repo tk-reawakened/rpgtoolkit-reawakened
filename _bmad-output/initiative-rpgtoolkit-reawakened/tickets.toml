@@ -128,12 +128,20 @@ covers = ["CAP-15", "CAP-18"]
 after = [{ epic = 2, needs = "format readers" }, { epic = 9, needs = "runner-web for preview and test-run" }, { epic = 10, needs = "the program editor's language tooling" }, { epic = 21, needs = "existing authored game-file audio settings, including default SoundFont (21.2)" }]
 
 [[epic]]
+id = 27
+tracker_id = "#1802"
+slug = "epic-native-data-contracts"
+title = "Native data contracts: versioned, text-first documents, proved on the animation clip"
+covers = ["CAP-20"]
+after = [{ epic = 2, needs = "the legacy readers and format registry that the 1:1 importer oracle uses, for 27.4, and the board reader and writer (2.5), for 27.14" }, { epic = 11, needs = "shared editor documents and platform-services, for 27.6 only; the earlier stories are independent" }]
+
+[[epic]]
 id = 12
 tracker_id = "#1358"
 slug = "epic-editor-assets-p0"
 title = "P0 asset editors: board, character, item, animation, tile bitmap, packaging"
 covers = ["CAP-15"]
-after = [{ epic = 2, needs = "round-tripping board and actor formats (2.5, 2.6)" }, { epic = 4, needs = "shared 2D and isometric board composition (4.14, 4.18)" }, { epic = 9, needs = "package delivery and interactive runner integration" }, { epic = 16, needs = "animated GIF decoding for stance previews (16.12)" }, { epic = 11, needs = "shared documents, workspace, tileset navigation, settings, new-project creation and contextual run/test services" }]
+after = [{ epic = 2, needs = "round-tripping board and actor formats (2.5, 2.6)" }, { epic = 27, needs = "the scene, tileset and asset-pack readers and writers (27.13, 27.14) and the text-authority proof (27.6), for 12.15 to 12.17 only" }, { epic = 4, needs = "shared 2D and isometric board composition (4.14, 4.18)" }, { epic = 9, needs = "package delivery and interactive runner integration" }, { epic = 16, needs = "animated GIF decoding for stance previews (16.12)" }, { epic = 11, needs = "shared documents, workspace, tileset navigation, settings, new-project creation and contextual run/test services" }]
 
 [[epic]]
 id = 13
@@ -204,12 +212,4 @@ slug = "epic-host-capabilities-and-viewports"
 title = "Host Capabilities, Display Planes and Touch Control Surface"
 covers = ["CAP-12"]
 after = [{ epic = 9, needs = "the runner boundary and live session" }]
-
-[[epic]]
-id = 27
-tracker_id = "#1802"
-slug = "epic-native-data-contracts"
-title = "Native data contracts: versioned, text-first documents, proved on the animation clip"
-covers = ["CAP-20"]
-after = [{ epic = 2, needs = "the legacy readers and format registry that the 1:1 importer oracle uses, for 27.4 only" }, { epic = 11, needs = "shared editor documents and platform-services, for 27.6 only; the earlier stories are independent" }]
 

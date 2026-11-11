@@ -30,6 +30,7 @@ Each line maps to CAP-20, the draft capability added on 2026-11-08 for this epic
 - E4: The animation clip is the first contract; the 1:1 importer output stays an oracle and is never the native format (ticket 27.1, criterion 7).
 - E5: A rename keeps every reference to a moved document valid; plugin data is inside documents, so there is no link to rewrite and a rename never edits a block (ticket 27.1, Notes).
 - E6: The actor family and the board's placement-versus-definition split are specified as contracts, not copied from legacy file boundaries (`docs/findings/native-data-boundaries/README.md`).
+- E7: The scene, tileset and asset-pack contracts are specified from the ADR 0019 draft and have readers and writers, so the scene editor of the first release can store what a board cannot: identities, placed packs, and collision and walk-behind kept with the art (ADR 0005, second amendment of 2026-11-11; ADR 0019, amendment of 2026-11-11).
 
 ## Done when
 
@@ -39,10 +40,11 @@ Each line maps to CAP-20, the draft capability added on 2026-11-08 for this epic
 4. Renaming or moving a document leaves the checker clean on a fixture project with references and a document that carries plugin blocks, whose bytes stay unchanged.
 5. The editor opens a native clip and saves a one-property change as a one-line diff.
 6. The actor-family and scene contracts exist as approved pre-release specs, not published as 1.0.
+7. The tileset and asset-pack contracts exist as approved pre-release specs with their registry rows; scene, tileset and asset-pack documents read, write and check; and a legacy board converts to a scene only when asked.
 
 ## Boundaries
 
-This is the data-contract and document-tooling boundary. It does not include building editors for the actor family or scenes, runtime loading of those contracts, or migrating whole legacy games. It does not choose the layout contract, the schema technology or the YAML profile; #1799 leaves those open and they are decided inside the stories that need them. It makes no promise of a lossless migration of every legacy game, or that every game runs.
+This is the data-contract and document-tooling boundary. It does not include building editors for the actor family or scenes (the scene editor's save path, the build of a board from a scene and the collision controls are 12.15 to 12.17), runtime loading of those contracts, or migrating whole legacy games. It does not choose the layout contract, the schema technology or the YAML profile; #1799 leaves those open and they are decided inside the stories that need them. It makes no promise of a lossless migration of every legacy game, or that every game runs.
 
 ## References
 
@@ -70,3 +72,7 @@ This is the data-contract and document-tooling boundary. It does not include bui
 - Parked: runtime loading, importer output and editor support for the actor-family and scene contracts. They are planned in a re-slice after 27.7 and 27.8 are approved.
 - Waits on epic 2 because: the 1:1 importer oracle reads legacy files through the format registry and readers (27.4).
 - Waits on epic 11 because: 27.6 needs the shared editor documents and platform-services. Early stories are independent.
+- Decision: Jensen, 2026-11-11 (ADR 0005 second amendment; ADR 0019 amendment; merged in #1843): the scene, tileset and asset-pack formats come forward into the first release for the scene editor. Every other native contract stays deferred. Stories 27.11 to 27.14 are added and 27.8 is re-cut.
+- Changed by that decision: the 2026-11-08 note that the scene editor waits for 27.7 and 27.8 now reads "waits for 27.8"; 27.8 no longer waits for 27.7 (its entry says what that costs); and the 2026-11-08 decision that epics 12 to 14 gain no prerequisite on 27.6 is lifted for 12.16 only.
+- Still parked: runtime loading of any native contract, and importer output and editor support for the actor family.
+- Decision: Jensen, 2026-11-11: a kind code is three or more letters (#1839, #1845), so `.tkrtile` and `.tkrpack` are valid extensions.
