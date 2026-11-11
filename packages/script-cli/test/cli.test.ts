@@ -103,12 +103,28 @@ void test("test reports a strict skip as a failure", () => {
   strictEqual(result.exitCode, 1);
 });
 
-void test("test fails loudly on an owner-gated matcher", () => {
-  const { result } = runTest([fixture("gated-project")], true, true);
+void test("test runs the array, closeness, throw and group-hook matchers instead of refusing them", () => {
+  const { result } = runTest([fixture("matchers-project")], true, true);
   assertEnvelope(result);
-  strictEqual(result.exitCode, 1);
-  ok(result.diagnostics.some((d) => d.code === "spec.owner-gated-matcher"));
-  ok(result.diagnostics.some((d) => d.message.includes("toThrow")));
+  strictEqual(result.exitCode, 0, stableStringify(result));
+  strictEqual(result.status, "ok");
+  strictEqual(result.summary.passed, 5);
+  strictEqual(result.summary.failed, 0);
+  strictEqual(result.diagnostics.length, 0);
+});
+
+void test("test fails a spec file that registers no case, at line 1", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tkr-no-cases-"));
+  writeFileSync(join(dir, "empty.spec.prg"), 'describe("nothing", () => { })\n');
+  try {
+    const { result } = runTest([dir], true, true);
+    assertEnvelope(result);
+    strictEqual(result.exitCode, 1);
+    strictEqual(result.summary.failed, 1);
+    ok(result.diagnostics.some((d) => d.message.includes("spec.no-cases") && d.message.includes("line 1")), stableStringify(result));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 void test("stable output bytes are identical for identical inputs", () => {

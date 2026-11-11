@@ -48,7 +48,7 @@ import type { InventorySection, MenuSection, MenuStateResult, PartySection } fro
 import type { PlainData } from "../ports/plain-data.ts";
 import type { RngPort } from "../ports/rng.ts";
 import type { ClockPort } from "../ports/time.ts";
-import type { Value } from "../ports/value.ts";
+import type { RefId, Value } from "../ports/value.ts";
 import type { NativeListener } from "../events/model.ts";
 import type { Wait } from "../ports/wait.ts";
 import type { GameState, SectionKey } from "../save/state.ts";
@@ -72,6 +72,42 @@ export type BattleStartView = {
   /** Runtime check for a package-registered `battle()` handler. */
   readonly hasBattleHandler?: () => boolean;
 };
+
+/** One element variable of an array: the variable's full name (`a[0][1]`) and the value it stores (SEM-5). */
+export type ElementEntry = { readonly name: string; readonly value: Value };
+
+/** The element variables of one array and the variable table that holds them. */
+export type ElementArray = {
+  /**
+   * A deterministic name for the owning table: `global`, `object:<handle>` or `local:<thread id>:<frame index>`;
+   * empty when the reference names no element table. Two arrays are the same variable only when they share both
+   * their table and their name.
+   */
+  readonly table: string;
+  readonly entries: readonly ElementEntry[];
+};
+
+/** One unhandled runtime failure a closed error window consumed (ERR-2), as the located diagnostic reported it. */
+export type ObservedFailure = {
+  readonly code: string;
+  readonly message: string;
+  readonly file: string;
+  readonly line: number;
+};
+
+/**
+ * Observation windows over the calling thread's unhandled runtime failures (TOOL-5 `toThrow`). A window is
+ * session-only bookkeeping, never saved state: `open` starts one on the calling thread (windows nest), and
+ * `close` ends the innermost one, consuming every failure the VM routed unhandled (no handler took it) to that
+ * thread while it was open, nested calls included. A consumed failure's host diagnostic and its queued `error`
+ * event are removed, so neither the host nor a script sees it. `close` returns the consumed failures in raise
+ * order, or `null` when the thread has no open window.
+ */
+export type ErrorWindowPort = {
+  readonly open: () => void;
+  readonly close: () => readonly ObservedFailure[] | null;
+};
+
 /**
  * The read-only view a command runs against (AD-8; decision U2). It holds game
  * state read-only plus the two injected ports a command may draw from: the
@@ -90,6 +126,16 @@ export type CommandView = {
   readonly media?: MediaScriptService;
   /** Read one live object's members without writing them; the media option and method commands use it. */
   readonly objectMembers?: (handle: number) => Readonly<Record<string, Value>> | undefined;
+  /**
+   * The element variables `<name>[...]` of the array a by-reference argument names (SEM-5): `global:<name>`,
+   * `local:<name>` (resolved from the calling frame outwards, as a read resolves it) or `object:<handle>:<name>`.
+   * Every present element variable is listed, nested indices included, in the table's own order, with the
+   * table that holds them; an array with no element, or a reference that names no table (a cell, a virtual),
+   * lists none.
+   */
+  readonly elementArray?: (ref: RefId) => ElementArray;
+  /** Observation windows over the calling thread's unhandled runtime failures. */
+  readonly errorWindows?: ErrorWindowPort;
   /**
    * The owner-held actor operations (docs/spec/engine/actors.md#store-and-action-boundary).
    * Every write resolves the actor's behaviour hooks and publishes the resulting

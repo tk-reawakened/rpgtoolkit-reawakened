@@ -33,6 +33,7 @@ import type { Arg, BuiltinSpec } from "./builtins.ts";
 import { createDefaultVirtuals, type VirtualVariablePort } from "./virtuals.ts";
 import { MEDIA_HOST_TYPES, objectValue, mediaVoiceRef, type MediaPlayOptions, type MediaScriptService } from "../audio/script.ts";
 import { recordDiagnostic, recordEffect, type EffectRecord } from "./effects.ts";
+import { createErrorWindows, type ErrorWindows } from "./error-windows.ts";
 import type { HostObjectContext, HostObjectType } from "./host.ts";
 import {
   ASSIGN_READ_ONLY,
@@ -68,7 +69,7 @@ import {
   type PluginLayers,
 } from "./layers.ts";
 import { collectStateGarbage, runEventsPhase } from "../events/dispatch.ts";
-import { applyEmitEffect, applyEmitterOp, EVENT_DISPATCH_WAIT, forgetEmitter, isEmitterMethod, isHostMethodDef, queueErrorEvent, queueNativeEvent, registerEmitter } from "../events/emitter.ts";
+import { applyEmitEffect, applyEmitterOp, dequeueEvent, EVENT_DISPATCH_WAIT, forgetEmitter, isEmitterMethod, isHostMethodDef, queueErrorEvent, queueNativeEvent, registerEmitter } from "../events/emitter.ts";
 import { GAME_EMITTER, type EventsSection } from "../events/model.ts";
 import { registerNativeListeners } from "../events/native.ts";
 import { classInfo, findMember, findMethod } from "./classes.ts";
@@ -92,7 +93,7 @@ import { createPackageFunctionSource, followPackageInclude } from "./package-exp
 import { runModuleCommand } from "./modules.ts";
 import { MODULE_COMMANDS } from "./parse.ts";
 import type { SourcePos, StepOp } from "./ops.ts";
-import type { CommandResult, CommandRequest, CommandView, ResolvedPlugin, MenuProvider, MenuProviderContext, MenuProviderEvent, MenuProviderResult, MenuScreenId } from "./plugin.ts";
+import type { CommandResult, CommandRequest, CommandView, ElementArray, ElementEntry, ErrorWindowPort, ResolvedPlugin, MenuProvider, MenuProviderContext, MenuProviderEvent, MenuProviderResult, MenuScreenId } from "./plugin.ts";
 import { MENU_SCREEN_IDS } from "./plugin.ts";
 import {
   assetKey,
@@ -200,6 +201,8 @@ export type ScriptServices = ScriptObservers & {
   readonly virtuals: VirtualVariablePort;
   readonly logger: Logger;
   readonly diagnostics: Diagnostic[];
+  /** Session-only observation windows over unhandled failures (TOOL-5 `toThrow`); never saved state. */
+  readonly errorWindows: ErrorWindows;
   /** Actor operations resolve the session behaviour before applying core rules. */
   readonly actors: ActorService;
   /** Session-only actor behaviour registrations; never saved as game state. */
@@ -408,7 +411,7 @@ function routeItemActionFailure(
   error: ScriptError,
 ): "abandoned" | "continue" {
   const located = locateError(error, program.ops[record.opIp]?.pos ?? itemActionPos(record));
-  reportFailure(vm, services, located);
+  const diagnostic = reportFailure(vm, services, located);
   const handler = frame.errorHandler;
   if (handler !== null && handler.mode === "label") {
     const target = handler.label === null ? undefined : handlerLabel(program, record.opIp, handler.label);
@@ -423,7 +426,7 @@ function routeItemActionFailure(
     }
     frame.errorHandler = null;
   }
-  emitErrorEvent(thread, vm, services, located, handler !== null && handler.mode === "resumeNext");
+  emitUnlabelledFailure(thread, vm, services, diagnostic, located, handler);
   return "continue";
 }
 
@@ -797,6 +800,22 @@ export function createScriptServices(
     },
   });
   const diagnostics: Diagnostic[] = [];
+  const errorWindows = createErrorWindows();
+  const errorWindowPort: ErrorWindowPort = {
+    open: () => {
+      if (commandThread !== undefined) errorWindows.open(commandThread);
+    },
+    close: () => {
+      const consumed = commandThread === undefined ? null : errorWindows.close(commandThread);
+      if (consumed === null) return null;
+      for (const failure of consumed) {
+        const at = diagnostics.indexOf(failure.diagnostic);
+        if (at >= 0) diagnostics.splice(at, 1);
+        if (failure.event !== null) dequeueEvent(state.events, failure.event);
+      }
+      return consumed.map(({ diagnostic }) => ({ code: diagnostic.code, message: diagnostic.message, file: diagnostic.file, line: diagnostic.line }));
+    },
+  };
   const behaviours = createBehaviourRegistry(
     plugins.map((plugin) => plugin.namespace ?? plugin.definition.id),
     diagnostics,
@@ -833,6 +852,8 @@ export function createScriptServices(
     ...(requestRecoveryCapture === undefined ? {} : { requestRecoveryCapture }),
     ...(media === undefined ? {} : { media }),
     objectMembers: (handle: number) => state.vm.objects.find((record) => record.handle === handle)?.members,
+    elementArray: (ref: RefId) => readElementArray(state.vm, commandThread, ref),
+    errorWindows: errorWindowPort,
     gameOverProgram,
     gameId,
     get packageStartup() { return packageStartupActive.active; },
@@ -947,6 +968,7 @@ export function createScriptServices(
     virtuals: virt,
     logger,
     diagnostics,
+    errorWindows,
     actors,
     behaviours,
     pluginOptions,
@@ -1914,16 +1936,18 @@ function stackEffect(op: StepOp): { readonly pops: number; readonly pushes: numb
  * and as an `error` Logger record unless `debug(false)` has silenced the
  * interpreter's own messages (ERR-2). An `internal` fault is never silenced.
  */
-function reportFailure(vm: VmState, services: ScriptServices, error: ScriptError): void {
-  services.diagnostics.push(toDiagnostic(error));
+function reportFailure(vm: VmState, services: ScriptServices, error: ScriptError): Diagnostic {
+  const diagnostic = toDiagnostic(error);
+  services.diagnostics.push(diagnostic);
   const family = failureClass(error.code);
-  if (vm.messagesOff === true && family !== "internal") return;
+  if (vm.messagesOff === true && family !== "internal") return diagnostic;
   services.logger.error({
     level: "error",
     code: error.code,
     message: error.message,
     data: { file: error.pos?.file ?? "", line: error.pos?.line ?? 0, class: family },
   });
+  return diagnostic;
 }
 
 /**
@@ -1945,7 +1969,7 @@ function handleFailure(
   error: ScriptError,
 ): void {
   const located = locateError(error, op.pos);
-  reportFailure(vm, services, located);
+  const diagnostic = reportFailure(vm, services, located);
   const handler = frame.errorHandler;
   if (handler !== null && handler.mode === "label") {
     const target = handler.label === null ? undefined : handlerLabel(program, opIp, handler.label);
@@ -1960,7 +1984,7 @@ function handleFailure(
     // ERR-1: the handler is cleared only when its label cannot be found; the error is reported.
     frame.errorHandler = null;
   }
-  emitErrorEvent(thread, vm, services, located, handler !== null && handler.mode === "resumeNext");
+  emitUnlabelledFailure(thread, vm, services, diagnostic, located, handler);
   const effect = stackEffect(op);
   const target = Math.max(0, depth - effect.pops) + effect.pushes;
   if (frame.operands.length > target) frame.operands.length = target;
@@ -1972,18 +1996,37 @@ function handleFailure(
  * Queue the game `error` event for one reported failure (EMIT-9, EMIT-22): the same located
  * diagnostic the host receives, plus whether the failing frame's handler took it. It is
  * queued and never runs a listener here (EMIT-3). A run with no state to hold the `events`
- * section (a bare services object) has no game to emit on.
+ * section (a bare services object) has no game to emit on. Returns the queued event's object
+ * handle, or `null` when none was queued.
  */
-function emitErrorEvent(thread: Thread, vm: VmState, services: ScriptServices, error: ScriptError, handled: boolean): void {
+function emitErrorEvent(thread: Thread, vm: VmState, services: ScriptServices, error: ScriptError, handled: boolean): number | null {
   const state = services.view.state;
-  if (state === undefined) return;
-  queueErrorEvent(vm, state.events, thread.id, {
+  if (state === undefined) return null;
+  return queueErrorEvent(vm, state.events, thread.id, {
     code: error.code,
     message: error.message,
     file: error.pos?.file ?? "",
     line: error.pos?.line ?? 0,
     handled,
   });
+}
+
+/**
+ * The notification of a failure no label handler took: a `resumeNext` handler swallowed it (handled); any
+ * other frame left it unhandled, and an unhandled failure is also offered to the failing thread's open error
+ * windows (TOOL-5 `toThrow`), which may consume its diagnostic and event.
+ */
+function emitUnlabelledFailure(
+  thread: Thread,
+  vm: VmState,
+  services: ScriptServices,
+  diagnostic: Diagnostic,
+  error: ScriptError,
+  handler: Frame["errorHandler"],
+): void {
+  const handled = handler !== null && handler.mode === "resumeNext";
+  const event = emitErrorEvent(thread, vm, services, error, handled);
+  if (!handled) services.errorWindows.record(thread.id, { diagnostic, event });
 }
 
 /** Install or replace the calling frame's handler, keeping any in-flight resume point (ERR-1). */
@@ -2062,6 +2105,59 @@ function readRef(vm: VmState, thread: Thread, frameIndex: number, ref: RefId, se
     }
   }
   return 0;
+}
+
+/**
+ * The element variables of the array `ref` names (SEM-5) and the table that holds them: every variable of the
+ * owning table whose name is the array's name followed by `[`, with its stored value, read without any
+ * operator (so no SEM-3 name-read truncation). `global:` reads the global table and `object:` the member table
+ * of that live object. `local:` finds the first frame outwards from the top that holds the variable; an
+ * element name is itself resolved as a read of it resolves it, from that frame's own locals and then the
+ * globals (an element is a local only in an auto-local frame), so both tables contribute and a local element
+ * hides the global of its name. Any other reference names no element table.
+ */
+function readElementArray(vm: VmState, threadId: number | undefined, ref: RefId): ElementArray {
+  const entries: ElementEntry[] = [];
+  const separator = ref.indexOf(":");
+  const scope = ref.slice(0, separator);
+  if (scope === "global") {
+    const prefix = `${ref.slice(separator + 1)}[`;
+    for (const key of Object.keys(vm.globals)) {
+      if (key.startsWith(prefix)) entries.push({ name: key, value: vm.globals[key] ?? 0 });
+    }
+    return { table: "global", entries };
+  }
+  if (scope === "object") {
+    const object = parseObjectRef(ref);
+    const record = object === null ? undefined : findObject(vm, object.handle);
+    if (record === undefined || object === null) return { table: "", entries };
+    const prefix = `${object.name}[`;
+    for (const key of record.keys) {
+      if (key.startsWith(prefix)) entries.push({ name: key, value: readMember(record, key) });
+    }
+    return { table: `object:${record.handle}`, entries };
+  }
+  if (scope === "local") {
+    const name = ref.slice(separator + 1);
+    const prefix = `${name}[`;
+    const thread = vm.threads.find((item) => item.id === threadId);
+    for (let index = (thread?.frames.length ?? 0) - 1; thread !== undefined && index >= 0; index -= 1) {
+      const locals = thread.frames[index]!.locals;
+      if (!Object.hasOwn(locals, name)) continue;
+      const own = new Set<string>();
+      for (const key of Object.keys(locals)) {
+        if (!key.startsWith(prefix)) continue;
+        const slot = locals[key]!;
+        own.add(key);
+        entries.push({ name: key, value: slot.ref === localRef(key) ? slot.value ?? 0 : readRef(vm, thread, index, slot.ref) });
+      }
+      for (const key of Object.keys(vm.globals)) {
+        if (key.startsWith(prefix) && !own.has(key)) entries.push({ name: key, value: vm.globals[key] ?? 0 });
+      }
+      return { table: `local:${thread.id}:${index}`, entries };
+    }
+  }
+  return { table: "", entries };
 }
 
 function writeRef(

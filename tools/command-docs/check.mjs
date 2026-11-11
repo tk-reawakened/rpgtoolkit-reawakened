@@ -5,6 +5,9 @@ import { parseSpecTable } from "./spec-table.mjs";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const core = await import(pathToFileURL(join(root, "packages/core/dist/index.js")).href);
+// The spec package is not in the engine's default manifest (TOOL-5), but its seven commands are registered
+// commands with documentation, so the gate checks them like any other.
+const { SPEC_PLUGIN } = await import(pathToFileURL(join(root, "packages/script-spec/dist/index.js")).href);
 const { commandDocumentation, validateCommandDocumentation, CORE_PLUGIN, MEDIA_PLUGIN, BATTLE_PLUGIN, CATALOGUE_PLUGIN, NATIVE_PACK_TABLE } = core;
 const specPath = join(root, "docs/spec/engine/rpgcode-functions.md");
 const allowlistPath = join(root, "tools/command-docs/legacy-allowlist.json");
@@ -20,11 +23,11 @@ function readAllowlist() {
 function defaultPlugins() {
   const ids = ["core", "media", "battle", "catalogue", "gsmisc", "triuken", "filereadwrite", "proplug", "xfmwin", "kaimu", "twbutton"];
   const definitions = { core: CORE_PLUGIN, media: MEDIA_PLUGIN, battle: BATTLE_PLUGIN, catalogue: CATALOGUE_PLUGIN, ...NATIVE_PACK_TABLE };
-  return ids.map((id) => {
+  return [...ids.map((id) => {
     const definition = definitions[id];
     if (definition === undefined) throw new Error(`default plugin ${id} is not available`);
     return { definition };
-  });
+  }), { definition: SPEC_PLUGIN }];
 }
 
 function specLinkDiagnostics(documentation) {
