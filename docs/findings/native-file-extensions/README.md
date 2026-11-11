@@ -1,6 +1,6 @@
 # Native file extensions: what the research showed and what was decided
 
-**Later change (2026-11-11, proposed):** the fixed length of three letters recorded below is lifted; a kind code is three or more letters ([#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839)). The record below is left as written.
+**Later change (owner ruling, 2026-11-11):** the fixed length of three letters recorded below is lifted; a kind code is three or more letters ([#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839)). The record below is left as written.
 
 **Status: research record.** The decision below is the owner's, recorded in [ADR 0023](../../adr/0023-native-data-contracts-versioning-identity-and-sidecars.md) (still Proposed) and written into [the spec](../../spec/formats/native-contracts.md#file-names). Nothing here changes a ruling.
 
