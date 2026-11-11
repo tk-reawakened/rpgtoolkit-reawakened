@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   assertDocumentTitle,
   assertReport,
+  assertCanvasFrame,
   assertScreenshotManifest,
   REQUIRED_SCREENSHOTS,
 } from "../proof-validation.mjs";
@@ -110,4 +111,35 @@ test("rejects missing screenshots and screenshot files", () => {
   delete missingEntry.tap;
   assert.throws(() => assertScreenshotManifest(missingEntry, () => true), /expected four saved screenshots/);
   assert.throws(() => assertScreenshotManifest(complete, (path) => path !== "rotation.png"), /missing screenshot rotation/);
+});
+
+/**
+ * #1657: the proof passed while every retained screenshot showed a black game area. These cases pin the two halves of the
+ * fix — a stored frame that decodes to black is refused, and the manifest is incomplete without one frame per stage.
+ */
+test("a saved canvas frame must decode to visible pixels", () => {
+  const visible = { w: 16, h: 16, rgba: new Uint8Array(16 * 16 * 4).fill(255) };
+  assert.deepEqual(assertCanvasFrame(visible, "title"), { width: 16, height: 16, nonBlackPixels: 256 });
+
+  assert.throws(() => assertCanvasFrame({ w: 640, h: 480, rgba: new Uint8Array(640 * 480 * 4) }, "title"), /is black or lacks visible content/);
+  assert.throws(() => assertCanvasFrame({ w: 0, h: 0, rgba: new Uint8Array(0) }, "title"), /has no pixels/);
+  assert.throws(() => assertCanvasFrame({ w: 4, h: 4, rgba: new Uint8Array(10) }, "title"), /is not RGBA/);
+  assert.throws(() => assertCanvasFrame(null, "title"), /has no pixels/);
+});
+
+test("the screenshot manifest requires one canvas frame per stage", () => {
+  const screenshots = { title: "title.png", tap: "tap.png", rotation: "rotation.png", relaunch: "relaunch.png" };
+  const frames = Object.fromEntries(Object.keys(screenshots).map((name) => [name, { path: `${name}-canvas.png`, nonBlackPixels: 900 }]));
+  assertScreenshotManifest(screenshots, () => true, frames);
+
+  const { rotation: _omitted, ...withoutRotation } = frames;
+  assert.throws(() => assertScreenshotManifest(screenshots, () => true, withoutRotation), /missing canvas frame rotation/);
+  assert.throws(
+    () => assertScreenshotManifest(screenshots, (path) => !path.endsWith("relaunch-canvas.png"), frames),
+    /missing canvas frame file relaunch/,
+  );
+  assert.throws(
+    () => assertScreenshotManifest(screenshots, () => true, { ...frames, tap: { path: "tap-canvas.png", nonBlackPixels: 0 } }),
+    /canvas frame tap reports no visible content/,
+  );
 });

@@ -13,7 +13,8 @@ import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { _android } from "@playwright/test";
-import { assertDocumentTitle, assertReport, assertScreenshotManifest } from "./proof-validation.mjs";
+import { decodeTexture } from "@tk-reawakened/core";
+import { assertCanvasFrame, assertDocumentTitle, assertReport, assertScreenshotManifest } from "./proof-validation.mjs";
 import { adbWithTimeout, installApk, runAdbWithTimeout } from "./proof-adb.mjs";
 import { classifyProcess } from "./proof-process.mjs";
 import { adbServerOptions, attachPage, closeDevice, selectDevice } from "./proof-android.mjs";
@@ -34,6 +35,7 @@ const proof = {
   apk,
   readings: {},
   screenshots: {},
+  canvasFrames: {},
   saveProbeMeaning: "save.blobPresent means the host blob exists; the page does not restore game state",
   attachAttempts: [],
 };
@@ -171,6 +173,10 @@ async function captureCanvasContent(page) {
       nonBlackPixels,
       nonBlackRatio: nonBlackPixels / (width * height),
       bounds: nonBlackPixels === 0 ? null : { minX, minY, maxX, maxY },
+      // The presented frame as a PNG, taken in this same call. Playwright's page screenshot goes through the Android
+      // WebView compositor and came out black while this reading passed (#1657); capturing the canvas here means the
+      // retained game artefact is the frame the assertions measured.
+      dataUrl: canvas.toDataURL("image/png"),
     };
   }));
 }
@@ -192,6 +198,24 @@ function assertTitleRendering(reading, canvasContent) {
   }
 }
 
+
+/**
+ * Save the frame a reading measured as `${name}-canvas.png` and decode it back, so a black artefact is impossible while
+ * the reading passes. Returns the decoded size and non-black pixel count for the proof record.
+ */
+async function saveCanvasFrame(name, canvasContent) {
+  const marker = canvasContent.dataUrl.indexOf(",");
+  if (marker < 0) throw new Error(`${name}: the canvas produced no PNG data`);
+  const bytes = new Uint8Array(Buffer.from(canvasContent.dataUrl.slice(marker + 1), "base64"));
+  const path = join(output, `${name}-canvas.png`);
+  writeFileSync(path, bytes);
+  const decoded = decodeTexture(bytes, path);
+  if (!decoded.ok) throw new Error(`${name}: the saved canvas frame does not decode: ${decoded.error.message}`);
+  const stats = assertCanvasFrame(decoded.value, name);
+  proof.canvasFrames = proof.canvasFrames ?? {};
+  proof.canvasFrames[name] = { path, ...stats };
+  return path;
+}
 
 async function screenshot(page, name, reconnect = null) {
   const path = join(output, `${name}.png`);
@@ -461,6 +485,7 @@ async function main() {
     }
     if (titleReading.report.board !== null) throw new Error(`title screenshot is not on the title screen: ${JSON.stringify(titleReading.report)}`);
     proof.readings.title = titleReading;
+    await saveCanvasFrame("title", titleCanvas);
     await delay(500);
     page = await screenshot(page, "title", async () => {
       await closeDevice(device, PROTOCOL_TIMEOUT_MS).catch(() => {});
@@ -505,6 +530,7 @@ async function main() {
         playerAfter,
       },
     };
+    await saveCanvasFrame("tap", await captureCanvasContent(page));
     await delay(500);
     page = await screenshot(page, "tap", async () => {
       const reconnectedPage = await reconnectBoardPage("tap screenshot reconnect");
@@ -547,6 +573,7 @@ async function main() {
     }
     proof.readings.rotation = { ...rotated, viewportBefore: beforeRotation, viewportAfter: afterRotation };
     await delay(500);
+    await saveCanvasFrame("rotation", await captureCanvasContent(page));
     page = await screenshot(page, "rotation", () => reconnectBoardPage("rotation screenshot reconnect"));
     await delay(1_000);
 
@@ -570,6 +597,7 @@ async function main() {
       throw new Error(`relaunch did not observe the previously written host blob: ${JSON.stringify(relaunch.report.save)}`);
     }
     await delay(500);
+    await saveCanvasFrame("relaunch", await captureCanvasContent(page));
     page = await screenshot(page, "relaunch", () => reconnectBoardPage("relaunch screenshot reconnect"));
     proof.readings.relaunch = relaunch;
   } finally {
@@ -579,7 +607,7 @@ async function main() {
 
 try {
   await main();
-  assertScreenshotManifest(proof.screenshots, existsSync);
+  assertScreenshotManifest(proof.screenshots, existsSync, proof.canvasFrames ?? null);
   proof.result = "passed";
 } catch (error) {
   proof.result = "failed";
