@@ -138,6 +138,19 @@ The key words **MUST**, **MUST NOT** and **MAY** are used as in RFC 2119.
 
 An exception is allowed only when an ADR approves it. The code **MUST** carry an inline marker naming the rule and the ADR, e.g. `guardrail-exception: G3 ADR-NNNN`. Lint rejects unreferenced suppressions of guard-rail rules.
 
+### Logging exceptions (Owner rule, 2026-11-11)
+
+The same lifecycle applies to every rule: the guard-rails above, the fast-test rule (ordinary unit tests finish in under 1 second) and the other owner rules in `AGENTS.md`.
+
+1. **Log it, with why.** Code or a test that breaks a rule **MUST** have a logged exception that names the rule, where the break is, and why it is there today, in plain words.
+2. **Name the way out.** The exception **MUST** name exactly one of these:
+   * **An enhancement ticket**: a GitHub issue labelled `enhancement` whose fix removes the break. Use one when the fix cannot be part of the current change because it makes breaking changes.
+   * **A permanent exception**: why no fix is possible or wanted. A guard-rail break also needs its approving ADR, as above.
+3. **Remove it when it is resolved.** Once the enhancement is resolved and the break is gone, the log entry **MUST** be removed in the same change. An entry whose ticket is closed while the break remains means the fix did not fix it: reopen the ticket or write a new one.
+4. **Bound what can be measured.** Where a rule is measurable, such as a test's duration, the entry records the limit it may not exceed, so an exception cannot quietly grow.
+
+Until the shared log and its CI checks exist (#1896), record the exception where the break is: as a comment next to the test or code, giving the rule, the reason and the ticket, plus the inline marker for a guard-rail. Then cite it in the pull request.
+
 ## Rollout
 
 The checks are created **with the first code commit** (repository scaffolding), not later. Until the code exists, this document is the specification for that scaffolding:

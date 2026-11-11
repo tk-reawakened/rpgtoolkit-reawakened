@@ -213,3 +213,10 @@ title = "Host Capabilities, Display Planes and Touch Control Surface"
 covers = ["CAP-12"]
 after = [{ epic = 9, needs = "the runner boundary and live session" }]
 
+
+[[epic]]
+id = 28
+tracker_id = "#1883"
+slug = "epic-fast-feedback"
+title = "Fast feedback: sub-second tests, faster CI, and guard-rails that warn when broken"
+covers = ["CAP-13"]
