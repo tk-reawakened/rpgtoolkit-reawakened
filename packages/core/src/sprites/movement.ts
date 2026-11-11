@@ -1,7 +1,7 @@
 /** Fixed-tick actor movement and collision (E-22..E-30, R-50, R-51, R-54). */
 import type { GameState } from "../save/state.ts";
 import type { WorldBoard, WorldPoint, WorldVector } from "../world/model.ts";
-import { scriptOwnsInput } from "../script/state.ts";
+import { findBlockingThread, hasLiveBlockingThread, type Thread } from "../script/state.ts";
 import type { EnginePhaseRegistration } from "../engine/engine.ts";
 import {
   FACING,
@@ -56,6 +56,8 @@ export type MovementOptions = {
   readonly onEvent?: (event: MovementEvent) => void;
   /** While true, pointer-queued moves still waiting in a queue do not start; a step already under way finishes. */
   readonly freezePointer?: boolean;
+  /** Hold board item sprites in place, including any step already under way. */
+  readonly pauseItems?: boolean;
 };
 
 function fixed(value: number): number {
@@ -556,9 +558,23 @@ export function runMovementPhase(section: SpritesSection, board: WorldBoard | nu
       actor = { ...actor, prev: { x: actor.x, y: actor.y } };
       replaceActor(section, actor);
     }
-    if (actor !== undefined) advanceActor(section, actor, board, tick, gameSpeed, pixelMovement, options.freezePointer === true, sink);
+    if (actor !== undefined && !(options.pauseItems === true && actor.kind === "item")) {
+      advanceActor(section, actor, board, tick, gameSpeed, pixelMovement, options.freezePointer === true, sink);
+    }
   }
   return events;
+}
+
+/** docs/spec/engine/movement-and-collision.md#reawakened-modal-npc-movement */
+function modalPausesItems(state: GameState, blocker: Thread | null): boolean {
+  const wait = blocker?.wait?.kind;
+  if (wait === "input.key" || wait === "input.mouse" || wait === "render.msgbox" || wait === "menu.screen") return true;
+  if (state.menu.screens.length === 0) return false;
+  const waitingForMovement = (thread: Thread): boolean =>
+    thread.status === "waiting" && (thread.wait?.kind === "sprite.movement" || thread.wait?.kind === "movement");
+  // A menu can invoke a script that waits for movement, even when it was opened by a background thread.
+  return blocker !== null ? !waitingForMovement(blocker) :
+    !state.vm.threads.some((thread) => waitingForMovement(thread) && thread.frames.some((frame) => frame.menuScreen !== undefined));
 }
 
 /** AD-26 registration for the movement owner; the engine itself supplies the phase order. */
@@ -568,10 +584,12 @@ export function movementPhaseRegistration(options: MovementOptions & { readonly 
     rank: options.rank ?? 0,
     ...(options.pixelMovement === undefined ? {} : { pixelMovement: options.pixelMovement }),
     run(state: GameState): void {
+      const blocker = findBlockingThread(state.vm);
       runMovementPhase(state.sprites, state.world.board ?? null, state.time.tick, {
         ...options,
         pixelMovement: state.world.movement.walking ?? options.pixelMovement ?? 0,
-        freezePointer: scriptOwnsInput(state.vm),
+        freezePointer: blocker !== null || hasLiveBlockingThread(state.vm),
+        pauseItems: modalPausesItems(state, blocker),
         onEvent: (ev) => {
           options.onEvent?.(ev);
           if (ev.type === "step-complete" && ev.actor === state.sprites.selectedPlayer &&

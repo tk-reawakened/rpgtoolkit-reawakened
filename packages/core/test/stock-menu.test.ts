@@ -2,7 +2,9 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
+  actorFromSource,
   assetKey,
+  enqueueDirectionMove,
   fnv1a64,
   hashDrawList,
   hashGameState,
@@ -33,6 +35,85 @@ test("the menu key opens the main screen and the menu key closes it", () => {
   ok(overlayBlits(session.engine) >= 1, "the screen is one overlay blit in the draw list");
   const closed = press(session, "ESC");
   equal(closed.menu.screens.length, 0, "cancel closes the outermost screen");
+});
+
+function startPatrol(session: Session) {
+  const state = session.state();
+  const npc = actorFromSource({ kind: "item", id: "patrol", source: "patrol.itm", x: 128, y: 160, layer: 1 }, state.world.board ?? null, 0, 0);
+  state.sprites.items = [npc];
+  ok(enqueueDirectionMove(state.sprites, npc.id, "E"));
+  ok(enqueueDirectionMove(state.sprites, npc.id, "E"));
+  session.advance(1);
+  ok(state.sprites.items[0]!.x > npc.x);
+  ok(state.sprites.items[0]!.movement.active, "the patrol starts mid-step before input is blocked");
+  return () => state.sprites.items[0]!;
+}
+
+test("an NPC pauses its active route during modal text but walks behind non-modal text", () => {
+  const session = boot({ startup: "end()\n" });
+  const npc = startPatrol(session);
+  const state = session.state();
+  const start = (text: string) => startThread(state.vm, { ref: { kind: "inline", text, ir: IR_VERSION }, kind: "item", owner: "world" });
+  start('mwin("Scenery")');
+  const walking = npc().x;
+  session.advance(4);
+  equal(state.ui.message.visible, true);
+  ok(npc().x > walking, "non-modal text does not stop the route");
+
+  const paused = npc();
+  start('mwin("Wait here")\nwait()\nmwincls()');
+  session.advance(8);
+  equal(state.vm.block?.kind, "input.key");
+  equal(npc().x, paused.x, "the NPC does not move even on the tick dialogue opens");
+  deepEqual(npc().movement.active, paused.movement.active);
+  deepEqual(npc().queue, paused.queue);
+  deepEqual(npc().prev, { x: paused.x, y: paused.y });
+  press(session, "ENTER");
+  session.advance(8);
+  equal(state.vm.block, null);
+  ok(npc().x > paused.x, "the same route continues after dismissal");
+});
+
+test("an NPC pauses its active route through the stock main menu and Items submenu", () => {
+  const session = boot({ startup: "end()\n" });
+  const npc = startPatrol(session);
+  const paused = npc();
+  const state = press(session, "M");
+  equal(state.menu.screens[0]?.screen, "main");
+  equal(npc().x, paused.x, "opening the menu stops the NPC on that tick");
+  press(session, "ENTER");
+  equal(state.menu.screens[1]?.screen, "items");
+  session.advance(8);
+  equal(npc().x, paused.x);
+  deepEqual(npc().movement.active, paused.movement.active);
+  deepEqual(npc().queue, paused.queue);
+  press(session, "ESC");
+  equal(state.menu.screens.length, 1);
+  equal(npc().x, paused.x);
+  press(session, "ESC");
+  session.advance(8);
+  equal(state.menu.screens.length, 0);
+  ok(npc().x > paused.x, "the same route continues after the last menu closes");
+});
+
+test("a menu provider can still wait for scripted NPC movement to finish", () => {
+  const session = boot({ startup: "end()\n" });
+  const npc = startPatrol(session);
+  const state = session.state();
+  startThread(state.vm, { ref: { kind: "inline", ir: IR_VERSION, text: `
+registerPlugin({ name: "move-patrol", commands: {}, menuProviders: { items: (context) => {
+  itempath("patrol", 3, 144, 160)
+  arrived = 1
+} } })
+itemmenu()
+` }, kind: "item", owner: "world" });
+  session.advance(1);
+  equal(state.menu.screens[0]?.screen, "items");
+  ok(state.vm.threads.some((thread) => thread.wait?.kind === "sprite.movement" && !thread.wait.global));
+  session.advance(16);
+  equal(npc().x, 144);
+  equal(state.vm.globals.arrived, 1, "the menu's movement wait resolves");
+  equal(state.menu.screens.length, 0);
 });
 
 test("a direction pressed on the tick the menu key opens the menu queues no movement", () => {

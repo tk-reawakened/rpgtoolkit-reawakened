@@ -36,9 +36,9 @@ import {
   hashDrawList,
   hashGameState,
   hashState,
+  inputPhaseRegistration,
   itemKey,
   nextUint32,
-  openMainMenu,
   PACKAGE_ROOT,
   registerActorObject,
   restoreGameState,
@@ -934,7 +934,7 @@ function bootGame(mode: string, program = "fight.prg", extra: Readonly<Record<st
     height: 240,
     maxTicks: 4000,
     packageCatalogue: options.stock === false ? [] : stockCatalogue(),
-    phaseRegistrations: [...(options.encounter === true ? [{
+    phaseRegistrations: [inputPhaseRegistration({ menuKey: { action: "ENTER", code: "Enter" } }), ...(options.encounter === true ? [{
       // The host's movement: the held right arrow walks the player one tile at a time while its queue is empty.
       phase: "movement" as const,
       run: (state: GameState) => {
@@ -1041,7 +1041,7 @@ test("the engine reports a custom request whose program is not in the game as pr
   equal(booted.state().engine.boot?.stage, "running");
 });
 
-test("an item-thread encounter shows both prompts and erases its board item on victory", () => {
+test("an item-thread victory erases its NPC and a fresh Enter opens the board menu", () => {
   const booted = bootGame("record", "fight.prg", {
     "item-win.prg": 'mwin("Victory!")\nwait()\nmwincls()\neraseitem("source")\nwinProgramRan = 1',
   }, { assets: { "enemy/slime.ene": stanceEnemyBytes("Challenger", "item-win.prg") } });
@@ -1050,7 +1050,7 @@ test("an item-thread encounter shows both prompts and erases its board item on v
   const item = actorFromSource({ kind: "item", id: "challenger", source: "challenger.itm", x: 64, y: 64, layer: 1 },
     state.world.board ?? null, 0, 0);
   const itemThread = startThread(state.vm, {
-    ref: { kind: "inline", text: 'on(game, "boardReturned", (event) => { boardReturned = 1 })\nmwin("Ready to fight?")\nwait()\nmwincls()\nFightEnemy("slime.ene", "night.bkg")\nitemContinued = 1', ir: IR_VERSION },
+    ref: { kind: "inline", text: 'registerPlugin({ name: "victory-menu", commands: {}, menuProviders: { main: (context) => { wait() } } })\non(game, "boardReturned", (event) => { boardReturned = 1 })\nmwin("Ready to fight?")\nwait()\nmwincls()\nFightEnemy("slime.ene", "night.bkg")\nitemContinued = 1', ir: IR_VERSION },
     kind: "item", owner: "world", source: itemKey(item),
   });
   state.sprites.items = [{ ...item, multitaskThread: itemThread.id }];
@@ -1064,7 +1064,6 @@ test("an item-thread encounter shows both prompts and erases its board item on v
   startThread(state.vm, { ref: { kind: "inline", text: "battle.finish(2)", ir: IR_VERSION }, kind: "board", owner: "world" });
   play(booted, (state) => state.battle?.outcome === 2 && state.vm.block?.kind === "input.key");
   ok(shows("Victory!"));
-  equal(openMainMenu(state), false, "the outcome still owns the screen while waiting");
   play(booted, (state) => state.vm.globals.boardreturned === 1, confirm());
   equal(state.battle?.outcome, 2);
   equal(state.vm.globals.winprogramran, 1);
@@ -1073,7 +1072,9 @@ test("an item-thread encounter shows both prompts and erases its board item on v
   equal(state.vm.threads.some((thread) => thread.id === itemThread.id), false);
   equal(state.vm.globals.itemcontinued, undefined);
   equal(shows("Victory!"), false);
-  equal(openMainMenu(state), true, "the retained outcome no longer blocks the board menu");
+  equal(state.menu.screens.length, 0, "the victory dismissal is not also a menu press");
+  play(booted, () => true, confirm());
+  equal(state.menu.screens[0]?.screen, "main", "a fresh Enter opens the menu with the settled battle record still present");
 });
 
 test("the engine hands a custom program's FightEnemy call to the stock loop with the BAT-9 setup and no draw before the loop seeds", () => {
