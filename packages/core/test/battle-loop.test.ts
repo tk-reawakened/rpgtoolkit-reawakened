@@ -624,26 +624,51 @@ test("stock startup seeds each fighter once in enemy/player order, including fal
   equal(globals(rig.state).turncount, 0);
 });
 
-test("initial charge reaches both inclusive bounds without exceeding them over 1024 seeds", () => {
-  const observed = [
-    { min: Infinity, max: -Infinity },
-    { min: Infinity, max: -Infinity },
-  ];
-  for (let seed = 0; seed < 1024; seed += 1) {
-    const rig = makeState({ seed, enemies: 1, players: 1 });
-    startUntilFirstSleep(rig);
-    const initial = charges(rig.state);
+// The initial-charge rule is a pure function of the seed (the stock startup draws `random(threshold) - 1`
+// for each fighter in enemy-then-player order, and `expectedSeedCharges` is its oracle), so the sweep
+// asserts it directly with no engine. Booting an engine per seed would cost about 25 ms each; the
+// engine is checked for a few seeds below instead.
+const SWEEP_SEEDS = 1024;
+const THRESHOLDS = [123, 75] as const;
+
+// Sweeps the rule over every seed and records, per party, the first seed that reaches each bound.
+function sweepInitialCharges(): { min: number; max: number; minSeed: number; maxSeed: number }[] {
+  const observed = THRESHOLDS.map(() => ({ min: Infinity, max: -Infinity, minSeed: -1, maxSeed: -1 }));
+  for (let seed = 0; seed < SWEEP_SEEDS; seed += 1) {
+    const [enemy, player] = expectedSeedCharges(seed, 1, 1);
     for (const party of [0, 1] as const) {
-      const charge = initial[party]![0]!;
-      const threshold = party === 0 ? 123 : 75;
+      const charge = (party === 0 ? enemy : player)![0]!;
+      const threshold = THRESHOLDS[party];
       ok(Number.isInteger(charge) && charge >= 0 && charge < threshold,
         `seed ${seed}, party ${party}: initial charge ${charge} is within 0..${threshold - 1}`);
-      observed[party]!.min = Math.min(observed[party]!.min, charge);
-      observed[party]!.max = Math.max(observed[party]!.max, charge);
+      const record = observed[party]!;
+      if (charge < record.min) { record.min = charge; record.minSeed = seed; }
+      if (charge > record.max) { record.max = charge; record.maxSeed = seed; }
     }
-    equal(rig.services.diagnostics.length, 0);
   }
-  deepEqual(observed, [{ min: 0, max: 122 }, { min: 0, max: 74 }]);
+  return observed;
+}
+
+test("initial charge rule stays within bounds and reaches both inclusive bounds over 1024 seeds", () => {
+  const observed = sweepInitialCharges();
+  deepEqual(
+    observed.map(({ min, max }) => ({ min, max })),
+    [{ min: 0, max: 122 }, { min: 0, max: 74 }],
+  );
+});
+
+// The engine must use the rule the sweep proved. These seeds are the ones that produce each bound
+// and one ordinary seed; they catch a change of threshold or of charge source, which the engine-free
+// sweep cannot see.
+test("full engine starts each fighter on the rule's charge at the bound seeds and an ordinary seed", () => {
+  const observed = sweepInitialCharges();
+  const extremeSeeds = observed.flatMap(({ minSeed, maxSeed }) => [minSeed, maxSeed]);
+  for (const seed of [...extremeSeeds, 17]) {
+    const rig = makeState({ seed, enemies: 1, players: 1 });
+    startUntilFirstSleep(rig);
+    deepEqual(charges(rig.state), expectedSeedCharges(seed, 1, 1), `seed ${seed}: engine charges match the rule`);
+    equal(rig.services.diagnostics.length, 0, `seed ${seed}: no diagnostics`);
+  }
 });
 
 test("a seeded 60-pass timeline and each pass's restored continuation match the charge oracle", () => {
