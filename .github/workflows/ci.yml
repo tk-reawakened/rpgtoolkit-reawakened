@@ -114,6 +114,8 @@ jobs:
             echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
           fi
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -219,6 +221,8 @@ jobs:
             echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
           fi
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -268,6 +272,8 @@ jobs:
             echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
           fi
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - uses: pnpm/action-setup@v6
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
@@ -329,6 +335,8 @@ jobs:
             echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
           fi
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - uses: pnpm/action-setup@v6
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
@@ -394,6 +402,8 @@ jobs:
             echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
           fi
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - uses: pnpm/action-setup@v6
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
@@ -447,6 +457,8 @@ jobs:
             echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
           fi
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - uses: pnpm/action-setup@v6
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
@@ -529,6 +541,8 @@ jobs:
             echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
           fi
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - uses: pnpm/action-setup@v6
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
@@ -599,6 +613,8 @@ jobs:
             echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
           fi
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - name: Reclaim unused hosted-runner toolchains
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
@@ -719,6 +735,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Required jobs and classifier verdict
         env:
           RESULTS: "${{ join(needs.*.result, ' ') }}"
