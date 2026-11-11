@@ -242,7 +242,8 @@ hitl = false
 risk = "high"
 plan_checkpoint = true
 references = ["spec - docs/spec/engine/main-loop-and-startup.md#e-03, docs/spec/engine/display-input-audio.md#e-113", "code - packages/runner-web/app/main.ts, packages/core/src/engine/engine.ts, packages/core/src/input/input.ts", "epic - epic-board-rendering entry 19 / #393 (the engine loop)", "epic - web-runner-packaging entry 3 / #928 (the player page), entry 11 / #938 (runner-desktop), entry 12 / #940 (runner-mobile)", "slices - PR #1006 (436c78d6), PR #1028 (9954e783), commit aca8aea8"]
-notes = ["Partial slices landed in aca8aea8 (PR #1006 436c78d6 and PR #1028 9954e783): shared player page, mobile wrapper, descriptor identity, viewport fix and desktop input proof. The full acceptance criteria above remain open; issue #1018 is still open."]
+tracker_status = "done"
+notes = ["Partial slices landed in aca8aea8 (PR #1006 436c78d6 and PR #1028 9954e783): shared player page, mobile wrapper, descriptor identity, viewport fix and desktop input proof. The full acceptance criteria above remain open; issue #1018 is still open.", "Closed 2026-11-11 by an audit against merged evidence at `c33ea5dc`, not by new code. Criterion by criterion: `demo` reaches the board on a visible canvas and a held movement key moves the player — `tools/browser/tests/live-player.spec.ts:302` reads pixels back from the attached `#screen` (must be non-black), holds ArrowRight until the player advances two tiles, and requires the presented frame hash to change; the parity route reproduces the tick-120 closing baseline — `tools/browser/tests/live-parity.spec.ts` asserts the tick-120 state, draw and command count against `golden/regression/closing.json`, and that forwarding presentation alpha changes neither hash; a package with no start-up program boots from its initial character — `live-player.spec.ts:743`; an authored non-demo package renders its own board in the desktop player — `pnpm desktop:input` and `docs/playing-the-desktop-player.md`, which the desktop CI job runs on macOS, Linux and Windows. Save durability per host is #1021 and is not claimed here. Both spec files were run at `c33ea5dc`: 19 passed in 1m36s, and the full browser lane is 73 specs on the same revision. Issue #1018 is closed with this table."]
 
 [[entry]]
 id = 17
@@ -250,13 +251,14 @@ tracker_id = "#1043"
 type = "bug"
 title = "Live player audio stutters from ScriptProcessorNode underruns"
 description = "The live player's audio drops out because the default ScriptProcessorNode buffer can starve while the main thread is busy."
-verify = "A representative live run has no audible dropouts, and the browser lane checks the actual shipped graph buffer alongside non-silent output and duration; reverting the buffer default makes its assertion fail."
+verify = "The default live path (AudioWorklet) is measured under representative main-thread load with the graph output captured and decoded: the reported dropout count over a stated window is zero, and the capture is kept as the evidence. The ScriptProcessor fallback is measured the same way and its result reported, not assumed; it keeps the 2048 frames `docs/spec/engine/runners.md#audio` specifies, and any browser assertion pins that value. Perturbing the audio sink so the worklet is unavailable must make the fallback path the measured one, and a gain-zero control must stay silent, so a passing run cannot be a muted graph."
 covers = ["CAP-12"]
 after = [5]
 hitl = false
 risk = "medium"
 refine = true
 references = ["issue - #1043", "proposed fix - PR #1042", "code - packages/runner-web/src/audio-sink.ts"]
+notes = ["Ruling (owner: Jensen, 2026-11-11): the spec wins on the buffer size — 2048 frames is what `docs/spec/engine/runners.md#audio` specifies and what its unit test pins, so this entry no longer asks for a 4096 default or a size-only browser assertion. It is closed by measurement instead: dropouts under representative load on the shipped default path, with the capture retained, and the fallback measured rather than assumed. A size assertion may stay only as 2048, and it can never stand in for the measurement.", "Open with the gap recorded 2026-11-06: the AudioWorklet migration (#1165) and the decoder-readiness fix (#1608) changed the default path, but neither proved dropout-free live output under load; an exploratory macOS capture with 40 ms of busy main-thread work every 100 ms showed scheduling contention on the worklet graph, which is the condition this entry must measure rather than infer."]
 
 [[entry]]
 id = 18
