@@ -554,11 +554,15 @@ jobs:
             | sudo tee /etc/apt/apt.conf.d/80-ci-retries >/dev/null
           for attempt in 1 2 3; do
             if [ "$attempt" -ge 2 ]; then
-              echo "::warning::playwright install attempt $((attempt - 1)) failed; switching apt mirror (attempt $attempt)"
-              sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
-            fi
-            if [ "$attempt" -ge 3 ]; then
+              echo "::warning::playwright install attempt $((attempt - 1)) failed; switching apt mirror and DNS (attempt $attempt)"
+              # The runner's sources use `mirror+file:/etc/apt/apt-mirrors.txt`, and the Azure host lives in that list,
+              # so rewrite the list and also point the sources straight at the main archive (no mirror list).
+              sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt 2>/dev/null || true
+              sudo sed -i -e 's|mirror+file:/etc/apt/apt-mirrors\.txt|http://archive.ubuntu.com/ubuntu/|g' \
+                -e 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' \
+                /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
               printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | sudo tee -a /etc/resolv.conf >/dev/null
+              grep -rhE '^(URIs|deb )' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null | head -n 8 || true
             fi
             if pnpm exec playwright install --with-deps chromium; then exit 0; fi
             sleep $((attempt * 10))
