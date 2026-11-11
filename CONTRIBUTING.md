@@ -317,6 +317,8 @@ node --test --test-name-pattern="<words>" packages/core/test/<file>.test.ts   # 
 pnpm test                                                   # all package tests
 ```
 
+Use `pnpm test:affected` for local feedback: it compares against the merge base with `origin/main` and includes committed, staged, unstaged, deleted, renamed and untracked changes. Pass `--base <ref>` to choose another base. It builds first, then runs changed packages and their downstream dependents through the no-skips guard. Core, shared configuration, tooling, fixtures, and unknown paths select all package tests. If Git or dependency information cannot be trusted, it explains why and selects all tests. An empty change set or selection with no test files exits successfully without running tests. CI continues to run the full suite.
+
 Run `pnpm build` first because packages import each other's built output. Only `synth` has per-package `build`, `typecheck`, `lint` and `test` scripts. `core`, `plugin-tk2-compat`, `runner-harness` and `runner-headless` expose `typecheck:tests` only, and their tests run through the root `pnpm test`. Some tests skip their sample-game cases until you run `pnpm fixtures:fetch`; run `pnpm test:strict` before you push so that none of them silently skip.
 
 ## Open the pull request, review and merge
