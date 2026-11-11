@@ -543,8 +543,32 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm fixtures:fetch
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-      - run: pnpm exec playwright install --with-deps chromium
+      # `--with-deps` runs apt on the runner, and the Azure Ubuntu mirror intermittently fails DNS ("Temporary failure
+      # resolving 'azure.archive.ubuntu.com'", #1878). So apt gets retries and short timeouts, and the install is
+      # retried; from the second attempt it uses archive.ubuntu.com, and from the third it adds public DNS resolvers.
+      - name: Install Chromium and its system dependencies (apt-resilient)
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        shell: bash
+        run: |
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "15";' 'Acquire::https::Timeout "15";' \
+            | sudo tee /etc/apt/apt.conf.d/80-ci-retries >/dev/null
+          for attempt in 1 2 3; do
+            if [ "$attempt" -ge 2 ]; then
+              echo "::warning::playwright install attempt $((attempt - 1)) failed; switching apt mirror and DNS (attempt $attempt)"
+              # The runner's sources use `mirror+file:/etc/apt/apt-mirrors.txt`, and the Azure host lives in that list,
+              # so rewrite the list and also point the sources straight at the main archive (no mirror list).
+              sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt 2>/dev/null || true
+              sudo sed -i -e 's|mirror+file:/etc/apt/apt-mirrors\.txt|http://archive.ubuntu.com/ubuntu/|g' \
+                -e 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' \
+                /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
+              printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | sudo tee -a /etc/resolv.conf >/dev/null
+              grep -rhE '^(URIs|deb )' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null | head -n 8 || true
+            fi
+            if pnpm exec playwright install --with-deps chromium; then exit 0; fi
+            sleep $((attempt * 10))
+          done
+          echo "::error::playwright install failed after 3 attempts"
+          exit 1
       # The parity spec launches the built Electron player beside the PWA page, so the lane builds the desktop bundles
       # itself (`playwright.config.ts`); Linux needs the virtual display the desktop lane uses, and Electron's binary
       # is installed by `pnpm install`.
