@@ -85,7 +85,7 @@ test("empty change and testless package never start the build", () => fixture((r
 for (const fault of ["invalid base", "invalid graph"]) test(`CLI falls back to all tests for ${fault}`, () => fixture((root) => {
   mkdirSync(join(root, "tools/no-skips"), { recursive: true });
   mkdirSync(join(root, "bin"));
-  for (const file of ["run.mjs", "durations.mjs", "affected.mjs"]) copyFileSync(new URL(`../${file}`, import.meta.url), join(root, "tools/no-skips", file));
+  for (const file of ["run.mjs", "durations.mjs", "shards.mjs", "affected.mjs"]) copyFileSync(new URL(`../${file}`, import.meta.url), join(root, "tools/no-skips", file));
   writeFileSync(join(root, "bin/pnpm"), "#!/bin/sh\nexit 0\n"); chmodSync(join(root, "bin/pnpm"), 0o755);
   for (const name of ["core", "base", "middle", "leaf"]) writeFileSync(join(root, "packages", name, "test/a.test.ts"), `const test = require("node:test"); test("${name}", () => {});`);
   writeFileSync(join(root, "bin/git"), "#!/bin/sh\nexit 1\n"); chmodSync(join(root, "bin/git"), 0o755);

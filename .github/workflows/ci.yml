@@ -166,6 +166,9 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: node tools/no-skips/run.mjs --verify-groups
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      # Every package test file is in exactly one unit shard, and the slowest shard is within 1.25x the mean (#1886).
+      - run: node tools/no-skips/run.mjs --verify-shards
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm mobile:proof:test
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm desktop:measure:test
@@ -187,31 +190,9 @@ jobs:
       NODE_OPTIONS: --max-semi-space-size=128
     strategy:
       fail-fast: false
+      # Eight shards packed from the committed per-file timings (#1886); `--verify-shards` checks the packing.
       matrix:
-        group:
-          - core-formats
-          - core-script
-          - core-engine
-          - core-battle
-          - synth
-          - plugin-tk2-compat
-          - render-webgl2
-          - runner-harness
-          - runner-headless
-          - runner-desktop
-          - runner-mobile
-          - runner-web
-          - script-tools
-          - script-cli
-          - lsp
-          - script-spec
-          - native-data
-          - native-data-cli
-          - native-data-import
-          - native-data-rename
-          - platform-services
-          - editor-model
-          - editor-ui
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - name: CI classifier decision
         shell: bash
@@ -250,13 +231,13 @@ jobs:
       # Every shard runs once with legacy fixtures present, under the no-skips guard
       # and with V8 coverage enabled. `gate` merges the shard LCOV files and checks
       # the repository-wide line and branch thresholds.
-      - run: node tools/no-skips/run.mjs --group ${{ matrix.group }} --lcov coverage/lcov-${{ matrix.group }}.info
+      - run: node tools/no-skips/run.mjs --shard ${{ matrix.shard }} --lcov coverage/lcov-shard-${{ matrix.shard }}.info
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - uses: actions/upload-artifact@v6
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
         with:
-          name: lcov-${{ matrix.group }}
-          path: coverage/lcov-${{ matrix.group }}.info
+          name: lcov-shard-${{ matrix.shard }}
+          path: coverage/lcov-shard-${{ matrix.shard }}.info
           if-no-files-found: error
   # Classified (ADR 0016): always runs and prints the classifier's verdict; defers its steps only for an inert change.
   golden:

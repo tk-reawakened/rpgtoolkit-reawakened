@@ -20,7 +20,7 @@
  * the exception and its inventory check are recorded once for both applications in ADR 0013.
  */
 
-import { app, BrowserWindow, ipcMain, protocol } from "electron";
+import { app, BrowserWindow, ipcMain, protocol, screen } from "electron";
 
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, normalize, resolve, sep } from "node:path";
@@ -31,6 +31,7 @@ import type { LaunchInfo } from "@tk-reawakened/runner-web";
 import { libraryRows, readLibraryFile, verifyEntry } from "./library.ts";
 import { argumentValue, deepLinkFromArgv, deepLinkPath, resolveLaunchTarget, type LaunchResolution } from "./launch.ts";
 import { quitPlayer, quitWhenLastWindowCloses } from "./lifecycle.ts";
+import { trackPlayerFullscreen } from "./fullscreen.ts";
 
 /** The privileged scheme. Registered at module load, which is before `app.ready` by construction. */
 export const APP_SCHEME = "app";
@@ -293,8 +294,12 @@ function createWindow(): BrowserWindow {
     },
   });
   const page = currentPage();
+  trackPlayerFullscreen(window, screen, process.platform === "darwin");
   // Diagnostics: a page that fails to load, or a renderer error, is reported on stderr instead of disappearing.
   window.webContents.on("console-message", (event) => console.error(`renderer[${event.level}]: ${event.message}`));
+  window.webContents.on("render-process-gone", (_event, details) => {
+    console.error(`player renderer exited: ${details.reason} (code ${details.exitCode})`);
+  });
   window.webContents.on("did-fail-load", (_event, code, description, url) => console.error(`load failed ${code} ${description} ${url}`));
   window.webContents.on("preload-error", (_event, path, error) => console.error(`preload error ${path}: ${error.message}`));
   window.loadURL(`${APP_SCHEME}://player/${page}`).catch((error: unknown) => console.error(`loadURL: ${String(error)}`));

@@ -1,15 +1,15 @@
 ---
 title: "RPGCode spec framework: the describe/it/expect pack, its runner and *.spec.prg discovery"
 ticket: 8
-status: blocked
-blocked_reason: awaiting the owner ruling on F-A and completion of the independently identified TOOL-5 runner and matcher gaps
+status: in-progress
+blocked_reason: ""
 ---
 
 ## Landing record — #1009
 
 The runner slice landed as **`d4e2d29f27100c4c67f6fdb0d27edff14b565785`** (merged 2026-11-01, reviewed at `bb817d6247df6f55564eda79f59694788963a29b`). It delivers project `*.spec.prg` discovery, project-wide focused narrowing, collect-only case registration, a fresh board/party/variable fixture per case, repeated-hook registration order, file-qualified failures with the spec file's own line, strict-skip failures, and the library reached by `#include` (TOOL-5's include branch; loading waits on PKG-7). Its A1–A9/B1/B4 acceptance suite is in `packages/script-spec/test/tool5-acceptance.test.ts`.
 
-**Still blocked**, and this entry stays `status: blocked`: F-A (array `toEqual`/`toContain`, `toThrow`), F-D (fractional closeness), F-E (group hooks under per-case re-run) and F-G (a missing `#include` is silent until called), plus PKG-7 (proposed load path). F-F is ruled, not an open tear-off proposal.
+**Owner rulings, 2026-11-11 (Jensen).** F-A, F-D, F-E and F-G are approved and written into [TOOL-5](../../../docs/spec/engine/rpgcode-tooling.md#tool-5), the [spec package rows](../../../docs/spec/engine/rpgcode-functions.md#tooling-the-rpgcode-spec-package-not-part-of-the-282-legacy-catalogue) and the [ADR 0014 amendment](../../../docs/adr/0014-rpgcode-spec-package.md#amendment-2026-11-11--a-closed-test-only-set-of-native-commands). F-A: the seven-command closed set below, with a per-case deterministic identity counter in `specCapture`. F-D: `toBeCloseTo(expected, tolerance)` with a required tolerance; `toThrow()` takes no argument. F-E: a group's `beforeAll` runs once and its cases start from the post-setup snapshot (TOOL-5 "Group hooks and the fresh fixture"). F-G: a spec file that registers no case fails as `spec.no-cases`; the MOD include gap itself is not this entry's. "Array" covers both element arrays and `length`-holding lists ([rpgcode-json.md](../../../docs/spec/engine/rpgcode-json.md)). Still open and not blocking: PKG-7 (load path; the `#include` route stays) and `skip`/`only` on a `describe` group. Build order: slices A, B, C below, then the F-E group snapshot, then `spec.no-cases`.
 
 **Commit-title note for `git log` readers.** The squash commit title inherits "bound class-method tear-offs" from the PR's stale title. That change was withdrawn before review and merged: the merged tree contains no class-method tear-off, no `@class-method:` `def`, and no `packages/core` diff against the base commit. The title is a record artefact; `main` was deliberately not rewritten to correct it.
 

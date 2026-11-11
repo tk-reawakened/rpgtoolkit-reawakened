@@ -74,7 +74,8 @@ import { applyCameraEffect, createCameraSection, initCameraForBoard, positionAt,
 import { applyInputEffect, applySpriteEffect } from "../script/packs/world.ts";
 import type { CameraPoint, CameraTarget } from "../ports/camera.ts";
 import type { SpriteActor, SpritePoint, Facing } from "../sprites/model.ts";
-import { placeSelectedPlayer, selectActor as selectPartyActor, removeActorSprite, spriteDraws, createInitialPlayer, hydrateSprites, itemKey, type SpriteRuntime, type SpriteThreadResolver } from "../sprites/runtime.ts";
+import { placeSelectedPlayer, selectActor as selectPartyActor, removeActorSprite, spriteDraws, createInitialPlayer, hydrateSprites, itemKey, setItemVisible, type SpriteRuntime, type SpriteThreadResolver } from "../sprites/runtime.ts";
+import { battleInProgress, itemBattleHandlerRunning } from "../script/packs/battle.ts";
 import { runAnimationPhase as runActorAnimationPhase } from "../sprites/animation.ts";
 import { boardCollisionAt } from "../sprites/movement.ts";
 import { resetTriggersSection } from "../triggers/model.ts";
@@ -682,8 +683,16 @@ export function createEngine(init: EngineInit): Engine {
       }
       return;
     }
-    applySpriteEffect(state, effect.name, values, effect.thread);
-    if (effect.name === "hideitem" || effect.name === "removeitem") expireProgramTileEdits(state);
+    if (effect.name === "eraseitem" && typeof values[0] === "string") {
+      const thread = state.vm.threads.find((entry) => entry.id === effect.thread);
+      const keepThread = itemBattleHandlerRunning(thread) ? thread?.id : undefined;
+      if (setItemVisible(state.sprites, values[0], false, state.vm, null, (itemThread) => discardMenuFrames(services, itemThread), keepThread)) {
+        expireProgramTileEdits(state);
+      }
+    } else {
+      applySpriteEffect(state, effect.name, values, effect.thread);
+      if (effect.name === "hideitem" || effect.name === "removeitem") expireProgramTileEdits(state);
+    }
     if (isSpriteRedrawCommand(effect.name) && blockingAlive()) {
       boardRedraw();
     }
@@ -820,7 +829,7 @@ export function createEngine(init: EngineInit): Engine {
 
   function activeProgramForCompose(): boolean {
     const activeSurface = blockingAlive() || committingFinalProgramScreen;
-    return activeSurface && state.world.board != null && state.battle === null && state.menu.screens.length === 0;
+    return activeSurface && state.world.board != null && !battleInProgress(state) && state.menu.screens.length === 0;
   }
 
   function captureProgramOverlay(): void {
@@ -4691,7 +4700,10 @@ export function createEngine(init: EngineInit): Engine {
     // docs/spec/engine/main-loop-and-startup.md#reawakened-script-surface-lifecycle
     const uiForCompose = activeSurface
       ? state.ui
-      : { ...state.ui, draws: [], authorMarginCommands: [], message: { ...state.ui.message, visible: false }, modal: null };
+      : {
+        ...state.ui, draws: [], authorMarginCommands: [], modal: null,
+        message: state.vm.block?.kind === "input.key" ? state.ui.message : { ...state.ui.message, visible: false },
+      };
     const withUi = { ...withOverlay, commands: [...withOverlay.commands, ...debugCommands(), ...composeUi(uiForCompose, init.width, init.height, state.input, false, cursorSelection, messageGraphicKey())] };
     return {
       ...withUi,

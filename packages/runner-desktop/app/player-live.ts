@@ -11,6 +11,7 @@ import { createObservedHostGeometry, observeHostState, reapplyObservedGeometryBe
 declare global { interface Window { desktop?: DesktopHost; __live?: { tick: number; stateHash: string; drawHash: string; board: string | null; player: { x: number; y: number } | null; error?: string }; __session?: LiveSession } }
 
 void start().catch((error: unknown) => {
+  console.error("player startup failed", error);
   const status = document.querySelector<HTMLElement>("#live-status");
   if (status !== null) status.textContent = `player: ${String(error)}`;
   window.__live = { tick: 0, stateHash: "", drawHash: "", board: null, player: null, error: String(error) };
@@ -57,6 +58,7 @@ function offerLibrary(host: DesktopHost, info: LaunchInfo, stage: Stage): void {
         if (opened === null) throw new Error(`the library no longer offers ${row.gameId}`);
         await play(host, opened, stage);
       }).catch((error: unknown) => {
+        console.error("player could not open the library game", error);
         stage.status.textContent = `player: ${error instanceof Error ? error.message : String(error)}`;
         window.__live = { tick: 0, stateHash: "", drawHash: "", board: null, player: null, error: String(error) };
       });
@@ -96,6 +98,13 @@ async function play(host: DesktopHost, opened: { readonly name: string; readonly
       list: (area, gameId) => host.listBlobs(area, gameId),
     },
     onQuit: () => { void host.quit(); },
+    onDiagnostic: ({ code, file, line, message }, tick) => {
+      const location = file === "" ? "" : ` ${file}:${line}`;
+      console.warn(`game tick=${tick} ${code}${location}: ${message}`);
+    },
+    onBattleChange: (battle, tick) => {
+      console.info(`game tick=${tick} battle ${battle === null ? "cleared" : JSON.stringify(battle)}`);
+    },
   });
   window.__session = session;
   // The diagnostics strip is a runner feature, not a project setting: it appears only when this run asked for it.
@@ -246,6 +255,7 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
       status.textContent = [`tick ${result.tick}`, `state ${result.stateHash}`, `draw ${result.drawHash}`, player === null ? "player position unavailable" : `player ${player.x}, ${player.y}`, ...(audioError === null ? [] : [`audio: ${audioError}`]), "Move: arrows or WASD; click to walk."].join("\n");
       requestAnimationFrame(draw);
     }).catch((error: unknown) => {
+      console.error(`player stopped at tick ${session.tick()}`, error);
       window.__live = { tick: session.tick(), stateHash: session.stateHash(), drawHash: "", board: session.boardKey(), player: session.playerPosition(), error: String(error) };
       status.textContent = `player: ${String(error)}`;
       dispose();
