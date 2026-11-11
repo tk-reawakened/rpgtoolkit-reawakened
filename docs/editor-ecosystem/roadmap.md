@@ -57,7 +57,7 @@ After this phase the first release has the same editors the epics promise, built
 
 * Importers for outside formats, each behind its G6 check.
 * Level 0 and level 1 contributions, proved on the stock battle system and one different example.
-* Screen layouts, with the stock menu and battle screens as the first level 2 views that are not canvases we already had.
+* Screen layouts for the menu, a HUD and the battle screen, and battle settings, each built to a JSON file that the stock RPGCode package reads ([screen-layouts.md](screen-layouts.md)). They need the `json*` commands first.
 
 ### Phase 5: opportunities
 
