@@ -239,6 +239,14 @@ void (async () => {
   const translucentError = hexFromBytes(translucent.reference) === hexFromBytes(translucentExpected) ? null : "the reference disagrees with hand-calculated translucent-target pixels";
   results.push(report("source-over-translucent-target", translucent.actual, translucentExpected, 4, translucentError));
 
+  const blackAsset = "test/translucent-black" as AssetKey;
+  translucentTextures.set(blackAsset, { w: 4, h: 1, rgba: new Uint8Array([0,0,0,128, 0,0,0,128, 0,0,0,128, 0,0,0,128]) });
+  const secondOverlay = { ...translucentCommands[1]!, source: { asset: blackAsset, tile: null } };
+  const repeatedExpected = new Uint8Array([85,85,85,192, 79,81,82,208, 74,77,80,224, 67,71,76,255]);
+  const repeated = replay(4, 1, [...translucentCommands, secondOverlay], translucentTextures, new Map());
+  const repeatedError = hexFromBytes(repeated.reference) === hexFromBytes(repeatedExpected) ? null : "the reference disagrees with hand-calculated repeated-overlay pixels";
+  results.push(report("source-over-repeated", repeated.actual, repeatedExpected, 4, repeatedError));
+
   window.__vectors = results;
   window.document.title = `vectors: ${results.length} replayed`;
 })();
