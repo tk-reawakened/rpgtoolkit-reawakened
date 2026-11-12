@@ -11,7 +11,8 @@
  * the fresh fixture"). The snapshot is the VM's own (`snapshot`/`restoreGameState`),
  * taken at the library's checkpoint report, so a restored run resumes in the middle
  * of the group's walk. Every task runs twice and must give identical outcomes and
- * state hashes.
+ * state hashes. Each run has its own host-side test doubles (`doubles.ts`), so a
+ * case's scheduled keys, scripted draws and spies never reach another run.
  */
 
 import { readFileSync } from "node:fs";
@@ -40,7 +41,8 @@ import {
   type ProgramLoader,
   type ScriptServices,
 } from "@tk-reawakened/core";
-import { SPEC_PLUGIN } from "./index.ts";
+import { applyDue, createDoubles, wrapPlugins } from "./doubles.ts";
+import { createSpecPlugin } from "./index.ts";
 
 /**
  * TOOL-5 — "the API is a package, not a set of engine built-ins … a program that
@@ -200,7 +202,10 @@ function runTask(source: string, seed: number, loader: SpecProgramLoader | undef
   let checkpointFailure: string | null = null;
   let lastSeq = state.vm.effectSeq;
   const nativePlugin = loader?.nativePlugin;
-  const services: ScriptServices = createScriptServices(state, [...DEFAULT_ENGINE_PLUGINS, ...(nativePlugin === undefined ? [] : [{ definition: nativePlugin }]), { definition: SPEC_PLUGIN }], undefined, undefined, specProgram,
+  // TOOL-5 test doubles: host-side, made afresh for this run, never saved or hashed.
+  const doubles = createDoubles();
+  const plugins = wrapPlugins([...DEFAULT_ENGINE_PLUGINS, ...(nativePlugin === undefined ? [] : [{ definition: nativePlugin }]), { definition: createSpecPlugin(doubles) }], doubles);
+  const services: ScriptServices = createScriptServices(state, plugins, undefined, undefined, specProgram,
     undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
       postHandler: (handler, threadId) => {
         if (handler.plugin !== "script-spec" || handler.name !== "specresult") return;
@@ -236,6 +241,8 @@ function runTask(source: string, seed: number, loader: SpecProgramLoader | undef
   const records: EffectRecord[] = [];
   let finished = false;
   for (let tick = 0; tick < 1000; tick += 1) {
+    // Scheduled key edges enter the input section before this tick's wait poll, in scheduling order.
+    applyDue(doubles, state.input, state.time.tick);
     const status = advanceScriptTick(state, services, STEP_BUDGET);
     // The effect log is a bounded ring: drain it every tick so no record is evicted.
     for (const record of drainEffects(state.vm)) records.push(record);
@@ -250,6 +257,9 @@ function runTask(source: string, seed: number, loader: SpecProgramLoader | undef
     line: error.line,
   }));
   if (!finished) errors.push({ code: "spec.timeout", message: "spec did not finish within 1000 ticks", line: 0 });
+  for (const item of doubles.pending) {
+    errors.push({ code: "spec.input-pending", message: `a key edge (${item.event.name}, ${item.event.down ? "down" : "up"}) scheduled for tick ${item.tick} never entered the input section`, line: 0 });
+  }
   if (checkpointFailure !== null) errors.push({ code: "spec.snapshot", message: checkpointFailure, line: 0 });
   const outcomes: SpecOutcome[] = [];
   for (const record of records) {

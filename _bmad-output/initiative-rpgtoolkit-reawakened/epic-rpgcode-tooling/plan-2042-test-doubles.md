@@ -1,9 +1,9 @@
 ---
 title: 'RPGCode deterministic doubles and spies'
 type: 'feature'
-ticket: ''
+ticket: '#2042'
 created: '2026-11-11'
-status: 'draft'
+status: 'in-review'
 baseline_revision: 'f06ab8af36d5b8763d593ada6ad9831b2485df7b'
 route: 'full'
 route_source: 'pinned'
@@ -76,6 +76,13 @@ The default spy forwards the original handler and preserves return value, by-ref
 - Given the default engine manifest, when inspected, then no spec helpers or interceptors are present; production behavior is unchanged without opt-in.
 
 ## Implementation Notes
+
+- Approved by the owner on 2026-11-12 (plan, ruling and API names as proposed). The docs-first commit adds TOOL-5 `#tool-5-doubles`, the catalogue rows and the ADR 0014 second amendment.
+- `specTicks(0)` returns the current fixture tick. No other command reads the tick, and an author needs it to schedule absolute-tick input. With a positive count the call's value is unset, because a waiting command's value is the wait poll's.
+- `specCalled` takes an explicit `any` flag, so `toHaveBeenNthCalledWith(0, …)` is rejected rather than read as "any call".
+- Doubles are host-side per run (`packages/script-spec/src/doubles.ts`). The runner wraps every registered handler per run: spies record at the top layer of a name, and scripted draws replace `view.rng` for the call. No core seam was needed.
+- No RPGCode command reads a held key (`actionDown` is not implemented), so the key-up edge is proven on a real `InputSection` through `applyDue`. The runner's use of it is proven by the `wait()` cases.
+- `thread()` of a project program fails in the runner fixture (#2106, predates this work), so the cooperative wait is proven by its wait record rather than by a live worker thread.
 
 ## Plan Change Log
 

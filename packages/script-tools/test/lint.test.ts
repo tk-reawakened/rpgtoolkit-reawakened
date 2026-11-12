@@ -51,6 +51,24 @@ test("spec API names are available only to specs, without hiding unknown calls",
   ok(result.diagnostics.some((d, i) => result.programs[i] === "game.prg" && d.message.includes("`expect`")));
 });
 
+test("the TOOL-5 test doubles and spy matchers are spec-only names too", () => {
+  const source = [
+    'it("case", () => {',
+    '  specInput(specTicks(0) + 1, "A", "KeyA", "a", 1)',
+    '  specRng({ "0": 1, length: 1 })',
+    '  s = spyOn("random")',
+    '  expect(s).toHaveBeenCalledWith({ length: 0 })',
+    '  expect(s).toHaveBeenNthCalledWith(1, { length: 0 })',
+    '})',
+  ].join("\n");
+  const spec = lint(buildIndex([{ name: "doubles.spec.prg", ref: { kind: "inline", text: source, ir: "1" } }]), { plugins });
+  deepEqual(spec.diagnostics.filter((d) => d.rule === "lint/unknown-command"), []);
+  const game = lint(buildIndex([{ name: "game.prg", ref: { kind: "inline", text: source, ir: "1" } }]), { plugins });
+  for (const name of ["specInput", "specTicks", "specRng", "spyOn"]) {
+    ok(game.diagnostics.some((d) => d.rule === "lint/unknown-command" && d.message.includes(`\`${name}\``)), name);
+  }
+});
+
 test("a call with the wrong number of parameters reports the command's bounds", () => {
   const result = lint(indexOf("mwin()\n"), { plugins });
   const [found] = result.diagnostics;

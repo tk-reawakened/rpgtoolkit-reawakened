@@ -225,6 +225,8 @@ const SPEC_NAMES: Readonly<Record<string, true>> = {
   describe: true, it: true, test: true, beforeeach: true, aftereach: true, beforeall: true, afterall: true,
   expect: true, skip: true, only: true, tobe: true, toequal: true, tobetruthy: true, tobenull: true,
   tocontain: true, tobecloseto: true, tothrow: true,
+  // TOOL-5 test doubles and spies (#tool-5-doubles).
+  tohavebeencalledwith: true, tohavebeennthcalledwith: true, specinput: true, specticks: true, specrng: true, spyon: true,
 };
 
 
