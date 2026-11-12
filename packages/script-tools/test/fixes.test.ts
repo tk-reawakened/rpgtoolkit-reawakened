@@ -41,6 +41,10 @@ test("mixed legacy forms are converted together and retain comments and CRLF", (
   equal(fixed, '* keep this comment\r\nIf (x == 5) {\r\n  y = 1\r\n}\r\nmwin("Hello there")\r\nthreadSleep(1, 2) // keep this too\r\n');
 });
 
+test("a quoted star stays in dialogue and a trailing comment survives", () => {
+  equal(migrate('  #Mwin("a * b") * KEEP\r\n'), '  Mwin("a * b") // KEEP\r\n');
+});
+
 test("method and return spellings migrate without changing the function", () => {
   const source = "#Method f(a) {\n  #ReturnMethod(a + 2)\n}";
   const fixed = migrate(source);
@@ -58,6 +62,13 @@ test("ambiguous bracket indexing is not rewritten pending #2050", () => {
   deepEqual(legacyFixes("#m[key] = 1", "tk2"), []);
   deepEqual(legacyFixes("#m[1key] = 1", "tk2"), []);
   deepEqual(legacyFixes("#m[key$] = 1", "tk2"), []);
+});
+
+test("migration refuses unresolved explicit and implicit dependencies", () => {
+  deepEqual(legacyFixes('#Include("lib.prg")', "tk2"), []);
+  deepEqual(legacyFixes('#include "lib.prg"\n#Mwin(hi)', "tk2"), []);
+  deepEqual(legacyFixes("#lib.hello() * KEEP", "tk2"), []);
+  deepEqual(legacyFixes('  #foo.bar("*") * KEEP\r\n', "tk2"), []);
 });
 
 test("3.1 code keeps assignment semantics and never gets a TK2-only edit", () => {

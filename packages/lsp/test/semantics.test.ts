@@ -1,10 +1,12 @@
-import { deepEqual, equal, ok } from "node:assert/strict";
+import { deepEqual, equal, ok, throws } from "node:assert/strict";
 import test from "node:test";
 import {
   commandDocumentation,
+  compileProgram,
   createAssetIndex,
   assetKey,
   FIRST_PARTY_PLUGINS,
+  IR_VERSION,
   PACKAGE_ROOT,
   utf8Encode,
   type ProgramLoader,
@@ -188,17 +190,26 @@ test("the outline is the index's functions, classes and labels", () => {
   deepEqual(box.children?.map((child: DocumentSymbol) => child.name), ["n", "box.m"]);
 });
 
-test("Toolkit 2 mode offers an atomic behavior-preserving conversion", () => {
+test("Toolkit 2 conversion previews an unsaved 3.1 copy without editing the project", () => {
   const text = "#Mwin(hello, world)\n#threadSleep(1, 2)\n";
   const started = server({ "main.prg": text });
   started.open("file:///main.prg", text, "rpgcode-tk2");
   const actions = started.codeActions("file:///main.prg");
   equal(actions.length, 1);
-  equal(actions[0]!.kind, "quickfix");
-  ok(actions[0]!.title.includes("Toolkit 2.x"));
-  const edits = actions[0]!.edit?.changes?.["file:///main.prg"] ?? [];
-  equal(edits.length, 2);
-  deepEqual(edits.map((item) => item.newText), ['Mwin("hello", "world")', "threadSleep(1, 2)"]);
+  equal(actions[0]!.edit, undefined);
+  equal(actions[0]!.command?.command, "rpgcode.previewTk2Conversion");
+  deepEqual(actions[0]!.command?.arguments, ['Mwin("hello", "world")\nthreadSleep(1, 2)\n']);
+});
+
+test("Toolkit 2 conversion refuses unresolved project dependencies even when the project loader can read them", () => {
+  const main = "#lib.hello()";
+  const projectLoader = loader({ "main.prg": main, "lib.prg": "#Method hello() {\n  #Mwin(Hello there)\n}" });
+  const original = compileProgram({ kind: "inline", text: main, ir: IR_VERSION, dialect: "tk2" }, { loader: projectLoader });
+  equal(original.units.length, 2);
+  throws(() => compileProgram({ kind: "inline", text: "lib.hello()", ir: IR_VERSION }, { loader: projectLoader }));
+  const started = server({ "main.prg": main, "lib.prg": "#Method hello() {\n  #Mwin(Hello there)\n}" });
+  started.open("file:///main.prg", main, "rpgcode-tk2");
+  deepEqual(started.codeActions("file:///main.prg"), []);
 });
 
 test("ordinary 3.1 mode never guesses that assignment is Toolkit 2 equality", () => {

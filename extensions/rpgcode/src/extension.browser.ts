@@ -1,6 +1,7 @@
 import { Uri, type ExtensionContext } from "vscode";
 import { LanguageClient, type LanguageClientOptions } from "vscode-languageclient/browser.js";
 import { registerDebugAdapter } from "./debug.js";
+import { registerMigrationPreview } from "./migrationPreview.js";
 
 let client: LanguageClient | undefined;
 
@@ -12,6 +13,7 @@ export function activate(context: ExtensionContext): void {
   };
   client = new LanguageClient("rpgcode", "RPGCode Language Server", clientOptions, worker);
   void client.start();
+  registerMigrationPreview(context);
   registerDebugAdapter(context);
 }
 

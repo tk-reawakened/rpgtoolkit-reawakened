@@ -51,7 +51,12 @@ function behavior(program: Program): string {
 
 function sameBehavior(original: string, fixed: string, dialect: ScriptDialect): boolean {
   try {
-    return behavior(compileInline(original, "<migration>", dialect)) === behavior(compileInline(fixed, "<migration>"));
+    const before = compileInline(original, "<migration>", dialect);
+    const after = compileInline(fixed, "<migration>");
+    if (dialect === "tk2" && [before, after].some((program) =>
+      program.units.some((unit) => unit.requests.length > 0) ||
+      program.ops.some((op) => op.op === "call" && op.name === "include"))) return false;
+    return behavior(before) === behavior(after);
   } catch (error) {
     if (error instanceof ScriptError) return false;
     throw error;
@@ -65,7 +70,7 @@ export function sameLowering(original: string, fixed: string): boolean {
 
 /** Return a TK2 trailing star comment after a standalone command, if present. */
 function trailingComment(line: string): string | null {
-  const match = /^\s*#\w+\s*\(/.exec(line);
+  const match = /^\s*#(?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*\s*\(/.exec(line);
   if (match === null) return null;
   let depth = 1;
   let quoted = false;
@@ -112,7 +117,7 @@ function migrateTk2(source: string): LegacyFix[] {
   if (edits.length === 0) return [];
   const fixed = applyEdits(source, edits);
   if (!sameLowering(source, fixed)) return [];
-  return [{ rule: "dialect/tk2-to-tk3", title: "Convert this Toolkit 2.x program to 3.1", edits }];
+  return [{ rule: "dialect/tk2-to-tk3", title: "Preview Toolkit 2.x conversion in an unsaved 3.1 file", edits }];
 }
 
 /** Offer only edits proved against the caller-selected source dialect. */

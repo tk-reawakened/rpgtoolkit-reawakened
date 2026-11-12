@@ -114,6 +114,17 @@ export async function run(): Promise<void> {
   if (extension === undefined) fail(`the extension ${EXTENSION_ID} is installed (installed: ${vscode.extensions.all.map((entry) => entry.id).join(", ")})`);
   log(`manifest main=${String(extension.packageJSON.main)} browser=${String(extension.packageJSON.browser)}`);
 
+  // A dialect preview is a new unsaved document, never an in-place project edit.
+  await extension.activate();
+  const previewText = 'Mwin("Hello there")\n';
+  await vscode.commands.executeCommand("rpgcode.previewTk2Conversion", previewText);
+  const preview = vscode.window.activeTextEditor?.document;
+  if (preview === undefined) fail("the conversion preview opened an editor");
+  equal(preview.isUntitled, true, "conversion preview is unsaved");
+  equal(preview.languageId, "rpgcode", "preview uses the 3.1 language mode");
+  equal(preview.getText(), previewText, "preview contains the converted text");
+  equal(new TextDecoder().decode(await vscode.workspace.fs.readFile(program)), text, "preview leaves the original file untouched");
+
   const stops = stopQueue();
   const started = new Promise<vscode.DebugSession>((resolve) => {
     const listener = vscode.debug.onDidStartDebugSession((session) => {
