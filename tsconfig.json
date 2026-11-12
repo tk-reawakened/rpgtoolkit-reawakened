@@ -29,6 +29,9 @@
       "path": "packages/lsp"
     },
     {
+      "path": "packages/dap"
+    },
+    {
       "path": "packages/script-spec"
     },
     {

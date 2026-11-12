@@ -66,6 +66,7 @@ graph LR
   runnerharness --> runnerweb
   runnerharness --> runnerdesktop
   runnerharness --> scriptspec
+  core --> dap
   runnerharness --> dap
   runnerweb --> runnerdesktop
   runnerweb --> runnermobile[runner-mobile]

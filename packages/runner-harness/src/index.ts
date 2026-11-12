@@ -6,6 +6,8 @@ export { checkVectors } from "./vectors.ts";
 export { decodeAssetTexture } from "./textures.ts";
 export { createScriptHost, restoreScriptHost } from "./script-host.ts";
 export type { ScriptHost, ScriptHostBlobs, ScriptHostInit, ScriptHostRestore } from "./script-host.ts";
+export { createSceneDebugTarget } from "./debug-target.ts";
+export type { SceneDebugTarget, SceneDebugTargetOptions } from "./debug-target.ts";
 export { resolvePluginManifest, type PluginDefinitionTable, type PluginManifestResolution } from "./script-plugin-resolver.ts";
 export { buildPackageCatalogue, catalogueEntry, parsePackageManifest, type PackageCatalogueResult, type PackageFolder, type PackageManifest, type PackageManifestResult } from "./package-catalogue.ts";
 export { checkSnapshotRestore, randomSplit } from "./restore-check.ts";
