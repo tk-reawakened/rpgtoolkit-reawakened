@@ -202,6 +202,17 @@ test("Toolkit 2 conversion previews an unsaved 3.1 copy without editing the proj
   deepEqual(actions[0]!.command?.arguments, ['Mwin("hello", "world")\nthreadSleep(1, 2)\n']);
 });
 
+test("Toolkit 2 conversion explains why quoted loose dialogue cannot be converted", () => {
+  const text = 'Hi #there = "friend"';
+  const started = server({ "main.prg": text });
+  started.open("file:///main.prg", text, "rpgcode-tk2");
+  const actions = started.codeActions("file:///main.prg");
+  equal(actions.length, 1);
+  ok(actions[0]!.disabled?.reason.includes("double quote"));
+  equal(actions[0]!.command, undefined);
+  equal(actions[0]!.edit, undefined);
+});
+
 test("Toolkit 2 conversion keeps a bare index as a variable and flags it in the preview (#2050)", () => {
   const text = "#m[key!] = 1\n";
   const started = server({ "main.prg": text });
