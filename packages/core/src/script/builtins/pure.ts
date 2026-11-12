@@ -138,7 +138,7 @@ const MATH_SPECS: readonly BuiltinSpec[] = [
       doc: { summary: "Optional output variable receiving elapsed milliseconds.", type: "integer", ifOmitted: "No by-reference write occurs; use the returned value." },
     }],
     doc: {
-      summary: "Get the number of milliseconds since Windows started.",
+      summary: "Get the game time elapsed since startup, in milliseconds. The fixed 60 Hz simulation tick gives `floor(tick × 1000 / 60)`.",
       behaviour: "Return floor(tick × 1000 / 60) milliseconds from the injected fixed 60 Hz simulation tick, and write the same value to milliseconds when supplied. This command does not wait.",
       groups: ["program-flow-errors-debugging-25", "core-runtime"],
       returns: { summary: "Elapsed deterministic simulation milliseconds." },
