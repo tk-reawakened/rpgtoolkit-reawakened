@@ -19,6 +19,21 @@ test("TK2 prefixes, sigils, equality and loose dialogue lower through the shared
   equal(normaliseTk2(source).includes("score!"), false);
 });
 
+test("TK2 conditions compare quoted equals and dialogue retains embedded hashes", () => {
+  const source = '#a$ = "p=q"\n#If (a$ = "p=q") {\nHi #there\n}\n#If (a$ = "p==q") {\nWrong branch\n}';
+  const program = compileTk2(source, "text.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Hi #there"]);
+});
+
+test("TK2 normalization keeps quoted operators, hash text and comments distinct", () => {
+  equal(normaliseTk2('#If (a$ = "p=q" & b != "x=y" & c <= 2 & d >= 1) {'), 'If (a == "p=q" & b != "x=y" & c <= 2 & d >= 1) {');
+  equal(normaliseTk2('#While (a$ = "p=q") {\n#Mwin("if(a=b) #there") * #ignored = text\n}'), 'While (a == "p=q") {\nMwin("if(a=b) #there")\n}');
+  equal(normaliseTk2('* #ignored = text\nHi #there'), '\nmwin("Hi #there")');
+});
+
 test("TK2 methods, labels, namespace calls and fbranch preserve shared shapes", () => {
   const ast = parseTk2("#Method Add(a, b) { #ReturnMethod(a + b) }\n:again\n#FBranch(:again)\n#system.start()");
   equal(ast.functions[0]?.name, "add");
