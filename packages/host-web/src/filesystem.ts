@@ -1,8 +1,8 @@
 import type { DirectoryEntry, FileChange, FileStat, FileSystemService } from "@tk-reawakened/platform-services";
-import { platformError, platformOk, type PlatformResult } from "@tk-reawakened/platform-services";
+import { bindProjectFileSystem, platformError, platformOk, type PlatformResult } from "@tk-reawakened/platform-services";
 
 /** File System Access-backed project storage. The root handle is never exposed outside this adapter. */
-export function createWebFileSystem(root: FileSystemDirectoryHandle): FileSystemService {
+export function createWebFileSystem(root: FileSystemDirectoryHandle, projectId: string): FileSystemService {
   const valid = (path: string, allowRoot = false): string[] | null => {
     if (path === "" && allowRoot) return [];
     if (!path || path.startsWith("/") || path.includes("\\")) return null;
@@ -31,7 +31,7 @@ export function createWebFileSystem(root: FileSystemDirectoryHandle): FileSystem
       throw error;
     }
   };
-  const fs: FileSystemService = {
+  const fs = bindProjectFileSystem(projectId, {
     async list(path) {
       const parts = valid(path, true); if (!parts) return platformError("invalid-path", `Invalid project path: ${path}`);
       try { const result: DirectoryEntry[] = []; for await (const [name, entry] of (await dir(parts)).entries()) result.push({ name, kind: entry.kind }); return platformOk(result); }
@@ -55,6 +55,6 @@ export function createWebFileSystem(root: FileSystemDirectoryHandle): FileSystem
     async delete(path) { const parts = valid(path); if (!parts) return platformError("invalid-path", `Invalid project path: ${path}`); try { await (await dir(parts.slice(0, -1))).removeEntry(parts.at(-1)!, { recursive: true }); return platformOk(undefined); } catch (error) { return fail(error, path); } },
     async rename(from, to) { const source = valid(from); const target = valid(to); if (!source || !target) return platformError("invalid-path", `Invalid project path: ${!source ? from : to}`); return platformError("unavailable", "File System Access does not provide a portable atomic rename."); },
     async watch(_path, _onChange) { return platformError("unavailable", "This browser cannot watch project changes."); },
-  };
+  });
   return fs;
 }
