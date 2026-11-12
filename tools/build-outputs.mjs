@@ -18,7 +18,7 @@ export const HOST_BUILD_OUTPUTS = Object.freeze({
     "apps/browser/bundled.json",
     "apps/browser/closing-files.json",
     "apps/browser/precache.json",
-    "apps/browser/service-worker.js",
+    "apps/service-worker.js",
   ]),
   desktop: Object.freeze([
     "apps/desktop/player-desktop.js",
@@ -36,10 +36,12 @@ export const HOST_BUILD_OUTPUTS = Object.freeze({
 
 /** Resolve a declared host output, rejecting a new artifact until its contract is updated. */
 export function hostBuildOutput(root, host, file) {
-  const path = `apps/${host}/${file}`;
   const outputs = HOST_BUILD_OUTPUTS[host];
-  if (outputs === undefined || !outputs.includes(path)) {
-    throw new Error(`${host} build output is not declared: ${path}`);
+  const path = outputs?.find((candidate) =>
+    candidate === `apps/${host}/${file}` || (host === "browser" && candidate === `apps/${file}`),
+  );
+  if (path === undefined) {
+    throw new Error(`${host} build output is not declared: apps/${host}/${file}`);
   }
   return join(root, path);
 }

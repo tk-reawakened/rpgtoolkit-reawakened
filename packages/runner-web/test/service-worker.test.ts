@@ -137,7 +137,7 @@ test("registerPlayerWorker skips desktop app: without calling register", async (
   equal(registerCalled, false);
 });
 
-test("registerPlayerWorker registers /apps/browser/service-worker.js with player scope by default", async () => {
+test("registerPlayerWorker keeps its stable script URL and browser precache path", async () => {
   let passedScript: string | URL | null = null;
   let passedOptions: { scope?: string; updateViaCache?: string } | undefined;
 
@@ -158,6 +158,8 @@ test("registerPlayerWorker registers /apps/browser/service-worker.js with player
 
   const result = await registerPlayerWorker(mockWin);
   equal(result.registered, true);
+  equal(WORKER_SCRIPT_URL, "/apps/service-worker.js");
+  equal(PRECACHE_MANIFEST_URL, "/apps/browser/precache.json");
   equal(passedScript, WORKER_SCRIPT_URL);
   deepEqual(passedOptions, { scope: PLAYER_SCOPE, updateViaCache: "none" });
 });

@@ -90,6 +90,7 @@ async function play(host: DesktopHost, opened: { readonly name: string; readonly
   let quitRequested = false;
   let stopPlayer: (() => void) | undefined;
   const session = await createLiveSession({
+    audioArtifactHost: "desktop",
     interactive: true,
     ...(debug === undefined || debug.drawVectorsFlags === 0 ? {} : { debug: { drawVectorsFlags: debug.drawVectorsFlags } }),
     mainFile: pkg.main,

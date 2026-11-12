@@ -113,7 +113,7 @@ test("AC1: with the network blocked and the service worker in control, a relaunc
   });
 
   const baseline = demoBoardBaseline();
-  expect(controlled).toContain("/apps/browser/service-worker.js");
+  expect(controlled).toContain("/apps/service-worker.js");
   expect(report.error).toBeUndefined();
   expect(report.load.mode).toBe("whole");
   expect(report.tick).toBe(baseline.tick);

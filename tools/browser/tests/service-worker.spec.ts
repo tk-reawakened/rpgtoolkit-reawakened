@@ -274,7 +274,7 @@ test("(c) changed worker script installs as waiting while open page keeps old ve
 
   // Deploy a genuine v2 bundle to `apps/service-worker.js` while the session is open (exactly what a real deploy does;
   // Playwright routes do not reach Chromium's out-of-page `registration.update()` fetch) and restore v1 afterwards.
-  const workerFile = resolve("apps/browser/service-worker.js");
+  const workerFile = resolve("apps/service-worker.js");
   const originalScript = readFileSync(workerFile, "utf8");
   const modifiedScript =
     originalScript.replace(new RegExp(JSON.stringify(v1), "g"), JSON.stringify(updatedVersion)) +

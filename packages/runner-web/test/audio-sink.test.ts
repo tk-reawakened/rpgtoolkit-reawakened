@@ -233,22 +233,10 @@ test("a bank over the ceiling is bank.unavailable, not a crash", () => {
   equal(made.currentBank, null);
 });
 
-test("default worklet URL selects the artifact owned by its host", () => {
-  const original = Object.getOwnPropertyDescriptor(globalThis, "location");
-  try {
-    for (const [protocol, expected] of [
-      ["https:", "/apps/browser/audio-worklet.js"],
-      ["capacitor:", "/apps/mobile/audio-worklet.js"],
-      ["app:", "app://player/apps/desktop/audio-worklet.js"],
-    ] as const) {
-      const fakeLocation = { protocol } as Location;
-      Object.defineProperty(globalThis, "location", { configurable: true, value: fakeLocation });
-      equal(defaultWorkletUrl(), expected);
-    }
-  } finally {
-    if (original === undefined) Reflect.deleteProperty(globalThis, "location");
-    else Object.defineProperty(globalThis, "location", original);
-  }
+test("worklet URL uses the explicit host-owned path", () => {
+  equal(defaultWorkletUrl("browser"), "/apps/browser/audio-worklet.js");
+  equal(defaultWorkletUrl("mobile"), "/apps/mobile/audio-worklet.js");
+  equal(defaultWorkletUrl("desktop"), "app://player/apps/desktop/audio-worklet.js");
 });
 // ---------------------------------------------------------------- the AudioWorklet graph (issue #1044)
 

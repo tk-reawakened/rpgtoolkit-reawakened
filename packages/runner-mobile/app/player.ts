@@ -151,6 +151,7 @@ async function start(): Promise<void> {
     let quitBeforeReady = false;
     try {
       const session = await createLiveSession({
+        audioArtifactHost: "mobile",
         interactive: true,
         mainFile: pkg.main,
         gameIdentity: pkg.gameIdentity,

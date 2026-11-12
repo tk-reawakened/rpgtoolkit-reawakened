@@ -7,6 +7,7 @@
 
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { hostBuildOutput } from "../build-outputs.mjs";
 
 export const CLOSING_MANIFEST_PATH = "apps/browser/closing-files.json";
 
@@ -28,9 +29,9 @@ export function closingGames(root) {
 }
 
 /** Write a host-specific closing manifest (browser by default) and return the game count. */
-export function writeClosingManifest(root, manifestPath = CLOSING_MANIFEST_PATH) {
+export function writeClosingManifest(root, host = "browser") {
   const games = closingGames(root);
-  const out = join(root, manifestPath);
+  const out = hostBuildOutput(root, host, "closing-files.json");
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, `${JSON.stringify({ schema: 1, games }, null, 2)}\n`);
   return Object.keys(games).length;

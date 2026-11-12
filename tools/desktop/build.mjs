@@ -60,6 +60,7 @@ await build({
 await build({
   entryPoints: [join(root, "packages/runner-web/src/audio-worklet.ts")],
   outfile: hostBuildOutput(root, "desktop", "audio-worklet.js"),
+  bundle: true,
   format: "iife",
   platform: "browser",
   target: "chrome120",
@@ -89,5 +90,5 @@ const bundled = folders.flatMap((folder) =>
     .sort(),
 );
 writeFileSync(hostBuildOutput(root, "desktop", "bundled.json"), `${JSON.stringify({ folders, files: bundled }, null, 2)}\n`);
-console.log(`built apps/desktop/closing-files.json (${writeClosingManifest(root, "apps/desktop/closing-files.json")} fetched games listed)`);
+console.log(`built apps/desktop/closing-files.json (${writeClosingManifest(root, "desktop")} fetched games listed)`);
 console.log(`built runner-desktop: dist/main.js, dist/preload.js, apps/desktop/player-desktop.js, apps/desktop/player-desktop-live.js (${bundled.length} bundled assets listed)`);

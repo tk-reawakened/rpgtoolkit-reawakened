@@ -1,7 +1,7 @@
 /**
  * Offline Service Worker for TK Reawakened web player (issue #934).
  *
- * Built as a single self-contained IIFE bundle (`apps/browser/service-worker.js`).
+ * Built as a single self-contained IIFE bundle at the stable URL (`apps/service-worker.js`).
  *
  * LIFECYCLE CONTRACT:
  * - On install: precaches the versioned app shell (`tkr-shell-<version>`) from `/apps/browser/precache.json`.

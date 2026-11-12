@@ -13,9 +13,9 @@
  * (`storage.html`, `audio.html`, `agreement.html`, `decode.html`, `vectors.html`). This is the minimal scope that controls
  * the player and no more.
  *
- * Because the script is served from `/apps/browser/` and the scope is under `/packages/runner-web/app/`, the server must send the
- * `Service-Worker-Allowed` response header. Setting `Service-Worker-Allowed: /packages/runner-web/app/` on the worker script
- * permits registrations at or below that prefix.
+ * Because the script remains at its original stable URL (`/apps/service-worker.js`) and its scope is under
+ * `/packages/runner-web/app/`, the server must send the `Service-Worker-Allowed` response header. Setting
+ * `Service-Worker-Allowed: /packages/runner-web/app/` on the worker script permits registrations at or below that prefix.
  */
 
 export const PLAYER_PAGE_URL = "/packages/runner-web/app/index.html";

@@ -54,8 +54,8 @@ for (const entry of entries) {
   if (bundled.includes("AGFzbQ")) throw new Error(`apps/browser/${entry.out} contains a WebAssembly module; the browser player forbids instantiation`);
 }
 
-// The browser page needs the same bundled-asset manifest the desktop build produces, so both runners can resolve
-// shared fonts and cursors from the `apps/` static tree without fetching the whole package manifest on boot.
+// The browser page owns its bundled-asset manifest. Desktop and mobile emit their own host-specific copies from the same
+// source folders, so building one host can never overwrite another host's index.
 const folders = ["media/fonts", "media/cursors", "media/soundfonts", "stock/stock_menu", "stock/stock_battle", "stock/stock_rpg"];
 const bundled = folders.flatMap((folder) =>
   readdirSync(join(root, folder), { withFileTypes: true })
@@ -64,7 +64,7 @@ const bundled = folders.flatMap((folder) =>
     .sort(),
 );
 writeFileSync(hostBuildOutput(root, "browser", "bundled.json"), `${JSON.stringify({ folders, files: bundled }, null, 2)}\n`);
-console.log(`built apps/browser/closing-files.json (${writeClosingManifest(root, "apps/browser/closing-files.json")} fetched games listed)`);
+console.log(`built apps/browser/closing-files.json (${writeClosingManifest(root, "browser")} fetched games listed)`);
 console.log(`built apps/browser/bundled.json (${bundled.length} bundled assets listed)`);
 
 // Precache manifest (issue #934): listing app shell files, content-derived version, and bundled assets.
@@ -111,6 +111,7 @@ console.log(`built apps/browser/precache.json (version ${version}, ${precache.sh
 
 // The service worker bundle embeds the content-derived version and precache manifest
 await build({
+  entryPoints: [join(root, "packages/runner-web/src/service-worker.ts")],
   outfile: hostBuildOutput(root, "browser", "service-worker.js"),
   ...bundleOptions,
   define: {
@@ -118,4 +119,4 @@ await build({
     "__PRECACHE_MANIFEST__": JSON.stringify(JSON.stringify(precache)),
   },
 });
-console.log(`built apps/browser/service-worker.js (version ${version})`);
+console.log(`built apps/service-worker.js (version ${version})`);
