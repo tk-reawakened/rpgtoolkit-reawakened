@@ -101,6 +101,7 @@ function connect(url) {
 }
 
 const KEY = {
+  F3: { key: "F3", code: "F3", windowsVirtualKeyCode: 114, nativeVirtualKeyCode: 114, text: "", unmodifiedText: "" },
   Enter: { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, text: "\r", unmodifiedText: "\r" },
   ArrowRight: { key: "ArrowRight", code: "ArrowRight", windowsVirtualKeyCode: 39, nativeVirtualKeyCode: 39, text: "", unmodifiedText: "" },
   ArrowDown: { key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40, nativeVirtualKeyCode: 40, text: "", unmodifiedText: "" },
@@ -179,6 +180,21 @@ async function main() {
     const opened = await status();
     if (opened === null) throw new Error("the live page published no status");
     if (opened.error !== undefined) throw new Error(String(opened.error));
+
+    const overlay = async () => evaluate(`({ hidden: document.querySelector("#live-status").hidden,
+      width: document.querySelector("#viewport").clientWidth, height: document.querySelector("#viewport").clientHeight,
+      windowWidth: innerWidth, windowHeight: innerHeight })`);
+    const initialOverlay = await overlay();
+    if (!initialOverlay.hidden || initialOverlay.width !== initialOverlay.windowWidth || initialOverlay.height !== initialOverlay.windowHeight) {
+      throw new Error(`desktop diagnostics or viewport has the wrong default: ${JSON.stringify(initialOverlay)}`);
+    }
+    await press("F3");
+    const shownOverlay = await overlay();
+    if (shownOverlay.hidden || shownOverlay.width !== initialOverlay.width || shownOverlay.height !== initialOverlay.height) {
+      throw new Error(`desktop diagnostics changed the viewport: ${JSON.stringify(shownOverlay)}`);
+    }
+    await press("F3");
+    if (!(await overlay()).hidden) throw new Error("desktop diagnostics did not close on F3");
 
     // Exercise the actual live page, including a ratio above 2.5 where rounding would choose the wrong scale.
     const fits = [];

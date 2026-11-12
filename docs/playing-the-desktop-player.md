@@ -6,6 +6,8 @@ This page tells you how to run a game in TK Reawakened's desktop player on your 
 
 The desktop player is a small Electron window that opens a packaged game and runs it through the same persistent core engine as the browser and headless runner.
 
+Press F3 to show or hide the diagnostic overlay. It is hidden when the player starts, and errors are shown automatically. The game view retains its aspect ratio as it fits the window.
+
 | What works | Limits |
 |---|---|
 | `pnpm desktop:run --package <your.tpk>` opens any packaged game that has its `.tpk.json` descriptor beside it. A macOS launch of a small authored package showed that package's own board on the canvas, with the status reporting a player position. | This is one observed package, not a claim that every game is playable. |

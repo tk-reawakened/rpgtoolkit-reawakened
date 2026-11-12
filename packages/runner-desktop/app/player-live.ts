@@ -13,7 +13,10 @@ declare global { interface Window { desktop?: Host; __live?: { tick: number; sta
 
 void start().catch((error: unknown) => {
   const status = document.querySelector<HTMLElement>("#live-status");
-  if (status !== null) status.textContent = `player: ${String(error)}`;
+  if (status !== null) {
+    status.textContent = `player: ${String(error)}`;
+    status.hidden = false;
+  }
   window.__live = { tick: 0, stateHash: "", drawHash: "", board: null, player: null, error: String(error) };
 });
 
@@ -59,10 +62,18 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
   let pending: InputRecord[] = [];
   let disposed = false;
   const onKeyDown = (event: KeyboardEvent): void => {
+    if (event.code === "F3") {
+      event.preventDefault();
+      if (!event.repeat) status.hidden = !status.hidden;
+      return;
+    }
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) event.preventDefault();
     pending.push({ tick: session.tick(), event: { kind: "key", name: event.key.toUpperCase(), code: event.code, char: event.key.length === 1 ? event.key : null, down: true, ...(event.repeat ? { repeat: true } : {}) } });
   };
-  const onKeyUp = (event: KeyboardEvent): void => pending.push({ tick: session.tick(), event: { kind: "key", name: event.key.toUpperCase(), code: event.code, char: event.key.length === 1 ? event.key : null, down: false } });
+  const onKeyUp = (event: KeyboardEvent): void => {
+    if (event.code === "F3") { event.preventDefault(); return; }
+    pending.push({ tick: session.tick(), event: { kind: "key", name: event.key.toUpperCase(), code: event.code, char: event.key.length === 1 ? event.key : null, down: false } });
+  };
   const focus = (state: "lost" | "gained"): void => pending.push({ tick: session.tick(), event: { kind: "focus", state } });
   const onBlur = (): void => focus("lost");
   const onFocus = (): void => focus("gained");
@@ -114,6 +125,7 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
     }).catch((error: unknown) => {
       window.__live = { tick: session.tick(), stateHash: session.stateHash(), drawHash: "", board: session.boardKey(), player: session.playerPosition(), error: String(error) };
       status.textContent = `player: ${String(error)}`;
+      status.hidden = false;
       dispose();
     });
   };
