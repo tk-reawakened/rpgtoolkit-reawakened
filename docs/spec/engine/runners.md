@@ -100,6 +100,8 @@ the world tint (`tint`), `alpha` and `blend`:
    is non-zero, add it, and clamp once.
 3. **Blend.** `normal`, `additive`, `translucent`, or v3 `source-over` (AD-3). Source and target are straight-alpha RGBA. For `source-over`, let `a = floor(sourceAlpha × alpha / 255)`, `d = targetAlpha`, and `n = a × 255 + d × (255 − a)`. If `n` is zero, leave the target unchanged; otherwise the output alpha is `floor((n + 127) / 255)` and each output colour channel is `floor((source × a × 255 + target × d × (255 − a) + floor(n / 2)) / n)`. Thus a partially transparent destination is not treated as opaque. The normal mode still replaces, not composites. An enabled render-now overlay uses `source-over` so its straight-alpha ink covers the frame once.
 
+**Text coverage.** Each glyph coverage value is a source alpha for the command's straight RGB colour. Composite it source-over the current straight-alpha target using the same integer rule above (with `a = coverage`), including transparent and translucent targets. An edge of white ink over transparent pixels therefore retains RGB `(255,255,255)` with alpha equal to its coverage; consumers must not multiply the colour a second time.
+
 The order is part of the agreement bound below: **colour-key exclusion is compared exactly**, so a runner that keys
 after the world tint fails the colour-key vectors.
 
