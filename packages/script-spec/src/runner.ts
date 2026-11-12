@@ -13,6 +13,8 @@
  * of the group's walk. Every task runs twice and must give identical outcomes and
  * state hashes. Each run has its own host-side test doubles (`doubles.ts`), so a
  * case's scheduled keys, scripted draws and spies never reach another run.
+ * With `coverage`, each counted run also counts the instructions it executes
+ * (`coverage.ts`, TOOL-5 "Line coverage").
  */
 
 import { readFileSync } from "node:fs";
@@ -41,6 +43,7 @@ import {
   type ProgramLoader,
   type ScriptServices,
 } from "@tk-reawakened/core";
+import { addCounts, createCoverageProbe, toCoverage, type LineCounts, type SpecCoverage } from "./coverage.ts";
 import { applyDue, createDoubles, wrapPlugins } from "./doubles.ts";
 import { createSpecPlugin } from "./index.ts";
 
@@ -61,9 +64,16 @@ const SPEC_PROGRAM = "__spec.prg";
 const LIBRARY_INCLUDE = "script-spec/startup.prg";
 const LIBRARY_PATH = `Prg/${LIBRARY_INCLUDE}`;
 
-/** Project loader with the native commands belonging to its package, if any. */
-export type SpecProgramLoader = ProgramLoader & { readonly nativePlugin?: PluginDefinition };
+/**
+ * Project loader with the native commands belonging to its package, if any, and the project path coverage reports
+ * for an asset key it serves (default: the path the loader's index lists for it).
+ */
+export type SpecProgramLoader = ProgramLoader & {
+  readonly nativePlugin?: PluginDefinition;
+  readonly sourcePath?: (key: string) => string | undefined;
+};
 const SPEC_FILE_KEY = assetKey(`Prg/${SPEC_PROGRAM}`);
+const LIBRARY_KEY = assetKey(LIBRARY_PATH);
 
 /** The project loader plus this spec file and the includable library unit. */
 function specLoader(base: ProgramLoader | undefined, source: string): ProgramLoader {
@@ -119,6 +129,8 @@ export type SpecFileReport = {
   /** `only` narrowed the run; the text is stable. */
   readonly warning: string | null;
   readonly failures: readonly string[];
+  /** Present only when the run asked for `coverage`. */
+  readonly coverage?: SpecCoverage;
 };
 
 export type SpecRunOptions = {
@@ -130,6 +142,8 @@ export type SpecRunOptions = {
   readonly name?: string;
   /** Optional project program loader for includes made by the spec. */
   readonly loader?: SpecProgramLoader;
+  /** Count the RPGCode lines the run executes and report them as `coverage` (TOOL-5 "Line coverage"). */
+  readonly coverage?: boolean;
 };
 
 export const ONLY_WARNING = "only() narrowed the run to the marked cases; unmarked cases were not run";
@@ -161,7 +175,27 @@ type TaskRun = {
   readonly hash: string;
   /** The snapshot taken at a setup run's checkpoint, or `null`. */
   readonly checkpoint: string | null;
+  /** This run's line counts, when coverage was asked for. */
+  readonly lines: LineCounts | null;
 };
+
+/** Where a counted run's instruction positions are reported: a project path, or `null` for harness lines. */
+type Placement = (file: string, line: number) => string | null;
+
+/**
+ * Coverage placement for one spec file (TOOL-5 coverage rule 1): the spec's own lines under its path, the library
+ * and the lines appended after the spec's text never, and every other file under its project path.
+ */
+function placement(file: string, source: string, loader: SpecProgramLoader | undefined): Placement {
+  const authored = source.split("\n").length;
+  const indexed = new Map<string, string>();
+  for (const path of loader?.index.paths ?? []) if (!indexed.has(assetKey(path))) indexed.set(assetKey(path), path);
+  return (key, line) => {
+    if (key === SPEC_FILE_KEY) return line <= authored ? file : null;
+    if (key === LIBRARY_KEY) return null;
+    return loader?.sourcePath?.(key) ?? indexed.get(key) ?? key;
+  };
+}
 
 /** A fresh 1×1 board, one selected party actor and no variables. */
 function freshState(seed: number): GameState {
@@ -184,7 +218,7 @@ function freshState(seed: number): GameState {
   return state;
 }
 
-function runTask(source: string, seed: number, loader: SpecProgramLoader | undefined, task: Task): TaskRun {
+function runTask(source: string, seed: number, loader: SpecProgramLoader | undefined, task: Task, place: Placement | null = null): TaskRun {
   const state = task.from === null ? freshState(seed) : restoreGameState(task.from);
   // The snapshot carries the effect log of the run that took it; this run reports only its own.
   if (task.from !== null) drainEffects(state.vm);
@@ -201,6 +235,8 @@ function runTask(source: string, seed: number, loader: SpecProgramLoader | undef
   let checkpoint: string | null = null;
   let checkpointFailure: string | null = null;
   let lastSeq = state.vm.effectSeq;
+  // The probe reads the services only while steps run, after they exist.
+  const probe = place === null ? null : createCoverageProbe(() => state.vm, () => services, place);
   const nativePlugin = loader?.nativePlugin;
   // TOOL-5 test doubles: host-side, made afresh for this run, never saved or hashed.
   const doubles = createDoubles();
@@ -224,8 +260,11 @@ function runTask(source: string, seed: number, loader: SpecProgramLoader | undef
       },
       // A step is observed before it runs, so the first step after the library's checkpoint
       // report sees a state whose last call has finished: the snapshot resumes right after it.
-      ...(task.mode !== SETUP ? {} : {
-        postStep: () => {
+      // Coverage counts the instruction the thread's top frame is about to run.
+      ...(task.mode !== SETUP && probe === null ? {} : {
+        postStep: (_op: unknown, threadId: number) => {
+          probe?.step(threadId);
+          if (task.mode !== SETUP) return;
           const last = state.vm.effects[state.vm.effects.length - 1];
           if (last === undefined || last.seq === lastSeq) return;
           lastSeq = last.seq;
@@ -277,19 +316,21 @@ function runTask(source: string, seed: number, loader: SpecProgramLoader | undef
       column: position?.column ?? 0,
     });
   }
-  return { outcomes, errors, hash: hashGameState(state), checkpoint };
+  return { outcomes, errors, hash: hashGameState(state), checkpoint, lines: probe?.finish() ?? null };
 }
 
 /** Run a task twice: determinism is part of the contract, so a difference is a runner failure. */
-function runTwice(what: string, source: string, seed: number, loader: SpecProgramLoader | undefined, task: Task): TaskRun {
-  const first = runTask(source, seed, loader, task);
-  const second = runTask(source, seed, loader, task);
+function runTwice(what: string, source: string, seed: number, loader: SpecProgramLoader | undefined, task: Task, place: Placement | null): TaskRun {
+  const first = runTask(source, seed, loader, task, place);
+  const second = runTask(source, seed, loader, task, place);
   if (first.hash !== second.hash) {
     throw new Error(`${what}: two runs gave different state hashes (${first.hash} vs ${second.hash})`);
   }
   if (JSON.stringify(first.outcomes) !== JSON.stringify(second.outcomes)
     || JSON.stringify(first.errors) !== JSON.stringify(second.errors)
-    || first.checkpoint !== second.checkpoint) {
+    || first.checkpoint !== second.checkpoint
+    // The replay is compared, never counted: coverage is one logical run (TOOL-5 coverage rule 4).
+    || (first.lines !== null && JSON.stringify(toCoverage(first.lines)) !== JSON.stringify(toCoverage(second.lines!)))) {
     throw new Error(`${what}: two runs gave different outcomes`);
   }
   return first;
@@ -395,6 +436,11 @@ export function runSpecFile(file: string, source: string, options: SpecRunOption
   const strict = options.strict ?? true;
   const loader = options.loader;
   const structure = collect(source, seed, loader);
+  const place = options.coverage === true ? placement(file, source, loader) : null;
+  const counted: LineCounts = new Map();
+  const count = (run: TaskRun): void => {
+    if (run.lines !== null) addCounts(counted, run.lines);
+  };
   if (structure.cases.length === 0) {
     const outcome: SpecOutcome = {
       kind: "fail", label: NO_CASES, expected: "at least one case", actual: "no case is registered", line: 1, column: 1,
@@ -405,6 +451,7 @@ export function runSpecFile(file: string, source: string, options: SpecRunOption
       skipped: [],
       warning: null,
       failures: [`${file}: ${NO_CASES}: the spec file registers no case (line 1)`],
+      ...(place === null ? {} : { coverage: toCoverage(counted) }),
     };
   }
   const onlySeen = structure.cases.some((item) => item.kind === "only");
@@ -426,7 +473,8 @@ export function runSpecFile(file: string, source: string, options: SpecRunOption
     // A group's setup resumes from the snapshot of its nearest ancestor that has a beforeAll.
     const above = lineage(group).slice(1).find((id) => structure.groups.get(id)!.hasBeforeAll);
     const from = above === undefined ? null : setupOf(above).snapshot;
-    const run = runTwice(`beforeAll of group ${group}`, source, seed, loader, { mode: SETUP, target: group, from });
+    const run = runTwice(`beforeAll of group ${group}`, source, seed, loader, { mode: SETUP, target: group, from }, place);
+    count(run);
     const setup: Setup = { outcomes: run.outcomes, errors: run.errors, snapshot: run.checkpoint, hash: run.hash };
     setups.set(group, setup);
     return setup;
@@ -476,7 +524,8 @@ export function runSpecFile(file: string, source: string, options: SpecRunOption
       }
     }
     if (!blocked) {
-      const run = runTwice(name, source, seed, loader, { mode: CASE, target: item.id, from });
+      const run = runTwice(name, source, seed, loader, { mode: CASE, target: item.id, from }, place);
+      count(run);
       own.push(...run.outcomes, ...runtimeFailures(`${name}/runtime error`, "no runtime error", run.errors));
       hash = run.hash;
     }
@@ -489,7 +538,8 @@ export function runSpecFile(file: string, source: string, options: SpecRunOption
         if (remaining.get(group) !== 0 || !info.hasAfterAll || failedAbove(group)) continue;
         const from = info.hasBeforeAll ? setupOf(group).snapshot : snapshotFor(group);
         if (info.hasBeforeAll && from === null) continue;
-        const run = runTwice(`afterAll of group ${group}`, source, seed, loader, { mode: TEARDOWN, target: group, from });
+        const run = runTwice(`afterAll of group ${group}`, source, seed, loader, { mode: TEARDOWN, target: group, from }, place);
+        count(run);
         suffix.push(...run.outcomes, ...runtimeFailures(`${name}/afterAll`, "afterAll without a runtime error", run.errors));
       }
     }
@@ -502,5 +552,8 @@ export function runSpecFile(file: string, source: string, options: SpecRunOption
     for (const outcome of outcomes) if (outcome.kind === "fail") failures.push(`${file}: ${name}: ${failureMessage(outcome)} (line ${outcome.line})`);
     cases.push({ name, groups: groupsFor(item.group), outcomes, ok, stateHash: hash });
   }
-  return { file, cases, skipped, warning: onlySeen ? ONLY_WARNING : null, failures };
+  return {
+    file, cases, skipped, warning: onlySeen ? ONLY_WARNING : null, failures,
+    ...(place === null ? {} : { coverage: toCoverage(counted) }),
+  };
 }

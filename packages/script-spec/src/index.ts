@@ -17,6 +17,8 @@ import { specCommands, SPEC_GROUP } from "./natives.ts";
 export { discoverCases, failureMessage, hasOnlyCases, NO_CASES, ONLY_WARNING, runSpecFile } from "./runner.ts";
 export type { SpecCaseResult, SpecFileReport, SpecOutcome, SpecOutcomeKind, SpecRunOptions } from "./runner.ts";
 export { discoverProjectSpecs, runSpecProject, watchSpecProject } from "./project.ts";
+export { mergeCoverage, toLcov } from "./coverage.ts";
+export type { SpecCoverage, SpecFileCoverage, SpecLineCoverage } from "./coverage.ts";
 export type { SpecProjectOptions, SpecProjectReport } from "./project.ts";
 
 /**
