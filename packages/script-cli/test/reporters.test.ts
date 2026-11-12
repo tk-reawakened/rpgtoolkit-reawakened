@@ -1,9 +1,10 @@
-import { deepEqual, equal, match, doesNotMatch } from "node:assert/strict";
+import { deepEqual, equal, notEqual, match, doesNotMatch, rejects } from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { test } from "node:test";
+import { createConnection, createServer, type Server, type Socket } from "node:net";
+import { basename, join } from "node:path";
+import { test, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import { runSpecProject, watchSpecProject } from "@tk-reawakened/script-spec";
 import { parseArgs, runTest } from "../src/index.ts";
@@ -18,6 +19,7 @@ const nested = [
 ].join("\n");
 
 const watchTimeout = process.env.TKR_WATCH_CANCELLATION_PROBE === "1" ? 150 : 10000;
+const watchDeadlockTimeout = 60000;
 
 function onceStop(stop: () => void): () => void {
   let requested = false;
@@ -126,7 +128,7 @@ test("CLI watch exits with the latest full-run status", { timeout: watchTimeout 
   const root = mkdtempSync(join(tmpdir(), "tkr-cli-watch-"));
   const filename = join(root, "case.spec.prg");
   writeFileSync(filename, 'it("case", () => { expect(1).toBe(1) })');
-  const child = spawn(process.execPath, [new URL("../dist/cli.js", import.meta.url).pathname, "script", "test", root, "--watch"], { stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [fileURLToPath(new URL("../dist/cli.js", import.meta.url)), "script", "test", root, "--watch"], { stdio: ["ignore", "pipe", "pipe"] });
   const closed = new Promise<void>((resolve) => { child.once("close", () => { resolve(); }); });
   const stop = onceStop(() => { child.kill("SIGINT"); });
   t.after(() => cleanupWatcherChild(child, closed, root));
@@ -155,12 +157,12 @@ test("CLI watch exits with the latest full-run status", { timeout: watchTimeout 
   await done;
 });
 
-test("JUnit watch replaces one XML report and preserves a focused-run warning", { timeout: watchTimeout }, async (t) => {
+test("JUnit watch replaces one XML report and preserves a focused-run warning", { timeout: process.env.TKR_WATCH_CANCELLATION_PROBE === "1" ? watchTimeout : watchDeadlockTimeout }, async (t) => {
   const root = mkdtempSync(join(tmpdir(), "tkr-junit-watch-"));
   const filename = join(root, "case.spec.prg");
   const report = join(root, "report.xml");
   writeFileSync(filename, 'only("case", () => { expect(1).toBe(1) })');
-  const child = spawn(process.execPath, [new URL("../dist/cli.js", import.meta.url).pathname, "script", "test", root, "--watch", "--reporter", "junit", "--out", report], { stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [fileURLToPath(new URL("../dist/cli.js", import.meta.url)), "script", "test", root, "--watch", "--reporter", "junit", "--out", report], { stdio: ["ignore", "pipe", "pipe"] });
   const closed = new Promise<void>((resolve) => { child.once("close", () => { resolve(); }); });
   const stop = onceStop(() => { child.kill("SIGINT"); });
   t.after(() => cleanupWatcherChild(child, closed, root));
@@ -204,49 +206,165 @@ test("JUnit watch replaces one XML report and preserves a focused-run warning", 
   await done;
 });
 
-async function runWatchProbe(pattern: string, env: NodeJS.ProcessEnv): Promise<{ status: number | null; stdout: string; stderr: string }> {
+async function runWatchProbe(pattern: string, env: NodeJS.ProcessEnv, sandbox: string, t: TestContext, signal?: AbortSignal, onRoot?: (pid: number) => void): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  let server: Server | undefined;
+  let releaseBarrier = (): void => {};
+  const sockets = new Set<Socket>();
+  // Register before the first await: callers may register after-hooks as soon as this function returns its promise.
+  let cleanup = async (): Promise<void> => {
+    for (const socket of sockets) socket.destroy();
+    if (server?.listening) await new Promise<void>((resolve, reject) => {
+      server!.close((error) => { if (error) reject(error); else resolve(); });
+    });
+    rmSync(sandbox, { recursive: true, force: true });
+  };
+  t.after(() => cleanup());
+  if (process.platform === "win32") {
+    const pipe = `\\\\.\\pipe\\tkr-watch-${process.pid}-${basename(sandbox)}`;
+    let released = false;
+    server = createServer((socket) => {
+      sockets.add(socket);
+      socket.once("close", () => { sockets.delete(socket); });
+      if (released) socket.end("ready");
+    });
+    await new Promise<void>((resolve, reject) => {
+      server!.once("error", reject);
+      server!.listen(pipe, resolve);
+    });
+    releaseBarrier = () => {
+      released = true;
+      for (const socket of sockets) socket.end("ready");
+    };
+    env = {
+      ...env,
+      TKR_WATCH_JOB_PIPE: pipe,
+      NODE_OPTIONS: `--import=${new URL("./fixtures/watch-job-barrier.mjs", import.meta.url).href} ${env.NODE_OPTIONS ?? ""}`,
+    };
+  }
   const child = spawn(process.execPath, [
+    fileURLToPath(new URL("./fixtures/watch-supervisor.mjs", import.meta.url)),
     "--test",
     `--test-name-pattern=${pattern}`,
     fileURLToPath(import.meta.url),
-  ], { env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+  ], { env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe", "ipc"] });
   let stdout = "";
   let stderr = "";
-  child.stdout.setEncoding("utf8").on("data", (chunk: string) => { stdout += chunk; });
-  child.stderr.setEncoding("utf8").on("data", (chunk: string) => { stderr += chunk; });
-  const status = await new Promise<number | null>((resolve, reject) => {
-    // Only a fail-safe: a leaked watcher must not hang the parent test process.
-    const timer = setTimeout(() => {
-      if (process.platform !== "win32" && child.pid !== undefined) {
-        try { process.kill(-child.pid, "SIGKILL"); } catch { /* Already reaped. */ }
-      } else child.kill("SIGKILL");
-      child.stdout.destroy();
-      child.stderr.destroy();
-      child.unref();
-      reject(new Error(`watch probe did not exit\n${stdout}\n${stderr}`));
-    }, 8000);
-    child.once("error", (error) => { clearTimeout(timer); reject(error); });
-    child.once("close", (code) => { clearTimeout(timer); resolve(code); });
+  child.stdout!.setEncoding("utf8").on("data", (chunk: string) => { stdout += chunk; });
+  child.stderr!.setEncoding("utf8").on("data", (chunk: string) => { stderr += chunk; });
+  const close = new Promise<void>((resolve) => { child.once("close", () => { resolve(); }); });
+  let stopping: Promise<void> | undefined;
+  const completion = new Promise<number | null>((resolve, reject) => {
+    child.once("error", reject);
+    child.on("message", (message: { type: string; pid?: number; code?: number | null; message?: string }) => {
+      if (message.type === "root" && message.pid !== undefined) onRoot?.(message.pid);
+      if (message.type === "exit") resolve(message.code ?? null);
+      if (message.type === "error") reject(new Error(message.message));
+    });
+    child.once("exit", (code, childSignal) => {
+      if (stopping === undefined) {
+        // The supervisor is the group anchor. Clean up immediately if it dies unexpectedly.
+        if (process.platform !== "win32" && child.pid !== undefined) {
+          try { process.kill(-child.pid, "SIGKILL"); }
+          catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") reject(error); }
+        }
+        reject(new Error(`watch supervisor exited unexpectedly (${code}, ${childSignal})`));
+      }
+    });
   });
+  let job: ChildProcess | undefined;
+  let jobClosed: Promise<number | null> | undefined;
+  let jobError = "";
+  let stoppingRequested = false;
+  const stop = (): Promise<void> => {
+    stoppingRequested = true;
+    stopping ??= (async () => {
+      if (process.platform === "win32") {
+        if (job !== undefined) {
+          job.stdin?.end();
+          const code = await jobClosed!;
+          if (code !== 0) {
+            child.kill("SIGKILL");
+            await close;
+            for (const socket of sockets) socket.destroy();
+            server?.close();
+            throw new Error(`watch job helper exited with ${code}: ${jobError}`);
+          }
+        } else child.kill("SIGKILL"); // Still held at the barrier, with no descendants.
+      } else if (child.pid !== undefined) {
+        try { process.kill(-child.pid, "SIGKILL"); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+      }
+      await close;
+      for (const socket of sockets) socket.destroy();
+      if (server !== undefined) await new Promise<void>((resolve, reject) => {
+        server!.close((error) => { if (error) reject(error); else resolve(); });
+      });
+    })();
+    return stopping;
+  };
+  let reason: string | undefined;
+  let rejectTermination!: (error: unknown) => void;
+  const terminationFailure = new Promise<never>((_resolve, reject) => { rejectTermination = reject; });
+  const abort = (message: string): void => {
+    if (reason !== undefined) return;
+    reason = message;
+    void stop().then(
+      () => { rejectTermination(new Error(`${message}\n${stdout}\n${stderr}`)); },
+      rejectTermination,
+    );
+  };
+  const onAbort = (): void => { abort("watch probe cancelled"); };
+  signal?.addEventListener("abort", onAbort, { once: true });
+  if (signal?.aborted) onAbort();
+  // Only a deadlock fail-safe; ordinary success follows the root's exit event.
+  const timer = setTimeout(() => { abort("watch probe deadlocked"); }, watchDeadlockTimeout + 30000);
+  cleanup = async () => {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
+    await stop();
+    rmSync(sandbox, { recursive: true, force: true });
+  };
+  if (process.platform === "win32" && !stoppingRequested) {
+    job = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-File",
+      fileURLToPath(new URL("./fixtures/watch-job.ps1", import.meta.url)), String(child.pid)],
+    { stdio: ["pipe", "pipe", "pipe"] });
+    jobClosed = new Promise<number | null>((resolve) => { job!.once("close", resolve); });
+    job.stdin!.on("error", (error) => { jobError += `\n${error.message}`; });
+    job.stderr!.setEncoding("utf8").on("data", (chunk: string) => { jobError += chunk; });
+    const ready = new Promise<void>((resolve, reject) => {
+      let output = "";
+      job!.stdout!.setEncoding("utf8").on("data", (chunk: string) => {
+        output += chunk;
+        if (output.includes("READY")) resolve();
+      });
+      job!.once("error", reject);
+      job!.once("close", (code) => { reject(new Error(`watch job setup failed (${code}): ${jobError}`)); });
+    });
+    await Promise.race([ready, terminationFailure, completion.then(() => { throw new Error("watch supervisor exited before job setup"); })]);
+    if (!stoppingRequested) releaseBarrier();
+  }
+  const status = await Promise.race([completion, terminationFailure]);
+  await stop();
+  if (reason !== undefined) throw new Error(`${reason}\n${stdout}\n${stderr}`);
   return { status, stdout, stderr };
 }
 
 function watchProbeEnv(fixtureName: string, sandbox: string): NodeJS.ProcessEnv {
-  const fixture = fileURLToPath(new URL(`./fixtures/${fixtureName}`, import.meta.url));
+  const fixture = new URL(`./fixtures/${fixtureName}`, import.meta.url).href;
   const env: NodeJS.ProcessEnv = {
     ...process.env,
-    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${JSON.stringify(fixture)}`,
+    // Ambient preloads could spawn descendants before the Windows ownership barrier.
+    NODE_OPTIONS: `--import=${fixture}`,
     TMPDIR: sandbox, TEMP: sandbox, TMP: sandbox,
   };
   delete env.NODE_TEST_CONTEXT;
   return env;
 }
 
-test("JUnit watch reruns even when generated output events are lost", { timeout: 12000 }, async (t) => {
+test("JUnit watch reruns even when generated output events are lost", async (t) => {
   // Exercise real OS watchers while dropping report-file notifications, not source-file notifications.
   const sandbox = mkdtempSync(join(tmpdir(), "tkr-watch-probe-"));
-  t.after(() => { rmSync(sandbox, { recursive: true, force: true }); });
-  const probe = await runWatchProbe("JUnit watch replaces", watchProbeEnv("suppress-output-watch.mjs", sandbox));
+  const probe = await runWatchProbe("JUnit watch replaces", watchProbeEnv("suppress-output-watch.mjs", sandbox), sandbox, t);
   equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
   match(probe.stdout, /pass 1/);
   deepEqual(readdirSync(sandbox), []);
@@ -255,12 +373,127 @@ test("JUnit watch reruns even when generated output events are lost", { timeout:
 test("watch test cancellation closes real watchers and child processes", { timeout: 12000 }, async (t) => {
   // This subprocess exercises real cancellation and process teardown; fake timers cannot prove handle cleanup.
   const sandbox = mkdtempSync(join(tmpdir(), "tkr-watch-probe-"));
-  t.after(() => { rmSync(sandbox, { recursive: true, force: true }); });
+  // The probe owns sandbox cleanup after its subprocess has closed.
   const env = watchProbeEnv("suppress-watch.mjs", sandbox);
   env.TKR_WATCH_CANCELLATION_PROBE = "1";
-  const probe = await runWatchProbe("watch reruns all files|CLI watch exits|JUnit watch replaces", env);
+  const probe = await runWatchProbe("watch reruns all files|CLI watch exits|JUnit watch replaces", env, sandbox, t);
   equal(probe.status, 1, `${probe.stdout}\n${probe.stderr}`);
   match(probe.stdout, /cancelled 3/);
   match(probe.stdout, /test timed out/);
   deepEqual(readdirSync(sandbox), []);
+});
+
+// Fast-test rule, permanent Windows exception (120 s deadlock ceiling): the proof starts real processes
+// inside a Windows job; avoiding PowerShell's native setup would require a shipped native helper.
+for (const failure of ["abort", "deadlock", "root-exit"] as const) test(`watch probe ${failure} stops a live CLI descendant and removes its sandbox`, { timeout: 120000 }, async (t) => {
+  if (failure === "deadlock") t.mock.timers.enable({ apis: ["setTimeout"] });
+  const sandbox = mkdtempSync(join(tmpdir(), "tkr-watch-abort-"));
+  const marker = join(sandbox, "watch-ready");
+  const ambient = process.env.NODE_OPTIONS;
+  const hostile = fileURLToPath(new URL("./fixtures/ambient-preload.cjs", import.meta.url)).replaceAll("\\", "/");
+  let env: NodeJS.ProcessEnv;
+  try {
+    process.env.NODE_OPTIONS = `--require=${JSON.stringify(hostile)}`;
+    env = watchProbeEnv("suppress-output-watch.mjs", sandbox);
+  } finally {
+    if (ambient === undefined) delete process.env.NODE_OPTIONS;
+    else process.env.NODE_OPTIONS = ambient;
+  }
+  const preloadSentinel = join(sandbox, "ambient-preload-ran");
+  env.TKR_PRELOAD_SENTINEL = preloadSentinel;
+  env.TKR_WATCH_READY = marker;
+  const controller = new AbortController();
+  const ready = new Promise<{ pid: number; port: number }>((resolve) => {
+    const watcher = watch(sandbox, () => {
+      if (!existsSync(marker)) return;
+      watcher.close();
+      resolve(JSON.parse(readFileSync(marker, "utf8")) as { pid: number; port: number });
+    });
+    t.after(() => { watcher.close(); });
+  });
+  let rootReady!: (pid: number) => void;
+  const root = new Promise<number>((resolve) => { rootReady = resolve; });
+  const running = runWatchProbe("JUnit watch replaces", env, sandbox, t, controller.signal, rootReady);
+  t.after(() => { equal(existsSync(sandbox), false); });
+  const [{ pid, port }, rootPid] = await Promise.race([
+    Promise.all([ready, root]),
+    running.then(() => { throw new Error("watch probe exited before CLI readiness"); }),
+  ]);
+  process.kill(pid, 0); // The marker comes from the actual CLI after opening its real watcher.
+  const lease = createConnection({ host: "127.0.0.1", port });
+  lease.resume();
+  const disconnected = new Promise<void>((resolve) => { lease.once("close", () => { resolve(); }); });
+  t.after(() => { lease.destroy(); });
+  await new Promise<void>((resolve, reject) => {
+    lease.once("connect", resolve);
+    lease.once("error", reject);
+  });
+  if (failure === "root-exit") {
+    process.kill(rootPid, "SIGKILL");
+    const result = await running;
+    notEqual(result.status, 0);
+  } else {
+    const cancelled = rejects(running, failure === "abort" ? /watch probe cancelled/ : /watch probe deadlocked/);
+    if (failure === "abort") controller.abort();
+    else t.mock.timers.tick(watchDeadlockTimeout + 30000);
+    await cancelled;
+  }
+  // A connection accepted by the real CLI closes when its process terminates, even during OS exit transitions.
+  await disconnected;
+  equal(existsSync(preloadSentinel), false);
+});
+
+if (process.platform !== "win32") test("watch supervisor stops live descendants when its parent dies", { timeout: 120000 }, async (t) => {
+  const sandbox = mkdtempSync(join(tmpdir(), "tkr-watch-parent-"));
+  const project = join(sandbox, "project");
+  mkdirSync(project);
+  writeFileSync(join(project, "case.spec.prg"), 'it("case", () => { expect(1).toBe(1) })');
+  const marker = join(sandbox, "watch-ready");
+  const env = watchProbeEnv("suppress-output-watch.mjs", sandbox);
+  env.TKR_WATCH_READY = marker;
+  const ready = new Promise<{ pid: number; port: number }>((resolve) => {
+    const watcher = watch(sandbox, () => {
+      if (!existsSync(marker)) return;
+      watcher.close();
+      resolve(JSON.parse(readFileSync(marker, "utf8")) as { pid: number; port: number });
+    });
+    t.after(() => { watcher.close(); });
+  });
+  const parent = spawn(process.execPath, [
+    fileURLToPath(new URL("./fixtures/watch-parent.mjs", import.meta.url)), project, join(project, "report.xml"),
+  ], { env, stdio: ["ignore", "ignore", "pipe", "ipc"] });
+  const closed = new Promise<void>((resolve) => { parent.once("close", () => { resolve(); }); });
+  let group: number | undefined;
+  let leaseClosed = false;
+  const groupReady = new Promise<number>((resolve, reject) => {
+    parent.once("error", reject);
+    parent.on("message", (message: { type: string; pid?: number; message?: string }) => {
+      if (message.type === "group" && message.pid !== undefined) { group = message.pid; resolve(group); }
+      if (message.type === "error") reject(new Error(message.message));
+    });
+  });
+  t.after(async () => {
+    parent.kill("SIGKILL");
+    await closed;
+    if (!leaseClosed && group !== undefined) {
+      try { process.kill(-group, "SIGKILL"); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+    }
+    rmSync(sandbox, { recursive: true, force: true });
+  });
+  const [{ pid, port }] = await Promise.all([ready, groupReady]);
+  process.kill(pid, 0);
+  const lease = createConnection({ host: "127.0.0.1", port });
+  lease.resume();
+  const disconnected = new Promise<void>((resolve) => {
+    lease.once("close", () => { leaseClosed = true; resolve(); });
+  });
+  t.after(() => { lease.destroy(); });
+  await new Promise<void>((resolve, reject) => {
+    lease.once("connect", resolve);
+    lease.once("error", reject);
+  });
+  parent.kill("SIGKILL");
+  await closed;
+  await disconnected;
 });

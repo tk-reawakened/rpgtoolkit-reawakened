@@ -458,6 +458,9 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm build
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - name: Verify Windows watch probe process-tree cancellation
+        if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && runner.os == 'Windows'
+        run: node --test --test-name-pattern="watch probe (abort|deadlock|root-exit) stops" packages/script-cli/test/reporters.test.ts
       - run: pnpm make-package fixtures/legacy/demo --closing-plan golden/closing/plan.json --game demo --out fixtures/packages/demo.tpk --title Demo
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm desktop:build
