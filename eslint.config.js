@@ -247,6 +247,8 @@ export default [
       // working copy.
       ".worktrees/**",
       "fixtures/**",
+      // Playwright removes and recreates this output directory when a run starts.
+      "test-results/**",
       // The VS Code web build `tools/vscode-web/run.mjs` downloads (a whole editor, ~200 MB).
       ".vscode-test-web/**",
       ".serena/**",
