@@ -165,9 +165,8 @@ test("the project's overlays draw in the visible player exactly as they do headl
   await page.waitForFunction(() => window.__live?.board != null, undefined, { timeout: 90_000 });
   expect(await overlayCommandsInBrowser(page)).toEqual(expected);
 
-  // The title is refreshed once a second from presented frames: "Debug Overlays  N vectors, F FPS".
-  await expect.poll(() => page.title(), { timeout: 10_000 }).toMatch(/^Debug Overlays \d+ vectors, \d+ FPS$/);
-  expect(await page.title()).toContain("1 vectors");
+  // Wait for a title refresh after the live board is ready; do not accept an initial count.
+  await expect.poll(() => page.title(), { timeout: 10_000 }).toMatch(/^Debug Overlays 1 vectors, \d+ FPS$/);
 });
 
 test("a project without drawVectors draws no overlays and keeps its plain title", async ({ page }) => {
