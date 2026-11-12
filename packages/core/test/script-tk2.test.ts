@@ -1,6 +1,6 @@
 import { deepEqual, equal, throws } from "node:assert/strict";
 import { test } from "node:test";
-import { advanceScriptTick, compileTk2, createGameState, normaliseTk2, parseTk2, startProgram } from "../src/index.ts";
+import { advanceScriptTick, compileTk2, createGameState, normaliseTk2, parseTk2, startProgram, UI_PLUGIN } from "../src/index.ts";
 import { createScriptServices } from "./script-test-services.ts";
 
 test("TK2 prefixes, sigils, equality and loose dialogue lower through the shared AST", () => {
@@ -59,6 +59,53 @@ test("TK2 raw text binds only the command argument and leaves expressions execut
     col: 1,
     endCol: 4,
   });
+});
+
+test("TK2 text commands read sigilled variable arguments, not their names", () => {
+  const source = '#name$ = "Ada"\n#score! = 7\n#Mwin(name$)\n#Mwin(score!)\n#Mwin(Hello there)\n#Mwin("name$")';
+  equal(normaliseTk2(source), 'name = "Ada"\nscore = 7\nMwin(name)\nMwin(score)\nMwin("Hello there")\nMwin("name$")');
+  const program = compileTk2(source, "variables.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Ada", "7", "Hello there", "name$"]);
+});
+
+test("TK2 text commands read digit-leading sigilled identifiers", () => {
+  const source = '#1name$ = "Ada"\n#1score! = 7\n#Mwin(1name$)\n#Mwin(1score!)';
+  equal(normaliseTk2(source), '1name = "Ada"\n1score = 7\nMwin(1name)\nMwin(1score)');
+  const program = compileTk2(source, "digit-leading.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Ada", "7"]);
+});
+
+test("TK2 text commands evaluate sigilled operator and member expressions", () => {
+  const source = '#score! = 3\n#foo = { bar: "Ada" }\n#Mwin(score! ^ 2)\n#Mwin(~score!)\n#Mwin(foo.bar$)';
+  equal(normaliseTk2(source), 'score = 3\nfoo = { bar: "Ada" }\nMwin(score! ^ 2)\nMwin(~score)\nMwin(foo.bar)');
+  const program = compileTk2(source, "expressions.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["9", "-4", "Ada"]);
+});
+
+test("TK2 retains variable and literal identity in mixed and nested arguments", () => {
+  equal(
+    normaliseTk2('#Text(1, 2, name$)\n#Mwin(concat(name$, "!"))\n#Mwin("name$")'),
+    'Text(1, 2, name)\nMwin(concat(name, "!"))\nMwin("name$")',
+  );
+});
+
+test("TK2 raw text keeps punctuation instead of treating it as a sigil", () => {
+  const source = '#Mwin(Hello there!)\n#Mwin(Price $5)\n#Mwin("already quoted!")';
+  equal(normaliseTk2(source), 'Mwin("Hello there!")\nMwin("Price $5")\nMwin("already quoted!")');
+  const program = compileTk2(source, "punctuation.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Hello there!", "Price $5", "already quoted!"]);
 });
 
 test("TK2 #FBranch and #Branch compile to equivalent call expressions", () => {
