@@ -65,6 +65,8 @@ const manifest = {
 };
 const { writeFileSync } = await import("node:fs");
 writeFileSync(join(desktop, "dist", "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+// Keep the player icon with the app so it works independently of the served game directory.
+cpSync(join(root, "media", "icons", "png", "tkr-512.png"), join(desktop, "dist", "icon.png"));
 const { readdirSync } = await import("node:fs");
 const folders = ["media/fonts", "media/cursors", "media/soundfonts"];
 const bundled = folders.flatMap((folder) =>

@@ -152,6 +152,7 @@ function createWindow(): BrowserWindow {
     width: 960,
     height: 720,
     backgroundColor: "#000000",
+    icon: join(app.getAppPath(), "icon.png"),
     // No chrome of our own: the page draws everything, and the menu bar is the OS's.
     autoHideMenuBar: true,
     webPreferences: {
@@ -176,6 +177,8 @@ function createWindow(): BrowserWindow {
 
 registerIpc();
 app.whenReady().then(() => {
+  // The development Electron shell has its own Dock icon on macOS; replace it with the player's artwork.
+  if (process.platform === "darwin") app.dock.setIcon(join(app.getAppPath(), "icon.png"));
   serveAppProtocol();
   createWindow();
   app.on("activate", () => {
