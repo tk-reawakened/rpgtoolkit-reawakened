@@ -289,6 +289,7 @@ test("unit shards have a bounded job timeout and a timed-out shard fails the gat
   match(unit, /^ {4}timeout-minutes: 30$/mu);
   const gate = jobs.get("gate")?.join("\n") ?? "";
   match(gate, /^ {4}needs: \[.*\bunit\b.*\]$/mu);
+  match(gate, /^ {10}RESULTS: "\$\{\{ join\(needs\.\*\.result, ' '\) \}\}"$/mu, "gate must aggregate every required job result");
   const guard = gate.split("\n").find((line) => line.includes('for r in $RESULTS;'));
   ok(guard, "gate must reject every result other than success");
   for (const result of ["failure", "cancelled", "timed_out"]) {

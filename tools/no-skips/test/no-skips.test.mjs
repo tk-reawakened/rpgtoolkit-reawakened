@@ -151,12 +151,20 @@ test("the tool passes and prints the totals when every test runs", () => {
 
 test("coverage runs report execution-ordered starts and finishes to stderr", () => {
   const root = makeDir("progress");
-  writeFileSync(join(root, "pass.test.mjs"), "import { test } from 'node:test'; test('trace case', () => {});\n");
+  mkdirSync(join(root, "packages", "demo", "src"), { recursive: true });
+  writeFileSync(join(root, "packages", "demo", "src", "sample.mjs"), "export const answer = () => 42;\n");
+  writeFileSync(join(root, "pass.test.mjs"), "import { test } from 'node:test'; import { answer } from './packages/demo/src/sample.mjs'; test('trace case', () => { if (answer() !== 42) throw Error('bad'); });\n");
   const result = runTool(root, ["--lcov", "coverage.info", "*.test.mjs"]);
   equal(result.status, 0, result.output);
-  match(result.stderr, /test-progress start .*trace case/);
-  match(result.stderr, /test-progress finish .*trace case/);
-  ok(existsSync(join(root, "coverage.info")));
+  const starts = result.stderr.indexOf('test-progress start ');
+  const finishes = result.stderr.indexOf('test-progress finish ');
+  ok(starts >= 0 && finishes > starts, result.stderr);
+  match(result.stderr.slice(starts, finishes), /trace case/);
+  match(result.stderr.slice(finishes), /trace case/);
+  const lcov = readFileSync(join(root, "coverage.info"), "utf8");
+  const sample = lcov.split("end_of_record").find((record) => /SF:.*packages\/demo\/src\/sample\.mjs/.test(record));
+  ok(sample, "sample source must have an LCOV record");
+  match(sample, /DA:\d+,[1-9]\d*/);
 });
 
 test("progress emits a running test before its event stream completes", async () => {
