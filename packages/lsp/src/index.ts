@@ -21,6 +21,7 @@ import {
   buildIndex,
   legacyFixes,
   projectHelp,
+  tk2ConversionRefusal,
   type Diagnostic as AnalysisDiagnostic,
   type HelpEntry,
   type IndexCall,
@@ -268,6 +269,10 @@ export function createServer(connection: ServerConnection, options: ServerOption
   connection.onCodeAction((params) => {
     const document = documents.get(params.textDocument.uri);
     if (document === undefined) return [];
+    if (document.languageId === "rpgcode-tk2") {
+      const reason = tk2ConversionRefusal(document.getText());
+      if (reason !== null) return [{ title: "Preview Toolkit 2.x conversion", kind: "refactor.rewrite", disabled: { reason } }];
+    }
     return legacyFixes(document.getText(), document.languageId === "rpgcode-tk2" ? "tk2" : "tk3").map((fix) => {
       if (fix.rule === "dialect/tk2-to-tk3") {
         return {

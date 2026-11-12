@@ -31,7 +31,7 @@ This is the dialect most surviving games use.
 * **Comparisons.** Inside a `#If` or `#While` condition a **single `=` is equality** (the help says "you can use one equal
   sign"); the comparison set is `==`, `!=`, `~=`, `<`, `>`, `<=`, `>=`. `!=` is a second "not equal" spelling alongside
   `~=` (3.1 accepts both, [rpgcode-language.md](rpgcode-language.md)). This rule is Toolkit 2.x only: in 3.1 `=` is
-  assignment.
+  assignment. Quoted text is not an operator: `#If (a$ = "p=q")` compares against `p=q`.
 * **Includes and redirects.** `#Include(filename$)`, an implicit namespace include `#lib.method(args)` (loads
   `Prg/lib.prg` and calls `method`), `#Redirect(old, new)`, `#KillRedirect(name)` and `#KillAllRedirects()`. The
   `#Redirect` operands may themselves be `#`-prefixed names and the target may be an implicit `file.method` — for example
@@ -50,7 +50,7 @@ This is the dialect most surviving games use.
 * **Unquoted string arguments** (`#Mwin(Hello there)`, `#SetImage(title.gif, …)`) are read as strings, and a variable name
   may be passed where a value is wanted.
 * **Type sigils on variables.** A trailing `!` (numeric) or `$` (string) is ignored when it follows a variable name, including immediately before an array subscript's closing `]`. For an array element, the sigil may also follow the closing `]` of the subscript, and is ignored there too: `#values[index!]$ = 1` assigns to `values[index]`. The array name and each index expression retain their ordinary Toolkit 2.x meaning.
-* **Loose text lines** with no `#`, `*`, `:` or brace are shown as dialogue exactly as written; trailing punctuation such as `!` is not a type sigil.
+* **Loose text lines** are shown as dialogue exactly as written; an embedded `#` or `=` is text, not an operator or statement introducer, and trailing punctuation such as `!` is not a type sigil. A leading `#`, `*`, `:`, or brace marks syntax rather than loose text. For unprefixed lines containing `=`, a valid expression statement takes precedence over dialogue: `Mwin("x=y")` is a call, `foo(x = 1) + 2` executes its call, and `a = 1` assigns, while `A+B = friendship` is dialogue because its assignment target is invalid. This preserves shared expression syntax ([language rules](rpgcode-language.md#expressions)); it does not make every line containing `=` code. `<name>` in dialogue is message substitution, not a Toolkit 1.x block.
 
 **STX-7.** Loose text lines and `#Mwin` unquoted arguments exist only in legacy files; accepting them is the frontends' and the converter's job, not the 3.1 parser's.
 
@@ -87,7 +87,7 @@ Toolkit 1.x (RPGCode v1) is not in the first release.
 | `=` inside a `#If` or `#While` condition | Rewritten to `==`. |
 | bare index `m[key]` | Kept as the variable index `m[key]`; a sigil is dropped (`m[key!]` → `m[key]`). The converter never adds quotes here, because no context proves a literal-key reading under the [bare-index rule](#tk2-bare-index). Each bare index is flagged for review: a trailing comment `// TKR review: …` is added to the line and the conversion lists it, so the author can write `m["key"]` if a literal key was meant. An index expression such as `m[a + 1]` or `m[1]` is not flagged. |
 | sigils `x!`, `name$` | Removed everywhere, including inside expressions (`a! + 1` → `a + 1`). |
-| loose text lines | Rewritten to `mwin("…")` with the text exactly as written, including any `//`, `/*` or `*/` in it. |
+| loose text lines | Rewritten to `mwin("…")` with the text exactly as written, including backslashes and any `//`, `/*` or `*/` in it, unless the text contains a double quote (see refusal below). |
 | `#Method`, `#ReturnMethod(x)` | `function`, `return x`. |
 | `* comment` | A whole-line star comment is kept unchanged; 3.1 also reads it as a comment. A trailing star comment after a command becomes `// …` with the same text. |
 | obsolete engine controls | Kept by name (`#Dos` → `Dos`); never deleted. |
@@ -95,6 +95,7 @@ Toolkit 1.x (RPGCode v1) is not in the first release.
 
 **Not converted.** These are refused. The converter offers no rewrite for the file and changes nothing:
 
+* Loose dialogue containing a double quote. Toolkit 3.1 string literals have no escape for a quote (LEX-8); building it with `chr(34)` is not a safe equivalent because that call can be intercepted. The frontend still displays the literal text. The converter offers no edit and reports why.
 * A code line that contains `//`, `/*` or `*/` outside a quoted string. A code line is any line that is not blank, a star comment or dialogue. This dialect page does not say whether Toolkit 2.x treats these markers as comments, so the converter cannot show that it keeps their meaning.
 * Includes, implicit `file.method` calls and commands that load other programs (`#Include`, `#lib.hello()`, `executeProgram`, `run`, `thread`, `rpgcode` and others). One file cannot be compared on its own when its behaviour depends on another file.
 * A program the Toolkit 2.x frontend cannot compile.

@@ -25,6 +25,7 @@ Entry 10.9 builds `packages/script-cli`, the `tkr script` command-line front end
 - `tkr-script-result/1` is validated against `docs/spec/schemas/tkr-script-result.schema.json` for every subcommand exercised.
 - Stable exit codes 0–3; `--json` stdout is only the envelope, human-readable progress is on stderr, and internal errors retain the attempted subcommand.
 - `script-dogfood` compares check, fmt, index, docs and test against committed baselines. It is a dependency of `gate`; the active `Gate Guards` ruleset requires `gate`.
+- Fast-gate status (owner ruling 2026-11-12, [#2090](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2090)): `script-dogfood` is earlier feedback only. The "run only when RPGCode files change" criterion is deferred, not met; ADR 0016's fail-closed full gate is unchanged, and any faster required gate needs a separately approved dependency-aware classifier with proof of affected-job selection.
 
 The CLI implementation originally merged in PR #1017 (merge commit 6b4357ed); this closeout adds the remaining behavior and evidence.
 
