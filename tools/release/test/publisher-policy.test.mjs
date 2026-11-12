@@ -15,3 +15,10 @@ test('extension publisher uses patched Markdown and XML parsers', () => {
   assert.equal(lock.packages['node_modules/linkify-it'].version, '5.0.2');
   assert.equal(lock.packages['node_modules/xml2js'].version, '0.6.2');
 });
+
+test('release requires explicit publisher write-permission confirmation', () => {
+  const workflow = readFileSync('.github/workflows/release-rpgcode.yml', 'utf8');
+  assert.match(workflow, /publisher_permissions_verified:\n(?:.*\n){3}\s+default: false/);
+  assert.ok(workflow.includes("if: ${{ !inputs.publisher_permissions_verified }}"));
+  assert.match(workflow, /Confirm npm scope and both extension publisher write permissions first.*exit 1/);
+});

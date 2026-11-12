@@ -7,6 +7,11 @@ on:
         type: boolean
         required: true
         default: false
+      publisher_permissions_verified:
+        description: npm scope and both extension publishers have independently verified write access
+        type: boolean
+        required: true
+        default: false
       extension_target:
         description: Publish to both registries, or resume only the missing registry
         type: choice
@@ -34,6 +39,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Require independently verified publisher write permissions
+        if: ${{ !inputs.publisher_permissions_verified }}
+        run: echo 'Confirm npm scope and both extension publisher write permissions first' >&2; exit 1
       - name: Require verification before a partial extension recovery
         if: ${{ inputs.extension_target != 'both' && !inputs.previous_extension_verified }}
         run: echo 'Verify the already-published registry version and VSIX before resuming' >&2; exit 1
@@ -64,7 +72,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm release:test && pnpm release:preflight && pnpm licence && pnpm graph && pnpm provenance
       - run: npm --prefix extensions/rpgcode ci --ignore-scripts --no-audit --no-fund
-      - name: Verify extension publisher rights before publishing anything
+      - name: Verify extension publisher credentials before publishing anything
         working-directory: extensions/rpgcode
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}

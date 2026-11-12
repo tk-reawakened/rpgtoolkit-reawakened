@@ -127,10 +127,13 @@ those checks. Both commands also test failure paths; they require network access
 
 The manual **Publish RPGCode tooling** workflow operates only on `main` after a
 successful CI push run for the same commit. Configure and protect its `release`
-environment and provide `NPM_TOKEN`, `VSCE_PAT`, and `OVSX_PAT`; the publisher must control
-the npm scope and the `tk-reawakened` namespace in both extension registries.
-The workflow checks publisher credentials, package and bundle licences, and
-the preflight before publishing. Never put those secrets in a repository file.
+environment and provide `NPM_TOKEN`, `VSCE_PAT`, and `OVSX_PAT`. Independently
+confirm that the credentials can publish to the npm scope and the
+`tk-reawakened` namespace in both extension registries, then confirm that in
+the dispatch form. `vsce verify-pat` can succeed for a read-only Marketplace
+role, and `npm whoami` proves identity, not scope write access; neither alone
+proves publishing rights. The workflow also checks credentials, package and
+bundle licences, and preflight. Never put secrets in a repository file.
 
 Publishing can fail partway through: npm versions already present are skipped
 only if their registry integrity matches the candidate tarball; a mismatch
