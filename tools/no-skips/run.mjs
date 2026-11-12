@@ -387,6 +387,8 @@ export function run(root, patterns, options = {}) {
         "--test-coverage-exclude=**/catalogue-stubs.ts",
         "--test-reporter=lcov",
         `--test-reporter-destination=${lcovPath}`,
+        `--test-reporter=${join(here, "progress.mjs")}`,
+        "--test-reporter-destination=stderr",
       );
     }
     nodeArgs.push(

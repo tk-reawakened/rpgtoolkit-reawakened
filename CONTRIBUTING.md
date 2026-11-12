@@ -337,6 +337,11 @@ pnpm editor-ui-toolchain:test && pnpm editor-ui-toolchain:check  # the Preact/TS
 pnpm golden:bun                  # replay the golden and closing suites under Bun against the committed output; needs Bun and fixtures:fetch [golden-bun]
 ```
 
+CI unit shards have a 30-minute job limit: more than three times the longest
+observed 9m13s shard. A timed-out shard fails the required gate. Coverage runs
+also print execution-ordered test starts and finishes to stderr to help locate
+unfinished work; the limit does not itself fix a stalled test.
+
 Other commands:
 
 ```sh
