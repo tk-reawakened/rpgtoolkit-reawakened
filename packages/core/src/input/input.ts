@@ -516,7 +516,9 @@ function applyKey(state: InputSection, event: KeyInput, onUnknownAction?: (actio
   ];
   if (event.down) {
     const semanticGameBinding = mapped !== undefined && mapped.startsWith("game.");
-    const name = semanticGameBinding ? event.name : configured ?? event.name;
+    // E-110: physical arrows reach RPGCode as LEFT, RIGHT, UP or DOWN across all runners.
+    const arrowName = event.code.startsWith("Arrow") ? PHYSICAL_KEY_ALIASES[event.code]?.[0] : undefined;
+    const name = arrowName ?? (semanticGameBinding ? event.name : configured ?? event.name);
     appendKey(state, name, event.code, event.char, configured ?? null, ordered, null, !event.repeat && !priorRaw);
   }
   if (event.down && event.repeat === true) return;

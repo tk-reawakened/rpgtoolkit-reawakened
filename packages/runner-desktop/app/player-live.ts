@@ -83,6 +83,8 @@ async function play(host: DesktopHost, opened: { readonly name: string; readonly
   const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, antialias: false, alpha: false, preserveDrawingBuffer: true });
   if (gl === null) throw new Error("no WebGL2 context for the visible player");
   const debug = await host.debug?.();
+  let quitRequested = false;
+  let stopPlayer: (() => void) | undefined;
   const session = await createLiveSession({
     interactive: true,
     ...(debug === undefined || debug.drawVectorsFlags === 0 ? {} : { debug: { drawVectorsFlags: debug.drawVectorsFlags } }),
@@ -97,7 +99,11 @@ async function play(host: DesktopHost, opened: { readonly name: string; readonly
       write: (area, gameId, path, bytes) => host.writeBlob(area, gameId, path, bytes),
       list: (area, gameId) => host.listBlobs(area, gameId),
     },
-    onQuit: () => { void host.quit(); },
+    onQuit: () => {
+      quitRequested = true;
+      stopPlayer?.();
+      void host.quit();
+    },
     onDiagnostic: ({ code, file, line, message }, tick) => {
       const location = file === "" ? "" : ` ${file}:${line}`;
       console.warn(`game tick=${tick} ${code}${location}: ${message}`);
@@ -106,14 +112,15 @@ async function play(host: DesktopHost, opened: { readonly name: string; readonly
       console.info(`game tick=${tick} battle ${battle === null ? "cleared" : JSON.stringify(battle)}`);
     },
   });
+  if (quitRequested) return;
   window.__session = session;
   // The diagnostics strip is a runner feature, not a project setting: it appears only when this run asked for it.
   const diagnostics = debug?.diagnostics === true ? document.querySelector<HTMLElement>("#diagnostics") : null;
   if (diagnostics !== null) diagnostics.hidden = false;
-  run(session, canvas, status, { canvas, viewport }, viewport, diagnostics);
+  stopPlayer = run(session, canvas, status, { canvas, viewport }, viewport, diagnostics);
 }
 
-function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElement, hostViewport: HostViewport, stage: HTMLElement, diagnostics: HTMLElement | null): void {
+function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElement, hostViewport: HostViewport, stage: HTMLElement, diagnostics: HTMLElement | null): () => void {
   const stepMs = 1000 / 60;
   let previous = performance.now();
   let accumulator = 0;
@@ -192,6 +199,7 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
   const dispose = (): void => {
     if (disposed) return;
     disposed = true;
+    window.removeEventListener("pagehide", dispose);
     hostObserver.dispose();
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
@@ -221,8 +229,8 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
     pending = [];
     const tickBeforeAdvance = session.tick();
     void session.advance(ticks, inputs).then(() => {
-      if (session.tick() !== tickBeforeAdvance) touchControls.acknowledgeSubmittedBatch(submittedActionSequence);
       if (disposed) return;
+      if (session.tick() !== tickBeforeAdvance) touchControls.acknowledgeSubmittedBatch(submittedActionSequence);
       reconcileObservedHostFeaturesAfterAdvance(session.engine.hostFeatures(), hostObserver, pending);
       const restoredGeometryNeedsTick = reconcileObservedGeometryAfterAdvance(session.displayGeometry(), observedGeometry, pending, session.tick());
       if (restoredGeometryNeedsTick) {
@@ -262,4 +270,5 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
     });
   };
   requestAnimationFrame(draw);
+  return dispose;
 }

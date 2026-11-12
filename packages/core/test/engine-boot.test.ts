@@ -1192,6 +1192,40 @@ test("a Toolkit 2 main file selects its dialect for startup and later project pr
   equal(doubles.state().vm.globals.entered, 1);
 });
 
+test("a Toolkit 2 system module pauses the board script before its deliberate quit", () => {
+  const game = authorGame({
+    mainMinor: 2, initChar: "hero.tem",
+    boards: { "start.brd": { enter: "enter.prg", tiles: [8, 8] } },
+    programs: {
+      "enter.prg": '#MWin("Before the exit")\n#System.Pause()\n#acknowledged! = 1\n#dos',
+      "system.prg": '#Method Pause() {\n#Wait(key$)\n#While(key$ = "LEFT") { #Wait(key$) }\n}',
+    },
+  });
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles);
+  const paused = run(engine, game.files, 3);
+  deepEqual(paused.diagnostics, []);
+  equal(paused.report.requests.some((request) => request.kind === "quit"), false);
+  equal(doubles.state().vm.block?.kind, "input.key");
+  equal(doubles.state().vm.globals.acknowledged, undefined);
+
+  const arrow = run(engine, game.files, 2, [
+    { tick: doubles.state().time.tick, event: { kind: "key", name: "ARROWLEFT", code: "ArrowLeft", char: null, down: true } },
+  ]);
+  deepEqual(arrow.diagnostics, []);
+  equal(arrow.report.requests.some((request) => request.kind === "quit"), false);
+  equal(doubles.state().vm.globals.key, "LEFT");
+  equal(doubles.state().vm.block?.kind, "input.key");
+
+  const tick = doubles.state().time.tick;
+  const continued = run(engine, game.files, 2, [
+    { tick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } },
+  ]);
+  deepEqual(continued.diagnostics, []);
+  equal(doubles.state().vm.globals.acknowledged, 1);
+  equal(continued.report.requests.filter((request) => request.kind === "quit").length, 1);
+});
+
 test("blocking MouseClick writes the coordinates of a fresh pointer press", () => {
   const game = authorGame({
     startup: "start.prg", initChar: "hero.tem",

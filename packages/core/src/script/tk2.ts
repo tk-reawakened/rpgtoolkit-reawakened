@@ -165,8 +165,7 @@ export function normaliseTk2(text: string, lookup?: Tk2CommandLookup): string {
 
 function rewriteNamespaces(expr: Expr): Expr {
   if (expr.kind === "call" && expr.file === "system") {
-    const { file: _file, ...call } = expr;
-    return { ...call, name: `system.${expr.name}`, args: expr.args.map(rewriteNamespaces) };
+    return { ...expr, args: expr.args.map(rewriteNamespaces) };
   }
   if (expr.kind === "methodCall" && expr.receiver.kind === "variable") {
     return { kind: "call", name: `${expr.receiver.name}.${expr.name}`, args: expr.args.map(rewriteNamespaces), line: expr.line };
