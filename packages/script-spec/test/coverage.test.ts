@@ -116,26 +116,27 @@ test("a program loaded at run time is listed under its own path, with its uncall
   deepEqual(linesOf(report.coverage, "Prg/dyn.prg"), { 1: 1, 3: 0, 5: 1, 6: 0 });
 });
 
-test("group hooks count once, skipped and unselected bodies count nothing, and the replay is never added", () => {
-  const source = [
-    'describe("g", () => {', //               1
-    '  beforeAll(() => {', //                 2
-    '    setup = 1', //                       3  once for the group
-    '  })', //                                4
-    '  afterAll(() => {', //                  5
-    '    teardown = 1', //                    6  once for the group
-    '  })', //                                7
-    '  beforeEach(() => {', //                8
-    '    each = 1', //                        9  once per case run
-    '  })', //                               10
-    '  it("one", () => { one = 1; expect(one).toEqual(1) })', //   11
-    '  it("two", () => { two = 2; expect(two).toEqual(2) })', //   12
-    '  skip("three", () => {', //                                  13
-    '    three = 3', //                                            14  a skipped body never runs
-    '  })', //                                                     15
-    '})', //                                 16
-  ].join("\n");
-  const all = runSpecFile("hooks.spec.prg", source, { coverage: true, strict: false });
+const HOOKS_SOURCE = [
+  'describe("g", () => {', //               1
+  '  beforeAll(() => {', //                 2
+  '    setup = 1', //                       3  once for the group
+  '  })', //                                4
+  '  afterAll(() => {', //                  5
+  '    teardown = 1', //                    6  once for the group
+  '  })', //                                7
+  '  beforeEach(() => {', //                8
+  '    each = 1', //                        9  once per case run
+  '  })', //                               10
+  '  it("one", () => { one = 1; expect(one).toEqual(1) })', //   11
+  '  it("two", () => { two = 2; expect(two).toEqual(2) })', //   12
+  '  skip("three", () => {', //                                  13
+  '    three = 3', //                                            14  a skipped body never runs
+  '  })', //                                                     15
+  '})', //                                 16
+].join("\n");
+
+test("group hooks count once and a skipped body counts nothing", () => {
+  const all = runSpecFile("hooks.spec.prg", HOOKS_SOURCE, { coverage: true, strict: false });
   const lines = linesOf(all.coverage, "hooks.spec.prg");
   equal(lines[3], 1, "beforeAll body");
   equal(lines[6], 1, "afterAll body");
@@ -146,7 +147,10 @@ test("group hooks count once, skipped and unselected bodies count nothing, and t
   equal(lines[11], 3);
   equal(lines[13], 2, "skip registration: the beforeAll run and the skipped case's own run");
   equal(lines[14], 0, "a skipped body never runs");
-  const one = runSpecFile("hooks.spec.prg", source, { coverage: true, strict: false, name: "one" });
+});
+
+test("an unselected case counts nothing", () => {
+  const one = runSpecFile("hooks.spec.prg", HOOKS_SOURCE, { coverage: true, strict: false, name: "one" });
   const selected = linesOf(one.coverage, "hooks.spec.prg");
   equal(selected[9], 1, "an unselected case runs no hook and no body");
   equal(selected[12], 1, "line 12's registration ran in setup; its body did not");
