@@ -57,7 +57,7 @@ test("the oracle detects method identity and include-binding changes", () => {
   const redirected = createMemoryLoader({ ...files, "main.prg": files["main.prg"].replace("one.prg", "two.prg") });
   notDeepEqual(behavior(original, "main.prg"), behavior(renamed, "main.prg"));
   notDeepEqual(behavior(original, "main.prg"), behavior(redirected, "main.prg"));
-  for (const symbol of ["pos", "line", "col", "endCol", "offset", "endOffset"]) {
+  for (const [symbol, replacement] of [["line", "pos"], ["col", "offset"]]) {
     for (const make of [
       (name) => `function ${name}() { return 1 }\n`,
       (name) => `class ${name} { method m() { return 1 } }\n`,
@@ -65,8 +65,8 @@ test("the oracle detects method identity and include-binding changes", () => {
       (name) => `:${name}\n`,
     ]) {
       const originalName = createMemoryLoader({ "main.prg": make(symbol) });
-      const changedName = createMemoryLoader({ "main.prg": make("differentSymbol") });
-      notDeepEqual(behavior(originalName, "main.prg"), behavior(changedName, "main.prg"), `${symbol} is a symbol, not a position`);
+      const changedName = createMemoryLoader({ "main.prg": make(replacement) });
+      notDeepEqual(behavior(originalName, "main.prg"), behavior(changedName, "main.prg"), `${symbol} and ${replacement} are symbols, not positions`);
     }
   }
 });
