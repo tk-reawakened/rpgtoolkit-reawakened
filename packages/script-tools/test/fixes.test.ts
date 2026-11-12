@@ -42,6 +42,16 @@ test("migration preserves quoted equality and embedded hash dialogue at runtime"
   deepEqual(mwinText(fixed, "tk3"), ["Hi #there"]);
 });
 
+test("migration keeps literal backslashes, inline prefixes and equals dialogue", () => {
+  const source = '#a$ = "x\\"\n#If (a$ = "x\\") { #matched$ = "yes" }\n#If (a$ = "y\\") { #matched$ = "no" }\nHi #there = friend\n#Mwin(a$)\n#Mwin(matched$)';
+  const fixed = migrate(source);
+  const expected = ["Hi #there = friend", "x\\", "yes"];
+  deepEqual(mwinText(source, "tk2"), expected);
+  deepEqual(mwinText(fixed, "tk3"), expected);
+  equal(sameLowering(source, fixed.replace('a == "x\\"', 'a = "x\\"')), false);
+  equal(sameLowering(source, fixed.replace("Hi #there = friend", "Hi there = friend")), false);
+});
+
 test("mixed legacy forms are converted together and retain comments and CRLF", () => {
   const source = "* keep this comment\r\n#If (x = 5) {\r\n  #y! = 1\r\n}\r\nHello there\r\n#threadSleep(1, 2) * keep this too\r\n";
   const fixed = migrate(source);
