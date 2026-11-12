@@ -230,7 +230,7 @@ export function advanceFx(state: GameState): void {
   if (current.fade === undefined && current.wipe === undefined && current.zoom === undefined && current.earthquake === undefined && current.borderColor === undefined) return;
   const fx = ensureFx(state);
   const fade = fx.fade;
-  if (fade !== null && fade.elapsedTicks < TOTAL_TICKS) fx.fade = { ...fade, elapsedTicks: fade.elapsedTicks + 1 };
+  if (fade !== null) fx.fade = fade.elapsedTicks >= TOTAL_TICKS ? null : { ...fade, elapsedTicks: fade.elapsedTicks + 1 };
   const wipe = fx.wipe;
   if (wipe !== null && wipe.progress < wipe.total) {
     const elapsedTicks = wipe.elapsedTicks + 1;

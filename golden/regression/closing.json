@@ -159,19 +159,19 @@
         },
         {
           "tick": 60,
-          "stateHash": "59457ad0d6b15486"
+          "stateHash": "162228457e43d814"
         },
         {
           "tick": 90,
-          "stateHash": "de3f54258aa50876"
+          "stateHash": "25324160f21b31f4"
         },
         {
           "tick": 120,
-          "stateHash": "686603632b4e252f"
+          "stateHash": "7b40ce7fefee2641"
         },
         {
           "tick": 600,
-          "stateHash": "96f6d158a8f1ec64"
+          "stateHash": "d43dd34bcbdea066"
         }
       ],
       "frames": [
@@ -189,10 +189,10 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "686603632b4e252f",
-          "drawHash": "440b94f345a4238f",
+          "stateHash": "7b40ce7fefee2641",
+          "drawHash": "56642d3e06a6c40d",
           "pixelHash": "a4fcd86d174c87ea",
-          "commands": 5,
+          "commands": 1,
           "width": 640,
           "height": 480,
           "png": "golden/regression/closing/Caoquest-board.png"
@@ -200,10 +200,10 @@
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "96f6d158a8f1ec64",
-          "drawHash": "f9e4d2fe4741453e",
+          "stateHash": "d43dd34bcbdea066",
+          "drawHash": "7bc4c9ff996cac5c",
           "pixelHash": "a4fcd86d174c87ea",
-          "commands": 5,
+          "commands": 1,
           "width": 640,
           "height": 480,
           "sameAs": "board"
@@ -237,19 +237,19 @@
         },
         {
           "tick": 60,
-          "stateHash": "cbb43f97fb342b2b"
+          "stateHash": "85beb236604459a5"
         },
         {
           "tick": 90,
-          "stateHash": "0b7049cb1ede8247"
+          "stateHash": "48b5e2cb8e474ac1"
         },
         {
           "tick": 120,
-          "stateHash": "4b3cf171a08b62ce"
+          "stateHash": "3e146c335d58a550"
         },
         {
           "tick": 600,
-          "stateHash": "36dd710cc374c5ef"
+          "stateHash": "cf321bd26ced8799"
         }
       ],
       "frames": [
@@ -267,10 +267,10 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "4b3cf171a08b62ce",
-          "drawHash": "afdcbbd0e674a2ed",
+          "stateHash": "3e146c335d58a550",
+          "drawHash": "517b4b18116ab3af",
           "pixelHash": "a4e30d2d66fc8569",
-          "commands": 5,
+          "commands": 1,
           "width": 640,
           "height": 480,
           "png": "golden/regression/closing/ChimeranEmpire-board.png"
@@ -278,10 +278,10 @@
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "36dd710cc374c5ef",
-          "drawHash": "29dd1a5c300d38b5",
+          "stateHash": "cf321bd26ced8799",
+          "drawHash": "aa820f0e899a7c93",
           "pixelHash": "01a9d12e8e982921",
-          "commands": 5,
+          "commands": 1,
           "width": 640,
           "height": 480,
           "png": "golden/regression/closing/ChimeranEmpire-later.png"
@@ -315,11 +315,11 @@
         },
         {
           "tick": 60,
-          "stateHash": "ee68a498ba8170af"
+          "stateHash": "d9ed4e533eaf09e9"
         },
         {
           "tick": 90,
-          "stateHash": "27eb26219b8c23ff"
+          "stateHash": "55ae7e59aebd80e9"
         },
         {
           "tick": 120,
@@ -327,7 +327,7 @@
         },
         {
           "tick": 600,
-          "stateHash": "de182b7184c869a1"
+          "stateHash": "2d2b70f2909f4b6f"
         }
       ],
       "frames": [
@@ -356,10 +356,10 @@
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "de182b7184c869a1",
-          "drawHash": "31ce7271b6a27551",
-          "pixelHash": "1002fd286dd61e95",
-          "commands": 8,
+          "stateHash": "2d2b70f2909f4b6f",
+          "drawHash": "2bd781735cdf51f3",
+          "pixelHash": "a8bb372f024e43dd",
+          "commands": 4,
           "width": 640,
           "height": 480,
           "png": "golden/regression/closing/FinalDestiny-later.png"
@@ -399,11 +399,11 @@
         },
         {
           "tick": 60,
-          "stateHash": "ab0225c6719dcfa3"
+          "stateHash": "4edf68ce1f2b5329"
         },
         {
           "tick": 90,
-          "stateHash": "1e3abd85b071cd03"
+          "stateHash": "c84b10b6b78522d9"
         },
         {
           "tick": 120,
@@ -411,7 +411,7 @@
         },
         {
           "tick": 600,
-          "stateHash": "d560bc69e3fa12b4"
+          "stateHash": "16913a33ae091f4a"
         }
       ],
       "frames": [
@@ -440,10 +440,10 @@
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "d560bc69e3fa12b4",
-          "drawHash": "3a35b164082beb44",
-          "pixelHash": "1fe9cbe500ef7171",
-          "commands": 8,
+          "stateHash": "16913a33ae091f4a",
+          "drawHash": "8717af8c94513c76",
+          "pixelHash": "a5387a1749c25e09",
+          "commands": 4,
           "width": 640,
           "height": 480,
           "png": "golden/regression/closing/School2Demo-later.png"
