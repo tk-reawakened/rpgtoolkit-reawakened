@@ -1,0 +1,29 @@
+{
+  "name": "probe-extension",
+  "displayName": "Probe extension",
+  "description": "A two-file web extension whose only job is to prove that an extension activates and registers a debug adapter in the @vscode/test-web host.",
+  "version": "0.0.1",
+  "publisher": "tk-reawakened",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "activationEvents": [
+    "onDebugResolve:probe"
+  ],
+  "browser": "./dist/extension.js",
+  "contributes": {
+    "debuggers": [
+      {
+        "type": "probe",
+        "label": "Probe",
+        "configurationAttributes": {
+          "launch": {
+            "required": [],
+            "properties": {}
+          }
+        }
+      }
+    ]
+  }
+}
