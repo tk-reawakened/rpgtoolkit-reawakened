@@ -3,7 +3,7 @@ title: 'Carry the settings tracer through the web and VS Code adapters'
 type: 'feature'
 ticket: 18
 created: '2026-11-11'
-status: 'in-review'
+status: 'built'
 baseline_revision: '9239bcc1ff32dacf315fd95b7d30f5b8691b9d22'
 route: 'full'
 route_source: 'auto'
@@ -82,8 +82,10 @@ context: ['docs/guardrails.md', 'docs/adr/0022-shared-editor-authoring-contracts
 - #2094 — medium / bad_plan: folder picker returned a durable-writing project without a stable handle, contradicting the approved no-stable-handle matrix row; persistence and fallback must be specified and re-derived.
 - #2093 — medium / patch: a final directory produces `TypeMismatchError` but the common mapper reports `not-a-directory` instead of `is-a-directory`; preserve parent traversal behavior.
 - #2096 — medium / patch: newer drafts and subsequent commit/save requests were lost or misreported while an asynchronous edit was pending. Queue the latest requested edit and show uncommitted drafts as unsaved; independent re-review found no remaining issue.
+- #2097 — medium / patch: proof startup errors could bypass cleanup and teardown errors could mask the original proof failure; cleanup now captures process errors immediately and preserves all failures. Independent re-review found no blocker; the child shutdown wait has no escalation timeout.
 
 ## Verification
+- Verification: merged-main strict run passed 3,901 tests with no skips; focused host/UI, six browser scenarios, real VS Code save and hot-exit proof, typecheck, lint, dependency graph and licence gates passed. Mutation probes failed as intended for byte parity, corpus preservation and runner input, CSP style, refused writes, stable handle, session fallback, and actual VS Code save; restored proof passed. Duration reports include pre-existing slow-test findings (#2062).
 
 - Run focused host and shared behavior tests, including each write failure and corpus case; inspect individual ordinary-test durations against the one-second rule.
 - `pnpm fixtures:fetch && pnpm test:strict` — corpus case executes and the no-skips gate passes.

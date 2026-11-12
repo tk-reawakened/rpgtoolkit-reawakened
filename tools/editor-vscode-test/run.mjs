@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,6 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { runVscodeWebProof } from "./web-proof.ts";
+import { cleanupTestRun, combineProofErrors, trackProcess } from "./lifecycle.ts";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const harness = resolve(root, "tools/editor-vscode-test");
@@ -36,22 +37,25 @@ const [expectedBytes, recoveredBytes] = await Promise.all([
   createWebAdapterBytes(gameFiles[0], game, title),
   createWebAdapterBytes(gameFiles[0], game, recoveredTitle),
 ]);
-const proofWorkspace = await createProofWorkspace(gameFiles[0], game);
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
 const cdpPort = await freePort();
-const vscode = spawn(resolve(harness, "node_modules/.bin/vscode-test-web"), [
-  "--browserType=chromium", `--browserOption=--remote-debugging-port=${cdpPort}`,
-  `--extensionDevelopmentPath=${extension}`, `--extensionPath=${resolve(harness, "probe-extension")}`,
-  `--port=${port}`, proofWorkspace,
-], { cwd: root, stdio: "inherit" });
+const proofWorkspace = await createProofWorkspace(gameFiles[0], game);
 let browser;
+let trackedProcess;
 let failure;
+let cleanupErrors = [];
 const browserDiagnostics = [];
 try {
+  const child = spawn(resolve(harness, "node_modules/.bin/vscode-test-web"), [
+    "--browserType=chromium", `--browserOption=--remote-debugging-port=${cdpPort}`,
+    `--extensionDevelopmentPath=${extension}`, `--extensionPath=${resolve(harness, "probe-extension")}`,
+    `--port=${port}`, proofWorkspace,
+  ], { cwd: root, stdio: "inherit" });
+  trackedProcess = trackProcess(child);
   const workbenchUrl = `http://localhost:${port}/`;
-  await waitForServer(vscode, workbenchUrl);
-  browser = await connectBrowser(vscode, cdpPort);
-  const { page } = await waitForBrowserPage(browser, vscode);
+  await Promise.race([waitForServer(child, workbenchUrl), trackedProcess.error]);
+  browser = await connectBrowser(child, cdpPort);
+  const { page } = await waitForBrowserPage(browser, child);
   const recordBrowserDiagnostic = (message) => { if (browserDiagnostics.length < 100) browserDiagnostics.push(message); };
   page.on("console", (message) => { if (message.type() === "error") recordBrowserDiagnostic(`[console] ${message.text()}`); });
   page.on("pageerror", (error) => recordBrowserDiagnostic(`[pageerror] ${error.stack ?? error.message}`));
@@ -61,15 +65,12 @@ try {
 } catch (error) {
   failure = error;
 } finally {
-  await browser?.close();
-  vscode.kill("SIGTERM");
-  const code = await exitCode(vscode);
-  if (code !== 0 && failure === undefined) failure = new Error(`vscode-test-web exited with ${code}`);
-  await rm(proofWorkspace, { recursive: true, force: true });
+  cleanupErrors = await cleanupTestRun(browser, trackedProcess, proofWorkspace);
 }
-if (failure !== undefined) {
+const proofFailure = combineProofErrors(failure, cleanupErrors);
+if (proofFailure !== undefined) {
   if (browserDiagnostics.length > 0) console.error(`[vscode-web:failure-diagnostics]\n${browserDiagnostics.join("\n")}`);
-  throw failure;
+  throw proofFailure;
 }
 async function createProofWorkspace(gameFile, gamePath) {
   const directory = await mkdtemp(join(tmpdir(), "tkr-editor-vscode-proof-"));
@@ -189,10 +190,3 @@ async function waitForServer(child, url) {
   throw new Error(`Timed out waiting for vscode-test-web at ${url}: ${String(lastError)}`);
 }
 
-function exitCode(child) {
-  if (child.exitCode !== null) return Promise.resolve(child.exitCode);
-  return new Promise((resolveExit, reject) => {
-    child.once("error", reject);
-    child.once("exit", (code, signal) => resolveExit(code ?? (signal === "SIGTERM" ? 0 : 1)));
-  });
-}

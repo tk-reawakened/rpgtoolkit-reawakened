@@ -47,6 +47,17 @@ assertion line.
 Includes resolve against the project's `Prg/` programs using the normal
 case-insensitive path rules; spec files use Windows-1252 RPGCode source encoding.
 
+Use `tkr script test ./game --name "combat > attack"` to run cases whose full
+group-and-case name contains that exact, case-sensitive text. Choose
+`--reporter spec` (the default), `--reporter junit`, or `--reporter json`;
+`--json` is an alias for the JSON reporter. `--watch` runs once and reruns the
+whole project when files change, so failures in untouched files stay visible.
+For JUnit in watch mode, add `--out report.xml`; each run replaces that file
+with a complete report, rather than concatenating XML documents. Press Ctrl-C
+to stop; the exit status is the latest run's status. JavaScript
+callers can pass `{ name: "attack" }` to `runSpecProject` or use
+`watchSpecProject(root, options, onReport)` and close the returned watcher.
+
 The matcher surface is [TOOL-5](docs/spec/engine/rpgcode-tooling.md#tool-5) as ruled:
 `toEqual` compares element arrays (`name[index]`), dictionaries and lists
 element by element with no number/string conversion; `toBe` is strict and
@@ -58,9 +69,94 @@ its tolerance is required (one argument is the failure `callable.arity`); and
 snapshot taken after it ([group hooks](docs/spec/engine/rpgcode-tooling.md#tool-5-group-hooks));
 a spec file that registers no case fails as `spec.no-cases`. `skip(name, body)` and
 `only(name, body)` still mark cases, not groups, and the library is reached by
-`#include` until the package load path (PKG-7) is ruled. A spec run registers only
-the spec package's commands, not the engine's built-in commands (tracked as a defect
-of the runner).
+`#include` until the general package load path (PKG-7) is ruled. A package-root
+test can call `executeProgram` on its manifest's startup program; the runner also
+loads its matching first-party native commands. `specActor` and `specActorId`
+expose the fixture's real selected actor for event tests. `pnpm script:dogfood`
+runs each stock package's specs in strict mode and compares its report with the
+reviewed baselines. Run `pnpm script:dogfood:record` deliberately to update them.
+
+## RPGCode tools for game projects
+
+The public packages and Action described here are being prepared for release;
+their availability must be verified in the registries before relying on them.
+With Node 24.21.0, install `@tk-reawakened/script-cli@1.0.0` or run:
+
+```sh
+npx --yes --package @tk-reawakened/script-cli@1.0.0 -- tkr script check ./game --json
+npx --yes --package @tk-reawakened/script-cli@1.0.0 -- tkr script fmt --check ./game --json
+npx --yes --package @tk-reawakened/script-cli@1.0.0 -- tkr script test ./game --json
+```
+
+`--json` writes one `tkr-script-result/1` object to stdout; diagnostics for people
+go to stderr. Exit codes are 0 (success), 1 (findings), 2 (usage or configuration
+error), and 3 (internal error). The fields and schema evolution policy are in
+[TOOL-9](docs/spec/engine/rpgcode-tooling.md#tool-9).
+
+To use the released Action in an author's GitHub Actions workflow, replace
+`<release-commit>` with the full commit SHA of a reviewed release:
+
+```yaml
+steps:
+  - uses: actions/checkout@v7
+  - uses: actions/setup-node@v7
+    with:
+      node-version: 24.21.0
+  - uses: tk-reawakened/rpgtoolkit-reawakened/.github/actions/script@<release-commit>
+    with:
+      version: '1.0.0'
+      path: ./game
+```
+
+For another JavaScript test runner, install `@tk-reawakened/runner-harness@1.0.0`
+and use its public entry point. For example, a Node test can drive a script
+without a renderer:
+
+```js
+import { strict as assert } from 'node:assert';
+import { test } from 'node:test';
+import { createNullAudio, createScriptHost, runLog } from '@tk-reawakened/runner-harness';
+
+test('my script runs', () => {
+  const host = createScriptHost({ program: 'answer = 42\nend()\n', seed: 0 });
+  const ticks = runLog(host, { schema: 1, ticks: 1, log: [] }, 1, createNullAudio());
+  assert.equal(ticks.length, 1);
+  assert.equal(host.state().vm.globals.answer, 42);
+});
+```
+
+The packages' documented root exports follow semantic versioning: compatible
+additions are minor releases and breaking removals or changes require a major
+release. The result protocol has the explicit TOOL-9 compatibility policy above.
+Internal files and unexported paths are not public API.
+
+### Preparing a tooling release
+
+`pnpm release:preflight` builds and packs the seven packages, installs them in
+an isolated temporary directory, checks their licences, runs real CLI and Action
+commands under Node and Bun, and validates the JSON against TOOL-9. It does not
+publish. After publication, `pnpm release:preflight --published` installs exact
+versions from the public npm registry with a separate home and cache and repeats
+those checks. Both commands also test failure paths; they require network access.
+
+The manual **Publish RPGCode tooling** workflow operates only on `main` after a
+successful CI push run for the same commit. Configure and protect its `release`
+environment and provide `NPM_TOKEN`, `VSCE_PAT`, and `OVSX_PAT`. Independently
+confirm that the credentials can publish to the npm scope and the
+`tk-reawakened` namespace in both extension registries, then confirm that in
+the dispatch form. `vsce verify-pat` can succeed for a read-only Marketplace
+role, and `npm whoami` proves identity, not scope write access; neither alone
+proves publishing rights. The workflow also checks credentials, package and
+bundle licences, and preflight. Never put secrets in a repository file.
+
+Publishing can fail partway through: npm versions already present are skipped
+only if their registry integrity matches the candidate tarball; a mismatch
+stops the run. Extension uploads are not automatically skipped or overwritten.
+If an upload fails after the other registry accepted it, inspect the published
+version and VSIX; then select only the missing registry and confirm that the
+existing registry matches when dispatching the workflow again. Never blindly
+skip a mismatched version. Verify the Action in a separate fixture repository and
+install and exercise the extension from both registries before closing #951.
 
 
 ## Set up
@@ -252,6 +348,11 @@ pnpm editor-ui-toolchain:test && pnpm editor-ui-toolchain:check  # the Preact/TS
 pnpm golden:bun                  # replay the golden and closing suites under Bun against the committed output; needs Bun and fixtures:fetch [golden-bun]
 ```
 
+CI unit shards have a 30-minute job limit: more than three times the longest
+observed 9m13s shard. A timed-out shard fails the required gate. Coverage runs
+also print execution-ordered test starts and finishes to stderr to help locate
+unfinished work; the limit does not itself fix a stalled test.
+
 Other commands:
 
 ```sh
@@ -281,7 +382,7 @@ The desktop player (`runner-desktop`) is an Electron shell over the `runner-web`
 pnpm fixtures:fetch                                             # the sample games, once
 pnpm make-package fixtures/legacy/demo --closing-plan golden/closing/plan.json \
   --game demo --out fixtures/packages/demo.tpk --title Demo      # one .tpk package + descriptor
-pnpm desktop:build                                              # dist/main.js, dist/preload.js, apps/player-desktop.js
+pnpm desktop:build                                              # dist/main.js, dist/preload.js, apps/desktop/player-desktop.js
 pnpm desktop:measure                                           # run the closing-path measurement, print report, quit
 ```
 

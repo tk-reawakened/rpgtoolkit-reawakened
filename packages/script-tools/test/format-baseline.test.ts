@@ -38,7 +38,7 @@ function corpus(): string[] {
     .sort();
 }
 
-test("the dogfooding set is exactly the committed baseline: 49 canonical 3.1 files and 6 TK2 files", () => {
+test("the dogfooding set is exactly the committed baseline: 52 canonical 3.1 files and 6 TK2 files", () => {
   const all = corpus();
   deepEqual([...baseline.checked, ...baseline.tk2].sort(), all);
   deepEqual(baseline.wouldChange, []);

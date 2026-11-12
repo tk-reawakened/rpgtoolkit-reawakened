@@ -17,6 +17,7 @@ import {
 } from "@tk-reawakened/core";
 import {
   analyse,
+  applyEdits,
   buildIndex,
   legacyFixes,
   projectHelp,
@@ -27,6 +28,7 @@ import {
   type IndexProgram,
   type Severity,
 } from "@tk-reawakened/script-tools";
+import { documentationText, signatureHelp } from "./signature-help.ts";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
   CompletionItemKind,
@@ -49,6 +51,8 @@ import {
   type Location,
   type Position,
   type PublishDiagnosticsParams,
+  type SignatureHelp,
+  type SignatureHelpParams,
   type Range,
   type TextDocumentPositionParams,
 } from "vscode-languageserver-protocol";
@@ -79,6 +83,7 @@ export type ServerConnection = {
   onCompletion(handler: (params: CompletionParams) => CompletionItem[]): Disposable;
   onDefinition(handler: (params: TextDocumentPositionParams) => Location[]): Disposable;
   onDocumentSymbol(handler: (params: DocumentSymbolParams) => DocumentSymbol[]): Disposable;
+  onSignatureHelp(handler: (params: SignatureHelpParams) => SignatureHelp | null): Disposable;
   onCodeAction(handler: (params: CodeActionParams) => CodeAction[]): Disposable;
   sendDiagnostics(params: PublishDiagnosticsParams): void;
 };
@@ -162,6 +167,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
       textDocumentSync: { openClose: true, change: 1 },
       hoverProvider: true,
       completionProvider: { triggerCharacters: ["(", ":"] },
+      signatureHelpProvider: { triggerCharacters: ["(", ","] },
       definitionProvider: true,
       documentSymbolProvider: true,
       codeActionProvider: true,
@@ -198,7 +204,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
     if (call === undefined) return null;
     const entry = help.find((item) => foldAscii(item.name) === foldAscii(call.name));
     if (entry === undefined) return null;
-    return { contents: { kind: "markdown", value: hoverText(entry) }, range: lspRange(call.pos.line, call.pos.col, call.pos.endCol) };
+    return { contents: { kind: "markdown", value: documentationText(entry) }, range: lspRange(call.pos.line, call.pos.col, call.pos.endCol) };
   });
 
   connection.onCompletion((params) => {
@@ -223,6 +229,12 @@ export function createServer(connection: ServerConnection, options: ServerOption
     for (const cls of program.classes) add(cls.qualifiedName, CompletionItemKind.Class, "class");
     for (const label of program.labels) add(label.name, CompletionItemKind.Operator, "label");
     return items;
+  });
+
+  connection.onSignatureHelp((params) => {
+    const document = documents.get(params.textDocument.uri);
+    if (document === undefined) return null;
+    return signatureHelp(document.getText(), document.offsetAt(params.position), document.languageId, help);
   });
 
   connection.onDefinition((params) => {
@@ -256,22 +268,31 @@ export function createServer(connection: ServerConnection, options: ServerOption
   connection.onCodeAction((params) => {
     const document = documents.get(params.textDocument.uri);
     if (document === undefined) return [];
-    return legacyFixes(document.getText()).map((fix) => ({
-      title: fix.title,
-      kind: "quickfix",
-      diagnostics: params.context.diagnostics,
-      edit: {
-        changes: {
-          [document.uri]: fix.edits.map((item) => ({
-            range: {
-              start: { line: item.range.start.line - 1, character: item.range.start.column - 1 },
-              end: { line: item.range.end.line - 1, character: item.range.end.column },
-            },
-            newText: item.newText,
-          })),
+    return legacyFixes(document.getText(), document.languageId === "rpgcode-tk2" ? "tk2" : "tk3").map((fix) => {
+      if (fix.rule === "dialect/tk2-to-tk3") {
+        return {
+          title: fix.title,
+          kind: "refactor.rewrite",
+          command: { title: fix.title, command: "rpgcode.previewTk2Conversion", arguments: [applyEdits(document.getText(), fix.edits)] },
+        };
+      }
+      return {
+        title: fix.title,
+        kind: "quickfix",
+        diagnostics: params.context.diagnostics,
+        edit: {
+          changes: {
+            [document.uri]: fix.edits.map((item) => ({
+              range: {
+                start: { line: item.range.start.line - 1, character: item.range.start.column - 1 },
+                end: { line: item.range.end.line - 1, character: item.range.end.column },
+              },
+              newText: item.newText,
+            })),
+          },
         },
-      },
-    }));
+      };
+    });
   });
 
   connection.onDocumentSymbol((params) => {
@@ -306,9 +327,6 @@ export function createServer(connection: ServerConnection, options: ServerOption
   };
 }
 
-function hoverText(entry: HelpEntry): string {
-  return entry.behaviour === null ? (entry.summary ?? "") : `${entry.summary ?? ""}\n\n${entry.behaviour}`;
-}
 
 /** The identifier characters immediately before a 0-based LSP position. */
 function wordBefore(document: TextDocument, position: Position): string {

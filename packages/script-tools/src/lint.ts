@@ -73,19 +73,19 @@ export const RULES: readonly RuleDefinition[] = [
     id: "dialect/return-method",
     defaultSeverity: "warning",
     rationale: "`#ReturnMethod(x)` is the pre-3.1 spelling of `return x`.",
-    fix: true,
+    fix: false,
   },
   {
     id: "dialect/obsolete-control",
     defaultSeverity: "warning",
-    rationale: "`#Dos`, `#Windows`, `#Gone`, `#Over`, `#Reset` and `#Win` are obsolete engine controls with no meaning in 3.1.",
-    fix: true,
+    rationale: "`#Dos`, `#Windows`, `#Gone`, `#Over`, `#Reset` and `#Win` are older engine controls; they must not be removed without proving the result keeps their behavior.",
+    fix: false,
   },
   {
     id: "dialect/unquoted-command-argument",
     defaultSeverity: "warning",
     rationale: "A `#Command` line with an unquoted argument is the Toolkit 2.x spelling; 3.1 reads `command(\"text\")`.",
-    fix: true,
+    fix: false,
   },
 ];
 
@@ -220,6 +220,13 @@ function arityOf(entry: ReturnType<typeof commandDocumentation>[number]): { read
     max: variadic ? Number.POSITIVE_INFINITY : entry.params.length,
   };
 }
+// TOOL-5 names exist only when the spec runner loads its test package.
+const SPEC_NAMES: Readonly<Record<string, true>> = {
+  describe: true, it: true, test: true, beforeeach: true, aftereach: true, beforeall: true, afterall: true,
+  expect: true, skip: true, only: true, tobe: true, toequal: true, tobetruthy: true, tobenull: true,
+  tocontain: true, tobecloseto: true, tothrow: true,
+};
+
 
 function rulesFor(program: IndexProgram, catalogue: Catalogue, resolveIncludes: boolean): Diagnostic[] {
   const found: Diagnostic[] = [];
@@ -245,7 +252,8 @@ function rulesFor(program: IndexProgram, catalogue: Catalogue, resolveIncludes: 
   for (const call of program.calls) {
     if (call.file !== null) continue;
     const name = foldAscii(call.name);
-    if (declared.has(name) || catalogue.byName.has(name) || callableVariables.has(name)) continue;
+    if (declared.has(name) || catalogue.byName.has(name) || callableVariables.has(name) ||
+        (foldAscii(program.name).endsWith(".spec.prg") && Object.hasOwn(SPEC_NAMES, name))) continue;
     // A bare identifier statement lowers to a zero-argument call; a missing name is
     // the only fact the index has, so the rule states exactly that.
     found.push(diagnostic(unknown, unknown.defaultSeverity, call.pos, `\`${call.written ?? call.name}\` is not a script function, class, label or registered command`));
@@ -279,24 +287,46 @@ function rulesFor(program: IndexProgram, catalogue: Catalogue, resolveIncludes: 
 }
 
 /**
- * The dialect rules (docs/spec/engine/rpgcode-dialects.md:57-69) over one
- * program's text. `legacyFixes` already re-parsed each rewrite and proved it
- * lowers identically, so a diagnostic here carries an edit that is safe to
- * apply; a row without a preserving rewrite is deliberately not offered.
+ * Legacy syntax still gets a warning when the source dialect is unknown.
+ * Only 3.1-safe sigil edits are offered here; TK2 conversion needs an explicit
+ * dialect and is exposed by the language server's migration action.
  */
 function dialectDiagnostics(source: string): Diagnostic[] {
-  return legacyFixes(source).map((fix) => {
+  const found: Diagnostic[] = [];
+  for (const [index, line] of source.split("\n").entries()) {
+    const match = /^(\s*)#(\w+)\s*(?:\((.*)\))?\s*$/.exec(line);
+    if (match === null) continue;
+    const name = match[2]!.toLowerCase();
+    const argument = match[3];
+    const rule: RuleId | undefined = ["dos", "windows", "gone", "over", "reset", "win"].includes(name)
+      ? "dialect/obsolete-control"
+      : name === "returnmethod" && argument !== undefined
+        ? "dialect/return-method"
+        : argument !== undefined && !/^".*"$/.test(argument.trim())
+          ? "dialect/unquoted-command-argument"
+          : undefined;
+    if (rule === undefined) continue;
+    found.push({
+      code: rule,
+      severity: "warning",
+      range: { start: { line: index + 1, column: match[1]!.length + 1 }, end: { line: index + 1, column: line.length } },
+      message: `Legacy Toolkit 2.x syntax: select the Toolkit 2.x language mode to review a behavior-preserving conversion.`,
+      rule,
+    });
+  }
+  for (const fix of legacyFixes(source)) {
     const [first] = fix.edits;
     if (first === undefined) throw new Error(`${fix.rule} produced no edit`);
-    return {
+    found.push({
       code: fix.rule,
       severity: "warning",
       range: first.range,
       message: fix.title,
       rule: fix.rule,
       fix: fix.edits.map((item) => ({ ...item, rule: fix.rule })),
-    };
-  });
+    });
+  }
+  return found.sort((a, b) => a.range.start.line - b.range.start.line || a.range.start.column - b.range.start.column);
 }
 
 function ignored(diagnostic: Diagnostic, file: string, config: LintConfig): boolean {

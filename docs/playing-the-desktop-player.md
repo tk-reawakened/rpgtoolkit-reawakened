@@ -61,6 +61,21 @@ crisp. If the frame is too large even at `1×`, it scales down fractionally inst
 showing every edge. Resizing the window recomputes the fit. A board wider than the frame scrolls with the player; a
 smaller board sits centred on its own background.
 
+## Movement controls
+
+The game's main file sets the movement keys and whether keyboard, pointer and
+controller movement are enabled. Hold a movement key to keep walking one step
+at a time. If the game enables diagonal composition, two perpendicular
+direction keys give a diagonal step. Otherwise the more recently pressed held
+direction takes priority. A dedicated diagonal key works with either setting.
+
+Older main files without the movement fields use arrow keys, allow diagonal
+composition and disable pointer walking. An absent controller setting enables
+standard controllers. A stored zero disables the corresponding source or
+leaves that key slot unbound. A shared key is reported in diagnostics and still
+dispatches its bound actions. If a game enables controllers and the host lacks
+a gamepad API, the player reports that in diagnostics.
+
 ## Where saves live
 
 A save is durable on the host that wrote it, filed under the key every runner derives from the package:

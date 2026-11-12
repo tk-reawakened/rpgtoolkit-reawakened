@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GROUPS, mergeLcov, parseTap, repoRoot, resolveGroup, verifyGroups } from "../run.mjs";
+import progress from "../progress.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const noSkipsTool = resolve(here, "..", "run.mjs");
@@ -146,6 +147,35 @@ test("the tool passes and prints the totals when every test runs", () => {
   const result = runTool(root, ["*.test.mjs"]);
   equal(result.status, 0, result.output);
   match(result.stdout, /no skipped tests: 2 tests, 2 passed/);
+});
+
+test("coverage runs report execution-ordered starts and finishes to stderr", () => {
+  const root = makeDir("progress");
+  mkdirSync(join(root, "packages", "demo", "src"), { recursive: true });
+  writeFileSync(join(root, "packages", "demo", "src", "sample.mjs"), "export const answer = () => 42;\n");
+  writeFileSync(join(root, "pass.test.mjs"), "import { test } from 'node:test'; import { answer } from './packages/demo/src/sample.mjs'; test('trace case', () => { if (answer() !== 42) throw Error('bad'); });\n");
+  const result = runTool(root, ["--lcov", "coverage.info", "*.test.mjs"]);
+  equal(result.status, 0, result.output);
+  const starts = result.stderr.indexOf('test-progress start ');
+  const finishes = result.stderr.indexOf('test-progress finish ');
+  ok(starts >= 0 && finishes > starts, result.stderr);
+  match(result.stderr.slice(starts, finishes), /trace case/);
+  match(result.stderr.slice(finishes), /trace case/);
+  const lcov = readFileSync(join(root, "coverage.info"), "utf8");
+  const sample = lcov.split("end_of_record").find((record) => /SF:.*packages\/demo\/src\/sample\.mjs/.test(record));
+  ok(sample, "sample source must have an LCOV record");
+  match(sample, /DA:\d+,[1-9]\d*/);
+});
+
+test("progress emits a running test before its event stream completes", async () => {
+  async function* events() {
+    yield { type: "test:dequeue", data: { file: "hanging.test.mjs", line: 4, name: "still running" } };
+    yield { type: "test:complete", data: { file: "hanging.test.mjs", line: 4, name: "still running" } };
+  }
+  const reporter = progress(events());
+  const first = await reporter.next();
+  match(first.value, /test-progress start .*hanging\.test\.mjs.*still running/);
+  await reporter.return();
 });
 
 test("the tool fails naming a skipped test and its reason", () => {

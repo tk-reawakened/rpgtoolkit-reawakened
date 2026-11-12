@@ -38,7 +38,7 @@ import {
 import { catalogueEntry, parseClosingPlan, parsePackageManifest, type ClosingFiles } from "@tk-reawakened/runner-harness";
 import { createWebgl2Renderer, type RenderStats } from "@tk-reawakened/render-webgl2";
 import { BUNDLED_BANK, CuePlayer, describePatchGap } from "@tk-reawakened/synth";
-import { connectSinkToGraph, defaultWorkletUrl, PcmSink, type ScheduledPlay } from "./audio-sink.ts";
+import { connectSinkToGraph, defaultWorkletUrl, PcmSink, type AudioArtifactHost, type ScheduledPlay } from "./audio-sink.ts";
 import { fontProvider, liveTextureProvider } from "./index.ts";
 import type { DecodeAhead } from "./decode-types.ts";
 import type { PackageSource } from "./package-source.ts";
@@ -99,10 +99,13 @@ export type LiveSession = {
   /** Persistent host audio initialization failure, if one occurred. */
   readonly audioError: () => string | null;
   readonly advance: (ticks: number, inputs?: readonly InputRecord[]) => Promise<void>;
+  readonly setGamepadResampler: (resample: () => void) => void;
   readonly setHostRestoreSnapshotProvider: (provider: (() => HostRestoreSnapshot) | null) => void;
 };
 type LiveSessionBase = {
   readonly bundled: ClosingFiles;
+  /** Selects the host-owned AudioWorklet artifact; only the browser lane may use the default. */
+  readonly audioArtifactHost?: AudioArtifactHost;
   readonly gl: WebGL2RenderingContext;
   readonly blobs?: LiveBlobHost;
   /** Milliseconds, for stall timing. Defaults to `performance.now`; a test injects its own. */
@@ -371,7 +374,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
       } else if (event.kind === "bank.substitution") console.warn(describePatchGap(event)); // playback continues; not game state
     },
   });
-  const graph = await connectSinkToGraph(audioContext, sink, { workletUrl: defaultWorkletUrl() });
+  const graph = await connectSinkToGraph(audioContext, sink, { workletUrl: defaultWorkletUrl(options.audioArtifactHost) });
   player = new CuePlayer({
     send: (message) => graph.send(message),
     readAsset: (key) => assets.peek(key) ?? bundled.get(key) ?? null,
@@ -438,6 +441,25 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     }
   };
 
+  let resampleGamepads: (() => void) | null = null;
+  let resampledControllerRevision = 0;
+  const missingGamepadApiReported = new Set<string>();
+  function reconcileControllerPolicy(): void {
+    if (!interactive || options.hostViewport === undefined) return;
+    const policy = engine.gamepadPolicy();
+    if (policy?.enabled !== true) return;
+    if (policy.revision !== resampledControllerRevision) {
+      resampledControllerRevision = policy.revision;
+      resampleGamepads?.();
+    }
+    if (typeof navigator.getGamepads !== "function" && !missingGamepadApiReported.has(policy.file)) {
+      missingGamepadApiReported.add(policy.file);
+      reportDiagnostic({
+        code: "input.gamepad-api-unavailable", file: policy.file, line: 0,
+        message: "the active game enables controllers, but this player cannot observe gamepads",
+      });
+    }
+  }
   let hostRestoreSnapshotProvider: (() => HostRestoreSnapshot) | null = null;
   const pump = async (initialTicks: number, initialInputs: readonly InputRecord[]): Promise<void> => {
     let ticks = initialTicks;
@@ -456,6 +478,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
       currentTick = report.tickAfter;
       currentStateHash = report.stateHash;
       for (const diagnostic of report.diagnostics) reportDiagnostic(diagnostic);
+      reconcileControllerPolicy();
       // Cues are handed to the player on their own chain, in report order, once the assets they name are cached (the
       // player and the sink read assets synchronously). The simulation never waits on this chain, and a stall in the
       // chain cannot reorder cues, because each report's cues run only after the previous report's.
@@ -524,6 +547,10 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     close,
     tick: () => currentTick,
     stateHash: () => currentStateHash,
+    setGamepadResampler(resample) {
+      resampleGamepads = resample;
+      if (engine.gamepadPolicy()?.enabled === true) resample();
+    },
     setHostRestoreSnapshotProvider(provider) { hostRestoreSnapshotProvider = provider; },
     viewSize: () => ({ width: viewport.width, height: viewport.height }),
     hostState: hostFeatures === null ? null : { features: hostFeatures, geometry: initialGeometry },

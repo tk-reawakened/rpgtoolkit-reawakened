@@ -63,7 +63,7 @@ function seedStore(state: GameState): void {
 }
 
 function boot(program: string, afterSeed?: (state: GameState) => void, observeInput?: (state: GameState) => void): Game {
-  const main = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, startupPrg: "start.prg", initBoard: "start.brd" });
+  const main = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, startupPrg: "start.prg", initBoard: "start.brd", useJoystick: 1 });
   if (!main.ok) throw new Error(main.error.message);
   const board = writeBoard({ ...createEmptyBoard(), properties: { ...createEmptyBoard().properties, start: { x: 32, y: 32, layer: 1 } } });
   if (!board.ok) throw new Error(board.error.message);

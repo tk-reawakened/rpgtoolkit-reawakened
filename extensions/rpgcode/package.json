@@ -13,6 +13,7 @@
   ],
   "activationEvents": [
     "onLanguage:rpgcode",
+    "onLanguage:rpgcode-tk2",
     "onDebugResolve:rpgcode"
   ],
   "main": "./dist/extension.js",
@@ -29,6 +30,11 @@
           ".prg",
           ".rnc"
         ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "rpgcode-tk2",
+        "aliases": ["RPGCode (Toolkit 2.x)"],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -99,10 +105,16 @@
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.12"
   },
+  "overrides": {
+    "vsce": {
+      "markdown-it": "14.3.3",
+      "xml2js": "0.6.2"
+    }
+  },
   "devDependencies": {
     "@types/node": "24.0.0",
     "@types/vscode": "1.90.0",
-    "@vscode/vsce": "3.2.1",
+    "vsce": "2.15.0",
     "typescript": "5.9.3"
   }
 }

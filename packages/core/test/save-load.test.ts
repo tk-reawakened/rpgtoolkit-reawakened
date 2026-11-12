@@ -34,6 +34,7 @@ import {
   type AssetKey,
   type GameState,
   type InputRecord,
+  type MainFile,
 } from "../src/index.ts";
 
 const encoder = new TextEncoder();
@@ -53,9 +54,12 @@ type Game = {
  */
 function boot(
   programs: string | readonly string[],
-  options: { readonly extra?: Readonly<Record<string, string>>; readonly fileThread?: string; readonly startup?: string; readonly pixelMovement?: number } = {},
+  options: { readonly extra?: Readonly<Record<string, string>>; readonly fileThread?: string; readonly startup?: string; readonly pixelMovement?: number; readonly mainInput?: Pick<MainFile, "minor" | "movementControls" | "movementScanCodes"> } = {},
 ): Game {
-  const main = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, startupPrg: "start.prg", initBoard: "start.brd", pixelMovement: options.pixelMovement ?? 0 });
+  const main = writeMainFile({
+    ...createEmptyMainFile(), major: 2, minor: 9, startupPrg: "start.prg", initBoard: "start.brd",
+    pixelMovement: options.pixelMovement ?? 0, ...options.mainInput,
+  });
   if (!main.ok) throw new Error(main.error.message);
   const empty = createEmptyBoard();
   const board = writeBoard({ ...empty, properties: { ...empty.properties, start: { x: 32, y: 32, layer: 1 } } });
@@ -388,6 +392,20 @@ test("a saved runtime movement setting survives save and load", () => {
   ok(restored !== null);
   equal(restored.vm.globals.restoredwalking, 1, "the resumed RPGCode command reads the restored walking setting");
   deepEqual(restored.world.movement, { walking: 1, pushing: 1 });
+});
+
+test("Load reattaches absent-row defaults and respects explicit zero movement fields", () => {
+  for (const minor of [8, 9]) {
+    const options = { mainInput: { minor, movementControls: 0, movementScanCodes: Array(8).fill(0) } };
+    const saved = capture('Save("slot")\nend()', options);
+    const loader = boot(LOADER, options);
+    deepEqual(run(loader, saved).diagnostics, []);
+    const state = loader.state();
+    ok(state !== null);
+    applyInputEvent(state.input, { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true });
+    equal(state.input.actions.right, true);
+    equal(state.input.directionOrder.includes("right"), minor === 8);
+  }
 });
 
 test("each missing saved movement setting falls back independently to its associated main file", () => {

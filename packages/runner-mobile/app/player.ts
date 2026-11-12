@@ -105,7 +105,7 @@ async function start(): Promise<void> {
   if (opened === null) throw new Error("no package was available");
   const descriptor = await readDescriptor(filesystem, opened.name);
   const pkg = await interactivePackage(opened.name, new Uint8Array(opened.bytes), descriptor);
-  const listed = (await (await fetch("/apps/bundled.json")).json()) as { readonly files: readonly string[] };
+  const listed = (await (await fetch("/apps/mobile/bundled.json")).json()) as { readonly files: readonly string[] };
   const bundled = new Map<string, Uint8Array>();
   for (const name of listed.files) {
     const response = await fetch(`/${name}`);
@@ -151,6 +151,7 @@ async function start(): Promise<void> {
     let quitBeforeReady = false;
     try {
       const session = await createLiveSession({
+        audioArtifactHost: "mobile",
         interactive: true,
         mainFile: pkg.main,
         gameIdentity: pkg.gameIdentity,
@@ -241,6 +242,7 @@ function run(
     observedGeometry.observe(event);
     pending.push({ tick: null, event, pointerGeometry: null });
   }, session.hostState ?? undefined);
+  session.setGamepadResampler(hostObserver.resampleGamepads);
   session.setHostRestoreSnapshotProvider(() => {
     const snapshot = hostObserver.snapshotForRestore(pending);
     for (const event of snapshot.observations) observedGeometry.observe(event);
@@ -377,7 +379,6 @@ function run(
         moved ? "moved: yes" : "moved: no",
         `save ${savePath}: ${saveLabel}`,
         ...(session.audioError() === null ? [] : [`audio: ${session.audioError()}`]),
-        "Move: arrows or WASD; tap/click to walk.",
       ].join("\n");
       if (!disposed && isCurrent()) frameId = window.requestAnimationFrame(draw);
     }).catch((error: unknown) => {

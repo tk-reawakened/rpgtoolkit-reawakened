@@ -24,9 +24,9 @@ test("every rule has a stable id, a default severity and a rationale", () => {
       ["lint/shadowed-builtin", "warning", false],
       ["lint/unresolved-include", "warning", false],
       ["dialect/sigil", "warning", true],
-      ["dialect/return-method", "warning", true],
-      ["dialect/obsolete-control", "warning", true],
-      ["dialect/unquoted-command-argument", "warning", true],
+      ["dialect/return-method", "warning", false],
+      ["dialect/obsolete-control", "warning", false],
+      ["dialect/unquoted-command-argument", "warning", false],
     ],
   );
   for (const rule of RULES) ok(rule.rationale.length > 0);
@@ -37,6 +37,18 @@ test("a call nothing defines is an unknown command; a catalogue call is not", ()
   deepEqual(result.diagnostics.map((d) => [d.rule, d.severity, d.range.start.line]), [["lint/unknown-command", "error", 1]]);
   equal(result.summary.diagnostics, 1);
   equal(result.summary.ignoredRanges, 0);
+});
+
+test("spec API names are available only to specs, without hiding unknown calls", () => {
+  const source = 'it("case", () => { expect(1).toBe(1); typo() })';
+  const document = buildIndex([
+    { name: "checks.SPEC.PRG", ref: { kind: "inline", text: source, ir: "1" } },
+    { name: "game.prg", ref: { kind: "inline", text: source, ir: "1" } },
+  ]);
+  const result = lint(document, { plugins });
+  deepEqual(result.programs.filter((name) => name === "checks.SPEC.PRG"), ["checks.SPEC.PRG"]);
+  equal(result.diagnostics.filter((d) => d.message.includes("typo")).length, 2);
+  ok(result.diagnostics.some((d, i) => result.programs[i] === "game.prg" && d.message.includes("`expect`")));
 });
 
 test("a call with the wrong number of parameters reports the command's bounds", () => {
@@ -82,7 +94,7 @@ test("config validation rejects an unknown rule id or severity instead of ignori
   equal(empty.ok, true);
 });
 
-test("the dialect rules carry their own autofix, and applying it compiles", () => {
+test("the dialect rules warn without offering unproven fixes", () => {
   const text = "#Mwin(Hello there)\n#ReturnMethod(1 + 2)\n#Dos\nx! = 1\n";
   const document = indexOf(text);
   const result = lint(document, { plugins, sources: { "main.prg": text } });
@@ -90,11 +102,12 @@ test("the dialect rules carry their own autofix, and applying it compiles", () =
     result.diagnostics.map((found) => found.rule),
     ["dialect/unquoted-command-argument", "dialect/return-method", "dialect/obsolete-control", "dialect/sigil"],
   );
-  for (const found of result.diagnostics) {
-    ok(found.fix !== undefined && found.fix.length > 0, `${found.rule} has an edit`);
+  for (const found of result.diagnostics.slice(0, 3)) {
+    equal(found.fix, undefined, `${found.rule} must not have an unproven edit`);
   }
-  const fixed = result.diagnostics.reduce((current, found) => applyEdits(current, found.fix ?? []), text);
-  equal(applyEdits(text, result.diagnostics.flatMap((found) => [...(found.fix ?? [])])), fixed);
+  const sigil = result.diagnostics[3]!;
+  ok(sigil.fix !== undefined && sigil.fix.length > 0);
+  const fixed = applyEdits(text, sigil.fix);
   equal(analyse(fixed).ok, true, JSON.stringify(analyse(fixed).diagnostics));
 });
 

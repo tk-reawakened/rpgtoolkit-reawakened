@@ -6,23 +6,26 @@
 //   node tools/mobile/build.mjs
 
 import { build } from "esbuild";
+import { cpSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { assertNoBuildOutputCollisions, hostBuildOutput } from "../build-outputs.mjs";
 
 // The mobile wrapper carries the same strict policy as the browser page (no `'wasm-unsafe-eval'`), and the MIDI
 // dependency instantiates its Vorbis decoder at import time (#1325, `docs/spec/engine/runners.md#csp-and-banks`), so the
 // same stub alias applies here. The desktop bundle keeps the real decoder; SF3 is a desktop-only path for now.
 const decoderStub = fileURLToPath(new URL("../browser/stb-vorbis-stub.mjs", import.meta.url));
 const alias = { "stb-vorbis": decoderStub };
-import { cpSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
+assertNoBuildOutputCollisions();
+mkdirSync(join(root, "apps", "mobile"), { recursive: true });
 const mobile = join(root, "packages", "runner-mobile");
 
 await build({
   entryPoints: [join(mobile, "app", "player.ts")],
-  outfile: join(root, "apps", "player-mobile.js"),
+  outfile: hostBuildOutput(root, "mobile", "player-mobile.js"),
   bundle: true,
   format: "iife",
   platform: "browser",
@@ -31,10 +34,10 @@ await build({
   alias,
 });
 
-// The AudioWorklet module the mobile player loads from `apps/audio-worklet.js`.
+// The AudioWorklet module the mobile player loads from `apps/mobile/audio-worklet.js`.
 await build({
   entryPoints: [join(root, "packages/runner-web/src/audio-worklet.ts")],
-  outfile: join(root, "apps", "audio-worklet.js"),
+  outfile: hostBuildOutput(root, "mobile", "audio-worklet.js"),
   bundle: true,
   format: "iife",
   platform: "browser",
@@ -46,9 +49,9 @@ await build({
 // The webDir Capacitor syncs into the native projects: the page, its bundle, the bundled-asset list and the assets themselves.
 mkdirSync(join(mobile, "dist"), { recursive: true });
 cpSync(join(mobile, "app", "player.html"), join(mobile, "dist", "index.html"));
-mkdirSync(join(mobile, "dist", "apps"), { recursive: true });
-cpSync(join(root, "apps", "player-mobile.js"), join(mobile, "dist", "apps", "player-mobile.js"));
-cpSync(join(root, "apps", "audio-worklet.js"), join(mobile, "dist", "apps", "audio-worklet.js"));
+mkdirSync(join(mobile, "dist", "apps", "mobile"), { recursive: true });
+cpSync(hostBuildOutput(root, "mobile", "player-mobile.js"), join(mobile, "dist", "apps", "mobile", "player-mobile.js"));
+cpSync(hostBuildOutput(root, "mobile", "audio-worklet.js"), join(mobile, "dist", "apps", "mobile", "audio-worklet.js"));
 
 // The bundled-asset list the page reads, plus the actual font/cursor files, so fetches work on a device without a dev server.
 const { readdirSync, writeFileSync } = await import("node:fs");
@@ -64,8 +67,8 @@ const bundled = folders.flatMap((folder) => {
     })
     .sort();
 });
-writeFileSync(join(root, "apps", "bundled.json"), `${JSON.stringify({ folders, files: bundled }, null, 2)}\n`);
-cpSync(join(root, "apps", "bundled.json"), join(mobile, "dist", "apps", "bundled.json"));
+writeFileSync(hostBuildOutput(root, "mobile", "bundled.json"), `${JSON.stringify({ folders, files: bundled }, null, 2)}\n`);
+cpSync(hostBuildOutput(root, "mobile", "bundled.json"), join(mobile, "dist", "apps", "mobile", "bundled.json"));
 
 // The package the mobile player boots. `pnpm make-package` builds it from the fixture if it is not already present.
 const demoPackage = join(root, "fixtures", "packages", "demo.tpk");
@@ -79,5 +82,5 @@ const demoName = "demo.tpk";
 cpSync(demoPackage, join(mobile, "dist", "public", demoName));
 cpSync(demoDescriptor, join(mobile, "dist", "public", `${demoName}.json`));
 
-console.log("built runner-mobile: apps/player-mobile.js and dist/ (the Capacitor webDir)");
+console.log("built runner-mobile: apps/mobile/player-mobile.js and dist/ (the Capacitor webDir)");
 void readFileSync;

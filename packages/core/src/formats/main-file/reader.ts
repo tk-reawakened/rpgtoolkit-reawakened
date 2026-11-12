@@ -20,6 +20,7 @@ import { err, ok, type Result } from "../result.ts";
 import { BinaryReader } from "../binary/reader.ts";
 import type { Colorref } from "../binary/color.ts";
 import {
+  DEFAULT_MOVEMENT_SCAN_CODES,
   MAIN_MAGIC,
   MAIN_MAX_MINOR,
   MAIN_MIN_MINOR,
@@ -269,6 +270,9 @@ export function newProjectMainFile(): MainFile {
   return {
     ...createEmptyMainFile(),
     minor: MAIN_MAX_MINOR,
+    movementControls: 7,
+    movementScanCodes: [...DEFAULT_MOVEMENT_SCAN_CODES],
+    useJoystick: 1,
     packagePlugins: [...NEW_PROJECT_PACKAGE_PLUGINS],
     packagePluginsExtension: true,
   };
@@ -506,6 +510,11 @@ export function readTextMainFile(bytes: Uint8Array, path?: string): Result<MainF
 }
 
 
+/** Distinguish the binary main-file layout from the older line-oriented layout. */
+export function detectBinaryMainFile(reader: BinaryReader): Result<boolean> {
+  return reader.isBinaryAt(reader.offset + MAIN_MAGIC.length);
+}
+
 /**
  * Read a main game file from `reader` (docs/spec/formats/main-file.md#layout). The header's minor must
  * be 0–9; every field listed for that minor is read in order. Any bytes after
@@ -518,7 +527,7 @@ export function readMainFile(reader: BinaryReader): Result<MainFile> {
     return fail(reader, start, "unexpected end of data reading magic: need 1 byte(s), 0 remain");
   }
 
-  const detection = reader.isBinaryAt(start + MAIN_MAGIC.length);
+  const detection = detectBinaryMainFile(reader);
   if (detection.ok && !detection.value) {
     const bytes = reader.readBytes(reader.remaining);
     if (!bytes.ok) {

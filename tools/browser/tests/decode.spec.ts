@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import type { DecodeStats } from "@tk-reawakened/runner-web";
 
 /**
- * Entry 9's decode lane (issue #934, OQ3): a real Worker running the classic-script IIFE bundle `apps/decode-worker.js`,
+ * Entry 9's decode lane (issue #934, OQ3): a real Worker running the classic-script IIFE bundle `apps/browser/decode-worker.js`,
  * with every prepared result compared with what the host thread makes on the same bytes.
  *
  * The acceptance criteria under test in headless Chromium:

@@ -209,7 +209,7 @@ To remove a listener, pass `off` a callable equal to the one registered: store t
 | `leveledUp` | actor | no | level, experience, applied stat deltas | 20.6, 20.9 |
 | `entered` | actor, board | no | actor id, board key | 20.9 |
 | `left` | actor, board | no | actor id, board key | 20.9 |
-| `dialogue.completed` | game | no | `actorId`, `targetId` (actor id or null), `text` | Epic 8 interaction wrapper |
+| `dialogue.completed` | game | no | `actorId`, `targetId` (actor id or null), `text`; script-originated detail uses these same fields even when identifier folding lowercases their RPGCode spelling | Epic 8 interaction wrapper |
 | `talked` | actor | no | `actorId`, `targetId` (actor id or null), `text`; emitted by stock RPG package after `dialogue.completed` | Epic 8 stock RPG package |
 | `beforeDamage` | actor/battle operation | yes | source actor id or null, target actor id, damage detail | Epic 7 |
 | `beforeEnter` | board | yes (the step does not happen) | actor id, board key, entry detail | 20.9 |

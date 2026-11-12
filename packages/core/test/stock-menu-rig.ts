@@ -163,6 +163,9 @@ export function authoredGame(options: GameOptions): { readonly files: Files; rea
     initBoard: "start.brd",
     initChar: "hero.tem",
     packagePlugins: ["stock_menu"],
+    useJoystick: 1,
+    movementControls: 5,
+    movementScanCodes: [0xcd, 0, 0xd0, 0, 0xcb, 0, 0xc8, 0],
     ...(options.sounds === true ? { cursorMoveSound: "move.wav", cursorSelectSound: "confirm.wav", cursorCancelSound: "cancel.wav" } : {}),
   };
   files.set(assetKey("main.gam"), unwrap(writeMainFile(main)));

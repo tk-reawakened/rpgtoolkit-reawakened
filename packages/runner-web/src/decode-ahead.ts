@@ -13,8 +13,8 @@ import type { AssetKey } from "@tk-reawakened/core";
 import type { TexturePixels } from "@tk-reawakened/render-webgl2";
 import type { DecodeAhead, DecodeGap, DecodeJob, DecodeReply, DecodeStats, PrepareKind, PreparedAudio } from "./decode-types.ts";
 
-/** Where the lane serves the worker bundle `tools/browser/build.mjs` emits (`out: "decode-worker.js"`). */
-export const DECODE_WORKER_URL = "/apps/decode-worker.js";
+/** Where the lane serves the worker bundle `tools/browser/build.mjs` emits (`apps/browser/decode-worker.js`). */
+export const DECODE_WORKER_URL = "/apps/browser/decode-worker.js";
 
 export type DecodeAheadOptions = {
   /** The audio graph's sample rate: WAV is prepared at this rate, so the sink can open it with no resample. */

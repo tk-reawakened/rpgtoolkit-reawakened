@@ -18,6 +18,7 @@
 import type { Colorref } from "../binary/color.ts";
 
 /** The magic every binary main file starts with (docs/spec/formats/main-file.md#layout row 1). */
+export const DEFAULT_MOVEMENT_SCAN_CODES = [0xcd, 0, 0xd0, 0, 0xcb, 0, 0xc8, 0] as const;
 export const MAIN_MAGIC = "RPGTLKIT MAIN";
 
 /** The format specification anchor the main-file reader, writer and model implement (G7). */

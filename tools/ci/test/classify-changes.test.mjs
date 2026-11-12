@@ -254,7 +254,7 @@ test("workflow: classify seals the verdict before any PR code runs, and no job c
     equal(/\bgit\s+(?!--no-replace-objects\b)/u.test(line), false, `git call must pass --no-replace-objects: ${line}`);
   }
 
-  for (const name of ["golden", "script-dogfood", "golden-bun", "desktop", "browser", "mobile"]) {
+  for (const name of ["golden", "script-dogfood", "golden-bun", "desktop", "browser", "vscode-web", "mobile"]) {
     const lines = jobs.get(name);
     ok(lines, `ci.yml must define ${name}`);
     match(lines.join("\n"), /^ {4}needs: \[changes\]$/mu, `${name} must depend only on changes`);
@@ -275,12 +275,30 @@ test("workflow: classify seals the verdict before any PR code runs, and no job c
 
   // `gate` recomputes the diff itself, so a workflow or classifier change can never arrive as "inert".
   const gate = jobs.get("gate")?.join("\n") ?? "";
-  match(gate, /^ {4}needs: \[changes, checks, unit, golden, golden-bun, browser, desktop, script-dogfood\]$/mu,
+  match(gate, /^ {4}needs: \[changes, checks, unit, golden, golden-bun, browser, vscode-web, desktop, script-dogfood\]$/mu,
     "gate must wait for every required job and finish independently of mobile");
   match(gate, /uses: actions\/checkout@v7\n {8}with:\n {10}fetch-depth: 0/u, "gate must check out full history");
   ok(gate.includes("cannot be inert"), "gate must refuse a defer for a workflow or classifier change");
   ok(gate.includes(".github/workflows/|tools/ci/"), "gate must look for workflow and classifier paths");
   ok(gate.includes("--no-replace-objects diff"), "gate's own diff must ignore replacement refs");
+});
+
+test("unit shards have a bounded job timeout and a timed-out shard fails the gate", () => {
+  const jobs = readWorkflowJobs();
+  const unit = jobs.get("unit")?.join("\n") ?? "";
+  match(unit, /^ {4}timeout-minutes: 30$/mu);
+  const gate = jobs.get("gate")?.join("\n") ?? "";
+  match(gate, /^ {4}needs: \[.*\bunit\b.*\]$/mu);
+  match(gate, /^ {10}RESULTS: "\$\{\{ join\(needs\.\*\.result, ' '\) \}\}"$/mu, "gate must aggregate every required job result");
+  const guard = gate.split("\n").find((line) => line.includes('for r in $RESULTS;'));
+  ok(guard, "gate must reject every result other than success");
+  for (const result of ["failure", "cancelled", "timed_out"]) {
+    const run = spawnSync("bash", ["-c", guard], { env: { ...process.env, RESULTS: `success ${result}`, NEEDS: result }, encoding: "utf8" });
+    equal(run.status, 1, `gate accepted ${result}`);
+    match(run.stdout, /gate failed/);
+  }
+  const success = spawnSync("bash", ["-c", guard], { env: { ...process.env, RESULTS: "success success", NEEDS: "{}" }, encoding: "utf8" });
+  equal(success.status, 0);
 });
 
 test("mobile CI reserves AVD space and keeps the real emulator proof", () => {

@@ -78,7 +78,7 @@ async function play(host: DesktopHost, opened: { readonly name: string; readonly
   const { canvas, status, viewport } = stage;
   const pkg = await interactivePackage(opened.name, new Uint8Array(opened.bytes), opened.descriptor);
   const files = pkg.files;
-  const listed = (await (await fetch("/apps/bundled.json")).json()) as { readonly files: readonly string[] };
+  const listed = (await (await fetch("/apps/desktop/bundled.json")).json()) as { readonly files: readonly string[] };
   const bundled = new Map<string, Uint8Array>();
   for (const name of listed.files) {
     const response = await fetch(`/${name}`);
@@ -90,6 +90,7 @@ async function play(host: DesktopHost, opened: { readonly name: string; readonly
   let quitRequested = false;
   let stopPlayer: (() => void) | undefined;
   const session = await createLiveSession({
+    audioArtifactHost: "desktop",
     interactive: true,
     ...(debug === undefined || debug.drawVectorsFlags === 0 ? {} : { debug: { drawVectorsFlags: debug.drawVectorsFlags } }),
     mainFile: pkg.main,
@@ -178,6 +179,7 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
     observedGeometry.observe(event);
     pending.push({ tick: null, event, pointerGeometry: null });
   }, session.hostState ?? undefined);
+  session.setGamepadResampler(hostObserver.resampleGamepads);
   session.setHostRestoreSnapshotProvider(() => {
     const snapshot = hostObserver.snapshotForRestore(pending);
     for (const event of snapshot.observations) observedGeometry.observe(event);
@@ -272,7 +274,7 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
         ].join("\n");
         diagnostics.hidden = false;
       }
-      status.textContent = [`tick ${result.tick}`, `state ${result.stateHash}`, `draw ${result.drawHash}`, player === null ? "player position unavailable" : `player ${player.x}, ${player.y}`, ...(audioError === null ? [] : [`audio: ${audioError}`]), "Move: arrows or WASD; click to walk."].join("\n");
+      status.textContent = [`tick ${result.tick}`, `state ${result.stateHash}`, `draw ${result.drawHash}`, player === null ? "player position unavailable" : `player ${player.x}, ${player.y}`, ...(audioError === null ? [] : [`audio: ${audioError}`])].join("\n");
       requestAnimationFrame(draw);
     }).catch((error: unknown) => {
       console.error(`player stopped at tick ${session.tick()}`, error);

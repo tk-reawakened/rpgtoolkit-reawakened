@@ -1,10 +1,12 @@
-import { deepEqual, equal, ok } from "node:assert/strict";
+import { deepEqual, equal, ok, throws } from "node:assert/strict";
 import test from "node:test";
 import {
   commandDocumentation,
+  compileProgram,
   createAssetIndex,
   assetKey,
   FIRST_PARTY_PLUGINS,
+  IR_VERSION,
   PACKAGE_ROOT,
   utf8Encode,
   type ProgramLoader,
@@ -36,7 +38,7 @@ import { createServer, type ServerConnection } from "../src/index.ts";
 type Pair = {
   readonly connection: ServerConnection;
   readonly published: Diagnostic[][];
-  open(uri: string, text: string): void;
+  open(uri: string, text: string, languageId?: string): void;
   hover(uri: string, line: number, character: number): Hover | null;
   completion(uri: string, line: number, character: number): CompletionItem[];
   definition(uri: string, line: number, character: number): Location[];
@@ -76,6 +78,7 @@ function pair(): Pair {
       symbolHandler = handler;
       return absent;
     },
+    onSignatureHelp: () => absent,
     onCodeAction: (handler) => {
       codeActionHandler = handler;
       return absent;
@@ -85,7 +88,7 @@ function pair(): Pair {
   return {
     connection,
     published,
-    open: (uri, text) => openHandler({ textDocument: { uri, languageId: "rpgcode", version: 1, text } }),
+    open: (uri, text, languageId = "rpgcode") => openHandler({ textDocument: { uri, languageId, version: 1, text } }),
     hover: (uri, line, character) => hoverHandler({ textDocument: { uri }, position: { line, character } }),
     completion: (uri, line, character) => completionHandler({ textDocument: { uri }, position: { line, character } }),
     definition: (uri, line, character) => definitionHandler({ textDocument: { uri }, position: { line, character } }),
@@ -188,30 +191,40 @@ test("the outline is the index's functions, classes and labels", () => {
   deepEqual(box.children?.map((child: DocumentSymbol) => child.name), ["n", "box.m"]);
 });
 
-test("one code action per legacy form, each an edit that re-parses", () => {
-  const text = ["#Mwin(Hello there)", "#ReturnMethod(1 + 2)", "#Dos", "x! = 1"].join("\n") + "\n";
+test("Toolkit 2 conversion previews an unsaved 3.1 copy without editing the project", () => {
+  const text = "#Mwin(hello, world)\n#threadSleep(1, 2)\n";
   const started = server({ "main.prg": text });
-  started.open("file:///main.prg", text);
+  started.open("file:///main.prg", text, "rpgcode-tk2");
   const actions = started.codeActions("file:///main.prg");
-  deepEqual(
-    actions.map((action) => action.kind),
-    ["quickfix", "quickfix", "quickfix", "quickfix"],
-  );
-  const titles = actions.map((action) => action.title);
-  ok(titles.some((title) => title.includes("#Mwin")));
-  ok(titles.some((title) => title.includes("#ReturnMethod")));
-  ok(titles.some((title) => title.includes("#Dos")));
-  ok(titles.some((title) => title.includes("sigil")));
-  for (const action of actions) {
-    const edits = action.edit?.changes?.["file:///main.prg"] ?? [];
-    ok(edits.length > 0);
-    for (const item of edits) equal(typeof item.newText, "string");
-  }
+  equal(actions.length, 1);
+  equal(actions[0]!.edit, undefined);
+  equal(actions[0]!.command?.command, "rpgcode.previewTk2Conversion");
+  deepEqual(actions[0]!.command?.arguments, ['Mwin("hello", "world")\nthreadSleep(1, 2)\n']);
 });
 
-test("a row whose rewrite would change behaviour gets no code action", () => {
-  const text = "if (x = 5) {\n  y = 1\n}\nm[key] = 1\nHello there\n";
-  const started = server({ "main.prg": text });
-  started.open("file:///main/prg", text);
+test("Toolkit 2 conversion refuses unresolved project dependencies even when the project loader can read them", () => {
+  const main = "#lib.hello()";
+  const projectLoader = loader({ "main.prg": main, "lib.prg": "#Method hello() {\n  #Mwin(Hello there)\n}" });
+  const original = compileProgram({ kind: "inline", text: main, ir: IR_VERSION, dialect: "tk2" }, { loader: projectLoader });
+  equal(original.units.length, 2);
+  throws(() => compileProgram({ kind: "inline", text: "lib.hello()", ir: IR_VERSION }, { loader: projectLoader }));
+  const started = server({ "main.prg": main, "lib.prg": "#Method hello() {\n  #Mwin(Hello there)\n}" });
+  started.open("file:///main.prg", main, "rpgcode-tk2");
   deepEqual(started.codeActions("file:///main.prg"), []);
+});
+
+test("3.1 editor mode does not offer an in-place edit that changes TK2 dialogue", () => {
+  const text = "foo(name$)";
+  const started = server({ "main.prg": text });
+  started.open("file:///main.prg", text, "rpgcode");
+  deepEqual(started.codeActions("file:///main.prg"), []);
+});
+
+test("ordinary 3.1 mode never guesses that assignment is Toolkit 2 equality", () => {
+  const text = "if (x = 5) {\n  y = 1\n}\n";
+  const started = server({ "main.prg": text });
+  started.open("file:///main.prg", text);
+  deepEqual(started.codeActions("file:///main.prg"), []);
+  started.open("file:///legacy.prg", text, "rpgcode-tk2");
+  equal(started.codeActions("file:///legacy.prg").length, 1);
 });

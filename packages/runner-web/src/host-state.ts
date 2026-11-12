@@ -9,6 +9,7 @@ export type HostRestoreSnapshot = {
 
 export type HostStateObserver = {
   readonly poll: () => void;
+  readonly resampleGamepads: () => void;
   readonly currentFeatures: () => NormalizedHostFeatures;
   readonly snapshotForRestore: (pending?: PendingInput[]) => HostRestoreSnapshot;
   readonly dispose: () => void;
@@ -280,7 +281,7 @@ export function observeHostState(
     send({ kind: "host.features", features: next });
   };
   const onResize = (): void => { updateDisplay(); updateFeatures(); };
-  const poll = (): void => {
+  const sampleGamepads = (): void => {
     currentGamepads.fill(null);
     const gamepads = navigator.getGamepads?.();
     if (gamepads !== undefined) {
@@ -289,6 +290,9 @@ export function observeHostState(
         if (pad !== null && pad !== undefined && validGamepad(pad)) currentGamepads[pad.index] = pad;
       }
     }
+  };
+  const poll = (): void => {
+    sampleGamepads();
     let gamepadConnectionChanged = false;
     for (let device = 0; device <= 3; device += 1) {
       const pad = currentGamepads[device];
@@ -330,26 +334,8 @@ export function observeHostState(
   for (const item of media) item.addEventListener("change", onResize);
   onResize();
   poll();
-  const snapshotForRestore = (pending: PendingInput[] = []): HostRestoreSnapshot => {
-    const geometry = measureHostDisplay(host, view, safeArea.read()) ?? previousGeometry;
-    if (geometry !== null) {
-      // The successful blob reply replaces the engine's geometry, which is unknown here. Re-establish each pointer's
-      // normalization geometry in the ordered reply records before moving metadata out of the host queue.
-      reconcilePendingGeometry(null, geometry, pending, false);
-    }
-    const pendingEvents = pending.splice(0).map((input) => input.event);
-    const features = readHostFeatures(keyboardObserved);
-    latestFeatures = features;
-    previousFeatures = features;
-    if (geometry !== null) previousGeometry = geometry;
-    currentGamepads.fill(null);
-    const gamepads = navigator.getGamepads?.();
-    if (gamepads !== undefined) {
-      for (let index = 0; index < gamepads.length; index += 1) {
-        const pad = gamepads[index];
-        if (pad != null && validGamepad(pad)) currentGamepads[pad.index] = pad;
-      }
-    }
+  const gamepadSnapshot = (): Extract<InputRecord["event"], { kind: "host.gamepads" }> => {
+    sampleGamepads();
     const devices: { device: number; axes: { x: number; y: number }; buttons: number }[] = [];
     for (let device = 0; device <= 3; device += 1) {
       const pad = currentGamepads[device];
@@ -363,17 +349,35 @@ export function observeHostState(
       devices.push({ device, axes: { x, y }, buttons });
       previousGamepads[device] = { x, y, buttons };
     }
+    return { kind: "host.gamepads", devices };
+  };
+  const snapshotForRestore = (pending: PendingInput[] = []): HostRestoreSnapshot => {
+    const geometry = measureHostDisplay(host, view, safeArea.read()) ?? previousGeometry;
+    if (geometry !== null) {
+      // The successful blob reply replaces the engine's geometry, which is unknown here. Re-establish each pointer's
+      // normalization geometry in the ordered reply records before moving metadata out of the host queue.
+      reconcilePendingGeometry(null, geometry, pending, false);
+    }
+    const pendingEvents = pending.splice(0).map((input) => input.event);
+    const features = readHostFeatures(keyboardObserved);
+    latestFeatures = features;
+    previousFeatures = features;
+    if (geometry !== null) previousGeometry = geometry;
     return {
       pending: pendingEvents,
       observations: [
         { kind: "host.features", features },
         ...(geometry === null ? [] : [{ kind: "host.display" as const, geometry }]),
-        { kind: "host.gamepads", devices },
+        gamepadSnapshot(),
       ],
     };
   };
   return {
     poll,
+    resampleGamepads() {
+      send(gamepadSnapshot());
+      updateFeatures();
+    },
     snapshotForRestore,
     currentFeatures: () => ({ ...latestFeatures }),
     dispose() {

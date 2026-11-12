@@ -1,8 +1,8 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { assetKey, createAssetIndex, decodeCp1252, PACKAGE_ROOT, type ProgramLoader } from "@tk-reawakened/core";
+import { existsSync, readFileSync, readdirSync, watch, type FSWatcher } from "node:fs";
+import { assetKey, createAssetIndex, decodeCp1252, FIRST_PARTY_PLUGINS, PACKAGE_ROOT, type PluginDefinition, type ProgramLoader } from "@tk-reawakened/core";
 import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { hasOnlyCases, runSpecFile, type SpecFileReport, type SpecRunOptions } from "./runner.ts";
+import { discoverCases, hasOnlyCases, runSpecFile, type SpecFileReport, type SpecRunOptions } from "./runner.ts";
 
 const compareNames = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
 
@@ -34,7 +34,7 @@ export function discoverProjectSpecs(projectRoot: string): string[] {
     .map((file) => relative(root, file).split(sep).join("/"));
 }
 
-function projectProgramLoader(projectRoot: string): ProgramLoader {
+function projectProgramLoader(projectRoot: string): ProgramLoader & { nativePlugin?: PluginDefinition } {
   const rootEntries = readdirSync(projectRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && assetKey(entry.name) === assetKey("Prg"))
     .sort((left, right) => compareNames(left.name, right.name));
@@ -49,13 +49,28 @@ function projectProgramLoader(projectRoot: string): ProgramLoader {
       path: `Prg/${relative(programDirectory, file).split(sep).join("/")}`,
       file,
     }));
+  // A package's own startup program lives beside its manifest, not in Prg/.
+  // Expose it to executeProgram when the package itself is the project root.
+  let nativePlugin: PluginDefinition | undefined;
+  const manifestFile = join(projectRoot, "manifest.json");
+  if (existsSync(manifestFile)) {
+    const manifest: unknown = JSON.parse(readFileSync(manifestFile, "utf8"));
+    if (typeof manifest === "object" && manifest !== null && "program" in manifest &&
+        typeof manifest.program === "string" && /^[\w.-]+\.prg$/i.test(manifest.program)) {
+      if ("name" in manifest && typeof manifest.name === "string") {
+        nativePlugin = FIRST_PARTY_PLUGINS.find((plugin) => plugin.id === manifest.name);
+      }
+      const file = join(projectRoot, manifest.program);
+      programEntries.unshift({ path: `Prg/${manifest.program}`, file });
+    }
+  }
   const index = createAssetIndex(programEntries.map((entry) => entry.path));
   const contents = new Map<string, Uint8Array>();
   for (const entry of programEntries) {
     const key = assetKey(entry.path);
     if (!contents.has(key)) contents.set(key, readFileSync(entry.file));
   }
-  return { index, root: PACKAGE_ROOT, read: (key) => contents.get(key) };
+  return { index, root: PACKAGE_ROOT, read: (key) => contents.get(key), ...(nativePlugin === undefined ? {} : { nativePlugin }) };
 }
 
 export type SpecProjectReport = {
@@ -68,7 +83,7 @@ export type SpecProjectReport = {
   readonly warnings: readonly string[];
 };
 
-export type SpecProjectOptions = Pick<SpecRunOptions, "seed" | "strict">;
+export type SpecProjectOptions = Pick<SpecRunOptions, "seed" | "strict" | "name">;
 
 /** Read and run every discovered project spec against its RPGCode files and the bundled API. */
 export function runSpecProject(projectRoot: string, options: SpecProjectOptions = {}): SpecProjectReport {
@@ -91,12 +106,12 @@ export function runSpecProject(projectRoot: string, options: SpecProjectOptions 
   const reports: SpecFileReport[] = [];
   const failures: string[] = [];
   for (const spec of selected) {
-    if (hasAnyOnly && !spec.hasOnly) continue;
     if (spec.error !== null) {
       reports.push({ file: spec.projectPath, cases: [], skipped: [], warning: null, failures: [spec.error] });
       failures.push(`${spec.projectPath}: ${spec.error}`);
       continue;
     }
+    if (hasAnyOnly && !spec.hasOnly && discoverCases(spec.source, options.seed ?? 0, loader).length > 0) continue;
     try {
       const report = runSpecFile(spec.projectPath, spec.source, { ...options, loader });
       reports.push(report);
@@ -113,5 +128,23 @@ export function runSpecProject(projectRoot: string, options: SpecProjectOptions 
     skipped: reports.flatMap((report) => report.skipped.map((name) => `${report.file}: ${name}`)),
     warnings: reports.flatMap((report) => report.warning === null ? [] : [`${report.file}: ${report.warning}`]),
   };
+}
+
+/** Run immediately, then rerun the entire project whenever a project file changes. */
+export function watchSpecProject(
+  projectRoot: string,
+  options: SpecProjectOptions,
+  onReport: (report: SpecProjectReport) => void,
+): FSWatcher {
+  const watcher = watch(resolve(projectRoot), { recursive: true }, () => {
+    onReport(runSpecProject(projectRoot, options));
+  });
+  try {
+    onReport(runSpecProject(projectRoot, options));
+  } catch (error) {
+    watcher.close();
+    throw error;
+  }
+  return watcher;
 }
 

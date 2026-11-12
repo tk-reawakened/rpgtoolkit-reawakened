@@ -34,6 +34,7 @@ createServer({
   onCompletion: (handler) => connection.onCompletion(handler),
   onDefinition: (handler) => connection.onDefinition(handler),
   onDocumentSymbol: (handler) => connection.onDocumentSymbol(handler),
+  onSignatureHelp: (handler) => connection.onSignatureHelp(handler),
   onCodeAction: (handler) => connection.onCodeAction(handler),
   sendDiagnostics: (params) => void connection.sendDiagnostics(params),
 });
