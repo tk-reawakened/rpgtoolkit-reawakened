@@ -1,15 +1,24 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "Node16",
-    "moduleResolution": "Node16",
-    "lib": ["ES2022"],
-    "types": ["node", "vscode"],
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "lib": [
+      "ES2022"
+    ],
+    "types": [
+      "node",
+      "vscode"
+    ],
     "outDir": "dist",
     "rootDir": "src",
     "strict": true,
     "sourceMap": true,
     "skipLibCheck": true
   },
-  "include": ["src/extension.ts", "src/serverPath.ts"]
+  "include": [
+    "src/extension.ts",
+    "src/serverPath.ts",
+    "src/debug.ts"
+  ]
 }

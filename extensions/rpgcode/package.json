@@ -1,7 +1,7 @@
 {
   "name": "rpgcode-language",
   "displayName": "RPGCode Language",
-  "description": "Diagnostics, hover, completion, go-to-definition, outline and quick fixes for RPGCode (.prg, .rnc).",
+  "description": "Diagnostics, hover, completion, go-to-definition, outline, quick fixes and a debugger for RPGCode (.prg, .rnc).",
   "version": "0.0.1",
   "publisher": "tk-reawakened",
   "license": "MIT",
@@ -12,7 +12,8 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onLanguage:rpgcode"
+    "onLanguage:rpgcode",
+    "onDebugResolve:rpgcode"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/extension.browser.js",
@@ -30,6 +31,60 @@
         ],
         "configuration": "./language-configuration.json"
       }
+    ],
+    "debuggers": [
+      {
+        "type": "rpgcode",
+        "label": "RPGCode",
+        "languages": [
+          "rpgcode"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program",
+              "board"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Path to the RPGCode program to run (for example Prg/probe.prg)."
+              },
+              "board": {
+                "type": "string",
+                "description": "Path to the board the program starts on (for example Boards/probe.brd)."
+              },
+              "seed": {
+                "type": "number",
+                "description": "Seed for the deterministic random generator (default 7)."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "rpgcode",
+            "request": "launch",
+            "name": "RPGCode: debug program",
+            "program": "${workspaceFolder}/Prg/probe.prg",
+            "board": "${workspaceFolder}/Boards/probe.brd",
+            "seed": 7
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "RPGCode: debug program",
+            "description": "Run one RPGCode program on one board and stop on breakpoints.",
+            "body": {
+              "type": "rpgcode",
+              "request": "launch",
+              "name": "RPGCode: debug program",
+              "program": "^\"${workspaceFolder}/Prg/\"",
+              "board": "^\"${workspaceFolder}/Boards/\""
+            }
+          }
+        ]
+      }
     ]
   },
   "scripts": {
@@ -37,7 +92,9 @@
     "package": "pnpm run build && vsce package --no-dependencies"
   },
   "dependencies": {
+    "@tk-reawakened/dap": "file:../../packages/dap",
     "@tk-reawakened/lsp": "file:../../packages/lsp",
+    "@tk-reawakened/runner-harness": "file:../../packages/runner-harness",
     "vscode-languageclient": "9.0.1",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.12"
