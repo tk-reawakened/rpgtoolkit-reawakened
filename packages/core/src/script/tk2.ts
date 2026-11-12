@@ -104,7 +104,7 @@ function bindRawArguments(line: string, lookup: Tk2CommandLookup | undefined): s
     const args = splitArgs(line.slice(open + 1, close));
     const spec = lookupCommand(lookup, name);
     const bound = args.map((arg, index) => {
-      if (arg.startsWith('"') || arg.startsWith("'") || arg.startsWith(":") || /^[A-Za-z_]\w*[!$]$/.test(arg)) return arg;
+      if (arg.startsWith('"') || arg.startsWith("'") || arg.startsWith(":") || /^\d*[A-Za-z_]\w*[!$]$/.test(arg)) return arg;
       const param = paramAt(spec, index);
       if (looksExpression(arg)) return arg;
       // A TK2 word with spaces, a filename, or a text-typed command argument is

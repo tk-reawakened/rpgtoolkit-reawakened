@@ -71,6 +71,16 @@ test("TK2 text commands read sigilled variable arguments, not their names", () =
   deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Ada", "7", "Hello there", "name$"]);
 });
 
+test("TK2 text commands read digit-leading sigilled identifiers", () => {
+  const source = '#1name$ = "Ada"\n#1score! = 7\n#Mwin(1name$)\n#Mwin(1score!)';
+  equal(normaliseTk2(source), '1name = "Ada"\n1score = 7\nMwin(1name)\nMwin(1score)');
+  const program = compileTk2(source, "digit-leading.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Ada", "7"]);
+});
+
 test("TK2 retains variable and literal identity in mixed and nested arguments", () => {
   equal(
     normaliseTk2('#Text(1, 2, name$)\n#Mwin(concat(name$, "!"))\n#Mwin("name$")'),
