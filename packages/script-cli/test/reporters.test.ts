@@ -151,17 +151,22 @@ test("JUnit watch replaces one XML report and preserves a focused-run warning", 
   let stage = 0;
   child.stderr.on("data", (bytes: Buffer) => {
     output += bytes.toString();
-    if (stage === 0 && output.includes("1 passed, 0 failed")) {
-      stage = 1;
-      output = "";
-      rmSync(report);
-    } else if (stage === 1 && output.includes("1 passed, 0 failed")) {
-      stage = 2;
-      output = "";
-      writeFileSync(filename, 'only("case", () => { expect(1).toBe(2) })');
-    } else if (stage === 2 && output.includes("0 passed, 1 failed")) {
-      child.kill("SIGINT");
-    }
+    try {
+      if (stage === 0 && output.includes("1 passed, 0 failed")) {
+        // The first report is emitted after the existing spec file is being watched.
+        match(readFileSync(report, "utf8"), /name="case"/);
+        stage = 1;
+        output = "";
+        writeFileSync(filename, 'only("revised", () => { expect(1).toBe(1) })');
+      } else if (stage === 1 && output.includes("1 passed, 0 failed")
+        && readFileSync(report, "utf8").includes('name="revised"')) {
+        stage = 2;
+        output = "";
+        writeFileSync(filename, 'only("revised", () => { expect(1).toBe(2) })');
+      } else if (stage === 2 && output.includes("0 passed, 1 failed")) {
+        child.kill("SIGINT");
+      }
+    } catch (error) { rejectDone(error); }
   });
   child.on("error", rejectDone);
   child.on("exit", (code, signal) => {
@@ -179,21 +184,10 @@ test("JUnit watch replaces one XML report and preserves a focused-run warning", 
   await done;
 });
 
-test("watch test cancellation closes real watchers and child processes", { timeout: 12000 }, async (t) => {
-  // This subprocess exercises real cancellation and process teardown; fake timers cannot prove handle cleanup.
-  const fixture = fileURLToPath(new URL("./fixtures/suppress-watch.mjs", import.meta.url));
-  const sandbox = mkdtempSync(join(tmpdir(), "tkr-watch-probe-"));
-  t.after(() => { rmSync(sandbox, { recursive: true, force: true }); });
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${JSON.stringify(fixture)}`,
-    TMPDIR: sandbox, TEMP: sandbox, TMP: sandbox,
-    TKR_WATCH_CANCELLATION_PROBE: "1",
-  };
-  delete env.NODE_TEST_CONTEXT;
+async function runWatchProbe(pattern: string, env: NodeJS.ProcessEnv): Promise<{ status: number | null; stdout: string; stderr: string }> {
   const child = spawn(process.execPath, [
     "--test",
-    "--test-name-pattern=watch reruns all files|CLI watch exits|JUnit watch replaces",
+    `--test-name-pattern=${pattern}`,
     fileURLToPath(import.meta.url),
   ], { env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
   let stdout = "";
@@ -209,13 +203,44 @@ test("watch test cancellation closes real watchers and child processes", { timeo
       child.stdout.destroy();
       child.stderr.destroy();
       child.unref();
-      reject(new Error("cancellation probe did not exit"));
+      reject(new Error(`watch probe did not exit\n${stdout}\n${stderr}`));
     }, 8000);
     child.once("error", (error) => { clearTimeout(timer); reject(error); });
     child.once("close", (code) => { clearTimeout(timer); resolve(code); });
   });
-  equal(status, 1, `${stdout}\n${stderr}`);
-  match(stdout, /cancelled 3/);
-  match(stdout, /test timed out/);
+  return { status, stdout, stderr };
+}
+
+function watchProbeEnv(fixtureName: string, sandbox: string): NodeJS.ProcessEnv {
+  const fixture = fileURLToPath(new URL(`./fixtures/${fixtureName}`, import.meta.url));
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${JSON.stringify(fixture)}`,
+    TMPDIR: sandbox, TEMP: sandbox, TMP: sandbox,
+  };
+  delete env.NODE_TEST_CONTEXT;
+  return env;
+}
+
+test("JUnit watch reruns even when generated output events are lost", { timeout: 12000 }, async (t) => {
+  // Exercise real OS watchers while dropping report-file notifications, not source-file notifications.
+  const sandbox = mkdtempSync(join(tmpdir(), "tkr-watch-probe-"));
+  t.after(() => { rmSync(sandbox, { recursive: true, force: true }); });
+  const probe = await runWatchProbe("JUnit watch replaces", watchProbeEnv("suppress-output-watch.mjs", sandbox));
+  equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
+  match(probe.stdout, /pass 1/);
+  deepEqual(readdirSync(sandbox), []);
+});
+
+test("watch test cancellation closes real watchers and child processes", { timeout: 12000 }, async (t) => {
+  // This subprocess exercises real cancellation and process teardown; fake timers cannot prove handle cleanup.
+  const sandbox = mkdtempSync(join(tmpdir(), "tkr-watch-probe-"));
+  t.after(() => { rmSync(sandbox, { recursive: true, force: true }); });
+  const env = watchProbeEnv("suppress-watch.mjs", sandbox);
+  env.TKR_WATCH_CANCELLATION_PROBE = "1";
+  const probe = await runWatchProbe("watch reruns all files|CLI watch exits|JUnit watch replaces", env);
+  equal(probe.status, 1, `${probe.stdout}\n${probe.stderr}`);
+  match(probe.stdout, /cancelled 3/);
+  match(probe.stdout, /test timed out/);
   deepEqual(readdirSync(sandbox), []);
 });
