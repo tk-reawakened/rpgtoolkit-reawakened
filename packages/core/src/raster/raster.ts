@@ -118,6 +118,21 @@ function blend(
   const g = tintChannel(sg, tint.g, tinted);
   const b = tintChannel(sb, tint.b, tinted);
   const alpha = Math.max(0, Math.min(255, command.alpha));
+  if (command.blend === "source-over") {
+    const effective = Math.floor(sa * alpha / 255);
+    const inverse = 255 - effective;
+    const targetAlpha = target.rgba[at + 3] ?? 0;
+    const weight = effective * 255 + targetAlpha * inverse;
+    if (weight === 0) return;
+    const sourceWeight = effective * 255;
+    const targetWeight = targetAlpha * inverse;
+    const half = Math.floor(weight / 2);
+    target.rgba[at] = Math.floor((r * sourceWeight + (target.rgba[at] ?? 0) * targetWeight + half) / weight);
+    target.rgba[at + 1] = Math.floor((g * sourceWeight + (target.rgba[at + 1] ?? 0) * targetWeight + half) / weight);
+    target.rgba[at + 2] = Math.floor((b * sourceWeight + (target.rgba[at + 2] ?? 0) * targetWeight + half) / weight);
+    target.rgba[at + 3] = Math.floor((weight + 127) / 255);
+    return;
+  }
   if (blendTarget === "screen") {
     const effective = Math.trunc(sa * alpha / 255);
     const dr = target.rgba[at] ?? 0;
@@ -226,14 +241,16 @@ function drawText(
       target.rgba[at + 3] = 255;
       continue;
     }
-    const dr = target.rgba[at] ?? 0;
-    const dg = target.rgba[at + 1] ?? 0;
-    const db = target.rgba[at + 2] ?? 0;
     const da = target.rgba[at + 3] ?? 0;
-    target.rgba[at] = Math.floor((dr * (255 - coverage) + r * coverage + 127) / 255);
-    target.rgba[at + 1] = Math.floor((dg * (255 - coverage) + g * coverage + 127) / 255);
-    target.rgba[at + 2] = Math.floor((db * (255 - coverage) + b * coverage + 127) / 255);
-    target.rgba[at + 3] = Math.min(255, da + Math.floor((coverage * (255 - da) + 127) / 255));
+    const sourceWeight = coverage * 255;
+    const targetWeight = da * (255 - coverage);
+    const weight = sourceWeight + targetWeight;
+    if (weight === 0) continue;
+    const half = Math.floor(weight / 2);
+    target.rgba[at] = Math.floor((clampByte(r) * sourceWeight + (target.rgba[at] ?? 0) * targetWeight + half) / weight);
+    target.rgba[at + 1] = Math.floor((clampByte(g) * sourceWeight + (target.rgba[at + 1] ?? 0) * targetWeight + half) / weight);
+    target.rgba[at + 2] = Math.floor((clampByte(b) * sourceWeight + (target.rgba[at + 2] ?? 0) * targetWeight + half) / weight);
+    target.rgba[at + 3] = Math.floor((weight + 127) / 255);
   }
   return null;
 }
@@ -249,6 +266,14 @@ function rasterizeWithBlendTarget(
   surfaces: RasterSurfaces,
   blendTarget: BlendTarget,
 ): RasterResult {
+  if (list.protocolVersion !== 3) {
+    return {
+      width: list.width,
+      height: list.height,
+      rgba: new Uint8Array(),
+      error: `unsupported draw-list protocol version: ${String(list.protocolVersion)}`,
+    };
+  }
   if (!Number.isInteger(list.width) || !Number.isInteger(list.height) || list.width <= 0 || list.height <= 0) {
     return { width: list.width, height: list.height, rgba: new Uint8Array(), error: "invalid draw-list dimensions" };
   }

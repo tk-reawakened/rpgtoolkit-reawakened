@@ -226,6 +226,7 @@ export function checkBlendExhaustive(blend: Blend): void {
     case "normal":
     case "additive":
     case "translucent":
+    case "source-over":
       return;
     default: {
       const _exhaustiveCheck: never = blend;
@@ -601,6 +602,7 @@ export const pinPopTarget: PopTargetCommand = {
 };
 
 export const pinDrawList: DrawList = {
+  protocolVersion: 3,
   tick: 0,
   width: 320,
   height: 240,

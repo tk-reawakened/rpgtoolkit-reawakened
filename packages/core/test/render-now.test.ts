@@ -182,7 +182,7 @@ test("a killed reserved canvas is made again by rendernow(true), and an older sa
 });
 
 test("text and pixelText with a canvas draw into that canvas, not the screen text layer", () => {
-  const game = boot('rendernow(1)\nc = cnvrendernow\ncolorrgb(255,255,255)\npixelText(2,24,"HI",c)\ntext(1,5,"A",c)\nend()\n');
+  const game = boot('fontsize(8)\nrendernow(1)\nc = cnvrendernow\ncolorrgb(255,255,255)\npixelText(2,24,"HI",c)\ntext(1,5,"A",c)\nend()\n');
   const handle = game.state().surfaces.renderNow ?? 0;
   ok(handle > 0);
   let lit = 0;
@@ -195,7 +195,7 @@ test("text and pixelText with a canvas draw into that canvas, not the screen tex
 });
 
 test("canvas cell text keeps a fractional cell coordinate and truncates the scaled origin (E-56)", () => {
-  const game = boot('rendernow(1)\nc = cnvrendernow\ncolorrgb(255,255,255)\ntext(1.5,5.9,"A",c)\nend()\n');
+  const game = boot('fontsize(8)\nrendernow(1)\nc = cnvrendernow\ncolorrgb(255,255,255)\ntext(1.5,5.9,"A",c)\nend()\n');
   const handle = game.state().surfaces.renderNow ?? 0;
   ok(handle > 0);
   let leftHalf = 0;
@@ -209,6 +209,68 @@ test("canvas cell text keeps a fractional cell coordinate and truncates the scal
   let truncatedRow = 0;
   for (let y = 32; y < 39; y += 1) for (let x = 4; x < 12; x += 1) if (canvasPixel(game, handle, x, y)[3] === 255) truncatedRow += 1;
   equal(truncatedRow, 0, "truncating the cell first would put the glyphs at y=32; the scaled pixel origin is 39");
+});
+
+test("TrueType canvas text preserves bearings and descenders when composited and copied", () => {
+  const sans = new Uint8Array(readFileSync(join(here, "..", "..", "..", "media", "fonts", "LiberationSans-Regular.ttf")));
+  const extra = { "Font/Test.ttf": sans };
+  const background = 'colorrgb(12,30,50)\nfillrect(0,0,63,63)\ncolorrgb(255,255,255)\n';
+  const face = 'font("Test")\nfontsize(20)\n';
+  const direct = boot(`${face}${background}pixeltext(5,5,"jgy")\nwait()\n`, extra).frame();
+  const copied = boot(`${face}${background}createcanvas(64,64,c)\ncreatecanvas(64,64,d)\npixeltext(5,5,"jgy",c)\ndrawcanvas(c,0,0,d)\ndrawcanvas(d,0,0)\nwait()\n`, extra);
+  const actual = copied.frame();
+  let differing = 0;
+  let maxDifference = 0;
+  for (let i = 0; i < actual.rgba.length; i += 1) {
+    const difference = Math.abs((actual.rgba[i] ?? 0) - (direct.rgba[i] ?? 0));
+    if (difference !== 0) differing += 1;
+    maxDifference = Math.max(maxDifference, difference);
+  }
+  ok(maxDifference <= 1, `direct and copied-canvas text differ by at most the documented rounding unit (${differing} channels, max ${maxDifference})`);
+  ok(Array.from({ length: 64 }, (_, y) => pixel(actual, 4, y)[0] ?? 0).some((channel) => channel > 12), "the negative-bearing j reaches left of the origin");
+  ok(Array.from({ length: 64 }, (_, x) => pixel(actual, x, 27)[0] ?? 0).some((channel) => channel > 12), "the descenders extend below the 20px cell");
+});
+
+test("render-now overlay composites antialiased project text over the opaque board", () => {
+  const sans = new Uint8Array(readFileSync(join(here, "..", "..", "..", "media", "fonts", "LiberationSans-Regular.ttf")));
+  const extra = { "Font/Test.ttf": sans };
+  const face = 'font("Test")\nfontsize(20)\ncolorrgb(255,255,255)\n';
+  const direct = boot(`${face}pixeltext(5,5,"jgy")\nwait()\n`, extra).frame();
+  const overlay = boot(`${face}rendernow(1)\nc=cnvrendernow\npixeltext(5,5,"jgy",c)\nend()\n`, extra);
+  const frame = overlay.frame();
+  const canvas = overlay.state().surfaces.renderNow;
+  if (canvas == null) throw new Error("render-now canvas missing");
+  const entry = overlay.state().surfaces.entries[String(canvas)]!;
+  const canvasFrame = readSurfacePixels(overlay.state().surfaces, canvas, entry.rev);
+  if (canvasFrame === null) throw new Error("render-now canvas unreadable");
+  let partial = 0;
+  for (let y = 0; y < SIZE; y += 1) for (let x = 0; x < SIZE; x += 1) {
+    const source = pixel(canvasFrame, x, y);
+    const alpha = source[3] ?? 0;
+    if (alpha > 0 && alpha < 255) {
+      partial += 1;
+      const shown = pixel(frame, x, y);
+      deepEqual(shown, [alpha, alpha, alpha, 255], `overlay coverage over opaque black at ${x},${y}`);
+      deepEqual(pixel(direct, x, y), [255, 255, 255, alpha], `direct text retains straight-alpha white at ${x},${y}`);
+    }
+  }
+  ok(partial > 50, "the test exercised antialiased edge pixels");
+});
+
+test("repeated canvas text commands reuse the decoded project font", () => {
+  const sans = new Uint8Array(readFileSync(join(here, "..", "..", "..", "media", "fonts", "LiberationSans-Regular.ttf")));
+  const originalSlice = Uint8Array.prototype.slice;
+  let fontCopies = 0;
+  Uint8Array.prototype.slice = function(start?: number, end?: number): Uint8Array<ArrayBuffer> {
+    if (this.byteLength === sans.byteLength) fontCopies += 1;
+    return originalSlice.call(this, start, end) as Uint8Array<ArrayBuffer>;
+  };
+  try {
+    boot('font("Test")\nfontsize(20)\nrendernow(1)\nc = cnvrendernow\npixeltext(5,5,"jgy",c)\npixeltext(5,25,"abc",c)\npixeltext(5,45,"def",c)\nwait()\n', { "Font/Test.ttf": sans });
+    equal(fontCopies, 2, "font installation validates once and one decoded face serves all canvas rasterizations");
+  } finally {
+    Uint8Array.prototype.slice = originalSlice;
+  }
 });
 
 test("canvas text interleaved with graphics and rendernow has eager and batched pixel parity", () => {

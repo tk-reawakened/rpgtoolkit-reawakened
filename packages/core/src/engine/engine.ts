@@ -29,7 +29,7 @@ import { readBattleBackground } from "../formats/battle/battle-background.ts";
 import { BinaryReader } from "../formats/binary/reader.ts";
 import type { MainFile } from "../formats/main-file/model.ts";
 import { readLegacyFont } from "../formats/font/reader.ts";
-import { gateTrueType } from "../formats/font/truetype.ts";
+import { gateTrueType, readTrueTypeFont, type TrueTypeFont } from "../formats/font/truetype.ts";
 import type { AssetKind } from "../formats/main-file/layout.ts";
 import type { AssetIndex, AssetRoot } from "../formats/resolver/model.ts";
 import type { DrawCommand, DrawList, Rgb, Tint } from "../ports/draw.ts";
@@ -45,7 +45,7 @@ import type { StartupPorts } from "../ports/startup.ts";
 import type { AssetKey, SurfaceId } from "../ports/keys.ts";
 import type { BlobKey } from "../ports/requests.ts";
 import { createGameState, type GameState, type SectionKey } from "../save/state.ts";
-import { resetUiForProgramStart, type UiMessageWindow } from "../save/sections/ui.ts";
+import { IMPORTED_31_INITIAL_FONT, resetUiForProgramStart, type UiMessageWindow } from "../save/sections/ui.ts";
 import { normalizeDisplayGeometry, normalizeHostFeatures } from "../save/sections/host.ts";
 import { applyMenuStateEffect, createMenuOwnerPorts } from "../menu/index.ts";
 import { createShopSessionRuntime } from "./shop-session.ts";
@@ -60,7 +60,7 @@ import { BUILTIN_TRACKS, MAX_VOICES } from "../audio/model.ts";
 import type { Logger } from "../ports/logger.ts";
 import { composeBoard, type BoardBlit, type SpriteDraw, type SpriteFrame } from "../render/compose.ts";
 import { composeUi, composeUiCursor, composeUiMargins, renderNowBlit, uiAccessibilityTree } from "../render/ui.ts";
-import { emitText, layoutText, resolveFontAsset } from "../render/text.ts";
+import { emitText, resolveFontAsset } from "../render/text.ts";
 import { applyFxDrawList, advanceFx, applyFxEffect } from "../render/fx.ts";
 import { advanceAnimations, animationBlits, decodeAnimationFrames, loadAnimation, releaseAnimationSurfaces, type DecodedAnimation } from "../render/animation.ts";
 import { hydrateBoard } from "../world/hydrate.ts";
@@ -127,12 +127,12 @@ import {
 import { hasLiveBlockingThread, type Frame, type ObjectRecord, type Thread, type VmState } from "../script/state.ts";
 import { findObject, readMember } from "../script/objects.ts";
 import type { PackageCatalogueEntry, PluginDefinition } from "../script/plugin.ts";
-import { DEFAULT_FONT_ASSET } from "../raster/text.ts";
+import { DEFAULT_FONT_ASSET, textInk } from "../raster/text.ts";
 import type { WaitView } from "../ports/wait.ts";
 import { runTimePhase } from "../time/time.ts";
-import { blitTexture, rasterize, readSurfacePixels, replaceSurface, surfaceTextures, createSurfacesSection, ensureScriptScreen, scriptScreen, resetScriptScreen, copyPresentedFrameToScriptScreen, SCRIPT_SCREEN, renderNowCanvas, renderNowEnabled, type RasterAsset, type SurfacePixelCache } from "../raster/index.ts";
+import { blitTexture, drawSurfaceLine, rasterize, readSurfacePixels, replaceSurface, surfaceTextures, createSurfacesSection, ensureScriptScreen, scriptScreen, resetScriptScreen, copyPresentedFrameToScriptScreen, SCRIPT_SCREEN, renderNowCanvas, renderNowEnabled, type RasterAsset, type SurfacePixelCache } from "../raster/index.ts";
 import { rasterizeAuthorMargin } from "../raster/raster.ts";
-import { beginSurfaceBatch, endSurfaceBatch, flushSurfaceBatch, killSurface } from "../raster/surfaces.ts";
+import { beginSurfaceBatch, endSurfaceBatch, flushSurfaceBatch, killSurface, editSurfaceWithBounds, surfaceRectBounds } from "../raster/surfaces.ts";
 import { guardExternalPlugins } from "./surface-guard.ts";
 
 const MENU_HAND_ASSET = assetKey("media/cursors/tkr-menu-hand.png");
@@ -376,6 +376,7 @@ export function createEngine(init: EngineInit): Engine {
   let initialCharacterResolved = true;
   let mainKey: AssetKey | null = null;
   const installedFonts = new Map<AssetKey, Uint8Array>();
+  const parsedFonts = new WeakMap<Uint8Array, TrueTypeFont | null>();
   const cache = new Map<AssetKey, Uint8Array>();
   // Source resolution is synchronous; installed sources remain physically available when Load hides newer keys.
   const programSources = new Map<AssetKey, Uint8Array>();
@@ -900,7 +901,7 @@ export function createEngine(init: EngineInit): Engine {
       key: null,
       tint: { r: 0, g: 0, b: 0 },
       alpha: 255,
-      blend: "normal",
+      blend: "source-over",
       iso2d: false,
     };
   }
@@ -1331,6 +1332,7 @@ export function createEngine(init: EngineInit): Engine {
       }),
       mainFile?.pixelMovement ?? 0,
       { width: init.width, height: init.height },
+      layoutFont,
     );
     init.spriteRuntime?.bindItemThreadCleanup?.((thread) => discardMenuFrames(nextServices, thread));
     media.activateDeclared();
@@ -2016,6 +2018,18 @@ export function createEngine(init: EngineInit): Engine {
     if (x >= 0 && y >= 0 && x + w <= init.width && y + h <= init.height) return;
     state.ui.authorMarginCommands = [...(state.ui.authorMarginCommands ?? []), command];
   }
+  function layoutFont(key: AssetKey): TrueTypeFont | undefined {
+    if (!key.toLowerCase().endsWith(".ttf")) return undefined;
+    const bytes = installedFonts.get(key) ?? init.bundled?.get(key);
+    if (bytes === undefined) return undefined;
+    let font = parsedFonts.get(bytes);
+    if (font === undefined) {
+      const parsed = readTrueTypeFont(bytes);
+      font = parsed.ok ? parsed.value : null;
+      parsedFonts.set(bytes, font);
+    }
+    return font ?? undefined;
+  }
   /** E-56 `text` / `pixelText` with a canvas: draw the glyphs into that canvas with the active font, colour and underline. */
   function applyCanvasText(cells: boolean, args: readonly PlainData[]): void {
     const canvas = args[3] as SurfaceId;
@@ -2023,20 +2037,54 @@ export function createEngine(init: EngineInit): Engine {
     const font = state.ui.font;
     const x = typeof args[0] === "number" ? (cells ? Math.trunc((args[0] - 1) * font.size) : args[0]) : 0;
     const y = typeof args[1] === "number" ? (cells ? Math.trunc((args[1] - 1) * font.size) : args[1]) : 0;
-    const layout = layoutText(value, font);
-    const width = Math.ceil(layout.width);
-    const height = Math.ceil(layout.height);
-    if (width <= 0 || height <= 0) return;
-    const commands = emitText(value, 0, 0, state.ui.color, font, { underline: state.ui.underline });
+    const decoded = layoutFont(font.asset);
+    const options = { ...(decoded === undefined ? {} : { font: decoded }), ...(cells ? { lineHeight: font.size } : {}), underline: state.ui.underline };
+    const commands = emitText(value, 0, 0, state.ui.color, font, options);
     const assets = rasterAssets(canvasTextAssets);
     const fallbackFont = assets.get(defaultFontAsset);
     if (fallbackFont !== undefined && !assets.has(font.asset)) assets.set(font.asset, fallbackFont);
-    const rendered = rasterize({ tick: state.time.tick, width, height, commands, marginCommands: [] }, assets);
-    if (rendered.error !== null) {
-      diagnostics.push({ code: "render.failed", file: "", line: 0, message: `text: ${rendered.error}` });
+    const inkByCommand = commands.map((command) => command.kind === "text" ? textInk(command, assets.get(command.font.asset)) : []);
+    if (inkByCommand.some((ink) => ink === null)) {
+      diagnostics.push({ code: "render.failed", file: "", line: 0, message: "text: missing bitmap font asset" });
       return;
     }
-    blitTexture(state.surfaces, { w: rendered.width, h: rendered.height, rgba: rendered.rgba }, canvas, x, y);
+    let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+    for (const ink of inkByCommand) for (const point of ink ?? []) {
+      left = Math.min(left, x + point.x);
+      top = Math.min(top, y + point.y);
+      right = Math.max(right, x + point.x);
+      bottom = Math.max(bottom, y + point.y);
+    }
+    for (const command of commands) if (command.kind === "line") {
+      left = Math.min(left, x + command.x1, x + command.x2);
+      top = Math.min(top, y + command.y1, y + command.y2);
+      right = Math.max(right, x + command.x1, x + command.x2);
+      bottom = Math.max(bottom, y + command.y1, y + command.y2);
+    }
+    if (left === Infinity) return;
+    const bounds = surfaceRectBounds(state.surfaces, canvas, left, top, right, bottom);
+    editSurfaceWithBounds(state.surfaces, canvas, (rgba, width, height) => {
+      commands.forEach((command, index) => {
+        if (command.kind === "line") {
+          drawSurfaceLine(rgba, width, height, x + command.x1, y + command.y1, x + command.x2, y + command.y2, command.rgb);
+        } else if (command.kind === "text") {
+          for (const point of inkByCommand[index] ?? []) {
+            const px = Math.trunc(x + point.x);
+            const py = Math.trunc(y + point.y);
+            if (px < 0 || py < 0 || px >= width || py >= height) continue;
+            const at = (py * width + px) * 4;
+            const coverage = point.coverage;
+            const alpha = rgba[at + 3] ?? 0;
+            const combined = coverage * 255 + alpha * (255 - coverage);
+            if (combined === 0) continue;
+            rgba[at] = Math.floor((command.rgb.r * coverage * 255 + (rgba[at] ?? 0) * alpha * (255 - coverage) + combined / 2) / combined);
+            rgba[at + 1] = Math.floor((command.rgb.g * coverage * 255 + (rgba[at + 1] ?? 0) * alpha * (255 - coverage) + combined / 2) / combined);
+            rgba[at + 2] = Math.floor((command.rgb.b * coverage * 255 + (rgba[at + 2] ?? 0) * alpha * (255 - coverage) + combined / 2) / combined);
+            rgba[at + 3] = Math.floor((combined + 127) / 255);
+          }
+        }
+      });
+    }, bounds);
   }
   function applySurfaceImage(effect: EffectRecord, texture: DecodedTexture, sourceAsset: AssetKey): void {
     const args = effect.args;
@@ -2414,7 +2462,7 @@ export function createEngine(init: EngineInit): Engine {
   }
   function bundledAsset(key: AssetKey, bytes: Uint8Array): RasterAsset | null {
     const lower = key.toLowerCase();
-    if (lower.endsWith(".ttf")) return bytes;
+    if (lower.endsWith(".ttf")) return layoutFont(key) ?? bytes;
     if (lower.endsWith(".fnt")) {
       const parsed = readLegacyFont(bytes, key);
       if (parsed.ok) return parsed.value;
@@ -2444,7 +2492,7 @@ export function createEngine(init: EngineInit): Engine {
       const asset = decodedBundled.get(key);
       if (asset !== undefined && asset !== null) assets.set(key, asset);
     }
-    for (const [key, bytes] of installedFonts) assets.set(key, bytes);
+    for (const [key, bytes] of installedFonts) assets.set(key, layoutFont(key) ?? bytes);
     for (const [key, texture] of decodedImages) assets.set(key, texture);
     for (const [key, texture] of decodedTiles) assets.set(key, texture);
     return assets;
@@ -3206,6 +3254,7 @@ export function createEngine(init: EngineInit): Engine {
         return false;
       }
       mainFile = parsed.value;
+      if (projectScriptDialect(mainFile) === "tk3") state.ui.font = IMPORTED_31_INITIAL_FONT;
       const movement = mainFileMovementSettings(mainFile, mainKey, !binary.ok || binary.value);
       activeMovement = { file: mainKey, revision: (activeMovement?.revision ?? 0) + 1, settings: movement.settings };
       diagnostics.push(...movement.diagnostics);
@@ -4813,7 +4862,7 @@ export function createEngine(init: EngineInit): Engine {
       }
     });
     const rendered = rasterizeAuthorMargin(
-      { tick: state.time.tick, width, height, commands: shifted, marginCommands: [] },
+      { protocolVersion: 3, tick: state.time.tick, width, height, commands: shifted, marginCommands: [] },
       rasterAssets(),
       currentSurfaceTextures(),
     );
@@ -4886,7 +4935,7 @@ export function createEngine(init: EngineInit): Engine {
       if (fps !== undefined) commands.push({ kind: "text", x: 4, y: 4, text: `FPS ${Math.round(fps)}`, font: state.ui.font, rgb: colour, advances: [] });
       return commands;
     };
-    const empty = { tick: state.time.tick, width: init.width, height: init.height, commands: [] as DrawList["commands"], marginCommands: [] as DrawList["marginCommands"] };
+    const empty: DrawList = { protocolVersion: 3, tick: state.time.tick, width: init.width, height: init.height, commands: [], marginCommands: [] };
     const held = (holdProgramFrame || (board === null && !blockingAlive() && frameHash !== null)) ? surfaceBlit(state.surfaces, 0 as SurfaceId) : null;
     const base = board === null
       ? (held === null ? empty : { ...empty, commands: [held] })
@@ -4941,13 +4990,19 @@ export function createEngine(init: EngineInit): Engine {
         ...state.ui, draws: [], authorMarginCommands: [], modal: null,
         message: state.vm.block?.kind === "input.key" ? state.ui.message : { ...state.ui.message, visible: false },
       };
-    const withUi = { ...withOverlay, commands: [...withOverlay.commands, ...debugCommands(), ...composeUi(uiForCompose, init.width, init.height, state.input, false, cursorSelection, messageGraphicKey())] };
+    const uiFonts = new Map<AssetKey, TrueTypeFont>();
+    for (const key of [uiForCompose.font.asset, ...uiForCompose.draws.map((draw) => draw.font.asset)]) {
+      if (uiFonts.has(key)) continue;
+      const font = layoutFont(key);
+      if (font !== undefined) uiFonts.set(key, font);
+    }
+    const withUi = { ...withOverlay, commands: [...withOverlay.commands, ...debugCommands(), ...composeUi(uiForCompose, init.width, init.height, state.input, false, cursorSelection, messageGraphicKey(), uiFonts)] };
     return {
       ...withUi,
       commands: [...withUi.commands, ...composeUiCursor(state.ui, state.input, cursorSelection, waitingCursor !== undefined)],
       marginCommands: [
         ...lowerAuthorMarginCommands(uiForCompose.authorMarginCommands ?? []),
-        ...composeUiMargins(uiForCompose, init.width, init.height).slice(uiForCompose.authorMarginCommands?.length ?? 0),
+        ...composeUiMargins(uiForCompose, init.width, init.height, uiFonts).slice(uiForCompose.authorMarginCommands?.length ?? 0),
       ],
     };
   }

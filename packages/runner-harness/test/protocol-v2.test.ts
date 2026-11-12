@@ -3,12 +3,12 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { hashDrawList, type DrawList } from "@tk-reawakened/core";
+import { canon, fnv1a64, type DrawListV2 } from "@tk-reawakened/core";
 
 type HashVectors = {
   readonly hashDrawList: readonly (
-    | { readonly id: string; readonly input: DrawList; readonly hash: string }
-    | { readonly id: string; readonly a: DrawList; readonly b: DrawList; readonly hashA: string; readonly hashB: string }
+    | { readonly id: string; readonly input: DrawListV2; readonly hash: string }
+    | { readonly id: string; readonly a: DrawListV2; readonly b: DrawListV2; readonly hashA: string; readonly hashB: string }
   )[];
 };
 
@@ -18,10 +18,10 @@ const vectors = JSON.parse(readFileSync(join(repoRoot, "tools/fixtures/runner-pr
 test("runner protocol v2 draw hashes include both ordered command planes", () => {
   for (const row of vectors.hashDrawList) {
     if ("input" in row) {
-      equal(hashDrawList(row.input), row.hash, row.id);
+      equal(fnv1a64(canon(row.input)), row.hash, row.id);
     } else {
-      equal(hashDrawList(row.a), row.hashA, `${row.id}: base hash`);
-      equal(hashDrawList(row.b), row.hashB, `${row.id}: margin hash`);
+      equal(fnv1a64(canon(row.a)), row.hashA, `${row.id}: base hash`);
+      equal(fnv1a64(canon(row.b)), row.hashB, `${row.id}: margin hash`);
       equal(row.hashA === row.hashB, false, `${row.id}: margin-only difference changes the hash`);
     }
   }

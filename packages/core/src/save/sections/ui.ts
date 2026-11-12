@@ -153,6 +153,14 @@ const FALLBACK_FONT: FontRef = {
   bold: false,
   italic: false,
 };
+
+// docs/spec/engine/display-input-audio.md#reawakened-initial-font
+export const IMPORTED_31_INITIAL_FONT: FontRef = {
+  asset: "media/fonts/liberationsans-regular.ttf" as FontRef["asset"],
+  size: 20,
+  bold: false,
+  italic: false,
+};
 const WHITE: Rgb = { r: 255, g: 255, b: 255 };
 const BLACK: Rgb = { r: 0, g: 0, b: 0 };
 

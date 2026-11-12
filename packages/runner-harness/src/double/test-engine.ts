@@ -227,6 +227,7 @@ export function createTestEngine(): Engine {
       });
 
       return {
+        protocolVersion: 3,
         tick: state.tick,
         width: 320,
         height: 240,

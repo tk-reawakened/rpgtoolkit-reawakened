@@ -237,6 +237,7 @@ test("screen vector primitives crossing Plane 1 enter margin commands and render
   deepEqual(state.ui.authorMarginCommands.map((command) => command.kind), ["line", "rect", "line", "rect", "line", "rect"]);
   const stateHashBeforeDraw = hashGameState(state);
   const drawList = engine.drawList();
+  equal(drawList.protocolVersion, 3, "the live engine explicitly emits the current wire version");
   equal(drawList.marginCommands.length, 1, "the authored vector run lowers to one bounded AD-3 pixel blit");
   if (drawList.marginCommands[0]?.kind !== "blit") throw new Error("expected lowered margin snapshot");
   deepEqual(engine.drawList(), drawList, "repeating a draw-list build produces the same synthetic source identity and pixels");
@@ -245,6 +246,8 @@ test("screen vector primitives crossing Plane 1 enter margin commands and render
   surfaces.get = (surface: SurfaceId, revision: number = 0) => engine.surfacePixels(surface, revision) ?? undefined;
   const rendered = rasterizePresentation(drawList, geometry, new Map(), surfaces);
   equal(rendered.error, null);
+  const oldFrame = { ...drawList, protocolVersion: 2 } as unknown as typeof drawList;
+  equal(rasterizePresentation(oldFrame, geometry, new Map(), surfaces).error, "unsupported draw-list protocol version: 2");
   const alphaAt = (x: number, y: number): number => rendered.rgba[(y * rendered.width + x) * 4 + 3]!;
   equal(alphaAt(0, 1), 255); // drawline, logical x=-1
   equal(alphaAt(0, 5), 255); // drawrect, logical x=-1

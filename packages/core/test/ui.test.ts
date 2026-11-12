@@ -15,6 +15,7 @@ import {
   pollRenderMsgBox,
   restoreGameState,
   snapshot,
+  rasterizePresentation,
   UI_COMMANDS,
   UI_PLUGIN,
   type Arg,
@@ -24,6 +25,10 @@ import { resetUiForProgramStart } from "../src/save/sections/ui.ts";
 import { killSurface } from "../src/raster/surfaces.ts";
 import { pollMenuScreen } from "../src/script/waits.ts";
 import type { DrawCommand } from "../src/ports/draw.ts";
+import { readTrueTypeFont, layoutText } from "../src/index.ts";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 function textAdvance(cmd: DrawCommand, index: number): number | undefined {
   return cmd.kind === "text" ? cmd.advances[index]?.advance : undefined;
@@ -185,6 +190,32 @@ test("author text crossing Plane 1 is emitted in the margin command layer", () =
   equal(composeUiMargins(inside.ui, 32, 32).length, 0);
 });
 
+test("TrueType text crossing each viewport edge draws its actual ink into margins", () => {
+  const font = readTrueTypeFont(new Uint8Array(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../../media/fonts/LiberationSans-Regular.ttf"))));
+  if (!font.ok) throw new Error(font.error.message);
+  const key = assetKey("Font/Test.ttf");
+  const fonts = new Map([[key, font.value]]);
+  const geometry = { content: { width: 96, height: 96 }, game: { x: 16, y: 16, width: 64, height: 64 }, safeArea: { top: 0, right: 0, bottom: 0, left: 0 } };
+  for (const [label, text, x, y, outside] of [
+    ["left", "j", 0, 5, (x: number, _y: number) => x < 16],
+    ["right", "A", 60, 5, (x: number, _y: number) => x >= 80],
+    ["top", "A", 5, -15, (_x: number, y: number) => y < 16],
+    ["bottom", "gy", 5, 44, (_x: number, y: number) => y >= 80],
+  ] as const) {
+    const state = createGameState({ seed: 0 });
+    state.ui.font = { asset: key, size: 20, bold: false, italic: false };
+    applyUiEffect(state, "pixeltext", [x, y, text, 0]);
+    const marginCommands = composeUiMargins(state.ui, 64, 64, fonts);
+    const result = rasterizePresentation({ protocolVersion: 3, tick: 0, width: 64, height: 64, commands: [], marginCommands }, geometry, fonts);
+    equal(result.error, null);
+    let ink = 0;
+    for (let py = 0; py < result.height; py += 1) for (let px = 0; px < result.width; px += 1) {
+      if (outside(px, py) && (result.rgba[(py * result.width + px) * 4 + 3] ?? 0) > 0) ink += 1;
+    }
+    ok(ink > 0, `${label} margin contains glyph ink`);
+  }
+});
+
 test("author UI effects publish one ordered navigation surface and accessibility subtree", () => {
   const state = createGameState({ seed: 0 });
   applyUiEffect(state, "uiBegin", [7, "title", "menu", 10, 20, 200, 120, 1]);
@@ -294,6 +325,25 @@ test("text and pixelText record draws and text metrics", () => {
   equal(state.ui.draws[1]?.x, 10);
   equal(state.ui.draws[1]?.cell, false);
   equal(command("gettextwidth", state, [arg("AB")]).value, 16);
+});
+
+test("text measurement uses the resolved TrueType face with active FontRef style and falls back when absent", () => {
+  const state = createGameState({ seed: 0 });
+  const key = assetKey("media/fonts/LiberationSans-Regular.ttf");
+  const bytes = new Uint8Array(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../../media/fonts/LiberationSans-Regular.ttf")));
+  const parsed = readTrueTypeFont(bytes);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  state.ui.font = { asset: key, size: 20, bold: true, italic: true };
+  const expected = layoutText("AB", state.ui.font, { font: parsed.value });
+  const services = createScriptServices(state, [{ definition: UI_PLUGIN }], undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, false, undefined, undefined, undefined, null, undefined, undefined, undefined, undefined, undefined, undefined, 0, undefined, () => parsed.value);
+  const width = services.commands.get("gettextwidth")!.spec.call(services.view, [arg("AB")], () => ({ value: null }));
+  const height = services.commands.get("gettextheight")!.spec.call(services.view, [arg("AB")], () => ({ value: null }));
+  equal(width.value, expected.width);
+  equal(height.value, expected.height);
+  const fallback = command("gettextwidth", state, [arg("AB")]);
+  equal(fallback.value, 42);
+  const missing = createScriptServices(state, [{ definition: UI_PLUGIN }], undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, false, undefined, undefined, undefined, null, undefined, undefined, undefined, undefined, undefined, undefined, 0, undefined, () => undefined);
+  equal(missing.commands.get("gettextwidth")!.spec.call(missing.view, [arg("AB")], () => ({ value: null })).value, fallback.value);
 });
 
 test("cell text lays out multi-line strings with one cell row per line", () => {

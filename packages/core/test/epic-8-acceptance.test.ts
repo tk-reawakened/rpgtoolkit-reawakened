@@ -58,8 +58,9 @@ function readGolden(): AcceptanceGolden | null {
 // #1673 gives inline package lambdas owner-qualified identities, changing hashed VM state, not draw lists or events.
 // #1972 retains canonical arrow names in the input queue, changing state hashes while draw lists and events remain unchanged.
 // #2024 fixes stock-menu action-name passthrough; its changed startup bytecode shifts VM state hashes, not draws or events.
-// #1994 changes stock-battle startup bytecode; restoring the previous startup restores every old state hash.
-// All ten draw hashes and event lists are unchanged.
+// #1938 changes the initial UI font; #2134 corrects canvas glyph compositing and copied-surface pixels.
+// Source-over and the protocol-v3 version marker change draw hashes; gameplay events stay fixed.
+// #1994 changes stock-battle startup bytecode; with the old hash format, only the ten state hashes change.
 function recordCheckpoint(checkpoints: GoldenCheckpoint[], id: string, session: Session, events: EventView[]): void {
   const state = session.state();
   const stateHash = hashGameState(state);

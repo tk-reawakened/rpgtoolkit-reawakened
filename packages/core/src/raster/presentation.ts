@@ -1,6 +1,6 @@
 import type { DecodedTexture } from "../formats/image/model.ts";
 import type { HostDisplayGeometry } from "../ports/host.ts";
-import type { DrawCommand, DrawListV2 } from "../ports/draw.ts";
+import type { DrawCommand, DrawList } from "../ports/draw.ts";
 import type { SurfaceId } from "../ports/keys.ts";
 import { rasterize } from "./raster.ts";
 import type { RasterAssets, RasterResult, RasterSurfaces } from "./raster.ts";
@@ -16,7 +16,7 @@ type MarginBounds = {
   readonly emptySafeArea: boolean;
 };
 
-function marginBounds(list: DrawListV2, geometry: HostDisplayGeometry): MarginBounds {
+function marginBounds(list: DrawList, geometry: HostDisplayGeometry): MarginBounds {
   const { content, game, safeArea } = geometry;
   const safeLeft = safeArea.left;
   const safeRight = content.width - safeArea.right;
@@ -71,7 +71,7 @@ function offsetCommand(command: DrawCommand, offset: Offset): DrawCommand {
 function eligibleCell(
   x: number,
   y: number,
-  list: DrawListV2,
+  list: DrawList,
   geometry: HostDisplayGeometry,
   bounds: MarginBounds,
 ): boolean {
@@ -97,17 +97,21 @@ function failedPresentation(error: string, geometry: HostDisplayGeometry): Raste
 
 
 /**
- * Replay both strict-v2 draw layers and present them into the host content rectangle.
+ * Replay both strict-v3 draw layers and present them into the host content rectangle.
  * The conservative whole-cell margin test and per-axis pixel-centre sampling are the
  * Plane 3 contract in docs/spec/engine/display-input-audio.md#reawakened-author-touch-hud.
  */
 export function rasterizePresentation(
-  list: DrawListV2,
+  list: DrawList,
   geometry: HostDisplayGeometry,
   assets: RasterAssets,
   surfaces: RasterSurfaces = new Map<SurfaceId, DecodedTexture>(),
 ): RasterResult {
+  if (list.protocolVersion !== 3) {
+    return failedPresentation(`unsupported draw-list protocol version: ${String(list.protocolVersion)}`, geometry);
+  }
   const plane1 = rasterize({
+    protocolVersion: 3,
     tick: list.tick,
     width: list.width,
     height: list.height,
@@ -119,6 +123,7 @@ export function rasterizePresentation(
   const bounds = marginBounds(list, geometry);
   const marginOffset = { x: bounds.left, y: bounds.top };
   const margin = rasterize({
+    protocolVersion: 3,
     tick: list.tick,
     width: bounds.width,
     height: bounds.height,
