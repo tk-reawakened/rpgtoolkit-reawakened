@@ -76,6 +76,20 @@ Types and conventions are defined in [README.md](README.md#primitive-encoding). 
 
 The file ends after the last field present.
 
+**Owner ruling (2026-11-11, #1865):** Defaults apply only when a field is absent in an older file. A present zero `movementControls` disables all three bits; each present zero movement scan code is unbound. An all-zero present block is not a fallback sentinel.
+
+The player matches row 61 against the physical key code from the input record.
+Use the [Windows SDK DirectInput key offsets](https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/um/dinput.h#L1900)
+and [UI Events physical key codes](https://www.w3.org/TR/uievents-code/).
+The main keyboard and numeric keypad have distinct codes, even when Num Lock is off.
+A nonzero offset without an unambiguous physical-key mapping is unbound and
+reported with its movement direction.
+
+A new playable project writes the four arrow scan codes, enables keyboard and
+pointer walking and diagonal composition, and enables standard controllers.
+This also applies when the package builder supplies the main file for a sample
+game. Toolkit 2 text main files omit these rows and use the absent-field defaults.
+
 **Version-dependent fields (legacy fact).** Twelve logical rows are conditional, and the "Present when" column above is the whole of it: the unused `short` at row 11 (`minor < 3`); the menu/fight plugins at rows 23-24 against the reserved `short` at row 23′; rows 25 and 33 (`minor ≤ 2`); the plugin-slot form at rows 38a/38b (`minor ≤ 2` uses `enabled` flags named `tkplug<i>.dll`, `minor ≥ 3` uses names); and, in order, rows 42-46 (`minor ≥ 3`), 47-48 (`≥ 4`), 49 (`= 5`), 50-53 (`≥ 6`), 54-55 (`≥ 7`), 56 (`≥ 8`) and 57-61 (`≥ 9`). Every row carries a unique number 1-61 in storage order across the file's lifetime, so it can be cited. The minor history is in [legacy/older-binary-versions.md](legacy/older-binary-versions.md#main-file-minor-history).
 
 ## TKR package-list extension
