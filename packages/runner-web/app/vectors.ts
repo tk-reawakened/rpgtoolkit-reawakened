@@ -226,6 +226,28 @@ void (async () => {
     const want = new Uint8Array(expected);
     results.push(report(`glyph-source-over-${alpha}`, actual.slice(at, at + 4), want, 1, hexFromBytes(reference.slice(at, at + 4)) === hexFromBytes(want) ? null : "CPU glyph pixel differs from independent calculation"));
   }
+  const overlapGlyph = sans.value.charToGlyph("A").id;
+  const overlap = replay(24, 24, [{ kind: "text", x: 0, y: 0, text: "AAAA", font: { asset: sansKey, size: 20, bold: false, italic: false }, rgb: { r: 255, g: 255, b: 255 }, advances: Array.from({ length: 4 }, () => ({ glyph: overlapGlyph, advance: 1 })) }], new Map(), new Map([[sansKey, sans.value]]));
+  results.push(report("glyph-source-over-overlap", overlap.actual, overlap.reference, 24));
+
+  // Browser canvas consumer: its default premultiplied context and the explicit straight context
+  // must both composite the same known coverage-98 glyph pixel over opaque black.
+  for (const premultipliedAlpha of [false, true]) {
+    const canvas = document.createElement("canvas"); canvas.width = 24; canvas.height = 24;
+    const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha, antialias: false, preserveDrawingBuffer: true });
+    if (gl === null) throw new Error("vectors: no WebGL2 context for browser composition");
+    const renderer = createWebgl2Renderer(gl);
+    const commands = [{ kind: "text", x: 0, y: 0, text: "A", font: { asset: sansKey, size: 20, bold: false, italic: false }, rgb: { r: 255, g: 255, b: 255 }, advances: [] }];
+    const geometry = { content: { width: 24, height: 24 }, game: { x: 0, y: 0, width: 24, height: 24 }, safeArea: { top: 0, right: 0, bottom: 0, left: 0 } };
+    renderer.render({ protocolVersion: 3, tick: 0, width: 24, height: 24, commands: commands as DrawList["commands"], marginCommands: [] }, geometry, { textures: () => null, fonts: () => sans.value });
+    const output = document.createElement("canvas"); output.width = 24; output.height = 24;
+    const context = output.getContext("2d");
+    if (context === null) throw new Error("vectors: no Canvas2D context");
+    context.fillStyle = "black"; context.fillRect(0, 0, 24, 24); context.drawImage(canvas, 0, 0);
+    const actual = context.getImageData(5, 4, 1, 1).data;
+    results.push(report(`glyph-source-over-host-${String(premultipliedAlpha)}`, new Uint8Array(actual), new Uint8Array([98,98,98,255]), 1));
+    renderer.dispose();
+  }
 
   // Hand-calculated source-over checks: opaque RGB(12,30,50), white texels with alpha 0,81,128,255.
   const coverageAsset = "test/source-over" as AssetKey;

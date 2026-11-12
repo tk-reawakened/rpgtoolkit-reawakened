@@ -251,7 +251,7 @@ test("render-now overlay composites antialiased project text over the opaque boa
       partial += 1;
       const shown = pixel(frame, x, y);
       deepEqual(shown, [alpha, alpha, alpha, 255], `overlay coverage over opaque black at ${x},${y}`);
-      deepEqual(shown.slice(0, 3), pixel(direct, x, y).slice(0, 3), `screen and overlay text colours agree at ${x},${y}`);
+      deepEqual(pixel(direct, x, y), [255, 255, 255, alpha], `direct text retains straight-alpha white at ${x},${y}`);
     }
   }
   ok(partial > 50, "the test exercised antialiased edge pixels");

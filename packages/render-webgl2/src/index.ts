@@ -47,7 +47,7 @@ precision highp float; precision highp int;
 uniform sampler2D uGamePlane; uniform sampler2D uMarginPlane;
 uniform vec2 uContent; uniform vec4 uGame; uniform vec4 uSafe; uniform ivec2 uLogical; uniform ivec4 uBounds; uniform ivec2 uMarginSize; uniform int uOpaque;
 out vec4 outColor;
-vec4 outputPixel(vec4 color){return uOpaque==1?vec4(color.rgb*color.a,1.0):color;}
+vec4 outputPixel(vec4 color){return uOpaque==1?vec4(color.rgb*color.a,1.0):uOpaque==2?vec4(color.rgb*color.a,color.a):color;}
 void main(){
  vec2 center=vec2(gl_FragCoord.x,ceil(uContent.y)-gl_FragCoord.y);
  if(center.x>=uContent.x||center.y>=uContent.y){outColor=vec4(0.);return;}
@@ -184,11 +184,22 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
         case "text": {
           const ink=textInk(command,options.fonts?.(command.font.asset)??options.fallbackFont);
           if(ink===null){defer("text",`webgl2.missing-font: ${command.font.asset}`);deferred++;break;}
+          if(ink.every(({coverage})=>coverage===255)){
+            gl.uniform1i(replay.mode,3);gl.uniform3f(replay.color,command.rgb.r/255,command.rgb.g/255,command.rgb.b/255);blend("normal");
+            drawPixels(ink.map(({x,y})=>[x+offset.x,y+offset.y,1] as const));drawn++;break;
+          }
           gl.uniform1i(replay.mode,5);gl.uniform1i(replay.keyOn,0);gl.uniform3f(replay.color,command.rgb.r/255,command.rgb.g/255,command.rgb.b/255);blend("normal");
-          const target=stack.at(-1)??root; let points: Point[]=[]; const occupied=new Set<string>();
-          const flush=()=>{if(points.length===0)return;snapshotDestination(target.width,target.height);drawPixels(points);points=[];occupied.clear();};
-          for(const {x,y,coverage} of ink){const px=x+offset.x,py=y+offset.y,key=`${px},${py}`;if(occupied.has(key))flush();occupied.add(key);points.push([px,py,coverage/255]);}
-          flush();drawn++;break;
+          const target=stack.at(-1)??root; const layers: Point[][]=[]; const counts=new Map<number,number>();
+          // Pixels commute across coordinates, but repeated ink at one coordinate must retain its order.
+          // Each layer has at most one contribution per pixel, so one snapshot suffices per overlap depth.
+          for(const {x,y,coverage} of ink){
+            const px=x+offset.x,py=y+offset.y;
+            if(px<0||py<0||px>=target.width||py>=target.height)continue;
+            const key=py*target.width+px,level=counts.get(key)??0;
+            counts.set(key,level+1);(layers[level]??= []).push([px,py,coverage/255]);
+          }
+          for(const points of layers){snapshotDestination(target.width,target.height);drawPixels(points);}
+          drawn++;break;
         }
         case "pushTarget": {const target=targetAt(scratchPool,stack.length,dimensions.width,dimensions.height);stack.push(target);bind(target);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);drawn++;break;}
         case "popTarget": {const top=stack.pop();if(top===undefined){defer("popTarget","webgl2.unbalanced-pop: popTarget without pushTarget");deferred++;break;}bind(stack.at(-1)??root);drawn++;break;}
@@ -213,7 +224,7 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
       const a=drawCommands(list.commands,{width:list.width,height:list.height},{x:0,y:0},roots[0]!,scratch[0]!,options,defer);
       const b=drawCommands(list.marginCommands,{width:bounds.width,height:bounds.height},{x:bounds.left,y:bounds.top},roots[1]!,scratch[1]!,options,defer);
       for(const [key,value] of uploads) if(key.startsWith("surface:")&&!usedSurfaceUploads.has(key)){gl.deleteTexture(value.texture);uploads.delete(key);}
-      gl.useProgram(presentProgram);gl.uniform1i(present.opaque,gl.getContextAttributes()?.alpha===false?1:0);
+      const attributes=gl.getContextAttributes();gl.useProgram(presentProgram);gl.uniform1i(present.opaque,attributes?.alpha===false?1:attributes?.premultipliedAlpha===true?2:0);
       gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,contentW,contentH);gl.disable(gl.BLEND);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(presentProgram);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,roots[0]!.texture);gl.uniform1i(present.game,0);gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,roots[1]!.texture);gl.uniform1i(present.margin,1);gl.uniform2f(present.content,geometry.content.width,geometry.content.height);gl.uniform4f(present.gameRect,geometry.game.x,geometry.game.y,geometry.game.width,geometry.game.height);gl.uniform4f(present.safe,geometry.safeArea.left,geometry.safeArea.top,geometry.safeArea.right,geometry.safeArea.bottom);gl.uniform2i(present.logical,list.width,list.height);gl.uniform4i(present.bounds,bounds.left,bounds.right,bounds.top,bounds.bottom);gl.uniform2i(present.marginSize,bounds.width,bounds.height);gl.drawArrays(gl.TRIANGLES,0,3);
       return {drawn:a.drawn+b.drawn,deferred:a.deferred+b.deferred,deferredByKind:byKind,diagnostics};
     },
