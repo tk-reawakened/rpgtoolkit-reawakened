@@ -133,6 +133,15 @@ test("incomplete assignment-like text is dialogue, but sigilled assignments exec
   deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Score = 5 points", "Hi = my friend", 'Hello = "friend" is here', "7"]);
 });
 
+test("inline prefixes after unprefixed assignments execute without changing quoted hashes", () => {
+  const program = compileTk2('x = 1; #Mwin(hi); #Mwin("a #there")', "inline-prefix.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.x, 1);
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["hi", "a #there"]);
+});
+
 test("TK2 methods, labels, namespace calls and fbranch preserve shared shapes", () => {
   const ast = parseTk2("#Method Add(a, b) { #ReturnMethod(a + b) }\n:again\n#FBranch(:again)\n#system.start()");
   equal(ast.functions[0]?.name, "add");

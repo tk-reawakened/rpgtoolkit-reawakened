@@ -159,12 +159,16 @@ function equalityInCondition(text: string): string {
   return result + text.slice(cursor);
 }
 
+function stripInlinePrefixes(line: string): string {
+  return line.replace(/"[^"]*"|(^|[{\s;])#(?=[A-Za-z_@])/g, (match, prefix: string | undefined) => prefix === undefined ? match : prefix);
+}
+
 
 /** Preserve valid unprefixed expression statements accepted by the shared frontend. */
 function isExpressionWithEquals(line: string, lookup: Tk2CommandLookup | undefined): boolean {
   if (!line.includes("=")) return false;
   try {
-    const ast = parse(tokenizeObjects(stripSigils(bindRawArguments(line, lookup))));
+    const ast = parse(tokenizeObjects(stripSigils(bindRawArguments(stripInlinePrefixes(line), lookup))));
     const stmt = ast.statements[0];
     if (stmt?.kind !== "expr") return false;
     lower(ast);
@@ -191,14 +195,14 @@ function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined, litera
   }
   line = line.replace(/^returnmethod\b/i, "return").replace(/^method\b/i, "function");
   if (line.length === 0) return "";
-  if (!raw.trimStart().startsWith("#") && !/^(if|while|until|for|switch|case|default|else|function|return|[:{}])(?:\b|$)/i.test(line) && !isExpressionWithEquals(line, lookup) && !line.endsWith("{")) {
+  if (!raw.trimStart().startsWith("#") && !/^(if|while|until|for|switch|case|default|else|function|return|[:{}])(?:\b|$)/i.test(line) && !line.endsWith("{") && !isExpressionWithEquals(line, lookup)) {
     if (line.includes('"')) {
       literal(line);
       return 'mwin("")';
     }
     return `mwin(${quoted(line)})`;
   }
-  line = line.replace(/"[^"]*"|(^|[{\s;])#(?=[A-Za-z_@])/g, (match, prefix: string | undefined) => prefix === undefined ? match : prefix);
+  line = stripInlinePrefixes(line);
   // Bind raw text while variable sigils still distinguish names from literals.
   line = bindRawArguments(line, lookup);
   line = stripSigils(line);
