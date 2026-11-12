@@ -1,6 +1,7 @@
 import { deepEqual, equal, throws } from "node:assert/strict";
 import { test } from "node:test";
-import { compileTk2, normaliseTk2, parseTk2 } from "../src/index.ts";
+import { advanceScriptTick, compileTk2, createGameState, normaliseTk2, parseTk2, startProgram } from "../src/index.ts";
+import { createScriptServices } from "./script-test-services.ts";
 
 test("TK2 prefixes, sigils, equality and loose dialogue lower through the shared AST", () => {
   const source = "#score! = 1\n#If (score = 1) {\n#Mwin(Hello there)\n}\nLoose dialogue\n@";
@@ -74,4 +75,16 @@ test("TK2 commands accept trailing star comments without treating multiplication
   equal(multiplies.length, 2);
   equal(program.ops.some((op) => op.op === "push" && op.value === "two * three"), true);
   equal(program.ops.find((op) => op.op === "call" && op.name === "mwin")?.pos?.line, 3);
+});
+
+test("TK2 compiles and executes assignments with a type sigil after an array subscript", () => {
+  const source = "#index = 2\n#values[index]! = 17\n#result = values[index]";
+  const program = compileTk2(source, "typed-array.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+
+  advanceScriptTick(state, createScriptServices(state));
+
+  equal(state.vm.globals.result, 17);
+  equal(state.vm.threads[0]?.status, "finished");
 });
