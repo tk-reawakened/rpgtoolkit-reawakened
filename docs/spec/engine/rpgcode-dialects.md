@@ -13,6 +13,9 @@ The 3.1 language is in [rpgcode-language.md](rpgcode-language.md); modules and t
 
 This is the dialect most surviving games use.
 
+<a id="reawakened-project-script-dialect"></a>
+**Reawakened project boot.** A project launched from a Toolkit 2.x main file uses the 2.x frontend for its program files. Select it once from main-file version 2.0–2.2, including the supported 2.x text form. Later main-file versions use the 3.1 frontend. File references carry the selected dialect through startup, board and item programs, includes and later file calls. Engine and bundled package source declared as 3.1 continues to use 3.1. The source bytes stay unchanged. See [main-file version history](../formats/legacy/older-binary-versions.md#main-file-minor-history) and [boot](main-loop-and-startup.md#reawakened-boot-sequence).
+
 * **`#` is the statement introducer**, stripped before parsing, and it appears on essentially every statement: commands
   (`#MwinCls`), control flow (`#If`, `#While`, `#For`), assignments (`#x! = 1`, `#a$ = "…"`), `#Method`, `#Include`. A
   keyword is case- and spacing-insensitive: `#if(cond)`, `#If (cond)` and `#IF` are the same.
@@ -39,7 +42,10 @@ This is the dialect most surviving games use.
 * **`<var>` splices a variable into message text.** A string passed to a message or text built-in (`mwin`, `text`, …) has
   every `<name>` replaced by the value of `name` — the same expansion the `spliceVariables` built-in performs.
 * **`*` comment** starts a line comment when it is the first non-blank character, **and** it may follow a completed
-  statement on the same line (`#InternalMenu(3) * Opens Details Menu *`).
+  statement on the same line (`#InternalMenu(3) * Opens Details Menu *`). In a line introduced by `#`, a star
+  separated by whitespace from a standalone command's closing parenthesis starts a comment through the end of
+  that line. Stars inside its arguments or quoted text keep their ordinary meaning. Discarding the comment keeps
+  later diagnostic line numbers unchanged.
 * **`@` on a line of its own** writes a blank Message-Window line.
 * **Unquoted string arguments** (`#Mwin(Hello there)`, `#SetImage(title.gif, …)`) are read as strings, and a variable name
   may be passed where a value is wanted.
