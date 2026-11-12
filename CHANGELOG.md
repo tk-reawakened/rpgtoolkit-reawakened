@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Browser, desktop, and mobile builds now emit into separate `apps/<host>/` directories, so desktop's WebAssembly-capable AudioWorklet and the browser/mobile strict-CSP bundles cannot overwrite one another. Each player loads its own worklet and bundled-asset manifest; CI checks the declared output paths for collisions (#1898).
 - Stock RPG, menu and battle packages now own deterministic RPGCode specs exercised by strict dogfood runs (#2023). The runner exposes a package's real startup, matching first-party native commands and its fixture actor; the linter recognizes the test API only in specs. The menu preserves unmapped action names (#2024); script-originated dialogue events map folded actor and target field names for native listeners (#2026). Existing dogfood state hashes change because the fixture now contains the registered actor emitter ([TOOL-5](docs/spec/engine/rpgcode-tooling.md#tool-5), [TOOL-7](docs/spec/engine/rpgcode-tooling.md#tool-7)).
   The Epic 8 acceptance golden's state hashes also change because the menu startup bytecode changed; replay with the original startup matches the previous golden, and the newly recorded run retains every draw hash and event.
 - The live player follows the main file's movement keys, keyboard and pointer settings, diagonal composition, and controller setting (#1865). Rebinding changes the physical key that walks while scripts still see its key press. Older files use defaults for absent fields. Explicit zero values disable their controls.

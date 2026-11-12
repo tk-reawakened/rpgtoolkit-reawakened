@@ -12,10 +12,12 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { bundleOptions } from "./bundle-options.mjs";
 import { writeClosingManifest } from "../closing/manifest.mjs";
+import { assertNoBuildOutputCollisions, hostBuildOutput } from "../build-outputs.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
-const out = join(root, "apps");
+assertNoBuildOutputCollisions();
+const out = join(root, "apps", "browser");
 
 const entries = [
   { in: join(root, "packages/runner-web/app/main.ts"), out: "player.js" },
@@ -36,11 +38,11 @@ mkdirSync(out, { recursive: true });
 for (const entry of entries) {
   await build({
     entryPoints: [entry.in],
-    outfile: join(out, entry.out),
+    outfile: hostBuildOutput(root, "browser", entry.out),
     ...bundleOptions,
     // The worker and the AudioWorklet are single-file IIFE bundles with no runtime import(); so is every page entry.
   });
-  console.log(`built apps/${entry.out}`);
+  console.log(`built apps/browser/${entry.out}`);
 }
 
 // No browser artefact may contain a WebAssembly module: the page's strict `script-src 'self'` forbids instantiation, and
@@ -48,12 +50,12 @@ for (const entry of entries) {
 // `docs/spec/engine/runners.md#csp-and-banks`). A bundle that starts carrying `AGFzbQ` again would violate the policy at
 // runtime, so the build says so here rather than in a browser console.
 for (const entry of entries) {
-  const bundled = readFileSync(join(out, entry.out), "utf8");
-  if (bundled.includes("AGFzbQ")) throw new Error(`apps/${entry.out} contains a WebAssembly module; the browser player forbids instantiation`);
+  const bundled = readFileSync(hostBuildOutput(root, "browser", entry.out), "utf8");
+  if (bundled.includes("AGFzbQ")) throw new Error(`apps/browser/${entry.out} contains a WebAssembly module; the browser player forbids instantiation`);
 }
 
-// The browser page needs the same bundled-asset manifest the desktop build produces, so both runners can resolve
-// shared fonts and cursors from the `apps/` static tree without fetching the whole package manifest on boot.
+// The browser page owns its bundled-asset manifest. Desktop and mobile emit their own host-specific copies from the same
+// source folders, so building one host can never overwrite another host's index.
 const folders = ["media/fonts", "media/cursors", "media/soundfonts", "stock/stock_menu", "stock/stock_battle", "stock/stock_rpg"];
 const bundled = folders.flatMap((folder) =>
   readdirSync(join(root, folder), { withFileTypes: true })
@@ -61,17 +63,17 @@ const bundled = folders.flatMap((folder) =>
     .map((entry) => `${folder}/${entry.name}`)
     .sort(),
 );
-writeFileSync(join(out, "bundled.json"), `${JSON.stringify({ folders, files: bundled }, null, 2)}\n`);
-console.log(`built apps/closing-files.json (${writeClosingManifest(root)} fetched games listed)`);
-console.log(`built apps/bundled.json (${bundled.length} bundled assets listed)`);
+writeFileSync(hostBuildOutput(root, "browser", "bundled.json"), `${JSON.stringify({ folders, files: bundled }, null, 2)}\n`);
+console.log(`built apps/browser/closing-files.json (${writeClosingManifest(root, "browser")} fetched games listed)`);
+console.log(`built apps/browser/bundled.json (${bundled.length} bundled assets listed)`);
 
 // Precache manifest (issue #934): listing app shell files, content-derived version, and bundled assets.
 const shellFiles = [
   "packages/runner-web/app/index.html",
-  "apps/player.js",
-  "apps/decode-worker.js",
-  "apps/audio-worklet.js",
-  "apps/bundled.json",
+  "apps/browser/player.js",
+  "apps/browser/decode-worker.js",
+  "apps/browser/audio-worklet.js",
+  "apps/browser/bundled.json",
   "golden/closing/plan.json",
 ];
 const hasher = createHash("sha256");
@@ -95,22 +97,22 @@ const precache = {
   version,
   shell: [
     "/packages/runner-web/app/index.html",
-    "/apps/player.js",
-    "/apps/decode-worker.js",
-    "/apps/audio-worklet.js",
-    "/apps/bundled.json",
-    "/apps/precache.json",
+    "/apps/browser/player.js",
+    "/apps/browser/decode-worker.js",
+    "/apps/browser/audio-worklet.js",
+    "/apps/browser/bundled.json",
+    "/apps/browser/precache.json",
     "/golden/closing/plan.json",
   ],
   bundled: bundled.map((path) => `/${path}`),
 };
-writeFileSync(join(out, "precache.json"), `${JSON.stringify(precache, null, 2)}\n`);
-console.log(`built apps/precache.json (version ${version}, ${precache.shell.length + precache.bundled.length} precached URLs)`);
+writeFileSync(hostBuildOutput(root, "browser", "precache.json"), `${JSON.stringify(precache, null, 2)}\n`);
+console.log(`built apps/browser/precache.json (version ${version}, ${precache.shell.length + precache.bundled.length} precached URLs)`);
 
 // The service worker bundle embeds the content-derived version and precache manifest
 await build({
   entryPoints: [join(root, "packages/runner-web/src/service-worker.ts")],
-  outfile: join(out, "service-worker.js"),
+  outfile: hostBuildOutput(root, "browser", "service-worker.js"),
   ...bundleOptions,
   define: {
     "__SERVICE_WORKER_VERSION__": JSON.stringify(version),

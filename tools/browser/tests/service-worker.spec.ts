@@ -147,7 +147,7 @@ test("(a) registration happens, reload controls the page, and precache holds she
   expect(workerVersion.length).toBeGreaterThan(0);
 
   // Verify precache contents against apps/precache.json
-  const precacheJsonPath = resolve("apps/precache.json");
+  const precacheJsonPath = resolve("apps/browser/precache.json");
   const precacheManifest = JSON.parse(readFileSync(precacheJsonPath, "utf8")) as {
     version: string;
     shell: string[];
@@ -165,9 +165,9 @@ test("(a) registration happens, reload controls the page, and precache holds she
       cacheName,
       urls,
       hasPlayerPage: await cache.match("/packages/runner-web/app/index.html") !== undefined,
-      hasPlayerBundle: await cache.match("/apps/player.js") !== undefined,
-      hasBundledJson: await cache.match("/apps/bundled.json") !== undefined,
-      hasPrecacheJson: await cache.match("/apps/precache.json") !== undefined,
+      hasPlayerBundle: await cache.match("/apps/browser/player.js") !== undefined,
+      hasBundledJson: await cache.match("/apps/browser/bundled.json") !== undefined,
+      hasPrecacheJson: await cache.match("/apps/browser/precache.json") !== undefined,
     };
   }, workerVersion);
 
@@ -208,9 +208,9 @@ test("(b) with network blocked, shell and bundled files are served from cache; c
     const shellResults = await page.evaluate(async () => {
       const files = [
         "/packages/runner-web/app/index.html",
-        "/apps/player.js",
-        "/apps/bundled.json",
-        "/apps/precache.json",
+        "/apps/browser/player.js",
+        "/apps/browser/bundled.json",
+        "/apps/browser/precache.json",
       ];
       const results: { url: string; status: number; textLength: number }[] = [];
       for (const url of files) {

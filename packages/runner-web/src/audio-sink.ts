@@ -459,10 +459,13 @@ function clampVolume(volume: number): number {
   return Math.max(0, Math.min(100, Math.round(volume)));
 }
 
-/** The shipped AudioWorklet module URL: same-origin, so the strict CSP's `script-src 'self'` covers it. */
-export function defaultWorkletUrl(): string {
-  if (typeof location !== "undefined" && location.protocol === "app:") return "app://player/apps/audio-worklet.js";
-  return "/apps/audio-worklet.js";
+/** Supported owner directories for the shared live-session AudioWorklet. */
+export type AudioArtifactHost = "browser" | "desktop" | "mobile";
+
+/** Resolve the host-owned worklet URL; omission is the browser lane default. */
+export function defaultWorkletUrl(host: AudioArtifactHost = "browser"): string {
+  if (host === "desktop") return "app://player/apps/desktop/audio-worklet.js";
+  return `/apps/${host}/audio-worklet.js`;
 }
 
 export type GraphConnection = {

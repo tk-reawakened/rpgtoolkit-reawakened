@@ -137,7 +137,7 @@ test("registerPlayerWorker skips desktop app: without calling register", async (
   equal(registerCalled, false);
 });
 
-test("registerPlayerWorker registers /apps/service-worker.js with player scope by default", async () => {
+test("registerPlayerWorker keeps its stable script URL and browser precache path", async () => {
   let passedScript: string | URL | null = null;
   let passedOptions: { scope?: string; updateViaCache?: string } | undefined;
 
@@ -158,6 +158,8 @@ test("registerPlayerWorker registers /apps/service-worker.js with player scope b
 
   const result = await registerPlayerWorker(mockWin);
   equal(result.registered, true);
+  equal(WORKER_SCRIPT_URL, "/apps/service-worker.js");
+  equal(PRECACHE_MANIFEST_URL, "/apps/browser/precache.json");
   equal(passedScript, WORKER_SCRIPT_URL);
   deepEqual(passedOptions, { scope: PLAYER_SCOPE, updateViaCache: "none" });
 });
@@ -223,7 +225,7 @@ test("isForbiddenPath and isDescriptorPath checks", () => {
   // Descriptors are NOT forbidden paths
   equal(isForbiddenPath("/fixtures/packages/demo.tpk.json"), false);
   equal(isForbiddenPath("/packages/runner-web/app/index.html"), false);
-  equal(isForbiddenPath("/apps/player.js"), false);
+  equal(isForbiddenPath("/apps/browser/player.js"), false);
 
   // Descriptor path identification
   equal(isDescriptorPath("/fixtures/packages/demo.tpk.json"), true);
@@ -235,7 +237,7 @@ test("isForbiddenPath and isDescriptorPath checks", () => {
 test("parsePrecacheManifest validates manifest shape and rejects forbidden paths", async () => {
   const valid = {
     version: "3a4f6d",
-    shell: ["/packages/runner-web/app/index.html", "/apps/player.js"],
+    shell: ["/packages/runner-web/app/index.html", "/apps/browser/player.js"],
     bundled: ["/media/fonts/LiberationMono-Regular.ttf"],
   };
   const parsed = parsePrecacheManifest(valid);
@@ -261,23 +263,23 @@ test("classifyRequest routes requests according to service worker contract", () 
   const origin = "http://127.0.0.1:4173";
   const shellUrls = new Set([
     "/packages/runner-web/app/index.html",
-    "/apps/player.js",
-    "/apps/bundled.json",
-    "/apps/precache.json",
+    "/apps/browser/player.js",
+    "/apps/browser/bundled.json",
+    "/apps/browser/precache.json",
     "/media/fonts/LiberationMono-Regular.ttf",
   ]);
 
   // Non-GET requests pass through untouched
-  equal(classifyRequest({ method: "POST", url: `${origin}/apps/player.js` }, origin, shellUrls), "pass-through");
-  equal(classifyRequest({ method: "HEAD", url: `${origin}/apps/player.js` }, origin, shellUrls), "pass-through");
+  equal(classifyRequest({ method: "POST", url: `${origin}/apps/browser/player.js` }, origin, shellUrls), "pass-through");
+  equal(classifyRequest({ method: "HEAD", url: `${origin}/apps/browser/player.js` }, origin, shellUrls), "pass-through");
 
   // Cross-origin requests pass through untouched
-  equal(classifyRequest({ method: "GET", url: "https://other.example.com/apps/player.js" }, origin, shellUrls), "pass-through");
+  equal(classifyRequest({ method: "GET", url: "https://other.example.com/apps/browser/player.js" }, origin, shellUrls), "pass-through");
 
   // Range requests pass through untouched
   equal(
     classifyRequest(
-      { method: "GET", url: `${origin}/apps/player.js`, headers: { range: "bytes=0-10" } },
+      { method: "GET", url: `${origin}/apps/browser/player.js`, headers: { range: "bytes=0-10" } },
       origin,
       shellUrls,
     ),
@@ -296,7 +298,7 @@ test("classifyRequest routes requests according to service worker contract", () 
   // Shell URLs: cache-first
   equal(classifyRequest({ method: "GET", url: `${origin}/packages/runner-web/app/index.html` }, origin, shellUrls), "cache-first-shell");
   equal(classifyRequest({ method: "GET", url: `${origin}/packages/runner-web/app/index.html?package=demo.tpk` }, origin, shellUrls), "cache-first-shell");
-  equal(classifyRequest({ method: "GET", url: `${origin}/apps/player.js` }, origin, shellUrls), "cache-first-shell");
+  equal(classifyRequest({ method: "GET", url: `${origin}/apps/browser/player.js` }, origin, shellUrls), "cache-first-shell");
   equal(classifyRequest({ method: "GET", url: `${origin}/media/fonts/LiberationMono-Regular.ttf` }, origin, shellUrls), "cache-first-shell");
 
   // Other GET paths pass through untouched
@@ -368,7 +370,7 @@ test("createShellWorkerHandlers onInstall precaches manifest assets atomically",
 
   const manifest: PrecacheManifest = {
     version,
-    shell: ["/packages/runner-web/app/index.html", "/apps/player.js", "/apps/precache.json"],
+    shell: ["/packages/runner-web/app/index.html", "/apps/browser/player.js", "/apps/browser/precache.json"],
     bundled: ["/media/fonts/test.ttf"],
   };
 
@@ -402,9 +404,9 @@ test("createShellWorkerHandlers onInstall precaches manifest assets atomically",
   // Verify cache was populated with versioned name
   const cache = await caches.open(shellCacheName(version));
   equal(cache.keys().length, 4);
-  const matched = await cache.match("/apps/player.js");
+  const matched = await cache.match("/apps/browser/player.js");
   ok(matched);
-  equal(await matched.text(), "content of /apps/player.js");
+  equal(await matched.text(), "content of /apps/browser/player.js");
 });
 
 test("createShellWorkerHandlers onInstall cleans up cache if precache fetch fails", async () => {
@@ -414,7 +416,7 @@ test("createShellWorkerHandlers onInstall cleans up cache if precache fetch fail
 
   const manifest: PrecacheManifest = {
     version,
-    shell: ["/packages/runner-web/app/index.html", "/apps/player.js"],
+    shell: ["/packages/runner-web/app/index.html", "/apps/browser/player.js"],
     bundled: ["/media/fonts/broken.ttf"],
   };
 
@@ -473,7 +475,7 @@ test("createShellWorkerHandlers onFetch serves shell cache-first and descriptors
   const origin = "http://127.0.0.1:4173";
   const caches = new MemoryCacheStorage();
   const shellCache = await caches.open(shellCacheName(version));
-  await shellCache.put("/apps/player.js", new Response("cached player.js", { status: 200 }));
+  await shellCache.put("/apps/browser/player.js", new Response("cached player.js", { status: 200 }));
 
   let networkCalls = 0;
   let offline = false;
@@ -491,7 +493,7 @@ test("createShellWorkerHandlers onFetch serves shell cache-first and descriptors
     return new Response(`network: ${parsed.pathname}`, { status: 200 });
   };
 
-  const shellUrls = new Set(["/apps/player.js", "/packages/runner-web/app/index.html"]);
+  const shellUrls = new Set(["/apps/browser/player.js", "/packages/runner-web/app/index.html"]);
   const handlers = createShellWorkerHandlers({
     version,
     origin,
@@ -503,7 +505,7 @@ test("createShellWorkerHandlers onFetch serves shell cache-first and descriptors
   // 1. Shell URL cache hit: returned from cache without network call
   let respondedWith: Promise<Response> | null = null as Promise<Response> | null;
   const shellEvent: FetchEventLike = {
-    request: new Request(`${origin}/apps/player.js`),
+    request: new Request(`${origin}/apps/browser/player.js`),
     respondWith: (p) => {
       respondedWith = Promise.resolve(p);
     },

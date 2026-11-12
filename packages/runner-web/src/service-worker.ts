@@ -1,10 +1,10 @@
 /**
  * Offline Service Worker for TK Reawakened web player (issue #934).
  *
- * Built as a single self-contained IIFE bundle (`apps/service-worker.js`).
+ * Built as a single self-contained IIFE bundle at the stable URL (`apps/service-worker.js`).
  *
  * LIFECYCLE CONTRACT:
- * - On install: precaches the versioned app shell (`tkr-shell-<version>`) from `/apps/precache.json`.
+ * - On install: precaches the versioned app shell (`tkr-shell-<version>`) from `/apps/browser/precache.json`.
  * - No `skipWaiting()` and no `clients.claim()`: a newly installed worker waits. A first-ever install
  *   does not control the page that registered it (next launch only); an update waits until every existing
  *   session is closed.
