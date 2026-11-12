@@ -1,6 +1,6 @@
-import { deepEqual, equal, match, doesNotMatch } from "node:assert/strict";
+import { deepEqual, equal, match, doesNotMatch, rejects } from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
@@ -18,6 +18,7 @@ const nested = [
 ].join("\n");
 
 const watchTimeout = process.env.TKR_WATCH_CANCELLATION_PROBE === "1" ? 150 : 10000;
+const watchDeadlockTimeout = 60000;
 
 function onceStop(stop: () => void): () => void {
   let requested = false;
@@ -126,7 +127,7 @@ test("CLI watch exits with the latest full-run status", { timeout: watchTimeout 
   const root = mkdtempSync(join(tmpdir(), "tkr-cli-watch-"));
   const filename = join(root, "case.spec.prg");
   writeFileSync(filename, 'it("case", () => { expect(1).toBe(1) })');
-  const child = spawn(process.execPath, [new URL("../dist/cli.js", import.meta.url).pathname, "script", "test", root, "--watch"], { stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [fileURLToPath(new URL("../dist/cli.js", import.meta.url)), "script", "test", root, "--watch"], { stdio: ["ignore", "pipe", "pipe"] });
   const closed = new Promise<void>((resolve) => { child.once("close", () => { resolve(); }); });
   const stop = onceStop(() => { child.kill("SIGINT"); });
   t.after(() => cleanupWatcherChild(child, closed, root));
@@ -155,12 +156,12 @@ test("CLI watch exits with the latest full-run status", { timeout: watchTimeout 
   await done;
 });
 
-test("JUnit watch replaces one XML report and preserves a focused-run warning", { timeout: process.env.TKR_WATCH_CANCELLATION_PROBE === "1" ? watchTimeout : undefined }, async (t) => {
+test("JUnit watch replaces one XML report and preserves a focused-run warning", { timeout: process.env.TKR_WATCH_CANCELLATION_PROBE === "1" ? watchTimeout : watchDeadlockTimeout }, async (t) => {
   const root = mkdtempSync(join(tmpdir(), "tkr-junit-watch-"));
   const filename = join(root, "case.spec.prg");
   const report = join(root, "report.xml");
   writeFileSync(filename, 'only("case", () => { expect(1).toBe(1) })');
-  const child = spawn(process.execPath, [new URL("../dist/cli.js", import.meta.url).pathname, "script", "test", root, "--watch", "--reporter", "junit", "--out", report], { stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [fileURLToPath(new URL("../dist/cli.js", import.meta.url)), "script", "test", root, "--watch", "--reporter", "junit", "--out", report], { stdio: ["ignore", "pipe", "pipe"] });
   const closed = new Promise<void>((resolve) => { child.once("close", () => { resolve(); }); });
   const stop = onceStop(() => { child.kill("SIGINT"); });
   t.after(() => cleanupWatcherChild(child, closed, root));
@@ -204,7 +205,7 @@ test("JUnit watch replaces one XML report and preserves a focused-run warning", 
   await done;
 });
 
-async function runWatchProbe(pattern: string, env: NodeJS.ProcessEnv, sandbox: string, t: TestContext): Promise<{ status: number | null; stdout: string; stderr: string }> {
+async function runWatchProbe(pattern: string, env: NodeJS.ProcessEnv, sandbox: string, t: TestContext, signal?: AbortSignal): Promise<{ status: number | null; stdout: string; stderr: string }> {
   const child = spawn(process.execPath, [
     "--test",
     `--test-name-pattern=${pattern}`,
@@ -222,24 +223,63 @@ async function runWatchProbe(pattern: string, env: NodeJS.ProcessEnv, sandbox: s
     child.once("error", reject);
     child.once("close", resolve);
   });
+  let stopping: Promise<void> | undefined;
+  const stop = (): Promise<void> => {
+    stopping ??= (async () => {
+      if (!closed && child.pid !== undefined) {
+        if (process.platform === "win32") {
+          // taskkill traverses the live root before terminating it, including its test and CLI descendants.
+          await new Promise<void>((resolve, reject) => {
+            const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], { stdio: ["ignore", "ignore", "pipe"] });
+            let error = "";
+            killer.stderr.setEncoding("utf8").on("data", (chunk: string) => { error += chunk; });
+            killer.once("error", reject);
+            killer.once("close", (code) => {
+              if (code === 0 || closed) resolve();
+              else reject(new Error(`taskkill failed (${code}): ${error}`));
+            });
+          });
+        } else {
+          try { process.kill(-child.pid, "SIGKILL"); }
+          catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+        }
+      }
+      await close;
+    })();
+    return stopping;
+  };
+  let reason: string | undefined;
+  let rejectTermination!: (error: unknown) => void;
+  const terminationFailure = new Promise<never>((_resolve, reject) => { rejectTermination = reject; });
+  const abort = (message: string): void => {
+    if (reason !== undefined) return;
+    reason = message;
+    void stop().catch(rejectTermination);
+  };
+  const onAbort = (): void => { abort("watch probe cancelled"); };
+  signal?.addEventListener("abort", onAbort, { once: true });
+  if (signal?.aborted) onAbort();
+  // Only a deadlock fail-safe; ordinary success always follows the child's close event.
+  const timer = setTimeout(() => { abort("watch probe deadlocked"); }, watchDeadlockTimeout + 30000);
   t.after(async () => {
-    if (!closed) {
-      if (process.platform !== "win32" && child.pid !== undefined) {
-        try { process.kill(-child.pid, "SIGKILL"); } catch { /* Already reaped. */ }
-      } else child.kill("SIGKILL");
-    }
-    await close;
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
+    await stop();
     rmSync(sandbox, { recursive: true, force: true });
   });
-  const status = await completion;
+  const status = await Promise.race([completion, terminationFailure]);
+  if (reason !== undefined) {
+    await stop();
+    throw new Error(`${reason}\n${stdout}\n${stderr}`);
+  }
   return { status, stdout, stderr };
 }
 
 function watchProbeEnv(fixtureName: string, sandbox: string): NodeJS.ProcessEnv {
-  const fixture = fileURLToPath(new URL(`./fixtures/${fixtureName}`, import.meta.url));
+  const fixture = new URL(`./fixtures/${fixtureName}`, import.meta.url).href;
   const env: NodeJS.ProcessEnv = {
     ...process.env,
-    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${JSON.stringify(fixture)}`,
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${fixture}`,
     TMPDIR: sandbox, TEMP: sandbox, TMP: sandbox,
   };
   delete env.NODE_TEST_CONTEXT;
@@ -266,4 +306,42 @@ test("watch test cancellation closes real watchers and child processes", { timeo
   match(probe.stdout, /cancelled 3/);
   match(probe.stdout, /test timed out/);
   deepEqual(readdirSync(sandbox), []);
+});
+
+for (const failure of ["abort", "deadlock"] as const) test(`watch probe ${failure} reaps a live CLI descendant and removes its sandbox`, { timeout: 120000 }, async (t) => {
+  if (failure === "deadlock") t.mock.timers.enable({ apis: ["setTimeout"] });
+  const sandbox = mkdtempSync(join(tmpdir(), "tkr-watch-abort-"));
+  const marker = join(sandbox, "watch-ready");
+  const env = watchProbeEnv("suppress-output-watch.mjs", sandbox);
+  env.TKR_WATCH_READY = marker;
+  const controller = new AbortController();
+  const ready = new Promise<number>((resolve) => {
+    const watcher = watch(sandbox, () => {
+      if (!existsSync(marker)) return;
+      watcher.close();
+      resolve(Number(readFileSync(marker, "utf8")));
+    });
+    t.after(() => { watcher.close(); });
+  });
+  const running = runWatchProbe("JUnit watch replaces", env, sandbox, t, controller.signal);
+  t.after(() => { equal(existsSync(sandbox), false); });
+  const pid = await Promise.race([
+    ready,
+    running.then(() => { throw new Error("watch probe exited before CLI readiness"); }),
+  ]);
+  process.kill(pid, 0); // The marker comes from the actual CLI after opening its real watcher.
+  const cancelled = rejects(running, failure === "abort" ? /watch probe cancelled/ : /watch probe deadlocked/);
+  if (failure === "abort") controller.abort();
+  else t.mock.timers.tick(watchDeadlockTimeout + 30000);
+  await cancelled;
+  if (process.platform === "win32") {
+    const listing = spawnSync("tasklist", ["/fi", `PID eq ${pid}`, "/fo", "csv", "/nh"], { encoding: "utf8" });
+    equal(listing.status, 0, listing.stderr);
+    doesNotMatch(listing.stdout, new RegExp(`"${pid}"`));
+  } else {
+    // An orphaned, already-dead child can briefly remain as a zombie until init reaps it.
+    const listing = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" });
+    if (listing.status === 0) match(listing.stdout.trim(), /^Z/);
+    else equal(listing.status, 1, listing.stderr);
+  }
 });
