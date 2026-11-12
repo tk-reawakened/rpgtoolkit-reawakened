@@ -13,6 +13,9 @@ export type ParsedArgs = {
   readonly out: string | null;
   readonly dialect: "tk3" | "tk2";
   readonly strict: boolean;
+  readonly name: string;
+  readonly reporter: "spec" | "junit" | "json";
+  readonly watch: boolean;
 };
 
 export type ParseError = {
@@ -56,6 +59,10 @@ export function parseArgs(argv: readonly string[]): { readonly ok: true; readonl
   let out: string | null = null;
   let dialect: "tk3" | "tk2" = "tk3";
   let strict = true;
+  let name = "";
+  let reporter: "spec" | "junit" | "json" = "spec";
+  let reporterSet = false;
+  let watch = false;
   const paths: string[] = [];
 
   for (let index = 2; index < args.length; index += 1) {
@@ -80,6 +87,18 @@ export function parseArgs(argv: readonly string[]): { readonly ok: true; readonl
       const value = arg.slice("--dialect=".length);
       if (value !== "tk3" && value !== "tk2") return { ok: false, message: "--dialect must be tk3 or tk2", subcommand, attemptedSubcommand: subcommand };
       dialect = value;
+    } else if (arg === "--name" || arg.startsWith("--name=")) {
+      const value = arg === "--name" ? args[++index] : arg.slice("--name=".length);
+      if (subcommand !== "test" || value === undefined) return { ok: false, message: "--name requires a value for test", subcommand, attemptedSubcommand: subcommand };
+      name = value;
+    } else if (arg === "--reporter" || arg.startsWith("--reporter=")) {
+      const value = arg === "--reporter" ? args[++index] : arg.slice("--reporter=".length);
+      if (subcommand !== "test" || (value !== "spec" && value !== "junit" && value !== "json")) return { ok: false, message: "--reporter must be spec, junit or json for test", subcommand, attemptedSubcommand: subcommand };
+      reporter = value;
+      reporterSet = true;
+    } else if (arg === "--watch") {
+      if (subcommand !== "test") return { ok: false, message: "--watch is only available for test", subcommand, attemptedSubcommand: subcommand };
+      watch = true;
     } else if (arg === "--no-strict") {
       strict = false;
     } else if (arg.startsWith("-")) {
@@ -88,6 +107,12 @@ export function parseArgs(argv: readonly string[]): { readonly ok: true; readonl
       paths.push(arg);
     }
   }
+  if (json && reporterSet && reporter !== "json") return { ok: false, message: "--json conflicts with the selected reporter", subcommand, attemptedSubcommand: subcommand };
+  if (reporter === "json") json = true;
+  if (json) reporter = "json";
+  if (subcommand === "test" && watch && reporter === "junit" && out === null) return { ok: false, message: "JUnit watch requires --out <file>", subcommand, attemptedSubcommand: subcommand };
+  if (subcommand === "test" && out !== null && reporter !== "junit") return { ok: false, message: "--out for test requires the junit reporter", subcommand, attemptedSubcommand: subcommand };
+
 
   if (subcommand === "test" && paths.length === 0) {
     // test defaults to the current working directory if no path is given.
@@ -108,6 +133,9 @@ export function parseArgs(argv: readonly string[]): { readonly ok: true; readonl
       out,
       dialect,
       strict,
+      name,
+      reporter,
+      watch,
     },
   };
 }
