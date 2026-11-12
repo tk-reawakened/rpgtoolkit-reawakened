@@ -28,12 +28,15 @@ await build({
   logLevel: "warning",
 });
 
-// Browser (web) extension host client.
+// Browser (web) extension host client. The web extension host loads this file as a module and
+// reads `exports.activate`, so it must be CommonJS: an IIFE bundle (what this lane shipped
+// until #950) exports nothing, the host never enters `activate`, and every contribution the
+// extension makes on the web — the language client and the debug adapter — is silently dead.
 await build({
   entryPoints: [join(here, "src/extension.browser.ts")],
   outfile: join(here, "dist/extension.browser.js"),
   bundle: true,
-  format: "iife",
+  format: "cjs",
   platform: "browser",
   target: "es2022",
   sourcemap: true,

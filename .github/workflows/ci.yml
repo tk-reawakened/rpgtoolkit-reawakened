@@ -509,6 +509,62 @@ jobs:
           name: desktop-measurement-${{ runner.os }}
           path: ${{ runner.temp }}/desktop-*.json
           if-no-files-found: error
+  # The web-extension lane (entry 10.10, #950): a real VS Code web build serves the RPGCode
+  # extension and the debugger scenario runs inside its web extension host, driven by VS Code's
+  # own debug API (`startDebugging`, `addBreakpoints`, `customRequest`) rather than by our
+  # adapter. It is the acceptance proof that the adapter works in the `vscode.dev` build, and it
+  # would have caught the extension shipping a `browser` bundle that could never activate.
+  vscode-web:
+    needs: [changes]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.0-noble
+      options: --ipc=host
+    steps:
+      - name: CI classifier decision
+        shell: bash
+        env:
+          JOB: vscode-web
+          CHANGES: ${{ needs.changes.result }}
+          FULL: ${{ needs.changes.outputs.full }}
+          REASON: ${{ needs.changes.outputs.reason }}
+        run: |
+          if [ "$CHANGES" = success ] && [ "$FULL" = false ]; then
+            echo "CI classifier [$JOB]: DEFER - nothing this job guards could have changed; $REASON"
+          elif [ "$CHANGES" != success ]; then
+            echo "CI classifier [$JOB]: RUN - changes job result was '$CHANGES' (${REASON:-no classifier verdict})"
+          else
+            echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
+          fi
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - uses: pnpm/action-setup@v6
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - uses: actions/setup-node@v7
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - run: pnpm build
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - name: Install extension dependencies
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        run: npm --prefix extensions/rpgcode install --no-audit --no-fund
+      # The VS Code web build is downloaded once and kept between runs (~100 MB).
+      - uses: actions/cache@v6
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        with:
+          path: .vscode-test-web
+          key: vscode-web-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Debug adapter in VS Code for the Web
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        run: pnpm vscode-web:test
   # The browser lane (ADR 0015, D-9): one headless Chromium project. Playwright and its browser binaries are dev-only,
   # never shipped; the lane boots a sample game to the committed tick-120 hashes and replays the raster vectors.
   browser:
@@ -727,7 +783,7 @@ jobs:
           if-no-files-found: error
   gate:
     # The advisory mobile proof runs independently of the required gate.
-    needs: [changes, checks, unit, golden, golden-bun, browser, desktop, script-dogfood]
+    needs: [changes, checks, unit, golden, golden-bun, browser, vscode-web, desktop, script-dogfood]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

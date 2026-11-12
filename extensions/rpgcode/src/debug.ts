@@ -64,9 +64,10 @@ class RpgcodeInlineAdapter implements vscode.DebugAdapter {
             board: boardUri.scheme === "file" ? (board.split(/[\\/]/).at(-1) ?? board) : (boardUri.path.split("/").at(-1) ?? board),
             boardBytes,
             program: new TextDecoder().decode(programBytes),
-            // A virtual document is named by its path, which is what a client reports as
-            // `source.path`, so its breakpoints match; a plain path stays exactly as given.
-            programPath: programUri.scheme === "file" ? program : programUri.path,
+            // A virtual document is reported to the client by its URI, which is what it can
+            // resolve a frame's source to; the adapter matches a breakpoint's path or URI
+            // against it, so either spelling works.
+            programPath: programUri.scheme === "file" ? program : programUri.toString(),
             seed: typeof launchArguments.seed === "number" ? launchArguments.seed : 7,
           });
         },

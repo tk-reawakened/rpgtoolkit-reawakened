@@ -80,6 +80,23 @@ function baseName(path: string): string {
   return parts[parts.length - 1] ?? path;
 }
 
+/**
+ * Whether two source names are the same document. A client reports a document as a path
+ * (`/Prg/probe.prg`) or as a URI (`vscode-test-web://mount/Prg/probe.prg`) depending on the
+ * file system it is on, so a breakpoint matches when either side names the same path.
+ */
+function sameSource(left: string, right: string): boolean {
+  if (left === right) return true;
+  const asPath = (value: string): string => {
+    const at = value.indexOf("://");
+    if (at < 0) return value;
+    const rest = value.slice(at + 3);
+    const slash = rest.indexOf("/");
+    return slash < 0 ? "/" : rest.slice(slash);
+  };
+  return asPath(left) === asPath(right);
+}
+
 function sameStop(left: Stop, right: Stop): boolean {
   return left.thread === right.thread && left.frame === right.frame && left.line === right.line;
 }
@@ -176,7 +193,12 @@ export function createDebugSession(options: DebugSessionOptions, send: (message:
 
   function applyBreakpoints(scene: SceneDebugTarget): void {
     engineFile ??= resolveEngineFile(scene);
-    const lines = engineFile === null ? [] : (breakpoints.get(scene.program.path) ?? []);
+    // A client may name the document by path or by URI; the session accepted either when the
+    // breakpoints were set, so every stored entry that names this program is applied.
+    const lines: number[] = [];
+    for (const [source, requested] of breakpoints) {
+      if (sameSource(source, scene.program.path)) lines.push(...requested);
+    }
     scene.engine.setBreakpoints(lines.map((line) => ({ file: engineFile!, line })));
   }
 
@@ -196,6 +218,18 @@ export function createDebugSession(options: DebugSessionOptions, send: (message:
     return null;
   }
 
+  /**
+   * Report one stop twice: the standard DAP `stopped` event, and the custom event
+   * `rpgcode.stopped` with `{ reason, threadId, line }`. A host driving the adapter from
+   * outside its own UI (an extension-host test, a script) has no deterministic signal from
+   * the standard event, because the client consumes it; the companion is what such a host
+   * waits on.
+   */
+  function emitStop(at: Stop, reason: string): void {
+    event("stopped", { reason, threadId: at.thread, allThreadsStopped: true });
+    event("rpgcode.stopped", { reason, threadId: at.thread, line: at.line });
+  }
+
   function announce(outcome: Outcome, reason: "breakpoint" | "step" | "entry" | "pause"): void {
     if (outcome.kind === "ended") {
       stop = null;
@@ -209,11 +243,11 @@ export function createDebugSession(options: DebugSessionOptions, send: (message:
         event("terminated");
         return;
       }
-      event("stopped", { reason: "pause", threadId: current.thread, allThreadsStopped: true });
+      emitStop(current, "pause");
       return;
     }
     stop = outcome.stop;
-    event("stopped", { reason, threadId: outcome.stop.thread, allThreadsStopped: true });
+    emitStop(outcome.stop, reason);
   }
 
   function runContinue(from: Stop): Outcome {
@@ -396,7 +430,7 @@ export function createDebugSession(options: DebugSessionOptions, send: (message:
       event("terminated");
       return;
     }
-    event("stopped", { reason: "entry", threadId: current.thread, allThreadsStopped: true });
+    emitStop(current, "entry");
   }
 
   function setBreakpoints(request: DapRequest): void {
@@ -422,7 +456,7 @@ export function createDebugSession(options: DebugSessionOptions, send: (message:
       return;
     }
     applyBreakpoints(scene);
-    const verified = path === scene.program.path && engineFile !== null;
+    const verified = engineFile !== null && sameSource(path, scene.program.path);
     respond(request, { breakpoints: lines.map((line) => ({ verified, line })) });
     const current = runningStop();
     if (verified && current !== null && !configured) stop = current;
