@@ -6,15 +6,16 @@
 //   node tools/mobile/build.mjs
 
 import { build } from "esbuild";
+import { cpSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { assertNoBuildOutputCollisions, hostBuildOutput } from "../build-outputs.mjs";
 
 // The mobile wrapper carries the same strict policy as the browser page (no `'wasm-unsafe-eval'`), and the MIDI
 // dependency instantiates its Vorbis decoder at import time (#1325, `docs/spec/engine/runners.md#csp-and-banks`), so the
 // same stub alias applies here. The desktop bundle keeps the real decoder; SF3 is a desktop-only path for now.
 const decoderStub = fileURLToPath(new URL("../browser/stb-vorbis-stub.mjs", import.meta.url));
 const alias = { "stb-vorbis": decoderStub };
-import { cpSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { assertNoBuildOutputCollisions, hostBuildOutput } from "../build-outputs.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
