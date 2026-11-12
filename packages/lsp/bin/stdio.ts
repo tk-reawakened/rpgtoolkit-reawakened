@@ -1,0 +1,42 @@
+import { createConnection, ProposedFeatures } from "vscode-languageserver/node.js";
+import { TextDocument } from "vscode-languageserver-textdocument";
+import { TextDocuments } from "vscode-languageserver";
+import { createServer } from "../dist/index.js";
+
+// The stdio host for the RPGCode language server (TOOL-1). This file lives
+// outside `packages/lsp/src/` and the package's public export so importing the
+// library never opens a pipe and the library stays free of Node APIs (G2).
+const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
+const documents = new TextDocuments(TextDocument);
+
+createServer({
+  onInitialize: (handler) => connection.onInitialize(handler),
+  onDidOpenTextDocument: (handler) =>
+    documents.onDidOpen((event) =>
+      handler({
+        textDocument: {
+          uri: event.document.uri,
+          languageId: event.document.languageId,
+          version: event.document.version,
+          text: event.document.getText(),
+        },
+      }),
+    ),
+  onDidChangeTextDocument: (handler) =>
+    documents.onDidChangeContent((event) =>
+      handler({
+        textDocument: { uri: event.document.uri, version: event.document.version },
+        contentChanges: [{ text: event.document.getText() }],
+      }),
+    ),
+  onHover: (handler) => connection.onHover(handler),
+  onCompletion: (handler) => connection.onCompletion(handler),
+  onDefinition: (handler) => connection.onDefinition(handler),
+  onDocumentSymbol: (handler) => connection.onDocumentSymbol(handler),
+  onCodeAction: (handler) => connection.onCodeAction(handler),
+  sendDiagnostics: (params) => void connection.sendDiagnostics(params),
+});
+
+documents.listen(connection);
+connection.listen();
+

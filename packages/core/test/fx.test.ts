@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { animationBlits } from "../src/render/animation.ts";
 import {
   assetKey,
   loadAnimation,
@@ -15,6 +16,8 @@ import {
   createGameState,
   createScriptServices,
   createSurfacesSection,
+  restoreGameState,
+  snapshot,
   updateCamera,
   RENDER_PLUGIN,
   type EffectRecord,
@@ -27,7 +30,7 @@ function effect(name: string, args: (string | number)[]): EffectRecord {
 }
 
 function blank(): DrawList {
-  return { tick: 0, width: 640, height: 480, commands: [] };
+  return { tick: 0, width: 640, height: 480, commands: [], marginCommands: [] };
 }
 
 test("fx section defaults are deterministic and saveable", () => {
@@ -57,7 +60,7 @@ test("script animations advance frames, emit each sound once and draw above the 
   equal((advanceAnimations(state) as readonly { file: string; sound: string }[])[0]?.sound, "one.wav");
   state.time.tick = 1;
   equal((advanceAnimations(state) as readonly { file: string; sound: string }[])[0]?.sound, "two.wav");
-  const commands = applyFxDrawList(blank(), state.fx).commands;
+  const commands = applyFxDrawList(blank(), state.fx, () => ({ w: 8, h: 6 })).commands;
   equal(commands.at(-1)?.kind, "blit");
   deepEqual(commands.at(-1), {
     kind: "blit",
@@ -88,18 +91,32 @@ test("animated GIF pages become distinct deterministic animation surfaces", () =
   equal(animation.frames.length, 3);
   equal(animation.frames.every((frame) => frame.surface !== undefined), true);
   equal(new Set(animation.frames.map((frame) => frame.surface)).size, 3);
+  const command = animationBlits(state.fx, false, () => { throw new Error("GIF surfaces do not resolve assets"); })[0];
+  if (command?.kind !== "blit") throw new Error("GIF frame did not produce a blit");
+  deepEqual(command.src, { x: 0, y: 0, w: animation.frames[0]!.srcWidth, h: animation.frames[0]!.srcHeight });
+  deepEqual(command.source, { surface: animation.frames[0]!.surface, rev: 0 });
   equal(animation.delayTicks, 6);
 });
 
-test("fade advances exactly 30 ticks and leaves a terminal primitive", () => {
+test("fade draws the terminal stripes on tick 30 and removes them on tick 31, including after restore", () => {
   const state = createGameState({ seed: 1 });
   state.camera = createCameraSection(640, 480);
-  applyFxEffect(state, effect("fade", [0]));
+  applyFxEffect(state, effect("fade", [1]));
   for (let i = 0; i < 29; i += 1) advanceFx(state);
   equal(state.fx.fade?.elapsedTicks, 29);
-  equal(applyFxDrawList(blank(), state.fx).commands.length, 1);
   advanceFx(state);
   equal(state.fx.fade?.elapsedTicks, 30);
+  const scene: DrawList = { ...blank(), commands: [{ kind: "fill", rgb: { r: 255, g: 255, b: 255 } }] };
+  const stripes = [0, 160, 320, 480].map((x) => ({
+    kind: "rect", rect: { x, y: 0, w: 80, h: 480 }, rgb: { r: 0, g: 0, b: 0 }, filled: true,
+  }));
+  const restored = restoreGameState(snapshot(state));
+  for (const candidate of [state, restored]) {
+    deepEqual(applyFxDrawList(scene, candidate.fx, () => null).commands, [...scene.commands, ...stripes]);
+    advanceFx(candidate);
+    equal(candidate.fx.fade, null);
+    deepEqual(applyFxDrawList(scene, candidate.fx, () => null), scene);
+  }
 });
 
 test("wipe progress uses logical pixels per tick and reaches exact final image", () => {
@@ -109,7 +126,7 @@ test("wipe progress uses logical pixels per tick and reaches exact final image",
   advanceFx(state);
   equal(state.fx.wipe?.progress, 4);
   for (let i = 0; i < 159; i += 1) advanceFx(state);
-  const commands = applyFxDrawList(blank(), state.fx).commands;
+  const commands = applyFxDrawList(blank(), state.fx, () => null).commands;
   equal(state.fx.wipe?.progress, 640);
   equal(commands[commands.length - 1]?.kind, "blit");
   deepEqual((commands[commands.length - 1] as { dst: unknown }).dst, { x: 0, y: 0, w: 640, h: 480 });

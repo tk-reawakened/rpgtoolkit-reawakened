@@ -1,8 +1,7 @@
 ---
 title: "tkr script: the CLI, its result protocol, generated help and the dogfooding CI job"
 ticket: 9
-status: in progress
-blocked_reason: ""
+status: done
 ---
 
 ## Intent
@@ -18,27 +17,36 @@ Entry 10.9 builds `packages/script-cli`, the `tkr script` command-line front end
 
 ## What this branch builds
 
-- `tkr script check` — parser diagnostics plus lint over `.prg`/`.rnc` sources, honouring `tkr-lint.json`.
+- `tkr script check` — parser diagnostics plus lint over `.prg`/`.rnc` sources, honouring `tkr-lint.json`; lint findings retain their program path.
 - `tkr script fmt` and `fmt --check` — rewrites or reports changes, refuses TK2.
-- `tkr script index` — emits the TOOL-6 machine-readable index document.
-- `tkr script docs` — emits the generated quick reference from the registered catalogue.
-- `tkr script test` — drives the 10.8 runner over `*.spec.prg` files.
-- The `tkr-script-result/1` envelope, validated in tests against `docs/spec/schemas/tkr-script-result.schema.json`.
-- The four documented exit codes: 0 ok, 1 findings, 2 usage/config error, 3 internal error.
-- Deterministic `--json` output so the same inputs produce the same bytes.
-- A `script-dogfood` CI job that runs the four ready subcommands over `stock/` and `docs/spec/examples/game`, and `test` over authored passing fixtures, comparing against committed baselines in `packages/script-cli/baselines/`.
+- `tkr script index` — emits the TOOL-6 document; output is validated against the entry-4 schema.
+- `tkr script docs` — emits a deterministic quick reference and searchable language reference from `commandDocumentation()`.
+- `tkr script test` — drives the 10.8 runner over discovered `*.spec.prg` files; the passing dogfood project calls engine built-ins.
+- `tkr-script-result/1` is validated against `docs/spec/schemas/tkr-script-result.schema.json` for every subcommand exercised.
+- Stable exit codes 0–3; `--json` stdout is only the envelope, human-readable progress is on stderr, and internal errors retain the attempted subcommand.
+- `script-dogfood` compares check, fmt, index, docs and test against committed baselines. It is a dependency of `gate`; the active `Gate Guards` ruleset requires `gate`.
 
-## Owner-gated matchers: `test` refuses to run silently
+The CLI implementation originally merged in PR #1017 (merge commit 6b4357ed); this closeout adds the remaining behavior and evidence.
 
-The 10.8 runner cannot be claimed complete while the following matchers are still owner decisions:
+## Acceptance audit
 
-- **F-A** — array `toEqual`/`toContain` and `toThrow`.
-- **F-D** — fractional `toBeCloseTo`.
-- **F-E** — group hooks under per-case re-run (beforeAll/afterAll semantics for nested describes).
-- **F-G** — a missing `#include` is silent until something calls into it.
+| #949 acceptance clause | Result | Evidence |
+|---|---|---|
+| Each subcommand has the documented code on clean/findings/lint-failing/format-different inputs | Met | `packages/script-cli/test/exit-codes.test.ts` exercises check clean/parser/lint, fmt clean/different/rewrite, test pass/failure/strict and lenient skip, docs/index match/drift/missing comparison file. Exit 3 is tested through its envelope helper. |
+| Each subcommand emits documented JSON | Met | Every `--json` CLI result exercised by that suite is validated against the committed result schema; status and envelope exit code are checked against the process exit. |
+| `index --json` writes a document validating against entry-4 schema | Met | The embedded document, stdout JSON document and written file are checked against `tkr-script-index.schema.json`. |
+| CI detects stock diagnostics, format differences and skipped cases; job is required | Met | Workflow diffs `check.json`/`fmt.json`, and strict `test` against `test.json`; job is a `gate` dependency. GitHub's active `Gate Guards` ruleset requires `gate`. |
+| Generated reference is byte-stable | Met | Two independent `docs` invocations compare byte-for-byte; CI diffs committed `docs.json`. |
+| Specs execute against real engine commands | Met | `runner.ts` registers `DEFAULT_ENGINE_PLUGINS` (resolved `ENGINE_DEFAULT_MANIFEST`) plus `SPEC_PLUGIN`; tests exercise `len`, `castint`, `instr`, `autoLocal`, and both `on error` forms. |
+| Runner-level handled-error `toThrow` behavior | Met | `engine-commands.test.ts` proves `.not.toThrow()` passes when resume-next or label handlers take the error and distinguishes unhandled errors. ERR-2 diagnostics remain visible as required. |
+| Acceptance defects found while auditing | Fixed | #1963 tracked object-dialect `this` input causing exit 3; `tokenizeObjects` fixes it. Lint findings now map to their originating program; fix edits carry the schema-required `rule`. |
 
-`tkr script test` scans each spec source before invoking the runner. If it sees an owner-gated matcher (e.g. `toThrow`, `toEqual(...[...])`, `toBeCloseTo(..., 0.001)`), the run fails with exit code 1 and a diagnostic naming the unbuilt matcher. This keeps the CLI honest: it does not silently pass a spec whose assertion surface is incomplete.
+The dogfood test baseline changed deliberately: the passing spec now exercises engine commands, so its outcomes and state hashes changed. Other baselines were regenerated by `pnpm script:dogfood:record`.
 
-## What remains blocked
+## 10.8 matcher ruling
 
-This entry stays `status: in progress` until 10.8 closes. When the owner rules on F-A/F-D/F-E/F-G (and the proposed PKG-7 load path / F-F tear-off in #1010), the preflight scanner is removed or narrowed and `test` is claimed complete against the full approved matcher API.
+F-A, F-D and F-E are approved and implemented in #948. The missing-include case is governed by TOOL-5's `spec.no-cases` behavior; the old owner-gated matcher preflight is not present.
+
+## Remaining owner decisions
+
+None identified for #949/#1940. `docs` and `index` `--check` require `--out <committed-file>` because checking drift requires a comparison file; this is process-tested.

@@ -34,7 +34,8 @@ Hexagonal. The **core** is a pure, deterministic simulation: bytes and input eve
 | Driving adapters | `runner-*`, `lsp`, `dap`, `editor-ui` | call the core |
 | Driven adapters | `synth`, `render-webgl2`, asset sources | realise cues, draw lists and asset requests |
 | Editor model | `editor-model` | DOM-free documents and command stacks |
-| Hosts | `host-*` | platform-services and chrome only |
+| Platform services | `platform-services` | the host-door interface of AD-20 as types, and an in-memory double for tests; imports no other workspace package |
+| Hosts | `host-*` | implement `platform-services`, plus chrome; nothing else |
 
 One checked-in edge list (`tools/deps/edges.json`) generates this graph and the dependency-cruiser rules (AD-22). An arrow means "may be depended on by". Same-tier imports are allowed only where an arrow is drawn.
 
@@ -78,7 +79,17 @@ graph LR
   editorui --> hostvscode
   editorui --> hostweb
   editorui --> hostdesktop
+  platformservices[platform-services] --> editormodel
+  platformservices --> editorui
+  platformservices --> hostvscode
+  platformservices --> hostweb
+  platformservices --> hostdesktop
   plugintk2compat --> runnerharness
+  nativedata[native-data] --> nativedatacli[native-data-cli]
+  core --> nativedataimport[native-data-import]
+  nativedata --> nativedataimport
+  nativedata --> nativedatarename[native-data-rename]
+  nativedatacli --> nativedatarename
 ```
 
 ## Inherited Invariants
@@ -120,6 +131,7 @@ Parent: [ADR 0001](../../../docs/adr/0001-typescript-core.md) and [guardrails.md
 - **Binds:** CAP-6, CAP-12, CAP-13, CAP-15
 - **Prevents:** runners interpreting scenes differently; renderers holding state (G4); unhashable frames; tint and blend results differing between replayers.
 - **Rule:** a `DrawList` is `{ tick, width, height, commands[] }` rebuilt per frame, with no deltas. `core/ports` publishes one `DrawCommand` union: `blit`, `fill`, `line`, `rect`, `ellipse`, `text`, `pushTarget`, `popTarget`. Types: `Rgb = { r, g, b }` integers 0–255; coordinates are integers in logical-resolution pixels; rectangles are `x, y, w, h`, half-open; `filled: boolean`; lines are 1 px with inclusive endpoints; ellipses are given by bounding box. A texture is a `TexRef = { asset: AssetKey, tile: number | null }` with `tile` 1-based (`null` means no tile; `docs/spec/formats/README.md#tile-references`). `.tan` and `.tbm` never cross the seam: the builder resolves them to tile `TexRef`s plus per-cell tint. `blit` carries `src` and `dst` integer rectangles, `key`, `tint`, `alpha` 0–255, `blend` (`normal` | `additive` | `translucent`) and an `iso2d` projection flag, with nearest-neighbour sampling. A blit source is a `TexRef` or a persistent surface `{ surface, rev }` (AD-27). `text` carries a `FontRef` and per-glyph advances (AD-15). The core draws the mouse cursor as the last command. Runners replay top to bottom and may cache, but discarding a cache changes nothing observable.
+- **Touch-HUD protocol cutover (docs-first, #1352).** The current `DrawList` and strict runner-protocol-v1 schema/vector kit remain `{ tick, width, height, commands[] }` until implementation. The next clean protocol version extends the canonical value to `{ tick, width, height, commands[], marginCommands[] }`; both arrays are required, ordered, plain-data arrays of the same `DrawCommand` union, and an empty `marginCommands` means no author commands outside Plane 1. Both arrays participate in the v2 draw hash. Each author primitive is present in `commands` if it intersects Plane 1 and in `marginCommands` if it intersects usable Plane 3; a crossing primitive has identical global logical geometry in both, and disjoint plane clips expose its visible pieces. A crossing author hit rectangle remains one target/action identity across both visible portions. The v2 schema requires exactly these five keys and validates each command with the existing union; conformance vectors cover empty/non-empty margin arrays, rejection when `marginCommands` is missing, and a draw hash that changes when only a margin command changes. The v2 schema and vectors, core type/hash, reference raster, and every runner/harness consumer MUST cut over atomically; v1 MUST continue rejecting unknown keys and MUST NOT gain an optional field, and no mixed-version acceptance shim is allowed. Normative placement and pointer rules are [display-input-audio.md#reawakened-author-touch-hud](../../../docs/spec/engine/display-input-audio.md#reawakened-author-touch-hud).
 - **Reawakened rule (OWNER; FontRef and draw inputs).** `text` carries `FontRef = { asset, size, bold, italic }`; underline is a separate `line` command. Sprite order uses `(layer, projected screen-space reference-point y, drawId)`, with stable players-before-items category indices. `alpha` is presentation-only and excluded from state and draw hashes.
 - **Pixel pipeline (normative, in `core/raster`):** (1) skip a pixel that is format-transparent or equals `key`, tested on the untinted source; (2) `c = clamp(src + tint, 0, 255)` once, where `tint` is the full pre-summed shade, board and global ambient offset (range ±1020, `docs/spec/formats/board.md#tile-shading`); (3) blend: `normal` → `c`; `translucent` → `(dst·(255−a) + c·a + 127) / 255`; `additive` → `min(255, dst + (c·a + 127) / 255)`, integer division; `percentToAlpha(p) = (p·255 + 50) / 100`.
 - **Check:** one exported union; a lint rule that tint is computed only in `core/render/shade.ts`; per-command CPU-vs-WebGL2 conformance fixtures with exact match for key and tint.
@@ -129,6 +141,7 @@ Parent: [ADR 0001](../../../docs/adr/0001-typescript-core.md) and [guardrails.md
 - **Binds:** CAP-5, CAP-6, CAP-13, CAP-16
 - **Prevents:** script-visible pixels depending on the runner; two rasterisers drifting.
 - **Rule:** `core/raster` is the single reference rasteriser, pure and I/O-free. It turns a `DrawList` plus surfaces into a bitmap and serves `canvasGetScreen`, `getPixel` and screen save and restore (E-56, E-58). `runner-harness` uses it for goldens and the editor uses it for image export. It amends `architecture-options.md` §2 ("no pixels in the core") and G4 rule 1's wording; see ADR 0002.
+- **Touch-HUD reference presentation (docs-first, #1352).** AD-4's Plane 3 presentation raster consumes the versioned draw list, its assets/surfaces and logged `HostDisplayGeometry` `{ content, game, safeArea }`. It returns straight-RGBA bytes at `ceil(content.width) × ceil(content.height)`, initialized transparent. The safe-area rectangle is `[safeArea.left, content.width-safeArea.right) × [safeArea.top, content.height-safeArea.bottom)`; an empty or inverted extent has no usable margins. Let `scaleX=game.width/W`, `scaleY=game.height/H`, `L=floor(max(0,game.x-safeArea.left)/scaleX)`, `R=floor(max(0,content.width-safeArea.right-game.x-game.width)/scaleX)`, `T=floor(max(0,game.y-safeArea.top)/scaleY)`, and `B=floor(max(0,content.height-safeArea.bottom-game.y-game.height)/scaleY)` (all four are zero if the safe-area rectangle is empty). The logical margin raster bounds are `[-L,W+R) × [-T,H+B)`, its origin is `(-L,-T)`, and its size is `(W+L+R) × (H+T+B)`; global logical command coordinates map to raster indices by adding `(L,T)`. Margin scratch targets use the same bounds/origin, are zero-cleared and ID-scoped to `marginCommands`; `blit.src` addresses scratch pixels from local `(0,0)`. Drawing outside any target bound clips to no-op; push/pop balance and other draw errors retain AD-4 behavior. A margin cell `(x,y)` is visible only when it lies outside `[0,W) × [0,H)` and its full physical footprint `[game.x+x·scaleX, game.x+(x+1)·scaleX) × [game.y+y·scaleY, game.y+(y+1)·scaleY)` is contained in both content and safe-area rectangles. This whole-cell test is applied identically to margin presentation and core hit eligibility, so no two physical points that normalize to one pointer cell can disagree about safe-area admission; a partially cut cell is transparent and not hit-testable. For each physical content pixel center inside `game`, sample the AD-4 Plane 1 raster at `floor((u-game.x)/scaleX), floor((v-game.y)/scaleY)`. For a center outside `game` but inside safe area, map by the same per-axis formulas and sample the margin raster only when its logical coordinates are within its bounds and the whole-cell test succeeds; otherwise output stays transparent. Unsafe and out-of-content pixels stay transparent. The fixed content-relative target, center sampling and clipping rules are the reference against which WebGL2 is compared byte-for-byte for identical list, geometry, assets and surfaces (G4); host-composited screenshots are not the oracle.
 - **Check:** CPU-vs-WebGL2 agreement test in CI; `runner-*` import no rasteriser internals (AD-22).
 
 ### AD-5 — Assets and requests: blocking or stream, always replied by an input
@@ -311,14 +324,14 @@ graph TD
 
 - **Binds:** CAP-15, CAP-16, CAP-17, CAP-18
 - **Prevents:** VS Code and the standalone hosts implementing different undo and save semantics; edit stacks lost when a webview is hidden.
-- **Rule:** the document model (bytes plus a stack of serialisable commands) lives in the DOM-free package `editor-model`. `editor-ui` emits `document.edited { editId, label }` for each command; hosts call `undo(editId)` and `redo(editId)`; dirty state is derived by the host from that stream. Hosts drive a `DocumentController`: `save`, `saveAs`, `revert`, `backup`, `onExternalChange`. There is exactly one document instance per URI per host. In VS Code, `host-vscode` runs `editor-model` in the extension host and webviews hold only view state. [ASSUMPTION: over `retainContextWhenHidden`.] Hosts never edit document bytes.
+- **Rule:** the document model (bytes plus a stack of serialisable commands) lives in the DOM-free package `editor-model`. `editor-ui` emits `document.edited { editId, label }` for each command; hosts call `undo(editId)` and `redo(editId)`; dirty state is derived by the host from that stream. Hosts drive a `DocumentController`: `save`, `saveAs`, `revert`, `backup`, `onExternalChange`. There is exactly one document instance per URI per host. In VS Code, `host-vscode` runs `editor-model` in the extension host and webviews hold only view state. [ASSUMPTION: over `retainContextWhenHidden`.] Hosts never edit document bytes. The bytes-plus-commands model is the rule for **binary** documents; for a text document in VS Code the authoritative model is its `TextDocument`, `editor-model` keeps no second editable copy, the host's native undo applies, and `editId` is not exposed ([ADR 0022](../../../docs/adr/0022-shared-editor-authoring-contracts.md) D2, owner-approved 2026-11-09).
 - **Check:** one host-conformance suite run against every host.
 
 ### AD-20 — platform-services is the only host door
 
 - **Binds:** CAP-15, CAP-16, CAP-17, CAP-18
 - **Prevents:** `editor-ui` importing host APIs; hosts exposing different surfaces.
-- **Rule:** an async interface: `fs` (`list`, `read`, `write`, `stat`, `delete`, `rename`, `watch`), `project` (`open`, `recent`), `run` (`startGame`, `startProgram` with a fixture, returning a handle), `export`, `dialogs`, `clipboard`, `document` (AD-19), `language.connect()` (the program editor is an LSP client of `lsp` in every host), `shell.openExternal`, `settings`. Each host declares a `capabilities` set, including `fileAssociation` (T-82); `editor-ui` degrades by capability (for example ZIP import and export where folder writes are unavailable). Errors are `PlatformError { code, message }`. A host adds no editor feature of its own.
+- **Rule:** the interface is the package `platform-services`: the types named in this Rule and, at its `./testing` entry, an in-memory double for tests (AD-22). It imports no other workspace package and no host; `editor-model` and `editor-ui` import its types, and each `host-*` implements them. It is an async interface: `fs` (`list`, `read`, `write`, `stat`, `delete`, `rename`, `watch`), `project` (`open`, `recent`), `run` (`startGame`, `startProgram` with a fixture, returning a handle), `export`, `dialogs`, `clipboard`, `document` (AD-19), `language.connect()` (the program editor is an LSP client of `lsp` in every host), `shell.openExternal`, `settings`. Each host declares a `capabilities` set, including `fileAssociation` (T-82); `editor-ui` degrades by capability (for example ZIP import and export where folder writes are unavailable). Errors are `PlatformError { code, message }`. A host adds no editor feature of its own.
 - **Check:** dependency-graph rule that `editor-ui` imports no `host-*`; the AD-19 host-conformance suite.
 
 ### AD-21 — Language servers are transport-free; the debugger needs no Node
@@ -332,7 +345,7 @@ graph TD
 
 - **Binds:** all
 - **Prevents:** deep imports defeating the dependency graph; the diagram and the rules drifting.
-- **Rule:** every package exports one public entry `src/index.ts`, plus `./testing` and, for `runner-web`, `./app` — the player page — where needed. ESM only; target ES2022; TypeScript project references; `host-vscode` is bundled to CommonJS with esbuild. `tools/deps/edges.json` is the single edge list, and it generates the diagram above and the dependency-cruiser rules. [ASSUMPTION: path.] Imports of any non-entry path are banned.
+- **Rule:** every package exports one public entry `src/index.ts`, plus `./testing` and, for `runner-web`, `./app` — the player page — where needed. ESM only; target ES2022; TypeScript project references; `host-vscode` is bundled to CommonJS with esbuild. `tools/deps/edges.json` is the single edge list, and it generates the diagram above and the dependency-cruiser rules. [ASSUMPTION: path.] Imports of any non-entry path are banned, except that a test (`packages/<pkg>/test/`) may import another package's `./testing` entry; no `src/` file may.
 - **Check:** dependency-cruiser rules generated from the edge list; CI fails when the generated diagram differs from the committed one.
 
 ### AD-23 — Schemas are versioned per section
@@ -461,7 +474,7 @@ graph TD
 | spessasynth_core (`synth`; pinned by pnpm override with `stb-vorbis`) | 4.3.22 |
 | spessasynth_lib (`runner-web` only) | 4.3.14 |
 | Bundled default SoundFont (runner-side, SF2, at most 8 MiB) | the Path B candidate passes the provenance bar or TK-16 ships (entries 6.13 and 6.14); FluidR3_GM is not bundled ([audio-media.md#path-b-bank](../../../docs/spec/engine/audio-media.md#path-b-bank)) |
-| CodeMirror 6 (`@codemirror/state`, `view`, `language`, `commands`) | 6.7.6 / 6.43.14 / 6.13.1 / 6.11.1 |
+| Monaco (standalone/browser code editor; [ADR 0021](../../../docs/adr/0021-monaco-code-editor.md)) | Version to be pinned at integration; VS Code uses its native text editor |
 | VS Code (`engines.vscode` floor; `@types/vscode` pinned to it) | ^1.91.0 |
 | vscode-languageserver / vscode-languageclient | 10.1.2 |
 | @vscode/debugadapter | 1.68.0 |
@@ -489,7 +502,7 @@ packages/
     raster/             # reference rasteriser, glyphs, surfaces
   synth/  render-webgl2/
   runner-harness/  runner-headless/  runner-web/  runner-desktop/  runner-mobile/
-  lsp/  dap/  editor-model/  editor-ui/
+  lsp/  dap/  platform-services/  editor-model/  editor-ui/
   host-vscode/  host-web/  host-desktop/
 tools/deps/edges.json   # single edge list (AD-22)
 ```

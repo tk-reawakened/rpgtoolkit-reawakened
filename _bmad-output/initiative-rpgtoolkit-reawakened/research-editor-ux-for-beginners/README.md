@@ -6,6 +6,10 @@ This folder captures Jensen's design discussion and extends it through task walk
 
 **Broader discovery map:** the [creator scenario inventory](creator-scenario-inventory.md) explores 54 situations across creator intents, working methods, project stages and recovery needs. It reconciles the [experience bank](../../../docs/editor-experience-bank.md), these studies and current planning, with evidence and uncertainty attached. It is a discovery draft—not a golden path, UI specification, priority list or feature commitment.
 
+**2026-11-07 party handoff:** [Engagement-area map](engagement-area-map.md) maps all 54 scenarios and the editor families to creator activities, legacy capabilities, and possible future experiences. Read the [expanded user flows](engagement-user-flows.md), then use the [design prompt](engagement-design-prompt.md) to continue. The owner confirmed RPG Maker's clarity of purpose, VS Code's workspace flexibility, and Figma-like direct editing as a direction—not a workbench composition. Game and Files views may be used separately or together. Separately, [ADR 0013](../../../docs/adr/0013-desktop-shell-electron.md) already selects Electron as the desktop shell for the editor and player.
+
+**2026-11-08 concrete design proposal:** [Connected editors review package](../ux-connected-editors/ux-connected-editors.md) brings the flows into a cohesive workspace with ten wireframes, editor interactions, complete scenario coverage and shared-host architecture/settings design. New choices remain proposals for review, not implementation commitments.
+
 ## Read by the job
 
 | I want to… | Study |
@@ -20,6 +24,7 @@ This folder captures Jensen's design discussion and extends it through task walk
 | Never have to open `main.gam`, but change conventions when necessary | [08 · Project file by convention](flows/08-project-file-by-convention.md) |
 | Use a battle plugin's specialist editor inside the same application | [09 · Plugin-provided editors](flows/09-plugin-editors.md) |
 | Actually **make** tiles and animated regions without repetitive asset setup | [10 · Tile-making without the grind](flows/10-tile-making-without-the-grind.md) |
+| See how the tile studio, asset viewer, scene-asset pasting and boundary tracing fit the packages | [11 · Tile, asset and board architecture](flows/11-tile-asset-and-board-architecture.md) |
 
 The ten studies are indexed separately to keep related decisions readable; the shared tile import, timeline, Database and document services are not ten unrelated implementations.
 

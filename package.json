@@ -7,11 +7,14 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b && pnpm -r --if-present run typecheck:tests && tsc -p packages/runner-web/tsconfig.app.json",
-    "test": "tsc -b && node --test \"packages/*/test/*.test.ts\"",
-    "coverage": "tsc -b && mkdir -p coverage && node --experimental-test-coverage --test-coverage-lines=91 --test-coverage-branches=81 --test-coverage-include='packages/*/src/**' --test-coverage-exclude='**/catalogue-stubs.ts' --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=coverage/lcov.info --test \"packages/*/test/*.test.ts\"",
+    "test": "tsc -b && node --max-semi-space-size=128 --test \"packages/*/test/*.test.ts\"",
+    "coverage": "tsc -b && mkdir -p coverage && node --max-semi-space-size=128 --experimental-test-coverage --test-coverage-lines=91 --test-coverage-branches=81 --test-coverage-include='packages/*/src/**' --test-coverage-exclude='**/catalogue-stubs.ts' --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=coverage/lcov.info --test \"packages/*/test/*.test.ts\"",
     "test:strict": "tsc -b && node tools/no-skips/run.mjs",
+    "bmad:tickets:test": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s _bmad/method/scripts/tests -v",
     "lint": "node tools/check-core-deps.mjs && eslint .",
     "ci:classify:test": "node --test tools/ci/test/classify-changes.test.mjs",
+    "ci:playwright-image:check": "node tools/ci/check-playwright-image.mjs",
+    "ci:playwright-image:test": "node --test tools/ci/test/check-playwright-image.test.mjs",
     "graph": "node tools/deps/graph.mjs",
     "graph:write": "node tools/deps/graph.mjs --write",
     "graph:test": "node --test tools/deps/test/graph.test.mjs",
@@ -34,9 +37,11 @@
     "command-docs:test": "node --test tools/command-docs/test/*.test.mjs",
     "icons": "node tools/icons/build.mjs",
     "icons:test": "node --test tools/icons/test/icons.test.mjs",
-    "no-skips:test": "node --test tools/no-skips/test/no-skips.test.mjs",
+    "editor-ui-toolchain:test": "node --test tools/editor-ui-toolchain/test/*.test.mjs",
+    "editor-ui-toolchain:check": "node tools/editor-ui-toolchain/check-bundles.mjs",
+    "no-skips:test": "node --test tools/no-skips/test/*.test.mjs",
     "audio-protocol:check": "node tools/fixtures/audio-protocol/generate.mjs --check",
-    "runner-protocol:check": "node tools/fixtures/runner-protocol/generate.mjs --check",
+    "runner-protocol:check": "node tools/fixtures/runner-protocol/generate.mjs --check && node tools/fixtures/runner-protocol/generate-v2.mjs --check",
     "browser:build": "node tools/browser/build.mjs",
     "browser:serve": "node tools/browser/serve.mjs --port 4173",
     "browser:test": "node tools/browser/build.mjs && playwright test",
@@ -67,7 +72,9 @@
     "mobile:proof": "node tools/mobile/proof.mjs",
     "mobile:proof:test": "node --test tools/mobile/test/*.test.mjs",
     "saveload:record": "tsc -b && node tools/fixtures/saveload/record.mjs",
-    "saveload:check": "tsc -b && node tools/fixtures/saveload/record.mjs --check"
+    "saveload:check": "tsc -b && node tools/fixtures/saveload/record.mjs --check",
+    "closing:suite": "tsc -b && node tools/closing/suite.mjs",
+    "test:affected": "node tools/no-skips/affected.mjs"
   },
   "devDependencies": {
     "@capacitor/android": "8.4.3",
@@ -75,6 +82,7 @@
     "@capacitor/core": "8.5.3",
     "@capacitor/filesystem": "8.1.1",
     "@capacitor/ios": "8.4.3",
+    "@happy-dom/global-registrator": "21.0.4",
     "@playwright/test": "1.64.0",
     "@tk-reawakened/core": "workspace:*",
     "@tk-reawakened/runner-harness": "workspace:*",
@@ -84,6 +92,7 @@
     "electron": "45.2.1",
     "esbuild": "0.28.2",
     "eslint": "10.12.0",
+    "preact": "11.2.0",
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "8.71.1"
   }

@@ -98,6 +98,9 @@ Order editors by a first-time author's real path (project, board, tiles, a perso
 
 - **Reduce tedious tile and animated-tile creation.** Jensen specifically challenged the remaining effort and the old editor's quality. **Decided problem to solve**; the solutions remain proposed. [Flow 10](flows/10-tile-making-without-the-grind.md) adds sheet-first drawing across tile boundaries, source editing in board context with shared/unique scope, selected frames → Make animated tile, duplicate/delta frame editing and one multi-cell waterfall timeline. Preserve editable source and verify synchronisation rather than promising automatic art or an already implemented region format.
 - **Reusable tileset creation remains a required workflow.** Jensen explicitly confirmed that reducing tile-making friction must preserve authorable sets that can be reused. Mario is a design reference for a reusable vocabulary of pieces and assemblies, not a request for Nintendo's assets or NES constraints. The [tileset lifecycle](flows/03-tiles-and-art-sources.md#workflow-create-a-reusable-tileset-then-build-many-boards) proposes independent kit authoring, multi-board references, animated entries, visual stamps and portable packs; exact pack/update/identity mechanics remain proposals.
+- **Command of the isometric tile world & procedural generation (2026-11-09).** **Decided in direction** (Jensen): the tile and asset ecosystem should combine kitbash-friendly edits ("Tile Edits So Simple, ANYONE Can Do Them!"), Tilesetter-style procedural blob/transition generation with a live sandbox, and 3-plane isometric projection (Pikuma 2:1 dimetric math) plus tall-isometric diamond decomposition. Also support direct full-image/backdrop and prop placement on boards alongside tile grids, pulled from a unified **Asset & Tileset Viewer**.
+- **New native formats use `.tkr<something>` YAML; art packs are editor-only for now (2026-11-09).** **Decided by Jensen:** any new native file formats created for TK Reawakened use a `.tkr<something>` extension (e.g., `.tkrpack`, `.tkrtile`) and are authored in **YAML**. Scene asset/art packs are **editor-only** for now: pasting an asset from a pack into a board lowers/emits standard board primitives (layer images, tiles, `.tst`/`.iso`/`.tbm` assets, and translated `solid`/`under` vectors) that `@tk-reawakened/core` already loads and renders with zero runtime engine changes.
+- **Boundary intelligence (2026-11-09).** **Decided in direction** (Jensen): the board editor should derive walls from what the author already did — click the floor and wall the rest, a walkable/solid brush, tracing from tile roles, and tracing image regions. The architecture is **Proposed** in [flow 11](flows/11-tile-asset-and-board-architecture.md#7-boundary-intelligence).
 
 ## 5. Walkthrough findings: "make a village"
 
@@ -122,7 +125,7 @@ A paper walkthrough of a first-timer building a village with an inn, a talking p
 6. **Board properties:** which of the many board settings (links, music, threads, battle data, ambient light, enter program) live in the panel and which in a settings page.
 7. **Starter library:** what it contains and who supplies licensed art.
 8. **Priority conflict:** the visual event builder is P2 in the parity list, but this design makes blocks core. See `reawakened-fit.md`.
-9. **Persistence:** which authoring features require added metadata or a native format? ADR 0005 permits one but does not require one; hiding `.gam` alone is not sufficient justification.
+9. **Persistence:** which authoring features require added metadata or a native format? ADR 0005 permits one but does not require one; hiding `.gam` alone is not sufficient justification. **Update (2026-11-09, Decided by Jensen):** when new formats are created, they use `.tkr<something>` extensions in **YAML**; art/scene packs (`.tkrpack` / `.tkrtile`) live in the editor layer (`editor-model` / `editor-ui`) for now and compile/paste down into existing engine primitives so the runtime engine needs no new format reader yet.
 10. **Plugin editor contract:** how declarative forms and custom panels share documents, validation, undo, previews and migrations without creating separate editors per plugin.
 11. **Play and legacy write:** confirm the proposed save-first/current-board actions and whether legacy writers are wanted. Earlier replies overstated these as owner decisions; this record corrects that.
 
@@ -132,3 +135,52 @@ A paper walkthrough of a first-timer building a village with an inn, a talking p
 - Corpus census over `rpgtoolkit-archive` (see `evidence/command-census.md`).
 - RPG Maker Database and Character Generator screenshots; a dotted-route screenshot (Jensen, 2026-10-16/17). Images are not stored here.
 - `docs/editor-features.md`, `docs/guardrails.md`, ADR 0004 and 0005, the architecture spine, and the editor epics in this repository (see `reawakened-fit.md`).
+
+## 8. Engagement-area direction — 2026-11-07
+
+- **Accepted direction:** RPG Maker's clarity of purpose, VS Code's workspace flexibility, and Figma-like direct visual editing. A game maker first, with connected specialist tools and discoverable depth. Jensen's confirmation: “Sally. yes you got it.”
+- **Owner-selected navigation flexibility:** game-oriented content and actual files/folders are alternative views of the same project; creators may use either or both. This does not select their panel arrangement or a new identity/storage model.
+- **Owner observation:** reopened 3.1.0 was more capable than remembered, but cumbersome; settings and the project list were hard to discover behind cryptic buttons, and the board was visually busy.
+- **Requested next work:** map all scenarios to engagement areas, compare legacy Toolkit capability with possible future experience, document user flows and a reusable prompt, then end the party.
+- **Delivered research:** [engagement map](engagement-area-map.md), [expanded flows](engagement-user-flows.md), and [continuation prompt](engagement-design-prompt.md). These proposals do not supersede normative specs or establish implementation status.
+- **Still open:** a Code - OSS/VSCodium-style workbench versus a custom workbench; focused versus full editors; database/comparison layout; testing surface; document transactions; native-format additions; plugin-editor APIs. These UX discussions did not select a workbench composition, roadmap, or feature priority. Separately, [ADR 0013](../../../docs/adr/0013-desktop-shell-electron.md) has already selected Electron as the desktop shell for the editor and player.
+- **Evidence correction:** the additional Status Effect Editor screenshot supplied during this session closes that visual-coverage gap for the visible form only. Save/reopen and runtime semantics remain unverified by the capture.
+
+## 9. UI implementation starting points — 2026-11-08
+
+**Status: design direction, not a selected workbench composition or implementation claim.** Electron is already the selected desktop shell under [ADR 0013](../../../docs/adr/0013-desktop-shell-electron.md). [ADR 0021](../../../docs/adr/0021-monaco-code-editor.md) selects Monaco for standalone and browser code editing; its version and integration details remain open.
+
+Jensen: “lets log these as initial places to start to build our UI. Also a settings system that is similar to vscode's might make the editors a little easier to port as well. using vscode's json schema design”
+
+### Custom workbench candidate
+
+- **Electron** is the selected desktop host and **Monaco Editor** is selected for standalone/browser code editing. **Dock Spawn** remains a candidate docking system. The workbench composition remains to be evaluated against the engagement flows; this is not a decision to fork Code - OSS/VSCodium.
+- Keep RPG Maker's approachable game-making experience, VS Code's workspace flexibility, and direct visual editing as the purpose. Choosing components does not settle the user experience.
+- Monaco supplies code editing, not VS Code's whole workbench or extension host. Project navigation, document lifecycle, commands, language tooling integration, and recovery still need deliberate integration.
+- Dock Spawn remains provisional: assess maintenance, licensing and dependencies under G6, keyboard/accessibility support, resizing, layout persistence, and moving editors without losing document, canvas, or selection state.
+
+### Shared editors, different hosts
+
+- Preserve the ability to deliver the same game editors in a standalone application and a VS Code extension. This builds on G2, not an exception to it: shared `editor-ui` reaches host capabilities only through platform services; host packages own adapters and chrome.
+- Share authoring interactions and editing logic rather than requiring identical window layouts. Standalone/browser hosts use Monaco for code; VS Code uses native text editors and may supply contributed navigation views and custom-editor webviews for visual documents.
+- Do not embed the entire standalone workbench inside VS Code or maintain separate implementations of the game editors. Exact view placement and host integration remain design work.
+
+### Schema-driven settings direction
+
+- Explore a shared declarative settings catalogue inspired by VS Code's `contributes.configuration`: stable setting IDs, types, defaults, descriptions, constraints, and grouping. Use it to support discoverable, searchable settings controls and a JSON editing route.
+- Aim to reuse definitions for standalone settings and VS Code configuration contributions, with host adapters responsible for reading, writing, and change notifications. Shared editor features consume settings through platform services, not direct `vscode` or Electron imports.
+- VS Code's configuration contribution format includes its own UI metadata and scope semantics; adopting JSON Schema alone does not reproduce those behaviours. Determine the compatible subset and any mapping before promising drop-in portability.
+- Keep **editor preferences** separate from **authored game data**. A personal grid-display preference must not silently become a game rule, nor should battle or startup definitions be relocated into machine settings merely to reuse a form.
+- Still open: user/workspace/resource scope, precedence and reset behaviour, storage paths, JSON versus JSONC, validation and migration behaviour, extension-contributed settings, and which metadata can map unchanged between hosts.
+
+### Proof for integration and remaining choices
+
+Use the existing [engagement flows](engagement-user-flows.md) to prototype board/code split editing, a connected effect → move → enemy task, and moving a focused editor into a broader workspace without losing context. Add a settings rehearsal: find a preference, change it through the UI and JSON, see validation, reset it, and verify equivalent effective values in both hosts. These are proposed checks, not completed tests or new scheduled tickets.
+
+References: [G2 host boundary](../../../docs/guardrails.md#g2--hard-package-boundaries), [Monaco decision](../../../docs/adr/0021-monaco-code-editor.md), [Monaco](https://github.com/microsoft/monaco-editor), [Dock Spawn](https://github.com/coderespawn/dock-spawn), [VS Code configuration contributions](https://code.visualstudio.com/api/references/contribution-points#contributes.configuration). No runtime implementation audit was performed for this note.
+
+## Key source files
+
+- [Engagement map and evidence boundaries](engagement-area-map.md)
+- [Original scenario inventory](creator-scenario-inventory.md)
+- [Creator journey discussion](creator-journey-workspace-rehearsal.md)

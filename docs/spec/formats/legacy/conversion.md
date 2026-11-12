@@ -23,6 +23,12 @@ Applies to text characters and binary characters before minor 5 (editor only; th
 
 The size type becomes 1, and the old sound file names are dropped from the character after being attached to the battle animations.
 
+<a id="reawakened-legacy-character-walk"></a>
+**Reawakened player rule.** A character that stores walking tile references can stand and walk using that artwork. When no walk animations are stored, adapt the sixteen pairs in memory as the four directional walk clips in the table. Each frame is a 32 × 64 canvas with the upper tile at y = 0 and the lower tile at y = 32. The bottom centre (16, 64) is the actor anchor. An empty or unavailable tile leaves its cell transparent. A direction with at least one available tile retains all four frame positions. A direction with no available tiles has no clip. Tile transparency and the conversion's white colour key both apply. The existing [facing and animation rules](../../engine/movement-and-collision.md#e-21) select and advance these clips, including the normal diagonal and idle fallbacks. Each frame lasts `ceil(0.167 × 60)` fixed ticks. The player resolves the character and tile assets through the project's regular asset source on boot and restore. It writes no generated files.
+
+<a id="reawakened-single-tile-walk-anchor"></a>
+**One-tile walks.** A character with `sizeType = 0` and at most one stored tile reference in each walking frame stands with its visible feet at the actor anchor. Put the frame's tile in the lower cell whether the file names it in the upper or lower slot. An empty frame is still transparent. Determine whether the rule applies from the stored pairs across the whole walk, before resolving any tile assets. Walks with two-tile frames and other size types keep both authored cell positions. Final Destiny's Bill stores his one-tile walk in the upper slots, while other one-tile characters store their frames in the lower slots.
+
 **Embedded pixels (sizeType 0).** Text characters with 32 × 32 graphics store pixels instead of tile names. They are first written into a new tileset `Tiles\<p>.tst`, one tile per embedded image in reading order: 16 walking tiles, then the 4 fight, 4 special, 4 defence and 4 death tiles (each group in frame order), the rest tile, and the 10 custom tiles. The tile references `<p>.tst<N>` then fill the frames: walking and custom frames get the tile in their **lower** cell (upper cell empty); battle and rest frames get it in the **bottom-right** cell of their 2 × 2 grid (other cells empty). Conversion then continues as above.
 
 ## Items

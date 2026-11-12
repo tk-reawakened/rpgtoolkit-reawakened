@@ -132,7 +132,16 @@ function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined): strin
   let line = raw.replace(/\r$/, "").trim();
   if (line.length === 0 || line.startsWith("*")) return "";
   if (line === "@") return 'mwin("")';
-  if (line.startsWith("#")) line = line.slice(1).trimStart();
+  if (line.startsWith("#")) {
+    line = line.slice(1).trimStart();
+    // The star after a complete parenthesized command starts a comment. Use the balanced close
+    // so a star in an argument, nested call or quoted string still reaches the expression parser.
+    const call = /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\s*\(/.exec(line);
+    if (call !== null) {
+      const close = matchingClose(line, call[0].length - 1);
+      if (close >= 0 && /^[ \t]+\*/.test(line.slice(close + 1))) line = line.slice(0, close + 1);
+    }
+  }
   line = line.replace(/(^|[{\s;])#(?=[A-Za-z_@])/g, "$1");
   line = line.replace(/^returnmethod\b/i, "return").replace(/^method\b/i, "function");
   line = stripSigils(line);
@@ -156,8 +165,7 @@ export function normaliseTk2(text: string, lookup?: Tk2CommandLookup): string {
 
 function rewriteNamespaces(expr: Expr): Expr {
   if (expr.kind === "call" && expr.file === "system") {
-    const { file: _file, ...call } = expr;
-    return { ...call, name: `system.${expr.name}`, args: expr.args.map(rewriteNamespaces) };
+    return { ...expr, args: expr.args.map(rewriteNamespaces) };
   }
   if (expr.kind === "methodCall" && expr.receiver.kind === "variable") {
     return { kind: "call", name: `${expr.receiver.name}.${expr.name}`, args: expr.args.map(rewriteNamespaces), line: expr.line };

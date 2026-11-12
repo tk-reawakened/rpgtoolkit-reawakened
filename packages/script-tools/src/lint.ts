@@ -10,7 +10,7 @@
  * ignored findings.
  */
 
-import { commandDocumentation, foldAscii, type ResolvedPlugin } from "@tk-reawakened/core";
+import { commandDocumentation, foldAscii, HOST_METHOD_NAMES, type ResolvedPlugin } from "@tk-reawakened/core";
 import { legacyFixes } from "./fixes.ts";
 import type { Diagnostic } from "./diagnostics.ts";
 import { rangeOf } from "./diagnostics.ts";
@@ -112,6 +112,8 @@ export type LintSummary = {
 
 export type LintResult = {
   readonly diagnostics: readonly Diagnostic[];
+  /** `programs[i]` is the name of the program `diagnostics[i]` was found in, so a caller can name the file. */
+  readonly programs: readonly string[];
   readonly summary: LintSummary;
 };
 
@@ -233,6 +235,12 @@ function rulesFor(program: IndexProgram, catalogue: Catalogue, resolveIncludes: 
   // A parameter is called as a callable without a load, so the index states the
   // parameter names; a call to one is not an unknown command.
   for (const param of program.parameters) callableVariables.add(foldAscii(param));
+  // A host object's methods are call targets that are not registered commands (`context.inventory.use`, `fighter.damage`).
+  const hostMethods = new Set<string>();
+  for (const name of HOST_METHOD_NAMES) {
+    callableVariables.add(foldAscii(name));
+    hostMethods.add(foldAscii(name));
+  }
 
   for (const call of program.calls) {
     if (call.file !== null) continue;
@@ -245,6 +253,9 @@ function rulesFor(program: IndexProgram, catalogue: Catalogue, resolveIncludes: 
 
   for (const call of program.calls) {
     if (call.file !== null) continue;
+    // A name that is also a host method (`context.inventory.replace`) may be that method rather than the command of
+    // the same name, so its arity is not the catalogue's to state.
+    if (hostMethods.has(foldAscii(call.name))) continue;
     const entry = catalogue.byName.get(foldAscii(call.name));
     if (entry === undefined) continue;
     const bounds = arityOf(entry);
@@ -283,7 +294,7 @@ function dialectDiagnostics(source: string): Diagnostic[] {
       range: first.range,
       message: fix.title,
       rule: fix.rule,
-      fix: [...fix.edits],
+      fix: fix.edits.map((item) => ({ ...item, rule: fix.rule })),
     };
   });
 }
@@ -317,6 +328,7 @@ export function lint(document: IndexDocument, options: LintOptions): LintResult 
     return override === undefined || override === "off" ? rule.defaultSeverity : override;
   };
   const diagnostics: Diagnostic[] = [];
+  const programs: string[] = [];
   let ignoredRanges = 0;
   for (const program of document.programs) {
     for (const found of rulesFor(program, catalogue, options.resolveIncludes === true)) {
@@ -327,6 +339,7 @@ export function lint(document: IndexDocument, options: LintOptions): LintResult 
         continue;
       }
       diagnostics.push({ ...found, severity: severityOf(rule) });
+      programs.push(program.name);
     }
     const source = options.sources?.[program.name];
     if (source === undefined) continue;
@@ -338,10 +351,12 @@ export function lint(document: IndexDocument, options: LintOptions): LintResult 
         continue;
       }
       diagnostics.push({ ...found, severity: severityOf(rule) });
+      programs.push(program.name);
     }
   }
   return {
     diagnostics,
+    programs,
     summary: { diagnostics: diagnostics.length, disabledRules: disabled, ignoredRanges },
   };
 }

@@ -21,7 +21,7 @@ export type OpenTickCursor = {
 };
 
 /** Boot and runtime asset requests; script-character and script-item bridge AssetReply bytes to waiting RPGCode continuations (AD-17). */
-export type EngineRequestKind = "main" | "font" | "program" | "board" | "tile" | "animation" | "image" | "board-preview" | "audio" | "initial-character" | "script-character" | "script-item" | "script-asset";
+export type EngineRequestKind = "main" | "font" | "program" | "board" | "board-item" | "tile" | "animation" | "image" | "board-preview" | "audio" | "initial-character" | "legacy-sprite" | "script-character" | "script-item" | "script-asset";
 
 /** Boot progress (E-02): recovery runs after the normal startup program and pauses after rebuilding the saved board. */
 export type BootStage = "main" | "assets" | "startup" | "recovery" | "recovery-paused" | "board" | "running" | "stopped";
@@ -37,13 +37,15 @@ export type BootState = {
 /** A `send` waiting for the engine to swap boards between ticks (E-19). */
 export type BoardTransition = {
   board: string;
-  /** One-based tile coordinates and layer. */
+  /** The named position in the destination board's own coordinate mode (board pixels on a flag-4 board, one-based tiles otherwise) and a one-based layer. */
   x: number;
   y: number;
   layer: number;
 };
 
 export type EngineSection = {
+  /** Global acquired-asset visibility; null denotes legacy saves without historical readiness. */
+  readonly cacheKeys: string[] | null;
   readonly nextRequestId?: number;
   /** The run's next battle number (BAT-2 "battle numbers"); absent before the first battle. */
   readonly nextBattleId?: number;
@@ -61,6 +63,12 @@ export type EngineSection = {
   transition?: BoardTransition;
   /** Board enter program awaiting promotion after a sending program ends. */
   pendingEnterThread?: number;
+  /**
+   * Written only into a save taken while an outermost program's final screen is held in surface 0 (ADR 0018 R5).
+   * Restore keeps the saved screen instead of rebuilding it from the live board, then removes the flag, so the next
+   * outermost program copies the same screen as in an uninterrupted run (#1880).
+   */
+  heldFrame?: true;
   /** The one outstanding video and whether its completion reply has arrived. */
   video?: { readonly reqId: number; readonly key: string; readonly presentation: "full" | "small"; readonly ended: boolean };
 };

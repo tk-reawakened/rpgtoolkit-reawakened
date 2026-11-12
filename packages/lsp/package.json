@@ -4,7 +4,12 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "rpgcode-lsp": "./dist-bin/stdio.js"
+  },
   "scripts": {
+    "build": "tsc -b tsconfig.json tsconfig.bin.json",
+    "build:bin": "tsc -p tsconfig.bin.json",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "exports": {

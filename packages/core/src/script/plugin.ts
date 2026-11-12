@@ -36,11 +36,19 @@
  * docs/adr/0004 (decisions 2 and 6); AD-8, AD-10.
  */
 
-import type { MenuOwnerPorts } from "../menu/ports.ts";
+import type {
+  InventoryAction,
+  ItemActionRequest,
+  ItemActionResult,
+  MenuAction,
+  PartyAction,
+  SectionOwnerPort,
+} from "../menu/ports.ts";
+import type { InventorySection, MenuSection, MenuStateResult, PartySection } from "../menu/model.ts";
 import type { PlainData } from "../ports/plain-data.ts";
 import type { RngPort } from "../ports/rng.ts";
 import type { ClockPort } from "../ports/time.ts";
-import type { Value } from "../ports/value.ts";
+import type { RefId, Value } from "../ports/value.ts";
 import type { NativeListener } from "../events/model.ts";
 import type { Wait } from "../ports/wait.ts";
 import type { GameState, SectionKey } from "../save/state.ts";
@@ -64,6 +72,42 @@ export type BattleStartView = {
   /** Runtime check for a package-registered `battle()` handler. */
   readonly hasBattleHandler?: () => boolean;
 };
+
+/** One element variable of an array: the variable's full name (`a[0][1]`) and the value it stores (SEM-5). */
+export type ElementEntry = { readonly name: string; readonly value: Value };
+
+/** The element variables of one array and the variable table that holds them. */
+export type ElementArray = {
+  /**
+   * A deterministic name for the owning table: `global`, `object:<handle>` or `local:<thread id>:<frame index>`;
+   * empty when the reference names no element table. Two arrays are the same variable only when they share both
+   * their table and their name.
+   */
+  readonly table: string;
+  readonly entries: readonly ElementEntry[];
+};
+
+/** One unhandled runtime failure a closed error window consumed (ERR-2), as the located diagnostic reported it. */
+export type ObservedFailure = {
+  readonly code: string;
+  readonly message: string;
+  readonly file: string;
+  readonly line: number;
+};
+
+/**
+ * Observation windows over the calling thread's unhandled runtime failures (TOOL-5 `toThrow`). A window is
+ * session-only bookkeeping, never saved state: `open` starts one on the calling thread (windows nest), and
+ * `close` ends the innermost one, consuming every failure the VM routed unhandled (no handler took it) to that
+ * thread while it was open, nested calls included. A consumed failure's host diagnostic and its queued `error`
+ * event are removed, so neither the host nor a script sees it. `close` returns the consumed failures in raise
+ * order, or `null` when the thread has no open window.
+ */
+export type ErrorWindowPort = {
+  readonly open: () => void;
+  readonly close: () => readonly ObservedFailure[] | null;
+};
+
 /**
  * The read-only view a command runs against (AD-8; decision U2). It holds game
  * state read-only plus the two injected ports a command may draw from: the
@@ -74,12 +118,24 @@ export type CommandView = {
   readonly rng: RngPort;
   readonly clock: ClockPort;
   readonly state?: GameState;
+  /** Main-file mode: 0 queues whole-tile script pushes, pixel modes queue quarter-tile pushes. */
+  readonly pixelMovement?: number;
   /** Refresh the composed screen before a script-visible pixel read; host polling never invokes it. */
   readonly refreshScreen?: () => void;
   /** The script-facing media owner (MEDIA-1): `mediaPlay`, track/voice objects and their operations. */
   readonly media?: MediaScriptService;
   /** Read one live object's members without writing them; the media option and method commands use it. */
   readonly objectMembers?: (handle: number) => Readonly<Record<string, Value>> | undefined;
+  /**
+   * The element variables `<name>[...]` of the array a by-reference argument names (SEM-5): `global:<name>`,
+   * `local:<name>` (resolved from the calling frame outwards, as a read resolves it) or `object:<handle>:<name>`.
+   * Every present element variable is listed, nested indices included, in the table's own order, with the
+   * table that holds them; an array with no element, or a reference that names no table (a cell, a virtual),
+   * lists none.
+   */
+  readonly elementArray?: (ref: RefId) => ElementArray;
+  /** Observation windows over the calling thread's unhandled runtime failures. */
+  readonly errorWindows?: ErrorWindowPort;
   /**
    * The owner-held actor operations (docs/spec/engine/actors.md#store-and-action-boundary).
    * Every write resolves the actor's behaviour hooks and publishes the resulting
@@ -109,6 +165,8 @@ export type CommandView = {
    * threading a position through its arguments, which the language has no
    * expression for (TOOL-5).
    */
+  /** Configured logical viewport, distinct from current physical display geometry. */
+  readonly logicalViewport?: { readonly width: number; readonly height: number };
   readonly pos?: SourcePos;
   /** Main-file game-over program selected by the boot owner. */
   readonly gameOverProgram?: string | null;
@@ -187,22 +245,66 @@ export type PluginDoc = {
   readonly requires?: readonly string[];
 };
 
-/** Menu facade screen identifiers (E-80, #588). */
-export type MenuScreenId = "main" | "items" | "equipment" | "abilities";
+/** Menu screen identifiers (E-80, #588; `shop` presents a `CallShop` session, #1234). */
+export type MenuScreenId = "main" | "items" | "equipment" | "abilities" | "shop";
+/** Every token a `menuProviders` dictionary may key; the four facade screens first, in facade order. */
+export const MENU_SCREEN_IDS: readonly MenuScreenId[] = ["main", "items", "equipment", "abilities", "shop"];
 export type MenuProviderEvent =
   | { readonly type: "enter" }
   | { readonly type: "input"; readonly key: string }
-  | { readonly type: "child.closed"; readonly screen: MenuScreenId };
+  | {
+    readonly type: "pointer";
+    readonly x: number;
+    readonly y: number;
+    readonly buttons: number;
+    readonly downs: number;
+    readonly ups: number;
+    readonly downX: number;
+    readonly downY: number;
+    readonly button: number;
+    /** 1 when the position differs from the one the provider last handled. */
+    readonly moved: number;
+    /** Press and release edges since the provider last handled the pointer. */
+    readonly newDowns: number;
+    readonly newUps: number;
+  }
+  | { readonly type: "child.closed"; readonly screen: MenuScreenId }
+  | { readonly type: "item.action.completed"; readonly result: ItemActionCompletion };
+export type ItemActionCommand = ItemActionRequest;
+export type ItemActionCompletion = ItemActionResult;
+export type ItemActionProviderResult = {
+  readonly kind: "item.action";
+  readonly state: PlainData;
+  readonly action: ItemActionCommand;
+};
+/**
+ * The menu context a native provider may use. It exposes the same owner sections a script provider
+ * sees, but not the VM's item-action preflight/commit operations: a native provider requests an
+ * `item.action` transition and the VM runs the composed operation on the calling thread.
+ */
+export type MenuProviderContext = {
+  readonly party: SectionOwnerPort<PartySection, PartyAction>;
+  readonly menu: SectionOwnerPort<MenuSection, MenuAction> & {
+    updateCurrent(input: { readonly actorId: number | null; readonly selection: number }): MenuStateResult;
+  };
+  readonly shop: {
+    readonly stock: () => readonly string[];
+    activate(sources: unknown): MenuStateResult;
+    close(): void;
+  };
+  readonly inventory: SectionOwnerPort<InventorySection, InventoryAction>;
+};
 export type MenuProviderInput = {
   readonly providerId: string;
-  readonly context: MenuOwnerPorts;
+  readonly context: MenuProviderContext;
   readonly state: PlainData;
   readonly event: MenuProviderEvent;
 };
 export type MenuProviderResult =
   | { readonly kind: "wait"; readonly state: PlainData; readonly wait: Wait }
   | { readonly kind: "open"; readonly state: PlainData; readonly screen: MenuScreenId }
-  | { readonly kind: "complete" };
+  | { readonly kind: "complete" }
+  | ItemActionProviderResult;
 export type MenuProvider = (input: MenuProviderInput) => MenuProviderResult;
 
 /** Package-scoped actor behaviour registration available during start-up. */

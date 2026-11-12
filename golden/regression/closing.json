@@ -12,32 +12,32 @@
       "checkpoints": [
         {
           "tick": 30,
-          "stateHash": "48291aedb4d9e6e4"
+          "stateHash": "efccdbc51a887d89"
         },
         {
           "tick": 60,
-          "stateHash": "e7d27f585d3d95f0"
+          "stateHash": "4f096a8bea1b7278"
         },
         {
           "tick": 90,
-          "stateHash": "f9f9fe8826d5de25"
+          "stateHash": "4bed2519c8211f0d"
         },
         {
           "tick": 120,
-          "stateHash": "32e892e98b3d2a85"
+          "stateHash": "ce528fd5b323787f"
         },
         {
           "tick": 600,
-          "stateHash": "fbba252135723938"
+          "stateHash": "0e671f4d4e66668b"
         }
       ],
       "frames": [
         {
           "label": "title",
           "tick": 30,
-          "stateHash": "48291aedb4d9e6e4",
-          "drawHash": "e9d1e41266eb0d94",
-          "pixelHash": "d8e1caa95e9e4249",
+          "stateHash": "efccdbc51a887d89",
+          "drawHash": "f043f802e0a38bc0",
+          "pixelHash": "1cc782d3dcb721b9",
           "commands": 6,
           "width": 640,
           "height": 480,
@@ -46,10 +46,10 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "32e892e98b3d2a85",
-          "drawHash": "9c0e4d56e59619da",
-          "pixelHash": "11119c84367c565f",
-          "commands": 122,
+          "stateHash": "ce528fd5b323787f",
+          "drawHash": "225e1b4a09cd7330",
+          "pixelHash": "bfddf1a2fd52363a",
+          "commands": 147,
           "width": 640,
           "height": 480,
           "png": "golden/regression/closing/demo-board.png"
@@ -57,10 +57,10 @@
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "fbba252135723938",
-          "drawHash": "a0d501bd6cdf7837",
-          "pixelHash": "11119c84367c565f",
-          "commands": 122,
+          "stateHash": "0e671f4d4e66668b",
+          "drawHash": "ac80bc3ac9ace5f5",
+          "pixelHash": "bfddf1a2fd52363a",
+          "commands": 147,
           "width": 640,
           "height": 480,
           "sameAs": "board"
@@ -77,32 +77,32 @@
       "checkpoints": [
         {
           "tick": 30,
-          "stateHash": "dd65820a3ad86fbd"
+          "stateHash": "9633b4406063303a"
         },
         {
           "tick": 60,
-          "stateHash": "679b63415438f6a7"
+          "stateHash": "c715c851c19bd49b"
         },
         {
           "tick": 90,
-          "stateHash": "d9aae58e2811cafa"
+          "stateHash": "cdf845a7ab88abe4"
         },
         {
           "tick": 120,
-          "stateHash": "79be79be7ed0890a"
+          "stateHash": "65b5ff882207607b"
         },
         {
           "tick": 600,
-          "stateHash": "f818bff75bdc5331"
+          "stateHash": "45716276b75e6dee"
         }
       ],
       "frames": [
         {
           "label": "title",
           "tick": 30,
-          "stateHash": "dd65820a3ad86fbd",
-          "drawHash": "0fcb9b8ab34b515c",
-          "pixelHash": "d8e1caa95e9e4249",
+          "stateHash": "9633b4406063303a",
+          "drawHash": "a79209b89967a458",
+          "pixelHash": "1cc782d3dcb721b9",
           "commands": 6,
           "width": 640,
           "height": 480,
@@ -111,8 +111,8 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "79be79be7ed0890a",
-          "drawHash": "ecb1ee38ded5da74",
+          "stateHash": "65b5ff882207607b",
+          "drawHash": "542122de92d96cd6",
           "pixelHash": "0a31791bdaaf1e65",
           "commands": 301,
           "width": 640,
@@ -122,8 +122,8 @@
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "f818bff75bdc5331",
-          "drawHash": "009f616f91048cf1",
+          "stateHash": "45716276b75e6dee",
+          "drawHash": "b7f311a3e03116bb",
           "pixelHash": "0a31791bdaaf1e65",
           "commands": 301,
           "width": 640,
@@ -136,46 +136,52 @@
       "dialect": "tk2",
       "outcome": "boots-with-diagnostics",
       "ticks": 600,
-      "bootStage": "running",
-      "board": "boards/cao's house.brd",
+      "bootStage": "startup",
+      "board": null,
       "diagnostics": [
         {
-          "code": "syntax.error",
+          "code": "asset.missing",
+          "file": "mwin.jpg",
+          "line": 0,
+          "message": "message window image: image \"mwin.jpg\" is not in the asset index"
+        },
+        {
+          "code": "arity.mismatch",
           "file": "prg/start.prg",
-          "line": 20,
-          "message": "expected a dictionary key but found `{`"
+          "line": 12,
+          "message": "\"itemwalkspeed\" takes 0 argument(s), got 1"
         }
       ],
       "checkpoints": [
         {
           "tick": 30,
-          "stateHash": "0c5e7e3a3f571645"
+          "stateHash": "258f9b101a296c3f"
         },
         {
           "tick": 60,
-          "stateHash": "c1ea14945e05f212"
+          "stateHash": "162228457e43d814"
         },
         {
           "tick": 90,
-          "stateHash": "ecdb19a3ee73afbe"
+          "stateHash": "25324160f21b31f4"
         },
         {
           "tick": 120,
-          "stateHash": "450a3bedc7ad8314"
+          "stateHash": "7b40ce7fefee2641"
         },
         {
           "tick": 600,
-          "stateHash": "2e9b477fd2f0e089"
+          "stateHash": "d43dd34bcbdea066"
         }
       ],
       "frames": [
         {
           "label": "title",
           "tick": 30,
-          "stateHash": "0c5e7e3a3f571645",
-          "drawHash": "98181d90a5bda9f0",
-          "pixelHash": "896a47cb2cef890c",
-          "commands": 267,
+          "stateHash": "258f9b101a296c3f",
+          "drawHash": "3723a08f4fb7479e",
+          "pixelHash": "34c22af21ba36325",
+          "commands": 4,
           "width": 640,
           "height": 480,
           "png": "golden/regression/closing/Caoquest-title.png"
@@ -183,24 +189,24 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "450a3bedc7ad8314",
-          "drawHash": "9a9f3bdbe0f064aa",
-          "pixelHash": "896a47cb2cef890c",
-          "commands": 267,
+          "stateHash": "7b40ce7fefee2641",
+          "drawHash": "56642d3e06a6c40d",
+          "pixelHash": "a4fcd86d174c87ea",
+          "commands": 1,
           "width": 640,
           "height": 480,
-          "sameAs": "title"
+          "png": "golden/regression/closing/Caoquest-board.png"
         },
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "2e9b477fd2f0e089",
-          "drawHash": "ab4c95f647f72487",
-          "pixelHash": "896a47cb2cef890c",
-          "commands": 267,
+          "stateHash": "d43dd34bcbdea066",
+          "drawHash": "7bc4c9ff996cac5c",
+          "pixelHash": "a4fcd86d174c87ea",
+          "commands": 1,
           "width": 640,
           "height": 480,
-          "sameAs": "title"
+          "sameAs": "board"
         }
       ]
     },
@@ -208,46 +214,52 @@
       "dialect": "tk2",
       "outcome": "boots-with-diagnostics",
       "ticks": 600,
-      "bootStage": "running",
-      "board": "boards/relic room start.brd",
+      "bootStage": "startup",
+      "board": null,
       "diagnostics": [
         {
-          "code": "syntax.error",
+          "code": "arity.mismatch",
           "file": "prg/start.prg",
-          "line": 54,
-          "message": "expected a dictionary key but found `{`"
+          "line": 14,
+          "message": "\"itemwalkspeed\" takes 0 argument(s), got 1"
+        },
+        {
+          "code": "builtin.bad-arg",
+          "file": "prg/start.prg",
+          "line": 35,
+          "message": "zoom shrink amount must be an integer from 0 to 75"
         }
       ],
       "checkpoints": [
         {
           "tick": 30,
-          "stateHash": "8db2b3b05d94ae06"
+          "stateHash": "005a58a585228466"
         },
         {
           "tick": 60,
-          "stateHash": "ca0c70b09b5c687b"
+          "stateHash": "85beb236604459a5"
         },
         {
           "tick": 90,
-          "stateHash": "dcc0e6b46c29ce3b"
+          "stateHash": "48b5e2cb8e474ac1"
         },
         {
           "tick": 120,
-          "stateHash": "620d8821d3386167"
+          "stateHash": "3e146c335d58a550"
         },
         {
           "tick": 600,
-          "stateHash": "e554870249f20454"
+          "stateHash": "cf321bd26ced8799"
         }
       ],
       "frames": [
         {
           "label": "title",
           "tick": 30,
-          "stateHash": "8db2b3b05d94ae06",
-          "drawHash": "27a73777dd4c10d0",
-          "pixelHash": "dd29ff49b951570c",
-          "commands": 210,
+          "stateHash": "005a58a585228466",
+          "drawHash": "3723a08f4fb7479e",
+          "pixelHash": "34c22af21ba36325",
+          "commands": 4,
           "width": 640,
           "height": 480,
           "png": "golden/regression/closing/ChimeranEmpire-title.png"
@@ -255,24 +267,24 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "620d8821d3386167",
-          "drawHash": "6bb737f92fea090a",
-          "pixelHash": "dd29ff49b951570c",
-          "commands": 210,
+          "stateHash": "3e146c335d58a550",
+          "drawHash": "517b4b18116ab3af",
+          "pixelHash": "a4e30d2d66fc8569",
+          "commands": 1,
           "width": 640,
           "height": 480,
-          "sameAs": "title"
+          "png": "golden/regression/closing/ChimeranEmpire-board.png"
         },
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "e554870249f20454",
-          "drawHash": "85cacc9d281ce0e7",
-          "pixelHash": "dd29ff49b951570c",
-          "commands": 210,
+          "stateHash": "cf321bd26ced8799",
+          "drawHash": "aa820f0e899a7c93",
+          "pixelHash": "01a9d12e8e982921",
+          "commands": 1,
           "width": 640,
           "height": 480,
-          "sameAs": "title"
+          "png": "golden/regression/closing/ChimeranEmpire-later.png"
         }
       ]
     },
@@ -280,46 +292,52 @@
       "dialect": "tk2",
       "outcome": "boots-with-diagnostics",
       "ticks": 600,
-      "bootStage": "running",
-      "board": "boards/house on grass.brd",
+      "bootStage": "startup",
+      "board": null,
       "diagnostics": [
         {
-          "code": "syntax.error",
+          "code": "arity.mismatch",
           "file": "prg/start.prg",
-          "line": 53,
-          "message": "expected a dictionary key but found `{`"
+          "line": 14,
+          "message": "\"itemwalkspeed\" takes 0 argument(s), got 1"
+        },
+        {
+          "code": "builtin.bad-arg",
+          "file": "prg/start.prg",
+          "line": 34,
+          "message": "zoom shrink amount must be an integer from 0 to 75"
         }
       ],
       "checkpoints": [
         {
           "tick": 30,
-          "stateHash": "5681fc57c4ffc80b"
+          "stateHash": "927b3cf2e74e22b1"
         },
         {
           "tick": 60,
-          "stateHash": "ab3e911abdf7a0d2"
+          "stateHash": "d9ed4e533eaf09e9"
         },
         {
           "tick": 90,
-          "stateHash": "00b1b9e8d4a55012"
+          "stateHash": "55ae7e59aebd80e9"
         },
         {
           "tick": 120,
-          "stateHash": "75cab67230d2054e"
+          "stateHash": "ce32f08e29b9b398"
         },
         {
           "tick": 600,
-          "stateHash": "a0181e4cd6377e29"
+          "stateHash": "2d2b70f2909f4b6f"
         }
       ],
       "frames": [
         {
           "label": "title",
           "tick": 30,
-          "stateHash": "5681fc57c4ffc80b",
-          "drawHash": "203461ff1f13c20c",
-          "pixelHash": "4e73c0d917aad0c3",
-          "commands": 210,
+          "stateHash": "927b3cf2e74e22b1",
+          "drawHash": "3723a08f4fb7479e",
+          "pixelHash": "34c22af21ba36325",
+          "commands": 4,
           "width": 640,
           "height": 480,
           "png": "golden/regression/closing/FinalDestiny-title.png"
@@ -327,32 +345,32 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "75cab67230d2054e",
-          "drawHash": "914fca520d4c096e",
-          "pixelHash": "4e73c0d917aad0c3",
-          "commands": 210,
+          "stateHash": "ce32f08e29b9b398",
+          "drawHash": "56d0a5603ae773de",
+          "pixelHash": "df198df5b88a1294",
+          "commands": 7,
           "width": 640,
           "height": 480,
-          "sameAs": "title"
+          "png": "golden/regression/closing/FinalDestiny-board.png"
         },
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "a0181e4cd6377e29",
-          "drawHash": "7f6c816972bb7113",
-          "pixelHash": "4e73c0d917aad0c3",
-          "commands": 210,
+          "stateHash": "2d2b70f2909f4b6f",
+          "drawHash": "2bd781735cdf51f3",
+          "pixelHash": "a8bb372f024e43dd",
+          "commands": 4,
           "width": 640,
           "height": 480,
-          "sameAs": "title"
+          "png": "golden/regression/closing/FinalDestiny-later.png"
         }
       ]
     },
     "School2Demo": {
       "dialect": "tk2",
-      "outcome": "stopped",
-      "ticks": 0,
-      "bootStage": "stopped",
+      "outcome": "boots-with-diagnostics",
+      "ticks": 600,
+      "bootStage": "startup",
       "board": null,
       "diagnostics": [
         {
@@ -362,43 +380,115 @@
           "message": "initChar \"start.tem\" is not in the asset index"
         },
         {
-          "code": "syntax.error",
+          "code": "arity.mismatch",
           "file": "prg/start.prg",
-          "line": 53,
-          "message": "expected a dictionary key but found `{`"
+          "line": 14,
+          "message": "\"itemwalkspeed\" takes 0 argument(s), got 1"
         },
         {
-          "code": "startup.no-player",
-          "file": "main/schoolsout2.gam",
-          "line": 0,
-          "message": "an initial character must be defined"
+          "code": "builtin.bad-arg",
+          "file": "prg/start.prg",
+          "line": 34,
+          "message": "zoom shrink amount must be an integer from 0 to 75"
         }
       ],
-      "checkpoints": [],
-      "frames": []
+      "checkpoints": [
+        {
+          "tick": 30,
+          "stateHash": "a1873005f72c7fb4"
+        },
+        {
+          "tick": 60,
+          "stateHash": "4edf68ce1f2b5329"
+        },
+        {
+          "tick": 90,
+          "stateHash": "c84b10b6b78522d9"
+        },
+        {
+          "tick": 120,
+          "stateHash": "2d0bce680ca21a14"
+        },
+        {
+          "tick": 600,
+          "stateHash": "16913a33ae091f4a"
+        }
+      ],
+      "frames": [
+        {
+          "label": "title",
+          "tick": 30,
+          "stateHash": "a1873005f72c7fb4",
+          "drawHash": "3723a08f4fb7479e",
+          "pixelHash": "34c22af21ba36325",
+          "commands": 4,
+          "width": 640,
+          "height": 480,
+          "png": "golden/regression/closing/School2Demo-title.png"
+        },
+        {
+          "label": "board",
+          "tick": 120,
+          "stateHash": "2d0bce680ca21a14",
+          "drawHash": "dd4d32527fa940e6",
+          "pixelHash": "84c40b82dcb4afb1",
+          "commands": 7,
+          "width": 640,
+          "height": 480,
+          "png": "golden/regression/closing/School2Demo-board.png"
+        },
+        {
+          "label": "later",
+          "tick": 600,
+          "stateHash": "16913a33ae091f4a",
+          "drawHash": "8717af8c94513c76",
+          "pixelHash": "a5387a1749c25e09",
+          "commands": 4,
+          "width": 640,
+          "height": 480,
+          "png": "golden/regression/closing/School2Demo-later.png"
+        }
+      ]
     },
     "LittleMan": {
       "dialect": "tk2",
       "outcome": "stopped",
-      "ticks": 0,
+      "ticks": 31,
       "bootStage": "stopped",
       "board": null,
       "diagnostics": [
-        {
-          "code": "syntax.error",
-          "file": "prg/game.prg",
-          "line": 15,
-          "message": "expected a dictionary key but found `{`"
-        },
         {
           "code": "startup.no-player",
           "file": "main/littlemanwithapeashooter.gam",
           "line": 0,
           "message": "an initial character must be defined"
+        },
+        {
+          "code": "syntax.error",
+          "file": "prg/level1.prg",
+          "line": 15,
+          "message": "unknown character \"$\"; docs/spec/engine/rpgcode-functions.md#rpgcode-built-in-commands (LEX-11) makes this a lexical error"
         }
       ],
-      "checkpoints": [],
-      "frames": []
+      "checkpoints": [
+        {
+          "tick": 30,
+          "stateHash": "3b3c1e4fafb32d96"
+        }
+      ],
+      "frames": [
+        {
+          "label": "title",
+          "tick": 30,
+          "stateHash": "3b3c1e4fafb32d96",
+          "drawHash": "b66ae899ae604162",
+          "pixelHash": "1f4e5b59d0f74325",
+          "commands": 6,
+          "width": 640,
+          "height": 480,
+          "png": "golden/regression/closing/LittleMan-title.png"
+        }
+      ]
     },
     "BusDriver": {
       "dialect": "tk2",
@@ -410,8 +500,8 @@
         {
           "code": "syntax.error",
           "file": "prg/rpgcodecontest.prg",
-          "line": 37,
-          "message": "expected a dictionary key but found `{`"
+          "line": 329,
+          "message": "expected an expression but found `>`"
         },
         {
           "code": "startup.no-player",

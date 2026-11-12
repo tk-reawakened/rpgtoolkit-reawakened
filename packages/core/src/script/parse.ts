@@ -122,7 +122,7 @@ function binaryBindingPower(opText: string): number | undefined {
 /** What a parse shares with the files parsed before and after it: the one redirect table (R-42). */
 export type ParseContext = {
   readonly redirects: Map<string, string>;
-  /** TK2 keeps `system.func` as a namespace token until its compatibility rewrite. */
+  /** TK2 keeps `system.func` file-qualified so it can bind to the project's library. */
   readonly preserveSystemNamespace?: boolean;
 };
 
@@ -171,7 +171,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
         }
       }
     }
-    // `system.func` is the engine's own namespace, not a file (PRG-1): it is the plain call `func`.
+    // The 3.1 dialect treats `system.func` as the plain engine call `func` (PRG-1).
     if (callFile === "system" && context.preserveSystemNamespace !== true) callFile = undefined;
     if (callFile === undefined) {
       return { kind: "call", name: callName, args, line: anchor.line, ...at(anchor) };

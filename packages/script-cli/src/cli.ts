@@ -7,56 +7,58 @@
  * 1 findings in the project, 2 usage or configuration error, 3 internal error.
  */
 
-import { statSync } from "node:fs";
+import { accessSync, constants, statSync } from "node:fs";
 import { parseArgs, type SubcommandName } from "./args.ts";
 import { runCheck } from "./commands/check.ts";
 import { runDocs } from "./commands/docs.ts";
 import { runFmt } from "./commands/fmt.ts";
 import { runIndex } from "./commands/index.ts";
 import { runTest } from "./commands/test.ts";
-import { emptySummary, makeResult, stableStringify, type ResultDiagnostic, type ScriptResult } from "./result.ts";
+import { emptySummary, internalErrorResult, makeResult, stableStringify, usageDiagnostic, type ResultDiagnostic, type ScriptResult } from "./result.ts";
 
 function validatePaths(paths: readonly string[]): ResultDiagnostic[] {
   const diagnostics: ResultDiagnostic[] = [];
   for (const path of paths) {
     try {
       statSync(path);
+      accessSync(path, constants.R_OK);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      diagnostics.push({
-        code: "tkr.usage",
-        severity: "error",
-        file: path,
-        range: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } },
-        message: code === "ENOENT" ? `no such file or directory: ${path}` : `cannot access ${path}: ${error instanceof Error ? error.message : String(error)}`,
-      });
+      diagnostics.push(usageDiagnostic(path, code === "ENOENT" ? `no such file or directory: ${path}` : `cannot access ${path}: ${error instanceof Error ? error.message : String(error)}`));
     }
   }
   return diagnostics;
 }
 
-function run(): { readonly result: ScriptResult; readonly text: string } {
+/** What one run produced: the envelope, the text for stdout without `--json`, and the readable report for stderr with it. */
+type Outcome = { readonly result: ScriptResult; readonly text: string; readonly human: string };
+
+/** The subcommand the arguments name, if they got that far, so a failure is reported under the right one. */
+let activeSubcommand: SubcommandName = "check";
+
+function run(): Outcome {
   const parsed = parseArgs(process.argv);
   if (!parsed.ok) {
-    const subcommand = parsed.subcommand ?? "check";
+    activeSubcommand = parsed.subcommand ?? "check";
     const result = makeResult(
-      subcommand,
+      activeSubcommand,
       2,
-      [],
+      [usageDiagnostic("<cli>", parsed.message)],
       { files: 0, diagnostics: { error: 1, warning: 0, info: 0, hint: 0 }, changed: 0, passed: 0, failed: 0, skipped: 0 },
       { message: parsed.message, attemptedSubcommand: parsed.attemptedSubcommand },
     );
-    return { result, text: `${parsed.message}\n` };
+    return { result, text: `${parsed.message}\n`, human: `${parsed.message}\n` };
   }
 
   const { args } = parsed;
-  let activeSubcommand: SubcommandName = args.subcommand;
+  activeSubcommand = args.subcommand;
 
   if (args.subcommand !== "docs") {
     const pathDiagnostics = validatePaths(args.paths);
     if (pathDiagnostics.length > 0) {
       const result = makeResult(args.subcommand, 2, pathDiagnostics, { ...emptySummary, files: args.paths.length, diagnostics: { error: pathDiagnostics.length, warning: 0, info: 0, hint: 0 } }, {});
-      return { result, text: args.json ? stableStringify(result) : pathDiagnostics.map((d) => `tkr script ${args.subcommand}: ${d.message}`).join("\n") + "\n" };
+      const human = pathDiagnostics.map((d) => `tkr script ${args.subcommand}: ${d.message}`).join("\n") + "\n";
+      return { result, text: args.json ? stableStringify(result) : human, human };
     }
   }
 
@@ -72,30 +74,23 @@ function run(): { readonly result: ScriptResult; readonly text: string } {
     case "index":
       return runIndex(args.paths, args.check, args.out, args.json);
   }
-  activeSubcommand = activeSubcommand;
-  throw new Error("unreachable");
 }
 
 const jsonMode = process.argv.includes("--json");
 
 try {
-  const { result, text } = run();
-  const output = jsonMode ? stableStringify(result) : text;
-  if (output.length > 0) process.stdout.write(output);
+  const { result, text, human } = run();
+  if (jsonMode) {
+    // The envelope is the whole of stdout; the readable report goes to stderr (TOOL-9).
+    process.stdout.write(stableStringify(result));
+    if (human.length > 0) process.stderr.write(human);
+  } else if (text.length > 0) {
+    process.stdout.write(text);
+  }
   process.exitCode = result.exitCode;
 } catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  const result = makeResult(
-    "check",
-    3,
-    [{ code: "tkr.internal", severity: "error", file: "<cli>", range: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } }, message }],
-    { files: 0, diagnostics: { error: 1, warning: 0, info: 0, hint: 0 }, changed: 0, passed: 0, failed: 0, skipped: 0 },
-    {},
-  );
-  if (jsonMode) {
-    process.stdout.write(stableStringify(result));
-  } else {
-    process.stderr.write(`tkr: internal error: ${message}\n`);
-  }
+  const result = internalErrorResult(activeSubcommand, error);
+  if (jsonMode) process.stdout.write(stableStringify(result));
+  process.stderr.write(`tkr: internal error: ${result.diagnostics[0]!.message}\n`);
   process.exitCode = 3;
 }

@@ -2,6 +2,8 @@
 //
 //   node tools/no-skips/run.mjs [--root <dir>] [--lcov <file>] [--group <name> | <file or glob>...]
 //   node tools/no-skips/run.mjs [--root <dir>] --verify-groups
+//   node tools/no-skips/run.mjs [--root <dir>] [--lcov <file>] --shard <n>      (unit shard n of 8, #1886)
+//   node tools/no-skips/run.mjs [--root <dir>] --verify-shards | --record-timings
 //   node tools/no-skips/run.mjs --merge-lcov <out.info> [--lines <pct>] [--branches <pct>] <in.info>...
 //
 // Runs `node --test` over the given patterns (default `packages/*/test/*.test.ts`) or named `--group`
@@ -9,10 +11,12 @@
 // test failed, skipped, or was left as a todo. When `--lcov <file>` is given, enables V8 test coverage
 // and writes the shard's LCOV report to `<file>`.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { evaluateDurations, formatDurationReport, parseTapDurations } from "./durations.mjs";
+import { BALANCE_LIMIT, SHARD_COUNT, TIMINGS_FILE, formatTimings, packShards, parseTimings, verifyShards } from "./shards.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const repoRoot = resolve(here, "..", "..");
@@ -21,6 +25,8 @@ const TOOL = "tools/no-skips/run.mjs";
 const DEFAULT_PATTERNS = ["packages/*/test/*.test.ts"];
 const DEFAULT_LINES_THRESHOLD = 91;
 const DEFAULT_BRANCHES_THRESHOLD = 81;
+// Keep in step with `--max-semi-space-size` in the root `test` and `coverage` scripts and in `.github/workflows/ci.yml` (#1885).
+export const TEST_SEMI_SPACE_FLAG = "--max-semi-space-size=128";
 
 export const GROUPS = Object.freeze([
   "core-formats",
@@ -32,12 +38,20 @@ export const GROUPS = Object.freeze([
   "render-webgl2",
   "runner-harness",
   "runner-headless",
+  "runner-desktop",
   "runner-mobile",
   "runner-web",
   "script-tools",
   "script-cli",
   "lsp",
   "script-spec",
+  "native-data",
+  "native-data-cli",
+  "native-data-import",
+  "native-data-rename",
+  "platform-services",
+  "editor-model",
+  "editor-ui",
 ]);
 
 const CORE_FORMATS_FILE = /^(?:format-|audio-|canon\.|contracts\.|fmath|lint-rules\.|rng\.|save-migration\.|validate\.)/;
@@ -110,11 +124,8 @@ export function resolveGroup(root, group) {
   return listPackageTestFiles(rootPath, group).map((name) => posix.join("packages", group, "test", name));
 }
 
-/**
- * Verifies that `GROUPS` partitions all `packages/*\/test/*.test.ts` files in `root`
- * with no empty groups, no missing files, and no duplicates.
- */
-export function verifyGroups(root) {
+/** Every package test file in `root` as a sorted relative path (`packages/<pkg>/test/<file>.test.ts`). */
+export function listAllTestFiles(root) {
   const rootPath = resolve(root);
   const packagesDir = join(rootPath, "packages");
   const allPackages = existsSync(packagesDir)
@@ -123,9 +134,57 @@ export function verifyGroups(root) {
         .map((entry) => entry.name)
         .sort()
     : [];
-  const allFiles = allPackages.flatMap((pkg) =>
-    listPackageTestFiles(rootPath, pkg).map((name) => posix.join("packages", pkg, "test", name)),
-  );
+  return allPackages
+    .flatMap((pkg) => listPackageTestFiles(rootPath, pkg).map((name) => posix.join("packages", pkg, "test", name)))
+    .sort();
+}
+
+/** The committed per-file timings in `root`, or none when the file is absent. */
+export function readShardTimings(root) {
+  const file = join(resolve(root), TIMINGS_FILE);
+  if (!existsSync(file)) return {};
+  return parseTimings(readFileSync(file, "utf8"));
+}
+
+/** The test files of unit shard `index` (1-based) of `count`, packed from the committed timings in `root`. */
+export function resolveShard(root, index, count = SHARD_COUNT) {
+  if (!Number.isInteger(index) || index < 1 || index > count) {
+    throw new Error(`shard must be between 1 and ${count}, got ${index}`);
+  }
+  const shards = packShards(listAllTestFiles(root), readShardTimings(root), count);
+  return shards[index - 1].files;
+}
+
+/**
+ * Runs each package test file alone under `node --test` and records its wall-clock time, which is what a CI shard
+ * pays for it. Returns `{ ok, timings, failed }`; a file whose run fails is reported and no timings are written.
+ */
+export function recordTimings(root) {
+  const rootPath = resolve(root);
+  const timings = {};
+  const failed = [];
+  for (const file of listAllTestFiles(rootPath)) {
+    const env = { ...process.env };
+    delete env.NODE_TEST_CONTEXT;
+    const started = performance.now();
+    const result = spawnSync(process.execPath, [TEST_SEMI_SPACE_FLAG, "--test", file], {
+      cwd: rootPath,
+      env,
+      stdio: ["ignore", "ignore", "inherit"],
+    });
+    timings[file] = performance.now() - started;
+    if (result.status !== 0) failed.push(file);
+  }
+  return { ok: failed.length === 0, timings, failed };
+}
+
+/**
+ * Verifies that `GROUPS` partitions all `packages/*\/test/*.test.ts` files in `root`
+ * with no empty groups, no missing files, and no duplicates.
+ */
+export function verifyGroups(root) {
+  const rootPath = resolve(root);
+  const allFiles = listAllTestFiles(rootPath);
   const assignedCount = new Map();
   const emptyGroups = [];
   const byGroup = {};
@@ -314,7 +373,9 @@ export function run(root, patterns, options = {}) {
     const env = { ...(options.env ?? process.env) };
     // A nested `node --test` must not think it is a child of the outer runner.
     delete env.NODE_TEST_CONTEXT;
-    const nodeArgs = [];
+    // A larger young generation: the heavy core tests allocate many short-lived buffers and spend about half their
+    // time in the scavenger without it (#1885). Node passes this flag to each per-file child as well.
+    const nodeArgs = [TEST_SEMI_SPACE_FLAG];
     if (options.lcov !== undefined) {
       const lcovPath = resolve(rootPath, options.lcov);
       mkdirSync(dirname(lcovPath), { recursive: true });
@@ -348,8 +409,9 @@ export function run(root, patterns, options = {}) {
       text = "";
     }
     const counts = parseTap(text);
+    const tests = parseTapDurations(text);
     const code = status !== 0 ? 1 : counts.tests === 0 || markedCount(counts) > 0 ? 1 : 0;
-    return { code, counts, status };
+    return { code, counts, status, tests };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -364,9 +426,14 @@ function parseArguments(argv) {
   let group;
   let lcov;
   let verifyGroupsFlag = false;
+  let shard;
+  let verifyShardsFlag = false;
+  let recordTimingsFlag = false;
   let mergeLcovOut;
   let linesThreshold = DEFAULT_LINES_THRESHOLD;
   let branchesThreshold = DEFAULT_BRANCHES_THRESHOLD;
+  let durationMode = "warn";
+  let durationLedger;
 
   for (let position = 0; position < argv.length; position += 1) {
     const argument = argv[position];
@@ -390,6 +457,27 @@ function parseArguments(argv) {
       position += 1;
     } else if (argument === "--verify-groups") {
       verifyGroupsFlag = true;
+    } else if (argument === "--shard") {
+      const value = argv[position + 1];
+      if (value === undefined || !/^[0-9]+$/.test(value)) throw new Error("--shard needs a shard number from 1");
+      if (shard !== undefined) throw new Error("--shard given more than once");
+      shard = Number(value);
+      position += 1;
+    } else if (argument === "--verify-shards") {
+      verifyShardsFlag = true;
+    } else if (argument === "--record-timings") {
+      recordTimingsFlag = true;
+    } else if (argument === "--duration-mode") {
+      const value = argv[position + 1];
+      if (value !== "warn" && value !== "fail") throw new Error("--duration-mode needs warn or fail");
+      durationMode = value;
+      position += 1;
+    } else if (argument === "--duration-ledger") {
+      const value = argv[position + 1];
+      if (value === undefined || value.startsWith("-")) throw new Error("--duration-ledger needs a file path");
+      if (durationLedger !== undefined) throw new Error("--duration-ledger given more than once");
+      durationLedger = value;
+      position += 1;
     } else if (argument === "--merge-lcov") {
       const value = argv[position + 1];
       if (value === undefined || value.startsWith("-")) throw new Error("--merge-lcov needs an output file path");
@@ -416,18 +504,48 @@ function parseArguments(argv) {
   if (group !== undefined && positional.length > 0) {
     throw new Error("--group cannot be combined with file patterns");
   }
+  if (shard !== undefined && (positional.length > 0 || group !== undefined)) {
+    throw new Error("--shard cannot be combined with --group or file patterns");
+  }
   const resolvedRoot = root ?? repoRoot;
   return {
     root: resolvedRoot,
     group,
+    shard,
+    verifyShards: verifyShardsFlag,
+    recordTimings: recordTimingsFlag,
     lcov,
     verifyGroups: verifyGroupsFlag,
     mergeLcovOut,
     linesThreshold,
     branchesThreshold,
+    durationMode,
+    durationLedger,
     positional,
     patterns: positional.length > 0 ? positional : DEFAULT_PATTERNS,
   };
+}
+
+/**
+ * The 1-second test rule's report for one run (AGENTS.md; #1892). Prints the slowest tests and the rule
+ * findings, and appends them to the workflow step summary when there is one. Returns the findings; the
+ * caller decides whether they fail the run (`--duration-mode fail`).
+ */
+function reportDurations(tests, ledger) {
+  const findings = evaluateDurations(tests, ledger);
+  const report = formatDurationReport(tests, findings);
+  for (const line of report.annotations) console.log(line);
+  console.log(report.markdown);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, report.markdown);
+  return findings;
+}
+
+/** The exception ledger's test-duration entries, or none when no ledger file is given. */
+function loadLedger(file) {
+  if (file === undefined) return [];
+  const data = JSON.parse(readFileSync(resolve(file), "utf8"));
+  if (!data || !Array.isArray(data.entries)) throw new Error(`${file}: expected an object with an "entries" array`);
+  return data.entries;
 }
 
 function runVerifyGroups(root) {
@@ -440,6 +558,46 @@ function runVerifyGroups(root) {
     return 1;
   }
   console.log(`verified ${GROUPS.length} test groups: ${report.total} files`);
+  return 0;
+}
+
+/**
+ * The unit shards (#1886): every test file is in exactly one shard, and the slowest shard is within BALANCE_LIMIT of
+ * the mean, both computed from the committed timings. A file without a timing is weighted as UNTIMED_MS and listed,
+ * so a stale timings file is visible without failing the build.
+ */
+function runVerifyShards(root) {
+  const files = listAllTestFiles(root);
+  const timings = readShardTimings(root);
+  const report = verifyShards(files, packShards(files, timings, SHARD_COUNT), timings);
+  if (report.untimed.length > 0) {
+    console.warn(`${TOOL}: warning: ${report.untimed.length} test file(s) have no recorded timing; run --record-timings: ${report.untimed.join(", ")}`);
+  }
+  if (!report.ok) {
+    if (report.files === 0) console.error(`${TOOL}: no package test files found under ${root}`);
+    if (report.missing.length > 0) console.error(`${TOOL}: test file(s) in no shard: ${report.missing.join(", ")}`);
+    if (report.duplicates.length > 0) console.error(`${TOOL}: test file(s) in more than one shard: ${report.duplicates.join(", ")}`);
+    if (report.unknown.length > 0) console.error(`${TOOL}: shard entries that are not test files: ${report.unknown.join(", ")}`);
+    if (report.spread > BALANCE_LIMIT) {
+      console.error(`${TOOL}: the slowest shard is ${report.spread.toFixed(2)}x the mean; the limit is ${BALANCE_LIMIT}x`);
+    }
+    return 1;
+  }
+  console.log(
+    `verified ${SHARD_COUNT} unit shards: ${report.files} files; the slowest is ${Math.round(report.slowest)} ms, ${report.spread.toFixed(2)}x the mean`,
+  );
+  return 0;
+}
+
+/** Rewrites the committed timings file from a fresh run of every package test file on its own (#1886). */
+function runRecordTimings(root) {
+  const { ok, timings, failed } = recordTimings(root);
+  if (!ok) {
+    console.error(`${TOOL}: test file(s) failed, so no timings were written: ${failed.join(", ")}`);
+    return 1;
+  }
+  writeFileSync(join(resolve(root), TIMINGS_FILE), formatTimings(timings));
+  console.log(`recorded wall-clock timings for ${Object.keys(timings).length} test files in ${TIMINGS_FILE}`);
   return 0;
 }
 
@@ -491,11 +649,29 @@ function main(argv) {
   if (args.verifyGroups) {
     return runVerifyGroups(args.root);
   }
+  if (args.verifyShards) {
+    return runVerifyShards(args.root);
+  }
+  if (args.recordTimings) {
+    return runRecordTimings(args.root);
+  }
   if (args.mergeLcovOut !== undefined) {
     return runMergeLcov(args.root, args.mergeLcovOut, args.positional, args.linesThreshold, args.branchesThreshold);
   }
 
   let patterns = args.patterns;
+  if (args.shard !== undefined) {
+    try {
+      patterns = resolveShard(args.root, args.shard);
+    } catch (error) {
+      console.error(`${TOOL}: ${error.message}`);
+      return 1;
+    }
+    if (patterns.length === 0) {
+      console.error(`${TOOL}: shard ${args.shard} matched no test files`);
+      return 1;
+    }
+  }
   if (args.group !== undefined) {
     try {
       patterns = resolveGroup(args.root, args.group);
@@ -509,7 +685,15 @@ function main(argv) {
     }
   }
 
-  const { code, counts, status } = run(args.root, patterns, { lcov: args.lcov });
+  let ledger;
+  try {
+    ledger = loadLedger(args.durationLedger);
+  } catch (error) {
+    console.error(`${TOOL}: cannot read the exception ledger: ${error.message}`);
+    return 1;
+  }
+  const { code, counts, status, tests } = run(args.root, patterns, { lcov: args.lcov });
+  const durationFindings = reportDurations(tests, ledger);
   if (status !== 0) return 1;
   if (counts.tests === 0) {
     console.error(`${TOOL}: no test ran`);
@@ -520,6 +704,10 @@ function main(argv) {
       `${TOOL}: ${markedCount(counts)} test(s) skipped or todo; the golden job must run every test`,
     );
     for (const { name, reason } of counts.skippedNames) console.error(`${name}: ${reason}`);
+    return 1;
+  }
+  if (args.durationMode === "fail" && durationFindings.length > 0) {
+    console.error(`${TOOL}: ${durationFindings.length} test-duration finding(s); --duration-mode fail`);
     return 1;
   }
   console.log(`no skipped tests: ${counts.tests} tests, ${counts.pass} passed`);

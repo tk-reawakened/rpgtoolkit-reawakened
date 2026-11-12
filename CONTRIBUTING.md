@@ -47,17 +47,20 @@ assertion line.
 Includes resolve against the project's `Prg/` programs using the normal
 case-insensitive path rules; spec files use Windows-1252 RPGCode source encoding.
 
-This package is still incomplete: array equality and containment and `toThrow`
-remain subject to the owner's F-A ruling; strict `toBe` type identity also
-needs a type distinction the current library does not provide; and `toBeCloseTo`
-takes both arguments and compares truncated whole numbers only, because RPGCode
-truncates a variable's number in arithmetic (F-D) and one callable cannot accept
-both one and two arguments without a language change (F-F). The current
-`skip(name, body)` and `only(name, body)` forms mark cases, not groups. Group
-`beforeAll` and `afterAll` hooks are rerun for each isolated case, including
-when that case is outside the group; they do not yet satisfy the once-per-group
-contract. Consult [TOOL-5](docs/spec/engine/rpgcode-tooling.md#tool-5) for the
-intended API; do not treat the current runner as full conformance.
+The matcher surface is [TOOL-5](docs/spec/engine/rpgcode-tooling.md#tool-5) as ruled:
+`toEqual` compares element arrays (`name[index]`), dictionaries and lists
+element by element with no number/string conversion; `toBe` is strict and
+compares arrays and instances by identity; `toContain` searches strings, element
+arrays and lists; `toBeCloseTo(expected, tolerance)` compares stored doubles and
+its tolerance is required (one argument is the failure `callable.arity`); and
+`toThrow()` sees an unhandled error raised in a nested call and consumes it. A
+`describe`'s `beforeAll` runs once and each case of the group starts from the
+snapshot taken after it ([group hooks](docs/spec/engine/rpgcode-tooling.md#tool-5-group-hooks));
+a spec file that registers no case fails as `spec.no-cases`. `skip(name, body)` and
+`only(name, body)` still mark cases, not groups, and the library is reached by
+`#include` until the package load path (PKG-7) is ruled. A spec run registers only
+the spec package's commands, not the engine's built-in commands (tracked as a defect
+of the runner).
 
 
 ## Set up
@@ -136,10 +139,17 @@ These packages exist today (`packages/`):
 | `lsp` | The transport-free RPGCode language server (diagnostics, hover, completion, definition, outline). Host transports live outside this package. |
 | `script-spec` | Shared RPGCode tooling contracts: program, project and runner types used by the language server and script tools. |
 | `script-tools` | RPGCode analysis, indexing, formatting, diagnostics and quick-fixes used by the language server and stand-alone checks. |
+| `native-data` | The pure rules of the native document checker and rename planner: stamp reading, the version grammar, the extension registry (`.tkranm` for the animation clip), ASCII ID folding, IDs that include the extension, extension and contract agreement, owner/plugin link consistency and rename planning over documents already in memory, and the native animation clip reader, writer and in-place edit ([clip contract](docs/spec/formats/native-animation-clip.md#reference-reader-writer-and-importer)). It reads no file and depends on no other workspace package ([native data contracts](docs/spec/formats/native-contracts.md#checker)). |
+| `native-data-cli` | The file walk and the `tkr-native-check` command around `native-data`: it reads the native documents of a folder (the files whose extension is registered; legacy files are skipped unread) and reports problems, and never writes. |
+| `native-data-import` | The legacy `.anm` to native animation clip importer (`importAnimation`): it takes the core decoder's model and returns a clip model, and reads no file. It depends on `core` and `native-data`, so the checker's `native-data` stays free of other workspace packages. |
+| `native-data-rename` | The `tkr-native-rename` command and the file-system executor of a rename plan (`applyPlan`, `checkApplicable`): it moves native documents and rewrites every reference and both ends of each sidecar link in one step, or changes nothing ([rename](docs/spec/formats/native-contracts.md#rename)). It lives outside `native-data-cli` so the checker's package keeps its promise that it never writes. |
+| `platform-services` | The host door of the editor ([AD-20](_bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md)) as types: `fs`, `project`, `settings`, `document`, `capabilities` and `PlatformError`; its `./testing` entry is a working in-memory double for tests. It imports no other workspace package, no DOM and no Node (G2). |
+| `editor-model` | The DOM-free, framework-free editor documents ([ADR 0022](docs/adr/0022-shared-editor-authoring-contracts.md) D2): today the `.gam` document, bytes plus a serialisable command stack over `readMainFile` and `writeMainFile`, with undo and redo, derived dirty state, a save through `platform-services` that keeps the document dirty when the write fails, and a read-only open for a file with no same-version writer. |
+| `editor-ui` | The editor's Preact views ([ADR 0025](docs/adr/0025-editor-ui-framework-preact-tsx.md)), each handed to a host as `mount(el, ctx) -> { dispose }`: today the game settings view with one field, the game title. It imports `editor-model` and `platform-services` and no `host-*` package; the graph check proves it. |
 
 Outside `packages/`: `docs/` (spec, ADRs, guard-rails), `tools/` (the checks and generators CI runs), `golden/` (committed reference output), `fixtures/` (fetched sample games, never committed), `media/`, and `_bmad-output/` (tickets and plans, see below).
 
-The editor and its hosts (`editor-ui`, `host-vscode`, `host-web`, `host-desktop`) and the debug server are **planned** and do not exist in this repository yet. The language server exists as `packages/lsp`. The web and desktop runners do exist (`runner-web`, `runner-desktop`), but a fully interactive player loop is not yet demonstrated: the last recorded desktop run, before E-02, measured the game off-screen and showed only the title screen; no post-E-02 desktop run is recorded. The dependency direction every package must follow is in G2.
+The editor's hosts (`host-vscode`, `host-web`, `host-desktop`) and the debug server are **planned** and do not exist in this repository yet; `platform-services`, `editor-model` and `editor-ui` exist as the settings tracer of story 11.17, over an in-memory host double and with no host. The language server exists as `packages/lsp`. The web and desktop runners do exist (`runner-web`, `runner-desktop`), but a fully interactive player loop is not yet demonstrated: the last recorded desktop run, before E-02, measured the game off-screen and showed only the title screen; no post-E-02 desktop run is recorded. The dependency direction every package must follow is in G2.
 
 ## Pick and claim an issue
 
@@ -187,6 +197,12 @@ The first command mirrors story issues and their tracker IDs. The second creates
 5. **Golden files are a record, not a convenience.** A golden is committed output that the suite compares against (G5). `pnpm golden:record`, `pnpm closing:record`, `pnpm dump:record`, `pnpm dump:record:examples` and `pnpm fixtures:author` rewrite them; run one only on purpose, never in CI and never as a side effect, and explain every changed golden in the pull request. If a golden changes and you cannot say why the new output is correct, the code is wrong, not the golden.
 6. **Help text.** Command and help descriptions first say what the command does in plain terms for someone making a game, then describe it exactly (units, ticks, order, whether the script waits). See the working notes in [AGENTS.md](AGENTS.md).
 
+### Prove that evidence tests can fail
+
+A passing test is evidence only if it detects the behavior it claims to cover. For **each new evidence test**, name the claim and make a temporary, targeted change that removes or breaks that behavior; run that test and verify it fails for the claimed reason. Restore the change, rebuild any consumed generated or bundled code, and rerun the same test successfully. Record the mutation, commands and both outcomes in the pull request. A compile error, unrelated failure or stale build is not a successful negative proof. If a perturbation cannot be run, record the blocker and leave the evidence requirement unmet; do not claim the test proves that behavior or merge on that evidence.
+
+When a change compares old and new behavior, keep an explicit old-behavior reference independent of the new implementation and protect it from drifting with the new projection. Preserve any experiment that is the only proof as a committed, repeatable test or tool; a scratch diff or PR-body transcript alone is not durable evidence. Prefer a reachable real-path scenario to an impossible injected state, and state precisely what it does and does not prove.
+
 ## Work in a worktree
 
 Do each piece of work in its own git worktree (a second folder checked out from the same repository). Reason: several people or agents can then work at once without overwriting each other's files, and the checkout you cloned stays exactly as it was.
@@ -232,6 +248,7 @@ pnpm catalogue:check             # the generated catalogue stubs match the catal
 pnpm command-docs:test && pnpm command-docs:check  # command documentation tool tests, then the check [checks]
 pnpm no-skips:test               # the no-skips guard's own tests [checks]
 pnpm icons:test                  # the icon builder's own tests [checks]
+pnpm editor-ui-toolchain:test && pnpm editor-ui-toolchain:check  # the Preact/TSX toolchain's tests (JSX options, .tsx in lint, graph and the DOM shim), then the check that no editor bundle contains `eval(` or `new Function` (ADR 0025) [checks]
 pnpm golden:bun                  # replay the golden and closing suites under Bun against the committed output; needs Bun and fixtures:fetch [golden-bun]
 ```
 
@@ -250,6 +267,8 @@ pnpm graph:write                 # dev aid: write the dependency-graph inputs; C
 
 `pnpm license` and `pnpm license:test` are aliases of `licence` and `licence:test`. The `*:test` scripts are the tool self-tests that CI also runs, so run them when you touch `tools/`.
 
+The editor's Preact and TSX toolchain ([ADR 0025](docs/adr/0025-editor-ui-framework-preact-tsx.md)) is set up before the `editor-ui` package exists. `tsconfig.editor-ui.json` holds the JSX options (`react-jsx` with `preact` as the import source) and the DOM lib, and an editor-style project extends it; `tsconfig.base.json`, which `core` extends, has neither. esbuild gets the matching options from `tools/browser/bundle-options.mjs`, which `tools/browser/build.mjs` spreads into every bundle, and a test fails if the two drift. `tools/editor-ui-toolchain/` holds a small `.tsx` fixture that `tsc -b` checks and the tests bundle and render under `@happy-dom/global-registrator` (dev-only, never shipped); a `.tsx` test that needs a DOM follows `tools/editor-ui-toolchain/test/dom-shim.test.mjs`. `pnpm editor-ui-toolchain:check` scans the fixture bundle, and `apps/editor-ui/**/*.js` once the editor builds there, for `eval(` and `new Function`. The browser lane's `tools/browser/tests/editor-ui-csp.spec.ts` runs the fixture under the strict policy `default-src 'none'; script-src 'self'; style-src 'self'` and counts CSP violations. `preact` is a production dependency of `packages/editor-ui`; the root keeps the same exact version as a dev-only dependency, because the fixture under `tools/` is not a package, and a toolchain test fails if the two differ. A view test for `editor-ui` needs no bundling: `packages/editor-ui/test/settings-view.test.ts` imports the built package under the DOM shim (run `pnpm build` first).
+
 `pnpm golden:record` rewrites the golden and is the only writer of it. Never run it in CI. A golden change is a reviewed behaviour change (G5), so explain it in the pull request.
 
 `pnpm closing` boots all eight fetched sample games through the real engine and compares their frames, hashes and diagnostics with the baselines committed under `golden/regression/` (it needs `fixtures:fetch`, runs in the `golden` job and again under Bun in `golden-bun`, and takes about a minute). `pnpm closing:record` rewrites those baselines and the closing rows of `golden/ledger.json`; like `golden:record` it is a deliberate act and never runs in CI. The scripted run and each game's expected outcome live in `golden/closing/plan.json`; a Toolkit 2 game that cannot boot yet is listed there as an expected failure with its epic and reason, and fails the suite as soon as it starts to boot, so the entry is removed on purpose.
@@ -266,17 +285,31 @@ pnpm desktop:build                                              # dist/main.js, 
 pnpm desktop:measure                                           # run the closing-path measurement, print report, quit
 ```
 
-The current expected `demo` closing-baseline fields at tick 120 are `"stateHash": "32e892e98b3d2a85"` and `"drawHash": "9c0e4d56e59619da"` with **122 commands** (read them from `golden/regression/closing.json`; they last moved with issues #1154 and #1153, when the presented screen and its draw list left the state hash). This is the committed closing-suite reference, not evidence of a post-E-02 desktop run. The recorded macOS desktop report predates E-02 and printed `"error": null`, with the previous state hash, draw hash `"9a40be8a0b5ca816"` and frame worst 0; that earlier state hash is retained as historical and superseded for current parity. No post-E-02 `desktop:measure` result is recorded here. The command builds the package for you if you leave `--package` off. Point it at a package you built yourself with `pnpm desktop:measure --package path/to/your.tpk`.
+The current expected `demo` closing-baseline fields at tick 120 are `"stateHash": "ce528fd5b323787f"` and `"drawHash": "225e1b4a09cd7330"` with **147 commands** (read them from `golden/regression/closing.json`, which is the only source; earlier issues #1154 and #1153 moved the presented screen and its draw list out of the state hash, and later re-records moved them again). This is the committed closing-suite reference, not evidence of a post-E-02 desktop run. The recorded macOS desktop report predates E-02 and printed `"error": null`, with the previous state hash, draw hash `"9a40be8a0b5ca816"` and frame worst 0; that earlier state hash is retained as historical and superseded for current parity. No post-E-02 `desktop:measure` result is recorded here. The command builds the package for you if you leave `--package` off. Point it at a package you built yourself with `pnpm desktop:measure --package path/to/your.tpk`.
 
 The recorded pre-E-02 launch titled its window with the previous state hash; this is historical output, not a post-E-02 title or desktop-pass claim.
 
 ```sh
-pnpm desktop:run --package fixtures/packages/demo.tpk
+pnpm desktop:run --game fixtures/packages/demo.tpk
 ```
 
-`pnpm desktop:run` builds the `demo` package when `--package` is absent and passes the player's other flags through unchanged — `--serve <dir>` is the directory pages and data are served from, `--package <file.tpk>` is the game to open, `--page <path>` is the player page, and `--report <file>` / `--quit-after` are for the measurement harness. On Linux a headless machine runs the measurement with `xvfb-run -a pnpm desktop:measure`.
+`pnpm desktop:run` builds the `demo` package when `--game` is absent and passes the player's other flags through unchanged — `--serve <dir>` is the directory pages and data are served from, `--game <file.tpk>` is the game to open, `--page <path>` is the player page, and `--report <file>` is for the measurement harness. Closing the window quits the player on every platform, including macOS, and the command exits with it. On Linux a headless machine runs the measurement with `xvfb-run -a pnpm desktop:measure`.
 
-Two things to expect on a fresh worktree: `pnpm install` can return before Electron's ~100 MB runtime has finished downloading in the background, so a first `desktop:measure` may fail with `ENOENT …/Electron` — wait and re-run; and the last recorded pre-E-02 launch drew the board off-screen. The live interactive loop and a post-E-02 visible desktop run remain unverified. The user-facing version of these steps is [docs/playing-the-desktop-player.md](docs/playing-the-desktop-player.md).
+The desktop tools serialize their own lazy Electron downloads, so concurrent tool launches do not extract over one another. A separate package-manager installer does not use the tools' lock: make sure it has finished before starting the tools, even if `pnpm install` has already returned. If a tool is forcibly killed during installation, it can leave `.tkr-electron-install.lock` inside the Electron package directory. After confirming no tool installer is still running, remove that directory if a later launch reports a lock timeout. The last recorded pre-E-02 launch drew the board off-screen. The live interactive loop and a post-E-02 visible desktop run remain unverified. The user-facing version of these steps is [docs/playing-the-desktop-player.md](docs/playing-the-desktop-player.md).
+
+`pnpm closing:suite` is the epic's closing check: the headless closing suite, the same suite in headless Chromium, and
+the same suite inside the built desktop player, each compared with `golden/regression/closing.json`, plus the demo opened
+from its `.tpk` in both page hosts. Run it before a PR that touches a runner, the core loop or the closing baselines.
+
+### Run the Android proof
+
+The mobile proof drives the built Capacitor APK on a booted Android device or emulator. It uses Playwright's experimental [Android device and WebView API](https://playwright.dev/docs/api/class-android), rather than a manually forwarded debugging port. It still checks the rendered title and screenshots, trusted canvas touch, rotation, and host-blob presence after force-stop and relaunch; blob presence is not a claim that game state was restored.
+
+Build the debug APK as shown in the mobile job in `.github/workflows/ci.yml`: `pnpm mobile:build` prepares the web assets, then Capacitor sync and Gradle assemble the APK. Start an Android 16 (API 36) emulator and make sure `adb` can see it. Install the Playwright Android driver with `pnpm exec playwright install android`, then run `pnpm mobile:proof`. The Android API uses the default driver-install behavior; do not pass `omitDriverInstall`. With multiple devices, set `ANDROID_SERIAL` to the intended device. The proof resolves the serial through `adb`, uses that same device for Playwright and all later `adb` commands, records the actual Android version and ABI, and disconnects other enumerated devices.
+
+For a non-default ADB server, Playwright uses the same `ANDROID_ADB_SERVER_ADDRESS` and `ANDROID_ADB_SERVER_PORT` as `adb`. A TCP `ADB_SERVER_SOCKET` takes precedence; non-TCP sockets are not supported by Playwright's Android API and fail explicitly. `ADB_SERVER_PORT` alone does not select a server for `adb`.
+
+Attachment retains the three-minute startup deadline and records process and logcat observations in `artifacts/mobile-proof/`. A timed-out, uncancellable Playwright page attachment fails without starting another overlapping attach; ordinary connection failures can retry. Failure evidence and the screenshot deadline remain in effect.
 
 ### The loop while you work
 
@@ -287,30 +320,32 @@ node --test --test-name-pattern="<words>" packages/core/test/<file>.test.ts   # 
 pnpm test                                                   # all package tests
 ```
 
+Use `pnpm test:affected` for local feedback: it compares against the merge base with `origin/main` and includes committed, staged, unstaged, deleted, renamed and untracked changes. Pass `--base <ref>` to choose another base. It builds first, then runs changed packages and their downstream dependents through the no-skips guard. Core, shared configuration, tooling, fixtures, and unknown paths select all package tests. If Git or dependency information cannot be trusted, it explains why and selects all tests. An empty change set or selection with no test files exits successfully without running tests. CI continues to run the full suite.
+
 Run `pnpm build` first because packages import each other's built output. Only `synth` has per-package `build`, `typecheck`, `lint` and `test` scripts. `core`, `plugin-tk2-compat`, `runner-harness` and `runner-headless` expose `typecheck:tests` only, and their tests run through the root `pnpm test`. Some tests skip their sample-game cases until you run `pnpm fixtures:fetch`; run `pnpm test:strict` before you push so that none of them silently skip.
 
 ## Open the pull request, review and merge
 
 1. Push your branch and open a pull request **against `tk-reawakened/rpgtoolkit-reawakened:main`**. Collaborators with write access can use `git push -u origin <branch>`; everyone else should use [a fork](#contribute-through-a-fork). Fill in [the template](.github/pull_request_template.md): the guard-rail checklist, the spec sections you implement, and any golden changes with the reason.
-2. **CI.** [.github/workflows/ci.yml](.github/workflows/ci.yml) runs these jobs on every pull request: `changes` (the change classifier, below), `checks` (typecheck, lint, licence, provenance, dependency graph, catalogue, command-docs, and tool self-tests), `unit` (a fifteen-shard matrix that fetches the sample games and runs each shard once under the no-skips guard with V8 coverage), `golden`, `script-dogfood`, `golden-bun`, `browser`, `desktop` (Linux, macOS and Windows), `mobile` (an Android emulator), and `gate`. `gate` fails unless every one of those jobs succeeded, merges the fifteen shard LCOV reports into `coverage/lcov.info`, and enforces the repository line and branch coverage thresholds.
-3. **Green before merge.** All checks, gated by `gate`, must pass. The repository ruleset requires the single `gate` check, which lists every job above in its `needs`, so any failed, skipped, or cancelled job blocks the merge. No job is ever skipped: see "What CI does for a prose-only change" below. Every change goes through a reviewed pull request; never push changes straight to `main`.
+2. **CI.** [.github/workflows/ci.yml](.github/workflows/ci.yml) runs `changes` (the change classifier, below), `checks` (typecheck, lint, licence, provenance, dependency graph, catalogue, command-docs, and tool self-tests), `unit` (an eight-shard matrix that fetches the sample games and runs each shard once under the no-skips guard with V8 coverage), `golden`, `script-dogfood`, `golden-bun`, `browser` and `desktop` (Linux, macOS and Windows) on every pull request. The `gate` requires those jobs, merges the shard LCOV reports into `coverage/lcov.info`, and enforces the repository line and branch coverage thresholds. The Android emulator proof (`mobile`) runs independently and publishes its evidence. Mobile results are advisory while mobile work is paused (#1935). This policy also applies to any iOS CI lane added during that period.
+3. **Green before merge.** The repository ruleset requires the single `gate` check. A failed, skipped, or cancelled job listed in its `needs` blocks the merge. No job is ever skipped: see "What CI does for a prose-only change" below. Every change goes through a reviewed pull request; never push changes straight to `main`.
 4. **Independent review.** Someone other than the author reviews the diff. They read it against the checklist, run the commands that matter for the change, and check that any changed golden is explained. A reviewer who is an AI agent must not be the session that wrote the change.
 5. **Behind `main`?** If GitHub says the branch can merge cleanly and checks are green, do not rebase or force-push just to catch up. Merge `origin/main` into your branch only when there is a conflict or `main` changed something your change depends on. Pull requests are merged with a merge commit, which keeps history intact.
 6. **Done includes worktree cleanup.** Every worktree you created is removed (`git worktree remove`) or listed as preserved with a reason. Remove a worktree only after the work is pushed and has a destination: a merged pull request, or an open one named in the handoff. Dirty worktrees are preserved first (commit, push or archive). Unmerged branches are never deleted. The final report states each path and its outcome. Follow "Clean up after a merge" below.
 
 ### What CI does for a prose-only change
 
-Installing, building, replaying goldens and booting an Android emulator is wasted on a typo fix, so each of `golden`, `golden-bun`, `browser`, `desktop` (each operating system), `mobile` and `script-dogfood` judges for itself whether its work applies ([ADR 0016](docs/adr/0016-ci-classified-steps.md)). The `changes` job lists the files your pull request changed and gives one verdict. Every one of those jobs still runs and still reports success; they only skip their own *steps* when the verdict is "defer". `checks`, `unit` and `gate` always do all of their work, so licence, provenance and coverage always see your change. Because no job is skipped, the required `gate` check keeps its meaning and the repository ruleset is unchanged.
+Installing, building, replaying goldens and booting an Android emulator is wasted on a typo fix, so each of `golden`, `golden-bun`, `browser`, `desktop` (each operating system), `mobile` and `script-dogfood` judges for itself whether its work applies ([ADR 0016](docs/adr/0016-ci-classified-steps.md)). The `changes` job lists the files your pull request changed and gives one verdict. Every one of those jobs still runs. A job whose work is deferred reports the reason and succeeds after skipping its proof steps. `gate` always runs. For a documentation-only (inert) pull request, `checks` keeps only `provenance` (G7 still sees every diff) and `unit` defers entirely, so no tests run and no coverage is collected; `gate` then skips the LCOV merge and coverage threshold, because coverage cannot move when no code changed. Licence, audit and coverage still apply to any change that touches code.
 
 The verdict is "defer" only when **every** changed path is one of these, each of which is read by people and by no CI lane:
 
 - a Markdown file in the repository root (`README.md`, `CONTRIBUTING.md`, ...);
-- `docs/guardrails.md`;
-- Markdown under `docs/adr/`;
+- any Markdown file under `docs/` except `docs/spec/` (the normative spec, which `golden` dump-checks);
+- the whole `_bmad/` tree (installed BMAD framework; consumed only by manual ticket tooling);
 - Markdown under `_bmad-output/` (plans and tickets);
 - issue forms under `.github/ISSUE_TEMPLATE/` (`.md`, `.yml`, `.yaml`).
 
-Anything else runs everything, including all of `packages/`, `tools/`, `stock/` and `golden/` (even a README there), all of `docs/spec/`, `.github/workflows/` and the pull request template, any other file in `docs/`, `package.json` and the lockfile, an empty diff, a path nobody has classified, and every push to `main`. The list is positive on purpose: a new kind of file runs everything until someone decides it is inert. A rename counts both its old and its new path.
+Anything else runs everything, including all of `packages/`, `tools/`, `stock/` and `golden/` (even a README there), all of `docs/spec/`, `.github/workflows/` and the pull request template, non-Markdown files under `docs/` or `_bmad-output/`, `package.json` and the lockfile, an empty diff, a path nobody has classified, and every push to `main`. The list is positive on purpose: a new kind of file runs everything until someone decides it is inert. A rename counts both its old and its new path.
 
 Open the job log to see which way it went. A job that defers prints one line, and its later steps show as skipped:
 

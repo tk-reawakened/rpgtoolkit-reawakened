@@ -1,4 +1,4 @@
-import { BasicMIDI, SoundBankLoader, SpessaSynthProcessor } from "spessasynth_core";
+import { BasicMIDI, BasicSoundBank, SoundBankLoader, SpessaSynthProcessor } from "spessasynth_core";
 import { err } from "@tk-reawakened/core";
 import type { Result } from "@tk-reawakened/core";
 import { midiLengthTicks } from "./midi.ts";
@@ -7,6 +7,18 @@ import { opened } from "./source.ts";
 import type { AudioSource, SourceEnv, SourceError, SourceVoice } from "./source.ts";
 import type { BankRef } from "./protocol.ts";
 import type { MidiSynth } from "./midi.ts";
+
+/** Resolves once compressed SoundFont samples can be decoded; rejects if decoder initialization fails. */
+export const soundFontDecoderReady: Promise<void> = BasicSoundBank.isSF3DecoderReady;
+
+/** Inspect sample headers without decoding them; malformed banks fail closed until the decoder is ready. */
+export function soundBankHasCompressedSamples(bytes: Uint8Array): boolean {
+  try {
+    return SoundBankLoader.fromArrayBuffer(asArrayBuffer(bytes)).samples.some((sample) => sample.isCompressed);
+  } catch {
+    return true;
+  }
+}
 
 export interface SpessaSynthOptions {
   readonly bank?: Uint8Array | ArrayBuffer;
@@ -53,10 +65,11 @@ class SpessaVoice implements SourceVoice {
   }
 
   start(positionTicks: number, loop: boolean): void {
+    // Opening already built and scheduled a processor at the beginning of the track.
+    if (this.position !== 0) this.processor = this.createProcessor();
     this.loop = loop;
     this.position = Math.max(0, Math.floor((positionTicks * this.sampleRate) / 60));
     if (this.loop) this.position %= this.lengthFrames;
-    this.processor = this.createProcessor();
     this.skipTo(this.position);
     this.playing = !this.ended;
   }

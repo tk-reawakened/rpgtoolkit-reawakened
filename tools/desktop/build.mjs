@@ -53,6 +53,16 @@ await build({
   target: "chrome120",
   logLevel: "warning",
 });
+// The AudioWorklet module the desktop player loads from `app://player/apps/audio-worklet.js`.
+await build({
+  entryPoints: [join(root, "packages/runner-web/src/audio-worklet.ts")],
+  outfile: join(root, "apps", "audio-worklet.js"),
+  bundle: true,
+  format: "iife",
+  platform: "browser",
+  target: "chrome120",
+  logLevel: "warning",
+});
 
 // The Electron app's own `package.json`, so `electron .` finds the main process.
 const manifest = {
@@ -68,7 +78,8 @@ writeFileSync(join(desktop, "dist", "package.json"), `${JSON.stringify(manifest,
 // Keep the player icon with the app so it works independently of the served game directory.
 cpSync(join(root, "media", "icons", "png", "tkr-512.png"), join(desktop, "dist", "icon.png"));
 const { readdirSync } = await import("node:fs");
-const folders = ["media/fonts", "media/cursors", "media/soundfonts"];
+const { writeClosingManifest } = await import("../closing/manifest.mjs");
+const folders = ["media/fonts", "media/cursors", "media/soundfonts", "stock/stock_menu", "stock/stock_battle", "stock/stock_rpg"];
 const bundled = folders.flatMap((folder) =>
   readdirSync(join(root, folder), { withFileTypes: true })
     .filter((entry) => entry.isFile())
@@ -76,4 +87,5 @@ const bundled = folders.flatMap((folder) =>
     .sort(),
 );
 writeFileSync(join(root, "apps", "bundled.json"), `${JSON.stringify({ folders, files: bundled }, null, 2)}\n`);
+console.log(`built apps/closing-files.json (${writeClosingManifest(root)} fetched games listed)`);
 console.log(`built runner-desktop: dist/main.js, dist/preload.js, apps/player-desktop.js, apps/player-desktop-live.js (${bundled.length} bundled assets listed)`);

@@ -2,9 +2,9 @@
 // tools/deps/graph.mjs generates actually fires, and that the list is validated
 // before anything is generated (AD-22; guard-rails G2 rule 5 and G4 rule 4).
 import { test } from "node:test";
-import { equal, match, notEqual, ok } from "node:assert/strict";
+import { deepEqual, equal, match, notEqual, ok } from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -393,6 +393,174 @@ test("tool errors: a missing anchor and a missing diagram block name the spine f
       const result = run(root);
       notEqual(result.status, 0);
       match(result.output, /appears more than once in spine\.md/);
+    },
+  );
+});
+
+// ADR 0025 decision 2 and "What 11.2 does first" item 4: the cruise reads `.tsx`, so an editor view that imports a
+// `host-*` package fails G2 like any `.ts` file does. `--write` regenerates the config and cruises in one run, so one
+// invocation both writes and judges.
+const tsxView = (imports) =>
+  `${imports}\nexport const View = () => <p>{String(host)}</p>;\n`;
+
+test("tsx: an editor-ui .tsx file importing a host package fails r1-editor-ui-workspace-edges", () => {
+  withRoot(
+    "tsx-host",
+    {
+      packages: {
+        "editor-ui": { "src/View.tsx": tsxView('import { host } from "@tk-reawakened/host-web";') },
+        "host-web": { "src/index.ts": "export const host = 1;\n" },
+      },
+      // The host may import the editor, never the other way round.
+      edges: [["editor-ui", "host-web"]],
+    },
+    (root) => {
+      const result = run(root, "--write");
+      notEqual(result.status, 0, result.output);
+      match(
+        result.output,
+        /r1-editor-ui-workspace-edges: packages\/editor-ui\/src\/View\.tsx\s*\u2192\s*packages\/host-web\/src\/index\.ts/,
+      );
+    },
+  );
+});
+
+test("tsx: a clean .tsx file importing an allowed package passes", () => {
+  withRoot(
+    "tsx-clean",
+    {
+      packages: {
+        "editor-ui": { "src/View.tsx": tsxView('import { host } from "@tk-reawakened/editor-model";') },
+        "editor-model": { "src/index.ts": "export const host = 1;\n" },
+      },
+      edges: [["editor-model", "editor-ui"]],
+    },
+    (root) => {
+      const result = run(root, "--write");
+      equal(result.status, 0, result.output);
+      match(result.output, /no dependency violations found/);
+    },
+  );
+});
+
+test("tsx: a .tsx relative import out of the package fails r1-editor-ui-no-relative-escape", () => {
+  withRoot(
+    "tsx-escape",
+    {
+      packages: {
+        "editor-ui": { "src/View.tsx": tsxView('import { host } from "../../editor-model/src/index.ts";') },
+        "editor-model": { "src/index.ts": "export const host = 1;\n" },
+      },
+      edges: [["editor-model", "editor-ui"]],
+    },
+    (root) => {
+      const result = run(root, "--write");
+      notEqual(result.status, 0, result.output);
+      match(result.output, /r1-editor-ui-no-relative-escape: packages\/editor-ui\/src\/View\.tsx/);
+    },
+  );
+});
+
+// AD-22: `./testing` is the one subpath a package may export. It resolves when the package has `src/testing.ts`, so a
+// test may import it; `r6` keeps it out of everything but `packages/<pkg>/test/`, where it would otherwise ship a test
+// double. `app/` and `scripts/` are not `src/`, and the `./testing` path mapping makes r2 stop seeing the import, so r6
+// is the only rule that can catch a file there. `--write` regenerates the config and cruises in one run.
+test("testing entry: a test may import another package's ./testing, no other file of a package may (r6)", () => {
+  withRoot(
+    "testing-entry",
+    {
+      packages: {
+        a: {
+          "src/index.ts": 'import { fake } from "@tk-reawakened/b/testing";\nexport const x = fake;\n',
+          "app/main.ts": 'import { fake } from "@tk-reawakened/b/testing";\nexport const z = fake;\n',
+          "test/a.test.ts": 'import { fake } from "@tk-reawakened/b/testing";\nexport const y = fake;\n',
+          "test/helpers/deep.ts": 'import { fake } from "@tk-reawakened/b/testing";\nexport const w = fake;\n',
+        },
+        b: {
+          "src/index.ts": "export const b = 1;\n",
+          "src/testing.ts": "export const fake = 2;\n",
+          "app/own.ts": 'import { fake } from "../src/testing.ts";\nexport const own = fake;\n',
+        },
+      },
+      edges: [["b", "a"]],
+    },
+    (root) => {
+      const result = run(root, "--write");
+      notEqual(result.status, 0, result.output);
+      const found = violations(result.output);
+      equal(found.length, 2, result.output);
+      for (const line of found) match(line, /r6-testing-entry-only-in-tests/);
+      match(result.output, /packages\/a\/src\/index\.ts/);
+      match(result.output, /packages\/a\/app\/main\.ts/);
+      ok(!/packages\/a\/test\//.test(result.output.split("\n").filter((line) => /^\s+error\s/.test(line)).join("\n")), "tests are allowed");
+      ok(!/packages\/b\/app\/own\.ts/.test(result.output), "a package may import its own ./testing from anywhere");
+    },
+  );
+});
+
+test("testing entry: a ./testing import with no src/testing.ts is still a deep import (r2)", () => {
+  withRoot(
+    "testing-missing",
+    {
+      packages: {
+        a: { "test/a.test.ts": 'import { fake } from "@tk-reawakened/b/testing";\nexport const y = fake;\n' },
+        b: { "src/index.ts": "export const b = 1;\n" },
+      },
+      edges: [["b", "a"]],
+    },
+    (root) => {
+      const result = run(root, "--write");
+      notEqual(result.status, 0, result.output);
+      match(result.output, /r2-no-deep-package-imports/);
+    },
+  );
+});
+
+// The committed edge list, not a fixture one. What it says is read straight from `edges.json`; one cruise over fixtures
+// that break it then shows the rules built from it fire.
+const committed = JSON.parse(readFileSync(resolve(dirname(tool), "edges.json"), "utf8"));
+const importsOf = (name) => committed.edges.filter(([, dependent]) => dependent === name).map(([dependency]) => dependency);
+
+function withCommittedEdges(root) {
+  writeList(root, committed.packages, committed.edges);
+}
+
+test("committed edge list: editor-ui imports editor-model and platform-services, never a host-* package; platform-services imports nothing", () => {
+  const editorUi = importsOf("editor-ui");
+  ok(editorUi.includes("editor-model") && editorUi.includes("platform-services"), JSON.stringify(editorUi));
+  deepEqual(
+    editorUi.filter((name) => name.startsWith("host-")),
+    [],
+    "G2 rule 4: the editor never imports a host package",
+  );
+  deepEqual(importsOf("platform-services"), [], "platform-services imports no other workspace package");
+  for (const name of ["editor-model", "platform-services", "editor-ui"]) ok(committed.packages.includes(name), name);
+});
+
+test("committed edge list: the rules built from it refuse editor-ui importing a host and platform-services importing core", () => {
+  const view = (host) => `import { thing } from "@tk-reawakened/${host}";\nexport const View = () => <p>{String(thing)}</p>;\n`;
+  const hosts = ["host-web", "host-vscode", "host-desktop"];
+  withRoot(
+    "committed-refusals",
+    {
+      packages: {
+        "editor-ui": Object.fromEntries(hosts.map((host) => [`src/${host}.tsx`, view(host)])),
+        ...Object.fromEntries(hosts.map((host) => [host, { "src/index.ts": "export const thing = 1;\n" }])),
+        "platform-services": { "src/index.ts": 'import { thing } from "@tk-reawakened/core";\nexport const x = thing;\n' },
+        core: { "src/index.ts": "export const thing = 1;\n" },
+      },
+    },
+    (root) => {
+      withCommittedEdges(root);
+      const result = run(root, "--write");
+      notEqual(result.status, 0, result.output);
+      for (const host of hosts) {
+        match(
+          result.output,
+          new RegExp(`r1-editor-ui-workspace-edges: packages/editor-ui/src/${host}\\.tsx\\s*\u2192\\s*packages/${host}/src/index\\.ts`),
+        );
+      }
+      match(result.output, /r1-platform-services-workspace-edges: packages\/platform-services\/src\/index\.ts/);
     },
   );
 });

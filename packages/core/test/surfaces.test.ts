@@ -153,6 +153,11 @@ test("base64 is byte-identical for all remainder lengths", () => {
   }
 });
 
+test("base64 matches the canonical encoding across many output slices", () => {
+  const bytes = Uint8Array.from({ length: 640 * 480 * 4 + 1 }, (_, i) => (i * 131 + (i >> 8)) & 255);
+  equal(encodeSurfaceBytes(bytes), Buffer.from(bytes).toString("base64"));
+});
+
 test("standalone edits preserve snapshots, cache ownership, clones and direct bitmap replacement", () => {
   const state = createSurfacesSection(2, 1);
   const id = 0 as SurfaceId;

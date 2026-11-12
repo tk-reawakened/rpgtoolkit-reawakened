@@ -1,0 +1,193 @@
+# tickets.toml — the planned entries of this epic, in build order. tickets.py reads it.
+
+[[entry]]
+id = 1
+tracker_id = "#1800"
+type = "story"
+title = "The native data contracts have approved rulings for versioning, identity and plugin-data separation"
+description = "Writes the owner's 2026-11-08 rulings into one ADR and one normative spec page, so every later story builds from them."
+verify = "Jensen approves the ADR and spec page, and the docs and link checks pass."
+covers = ["E1", "E2", "E3", "E4", "E5"]
+after = []
+hitl = true
+risk = "medium"
+refine = true
+notes = [
+  "Decision: Jensen, 2026-11-09: plugin data lives in the document it belongs to, under one open top-level key, `pluginData`, keyed by plugin id. Each block has its own `version` and `data`. The core checks only the envelope (id well formed, version parses, `data` is a mapping); the plugin owns its schema, version and migration. Unknown keys inside `data` are tolerated and never dropped; an absent plugin's block is preserved as written; data newer than the plugin is read for its known keys. This replaces the 2026-11-08 separate-document ruling (ADR 0023 decision 7). The key name was chosen over `plugins`, `metadata` and `extensionData`.",
+  "Decision: Jensen, 2026-11-09: a contract's own fields are closed (an unknown key is an error, so `colorKey` cannot pass for `colourKey`) and plugin namespaces are open; every writer must preserve what it does not understand, byte for byte, comments included (ADR 0023 decision 12).",
+  "Decision: Jensen, 2026-11-09: plugin ids may be qualified with dots, such as `com.example.weather` (PKG-2 amended; a bare name like `stock_battle` stays valid). A plugin contributes its data configuration through its definition, one entry per native contract it extends, each with a schema and a migration list; a block is valid only on a contract the plugin declares, which only the plugin-present check can see (ADR 0024).",
+  "Decision: Jensen, 2026-11-09: the three link checker classes (plugin document with no owner, owner link with no back-link, mismatched link) are retired and one class, `plugin-block`, replaces their role. The rename tool is kept without link rewriting. How a rename treats references inside plugin data is an open question with two candidate answers (the plugin declares which data paths are references, or the rename refuses when a block holds a value equal to the old ID) and no decision.",
+  "Open question: Jensen, 2026-11-09, proposed a top-level `core:` wrapper for a contract's own fields. The documents use the flat shape (own fields at the top level beside the stamp, one open dictionary) and record the wrapper under ADR 0023's alternatives. He has not chosen.",
+  "Direction (tentative, owner-stated, not a decision): Jensen, 2026-11-09: \"eventually there may not be any 'core' items in a sense. every field will likely have a plugin / extension they are driven by.\" Nothing moves and no contract changes because of it.",
+]
+
+[[entry]]
+id = 2
+tracker_id = "#1803"
+type = "story"
+title = "A checker reports stamp, ID and link errors in a folder of native documents"
+description = "Adds the checker that reads a folder of native documents and reports the error classes ruled in 27.1 (a missing or malformed stamp, a duplicate ID, two paths folding to one ID and, as amended on 2026-11-09, a plugin block with a wrong envelope in place of the three link classes), and never repairs anything."
+verify = "Authored fixture folders, one per error class plus a clean one, produce exactly the ruled messages; the clean folder reports none."
+covers = ["E3"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 3
+tracker_id = "#1804"
+type = "story"
+title = "The animation clip contract is specified at pre-release with a schema"
+description = "Specifies the native animation clip: ordered frames, timing, colour key and optional frame sound, with no fixed slot count, and accounts for every legacy `.anm` field."
+verify = "Jensen approves the spec page and schema, and every legacy field has a row that says mapped or dropped, with the reason."
+covers = ["E4"]
+after = [1]
+hitl = true
+risk = "medium"
+
+[[entry]]
+id = 4
+tracker_id = "#1805"
+type = "story"
+title = "A native animation clip document reads, writes and imports from a legacy clip"
+description = "Reads and writes a native clip in YAML without disturbing comments or unrelated lines, and imports legacy `.anm` files into it, keeping the 1:1 output as the test oracle."
+verify = "Across the corpus's decoded `.anm` files, import then read gives the same ordered frames and delays as the legacy decoder; a one-property edit changes one line and keeps every comment; a document with a missing stamp is refused."
+covers = ["E2", "E4"]
+after = [2, 3]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 5
+tracker_id = "#1806"
+type = "story"
+title = "Renaming or moving a document keeps every reference and sidecar link valid"
+description = "Adds the rename tool: it moves a document and rewrites every reference to its ID in one step, or changes nothing. As amended on 2026-11-09 there is no sidecar link to rewrite, because plugin data lives in the owning document and a rename never edits a block."
+verify = "On a fixture project with references and plugin blocks, a rename leaves the checker clean and every block byte for byte; a rename that cannot complete leaves every file unchanged."
+covers = ["E5"]
+after = [2, 4]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 6
+tracker_id = "#1807"
+type = "story"
+title = "The editor opens a native clip and saves a one-property change as a one-line diff"
+description = "Opens a native clip in the editor and saves an edit through the in-place YAML edit path, so comments and unrelated lines are untouched."
+verify = "Edit one property of the fixture clip in the editor and save: the diff is one line and every comment is kept."
+covers = ["E2", "E4"]
+after = [4, "11.2", "11.3"]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 7
+tracker_id = "#1808"
+type = "story"
+title = "The actor-family contracts are specified at pre-release"
+description = "Specifies the contracts for actors, items and enemies, composed from parts rather than inherited, how an item grants a skill, and the `pluginData` door and which plugin ids own which blocks, separating world presence from inventory meaning and keeping skills distinct."
+verify = "Jensen approves the spec pages, and every field in the research's actor catalogue has a row that says where it lands or why it is dropped."
+covers = ["E6"]
+after = [1, 4]
+hitl = true
+risk = "high"
+notes = ["Jensen, 2026-11-08: \"I'm all for composition where we can.\""]
+
+[[entry]]
+id = 8
+tracker_id = "#1809"
+type = "story"
+title = "The scene contract separates a board's placements from its definition"
+description = "Specifies the scene contract at pre-release, written from section 2 of the draft `docs/spec/formats/tkr-authoring.md` so there is one scene contract ([ADR 0019](../../../docs/adr/0019-tkr-authoring-formats.md) amendment of 2026-11-11, point 3), and brings the draft into line with `native-contracts.md` (identity by path, closed top level, `pluginData`). It lists what a `.brd` cannot hold, which is what the scene editor shows as unavailable on a board, and adds the `.tkrscn` registry row. It specifies the contract so placements reference an actor without duplicating it, the existing separate battle scene stays, and no universal all-purpose container appears; it also decides whether a placement may carry a nested `pluginData` door and which plugin ids own which blocks."
+verify = "Jensen approves the spec page, and every legacy board field has a row that says where it lands or why it is dropped."
+covers = ["E6"]
+after = [1, 4, 11, 12]
+hitl = true
+risk = "high"
+notes = [
+  "Decision: Jensen, 2026-11-11: the scene, tileset and asset-pack formats come forward into the first release (ADR 0005, second amendment). This story no longer waits for 27.7.",
+  "Consequence, for Jensen to confirm when he approves the page: in the first cut a placed sprite refers to a legacy item file, as a board does. \"Placements reference an actor without duplicating it\" is added as a pre-release revision of this contract when 27.7 is approved. The contract stays `1.0.0-pre.N`, so that revision breaks no promise.",
+]
+
+[[entry]]
+id = 10
+tracker_id = "#1822"
+type = "story"
+title = "The checker, rename tool and clip reader and writer implement plugin blocks and the closed top level"
+description = "Cuts the shipped native-data code over to the 2026-11-09 owner rulings in one change, so no file is touched twice: the closed top level (the stamp, a contract's own fields and `pluginData` as the one open dictionary, with the reserved keys), the checker's `plugin-block` class with the three link classes retired, the rename tool without link rewriting or its two link-field options, the clip reader, writer, in-place edit and importer accepting `pluginData` and carrying every block byte for byte, the qualified plugin-id grammar of PKG-2, and the fixtures and clip examples."
+verify = "A fixture project with plugin blocks passes the checker, which reports each remaining class and each `plugin-block` problem kind by name and never an unknown key inside `data`; a rename leaves every block byte for byte and the checker clean; a one-property edit of `delay` on a clip that carries blocks changes one line; each preservation test fails against a deliberately regenerating writer; the clip examples gain plugin-bearing valid and invalid cases and are read."
+covers = ["E2", "E3", "E4", "E5"]
+after = [1, 2, 4, 5]
+hitl = false
+risk = "medium"
+notes = [
+  "Boundaries: does not build the plugin definition's `contributes` descriptor, the plugin-present checks or the upgrade command (ADR 0024). They need the plugin catalogue and are planned once the owner approves ADR 0024.",
+  "The flat shape of ADR 0023 decision 5 is recommended and awaits the owner's choice against a `core:` wrapper. This story starts when he has chosen; if he picks the wrapper, the clip's fields move under `core` in this same change, which is free while the clip is pre-release.",
+  "Scope seen from the docs PR: packages/native-data (check.ts, report.ts, document.ts, rename.ts, clip.ts), native-data-cli and native-data-rename (the --owner-field and --plugins-field options go), native-data-import, packages/core/src/script/manifest.ts and packages/runner-harness/src/package-catalogue.ts (the PKG-2 identifier pattern and the default namespace of a qualified id), their tests and fixtures, docs/spec/examples/native/animation-clip/ (read by packages/native-data/test/clip.test.ts) and the native-data rows of CONTRIBUTING.md.",
+]
+
+[[entry]]
+id = 11
+tracker_id = "#1846"
+type = "story"
+title = "The tileset contract stores collision and walk-behind with each tile"
+description = "Writes the tileset contract page at pre-release from section 3 of the draft `docs/spec/formats/tkr-authoring.md`: sources, tiles, isometric blocks and autotiles, with each tile's `collision` and a block's `wallCapUnder` as core fields. Brings the draft into line with `native-contracts.md`: the common stamp, a closed top level, `pluginData`, identity by path and how another document refers to one tile. Adds the `.tkrtile` row to the registry in the spec and in `packages/native-data` in the same change."
+verify = "Jensen approves the spec page; every key of section 3 of the draft has a row that says where it lands or why it is dropped; the registry test passes with the new row; the docs and link checks pass."
+covers = ["E6", "E7"]
+references = ["Decision: ADR 0019 amendment of 2026-11-11, points 3 and 5", "Decision: ADR 0005 second amendment of 2026-11-11", "Draft: docs/spec/formats/tkr-authoring.md section 3 and its status banner", "Rule: docs/spec/formats/native-contracts.md (stamp, file names, identity, plugin blocks)"]
+after = [1, 4]
+hitl = true
+risk = "medium"
+notes = ["Jensen, 2026-11-11: storing solid and under masking with tiles and assets is a feature to include in the first release."]
+
+[[entry]]
+id = 12
+tracker_id = "#1847"
+type = "story"
+title = "The asset-pack contract stores collision and walk-behind with each asset"
+description = "Writes the asset-pack contract page at pre-release from section 4 of the draft `docs/spec/formats/tkr-authoring.md`: sources and assets (stamp, prop, backdrop), each with its anchor, visuals and its own `solid` and `under` vectors as core fields. Brings the draft into line with `native-contracts.md` as 27.11 does, and settles how a scene refers to one asset of a pack, since the draft's `<pack id>:<asset id>` form does not use the pack's path. Adds the `.tkrpack` row to both registries in the same change."
+verify = "Jensen approves the spec page; every key of section 4 of the draft has a row that says where it lands or why it is dropped; the registry test passes with the new row; the docs and link checks pass."
+covers = ["E6", "E7"]
+references = ["Decision: ADR 0019 amendment of 2026-11-11, points 3 and 5", "Decision: ADR 0005 second amendment of 2026-11-11", "Draft: docs/spec/formats/tkr-authoring.md section 4 and its status banner", "Rule: docs/spec/formats/native-contracts.md (stamp, file names, identity, plugin blocks)"]
+after = [1, 4]
+hitl = true
+risk = "medium"
+
+[[entry]]
+id = 13
+tracker_id = "#1848"
+type = "story"
+title = "Native tileset and asset-pack documents read, write and check"
+description = "Adds a reader and a writer for the tileset and asset-pack contracts to `packages/native-data`, with the in-place YAML edit path the clip uses, so a one-property change is a one-line diff and comments are kept. The checker reports their stamp, identity and reference errors, and the rename tool keeps references to a moved tileset or pack valid."
+verify = "On authored fixtures: read then write gives the same bytes; setting one tile's collision changes one line and keeps every comment; an unknown top-level key is an error and a plugin block survives a write byte for byte; the checker is clean on the good fixture and names each error on the bad ones; a rename leaves the checker clean."
+covers = ["E2", "E3", "E5", "E7"]
+references = ["Pattern: story 27.4 (the clip reader and writer) and story 27.10 (plugin blocks and the closed top level)"]
+after = [10, 11, 12]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 14
+tracker_id = "#1849"
+type = "story"
+title = "A native scene document reads, writes, checks and is made from a legacy board"
+description = "Adds a reader and a writer for the scene contract to `packages/native-data` with the in-place edit path, checker and rename support, and an explicit conversion from a legacy `.brd` in `packages/native-data-import` that keeps legacy slot order, indices and unmodelled fields (AD-18). The conversion is a function a caller invokes; nothing converts on open."
+verify = "On authored fixtures: read then write gives the same bytes; moving one object changes only its lines; a board from the fixtures converts to a scene that the checker passes, with vectors by handle and programs and sprites by index in the same order, and the unmodelled fields kept; the conversion never writes over an existing scene."
+covers = ["E2", "E3", "E5", "E7"]
+references = ["Decision: ADR 0019 decision 5 as amended 2026-11-11 (conversion is explicit)", "Spec: docs/spec/formats/board.md", "Pattern: story 27.4"]
+after = [8, 13, "2.5"]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 9
+tracker_id = "#1810"
+type = "story"
+title = "Refactor sweep"
+description = "Cleans up what the epic's plans and review findings deferred; its scope is set when it starts."
+verify = "Every deferred finding it takes is closed or recorded as a new story, and the full suite passes."
+covers = []
+after = [2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14]
+hitl = false
+risk = "low"

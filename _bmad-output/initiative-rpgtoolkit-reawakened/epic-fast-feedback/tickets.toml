@@ -1,0 +1,241 @@
+# tickets.toml - the planned entries of this epic, in build order. tickets.py reads it.
+
+[[entry]]
+id = 1
+tracker_id = "#1884"
+type = "story"
+title = "The browser CI job runs in the pinned Playwright container and installs nothing at run time"
+description = "Moves the browser job into the Playwright image that matches @playwright/test, removing the 11-minute Chromium and apt install and the mirror failures behind #1878."
+verify = "The browser job has no install step and all browser specs, desktop parity included, pass; a deliberate image and package version mismatch fails the agreement check."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 2
+tracker_id = "#1885"
+type = "story"
+title = "Test processes run with a larger V8 young generation"
+description = "Sets --max-semi-space-size=128 for CI test jobs and the local test scripts, cutting garbage collection in the allocation-heavy core tests."
+verify = "CI shard times before and after are recorded in the pull request, and every test still passes."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 3
+tracker_id = "#1886"
+type = "story"
+title = "Unit shards are balanced by measured test time"
+description = "Replaces one shard per package with shards packed from a committed timings file, keeping the check that every test file lands in exactly one shard."
+verify = "The slowest shard is within about 25% of the mean; a file left unassigned or assigned twice fails the check."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 4
+tracker_id = "#1330"
+type = "bug"
+title = "Identical coverage runs of the core battle shard report the same line hits"
+description = "Finds why two identical core-battle runs reported different covered lines, and makes coverage reproducible or documents the correct reading without weakening the gate."
+verify = "Two identical runs give identical LCOV for the shard."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 5
+tracker_id = "#1887"
+type = "story"
+title = "The coverage gate holds on every pull request while reusing main's coverage for shards whose inputs did not change"
+description = "Keys each shard by its tests and reachable sources, restores main's LCOV for unchanged shards, still runs their tests without coverage, and merges in gate under the same thresholds; anything uncertain runs coverage everywhere."
+verify = "A pull request's merged totals equal a full coverage run of the same commit, and changing a reachable source invalidates the key."
+covers = ["CAP-13"]
+after = [3, 4]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 6
+tracker_id = "#1888"
+type = "story"
+title = "pnpm test:affected runs only the packages a change can affect"
+description = "Selects changed packages and everything downstream of them from the workspace dependency graph; a root, lockfile or tooling change selects everything."
+verify = "A leaf-package change runs only its tests; a core or lockfile change runs all of them."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 7
+tracker_id = "#1896"
+type = "story"
+title = "Rule exceptions are logged with their reason and enhancement ticket and removed when it is resolved"
+description = "Adds the shared exception log and its checks: an unlogged break, a missing reason or resolution, a closed ticket with the break still present, and an entry whose break is gone are each reported."
+verify = "Each check has a test, and existing guard-rail markers are migrated into the log."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 8
+tracker_id = "#1892"
+type = "story"
+title = "CI enforces the 1-second test rule from the exception log"
+description = "Reads each test's duration from the TAP the runner writes and fails an unlogged test over 1 second or a logged one over its limit; the 20 slowest tests go to the job summary."
+verify = "A deliberate 1.2-second test fails its shard; the current slow tests are seeded into the log with their tickets."
+covers = ["CAP-13"]
+after = [7]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 9
+tracker_id = "#1893"
+type = "story"
+title = "Probe tests prove every guard-rail check fires, and the rule-to-check matrix is in docs/guardrails.md"
+description = "Adds one deliberate violation per rule clause and asserts the named check fires; closes the two gaps found (editor-ui Node imports, unresolved render-engine imports)."
+verify = "Removing a lint or graph rule makes its probe fail; every matrix row names a probe or is marked review-only with a reason."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 10
+tracker_id = "#1894"
+type = "story"
+title = "Pull requests show warnings when process rules look broken"
+description = "A warn-only report in checks for a missing spec citation or issue reference, unexplained golden changes, doc and code in one commit, wall-clock waits in tests, branch names and planning tickets without a tracker_id."
+verify = "Each rule has pass and warn fixtures, and a demonstration pull request shows the annotations."
+covers = ["CAP-13"]
+after = [7]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 11
+tracker_id = "#1889"
+type = "story"
+title = "Tests can start from a named saved state instead of replaying to it"
+description = "Adds startFrom: a named scenario is played once per test process, saved, and every later test loads the save; the six battle UI files use it."
+verify = "A restored scenario reaches the same state hash as the replayed one at the same tick, and the converted files have no unlogged test over 1 second."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 12
+tracker_id = "#1890"
+type = "story"
+title = "A host can opt out of the per-advance state hash"
+description = "Adds an engine option, specified first, so callers that never read the hash do not pay for it; golden and replay paths keep the default."
+verify = "The battle and menu rigs use the option and every golden is unchanged."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 13
+tracker_id = "#1891"
+type = "story"
+title = "The initial-charge seed sweep checks the charge rule directly"
+description = "Sweeps all 1024 seeds against the pure charge rule and keeps a few full-engine seeds that prove the engine uses it."
+verify = "Both tests together run in under 1 second, and the recorded perturbations still fail them."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 14
+tracker_id = "#1870"
+type = "story"
+title = "The presented screen is not base64-encoded into state on every changed frame"
+description = "Stops encoding the derived presentation surface on every frame; it is encoded only when a save needs it."
+verify = "Closing goldens are unchanged and the per-frame encoding cost is gone from the profile."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 15
+tracker_id = "#1871"
+type = "story"
+title = "The state hash does not re-hash canvas base64 on every advance"
+description = "Makes hashGameState cheap when script canvases change every tick."
+verify = "State hashes are unchanged and the per-advance hash cost during battle falls as measured in the issue."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 16
+tracker_id = "#1872"
+type = "story"
+title = "Engines in one process share compiled RPGCode"
+description = "Shares compiled programs across engines in memory, as the owner ruled."
+verify = "A second engine compiles nothing it already has, and goldens are unchanged."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 17
+tracker_id = "#1875"
+type = "story"
+title = "Type-contract tests no longer spawn full tsc runs"
+description = "Replaces the four tsc child runs with one in-process or combined check."
+verify = "Each test runs in under 1 second, and the bad fixtures still fail."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 18
+tracker_id = "#1059"
+type = "bug"
+title = "The mobile CI proof attaches to the Android WebView reliably"
+description = "Fixes the intermittent WebView attach failure in the mobile lane, with paced, bounded retries per the 2026-11-07 owner rule."
+verify = "Repeated mobile runs attach every time, and a forced attach failure is reported with its evidence."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 19
+tracker_id = "#1859"
+type = "bug"
+title = "The desktop:input CSP probe does not time out on a cold first run"
+description = "Makes the worklet-status wait robust after a reload on a cold boot."
+verify = "Repeated cold runs pass, and a real failure is still reported."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 20
+tracker_id = "#1881"
+type = "story"
+title = "Every actions/checkout step sets persist-credentials: false"
+description = "Hardens the remaining checkout steps."
+verify = "No checkout step in the workflows persists credentials."
+covers = ["CAP-13"]
+after = []
+hitl = false
+risk = "low"

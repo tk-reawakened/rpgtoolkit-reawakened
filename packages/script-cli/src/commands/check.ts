@@ -19,6 +19,8 @@ const plugins: ResolvedPlugin[] = FIRST_PARTY_PLUGINS.map((definition) => ({ def
 export type CheckResult = {
   readonly result: ScriptResult;
   readonly text: string;
+  /** The readable report, for stderr when `--json` keeps stdout for the envelope. */
+  readonly human: string;
 };
 
 function withFile(diagnostic: Diagnostic, file: string): ResultDiagnostic {
@@ -44,7 +46,8 @@ export function runCheck(paths: readonly string[], json: boolean): CheckResult {
     };
     const summary = { ...emptySummary, files: 0, diagnostics: { error: 1, warning: 0, info: 0, hint: 0 } };
     const result = makeResult("check", 2, [diagnostic], summary, { configError: configResult.message });
-    return { result, text: json ? stableStringify(result) : `tkr script check: ${configResult.message}` };
+    const human = `tkr script check: ${configResult.message}\n`;
+    return { result, text: json ? stableStringify(result) : human, human };
   }
   const lintConfig = configResult.config;
 
@@ -81,10 +84,9 @@ export function runCheck(paths: readonly string[], json: boolean): CheckResult {
       sources: Object.fromEntries(compilable.map((file) => [file.name, file.source])),
       resolveIncludes: false,
     });
-    for (const diagnostic of lintResult.diagnostics) {
-      const program = index.programs.find((p) => p.diagnostics.includes(diagnostic as Diagnostic));
-      diagnostics.push(withFile(diagnostic, program?.name ?? "<unknown>"));
-    }
+    lintResult.diagnostics.forEach((diagnostic, position) => {
+      diagnostics.push(withFile(diagnostic, lintResult.programs[position]!));
+    });
   }
 
   for (const diagnostic of diagnostics) {
@@ -98,8 +100,8 @@ export function runCheck(paths: readonly string[], json: boolean): CheckResult {
   const exitCode = hasError ? 1 : 0;
   const summary = { ...emptySummary, files, diagnostics: { error: errors, warning: warnings, info: infos, hint: hints } };
   const result = makeResult("check", exitCode, diagnostics, summary, {});
-  const text = json ? stableStringify(result) : formatCheckText(result);
-  return { result, text };
+  const human = formatCheckText(result);
+  return { result, text: json ? stableStringify(result) : human, human };
 }
 
 function loadLintConfig(): { readonly ok: true; readonly config: LintConfig } | { readonly ok: false; readonly message: string } {

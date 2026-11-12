@@ -165,7 +165,7 @@ The most important tool. A board is edited on a zoomable, scrollable canvas, wit
 
 ---
 
-## 7. Graphics composition editors (T-60 … T-64)
+## 7. Graphics composition editors (T-60 … T-65)
 
 **T-60 Animation editor.** Frame strip navigation (previous, next, append, insert, delete) and playback. Per-frame image (picture, tile or tile bitmap), **per-frame transparent colour** picked from the frame, per-frame sound. Global frame delay (text field and slider). Size from presets, manual entry, or the image's own size.
 
@@ -177,19 +177,24 @@ The most important tool. A board is edited on a zoomable, scrollable canvas, wit
 
 **T-64 Skin editor.** Legacy UI skin: window graphic and button graphic.
 
+<a id="t-65-bitmap-font-editor"></a>
+**T-65 Bitmap font editor.** Restore the glyph editor shown in the [older Toolkit manual](../_bmad-output/initiative-rpgtoolkit-reawakened/research-what-survived-of-rpg-toolkit/legacy-ui-visual-archaeology.md#fig-097---font-editor-files-image097png-372x230--image098jpg-372x230). In Reawakened, create or open a [Toolkit 2 bitmap font](spec/formats/legacy/text-formats.md#font-toolkit-2-text), browse its 256 character slots, and draw or erase ink in the selected 8 × 8 glyph with a pointer or keyboard. Preview sample text at a chosen size with bold, italics and underline. The preview settings belong to the view and leave the glyphs unchanged. Glyph edits use the project's ordinary undo, redo and save workflow. Save and reopen the same `.fnt` format, preserving every unedited glyph.
+
+The preview uses the same crisp bitmap rendering as the player. Scale the glyph's ink to the selected size, including sizes above 8 px, with hard pixel edges. Bold extends ink to the right, italics slant the rows, and underline draws a separate line. The style switches affect how the preview draws. The saved file contains the edited 8 × 8 cells without style overrides.
+
 ---
 
 ## 8. Build & distribution tools (T-70 … T-74)
 
-**T-70 Make package.** Package the game as one **distribution package** (§13) plus its **install descriptor**, with an output path: the project folder at the archive root, with `manifest.json { schema, main, index }` naming the main file and the game files. The package is what a player installs and opens; it carries no copy of the engine. The legacy self-running EXE is an **import** format only — we read one and never write one (§13, Standalone EXE).
+**T-70 Make package.** Package the game as one **distribution package** ([packaging and paths](spec/formats/packaging-and-paths.md#distribution-package-this-projects-own)) plus its **install descriptor**, with an output path: the project folder at the archive root, with `manifest.json { schema, main, index }` naming the main file and the game files. The package is what a player installs and opens; it carries no copy of the engine. The legacy self-running EXE is an **import** format only — we read one and never write one ([packaging and paths](spec/formats/packaging-and-paths.md#standalone-exe)).
 
-**T-71 Pak file compiler.** Package the game as a single `.tpk` archive that an installed player opens. A rebuild's build step writes the same archive as its **distribution package** — a `.tpk`-compatible ZIP with `manifest.json { schema, main, index }` at the archive root (§13) — so the build is one step for the `.tpk` and the package.
+**T-71 Pak file compiler.** Package the game as a single `.tpk` archive that an installed player opens. A rebuild's build step writes the same archive as its **distribution package** — a `.tpk`-compatible ZIP with `manifest.json { schema, main, index }` at the archive root ([packaging and paths](spec/formats/packaging-and-paths.md#distribution-package-this-projects-own)) — so the build is one step for the `.tpk` and the package.
 
 **T-72 Create setup.** A ZIP containing the game files plus a simple installer and uninstaller.
 
 **T-73 File-system upgrade.** Migrate a 2.x project layout (flat folders) into the 3.x project-folder structure.
 
-**T-74 Third-party distribution guidance.** Which files the engine needs at runtime. For a **distribution package** that list is the manifest's `index` (`manifest.json { schema, main, index }`, §13): every game file except the manifest, each once, so a consumer builds the resolver's index without walking the archive.
+**T-74 Third-party distribution guidance.** Which files the engine needs at runtime. For a **distribution package** that list is the manifest's `index` (`manifest.json { schema, main, index }`, [packaging and paths](spec/formats/packaging-and-paths.md#distribution-package-this-projects-own)): every game file except the manifest, each once, so a consumer builds the resolver's index without walking the archive.
 
 ---
 
@@ -218,5 +223,5 @@ The most important tool. A board is edited on a zoomable, scrollable canvas, wit
 | Priority | Tools |
 |---|---|
 | **P0** (cannot author a game without) | Workspace + file tree, Main file editor, Board editor (tiles, layers, vectors, programs, sprites, images, properties), Program editor with test-run, Character, Item, Animation, Tile bitmap editors, packaging (T-70 equivalent) |
-| **P1** | Tile editor, Tile grabber, Tileset editor, Enemy, Special move, Status effect, Background editors, lighting/shading, auto-tiler, undo/clipboard, export image, legacy upgrade wizards |
+| **P1** | Tile editor, Tile grabber, Tileset editor, Bitmap font editor, Enemy, Special move, Status effect, Background editors, lighting/shading, auto-tiler, undo/clipboard, export image, legacy upgrade wizards |
 | **P2** | Visual event builder, skin editor, Bard-style audio preview, setup builder, tutorials |

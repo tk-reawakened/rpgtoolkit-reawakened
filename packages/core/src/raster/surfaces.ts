@@ -33,7 +33,8 @@ type SurfaceBatch = { depth: number; entries: Map<SurfaceState, BatchEntry> };
 const decodedRecords = new WeakMap<SurfaceState, DecodedRecord>();
 const pendingEntries = new WeakMap<SurfaceState, BatchEntry>();
 const batches = new WeakMap<SurfacesSection, SurfaceBatch>();
-const BASE64_PAIRS = Array.from({ length: 4096 }, (_, i) => BASE64[i >> 6]! + BASE64[i & 63]!);
+const BASE64_CODES = Uint8Array.from(BASE64, (c) => c.charCodeAt(0));
+const ENCODE_SLICE = 8192;
 
 /** A decoded-pixel cache owned by a runner/core facade, never by save state. */
 export type SurfacePixelCache = Map<string, Uint8Array>;
@@ -52,27 +53,40 @@ function byteCount(width: number, height: number): number {
 }
 
 
-/** Encode bytes without relying on host `btoa`/`Buffer` APIs (G2). */
+/**
+ * Encode bytes without relying on host `btoa`/`Buffer` APIs (G2).
+ *
+ * Fills a byte buffer of base64 character codes, then turns it into text in
+ * fixed-size slices. This avoids building the string by repeated concatenation,
+ * which was about ten times slower for a full-screen frame.
+ */
 export function encodeSurfaceBytes(bytes: Uint8Array): string {
-  const chunks: string[] = [];
-  let output = "";
+  const length = bytes.length;
+  const out = new Uint8Array(((length + 2) / 3 | 0) * 4);
+  const limit = length - (length % 3);
   let i = 0;
-  const limit = bytes.length - (bytes.length % 3);
+  let o = 0;
   for (; i < limit; i += 3) {
     const bits = (bytes[i]! << 16) | (bytes[i + 1]! << 8) | bytes[i + 2]!;
-    output += BASE64_PAIRS[bits >>> 12]! + BASE64_PAIRS[bits & 4095]!;
-    if (output.length >= 8192) {
-      chunks.push(output);
-      output = "";
-    }
+    out[o] = BASE64_CODES[bits >>> 18]!;
+    out[o + 1] = BASE64_CODES[(bits >>> 12) & 63]!;
+    out[o + 2] = BASE64_CODES[(bits >>> 6) & 63]!;
+    out[o + 3] = BASE64_CODES[bits & 63]!;
+    o += 4;
   }
-  if (i < bytes.length) {
+  if (i < length) {
     const a = bytes[i]!;
     const b = bytes[i + 1];
-    output += BASE64[a >> 2]! + BASE64[((a & 3) << 4) | ((b ?? 0) >> 4)]!;
-    output += b === undefined ? "==" : BASE64[(b & 15) << 2]! + "=";
+    out[o] = BASE64_CODES[a >> 2]!;
+    out[o + 1] = BASE64_CODES[((a & 3) << 4) | ((b ?? 0) >> 4)]!;
+    out[o + 2] = b === undefined ? 61 : BASE64_CODES[(b & 15) << 2]!;
+    out[o + 3] = 61;
   }
-  chunks.push(output);
+  if (out.length <= ENCODE_SLICE) return String.fromCharCode.apply(null, out as unknown as number[]);
+  const chunks: string[] = [];
+  for (let start = 0; start < out.length; start += ENCODE_SLICE) {
+    chunks.push(String.fromCharCode.apply(null, out.subarray(start, start + ENCODE_SLICE) as unknown as number[]));
+  }
   return chunks.join("");
 }
 
@@ -390,20 +404,64 @@ export const SCRIPT_SCREEN = -1 as SurfaceId;
 
 /** Create the script-screen layer if it does not exist yet, and return its id. */
 export function ensureScriptScreen(state: SurfacesSection): SurfaceId {
-  if (Object.hasOwn(state.entries, String(SCRIPT_SCREEN))) return SCRIPT_SCREEN;
-  const frame = entry(state, 0 as SurfaceId);
-  const width = frame?.bitmap.w ?? 640;
-  const height = frame?.bitmap.h ?? 480;
-  const pixels = new Uint8Array(byteCount(width, height));
-  const current: SurfaceState = { id: SCRIPT_SCREEN, rev: 0, bitmap: snapshot(width, height, pixels) };
-  state.entries[String(SCRIPT_SCREEN)] = current;
-  decodedRecords.set(current, { rev: 0, bitmap: current.bitmap, b64: current.bitmap.b64, w: width, h: height, rgba: pixels, canonical: true });
-  return SCRIPT_SCREEN;
+  if (state.entries === undefined || Object.hasOwn(state.entries, String(SCRIPT_SCREEN))) return SCRIPT_SCREEN;
+  return copyPresentedFrameToScriptScreen(state);
 }
 
 /** The script-screen layer's id, or `null` when nothing has drawn to the screen yet. */
 export function scriptScreen(state: SurfacesSection): SurfaceId | null {
   return Object.hasOwn(state.entries, String(SCRIPT_SCREEN)) ? SCRIPT_SCREEN : null;
+}
+
+/**
+ * The starting image of an outermost program: the presented frame (surface 0) flattened over opaque black and
+ * written into the script-screen layer, replacing whatever the previous program drew
+ * (docs/spec/engine/main-loop-and-startup.md#reawakened-starting-frame-capture; ADR 0018 R2 and R5).
+ * Compositing matches `blitSurface`'s source-over arithmetic over a black base, so the result is opaque everywhere.
+ */
+export function copyPresentedFrameToScriptScreen(state: SurfacesSection): SurfaceId {
+  // A hand-built state (e.g. in tests) may not have a surfaces section yet; there is nothing to seed.
+  if (state.entries === undefined) return SCRIPT_SCREEN;
+  const presented = entry(state, 0 as SurfaceId);
+  const layer = entry(state, SCRIPT_SCREEN);
+  const width = presented?.bitmap.w ?? layer?.bitmap.w ?? 640;
+  const height = presented?.bitmap.h ?? layer?.bitmap.h ?? 480;
+  const rgba = new Uint8Array(byteCount(width, height));
+  if (presented === null) {
+    for (let at = 3; at < rgba.length; at += 4) rgba[at] = 255;
+  } else {
+    const source = decode(presented);
+    for (let at = 0; at < rgba.length; at += 4) {
+      const alpha = source[at + 3]!;
+      rgba[at] = Math.trunc(source[at]! * alpha / 255);
+      rgba[at + 1] = Math.trunc(source[at + 1]! * alpha / 255);
+      rgba[at + 2] = Math.trunc(source[at + 2]! * alpha / 255);
+      rgba[at + 3] = 255;
+    }
+  }
+  if (layer === null) {
+    const current: SurfaceState = { id: SCRIPT_SCREEN, rev: 0, bitmap: snapshot(width, height, rgba) };
+    state.entries[String(SCRIPT_SCREEN)] = current;
+    decodedRecords.set(current, { rev: 0, bitmap: current.bitmap, b64: current.bitmap.b64, w: width, h: height, rgba, canonical: true });
+  } else {
+    replaceSurface(state, SCRIPT_SCREEN, width, height, rgba);
+  }
+  return SCRIPT_SCREEN;
+}
+
+/**
+ * Reset the script-screen layer to transparent black at outermost program start
+ * (docs/spec/engine/main-loop-and-startup.md#reawakened-script-surface-lifecycle).
+ * If the layer has not been created yet, do nothing so games that never draw do not allocate it.
+ */
+export function resetScriptScreen(state: SurfacesSection): void {
+  const current = state?.entries?.[String(SCRIPT_SCREEN)];
+  if (current === undefined) return;
+  const frame = entry(state, 0 as SurfaceId);
+  const width = frame?.bitmap.w ?? current.bitmap.w;
+  const height = frame?.bitmap.h ?? current.bitmap.h;
+  const pixels = new Uint8Array(byteCount(width, height));
+  replaceSurface(state, SCRIPT_SCREEN, width, height, pixels);
 }
 
 /** Allocate a monotonically increasing surface id. Ids are never reused. */

@@ -16,6 +16,8 @@ import tseslint from "typescript-eslint";
 const sourceFiles = ["**/*.{ts,tsx,mts,cts}"];
 const coreSourceFiles = ["packages/core/src/**/*.{ts,tsx,mts,cts}"];
 const scriptSourceFiles = ["packages/core/src/script/**/*.{ts,tsx,mts,cts}"];
+// The editor reaches a host only through platform-services (G2 rule 4): `editor-ui` and the `editor-model` it stands on.
+const editorFiles = ["packages/editor-ui/**/*.{ts,tsx,mts,cts}", "packages/editor-model/**/*.{ts,tsx,mts,cts}"];
 
 // Host environments `core` must never touch (G2 rule 1) plus the sources of
 // non-determinism (G3 rule 1/4) and console logging (AD-24).
@@ -204,6 +206,19 @@ const restrictedImports = [
   },
 ];
 
+// G2 rule 4: no host runtime and no host package. The dependency graph sees `@tk-reawakened/host-*` edges; the runtimes
+// below are outside the workspace, so only lint can refuse them. A subpath (`electron/main`, `@tauri-apps/api/core`) is the
+// same module.
+const hostModuleSource = "^(?:electron|vscode|@tauri-apps/.+|@capacitor/.+|@tk-reawakened/host-[^/]+)(?:/.*)?$";
+const hostModuleMessage =
+  "G2.4: editor-ui and editor-model reach the host only through platform-services; they never import vscode, Electron, Tauri, Capacitor or a host-* package.";
+const editorRestrictedImports = ["error", { patterns: [{ regex: hostModuleSource, message: hostModuleMessage }] }];
+// `no-restricted-imports` does not visit an ImportExpression, so `await import("electron")` needs a selector of its own.
+const editorRestrictedSyntax = [
+  "error",
+  { selector: `ImportExpression[source.value=/${hostModuleSource.replaceAll("/", "\\/")}/]`, message: hostModuleMessage },
+];
+
 const restrictedMath = [
   "error",
   {
@@ -268,6 +283,13 @@ export default [
     rules: {
       "no-restricted-globals": restrictedGlobals([...bannedGlobals, ...scriptVmGlobals]),
       "no-restricted-syntax": ["error", ...g2Syntax, ...scriptVmSyntax],
+    },
+  },
+  {
+    files: editorFiles,
+    rules: {
+      "no-restricted-imports": editorRestrictedImports,
+      "no-restricted-syntax": editorRestrictedSyntax,
     },
   },
   {

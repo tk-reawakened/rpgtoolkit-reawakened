@@ -10,6 +10,7 @@
  */
 
 import { pow } from "../fmath/index.ts";
+import { claimInputBefore, pruneClaimed } from "../input/index.ts";
 import { observe, observePlugins, type ScriptObservers, type CallObservation } from "./observers.ts";
 import type { Diagnostic } from "../ports/engine.ts";
 import type { Logger } from "../ports/logger.ts";
@@ -25,11 +26,14 @@ import { createBattleOwner } from "../battle/port.ts";
 import { BATTLE_HOST_TYPE, createBattleHostType } from "../battle/host.ts";
 import { createActorEventSink } from "../actors/object.ts";
 import { createBehaviourRegistry, resolveBehaviour, type BehaviourRegistry } from "../actors/behaviour.ts";
-import { createMenuOwnerPorts, type MenuOwnerPorts } from "../menu/ports.ts";
+import { createMenuOwnerPorts, type ItemActionRequest, type ItemActionResult, type MenuOwnerPorts } from "../menu/ports.ts";
+import { SHOP_SCREEN } from "../menu/shop.ts";
+import { itemKey } from "../sprites/runtime.ts";
 import type { Arg, BuiltinSpec } from "./builtins.ts";
 import { createDefaultVirtuals, type VirtualVariablePort } from "./virtuals.ts";
 import { MEDIA_HOST_TYPES, objectValue, mediaVoiceRef, type MediaPlayOptions, type MediaScriptService } from "../audio/script.ts";
 import { recordDiagnostic, recordEffect, type EffectRecord } from "./effects.ts";
+import { createErrorWindows, type ErrorWindows } from "./error-windows.ts";
 import type { HostObjectContext, HostObjectType } from "./host.ts";
 import {
   ASSIGN_READ_ONLY,
@@ -65,13 +69,14 @@ import {
   type PluginLayers,
 } from "./layers.ts";
 import { collectStateGarbage, runEventsPhase } from "../events/dispatch.ts";
-import { applyEmitEffect, applyEmitterOp, EVENT_DISPATCH_WAIT, forgetEmitter, isEmitterMethod, isHostMethodDef, queueErrorEvent, queueNativeEvent, registerEmitter } from "../events/emitter.ts";
+import { applyEmitEffect, applyEmitterOp, dequeueEvent, EVENT_DISPATCH_WAIT, forgetEmitter, isEmitterMethod, isHostMethodDef, queueErrorEvent, queueNativeEvent, registerEmitter } from "../events/emitter.ts";
 import { GAME_EMITTER, type EventsSection } from "../events/model.ts";
 import { registerNativeListeners } from "../events/native.ts";
 import { classInfo, findMember, findMethod } from "./classes.ts";
 import { hostMethodDef, parseHostMethodDef } from "./host.ts";
 import {
   checkMemberAccess,
+  createHostObject,
   createObject,
   DICTIONARY_CLASS,
   findObject,
@@ -88,11 +93,24 @@ import { createPackageFunctionSource, followPackageInclude } from "./package-exp
 import { runModuleCommand } from "./modules.ts";
 import { MODULE_COMMANDS } from "./parse.ts";
 import type { SourcePos, StepOp } from "./ops.ts";
-import type { CommandResult, CommandRequest, CommandView, ResolvedPlugin, MenuProvider, MenuProviderEvent, MenuProviderResult, MenuScreenId } from "./plugin.ts";
+import type { CommandResult, CommandRequest, CommandView, ElementArray, ElementEntry, ErrorWindowPort, ResolvedPlugin, MenuProvider, MenuProviderContext, MenuProviderEvent, MenuProviderResult, MenuScreenId } from "./plugin.ts";
+import { MENU_SCREEN_IDS } from "./plugin.ts";
+import {
+  assetKey,
+  isHookStage,
+  isItemActionRequest,
+  ITEM_ACTION_ASSET_COMMAND,
+  ITEM_ACTION_COMPLETE_COMMAND,
+  topItemAction,
+  type ItemActionRecord,
+} from "./item-action.ts";
+import { INVENTORY_HOST_TYPE, INVENTORY_HOST_TYPE_NAME } from "./packs/inventory.ts";
+import { MENU_HOST_TYPE, MENU_HOST_TYPE_NAME, PARTY_HOST_TYPE, PARTY_HOST_TYPE_NAME, SHOP_HOST_TYPE, SHOP_HOST_TYPE_NAME } from "./packs/menu.ts";
 import {
   IR_VERSION,
   fileProgramRef,
   restartProgramRef,
+  withOwner,
   withRedirects,
   type ProgramLoader,
   type FunctionInfo,
@@ -112,6 +130,7 @@ import {
 import {
   cellRef,
   findBlockingThread,
+  findLiveBlockingThread,
   findThread,
   globalRef,
   incrementStepCounter,
@@ -126,7 +145,7 @@ import {
   type Thread,
   type VmState,
 } from "./state.ts";
-import { defaultWaitPoll, describeWait } from "./waits.ts";
+import { defaultWaitPoll, describeWait, spriteWaitView } from "./waits.ts";
 import {
   compareEqual,
   compareRelational,
@@ -182,6 +201,8 @@ export type ScriptServices = ScriptObservers & {
   readonly virtuals: VirtualVariablePort;
   readonly logger: Logger;
   readonly diagnostics: Diagnostic[];
+  /** Session-only observation windows over unhandled failures (TOOL-5 `toThrow`); never saved state. */
+  readonly errorWindows: ErrorWindows;
   /** Actor operations resolve the session behaviour before applying core rules. */
   readonly actors: ActorService;
   /** Session-only actor behaviour registrations; never saved as game state. */
@@ -196,6 +217,8 @@ export type ScriptServices = ScriptObservers & {
    * rebuilt by package start-up and not saved. A call reaches them through the first entry of the environment table.
    */
   readonly layers: PluginLayers;
+  /** Session inline/file startup references keyed by package owner name (#1676). */
+  readonly packageStartupRefs: ReadonlyMap<string, ProgramRef>;
   /** Native whole-screen transition handlers, session-only; keys include manifest identity. */
   readonly menuProviders: ReadonlyMap<string, MenuProvider>;
   readonly menuProviderIdentityExists: (id: string) => boolean;
@@ -210,20 +233,41 @@ export type ScriptServices = ScriptObservers & {
   readonly postRequest?: (request: CommandRequest) => void;
   /** The script-facing media owner (MEDIA-1), when the engine provides one. */
   readonly media?: MediaScriptService;
+  /** The main file's menu cursor sounds, read lazily because the main file may load after the services are built. */
+  readonly menuSounds?: () => { readonly move: string; readonly choose: string; readonly cancel: string };
 };
 
 function isMenuProviderResult(value: unknown): value is MenuProviderResult {
   if (!isPlainData(value) || typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const result = value as Record<string, unknown>;
-  if (result.kind === "complete") return true;
-  if (!Object.hasOwn(result, "state")) return false;
+  if (result.kind === "complete") return Object.keys(result).length === 1;
+  if (!Object.hasOwn(result, "state") || !Object.hasOwn(result, "kind")) return false;
   if (result.kind === "open") {
-    return result.screen === "main" || result.screen === "items" || result.screen === "equipment" || result.screen === "abilities";
+    return Object.keys(result).length === 3 &&
+      typeof result.screen === "string" && MENU_SCREEN_IDS.some((id) => id === result.screen);
+  }
+  if (result.kind === "item.action") {
+    return Object.keys(result).length === 3 && isPlainData(result.state) && isItemActionRequest(result.action);
   }
   if (result.kind !== "wait" || result.wait === null || typeof result.wait !== "object" || Array.isArray(result.wait)) return false;
   const wait = result.wait as Record<string, unknown>;
-  return wait.kind === "menu.screen" && wait.global === true && typeof wait.id === "string" &&
+  return Object.keys(result).length === 3 && wait.kind === "menu.screen" && wait.global === true && typeof wait.id === "string" &&
     Array.isArray(wait.payload) && Array.isArray(wait.resumeRefs) && wait.resumeRefs.every((ref) => typeof ref === "string");
+}
+
+/**
+ * The read-only menu context a native provider receives (E-80/E-81). It carries the shared screen and
+ * action capabilities, but not the internal item-action preflight/commit operations: only the returned
+ * `item.action` transition runs those, on the calling thread with the item programs.
+ */
+function nativeMenuContext(services: ScriptServices): MenuProviderContext {
+  const owners = services.menuOwners;
+  return {
+    party: owners.party,
+    menu: owners.menu,
+    shop: owners.shop,
+    inventory: { read: owners.inventory.read, apply: owners.inventory.apply },
+  };
 }
 
 function handleMenuProviderFailure(
@@ -239,6 +283,8 @@ function handleMenuProviderFailure(
     screens: services.menuOwners.menu.read().screens.slice(0, baseDepth),
   });
   if (!cleanup.ok) throw new ScriptError("menu.state-refused", cleanup.error?.message ?? "menu frame cleanup was refused");
+  // A failed shop provider ends its session too, so no stock outlives the screen that presented it.
+  if (continuation.screen === SHOP_SCREEN) services.menuOwners.shop.close();
   const frameIndex = Number(continuation.frameIndex);
   const opIp = Number(continuation.opIp);
   const depth = Number(continuation.depth);
@@ -257,7 +303,413 @@ function handleMenuProviderFailure(
     ? new ScriptError(caught.code, caught.message, pos)
     : new ScriptError("menu.provider-error", caught instanceof Error ? caught.message : String(caught), pos);
   thread.frames.length = frameIndex + 1;
+  delete callerFrame.itemActions;
   handleFailure(thread, vm, services, callerProgram, callerFrame, op, opIp, depth, error);
+}
+
+/**
+ * Commit the stock a `CallShop` command resolved, so the presenting screen and the inventory owner already see
+ * it (E-83). The owner validates every source against its item definitions and refuses atomically; a refusal is
+ * the command's own `menu.state-invalid` error, exactly as the effect path reported it.
+ */
+function activateShopStock(services: ScriptServices, value: PlainData | undefined, pos: SourcePos): string[] {
+  if (!Array.isArray(value)) throw new ScriptError("builtin.bad-arg", "shop.open: expected the resolved item sources", pos);
+  const sources: string[] = [];
+  for (const source of value) {
+    if (typeof source !== "string") throw new ScriptError("builtin.bad-arg", "shop.open: expected item asset sources", pos);
+    sources.push(source);
+  }
+  if (sources.length === 0) throw new ScriptError("menu.shop-invalid", "shop stock requires at least one item source", pos);
+  const activated = services.menuOwners.shop.activate(sources);
+  if (!activated.ok) {
+    throw new ScriptError("menu.state-invalid", `${activated.error?.path ?? "shop.stock"}: ${activated.error?.message ?? "the shop was refused"}`, pos);
+  }
+  return sources;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Composed item actions (docs/spec/engine/plugins-and-battle.md#epic-85-item-action-proposal).
+ *
+ * One pending action is a plain-data `ItemActionRecord` on the frame that started it. The owner never runs
+ * a program: this driver asks it for the definitions still missing, preflights, commits, and runs the item
+ * programs between those calls as `executeProgram` frames on the same thread. Every boundary a program can
+ * yield or the budget can preempt at is a saved phase, so a restore resumes the phase once.
+ * ------------------------------------------------------------------------------------------- */
+
+type ActionOutcome = "continue" | "yield";
+
+function itemActionPos(record: ItemActionRecord): SourcePos {
+  return { file: record.file, line: record.line };
+}
+
+function itemActionFailure(record: ItemActionRecord, path: string, message: string): ItemActionResult {
+  return { status: record.started ? "interrupted" : "refused", error: { path, message } };
+}
+
+/** The plain `{ status, error }` result an RPGCode caller receives. */
+function itemActionResultValue(vm: VmState, result: ItemActionResult): Value {
+  const record = createObject(vm, null);
+  writeMember(record, "status", result.status);
+  if (result.error === null) {
+    writeMember(record, "error", null);
+  } else {
+    const error = createObject(vm, null);
+    writeMember(error, "path", result.error.path);
+    writeMember(error, "message", result.error.message);
+    writeMember(record, "error", { kind: "object", handle: error.handle, className: DICTIONARY_CLASS });
+  }
+  return { kind: "object", handle: record.handle, className: DICTIONARY_CLASS };
+}
+
+/** The RPGCode provider's read-only menu context: its screen, state, event and the `inventory` action object. */
+function createRpgcodeMenuContext(vm: VmState, screen: string): ObjectRecord {
+  const context = createObject(vm, null);
+  writeMember(context, "screen", screen);
+  writeMember(context, "state", null);
+  writeMember(context, "event", "enter");
+  // The shop view exists only for the screen that presents a shop session, so the other screens' object
+  // allocation — and therefore their recorded state — stays exactly what it was.
+  const hostTypes = screen === SHOP_SCREEN
+    ? [INVENTORY_HOST_TYPE_NAME, PARTY_HOST_TYPE_NAME, MENU_HOST_TYPE_NAME, SHOP_HOST_TYPE_NAME]
+    : [INVENTORY_HOST_TYPE_NAME, PARTY_HOST_TYPE_NAME, MENU_HOST_TYPE_NAME];
+  for (const type of hostTypes) {
+    const holder = vm.objects.find((record) => record.hostType === type) ?? createHostObject(vm, type);
+    writeMember(context, type, { kind: "object", handle: holder.handle, className: holder.className });
+  }
+  return context;
+}
+
+function popItemAction(frame: Frame): void {
+  frame.itemActions?.pop();
+  if (frame.itemActions !== undefined && frame.itemActions.length === 0) delete frame.itemActions;
+}
+
+/** Drop the action and, for a native one, the menu frames its operation opened (E-80 cleanup). */
+function abandonItemAction(services: ScriptServices, frame: Frame, record: ItemActionRecord): void {
+  popItemAction(frame);
+  if (record.provider === null) return;
+  const baseDepth = Number.isSafeInteger(record.provider.menuBaseDepth) ? Number(record.provider.menuBaseDepth) : 0;
+  const cleanup = services.menuOwners.menu.apply({
+    type: "navigation",
+    screens: services.menuOwners.menu.read().screens.slice(0, baseDepth),
+  });
+  if (!cleanup.ok) throw new ScriptError("menu.state-refused", cleanup.error?.message ?? "menu frame cleanup was refused");
+}
+
+/**
+ * Route one failed hook invocation at the owner frame (ERR-1/ERR-2). It is reported and queued as an `error`
+ * event; when the frame's label handler transfers control away the action is abandoned ("abandoned"), otherwise
+ * the action continues with its next phase ("continue").
+ */
+function routeItemActionFailure(
+  thread: Thread,
+  vm: VmState,
+  services: ScriptServices,
+  program: Program,
+  frame: Frame,
+  record: ItemActionRecord,
+  error: ScriptError,
+): "abandoned" | "continue" {
+  const located = locateError(error, program.ops[record.opIp]?.pos ?? itemActionPos(record));
+  const diagnostic = reportFailure(vm, services, located);
+  const handler = frame.errorHandler;
+  if (handler !== null && handler.mode === "label") {
+    const target = handler.label === null ? undefined : handlerLabel(program, record.opIp, handler.label);
+    if (target !== undefined) {
+      emitErrorEvent(thread, vm, services, located, true);
+      abandonItemAction(services, frame, record);
+      frame.operands.length = 0;
+      handler.active = true;
+      handler.resume = statementEnd(program, record.opIp);
+      frame.ip = target;
+      return "abandoned";
+    }
+    frame.errorHandler = null;
+  }
+  emitUnlabelledFailure(thread, vm, services, diagnostic, located, handler);
+  return "continue";
+}
+
+/** Push the named item program as an `executeProgram` frame with its E-95 context; throws the located invocation error. */
+function pushItemHook(thread: Thread, vm: VmState, services: ScriptServices, record: ItemActionRecord, kind: "use" | "remove" | "equip"): void {
+  const hook = record.hooks?.[kind];
+  const selection = record.selection;
+  if (hook === undefined || hook === null || selection === null) return;
+  const pos = itemActionPos(record);
+  if (services.loader === undefined) throw new ScriptError("program.missing", `no program "${hook.program}" is in the asset index`, pos);
+  const newRef = fileProgramRef(services.loader, hook.program, vm.redirects);
+  services.programs.get(newRef);
+  const callerPair = { source: thread.source, target: thread.target };
+  const actorHandle = String(selection.actorId);
+  const context = createObject(vm, null);
+  if (kind === "use") writeMember(context, "source", actorHandle);
+  writeMember(context, "target", actorHandle);
+  const item = createObject(vm, null);
+  for (const [key, value] of Object.entries(hook.item)) writeMember(item, key, value);
+  writeMember(context, "item", { kind: "object", handle: item.handle, className: DICTIONARY_CLASS });
+  if (kind !== "use") {
+    writeMember(context, "slot", kind === "remove" ? selection.displaced?.slot ?? "" : selection.slot ?? "");
+  }
+  const plan = prepareProgramContext(
+    vm, services, "executeProgram", "object",
+    { kind: "object", handle: context.handle, className: DICTIONARY_CLASS }, undefined, undefined, callerPair, pos,
+  );
+  const rootFrame: Frame = {
+    program: newRef,
+    ip: 0,
+    locals: {},
+    operands: [],
+    errorHandler: null,
+    autoLocal: false,
+    programRoot: { restore: callerPair },
+  };
+  setOwnSlot(rootFrame.locals, "context", { value: materializeProgramContext(vm, plan), ref: localRef("context") });
+  thread.source = plan.pair.source;
+  thread.target = plan.pair.target;
+  thread.frames.push(rootFrame);
+}
+
+/**
+ * Start `kind`'s item program, if it has a non-empty one. Returns "started" when its frame was pushed, "abandoned"
+ * when a caller handler took the invocation error, else "skipped" (blank program, or an error reported with the action
+ * continuing at its next phase).
+ */
+function startItemHook(
+  thread: Thread,
+  vm: VmState,
+  services: ScriptServices,
+  program: Program,
+  frame: Frame,
+  record: ItemActionRecord,
+  kind: "use" | "remove" | "equip",
+): "started" | "abandoned" | "skipped" {
+  if (!record.hooks?.[kind]) return "skipped";
+  const phase = record.phase;
+  record.phase = `${kind}.hook`;
+  const frames = thread.frames.length;
+  try {
+    pushItemHook(thread, vm, services, record, kind);
+  } catch (error) {
+    thread.frames.length = frames;
+    record.phase = phase;
+    if (!(error instanceof ScriptError) || failureClass(error.code) === null) throw error;
+    return routeItemActionFailure(thread, vm, services, program, frame, record, error) === "abandoned" ? "abandoned" : "skipped";
+  }
+  record.started = true;
+  return "started";
+}
+
+/** Park the thread on one definition request; its reply resumes the action through `__item_action_asset`. */
+function requestItemActionAsset(
+  thread: Thread,
+  vm: VmState,
+  services: ScriptServices,
+  asset: { readonly area: string; readonly path: string },
+  record: ItemActionRecord,
+): void {
+  const pos = itemActionPos(record);
+  if (services.isPackageStartup()) {
+    throw new ScriptError("package.startup-forbidden", `package startup cannot issue host request "asset"`, pos);
+  }
+  vm.requestSeq += 1;
+  const reqId = vm.requestSeq;
+  const request: CommandRequest = { kind: "asset", area: asset.area, path: asset.path, reqId };
+  const wait = requestWait(reqId, null, { command: ITEM_ACTION_ASSET_COMMAND, args: [] }, pos, "asset");
+  recordEffect(vm, {
+    tick: services.clock.tick(),
+    thread: thread.id,
+    name: "itemAction",
+    kind: "request",
+    args: [asset.area, asset.path],
+    out: {},
+    result: null,
+    patch: null,
+    wait: { ...wait },
+    request,
+  });
+  services.postRequest?.(request);
+  thread.wait = wait;
+  thread.status = "waiting";
+}
+
+/** Raise `error` at the action's call op in its owner frame, as an ordinary failure of that call (ERR-1/ERR-2). */
+function raiseAtItemActionCaller(
+  thread: Thread,
+  vm: VmState,
+  services: ScriptServices,
+  program: Program,
+  frame: Frame,
+  record: ItemActionRecord,
+  error: ScriptError,
+): void {
+  const op = program.ops[record.opIp];
+  if (op === undefined) throw error;
+  if (frame.menuContinuation !== undefined) {
+    handleMenuProviderFailure(thread, vm, services, frame.menuContinuation as { readonly [key: string]: PlainData }, error);
+  } else {
+    handleFailure(thread, vm, services, program, frame, op, record.opIp, frame.operands.length + stackEffect(op).pops, error);
+  }
+}
+
+/**
+ * Deliver one finished action. An RPGCode caller receives the result dictionary; a legacy adapter returns void and
+ * raises a catchable `menu.state-invalid` for a refusal or interruption; a native provider keeps the record in its
+ * `completion` phase and queues the one `item.action.completed` dispatch as the thread's next ordinary VM step.
+ */
+function finishItemAction(
+  thread: Thread,
+  vm: VmState,
+  services: ScriptServices,
+  program: Program,
+  frame: Frame,
+  record: ItemActionRecord,
+  result: ItemActionResult,
+): ActionOutcome {
+  if (record.origin === "native") {
+    record.phase = "completion";
+    record.next = null;
+    record.result = result;
+    thread.pending = { command: ITEM_ACTION_COMPLETE_COMMAND, args: [], file: record.file, line: record.line };
+    return "continue";
+  }
+  popItemAction(frame);
+  if (record.origin === "rpgcode") {
+    frame.operands.push({ value: itemActionResultValue(vm, result), ref: null });
+    return "continue";
+  }
+  if (result.status === "complete") {
+    frame.operands.push({ value: null, ref: null });
+    return "continue";
+  }
+  raiseAtItemActionCaller(
+    thread, vm, services, program, frame, record,
+    new ScriptError("menu.state-invalid", `${result.error.path}: ${result.error.message}`, program.ops[record.opIp]?.pos ?? itemActionPos(record)),
+  );
+  return "continue";
+}
+
+/**
+ * Advance the innermost action on `frame`, which must be the top frame of a ready thread, until it parks on a
+ * request, starts an item program, or finishes. A hook phase found here means that program has just returned.
+ */
+function driveItemAction(thread: Thread, vm: VmState, services: ScriptServices, frame: Frame): ActionOutcome {
+  const program = services.programs.get(frame.program);
+  const owner = services.menuOwners.inventory;
+  for (;;) {
+    const record = topItemAction(frame);
+    if (record === undefined || record.phase === "completion") return "continue";
+    const finish = (result: ItemActionResult): ActionOutcome => finishItemAction(thread, vm, services, program, frame, record, result);
+    if (isHookStage(record.phase)) {
+      const returned = record.phase;
+      if (returned === "equip.hook") return finish({ status: "complete", error: null });
+      record.phase = returned === "remove.hook" ? "commit" : "consume";
+      continue;
+    }
+    switch (record.phase) {
+      case "assets": {
+        const missing = owner.missingItemActionAssets(record.action);
+        const stale = missing.find((asset) => record.requested.includes(assetKey(asset.area, asset.path)));
+        if (stale !== undefined) {
+          return finish(itemActionFailure(record, "inventory.action.asset", `the ${stale.area} definition "${stale.path}" is missing or invalid`));
+        }
+        const next = missing[0];
+        if (next !== undefined) {
+          record.requested.push(assetKey(next.area, next.path));
+          requestItemActionAsset(thread, vm, services, next, record);
+          return "yield";
+        }
+        record.phase = record.next ?? "preflight";
+        record.next = null;
+        continue;
+      }
+      case "preflight": {
+        const preflight = owner.preflightItemAction(record.action);
+        if (!preflight.ok) return finish(itemActionFailure(record, preflight.error.path, preflight.error.message));
+        const selection = preflight.selection;
+        record.selection = selection as ItemActionRecord["selection"];
+        record.hooks = owner.itemActionHooks(record.action, selection) as ItemActionRecord["hooks"];
+        if (record.action.kind === "use") {
+          record.phase = "effects";
+          continue;
+        }
+        if (selection.displaced === null && record.action.kind === "removeEquipment") {
+          return finish({ status: "complete", error: null });
+        }
+        if (selection.displaced !== null) {
+          const started = startItemHook(thread, vm, services, program, frame, record, "remove");
+          if (started !== "skipped") return "continue";
+        }
+        record.phase = "commit";
+        continue;
+      }
+      case "effects": {
+        const effects = owner.commitItemAction(record.action, record.selection!, { programStarted: false, step: "effects" });
+        if (effects.status !== "complete") return finish(effects);
+        record.started = true;
+        const started = startItemHook(thread, vm, services, program, frame, record, "use");
+        if (started !== "skipped") return "continue";
+        record.phase = "consume";
+        continue;
+      }
+      case "commit": {
+        if (owner.missingItemActionAssets(record.action).length > 0) {
+          record.phase = "assets";
+          record.next = "commit";
+          continue;
+        }
+        const committed = owner.commitItemAction(record.action, record.selection!, { programStarted: record.started });
+        if (committed.status !== "complete") return finish(committed);
+        record.started = true;
+        if (record.action.kind === "replace") {
+          const started = startItemHook(thread, vm, services, program, frame, record, "equip");
+          if (started !== "skipped") return "continue";
+        }
+        return finish({ status: "complete", error: null });
+      }
+      case "consume":
+        return finish(owner.commitItemAction(record.action, record.selection!, { programStarted: true, step: "consume" }));
+      default:
+        return "continue";
+    }
+  }
+}
+
+/** Start one action on `frame` (the top frame of the running thread) and drive it to its first park. */
+function startItemAction(
+  thread: Thread,
+  vm: VmState,
+  services: ScriptServices,
+  frame: Frame,
+  action: ItemActionRequest,
+  origin: ItemActionRecord["origin"],
+  adapter: ItemActionRecord["adapter"],
+  provider: ItemActionRecord["provider"],
+  pos: SourcePos,
+  opIp: number,
+): ActionOutcome {
+  const record: ItemActionRecord = {
+    origin,
+    adapter,
+    action: { ...action },
+    phase: "assets",
+    next: "preflight",
+    requested: [],
+    selection: null,
+    hooks: null,
+    started: false,
+    provider,
+    result: null,
+    opIp,
+    file: pos.file,
+    line: pos.line,
+  };
+  (frame.itemActions ??= []).push(record as unknown as PlainData);
+  try {
+    return driveItemAction(thread, vm, services, frame);
+  } catch (error) {
+    if (topItemAction(frame) === record) popItemAction(frame);
+    throw error;
+  }
 }
 
 /** Take every diagnostic collected since the last drain, oldest first. */
@@ -287,6 +739,9 @@ export function createScriptServices(
   requestRecoveryCapture?: () => void,
   beforeBattleStart?: () => void,
   refreshScreen?: () => void,
+  menuSounds?: () => { readonly move: string; readonly choose: string; readonly cancel: string },
+  pixelMovement = 0,
+  logicalViewport: CommandView["logicalViewport"] = { width: 320, height: 240 },
 ): ScriptServices {
   const loader = typeof loaderOrGameId === "string" ? undefined : loaderOrGameId;
   const gameId = typeof loaderOrGameId === "string" ? loaderOrGameId : explicitGameId ?? null;
@@ -345,6 +800,22 @@ export function createScriptServices(
     },
   });
   const diagnostics: Diagnostic[] = [];
+  const errorWindows = createErrorWindows();
+  const errorWindowPort: ErrorWindowPort = {
+    open: () => {
+      if (commandThread !== undefined) errorWindows.open(commandThread);
+    },
+    close: () => {
+      const consumed = commandThread === undefined ? null : errorWindows.close(commandThread);
+      if (consumed === null) return null;
+      for (const failure of consumed) {
+        const at = diagnostics.indexOf(failure.diagnostic);
+        if (at >= 0) diagnostics.splice(at, 1);
+        if (failure.event !== null) dequeueEvent(state.events, failure.event);
+      }
+      return consumed.map(({ diagnostic }) => ({ code: diagnostic.code, message: diagnostic.message, file: diagnostic.file, line: diagnostic.line }));
+    },
+  };
   const behaviours = createBehaviourRegistry(
     plugins.map((plugin) => plugin.namespace ?? plugin.definition.id),
     diagnostics,
@@ -372,13 +843,17 @@ export function createScriptServices(
     rng,
     clock,
     state: commandState,
+    pixelMovement,
     actors,
     battle,
+    logicalViewport,
     ...(battleStartView === undefined ? {} : { battleStart: battleStartView }),
     ...(refreshScreen === undefined ? {} : { refreshScreen }),
     ...(requestRecoveryCapture === undefined ? {} : { requestRecoveryCapture }),
     ...(media === undefined ? {} : { media }),
     objectMembers: (handle: number) => state.vm.objects.find((record) => record.handle === handle)?.members,
+    elementArray: (ref: RefId) => readElementArray(state.vm, commandThread, ref),
+    errorWindows: errorWindowPort,
     gameOverProgram,
     gameId,
     get packageStartup() { return packageStartupActive.active; },
@@ -398,8 +873,13 @@ export function createScriptServices(
     });
   }
   const pluginOptions = new Map<string, PlainData>();
+  const packageStartupRefs = new Map<string, ProgramRef>();
   const menuProviders = new Map<string, MenuProvider>();
   for (const plugin of plugins) {
+    if (plugin.startup !== undefined) {
+      const owner = plugin.startup.owner ?? plugin.package?.name ?? plugin.definition.id;
+      if (owner !== "") packageStartupRefs.set(owner, withOwner(plugin.startup, owner));
+    }
     for (const [screen, provider] of Object.entries(plugin.definition.menuProviders ?? {})) {
       if (provider === undefined) continue;
       const id = `${plugin.definition.id}@${plugin.definition.version}:menu:${screen}`;
@@ -427,6 +907,10 @@ export function createScriptServices(
   const hydratedTypes = new Map<string, HostObjectType>();
   hydratedTypes.set("actor", createActorHostType(actors));
   hydratedTypes.set(BATTLE_HOST_TYPE, createBattleHostType());
+  hydratedTypes.set(INVENTORY_HOST_TYPE_NAME, INVENTORY_HOST_TYPE);
+  hydratedTypes.set(PARTY_HOST_TYPE_NAME, PARTY_HOST_TYPE);
+  hydratedTypes.set(MENU_HOST_TYPE_NAME, MENU_HOST_TYPE);
+  hydratedTypes.set(SHOP_HOST_TYPE_NAME, SHOP_HOST_TYPE);
   if (media !== undefined) for (const type of MEDIA_HOST_TYPES) hydratedTypes.set(type.name, type);
   const menuOwners = menuPorts ?? createMenuOwnerPorts(state);
   for (const plugin of plugins) {
@@ -484,12 +968,14 @@ export function createScriptServices(
     virtuals: virt,
     logger,
     diagnostics,
+    errorWindows,
     actors,
     behaviours,
     pluginOptions,
     hiddenFileWarned: new Set(),
     hostTypes: hydratedTypes,
     layers,
+    packageStartupRefs,
     menuProviders,
     menuProviderIdentityExists: (id) =>
       menuProviders.has(id) || (layers.menuLayers.get(id) !== undefined && !layers.menuLayers.get(id)!.removed),
@@ -500,6 +986,7 @@ export function createScriptServices(
     ...(onThreadRemoved === undefined ? {} : { onThreadRemoved }),
     ...(requestRecoveryCapture === undefined ? {} : { requestRecoveryCapture }),
     ...(media === undefined ? {} : { media }),
+    ...(menuSounds === undefined ? {} : { menuSounds }),
     ...observers,
     ...(observers?.postCall === undefined ? {} : {
       callPlugin: (name: string, namespace?: string): string | undefined => {
@@ -516,13 +1003,16 @@ export function createScriptServices(
  * and a thread that wakes runs in this tick's threads phase. While a blocking
  * command waits (R-32) only that command's wait is polled; the cooperative
  * waits of the other threads are polled once it resolves, in the same phase.
- * `poll` is AD-9's one resolver; it defaults to the VM-owned kinds.
+ * `poll` is AD-9's one resolver; it defaults to the VM-owned kinds. A caller may omit the input claim
+ * callback while polling idle or claim-free waits. If a result contains a claim or discard boundary without
+ * a callback, the phase throws rather than resolve the wait and lose that input. For cursor-map navigation,
+ * it restores the prior selection before throwing so the queued key can be retried by a proper scheduler.
  */
 export function runWaitsPhase(
   vm: VmState,
   view: WaitView,
   poll: WaitPoll = defaultWaitPoll,
-  claim?: (seq: number) => void,
+  claim?: (seq: number | undefined, discardBefore?: number) => void,
   services?: ScriptServices,
   onResolved?: (wait: Wait) => void,
 ): void {
@@ -542,18 +1032,153 @@ export function runWaitsPhase(
   refreshBlock(vm, view.tick);
 }
 
-/** Poll one thread's wait; on a result, make the thread ready and hand it the wake value. */
-function resolveWait(vm: VmState, view: WaitView, poll: WaitPoll, thread: Thread, claim?: (seq: number) => void, services?: ScriptServices, onResolved?: (wait: Wait) => void): void {
+/**
+ * Dispatch exactly one event to a saved native provider continuation and apply its one transition on the thread
+ * whose top frame is `frame`. A thrown callback or malformed transition removes the operation's menu frames and
+ * routes the failure to the facade call (E-80).
+ */
+function runNativeMenuProvider(
+  thread: Thread,
+  vm: VmState,
+  services: ScriptServices,
+  frame: Frame,
+  saved: { readonly [key: string]: PlainData },
+  event: MenuProviderEvent,
+  parkSeq: number | null,
+  pointer: PlainData = null,
+): void {
+  const providerId = saved.providerId as string;
+  const provider = services.menuProviders.get(providerId);
+  if (provider === undefined) throw new ScriptError("restore.menu-provider", `menu provider "${providerId}" is not registered`);
+  try {
+    const transition = provider({
+      providerId,
+      context: nativeMenuContext(services),
+      state: saved.state as PlainData,
+      event,
+    });
+    if (!isMenuProviderResult(transition)) throw new ScriptError("menu.provider-result", "menu provider returned an invalid or non-plain transition");
+    const parents = Array.isArray(saved.parents)
+      ? saved.parents as unknown as Array<{ providerId: string; screen: string; state: PlainData }>
+      : [];
+    if (transition.kind === "wait") {
+      if (transition.wait.kind !== "menu.screen" || !transition.wait.global) {
+        throw new ScriptError("menu.provider-wait", "menu providers must return a global menu.screen wait");
+      }
+      thread.wait = {
+        ...transition.wait,
+        payload: [{ ...saved, state: transition.state, phase: "input", childScreen: null, parkSeq, pointer }, ...transition.wait.payload],
+      };
+      thread.status = "waiting";
+      return;
+    }
+    if (transition.kind === "item.action") {
+      const continuation = { ...saved, state: transition.state };
+      const opIp = Number.isSafeInteger(saved.opIp) ? Number(saved.opIp) : frame.ip - 1;
+      const pos = {
+        file: typeof saved.file === "string" ? saved.file : "<menu>",
+        line: typeof saved.line === "number" ? saved.line : 0,
+      };
+      startItemAction(thread, vm, services, frame, transition.action, "native", null, continuation, pos, opIp);
+      return;
+    }
+    if (transition.kind === "open") {
+      const child = topMenuProvider(services.layers, transition.screen);
+      if (child === undefined) throw new ScriptError("menu.provider-missing", `no menu provider is registered for "${transition.screen}"`);
+      const pushed = services.menuOwners.menu.apply({
+        type: "navigation",
+        screens: [...services.menuOwners.menu.read().screens, { screen: transition.screen, actorId: services.menuOwners.party.read().selected, selection: 0 }],
+      });
+      if (!pushed.ok) throw new ScriptError("menu.state-refused", pushed.error?.message ?? "menu frame was refused");
+      const childState = {
+        ...saved,
+        providerId: child.id,
+        screen: transition.screen,
+        state: null,
+        phase: "enter",
+        childScreen: null,
+        parkSeq: null,
+        parents: [...parents, { providerId: saved.providerId as string, screen: saved.screen as string, state: transition.state }],
+      };
+      thread.wait = { kind: "menu.screen", global: true, id: child.id, payload: [childState], resumeRefs: [] };
+      thread.status = "waiting";
+      return;
+    }
+    const popped = services.menuOwners.menu.apply({
+      type: "navigation",
+      screens: services.menuOwners.menu.read().screens.slice(0, -1),
+    });
+    if (!popped.ok) throw new ScriptError("menu.state-refused", popped.error?.message ?? "menu frame close was refused");
+    // A shop session ends with the provider that presented it, whichever kind of provider it was.
+    if (saved.screen === SHOP_SCREEN) services.menuOwners.shop.close();
+    if (parents.length > 0) {
+      const parent = parents[parents.length - 1]!;
+      if (!services.menuProviders.has(parent.providerId)) {
+        throw new ScriptError("menu.provider-missing", `parent menu provider "${parent.providerId}" is not registered`);
+      }
+      thread.wait = {
+        kind: "menu.screen",
+        global: true,
+        id: parent.providerId,
+        payload: [{
+          ...saved,
+          providerId: parent.providerId,
+          screen: parent.screen,
+          state: parent.state,
+          phase: "child.closed",
+          childScreen: saved.screen,
+          parkSeq: null,
+          parents: parents.slice(0, -1),
+        } as unknown as PlainData],
+        resumeRefs: [],
+      };
+      thread.status = "waiting";
+      return;
+    }
+    frame.operands.push({ value: null, ref: null });
+  } catch (caught) {
+    handleMenuProviderFailure(thread, vm, services, saved, caught);
+  }
+}
+
+/** The five pointer fields a wait compares, as plain data (`null` before any input section exists). */
+function pointerBaselineOf(pointer: NonNullable<WaitView["input"]>["pointer"]): PlainData {
+  if (pointer === undefined) return null;
+  return { x: pointer.x, y: pointer.y, buttons: pointer.buttons, downs: pointer.downs ?? 0, ups: pointer.ups ?? 0 };
+}
+
+/** Poll one thread's wait; claim input progress or hand a wake value to a resolved thread. */
+function resolveWait(vm: VmState, view: WaitView, poll: WaitPoll, thread: Thread, claim?: (seq: number | undefined, discardBefore?: number) => void, services?: ScriptServices, onResolved?: (wait: Wait) => void): void {
   const wait = thread.wait;
   if (wait === null) return;
+  if (wait.kind === "movement" && view.sprites !== undefined) {
+    // Remember each completed actor independently: a forever waypoint can start another traversal before its peers finish.
+    wait.moves = wait.moves.filter((move) => move.actual !== true || view.sprites!.find((actor) => actor.id === move.sprite)?.moving === true);
+  }
+  const cursorSelectionBeforePoll = wait.kind === "input.key" ? wait.cursorSelection : undefined;
   const menuContinuation = wait.kind === "menu.screen" ? wait.payload[0] : null;
   if (menuContinuation !== null && typeof menuContinuation === "object" && !Array.isArray(menuContinuation) &&
       menuContinuation.parkSeq === null) {
     menuContinuation.parkSeq = view.input?.nextSeq ?? 0;
   }
+  if (menuContinuation !== null && typeof menuContinuation === "object" && !Array.isArray(menuContinuation) &&
+      (menuContinuation.pointer === null || menuContinuation.pointer === undefined)) {
+    // The pointer baseline of a native provider is taken when it parks, like the key floor (E-111 pointer record).
+    menuContinuation.pointer = pointerBaselineOf(view.input?.pointer);
+  }
   const result = poll(view, wait);
   if (result === null) return;
-  if (result.claim !== undefined) claim?.(result.claim);
+  if (result.claim !== undefined || result.discardBefore !== undefined) {
+    if (claim === undefined) {
+      if (result.keepWaiting === true && wait.kind === "input.key") {
+        if (cursorSelectionBeforePoll === undefined) delete wait.cursorSelection;
+        else wait.cursorSelection = cursorSelectionBeforePoll;
+      }
+      throw new Error("runWaitsPhase requires a claim callback for input claims");
+    }
+    claim(result.claim, result.discardBefore);
+  }
+  if (result.keepWaiting === true) return;
   thread.status = "ready";
   thread.wait = null;
   const frame = thread.frames[thread.frames.length - 1];
@@ -574,10 +1199,7 @@ function resolveWait(vm: VmState, view: WaitView, poll: WaitPoll, thread: Thread
       const caller = thread.frames[thread.frames.length - 1]!;
       const program = services.programs.get(caller.program);
       const before = thread.frames.length;
-      const context = createObject(vm, null);
-      writeMember(context, "screen", saved.screen);
-      writeMember(context, "state", null);
-      writeMember(context, "event", "enter");
+      const context = createRpgcodeMenuContext(vm, saved.screen);
       try {
         const savedFile = typeof saved.file === "string" ? saved.file : "<menu>";
         const savedLine = typeof saved.line === "number" ? saved.line : 0;
@@ -596,92 +1218,23 @@ function resolveWait(vm: VmState, view: WaitView, poll: WaitPoll, thread: Thread
       }
       return;
     }
-    const provider = services.menuProviders.get(saved.providerId);
-    if (provider === undefined) throw new ScriptError("restore.menu-provider", `menu provider "${saved.providerId}" is not registered`);
+    const record = result.record;
     const event: MenuProviderEvent = saved.phase === "enter"
       ? { type: "enter" }
       : saved.phase === "child.closed"
         ? { type: "child.closed", screen: String(saved.childScreen) as MenuScreenId }
-        : { type: "input", key: String(result.value) };
-    try {
-      const transition = provider({
-        providerId: saved.providerId,
-        context: services.menuOwners,
-        state: saved.state as PlainData,
-        event,
-      });
-      if (!isMenuProviderResult(transition)) throw new ScriptError("menu.provider-result", "menu provider returned an invalid or non-plain transition");
-      const parents = Array.isArray(saved.parents)
-        ? saved.parents as unknown as Array<{ providerId: string; screen: string; state: PlainData }>
-        : [];
-      if (transition.kind === "wait") {
-        if (transition.wait.kind !== "menu.screen" || !transition.wait.global) {
-          throw new ScriptError("menu.provider-wait", "menu providers must return a global menu.screen wait");
-        }
-        thread.wait = {
-          ...transition.wait,
-          payload: [{ ...saved, state: transition.state, phase: "input", childScreen: null, parkSeq: view.input?.nextSeq ?? null }, ...transition.wait.payload],
-        };
-        thread.status = "waiting";
-        return;
-      }
-      if (transition.kind === "open") {
-        const child = topMenuProvider(services.layers, transition.screen);
-        if (child === undefined) throw new ScriptError("menu.provider-missing", `no menu provider is registered for "${transition.screen}"`);
-        const pushed = services.menuOwners.menu.apply({
-          type: "navigation",
-          screens: [...services.menuOwners.menu.read().screens, { screen: transition.screen, actorId: services.menuOwners.party.read().selected, selection: 0 }],
-        });
-        if (!pushed.ok) throw new ScriptError("menu.state-refused", pushed.error?.message ?? "menu frame was refused");
-        const childState = {
-          ...saved,
-          providerId: child.id,
-          screen: transition.screen,
-          state: null,
-          phase: "enter",
-          childScreen: null,
-          parkSeq: null,
-          parents: [...parents, { providerId: saved.providerId, screen: saved.screen, state: transition.state }],
-        };
-        thread.wait = { kind: "menu.screen", global: true, id: child.id, payload: [childState], resumeRefs: [] };
-        thread.status = "waiting";
-        return;
-      }
-      const popped = services.menuOwners.menu.apply({
-        type: "navigation",
-        screens: services.menuOwners.menu.read().screens.slice(0, -1),
-      });
-      if (!popped.ok) throw new ScriptError("menu.state-refused", popped.error?.message ?? "menu frame close was refused");
-      if (parents.length > 0) {
-        const parent = parents[parents.length - 1]!;
-        if (!services.menuProviders.has(parent.providerId)) {
-          throw new ScriptError("menu.provider-missing", `parent menu provider "${parent.providerId}" is not registered`);
-        }
-        thread.wait = {
-          kind: "menu.screen",
-          global: true,
-          id: parent.providerId,
-          payload: [{
-            ...saved,
-            providerId: parent.providerId,
-            screen: parent.screen,
-            state: parent.state,
-            phase: "child.closed",
-            childScreen: saved.screen,
-            parkSeq: null,
-            parents: parents.slice(0, -1),
-          }],
-          resumeRefs: [],
-        };
-        thread.status = "waiting";
-        return;
-      }
-      frame.operands.push({ value: null, ref: null });
-      return;
-    } catch (caught) {
-      handleMenuProviderFailure(thread, vm, services, saved, caught);
-      return;
-    }
+        : record !== undefined
+          ? {
+            type: "pointer", x: Number(record.x), y: Number(record.y), buttons: Number(record.buttons), downs: Number(record.downs),
+            ups: Number(record.ups), downX: Number(record.downx), downY: Number(record.downy), button: Number(record.button),
+            moved: Number(record.moved), newDowns: Number(record.newdowns), newUps: Number(record.newups),
+          }
+          : { type: "input", key: String(result.value) };
+    // A pointer event consumes the record as it is now; a key leaves the old baseline, so a pointer change that arrived
+    // with it is delivered by the next wake instead of being lost.
+    const reparked = event.type === "pointer" ? pointerBaselineOf(view.input?.pointer) : (saved.pointer ?? null);
+    runNativeMenuProvider(thread, vm, services, frame, saved, event, view.input?.nextSeq ?? null, reparked);
+    return;
   }
   if (wait.kind === "request" || wait.kind === "blob") {
     if (!result.ok) {
@@ -699,12 +1252,22 @@ function resolveWait(vm: VmState, view: WaitView, poll: WaitPoll, thread: Thread
     frame.operands.push({ value: result.ok ? result.value : 0, ref: null });
     return;
   }
+  // A resolver cannot allocate VM objects, so `waitInput` hands back plain fields and the VM builds the dictionary here.
+  let resumed = result.value;
+  if (result.record !== undefined) {
+    const object = createObject(vm, null);
+    for (const [field, value] of Object.entries(result.record)) writeMember(object, field, value as Value);
+    resumed = objectValue(object);
+  }
   if ("resumeRefs" in wait && wait.resumeRefs !== undefined) {
     const topIndex = thread.frames.length - 1;
-    for (const ref of wait.resumeRefs) writeRef(vm, thread, topIndex, ref as RefId, result.value, services);
+    for (const [index, ref] of wait.resumeRefs.entries()) {
+      const value = result.outputs === undefined ? resumed : result.outputs[index] ?? null;
+      writeRef(vm, thread, topIndex, ref as RefId, value, services);
+    }
   }
   if (wait.kind === "sleep" && !wait.resumesCall) return;
-  frame.operands.push({ value: result.value, ref: null });
+  frame.operands.push({ value: resumed, ref: null });
 }
 
 
@@ -731,20 +1294,42 @@ export function replyToRequest(vm: VmState, reqId: number, reply: WaitReply): vo
 /**
  * The threads phase (AD-26; THR-3, R-32). Ready threads take their turn in
  * ascending id, each for at most `budget` VM steps; a thread that reaches the
- * budget keeps its state and continues next tick. Nothing runs while a
- * blocking command waits (R-32), and a thread that enters one stops the rest
- * of the phase. Threads started or woken during the phase take their first
+ * budget keeps its state and continues next tick. `eligible` filters the
+ * threads that may run at all in this context (the start-up pre-board slot:
+ * no background slice while the start-up program is live, whatever the
+ * thread kind — the relay of 2026-11-05).
+ * A live blocking thread owns the phase (R-32): it takes its turn before any
+ * ready background thread, whatever the ids, and background threads take no
+ * turn while it is standing by, running or parked in a global wait. A
+ * blocking thread parked in a non-global wait does not hold up the world
+ * (the waits phase resolves it like any other), so background threads take
+ * their turns as usual. When the blocking thread finishes inside the phase,
+ * the remaining ready threads take their turns in the same phase.
+ * Threads started or woken during the phase take their first
  * turn next tick.
  */
-export function runThreadsPhase(vm: VmState, services: ScriptServices, budget: number): void {
+export function runThreadsPhase(
+  vm: VmState,
+  services: ScriptServices,
+  budget: number,
+  eligible?: (thread: Thread) => boolean,
+): void {
   if (!Number.isInteger(budget) || budget < 1) {
     throw new ScriptError("vm.bad-budget", `the step budget must be a positive whole number, got ${budget}`);
   }
-  const ready = vm.threads.filter((thread) => thread.status === "ready");
-  ready.sort((left, right) => left.id - right.id);
+  const ready = vm.threads.filter((thread) => thread.status === "ready" && (eligible === undefined || eligible(thread)));
+  ready.sort((left, right) =>
+    Number(right.kind === "blocking") - Number(left.kind === "blocking") || left.id - right.id);
   for (const thread of ready) {
-    if (findBlockingThread(vm) !== null) break;
     if (thread.status !== "ready") continue;
+    const owner = findLiveBlockingThread(vm);
+    if (owner !== null && thread !== owner) {
+      const holdingUpWorld = owner.status !== "waiting" || owner.wait === null || owner.wait.global;
+      if (holdingUpWorld) break;
+    }
+    // A global wait anywhere freezes the rest of the phase (R-32), whatever
+    // kind of thread holds it (e.g. a host request parked on a board thread).
+    if (findBlockingThread(vm) !== null) break;
     stepThread(thread, vm, services, budget);
     refreshBlock(vm, services.clock.tick());
   }
@@ -856,13 +1441,23 @@ export function advanceScriptTick(
   poll: WaitPoll = defaultWaitPoll,
 ): ScriptStatus {
   const claims = state.engine.claims;
-  if (claims !== undefined) claims.length = 0;
   const activeClaims = claims ?? [];
+  // Apply any shared claims from the previous standalone tick before the next wait poll.
+  pruneClaimed(state.input, activeClaims);
+  activeClaims.length = 0;
+  state.engine.claims = activeClaims;
+  // Backfill a legacy/manual key wait before the standalone scheduler polls it.
+  for (const thread of state.vm.threads) {
+    if (thread.wait?.kind === "input.key" && thread.wait.parkSeq === undefined) thread.wait.parkSeq = state.input.nextSeq;
+  }
   runWaitsPhase(
     state.vm,
-    { tick: state.time.tick, events: state.events, input: state.input, ui: state.ui, claims: activeClaims },
+    { tick: state.time.tick, events: state.events, input: state.input, ui: state.ui, sprites: spriteWaitView(state.sprites), claims: activeClaims },
     poll,
-    (seq) => { if (!activeClaims.includes(seq)) activeClaims.push(seq); },
+    (seq, discardBefore) => {
+      if (discardBefore !== undefined) claimInputBefore(state.input, discardBefore, activeClaims);
+      if (seq !== undefined && !activeClaims.includes(seq)) activeClaims.push(seq);
+    },
     services,
     (wait) => {
       if (wait.kind === "input.key" && wait.dialogue !== undefined) {
@@ -870,9 +1465,14 @@ export function advanceScriptTick(
       }
     },
   );
-  if (claims === undefined && activeClaims.length > 0) state.engine.claims = activeClaims;
+  // Resolve wait discards before any ready thread can call get() on the shared queue.
+  pruneClaimed(state.input, activeClaims);
+  activeClaims.length = 0;
   runThreadsPhase(state.vm, services, budget);
   runEventsPhase(state, services, budget);
+  pruneClaimed(state.input, activeClaims);
+  activeClaims.length = 0;
+  if (claims === undefined) delete state.engine.claims;
   assertNoDeadlock(state.vm, services);
   runTimePhase(state.time);
   collectStateGarbage(state, layerRoots(services.layers));
@@ -1088,6 +1688,7 @@ function hostContext(services: ScriptServices, record: ObjectRecord): HostObject
     vm: state.vm,
     record,
     ...(services.media === undefined ? {} : { media: services.media }),
+    ...(services.menuSounds === undefined ? {} : { menuSounds: services.menuSounds }),
     ...(services.view.battle === undefined ? {} : { battle: services.view.battle }),
   };
 }
@@ -1338,16 +1939,18 @@ function stackEffect(op: StepOp): { readonly pops: number; readonly pushes: numb
  * and as an `error` Logger record unless `debug(false)` has silenced the
  * interpreter's own messages (ERR-2). An `internal` fault is never silenced.
  */
-function reportFailure(vm: VmState, services: ScriptServices, error: ScriptError): void {
-  services.diagnostics.push(toDiagnostic(error));
+function reportFailure(vm: VmState, services: ScriptServices, error: ScriptError): Diagnostic {
+  const diagnostic = toDiagnostic(error);
+  services.diagnostics.push(diagnostic);
   const family = failureClass(error.code);
-  if (vm.messagesOff === true && family !== "internal") return;
+  if (vm.messagesOff === true && family !== "internal") return diagnostic;
   services.logger.error({
     level: "error",
     code: error.code,
     message: error.message,
     data: { file: error.pos?.file ?? "", line: error.pos?.line ?? 0, class: family },
   });
+  return diagnostic;
 }
 
 /**
@@ -1369,7 +1972,7 @@ function handleFailure(
   error: ScriptError,
 ): void {
   const located = locateError(error, op.pos);
-  reportFailure(vm, services, located);
+  const diagnostic = reportFailure(vm, services, located);
   const handler = frame.errorHandler;
   if (handler !== null && handler.mode === "label") {
     const target = handler.label === null ? undefined : handlerLabel(program, opIp, handler.label);
@@ -1384,7 +1987,7 @@ function handleFailure(
     // ERR-1: the handler is cleared only when its label cannot be found; the error is reported.
     frame.errorHandler = null;
   }
-  emitErrorEvent(thread, vm, services, located, handler !== null && handler.mode === "resumeNext");
+  emitUnlabelledFailure(thread, vm, services, diagnostic, located, handler);
   const effect = stackEffect(op);
   const target = Math.max(0, depth - effect.pops) + effect.pushes;
   if (frame.operands.length > target) frame.operands.length = target;
@@ -1396,18 +1999,37 @@ function handleFailure(
  * Queue the game `error` event for one reported failure (EMIT-9, EMIT-22): the same located
  * diagnostic the host receives, plus whether the failing frame's handler took it. It is
  * queued and never runs a listener here (EMIT-3). A run with no state to hold the `events`
- * section (a bare services object) has no game to emit on.
+ * section (a bare services object) has no game to emit on. Returns the queued event's object
+ * handle, or `null` when none was queued.
  */
-function emitErrorEvent(thread: Thread, vm: VmState, services: ScriptServices, error: ScriptError, handled: boolean): void {
+function emitErrorEvent(thread: Thread, vm: VmState, services: ScriptServices, error: ScriptError, handled: boolean): number | null {
   const state = services.view.state;
-  if (state === undefined) return;
-  queueErrorEvent(vm, state.events, thread.id, {
+  if (state === undefined) return null;
+  return queueErrorEvent(vm, state.events, thread.id, {
     code: error.code,
     message: error.message,
     file: error.pos?.file ?? "",
     line: error.pos?.line ?? 0,
     handled,
   });
+}
+
+/**
+ * The notification of a failure no label handler took: a `resumeNext` handler swallowed it (handled); any
+ * other frame left it unhandled, and an unhandled failure is also offered to the failing thread's open error
+ * windows (TOOL-5 `toThrow`), which may consume its diagnostic and event.
+ */
+function emitUnlabelledFailure(
+  thread: Thread,
+  vm: VmState,
+  services: ScriptServices,
+  diagnostic: Diagnostic,
+  error: ScriptError,
+  handler: Frame["errorHandler"],
+): void {
+  const handled = handler !== null && handler.mode === "resumeNext";
+  const event = emitErrorEvent(thread, vm, services, error, handled);
+  if (!handled) services.errorWindows.record(thread.id, { diagnostic, event });
 }
 
 /** Install or replace the calling frame's handler, keeping any in-flight resume point (ERR-1). */
@@ -1486,6 +2108,59 @@ function readRef(vm: VmState, thread: Thread, frameIndex: number, ref: RefId, se
     }
   }
   return 0;
+}
+
+/**
+ * The element variables of the array `ref` names (SEM-5) and the table that holds them: every variable of the
+ * owning table whose name is the array's name followed by `[`, with its stored value, read without any
+ * operator (so no SEM-3 name-read truncation). `global:` reads the global table and `object:` the member table
+ * of that live object. `local:` finds the first frame outwards from the top that holds the variable; an
+ * element name is itself resolved as a read of it resolves it, from that frame's own locals and then the
+ * globals (an element is a local only in an auto-local frame), so both tables contribute and a local element
+ * hides the global of its name. Any other reference names no element table.
+ */
+function readElementArray(vm: VmState, threadId: number | undefined, ref: RefId): ElementArray {
+  const entries: ElementEntry[] = [];
+  const separator = ref.indexOf(":");
+  const scope = ref.slice(0, separator);
+  if (scope === "global") {
+    const prefix = `${ref.slice(separator + 1)}[`;
+    for (const key of Object.keys(vm.globals)) {
+      if (key.startsWith(prefix)) entries.push({ name: key, value: vm.globals[key] ?? 0 });
+    }
+    return { table: "global", entries };
+  }
+  if (scope === "object") {
+    const object = parseObjectRef(ref);
+    const record = object === null ? undefined : findObject(vm, object.handle);
+    if (record === undefined || object === null) return { table: "", entries };
+    const prefix = `${object.name}[`;
+    for (const key of record.keys) {
+      if (key.startsWith(prefix)) entries.push({ name: key, value: readMember(record, key) });
+    }
+    return { table: `object:${record.handle}`, entries };
+  }
+  if (scope === "local") {
+    const name = ref.slice(separator + 1);
+    const prefix = `${name}[`;
+    const thread = vm.threads.find((item) => item.id === threadId);
+    for (let index = (thread?.frames.length ?? 0) - 1; thread !== undefined && index >= 0; index -= 1) {
+      const locals = thread.frames[index]!.locals;
+      if (!Object.hasOwn(locals, name)) continue;
+      const own = new Set<string>();
+      for (const key of Object.keys(locals)) {
+        if (!key.startsWith(prefix)) continue;
+        const slot = locals[key]!;
+        own.add(key);
+        entries.push({ name: key, value: slot.ref === localRef(key) ? slot.value ?? 0 : readRef(vm, thread, index, slot.ref) });
+      }
+      for (const key of Object.keys(vm.globals)) {
+        if (key.startsWith(prefix) && !own.has(key)) entries.push({ name: key, value: vm.globals[key] ?? 0 });
+      }
+      return { table: `local:${thread.id}:${index}`, entries };
+    }
+  }
+  return { table: "", entries };
 }
 
 function writeRef(
@@ -1916,7 +2591,7 @@ function registerPluginCall(
   if (menuProvidersKey !== undefined) {
     const rawMenuProviders = readMember(definition, menuProvidersKey);
     const providers = liveObject(vm, rawMenuProviders, pos, `"registerPlugin" takes a menuProviders dictionary`);
-    const validScreens = new Set(["main", "items", "equipment", "abilities"]);
+    const validScreens = new Set<string>(MENU_SCREEN_IDS);
     for (const screen of providers.keys) {
       if (!validScreens.has(screen)) {
         throw new ScriptError("builtin.bad-arg", `registerPlugin: unknown menu screen "${screen}"`, pos);
@@ -2217,7 +2892,7 @@ function hasLiveEntityHandle(state: GameState | undefined, handle: string): bool
     foldedEntityHandle(sprite.id) === wanted || foldedEntityHandle(sprite.source) === wanted
   )) return true;
   if (state.sprites.items.some((sprite) =>
-    foldedEntityHandle(sprite.id) === wanted || foldedEntityHandle(sprite.source) === wanted
+    foldedEntityHandle(sprite.id) === wanted || foldedEntityHandle(sprite.source) === wanted || foldedEntityHandle(itemKey(sprite)) === wanted
   )) return true;
   return state.actors.actors.some((actor) =>
     foldedEntityHandle(String(actor.id)) === wanted ||
@@ -2383,21 +3058,27 @@ function dispatchResolved(
       const action = effect.args?.[0];
       if (action === "menu.open") {
         const screen = effect.args?.[1];
-        if (typeof screen !== "string" || !["main", "items", "equipment", "abilities"].includes(screen)) {
+        if (typeof screen !== "string" || !MENU_SCREEN_IDS.some((id) => id === screen)) {
           throw new ScriptError("builtin.bad-arg", "menu.open: invalid screen", pos);
         }
+        // A shop screen presents an active CallShop session (E-83): activation commits first, then either the
+        // registered presenter runs on this thread or the standalone menu.screen wait resumes the command.
+        const stock = screen === SHOP_SCREEN ? activateShopStock(services, effect.args?.[2], pos) : null;
         const menuBaseDepth = services.menuOwners.menu.read().screens.length;
         const registered = topMenuProvider(services.layers, screen);
+        if (stock !== null && registered === undefined) {
+          thread.wait = { kind: "menu.screen", global: true, id: "callshop", payload: [stock], resumeRefs: [] };
+          thread.status = "waiting";
+          parked = true;
+          continue;
+        }
         if (registered?.kind === "rpgcode") {
           const opened = services.menuOwners.menu.apply({
             type: "navigation",
             screens: [...services.menuOwners.menu.read().screens, { screen, actorId: services.menuOwners.party.read().selected, selection: 0 }],
           });
           if (!opened.ok) throw new ScriptError("menu.state-refused", opened.error?.message ?? "menu frame was refused", pos);
-          const context = createObject(vm, null);
-          writeMember(context, "screen", screen);
-          writeMember(context, "state", null);
-          writeMember(context, "event", "enter");
+          const context = createRpgcodeMenuContext(vm, screen);
           const before = thread.frames.length;
           try {
             performCallable(
@@ -2428,6 +3109,7 @@ function dispatchResolved(
               menuBaseDepth,
               file: pos.file,
               line: pos.line,
+              ...(stock === null ? {} : { stock }),
             };
           }
           continue;
@@ -2454,10 +3136,11 @@ function dispatchResolved(
           menuBaseDepth,
           file: pos.file,
           line: pos.line,
+          ...(stock === null ? {} : { stock }),
         };
         let transition: MenuProviderResult;
         try {
-          transition = provider({ providerId, context: services.menuOwners, state: null, event: { type: "enter" } });
+          transition = provider({ providerId, context: nativeMenuContext(services), state: null, event: { type: "enter" } });
           if (!isMenuProviderResult(transition)) throw new ScriptError("menu.provider-result", "menu provider returned an invalid or non-plain transition", pos);
         } catch (error) {
           services.menuOwners.menu.apply({ type: "navigation", screens: services.menuOwners.menu.read().screens.slice(0, menuBaseDepth) });
@@ -2476,6 +3159,16 @@ function dispatchResolved(
           };
           thread.status = "waiting";
           parked = true;
+        } else if (transition.kind === "item.action") {
+          try {
+            startItemAction(
+              thread, vm, services, frame, transition.action, "native", null, { ...continuation, state: transition.state }, pos, frame.ip - 1,
+            );
+          } catch (error) {
+            services.menuOwners.menu.apply({ type: "navigation", screens: services.menuOwners.menu.read().screens.slice(0, menuBaseDepth) });
+            throw error;
+          }
+          controlApplied = true;
         } else if (transition.kind === "open") {
           const child = topMenuProvider(services.layers, transition.screen);
           if (child === undefined) {
@@ -2515,6 +3208,43 @@ function dispatchResolved(
             throw new ScriptError("menu.state-refused", closed.error?.message ?? "menu frame close was refused", pos);
           }
         }
+      }
+      if (action === "itemAction.start") {
+        const request = effect.args?.[1];
+        const adapter = effect.args?.[2];
+        if (!isItemActionRequest(request) || (adapter !== null && adapter !== "equip" && adapter !== "remove")) {
+          throw new ScriptError("builtin.bad-arg", "item action: expected a valid action and adapter", pos);
+        }
+        startItemAction(thread, vm, services, frame, request, adapter === null ? "rpgcode" : "adapter", adapter, null, pos, frame.ip - 1);
+        controlApplied = true;
+      }
+      if (action === "itemAction.resume") {
+        const record = topItemAction(frame);
+        if (record === undefined || record.phase !== "assets") {
+          throw new ScriptError("request.bad-reply", "an item definition reply arrived with no pending item action", pos);
+        }
+        if (effect.args?.[1] === 1) {
+          driveItemAction(thread, vm, services, frame);
+        } else {
+          finishItemAction(
+            thread, vm, services, program, frame, record,
+            itemActionFailure(record, "inventory.action.asset", "the item definition request failed"),
+          );
+        }
+        controlApplied = true;
+      }
+      if (action === "itemAction.complete") {
+        const record = topItemAction(frame);
+        if (record === undefined || record.phase !== "completion" || record.origin !== "native" || record.provider === null || record.result === null) {
+          throw new ScriptError("restore.shape", "an item action completion has no pending native action", pos);
+        }
+        popItemAction(frame);
+        runNativeMenuProvider(
+          thread, vm, services, frame, record.provider,
+          { type: "item.action.completed", result: record.result },
+          services.view.state?.input.nextSeq ?? null,
+        );
+        controlApplied = true;
       }
       if (action === "end") {
         let rootIndex = -1;
@@ -2588,8 +3318,17 @@ function dispatchResolved(
           if (services.loader === undefined) {
             throw new ScriptError("program.missing", `no program "${file}" is in the asset index`, pos);
           }
-          const newRef = fileProgramRef(services.loader, file, vm.redirects);
-          services.programs.get(newRef);
+          let newRef: ProgramRef;
+          try {
+            newRef = fileProgramRef(services.loader, file, vm.redirects);
+            services.programs.get(newRef);
+          } catch (error) {
+            if (!(error instanceof ScriptError) || failureClass(error.code) !== null) throw error;
+            // Load errors belong to the new source and cannot be caught by the caller (ERR-2).
+            services.diagnostics.push({ code: error.code, file: error.pos?.file || file, line: error.pos?.line ?? 0, message: error.message });
+            frame.operands.push({ value: 0, ref: null });
+            return "continue";
+          }
           const context = materializeProgramContext(vm, plan);
           const rootFrame: Frame = {
             program: newRef,
@@ -2611,6 +3350,7 @@ function dispatchResolved(
           } else {
             thread.source = plan.pair.source;
             thread.target = plan.pair.target;
+            discardMenuFrames(services, thread);
             thread.frames = [rootFrame];
             thread.status = "ready";
             thread.wait = null;
@@ -2798,6 +3538,8 @@ function dispatchResolved(
       }
       if (action === "threadKill") {
         const id = effect.args?.[1] as number;
+        const doomed = findThread(vm, id);
+        if (doomed !== undefined) discardMenuFrames(services, doomed);
         if (!killThread(vm, id)) {
           throw new ScriptError("thread.unknown", `killThread: no thread ${id} is registered`, pos);
         }
@@ -2966,9 +3708,14 @@ function dispatchResolved(
   }
 
   if (result.wait !== undefined) {
-    const wait = result.wait.kind === "input.key" && result.wait.parkSeq === undefined &&
-      services.view.state?.input.keys.length
-      ? { ...result.wait, parkSeq: services.view.state.input.nextSeq }
+    if (result.wait.kind === "sprite.movement" && thread.collect !== null) {
+      thread.collect.push({ sprite: result.wait.actor, until: tick, actual: true });
+      applyOut(vm, thread, frameIndex, resolved.command.spec, args, result.out ?? [], name, pos, services);
+      frame.operands.push({ value: produced !== undefined ? produced : result.value, ref: null });
+      return "continue";
+    }
+    const wait = result.wait.kind === "input.key" && result.wait.parkSeq === undefined
+      ? { ...result.wait, parkSeq: services.view.state?.input.nextSeq ?? 0 }
       : result.wait;
     thread.wait = wait;
     thread.status = "waiting";
@@ -2993,9 +3740,37 @@ function sourceChanged(error: unknown): boolean {
   return error instanceof ScriptError && error.code === "restore.source-changed";
 }
 
+/**
+ * Remove the menu frames a thread's pending menu operations opened (E-80 cleanup) before its frames are discarded by a
+ * kill, `replaceProgram` or a restart from source: each pending native provider continuation, RPGCode provider frame
+ * and native action record names the menu depth its facade call started at. Committed world state is untouched.
+ */
+/** Remove the menu frames a thread's open provider or pending item action added (E-80 cleanup). */
+export function discardMenuFrames(services: ScriptServices, thread: Thread): void {
+  const found = { depth: null as number | null };
+  const take = (value: unknown): void => {
+    if (typeof value !== "object" || value === null || !("menuBaseDepth" in value)) return;
+    const base = value.menuBaseDepth;
+    if (typeof base === "number" && Number.isSafeInteger(base) && base >= 0) {
+      found.depth = found.depth === null ? base : Math.min(found.depth, base);
+    }
+  };
+  for (const frame of thread.frames) {
+    take(frame.menuContinuation);
+    for (const record of frame.itemActions ?? []) {
+      if (typeof record === "object" && record !== null && "provider" in record) take(record.provider);
+    }
+  }
+  if (thread.wait?.kind === "menu.screen") take(thread.wait.payload[0]);
+  if (found.depth === null) return;
+  const screens = services.menuOwners.menu.read().screens;
+  if (screens.length > found.depth) services.menuOwners.menu.apply({ type: "navigation", screens: screens.slice(0, found.depth) });
+}
+
 function restartThreadFromSource(thread: Thread, vm: VmState, services: ScriptServices): void {
   const stale = thread.frames[0]?.program;
   if (stale === undefined) throw new ScriptError("restore.shape", `thread ${thread.id} has no program frame`);
+  discardMenuFrames(services, thread);
   const ref = restartProgramRef(stale, services.loader, vm.redirects);
   services.programs.get(ref);
   thread.frames = [
@@ -3106,6 +3881,19 @@ export function stepThread(
         autoLocal: false,
       });
       thread.detached.push(thread.frames.length - 1);
+      continue;
+    }
+    const actionFrame = thread.frames[thread.frames.length - 1];
+    const returnedAction = actionFrame === undefined ? undefined : topItemAction(actionFrame);
+    if (actionFrame !== undefined && returnedAction !== undefined && isHookStage(returnedAction.phase)) {
+      // An item program has just returned to its action's frame: run the action's next phase.
+      try {
+        driveItemAction(thread, vm, services, actionFrame);
+      } catch (caught) {
+        if (!(caught instanceof ScriptError) || failureClass(caught.code) === null) throw caught;
+        if (topItemAction(actionFrame) === returnedAction) abandonItemAction(services, actionFrame, returnedAction);
+        raiseAtItemActionCaller(thread, vm, services, services.programs.get(actionFrame.program), actionFrame, returnedAction, caught);
+      }
       continue;
     }
     const frameIndex = thread.frames.length - 1;
@@ -3769,6 +4557,8 @@ export function stepThread(
         thread.frames.pop();
         if (menuScreen !== undefined) {
           services.menuOwners.menu.apply({ type: "navigation", screens: services.menuOwners.menu.read().screens.slice(0, -1) });
+          // Returning from a shop presenter ends its session: the caller's CallShop resumes with no stock to reopen.
+          if (menuScreen === SHOP_SCREEN) services.menuOwners.shop.close();
         }
         if (menuContinuation !== undefined && menuContinuation !== null && typeof menuContinuation === "object" && !Array.isArray(menuContinuation)) {
           const saved = menuContinuation as Record<string, unknown>;

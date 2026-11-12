@@ -1,9 +1,11 @@
 import { test } from "node:test";
+import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { decodeMidi } from "@tk-reawakened/core";
-import { createSpessaMidiSource } from "../src/index.ts";
+import { SoundBankLoader } from "spessasynth_core";
+import { createSpessaMidiSource, soundBankHasCompressedSamples, soundFontDecoderReady } from "../src/index.ts";
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const MIDI_PATH = join(TEST_DIR, "../../core/test/fixtures/audio/files/midi0-480-default-tempo.mid");
@@ -54,4 +56,40 @@ test("SpessaSynth renders authored MIDI to non-silent PCM at the core AudioInfo 
   }
   if (!result.ended) throw new Error("SpessaSynth did not finish the finite MIDI voice");
   if (result.absoluteSum <= 1e-4) throw new Error("SpessaSynth rendered silent PCM");
+});
+
+test("SoundFont sample headers distinguish compressed banks and fail closed on invalid data", () => {
+  equal(soundBankHasCompressedSamples(new Uint8Array(readFileSync(BANK_PATH))), false);
+  equal(soundBankHasCompressedSamples(new Uint8Array(readFileSync(join(TEST_DIR, "fixtures/test-minimal.sf3")))), true);
+  equal(soundBankHasCompressedSamples(new Uint8Array([1, 2, 3])), true);
+});
+
+test("a MIDI voice starts and restarts from the same nonzero position", () => {
+  const bank = new Uint8Array(readFileSync(BANK_PATH));
+  const source = createSpessaMidiSource({ bank, maxBufferSize: MAX_BUFFER_SIZE });
+  const opened = source.open(new Uint8Array(readFileSync(MIDI_PATH)), {
+    outputRateHz: OUTPUT_RATE_HZ,
+    bank: { source: "bundled", id: "test-minimal", sha256: null },
+  });
+  ok(opened.ok);
+  const readAtStart = (): Float32Array => {
+    const left = new Float32Array(MAX_BUFFER_SIZE);
+    const right = new Float32Array(MAX_BUFFER_SIZE);
+    opened.value.start(60, false);
+    opened.value.render(left, right, MAX_BUFFER_SIZE);
+    return left;
+  };
+  const first = readAtStart();
+  ok(first.some((sample) => sample !== 0));
+  deepEqual(readAtStart(), first);
+});
+
+test("compressed SoundFont samples render after decoder initialization", async () => {
+  // Authored fixture: test-minimal.sf2 with its single sample replaced by a generated 440 Hz Vorbis tone.
+  await soundFontDecoderReady;
+  const midi = new Uint8Array(readFileSync(MIDI_PATH));
+  const bank = new Uint8Array(readFileSync(join(TEST_DIR, "fixtures/test-minimal.sf3")));
+  ok(SoundBankLoader.fromArrayBuffer(bank.buffer.slice(bank.byteOffset, bank.byteOffset + bank.byteLength) as ArrayBuffer).samples.some((sample) => sample.isCompressed), "fixture contains a compressed sample");
+  const result = render(createSpessaMidiSource({ bank, maxBufferSize: MAX_BUFFER_SIZE }), midi);
+  if (!result.ended || result.absoluteSum <= 1e-4) throw new Error("SF3 playback ended early or produced silent PCM");
 });

@@ -10,6 +10,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+import { bundleOptions } from "./bundle-options.mjs";
+import { writeClosingManifest } from "../closing/manifest.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
@@ -19,10 +21,13 @@ const entries = [
   { in: join(root, "packages/runner-web/app/main.ts"), out: "player.js" },
   { in: join(root, "packages/runner-web/app/vectors.ts"), out: "vectors.js" },
   { in: join(root, "packages/runner-web/app/agreement.ts"), out: "agreement.js" },
+  { in: join(root, "packages/runner-web/app/parity.ts"), out: "parity.js" },
+  { in: join(root, "packages/runner-web/app/closing.ts"), out: "closing.js" },
   { in: join(root, "packages/runner-web/app/audio.ts"), out: "audio.js" },
   { in: join(root, "packages/runner-web/app/video.ts"), out: "video.js" },
   { in: join(root, "packages/runner-web/app/storage.ts"), out: "storage.js" },
   { in: join(root, "packages/runner-web/src/decode-worker.ts"), out: "decode-worker.js" },
+  { in: join(root, "packages/runner-web/src/audio-worklet.ts"), out: "audio-worklet.js" },
   { in: join(root, "packages/runner-web/app/decode.ts"), out: "decode.js" },
   { in: join(root, "packages/runner-web/app/worker-probe.ts"), out: "worker-probe.js" },
 ];
@@ -32,20 +37,24 @@ for (const entry of entries) {
   await build({
     entryPoints: [entry.in],
     outfile: join(out, entry.out),
-    bundle: true,
-    format: "iife",
-    platform: "browser",
-    target: "es2022",
-    sourcemap: false,
-    logLevel: "warning",
+    ...bundleOptions,
     // The worker and the AudioWorklet are single-file IIFE bundles with no runtime import(); so is every page entry.
   });
   console.log(`built apps/${entry.out}`);
 }
 
+// No browser artefact may contain a WebAssembly module: the page's strict `script-src 'self'` forbids instantiation, and
+// the only dependency that ships one (the Vorbis decoder) is aliased to a stub (#1325,
+// `docs/spec/engine/runners.md#csp-and-banks`). A bundle that starts carrying `AGFzbQ` again would violate the policy at
+// runtime, so the build says so here rather than in a browser console.
+for (const entry of entries) {
+  const bundled = readFileSync(join(out, entry.out), "utf8");
+  if (bundled.includes("AGFzbQ")) throw new Error(`apps/${entry.out} contains a WebAssembly module; the browser player forbids instantiation`);
+}
+
 // The browser page needs the same bundled-asset manifest the desktop build produces, so both runners can resolve
 // shared fonts and cursors from the `apps/` static tree without fetching the whole package manifest on boot.
-const folders = ["media/fonts", "media/cursors", "media/soundfonts"];
+const folders = ["media/fonts", "media/cursors", "media/soundfonts", "stock/stock_menu", "stock/stock_battle", "stock/stock_rpg"];
 const bundled = folders.flatMap((folder) =>
   readdirSync(join(root, folder), { withFileTypes: true })
     .filter((entry) => entry.isFile())
@@ -53,6 +62,7 @@ const bundled = folders.flatMap((folder) =>
     .sort(),
 );
 writeFileSync(join(out, "bundled.json"), `${JSON.stringify({ folders, files: bundled }, null, 2)}\n`);
+console.log(`built apps/closing-files.json (${writeClosingManifest(root)} fetched games listed)`);
 console.log(`built apps/bundled.json (${bundled.length} bundled assets listed)`);
 
 // Precache manifest (issue #934): listing app shell files, content-derived version, and bundled assets.
@@ -60,6 +70,7 @@ const shellFiles = [
   "packages/runner-web/app/index.html",
   "apps/player.js",
   "apps/decode-worker.js",
+  "apps/audio-worklet.js",
   "apps/bundled.json",
   "golden/closing/plan.json",
 ];
@@ -86,6 +97,7 @@ const precache = {
     "/packages/runner-web/app/index.html",
     "/apps/player.js",
     "/apps/decode-worker.js",
+    "/apps/audio-worklet.js",
     "/apps/bundled.json",
     "/apps/precache.json",
     "/golden/closing/plan.json",
@@ -99,12 +111,7 @@ console.log(`built apps/precache.json (version ${version}, ${precache.shell.leng
 await build({
   entryPoints: [join(root, "packages/runner-web/src/service-worker.ts")],
   outfile: join(out, "service-worker.js"),
-  bundle: true,
-  format: "iife",
-  platform: "browser",
-  target: "es2022",
-  sourcemap: false,
-  logLevel: "warning",
+  ...bundleOptions,
   define: {
     "__SERVICE_WORKER_VERSION__": JSON.stringify(version),
     "__PRECACHE_MANIFEST__": JSON.stringify(JSON.stringify(precache)),
