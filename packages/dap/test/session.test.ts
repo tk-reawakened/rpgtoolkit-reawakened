@@ -61,6 +61,8 @@ function scene(): SceneDebugTarget {
 type Client = {
   request(command: string, args?: unknown): Promise<DapResponse>;
   nextEvent(): Promise<DapEvent>;
+  /** The custom `rpgcode.stopped` companion event: the deterministic stop signal a host has. */
+  nextCustomStop(): Promise<DapEvent>;
   send(text: string): void;
   sendBytes(bytes: Uint8Array): void;
 };
@@ -128,12 +130,15 @@ function connect(onTarget?: (target: SceneDebugTarget) => void): Client {
     request,
     send,
     sendBytes,
+    // The session also sends `rpgcode.stopped` beside each standard `stopped`; the assertions
+    // here are about the standard events, so the custom companion is dropped.
     nextEvent: async () => {
       for (;;) {
         const message = await takeAny();
-        if (message.type === "event") return message;
+        if (message.type === "event" && message.event !== "rpgcode.stopped") return message;
       }
     },
+    nextCustomStop: () => take((incoming) => incoming.type === "event" && incoming.event === "rpgcode.stopped") as Promise<DapEvent>,
   };
   return client;
 }
@@ -284,6 +289,21 @@ test("a run to the end lands on the uninterrupted hash, watches and views includ
   deepEqual(settled.diagnostics, []);
   const uninterrupted = scene().engine.advance(settled.tickAfter, []);
   equal(settled.stateHash, uninterrupted.stateHash, "the debug run ends on the uninterrupted hash");
+});
+
+test("each stop also sends the custom rpgcode.stopped event a host can wait on", async () => {
+  const client = connect();
+  ok((await client.request("initialize", { adapterID: "rpgcode" })).success);
+  ok((await client.request("launch", { program: PROGRAM_PATH })).success);
+  ok((await client.request("setBreakpoints", { source: { path: PROGRAM_PATH }, breakpoints: [{ line: CALL_LINE }] })).success);
+  ok((await client.request("configurationDone")).success);
+  const entry = recordOf((await client.nextCustomStop()).body);
+  equal(entry.reason, "entry");
+  equal(entry.threadId, 1);
+  ok((await client.request("continue", { threadId: 1 })).success);
+  const hit = recordOf((await client.nextCustomStop()).body);
+  equal(hit.reason, "breakpoint");
+  equal(hit.line, CALL_LINE);
 });
 
 test("a request split across chunks still parses", async () => {
