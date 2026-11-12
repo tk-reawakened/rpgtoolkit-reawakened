@@ -98,4 +98,10 @@ test("TK2 sigil stripping preserves punctuation in quoted strings", () => {
   const message = statement.expr.args[0];
   if (message?.kind !== "literal") throw new Error("expected TK2 message literal");
   equal(message.value, "[OK]!, continue");
+
+  const dialogue = parseTk2("[OK]!, continue").statements[0];
+  if (dialogue?.kind !== "expr" || dialogue.expr.kind !== "call") throw new Error("expected loose dialogue call");
+  const dialogueText = dialogue.expr.args[0];
+  if (dialogueText?.kind !== "literal") throw new Error("expected loose dialogue literal");
+  equal(dialogueText.value, "[OK]!, continue");
 });

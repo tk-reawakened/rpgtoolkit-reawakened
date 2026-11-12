@@ -147,12 +147,13 @@ function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined): strin
   }
   line = line.replace(/(^|[{\s;])#(?=[A-Za-z_@])/g, "$1");
   line = line.replace(/^returnmethod\b/i, "return").replace(/^method\b/i, "function");
-  line = stripSigils(line);
-  line = equalityInCondition(line);
   if (line.length === 0) return "";
   if (!raw.trimStart().startsWith("#") && !/^(if|while|until|for|switch|case|default|else|function|return|[:{}])(?:\b|$)/i.test(line) && !line.includes("=") && !line.endsWith("{")) {
     return `mwin(${quoted(line)})`;
   }
+  line = stripSigils(line);
+  line = equalityInCondition(line);
+  if (line.length === 0) return "";
   return bindRawArguments(line, lookup);
 }
 
