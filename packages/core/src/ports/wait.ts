@@ -176,6 +176,8 @@ export type WaitResult =
       readonly ok: boolean;
       /** A dictionary the VM builds as the resumed call's value (`waitInput`); `value` is then ignored. */
       readonly record?: { readonly [field: string]: PlainData };
+      /** Values for the wait's output references, in order, when they differ from the return value. */
+      readonly outputs?: readonly Value[];
       readonly claim?: number;
       /** Per-waiter sequence floor: claim queued input records older than this when resolving. */
       readonly discardBefore?: number;

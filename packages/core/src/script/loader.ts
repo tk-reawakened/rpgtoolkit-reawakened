@@ -15,18 +15,26 @@
 
 import { fnv1a64 } from "../canon/fnv1a.ts";
 import { decodeCp1252 } from "../formats/binary/cp1252.ts";
+import type { MainFile } from "../formats/main-file/model.ts";
 import type { AssetIndex, AssetRoot } from "../formats/resolver/model.ts";
 import { resolveAsset } from "../formats/resolver/resolver.ts";
 import type { AssetKey } from "../ports/keys.ts";
 import { PROGRAM_COMPILED, ScriptError } from "./errors.ts";
+import type { ScriptDialect } from "./program.ts";
 
 /** What the compiler needs to load program files: an index, its root and a byte port. */
 export type ProgramLoader = {
   readonly index: AssetIndex;
   readonly root: AssetRoot;
+  readonly dialect?: ScriptDialect;
   /** The bytes of the canonical `key`, or `undefined` when the host cannot serve it. */
   readonly read: (key: AssetKey) => Uint8Array | undefined;
 };
+
+/** docs/spec/engine/rpgcode-dialects.md#reawakened-project-script-dialect */
+export function projectScriptDialect(main: Pick<MainFile, "major" | "minor">): ScriptDialect {
+  return main.major === 2 && main.minor <= 2 ? "tk2" : "tk3";
+}
 
 /** A loaded source file: its canonical key, decoded text and the hash of its bytes. */
 export type LoadedSource = {

@@ -12,6 +12,7 @@ import {
   derivePackageIdentity,
   fileProgramRef,
   placeplayerPixel,
+  projectScriptDialect,
   resolveProgram,
   DEFAULT_FONT_ASSET,
   hashDrawList,
@@ -227,7 +228,12 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   let cameraPosition: { x: number; y: number } | null = null;
   let latest: GameState | null = null;
   let lastBattle: GameState["battle"] = null;
-  const triggerProgramLoader = { index, root: PACKAGE_ROOT, read: (key: AssetKey) => files.get(key) };
+  const triggerProgramLoader = {
+    index,
+    root: PACKAGE_ROOT,
+    dialect: mainInput.ok ? projectScriptDialect(mainInput.value) : "tk3" as const,
+    read: (key: AssetKey) => files.get(key),
+  };
   const phaseRegistrations = interactive
     ? [
       inputPhaseRegistration({ menuKey: interactiveInput.menuKey, pixelMovement: mainInput.ok ? mainInput.value.pixelMovement : 0 }),

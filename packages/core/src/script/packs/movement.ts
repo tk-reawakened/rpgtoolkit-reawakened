@@ -336,7 +336,23 @@ const SET_BUTTON: BuiltinSpec = { name: "setbutton", aliases: [], params: [{ nam
 const CHECK_BUTTON: BuiltinSpec = { name: "checkbutton", aliases: [], params: [{ name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }], doc: docs("Check whether a button was clicked.", "Returns 1 when the pixel is inside an enabled button slot, otherwise 0; it does not wait."), call: (view, args) => { const input = view.state?.input; const x = number(args, 0); const y = number(args, 1); return { value: input?.buttons.some((button) => "id" in button && button.enabled && x >= button.x && x < button.x + button.w && y >= button.y && y < button.y + button.h) ? 1 : 0 }; } };
 const CLEAR_BUTTONS: BuiltinSpec = { name: "clearbuttons", aliases: [], params: [{ name: "slots", optional: true, byRef: false, variadic: true }], doc: docs("Clear clickable buttons.", "Removes every button, or only the numeric slots supplied, immediately and without waiting."), call: (_view, args) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: args.map((arg) => arg.value as never) }] }) };
 const MOUSE_MOVE: BuiltinSpec = { name: "mousemove", aliases: [], params: [{ name: "x", optional: false, byRef: true, variadic: false }, { name: "y", optional: false, byRef: true, variadic: false }], doc: docs("Read the pointer position.", "Returns the current window-relative pointer x and y through by-reference outputs without waiting."), call: (view, args) => ({ value: null, out: [...output(args, 0, view.state?.input.pointer.x ?? 0), ...output(args, 1, view.state?.input.pointer.y ?? 0)] }) };
-const MOUSE_CLICK: BuiltinSpec = { name: "mouseclick", aliases: [], params: [{ name: "x", optional: false, byRef: true, variadic: false }, { name: "y", optional: false, byRef: true, variadic: false }, { name: "noWait", optional: true, byRef: false, variadic: false }], doc: docs("Wait for or read a pointer click.", "Writes the current pointer position immediately when noWait is true; otherwise parks until a click is available.", { kind: "until-event", summary: "Waits for a pointer click." }), call: (view, args) => { const pointer = view.state?.input.pointer; if (number(args, 2) !== 0 && pointer !== undefined) return { value: null, out: [...output(args, 0, pointer.x), ...output(args, 1, pointer.y)] }; return { value: null, wait: { kind: "input.mouse", global: true, id: "mouseclick", payload: [], resumeRefs: args.flatMap((arg) => arg.ref === null ? [] : [arg.ref]) } }; } };
+const MOUSE_CLICK: BuiltinSpec = {
+  name: "mouseclick", aliases: [],
+  params: [
+    { name: "x", optional: false, byRef: true, variadic: false },
+    { name: "y", optional: false, byRef: true, variadic: false },
+    { name: "noWait", optional: true, byRef: false, variadic: false },
+  ],
+  doc: docs("Wait for or read a pointer click.", "Writes the current pointer position immediately when noWait is true; otherwise parks until a click is available.", { kind: "until-event", summary: "Waits for a pointer click." }),
+  call: (view, args) => {
+    const pointer = view.state?.input.pointer;
+    if (number(args, 2) !== 0) return { value: null, out: [...output(args, 0, pointer?.x ?? 0), ...output(args, 1, pointer?.y ?? 0)] };
+    return { value: null, wait: {
+      kind: "input.mouse", global: true, id: "mouseclick", payload: [pointer?.downs ?? 0],
+      resumeRefs: args.slice(0, 2).flatMap((arg) => arg.ref === null ? [] : [arg.ref]),
+    } };
+  },
+};
 const PLAYER_STANCE: BuiltinSpec = { name: "playerstance", aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }, { name: "stance", optional: false, byRef: false, variadic: false }, { name: "flags", optional: true, byRef: false, variadic: false }], doc: docs("Play a player's stance animation.", "Starts the named stance through the sprite animation owner, then waits for that owner to report completion."), call: (view, args) => stanceResult(view, playerId(view, args[0]?.value as number | string ?? ""), "player", string(args, 1), args) };
 const ITEM_STANCE: BuiltinSpec = { ...PLAYER_STANCE, name: "itemstance", doc: docs("Play an item's stance animation.", "Starts the named item stance through the sprite animation owner, then waits for that owner to report completion."), call: (view, args) => stanceResult(view, itemId(view, args[0]?.value as number | string ?? ""), "item", string(args, 1), args) };
 

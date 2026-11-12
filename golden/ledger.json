@@ -18,7 +18,16 @@
     { "path": "golden/regression/closing/Basic-title.png", "scene": "closing:Basic:title", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" },
     { "path": "golden/regression/closing/Basic-board.png", "scene": "closing:Basic:board", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" },
     { "path": "golden/regression/closing/Caoquest-title.png", "scene": "closing:Caoquest:title", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" },
+    { "path": "golden/regression/closing/Caoquest-board.png", "scene": "closing:Caoquest:board", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" },
     { "path": "golden/regression/closing/ChimeranEmpire-title.png", "scene": "closing:ChimeranEmpire:title", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" },
-    { "path": "golden/regression/closing/FinalDestiny-title.png", "scene": "closing:FinalDestiny:title", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" }
+    { "path": "golden/regression/closing/ChimeranEmpire-board.png", "scene": "closing:ChimeranEmpire:board", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" },
+    { "path": "golden/regression/closing/ChimeranEmpire-later.png", "scene": "closing:ChimeranEmpire:later", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" },
+    { "path": "golden/regression/closing/FinalDestiny-title.png", "scene": "closing:FinalDestiny:title", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" },
+    { "path": "golden/regression/closing/FinalDestiny-board.png", "scene": "closing:FinalDestiny:board", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" },
+    { "path": "golden/regression/closing/FinalDestiny-later.png", "scene": "closing:FinalDestiny:later", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" },
+    { "path": "golden/regression/closing/School2Demo-title.png", "scene": "closing:School2Demo:title", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" },
+    { "path": "golden/regression/closing/School2Demo-board.png", "scene": "closing:School2Demo:board", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" },
+    { "path": "golden/regression/closing/School2Demo-later.png", "scene": "closing:School2Demo:later", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" },
+    { "path": "golden/regression/closing/LittleMan-title.png", "scene": "closing:LittleMan:title", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" }
   ]
 }

@@ -113,6 +113,15 @@ export function pollInputKey(view: WaitView, wait: Wait): WaitResult | null {
   return { value: wait.key, ok: true, discardBefore: floor };
 }
 
+/** docs/spec/engine/display-input-audio.md#reawakened-mouse-click-wait */
+function pollInputMouse(view: WaitView, wait: Wait): WaitResult | null {
+  if (wait.kind !== "input.mouse" || wait.id !== "mouseclick") return null;
+  const pointer = view.input?.pointer;
+  const baseline = typeof wait.payload[0] === "number" ? wait.payload[0] : 0;
+  if (pointer === undefined || (pointer.downs ?? 0) <= baseline) return null;
+  return { value: null, ok: true, outputs: [pointer.downX ?? pointer.x, pointer.downY ?? pointer.y] };
+}
+
 /**
  * `waitInput`: the `input.key` poll plus the pointer record. A key wins a same-tick tie and reports the baseline's
  * pointer fields, so a pointer change that came with it is seen by the next wait; a pointer change reports the record.
@@ -346,6 +355,7 @@ export function pollEventDispatch(view: WaitView, wait: Wait): WaitResult | null
 export const UI_WAIT_KIND_RESOLVERS: readonly WaitKindResolver[] = [
   { kind: "render.msgbox", poll: pollRenderMsgBox },
   { kind: "menu.screen", poll: pollMenuScreen },
+  { kind: "input.mouse", poll: pollInputMouse },
 ];
 
 /** The VM-owned wait kinds. */

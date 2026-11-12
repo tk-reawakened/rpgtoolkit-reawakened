@@ -64,3 +64,12 @@ test("TK2 #FBranch and #Branch compile to equivalent call expressions", () => {
   equal(astBranch.statements[0]?.kind, "expr");
   equal(astFBranch.statements[0]?.kind, "expr");
 });
+
+test("TK2 commands accept trailing star comments without treating multiplication or quoted stars as comments", () => {
+  const source = '#total! = 2 * 3\r\n#Text(2 * 3, 1, "two * three")  * explain the result\r\n#MWin("done")';
+  const program = compileTk2(source, "legacy.prg");
+  const multiplies = program.ops.filter((op) => op.op === "binop" && op.operator === "*");
+  equal(multiplies.length, 2);
+  equal(program.ops.some((op) => op.op === "push" && op.value === "two * three"), true);
+  equal(program.ops.find((op) => op.op === "call" && op.name === "mwin")?.pos?.line, 3);
+});

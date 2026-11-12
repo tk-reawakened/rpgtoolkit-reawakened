@@ -81,6 +81,7 @@ const encoder = new TextEncoder();
 type Files = Map<string, Uint8Array>;
 type BoardSpec = { readonly music?: string; readonly enter?: string; readonly threads?: readonly string[]; readonly tiles?: readonly [number, number]; readonly start?: readonly [number, number]; readonly battleBackground?: string; readonly keyTrigger?: boolean; readonly coordType?: number; /** A step-on region centred on the arrival tile's own-layout pixel, to pin send-arrival deactivation. */ readonly arrivalRegion?: { readonly tile: readonly [number, number] } };
 type GameSpec = {
+  readonly mainMinor?: number;
   readonly startup?: string;
   readonly initChar?: string;
   readonly initBoard?: string;
@@ -166,7 +167,10 @@ function authorGame(spec: GameSpec): AuthoredGame {
   const main = {
     ...createEmptyMainFile(),
     major: 2,
-    minor: 9,
+    minor: spec.mainMinor ?? 9,
+    ...(spec.mainMinor === 2 ? {
+      reservedRuns: { parallax: new Uint8Array(2), menuPluginFallback: new Uint8Array(2), multitask: new Uint8Array(6), fightStyle: new Uint8Array(2) },
+    } : {}),
     projectPath: spec.project ?? "",
     startupPrg: spec.startup ?? "",
     initBoard: spec.initBoard ?? "start.brd",
@@ -1161,6 +1165,73 @@ test("a scripted game boots from start.prg to its first board with the ruled eff
   deepEqual(doubles.audio.map((effect) => [effect.name, effect.kind, ...effect.args]), [["music.play", "draw-audio-cue", "media/theme.mid", true, null, "board"]]);
   deepEqual({ x: state.camera.x, y: state.camera.y }, { x: 0, y: 0 });
   equal(state.vm.threads.some((thread) => thread.kind === "board" && thread.status !== "finished"), true);
+});
+
+test("a Toolkit 2 main file selects its dialect for startup and later project program files", () => {
+  const game = authorGame({
+    mainMinor: 2,
+    startup: "start.prg",
+    initChar: "hero.tem",
+    boards: { "start.brd": { enter: "enter.prg", tiles: [8, 8] } },
+    programs: {
+      "start.prg": "#score! = 3\n#If (score! = 4) { #wrong! = 1 }\n#helper.mark()\n#Include(\"explicit.prg\")\n#markExplicit()\n#Run(\"next.prg\")\n#end",
+      "helper.prg": "#Method mark() { #If (score! = 3) { #included! = 1 } }",
+      "explicit.prg": "#Method markExplicit() { #If (score! = 3) { #explicitRan! = 1 } }",
+      "next.prg": "#If (score! = 3) { #nextRan! = 1 }",
+      "enter.prg": "#If (score! = 3) { #entered! = 1 }",
+    },
+  });
+  const doubles = makeDoubles();
+  const report = run(bootEngine(game, doubles), game.files, 10);
+  deepEqual(report.diagnostics, []);
+  equal(doubles.state().vm.globals.score, 3, "a comparison in the startup file does not change the variable");
+  equal(doubles.state().vm.globals.wrong, undefined);
+  equal(doubles.state().vm.globals.included, 1);
+  equal(doubles.state().vm.globals.explicitran, 1);
+  equal(doubles.state().vm.globals.nextran, 1);
+  equal(doubles.state().vm.globals.entered, 1);
+});
+
+test("blocking MouseClick writes the coordinates of a fresh pointer press", () => {
+  const game = authorGame({
+    startup: "start.prg", initChar: "hero.tem",
+    boards: { "start.brd": { tiles: [8, 8] } },
+    programs: { "start.prg": "wait()\nmouseClick(pollX, pollY, 1)\nmouseClick(clickX, clickY)\nclicked = 1\nend()" },
+  });
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles);
+  run(engine, game.files, 3);
+  const state = doubles.state();
+  const pointer = (x: number, y: number, buttons: number): InputRecord => ({
+    tick: state.time.tick, event: { kind: "pointer", x, y, buttons },
+  });
+  run(engine, game.files, 1, [
+    pointer(12, 34, 1),
+    { tick: state.time.tick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } },
+  ]);
+  equal(state.vm.globals.pollx, 12);
+  equal(state.vm.globals.polly, 34);
+  equal(state.vm.block?.kind, "input.mouse");
+  run(engine, game.files, 1, [pointer(13, 35, 1)]);
+  run(engine, game.files, 1, [pointer(14, 36, 0)]);
+  equal(state.vm.globals.clicked, undefined, "hover and release do not complete the wait");
+  const report = run(engine, game.files, 4, [pointer(57, 91, 1), pointer(58, 92, 0)]);
+  deepEqual(report.diagnostics, []);
+  equal(state.vm.globals.clicked, 1);
+  equal(state.vm.globals.clickx, 57);
+  equal(state.vm.globals.clicky, 91);
+});
+
+test("a malformed file reached by Run reports its source location and leaves the caller running", () => {
+  const game = authorGame({
+    startup: "start.prg", initChar: "hero.tem",
+    boards: { "start.brd": { tiles: [8, 8] } },
+    programs: { "start.prg": 'run("bad.prg")\ncontinued = 1\nend()', "bad.prg": "\n$" },
+  });
+  const doubles = makeDoubles();
+  const report = run(bootEngine(game, doubles), game.files, 8);
+  deepEqual(report.diagnostics.map(({ code, file, line }) => [code, file, line]), [["syntax.error", "prg/bad.prg", 2]]);
+  equal(doubles.state().vm.globals.continued, 1);
 });
 test("unboarded startup board threads wait until first-board entry; persistent threads survive", () => {
   const game = authorGame({

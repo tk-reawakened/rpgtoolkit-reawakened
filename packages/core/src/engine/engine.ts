@@ -97,6 +97,7 @@ import {
   endBoardThreads,
   endItemThreads,
   fileProgramRef,
+  projectScriptDialect,
   runPackageStartup,
   compileRestoredPrograms,
   verifyRestoredHandles,
@@ -3093,7 +3094,7 @@ export function createEngine(init: EngineInit): Engine {
       const manifest = pluginManifestFor(mainFile, mainKey, init.packageCatalogue ?? []);
       const resolvedPlugins = resolveManifestPlugins(manifest.manifest, mainKey, init.packageCatalogue ?? []);
       diagnostics.push(...manifest.diagnostics, ...resolvedPlugins.diagnostics);
-      loader = { index, root, read: readProgramSource };
+      loader = { index, root, dialect: projectScriptDialect(mainFile), read: readProgramSource };
       activePlugins = init.plugins ?? resolvedPlugins.plugins;
       if (mainFileAudioNeedsApply) {
         applyMainFileAudio(mainFile, activePlugins);
