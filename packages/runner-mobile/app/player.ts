@@ -105,7 +105,7 @@ async function start(): Promise<void> {
   if (opened === null) throw new Error("no package was available");
   const descriptor = await readDescriptor(filesystem, opened.name);
   const pkg = await interactivePackage(opened.name, new Uint8Array(opened.bytes), descriptor);
-  const listed = (await (await fetch("/apps/bundled.json")).json()) as { readonly files: readonly string[] };
+  const listed = (await (await fetch("/apps/mobile/bundled.json")).json()) as { readonly files: readonly string[] };
   const bundled = new Map<string, Uint8Array>();
   for (const name of listed.files) {
     const response = await fetch(`/${name}`);

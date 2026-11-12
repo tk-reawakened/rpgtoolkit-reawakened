@@ -90,7 +90,7 @@ export interface RegisterOptions {
 }
 
 /**
- * Register the player's service worker (`/apps/service-worker.js`).
+ * Register the player's service worker (`/apps/browser/service-worker.js`).
  * Uses `updateViaCache: 'none'` so script updates are always checked against the network.
  *
  * Never throws: returns `{ registered: false, reason }` on failure.

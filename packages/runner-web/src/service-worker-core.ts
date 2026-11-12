@@ -2,7 +2,7 @@
  * Pure policy, routing, manifest validation, and cache management for the offline service worker (issue #934).
  *
  * SCOPE DECISION:
- * - Worker script: `/apps/service-worker.js`
+ * - Worker script: `/apps/browser/service-worker.js`
  * - Player page:   `/packages/runner-web/app/index.html`
  * - Player scope:  `/packages/runner-web/app/index.html`
  *
@@ -13,20 +13,20 @@
  * (`storage.html`, `audio.html`, `agreement.html`, `decode.html`, `vectors.html`). This is the minimal scope that controls
  * the player and no more.
  *
- * Because the script is served from `/apps/` and the scope is under `/packages/runner-web/app/`, the server must send the
+ * Because the script is served from `/apps/browser/` and the scope is under `/packages/runner-web/app/`, the server must send the
  * `Service-Worker-Allowed` response header. Setting `Service-Worker-Allowed: /packages/runner-web/app/` on the worker script
  * permits registrations at or below that prefix.
  */
 
 export const PLAYER_PAGE_URL = "/packages/runner-web/app/index.html";
-export const WORKER_SCRIPT_URL = "/apps/service-worker.js";
+export const WORKER_SCRIPT_URL = "/apps/browser/service-worker.js";
 export const PLAYER_SCOPE = "/packages/runner-web/app/index.html";
 export const ALLOWED_SCOPE_HEADER = "/packages/runner-web/app/";
-export const PRECACHE_MANIFEST_URL = "/apps/precache.json";
+export const PRECACHE_MANIFEST_URL = "/apps/browser/precache.json";
 export const SHELL_CACHE_PREFIX = "tkr-shell-";
 export const DESCRIPTORS_CACHE_NAME = "tkr-descriptors";
 
-/** The precache manifest format emitted into `apps/precache.json`. */
+/** The precache manifest format emitted into `apps/browser/precache.json`. */
 export interface PrecacheManifest {
   /** Content-derived version string (16-char hex hash). */
   readonly version: string;

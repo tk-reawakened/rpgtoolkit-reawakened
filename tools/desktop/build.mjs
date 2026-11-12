@@ -1,7 +1,7 @@
 // Build the desktop runner's three artefacts: the Electron main process and preload (Node/Electron targets, esbuild,
 // `electron` external), and the player page bundles the browser lane's build already knows how to produce.
 //
-//   node tools/desktop/build.mjs            build into packages/runner-desktop/dist and apps/
+//   node tools/desktop/build.mjs            build into packages/runner-desktop/dist and apps/desktop/
 //   node tools/desktop/build.mjs --check    build to a temp dir and report whether dist is current
 
 import { build } from "esbuild";
@@ -9,8 +9,11 @@ import { cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { assertNoBuildOutputCollisions, hostBuildOutput } from "../build-outputs.mjs";
+
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
+assertNoBuildOutputCollisions();
 const desktop = join(root, "packages", "runner-desktop");
 
 const shared = {
@@ -34,10 +37,10 @@ await build({
   outfile: join(desktop, "dist", "preload.js"),
 });
 // The page bundles: shared engine and measurement page plus the attached interactive player.
-mkdirSync(join(root, "apps"), { recursive: true });
+mkdirSync(join(root, "apps", "desktop"), { recursive: true });
 await build({
   entryPoints: [join(desktop, "app", "player.ts")],
-  outfile: join(root, "apps", "player-desktop.js"),
+  outfile: hostBuildOutput(root, "desktop", "player-desktop.js"),
   bundle: true,
   format: "iife",
   platform: "browser",
@@ -46,18 +49,17 @@ await build({
 });
 await build({
   entryPoints: [join(desktop, "app", "player-live.ts")],
-  outfile: join(root, "apps", "player-desktop-live.js"),
+  outfile: hostBuildOutput(root, "desktop", "player-desktop-live.js"),
   bundle: true,
   format: "iife",
   platform: "browser",
   target: "chrome120",
   logLevel: "warning",
 });
-// The AudioWorklet module the desktop player loads from `app://player/apps/audio-worklet.js`.
+// The AudioWorklet module the desktop player loads from `app://player/apps/desktop/audio-worklet.js`.
 await build({
   entryPoints: [join(root, "packages/runner-web/src/audio-worklet.ts")],
-  outfile: join(root, "apps", "audio-worklet.js"),
-  bundle: true,
+  outfile: hostBuildOutput(root, "desktop", "audio-worklet.js"),
   format: "iife",
   platform: "browser",
   target: "chrome120",
@@ -86,6 +88,6 @@ const bundled = folders.flatMap((folder) =>
     .map((entry) => `${folder}/${entry.name}`)
     .sort(),
 );
-writeFileSync(join(root, "apps", "bundled.json"), `${JSON.stringify({ folders, files: bundled }, null, 2)}\n`);
-console.log(`built apps/closing-files.json (${writeClosingManifest(root)} fetched games listed)`);
-console.log(`built runner-desktop: dist/main.js, dist/preload.js, apps/player-desktop.js, apps/player-desktop-live.js (${bundled.length} bundled assets listed)`);
+writeFileSync(hostBuildOutput(root, "desktop", "bundled.json"), `${JSON.stringify({ folders, files: bundled }, null, 2)}\n`);
+console.log(`built apps/desktop/closing-files.json (${writeClosingManifest(root, "apps/desktop/closing-files.json")} fetched games listed)`);
+console.log(`built runner-desktop: dist/main.js, dist/preload.js, apps/desktop/player-desktop.js, apps/desktop/player-desktop-live.js (${bundled.length} bundled assets listed)`);

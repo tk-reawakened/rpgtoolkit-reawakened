@@ -281,7 +281,7 @@ The desktop player (`runner-desktop`) is an Electron shell over the `runner-web`
 pnpm fixtures:fetch                                             # the sample games, once
 pnpm make-package fixtures/legacy/demo --closing-plan golden/closing/plan.json \
   --game demo --out fixtures/packages/demo.tpk --title Demo      # one .tpk package + descriptor
-pnpm desktop:build                                              # dist/main.js, dist/preload.js, apps/player-desktop.js
+pnpm desktop:build                                              # dist/main.js, dist/preload.js, apps/desktop/player-desktop.js
 pnpm desktop:measure                                           # run the closing-path measurement, print report, quit
 ```
 

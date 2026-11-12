@@ -152,8 +152,8 @@ async function loadPackage(params: URLSearchParams, report: HTMLPreElement, pack
     window.__load = state;
     report.textContent = describeLoad(packageName, state);
   });
-  const listing = fetch("/apps/bundled.json").then(async (response) => {
-    if (!response.ok) throw new Error(`apps/bundled.json answered ${response.status}`);
+  const listing = fetch("/apps/browser/bundled.json").then(async (response) => {
+    if (!response.ok) throw new Error(`apps/browser/bundled.json answered ${response.status}`);
     return (await response.json()) as { readonly files: readonly string[] };
   });
   const [source, listed] = await Promise.all([controller.load(), listing]);

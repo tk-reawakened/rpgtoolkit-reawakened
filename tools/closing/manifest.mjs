@@ -1,6 +1,6 @@
 // The closing suite needs every fetched game's files, and neither host can list a directory: a PWA origin has no
-// directory listing over HTTP, and the desktop shell serves static paths over `app://`. The build writes the list beside
-// the bundles, exactly as `apps/bundled.json` does for shared assets, and both hosts fetch the same manifest.
+// directory listing over HTTP, and the desktop shell serves static paths over `app://`. Each build writes the list
+// beside its own bundles so an artifact set never depends on which host built last.
 //
 // The manifest is data about fetched fixtures, so it is written only when they are present: a checkout that has not run
 // `pnpm fixtures:fetch` gets an empty map and the suite reports the games as unreachable instead of failing the build.
@@ -8,7 +8,7 @@
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-export const CLOSING_MANIFEST_PATH = "apps/closing-files.json";
+export const CLOSING_MANIFEST_PATH = "apps/browser/closing-files.json";
 
 /** `fixtures/legacy/<game>/**` as `/`-separated paths, sorted, one list per game. */
 export function closingGames(root) {
@@ -27,10 +27,10 @@ export function closingGames(root) {
   return games;
 }
 
-/** Write `apps/closing-files.json` and return the game count. */
-export function writeClosingManifest(root) {
+/** Write a host-specific closing manifest (browser by default) and return the game count. */
+export function writeClosingManifest(root, manifestPath = CLOSING_MANIFEST_PATH) {
   const games = closingGames(root);
-  const out = join(root, CLOSING_MANIFEST_PATH);
+  const out = join(root, manifestPath);
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, `${JSON.stringify({ schema: 1, games }, null, 2)}\n`);
   return Object.keys(games).length;

@@ -62,7 +62,7 @@ export async function runClosingCheck(options: {
   };
 }
 
-/** The build-written list of each fetched game's files (`apps/closing-files.json`). */
+/** The build-written list of each fetched game's files (`apps/browser/closing-files.json`). */
 export type ClosingManifest = { readonly schema: 1; readonly games: Readonly<Record<string, readonly string[]>> };
 
 /**
@@ -72,7 +72,7 @@ export type ClosingManifest = { readonly schema: 1; readonly games: Readonly<Rec
 export function closingManifestLoader(base: string, manifest: ClosingManifest): (name: string) => Promise<ClosingFiles> {
   return async (name) => {
     const listed = manifest.games[name];
-    if (listed === undefined) throw new Error(`${name} is not in ${"apps/closing-files.json"}; run pnpm fixtures:fetch and rebuild`);
+    if (listed === undefined) throw new Error(`${name} is not in ${"apps/browser/closing-files.json"}; run pnpm fixtures:fetch and rebuild`);
     const entries = await Promise.all(listed.map(async (path) => {
       const response = await fetch(`${base}/fixtures/legacy/${name}/${path.split("/").map(encodeURIComponent).join("/")}`);
       if (!response.ok) throw new Error(`${name}/${path} answered ${response.status}`);
@@ -84,7 +84,7 @@ export function closingManifestLoader(base: string, manifest: ClosingManifest): 
 
 /** Fetch the manifest itself; `{}` when the build has not written it. */
 export async function fetchClosingManifest(base = ""): Promise<ClosingManifest> {
-  const response = await fetch(`${base}/apps/closing-files.json`);
+  const response = await fetch(`${base}/apps/browser/closing-files.json`);
   if (!response.ok) return { schema: 1, games: {} };
   const parsed = await response.json() as ClosingManifest;
   return { schema: 1, games: parsed.games ?? {} };
@@ -95,7 +95,7 @@ export async function fetchClosingManifest(base = ""): Promise<ClosingManifest> 
  * does not exist over `app://`, so the shared path is the static one: both hosts then hand the engine the same keys.
  */
 export async function closingBundled(base = ""): Promise<ClosingFiles> {
-  const listed = (await (await fetch(`${base}/apps/bundled.json`)).json()) as { readonly files: readonly string[] };
+  const listed = (await (await fetch(`${base}/apps/browser/bundled.json`)).json()) as { readonly files: readonly string[] };
   const entries = await Promise.all(listed.files.map(async (path) => {
     const response = await fetch(`${base}/${path.split("/").map(encodeURIComponent).join("/")}`);
     if (!response.ok) throw new Error(`bundled ${path} answered ${response.status}`);

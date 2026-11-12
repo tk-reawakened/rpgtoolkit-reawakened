@@ -96,7 +96,7 @@ export async function bootPlayerPage(
     // single-game measurement below.
     if (options.closing === true) {
       const planText = await (await fetch("/golden/closing/plan.json")).text();
-      const manifest = (await (await fetch("/apps/closing-files.json")).json()) as ClosingManifest;
+      const manifest = (await (await fetch("/apps/browser/closing-files.json")).json()) as ClosingManifest;
       const bundled = await closingBundled();
       const suite = await runClosingCheck({
         planText,
@@ -147,7 +147,7 @@ export async function bootPlayerPage(
     // Bundled assets travel with the build, not with the game; a desktop origin has no directory listing, so the build
     // writes the list beside the bundle.
     const bundled = new Map<string, Uint8Array>();
-    const listed = (await (await fetch("/apps/bundled.json")).json()) as { files: readonly string[] };
+    const listed = (await (await fetch("/apps/browser/bundled.json")).json()) as { files: readonly string[] };
     for (const name of listed.files) {
       const response = await fetch(`/${name}`);
       if (response.ok) bundled.set(name, new Uint8Array(await response.arrayBuffer()));

@@ -461,8 +461,9 @@ function clampVolume(volume: number): number {
 
 /** The shipped AudioWorklet module URL: same-origin, so the strict CSP's `script-src 'self'` covers it. */
 export function defaultWorkletUrl(): string {
-  if (typeof location !== "undefined" && location.protocol === "app:") return "app://player/apps/audio-worklet.js";
-  return "/apps/audio-worklet.js";
+  if (typeof location !== "undefined" && location.protocol === "app:") return "app://player/apps/desktop/audio-worklet.js";
+  if (typeof location !== "undefined" && location.protocol === "capacitor:") return "/apps/mobile/audio-worklet.js";
+  return "/apps/browser/audio-worklet.js";
 }
 
 export type GraphConnection = {

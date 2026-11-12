@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import type { AssetKey } from "@tk-reawakened/core";
-import { connectSinkToGraph, PcmSink, ticksToSeconds } from "../src/audio-sink.ts";
+import { connectSinkToGraph, defaultWorkletUrl, PcmSink, ticksToSeconds } from "../src/audio-sink.ts";
 import type { SinkEvent } from "../src/audio-sink.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -233,6 +233,23 @@ test("a bank over the ceiling is bank.unavailable, not a crash", () => {
   equal(made.currentBank, null);
 });
 
+test("default worklet URL selects the artifact owned by its host", () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "location");
+  try {
+    for (const [protocol, expected] of [
+      ["https:", "/apps/browser/audio-worklet.js"],
+      ["capacitor:", "/apps/mobile/audio-worklet.js"],
+      ["app:", "app://player/apps/desktop/audio-worklet.js"],
+    ] as const) {
+      const fakeLocation = { protocol } as Location;
+      Object.defineProperty(globalThis, "location", { configurable: true, value: fakeLocation });
+      equal(defaultWorkletUrl(), expected);
+    }
+  } finally {
+    if (original === undefined) Reflect.deleteProperty(globalThis, "location");
+    else Object.defineProperty(globalThis, "location", original);
+  }
+});
 // ---------------------------------------------------------------- the AudioWorklet graph (issue #1044)
 
 /** A fake node the worklet path can construct and inspect. */
