@@ -127,6 +127,32 @@ export async function run(): Promise<void> {
   // Debug's save-before-start must not wait on the deliberately unsaved preview.
   await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
 
+  // Exercise the real web client and language-server worker, not a transport mock.
+  const callText = "threadSleep(1, ";
+  const callDocument = await vscode.workspace.openTextDocument({ language: "rpgcode", content: callText });
+  const diagnosticsReady = Promise.withResolvers<void>();
+  const diagnosticsListener = vscode.languages.onDidChangeDiagnostics((event) => {
+    if (event.uris.some((uri) => uri.toString() === callDocument.uri.toString()) &&
+        vscode.languages.getDiagnostics(callDocument.uri).length > 0) {
+      diagnosticsListener.dispose();
+      diagnosticsReady.resolve();
+    }
+  });
+  if (vscode.languages.getDiagnostics(callDocument.uri).length > 0) {
+    diagnosticsListener.dispose();
+    diagnosticsReady.resolve();
+  }
+  await vscode.window.showTextDocument(callDocument);
+  await withTimeout(diagnosticsReady.promise, "signature-help document diagnostics");
+  const tip = await withTimeout(
+    vscode.commands.executeCommand<vscode.SignatureHelp>("vscode.executeSignatureHelpProvider", callDocument.uri, new vscode.Position(0, callText.length)),
+    "web language-server signature help",
+  );
+  if (tip === undefined) fail("the web language server returns signature help");
+  equal(tip.activeParameter, 1, "signature help selects the second argument");
+  equal(tip.signatures[0]?.label.startsWith("threadsleep("), true, "signature help uses the registered command");
+  await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
+
   const stops = stopQueue();
   const started = new Promise<vscode.DebugSession>((resolve) => {
     const listener = vscode.debug.onDidStartDebugSession((session) => {
