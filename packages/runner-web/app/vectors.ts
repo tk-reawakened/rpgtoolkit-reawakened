@@ -223,6 +223,22 @@ void (async () => {
     results.push(report(`source-over-${opacity}`, actual, pixels, 4, kitError));
   }
 
+  // Straight-alpha source-over on transparent and translucent destinations, calculated independently.
+  const targetAsset = "test/translucent-target" as AssetKey;
+  const sourceAsset = "test/translucent-source" as AssetKey;
+  const translucentTextures = new Map<AssetKey, TexturePixels>([
+    [targetAsset, { w: 4, h: 1, rgba: new Uint8Array([12,30,50,0, 12,30,50,64, 12,30,50,128, 12,30,50,255]) }],
+    [sourceAsset, { w: 4, h: 1, rgba: new Uint8Array([255,255,255,128, 255,255,255,128, 255,255,255,128, 255,255,255,128]) }],
+  ]);
+  const translucentCommands = [targetAsset, sourceAsset].map((asset, index) => ({
+    kind: "blit", source: { asset, tile: null }, src: { x: 0, y: 0, w: 4, h: 1 }, dst: { x: 0, y: 0, w: 4, h: 1 },
+    key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend: index === 0 ? "normal" : "source-over", iso2d: false,
+  }));
+  const translucentExpected = new Uint8Array([255,255,255,128, 207,210,214,160, 174,180,187,192, 134,143,153,255]);
+  const translucent = replay(4, 1, translucentCommands, translucentTextures, new Map());
+  const translucentError = hexFromBytes(translucent.reference) === hexFromBytes(translucentExpected) ? null : "the reference disagrees with hand-calculated translucent-target pixels";
+  results.push(report("source-over-translucent-target", translucent.actual, translucentExpected, 4, translucentError));
+
   window.__vectors = results;
   window.document.title = `vectors: ${results.length} replayed`;
 })();

@@ -121,10 +121,16 @@ function blend(
   if (command.blend === "source-over") {
     const effective = Math.floor(sa * alpha / 255);
     const inverse = 255 - effective;
-    target.rgba[at] = Math.floor((r * effective + (target.rgba[at] ?? 0) * inverse + 127) / 255);
-    target.rgba[at + 1] = Math.floor((g * effective + (target.rgba[at + 1] ?? 0) * inverse + 127) / 255);
-    target.rgba[at + 2] = Math.floor((b * effective + (target.rgba[at + 2] ?? 0) * inverse + 127) / 255);
-    target.rgba[at + 3] = effective + Math.floor(((target.rgba[at + 3] ?? 0) * inverse + 127) / 255);
+    const targetAlpha = target.rgba[at + 3] ?? 0;
+    const weight = effective * 255 + targetAlpha * inverse;
+    if (weight === 0) return;
+    const sourceWeight = effective * 255;
+    const targetWeight = targetAlpha * inverse;
+    const half = Math.floor(weight / 2);
+    target.rgba[at] = Math.floor((r * sourceWeight + (target.rgba[at] ?? 0) * targetWeight + half) / weight);
+    target.rgba[at + 1] = Math.floor((g * sourceWeight + (target.rgba[at + 1] ?? 0) * targetWeight + half) / weight);
+    target.rgba[at + 2] = Math.floor((b * sourceWeight + (target.rgba[at + 2] ?? 0) * targetWeight + half) / weight);
+    target.rgba[at + 3] = Math.floor((weight + 127) / 255);
     return;
   }
   if (blendTarget === "screen") {

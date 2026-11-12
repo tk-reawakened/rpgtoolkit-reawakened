@@ -21,6 +21,22 @@ test("normal RGBA blits preserve source order and color-key alpha deterministica
   deepEqual(first.rgba, new Uint8Array([0, 0, 0, 255, 7, 8, 9, 255]));
 });
 
+test("source-over preserves straight alpha over transparent and translucent destinations", () => {
+  const target = assetKey("test/target");
+  const source = assetKey("test/source");
+  const blit = (asset: typeof target, blend: "normal" | "source-over") => ({
+    kind: "blit" as const, source: { asset, tile: null }, src: { x: 0, y: 0, w: 4, h: 1 },
+    dst: { x: 0, y: 0, w: 4, h: 1 }, key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend, iso2d: false,
+  });
+  const assets = new Map([
+    [target, { w: 4, h: 1, rgba: new Uint8Array([12,30,50,0, 12,30,50,64, 12,30,50,128, 12,30,50,255]) }],
+    [source, { w: 4, h: 1, rgba: new Uint8Array([255,255,255,128, 255,255,255,128, 255,255,255,128, 255,255,255,128]) }],
+  ]);
+  const result = rasterize({ tick: 0, width: 4, height: 1, commands: [blit(target, "normal"), blit(source, "source-over")], marginCommands: [] }, assets);
+  equal(result.error, null);
+  deepEqual(result.rgba, new Uint8Array([255,255,255,128, 207,210,214,160, 174,180,187,192, 134,143,153,255]));
+});
+
 test("AD-3 tint, blend and scaling vectors are deterministic", () => {
   const key = assetKey("test/vector");
   const source = { w: 2, h: 1, rgba: new Uint8Array([255, 0, 100, 255, 7, 8, 9, 255]) };
