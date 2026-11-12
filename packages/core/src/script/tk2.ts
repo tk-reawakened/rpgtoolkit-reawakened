@@ -177,13 +177,13 @@ function isAssignment(line: string): boolean {
   return false;
 }
 
-/** Preserve valid unprefixed calls that the earlier frontend accepted. */
-function isCallWithEquals(line: string, lookup: Tk2CommandLookup | undefined): boolean {
+/** Preserve valid unprefixed expression statements accepted by the shared frontend. */
+function isExpressionWithEquals(line: string, lookup: Tk2CommandLookup | undefined): boolean {
   if (!line.includes("=")) return false;
   try {
     const ast = parse(tokenizeObjects(stripSigils(bindRawArguments(line, lookup))));
     const stmt = ast.statements[0];
-    if (stmt?.kind !== "expr" || (stmt.expr.kind !== "call" && stmt.expr.kind !== "methodCall")) return false;
+    if (stmt?.kind !== "expr") return false;
     lower(ast);
     return true;
   } catch (error) {
@@ -208,7 +208,7 @@ function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined, litera
   }
   line = line.replace(/^returnmethod\b/i, "return").replace(/^method\b/i, "function");
   if (line.length === 0) return "";
-  if (!raw.trimStart().startsWith("#") && !/^(if|while|until|for|switch|case|default|else|function|return|[:{}])(?:\b|$)/i.test(line) && !isAssignment(line) && !isCallWithEquals(line, lookup) && !line.endsWith("{")) {
+  if (!raw.trimStart().startsWith("#") && !/^(if|while|until|for|switch|case|default|else|function|return|[:{}])(?:\b|$)/i.test(line) && !isAssignment(line) && !isExpressionWithEquals(line, lookup) && !line.endsWith("{")) {
     if (line.includes('"')) {
       literal(line);
       return 'mwin("")';
@@ -225,7 +225,7 @@ function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined, litera
 
 function normaliseTk2Internal(text: string, lookup: Tk2CommandLookup | undefined, literals: Map<number, string> | null): string {
   const codeWithoutStrings = text.replace(/"[^"\n]*"/g, "");
-  if (/\bthen\s*<|^\s*<(?=[#\s]|$)|^\s*>\s*$/im.test(codeWithoutStrings)) {
+  if (/^\s*#?\s*if\b[^\n]*\bthen\s*<|^\s*<(?=[#\s]|$)|^\s*>\s*$/im.test(codeWithoutStrings)) {
     throw new ScriptError("syntax.unsupported", "Toolkit 1.x `< >` blocks are outside the MVP (docs/spec/engine/rpgcode-dialects.md#toolkit-1x)", { file: "", line: 1 });
   }
   return text.split("\n").map((line, index) => normaliseLine(line, lookup, (value) => {

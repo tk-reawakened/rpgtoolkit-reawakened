@@ -110,6 +110,20 @@ test("compact TK1 blocks and standalone closing delimiters remain unsupported", 
   }
 });
 
+test("TK2 expression statements run nested calls and dialogue then substitution", () => {
+  const source = '#Method foo(n) {\n#calls = calls + 1\n#ReturnMethod(n)\n}\n#friend$ = "Ada"\nfoo(x = 1) + 2\nfoo(y = 2)[2]\n!foo(z = 3)\nHi then <friend>';
+  const state = createGameState({ seed: 0 });
+  const program = compileTk2(source, "expressions-dialogue.prg");
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.x, 1);
+  equal(state.vm.globals.y, 2);
+  equal(state.vm.globals.z, 3);
+  equal(state.vm.globals.calls, 3);
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Hi then Ada"]);
+  throws(() => compileTk2("#If (x) then < #Mwin(hello) >"), /Toolkit 1\.x/);
+});
+
 test("TK2 methods, labels, namespace calls and fbranch preserve shared shapes", () => {
   const ast = parseTk2("#Method Add(a, b) { #ReturnMethod(a + b) }\n:again\n#FBranch(:again)\n#system.start()");
   equal(ast.functions[0]?.name, "add");

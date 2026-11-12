@@ -84,6 +84,14 @@ test("migration keeps digit-leading and multiple calls and refuses qualified dep
   deepEqual(legacyFixes("system.foo(x = 1)", "tk2"), []);
 });
 
+test("migration preserves expression call effects and then-angle dialogue", () => {
+  const source = '#Method foo(n) {\n#calls = calls + 1\n#ReturnMethod(n)\n}\n#friend$ = "Ada"\nfoo(x = 1) + 2\nfoo(y = 2)[2]\n!foo(z = 3)\nHi then <friend>\n#Mwin(calls!)\n#Mwin(x!)\n#Mwin(y!)\n#Mwin(z!)';
+  const fixed = migrate(source);
+  const expected = ["Hi then Ada", "3", "1", "2", "3"];
+  deepEqual(mwinText(source, "tk2"), expected);
+  deepEqual(mwinText(fixed, "tk3"), expected);
+});
+
 test("mixed legacy forms are converted together and retain comments and CRLF", () => {
   const source = "* keep this comment\r\n#If (x = 5) {\r\n  #y! = 1\r\n}\r\nHello there\r\n#threadSleep(1, 2) * keep this too\r\n";
   const fixed = migrate(source);
