@@ -125,6 +125,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - run: pnpm build:outputs:test && pnpm build:outputs:check
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm bmad:tickets:test
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       # `typecheck` starts with `tsc -b`, so subsequent checks reuse the built output.

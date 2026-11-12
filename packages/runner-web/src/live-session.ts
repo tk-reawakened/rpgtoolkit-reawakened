@@ -38,7 +38,7 @@ import {
 import { catalogueEntry, parseClosingPlan, parsePackageManifest, type ClosingFiles } from "@tk-reawakened/runner-harness";
 import { createWebgl2Renderer, type RenderStats } from "@tk-reawakened/render-webgl2";
 import { BUNDLED_BANK, CuePlayer, describePatchGap } from "@tk-reawakened/synth";
-import { connectSinkToGraph, defaultWorkletUrl, PcmSink, type ScheduledPlay } from "./audio-sink.ts";
+import { connectSinkToGraph, defaultWorkletUrl, PcmSink, type AudioArtifactHost, type ScheduledPlay } from "./audio-sink.ts";
 import { fontProvider, liveTextureProvider } from "./index.ts";
 import type { DecodeAhead } from "./decode-types.ts";
 import type { PackageSource } from "./package-source.ts";
@@ -104,6 +104,8 @@ export type LiveSession = {
 };
 type LiveSessionBase = {
   readonly bundled: ClosingFiles;
+  /** Selects the host-owned AudioWorklet artifact; only the browser lane may use the default. */
+  readonly audioArtifactHost?: AudioArtifactHost;
   readonly gl: WebGL2RenderingContext;
   readonly blobs?: LiveBlobHost;
   /** Milliseconds, for stall timing. Defaults to `performance.now`; a test injects its own. */
@@ -372,7 +374,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
       } else if (event.kind === "bank.substitution") console.warn(describePatchGap(event)); // playback continues; not game state
     },
   });
-  const graph = await connectSinkToGraph(audioContext, sink, { workletUrl: defaultWorkletUrl() });
+  const graph = await connectSinkToGraph(audioContext, sink, { workletUrl: defaultWorkletUrl(options.audioArtifactHost) });
   player = new CuePlayer({
     send: (message) => graph.send(message),
     readAsset: (key) => assets.peek(key) ?? bundled.get(key) ?? null,

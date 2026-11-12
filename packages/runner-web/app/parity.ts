@@ -27,7 +27,7 @@ declare global {
 
 /** The bundled assets the frame's text needs, listed by the build beside the bundle. */
 async function bundledAssets(): Promise<Map<string, Uint8Array>> {
-  const listed = (await (await fetch("/apps/bundled.json")).json()) as { readonly files: readonly string[] };
+  const listed = (await (await fetch("/apps/browser/bundled.json")).json()) as { readonly files: readonly string[] };
   const bundled = new Map<string, Uint8Array>();
   for (const name of listed.files) {
     const response = await fetch(`/${name}`);

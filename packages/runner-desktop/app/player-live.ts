@@ -78,7 +78,7 @@ async function play(host: DesktopHost, opened: { readonly name: string; readonly
   const { canvas, status, viewport } = stage;
   const pkg = await interactivePackage(opened.name, new Uint8Array(opened.bytes), opened.descriptor);
   const files = pkg.files;
-  const listed = (await (await fetch("/apps/bundled.json")).json()) as { readonly files: readonly string[] };
+  const listed = (await (await fetch("/apps/desktop/bundled.json")).json()) as { readonly files: readonly string[] };
   const bundled = new Map<string, Uint8Array>();
   for (const name of listed.files) {
     const response = await fetch(`/${name}`);
@@ -90,6 +90,7 @@ async function play(host: DesktopHost, opened: { readonly name: string; readonly
   let quitRequested = false;
   let stopPlayer: (() => void) | undefined;
   const session = await createLiveSession({
+    audioArtifactHost: "desktop",
     interactive: true,
     ...(debug === undefined || debug.drawVectorsFlags === 0 ? {} : { debug: { drawVectorsFlags: debug.drawVectorsFlags } }),
     mainFile: pkg.main,
