@@ -138,9 +138,10 @@ test("only narrows the run and warns with the documented text", () => {
   equal(report.cases[0]?.outcomes.some((item) => item.kind === "only"), true);
 });
 
-test("script-spec is absent from the engine's default manifest, and registers its closed set of seven", () => {
+test("script-spec is absent from the engine's default manifest, and registers its closed set of twelve", () => {
   equal(ENGINE_DEFAULT_MANIFEST.map((entry) => entry.id).includes("script-spec"), false);
   deepEqual(SPEC_PLUGIN.commands.map((command) => command.name), [
     "specresult", "speccapture", "specequal", "speccontain", "specclose", "specthrowbegin", "specthrowend",
+    "speccalled", "specinput", "specticks", "specrng", "spyon",
   ]);
 });

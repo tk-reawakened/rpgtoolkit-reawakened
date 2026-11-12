@@ -60,6 +60,8 @@ function readGolden(): AcceptanceGolden | null {
 // #2024 fixes stock-menu action-name passthrough; its changed startup bytecode shifts VM state hashes, not draws or events.
 // #1938 changes the initial UI font; #2134 corrects canvas glyph compositing and copied-surface pixels.
 // The source-over overlay cutover also changes each draw hash; gameplay events and the other checkpoint fields stay fixed.
+// #1994 changes stock-battle startup bytecode; restoring the previous startup restores every old state hash.
+// All ten draw hashes and event lists are unchanged.
 function recordCheckpoint(checkpoints: GoldenCheckpoint[], id: string, session: Session, events: EventView[]): void {
   const state = session.state();
   const stateHash = hashGameState(state);

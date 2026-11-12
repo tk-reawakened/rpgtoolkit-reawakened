@@ -1,4 +1,4 @@
-import { equal, notDeepEqual, ok } from "node:assert/strict";
+import { deepEqual, equal, notDeepEqual, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { createDocumentIdentity, createMainDocument } from "@tk-reawakened/editor-model";
@@ -46,4 +46,23 @@ test("session-copy filesystem validates every relative-path operation and permit
   }
   const watch = await fs.watch("", () => undefined);
   ok(!watch.ok && watch.error.code === "unavailable");
+});
+
+test("retiring a switched-away web project refuses its document saves without affecting an independent project", async () => {
+  const a = createSessionCopy("game.gam", original);
+  const b = createSessionCopy("game.gam", original);
+  const opened = createMainDocument(a.services.fs, createDocumentIdentity(a.project.id, "game.gam"), original);
+  ok(opened.ok);
+  opened.document.apply({ type: "set-game-title", title: "Unsaved" });
+  a.deactivate();
+  const result = await opened.document.save();
+  ok(!result.ok);
+  equal(result.failure.document, "game.gam");
+  ok(opened.document.getSnapshot().dirty);
+  const bytesA = await a.services.fs.read("game.gam");
+  const bytesB = await b.services.fs.read("game.gam");
+  ok(bytesA.ok && bytesB.ok);
+  deepEqual(bytesA.value, original);
+  deepEqual(bytesB.value, original);
+  ok((await b.services.fs.writeProject(b.project.id, "game.gam", original)).ok);
 });

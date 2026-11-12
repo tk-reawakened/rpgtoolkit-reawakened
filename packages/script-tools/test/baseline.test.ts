@@ -27,7 +27,12 @@ function records(): { readonly file: string; readonly rule: string | undefined; 
   for (const file of baseline.files) {
     const text = readFileSync(join(repoRoot, file), "utf8");
     const document = buildIndex([{ name: file, ref: { kind: "inline", text, ir: "1" } }]);
-    const result = lint(document, { plugins, sources: { [file]: text } });
+    // Stock is 3.1 source, so the dialect-dependent rules run over it too (TOOL-3 assessment).
+    const result = lint(document, { plugins, sources: { [file]: text }, dialect: "tk3" });
+    for (const entry of result.summary.unassessed) {
+      // Only the project-wide rule is skipped: one file is not a closed project.
+      if (entry.rule !== "lint/unused-function" || entry.reason !== "incomplete-project") throw new Error(`${file}: ${entry.rule} unassessed (${entry.reason})`);
+    }
     for (const diagnostic of result.diagnostics as readonly Diagnostic[]) {
       found.push({ file, rule: diagnostic.rule, line: diagnostic.range.start.line, column: diagnostic.range.start.column, message: diagnostic.message });
     }

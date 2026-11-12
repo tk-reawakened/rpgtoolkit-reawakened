@@ -268,7 +268,7 @@ Menu and battle cues are voices on their configured tracks, so they mix over mus
 
 | Part | Position and size |
 |---|---|
-| Background | the `.bkg` picture stretched to the whole screen; a flat dark blue when it names none |
+| Background | the `.bkg` picture stretched to the whole screen; a text background's tile grid is composed in memory into a picture first; a flat dark blue when it names neither |
 | Enemy slot *i* (0 to 3) | top-left corner at x = 40 + 120 × (*i* mod 2), y = 40 + 112 × ⌊*i* / 2⌋, a 64 × 64 picture; its name (8 px font) 3 px below, then a 64 × 6 HP bar; no SMP, no charge |
 | Player slot *i* (0 to 4) | a 64 × 64 picture; the first three fill the right edge, top-left corner at x = width − 104, y = 24 + 76 × *i*; members four and five start a second column 76 px further left at y = 24 + 76 × (*i* − 3), so no two pictures — and none against the enemy grid — overlap at the five-member maximum. Name, HP, SMP and charge are in the panel only |
 | Command panel | the bottom-left 144 px (x = 8..151, y = height − 132..height − 1), four vertical options (Fight, Special, Items, Run) 26 px high. It persists beneath submenus and targeting: the active command has `>` and a highlighted background; when a submenu (Special, Items) or target selection is open, the chosen command text uses the same yellow (`RGB 255, 224, 64`) as the active party member's name |

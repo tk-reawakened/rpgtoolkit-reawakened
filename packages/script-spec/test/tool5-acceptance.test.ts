@@ -140,10 +140,11 @@ test("B1 the tolerance is required: one argument is the arity failure callable.a
   equal(two.cases[0]?.ok, true);
 });
 
-test("A8/A9 script-spec stays out of the default manifest and registers its closed set of seven", () => {
+test("A8/A9 script-spec stays out of the default manifest and registers its closed set of twelve", () => {
   equal(ENGINE_DEFAULT_MANIFEST.map((entry) => entry.id).includes("script-spec"), false);
   deepEqual(SPEC_PLUGIN.commands.map((command) => command.name), [
     "specresult", "speccapture", "specequal", "speccontain", "specclose", "specthrowbegin", "specthrowend",
+    "speccalled", "specinput", "specticks", "specrng", "spyon",
   ]);
 });
 

@@ -91,7 +91,25 @@
           }
         ]
       }
-    ]
+    ],
+    "commands": [
+      {
+        "command": "rpgcode.selectProject",
+        "title": "Select Running Project",
+        "category": "RPGCode"
+      }
+    ],
+    "configuration": {
+      "title": "RPGCode",
+      "properties": {
+        "rpgcode.project": {
+          "type": "string",
+          "default": "",
+          "scope": "window",
+          "markdownDescription": "The running project: the `.gam` main file the game runs from, as a path relative to the first workspace folder or as a URI. Its version selects the RPGCode dialect, and its folder supplies the programs that includes resolve to and `tkr-lint.json`. Set it with **RPGCode: Select Running Project**. When it is empty, RPGCode files are unassessed: they are read provisionally from their language mode, are not linted and are not formatted."
+        }
+      }
+    }
   },
   "scripts": {
     "build": "node build.mjs",

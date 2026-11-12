@@ -27,6 +27,13 @@ test("every rule has a stable id, a default severity and a rationale", () => {
       ["dialect/return-method", "warning", false],
       ["dialect/obsolete-control", "warning", false],
       ["dialect/unquoted-command-argument", "warning", false],
+      ["lint/unused-variable", "warning", false],
+      ["lint/unused-label", "warning", false],
+      ["lint/unused-function", "hint", false],
+      ["lint/unreachable-code", "warning", false],
+      ["lint/deprecated-command", "warning", false],
+      ["lint/obsolete-command", "warning", false],
+      ["style/format", "hint", true],
     ],
   );
   for (const rule of RULES) ok(rule.rationale.length > 0);
@@ -49,6 +56,24 @@ test("spec API names are available only to specs, without hiding unknown calls",
   deepEqual(result.programs.filter((name) => name === "checks.SPEC.PRG"), ["checks.SPEC.PRG"]);
   equal(result.diagnostics.filter((d) => d.message.includes("typo")).length, 2);
   ok(result.diagnostics.some((d, i) => result.programs[i] === "game.prg" && d.message.includes("`expect`")));
+});
+
+test("the TOOL-5 test doubles and spy matchers are spec-only names too", () => {
+  const source = [
+    'it("case", () => {',
+    '  specInput(specTicks(0) + 1, "A", "KeyA", "a", 1)',
+    '  specRng({ "0": 1, length: 1 })',
+    '  s = spyOn("random")',
+    '  expect(s).toHaveBeenCalledWith({ length: 0 })',
+    '  expect(s).toHaveBeenNthCalledWith(1, { length: 0 })',
+    '})',
+  ].join("\n");
+  const spec = lint(buildIndex([{ name: "doubles.spec.prg", ref: { kind: "inline", text: source, ir: "1" } }]), { plugins });
+  deepEqual(spec.diagnostics.filter((d) => d.rule === "lint/unknown-command"), []);
+  const game = lint(buildIndex([{ name: "game.prg", ref: { kind: "inline", text: source, ir: "1" } }]), { plugins });
+  for (const name of ["specInput", "specTicks", "specRng", "spyOn"]) {
+    ok(game.diagnostics.some((d) => d.rule === "lint/unknown-command" && d.message.includes(`\`${name}\``)), name);
+  }
 });
 
 test("a call with the wrong number of parameters reports the command's bounds", () => {

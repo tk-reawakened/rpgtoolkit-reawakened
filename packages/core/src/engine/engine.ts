@@ -16,7 +16,7 @@ import { classifyImageReference } from "../formats/animation/image-reference.ts"
 import { decodeTexture, type DecodedTexture } from "../formats/image/index.ts";
 import { expandSingleTileToRgba, readSingleTile } from "../formats/single-tile/index.ts";
 import { expandTileToRgba, readTileset, tileDimensions } from "../formats/tileset/index.ts";
-import { compositeTileBitmap, readTileBitmap, tileBitmapCell, TILE_BITMAP_MAGIC, type TileBitmapTile } from "../formats/tile-bitmap/index.ts";
+import { compositeTileBitmap, readTileBitmap, tileBitmapCell, TILE_BITMAP_MAGIC, type TileBitmap, type TileBitmapTile } from "../formats/tile-bitmap/index.ts";
 import { readTileAnimation } from "../formats/tile-animation/reader.ts";
 import { err, ok, type Result } from "../formats/result.ts";
 import { readCharacter } from "../formats/actor/character.ts";
@@ -385,6 +385,7 @@ export function createEngine(init: EngineInit): Engine {
   const inventoryItemDefinitions = new Map<AssetKey, Item>();
   const inventoryCharacterDefinitions = new Map<AssetKey, Character>();
   const decodedImages = new Map<AssetKey, DecodedTexture>();
+  const pendingBattlePictures = new Map<AssetKey, TileBitmap>();
   const decodedTiles = new Map<AssetKey, DecodedTexture>();
   /**
    * Actor walk/idle/battle animation metadata, decoded from the animation file's bytes (E-21, E-54). Asset-derived,
@@ -1568,6 +1569,7 @@ export function createEngine(init: EngineInit): Engine {
       inventoryItemDefinitions.clear();
       inventoryCharacterDefinitions.clear();
       decodedImages.clear();
+      pendingBattlePictures.clear();
       decodedTiles.clear();
       spriteAnimations.clear();
       spriteAnimationSourceBytes.clear();
@@ -1727,12 +1729,79 @@ export function createEngine(init: EngineInit): Engine {
       failed = true;
       return null;
     }
+    return composeTilePicture(key, parsed.value);
+  }
+  /** Convert the text background's x-major grid to the ordinary tile-picture layout. */
+  function battleBackgroundTexture(key: AssetKey): DecodedTexture | null {
+    deferredRestoreDecode.delete(key);
+    const cached = decodedImages.get(key);
+    if (cached !== undefined) return cached;
+    const bytes = cache.get(key);
+    const pendingPicture = pendingBattlePictures.get(key);
+    if (pendingPicture !== undefined) return composeTilePicture(key, pendingPicture);
+    if (bytes === undefined) {
+      request(key, "image");
+      return null;
+    }
+    const parsed = readBattleBackground(new BinaryReader(bytes, key));
+    if (!parsed.ok || parsed.value.tiles === undefined || parsed.value.tints === undefined) {
+      diagnostics.push({ code: "asset.invalid", file: key, line: parsed.ok ? 0 : parsed.error.offset,
+        message: parsed.ok ? "battle background has no tile grid" : parsed.error.message });
+      failed = true;
+      return null;
+    }
+    const cells = [];
+    for (let x = 0; x <= 19; x += 1) {
+      for (let y = 0; y <= 11; y += 1) {
+        const i = x * 11 + y;
+        const tint = x < 19 && y < 11 ? parsed.value.tints[i] : undefined;
+        cells.push({ tile: x < 19 && y < 11 ? parsed.value.tiles[i] ?? "" : "",
+          r: tint?.r ?? 0, g: tint?.g ?? 0, b: tint?.b ?? 0 });
+      }
+    }
+    const bitmap: TileBitmap = { magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 19, height: 11, cells, residue: new Uint8Array(0) };
+    pendingBattlePictures.set(key, bitmap);
+    return composeTilePicture(key, bitmap);
+  }
+  function composeTilePicture(key: AssetKey, bitmap: TileBitmap): DecodedTexture | null {
     const tiles = new Map<string, TileBitmapTile>();
-    const columns = Math.max(0, parsed.value.width);
-    const rows = Math.max(0, parsed.value.height);
+    const columns = Math.max(0, bitmap.width);
+    const rows = Math.max(0, bitmap.height);
+    // Request every missing dependency before copying any tile pixels. Animated
+    // tiles can require a second batch for their first-frame assets.
+    const references = new Set<string>();
+    let waiting = false;
     for (let x = 0; x < columns; x += 1) {
       for (let y = 0; y < rows; y += 1) {
-        const cell = tileBitmapCell(parsed.value, x, y);
+        const reference = tileBitmapCell(bitmap, x, y)?.tile ?? "";
+        if (reference === "" || references.has(reference)) continue;
+        references.add(reference);
+        const resolved = resolveTileReference(index, root, reference);
+        if (!resolved.ok || resolved.value.kind === "empty") continue;
+        let tile = resolved.value;
+        if (tile.kind === "animatedTile") {
+          const bytes = cache.get(tile.asset);
+          if (bytes === undefined) {
+            request(tile.asset, requestKindFor(tile.asset));
+            waiting = true;
+            continue;
+          }
+          const animation = readTileAnimation(new BinaryReader(bytes, tile.asset));
+          if (!animation.ok) continue;
+          const frame = resolveTileReference(index, root, animation.value.frames[0] ?? "");
+          if (!frame.ok || (frame.value.kind !== "tileset" && frame.value.kind !== "isometric" && frame.value.kind !== "singleTile")) continue;
+          tile = frame.value;
+        }
+        if (!cache.has(tile.asset)) {
+          request(tile.asset, requestKindFor(tile.asset));
+          waiting = true;
+        }
+      }
+    }
+    if (waiting) return null;
+    for (let x = 0; x < columns; x += 1) {
+      for (let y = 0; y < rows; y += 1) {
+        const cell = tileBitmapCell(bitmap, x, y);
         if (cell === undefined || cell.tile === "" || tiles.has(cell.tile)) continue;
         const tile = tileCellPixels(cell.tile);
         if (tile === null) return null;
@@ -1744,13 +1813,14 @@ export function createEngine(init: EngineInit): Engine {
         tiles.set(cell.tile, tile.value);
       }
     }
-    const composed = compositeTileBitmap(parsed.value, tiles);
+    const composed = compositeTileBitmap(bitmap, tiles);
     if (!composed.ok) {
       diagnostics.push({ code: "asset.invalid", file: key, line: composed.error.offset, message: composed.error.message });
       failed = true;
       return null;
     }
     decodedImages.set(key, composed.value);
+    pendingBattlePictures.delete(key);
     return composed.value;
   }
   /**
@@ -1889,7 +1959,18 @@ export function createEngine(init: EngineInit): Engine {
     decodedTiles.set(key, texture);
     return texture;
   }
+  function battlePictureName(file: unknown): string | null {
+    if (typeof file !== "object" || file === null || Array.isArray(file)) return null;
+    const reference = file as Record<string, unknown>;
+    return reference.kind === "battle-background" && typeof reference.file === "string" && reference.file !== ""
+      ? reference.file : null;
+  }
   function imageAsset(file: unknown): AssetKey | null {
+    const background = battlePictureName(file);
+    if (background !== null) {
+      const resolved = resolveAsset(index, root, "backgrounds", background);
+      return resolved.ok ? resolved.value : null;
+    }
     if (typeof file !== "string" || file === "") return null;
     const resolved = resolveAsset(index, root, "bitmaps", file);
     return resolved.ok ? resolved.value : null;
@@ -2119,7 +2200,7 @@ export function createEngine(init: EngineInit): Engine {
       imageDiagnostic(effect.args[0], `${effect.name}: image is not in the asset index`);
       return;
     }
-    const texture = imageTexture(key);
+    const texture = battlePictureName(effect.args[0]) === null ? imageTexture(key) : battleBackgroundTexture(key);
     if (texture === null) {
       pendingImageEffects.push({ key, effect });
       request(key, "image");
@@ -2291,7 +2372,11 @@ export function createEngine(init: EngineInit): Engine {
     }
     cacheAsset(entry.key, new Uint8Array(record.event.bytes));
     if (entry.kind === "image") {
-      imageTexture(entry.key);
+      if (pendingImageEffects.some((item) => item.key === entry.key && battlePictureName(item.effect.args[0]) !== null)) {
+        battleBackgroundTexture(entry.key);
+      } else {
+        imageTexture(entry.key);
+      }
     } else if (entry.kind === "tile") {
       tileTexture(entry.key);
     }
@@ -2304,7 +2389,7 @@ export function createEngine(init: EngineInit): Engine {
     if (pendingImageEffects.length === 0 || failed) return;
     for (let index = 0; index < pendingImageEffects.length;) {
       const item = pendingImageEffects[index]!;
-      const texture = imageTexture(item.key);
+      const texture = battlePictureName(item.effect.args[0]) === null ? imageTexture(item.key) : battleBackgroundTexture(item.key);
       if (texture === null) {
         // A picture that cannot be decoded is reported once and its effect is dropped, as before; one that is only
         // waiting for another asset stays queued.
@@ -2589,6 +2674,7 @@ export function createEngine(init: EngineInit): Engine {
     queuedInputs.length = 0;
     installedFonts.clear();
     decodedImages.clear();
+    pendingBattlePictures.clear();
     decodedTiles.clear();
     missingLegacySpriteAssets.clear();
     legacyCharacterWalks.clear();

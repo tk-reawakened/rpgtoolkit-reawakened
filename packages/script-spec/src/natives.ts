@@ -1,11 +1,14 @@
 /**
- * The seven native commands of the `script-spec` package (TOOL-5, ADR 0014 amendment of 2026-11-11):
- * `specResult` records an outcome and the position of its call, and six matcher helpers read what a library
- * program cannot (docs/spec/engine/rpgcode-tooling.md#tool-5-natives). The set is closed: a command joins it by
- * editing TOOL-5 first. They are registered only by `SPEC_PLUGIN`, never by the engine's default manifest.
+ * The twelve native commands of the `script-spec` package (TOOL-5, ADR 0014 amendments of 2026-11-11 and
+ * 2026-11-12): `specResult` records an outcome and the position of its call, seven matcher helpers read what a
+ * library program cannot (docs/spec/engine/rpgcode-tooling.md#tool-5-natives), and four test doubles act on the
+ * runner's side of the VM (#tool-5-doubles). The set is closed: a command joins it by editing TOOL-5 first. They are
+ * registered only by the `script-spec` plugin, never by the engine's default manifest.
  *
- * Every command here is a pure read or a log record: none re-enters the interpreter, none waits. The two error
- * commands bracket a call the library makes itself, so the VM runs that call as an ordinary call (G1).
+ * No command here re-enters the interpreter. The two error commands bracket a call the library makes itself, so the
+ * VM runs that call as an ordinary call, and `specTicks` waits through the ordinary cooperative sleep (G1). The
+ * doubles reach the run's host-side `SpecDoubles`; without one (the static `SPEC_PLUGIN`) they raise
+ * `spec.no-doubles`.
  */
 
 import {
@@ -18,11 +21,17 @@ import {
   type ParamSpec,
   type Value,
 } from "@tk-reawakened/core";
+import { installSpy, type SpecDoubles } from "./doubles.ts";
 import { captureArg, display, finiteNumber, parseSnap, snapContains, snapsEqual, type Snap } from "./snapshot.ts";
 
 const SEE = [
   "docs/spec/engine/rpgcode-tooling.md#tool-5-natives",
   "docs/spec/engine/rpgcode-tooling.md#tool-5",
+];
+
+const SEE_DOUBLES = [
+  "docs/spec/engine/rpgcode-tooling.md#tool-5-doubles",
+  "docs/spec/engine/rpgcode-tooling.md#tool-5-natives",
 ];
 
 /** The native Purpose group the command-docs gate derives from the spec page's section heading. */
@@ -247,12 +256,226 @@ const SPEC_THROW_END: BuiltinSpec = {
   },
 };
 
-export const SPEC_COMMANDS: readonly BuiltinSpec[] = [
-  SPEC_RESULT,
-  SPEC_CAPTURE,
-  SPEC_EQUAL,
-  SPEC_CONTAIN,
-  SPEC_CLOSE,
-  SPEC_THROW_BEGIN,
-  SPEC_THROW_END,
-];
+/** The largest scripted draw: an RNG port draw is an unsigned 32-bit number. */
+const MAX_DRAW = 4_294_967_295;
+/** The largest `specTicks` count; the run's own 1,000-tick ceiling still applies. */
+const MAX_TICKS = 1000;
+
+function wholeNumber(value: Value | undefined): number | null {
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+/** The entries `"0"` to `"<length - 1>"` of a list snapshot, or `null` when the snapshot is not exactly a list. */
+function listEntries(snap: Snap): readonly Snap[] | null {
+  if (snap[0] !== "d") return null;
+  const members = new Map(snap[3]);
+  const length = members.get("length");
+  if (length === undefined || length[0] !== "n") return null;
+  const count = Number(length[1]);
+  if (!Number.isInteger(count) || count < 0 || members.size !== count + 1) return null;
+  const entries: Snap[] = [];
+  for (let at = 0; at < count; at += 1) {
+    const entry = members.get(String(at));
+    if (entry === undefined) return null;
+    entries.push(entry);
+  }
+  return entries;
+}
+
+function callText(args: readonly Snap[]): string {
+  return `(${args.map(display).join(", ")})`;
+}
+
+function doublesOf(doubles: SpecDoubles | undefined, command: string): SpecDoubles {
+  if (doubles === undefined) throw new ScriptError("spec.no-doubles", `${command}: this runner offers no test doubles`);
+  return doubles;
+}
+
+function specCalled(doubles: SpecDoubles | undefined): BuiltinSpec {
+  return {
+    name: "speccalled",
+    aliases: [],
+    params: [
+      param("actual", "The snapshot text `specCapture` returned for the spy handle under test."),
+      param("args", "The list of expected arguments; read by reference so its entries are seen.", { byRef: true }),
+      param("any", "1 asks whether any recorded call matches; 0 asks about call `nth`."),
+      param("nth", "With `any` 0, the call to check, counted from 1; read by reference, so it is not truncated.", { byRef: true }),
+      param("expectedText", OUT_TEXT, { optional: true, byRef: true }),
+      param("actualText", OUT_TEXT, { optional: true, byRef: true }),
+    ],
+    doc: {
+      summary: "Check what a spy recorded, for `toHaveBeenCalledWith` and `toHaveBeenNthCalledWith`.",
+      behaviour:
+        "Used by the two spy matchers. `actual` is the snapshot of a spy handle `spyOn` returned in this run; `args` is a list (a dictionary holding `length` and exactly the keys `\"0\"` to `\"<length - 1>\"`). With `any` 1, returns 1 when at least one recorded call has as many arguments as `args` has entries and each equals its entry under `toEqual`'s rules (no number/string conversion); with `any` 0, returns 1 when call `nth` (counted from 1, in call order) exists and matches. Otherwise returns 0. Returns -1, so the matcher fails in both polarities, when `actual` is not a spy of this run, `args` is not a list, or with `any` 0 `nth` is not a whole number of 1 or more. Writes the expected call and the recorded calls (or \"no calls\") to the optional variables. Does not wait.",
+      groups: [SPEC_GROUP],
+      access: "public",
+      returns: { summary: "1 for a match, 0 for none, -1 for an invalid subject, list or call number." },
+      waits: { kind: "never", summary: "Compares and returns at once." },
+      see: SEE_DOUBLES,
+    },
+    call: (view, args) => {
+      const subject = snapshotOf(args[0]?.value, "specCalled");
+      const expected = captureArg(view, args[1]!);
+      const any = typeof args[2]?.value === "number" && args[2].value !== 0;
+      const nthSnap = captureArg(view, args[3]!);
+      const fail = (expectedText: string, actualText: string): CommandResult =>
+        ({ value: -1, out: texts(args, [4, expectedText], [5, actualText]) });
+      const spy = subject[0] === "s" ? doubles?.spies.get(subject[1]) : undefined;
+      if (spy === undefined) return fail("a spy installed by spyOn in this case", display(subject));
+      const entries = listEntries(expected);
+      if (entries === null) return fail("a list of expected arguments", display(expected));
+      const nth = nthSnap[0] === "n" ? Number(nthSnap[1]) : Number.NaN;
+      if (!any && !(Number.isInteger(nth) && nth >= 1)) return fail("a call number of 1 or more", display(nthSnap));
+      const matches = (call: readonly Snap[]): boolean =>
+        call.length === entries.length && call.every((arg, at) => snapsEqual(arg, entries[at]!, false));
+      const ok = any ? spy.calls.some(matches) : spy.calls.length >= nth && matches(spy.calls[nth - 1]!);
+      const expectedText = any ? `a call of ${spy.name} with ${callText(entries)}` : `call ${nth} of ${spy.name} with ${callText(entries)}`;
+      const actualText = spy.calls.length === 0 ? "no calls" : spy.calls.map((call, at) => `${at + 1}: ${callText(call)}`).join(", ");
+      return { value: ok ? 1 : 0, out: texts(args, [4, expectedText], [5, actualText]) };
+    },
+  };
+}
+
+function specInput(doubles: SpecDoubles | undefined): BuiltinSpec {
+  return {
+    name: "specinput",
+    aliases: [],
+    params: [
+      param("tick", "The absolute fixture tick the edge enters the input section in; later than the tick of the call."),
+      param("name", "The key name scripts see, as the engine's key event carries it (for example \"ENTER\")."),
+      param("code", "The physical key code, as the engine's key event carries it (for example \"Enter\")."),
+      param("char", "The one character the key types, or \"\" or the unset value for none."),
+      param("down", "1 for a press, 0 for a release."),
+    ],
+    doc: {
+      summary: "Press or release a key at a chosen game tick, as if the player did it.",
+      behaviour:
+        "Called by a case. Schedules one key edge for the absolute fixture tick `tick`, which must be a whole number later than the tick the call runs in. `name` and `code` are non-empty strings, `char` is a one-character string or `\"\"` or the unset value for none, and `down` is 1 (press) or 0 (release); any other argument raises `spec.bad-input`. At the start of that tick, before its wait poll, every edge scheduled for it enters the ordinary input section as a host key event would, once, in scheduling order, so a script waiting for a key sees it in that tick. An edge still scheduled when the run ends fails the run with `spec.input-pending`. Does not wait.",
+      groups: [SPEC_GROUP],
+      access: "public",
+      waits: { kind: "never", summary: "Schedules the edge and returns at once." },
+      see: SEE_DOUBLES,
+    },
+    call: (view, args) => {
+      const run = doublesOf(doubles, "specInput");
+      const tick = wholeNumber(args[0]?.value);
+      const now = view.clock.tick();
+      const bad = (why: string): never => { throw new ScriptError("spec.bad-input", `specInput: ${why}`); };
+      if (tick === null || !Number.isSafeInteger(tick)) bad("the tick must be a whole number");
+      if (tick! <= now) bad(`tick ${tick} is not later than the current tick ${now}`);
+      const name = args[1]?.value;
+      const code = args[2]?.value;
+      if (typeof name !== "string" || name === "") bad("the key name must be a non-empty string");
+      if (typeof code !== "string" || code === "") bad("the key code must be a non-empty string");
+      const rawChar = args[3]?.value ?? null;
+      let char: string | null;
+      if (rawChar === null || rawChar === 0 || rawChar === "") char = null;
+      else if (typeof rawChar === "string" && rawChar.length === 1) char = rawChar;
+      else char = bad("the character must be one character, \"\" or unset");
+      const down = args[4]?.value;
+      if (down !== 0 && down !== 1) bad("down must be 1 (press) or 0 (release)");
+      run.pending.push({ tick: tick!, event: { kind: "key", name: name as string, code: code as string, char, down: down === 1 } });
+      return { value: null };
+    },
+  };
+}
+
+function specTicks(doubles: SpecDoubles | undefined): BuiltinSpec {
+  return {
+    name: "specticks",
+    aliases: [],
+    params: [param("count", "The whole number of ticks to wait, 0 to 1,000.")],
+    doc: {
+      summary: "Let a number of game ticks pass before the case carries on.",
+      behaviour:
+        "Called by a case. `count` is a whole number from 0 to 1,000; anything else raises `spec.bad-ticks`. With 0, returns the current fixture tick at once, so `specTicks(0)` reads the tick. Otherwise the value is the unset value and only the calling thread sleeps cooperatively: it resumes in the wait poll of the call's tick plus `count`, while other threads, events and engine phases keep running. The run's 1,000-tick ceiling still applies.",
+      groups: [SPEC_GROUP],
+      access: "public",
+      returns: { summary: "The current fixture tick when `count` is 0; otherwise the unset value." },
+      waits: { kind: "ticks", summary: "The calling thread waits for `count` ticks; 0 does not wait." },
+      see: SEE_DOUBLES,
+    },
+    call: (view, args) => {
+      doublesOf(doubles, "specTicks");
+      const count = wholeNumber(args[0]?.value);
+      if (count === null || count < 0 || count > MAX_TICKS) {
+        throw new ScriptError("spec.bad-ticks", `specTicks: the count must be a whole number from 0 to ${MAX_TICKS}`);
+      }
+      const now = view.clock.tick();
+      if (count === 0) return { value: now };
+      return { value: null, wait: { kind: "sleep", global: false, until: now + count, resumesCall: true } };
+    },
+  };
+}
+
+function specRng(doubles: SpecDoubles | undefined): BuiltinSpec {
+  return {
+    name: "specrng",
+    aliases: [],
+    params: [param("draws", "The list of whole numbers 0 to 4,294,967,295 the next draws take, in order.", { byRef: true })],
+    doc: {
+      summary: "Decide in advance which random numbers the commands of the case get.",
+      behaviour:
+        "Called by a case. `draws` is a list (a dictionary holding `length` of 1 or more and exactly the keys `\"0\"` to `\"<length - 1>\"`) of whole numbers from 0 to 4,294,967,295; anything else raises `spec.bad-rng`. From then on each draw a command takes through the injected RNG port takes the next number in order instead of advancing the seeded generator, and the command applies its usual rules to it (`random(6)` given the draw 7 returns 2). A draw after the last number raises `spec.rng-exhausted` at the call that drew it; there is no fallback to the seeded generator. A later `specRng` replaces whatever is left. Scripted draws do not advance the saved generator state. Does not wait.",
+      groups: [SPEC_GROUP],
+      access: "public",
+      waits: { kind: "never", summary: "Installs the draws and returns at once." },
+      see: SEE_DOUBLES,
+    },
+    call: (view, args) => {
+      const run = doublesOf(doubles, "specRng");
+      const entries = listEntries(captureArg(view, args[0]!));
+      const draws = entries?.map((entry) => (entry[0] === "n" ? Number(entry[1]) : Number.NaN));
+      if (draws === undefined || draws.length === 0 || !draws.every((draw) => Number.isInteger(draw) && draw >= 0 && draw <= MAX_DRAW)) {
+        throw new ScriptError("spec.bad-rng", "specRng: the draws must be a list of 1 or more whole numbers from 0 to 4294967295");
+      }
+      run.draws = draws;
+      run.drawAt = 0;
+      return { value: null };
+    },
+  };
+}
+
+function spyOn(doubles: SpecDoubles | undefined): BuiltinSpec {
+  return {
+    name: "spyon",
+    aliases: [],
+    params: [param("name", "The name of the command to watch; any of its names or aliases.")],
+    doc: {
+      summary: "Watch a built-in command so a case can check later how it was called.",
+      behaviour:
+        "Called by a case. Wraps the command a plain call of `name` reaches (its top layer; `name` is folded and an alias reaches the same command) and returns an opaque handle to pass to `expect`. From then on, each call that reaches the command records `specCapture` pictures of its arguments at call time, before the command runs, and then runs the real command unchanged: its return value, by-reference writes, waits, effects and errors are those of the unwatched call. Calls before installation are not recorded. A name that reaches no command, a `script-spec` command or a catalogue placeholder with no implementation raises `spec.spy-target`; a second spy on the same command in one run raises `spec.spy-exists`. Does not wait.",
+      groups: [SPEC_GROUP],
+      access: "public",
+      returns: { summary: "The spy's opaque handle." },
+      waits: { kind: "never", summary: "Installs the spy and returns at once." },
+      see: SEE_DOUBLES,
+    },
+    call: (_view, args) => {
+      const run = doublesOf(doubles, "spyOn");
+      const name = args[0]?.value;
+      if (typeof name !== "string" || name === "") throw new ScriptError("spec.spy-target", "spyOn: the command name must be a non-empty string");
+      return { value: installSpy(run, name) };
+    },
+  };
+}
+
+/** The twelve natives, the doubles bound to one run's host-side state (or to none). */
+export function specCommands(doubles?: SpecDoubles): readonly BuiltinSpec[] {
+  return [
+    SPEC_RESULT,
+    SPEC_CAPTURE,
+    SPEC_EQUAL,
+    SPEC_CONTAIN,
+    SPEC_CLOSE,
+    SPEC_THROW_BEGIN,
+    SPEC_THROW_END,
+    specCalled(doubles),
+    specInput(doubles),
+    specTicks(doubles),
+    specRng(doubles),
+    spyOn(doubles),
+  ];
+}
+
+export const SPEC_COMMANDS: readonly BuiltinSpec[] = specCommands();

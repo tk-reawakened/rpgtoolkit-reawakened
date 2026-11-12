@@ -17,6 +17,7 @@
 // extension folder and as CommonJS (the web worker host refuses ES modules).
 
 import * as vscode from "vscode";
+import { newProjectMainFile, writeMainFile } from "@tk-reawakened/core";
 
 const EXTENSION_ID = "tk-reawakened.rpgcode-language";
 const STOP_EVENT = "rpgcode.stopped";
@@ -98,6 +99,90 @@ async function variablesOf(session: vscode.DebugSession, frameId: unknown, scope
   return values;
 }
 
+/** Resolve when `uri`'s diagnostics satisfy `ready`, failing within the bound otherwise. */
+async function diagnosticsOf(uri: vscode.Uri, ready: (diagnostics: readonly vscode.Diagnostic[]) => boolean, what: string): Promise<readonly vscode.Diagnostic[]> {
+  const done = Promise.withResolvers<readonly vscode.Diagnostic[]>();
+  const check = (): void => {
+    const current = vscode.languages.getDiagnostics(uri);
+    if (ready(current)) done.resolve(current);
+  };
+  const listener = vscode.languages.onDidChangeDiagnostics((event) => {
+    if (event.uris.some((item) => item.toString() === uri.toString())) check();
+  });
+  check();
+  try {
+    return await withTimeout(done.promise, what);
+  } finally {
+    listener.dispose();
+  }
+}
+
+function codeOf(diagnostic: vscode.Diagnostic): string {
+  const code = diagnostic.code;
+  return typeof code === "object" && code !== null ? String(code.value) : String(code);
+}
+
+/** A Toolkit 2.2 main file in the line-oriented text form (docs/spec/formats/legacy/text-formats.md). */
+function tk2MainFile(): Uint8Array {
+  const lines = ["RPGTLKIT MAIN", "2", "2", "0", "start.prg", "", "1", "0", "0", "0", "start.brd", "hero.tem", "0", "0", "0"];
+  for (let k = 0; k < 501; k += 1) lines.push("", "0");
+  lines.push("0", "0", "0", "", "", "Web", "2", "", "", "", "", "", "");
+  for (let k = 0; k < 51; k += 1) lines.push("0", "");
+  lines.push("");
+  return new TextEncoder().encode(lines.join("\r\n") + "\r\n");
+}
+
+/**
+ * The running project through the real web client and worker server
+ * (docs/spec/engine/rpgcode-tooling.md#tool-1-project): an unselected project leaves a
+ * program unassessed, and selecting a Toolkit 2 `.gam` makes its dialogue parse.
+ */
+async function runningProjectScenario(folder: vscode.WorkspaceFolder): Promise<void> {
+  const write = (path: string, bytes: Uint8Array): Thenable<void> => vscode.workspace.fs.writeFile(vscode.Uri.joinPath(folder.uri, ...path.split("/")), bytes);
+  const modern = writeMainFile(newProjectMainFile());
+  if (!modern.ok) fail(modern.error.message);
+  await write("legacy/Main/legacy.gam", tk2MainFile());
+  await write("legacy/Prg/talk.prg", new TextEncoder().encode("Hello there\n"));
+  await write("modern/Main/modern.gam", modern.value);
+  await write("modern/Prg/talk.prg", new TextEncoder().encode("Hello there\n"));
+  await write("modern/Prg/uses.prg", new TextEncoder().encode('#include "tools/my lib.prg"\ny = helper(1)\n'));
+  await write("modern/Prg/Tools/My Lib.PRG", new TextEncoder().encode("// helpers\nfunction helper(a) { return a }\n"));
+  const settings = vscode.workspace.getConfiguration("rpgcode");
+  await settings.update("project", undefined, vscode.ConfigurationTarget.Workspace);
+
+  const talk = vscode.Uri.joinPath(folder.uri, "legacy", "Prg", "talk.prg");
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(talk));
+  const unassessed = await diagnosticsOf(talk, (items) => items.some((item) => codeOf(item) === "project.unassessed"), "the unassessed marker");
+  equal(unassessed.some((item) => codeOf(item) === "syntax.error"), true, "without a project the .prg is read provisionally as 3.1");
+
+  await settings.update("project", "legacy/Main/legacy.gam", vscode.ConfigurationTarget.Workspace);
+  await diagnosticsOf(talk, (items) => items.length === 0, "the Toolkit 2 project to accept the dialogue");
+
+  await settings.update("project", "modern/Main/modern.gam", vscode.ConfigurationTarget.Workspace);
+  const modernTalk = vscode.Uri.joinPath(folder.uri, "modern", "Prg", "talk.prg");
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(modernTalk));
+  await diagnosticsOf(modernTalk, (items) => items.length === 1 && codeOf(items[0]!) === "syntax.error", "the 3.1 project's genuine error");
+  await diagnosticsOf(talk, (items) => items.some((item) => codeOf(item) === "project.unassessed"), "the old project's file to be unassessed");
+
+  // #2081: go to definition across an include lands on the file's own URI, spelled as it is.
+  const uses = vscode.Uri.joinPath(folder.uri, "modern", "Prg", "uses.prg");
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uses));
+  await diagnosticsOf(uses, (items) => items.length === 0, "the include program to be assessed and clean");
+  const targets = await withTimeout(
+    vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>("vscode.executeDefinitionProvider", uses, new vscode.Position(1, 5)),
+    "web language-server definition",
+  );
+  const target = targets[0];
+  const targetUri = target === undefined ? undefined : "targetUri" in target ? target.targetUri : target.uri;
+  equal(targetUri?.toString(), vscode.Uri.joinPath(folder.uri, "modern", "Prg", "Tools", "My Lib.PRG").toString(), "definition opens the included file");
+  const targetText = new TextDecoder().decode(await vscode.workspace.fs.readFile(targetUri!));
+  equal(targetText.includes("function helper"), true, "the definition URI is readable through the workspace");
+
+  await settings.update("project", undefined, vscode.ConfigurationTarget.Workspace);
+  await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+  log("the running-project scenario passed in VS Code for the Web");
+}
+
 export async function run(): Promise<void> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (folder === undefined) fail("the test workspace has no folder");
@@ -116,6 +201,7 @@ export async function run(): Promise<void> {
 
   // A dialect preview is a new unsaved document, never an in-place project edit.
   await extension.activate();
+  await runningProjectScenario(folder);
   const previewText = 'Mwin("Hello there")\n';
   await vscode.commands.executeCommand("rpgcode.previewTk2Conversion", previewText);
   const preview = vscode.window.activeTextEditor?.document;

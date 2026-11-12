@@ -19,6 +19,6 @@
   "include": [
     "src/extension.ts",
     "src/serverPath.ts",
-    "src/debug.ts"
+    "src/debug.ts", "src/project.ts"
   ]
 }

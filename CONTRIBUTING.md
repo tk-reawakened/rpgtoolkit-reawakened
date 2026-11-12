@@ -72,7 +72,25 @@ a spec file that registers no case fails as `spec.no-cases`. `skip(name, body)` 
 `#include` until the general package load path (PKG-7) is ruled. A package-root
 test can call `executeProgram` on its manifest's startup program; the runner also
 loads its matching first-party native commands. `specActor` and `specActorId`
-expose the fixture's real selected actor for event tests. `pnpm script:dogfood`
+expose the fixture's real selected actor for event tests.
+
+A case can also use [test doubles and spies](docs/spec/engine/rpgcode-tooling.md#tool-5-doubles).
+`specInput(tick, name, code, char, down)` presses (`down` 1) or releases (`down` 0)
+a key at a later fixture tick; `specTicks(count)` lets `count` ticks pass for the
+calling thread, and `specTicks(0)` returns the current tick; `specRng(list)`
+supplies the RNG draws commands such as `random` take, and running out is an
+error; `spyOn("random")` returns a handle whose calls
+`expect(handle).toHaveBeenCalledWith({ "0": 6, length: 1 })` and
+`toHaveBeenNthCalledWith(n, list)` check. A spy still runs the real command.
+None of this carries from `beforeAll` or one case into another.
+
+For RPGCode line coverage, pass `{ coverage: true }` to `runSpecProject` or
+`runSpecFile`. The report then carries `coverage`: per project file, every
+executable line and how many times it ran, including lines that never ran
+([rules](docs/spec/engine/rpgcode-tooling.md#tool-5-coverage)).
+`toLcov(report.coverage)` turns that into deterministic LCOV text for any
+coverage viewer. The command line has no coverage flag, and this is separate
+from `pnpm coverage`, which measures the engine's TypeScript. `pnpm script:dogfood`
 runs each stock package's specs in strict mode and compares its report with the
 reviewed baselines. Run `pnpm script:dogfood:record` deliberately to update them.
 
