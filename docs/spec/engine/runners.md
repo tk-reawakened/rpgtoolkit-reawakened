@@ -489,7 +489,7 @@ A runner proves itself by replaying vectors, not by sharing types. Two artefacts
 <a id="drift-check"></a>
 The historical v1 and v2 schemas, TypeScript frame types and vector kits remain fixed together; v3 is the current version. **`pnpm runner-protocol:check`** checks each independently, including v2 rejecting v3 and v3 rejecting missing or unsupported markers. For each contract it reports every problem it finds:
 
-1. **The kit is reproducible.** It regenerates the vectors and fails if the committed `vectors.json` differs.
+1. **The kits are reproducible.** Each version's generator checks its own committed vector bytes and schema.
 2. **The schema is well formed.** Every `$ref` resolves, every `$defs` entry is reachable from the three roots
    (`drawList`, `inputRecord`, `request`), every object is closed (`additionalProperties: false`) with every `required`
    key declared, and only the JSON Schema keywords the checker evaluates appear, so a keyword it would silently ignore
@@ -497,14 +497,12 @@ The historical v1 and v2 schemas, TypeScript frame types and vector kits remain 
 3. **The schema and the kit agree.** Every vector's verdict matches what the schema returns: a valid record is accepted
    and a refusal is refused. A kit that holds no valid record for some kind the schema lists fails.
    The v1 check also requires the schema to reject a representative v2 semantic `action` record, without changing the frozen v1 vector kit.
-4. **The schema and historical TypeScript types agree.** The check reads `DrawListV1`, `InputRecordV1` and `RunnerRequest` from
-   `packages/core/src/ports/` with the TypeScript compiler and compares each with its schema definition in the JSON
-   projection, recursively: the keys a record carries, which are required (every key but `repeat`, AD-14), literal and
-   enum values, `null`, arrays, records and nested objects, with a `Uint8Array` leaf as a base64 string. It names the
-   path of every difference, so a historical type change with no schema change, or the reverse, fails. Numeric bounds,
-   string patterns and lengths exist only in the schema (TypeScript has no integer type), and the refusals in the kit
-   hold them. The active core `InputRecord` includes semantic `action` events for v2; it is intentionally excluded from
-   this v1 drift check.
+4. **Schemas and TypeScript types agree.** The check compares `DrawListV1`, `DrawListV2` and current `DrawList`
+   against their respective schemas, with the appropriate historical or current input union and `RunnerRequest`.
+   It recursively checks required keys, literals and enums, `null`, arrays, records and nested objects, projecting
+   `Uint8Array` leaves as base64 strings. It names every difference. Numeric bounds, string patterns and lengths
+   exist only in the schema (TypeScript has no integer type), so refusal vectors enforce them. V1's input union is
+   intentionally narrower than the current input union.
 
 `packages/core` also fails its own type check when a request kind is missing from `HOST_REQUEST_KINDS`, so a request
 kind cannot be added to the wire without being declarable by a package. The same check, plus perturbation tests that
