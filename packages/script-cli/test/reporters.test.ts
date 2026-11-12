@@ -1,9 +1,10 @@
 import { deepEqual, equal, match, doesNotMatch } from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { runSpecProject, watchSpecProject } from "@tk-reawakened/script-spec";
 import { parseArgs, runTest } from "../src/index.ts";
 
@@ -15,6 +16,26 @@ const nested = [
   '  })',
   '})',
 ].join("\n");
+
+const watchTimeout = process.env.TKR_WATCH_CANCELLATION_PROBE === "1" ? 150 : 10000;
+
+/** Reap the watcher before removing its directory; preserve the directory if termination itself stalls. */
+async function cleanupWatcherChild(child: ChildProcess, closed: Promise<void>, root: string): Promise<void> {
+  child.kill("SIGKILL");
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    // A real deadline is required only as a fail-safe if the OS never reaps the killed process.
+    await Promise.race([
+      closed,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => { reject(new Error(`watch child did not close; preserved ${root}`)); }, 2000);
+      }),
+    ]);
+    rmSync(root, { recursive: true, force: true });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 test("nested names and selected cases survive every deterministic reporter", () => {
   const root = mkdtempSync(join(tmpdir(), "tkr-report-"));
@@ -58,10 +79,12 @@ test("nested names and selected cases survive every deterministic reporter", () 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("watch reruns all files after a real edit without losing other failures", async () => {
+test("watch reruns all files after a real edit without losing other failures", { timeout: watchTimeout }, async (t) => {
   const root = mkdtempSync(join(tmpdir(), "tkr-watch-"));
   writeFileSync(join(root, "a.spec.prg"), 'it("a", () => { expect(1).toBe(2) })');
   writeFileSync(join(root, "b.spec.prg"), 'it("b", () => { expect(1).toBe(2) })');
+  let stop: (() => void) | undefined;
+  t.after(() => { stop?.(); rmSync(root, { recursive: true, force: true }); });
   try {
     await new Promise<void>((resolve, reject) => {
       let initial = true;
@@ -74,17 +97,20 @@ test("watch reruns all files after a real edit without losing other failures", a
           resolve();
         } catch (error) { watcher.close(); reject(error); }
       });
-      watcher.on("error", reject);
+      stop = () => { watcher.close(); };
+      watcher.on("error", (error) => { watcher.close(); reject(error); });
       writeFileSync(join(root, "a.spec.prg"), 'it("a", () => { expect(1).toBe(1) })');
     });
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally { stop?.(); }
 });
 
-test("CLI watch exits with the latest full-run status", { timeout: 10000 }, async () => {
+test("CLI watch exits with the latest full-run status", { timeout: watchTimeout }, async (t) => {
   const root = mkdtempSync(join(tmpdir(), "tkr-cli-watch-"));
   const filename = join(root, "case.spec.prg");
   writeFileSync(filename, 'it("case", () => { expect(1).toBe(1) })');
   const child = spawn(process.execPath, [new URL("../dist/cli.js", import.meta.url).pathname, "script", "test", root, "--watch"], { stdio: ["ignore", "pipe", "pipe"] });
+  const closed = new Promise<void>((resolve) => { child.once("close", () => { resolve(); }); });
+  t.after(() => cleanupWatcherChild(child, closed, root));
   let resolveDone!: () => void;
   let rejectDone!: (error: unknown) => void;
   const done = new Promise<void>((resolve, reject) => { resolveDone = resolve; rejectDone = reject; });
@@ -107,15 +133,17 @@ test("CLI watch exits with the latest full-run status", { timeout: 10000 }, asyn
       resolveDone();
     } catch (error) { rejectDone(error); }
   });
-  try { await done; } finally { child.kill(); rmSync(root, { recursive: true, force: true }); }
+  await done;
 });
 
-test("JUnit watch replaces one XML report and preserves a focused-run warning", { timeout: 10000 }, async () => {
+test("JUnit watch replaces one XML report and preserves a focused-run warning", { timeout: watchTimeout }, async (t) => {
   const root = mkdtempSync(join(tmpdir(), "tkr-junit-watch-"));
   const filename = join(root, "case.spec.prg");
   const report = join(root, "report.xml");
   writeFileSync(filename, 'only("case", () => { expect(1).toBe(1) })');
   const child = spawn(process.execPath, [new URL("../dist/cli.js", import.meta.url).pathname, "script", "test", root, "--watch", "--reporter", "junit", "--out", report], { stdio: ["ignore", "pipe", "pipe"] });
+  const closed = new Promise<void>((resolve) => { child.once("close", () => { resolve(); }); });
+  t.after(() => cleanupWatcherChild(child, closed, root));
   let resolveDone!: () => void;
   let rejectDone!: (error: unknown) => void;
   const done = new Promise<void>((resolve, reject) => { resolveDone = resolve; rejectDone = reject; });
@@ -148,5 +176,46 @@ test("JUnit watch replaces one XML report and preserves a focused-run warning", 
       resolveDone();
     } catch (error) { rejectDone(error); }
   });
-  try { await done; } finally { child.kill(); rmSync(root, { recursive: true, force: true }); }
+  await done;
+});
+
+test("watch test cancellation closes real watchers and child processes", { timeout: 12000 }, async (t) => {
+  // This subprocess exercises real cancellation and process teardown; fake timers cannot prove handle cleanup.
+  const fixture = fileURLToPath(new URL("./fixtures/suppress-watch.mjs", import.meta.url));
+  const sandbox = mkdtempSync(join(tmpdir(), "tkr-watch-probe-"));
+  t.after(() => { rmSync(sandbox, { recursive: true, force: true }); });
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${JSON.stringify(fixture)}`,
+    TMPDIR: sandbox, TEMP: sandbox, TMP: sandbox,
+    TKR_WATCH_CANCELLATION_PROBE: "1",
+  };
+  delete env.NODE_TEST_CONTEXT;
+  const child = spawn(process.execPath, [
+    "--test",
+    "--test-name-pattern=watch reruns all files|CLI watch exits|JUnit watch replaces",
+    fileURLToPath(import.meta.url),
+  ], { env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk: string) => { stdout += chunk; });
+  child.stderr.setEncoding("utf8").on("data", (chunk: string) => { stderr += chunk; });
+  const status = await new Promise<number | null>((resolve, reject) => {
+    // Only a fail-safe: a leaked watcher must not hang the parent test process.
+    const timer = setTimeout(() => {
+      if (process.platform !== "win32" && child.pid !== undefined) {
+        try { process.kill(-child.pid, "SIGKILL"); } catch { /* Already reaped. */ }
+      } else child.kill("SIGKILL");
+      child.stdout.destroy();
+      child.stderr.destroy();
+      child.unref();
+      reject(new Error("cancellation probe did not exit"));
+    }, 8000);
+    child.once("error", (error) => { clearTimeout(timer); reject(error); });
+    child.once("close", (code) => { clearTimeout(timer); resolve(code); });
+  });
+  equal(status, 1, `${stdout}\n${stderr}`);
+  match(stdout, /cancelled 3/);
+  match(stdout, /test timed out/);
+  deepEqual(readdirSync(sandbox), []);
 });
