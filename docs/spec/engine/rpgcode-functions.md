@@ -566,6 +566,8 @@ A committed buy emits exactly one `itemAdded`, followed by `goldChanged` if gold
 
 **Reawakened clarification (text metrics and canvas parity; #2134).** `gettextwidth` and `gettextheight` measure text using the same current face, size and layout metrics as drawing it; when a face is unavailable, both measurement and drawing use the bitmap fallback. Drawing to a canvas places the same glyph ink as drawing at the same origin on screen, including bearings and descenders; only the destination's boundaries clip it. Text-cell newlines still advance by the font-size cell height, regardless of the face's ink bounds.
 
+The default Triuken command layer delegates one-argument `gettextwidth` and `gettextheight` calls to the underlying current-font commands; its extended font/size forms remain separate. This keeps the standard calls correct without changing command-layer precedence.
+
 <a id="e-58"></a>
 **E-58 Screen save and restore.** Save the screen to numbered slots and restore it, whole or as partial rectangles.
 
