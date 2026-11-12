@@ -335,6 +335,9 @@ Menu and battle cues are voices on their configured tracks, so they mix over mus
 
 **Reawakened rule (OWNER; Jensen, 2026-10-25; handler clarification 2026-10-29, issue #747).** The `stock_battle` package loads by name from the manifest and `.gam` (the legacy `tk3fight.dll` row maps to it in memory). Battle systems are plugins: a system introduced through the plugin hook or a game-file package can provide the `battle` handler. When no handler is registered, a battle start ends at once with a diagnostic instead of hanging: a drawn encounter reports `battle.package-missing` and starts nothing, a custom encounter still runs its program ([BAT-9](#bat-9)), and a program's `Fight` or `FightEnemy` call raises the catchable `battle.package-missing`. A missing package never refuses a load. See [fixing a missing battle system](#missing-battle-system) for the author-facing steps.
 
+<a id="reawakened-legacy-battle-default"></a>
+**Reawakened rule (Toolkit 2 battle default, #1971).** Older games can use the bundled battle system automatically. During boot, a main file with minor version 0–2 and no TKR package list selects `stock_battle` when that package is available in the host catalogue. The boot sequence appends it once after the legacy mappings. An explicit package list, including an empty one, controls which packages the game requests. The default is held in memory, and random encounters still obey the game's fighting flag and each board's battle settings.
+
 *Evidence:* [E-71](plugins-and-battle.md#e-71); `packages/core/test/battle-start.test.ts`; `packages/core/test/engine.test.ts` — “engine displays no-enemies handoffs, runs custom starts as a program, and rejects absent stock_battle”. *Rejected:* refusing game load because the battle package is absent, or allowing a start to hang or fall through into an unregistered handler.
 
 <a id="missing-battle-system"></a>
