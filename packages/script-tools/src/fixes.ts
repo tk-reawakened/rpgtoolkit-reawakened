@@ -8,7 +8,7 @@ import type { TextEdit } from "./diagnostics.ts";
 
 /** These calls can read or execute source outside the one-file comparison. */
 const DYNAMIC_SOURCE_COMMANDS: Readonly<Record<string, true>> = {
-  include: true, executeprogram: true, replaceprogram: true, thread: true, run: true, change: true, rpgcode: true,
+  include: true, executeprogram: true, replaceprogram: true, thread: true, tellthread: true, run: true, change: true, rpgcode: true,
 };
 
 export type LegacyFix = {

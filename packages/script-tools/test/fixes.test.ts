@@ -78,6 +78,7 @@ test("migration refuses known dynamic program loaders", () => {
     '#thread("lib.prg",0)',
     '#run("lib.prg")',
     '#change("lib.prg")',
+    '#tellThread(1, "Mwin(1)")',
     '#rpgcode("Mwin(1)")',
   ]) deepEqual(legacyFixes(source, "tk2"), [], source);
 });
