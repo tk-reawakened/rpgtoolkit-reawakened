@@ -104,6 +104,13 @@ test("migration preserves assignment-like dialogue and explains quoted refusal",
   ok(tk2ConversionRefusal(quoted)?.includes("double quote"));
 });
 
+test("migration preserves inline prefixed commands after assignment", () => {
+  const source = 'x = 1; #Mwin(hi); #Mwin("a #there")\n#Mwin(x!)';
+  const fixed = migrate(source);
+  deepEqual(mwinText(source, "tk2"), ["hi", "a #there", "1"]);
+  deepEqual(mwinText(fixed, "tk3"), ["hi", "a #there", "1"]);
+});
+
 test("mixed legacy forms are converted together and retain comments and CRLF", () => {
   const source = "* keep this comment\r\n#If (x = 5) {\r\n  #y! = 1\r\n}\r\nHello there\r\n#threadSleep(1, 2) * keep this too\r\n";
   const fixed = migrate(source);
