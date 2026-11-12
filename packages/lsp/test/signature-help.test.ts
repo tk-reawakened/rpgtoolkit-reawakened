@@ -108,3 +108,18 @@ test("Toolkit 2 loose dialogue does not produce a call tip", () => {
   equal(session().request("Hello threadSleep(", "rpgcode-tk2"), null);
   ok(session().request("#threadSleep(", "rpgcode-tk2"));
 });
+
+test("multiline comments preserve member qualification", () => {
+  equal(session().request("obj. /* multi\nline */ mwin("), null);
+});
+
+test("qualified method declarations are not built-in calls", () => {
+  equal(session().request("method MyClass::mwin("), null);
+});
+
+test("Toolkit 2 loose text is dialogue even when it starts with a keyword or contains equals", () => {
+  const server = session();
+  equal(server.request("if I say threadSleep(", "rpgcode-tk2"), null);
+  equal(server.request("x = threadSleep(", "rpgcode-tk2"), null);
+  ok(server.request("#If(threadSleep(", "rpgcode-tk2"));
+});

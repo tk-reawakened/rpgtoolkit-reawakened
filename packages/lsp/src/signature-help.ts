@@ -24,13 +24,18 @@ function callAt(source: string, offset: number, languageId: string): { readonly 
     const char = source[index]!;
     const next = source[index + 1];
     if (char === "\n") {
+      if (state === "block-comment") {
+        // The lexer skips newlines inside a block comment without ending the token stream.
+        lineStart = index + 1;
+        continue;
+      }
       if (state === "string") {
         // A broken string is local to its line; a later statement can still have a tip.
         state = "code";
         stack.length = 0;
         continuationToken = false;
       }
-      continued = state !== "block-comment" && continuationToken;
+      continued = continuationToken;
       continuationToken = false;
       lineStart = index + 1;
       first = true;
@@ -54,13 +59,9 @@ function callAt(source: string, offset: number, languageId: string): { readonly 
       continue;
     }
     if (char === "/" && next === "*") { state = "block-comment"; continuationToken = false; index++; continue; }
-    if (first && !continued && languageId === "rpgcode-tk2") {
-      const end = source.indexOf("\n", index);
-      const line = source.slice(index, end < 0 ? source.length : end).trim();
-      if (!/^(?:[#*:}{]|(?:if|while|until|for|switch|case|default|else|function|return)\b)/i.test(line) && !line.includes("=") && !line.endsWith("{")) {
-        state = "line-comment"; // Loose TK2 dialogue is not executable source.
-        continue;
-      }
+    if (first && !continued && languageId === "rpgcode-tk2" && !/[#*:{}]/.test(char)) {
+      state = "line-comment"; // Loose TK2 dialogue is not executable source.
+      continue;
     }
     legacyClose = -1;
     first = false;
@@ -80,9 +81,9 @@ function callAt(source: string, offset: number, languageId: string): { readonly 
     }
     continuationToken = false;
     if (char === '"') { state = "string"; previous = { kind: "other" }; continue; }
-    if (char === "." || (char === "-" && next === ">")) {
+    if (char === "." || (char === "-" && next === ">") || (char === ":" && next === ":")) {
       previous = { kind: "member" };
-      if (char === "-") index++;
+      if (char !== ".") index++;
       continue;
     }
     if (char === "(" || char === "[" || char === "{") {
