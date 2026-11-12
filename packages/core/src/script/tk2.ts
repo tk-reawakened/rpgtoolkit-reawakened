@@ -78,6 +78,23 @@ function looksExpression(value: string): boolean {
   return /^[-+]?\d(?:[\d.eE+-]*\d)?$/.test(value) || /[+\-*/%<>=&|()[\]]/.test(value);
 }
 
+/** A sigil marks executable legacy syntax only if the whole argument parses. */
+function isSigilledExpression(value: string): boolean {
+  if (!value.includes("!") && !value.includes("$")) return false;
+  const candidate = `__tk2_expression(${value})`;
+  try {
+    const tokens = tokenizeObjects(candidate);
+    const hasSigil = tokens.some((token) =>
+      token.kind === "identifier" && (candidate[token.endCol - 1] === "!" || candidate[token.endCol - 1] === "$"));
+    if (!hasSigil) return false;
+    parse(tokens);
+    return true;
+  } catch (error) {
+    if (error instanceof ScriptError) return false;
+    throw error;
+  }
+}
+
 function isTextCommand(name: string, param: ParamSpec | undefined): boolean {
   const lowerName = name.toLowerCase();
   if (["mwin", "text", "print", "prompt", "setimage", "setimagetransparent", "setimageadditive", "font", "walkspeed", "itemwalkspeed", "newplyr", "newplayer", "include", "redirect"].includes(lowerName)) return true;
@@ -104,7 +121,7 @@ function bindRawArguments(line: string, lookup: Tk2CommandLookup | undefined): s
     const args = splitArgs(line.slice(open + 1, close));
     const spec = lookupCommand(lookup, name);
     const bound = args.map((arg, index) => {
-      if (arg.startsWith('"') || arg.startsWith("'") || arg.startsWith(":") || /^\d*[A-Za-z_]\w*[!$]$/.test(arg)) return arg;
+      if (arg.startsWith('"') || arg.startsWith("'") || arg.startsWith(":") || isSigilledExpression(arg)) return arg;
       const param = paramAt(spec, index);
       if (looksExpression(arg)) return arg;
       // A TK2 word with spaces, a filename, or a text-typed command argument is
