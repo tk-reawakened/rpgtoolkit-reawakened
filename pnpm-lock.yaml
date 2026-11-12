@@ -168,6 +168,7 @@ overrides:
   '@playwright/browser-chromium': 1.64.0
   vsce@2.15.0>markdown-it: 14.3.3
   vsce@2.15.0>xml2js: 0.6.2
+  spessasynth_core@4.3.22>stb-vorbis: 0.0.6
 
 importers:
 
@@ -2254,9 +2255,8 @@ packages:
     resolution: {integrity: sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw==}
     engines: {node: '>= 0.8'}
 
-  stb-vorbis@0.0.7:
-    resolution: {integrity: sha512-OsD8Vm9EcStsiYGUBSqJ88gBPwDYR1Uv57bV/KZhu6Li1kzjm0fO+iiTkm79bZ1L2I/z6IrA1wkWHu3xQYY7Hw==}
-    engines: {node: '>=18'}
+  stb-vorbis@0.0.6:
+    resolution: {integrity: sha512-CyvjJEGROIdnuZknwFvdOfMIO1ssUxO2OawsXCR3IlbJ8z2IMBjDe8FDxFJqBfLgf1ZOdqvoHAYx3Xk8q9rbbg==}
 
   stream-buffers@2.2.0:
     resolution: {integrity: sha512-uyQK/mx5QjHun80FLJTfaWE7JtwfRMKBLkMne6udYOmvH0CawotVa7TfgYHzAnpphn4+TweIx1QKMnRIbipmUg==}
@@ -4366,7 +4366,7 @@ snapshots:
 
   spessasynth_core@4.3.22:
     dependencies:
-      stb-vorbis: 0.0.7
+      stb-vorbis: 0.0.6
 
   split2@4.2.0: {}
 
@@ -4374,7 +4374,7 @@ snapshots:
 
   statuses@2.0.2: {}
 
-  stb-vorbis@0.0.7: {}
+  stb-vorbis@0.0.6: {}
 
   stream-buffers@2.2.0: {}
 
