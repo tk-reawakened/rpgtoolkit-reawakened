@@ -51,6 +51,44 @@ The tokens the lexer emits carry exactly this range (`col` and `endCol` on `Toke
 
 <!-- OWNER: D-3, approved 2026-10-31 (the range convention fixed in 10.3 after the lexer showed "decoded characters" was ambiguous). Rejected: byte offsets — they would disagree with the editor's and the LSP's positions at every non-ASCII character; and code-point offsets — they would split a surrogate pair and make slicing throw one code unit short. -->
 
+<a id="tool-3-rules"></a>
+**TOOL-3 rule table (owner-approved plan, #2073 and #2077, 2026-11-12).** *In plain terms:* the linter points at code that is probably a mistake or out of date — a local variable nothing reads, a label nothing jumps to, a function nothing calls, a statement that can never run, a command the catalogue marks deprecated or obsolete, and a line the formatter would write differently. When it cannot be sure, it says so instead of staying quiet: a rule it could not check is listed as **unassessed**, never counted as clean. *Precisely:* the rules below are added to the existing ones (`lint/unknown-command`, `lint/command-arity`, `lint/shadowed-builtin`, `lint/unresolved-include` and the four `dialect/*` rules), with the same configuration, severity override, ignore list and summary. None of them deletes or replaces executable code; only `style/format` offers an edit.
+
+| Rule | Default | Reports | Never reports when |
+|---|---|---|---|
+| `lint/unused-variable` | warning | a `local(x)` declared in a function or method body (with its lambdas) whose name is never read there: not read, not passed, not called as a callable, not captured by a lambda, not the receiver or base of a member or element, and not written as a string literal | the scope calls `rpgcode` (`#RPGCode`) or `bindingOf`, which can reach a local by a computed name |
+| `lint/unused-label` | warning | a label in a function, method or lambda body ([STX-5](rpgcode-language.md#keywords-and-structure)) that no `:label` reference, call or string literal in that scope names | the scope calls `rpgcode`, or passes `branch`, `setErrorHandler` or `on error goto` a target that is not a literal label |
+| `lint/unused-function` | hint | a script function no call, variable read or string literal anywhere in a **closed project** names and the project does not declare as an entry point; the message says no static use was found, not that the engine can never run it | the project is not closed, a program failed to compile, an include is unresolved, or any program calls `rpgcode` |
+| `lint/unreachable-code` | warning | the first statement after a `return`, or after a call that is demonstrably the built-in `end`/`done`/`stop`, in the same block, before the next label | the scope installs an error handler or calls `resumeNext` (`on error`, `setErrorHandler`), calls `rpgcode`, or the terminator name may be rebound (a local, parameter or assigned variable of that name, FUN-8 entry 1) |
+| `lint/deprecated-command` | warning | a plain call that resolves to a catalogue entry tagged `deprecated`, quoting its `replacedBy` and `reason` | the call is a method call, a `file.func` call, or a name that may be rebound as above |
+| `lint/obsolete-command` | warning | the same for an entry tagged `obsolete` | as above |
+| `style/format` | hint | a line that the [TOOL-4](#tool-4) formatter would rewrite, with that line's formatter output as the one edit | the dialect is not known to be 3.1 |
+
+A deprecation finding never offers a rename: the legacy audio commands, for example, have different defaults and waits from `mediaPlay`, so a mechanical replacement could change what a game does. A `style/format` edit replaces exactly one line with the formatter's own output for it; the formatter's guarantees (TOOL-4: re-indent and canonical casing only, behaviour-preserving) are what make it safe, and the linter infers no other convention.
+
+**Arity of a call that is not the command (#2077).** `lint/command-arity` checks a call against a registered command only when the call can reach that command. A plain call of a name that is a parameter, a declared local or a captured local of the enclosing function or lambda, or a name the program assigns as a variable, may run a callable bound to that name first ([FUN-8](rpgcode-language.md#keywords-and-structure) "Calling a name", entry 1), so it is not checked; a method call (`p->wav()`) whose name is a method of a class the program declares, or a host method, dispatches on its receiver and is not checked. Any other call is checked exactly as before, so `start()` with no argument still warns and `wav("a.wav")` stays clean.
+
+<a id="tool-3-assessment"></a>
+**TOOL-3 assessment: what the linter could not check.** The lint summary carries `unassessed`, a list of `{ file, rule, reason }` entries, one per program, rule and reason, beside `disabledRules` and `ignoredRanges`. An entry means that rule did not run, or did not run over all of that program, so the absence of its findings is not evidence of a clean program. The reasons are a closed set; adding a value is a minor change:
+
+| Reason | Meaning |
+|---|---|
+| `missing-source` | the program's parsed units or source text were not supplied (an index read back from JSON carries no parsed units) |
+| `unknown-dialect` | nobody stated whether the source is 3.1 or Toolkit 2.x; the compiler's or formatter's default is not evidence of the dialect |
+| `unsupported-dialect` | the rule does not apply to the stated dialect (TOOL-4 refuses Toolkit 2.x), or the stated dialect differs from the one the program was compiled in |
+| `unmapped-source-span` | the program is Toolkit 2.x, whose normalisation moves source columns, and the finding's original span cannot be verified |
+| `invalid-program` | the program did not compile, so it has no facts |
+| `incomplete-project` | a project-wide rule ran without a closed project, or with an unresolved include |
+| `dynamic-reference` | a scope evaluates code or names by computed text (`rpgcode`, `bindingOf`, a computed branch target), so a use cannot be ruled out |
+
+The rules that read the parsed program (`unused-variable`, `unused-label`, `unreachable-code`, `deprecated-command`, `obsolete-command`, `style/format`) need a stated dialect: they run when it is 3.1 and are unassessed otherwise. They report on each program's own main unit; an included file is checked when it is itself linted as a program, so a file shared by several programs is reported once.
+
+**Closed projects.** `lint/unused-function` is a project-wide claim, so it runs only when the caller states the project is **closed**: every program of the project is in the index, and the caller names its external entry points (the functions the engine or another package calls by name). Project knowledge comes from the selected project file (the `.gam`, owner ruling of 2026-11-12), never from a guessed workspace root, the editor's language mode or a list of paths given on a command line; a host that cannot derive closure from the project file leaves the rule unassessed. `tkr script check` does not yet derive closure, so it reports the rule as unassessed.
+
+**The summary's shape (version note).** `unassessed` is a required field of the shared library's `LintSummary`, which is a source-breaking change for code that builds a summary itself. The package has not been published (the registry has no `@tk-reawakened/script-tools`, the repository has no release tag, and the release runbook #951 is open), so the change is made before the first 1.0.0 release rather than in a next major; a consumer that builds a `LintSummary` adds `unassessed: []`. `tkr script check --json` carries the same three fields under `results.lint` (an added field of `tkr-script-result/1`), and its human report names the unassessed rules after the totals, so a run with skipped analysis never reads as fully checked. `check` passes `--dialect tk3|tk2` to compilation and to the linter; without it the dialect-dependent rules are unassessed.
+
+**Evidence and its limits.** Each rule has positive and negative tests in `packages/script-tools/test/lint-rules.test.ts`. A category-representative authored fixture of visual-event-builder-shaped programs (`packages/script-tools/test/fixtures/veb-categories.prg`) checks clean; it is **interim evidence only** — [T-45](../../editor-features.md) names about 160 templates but no enumerated list exists, so full inventory and live generated output stay open with #1744 and #1746.
+
 <a id="tool-4"></a>
 **TOOL-4 Formatting.** The formatter is a source-text rewrite with exactly two jobs: re-indent by brace depth, with a configurable indent width (default four spaces), and normalise built-in names, keywords and the reserved literals to their canonical lower-case spelling. It leaves string contents, map keys written as strings, comments and label spelling alone.
 
@@ -292,11 +330,11 @@ Every subcommand accepts `--json`. With it, the envelope below goes to stdout an
   "exitCode": 1,
   "diagnostics": [],
   "summary": { "files": 0, "diagnostics": { "error": 0, "warning": 0, "info": 0, "hint": 0 }, "changed": 0, "passed": 0, "failed": 0, "skipped": 0 },
-  "results": {}
+  "results": { "lint": { "disabledRules": [], "ignoredRanges": 0, "unassessed": [] } }
 }
 ```
 
-`status` is `ok`, `findings` or `error` and agrees with `exitCode`. `diagnostics` carries [TOOL-3](#tool-3) objects themselves — the same objects the language server publishes, so a CI job and an editor see one shape. `results` holds the subcommand's own payload: the changed paths for `fmt`, the cases with expected and actual for `test`, the written path or a drift list for `docs`, and the [TOOL-6](#tool-6) document for `index`. The schema is [schemas/tkr-script-result.schema.json](../schemas/tkr-script-result.schema.json); a test validates every subcommand's `--json` output against it.
+`status` is `ok`, `findings` or `error` and agrees with `exitCode`. `diagnostics` carries [TOOL-3](#tool-3) objects themselves — the same objects the language server publishes, so a CI job and an editor see one shape. `results` holds the subcommand's own payload: the lint summary for `check` (`results.lint` with `disabledRules`, `ignoredRanges` and `unassessed`, [TOOL-3 assessment](#tool-3-assessment)), the changed paths for `fmt`, the cases with expected and actual for `test`, the written path or a drift list for `docs`, and the [TOOL-6](#tool-6) document for `index`. The schema is [schemas/tkr-script-result.schema.json](../schemas/tkr-script-result.schema.json); a test validates every subcommand's `--json` output against it.
 
 **Stability promise.** Adding an optional field or an enumerated value is a minor change; removing, retyping or renaming a field, or adding or repurposing an exit code, is a major one.
 
