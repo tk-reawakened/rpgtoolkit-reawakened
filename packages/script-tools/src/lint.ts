@@ -451,6 +451,8 @@ function ignored(diagnostic: Diagnostic, file: string, config: LintConfig): bool
 
 type CatalogueEntry = ReturnType<typeof commandDocumentation>[number];
 
+const FOLDED_HOST_METHODS: ReadonlySet<string> = new Set([...HOST_METHOD_NAMES].map((name) => foldAscii(name)));
+
 /** The rules that read the parsed program and therefore need a stated 3.1 dialect. */
 const PARSED_RULES: readonly RuleId[] = [
   "lint/unused-variable",
@@ -537,6 +539,11 @@ function unreachableCode(unit: ProgramUnit, sink: Sink, isTerminator: (site: Sit
         reported = false;
         continue;
       }
+      // A label inside a nested block is a branch target, so the statement holding it can be entered (STX-5).
+      if (after !== null && nestedBlocks(statement).some((nested) => labelsIn(nested).length > 0)) {
+        after = null;
+        reported = false;
+      }
       if (after !== null) {
         // A class declaration leaves a placeholder literal statement; it is not code that runs.
         if (statement.kind === "expr" && statement.expr.kind === "literal") continue;
@@ -555,8 +562,8 @@ function unreachableCode(unit: ProgramUnit, sink: Sink, isTerminator: (site: Sit
     }
   };
   for (const scope of scopesOf(unit)) {
-    if (hasErrorHandler(scope.body) || hasDynamicReference(scope.body)) {
-      if (scope.body.length > 0) sink.skip("lint/unreachable-code", "dynamic-reference");
+    if (scope.body.length > 0 && (hasErrorHandler(scope.body) || hasDynamicReference(scope.body))) {
+      sink.skip("lint/unreachable-code", "dynamic-reference");
       continue;
     }
     walk(scope.body);
@@ -685,10 +692,11 @@ export function lint(document: IndexDocument, options: LintOptions): LintResult 
   const facts = project === undefined ? null : projectFacts(document, options.dialect, project.entryPoints);
   const projectMentions = facts !== null && "mentions" in facts ? facts.mentions : null;
   const reportedFunctions = new Set<string>();
+  const programKeys = new Set(document.programs.map((program) => program.key));
 
   for (const program of document.programs) {
     const parsed = parsedOf(program);
-    const bound = parsed === undefined ? { sites: new Set<string>(), assigned: new Set<string>() } : boundCallSites(parsed.units, new Set([...HOST_METHOD_NAMES].map((name) => foldAscii(name))));
+    const bound = parsed === undefined ? { sites: new Set<string>(), assigned: new Set<string>() } : boundCallSites(parsed.units, FOLDED_HOST_METHODS);
     for (const found of rulesFor(program, catalogue, options.resolveIncludes === true, bound.sites)) emit(found, program.name);
     const source = options.sources?.[program.name];
     if (source !== undefined) for (const found of dialectDiagnostics(source)) emit(found, program.name);
@@ -727,9 +735,17 @@ export function lint(document: IndexDocument, options: LintOptions): LintResult 
       else if (projectMentions === null) skip(program.name, "lint/unused-function", (facts as { readonly reason: UnassessedReason }).reason);
       else {
         for (const fn of program.functions) {
-          // A function shared through an include is reported once, by the program whose main unit defines it.
-          if (fn.className !== null || fn.file !== program.key || reportedFunctions.has(fn.id)) continue;
-          reportedFunctions.add(fn.id);
+          if (fn.className !== null) continue;
+          // A function shared through an include is reported once, by the program whose main unit defines it;
+          // one in a unit no program of the index owns is not checked, and says so.
+          if (fn.file !== program.key) {
+            if (!programKeys.has(fn.file)) skip(program.name, "lint/unused-function", "incomplete-project");
+            continue;
+          }
+          // Every inline program has the key `<inline>`, so its name keeps two inline programs' functions apart.
+          const identity = fn.file === "<inline>" ? `${program.name}\u0000${fn.id}` : fn.id;
+          if (reportedFunctions.has(identity)) continue;
+          reportedFunctions.add(identity);
           if (projectMentions.has(foldAscii(fn.name))) continue;
           const pos: IndexPos = { file: fn.file, line: fn.line, ...(fn.col === undefined ? {} : { col: fn.col }), ...(fn.endCol === undefined ? {} : { endCol: fn.endCol }) };
           scoped.push(diagnostic(ruleOf("lint/unused-function"), "hint", pos, `no static use of \`${fn.name}\` was found in this project and it is not a declared entry point`));

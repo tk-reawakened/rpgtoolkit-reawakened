@@ -246,3 +246,16 @@ void test("check exposes the lint summary and names unassessed rules instead of 
 function deepEqualRules(actual: readonly string[], expected: readonly string[]): void {
   strictEqual(JSON.stringify(actual), JSON.stringify(expected));
 }
+
+void test("check --dialect tk2 parses Toolkit 2.x source as Toolkit 2.x before linting", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tkr-tk2-"));
+  try {
+    writeFileSync(join(dir, "talk.prg"), "Hello there, traveller.\n#mwin(\"x\")\n");
+    const tk3 = runCheck([join(dir, "talk.prg")], true);
+    const tk2 = runCheck([join(dir, "talk.prg")], true, "tk2");
+    ok(tk3.result.diagnostics.some((diagnostic) => diagnostic.rule === undefined), stableStringify(tk3.result));
+    strictEqual(tk2.result.diagnostics.filter((diagnostic) => diagnostic.rule === undefined).length, 0, stableStringify(tk2.result));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -52,6 +52,8 @@ const DYNAMIC_CALLS: ReadonlySet<string> = new Set(["rpgcode", "bindingof"]);
 const HANDLER_CALLS: ReadonlySet<string> = new Set(["seterrorhandler", "setresumenexthandler", "resumenext"]);
 /** Calls that take a label target (STX-5, ERR-1). */
 const LABEL_TARGET_CALLS: ReadonlySet<string> = new Set(["branch", "seterrorhandler", "goto"]);
+/** Expression kinds whose value can never be a callable. */
+const NON_CALLABLE_VALUES: ReadonlySet<Expr["kind"]> = new Set<Expr["kind"]>(["literal", "binary", "unary", "postfix", "object", "construct"]);
 /** The built-in program-flow names that end the program (`done` and `stop` are aliases of `end`). */
 export const TERMINATOR_NAMES: ReadonlySet<string> = new Set(["end", "done", "stop"]);
 
@@ -271,7 +273,11 @@ export function boundCallSites(units: readonly ProgramUnit[], hostMethods: Reado
     for (const scope of scopesOf(unit)) {
       forEachExpression(scope.body, (expr) => {
         if (expr.kind !== "assign") return;
-        if (expr.target.kind === "variable" || expr.target.kind === "decl") assigned.add(foldAscii(expr.target.name));
+        // Only a name visible outside its frame can rebind a call elsewhere (a local is covered per scope
+        // below), and only a value that may be callable binds it; a number or string falls through (FUN-8).
+        const target = expr.target;
+        const global = (target.kind === "variable" && target.scope !== "local") || (target.kind === "decl" && target.scope === "global");
+        if (global && !NON_CALLABLE_VALUES.has(expr.value.kind)) assigned.add(foldAscii(target.name));
       }, false);
     }
   }

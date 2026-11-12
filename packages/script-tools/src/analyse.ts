@@ -15,6 +15,8 @@ import { rangeOf, type Diagnostic } from "./diagnostics.ts";
 export type AnalyseOptions = {
   /** The file name a diagnostic carries; defaults to the compiler's `<inline>` key. */
   readonly file?: string;
+  /** The source dialect; the compiler's 3.1 default applies when it is absent. */
+  readonly dialect?: "tk3" | "tk2";
 };
 
 export type Analysis = {
@@ -27,7 +29,7 @@ export type Analysis = {
 export function analyse(source: string, options: AnalyseOptions = {}): Analysis {
   const file = options.file ?? "<inline>";
   try {
-    compileInline(source, file);
+    compileInline(source, file, options.dialect ?? "tk3");
     return { file, ok: true, diagnostics: [] };
   } catch (error) {
     if (!(error instanceof ScriptError)) throw error;

@@ -268,3 +268,26 @@ test("the category-representative visual event builder fixture checks clean (int
   deepEqual(result.diagnostics, []);
   deepEqual(result.summary.unassessed, []);
 });
+
+// review regressions --------------------------------------------------------------
+
+test("#2077 controls: a local elsewhere or a non-callable assignment does not hide a genuine command call", () => {
+  deepEqual(rules("function a() {\n    local(start) = 1\n    return start\n}\nstart()\n", "lint/command-arity"), [[5, "start"]]);
+  deepEqual(rules('wav = 1\nwav("a.wav")\n', "lint/deprecated-command"), [[2, "wav"]]);
+  deepEqual(rules('start = "x"\nstart()\n', "lint/command-arity"), [[2, "start"]]);
+});
+
+test("a statement after a terminator whose nested block holds a branch target is not unreachable", () => {
+  const text = 'branch(:again)\nend()\nif (x) {\n    :again\n    mwin("a")\n}\n';
+  deepEqual(rules(text, "lint/unreachable-code"), []);
+});
+
+test("in a closed project, inline programs keep their own functions and an unowned include is unassessed", () => {
+  const project = { closed: true as const, entryPoints: [] };
+  const document = buildIndex([
+    { name: "a.prg", ref: { kind: "inline", text: "function spare() { return 1 }\n", ir: "1" } },
+    { name: "b.prg", ref: { kind: "inline", text: "function spare() { return 1 }\n", ir: "1" } },
+  ]);
+  const result = lint(document, { plugins, dialect: "tk3", project });
+  deepEqual(result.programs.filter((_, i) => result.diagnostics[i]!.rule === "lint/unused-function"), ["a.prg", "b.prg"]);
+});

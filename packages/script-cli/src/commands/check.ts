@@ -57,7 +57,7 @@ export function runCheck(paths: readonly string[], json: boolean, dialect?: "tk3
 
   for (const file of sources) {
     try {
-      const analysis = analyse(file.source, { file: file.name });
+      const analysis = analyse(file.source, { file: file.name, ...(dialect === undefined ? {} : { dialect }) });
       for (const diagnostic of analysis.diagnostics) diagnostics.push(withFile(diagnostic, file.name));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
