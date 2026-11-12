@@ -247,6 +247,8 @@ export default [
       // working copy.
       ".worktrees/**",
       "fixtures/**",
+      // The VS Code web build `tools/vscode-web/run.mjs` downloads (a whole editor, ~200 MB).
+      ".vscode-test-web/**",
       ".serena/**",
       // Capacitor's generated native project (added by `npx cap add android`).
       "packages/runner-mobile/android/**",
