@@ -85,3 +85,26 @@ test("unknown, qualified and comment calls do not guess built-in signatures", ()
   equal(server.request("threadSleep(1 _\n * 2, ")?.activeParameter, 1);
   ok(server.request("THREADSLEEP!("));
 });
+
+test("comparison is not a member access", () => {
+  ok(session().request("if (x > threadSleep("));
+});
+
+test("member qualification survives comments", () => {
+  equal(session().request("obj. /* comment */ mwin("), null);
+  equal(session().request("obj -> /* comment */ mwin("), null);
+});
+
+test("a broken earlier statement does not suppress a later call", () => {
+  ok(session().request('"unterminated\nthreadSleep('));
+  ok(session().request(")\nthreadSleep("));
+});
+
+test("comment markers inside strings do not disrupt continuation", () => {
+  equal(session().request('threadSleep(1, "http://site" _\n * 2')?.activeParameter, 1);
+});
+
+test("Toolkit 2 loose dialogue does not produce a call tip", () => {
+  equal(session().request("Hello threadSleep(", "rpgcode-tk2"), null);
+  ok(session().request("#threadSleep(", "rpgcode-tk2"));
+});

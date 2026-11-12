@@ -8,40 +8,34 @@ export function documentationText(entry: HelpEntry): string {
 
 type Frame = { readonly delimiter: "(" | "[" | "{"; readonly name: string | null; readonly legacyStandalone: boolean; argument: number };
 
-/** Name immediately before `(`, excluding member calls and declarations. */
-function callName(source: string, open: number): string | null {
-  let end = open;
-  while (end > 0 && (source[end - 1] === " " || source[end - 1] === "\t")) end--;
-  if (end > 0 && (source[end - 1] === "!" || source[end - 1] === "$")) end--;
-  let start = end;
-  while (start > 0 && /[A-Za-z0-9_]/.test(source[start - 1]!)) start--;
-  const name = source.slice(start, end);
-  if (!/[A-Za-z_]/.test(name)) return null;
-  let previous = start;
-  while (previous > 0 && (source[previous - 1] === " " || source[previous - 1] === "\t")) previous--;
-  if (source[previous - 1] === "." || source[previous - 1] === ">") return "";
-  if (/\b(?:function|method)\s+$/i.test(source.slice(0, start))) return "";
-  return foldAscii(name);
-}
+type Token = { readonly kind: "name"; readonly name: string; readonly blocked: boolean } | { readonly kind: "member" | "other" };
 
 /** Scan lexical structure only; unlike the parser it accepts unfinished calls. */
 function callAt(source: string, offset: number, languageId: string): { readonly name: string; readonly argument: number } | null {
   const stack: Frame[] = [];
   let state: "code" | "string" | "line-comment" | "block-comment" = "code";
+  let previous: Token = { kind: "other" };
   let first = true;
   let lineStart = 0;
   let continued = false;
+  let continuationToken = false;
   let legacyClose = -1;
   for (let index = 0; index < offset; index++) {
     const char = source[index]!;
     const next = source[index + 1];
     if (char === "\n") {
-      if (state === "string") return null;
-      const line = source.slice(lineStart, index).replace(/\/\/.*$/, "");
-      continued = /(?:^|\s)_\s*\r?$/.test(line);
+      if (state === "string") {
+        // A broken string is local to its line; a later statement can still have a tip.
+        state = "code";
+        stack.length = 0;
+        continuationToken = false;
+      }
+      continued = state !== "block-comment" && continuationToken;
+      continuationToken = false;
       lineStart = index + 1;
       first = true;
       legacyClose = -1;
+      if (!continued) previous = { kind: "other" };
       if (state === "line-comment") state = "code";
       continue;
     }
@@ -59,21 +53,51 @@ function callAt(source: string, offset: number, languageId: string): { readonly 
       state = "line-comment";
       continue;
     }
-    if (char === "/" && next === "*") { state = "block-comment"; index++; continue; }
+    if (char === "/" && next === "*") { state = "block-comment"; continuationToken = false; index++; continue; }
+    if (first && !continued && languageId === "rpgcode-tk2") {
+      const end = source.indexOf("\n", index);
+      const line = source.slice(index, end < 0 ? source.length : end).trim();
+      if (!/^(?:[#*:}{]|(?:if|while|until|for|switch|case|default|else|function|return)\b)/i.test(line) && !line.includes("=") && !line.endsWith("{")) {
+        state = "line-comment"; // Loose TK2 dialogue is not executable source.
+        continue;
+      }
+    }
     legacyClose = -1;
     first = false;
-    if (char === '"') { state = "string"; continue; }
+    if (/[A-Za-z0-9_]/.test(char)) {
+      const start = index;
+      while (index + 1 < offset && /[A-Za-z0-9_]/.test(source[index + 1]!)) index++;
+      const word = source.slice(start, index + 1);
+      continuationToken = word === "_" && (start === lineStart || /\s/.test(source[start - 1]!));
+      if (/[A-Za-z_]/.test(word)) {
+        const blocked: boolean = previous.kind === "member" || (previous.kind === "name" && (previous.name === "function" || previous.name === "method"));
+        previous = { kind: "name", name: foldAscii(word), blocked };
+        if ((source[index + 1] === "!" || source[index + 1] === "$") && source[index + 2] !== "=") index++;
+      } else {
+        previous = { kind: "other" };
+      }
+      continue;
+    }
+    continuationToken = false;
+    if (char === '"') { state = "string"; previous = { kind: "other" }; continue; }
+    if (char === "." || (char === "-" && next === ">")) {
+      previous = { kind: "member" };
+      if (char === "-") index++;
+      continue;
+    }
     if (char === "(" || char === "[" || char === "{") {
+      const name = char === "(" && previous.kind === "name" ? (previous.blocked ? "" : previous.name) : null;
       const legacyStandalone = char === "(" && languageId === "rpgcode-tk2" && /^\s*#\s*[A-Za-z0-9_]+[!$]?\s*$/.test(source.slice(lineStart, index));
-      stack.push({ delimiter: char, name: char === "(" ? callName(source, index) : null, legacyStandalone, argument: 0 });
+      stack.push({ delimiter: char, name, legacyStandalone, argument: 0 });
     } else if (char === ")" || char === "]" || char === "}") {
       const expected = char === ")" ? "(" : char === "]" ? "[" : "{";
       const frame = stack.pop();
-      if (frame?.delimiter !== expected) return null;
-      if (frame.legacyStandalone) legacyClose = index;
+      if (frame?.delimiter !== expected) stack.length = 0;
+      else if (frame.legacyStandalone) legacyClose = index;
     } else if (char === "," && stack.at(-1)?.delimiter === "(") {
       stack[stack.length - 1]!.argument++;
     }
+    previous = { kind: "other" };
   }
   if (state === "line-comment" || state === "block-comment") return null;
   for (let index = stack.length - 1; index >= 0; index--) {
