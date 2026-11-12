@@ -316,6 +316,11 @@ function tintedBackgroundBytes(): Uint8Array {
     index === 8 * 11 + 4 ? [30, -20, 10] : index === 9 * 11 + 2 ? [-10, 15, -25] : [0, 0, 0]);
   return encoder.encode(["RPGTLKIT BKG", "2", "0", ...tiles, "", "", "", "", "", "", ...tints.flat().map(String)].join("\n") + "\n");
 }
+function manyTilesBackgroundBytes(): Uint8Array {
+  const tiles = Array.from({ length: 19 * 11 }, (_, index) => `cold${Math.floor(index / 11)}.tst1`);
+  return encoder.encode(["RPGTLKIT BKG", "2", "0", ...tiles, "", "", "", "", "", "", ...Array(19 * 11 * 3).fill("0")].join("\n") + "\n");
+}
+
 
 // ---- the authored .tbm battle background ------------------------------------------------------------------------
 //
@@ -426,7 +431,9 @@ export type RigOptions = {
    * The battle background picture the `.bkg` names: the authored PNG (default, the golden frames), the authored
    * 20 × 15 tile bitmap, or none (the stock screen's flat fallback colour).
    */
-  readonly background?: "png" | "prefix-png" | "tbm" | "none" | "final-destiny" | "tinted-text";
+  readonly background?: "png" | "prefix-png" | "tbm" | "none" | "final-destiny" | "tinted-text" | "many-tiles";
+  /** Deliver cold background tiles one at a time, even when requested together. */
+  readonly staggerColdTiles?: boolean;
   /** Instrument scanner completion in the one regression test that distinguishes fast-path from fallback scanning. */
   readonly watchFastPathCompletion?: boolean;
 };
@@ -475,6 +482,7 @@ export function gameFiles(options: RigOptions = {}): { readonly files: Map<strin
   put("Bkrounds/meadow.bkg", backgroundKind === "final-destiny"
     ? new Uint8Array(readFileSync(join(repoRoot, "fixtures", "legacy", "FinalDestiny", "Bkrounds", "Background 1.bkg")))
     : backgroundKind === "tinted-text" ? tintedBackgroundBytes()
+      : backgroundKind === "many-tiles" ? manyTilesBackgroundBytes()
       : backgroundBytes(backgroundKind === "none" ? "" : backgroundKind === "tbm" ? "meadow.tbm" : backgroundKind === "prefix-png" ? "@battle-background/meadow.png" : "meadow.png"));
   if (backgroundKind === "png" || backgroundKind === "prefix-png") {
     const background = backdrop();
@@ -484,6 +492,9 @@ export function gameFiles(options: RigOptions = {}): { readonly files: Map<strin
     put("Bitmap/meadow.tbm", tileBitmapBytes());
   } else if (backgroundKind === "tinted-text") {
     put("Tiles/meadow.tst", tilesetBytes());
+  } else if (backgroundKind === "many-tiles") {
+    const bytes = tilesetBytes();
+    for (let x = 0; x < 19; x += 1) put(`Tiles/cold${x}.tst`, bytes);
   } else if (backgroundKind === "final-destiny") {
     put("Tiles/default.tst", new Uint8Array(readFileSync(join(repoRoot, "fixtures", "legacy", "FinalDestiny", "Tiles", "default.tst"))));
     put("Media/VIP - Boss2.mid", new Uint8Array(readFileSync(join(repoRoot, "fixtures", "legacy", "FinalDestiny", "Media", "VIP - Boss2.mid"))));
@@ -589,6 +600,7 @@ export type UiRig = {
   readonly files: Map<string, Uint8Array>;
   readonly diagnostics: { readonly code: string; readonly message: string }[];
   readonly requested: string[];
+  readonly requestBatches: readonly (readonly string[])[];
   /** Every audio cue the engine has reported, in order. */
   readonly cues: AudioCue[];
   state(): GameState;
@@ -683,7 +695,9 @@ export function bootUiRig(options: RigOptions = {}): UiRig {
   });
   const diagnostics: { code: string; message: string }[] = [];
   const requested: string[] = [];
+  const requestBatches: string[][] = [];
   const cues: AudioCue[] = [];
+  const heldColdReplies: Reply[] = [];
   let replies: Reply[] = [];
   const advance = (inputs: readonly Reply[] = [], ticks = 1): number => {
     const report = engine.advance(ticks, [...replies, ...inputs] as never);
@@ -691,12 +705,17 @@ export function bootUiRig(options: RigOptions = {}): UiRig {
     diagnostics.push(...report.diagnostics);
     cues.push(...report.audioCues);
     if (report.requests.length > 0) {
+      requestBatches.push(report.requests.filter((request) => request.kind === "asset").map((request) => request.key));
       for (const request of report.requests) {
         if (request.kind !== "asset") continue;
         requested.push(request.key);
-        replies.push({ tick: report.tickAfter, event: { kind: "asset", reqId: request.reqId, bytes: game.files.get(request.key) ?? null } });
+        const reply: Reply = { tick: report.tickAfter, event: { kind: "asset", reqId: request.reqId, bytes: game.files.get(request.key) ?? null } };
+        if (options.staggerColdTiles === true && /tiles\/cold\d+\.tst$/i.test(request.key)) heldColdReplies.push(reply);
+        else replies.push(reply);
       }
     }
+    const coldReply = heldColdReplies.shift();
+    if (coldReply !== undefined) replies.push(coldReply);
     return report.ticksRun;
   };
   const read = (value: unknown): unknown => {
@@ -713,6 +732,7 @@ export function bootUiRig(options: RigOptions = {}): UiRig {
     files: game.files,
     diagnostics,
     requested,
+    requestBatches,
     cues,
     state() {
       if (latest === null) throw new Error("no tick has run yet");

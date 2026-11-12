@@ -118,6 +118,31 @@ test("text background cell tints retain their signed channels and positions", ()
   deepEqual(rig.diagnostics, []);
 });
 
+test("a cold text background requests all independent tiles in one batch", () => {
+  // Count the row copies out of decoded tile strips, while delivering the
+  // independently requested files one at a time. This catches eager retries
+  // that re-copy all previously resolved tiles as well as serial requests.
+  const originalSet = Uint8Array.prototype.set;
+  let tileRowCopies = 0;
+  Uint8Array.prototype.set = function (source, offset) {
+    if (this.length === 4096 && source.length === 128 && new Error().stack?.includes("tileCellPixels")) tileRowCopies += 1;
+    return originalSet.call(this, source, offset);
+  };
+  try {
+    const rig = bootUiRig({ background: "many-tiles", staggerColdTiles: true });
+    rig.until(() => Number(rig.ui()?.["backgroundcount"] ?? 0) > 0, 2000);
+    rig.tick(8);
+    const batches = rig.requestBatches.map((batch) => batch.filter((key) => /tiles\/cold\d+\.tst$/i.test(key))).filter((batch) => batch.length > 0);
+    equal(batches.length, 1, "independent tile files must not require serial host round trips");
+    equal(new Set(batches[0]).size, 19);
+    equal(tileRowCopies, 19 * 32, "each distinct 32-row tile is copied once");
+    deepEqual(pixel(rig.frame(), 256, 128), [40, 90, 60]);
+    equal(rig.diagnostics.length, 0);
+  } finally {
+    Uint8Array.prototype.set = originalSet;
+  }
+});
+
 test("Final Destiny's text background paints its stored tiles in a stock fight", () => {
   const rig = bootUiRig({ background: "final-destiny" });
   rig.until(() => Number(rig.ui()?.["backgroundcount"] ?? 0) > 0, 2000);

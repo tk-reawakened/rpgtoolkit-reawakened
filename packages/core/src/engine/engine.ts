@@ -384,6 +384,7 @@ export function createEngine(init: EngineInit): Engine {
   const inventoryItemDefinitions = new Map<AssetKey, Item>();
   const inventoryCharacterDefinitions = new Map<AssetKey, Character>();
   const decodedImages = new Map<AssetKey, DecodedTexture>();
+  const pendingBattlePictures = new Map<AssetKey, TileBitmap>();
   const decodedTiles = new Map<AssetKey, DecodedTexture>();
   /**
    * Actor walk/idle/battle animation metadata, decoded from the animation file's bytes (E-21, E-54). Asset-derived,
@@ -1566,6 +1567,7 @@ export function createEngine(init: EngineInit): Engine {
       inventoryItemDefinitions.clear();
       inventoryCharacterDefinitions.clear();
       decodedImages.clear();
+      pendingBattlePictures.clear();
       decodedTiles.clear();
       spriteAnimations.clear();
       spriteAnimationSourceBytes.clear();
@@ -1733,6 +1735,8 @@ export function createEngine(init: EngineInit): Engine {
     const cached = decodedImages.get(key);
     if (cached !== undefined) return cached;
     const bytes = cache.get(key);
+    const pendingPicture = pendingBattlePictures.get(key);
+    if (pendingPicture !== undefined) return composeTilePicture(key, pendingPicture);
     if (bytes === undefined) {
       request(key, "image");
       return null;
@@ -1753,12 +1757,46 @@ export function createEngine(init: EngineInit): Engine {
           r: tint?.r ?? 0, g: tint?.g ?? 0, b: tint?.b ?? 0 });
       }
     }
-    return composeTilePicture(key, { magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 19, height: 11, cells, residue: new Uint8Array(0) });
+    const bitmap: TileBitmap = { magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 19, height: 11, cells, residue: new Uint8Array(0) };
+    pendingBattlePictures.set(key, bitmap);
+    return composeTilePicture(key, bitmap);
   }
   function composeTilePicture(key: AssetKey, bitmap: TileBitmap): DecodedTexture | null {
     const tiles = new Map<string, TileBitmapTile>();
     const columns = Math.max(0, bitmap.width);
     const rows = Math.max(0, bitmap.height);
+    // Request every missing dependency before copying any tile pixels. Animated
+    // tiles can require a second batch for their first-frame assets.
+    const references = new Set<string>();
+    let waiting = false;
+    for (let x = 0; x < columns; x += 1) {
+      for (let y = 0; y < rows; y += 1) {
+        const reference = tileBitmapCell(bitmap, x, y)?.tile ?? "";
+        if (reference === "" || references.has(reference)) continue;
+        references.add(reference);
+        const resolved = resolveTileReference(index, root, reference);
+        if (!resolved.ok || resolved.value.kind === "empty") continue;
+        let tile = resolved.value;
+        if (tile.kind === "animatedTile") {
+          const bytes = cache.get(tile.asset);
+          if (bytes === undefined) {
+            request(tile.asset, requestKindFor(tile.asset));
+            waiting = true;
+            continue;
+          }
+          const animation = readTileAnimation(new BinaryReader(bytes, tile.asset));
+          if (!animation.ok) continue;
+          const frame = resolveTileReference(index, root, animation.value.frames[0] ?? "");
+          if (!frame.ok || (frame.value.kind !== "tileset" && frame.value.kind !== "isometric" && frame.value.kind !== "singleTile")) continue;
+          tile = frame.value;
+        }
+        if (!cache.has(tile.asset)) {
+          request(tile.asset, requestKindFor(tile.asset));
+          waiting = true;
+        }
+      }
+    }
+    if (waiting) return null;
     for (let x = 0; x < columns; x += 1) {
       for (let y = 0; y < rows; y += 1) {
         const cell = tileBitmapCell(bitmap, x, y);
@@ -1780,6 +1818,7 @@ export function createEngine(init: EngineInit): Engine {
       return null;
     }
     decodedImages.set(key, composed.value);
+    pendingBattlePictures.delete(key);
     return composed.value;
   }
   /**
@@ -2587,6 +2626,7 @@ export function createEngine(init: EngineInit): Engine {
     queuedInputs.length = 0;
     installedFonts.clear();
     decodedImages.clear();
+    pendingBattlePictures.clear();
     decodedTiles.clear();
     missingLegacySpriteAssets.clear();
     legacyCharacterWalks.clear();
