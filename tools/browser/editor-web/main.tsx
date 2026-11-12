@@ -16,26 +16,31 @@ let opened: ViewHandle | null = null;
 let openedElement: HTMLElement | null = null;
 let openedProject: WebProject | null = null;
 let projectWithChoices: WebProject | null = null;
+let openRequest = 0;
 
 folderButton.addEventListener("click", () => {
+  const request = ++openRequest;
   void (async () => {
     const project = await openWebProject();
+    if (request !== openRequest) return;
     if (!project) {
       status.textContent = "A persistent project folder could not be registered. Open a .gam session copy instead; folder changes will not be saved.";
       return;
     }
-    await openProjectGame(project);
-  })().catch(showFailure);
+    await openProjectGame(project, request);
+  })().catch((error: unknown) => { if (request === openRequest) showFailure(error); });
 });
 reopenButton.addEventListener("click", () => {
+  const request = ++openRequest;
   void (async () => {
     const project = await reopenWebProject(recentSelect.value);
+    if (request !== openRequest) return;
     if (!project) {
       status.textContent = "This project could not be reopened. Select its folder again or open a .gam session copy.";
       return;
     }
-    await openProjectGame(project);
-  })().catch(showFailure);
+    await openProjectGame(project, request);
+  })().catch((error: unknown) => { if (request === openRequest) showFailure(error); });
 });
 
 void refreshRecentProjects().catch(showFailure);
@@ -44,7 +49,9 @@ openSelectedGame.addEventListener("click", () => {
   const project = projectWithChoices;
   const path = gameSelect.value;
   if (!project || !path) return;
-  void show(project, path).then(hideProjectChoices).catch(showFailure);
+  const request = ++openRequest;
+  void show(project, path, request).then(() => { if (request === openRequest) hideProjectChoices(); })
+    .catch((error: unknown) => { if (request === openRequest) showFailure(error); });
 });
 async function refreshRecentProjects(): Promise<void> {
   const projects = await listRecentWebProjects();
@@ -67,10 +74,11 @@ async function refreshRecentProjects(): Promise<void> {
   reopenButton.hidden = !hasProjects;
 }
 
-async function openProjectGame(project: WebProject): Promise<void> {
+async function openProjectGame(project: WebProject, request: number): Promise<void> {
   hideProjectChoices();
   await refreshRecentProjects();
   const paths = await projectGames(project);
+  if (request !== openRequest) return;
   if (paths.length === 0) {
     status.textContent = "The selected folder has no .gam files.";
     return;
@@ -89,18 +97,20 @@ async function openProjectGame(project: WebProject): Promise<void> {
     status.textContent = `${paths.length} games found; select the game to open.`;
     return;
   }
-  await show(project, paths[0]!);
+  await show(project, paths[0]!, request);
 }
 
 
 fileInput.addEventListener("change", () => {
+  const request = ++openRequest;
   void (async () => {
     const file = fileInput.files?.[0];
     if (!file) return;
     const bytes = new Uint8Array(await file.arrayBuffer());
+    if (request !== openRequest) return;
     hideProjectChoices();
-    await show(createSessionCopy(file.name, bytes), file.name);
-  })().catch(showFailure);
+    await show(createSessionCopy(file.name, bytes), file.name, request);
+  })().catch((error: unknown) => { if (request === openRequest) showFailure(error); });
 });
 
 async function projectGames(project: WebProject): Promise<string[]> {
@@ -127,7 +137,7 @@ function hideProjectChoices(): void {
   gameSelect.replaceChildren();
 }
 
-async function show(project: WebProject, path: string): Promise<void> {
+async function show(project: WebProject, path: string, request: number): Promise<void> {
   const candidateElement = document.createElement("div");
   candidateElement.hidden = true;
   settings.append(candidateElement);
@@ -137,6 +147,11 @@ async function show(project: WebProject, path: string): Promise<void> {
   } catch (error) {
     candidateElement.remove();
     throw error;
+  }
+  if (request !== openRequest) {
+    if ("view" in result) result.view.dispose();
+    candidateElement.remove();
+    return;
   }
   if (!("view" in result)) {
     candidateElement.remove();
@@ -160,6 +175,7 @@ function showFailure(error: unknown): void {
 }
 
 window.addEventListener("pagehide", () => {
+  openRequest += 1;
   opened?.dispose();
   openedElement?.remove();
 }, { once: true });
