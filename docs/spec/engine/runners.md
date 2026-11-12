@@ -238,7 +238,7 @@ bytes, cached per runner and shared across games, with eviction that never remov
 `CuePlayer` is the state machine over it — the `(track, voice)` map, the prepared voice from `media.load`, the
 pre-ready message queue, the autoplay lock's mirror and the focus hold. `runner-web` carries the output: `PcmSink` holds
 one `synth` source voice per protocol voice and **pulls** frames. The shipped graph runs that pull inside an
-**AudioWorklet** (`apps/audio-worklet.js`), so the render quantum is the browser's render-quantum size rather than a
+**AudioWorklet** (`apps/browser/audio-worklet.js`, `apps/desktop/audio-worklet.js` or `apps/mobile/audio-worklet.js`), so the render quantum is the browser's render-quantum size rather than a
 fixed `ScriptProcessorNode` buffer; the one-shot onset target is **≤ 50 ms** measured as
 `baseLatency + renderQuantumSize / sampleRate`, and the browser lane asserts it. A `ScriptProcessorNode` fallback
 remains only for a platform that genuinely lacks AudioWorklet; it is logged explicitly and uses a documented
@@ -453,9 +453,13 @@ stub whose readiness resolves and whose `decode` refuses, and SF3 cannot be play
 ([issue #1325](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1325)). The lane proves it by instrumenting
 `WebAssembly` before any page script runs. SF3 playback on other runners is not established by the desktop result.
 
-The AudioWorklet module is loaded by `audioWorklet.addModule` from a **same-origin** URL — `/apps/audio-worklet.js` in
-the browser and `app://player/apps/audio-worklet.js` under the desktop scheme. That fetch is governed by `script-src`,
-not `worker-src`. The browser lane loads the module under the real CSP; the desktop smoke does the same over `app://`.
+The AudioWorklet module is loaded by `audioWorklet.addModule` from a **same-origin** URL — `/apps/browser/audio-worklet.js` in
+the browser, `/apps/mobile/audio-worklet.js` on mobile (including Capacitor's HTTPS origin), and
+`app://player/apps/desktop/audio-worklet.js` under the desktop scheme. That fetch is governed by `script-src`, not
+`worker-src`. Each host build emits its bundles and manifests under its own `apps/<host>/` directory, and the
+build-output check rejects any path claimed by multiple host builds. The browser service worker retains its registered
+`/apps/service-worker.js` URL for existing clients; its precache manifest and all other browser artifacts are under
+`apps/browser/`. The browser lane loads its module under the real CSP; the desktop smoke does the same over `app://`.
 
 <a id="conformance-lane"></a>
 ## Conformance: the schema and the vector kit

@@ -5,12 +5,12 @@ import { join } from "node:path";
 
 export async function probeDesktopCsp(page, evaluate, root, sleep) {
   const filename = `desktop-csp-probe-${process.pid}.js`;
-  const output = join(root, "apps", filename);
+  const output = join(root, "apps", "desktop", filename);
   const workletFilename = `desktop-worklet-probe-${process.pid}.js`;
-  const workletOutput = join(root, "apps", workletFilename);
+  const workletOutput = join(root, "apps", "desktop", workletFilename);
   const runnerFilename = `desktop-worklet-runner-${process.pid}.js`;
-  const runnerOutput = join(root, "apps", runnerFilename);
-  const liveWorklet = join(root, "apps", "audio-worklet.js");
+  const runnerOutput = join(root, "apps", "desktop", runnerFilename);
+  const liveWorklet = join(root, "apps", "desktop", "audio-worklet.js");
   const originalWorklet = readFileSync(liveWorklet);
   const waitFor = async (expression) => {
     for (let n = 0; n < 150; n += 1) {
@@ -26,7 +26,7 @@ export async function probeDesktopCsp(page, evaluate, root, sleep) {
     // CDP only creates the element; Chromium must decide whether its inline body may execute.
     const inline = await evaluate(`new Promise((resolve) => {
       const probe = document.createElement('script');
-      const playerScript = [...document.scripts].find((script) => new URL(script.src, location.href).pathname === '/apps/player-desktop-live.js');
+      const playerScript = [...document.scripts].find((script) => new URL(script.src, location.href).pathname === '/apps/desktop/player-desktop-live.js');
       const result = { url: location.href, tick: window.__live?.tick ?? null, board: window.__live?.board ?? null,
         playerScript: playerScript?.src ?? null, executed: false, violation: null };
       const finish = () => {
@@ -48,12 +48,12 @@ export async function probeDesktopCsp(page, evaluate, root, sleep) {
       document.head.appendChild(probe);
     })`);
     if (!inline.url.startsWith("app://player/") || inline.tick === null || inline.tick <= 0 || inline.board === null
-      || inline.playerScript !== "app://player/apps/player-desktop-live.js" || inline.executed
+      || inline.playerScript !== "app://player/apps/desktop/player-desktop-live.js" || inline.executed
       || inline.violation?.directive !== "script-src-elem" || inline.violation.blockedURI !== "inline") {
       throw new Error(`desktop inline CSP enforcement failed: ${JSON.stringify(inline)}`);
     }
     await build({ entryPoints: [join(root, "packages/synth/test/browser-csp-probe.mjs")], outfile: output, bundle: true, format: "esm", platform: "browser", target: "chrome120", logLevel: "silent" });
-    const sound = await evaluate(`import('/apps/${filename}').then(m => m.probeCompressedAudio())`);
+    const sound = await evaluate(`import('/apps/desktop/${filename}').then(m => m.probeCompressedAudio())`);
     if (!sound.ended || sound.energy <= 0.0001 || !sound.evalBlocked) throw new Error(`desktop CSP/audio probe failed: ${JSON.stringify(sound)}`);
     await build({
       entryPoints: [join(root, "packages/runner-web/src/audio-worklet.ts")], outfile: workletOutput,
@@ -61,29 +61,29 @@ export async function probeDesktopCsp(page, evaluate, root, sleep) {
       banner: { js: readFileSync(join(root, "packages/runner-web/test/worklet-decoder-banner.js"), "utf8") },
     });
     await build({ entryPoints: [join(root, "packages/runner-web/test/worklet-decoder-probe.mjs")], outfile: runnerOutput, bundle: true, format: "esm", platform: "browser", target: "chrome120", logLevel: "silent" });
-    const race = await evaluate(`import('/apps/${runnerFilename}').then(m => m.probeWorkletDecoder('/apps/${workletFilename}'))`);
+    const race = await evaluate(`import('/apps/desktop/${runnerFilename}').then(m => m.probeWorkletDecoder('/apps/desktop/${workletFilename}'))`);
     if (race.before !== 0 || race.during !== 0 || race.after <= 0.0001) throw new Error(`worklet decoder race: ${JSON.stringify(race)}`);
-    const cueReadiness = await evaluate(`import('/apps/${runnerFilename}').then(m => m.probeCueReadiness('/apps/${workletFilename}'))`);
+    const cueReadiness = await evaluate(`import('/apps/desktop/${runnerFilename}').then(m => m.probeCueReadiness('/apps/desktop/${workletFilename}'))`);
     if (cueReadiness.early !== 0 || cueReadiness.scheduled.length !== 1
       || cueReadiness.scheduled[0].track !== "music" || cueReadiness.scheduled[0].positionTicks !== 30) {
       throw new Error(`worklet cue readiness/late drop failed: ${JSON.stringify(cueReadiness)}`);
     }
-    const workletFailure = await evaluate(`import('/apps/${runnerFilename}').then(m => m.probeWorkletFailure('/apps/${workletFilename}'))`);
+    const workletFailure = await evaluate(`import('/apps/desktop/${runnerFilename}').then(m => m.probeWorkletFailure('/apps/desktop/${workletFilename}'))`);
     if (!String(workletFailure.detail).includes("worklet-decoder-probe-failure")
       || workletFailure.pcmEnergy <= 0.0001 || workletFailure.plainEnergy <= 0.0001) {
       throw new Error(`worklet decoder failure or ordinary audio: ${JSON.stringify(workletFailure)}`);
     }
-    const fallback = await evaluate(`import('/apps/${runnerFilename}').then(m => m.probeGraphFallback('/apps/${workletFilename}'))`);
+    const fallback = await evaluate(`import('/apps/desktop/${runnerFilename}').then(m => m.probeGraphFallback('/apps/desktop/${workletFilename}'))`);
     if (fallback.retained !== "plain" || fallback.energy <= 0.0001 || !fallback.reset || fallback.restored !== "plain") {
       throw new Error(`worklet bank fallback/reset failed: ${JSON.stringify(fallback)}`);
     }
-    const isolation = await evaluate(`import('/apps/${runnerFilename}').then(m => m.probePendingIsolation('/apps/${workletFilename}'))`);
+    const isolation = await evaluate(`import('/apps/desktop/${runnerFilename}').then(m => m.probePendingIsolation('/apps/desktop/${workletFilename}'))`);
     if (isolation.paused !== 0 || isolation.muted !== 0 || isolation.stopped !== 0
       || isolation.resumed <= 0.0001 || isolation.unrelated <= 0.0001 || isolation.superseded <= 0.0001 || !isolation.reset) {
       throw new Error(`pending decoder blocked independent audio: ${JSON.stringify(isolation)}`);
     }
     for (const replacement of ["plain", "none", "compressed"]) {
-      const installed = await evaluate(`import('/apps/${runnerFilename}').then(m => m.probeReleasedSupersession('/apps/${workletFilename}', '${replacement}'))`);
+      const installed = await evaluate(`import('/apps/desktop/${runnerFilename}').then(m => m.probeReleasedSupersession('/apps/desktop/${workletFilename}', '${replacement}'))`);
       const expected = replacement === "none" ? null : replacement;
       if (installed.length !== 1 || installed[0] !== expected) {
         throw new Error(`stale bank installed after decoder release (${replacement}): ${JSON.stringify(installed)}`);

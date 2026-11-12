@@ -6,6 +6,8 @@
   "packageManager": "pnpm@12.10.1",
   "scripts": {
     "build": "tsc -b",
+    "build:outputs:check": "node tools/build-outputs-check.mjs",
+    "build:outputs:test": "node --test tools/build-outputs.test.mjs",
     "typecheck": "tsc -b && pnpm -r --if-present run typecheck:tests && tsc -p packages/runner-web/tsconfig.app.json",
     "test": "tsc -b && node --max-semi-space-size=128 --test \"packages/*/test/*.test.ts\"",
     "coverage": "tsc -b && mkdir -p coverage && node --max-semi-space-size=128 --experimental-test-coverage --test-coverage-lines=91 --test-coverage-branches=81 --test-coverage-include='packages/*/src/**' --test-coverage-exclude='**/catalogue-stubs.ts' --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=coverage/lcov.info --test \"packages/*/test/*.test.ts\"",

@@ -23,7 +23,7 @@ test("runner page boots a package with allowed scripts and blocks injected inlin
   });
 
   const allowedScript = page.waitForResponse((response) =>
-    response.url().endsWith("/apps/player.js") && response.ok(),
+    response.url().endsWith("/apps/browser/player.js") && response.ok(),
   );
   await page.goto(PLAYER_PAGE);
   await allowedScript;

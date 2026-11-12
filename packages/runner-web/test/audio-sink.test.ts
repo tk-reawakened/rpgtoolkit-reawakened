@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import type { AssetKey } from "@tk-reawakened/core";
-import { connectSinkToGraph, PcmSink, ticksToSeconds } from "../src/audio-sink.ts";
+import { connectSinkToGraph, defaultWorkletUrl, PcmSink, ticksToSeconds } from "../src/audio-sink.ts";
 import type { SinkEvent } from "../src/audio-sink.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -233,6 +233,11 @@ test("a bank over the ceiling is bank.unavailable, not a crash", () => {
   equal(made.currentBank, null);
 });
 
+test("worklet URL uses the explicit host-owned path", () => {
+  equal(defaultWorkletUrl("browser"), "/apps/browser/audio-worklet.js");
+  equal(defaultWorkletUrl("mobile"), "/apps/mobile/audio-worklet.js");
+  equal(defaultWorkletUrl("desktop"), "app://player/apps/desktop/audio-worklet.js");
+});
 // ---------------------------------------------------------------- the AudioWorklet graph (issue #1044)
 
 /** A fake node the worklet path can construct and inspect. */
