@@ -238,6 +238,10 @@ Any other failure the expression raises while it runs is reported with the engin
 
 <!-- OWNER: approved by Jensen 2026-11-11 (#950), as the wording P3 already ruled (THR-3, AD-1). Rejected: a `stepOver`/`stepIn`/`stepOut` mode inside the VM — it would put DAP's vocabulary in the save-state contract and add three cursor modes to the open-tick record. -->
 
+**Host-visible stop events.** The adapter sends the standard DAP `stopped` event to the debug client and also sends the custom DAP event `rpgcode.stopped` with `{ reason, threadId, line }`. The VS Code extension-host API forwards this custom event through `onDidReceiveDebugSessionCustomEvent`, allowing host-side consumers and tests to await a stop without relying on the workbench's active-stack UI. It is emitted for entry, breakpoints, steps and instruction limits.
+
+**Virtual source identity.** A launch may name its program source by URI, including a non-file workspace URI. Stack-frame sources retain that URI so the host can resolve the document; `setBreakpoints` accepts either that URI or its path as the source name. This keeps virtual-file-system breakpoints aligned with the program document instead of resolving the path through the host's default file system.
+
 <a id="tool-9"></a>
 **TOOL-9 The command-line front end.** The tool is one binary, `tkr`, and RPGCode tooling is its `script` group: `tkr script check`, `fmt`, `test`, `docs` and `index`. Later groups (`tkr run`, `tkr pack`) may follow without renaming anything.
 
