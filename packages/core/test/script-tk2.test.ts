@@ -78,6 +78,16 @@ test("TK2 retains variable and literal identity in mixed and nested arguments", 
   );
 });
 
+test("TK2 raw text keeps punctuation instead of treating it as a sigil", () => {
+  const source = '#Mwin(Hello there!)\n#Mwin(Price $5)\n#Mwin("already quoted!")';
+  equal(normaliseTk2(source), 'Mwin("Hello there!")\nMwin("Price $5")\nMwin("already quoted!")');
+  const program = compileTk2(source, "punctuation.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Hello there!", "Price $5", "already quoted!"]);
+});
+
 test("TK2 #FBranch and #Branch compile to equivalent call expressions", () => {
   const astBranch = parseTk2("#Branch(:dest)");
   const astFBranch = parseTk2("#FBranch(:dest)");
