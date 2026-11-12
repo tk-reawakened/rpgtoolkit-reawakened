@@ -124,6 +124,15 @@ test("TK2 expression statements run nested calls and dialogue then substitution"
   throws(() => compileTk2("#If (x) then < #Mwin(hello) >"), /Toolkit 1\.x/);
 });
 
+test("incomplete assignment-like text is dialogue, but sigilled assignments execute", () => {
+  const source = '#index = 2\nvalues[index!]$ = 7\nScore = 5 points\nHi = my friend\nHello = "friend" is here\n#Mwin(values[2])';
+  const state = createGameState({ seed: 0 });
+  const program = compileTk2(source, "assignment-dialogue.prg");
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Score = 5 points", "Hi = my friend", 'Hello = "friend" is here', "7"]);
+});
+
 test("TK2 methods, labels, namespace calls and fbranch preserve shared shapes", () => {
   const ast = parseTk2("#Method Add(a, b) { #ReturnMethod(a + b) }\n:again\n#FBranch(:again)\n#system.start()");
   equal(ast.functions[0]?.name, "add");

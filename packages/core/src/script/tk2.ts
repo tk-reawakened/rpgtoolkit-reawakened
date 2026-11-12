@@ -159,23 +159,6 @@ function equalityInCondition(text: string): string {
   return result + text.slice(cursor);
 }
 
-/** An unprefixed assignment is code; an equals sign in other loose text is not. */
-function isAssignment(line: string): boolean {
-  const operators = /(?:<<|>>|[+\-*/%^&|`])?=(?!=)/g;
-  for (let match = operators.exec(line); match !== null; match = operators.exec(line)) {
-    try {
-      const ast = parse(tokenizeObjects(stripSigils(`${line.slice(0, match.index)} = 0`)));
-      const statement = ast.statements[0];
-      if (ast.statements.length === 1 && statement?.kind === "expr" && statement.expr.kind === "assign") {
-        lower(ast);
-        return true;
-      }
-    } catch (error) {
-      if (!(error instanceof ScriptError)) throw error;
-    }
-  }
-  return false;
-}
 
 /** Preserve valid unprefixed expression statements accepted by the shared frontend. */
 function isExpressionWithEquals(line: string, lookup: Tk2CommandLookup | undefined): boolean {
@@ -208,7 +191,7 @@ function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined, litera
   }
   line = line.replace(/^returnmethod\b/i, "return").replace(/^method\b/i, "function");
   if (line.length === 0) return "";
-  if (!raw.trimStart().startsWith("#") && !/^(if|while|until|for|switch|case|default|else|function|return|[:{}])(?:\b|$)/i.test(line) && !isAssignment(line) && !isExpressionWithEquals(line, lookup) && !line.endsWith("{")) {
+  if (!raw.trimStart().startsWith("#") && !/^(if|while|until|for|switch|case|default|else|function|return|[:{}])(?:\b|$)/i.test(line) && !isExpressionWithEquals(line, lookup) && !line.endsWith("{")) {
     if (line.includes('"')) {
       literal(line);
       return 'mwin("")';

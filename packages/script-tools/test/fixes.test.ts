@@ -92,6 +92,18 @@ test("migration preserves expression call effects and then-angle dialogue", () =
   deepEqual(mwinText(fixed, "tk3"), expected);
 });
 
+test("migration preserves assignment-like dialogue and explains quoted refusal", () => {
+  const source = '#index = 2\nvalues[index!]$ = 7\nScore = 5 points\nHi = my friend\n#Mwin(values[2])';
+  const fixed = migrate(source);
+  const expected = ["Score = 5 points", "Hi = my friend", "7"];
+  deepEqual(mwinText(source, "tk2"), expected);
+  deepEqual(mwinText(fixed, "tk3"), expected);
+  const quoted = 'Hello = "friend" is here';
+  deepEqual(mwinText(quoted, "tk2"), [quoted]);
+  deepEqual(legacyFixes(quoted, "tk2"), []);
+  ok(tk2ConversionRefusal(quoted)?.includes("double quote"));
+});
+
 test("mixed legacy forms are converted together and retain comments and CRLF", () => {
   const source = "* keep this comment\r\n#If (x = 5) {\r\n  #y! = 1\r\n}\r\nHello there\r\n#threadSleep(1, 2) * keep this too\r\n";
   const fixed = migrate(source);
@@ -235,7 +247,7 @@ test("3.1 sigil fixes do not alter possible Toolkit 2 dialogue", () => {
 });
 
 test("uncompilable or unsupported input never gets an edit", () => {
-  for (const source of ["x = )\n#Dos", "< unsupported >"]) {
+  for (const source of ["#x = )\n#Dos", "< unsupported >"]) {
     deepEqual(legacyFixes(source, "tk2"), []);
   }
 });
