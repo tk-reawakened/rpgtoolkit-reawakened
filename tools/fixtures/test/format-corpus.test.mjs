@@ -27,17 +27,23 @@ function source(bytes) {
 
 function behavior(loader, name) {
   const program = compileProgram(fileProgramRef(loader, name), { loader });
-  return JSON.parse(JSON.stringify({
-    ops: program.ops,
+  return {
+    ops: program.ops.map(({ pos, ...op }) => op),
     functions: program.functions,
-    classes: program.classes,
+    classes: Object.fromEntries(Object.entries(program.classes).map(([name, cls]) => [
+      name,
+      { ...cls, members: cls.members.map(({ line, col, endCol, ...member }) => member) },
+    ])),
     labels: program.labels,
     statements: program.statements,
     files: program.files,
     fileKeys: program.fileKeys,
-    notices: program.notices,
-    units: program.units.map(({ key, requests }) => ({ key, requests })),
-  }, (key, value) => ["pos", "line", "col", "endCol", "offset", "endOffset"].includes(key) ? undefined : value));
+    notices: program.notices.map(({ line, ...notice }) => notice),
+    units: program.units.map(({ key, requests }) => ({
+      key,
+      requests: requests.map(({ line, col, endCol, ...request }) => request),
+    })),
+  };
 }
 
 test("the oracle detects method identity and include-binding changes", () => {
@@ -51,6 +57,18 @@ test("the oracle detects method identity and include-binding changes", () => {
   const redirected = createMemoryLoader({ ...files, "main.prg": files["main.prg"].replace("one.prg", "two.prg") });
   notDeepEqual(behavior(original, "main.prg"), behavior(renamed, "main.prg"));
   notDeepEqual(behavior(original, "main.prg"), behavior(redirected, "main.prg"));
+  for (const symbol of ["pos", "line", "col", "endCol", "offset", "endOffset"]) {
+    for (const make of [
+      (name) => `function ${name}() { return 1 }\n`,
+      (name) => `class ${name} { method m() { return 1 } }\n`,
+      (name) => `class Box { method ${name}() { return 1 } }\n`,
+      (name) => `:${name}\n`,
+    ]) {
+      const originalName = createMemoryLoader({ "main.prg": make(symbol) });
+      const changedName = createMemoryLoader({ "main.prg": make("differentSymbol") });
+      notDeepEqual(behavior(originalName, "main.prg"), behavior(changedName, "main.prg"), `${symbol} is a symbol, not a position`);
+    }
+  }
 });
 
 const originals = { demo: {}, basic: {} };
