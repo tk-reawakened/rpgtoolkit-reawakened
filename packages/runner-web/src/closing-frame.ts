@@ -7,7 +7,7 @@
  * as the hashes is what lets two hosts be compared channel by channel instead of by a hash.
  */
 
-import { assetKey, DEFAULT_FONT_ASSET, rasterizePresentation, type AssetKey, type DrawList, type HostDisplayGeometry, type RasterAsset, type RasterSurfaces, type SurfaceId } from "@tk-reawakened/core";
+import { assetKey, DEFAULT_FONT_ASSET, rasterizePresentation, readTrueTypeFont, type AssetKey, type DrawList, type HostDisplayGeometry, type RasterAsset, type RasterSurfaces, type SurfaceId } from "@tk-reawakened/core";
 import { createWebgl2Renderer } from "@tk-reawakened/render-webgl2";
 import { decodeAssetTexture, parseClosingPlan, runClosingFrames } from "@tk-reawakened/runner-harness";
 
@@ -48,7 +48,15 @@ export function renderClosingDemoFrame(options: {
     const decoded = decodeAssetTexture(key, bytes);
     if (decoded !== null) textures.set(key, { w: decoded.w, h: decoded.h, rgba: decoded.rgba });
   }
-  const fonts = options.fonts;
+  // The draw list's TrueType glyph IDs only mean something against the face that made them, so the package's own faces
+  // are decoded once and win over a bundled face of the same key (docs/spec/engine/runners.md#draw-list).
+  const fonts = new Map<AssetKey, RasterAsset>(options.fonts);
+  for (const [path, bytes] of options.files) {
+    const key = assetKey(path);
+    if (!key.endsWith(".ttf")) continue;
+    const font = readTrueTypeFont(bytes, path);
+    if (font.ok) fonts.set(key, font.value);
+  }
   const geometry: HostDisplayGeometry = {
     content: { width: list.width, height: list.height },
     game: { x: 0, y: 0, width: list.width, height: list.height },

@@ -15,6 +15,7 @@ import {
   pollRenderMsgBox,
   restoreGameState,
   snapshot,
+  rasterizePresentation,
   UI_COMMANDS,
   UI_PLUGIN,
   type Arg,
@@ -187,6 +188,32 @@ test("author text crossing Plane 1 is emitted in the margin command layer", () =
   const inside = createGameState({ seed: 0 });
   applyUiEffect(inside, "pixeltext", [4, 4, "Go", 0]);
   equal(composeUiMargins(inside.ui, 32, 32).length, 0);
+});
+
+test("TrueType text crossing each viewport edge draws its actual ink into margins", () => {
+  const font = readTrueTypeFont(new Uint8Array(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../../media/fonts/LiberationSans-Regular.ttf"))));
+  if (!font.ok) throw new Error(font.error.message);
+  const key = assetKey("Font/Test.ttf");
+  const fonts = new Map([[key, font.value]]);
+  const geometry = { content: { width: 96, height: 96 }, game: { x: 16, y: 16, width: 64, height: 64 }, safeArea: { top: 0, right: 0, bottom: 0, left: 0 } };
+  for (const [label, text, x, y, outside] of [
+    ["left", "j", 0, 5, (x: number, _y: number) => x < 16],
+    ["right", "A", 60, 5, (x: number, _y: number) => x >= 80],
+    ["top", "A", 5, -15, (_x: number, y: number) => y < 16],
+    ["bottom", "gy", 5, 44, (_x: number, y: number) => y >= 80],
+  ] as const) {
+    const state = createGameState({ seed: 0 });
+    state.ui.font = { asset: key, size: 20, bold: false, italic: false };
+    applyUiEffect(state, "pixeltext", [x, y, text, 0]);
+    const marginCommands = composeUiMargins(state.ui, 64, 64, fonts);
+    const result = rasterizePresentation({ tick: 0, width: 64, height: 64, commands: [], marginCommands }, geometry, fonts);
+    equal(result.error, null);
+    let ink = 0;
+    for (let py = 0; py < result.height; py += 1) for (let px = 0; px < result.width; px += 1) {
+      if (outside(px, py) && (result.rgba[(py * result.width + px) * 4 + 3] ?? 0) > 0) ink += 1;
+    }
+    ok(ink > 0, `${label} margin contains glyph ink`);
+  }
 });
 
 test("author UI effects publish one ordered navigation surface and accessibility subtree", () => {

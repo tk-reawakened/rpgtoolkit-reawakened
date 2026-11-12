@@ -324,6 +324,29 @@ test("triuken pack calculates dimensions and emits ui/surfaces effects", () => {
   deepEqual(width.out, [[3, 40]]);
 });
 
+test("triuken text metrics delegate only the core forms and keep the extended font forms", () => {
+  for (const name of ["gettextwidth", "gettextheight"]) {
+    const command = TRIUKEN_PLUGIN.commands.find((c) => c.name === name)!;
+    const delegated = { value: 7, out: [[1, 7]] as const };
+    const call = (args: Arg[]): { readonly result: ReturnType<typeof command.call>; readonly delegated: boolean } => {
+      let reached = false;
+      const result = command.call(dummyView, args, () => { reached = true; return delegated; });
+      return { result, delegated: reached };
+    };
+    equal(command.params[1]?.byRef, true, `${name}'s second parameter may carry the core output reference`);
+    equal(call([{ value: "ab", ref: null }]).delegated, true, "one argument is the core form");
+    equal(call([{ value: "ab", ref: null }, { value: 5, ref: asRef("local:out") }]).delegated, true, "a numeric variable is the core output reference");
+    equal(call([{ value: "ab", ref: null }, { value: "", ref: asRef("local:out") }]).delegated, true, "an empty-string variable is not a font name");
+    equal(call([{ value: "ab", ref: null }, { value: "Arial", ref: null }]).delegated, false, "a literal font name is the Triuken form");
+    equal(call([{ value: "ab", ref: null }, { value: 5, ref: null }]).delegated, false, "a literal second argument is never an output reference");
+    equal(call([{ value: "ab", ref: null }, { value: "Arial", ref: asRef("local:font") }]).delegated, false, "a variable holding a font name is the Triuken form");
+    equal(call([{ value: "ab", ref: null }, { value: "Arial", ref: null }, { value: 12, ref: null }]).delegated, false);
+    const extended = call([{ value: "ab", ref: null }, { value: "Arial", ref: null }, { value: 12, ref: null }, { value: 0, ref: asRef("local:dest") }]);
+    equal(extended.delegated, false);
+    deepEqual(extended.result.out, [[3, 16]]);
+  }
+});
+
 test("xfmwin pack aliases dialogue and prompts with msgbox waits", () => {
   const xfmwinCmd = XFMWIN_PLUGIN.commands.find((c) => c.name === "xfmwin")!;
   const mwinResult = xfmwinCmd.call(dummyView, [{ value: "Quest accepted!", ref: null }], () => ({ value: null }));

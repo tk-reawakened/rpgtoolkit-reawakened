@@ -11,8 +11,7 @@ import test from "node:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readTrueTypeFont } from "../src/formats/font/truetype.ts";
-import { textInk } from "../src/raster/text.ts";
+import { createHash } from "node:crypto";
 import {
   applyUiEffect,
   assetKey,
@@ -103,6 +102,11 @@ interface DemoRun {
   readonly size: number;
 }
 
+interface DemoPixelReference {
+  readonly fontSha256: string;
+  readonly regions: readonly { readonly name: string; readonly x: number; readonly y: number; readonly width: number; readonly height: number; readonly rows: readonly string[] }[];
+}
+
 test("the demo title menu's text runs land on their E-56 cell origins with uniform tracking", { skip: haveLegacy ? false : "run pnpm fixtures:fetch" }, () => {
   const sample = sampleGame("demo");
   if (sample === null) throw new Error("fixtures/legacy/demo has no authored demo.gam; run pnpm fixtures:fetch with the Demo main fixture pin");
@@ -150,9 +154,6 @@ test("the demo title menu's text runs land on their E-56 cell origins with unifo
   equal(ui.font.italic, false);
   deepEqual(ui.draws.map((entry) => [entry.font.asset, entry.font.size, entry.font.bold]), Array.from({ length: 4 }, () => [assetKey("media/fonts/LiberationSans-Regular.ttf"), 18, true]));
   const sansBytes = new Uint8Array(readFileSync(join(legacyRoot, "..", "..", "media", "fonts", "LiberationSans-Regular.ttf")));
-  const parsedFont = readTrueTypeFont(sansBytes);
-  if (!parsedFont.ok) throw new Error(parsedFont.error.message);
-  const face = parsedFont.value;
   const expectedRuns = [
     { text: "Test Game", x: 36, y: 36 },
     { text: "New Game", x: 288, y: 171 },
@@ -172,23 +173,42 @@ test("the demo title menu's text runs land on their E-56 cell origins with unifo
   ].map((run) => run.map(([glyph, advance]) => ({ glyph: glyph!, advance: advance! })));
   deepEqual(commands.map((command) => command.text), expectedRuns.map((run) => run.text));
   deepEqual(commands.map((command) => command.advances), expectedAdvances, "glyph IDs and advances match the independent font reference");
-  const white = { r: 255, g: 255, b: 255 };
-  const expectedInk = expectedRuns.map((run, index) => textInk({
-    kind: "text", ...run, font: { asset: assetKey("media/fonts/LiberationSans-Regular.ttf"), size: S, bold: true, italic: false },
-    rgb: white, advances: expectedAdvances[index]!,
-  }, face));
-  if (expectedInk.some((ink) => ink === null)) throw new Error("the independent Demo reference commands did not rasterize");
   let pixels: Uint8Array | null = null;
   for (let rev = 0; rev < 64 && pixels === null; rev += 1) pixels = engine.surfacePixels(0 as never, rev)?.rgba ?? null;
   if (pixels === null) throw new Error("the Demo screen surface is unavailable");
-  const expectedWhitePixels = new Map<number, number>();
-  for (const ink of expectedInk) for (const point of ink!) {
-    const index = (point.y * 640 + point.x) * 4;
-    const previous = expectedWhitePixels.get(index) ?? 0;
-    expectedWhitePixels.set(index, Math.floor((previous * (255 - point.coverage) + 255 * point.coverage + 127) / 255));
+  // Independent pixel reference (fixtures/demo-title-menu-freetype-reference.json): FreeType's exact-area
+  // coverage of the unmodified Demo's four runs, not this project's rasteriser and not `textInk`. The
+  // whole 640×480 surface is compared, so ink outside the title/menu rectangles, misplaced edges and
+  // any shifted glyph (for example TrueType `startX` ± 1) are caught, not only the pixels a model predicts.
+  const reference = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "demo-title-menu-freetype-reference.json"), "utf8")) as DemoPixelReference;
+  equal(createHash("sha256").update(sansBytes).digest("hex"), reference.fontSha256, "the reference was generated from the bundled Liberation Sans Regular");
+  const expectedAlpha = new Uint8Array(640 * 480);
+  for (const region of reference.regions) {
+    equal(region.rows.length, region.height, `${region.name} reference has every row`);
+    region.rows.forEach((row, rowIndex) => {
+      let column = 0;
+      for (const token of row.split(" ")) {
+        if (token.startsWith("-")) { column += Number(token.slice(1)); continue; }
+        for (let at = 0; at < token.length; at += 2, column += 1) expectedAlpha[(region.y + rowIndex) * 640 + region.x + column] = Number.parseInt(token.slice(at, at + 2), 16);
+      }
+      equal(column, region.width, `${region.name} reference row ${rowIndex} spans the region`);
+    });
   }
-  equal(expectedWhitePixels.size > 0, true, "independent title/menu reference produces glyph pixels");
-  for (const [index, expected] of expectedWhitePixels) equal(pixels[index], expected, `rendered glyph coverage at ${index / 4}`);
+  equal(expectedAlpha.some((value) => value === 255), true, "the independent title/menu reference contains solid glyph pixels");
+  // The project flattens outlines to within 0.25 px in 1/64-pixel fixed point; against FreeType's exact areas the
+  // actual Demo differs by at most 34 levels with a summed difference of 5676. A one-pixel shift of any glyph
+  // gives a summed difference above 220000 and more than 1400 pixels over 40 levels.
+  const mismatches: string[] = [];
+  let totalDifference = 0;
+  for (let pixel = 0; pixel < 640 * 480; pixel += 1) {
+    const actual = pixels[pixel * 4 + 3]!;
+    const expected = expectedAlpha[pixel]!;
+    totalDifference += Math.abs(actual - expected);
+    if (expected === 0 ? actual > 2 : Math.abs(actual - expected) > 40) mismatches.push(`(${pixel % 640},${Math.floor(pixel / 640)}) actual ${actual} expected ${expected}`);
+    if (actual === 255) deepEqual([pixels[pixel * 4], pixels[pixel * 4 + 1], pixels[pixel * 4 + 2]], [255, 255, 255], `solid glyph pixel ${pixel % 640},${Math.floor(pixel / 640)} is white`);
+  }
+  deepEqual(mismatches.slice(0, 8), [], `${mismatches.length} screen pixels differ from the independent reference`);
+  equal(totalDifference <= 6500, true, `summed coverage difference ${totalDifference} exceeds the 6500 flattening budget`);
   cellProbe: {
     equal(Array.isArray(ui.draws), true);
     const runs: readonly DemoRun[] = (ui.draws ?? []).map((entry) => ({ text: entry.text as string, x: entry.x as number, y: entry.y as number, cell: entry.cell as boolean, size: (entry.font as { size: number }).size }));

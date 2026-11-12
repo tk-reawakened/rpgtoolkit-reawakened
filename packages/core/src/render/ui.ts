@@ -3,6 +3,7 @@ import { assetKey } from "../formats/resolver/resolver.ts";
 import type { DrawCommand, FontRef, Rgb } from "../ports/draw.ts";
 import type { AssetKey } from "../ports/keys.ts";
 import { renderNowEnabled } from "../raster/surfaces.ts";
+import { isTrueType, trueTypeInkBounds } from "../raster/text.ts";
 import type { InputSection } from "../save/sections/input.ts";
 import type { SurfacesSection } from "../save/sections/surfaces.ts";
 import type { UiCursorImage, UiSection } from "../save/sections/ui.ts";
@@ -232,9 +233,20 @@ export function composeUiMargins(ui: UiSection, width: number, height: number, f
   const commands: DrawCommand[] = [];
   commands.push(...(ui.authorMarginCommands ?? []));
   for (const draw of ui.draws ?? []) {
-    const layout = layoutText(draw.text, draw.font, { ...(draw.cell ? { lineHeight: draw.font.size } : {}), ...(fonts === undefined ? {} : { fonts }) });
-    if (draw.x >= 0 && draw.y >= 0 && draw.x + layout.width <= width && draw.y + layout.height <= height) continue;
-    commands.push(...textCommands(draw.text, draw.x, draw.y, draw.rgb, draw.font, undefined, draw.underline, draw.cell, fonts));
+    const emitted = textCommands(draw.text, draw.x, draw.y, draw.rgb, draw.font, undefined, draw.underline, draw.cell, fonts);
+    const face = fonts?.get(draw.font.asset);
+    if (isTrueType(face)) {
+      const crosses = emitted.some((command) => {
+        if (command.kind === "line") return Math.min(command.x1, command.x2) < 0 || Math.min(command.y1, command.y2) < 0 || Math.max(command.x1, command.x2) >= width || Math.max(command.y1, command.y2) >= height;
+        if (command.kind !== "text") return false;
+        const bounds = trueTypeInkBounds(command, face);
+        return bounds !== null && (bounds.left < 0 || bounds.top < 0 || bounds.right > width || bounds.bottom > height);
+      });
+      if (crosses) commands.push(...emitted);
+    } else {
+      const layout = layoutText(draw.text, draw.font, { ...(draw.cell ? { lineHeight: draw.font.size } : {}), ...(fonts === undefined ? {} : { fonts }) });
+      if (draw.x < 0 || draw.y < 0 || draw.x + layout.width > width || draw.y + layout.height > height) commands.push(...emitted);
+    }
   }
   commands.push(...surfaceFocusCommands(ui).filter((command) => {
     if (command.kind !== "rect") return false;

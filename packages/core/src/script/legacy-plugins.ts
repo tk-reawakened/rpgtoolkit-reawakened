@@ -566,6 +566,18 @@ function byRefOut(args: readonly Arg[], index: number, value: Value): readonly (
 }
 
 /**
+ * `gettextwidth(text, out)` / `gettextheight(text, out)` with a variable second argument is the core optional output
+ * reference, not Triuken's explicit font: a font name is a non-empty string, so a variable that holds anything else
+ * (a number, or an empty string) can only be the destination. Calls with a literal second argument, a variable holding
+ * a font name, or three or more arguments keep the extended Triuken forms.
+ */
+function isCoreOutputForm(args: readonly Arg[]): boolean {
+  if (args.length !== 2 || args[1]?.ref === null || args[1]?.ref === undefined) return false;
+  const value = args[1].value;
+  return !(typeof value === "string" && value.trim() !== "");
+}
+
+/**
  * 1. GsMiscPlugins pack (pack id "gsmisc", catalogue id 120, MrG)
  * 57 occurrences across 14 source files and 7 packages in the corpus.
  */
@@ -798,12 +810,13 @@ export const TRIUKEN_PLUGIN: PluginDefinition = {
       aliases: [],
       params: [
         { name: "text", optional: false, byRef: false, variadic: false },
-        { name: "font", optional: true, byRef: false, variadic: false },
+        // Index 1 is the explicit font of the extended form or, in the core two-argument form, the output reference.
+        { name: "font", optional: true, byRef: true, variadic: false },
         { name: "size", optional: true, byRef: false, variadic: false },
         { name: "dest", optional: true, byRef: true, variadic: false },
       ],
       call: (_view, args, next) => {
-        if (args.length === 1) return next(_view, args, next);
+        if (args.length === 1 || isCoreOutputForm(args)) return next(_view, args, next);
         const text = toStringValue(args[0]?.value as never);
         const width = text.length * 8;
         const out = byRefOut(args, 3, width);
@@ -815,12 +828,12 @@ export const TRIUKEN_PLUGIN: PluginDefinition = {
       aliases: [],
       params: [
         { name: "text", optional: true, byRef: false, variadic: false },
-        { name: "font", optional: true, byRef: false, variadic: false },
+        { name: "font", optional: true, byRef: true, variadic: false },
         { name: "size", optional: true, byRef: false, variadic: false },
         { name: "dest", optional: true, byRef: true, variadic: false },
       ],
       call: (_view, args, next) => {
-        if (args.length === 1) return next(_view, args, next);
+        if (args.length === 1 || isCoreOutputForm(args)) return next(_view, args, next);
         const out = byRefOut(args, 3, 16);
         return { value: 16, out, effects: [{ kind: "mixed", section: "ui" }] };
       },

@@ -211,20 +211,24 @@ test("canvas cell text keeps a fractional cell coordinate and truncates the scal
   equal(truncatedRow, 0, "truncating the cell first would put the glyphs at y=32; the scaled pixel origin is 39");
 });
 
-test("TrueType canvas text keeps negative bearings and descenders identical to screen text", () => {
+test("TrueType canvas text preserves bearings and descenders when composited and copied", () => {
   const sans = new Uint8Array(readFileSync(join(here, "..", "..", "..", "media", "fonts", "LiberationSans-Regular.ttf")));
   const extra = { "Font/Test.ttf": sans };
-  const screen = boot('font("Test")\nfontsize(20)\ncolorrgb(255,255,255)\npixeltext(5,5,"jgy")\nwait()\n', extra);
-  const canvas = boot('font("Test")\nfontsize(20)\ncolorrgb(255,255,255)\nrendernow(1)\nc = cnvrendernow\npixeltext(5,5,"jgy",c)\nwait()\n', extra);
-  const screenFrame = screen.frame();
-  const canvasHandle = canvas.state().surfaces.renderNow;
-  if (canvasHandle == null) throw new Error("render-now canvas missing");
-  const canvasEntry = canvas.state().surfaces.entries[String(canvasHandle)]!;
-  const canvasFrame = readSurfacePixels(canvas.state().surfaces, canvasHandle, canvasEntry.rev);
-  if (canvasFrame === null) throw new Error("render-now canvas unreadable");
-  deepEqual(canvasFrame.rgba, screenFrame.rgba, "canvas and screen retain the same glyph ink");
-  ok(Array.from({ length: 64 }, (_, y) => pixel(screenFrame, 4, y)[0] ?? 0).some((channel) => channel > 0), "the negative-bearing j reaches left of the origin");
-  ok(Array.from({ length: 64 }, (_, x) => pixel(screenFrame, x, 27)[0] ?? 0).some((channel) => channel > 0), "the descenders extend below the 20px cell");
+  const background = 'colorrgb(12,30,50)\nfillrect(0,0,63,63)\ncolorrgb(255,255,255)\n';
+  const face = 'font("Test")\nfontsize(20)\n';
+  const direct = boot(`${face}${background}pixeltext(5,5,"jgy")\nwait()\n`, extra).frame();
+  const copied = boot(`${face}${background}createcanvas(64,64,c)\ncreatecanvas(64,64,d)\npixeltext(5,5,"jgy",c)\ndrawcanvas(c,0,0,d)\ndrawcanvas(d,0,0)\nwait()\n`, extra);
+  const actual = copied.frame();
+  let differing = 0;
+  let maxDifference = 0;
+  for (let i = 0; i < actual.rgba.length; i += 1) {
+    const difference = Math.abs((actual.rgba[i] ?? 0) - (direct.rgba[i] ?? 0));
+    if (difference !== 0) differing += 1;
+    maxDifference = Math.max(maxDifference, difference);
+  }
+  ok(maxDifference <= 1, `direct and copied-canvas text differ by at most the documented rounding unit (${differing} channels, max ${maxDifference})`);
+  ok(Array.from({ length: 64 }, (_, y) => pixel(actual, 4, y)[0] ?? 0).some((channel) => channel > 12), "the negative-bearing j reaches left of the origin");
+  ok(Array.from({ length: 64 }, (_, x) => pixel(actual, x, 27)[0] ?? 0).some((channel) => channel > 12), "the descenders extend below the 20px cell");
 });
 
 test("repeated canvas text commands reuse the decoded project font", () => {

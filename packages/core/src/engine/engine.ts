@@ -130,9 +130,9 @@ import type { PackageCatalogueEntry, PluginDefinition } from "../script/plugin.t
 import { DEFAULT_FONT_ASSET, textInk } from "../raster/text.ts";
 import type { WaitView } from "../ports/wait.ts";
 import { runTimePhase } from "../time/time.ts";
-import { blitTexture, drawSurfaceLine, editSurface, rasterize, readSurfacePixels, replaceSurface, surfaceTextures, createSurfacesSection, ensureScriptScreen, scriptScreen, resetScriptScreen, copyPresentedFrameToScriptScreen, SCRIPT_SCREEN, renderNowCanvas, renderNowEnabled, type RasterAsset, type SurfacePixelCache } from "../raster/index.ts";
+import { blitTexture, drawSurfaceLine, rasterize, readSurfacePixels, replaceSurface, surfaceTextures, createSurfacesSection, ensureScriptScreen, scriptScreen, resetScriptScreen, copyPresentedFrameToScriptScreen, SCRIPT_SCREEN, renderNowCanvas, renderNowEnabled, type RasterAsset, type SurfacePixelCache } from "../raster/index.ts";
 import { rasterizeAuthorMargin } from "../raster/raster.ts";
-import { beginSurfaceBatch, endSurfaceBatch, flushSurfaceBatch, killSurface } from "../raster/surfaces.ts";
+import { beginSurfaceBatch, endSurfaceBatch, flushSurfaceBatch, killSurface, editSurfaceWithBounds, surfaceRectBounds } from "../raster/surfaces.ts";
 import { guardExternalPlugins } from "./surface-guard.ts";
 
 const MENU_HAND_ASSET = assetKey("media/cursors/tkr-menu-hand.png");
@@ -1967,7 +1967,22 @@ export function createEngine(init: EngineInit): Engine {
       diagnostics.push({ code: "render.failed", file: "", line: 0, message: "text: missing bitmap font asset" });
       return;
     }
-    editSurface(state.surfaces, canvas, (rgba, width, height) => {
+    let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+    for (const ink of inkByCommand) for (const point of ink ?? []) {
+      left = Math.min(left, x + point.x);
+      top = Math.min(top, y + point.y);
+      right = Math.max(right, x + point.x);
+      bottom = Math.max(bottom, y + point.y);
+    }
+    for (const command of commands) if (command.kind === "line") {
+      left = Math.min(left, x + command.x1, x + command.x2);
+      top = Math.min(top, y + command.y1, y + command.y2);
+      right = Math.max(right, x + command.x1, x + command.x2);
+      bottom = Math.max(bottom, y + command.y1, y + command.y2);
+    }
+    if (left === Infinity) return;
+    const bounds = surfaceRectBounds(state.surfaces, canvas, left, top, right, bottom);
+    editSurfaceWithBounds(state.surfaces, canvas, (rgba, width, height) => {
       commands.forEach((command, index) => {
         if (command.kind === "line") {
           drawSurfaceLine(rgba, width, height, x + command.x1, y + command.y1, x + command.x2, y + command.y2, command.rgb);
@@ -1978,15 +1993,17 @@ export function createEngine(init: EngineInit): Engine {
             if (px < 0 || py < 0 || px >= width || py >= height) continue;
             const at = (py * width + px) * 4;
             const coverage = point.coverage;
-            rgba[at] = Math.floor(((rgba[at] ?? 0) * (255 - coverage) + command.rgb.r * coverage + 127) / 255);
-            rgba[at + 1] = Math.floor(((rgba[at + 1] ?? 0) * (255 - coverage) + command.rgb.g * coverage + 127) / 255);
-            rgba[at + 2] = Math.floor(((rgba[at + 2] ?? 0) * (255 - coverage) + command.rgb.b * coverage + 127) / 255);
             const alpha = rgba[at + 3] ?? 0;
-            rgba[at + 3] = Math.min(255, alpha + Math.floor((coverage * (255 - alpha) + 127) / 255));
+            const combined = coverage * 255 + alpha * (255 - coverage);
+            if (combined === 0) continue;
+            rgba[at] = Math.floor((command.rgb.r * coverage * 255 + (rgba[at] ?? 0) * alpha * (255 - coverage) + combined / 2) / combined);
+            rgba[at + 1] = Math.floor((command.rgb.g * coverage * 255 + (rgba[at + 1] ?? 0) * alpha * (255 - coverage) + combined / 2) / combined);
+            rgba[at + 2] = Math.floor((command.rgb.b * coverage * 255 + (rgba[at + 2] ?? 0) * alpha * (255 - coverage) + combined / 2) / combined);
+            rgba[at + 3] = Math.floor((combined + 127) / 255);
           }
         }
       });
-    });
+    }, bounds);
   }
   function applySurfaceImage(effect: EffectRecord, texture: DecodedTexture, sourceAsset: AssetKey): void {
     const args = effect.args;

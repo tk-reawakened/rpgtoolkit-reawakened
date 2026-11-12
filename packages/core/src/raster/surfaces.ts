@@ -935,10 +935,18 @@ export function blitSurface(
           target[at + 2] = sb;
           target[at + 3] = sa;
         } else if (effective > 0) {
-          target[at] = Math.trunc((sr * effective + target[at]! * (255 - effective)) / 255);
-          target[at + 1] = Math.trunc((sg * effective + target[at + 1]! * (255 - effective)) / 255);
-          target[at + 2] = Math.trunc((sb * effective + target[at + 2]! * (255 - effective)) / 255);
-          target[at + 3] = 255;
+          const destinationAlpha = target[at + 3] ?? 0;
+          if (destinationAlpha === 255) {
+            target[at] = Math.trunc((sr * effective + target[at]! * (255 - effective)) / 255);
+            target[at + 1] = Math.trunc((sg * effective + target[at + 1]! * (255 - effective)) / 255);
+            target[at + 2] = Math.trunc((sb * effective + target[at + 2]! * (255 - effective)) / 255);
+          } else {
+            const combined = effective * 255 + destinationAlpha * (255 - effective);
+            target[at] = Math.floor((sr * effective * 255 + target[at]! * destinationAlpha * (255 - effective) + combined / 2) / combined);
+            target[at + 1] = Math.floor((sg * effective * 255 + target[at + 1]! * destinationAlpha * (255 - effective) + combined / 2) / combined);
+            target[at + 2] = Math.floor((sb * effective * 255 + target[at + 2]! * destinationAlpha * (255 - effective) + combined / 2) / combined);
+            target[at + 3] = Math.floor((combined + 127) / 255);
+          }
         }
       }
     }
