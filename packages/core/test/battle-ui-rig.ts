@@ -418,7 +418,7 @@ export type RigOptions = {
    * The battle background picture the `.bkg` names: the authored PNG (default, the golden frames), the authored
    * 20 × 15 tile bitmap, or none (the stock screen's flat fallback colour).
    */
-  readonly background?: "png" | "tbm" | "none";
+  readonly background?: "png" | "tbm" | "none" | "final-destiny";
   /** Instrument scanner completion in the one regression test that distinguishes fast-path from fallback scanning. */
   readonly watchFastPathCompletion?: boolean;
 };
@@ -464,13 +464,18 @@ export function gameFiles(options: RigOptions = {}): { readonly files: Map<strin
   const fights = Array.from({ length: options.fights ?? 1 }, (_, index) => `${fightCall}\nafterfight = ${index + 1}\n`).join("");
   put("Prg/fight.prg", encoder.encode(`${fights}end()\n`));
   const backgroundKind = options.background ?? "png";
-  put("Bkrounds/meadow.bkg", backgroundBytes(backgroundKind === "none" ? "" : backgroundKind === "tbm" ? "meadow.tbm" : "meadow.png"));
+  put("Bkrounds/meadow.bkg", backgroundKind === "final-destiny"
+    ? new Uint8Array(readFileSync(join(repoRoot, "fixtures", "legacy", "FinalDestiny", "Bkrounds", "Background 1.bkg")))
+    : backgroundBytes(backgroundKind === "none" ? "" : backgroundKind === "tbm" ? "meadow.tbm" : "meadow.png"));
   if (backgroundKind === "png") {
     const background = backdrop();
     put("Bitmap/meadow.png", encodePng(background.w, background.h, background.rgba));
   } else if (backgroundKind === "tbm") {
     put("Tiles/meadow.tst", tilesetBytes());
     put("Bitmap/meadow.tbm", tileBitmapBytes());
+  } else if (backgroundKind === "final-destiny") {
+    put("Tiles/default.tst", new Uint8Array(readFileSync(join(repoRoot, "fixtures", "legacy", "FinalDestiny", "Tiles", "default.tst"))));
+    put("Media/VIP - Boss2.mid", new Uint8Array(readFileSync(join(repoRoot, "fixtures", "legacy", "FinalDestiny", "Media", "VIP - Boss2.mid"))));
   }
   put("Enemy/slime.ene", enemyBytes("Slime", "slime", { hp: options.slimeHp ?? 30, canRun: 1 }));
   // The bat forbids running, so any fight that includes one has a blocked Run.

@@ -16,7 +16,7 @@ import { classifyImageReference } from "../formats/animation/image-reference.ts"
 import { decodeTexture, type DecodedTexture } from "../formats/image/index.ts";
 import { expandSingleTileToRgba, readSingleTile } from "../formats/single-tile/index.ts";
 import { expandTileToRgba, readTileset, tileDimensions } from "../formats/tileset/index.ts";
-import { compositeTileBitmap, readTileBitmap, tileBitmapCell, TILE_BITMAP_MAGIC, type TileBitmapTile } from "../formats/tile-bitmap/index.ts";
+import { compositeTileBitmap, readTileBitmap, tileBitmapCell, TILE_BITMAP_MAGIC, type TileBitmap, type TileBitmapTile } from "../formats/tile-bitmap/index.ts";
 import { readTileAnimation } from "../formats/tile-animation/reader.ts";
 import { err, ok, type Result } from "../formats/result.ts";
 import { readCharacter } from "../formats/actor/character.ts";
@@ -1693,6 +1693,7 @@ export function createEngine(init: EngineInit): Engine {
     // (docs/spec/formats/tiles.md#tile-bitmap-tbm: "can be used wherever an image file is accepted"), but its pixels
     // are tiles from other files, so it is composed from the tile decoders rather than the picture decoders.
     if (key.toLowerCase().endsWith(".tbm")) return tileBitmapTexture(key);
+    if (key.toLowerCase().endsWith(".bkg")) return battleBackgroundTexture(key);
     const bytes = cache.get(key) ?? init.bundled?.get(key);
     if (bytes === undefined) return null;
     const decoded = decodeTexture(bytes, key);
@@ -1725,12 +1726,40 @@ export function createEngine(init: EngineInit): Engine {
       failed = true;
       return null;
     }
+    return composeTilePicture(key, parsed.value);
+  }
+  /** Convert the text background's x-major grid to the ordinary tile-picture layout. */
+  function battleBackgroundTexture(key: AssetKey): DecodedTexture | null {
+    const bytes = cache.get(key);
+    if (bytes === undefined) {
+      request(key, "image");
+      return null;
+    }
+    const parsed = readBattleBackground(new BinaryReader(bytes, key));
+    if (!parsed.ok || parsed.value.tiles === undefined || parsed.value.tints === undefined) {
+      diagnostics.push({ code: "asset.invalid", file: key, line: parsed.ok ? 0 : parsed.error.offset,
+        message: parsed.ok ? "battle background has no tile grid" : parsed.error.message });
+      failed = true;
+      return null;
+    }
+    const cells = [];
+    for (let x = 0; x <= 19; x += 1) {
+      for (let y = 0; y <= 11; y += 1) {
+        const i = x * 11 + y;
+        const tint = x < 19 && y < 11 ? parsed.value.tints[i] : undefined;
+        cells.push({ tile: x < 19 && y < 11 ? parsed.value.tiles[i] ?? "" : "",
+          r: tint?.r ?? 0, g: tint?.g ?? 0, b: tint?.b ?? 0 });
+      }
+    }
+    return composeTilePicture(key, { magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 19, height: 11, cells, residue: new Uint8Array(0) });
+  }
+  function composeTilePicture(key: AssetKey, bitmap: TileBitmap): DecodedTexture | null {
     const tiles = new Map<string, TileBitmapTile>();
-    const columns = Math.max(0, parsed.value.width);
-    const rows = Math.max(0, parsed.value.height);
+    const columns = Math.max(0, bitmap.width);
+    const rows = Math.max(0, bitmap.height);
     for (let x = 0; x < columns; x += 1) {
       for (let y = 0; y < rows; y += 1) {
-        const cell = tileBitmapCell(parsed.value, x, y);
+        const cell = tileBitmapCell(bitmap, x, y);
         if (cell === undefined || cell.tile === "" || tiles.has(cell.tile)) continue;
         const tile = tileCellPixels(cell.tile);
         if (tile === null) return null;
@@ -1742,7 +1771,7 @@ export function createEngine(init: EngineInit): Engine {
         tiles.set(cell.tile, tile.value);
       }
     }
-    const composed = compositeTileBitmap(parsed.value, tiles);
+    const composed = compositeTileBitmap(bitmap, tiles);
     if (!composed.ok) {
       diagnostics.push({ code: "asset.invalid", file: key, line: composed.error.offset, message: composed.error.message });
       failed = true;
@@ -1889,7 +1918,10 @@ export function createEngine(init: EngineInit): Engine {
   }
   function imageAsset(file: unknown): AssetKey | null {
     if (typeof file !== "string" || file === "") return null;
-    const resolved = resolveAsset(index, root, "bitmaps", file);
+    const prefix = "@battle-background/";
+    const resolved = file.startsWith(prefix)
+      ? resolveAsset(index, root, "backgrounds", file.slice(prefix.length))
+      : resolveAsset(index, root, "bitmaps", file);
     return resolved.ok ? resolved.value : null;
   }
   /**

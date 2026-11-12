@@ -6,7 +6,10 @@
 // read back from the engine, so a decoded picture, a wrong picture and the stock flat fallback are distinguishable.
 import { test } from "node:test";
 import { deepEqual, equal, ok } from "node:assert/strict";
-import { assetKey } from "../src/index.ts";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { assetKey, expandTileToRgba, readTileset } from "../src/index.ts";
 import { awaitMenu, bootUiRig, tbmColourAt, type UiRig } from "./battle-ui-rig.ts";
 
 /** The stock screen's flat fallback colour when the `.bkg` names no picture (BAT-11 item 3). */
@@ -80,5 +83,39 @@ test("a .bkg with no picture keeps the flat fallback, so the .tbm path is not a 
   const rig = bootUiRig({ background: "none" });
   const frame = openScreen(rig);
   equal(fallbackPixels(frame, FIELD), (FIELD.x2 - FIELD.x1 + 1) * (FIELD.y2 - FIELD.y1 + 1), "the battlefield is the flat fallback colour");
+  deepEqual(rig.diagnostics, []);
+});
+// Fast-test exception (5 s maximum): a full stock fight and 640×480 raster are needed to verify the image consumer; permanent for this integration proof.
+
+test("an image-only battle background still paints its authored PNG", () => {
+  const rig = bootUiRig({ background: "png" });
+  rig.until(() => Number(rig.ui()?.["backgroundcount"] ?? 0) > 0, 2000);
+  rig.tick(8);
+  const frame = rig.frame();
+  deepEqual(pixel(frame, 300, 150), [36, 48, 90]);
+  ok(rig.requested.includes(assetKey("Bitmap/meadow.png")));
+  deepEqual(rig.diagnostics, []);
+});
+
+// Fast-test exception (5 s maximum): a full stock fight and 640×480 raster are needed to verify the tile consumer; permanent for this integration proof.
+test("Final Destiny's text background paints its stored tiles in a stock fight", () => {
+  const rig = bootUiRig({ background: "final-destiny" });
+  rig.until(() => Number(rig.ui()?.["backgroundcount"] ?? 0) > 0, 2000);
+  rig.tick(8);
+  const frame = rig.frame();
+  deepEqual(rig.diagnostics, [], `requests: ${rig.requested.join(", ")}`);
+  const parsed = readTileset(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../../fixtures/legacy/FinalDestiny/Tiles/default.tst")));
+  ok(parsed.ok);
+  for (const [column, row, tileNumber] of [[9, 2, 12], [12, 4, 12], [8, 4, 1]] as const) {
+    const x = Math.floor((column * 32 + 16) * 640 / 608);
+    const y = Math.floor((row * 32 + 16) * 480 / 352);
+    const sourceX = Math.floor(x * 608 / 640) % 32;
+    const sourceY = Math.floor(y * 352 / 480) % 32;
+    const expanded = expandTileToRgba(parsed.value, tileNumber - 1);
+    ok(expanded.ok);
+    const offset = (sourceX * 32 + sourceY) * 4;
+    deepEqual(pixel(frame, x, y), Array.from(expanded.value.slice(offset, offset + 3)), `tile ${tileNumber} at ${column},${row}`);
+  }
+  ok(rig.requested.includes(assetKey("Tiles/default.tst")));
   deepEqual(rig.diagnostics, []);
 });
