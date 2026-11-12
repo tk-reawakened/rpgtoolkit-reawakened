@@ -7,6 +7,9 @@ overrides:
   playwright: 1.64.0
   playwright-core: 1.64.0
   "@playwright/browser-chromium": 1.64.0
+  # The G6-permitted legacy VSIX publisher is dev-only; patch its vulnerable parsers.
+  "vsce@2.15.0>markdown-it": 14.3.3
+  "vsce@2.15.0>xml2js": 0.6.2
 
 # Build scripts allowed to run on install: esbuild downloads its platform binary (ADR 0015, dev-only).
 allowBuilds:
@@ -16,3 +19,5 @@ allowBuilds:
   # The VS Code web runner's browser package; pinned to the version the browser lane already
   # installs (and its CI image ships), so its install finds that binary.
   "@playwright/browser-chromium": true
+  # The Open VSX CLI uses an environment token, not keytar's native credential store.
+  keytar: false

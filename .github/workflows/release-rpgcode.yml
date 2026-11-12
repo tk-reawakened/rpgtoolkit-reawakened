@@ -63,7 +63,7 @@ jobs:
           npm whoami
       - run: pnpm install --frozen-lockfile
       - run: pnpm release:test && pnpm release:preflight && pnpm licence && pnpm graph && pnpm provenance
-      - run: npm --prefix extensions/rpgcode ci --no-audit --no-fund
+      - run: npm --prefix extensions/rpgcode ci --ignore-scripts --no-audit --no-fund
       - name: Verify extension publisher rights before publishing anything
         working-directory: extensions/rpgcode
         env:
@@ -72,7 +72,7 @@ jobs:
         run: |
           set -euo pipefail
           npx --no-install vsce verify-pat tk-reawakened
-          npx --yes ovsx@1.4.0 verify-pat tk-reawakened
+          pnpm --dir ../.. exec ovsx verify-pat tk-reawakened
       - run: node extensions/rpgcode/build.mjs && node tools/release/audit-extension.mjs
       - name: Package the extension once for both registries
         working-directory: extensions/rpgcode
@@ -94,4 +94,4 @@ jobs:
         working-directory: extensions/rpgcode
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: npx --yes ovsx@1.4.0 publish rpgcode-language.vsix
+        run: pnpm --dir ../.. exec ovsx publish extensions/rpgcode/rpgcode-language.vsix

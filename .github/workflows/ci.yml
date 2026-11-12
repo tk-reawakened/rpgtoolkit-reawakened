@@ -359,7 +359,7 @@ jobs:
         run: node packages/script-cli/dist/cli.js script test packages/script-cli/test/fixtures/pass-project --json > /tmp/test.json && diff -u packages/script-cli/baselines/test.json /tmp/test.json
       - name: Install extension dependencies
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-        run: npm --prefix extensions/rpgcode ci --no-audit --no-fund
+        run: npm --prefix extensions/rpgcode ci --ignore-scripts --no-audit --no-fund
       - name: Build RPGCode extension
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
         run: node extensions/rpgcode/build.mjs
@@ -562,7 +562,7 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - name: Install extension dependencies
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-        run: npm --prefix extensions/rpgcode ci --no-audit --no-fund
+        run: npm --prefix extensions/rpgcode ci --ignore-scripts --no-audit --no-fund
       # The VS Code web build is downloaded once and kept between runs (~100 MB).
       - uses: actions/cache@v6
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
