@@ -28,7 +28,7 @@ const port: VscodeFileSystemPort<Uri> = {
 
 test("VS Code workspace filesystem rejects traversal and preserves old bytes on failed writes", async () => {
   files.set("/project/Main.gam", original.slice());
-  const fs = createVscodeFileSystemWithPort(root, port);
+  const fs = createVscodeFileSystemWithPort(root, port, "file:///project");
   const listed = await fs.list("");
   ok(listed.ok);
   if (listed.ok) deepEqual(listed.value, [{ name: "Main.gam", kind: "file" }, { name: "linked", kind: "directory" }]);

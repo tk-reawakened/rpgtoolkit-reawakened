@@ -1,5 +1,5 @@
 import type { DirectoryEntry, FileChange, FileSystemService, PlatformResult } from "@tk-reawakened/platform-services";
-import { platformError, platformOk } from "@tk-reawakened/platform-services";
+import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
 
 export interface VscodeUriLike { readonly path: string }
 
@@ -19,7 +19,7 @@ export interface VscodeFileSystemPort<Uri extends VscodeUriLike> {
 }
 
 /** Shared validation and result mapping, exercised with a deterministic workspace.fs port in tests. */
-export function createVscodeFileSystemWithPort<Uri extends VscodeUriLike>(root: Uri, port: VscodeFileSystemPort<Uri>): FileSystemService {
+export function createVscodeFileSystemWithPort<Uri extends VscodeUriLike>(root: Uri, port: VscodeFileSystemPort<Uri>, projectId: string): FileSystemService {
   const path = (value: string): Uri | null => {
     if (!value || value.startsWith("/") || value.includes("\\") || value.split("/").some((part) => !part || part === "." || part === "..")) return null;
     return port.joinPath(root, ...value.split("/"));
@@ -33,7 +33,7 @@ export function createVscodeFileSystemWithPort<Uri extends VscodeUriLike>(root: 
     return platformError(mapped, `${name}: ${error instanceof Error ? error.message : String(error)}`);
   };
   const invalid = (value: string) => platformError("invalid-path", `Invalid project path: ${value}`);
-  return {
+  return bindProjectFileSystem(projectId, {
     async list(value) {
       const uri = value === "" ? root : path(value);
       if (!uri) return invalid(value);
@@ -79,5 +79,5 @@ export function createVscodeFileSystemWithPort<Uri extends VscodeUriLike>(root: 
       try { return platformOk(await port.watch(uri, onChange)); }
       catch (error) { return failure(error, value || "."); }
     },
-  };
+  });
 }
