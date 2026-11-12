@@ -271,6 +271,14 @@ SOFTWARE.
 ```
 
 ---
+## Development-only proof tooling
+
+### @vscode/test-web 0.0.81 — MIT
+
+Pinned development-only browser workbench test runner used to exercise the built RPG Toolkit web extension; it is not a runtime, bundled, or shipped dependency. Its MIT licence is declared in the package metadata and covered by `tools/licences/config.json` as a development-only dependency whose presence in a production dependency tree fails the licence gate.
+
+---
+
 
 ## Bundled Assets
 

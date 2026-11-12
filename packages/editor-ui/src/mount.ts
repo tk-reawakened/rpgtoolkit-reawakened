@@ -1,12 +1,21 @@
-import type { MainDocument } from "@tk-reawakened/editor-model";
+import type { ApplyResult, MainCommand, MainDocument, MainDocumentSnapshot, SaveResult } from "@tk-reawakened/editor-model";
 import type { PlatformServices } from "@tk-reawakened/platform-services";
 import { createElement, render } from "preact";
 import { SettingsView } from "./settings-view.tsx";
 
+/** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
+export interface ViewDocument {
+  readonly identity: MainDocument["identity"];
+  getSnapshot(): MainDocumentSnapshot;
+  subscribe(listener: () => void): () => void;
+  apply(command: MainCommand): ApplyResult | Promise<ApplyResult>;
+  save(): Promise<SaveResult>;
+}
+
 /** What a host gives a view when it mounts it (ADR 0025 decision 4). */
 export interface ViewContext {
-  /** The document the view shows and edits. The view never owns it: disposing the view leaves it, and its undo stack, as it was (ADR 0022 D3.7). */
-  readonly document: MainDocument;
+  /** The document the view shows and edits. The view never owns it. */
+  readonly document: ViewDocument;
   /** The host door; the view uses only `document.edited` (AD-19, AD-20). */
   readonly services: Pick<PlatformServices, "document">;
 }

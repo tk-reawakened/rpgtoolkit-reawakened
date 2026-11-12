@@ -1,0 +1,21 @@
+{
+  "name": "@tk-reawakened/host-vscode",
+  "displayName": "RPG Toolkit Game Settings",
+  "description": "VS Code host services and the game-settings custom editor provider.",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./extension": { "types": "./dist/extension.d.ts", "default": "./dist/extension.js" },
+    "./testing": { "types": "./dist/testing.d.ts", "default": "./dist/testing.js" }
+  },
+  "scripts": { "build": "node build.mjs" },
+  "dependencies": {
+    "@tk-reawakened/editor-model": "workspace:*",
+    "@tk-reawakened/editor-ui": "workspace:*",
+    "@tk-reawakened/platform-services": "workspace:*"
+  },
+  "devDependencies": { "@types/vscode": "1.90.0", "esbuild": "0.28.2", "typescript": "5.9.3" }
+}

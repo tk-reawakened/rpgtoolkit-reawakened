@@ -1,0 +1,21 @@
+{
+  "name": "editor",
+  "displayName": "RPG Toolkit Editor",
+  "description": "Game settings editor for RPG Toolkit projects.",
+  "version": "0.0.1",
+  "publisher": "tk-reawakened",
+  "license": "MIT",
+  "engines": { "vscode": "^1.90.0" },
+  "activationEvents": ["onCustomEditor:tkr.gameSettings"],
+  "main": "./dist/extension.js",
+  "browser": "./dist/extension.browser.js",
+  "contributes": {
+    "customEditors": [{
+      "viewType": "tkr.gameSettings",
+      "displayName": "RPG Toolkit Game Settings",
+      "selector": [{ "filenamePattern": "*.gam" }],
+      "priority": "default"
+    }]
+  },
+  "scripts": { "build": "node ../../packages/host-vscode/build.mjs && node build.mjs" }
+}

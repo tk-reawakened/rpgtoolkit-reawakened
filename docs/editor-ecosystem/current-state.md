@@ -19,7 +19,16 @@ Very little editor exists as running code: one document (the main game file) wit
 | `lsp`, `script-tools`, `script-spec`, `script-cli` | RPGCode language services and the creator-test framework. | `packages/` |
 | Hosts | **None.** There is no `host-web`, `host-vscode` or `host-desktop` package yet. Story 11.18 ([#1833](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1833)) carries the settings tracer into the first two. | `packages/` listing |
 
-So the count of working editors, in the sense of "open a file, change it, save it, in a real host", is zero today, and the first one is in progress.
+At the 2026-11-11 snapshot date, the count of working editors, in the sense of "open a file, change it, save it, in a real host", was zero. The follow-on implementation below records the first host slice.
+
+## Follow-on implementation: the settings tracer (story 11.18)
+
+Since the snapshot above, story 11.18 adds the first real host slice: the shared game-settings view edits a `.gam` through the same `editor-model` in the browser and VS Code. The current form edits only the game title; it is not the complete Toolkit 3 settings editor.
+
+- **Browser:** run `pnpm browser:build` and `pnpm browser:serve`, then open `http://localhost:4173/tools/browser/editor-web/index.html`. Choose a project directory where File System Access is available, or use the `.gam` file picker. The standalone-file path is an explicitly labelled session copy: edits live only in memory and are lost when the page closes. It does not claim a persistent project folder.
+- **VS Code:** run `pnpm --dir extensions/editor build`, then launch the development extension with `code --extensionDevelopmentPath="$PWD/extensions/editor" "$PWD/docs/spec/examples/game"`. Open a `.gam` and choose the RPG Toolkit Game Settings custom editor if it is not the default. The extension-host model remains authoritative and a failed workspace write remains a named, dirty save error.
+
+The real vscode.dev proof exercises the mounted VS Code editor under CSP, edits and saves the `.gam`, then reopens it and verifies persisted bytes. A separate shared-adapter integration test compares bytes saved through the web and VS Code adapters. These checks complement, rather than replace, the host-adapter failure and fetched-corpus tests.
 
 ## What is decided
 

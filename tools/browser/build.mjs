@@ -44,6 +44,18 @@ for (const entry of entries) {
   });
   console.log(`built apps/browser/${entry.out}`);
 }
+const editorWebOut = join(here, "editor-web", "dist", "editor-web.js");
+mkdirSync(dirname(editorWebOut), { recursive: true });
+await build({
+  entryPoints: [join(here, "editor-web", "main.tsx")],
+  outfile: editorWebOut,
+  ...bundleOptions,
+  alias: {
+    ...bundleOptions.alias,
+    "@tk-reawakened/host-web": join(root, "packages/host-web/src/index.ts"),
+  },
+});
+console.log("built tools/browser/editor-web/dist/editor-web.js");
 
 // No browser artefact may contain a WebAssembly module: the page's strict `script-src 'self'` forbids instantiation, and
 // the only dependency that ships one (the Vorbis decoder) is aliased to a stub (#1325,

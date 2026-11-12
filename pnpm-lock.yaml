@@ -207,6 +207,9 @@ importers:
       '@tk-reawakened/script-tools':
         specifier: workspace:*
         version: link:packages/script-tools
+      '@types/node':
+        specifier: 24.0.0
+        version: 24.0.0
       '@typescript/native':
         specifier: npm:typescript@7.0.2
         version: typescript@7.0.2
@@ -284,6 +287,44 @@ importers:
       preact:
         specifier: 11.2.0
         version: 11.2.0
+    devDependencies:
+      '@types/node':
+        specifier: 24.0.0
+        version: 24.0.0
+
+  packages/host-vscode:
+    dependencies:
+      '@tk-reawakened/editor-model':
+        specifier: workspace:*
+        version: link:../editor-model
+      '@tk-reawakened/editor-ui':
+        specifier: workspace:*
+        version: link:../editor-ui
+      '@tk-reawakened/platform-services':
+        specifier: workspace:*
+        version: link:../platform-services
+    devDependencies:
+      '@types/vscode':
+        specifier: 1.90.0
+        version: 1.90.0
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
+  packages/host-web:
+    dependencies:
+      '@tk-reawakened/editor-model':
+        specifier: workspace:*
+        version: link:../editor-model
+      '@tk-reawakened/editor-ui':
+        specifier: workspace:*
+        version: link:../editor-ui
+      '@tk-reawakened/platform-services':
+        specifier: workspace:*
+        version: link:../platform-services
     devDependencies:
       '@types/node':
         specifier: 24.0.0
@@ -505,6 +546,45 @@ importers:
       spessasynth_core:
         specifier: 4.3.22
         version: 4.3.22
+
+  tools/editor-vscode-test:
+    devDependencies:
+      '@happy-dom/global-registrator':
+        specifier: 21.0.4
+        version: 21.0.4
+      '@playwright/test':
+        specifier: 1.64.0
+        version: 1.64.0
+      '@tk-reawakened/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@tk-reawakened/editor-model':
+        specifier: workspace:*
+        version: link:../../packages/editor-model
+      '@tk-reawakened/editor-ui':
+        specifier: workspace:*
+        version: link:../../packages/editor-ui
+      '@tk-reawakened/host-vscode':
+        specifier: workspace:*
+        version: link:../../packages/host-vscode
+      '@tk-reawakened/host-web':
+        specifier: workspace:*
+        version: link:../../packages/host-web
+      '@tk-reawakened/runner-harness':
+        specifier: workspace:*
+        version: link:../../packages/runner-harness
+      '@types/node':
+        specifier: 24.0.0
+        version: 24.0.0
+      '@vscode/test-web':
+        specifier: 0.0.81
+        version: 0.0.81(bare-buffer@3.7.1)(supports-color@7.2.0)
+      preact:
+        specifier: 11.2.0
+        version: 11.2.0
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
 
 packages:
 
@@ -842,6 +922,9 @@ packages:
 
   '@types/slice-ansi@4.0.0':
     resolution: {integrity: sha512-+OpjSaq85gvlZAYINyzKpLeiFkSC4EsC6IIiT6v6TLSU5k5U83fHGj9Lel8oKEXM0HqgrMVCjXPDPVICtxF7EQ==}
+
+  '@types/vscode@1.90.0':
+    resolution: {integrity: sha512-oT+ZJL7qHS9Z8bs0+WKf/kQ27qWYR3trsXpq46YDjFqBsMLG4ygGGjPaJ2tyrH0wJzjOEmDyg9PDJBBhWg9pkQ==}
 
   '@types/whatwg-mimetype@3.0.2':
     resolution: {integrity: sha512-c2AKvDT8ToxLIOUlN51gTiHXflsfIFisS4pO7pDPoKouJCESkhZnEy623gwP9laCy5lnLDAw1vAzu2vM2YLOrA==}
@@ -2056,6 +2139,11 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
+  playwright-core@1.65.0:
+    resolution: {integrity: sha512-vNSKgH6YqtN7cdT/L334zo0a+YwkrpicyrHJlWWPIm/Q+Nn2SWInil01oT0mbu96U4GgoRtCYQD9CzJQgju+lA==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   playwright@1.64.0:
     resolution: {integrity: sha512-kVzTnYFYEyQ9RGzBjNCd2+yEqWmVbxl3AHPynv3qQ6JTjv4a+kwRcnqQwIpuP3NnrnIrE/Q6wWAIAvMfIE2/Yg==}
     engines: {node: '>=20'}
@@ -2403,6 +2491,11 @@ packages:
     peerDependencies:
       eslint: ^8.57.0 || ^9.0.0 || ^10.0.0
       typescript: '>=4.8.4 <6.1.0'
+
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
 
   typescript@6.0.3:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
@@ -2906,6 +2999,8 @@ snapshots:
       undici-types: 7.24.6
 
   '@types/slice-ansi@4.0.0': {}
+
+  '@types/vscode@1.90.0': {}
 
   '@types/whatwg-mimetype@3.0.2': {}
 
@@ -4168,6 +4263,8 @@ snapshots:
 
   playwright-core@1.64.0: {}
 
+  playwright-core@1.65.0: {}
+
   playwright@1.64.0:
     dependencies:
       playwright-core: 1.64.0
@@ -4564,6 +4661,8 @@ snapshots:
       typescript: '@typescript/typescript6@6.0.2'
     transitivePeerDependencies:
       - supports-color
+
+  typescript@5.9.3: {}
 
   typescript@6.0.3: {}
 

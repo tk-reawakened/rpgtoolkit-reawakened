@@ -86,8 +86,10 @@ export interface MainDocument {
   getSnapshot(): MainDocumentSnapshot;
   /** Call `listener` after every change to the snapshot; the returned function removes it. */
   subscribe(listener: () => void): () => void;
-  /** Accept `command` whole or refuse it whole. */
+  /** Apply an edit command and return either its edit identity or a rejection. */
   apply(command: MainCommand): ApplyResult;
+  /** Return the current model encoded as a fresh byte array, including edits not yet written to storage. */
+  serialize(): Uint8Array;
   /** Undo the latest applied edit. With `editId`, only that edit, and only while it is still the latest (AD-19). */
   undo(editId?: string): HistoryResult;
   /** Redo the latest undone edit. With `editId`, only that edit. */
@@ -206,10 +208,15 @@ class MainDocumentImpl implements MainDocument {
     this.#snapshot = this.#makeSnapshot();
   }
 
+  serialize(): Uint8Array {
+    const encoded = writeMainFile(this.#model);
+    if (!encoded.ok) throw new Error(`Could not serialize ${this.identity.path}: ${encoded.error.message}`);
+    return encoded.value.slice();
+  }
+
   getSnapshot(): MainDocumentSnapshot {
     return this.#snapshot;
   }
-
   subscribe(listener: () => void): () => void {
     this.#listeners.add(listener);
     return () => {

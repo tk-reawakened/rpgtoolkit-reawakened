@@ -535,6 +535,11 @@ test("committed edge list: editor-ui imports editor-model and platform-services,
   );
   deepEqual(importsOf("platform-services"), [], "platform-services imports no other workspace package");
   for (const name of ["editor-model", "platform-services", "editor-ui"]) ok(committed.packages.includes(name), name);
+  for (const host of ["host-web", "host-vscode"]) {
+    const imports = importsOf(host);
+    ok(imports.includes("editor-model") && imports.includes("editor-ui") && imports.includes("platform-services"), `${host}: ${JSON.stringify(imports)}`);
+    deepEqual(imports.filter((name) => name.startsWith("host-")), [], `${host} must not import another host`);
+  }
 });
 
 test("committed edge list: the rules built from it refuse editor-ui importing a host and platform-services importing core", () => {

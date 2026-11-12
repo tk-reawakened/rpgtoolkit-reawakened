@@ -6,7 +6,7 @@
 //   node tools/no-skips/run.mjs [--root <dir>] --verify-shards | --record-timings
 //   node tools/no-skips/run.mjs --merge-lcov <out.info> [--lines <pct>] [--branches <pct>] <in.info>...
 //
-// Runs `node --test` over the given patterns (default `packages/*/test/*.test.ts`) or named `--group`
+// Runs `node --test` over the given patterns (default package and neutral editor-host integration tests) or named `--group`
 // in `root` (default: this repository) with `spec` to stdout and `tap` to a temp file, failing if any
 // test failed, skipped, or was left as a todo. When `--lcov <file>` is given, enables V8 test coverage
 // and writes the shard's LCOV report to `<file>`.
@@ -22,7 +22,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const repoRoot = resolve(here, "..", "..");
 
 const TOOL = "tools/no-skips/run.mjs";
-const DEFAULT_PATTERNS = ["packages/*/test/*.test.ts"];
+const DEFAULT_PATTERNS = ["packages/*/test/*.test.ts", "tools/editor-vscode-test/test/*.test.ts"];
 const DEFAULT_LINES_THRESHOLD = 91;
 const DEFAULT_BRANCHES_THRESHOLD = 81;
 // Keep in step with `--max-semi-space-size` in the root `test` and `coverage` scripts and in `.github/workflows/ci.yml` (#1885).
@@ -52,6 +52,7 @@ export const GROUPS = Object.freeze([
   "native-data-rename",
   "platform-services",
   "editor-model",
+  "editor-host",
   "editor-ui",
 ]);
 
@@ -122,10 +123,20 @@ export function resolveGroup(root, group) {
     });
     return matched.map((name) => posix.join("packages", "core", "test", name));
   }
+  if (group === "editor-host") {
+    const hostFiles = listPackageTestFiles(rootPath, "host-web").map((name) => posix.join("packages", "host-web", "test", name));
+    const integrationDir = join(rootPath, "tools", "editor-vscode-test", "test");
+    const integrationFiles = existsSync(integrationDir)
+      ? readdirSync(integrationDir, { withFileTypes: true })
+          .filter((entry) => entry.isFile() && entry.name.endsWith(".test.ts"))
+          .map((entry) => posix.join("tools", "editor-vscode-test", "test", entry.name))
+      : [];
+    return [...hostFiles, ...integrationFiles].sort();
+  }
   return listPackageTestFiles(rootPath, group).map((name) => posix.join("packages", group, "test", name));
 }
 
-/** Every package test file in `root` as a sorted relative path (`packages/<pkg>/test/<file>.test.ts`). */
+/** Every package test file and the neutral editor-host integration tests, sorted by workspace-relative path. */
 export function listAllTestFiles(root) {
   const rootPath = resolve(root);
   const packagesDir = join(rootPath, "packages");
@@ -135,9 +146,16 @@ export function listAllTestFiles(root) {
         .map((entry) => entry.name)
         .sort()
     : [];
-  return allPackages
-    .flatMap((pkg) => listPackageTestFiles(rootPath, pkg).map((name) => posix.join("packages", pkg, "test", name)))
-    .sort();
+  const packageFiles = allPackages.flatMap((pkg) =>
+    listPackageTestFiles(rootPath, pkg).map((name) => posix.join("packages", pkg, "test", name)),
+  );
+  const integrationDir = join(rootPath, "tools", "editor-vscode-test", "test");
+  const integrationFiles = existsSync(integrationDir)
+    ? readdirSync(integrationDir, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".test.ts"))
+        .map((entry) => posix.join("tools", "editor-vscode-test", "test", entry.name))
+    : [];
+  return [...packageFiles, ...integrationFiles].sort();
 }
 
 /** The committed per-file timings in `root`, or none when the file is absent. */

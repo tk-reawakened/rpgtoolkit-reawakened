@@ -77,6 +77,7 @@ graph LR
   dap --> hostvscode
   editormodel --> editorui
   editormodel --> hostvscode
+  editormodel --> hostweb
   editorui --> hostvscode
   editorui --> hostweb
   editorui --> hostdesktop

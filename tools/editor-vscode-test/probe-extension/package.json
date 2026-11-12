@@ -1,0 +1,12 @@
+{
+  "name": "tkr-editor-vscode-web-proof-probe",
+  "displayName": "TK Reawakened editor web proof probe",
+  "publisher": "tk-reawakened-test",
+  "version": "0.0.0",
+  "engines": { "vscode": "^1.91.0" },
+  "browser": "extension.js",
+  "activationEvents": ["onCommand:tkr.editorWebProof.copyMainFileBytes"],
+  "contributes": { "commands": [
+    { "command": "tkr.editorWebProof.copyMainFileBytes", "title": "Test: Copy Main File Bytes" }
+  ] }
+}

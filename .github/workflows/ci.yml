@@ -605,8 +605,10 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm build
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-      - run: pnpm fixtures:fetch
+      - name: Build VS Code web editor and proof harness
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        run: |
+          pnpm --dir extensions/editor build
       # The image should already provide `xvfb-run`. Install that one package only if it is missing, so a missing
       # package is visible in the log rather than hidden. The parity spec launches the built Electron player beside the
       # PWA page (`ELECTRON_DISABLE_SANDBOX` covers root in the container), so the lane builds the desktop bundles
@@ -624,6 +626,21 @@ jobs:
           if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
           $SUDO apt-get update -qq
           $SUDO apt-get install -y -qq --no-install-recommends xvfb
+      - name: VS Code web editor acceptance proof
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        run: |
+          workspace="$(mktemp -d "${RUNNER_TEMP:-/tmp}/tkr-vscode-web.XXXXXX")"
+          cp docs/spec/examples/game/Main/example.gam "$workspace/example.gam"
+          mkdir -p "$workspace/.vscode"
+          printf '{\n  "files.autoSave": "off"\n}\n' > "$workspace/.vscode/settings.json"
+          xvfb-run -a pnpm --dir tools/editor-vscode-test proof -- \
+            --extension extensions/editor \
+            --workspace "$workspace" \
+            --game example.gam
+        env:
+          ELECTRON_DISABLE_SANDBOX: "1"
+      - run: pnpm fixtures:fetch
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: xvfb-run -a pnpm browser:test
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       # Entry 9.14: one command plays every closing-plan game in Node, in Chromium and in the Electron player, loads the

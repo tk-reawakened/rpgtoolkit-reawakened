@@ -1,5 +1,6 @@
 packages:
   - packages/*
+  - tools/editor-vscode-test
 
 # One Playwright version for the whole tree: the browser lane's `@playwright/test` and the
 # VS Code web runner both drive the Chromium the CI image ships, so the pin cannot drift.
@@ -12,14 +13,12 @@ overrides:
   "vsce@2.15.0>xml2js": 0.6.2
   # Preserve the desktop decoder version after 0.0.7 coincided with three-OS probe failures (#2027).
   "spessasynth_core@4.3.22>stb-vorbis": 0.0.6
-
 # Build scripts allowed to run on install: esbuild downloads its platform binary (ADR 0015, dev-only).
 allowBuilds:
   esbuild: true
   # Electron's install script downloads the shell binary the desktop runner measures (ADR 0013, dev-only).
   electron: true
-  # The VS Code web runner's browser package; pinned to the version the browser lane already
-  # installs (and its CI image ships), so its install finds that binary.
-  "@playwright/browser-chromium": true
+  # The web-workbench proof's dev-only VS Code test harness installs the pinned Chromium browser.
+  '@playwright/browser-chromium': true
   # The Open VSX CLI uses an environment token, not keytar's native credential store.
   keytar: false

@@ -237,6 +237,8 @@ export default [
   {
     ignores: [
       "**/dist/**",
+      "**/dist-webview/**",
+      "**/.vscode-test-web/**",
       "**/node_modules/**",
       "**/*.tsbuildinfo",
       "packages/core/test/fixtures/**",
