@@ -76,6 +76,18 @@ test("quoted loose dialogue remains literal inside TK2 blocks and methods", () =
   deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ['Hello "block"', 'Hello "method"']);
 });
 
+test("unprefixed calls with equals execute and angle dialogue splices", () => {
+  const source = '#Method foo(n) {\n#result = n\n}\n#friend$ = "Ada"\nfoo(x = 1)\nMwin("x=y")\nHi #there = <friend>';
+  const state = createGameState({ seed: 0 });
+  const program = compileTk2(source, "calls-dialogue.prg");
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.x, 1);
+  equal(state.vm.globals.result, 1);
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["x=y", "Hi #there = Ada"]);
+  throws(() => compileTk2("#If (x) then < #Mwin(hello) >"), /Toolkit 1\.x/);
+});
+
 test("TK2 methods, labels, namespace calls and fbranch preserve shared shapes", () => {
   const ast = parseTk2("#Method Add(a, b) { #ReturnMethod(a + b) }\n:again\n#FBranch(:again)\n#system.start()");
   equal(ast.functions[0]?.name, "add");
