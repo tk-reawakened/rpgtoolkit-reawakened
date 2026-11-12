@@ -96,3 +96,4 @@ The VM lowers one source statement to multiple instructions; line transitions al
 ## Review Triage Log
 
 - Independent reviewer, 2026-11-11: two P2 findings accepted. Added a separate dynamically loaded program acceptance case and explicit same-line/multiline evidence; clarified per-task-maximum then sum so separately reported tasks aggregate additively. The reviewer found the docs-first checkpoint and separate public serializer consistent with #2041; approval remains outstanding.
+- Targeted independent re-review: both findings addressed; no new substantive blocker found in those corrections. The denominator and line-hit rule remain owner decisions, to settle before the G7 docs commit. The reviewer agrees that the API and serializer satisfy #2041 without a CLI flag; file-report additions can still flow into CLI JSON.
