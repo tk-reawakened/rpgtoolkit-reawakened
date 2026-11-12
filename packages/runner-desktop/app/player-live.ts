@@ -13,7 +13,10 @@ declare global { interface Window { desktop?: DesktopHost; __live?: { tick: numb
 void start().catch((error: unknown) => {
   console.error("player startup failed", error);
   const status = document.querySelector<HTMLElement>("#live-status");
-  if (status !== null) status.textContent = `player: ${String(error)}`;
+  if (status !== null) {
+    status.textContent = `player: ${String(error)}`;
+    status.hidden = false;
+  }
   window.__live = { tick: 0, stateHash: "", drawHash: "", board: null, player: null, error: String(error) };
 });
 
@@ -42,6 +45,7 @@ async function start(): Promise<void> {
  * epic 25's Launcher UI replaces (entry 25.4); it is deliberately a list of buttons and nothing else.
  */
 function offerLibrary(host: DesktopHost, info: LaunchInfo, stage: Stage): void {
+  stage.status.hidden = false;
   stage.status.textContent = info.reason ?? "No game was chosen.";
   window.__live = { tick: 0, stateHash: "", drawHash: "", board: null, player: null };
   const list = document.createElement("div");
@@ -113,10 +117,10 @@ async function play(host: DesktopHost, opened: { readonly name: string; readonly
     },
   });
   if (quitRequested) return;
+  status.hidden = true;
   window.__session = session;
   // The diagnostics strip is a runner feature, not a project setting: it appears only when this run asked for it.
   const diagnostics = debug?.diagnostics === true ? document.querySelector<HTMLElement>("#diagnostics") : null;
-  if (diagnostics !== null) diagnostics.hidden = false;
   stopPlayer = run(session, canvas, status, { canvas, viewport }, viewport, diagnostics);
 }
 
@@ -131,11 +135,17 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
   let fallbackActionSequence = 0;
   let disposed = false;
   const onKeyDown = (event: KeyboardEvent): void => {
+    if (event.code === "F3") {
+      event.preventDefault();
+      if (!event.repeat) status.hidden = !status.hidden;
+      return;
+    }
     if (shouldSuppressGameplayKey(event.code, event.repeat, true, isFallbackTouchControlTarget(event.target), fallbackControlKeys)) return;
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) event.preventDefault();
     pending.push({ tick: session.tick(), event: { kind: "key", name: event.key.toUpperCase(), code: event.code, char: event.key.length === 1 ? event.key : null, down: true, ...(event.repeat ? { repeat: true } : {}) }, pointerGeometry: null });
   };
   const onKeyUp = (event: KeyboardEvent): void => {
+    if (event.code === "F3") { event.preventDefault(); return; }
     if (shouldSuppressGameplayKey(event.code, event.repeat, false, isFallbackTouchControlTarget(event.target), fallbackControlKeys)) return;
     pending.push({ tick: session.tick(), event: { kind: "key", name: event.key.toUpperCase(), code: event.code, char: event.key.length === 1 ? event.key : null, down: false }, pointerGeometry: null });
   };
@@ -245,20 +255,22 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
       // The project's title (main-file row 56): the game's own title, its board-vector count and the measured frame rate.
       titleFrames += 1;
       const nowMs = performance.now();
-      if (nowMs - titleWindowStart >= 1_000) {
+      const updateTitle = nowMs - titleWindowStart >= 1_000;
+      if (updateTitle) {
         const bar = session.titleBar();
         const fps = titleFrames * 1_000 / (nowMs - titleWindowStart);
         titleFrames = 0;
         titleWindowStart = nowMs;
         if (bar.showFps) document.title = formatTitleBar(bar, fps);
-        if (diagnostics !== null) {
-          const located = session.diagnostics();
-          diagnostics.textContent = [
-            `tick ${result.tick} state ${result.stateHash} draw ${result.drawHash}`,
-            `commands ${frame.commands} (drawn ${frame.render.drawn}, deferred ${frame.render.deferred})`,
-            ...located.map((entry) => `${entry.code}@${entry.file}:${entry.line}: ${entry.message}`),
-          ].join("\n");
-        }
+      }
+      if (diagnostics !== null && (updateTitle || diagnostics.textContent === "")) {
+        const located = session.diagnostics();
+        diagnostics.textContent = [
+          `tick ${result.tick} state ${result.stateHash} draw ${result.drawHash}`,
+          `commands ${frame.commands} (drawn ${frame.render.drawn}, deferred ${frame.render.deferred})`,
+          ...located.map((entry) => `${entry.code}@${entry.file}:${entry.line}: ${entry.message}`),
+        ].join("\n");
+        diagnostics.hidden = false;
       }
       status.textContent = [`tick ${result.tick}`, `state ${result.stateHash}`, `draw ${result.drawHash}`, player === null ? "player position unavailable" : `player ${player.x}, ${player.y}`, ...(audioError === null ? [] : [`audio: ${audioError}`]), "Move: arrows or WASD; click to walk."].join("\n");
       requestAnimationFrame(draw);
@@ -266,6 +278,7 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
       console.error(`player stopped at tick ${session.tick()}`, error);
       window.__live = { tick: session.tick(), stateHash: session.stateHash(), drawHash: "", board: session.boardKey(), player: session.playerPosition(), error: String(error) };
       status.textContent = `player: ${String(error)}`;
+      status.hidden = false;
       dispose();
     });
   };

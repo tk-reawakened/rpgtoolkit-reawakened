@@ -75,6 +75,8 @@ const manifest = {
 };
 const { writeFileSync } = await import("node:fs");
 writeFileSync(join(desktop, "dist", "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+// Keep the player icon with the app so it works independently of the served game directory.
+cpSync(join(root, "media", "icons", "png", "tkr-512.png"), join(desktop, "dist", "icon.png"));
 const { readdirSync } = await import("node:fs");
 const { writeClosingManifest } = await import("../closing/manifest.mjs");
 const folders = ["media/fonts", "media/cursors", "media/soundfonts", "stock/stock_menu", "stock/stock_battle", "stock/stock_rpg"];

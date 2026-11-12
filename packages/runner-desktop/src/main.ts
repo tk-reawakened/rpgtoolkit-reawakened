@@ -281,6 +281,7 @@ function createWindow(): BrowserWindow {
     width: 960,
     height: 720,
     backgroundColor: "#000000",
+    icon: join(app.getAppPath(), "icon.png"),
     // No chrome of our own: the page draws everything, and the menu bar is the OS's.
     autoHideMenuBar: true,
     webPreferences: {
@@ -352,6 +353,7 @@ if (!singleInstance) {
 registerIpc();
 if (singleInstance) {
   app.whenReady().then(() => {
+    if (process.platform === "darwin") app.dock?.setIcon(join(app.getAppPath(), "icon.png"));
     serveAppProtocol();
     createWindow();
   });

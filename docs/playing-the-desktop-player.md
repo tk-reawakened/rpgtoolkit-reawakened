@@ -9,6 +9,8 @@ The desktop player is a small Electron window that opens a packaged game and run
 engine as the browser and headless runner. A game is data: you hand the player a package, either by naming it, by writing
 a small configuration file, by shipping it inside the application, or by installing it into the player's library.
 
+Press F3 to show or hide the diagnostic overlay. It is hidden when the player starts, and errors are shown automatically. The game view retains its aspect ratio as it fits the window.
+
 | What works | Limits |
 |---|---|
 | `pnpm desktop:run --game <your.tpk>` opens any packaged game that has its `.tpk.json` descriptor beside it. A macOS launch of a small authored package showed that package's own board on the canvas, with the status reporting a player position. | One observed package, not a claim that every game is playable. |
