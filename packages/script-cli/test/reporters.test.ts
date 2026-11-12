@@ -19,6 +19,24 @@ const nested = [
 
 const watchTimeout = process.env.TKR_WATCH_CANCELLATION_PROBE === "1" ? 150 : 10000;
 
+function onceStop(stop: () => void): () => void {
+  let requested = false;
+  return () => {
+    if (requested) return;
+    requested = true;
+    stop();
+  };
+}
+
+test("repeated output notifications request watch shutdown only once", () => {
+  let calls = 0;
+  const stop = onceStop(() => { calls++; });
+  stop();
+  stop();
+  stop();
+  equal(calls, 1);
+});
+
 /** Reap the watcher before removing its directory; preserve the directory if termination itself stalls. */
 async function cleanupWatcherChild(child: ChildProcess, closed: Promise<void>, root: string): Promise<void> {
   child.kill("SIGKILL");
@@ -110,6 +128,7 @@ test("CLI watch exits with the latest full-run status", { timeout: watchTimeout 
   writeFileSync(filename, 'it("case", () => { expect(1).toBe(1) })');
   const child = spawn(process.execPath, [new URL("../dist/cli.js", import.meta.url).pathname, "script", "test", root, "--watch"], { stdio: ["ignore", "pipe", "pipe"] });
   const closed = new Promise<void>((resolve) => { child.once("close", () => { resolve(); }); });
+  const stop = onceStop(() => { child.kill("SIGINT"); });
   t.after(() => cleanupWatcherChild(child, closed, root));
   let resolveDone!: () => void;
   let rejectDone!: (error: unknown) => void;
@@ -122,7 +141,7 @@ test("CLI watch exits with the latest full-run status", { timeout: watchTimeout 
       changed = true;
       writeFileSync(filename, 'it("case", () => { expect(1).toBe(2) })');
     } else if (changed && output.includes("0 passed, 1 failed")) {
-      child.kill("SIGINT");
+      stop();
     }
   });
   child.on("error", rejectDone);
@@ -143,6 +162,7 @@ test("JUnit watch replaces one XML report and preserves a focused-run warning", 
   writeFileSync(filename, 'only("case", () => { expect(1).toBe(1) })');
   const child = spawn(process.execPath, [new URL("../dist/cli.js", import.meta.url).pathname, "script", "test", root, "--watch", "--reporter", "junit", "--out", report], { stdio: ["ignore", "pipe", "pipe"] });
   const closed = new Promise<void>((resolve) => { child.once("close", () => { resolve(); }); });
+  const stop = onceStop(() => { child.kill("SIGINT"); });
   t.after(() => cleanupWatcherChild(child, closed, root));
   let resolveDone!: () => void;
   let rejectDone!: (error: unknown) => void;
@@ -164,7 +184,7 @@ test("JUnit watch replaces one XML report and preserves a focused-run warning", 
         output = "";
         writeFileSync(filename, 'only("revised", () => { expect(1).toBe(2) })');
       } else if (stage === 2 && output.includes("0 passed, 1 failed")) {
-        child.kill("SIGINT");
+        stop();
       }
     } catch (error) { rejectDone(error); }
   });
