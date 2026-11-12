@@ -96,6 +96,7 @@ function formatJunit(report: SpecProjectReport): string {
       } else if (item.outcomes.some((outcome) => outcome.kind === "skip")) lines.push("      <skipped/>");
       lines.push("    </testcase>");
     }
+    if (file.warning !== null) lines.push(`    <system-out>${xml(file.warning)}</system-out>`);
     lines.push("  </testsuite>");
   }
   lines.push("</testsuites>");

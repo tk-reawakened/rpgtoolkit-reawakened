@@ -52,7 +52,9 @@ group-and-case name contains that exact, case-sensitive text. Choose
 `--reporter spec` (the default), `--reporter junit`, or `--reporter json`;
 `--json` is an alias for the JSON reporter. `--watch` runs once and reruns the
 whole project when files change, so failures in untouched files stay visible.
-Press Ctrl-C to stop; the exit status is the latest run's status. JavaScript
+For JUnit in watch mode, add `--out report.xml`; each run replaces that file
+with a complete report, rather than concatenating XML documents. Press Ctrl-C
+to stop; the exit status is the latest run's status. JavaScript
 callers can pass `{ name: "attack" }` to `runSpecProject` or use
 `watchSpecProject(root, options, onReport)` and close the returned watcher.
 

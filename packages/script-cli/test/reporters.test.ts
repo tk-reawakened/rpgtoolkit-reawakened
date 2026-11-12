@@ -1,6 +1,6 @@
 import { deepEqual, equal, match, doesNotMatch } from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -45,6 +45,8 @@ test("nested names and selected cases survive every deterministic reporter", () 
     doesNotMatch(filtered.text, /fails <bad>/);
     equal(parseArgs(["node", "tkr", "script", "test", "--reporter", "junit", "--json"]).ok, false);
     writeFileSync(join(root, "focused.spec.prg"), 'only("focus", () => { expect(1).toBe(1) })');
+    const focusedJunit = runTest([root], true, false, "", "junit");
+    match(focusedJunit.text, /<system-out>only\(\) narrowed the run/);
     writeFileSync(join(root, "empty.spec.prg"), 'value = 1');
     const focused = runSpecProject(root, { name: "not present" });
     equal(focused.failures.length, 1);
@@ -98,6 +100,47 @@ test("CLI watch exits with the latest full-run status", { timeout: 10000 }, asyn
     try {
       equal(signal, null);
       equal(code, 1);
+      resolveDone();
+    } catch (error) { rejectDone(error); }
+  });
+  try { await done; } finally { child.kill(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("JUnit watch replaces one XML report and preserves a focused-run warning", { timeout: 10000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "tkr-junit-watch-"));
+  const filename = join(root, "case.spec.prg");
+  const report = join(root, "report.xml");
+  writeFileSync(filename, 'only("case", () => { expect(1).toBe(1) })');
+  const child = spawn(process.execPath, [new URL("../dist/cli.js", import.meta.url).pathname, "script", "test", root, "--watch", "--reporter", "junit", "--out", report], { stdio: ["ignore", "pipe", "pipe"] });
+  let resolveDone!: () => void;
+  let rejectDone!: (error: unknown) => void;
+  const done = new Promise<void>((resolve, reject) => { resolveDone = resolve; rejectDone = reject; });
+  let output = "";
+  let stage = 0;
+  child.stderr.on("data", (bytes: Buffer) => {
+    output += bytes.toString();
+    if (stage === 0 && output.includes("1 passed, 0 failed")) {
+      stage = 1;
+      output = "";
+      rmSync(report);
+    } else if (stage === 1 && output.includes("1 passed, 0 failed")) {
+      stage = 2;
+      output = "";
+      writeFileSync(filename, 'only("case", () => { expect(1).toBe(2) })');
+    } else if (stage === 2 && output.includes("0 passed, 1 failed")) {
+      child.kill("SIGINT");
+    }
+  });
+  child.on("error", rejectDone);
+  child.on("exit", (code, signal) => {
+    try {
+      equal(signal, null);
+      equal(code, 1);
+      const text = readFileSync(report, "utf8");
+      match(text, /<failure>/);
+      match(text, /<system-out>only\(\) narrowed the run/);
+      const parsed = spawnSync("python3", ["-c", "import sys, xml.etree.ElementTree as E; E.fromstring(sys.stdin.read())"], { input: text });
+      equal(parsed.status, 0, parsed.stderr.toString());
       resolveDone();
     } catch (error) { rejectDone(error); }
   });

@@ -110,6 +110,8 @@ export function parseArgs(argv: readonly string[]): { readonly ok: true; readonl
   if (json && reporterSet && reporter !== "json") return { ok: false, message: "--json conflicts with the selected reporter", subcommand, attemptedSubcommand: subcommand };
   if (reporter === "json") json = true;
   if (json) reporter = "json";
+  if (subcommand === "test" && watch && reporter === "junit" && out === null) return { ok: false, message: "JUnit watch requires --out <file>", subcommand, attemptedSubcommand: subcommand };
+  if (subcommand === "test" && out !== null && reporter !== "junit") return { ok: false, message: "--out for test requires the junit reporter", subcommand, attemptedSubcommand: subcommand };
 
 
   if (subcommand === "test" && paths.length === 0) {
