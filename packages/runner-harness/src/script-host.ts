@@ -19,6 +19,8 @@
 import {
   advanceScriptTick,
   applyPluginManifestPatch,
+  buildDebugView,
+  evaluateExpression,
   parsePluginManifest,
   ENGINE_PLUGIN_TABLE,
   createLogger,
@@ -362,6 +364,14 @@ function createHost(
     setBreakpoints(next: readonly Breakpoint[]): void {
       breakpoints = next;
       void breakpoints;
+    },
+
+    debugView() {
+      return buildDebugView(gameState, services, null);
+    },
+
+    evaluate(expression: string, threadId: number, frameDepth?: number) {
+      return evaluateExpression(gameState, services, expression, threadId, frameDepth);
     },
 
     snapshot(): string {

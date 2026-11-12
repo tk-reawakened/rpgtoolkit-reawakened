@@ -51,6 +51,7 @@ export { foldAscii, scan, tokenize, tokenizeObjects } from "./lex.ts";
 export type { Token } from "./lex.ts";
 export { MODULE_COMMANDS, parse } from "./parse.ts";
 export type { ParseContext } from "./parse.ts";
+export { buildDebugView, evaluateExpression, EVALUATE_COMMANDS, EVALUATE_STEP_BUDGET } from "./debug.ts";
 export { compileTk2, normaliseTk2, parseTk2 } from "./tk2.ts";
 export type { Tk2CommandLookup } from "./tk2.ts";
 export { lower } from "./lower.ts";
