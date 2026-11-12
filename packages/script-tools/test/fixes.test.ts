@@ -58,10 +58,78 @@ test("a control call is not silently removed", () => {
   equal(sameLowering(source, "\nx = 1"), false);
 });
 
-test("ambiguous bracket indexing is not rewritten pending #2050", () => {
-  deepEqual(legacyFixes("#m[key] = 1", "tk2"), []);
-  deepEqual(legacyFixes("#m[1key] = 1", "tk2"), []);
-  deepEqual(legacyFixes("#m[key$] = 1", "tk2"), []);
+function mwinText(source: string, dialect: ScriptDialect): unknown[] {
+  const program = compileInline(source, "<migration>", dialect);
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [{ definition: UI_PLUGIN }]));
+  return state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]);
+}
+
+const REVIEW = (word: string): string => `[${word}] reads the variable ${word}; write ["${word}"] if a literal key was meant`;
+
+test("a bare TK2 index stays a variable index and is flagged for review (#2050)", () => {
+  const source = "#m[key] = 1\n#m[key!] = 2\n#m[1key] = 3";
+  const actions = legacyFixes(source, "tk2");
+  equal(actions[0]!.title, "Preview Toolkit 2.x conversion in an unsaved 3.1 file (3 bare indices to review)");
+  deepEqual(actions[0]!.reviews, [
+    { line: 1, index: "key", message: REVIEW("key") },
+    { line: 2, index: "key", message: REVIEW("key") },
+    { line: 3, index: "1key", message: REVIEW("1key") },
+  ]);
+  equal(migrate(source), [
+    `m[key] = 1 // TKR review: ${REVIEW("key")}`,
+    `m[key] = 2 // TKR review: ${REVIEW("key")}`,
+    `m[1key] = 3 // TKR review: ${REVIEW("1key")}`,
+  ].join("\n"));
+  equal(sameLowering("#m[key] = 1", 'm["key"] = 1'), false, "quoting the index would change the program");
+});
+
+test("a variable whose value differs from its spelling indexes by value in both dialects", () => {
+  const source = '#key$ = "other"\n#m[key$]$ = "by value"\n#m["key"]$ = "literal"\n#Mwin(m["other"])\n#Mwin(m["key"])\n#Mwin(m[key$])';
+  const fixed = migrate(source);
+  deepEqual(mwinText(source, "tk2"), ["by value", "literal", "by value"]);
+  deepEqual(mwinText(fixed, "tk3"), ["by value", "literal", "by value"]);
+  deepEqual(legacyFixes(source, "tk2")[0]!.reviews?.map((item) => item.line), [2, 6]);
+});
+
+test("literal, nested and computed indices are converted with only bare words flagged", () => {
+  equal(legacyFixes('#m["key"] = 1', "tk2")[0]!.reviews, undefined);
+  equal(legacyFixes("#m[a! + 1] = 1\n#m[2] = 1\n#m[true] = 1", "tk2")[0]!.reviews, undefined);
+  equal(migrate("#m[a! + 1] = 1"), "m[a + 1] = 1");
+  equal(migrate("#m[k!][j$] = 1"), `m[k][j] = 1 // TKR review: ${REVIEW("k")}; ${REVIEW("j")}`);
+  equal(migrate('#m[n["x"]] = 1'), 'm[n["x"]] = 1');
+  equal(migrate("#Mwin(m[key]) * note"), `Mwin(m[key]) // note // TKR review: ${REVIEW("key")}`);
+  equal(migrate("  #If (m[key] = 1) {\r\n  }\r\n"), `  If (m[key] == 1) { // TKR review: ${REVIEW("key")}\r\n  }\r\n`);
+});
+
+test("every Toolkit 2 table row converts with identical lowering (rpgcode-dialects.md#tk2-conversion-contract)", () => {
+  const rows: readonly (readonly [string, string])[] = [
+    ["#Mwin(Hello there)", 'Mwin("Hello there")'],
+    ["#threadSleep(1, 2)", "threadSleep(1, 2)"],
+    ["#If (x! = 5) {\n}", "If (x == 5) {\n}"],
+    ["#While(x! = 5) {\n  #x! = 6\n}", "While (x == 5) {\n  x = 6\n}"],
+    ['#x! = 1\n#name$ = "a"', 'x = 1\nname = "a"'],
+    ["Hello there", 'mwin("Hello there")'],
+    ["See http://example.com /* not code */", 'mwin("See http://example.com /* not code */")'],
+    ["#Method f(a!) {\n  #ReturnMethod(a! + 2)\n}", "function f(a) {\n  return(a + 2)\n}"],
+    ["* note\n#Mwin(hi) * KEEP", '* note\nMwin("hi") // KEEP'],
+    ["#Dos\n#Windows\n#Gone", "Dos\nWindows\nGone"],
+    ["@", 'mwin("")'],
+    [":top\n#Branch(:top)", ":top\nBranch(:top)"],
+  ];
+  for (const [source, expected] of rows) equal(migrate(source), expected, source);
+});
+
+test("code comment markers TK2 does not define are refused, with dialogue still converted elsewhere", () => {
+  for (const source of ["#Mwin(hi) // comment", "#x! = 1 /* note */", "x = 1 // note", "#Mwin(a // b)"]) {
+    deepEqual(legacyFixes(source, "tk2"), [], source);
+  }
+  equal(migrate('#Mwin("a // b")'), 'Mwin("a // b")');
+});
+
+test("escaped quotes are not TK2 syntax and get no edit", () => {
+  deepEqual(legacyFixes('#Mwin("say \\"hi\\"")', "tk2"), []);
 });
 
 test("migration refuses unresolved explicit and implicit dependencies", () => {
@@ -109,8 +177,8 @@ test("3.1 sigil fixes do not alter possible Toolkit 2 dialogue", () => {
   deepEqual(legacyFixes("foo(name$)", "tk3"), []);
 });
 
-test("uncompilable, unsupported or comment-ambiguous input never gets an edit", () => {
-  for (const source of ["x = )\n#Dos", "< unsupported >", '#Mwin(hi) // comment']) {
+test("uncompilable or unsupported input never gets an edit", () => {
+  for (const source of ["x = )\n#Dos", "< unsupported >"]) {
     deepEqual(legacyFixes(source, "tk2"), []);
   }
 });
