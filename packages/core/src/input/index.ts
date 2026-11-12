@@ -2,6 +2,8 @@ export {
   applyInputEvent,
   applySemanticActionEdge,
   configureInput,
+  configureMainFileMovement,
+  movementBindingCollisions,
   createInputSection,
   inputView,
   processGamepadEvents,

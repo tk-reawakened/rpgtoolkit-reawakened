@@ -252,6 +252,7 @@ export function createTestEngine(): Engine {
     hostFeatures() {
       return { touch: false, pointer: "none", keyboard: false, gamepad: false, haptics: false, orientation: null };
     },
+    gamepadPolicy() { return null; },
     hostDisplayGeometry() {
       return {
         content: { width: 320, height: 240 },

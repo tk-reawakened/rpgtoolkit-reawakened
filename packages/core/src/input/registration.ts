@@ -8,7 +8,7 @@ import { enqueuePathMove } from "../sprites/runtime.ts";
 import type { GameState } from "../save/state.ts";
 import { resetUiForProgramStart } from "../save/sections/ui.ts";
 import { killSurface, resetScriptScreen } from "../raster/surfaces.ts";
-import { applySemanticActionEdge, createInputSection, heldPointerGoal, processGamepadEvents, registeredActionNames, takeInputActions, type InputConfig } from "./input.ts";
+import { applySemanticActionEdge, createInputSection, heldPointerGoal, movementAllowsDiagonals, movementAllowsPointer, movementDirections, processGamepadEvents, registeredActionNames, takeInputActions, type InputConfig } from "./input.ts";
 import { selectPointerActivationTarget } from "../triggers/runtime.ts";
 import { positionAt } from "../world/camera.ts";
 
@@ -68,10 +68,17 @@ function canPreemptDirection(state: GameState, id: string): boolean {
 }
 
 function heldFacing(state: GameState): Facing | null {
-  let x = (state.input.actions.right === true ? 1 : 0) - (state.input.actions.left === true ? 1 : 0);
-  let y = (state.input.actions.down === true ? 1 : 0) - (state.input.actions.up === true ? 1 : 0);
-  if (x !== 0 && y !== 0 && !state.input.allowDiagonals) {
-    const latest = [...state.input.directionOrder].reverse().find((action) => state.input.actions[action] === true);
+  const held = movementDirections(state.input);
+  const latest = [...state.input.directionOrder].reverse().find((direction) => held.has(direction));
+  switch (latest) {
+    case "northeast": return "NE";
+    case "southeast": return "SE";
+    case "southwest": return "SW";
+    case "northwest": return "NW";
+  }
+  let x = Number(held.has("right")) - Number(held.has("left"));
+  let y = Number(held.has("down")) - Number(held.has("up"));
+  if (x !== 0 && y !== 0 && !movementAllowsDiagonals(state.input)) {
     if (latest === "left" || latest === "right") y = 0;
     else x = 0;
   }
@@ -119,7 +126,7 @@ export function runInputPhase(state: GameState, options: InputPhaseOptions = {})
     const facing = heldFacing(state);
     if (facing !== null) enqueueDirectionMove(state.sprites, id, facing, state.world.movement.walking ?? options.pixelMovement ?? 0, true, true);
   }
-  if (board === null || directionBlocked) return;
+  if (board === null || directionBlocked || !movementAllowsPointer(state.input)) return;
   // Clicks made during a block never reach here as paths; a button still held when the block ends is polled below.
   for (const click of clicks) {
     if (state.input.pointerMovementSuppressed) continue;

@@ -380,6 +380,7 @@ function startLiveLoop(
     displayGeometry.observe(event);
     pending.push({ tick: null, event, pointerGeometry: null });
   }, session.hostState ?? undefined);
+  session.setGamepadResampler(hostObserver.resampleGamepads);
   session.setHostRestoreSnapshotProvider(() => {
     const snapshot = hostObserver.snapshotForRestore(pending);
     for (const event of snapshot.observations) displayGeometry.observe(event);
@@ -502,7 +503,6 @@ function startLiveLoop(
             player === null ? "player position unavailable" : `player ${player.x}, ${player.y}`,
             `package ${state.mode ?? "?"}; storage ${state.storage.kept ? "kept" : "not kept"}; stalls ${live.stalls?.count ?? 0}`,
             ...(session.audioError() === null ? [] : [`audio: ${session.audioError()}`]),
-            "Move: arrows or WASD; click the board to walk.",
           ].join("\n");
         }).catch((error: unknown) => {
           advancing = false;

@@ -178,6 +178,7 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
     observedGeometry.observe(event);
     pending.push({ tick: null, event, pointerGeometry: null });
   }, session.hostState ?? undefined);
+  session.setGamepadResampler(hostObserver.resampleGamepads);
   session.setHostRestoreSnapshotProvider(() => {
     const snapshot = hostObserver.snapshotForRestore(pending);
     for (const event of snapshot.observations) observedGeometry.observe(event);
@@ -272,7 +273,7 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
         ].join("\n");
         diagnostics.hidden = false;
       }
-      status.textContent = [`tick ${result.tick}`, `state ${result.stateHash}`, `draw ${result.drawHash}`, player === null ? "player position unavailable" : `player ${player.x}, ${player.y}`, ...(audioError === null ? [] : [`audio: ${audioError}`]), "Move: arrows or WASD; click to walk."].join("\n");
+      status.textContent = [`tick ${result.tick}`, `state ${result.stateHash}`, `draw ${result.drawHash}`, player === null ? "player position unavailable" : `player ${player.x}, ${player.y}`, ...(audioError === null ? [] : [`audio: ${audioError}`])].join("\n");
       requestAnimationFrame(draw);
     }).catch((error: unknown) => {
       console.error(`player stopped at tick ${session.tick()}`, error);

@@ -168,6 +168,8 @@ function authorGame(spec: GameSpec): AuthoredGame {
     ...createEmptyMainFile(),
     major: 2,
     minor: spec.mainMinor ?? 9,
+    movementControls: 5,
+    movementScanCodes: [0xcd, 0, 0xd0, 0, 0xcb, 0, 0xc8, 0],
     ...(spec.mainMinor === 2 ? {
       reservedRuns: { parallax: new Uint8Array(2), menuPluginFallback: new Uint8Array(2), multitask: new Uint8Array(6), fightStyle: new Uint8Array(2) },
     } : {}),
@@ -319,6 +321,24 @@ function bootEngine(game: AuthoredGame, doubles: Doubles, packageCatalogue?: rea
 }
 
 const liberation = new Uint8Array(readFileSync(join(repoRoot, "media", "fonts", "LiberationSans-Regular.ttf")));
+
+test("boot reports physical movement collisions and preserves ACT-4 dispatch", () => {
+  const game = authorGame({ initChar: "hero.tem", boards: { "start.brd": {} }, programs: {} });
+  const original = unwrap(readMainFile(new BinaryReader(game.files.get(assetKey(game.main))!, game.main)));
+  game.files.set(assetKey(game.main), unwrap(writeMainFile({
+    ...original, movementControls: 1, movementScanCodes: [0x39, 0, 0x39, 0, 0x01, 0, 0, 0],
+  })));
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles);
+  const result = run(engine, game.files, 4);
+  deepEqual(result.diagnostics.filter(({ code }) => code === "input.control-collision").map(({ file, message }) => [file, message]), [
+    [game.main, "physical key Space is shared by right, down, confirm"],
+    [game.main, "physical key Escape is shared by left, cancel"],
+  ]);
+  const state = doubles.state();
+  engine.advance(1, [{ tick: state.time.tick, event: { kind: "key", code: "Space", name: " ", char: " ", down: true } }]);
+  deepEqual(state.input.keys.at(-1)?.resolvedActions, ["down", "right", "confirm"]);
+});
 
 const SCRIPTED: GameSpec = {
   startup: "start.prg",
@@ -2617,7 +2637,10 @@ function sampleGame(name: string): { readonly files: Files; readonly index: Asse
   if (startup === undefined || board === undefined || character === undefined) return null;
   const initBoard = board.slice("Boards/".length);
   const initChar = character.slice("Chrs/".length);
-  const main = { ...createEmptyMainFile(), major: 2, minor: 9, startupPrg: "start.prg", initBoard, initChar };
+  const main = {
+    ...createEmptyMainFile(), major: 2, minor: 9, startupPrg: "start.prg", initBoard, initChar,
+    movementControls: 5, movementScanCodes: [0xcd, 0, 0xd0, 0, 0xcb, 0, 0xc8, 0],
+  };
   const files: Files = new Map();
   const paths = ["main.gam", ...relativePaths];
   files.set(assetKey("main.gam"), unwrap(writeMainFile(main)));

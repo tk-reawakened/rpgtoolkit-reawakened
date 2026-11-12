@@ -80,6 +80,8 @@ function authoredFiles(options: FixtureOptions): Files {
     initBoard: "start.brd",
     initChar: "hero.tem",
     pixelMovement: options.pixelMovement ?? 0,
+    movementControls: 5,
+    movementScanCodes: [0xcd, 0, 0xd0, 0, 0xcb, 0, 0xc8, 0],
   };
   files.set(assetKey("main.gam"), unwrap(writeMainFile(main)));
   files.set(assetKey("Boards/start.brd"), boardBytes("enter.prg"));

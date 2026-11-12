@@ -619,6 +619,7 @@ export const conformingEngine: Engine = {
   customTouchControlsDeclared(): boolean { return false; },
   hostFeatures() { return { touch: false, pointer: "none", keyboard: true, gamepad: false, haptics: false, orientation: null }; },
   accessibilityTree() { return []; },
+  gamepadPolicy() { return null; },
   hostDisplayGeometry() { return { content: { width: 320, height: 240 }, game: { x: 0, y: 0, width: 320, height: 240 }, safeArea: { top: 0, right: 0, bottom: 0, left: 0 } }; },
   surfaceCacheEpoch() { return 0; },
   registeredActionNames() { return []; },
