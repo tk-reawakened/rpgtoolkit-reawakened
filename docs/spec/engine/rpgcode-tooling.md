@@ -79,7 +79,7 @@ A deprecation finding never offers a rename: the legacy audio commands, for exam
 | `unmapped-source-span` | the program is Toolkit 2.x, whose normalisation moves source columns, and the finding's original span cannot be verified |
 | `invalid-program` | the program did not compile, so it has no facts |
 | `incomplete-project` | a project-wide rule ran without a closed project, or with an unresolved include |
-| `dynamic-reference` | a scope evaluates code or names by computed text (`rpgcode`, `bindingOf`, a computed branch target), so a use cannot be ruled out |
+| `dynamic-reference` | a scope evaluates code or names by computed text (`rpgcode`, `bindingOf`, a computed branch target), or installs an error handler that can resume after a failing statement (ERR-1), so a use or a path cannot be ruled out |
 
 The rules that read the parsed program (`unused-variable`, `unused-label`, `unreachable-code`, `deprecated-command`, `obsolete-command`, `style/format`) need a stated dialect: they run when it is 3.1 and are unassessed otherwise. They report on each program's own main unit; an included file is checked when it is itself linted as a program, so a file shared by several programs is reported once.
 
