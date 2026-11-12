@@ -54,7 +54,7 @@ A whole game in one file: a standard **ZIP** archive.
 | Main file | stored under the fixed name `main.gam` at the archive root |
 | Everything else | every file under the project folder, stored under its **project-relative path with `\` separators**, e.g. `Boards\town.brd`, `Misc\start\start_s.anm` |
 | Directories | no entries |
-| Not included | `Saved\`, other projects' main files, anything outside the project folder |
+| Not included | `Saved\`, the editor's reserved history folder (ADR 0022 D12.7; its name is set with the history store, 11.14), other projects' main files, anything outside the project folder |
 | Compression | deflate (method 8), no encryption, no comments, DOS date and time fields 0 |
 | Lookup | names are matched case-insensitively; a reader accepts both `\` and `/` (R-08) |
 
