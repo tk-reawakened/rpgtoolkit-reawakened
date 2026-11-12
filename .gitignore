@@ -4,6 +4,8 @@ dist-bin
 *.tsbuildinfo
 /fixtures/
 /fixtures/packages/
+# The VS Code web build `tools/vscode-web/run.mjs` downloads (#950).
+/.vscode-test-web/
 
 # Generated dependency-graph inputs (tools/deps/graph.mjs)
 /.dependency-cruiser.mjs
