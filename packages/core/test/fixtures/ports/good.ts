@@ -16,7 +16,12 @@ import type {
   BlobLoaded,
   BlobSaved,
   Breakpoint,
+  DebugValue,
+  DebugVariable,
+  DebugView,
   Diagnostic,
+  EvalError,
+  EvalResult,
   DrawCommand,
   DrawList,
   EllipseCommand,
@@ -125,6 +130,12 @@ export type EngineSetBreakpointsParam0IsPortData = AssertPortData<Parameters<Eng
 export type EngineAdvanceReturnIsPortData = AssertPortData<ReturnType<Engine["advance"]>>;
 export type EngineDrawListReturnIsPortData = AssertPortData<ReturnType<Engine["drawList"]>>;
 export type EngineSurfacePixelsReturnIsPortData = AssertPortData<NonNullable<ReturnType<Engine["surfacePixels"]>>>;
+// The debug projection and the expression reader are plain data too (TOOL-8, P1, P2).
+export type DebugViewIsPortData = AssertPortData<DebugView>;
+export type DebugVariableIsPortData = AssertPortData<DebugVariable>;
+export type DebugValueIsPortData = AssertPortData<DebugValue>;
+export type EvalResultIsPortData = AssertPortData<EvalResult>;
+export type EvalErrorIsPortData = AssertPortData<EvalError>;
 
 // Exhaustive switches with a never default (AD-3, AD-5, AD-14, AD-16).
 export function checkInputEventExhaustive(kind: InputEvent["kind"]): void {
@@ -633,6 +644,12 @@ export const conformingEngine: Engine = {
   setBreakpoints(_breakpoints: readonly Breakpoint[]): void {
     // no-op
   },
+  debugView(): DebugView {
+    return { tick: 0, threads: [], locals: [], globals: [] };
+  },
+  evaluate(expression: string, _threadId: number, _frameDepth?: number): EvalResult {
+    return { value: null, error: { code: "evaluate.thread", message: `no thread for "${expression}"`, line: 1 } };
+  },
 };
 
 export function testConformingEngineCall(engine: Engine): void {
@@ -647,6 +664,8 @@ export function testConformingEngineCall(engine: Engine): void {
   const _pixels: SurfacePixels | null = engine.surfacePixels(0 as SurfaceId, 1);
   engine.recoveryCandidate();
   engine.setBreakpoints([]);
+  const _view: DebugView = engine.debugView();
+  const _eval: EvalResult = engine.evaluate("1 + 1", 1, 0);
   engine.registeredActionNames();
   engine.registerGameAction({ name: "game.fixture", label: "Fixture", icon: null, group: null, controls: [], locked: false, hidden: false });
   engine.setPointerMovementSuppressed(true);

@@ -113,6 +113,8 @@ import {
   startThread,
   STEP_BUDGET,
   stepThread,
+  buildDebugView,
+  evaluateExpression,
   applyUiEffect,
   type EffectRecord,
   type ProgramLoader,
@@ -809,6 +811,12 @@ export function createEngine(init: EngineInit): Engine {
   let failed = false;
   let quitRequested = false;
   let breakpoints: readonly Breakpoint[] = [];
+  /**
+   * The thread the last `advance` paused in, observation only (never state): it
+   * decides which frame `debugView()` reports as the top-level `locals`
+   * (TOOL-8). `null` when the last call paused nowhere.
+   */
+  let pausedThread: number | null = null;
   state.surfaces = createSurfacesSection(init.width, init.height);
   state.camera = createCameraSection(init.width, init.height);
   const surfaceCache: SurfacePixelCache = new Map();
@@ -5042,6 +5050,7 @@ export function createEngine(init: EngineInit): Engine {
       publishQuitRequest();
       refreshPresentedFrame();
       const reportDiagnostics = [...diagnostics.splice(0), ...drainDiagnostics(services)];
+      pausedThread = paused?.thread ?? null;
       return {
         ticksRun,
         tickAfter: state.time.tick,
@@ -5143,6 +5152,12 @@ export function createEngine(init: EngineInit): Engine {
       return texture === undefined ? null : { w: texture.w, h: texture.h, rgba: new Uint8Array(texture.rgba) };
     },
     setBreakpoints(next: readonly Breakpoint[]) { breakpoints = next; },
+    debugView() {
+      return buildDebugView(state, services, pausedThread);
+    },
+    evaluate(expression: string, threadId: number, frameDepth?: number) {
+      return evaluateExpression(state, services, expression, threadId, frameDepth);
+    },
   };
   return engine;
 }

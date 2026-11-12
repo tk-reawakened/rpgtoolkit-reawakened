@@ -45,6 +45,7 @@ export const GROUPS = Object.freeze([
   "script-cli",
   "lsp",
   "script-spec",
+  "dap",
   "native-data",
   "native-data-cli",
   "native-data-import",

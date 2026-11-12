@@ -192,6 +192,8 @@ test("goldenJob detects batching disagreement without throwing", () => {
       },
       picturePixels(): SurfacePixels | null { return null; },
       setBreakpoints(_breakpoints: readonly Breakpoint[]): void {},
+      debugView() { return { tick: 0, threads: [], locals: [], globals: [] }; },
+      evaluate() { return { value: null, error: { code: "evaluate.thread", message: "the fake engine runs no script", line: 1 } }; },
       recoveryCandidate() { return null; },
       resumeRecovery() { return false; },
       recoveryStatus() { return "none"; },

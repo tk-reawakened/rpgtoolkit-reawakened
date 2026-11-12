@@ -11,5 +11,5 @@
     "sourceMap": true,
     "skipLibCheck": true
   },
-  "include": ["src/extension.browser.ts", "src/server.worker.ts"]
+  "include": ["src/extension.browser.ts", "src/server.worker.ts", "src/debug.ts"]
 }

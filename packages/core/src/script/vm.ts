@@ -2087,6 +2087,22 @@ function readVirtual(services: ScriptServices, name: string): Value | undefined 
   return services.virtuals.read(name);
 }
 
+/**
+ * Read one variable reference for the debug projection (TOOL-8, P2): a slot's
+ * value through whatever it aliases — its own local, another variable, a
+ * captured cell, a global, a virtual or an object field — exactly as the script
+ * itself would read it.
+ */
+export function readVariableReference(
+  vm: VmState,
+  thread: Thread,
+  frameIndex: number,
+  ref: RefId,
+  services?: ScriptServices,
+): Value {
+  return readRef(vm, thread, frameIndex, ref, services);
+}
+
 function readRef(vm: VmState, thread: Thread, frameIndex: number, ref: RefId, services?: ScriptServices): Value {
   const separator = ref.indexOf(":");
   const scope = ref.slice(0, separator);

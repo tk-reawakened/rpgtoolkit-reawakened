@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -72,4 +72,21 @@ await build({
 });
 
 
-console.log("Built extensions/rpgcode (desktop client, browser client, node server, web worker server)");
+// The debug adapter is a VS Code inline implementation (TOOL-1, TOOL-8; AD-21), so both
+// hosts must carry the factory and the manifest must contribute the debugger. A bundle
+// that dropped it would still start, so the check is here rather than in a test that
+// reads source: this is what a vscode.dev load actually runs.
+const manifest = JSON.parse(readFileSync(join(here, "package.json"), "utf8"));
+const contributesDebugger = Array.isArray(manifest.contributes?.debuggers)
+  && manifest.contributes.debuggers.some((entry) => entry?.type === "rpgcode");
+if (!contributesDebugger) {
+  throw new Error("package.json must contribute the \"rpgcode\" debugger");
+}
+for (const bundle of ["dist/extension.browser.js", "dist/extension.js"]) {
+  const text = readFileSync(join(here, bundle), "utf8");
+  for (const marker of ["registerDebugAdapterDescriptorFactory", "DebugAdapterInlineImplementation", "handleMessage"]) {
+    if (!text.includes(marker)) throw new Error(`${bundle} does not register the RPGCode debug adapter (missing ${marker})`);
+  }
+}
+
+console.log("Built extensions/rpgcode (desktop client, browser client, node server, web worker server, debug adapter)");

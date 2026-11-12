@@ -1,0 +1,28 @@
+{
+  "name": "@tk-reawakened/dap",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "rpgcode-dap": "./dist-bin/stdio.js"
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json tsconfig.bin.json",
+    "build:bin": "tsc -p tsconfig.bin.json",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@tk-reawakened/core": "workspace:*",
+    "@tk-reawakened/runner-harness": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.0.0"
+  }
+}

@@ -42,6 +42,92 @@ export type Breakpoint = {
   readonly line: number;
 };
 
+/**
+ * One value a debugger reads (TOOL-8, `debugView()` and `evaluate()`): a
+ * script value with the live storage replaced by a handle, so nothing the view
+ * or a watch returns aliases the VM. `null` is the unset value.
+ */
+export type DebugValue =
+  | number
+  | string
+  | null
+  | { readonly kind: "object"; readonly handle: number; readonly className: string }
+  | { readonly kind: "callable"; readonly def: string };
+
+/** One name/value pair of a frame's locals or of the global table (TOOL-8). */
+export type DebugVariable = {
+  readonly name: string;
+  readonly value: DebugValue;
+};
+
+/** The wait a thread is parked on, as the view reports it (TOOL-8). */
+export type DebugWait = {
+  readonly kind: string;
+  readonly global: boolean;
+  /** Whole ticks still to run for a `sleep` wait; `null` for an indefinite sleep and for every other kind. */
+  readonly remainingTicks: number | null;
+};
+
+/**
+ * The identity of one compiled program (TOOL-8): the asset key for a file
+ * program and `<inline>` for inline source, with the decoded text so a client
+ * can show a snippet it has no file for. Two frames name the same program when
+ * both fields are equal.
+ */
+export type DebugProgram = {
+  readonly key: string;
+  readonly text: string;
+};
+
+/** One call frame in the view, outermost to innermost (TOOL-8, P2). */
+export type DebugFrame = {
+  readonly index: number;
+  readonly program: DebugProgram;
+  readonly ip: number;
+  /** The 1-based source line the frame is running. */
+  readonly line: number;
+  /** `name`, `Class.method` or `null` for top-level code. */
+  readonly function: string | null;
+  /** This frame's own locals, read through their references (P2). */
+  readonly locals: readonly DebugVariable[];
+};
+
+/** One thread in the view (TOOL-8). */
+export type DebugThread = {
+  readonly id: number;
+  readonly kind: string;
+  readonly status: "ready" | "waiting" | "finished";
+  readonly wait: DebugWait | null;
+  readonly frames: readonly DebugFrame[];
+};
+
+/** The read-only debug projection (TOOL-8, `Engine.debugView()`). */
+export type DebugView = {
+  readonly tick: number;
+  readonly threads: readonly DebugThread[];
+  /** The innermost frame's locals, the same list as that frame's own (P2). */
+  readonly locals: readonly DebugVariable[];
+  readonly globals: readonly DebugVariable[];
+};
+
+/**
+ * Why an `evaluate()` call produced no value (TOOL-8, P1). `evaluate.*` codes
+ * are this reader's own refusals; any other code is the runtime failure the
+ * expression raised.
+ */
+export type EvalError = {
+  readonly code: string;
+  readonly message: string;
+  /** The 1-based line of the expression text the failure belongs to. */
+  readonly line: number;
+};
+
+/** The result of one expression read: exactly one of `value` and `error` is `null` (TOOL-8, P1). */
+export type EvalResult = {
+  readonly value: DebugValue | null;
+  readonly error: EvalError | null;
+};
+
 /** How an `advance` call resumes an open breakpoint tick. */
 export type ResumeMode = "continue" | "step";
 /** Host-visible lifecycle of a recovery launch supplied to BootInit. */
@@ -148,4 +234,20 @@ export interface Engine {
   resumeRecovery(): boolean;
   /** Set source breakpoints as data; a hit stops mid-tick (AD-1). */
   setBreakpoints(breakpoints: readonly Breakpoint[]): void;
+  /**
+   * The read-only debug projection: tick, threads with their waits and frames,
+   * each frame's own locals, the innermost frame's locals and the globals
+   * (TOOL-8, P2). Copied out, so mutating it cannot change the VM and the
+   * state hash does not move.
+   */
+  debugView(): DebugView;
+  /**
+   * Read one RPGCode expression against the globals and the named thread's
+   * frames, on a copy, and return its value or the reason it has none
+   * (TOOL-8, P1). `frameDepth` indexes `debugView().threads[].frames` from the
+   * outermost and defaults to the innermost frame. It may call only the closed
+   * list of pure built-ins `EVALUATE_COMMANDS`, runs at most
+   * `EVALUATE_STEP_BUDGET` instructions and leaves the state hash unchanged.
+   */
+  evaluate(expression: string, threadId: number, frameDepth?: number): EvalResult;
 }

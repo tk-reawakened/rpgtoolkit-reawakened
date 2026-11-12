@@ -286,5 +286,13 @@ export function createTestEngine(): Engine {
     },
 
     setBreakpoints(_breakpoints: readonly Breakpoint[]): void {},
+
+    // The double runs no script, so its debug projection is empty and it reads no expression.
+    debugView() {
+      return { tick: state.tick, threads: [], locals: [], globals: [] };
+    },
+    evaluate(expression: string, _threadId: number, _frameDepth?: number) {
+      return { value: null, error: { code: "evaluate.thread", message: `the test double runs no script, so "${expression}" has no thread`, line: 1 } };
+    },
   };
 }
