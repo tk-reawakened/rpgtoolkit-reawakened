@@ -57,6 +57,7 @@ function createVectors() {
     ...structuredClone(vector), record: { protocolVersion: 3, ...vector.record },
   });
   rows.push(
+    { id: "draw-blit-additive", family: "draw", valid: true, record: { ...hashInput, commands: [blit("additive")] } },
     { id: "draw-blit-source-over", family: "draw", valid: true, record: { ...hashInput, commands: [blit("source-over")] } },
     { id: "draw-margin-blit-source-over", family: "draw", valid: true, record: { ...hashInput, marginCommands: [blit("source-over", 255)] } },
     { id: "refuse-draw-missing-protocol-version", family: "draw", valid: false, why: "v3 requires an explicit protocolVersion", record: { tick: 12, width: 640, height: 480, commands: [], marginCommands: [] } },

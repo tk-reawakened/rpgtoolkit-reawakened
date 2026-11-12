@@ -206,7 +206,7 @@ test("WebGL2 renderer rejects missing and unsupported draw-list protocol version
     { tick: 0, width: 1, height: 1, commands: [], marginCommands: [] },
     { protocolVersion: 2, tick: 0, width: 1, height: 1, commands: [], marginCommands: [] },
     { protocolVersion: 4, tick: 0, width: 1, height: 1, commands: [], marginCommands: [] },
-  ] as DrawList[];
+  ] as unknown as DrawList[];
   for (const list of invalidLists) {
     throws(
       () => renderer.render(list, fullGeometry, { textures: () => null }),

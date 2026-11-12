@@ -206,7 +206,7 @@ export async function check({ schema: schemaOverride, committed, vectors: vector
   const action = input({ kind: "action", action: "confirm", down: true, source: "runner.fallback", modalId: null });
   if (schemaErrors(schema, action).length === 0) problems.push("v1 schema must reject semantic action input");
 
-  // The v2-only blend is not added to the frozen v1 schema or vector kit.
+  // The v3-only blend is not added to the frozen v1 schema or vector kit.
   const sourceOver = list({ kind: "blit", source: { asset: "ui/overlay.bmp", tile: null }, src: rect, dst: rect, key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 128, blend: "source-over", iso2d: false });
   if (schemaErrors(schema, sourceOver).length === 0) problems.push("v1 schema must reject source-over blend");
 

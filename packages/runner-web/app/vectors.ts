@@ -109,7 +109,7 @@ function replay(
   const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, antialias: false, alpha: true, preserveDrawingBuffer: true });
   if (gl === null) throw new Error("vectors: no WebGL2 context");
   const renderer = createWebgl2Renderer(gl);
-  const list: DrawList = { tick: 0, width, height, commands: commands as DrawList["commands"], marginCommands: [] };
+  const list: DrawList = { protocolVersion: 3, tick: 0, width, height, commands: commands as DrawList["commands"], marginCommands: [] };
   const geometry = {
     content: { width, height },
     game: { x: 0, y: 0, width, height },

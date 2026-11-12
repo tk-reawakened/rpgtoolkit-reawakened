@@ -4862,7 +4862,7 @@ export function createEngine(init: EngineInit): Engine {
       }
     });
     const rendered = rasterizeAuthorMargin(
-      { tick: state.time.tick, width, height, commands: shifted, marginCommands: [] },
+      { protocolVersion: 3, tick: state.time.tick, width, height, commands: shifted, marginCommands: [] },
       rasterAssets(),
       currentSurfaceTextures(),
     );
@@ -4935,7 +4935,7 @@ export function createEngine(init: EngineInit): Engine {
       if (fps !== undefined) commands.push({ kind: "text", x: 4, y: 4, text: `FPS ${Math.round(fps)}`, font: state.ui.font, rgb: colour, advances: [] });
       return commands;
     };
-    const empty = { tick: state.time.tick, width: init.width, height: init.height, commands: [] as DrawList["commands"], marginCommands: [] as DrawList["marginCommands"] };
+    const empty: DrawList = { protocolVersion: 3, tick: state.time.tick, width: init.width, height: init.height, commands: [], marginCommands: [] };
     const held = (holdProgramFrame || (board === null && !blockingAlive() && frameHash !== null)) ? surfaceBlit(state.surfaces, 0 as SurfaceId) : null;
     const base = board === null
       ? (held === null ? empty : { ...empty, commands: [held] })

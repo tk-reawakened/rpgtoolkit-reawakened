@@ -173,8 +173,8 @@ vectors and on every gating golden scene:
 
 - **exactly** on every decision the CPU pipeline makes discretely — colour-key exclusion, tint saturation, and the
   choice of blend;
-- **within one unit per channel** on the arithmetic a GPU may round differently, which is the `translucent` and
-  `additive` blend of AD-3's pixel pipeline, with the worst per-channel difference reported per vector.
+- **within one unit per channel** on the arithmetic a GPU may round differently, which is the `translucent`,
+  `additive`, and v3 `source-over` blend of AD-3's pixel pipeline, with the worst per-channel difference reported per vector.
 
 **What is drawn today.** Entry 4 replays all eight commands of AD-3's union — `fill`, `rect`, `line`, `ellipse`, `blit`
 (with the `.iso` projection and persistent surfaces), `text`, `pushTarget` and `popTarget` — at the draw list's logical

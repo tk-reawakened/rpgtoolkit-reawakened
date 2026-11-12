@@ -1,5 +1,5 @@
 import { test } from "node:test";
-import { equal, match } from "node:assert/strict";
+import { equal } from "node:assert/strict";
 import { rasterize, rasterizePresentation, type DrawList } from "../src/index.ts";
 
 const geometry = {
@@ -13,10 +13,10 @@ test("CPU replay refuses unversioned and unsupported draw lists before painting"
   for (const invalid of [frame, { ...frame, protocolVersion: 2 }, { ...frame, protocolVersion: 4 }]) {
     const list = invalid as unknown as DrawList;
     const raster = rasterize(list, new Map());
-    match(raster.error ?? "", /unsupported draw-list protocol version/);
+    equal((raster.error ?? "").includes("unsupported draw-list protocol version"), true);
     equal(raster.rgba.length, 0);
     const presentation = rasterizePresentation(list, geometry, new Map());
-    match(presentation.error ?? "", /unsupported draw-list protocol version/);
+    equal((presentation.error ?? "").includes("unsupported draw-list protocol version"), true);
     equal(presentation.rgba.every((value) => value === 0), true);
   }
 });

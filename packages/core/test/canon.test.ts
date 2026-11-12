@@ -469,9 +469,9 @@ test("hashDrawList matches fixed external Python vector", () => {
     ],
   };
   const expectedCanon =
-    '{"commands":[{"kind":"fill","rgb":{"b":0,"g":0,"r":0}},{"alpha":255,"blend":"normal","dst":{"h":16,"w":16,"x":32,"y":64},"iso2d":false,"key":null,"kind":"blit","source":{"rev":3,"surface":1},"src":{"h":16,"w":16,"x":0,"y":0},"tint":{"b":0,"g":0,"r":0}}],"height":240,"marginCommands":[],"tick":1,"width":320}';
+    '{"commands":[{"kind":"fill","rgb":{"b":0,"g":0,"r":0}},{"alpha":255,"blend":"normal","dst":{"h":16,"w":16,"x":32,"y":64},"iso2d":false,"key":null,"kind":"blit","source":{"rev":3,"surface":1},"src":{"h":16,"w":16,"x":0,"y":0},"tint":{"b":0,"g":0,"r":0}}],"height":240,"marginCommands":[],"protocolVersion":3,"tick":1,"width":320}';
   equal(canon(dl), expectedCanon);
-  equal(hashDrawList(dl), "649ff89c98f2fdae");
+  equal(hashDrawList(dl), "fea7c56b6076197d");
 });
 
 test("encodeLog writes a lowercase-hex tag for bytes", () => {

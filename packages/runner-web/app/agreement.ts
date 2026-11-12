@@ -127,7 +127,7 @@ function renderBoth(input: Presentation): { actual: Uint8Array; worst: number; a
   let scratchNoErrors = true;
   for (const width of [2, 3]) {
     const scratchList: DrawList = {
-      tick: 0, width, height: 2, marginCommands: [],
+      protocolVersion: 3, tick: 0, width, height: 2, marginCommands: [],
       commands: [
         { kind: "pushTarget", scratch: 1 as ScratchId },
         { kind: "fill", rgb: { r: 20, g: 30, b: 40 } },

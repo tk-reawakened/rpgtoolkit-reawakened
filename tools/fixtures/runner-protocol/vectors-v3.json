@@ -3,10 +3,10 @@
   "protocol": "runner-protocol-v3",
   "note": "V3 is the strict runner contract: every DrawList requires protocolVersion 3, both command planes, and supports source-over. V1 and v2 schemas and vectors remain unchanged. Validate against packages/runner-harness/schema/runner-protocol-v3.schema.json.",
   "counts": {
-    "draw": 21,
+    "draw": 22,
     "input": 69,
     "request": 13,
-    "valid": 52,
+    "valid": 53,
     "invalid": 51
   },
   "vectors": [
@@ -2003,6 +2003,48 @@
             }
           ]
         }
+      }
+    },
+    {
+      "id": "draw-blit-additive",
+      "family": "draw",
+      "valid": true,
+      "record": {
+        "protocolVersion": 3,
+        "tick": 12,
+        "width": 640,
+        "height": 480,
+        "commands": [
+          {
+            "kind": "blit",
+            "source": {
+              "asset": "ui/overlay.bmp",
+              "tile": null
+            },
+            "src": {
+              "x": 0,
+              "y": 0,
+              "w": 2,
+              "h": 2
+            },
+            "dst": {
+              "x": 4,
+              "y": 6,
+              "w": 2,
+              "h": 2
+            },
+            "key": null,
+            "tint": {
+              "r": 0,
+              "g": 0,
+              "b": 0
+            },
+            "alpha": 128,
+            "blend": "additive",
+            "iso2d": false
+          }
+        ],
+        "marginCommands": []
       }
     },
     {

@@ -1,6 +1,7 @@
 import { test } from "node:test";
-import { ok } from "node:assert/strict";
+import { equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { check as checkV2 } from "../runner-protocol/generate-v2.mjs";
 import { check as checkV3 } from "../runner-protocol/generate-v3.mjs";
 import { schemaErrors } from "../runner-protocol/schema.mjs";
@@ -19,6 +20,18 @@ const v3Vectors = () => readJson(v3VectorsPath);
 async function v3Problems({ schema, vectors, sources } = {}) {
   return checkV3({ schema: schema ?? v3Schema(), vectors: vectors ?? v3Vectors(), sources });
 }
+
+test("historical protocol schemas and vector kits remain byte-for-byte frozen", () => {
+  const frozen = [
+    ["packages/runner-harness/schema/runner-protocol-v1.schema.json", "1017bcbcef40c4b5530c09509a21e462d8c96d144eb549634265b20b22046d41"],
+    ["tools/fixtures/runner-protocol/vectors.json", "8313d922ad7cf6a743e4bc70731cb5386c0f0c080bb6aa951bfe30b91483ab0c"],
+    [v2SchemaPath, "ce541916646a8f5b7639cb52054e464af8ef4f09ad6c5459cdc98c65134a06c2"],
+    [v2VectorsPath, "227773ce6cd9d32104fbae34ee71da9c3eab6c6cf8dde57fe0574d2c159497f2"],
+  ];
+  for (const [path, expected] of frozen) {
+    equal(createHash("sha256").update(readFileSync(path)).digest("hex"), expected, path);
+  }
+});
 
 test("v3 schema-only marker weakening is caught by refusal vectors", async () => {
   const schema = v3Schema();
