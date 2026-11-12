@@ -121,7 +121,6 @@ async function play(host: DesktopHost, opened: { readonly name: string; readonly
   window.__session = session;
   // The diagnostics strip is a runner feature, not a project setting: it appears only when this run asked for it.
   const diagnostics = debug?.diagnostics === true ? document.querySelector<HTMLElement>("#diagnostics") : null;
-  if (diagnostics !== null) diagnostics.hidden = false;
   stopPlayer = run(session, canvas, status, { canvas, viewport }, viewport, diagnostics);
 }
 
@@ -256,20 +255,22 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
       // The project's title (main-file row 56): the game's own title, its board-vector count and the measured frame rate.
       titleFrames += 1;
       const nowMs = performance.now();
-      if (nowMs - titleWindowStart >= 1_000) {
+      const updateTitle = nowMs - titleWindowStart >= 1_000;
+      if (updateTitle) {
         const bar = session.titleBar();
         const fps = titleFrames * 1_000 / (nowMs - titleWindowStart);
         titleFrames = 0;
         titleWindowStart = nowMs;
         if (bar.showFps) document.title = formatTitleBar(bar, fps);
-        if (diagnostics !== null) {
-          const located = session.diagnostics();
-          diagnostics.textContent = [
-            `tick ${result.tick} state ${result.stateHash} draw ${result.drawHash}`,
-            `commands ${frame.commands} (drawn ${frame.render.drawn}, deferred ${frame.render.deferred})`,
-            ...located.map((entry) => `${entry.code}@${entry.file}:${entry.line}: ${entry.message}`),
-          ].join("\n");
-        }
+      }
+      if (diagnostics !== null && (updateTitle || diagnostics.textContent === "")) {
+        const located = session.diagnostics();
+        diagnostics.textContent = [
+          `tick ${result.tick} state ${result.stateHash} draw ${result.drawHash}`,
+          `commands ${frame.commands} (drawn ${frame.render.drawn}, deferred ${frame.render.deferred})`,
+          ...located.map((entry) => `${entry.code}@${entry.file}:${entry.line}: ${entry.message}`),
+        ].join("\n");
+        diagnostics.hidden = false;
       }
       status.textContent = [`tick ${result.tick}`, `state ${result.stateHash}`, `draw ${result.drawHash}`, player === null ? "player position unavailable" : `player ${player.x}, ${player.y}`, ...(audioError === null ? [] : [`audio: ${audioError}`]), "Move: arrows or WASD; click to walk."].join("\n");
       requestAnimationFrame(draw);

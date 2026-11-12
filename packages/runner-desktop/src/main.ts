@@ -353,7 +353,7 @@ if (!singleInstance) {
 registerIpc();
 if (singleInstance) {
   app.whenReady().then(() => {
-    if (process.platform === "darwin") app.dock.setIcon(join(app.getAppPath(), "icon.png"));
+    if (process.platform === "darwin") app.dock?.setIcon(join(app.getAppPath(), "icon.png"));
     serveAppProtocol();
     createWindow();
   });
