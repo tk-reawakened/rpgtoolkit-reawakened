@@ -48,6 +48,14 @@ which sources and banks are installed, presentation scaling and letterboxing (AD
 
 A runner replays the `DrawList` of the current tick and nothing more (G4). Two obligations follow.
 
+**Protocol version selection.** The current draw-list boundary is runner-protocol-v3: each frame carries the required
+`protocolVersion: 3` marker. A renderer and reference replay MUST reject a missing or unsupported marker before drawing;
+they MUST NOT treat an unknown version as v2 or infer it from the commands. The marker is part of the draw hash. This
+repository's in-process hosts and bundled renderer consume v3; there is no independent network negotiation protocol.
+An external producer/runner MUST agree on v3 before exchanging these frames and fail closed if it cannot. The historical
+v1 and v2 schemas, vector kits and corresponding TypeScript frame types remain unchanged. In particular, the v2 schema
+rejects a v3 frame (even one containing no new blend mode), and the v3 schema rejects an unmarked v2 frame.
+
 **Scaling is presentation.** The core emits a draw list for the logical viewport; a runner maps it to the physical
 display in one of the two modes AD-33 allows — integer-scaled pixel-perfect letterbox, or responsive expand-viewport —
 chosen by the player, never by the game state. `alpha` is presentation-only and is excluded from state and draw hashes,
@@ -90,7 +98,7 @@ the world tint (`tint`), `alpha` and `blend`:
 2. **World stage.** Apply `tint` — the pre-summed board shading and ambient — to the sampled texel under the R-15 rule
    ([tiles.md#shading](../formats/tiles.md#shading)): remap pure white to `245` and pure black to `10` when this tint
    is non-zero, add it, and clamp once.
-3. **Blend.** `normal`, `additive`, `translucent`, or v2 `source-over` (AD-3). Source and target are straight-alpha RGBA. For `source-over`, let `a = floor(sourceAlpha × alpha / 255)`, `d = targetAlpha`, and `n = a × 255 + d × (255 − a)`. If `n` is zero, leave the target unchanged; otherwise the output alpha is `floor((n + 127) / 255)` and each output colour channel is `floor((source × a × 255 + target × d × (255 − a) + floor(n / 2)) / n)`. Thus a partially transparent destination is not treated as opaque. The normal mode still replaces, not composites. An enabled render-now overlay uses `source-over` so its straight-alpha ink covers the frame once.
+3. **Blend.** `normal`, `additive`, `translucent`, or v3 `source-over` (AD-3). Source and target are straight-alpha RGBA. For `source-over`, let `a = floor(sourceAlpha × alpha / 255)`, `d = targetAlpha`, and `n = a × 255 + d × (255 − a)`. If `n` is zero, leave the target unchanged; otherwise the output alpha is `floor((n + 127) / 255)` and each output colour channel is `floor((source × a × 255 + target × d × (255 − a) + floor(n / 2)) / n)`. Thus a partially transparent destination is not treated as opaque. The normal mode still replaces, not composites. An enabled render-now overlay uses `source-over` so its straight-alpha ink covers the frame once.
 
 The order is part of the agreement bound below: **colour-key exclusion is compared exactly**, so a runner that keys
 after the world tint fails the colour-key vectors.
@@ -469,9 +477,9 @@ build-output check rejects any path claimed by multiple host builds. The browser
 
 A runner proves itself by replaying vectors, not by sharing types. Two artefacts do that:
 
-- **the schema** — `packages/runner-harness/schema/runner-protocol-v1.schema.json`, one JSON Schema for every record
-  this page's boundary carries, with fixed keys and `null` for absence (AD-14). A non-TypeScript runner validates its
-  messages against it;
+- **the schemas** — `packages/runner-harness/schema/runner-protocol-v{1,2,3}.schema.json`, one strict, separately
+  identified JSON Schema per published version. V3 is current; v1 and v2 remain historical and unchanged. A
+  non-TypeScript runner selects and validates against the version it supports;
 - **the vector kit** — `tools/fixtures/runner-protocol/`, a generator with a `--check` mode on the
   `audio-protocol:check` pattern. It holds one record per kind across the three families — a draw list, an input record and
   a host request — each with the verdict a conforming schema must return, plus the refusals a runner must reject (an
@@ -479,7 +487,7 @@ A runner proves itself by replaying vectors, not by sharing types. Two artefacts
   replaying them.
 
 <a id="drift-check"></a>
-The historical v1 schema and vector kit remain fixed together; the active core input union also serves v2 and is wider. **`pnpm runner-protocol:check`** checks the historical contract without treating v2-only records as v1 changes. It runs, in this order, and reports every problem it finds:
+The historical v1 and v2 schemas, TypeScript frame types and vector kits remain fixed together; v3 is the current version. **`pnpm runner-protocol:check`** checks each independently, including v2 rejecting v3 and v3 rejecting missing or unsupported markers. For each contract it reports every problem it finds:
 
 1. **The kit is reproducible.** It regenerates the vectors and fails if the committed `vectors.json` differs.
 2. **The schema is well formed.** Every `$ref` resolves, every `$defs` entry is reachable from the three roots
