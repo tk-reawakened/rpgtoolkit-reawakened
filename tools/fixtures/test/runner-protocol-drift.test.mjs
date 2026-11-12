@@ -48,7 +48,7 @@ test("schema-only change widening a request enum is caught", async () => {
 
 test("TypeScript-only change to a nested enum is caught", async () => {
   ok(await run({
-    sources: { [drawPath]: (text) => text.replace('"normal" | "additive" | "translucent"', '"normal" | "additive" | "translucent" | "multiply"') },
+    sources: { [drawPath]: (text) => text.replace('export type Blend = BlendV1 | "source-over";', 'export type Blend = BlendV1 | "source-over" | "multiply";') },
     expect: 'TypeScript allows "multiply"',
   }));
 });
@@ -104,4 +104,39 @@ test("published ordering refusals catch removal of the schema ordering guard", a
   delete schema.$defs.hostGamepadsInput.properties.devices.oneOf;
   ok(await run({ schema, expect: "vector host-gamepads-order-descending: should be refused" }));
   ok(await run({ schema, expect: "vector host-gamepads-order-duplicate: should be refused" }));
+});
+
+test("v2 schema dropping source-over from the blit blend enum is caught", async () => {
+  const schema = loadSchema();
+  schema.$defs.blit.properties.blend.enum = schema.$defs.blit.properties.blend.enum.filter((blend) => blend !== "source-over");
+  ok(await run({ schema, expect: 'TypeScript allows "source-over"; the schema does not' }));
+  ok(await run({ schema, expect: "vector draw-blit-source-over: should be valid but" }));
+  ok(await run({ schema, expect: 'schema: v2 blit blend must allow "source-over"' }));
+});
+
+test("TypeScript dropping source-over from the active v2 blend is caught", async () => {
+  ok(await run({
+    sources: { [drawPath]: (text) => text.replace('export type Blend = BlendV1 | "source-over";', "export type Blend = BlendV1;") },
+    expect: 'the schema allows "source-over"; the TypeScript type does not',
+  }));
+});
+
+test("v2 active type check is not satisfied by the historical command union", async () => {
+  ok(await run({
+    sources: { [drawPath]: (text) => text.replace("  readonly commands: DrawCommand[];\n  readonly marginCommands: DrawCommand[];", "  readonly commands: DrawCommandV1[];\n  readonly marginCommands: DrawCommandV1[];") },
+    expect: 'the schema allows "source-over"; the TypeScript type does not',
+  }));
+});
+
+test("vector kit that stops exercising source-over is caught", async () => {
+  const kit = loadVectors();
+  kit.vectors = kit.vectors.filter((vector) => !(vector.valid && JSON.stringify(vector.record).includes('"source-over"')));
+  ok(await run({ vectors: kit, expect: 'vector kit covers blit blend "source-over" defined in the schema' }));
+});
+
+test("v2 refusal vectors catch a schema that accepts an unknown blend", async () => {
+  const schema = loadSchema();
+  schema.$defs.blit.properties.blend = { type: "string" };
+  ok(await run({ schema, expect: "vector refuse-blit-unknown-blend: should be refused" }));
+  ok(await run({ schema, expect: "vector refuse-blit-source-over-spelling: should be refused" }));
 });

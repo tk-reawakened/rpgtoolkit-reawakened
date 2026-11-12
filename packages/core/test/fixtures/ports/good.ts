@@ -226,6 +226,7 @@ export function checkBlendExhaustive(blend: Blend): void {
     case "normal":
     case "additive":
     case "translucent":
+    case "source-over":
       return;
     default: {
       const _exhaustiveCheck: never = blend;

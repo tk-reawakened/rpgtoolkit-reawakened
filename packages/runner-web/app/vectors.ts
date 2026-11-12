@@ -206,6 +206,23 @@ void (async () => {
     results.push(report(vector.id, actual, reference, vector.width, kitError));
   }
 
+  // Hand-calculated source-over checks: opaque RGB(12,30,50), white texels with alpha 0,81,128,255.
+  const coverageAsset = "test/source-over" as AssetKey;
+  const coverageTextures = new Map<AssetKey, TexturePixels>([[coverageAsset, { w: 4, h: 1, rgba: new Uint8Array([255,255,255,0, 255,255,255,81, 255,255,255,128, 255,255,255,255]) }]]);
+  for (const [opacity, expected] of [
+    [255, [12,30,50,255, 89,101,115,255, 134,143,153,255, 255,255,255,255]],
+    [128, [12,30,50,255, 50,65,82,255, 73,86,101,255, 134,143,153,255]],
+  ] as const) {
+    const commands = [
+      { kind: "fill", rgb: { r: 12, g: 30, b: 50 } },
+      { kind: "blit", source: { asset: coverageAsset, tile: null }, src: { x: 0, y: 0, w: 4, h: 1 }, dst: { x: 0, y: 0, w: 4, h: 1 }, key: null, tint: { r: 0, g: 0, b: 0 }, alpha: opacity, blend: "source-over", iso2d: false },
+    ];
+    const pixels = new Uint8Array(expected);
+    const { actual, reference } = replay(4, 1, commands, coverageTextures, new Map());
+    const kitError = hexFromBytes(reference) === hexFromBytes(pixels) ? null : "the reference disagrees with hand-calculated source-over pixels";
+    results.push(report(`source-over-${opacity}`, actual, pixels, 4, kitError));
+  }
+
   window.__vectors = results;
   window.document.title = `vectors: ${results.length} replayed`;
 })();

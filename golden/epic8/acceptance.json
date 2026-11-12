@@ -4,7 +4,7 @@
     {
       "id": "main-opened",
       "stateHash": "9f18cd4cfc4423ec",
-      "drawHash": "c7fb0219e7f9545b",
+      "drawHash": "85cfee1b109dcbc4",
       "events": [
         {
           "type": "itemAdded",
@@ -106,13 +106,13 @@
     {
       "id": "items-opened",
       "stateHash": "e2a1986f867b1e65",
-      "drawHash": "ef9e282ef04c23ff",
+      "drawHash": "a74c86edc6fac3c6",
       "events": []
     },
     {
       "id": "item-used",
       "stateHash": "19a7666c4461f621",
-      "drawHash": "6c3a78fea9e8350e",
+      "drawHash": "55adc814ab603763",
       "events": [
         {
           "type": "itemRemoved",
@@ -133,7 +133,7 @@
     {
       "id": "equip-opened",
       "stateHash": "b8c63a4efbe48a82",
-      "drawHash": "cc018ebd350b1683",
+      "drawHash": "17ec58fcccb9d890",
       "events": [
         {
           "type": "itemRemoved",
@@ -154,7 +154,7 @@
     {
       "id": "sword-equipped",
       "stateHash": "c65773eb1f5f7cf1",
-      "drawHash": "d21eecc6de19d256",
+      "drawHash": "46d934594acb5669",
       "events": [
         {
           "type": "itemRemoved",
@@ -175,7 +175,7 @@
     {
       "id": "sword-replaced",
       "stateHash": "4fa9b28fadcdb3f4",
-      "drawHash": "efc8c7d369c83b88",
+      "drawHash": "0e3c6d036cb7de37",
       "events": [
         {
           "type": "itemRemoved",
@@ -210,7 +210,7 @@
     {
       "id": "accessory-equipped",
       "stateHash": "c63ca958e0ff0256",
-      "drawHash": "ed03fba7fe4bab2f",
+      "drawHash": "c8f279ee59e6b2e8",
       "events": [
         {
           "type": "itemAdded",
@@ -245,7 +245,7 @@
     {
       "id": "equipment-removed",
       "stateHash": "bc76bcbf12a12f6c",
-      "drawHash": "a6ded9db71df1cce",
+      "drawHash": "004b69f1b0223efd",
       "events": [
         {
           "type": "itemAdded",
@@ -266,13 +266,13 @@
     {
       "id": "abilities-opened",
       "stateHash": "11bf5374febb7c72",
-      "drawHash": "0b09b66908311ac9",
+      "drawHash": "1e9eb5674d876a6e",
       "events": []
     },
     {
       "id": "ability-used",
       "stateHash": "495564220459fd35",
-      "drawHash": "fa96bc2d39d7e2b7",
+      "drawHash": "1c15fc40aed2e6ac",
       "events": []
     }
   ]

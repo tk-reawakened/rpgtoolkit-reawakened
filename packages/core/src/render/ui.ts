@@ -191,7 +191,7 @@ export function renderNowBlit(surfaces: SurfacesSection): DrawCommand | null {
     key: null,
     tint: { r: 0, g: 0, b: 0 },
     alpha: 255,
-    blend: "normal",
+    blend: "source-over",
     iso2d: false,
   };
 }

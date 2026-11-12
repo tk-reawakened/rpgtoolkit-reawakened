@@ -34,9 +34,9 @@ const FRAGMENT = `#version 300 es
 precision highp float; precision highp int;
 in vec2 vLocal; in float vCoverage; out vec4 outColor;
 uniform sampler2D uTex; uniform int uMode; uniform vec3 uColor; uniform vec3 uTint;
-uniform int uKeyOn; uniform vec3 uKey; uniform ivec2 uSrcOrigin; uniform ivec2 uSrcSize; uniform ivec2 uDstSize;
+uniform int uKeyOn; uniform vec3 uKey; uniform ivec2 uSrcOrigin; uniform ivec2 uSrcSize; uniform ivec2 uDstSize; uniform float uOpacity;
 void main(){
- if(uMode==0||uMode==2){ ivec2 at=ivec2(int(floor(vLocal.x*float(uDstSize.x)+0.0001)),int(floor(vLocal.y*float(uDstSize.y)+0.0001))); ivec2 t=uSrcOrigin+at*uSrcSize/uDstSize; vec4 s=texelFetch(uTex,t,0); if(s.a==0.0)discard; vec3 c=s.rgb*255.0; if(uKeyOn==1&&all(lessThan(abs(c-uKey),vec3(0.5))))discard; if(any(notEqual(uTint,vec3(0.0)))) c=vec3(c.r==255.0?245.0:(c.r==0.0?10.0:c.r),c.g==255.0?245.0:(c.g==0.0?10.0:c.g),c.b==255.0?245.0:(c.b==0.0?10.0:c.b)); outColor=vec4(clamp(c+uTint,0.0,255.0)/255.0,uMode==0?s.a:1.0); return; }
+ if(uMode==0||uMode==2||uMode==4){ ivec2 at=ivec2(int(floor(vLocal.x*float(uDstSize.x)+0.0001)),int(floor(vLocal.y*float(uDstSize.y)+0.0001))); ivec2 t=uSrcOrigin+at*uSrcSize/uDstSize; vec4 s=texelFetch(uTex,t,0); if(s.a==0.0)discard; vec3 c=s.rgb*255.0; if(uKeyOn==1&&all(lessThan(abs(c-uKey),vec3(0.5))))discard; if(any(notEqual(uTint,vec3(0.0)))) c=vec3(c.r==255.0?245.0:(c.r==0.0?10.0:c.r),c.g==255.0?245.0:(c.g==0.0?10.0:c.g),c.b==255.0?245.0:(c.b==0.0?10.0:c.b)); float a=uMode==0?s.a:(uMode==4?floor(floor(s.a*255.0+0.5)*uOpacity+0.0001)/255.0:1.0); outColor=vec4(clamp(c+uTint,0.0,255.0)/255.0,a); return; }
  if(uMode==3){outColor=vec4(uColor,vCoverage);return;} outColor=vec4(uColor,1.0);
 }`;
 const PRESENT_VERTEX = `#version 300 es
@@ -93,7 +93,7 @@ function marginBounds(list: DrawListV2, geometry: HostDisplayGeometry) {
 export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer {
   const replayProgram = makeProgram(gl, VERTEX, FRAGMENT); const presentProgram = makeProgram(gl, PRESENT_VERTEX, PRESENT_FRAGMENT);
   const loc = (name: string) => uniform(gl, replayProgram, name);
-  const replay = { rect: loc("uRect"), viewport: loc("uViewport"), instanced: loc("uInstanced"), mode: loc("uMode"), color: loc("uColor"), tint: loc("uTint"), keyOn: loc("uKeyOn"), key: loc("uKey"), srcOrigin: loc("uSrcOrigin"), srcSize: loc("uSrcSize"), dstSize: loc("uDstSize"), tex: loc("uTex") };
+  const replay = { rect: loc("uRect"), viewport: loc("uViewport"), instanced: loc("uInstanced"), mode: loc("uMode"), color: loc("uColor"), tint: loc("uTint"), keyOn: loc("uKeyOn"), key: loc("uKey"), srcOrigin: loc("uSrcOrigin"), srcSize: loc("uSrcSize"), dstSize: loc("uDstSize"), tex: loc("uTex"), opacity: loc("uOpacity") };
   const present = { game: uniform(gl, presentProgram, "uGamePlane"), margin: uniform(gl, presentProgram, "uMarginPlane"), content: uniform(gl, presentProgram, "uContent"), gameRect: uniform(gl, presentProgram, "uGame"), safe: uniform(gl, presentProgram, "uSafe"), logical: uniform(gl, presentProgram, "uLogical"), bounds: uniform(gl, presentProgram, "uBounds"), marginSize: uniform(gl, presentProgram, "uMarginSize") };
   const quad = gl.createBuffer(); const pointBuffer = gl.createBuffer();
   if (quad === null || pointBuffer === null) throw new Error("render-webgl2: could not create geometry buffers");
@@ -154,7 +154,7 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
           else {const {surface,rev}=command.source;key=`surface:${surface}:${rev}`;const cacheKey=`${surface}:${rev}`;if(!surfacePixels.has(cacheKey))surfacePixels.set(cacheKey,options.surfaces?.(surface,rev)??null);pixels=surfacePixels.get(cacheKey)??null;}
           if(pixels===null){const reason="asset" in command.source?`webgl2.missing-texture: ${command.source.asset}`:options.surfaces===undefined?"webgl2.no-source: a surface blit with no surface provider":`webgl2.missing-texture: surface ${String(command.source.surface)}`;defer("blit",reason);deferred++;break;}
           if("surface" in command.source) usedSurfaceUploads.add(key);
-          const source=upload(key,pixels);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,source.texture);gl.uniform3f(replay.tint,command.tint.r,command.tint.g,command.tint.b);if(command.key===null)gl.uniform1i(replay.keyOn,0);else{gl.uniform1i(replay.keyOn,1);gl.uniform3f(replay.key,command.key.r,command.key.g,command.key.b);}gl.uniform1i(replay.mode,command.blend==="normal"?0:2);blend(command.blend,command.alpha/255);
+          const source=upload(key,pixels);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,source.texture);gl.uniform3f(replay.tint,command.tint.r,command.tint.g,command.tint.b);if(command.key===null)gl.uniform1i(replay.keyOn,0);else{gl.uniform1i(replay.keyOn,1);gl.uniform3f(replay.key,command.key.r,command.key.g,command.key.b);}gl.uniform1f(replay.opacity,command.alpha/255);gl.uniform1i(replay.mode,command.blend==="normal"?0:command.blend==="source-over"?4:2);blend(command.blend==="source-over"?"coverage":command.blend,command.alpha/255);
           if(!command.iso2d){drawQuad(offsetRect(command.dst),{x:originX,y:originY,w:command.src.w,h:command.src.h});drawn++;break;}
           let count=0;for(let y=0;y<command.dst.h;y++)for(let x=0;x<command.dst.w;x++){const unitOffset=isoSourceOffset(x,y);if(unitOffset===null)continue;gl.uniform2i(replay.srcOrigin,originX+Math.floor(unitOffset[0]*command.src.w/32),originY+Math.floor(unitOffset[1]*command.src.h/32));gl.uniform2i(replay.srcSize,1,1);gl.uniform2i(replay.dstSize,1,1);gl.uniform4f(replay.rect,command.dst.x+offset.x+x,command.dst.y+offset.y+y,1,1);gl.drawArrays(gl.TRIANGLES,0,6);count++;}if(count)drawn++;else{defer("blit","webgl2.iso-empty: the .iso diamond covers no destination pixel");deferred++;}break;
         }

@@ -335,11 +335,16 @@ test("triuken text metrics delegate only the core forms and keep the extended fo
     };
     equal(command.params[1]?.byRef, true, `${name}'s second parameter may carry the core output reference`);
     equal(call([{ value: "ab", ref: null }]).delegated, true, "one argument is the core form");
-    equal(call([{ value: "ab", ref: null }, { value: 5, ref: asRef("local:out") }]).delegated, true, "a numeric variable is the core output reference");
-    equal(call([{ value: "ab", ref: null }, { value: "", ref: asRef("local:out") }]).delegated, true, "an empty-string variable is not a font name");
+    for (const held of [5, "", "previous text", "Arial"] as const) {
+      const out = call([{ value: "ab", ref: null }, { value: held, ref: asRef("local:out") }]);
+      equal(out.delegated, true, `a variable second argument is the core output reference whatever it holds (${JSON.stringify(held)})`);
+      deepEqual(out.result.out, [[1, 7]]);
+    }
     equal(call([{ value: "ab", ref: null }, { value: "Arial", ref: null }]).delegated, false, "a literal font name is the Triuken form");
     equal(call([{ value: "ab", ref: null }, { value: 5, ref: null }]).delegated, false, "a literal second argument is never an output reference");
-    equal(call([{ value: "ab", ref: null }, { value: "Arial", ref: asRef("local:font") }]).delegated, false, "a variable holding a font name is the Triuken form");
+    const variableFont = call([{ value: "ab", ref: null }, { value: "Arial", ref: asRef("local:font") }, { value: 12, ref: null }]);
+    equal(variableFont.delegated, false, "a variable font with an explicit size is the Triuken form");
+    deepEqual(variableFont.result.out, [], "the font variable is read, never written");
     equal(call([{ value: "ab", ref: null }, { value: "Arial", ref: null }, { value: 12, ref: null }]).delegated, false);
     const extended = call([{ value: "ab", ref: null }, { value: "Arial", ref: null }, { value: 12, ref: null }, { value: 0, ref: asRef("local:dest") }]);
     equal(extended.delegated, false);

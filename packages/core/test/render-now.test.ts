@@ -231,6 +231,32 @@ test("TrueType canvas text preserves bearings and descenders when composited and
   ok(Array.from({ length: 64 }, (_, x) => pixel(actual, x, 27)[0] ?? 0).some((channel) => channel > 12), "the descenders extend below the 20px cell");
 });
 
+test("render-now overlay composites antialiased project text over the opaque board", () => {
+  const sans = new Uint8Array(readFileSync(join(here, "..", "..", "..", "media", "fonts", "LiberationSans-Regular.ttf")));
+  const extra = { "Font/Test.ttf": sans };
+  const face = 'font("Test")\nfontsize(20)\ncolorrgb(255,255,255)\n';
+  const direct = boot(`${face}pixeltext(5,5,"jgy")\nwait()\n`, extra).frame();
+  const overlay = boot(`${face}rendernow(1)\nc=cnvrendernow\npixeltext(5,5,"jgy",c)\nend()\n`, extra);
+  const frame = overlay.frame();
+  const canvas = overlay.state().surfaces.renderNow;
+  if (canvas == null) throw new Error("render-now canvas missing");
+  const entry = overlay.state().surfaces.entries[String(canvas)]!;
+  const canvasFrame = readSurfacePixels(overlay.state().surfaces, canvas, entry.rev);
+  if (canvasFrame === null) throw new Error("render-now canvas unreadable");
+  let partial = 0;
+  for (let y = 0; y < SIZE; y += 1) for (let x = 0; x < SIZE; x += 1) {
+    const source = pixel(canvasFrame, x, y);
+    const alpha = source[3] ?? 0;
+    if (alpha > 0 && alpha < 255) {
+      partial += 1;
+      const shown = pixel(frame, x, y);
+      deepEqual(shown, [alpha, alpha, alpha, 255], `overlay coverage over opaque black at ${x},${y}`);
+      deepEqual(shown.slice(0, 3), pixel(direct, x, y).slice(0, 3), `screen and overlay text colours agree at ${x},${y}`);
+    }
+  }
+  ok(partial > 50, "the test exercised antialiased edge pixels");
+});
+
 test("repeated canvas text commands reuse the decoded project font", () => {
   const sans = new Uint8Array(readFileSync(join(here, "..", "..", "..", "media", "fonts", "LiberationSans-Regular.ttf")));
   const originalSlice = Uint8Array.prototype.slice;

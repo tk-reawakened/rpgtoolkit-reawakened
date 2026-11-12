@@ -201,11 +201,19 @@ test("gettextwidth and gettextheight keep the core output reference beside Triuk
   const program = [
     'font("Arial")',
     'direct = gettextwidth("iiii")',
+    'direct5 = gettextwidth("12345")',
     'directheight = gettextheight("iiii")',
     "outw = 999", 'w = gettextwidth("iiii", outw)',
     "outh = 999", 'h = gettextheight("iiii", outh)',
     'literal = gettextwidth("12345", "Arial")',
-    'fontname = "Arial"', 'named = gettextwidth("12345", fontname)',
+    'prev = "previous text"', 'pw = gettextwidth("iiii", prev)',
+    'prevh = "previous text"', 'ph = gettextheight("iiii", prevh)',
+    'emptyw = ""', 'ew = gettextwidth("iiii", emptyw)',
+    'fontname = "Arial"', 'ambiguous = gettextwidth("12345", fontname)',
+    'fontname2 = "Arial"', 'named = gettextwidth("12345", fontname2, 12)',
+    'fontnameexpr = "Arial"', 'expr = gettextwidth("12345", fontnameexpr + "")',
+    'fontheight = "Arial"', 'namedheight = gettextheight("iiii", fontheight, 12)',
+    'fontname3 = "Arial"', 'fontout = 999', 'namedout = gettextwidth("12345", fontname3, 12, fontout)',
     'sized = gettextwidth("12345", "Arial", 12)',
     'sizedout = 999', 'gettextwidth("12345", "Arial", 12, sizedout)',
     "wait()", "end()", "",
@@ -219,7 +227,25 @@ test("gettextwidth and gettextheight keep the core output reference beside Triuk
   equal(globals.outh, globals.directheight, "the output reference receives the current-face height");
   equal(globals.h, globals.directheight);
   equal(globals.literal, 40, "a literal second argument is still Triuken's explicit font");
-  equal(globals.named, 40, "a variable holding a font name is still Triuken's explicit font");
+  equal(globals.pw, globals.direct, "a destination that already holds text still receives the current-face width");
+  equal(globals.prev, globals.direct, "the previous text is replaced, not read as a font name");
+  equal(globals.ph, globals.directheight);
+  equal(globals.prevh, globals.directheight);
+  equal(globals.ew, globals.direct);
+  equal(globals.emptyw, globals.direct);
+  equal(globals.ambiguous, globals.fontname, "a variable second argument is the output reference even when it holds a font name");
+  equal(globals.fontname, globals.direct5, "the overwritten variable holds the current-face width of the measured text");
+  equal(globals.direct5 !== 40, true, "the current face is not the Triuken eight-pixel cell");
+  equal(typeof globals.fontname, "number", "the stored font name was overwritten by the metric");
+  equal(globals.named, 40, "a variable font with an explicit size is Triuken's extended form");
+  equal(globals.fontname2, "Arial", "the extended form reads its font variable without writing it");
+  equal(globals.expr, 40, "a non-reference font expression keeps the explicit-font form");
+  equal(globals.fontnameexpr, "Arial", "the expression does not overwrite its variable");
+  equal(globals.namedheight, 16, "height supports a variable font in the three-argument form");
+  equal(globals.fontheight, "Arial");
+  equal(globals.namedout, 40);
+  equal(globals.fontname3, "Arial");
+  equal(globals.fontout, 40, "the fourth argument receives the Triuken width");
   equal(globals.sized, 40);
   equal(globals.sizedout, 40, "the fourth argument stays the Triuken output reference");
 });

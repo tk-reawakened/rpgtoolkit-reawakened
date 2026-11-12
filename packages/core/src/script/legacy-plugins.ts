@@ -566,15 +566,14 @@ function byRefOut(args: readonly Arg[], index: number, value: Value): readonly (
 }
 
 /**
- * `gettextwidth(text, out)` / `gettextheight(text, out)` with a variable second argument is the core optional output
- * reference, not Triuken's explicit font: a font name is a non-empty string, so a variable that holds anything else
- * (a number, or an empty string) can only be the destination. Calls with a literal second argument, a variable holding
- * a font name, or three or more arguments keep the extended Triuken forms.
+ * `gettextwidth(text, out)` / `gettextheight(text, out)`: the second argument is the core optional output reference
+ * when it is a variable, and Triuken's explicit font when it is not. The decision uses only whether the argument is a
+ * variable reference, never the value the variable holds: a stored string cannot distinguish a font name from the
+ * result of an earlier call. A variable holding a font name is passed to Triuken with an explicit size (three or more
+ * arguments) or as a literal. Docs: rpgcode-functions.md, E-56 text metrics.
  */
 function isCoreOutputForm(args: readonly Arg[]): boolean {
-  if (args.length !== 2 || args[1]?.ref === null || args[1]?.ref === undefined) return false;
-  const value = args[1].value;
-  return !(typeof value === "string" && value.trim() !== "");
+  return args.length === 2 && args[1]?.ref !== null && args[1]?.ref !== undefined;
 }
 
 /**

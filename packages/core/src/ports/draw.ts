@@ -45,8 +45,11 @@ export type Rect = {
   readonly h: number;
 };
 
-/** A `blit` blend mode (AD-3). */
-export type Blend = "normal" | "additive" | "translucent";
+/** The `blit` blend modes of historical protocol v1 (AD-3). */
+export type BlendV1 = "normal" | "additive" | "translucent";
+
+/** A `blit` blend mode: the v1 modes plus v2 straight-alpha `source-over` (AD-3). */
+export type Blend = BlendV1 | "source-over";
 
 /**
  * A texture: a canonical asset key plus a 1-based tile index, or `null` when
@@ -101,6 +104,19 @@ export type BlitCommand = {
   readonly tint: Tint;
   readonly alpha: number;
   readonly blend: Blend;
+  readonly iso2d: boolean;
+};
+
+/** The protocol-v1 `blit`: identical to {@link BlitCommand} except it cannot carry `source-over`. */
+export type BlitCommandV1 = {
+  readonly kind: "blit";
+  readonly source: BlitSource;
+  readonly src: Rect;
+  readonly dst: Rect;
+  readonly key: Rgb | null;
+  readonly tint: Tint;
+  readonly alpha: number;
+  readonly blend: BlendV1;
   readonly iso2d: boolean;
 };
 
@@ -173,12 +189,23 @@ export type DrawCommand =
   | PushTargetCommand
   | PopTargetCommand;
 
+/** The protocol-v1 command union, retained for the immutable v1 schema and vectors. */
+export type DrawCommandV1 =
+  | BlitCommandV1
+  | FillCommand
+  | LineCommand
+  | RectCommand
+  | EllipseCommand
+  | TextCommand
+  | PushTargetCommand
+  | PopTargetCommand;
+
 /** Strict protocol-v1 frame, retained for its immutable schema and vectors. */
 export type DrawListV1 = {
   readonly tick: number;
   readonly width: number;
   readonly height: number;
-  readonly commands: DrawCommand[];
+  readonly commands: DrawCommandV1[];
 };
 
 /** Strict protocol-v2 frame with a separate author-owned Plane 3 command layer. */

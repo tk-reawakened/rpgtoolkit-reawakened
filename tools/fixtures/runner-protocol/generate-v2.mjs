@@ -20,6 +20,17 @@ const vectorsPath = join(here, "vectors-v2.json");
 const command = { kind: "fill", rgb: { r: 10, g: 20, b: 30 } };
 const hashInput = { tick: 12, width: 640, height: 480, commands: [], marginCommands: [] };
 const hashWithMargin = { ...hashInput, marginCommands: [command] };
+const blit = (blend, alpha = 128) => ({
+  kind: "blit",
+  source: { asset: "ui/overlay.bmp", tile: null },
+  src: { x: 0, y: 0, w: 2, h: 2 },
+  dst: { x: 4, y: 6, w: 2, h: 2 },
+  key: null,
+  tint: { r: 0, g: 0, b: 0 },
+  alpha,
+  blend,
+  iso2d: false,
+});
 
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -45,6 +56,7 @@ function createSchema() {
   schema.description = `${schema.description} V2 DrawList records require both ordered command planes.`;
   schema.$defs.drawList.required = ["tick", "width", "height", "commands", "marginCommands"];
   schema.$defs.drawList.properties.marginCommands = { type: "array", items: { $ref: "#/$defs/drawCommand" } };
+  schema.$defs.blit.properties.blend.enum.push("source-over");
   schema.$defs.gamepadInput.properties.buttons.maximum = 131071;
   schema.$defs.gamepadInput.properties.device.maximum = 3;
   schema.$defs.gamepadInput.properties.axes.properties.x = { type: "integer", minimum: -1000, maximum: 1000 };
@@ -141,6 +153,11 @@ function createVectors() {
     { id: "draw-nonempty-margin-plane", family: "draw", valid: true, record: { tick: 12, width: 640, height: 480, commands: [], marginCommands: [command] } },
     { id: "refuse-draw-missing-margin-plane", family: "draw", valid: false, why: "v2 requires marginCommands, even when empty", record: { tick: 12, width: 640, height: 480, commands: [] } },
     { id: "refuse-draw-v1-extra-key", family: "draw", valid: false, why: "v2 rejects unknown keys", record: { tick: 12, width: 640, height: 480, commands: [], marginCommands: [], legacy: true } },
+    { id: "draw-blit-source-over", family: "draw", valid: true, record: { tick: 12, width: 640, height: 480, commands: [blit("source-over")], marginCommands: [] } },
+    { id: "draw-margin-blit-source-over", family: "draw", valid: true, record: { tick: 12, width: 640, height: 480, commands: [], marginCommands: [blit("source-over", 255)] } },
+    { id: "draw-blit-additive", family: "draw", valid: true, record: { tick: 12, width: 640, height: 480, commands: [blit("additive")], marginCommands: [] } },
+    { id: "refuse-blit-unknown-blend", family: "draw", valid: false, why: "v2 blend is exactly normal, additive, translucent or source-over", record: { tick: 12, width: 640, height: 480, commands: [blit("multiply")], marginCommands: [] } },
+    { id: "refuse-blit-source-over-spelling", family: "draw", valid: false, why: "the v2 blend literal is source-over, hyphenated and lower-case", record: { tick: 12, width: 640, height: 480, commands: [blit("source_over")], marginCommands: [] } },
     { id: "input-fallback-action-down", family: "input", valid: true, record: { tick: 8, event: { kind: "action", action: "confirm", down: true, source: "runner.fallback", modalId: null } } },
     { id: "input-modal-scoped-confirm", family: "input", valid: true, record: { tick: 8, event: { kind: "action", action: "confirm", down: true, source: "runner.fallback", modalId: 3 } } },
     { id: "refuse-modal-scoped-game-action", family: "input", valid: false, why: "modal-scoped actions may only confirm or cancel", record: { tick: 8, event: { kind: "action", action: "game.fireball", down: true, source: "runner.fallback", modalId: 3 } } },
@@ -268,11 +285,20 @@ export async function check({ schema: schemaOverride, committedSchema, vectors: 
       if (!covered.has(kind)) problems.push(`vector kit covers ${family} kind "${kind}" defined in the schema`);
     }
   }
+  // Every blend the active schema lists is exercised by a valid blit in either plane, and v2 lists source-over.
+  const blends = schema.$defs.blit?.properties?.blend?.enum ?? [];
+  if (!blends.includes("source-over")) problems.push('schema: v2 blit blend must allow "source-over"');
+  const usedBlends = new Set(vectors.vectors.filter((vector) => vector.family === "draw" && vector.valid)
+    .flatMap((vector) => [...vector.record.commands, ...vector.record.marginCommands])
+    .filter((draw) => draw.kind === "blit").map((draw) => draw.blend));
+  for (const blend of blends) {
+    if (!usedBlends.has(blend)) problems.push(`vector kit covers blit blend "${blend}" defined in the schema`);
+  }
   for (const row of vectors.hashDrawList) {
     if (row.id === "draw-margin-only-change" && row.hashA === row.hashB) problems.push("draw-margin-only-change: marginCommands must affect the draw hash");
   }
   const { typeProblems } = await import("./types.mjs");
-  problems.push(...typeProblems(schema, { sources, inputAlias: "InputRecord" }));
+  problems.push(...typeProblems(schema, { sources, drawAlias: "DrawList", inputAlias: "InputRecord" }));
   return problems;
 }
 

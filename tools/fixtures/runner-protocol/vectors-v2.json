@@ -3,11 +3,11 @@
   "protocol": "runner-protocol-v2",
   "note": "V2 is the strict two-plane runner contract: every DrawList is {tick,width,height,commands,marginCommands}; both ordered arrays are required, use AD-3 commands, and participate in the draw hash. The v1 schema and vectors remain unchanged. Validate against packages/runner-harness/schema/runner-protocol-v2.schema.json.",
   "counts": {
-    "draw": 16,
+    "draw": 21,
     "input": 69,
     "request": 13,
-    "valid": 50,
-    "invalid": 48
+    "valid": 53,
+    "invalid": 50
   },
   "vectors": [
     {
@@ -937,6 +937,213 @@
         "commands": [],
         "marginCommands": [],
         "legacy": true
+      }
+    },
+    {
+      "id": "draw-blit-source-over",
+      "family": "draw",
+      "valid": true,
+      "record": {
+        "tick": 12,
+        "width": 640,
+        "height": 480,
+        "commands": [
+          {
+            "kind": "blit",
+            "source": {
+              "asset": "ui/overlay.bmp",
+              "tile": null
+            },
+            "src": {
+              "x": 0,
+              "y": 0,
+              "w": 2,
+              "h": 2
+            },
+            "dst": {
+              "x": 4,
+              "y": 6,
+              "w": 2,
+              "h": 2
+            },
+            "key": null,
+            "tint": {
+              "r": 0,
+              "g": 0,
+              "b": 0
+            },
+            "alpha": 128,
+            "blend": "source-over",
+            "iso2d": false
+          }
+        ],
+        "marginCommands": []
+      }
+    },
+    {
+      "id": "draw-margin-blit-source-over",
+      "family": "draw",
+      "valid": true,
+      "record": {
+        "tick": 12,
+        "width": 640,
+        "height": 480,
+        "commands": [],
+        "marginCommands": [
+          {
+            "kind": "blit",
+            "source": {
+              "asset": "ui/overlay.bmp",
+              "tile": null
+            },
+            "src": {
+              "x": 0,
+              "y": 0,
+              "w": 2,
+              "h": 2
+            },
+            "dst": {
+              "x": 4,
+              "y": 6,
+              "w": 2,
+              "h": 2
+            },
+            "key": null,
+            "tint": {
+              "r": 0,
+              "g": 0,
+              "b": 0
+            },
+            "alpha": 255,
+            "blend": "source-over",
+            "iso2d": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "draw-blit-additive",
+      "family": "draw",
+      "valid": true,
+      "record": {
+        "tick": 12,
+        "width": 640,
+        "height": 480,
+        "commands": [
+          {
+            "kind": "blit",
+            "source": {
+              "asset": "ui/overlay.bmp",
+              "tile": null
+            },
+            "src": {
+              "x": 0,
+              "y": 0,
+              "w": 2,
+              "h": 2
+            },
+            "dst": {
+              "x": 4,
+              "y": 6,
+              "w": 2,
+              "h": 2
+            },
+            "key": null,
+            "tint": {
+              "r": 0,
+              "g": 0,
+              "b": 0
+            },
+            "alpha": 128,
+            "blend": "additive",
+            "iso2d": false
+          }
+        ],
+        "marginCommands": []
+      }
+    },
+    {
+      "id": "refuse-blit-unknown-blend",
+      "family": "draw",
+      "valid": false,
+      "why": "v2 blend is exactly normal, additive, translucent or source-over",
+      "record": {
+        "tick": 12,
+        "width": 640,
+        "height": 480,
+        "commands": [
+          {
+            "kind": "blit",
+            "source": {
+              "asset": "ui/overlay.bmp",
+              "tile": null
+            },
+            "src": {
+              "x": 0,
+              "y": 0,
+              "w": 2,
+              "h": 2
+            },
+            "dst": {
+              "x": 4,
+              "y": 6,
+              "w": 2,
+              "h": 2
+            },
+            "key": null,
+            "tint": {
+              "r": 0,
+              "g": 0,
+              "b": 0
+            },
+            "alpha": 128,
+            "blend": "multiply",
+            "iso2d": false
+          }
+        ],
+        "marginCommands": []
+      }
+    },
+    {
+      "id": "refuse-blit-source-over-spelling",
+      "family": "draw",
+      "valid": false,
+      "why": "the v2 blend literal is source-over, hyphenated and lower-case",
+      "record": {
+        "tick": 12,
+        "width": 640,
+        "height": 480,
+        "commands": [
+          {
+            "kind": "blit",
+            "source": {
+              "asset": "ui/overlay.bmp",
+              "tile": null
+            },
+            "src": {
+              "x": 0,
+              "y": 0,
+              "w": 2,
+              "h": 2
+            },
+            "dst": {
+              "x": 4,
+              "y": 6,
+              "w": 2,
+              "h": 2
+            },
+            "key": null,
+            "tint": {
+              "r": 0,
+              "g": 0,
+              "b": 0
+            },
+            "alpha": 128,
+            "blend": "source_over",
+            "iso2d": false
+          }
+        ],
+        "marginCommands": []
       }
     },
     {

@@ -118,6 +118,15 @@ function blend(
   const g = tintChannel(sg, tint.g, tinted);
   const b = tintChannel(sb, tint.b, tinted);
   const alpha = Math.max(0, Math.min(255, command.alpha));
+  if (command.blend === "source-over") {
+    const effective = Math.floor(sa * alpha / 255);
+    const inverse = 255 - effective;
+    target.rgba[at] = Math.floor((r * effective + (target.rgba[at] ?? 0) * inverse + 127) / 255);
+    target.rgba[at + 1] = Math.floor((g * effective + (target.rgba[at + 1] ?? 0) * inverse + 127) / 255);
+    target.rgba[at + 2] = Math.floor((b * effective + (target.rgba[at + 2] ?? 0) * inverse + 127) / 255);
+    target.rgba[at + 3] = effective + Math.floor(((target.rgba[at + 3] ?? 0) * inverse + 127) / 255);
+    return;
+  }
   if (blendTarget === "screen") {
     const effective = Math.trunc(sa * alpha / 255);
     const dr = target.rgba[at] ?? 0;
