@@ -220,6 +220,13 @@ function arityOf(entry: ReturnType<typeof commandDocumentation>[number]): { read
     max: variadic ? Number.POSITIVE_INFINITY : entry.params.length,
   };
 }
+// TOOL-5 names exist only when the spec runner loads its test package.
+const SPEC_NAMES: Readonly<Record<string, true>> = {
+  describe: true, it: true, test: true, beforeeach: true, aftereach: true, beforeall: true, afterall: true,
+  expect: true, skip: true, only: true, tobe: true, toequal: true, tobetruthy: true, tobenull: true,
+  tocontain: true, tobecloseto: true, tothrow: true,
+};
+
 
 function rulesFor(program: IndexProgram, catalogue: Catalogue, resolveIncludes: boolean): Diagnostic[] {
   const found: Diagnostic[] = [];
@@ -245,7 +252,8 @@ function rulesFor(program: IndexProgram, catalogue: Catalogue, resolveIncludes: 
   for (const call of program.calls) {
     if (call.file !== null) continue;
     const name = foldAscii(call.name);
-    if (declared.has(name) || catalogue.byName.has(name) || callableVariables.has(name)) continue;
+    if (declared.has(name) || catalogue.byName.has(name) || callableVariables.has(name) ||
+        (foldAscii(program.name).endsWith(".spec.prg") && Object.hasOwn(SPEC_NAMES, name))) continue;
     // A bare identifier statement lowers to a zero-argument call; a missing name is
     // the only fact the index has, so the rule states exactly that.
     found.push(diagnostic(unknown, unknown.defaultSeverity, call.pos, `\`${call.written ?? call.name}\` is not a script function, class, label or registered command`));

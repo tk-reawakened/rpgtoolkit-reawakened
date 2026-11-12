@@ -239,6 +239,518 @@
               {
                 "arity": 1,
                 "file": null,
+                "name": "beforeeach",
+                "pos": {
+                  "col": 1,
+                  "endCol": 10,
+                  "file": "<inline>",
+                  "line": 1
+                },
+                "written": "beforeEach"
+              },
+              {
+                "arity": 2,
+                "file": null,
+                "name": "describe",
+                "pos": {
+                  "col": 1,
+                  "endCol": 8,
+                  "file": "<inline>",
+                  "line": 3
+                },
+                "written": "describe"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "executeprogram",
+                "pos": {
+                  "col": 20,
+                  "endCol": 33,
+                  "file": "<inline>",
+                  "line": 1
+                },
+                "written": "executeprogram"
+              },
+              {
+                "arity": 2,
+                "file": null,
+                "name": "it",
+                "pos": {
+                  "col": 5,
+                  "endCol": 6,
+                  "file": "<inline>",
+                  "line": 4
+                },
+                "written": "it"
+              },
+              {
+                "arity": 2,
+                "file": null,
+                "name": "it",
+                "pos": {
+                  "col": 5,
+                  "endCol": 6,
+                  "file": "<inline>",
+                  "line": 10
+                },
+                "written": "it"
+              },
+              {
+                "arity": 2,
+                "file": null,
+                "name": "it",
+                "pos": {
+                  "col": 5,
+                  "endCol": 6,
+                  "file": "<inline>",
+                  "line": 16
+                },
+                "written": "it"
+              },
+              {
+                "arity": 0,
+                "file": "stockbattle",
+                "name": "refreshpendingoutcome",
+                "pos": {
+                  "col": 9,
+                  "endCol": 19,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "written": "stockBattle"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 9,
+                  "endCol": 14,
+                  "file": "<inline>",
+                  "line": 8
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 44,
+                  "endCol": 47,
+                  "file": "<inline>",
+                  "line": 8
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 0,
+                "file": "stockbattle",
+                "name": "refreshpendingoutcome",
+                "pos": {
+                  "col": 9,
+                  "endCol": 19,
+                  "file": "<inline>",
+                  "line": 13
+                },
+                "written": "stockBattle"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 9,
+                  "endCol": 14,
+                  "file": "<inline>",
+                  "line": 14
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 44,
+                  "endCol": 47,
+                  "file": "<inline>",
+                  "line": 14
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 0,
+                "file": "stockbattle",
+                "name": "refreshpendingoutcome",
+                "pos": {
+                  "col": 9,
+                  "endCol": 19,
+                  "file": "<inline>",
+                  "line": 19
+                },
+                "written": "stockBattle"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 9,
+                  "endCol": 14,
+                  "file": "<inline>",
+                  "line": 20
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 44,
+                  "endCol": 47,
+                  "file": "<inline>",
+                  "line": 20
+                },
+                "written": "toBe"
+              }
+            ],
+            "classes": [],
+            "diagnostics": [],
+            "files": [
+              "<inline>"
+            ],
+            "functions": [],
+            "includes": [
+              {
+                "col": 9,
+                "endCol": 19,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 7,
+                "path": "stockbattle.prg"
+              },
+              {
+                "col": 9,
+                "endCol": 19,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 13,
+                "path": "stockbattle.prg"
+              },
+              {
+                "col": 9,
+                "endCol": 19,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 19,
+                "path": "stockbattle.prg"
+              }
+            ],
+            "key": "<inline>",
+            "labels": [],
+            "listeners": [],
+            "name": "stock/stock_battle/battle.spec.prg",
+            "parameters": [],
+            "references": [
+              {
+                "kind": "read",
+                "name": "stockbattle",
+                "pos": {
+                  "col": 9,
+                  "endCol": 19,
+                  "file": "<inline>",
+                  "line": 5
+                },
+                "scope": null,
+                "written": "stockBattle"
+              },
+              {
+                "kind": "member",
+                "name": "fightercounts",
+                "pos": {
+                  "col": 21,
+                  "endCol": 33,
+                  "file": "<inline>",
+                  "line": 5
+                },
+                "scope": null,
+                "written": "fighterCounts"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 35,
+                  "endCol": 35,
+                  "file": "<inline>",
+                  "line": 5
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "stockbattle",
+                "pos": {
+                  "col": 9,
+                  "endCol": 19,
+                  "file": "<inline>",
+                  "line": 6
+                },
+                "scope": null,
+                "written": "stockBattle"
+              },
+              {
+                "kind": "member",
+                "name": "livingcounts",
+                "pos": {
+                  "col": 21,
+                  "endCol": 32,
+                  "file": "<inline>",
+                  "line": 6
+                },
+                "scope": null,
+                "written": "livingCounts"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 34,
+                  "endCol": 34,
+                  "file": "<inline>",
+                  "line": 6
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "stockbattle",
+                "pos": {
+                  "col": 16,
+                  "endCol": 26,
+                  "file": "<inline>",
+                  "line": 8
+                },
+                "scope": null,
+                "written": "stockBattle"
+              },
+              {
+                "kind": "member",
+                "name": "pendingoutcome",
+                "pos": {
+                  "col": 28,
+                  "endCol": 41,
+                  "file": "<inline>",
+                  "line": 8
+                },
+                "scope": null,
+                "written": "pendingOutcome"
+              },
+              {
+                "kind": "read",
+                "name": "stockbattle",
+                "pos": {
+                  "col": 9,
+                  "endCol": 19,
+                  "file": "<inline>",
+                  "line": 11
+                },
+                "scope": null,
+                "written": "stockBattle"
+              },
+              {
+                "kind": "member",
+                "name": "fightercounts",
+                "pos": {
+                  "col": 21,
+                  "endCol": 33,
+                  "file": "<inline>",
+                  "line": 11
+                },
+                "scope": null,
+                "written": "fighterCounts"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 35,
+                  "endCol": 35,
+                  "file": "<inline>",
+                  "line": 11
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "stockbattle",
+                "pos": {
+                  "col": 9,
+                  "endCol": 19,
+                  "file": "<inline>",
+                  "line": 12
+                },
+                "scope": null,
+                "written": "stockBattle"
+              },
+              {
+                "kind": "member",
+                "name": "livingcounts",
+                "pos": {
+                  "col": 21,
+                  "endCol": 32,
+                  "file": "<inline>",
+                  "line": 12
+                },
+                "scope": null,
+                "written": "livingCounts"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 34,
+                  "endCol": 34,
+                  "file": "<inline>",
+                  "line": 12
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "stockbattle",
+                "pos": {
+                  "col": 16,
+                  "endCol": 26,
+                  "file": "<inline>",
+                  "line": 14
+                },
+                "scope": null,
+                "written": "stockBattle"
+              },
+              {
+                "kind": "member",
+                "name": "pendingoutcome",
+                "pos": {
+                  "col": 28,
+                  "endCol": 41,
+                  "file": "<inline>",
+                  "line": 14
+                },
+                "scope": null,
+                "written": "pendingOutcome"
+              },
+              {
+                "kind": "read",
+                "name": "stockbattle",
+                "pos": {
+                  "col": 9,
+                  "endCol": 19,
+                  "file": "<inline>",
+                  "line": 17
+                },
+                "scope": null,
+                "written": "stockBattle"
+              },
+              {
+                "kind": "member",
+                "name": "fightercounts",
+                "pos": {
+                  "col": 21,
+                  "endCol": 33,
+                  "file": "<inline>",
+                  "line": 17
+                },
+                "scope": null,
+                "written": "fighterCounts"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 35,
+                  "endCol": 35,
+                  "file": "<inline>",
+                  "line": 17
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "stockbattle",
+                "pos": {
+                  "col": 9,
+                  "endCol": 19,
+                  "file": "<inline>",
+                  "line": 18
+                },
+                "scope": null,
+                "written": "stockBattle"
+              },
+              {
+                "kind": "member",
+                "name": "livingcounts",
+                "pos": {
+                  "col": 21,
+                  "endCol": 32,
+                  "file": "<inline>",
+                  "line": 18
+                },
+                "scope": null,
+                "written": "livingCounts"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 34,
+                  "endCol": 34,
+                  "file": "<inline>",
+                  "line": 18
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "stockbattle",
+                "pos": {
+                  "col": 16,
+                  "endCol": 26,
+                  "file": "<inline>",
+                  "line": 20
+                },
+                "scope": null,
+                "written": "stockBattle"
+              },
+              {
+                "kind": "member",
+                "name": "pendingoutcome",
+                "pos": {
+                  "col": 28,
+                  "endCol": 41,
+                  "file": "<inline>",
+                  "line": 20
+                },
+                "scope": null,
+                "written": "pendingOutcome"
+              }
+            ],
+            "startup": []
+          },
+          {
+            "calls": [
+              {
+                "arity": 1,
+                "file": null,
                 "name": "registerplugin",
                 "pos": {
                   "col": 1,
@@ -74809,6 +75321,393 @@
               {
                 "arity": 1,
                 "file": null,
+                "name": "beforeeach",
+                "pos": {
+                  "col": 1,
+                  "endCol": 10,
+                  "file": "<inline>",
+                  "line": 1
+                },
+                "written": "beforeEach"
+              },
+              {
+                "arity": 2,
+                "file": null,
+                "name": "describe",
+                "pos": {
+                  "col": 1,
+                  "endCol": 8,
+                  "file": "<inline>",
+                  "line": 3
+                },
+                "written": "describe"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "executeprogram",
+                "pos": {
+                  "col": 20,
+                  "endCol": 33,
+                  "file": "<inline>",
+                  "line": 1
+                },
+                "written": "executeprogram"
+              },
+              {
+                "arity": 2,
+                "file": null,
+                "name": "it",
+                "pos": {
+                  "col": 5,
+                  "endCol": 6,
+                  "file": "<inline>",
+                  "line": 4
+                },
+                "written": "it"
+              },
+              {
+                "arity": 2,
+                "file": null,
+                "name": "it",
+                "pos": {
+                  "col": 5,
+                  "endCol": 6,
+                  "file": "<inline>",
+                  "line": 10
+                },
+                "written": "it"
+              },
+              {
+                "arity": 1,
+                "file": "stockmenu",
+                "name": "normalize",
+                "pos": {
+                  "col": 16,
+                  "endCol": 24,
+                  "file": "<inline>",
+                  "line": 5
+                },
+                "written": "stockMenu"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 9,
+                  "endCol": 14,
+                  "file": "<inline>",
+                  "line": 5
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 43,
+                  "endCol": 46,
+                  "file": "<inline>",
+                  "line": 5
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 1,
+                "file": "stockmenu",
+                "name": "normalize",
+                "pos": {
+                  "col": 16,
+                  "endCol": 24,
+                  "file": "<inline>",
+                  "line": 6
+                },
+                "written": "stockMenu"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 9,
+                  "endCol": 14,
+                  "file": "<inline>",
+                  "line": 6
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 46,
+                  "endCol": 49,
+                  "file": "<inline>",
+                  "line": 6
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 1,
+                "file": "stockmenu",
+                "name": "normalize",
+                "pos": {
+                  "col": 16,
+                  "endCol": 24,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "written": "stockMenu"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 9,
+                  "endCol": 14,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 44,
+                  "endCol": 47,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 1,
+                "file": "stockmenu",
+                "name": "normalize",
+                "pos": {
+                  "col": 16,
+                  "endCol": 24,
+                  "file": "<inline>",
+                  "line": 8
+                },
+                "written": "stockMenu"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 9,
+                  "endCol": 14,
+                  "file": "<inline>",
+                  "line": 8
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 45,
+                  "endCol": 48,
+                  "file": "<inline>",
+                  "line": 8
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 3,
+                "file": "stockmenu",
+                "name": "firstof",
+                "pos": {
+                  "col": 16,
+                  "endCol": 24,
+                  "file": "<inline>",
+                  "line": 11
+                },
+                "written": "stockMenu"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 9,
+                  "endCol": 14,
+                  "file": "<inline>",
+                  "line": 11
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 44,
+                  "endCol": 47,
+                  "file": "<inline>",
+                  "line": 11
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 3,
+                "file": "stockmenu",
+                "name": "firstof",
+                "pos": {
+                  "col": 16,
+                  "endCol": 24,
+                  "file": "<inline>",
+                  "line": 12
+                },
+                "written": "stockMenu"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 9,
+                  "endCol": 14,
+                  "file": "<inline>",
+                  "line": 12
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 45,
+                  "endCol": 48,
+                  "file": "<inline>",
+                  "line": 12
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 3,
+                "file": "stockmenu",
+                "name": "firstof",
+                "pos": {
+                  "col": 16,
+                  "endCol": 24,
+                  "file": "<inline>",
+                  "line": 13
+                },
+                "written": "stockMenu"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 9,
+                  "endCol": 14,
+                  "file": "<inline>",
+                  "line": 13
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 46,
+                  "endCol": 49,
+                  "file": "<inline>",
+                  "line": 13
+                },
+                "written": "toBe"
+              }
+            ],
+            "classes": [],
+            "diagnostics": [],
+            "files": [
+              "<inline>"
+            ],
+            "functions": [],
+            "includes": [
+              {
+                "col": 16,
+                "endCol": 24,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 5,
+                "path": "stockmenu.prg"
+              },
+              {
+                "col": 16,
+                "endCol": 24,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 6,
+                "path": "stockmenu.prg"
+              },
+              {
+                "col": 16,
+                "endCol": 24,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 7,
+                "path": "stockmenu.prg"
+              },
+              {
+                "col": 16,
+                "endCol": 24,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 8,
+                "path": "stockmenu.prg"
+              },
+              {
+                "col": 16,
+                "endCol": 24,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 11,
+                "path": "stockmenu.prg"
+              },
+              {
+                "col": 16,
+                "endCol": 24,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 12,
+                "path": "stockmenu.prg"
+              },
+              {
+                "col": 16,
+                "endCol": 24,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 13,
+                "path": "stockmenu.prg"
+              }
+            ],
+            "key": "<inline>",
+            "labels": [],
+            "listeners": [],
+            "name": "stock/stock_menu/menu.spec.prg",
+            "parameters": [],
+            "references": [],
+            "startup": []
+          },
+          {
+            "calls": [
+              {
+                "arity": 1,
+                "file": null,
                 "name": "registerplugin",
                 "pos": {
                   "col": 1,
@@ -87911,15 +88810,15 @@
               },
               {
                 "kind": "read",
-                "name": "name",
+                "name": "key",
                 "pos": {
-                  "col": 16,
-                  "endCol": 19,
+                  "col": 21,
+                  "endCol": 23,
                   "file": "<inline>",
                   "line": 277
                 },
                 "scope": null,
-                "written": "name"
+                "written": "key"
               },
               {
                 "kind": "decl",
@@ -121875,6 +122774,794 @@
           {
             "calls": [
               {
+                "arity": 1,
+                "file": null,
+                "name": "beforeeach",
+                "pos": {
+                  "col": 1,
+                  "endCol": 10,
+                  "file": "<inline>",
+                  "line": 1
+                },
+                "written": "beforeEach"
+              },
+              {
+                "arity": 2,
+                "file": null,
+                "name": "it",
+                "pos": {
+                  "col": 1,
+                  "endCol": 2,
+                  "file": "<inline>",
+                  "line": 3
+                },
+                "written": "it"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "executeprogram",
+                "pos": {
+                  "col": 20,
+                  "endCol": 33,
+                  "file": "<inline>",
+                  "line": 1
+                },
+                "written": "executeprogram"
+              },
+              {
+                "arity": 2,
+                "file": "game",
+                "name": "on",
+                "pos": {
+                  "col": 5,
+                  "endCol": 8,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "written": "game"
+              },
+              {
+                "arity": 2,
+                "file": "specactor",
+                "name": "on",
+                "pos": {
+                  "col": 5,
+                  "endCol": 13,
+                  "file": "<inline>",
+                  "line": 8
+                },
+                "written": "specActor"
+              },
+              {
+                "arity": 2,
+                "file": "game",
+                "name": "emit",
+                "pos": {
+                  "col": 5,
+                  "endCol": 8,
+                  "file": "<inline>",
+                  "line": 12
+                },
+                "written": "game"
+              },
+              {
+                "arity": 0,
+                "file": null,
+                "name": "getthreadid",
+                "pos": {
+                  "col": 17,
+                  "endCol": 27,
+                  "file": "<inline>",
+                  "line": 13
+                },
+                "written": "getthreadid"
+              },
+              {
+                "arity": 2,
+                "file": null,
+                "name": "threadsleep",
+                "pos": {
+                  "col": 5,
+                  "endCol": 15,
+                  "file": "<inline>",
+                  "line": 13
+                },
+                "written": "threadsleep"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 5,
+                  "endCol": 10,
+                  "file": "<inline>",
+                  "line": 14
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 22,
+                  "endCol": 25,
+                  "file": "<inline>",
+                  "line": 14
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 5,
+                  "endCol": 10,
+                  "file": "<inline>",
+                  "line": 15
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 27,
+                  "endCol": 30,
+                  "file": "<inline>",
+                  "line": 15
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 5,
+                  "endCol": 10,
+                  "file": "<inline>",
+                  "line": 16
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 28,
+                  "endCol": 31,
+                  "file": "<inline>",
+                  "line": 16
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 5,
+                  "endCol": 10,
+                  "file": "<inline>",
+                  "line": 17
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 26,
+                  "endCol": 29,
+                  "file": "<inline>",
+                  "line": 17
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 5,
+                  "endCol": 10,
+                  "file": "<inline>",
+                  "line": 18
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 23,
+                  "endCol": 26,
+                  "file": "<inline>",
+                  "line": 18
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 5,
+                  "endCol": 10,
+                  "file": "<inline>",
+                  "line": 19
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 22,
+                  "endCol": 25,
+                  "file": "<inline>",
+                  "line": 19
+                },
+                "written": "toBe"
+              }
+            ],
+            "classes": [],
+            "diagnostics": [],
+            "files": [
+              "<inline>"
+            ],
+            "functions": [],
+            "includes": [
+              {
+                "col": 5,
+                "endCol": 8,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 7,
+                "path": "game.prg"
+              },
+              {
+                "col": 5,
+                "endCol": 13,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 8,
+                "path": "specactor.prg"
+              },
+              {
+                "col": 5,
+                "endCol": 8,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 12,
+                "path": "game.prg"
+              }
+            ],
+            "key": "<inline>",
+            "labels": [],
+            "listeners": [],
+            "name": "stock/stock_rpg/bridge.spec.prg",
+            "parameters": [],
+            "references": [
+              {
+                "kind": "read",
+                "name": "seencount",
+                "pos": {
+                  "col": 5,
+                  "endCol": 13,
+                  "file": "<inline>",
+                  "line": 4
+                },
+                "scope": null,
+                "written": "seenCount"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 15,
+                  "endCol": 15,
+                  "file": "<inline>",
+                  "line": 4
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "seentext",
+                "pos": {
+                  "col": 5,
+                  "endCol": 12,
+                  "file": "<inline>",
+                  "line": 5
+                },
+                "scope": null,
+                "written": "seenText"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 14,
+                  "endCol": 14,
+                  "file": "<inline>",
+                  "line": 5
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "gameseen",
+                "pos": {
+                  "col": 5,
+                  "endCol": 12,
+                  "file": "<inline>",
+                  "line": 6
+                },
+                "scope": null,
+                "written": "gameSeen"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 14,
+                  "endCol": 14,
+                  "file": "<inline>",
+                  "line": 6
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "specactorid",
+                "pos": {
+                  "col": 48,
+                  "endCol": 58,
+                  "file": "<inline>",
+                  "line": 12
+                },
+                "scope": null,
+                "written": "specActorId"
+              },
+              {
+                "kind": "read",
+                "name": "specactorid",
+                "pos": {
+                  "col": 71,
+                  "endCol": 81,
+                  "file": "<inline>",
+                  "line": 12
+                },
+                "scope": null,
+                "written": "specActorId"
+              },
+              {
+                "kind": "read",
+                "name": "gameseen",
+                "pos": {
+                  "col": 12,
+                  "endCol": 19,
+                  "file": "<inline>",
+                  "line": 14
+                },
+                "scope": null,
+                "written": "gameSeen"
+              },
+              {
+                "kind": "read",
+                "name": "receivedactor",
+                "pos": {
+                  "col": 12,
+                  "endCol": 24,
+                  "file": "<inline>",
+                  "line": 15
+                },
+                "scope": null,
+                "written": "receivedActor"
+              },
+              {
+                "kind": "read",
+                "name": "specactorid",
+                "pos": {
+                  "col": 32,
+                  "endCol": 42,
+                  "file": "<inline>",
+                  "line": 15
+                },
+                "scope": null,
+                "written": "specActorId"
+              },
+              {
+                "kind": "read",
+                "name": "receivedtarget",
+                "pos": {
+                  "col": 12,
+                  "endCol": 25,
+                  "file": "<inline>",
+                  "line": 16
+                },
+                "scope": null,
+                "written": "receivedTarget"
+              },
+              {
+                "kind": "read",
+                "name": "specactorid",
+                "pos": {
+                  "col": 33,
+                  "endCol": 43,
+                  "file": "<inline>",
+                  "line": 16
+                },
+                "scope": null,
+                "written": "specActorId"
+              },
+              {
+                "kind": "read",
+                "name": "receivedtext",
+                "pos": {
+                  "col": 12,
+                  "endCol": 23,
+                  "file": "<inline>",
+                  "line": 17
+                },
+                "scope": null,
+                "written": "receivedText"
+              },
+              {
+                "kind": "read",
+                "name": "seencount",
+                "pos": {
+                  "col": 12,
+                  "endCol": 20,
+                  "file": "<inline>",
+                  "line": 18
+                },
+                "scope": null,
+                "written": "seenCount"
+              },
+              {
+                "kind": "read",
+                "name": "seentext",
+                "pos": {
+                  "col": 12,
+                  "endCol": 19,
+                  "file": "<inline>",
+                  "line": 19
+                },
+                "scope": null,
+                "written": "seenText"
+              },
+              {
+                "kind": "read",
+                "name": "gameseen",
+                "pos": {
+                  "col": 48,
+                  "endCol": 48,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": "global",
+                "written": ":"
+              },
+              {
+                "kind": "read",
+                "name": "gameseen",
+                "pos": {
+                  "col": 60,
+                  "endCol": 60,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": "global",
+                "written": ":"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 58,
+                  "endCol": 58,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "receivedactor",
+                "pos": {
+                  "col": 75,
+                  "endCol": 75,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": "global",
+                "written": ":"
+              },
+              {
+                "kind": "read",
+                "name": "event",
+                "pos": {
+                  "col": 92,
+                  "endCol": 96,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": null,
+                "written": "event"
+              },
+              {
+                "kind": "member",
+                "name": "detail",
+                "pos": {
+                  "col": 98,
+                  "endCol": 103,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": null,
+                "written": "detail"
+              },
+              {
+                "kind": "member",
+                "name": "actorid",
+                "pos": {
+                  "col": 105,
+                  "endCol": 111,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": null,
+                "written": "actorId"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 90,
+                  "endCol": 90,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "receivedtarget",
+                "pos": {
+                  "col": 114,
+                  "endCol": 114,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": "global",
+                "written": ":"
+              },
+              {
+                "kind": "read",
+                "name": "event",
+                "pos": {
+                  "col": 132,
+                  "endCol": 136,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": null,
+                "written": "event"
+              },
+              {
+                "kind": "member",
+                "name": "detail",
+                "pos": {
+                  "col": 138,
+                  "endCol": 143,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": null,
+                "written": "detail"
+              },
+              {
+                "kind": "member",
+                "name": "targetid",
+                "pos": {
+                  "col": 145,
+                  "endCol": 152,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": null,
+                "written": "targetId"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 130,
+                  "endCol": 130,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "receivedtext",
+                "pos": {
+                  "col": 155,
+                  "endCol": 155,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": "global",
+                "written": ":"
+              },
+              {
+                "kind": "read",
+                "name": "event",
+                "pos": {
+                  "col": 171,
+                  "endCol": 175,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": null,
+                "written": "event"
+              },
+              {
+                "kind": "member",
+                "name": "detail",
+                "pos": {
+                  "col": 177,
+                  "endCol": 182,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": null,
+                "written": "detail"
+              },
+              {
+                "kind": "member",
+                "name": "text",
+                "pos": {
+                  "col": 184,
+                  "endCol": 187,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": null,
+                "written": "text"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 169,
+                  "endCol": 169,
+                  "file": "<inline>",
+                  "line": 7
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "seencount",
+                "pos": {
+                  "col": 9,
+                  "endCol": 9,
+                  "file": "<inline>",
+                  "line": 9
+                },
+                "scope": "global",
+                "written": ":"
+              },
+              {
+                "kind": "read",
+                "name": "seencount",
+                "pos": {
+                  "col": 22,
+                  "endCol": 22,
+                  "file": "<inline>",
+                  "line": 9
+                },
+                "scope": "global",
+                "written": ":"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 20,
+                  "endCol": 20,
+                  "file": "<inline>",
+                  "line": 9
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "seentext",
+                "pos": {
+                  "col": 9,
+                  "endCol": 9,
+                  "file": "<inline>",
+                  "line": 10
+                },
+                "scope": "global",
+                "written": ":"
+              },
+              {
+                "kind": "read",
+                "name": "event",
+                "pos": {
+                  "col": 21,
+                  "endCol": 25,
+                  "file": "<inline>",
+                  "line": 10
+                },
+                "scope": null,
+                "written": "event"
+              },
+              {
+                "kind": "member",
+                "name": "detail",
+                "pos": {
+                  "col": 27,
+                  "endCol": 32,
+                  "file": "<inline>",
+                  "line": 10
+                },
+                "scope": null,
+                "written": "detail"
+              },
+              {
+                "kind": "member",
+                "name": "text",
+                "pos": {
+                  "col": 34,
+                  "endCol": 37,
+                  "file": "<inline>",
+                  "line": 10
+                },
+                "scope": null,
+                "written": "text"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 19,
+                  "endCol": 19,
+                  "file": "<inline>",
+                  "line": 10
+                },
+                "scope": null,
+                "written": null
+              }
+            ],
+            "startup": []
+          },
+          {
+            "calls": [
+              {
                 "arity": 2,
                 "file": "game",
                 "name": "on",
@@ -121966,7 +123653,7 @@
         "warning": 0
       },
       "failed": 0,
-      "files": 7,
+      "files": 10,
       "passed": 0,
       "skipped": 0
     },

@@ -274,7 +274,7 @@ stockMenu = {
         if (name == "ENTER") { return "confirm" }
         if (name == " ") { return "confirm" }
         if (name == "ESC") { return "cancel" }
-        return name
+        return "" + key
     },
     // Menu cues are one-shot `ui` voices (R-59): they mix over music and `wavstop` does not stop them.
     cue: (kind) => {

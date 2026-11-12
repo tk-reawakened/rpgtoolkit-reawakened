@@ -98,3 +98,19 @@ test("project consumer resolves Prg includes and decodes project scripts as Wind
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("package specs execute the manifest's real startup, not an unrelated Prg file", () => {
+  const root = mkdtempSync(join(tmpdir(), "script-spec-package-"));
+  try {
+    writeProjectFile(root, "manifest.json", JSON.stringify({ name: "test-package", program: "startup.prg" }));
+    writeProjectFile(root, "startup.prg", "packageValue = 17");
+    writeProjectFile(root, "Prg/startup.prg", "packageValue = 99");
+    writeProjectFile(root, "probe.spec.prg",
+      'it("loads the package", () => { executeProgram("startup.prg"); expect(packageValue).toBe(17) })');
+    const report = runSpecProject(root);
+    equal(report.files[0]?.cases[0]?.ok, true);
+    deepEqual(report.failures, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -111,6 +111,8 @@ const VIEWPORT_DETAIL_NAMES: Readonly<Record<string, string>> = {
 
 function publicDetailName(type: string, name: string): string {
   if ((type === "beforeEnter" || type === "entered" || type === "left") && name === "actorid") return "actorId";
+  if (type === "dialogue.completed" && name === "actorid") return "actorId";
+  if (type === "dialogue.completed" && name === "targetid") return "targetId";
   if ((type === "beforeEnter" || type === "entered" || type === "left") && name === "boardkey") return "boardKey";
   if (type === "statusChanged" && name === "previousrounds") return "previousRounds";
   if (type === "viewportResized" && Object.hasOwn(VIEWPORT_DETAIL_NAMES, name)) return VIEWPORT_DETAIL_NAMES[name]!;

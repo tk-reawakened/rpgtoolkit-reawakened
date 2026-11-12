@@ -39,6 +39,18 @@ test("a call nothing defines is an unknown command; a catalogue call is not", ()
   equal(result.summary.ignoredRanges, 0);
 });
 
+test("spec API names are available only to specs, without hiding unknown calls", () => {
+  const source = 'it("case", () => { expect(1).toBe(1); typo() })';
+  const document = buildIndex([
+    { name: "checks.SPEC.PRG", ref: { kind: "inline", text: source, ir: "1" } },
+    { name: "game.prg", ref: { kind: "inline", text: source, ir: "1" } },
+  ]);
+  const result = lint(document, { plugins });
+  deepEqual(result.programs.filter((name) => name === "checks.SPEC.PRG"), ["checks.SPEC.PRG"]);
+  equal(result.diagnostics.filter((d) => d.message.includes("typo")).length, 2);
+  ok(result.diagnostics.some((d, i) => result.programs[i] === "game.prg" && d.message.includes("`expect`")));
+});
+
 test("a call with the wrong number of parameters reports the command's bounds", () => {
   const result = lint(indexOf("mwin()\n"), { plugins });
   const [found] = result.diagnostics;
