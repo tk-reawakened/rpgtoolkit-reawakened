@@ -13,6 +13,8 @@ The debug adapter is the package `dap`, which depends on `core` for the `Engine`
 
 <!-- OWNER: D-1, approved 2026-10-31. Rejected: hand-rolled JSON-RPC framing — about 200 lines owned for ever, drifting on cancellation, progress and workspace/configuration, while the browser client is an official dependency anyway. -->
 
+**Call tips (implementation note, #2079).** While an author types arguments, the language server provides the registered command's signature and help from the same catalogue as hover. It identifies the active argument without counting commas inside nested expressions, strings or comments; incomplete buffers need not compile. A member call, unknown name or cursor inside a comment gets no guessed built-in signature. The feature is available through both stdio and web transports.
+
 <a id="tool-2"></a>
 **TOOL-2 The early extension.** Until the editor exists, the language server ships in its own extension, `extensions/rpgcode/`: a thin language client over `lsp` with its own extension id, built to a VSIX in CI and published to the Visual Studio Marketplace and to Open VSX (`ovsx` is the repository's named dev-tool licence exception in [G6](../../guardrails.md)). It registers `.prg` and `.rnc` and contributes no editor feature of its own; the `contributes.languages` block is one file shared with any later host, so the two registrations cannot diverge. When the editor host exists it either takes this client over or supersedes the extension, and that decision belongs to the editor epic.
 

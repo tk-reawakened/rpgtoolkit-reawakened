@@ -78,6 +78,7 @@ function pair(): Pair {
       symbolHandler = handler;
       return absent;
     },
+    onSignatureHelp: () => absent,
     onCodeAction: (handler) => {
       codeActionHandler = handler;
       return absent;
