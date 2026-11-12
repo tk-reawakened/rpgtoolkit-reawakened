@@ -33,6 +33,8 @@ function client(): Client {
     onDefinition: () => absent,
     onDocumentSymbol: () => absent,
     onSignatureHelp: () => absent,
+    onDocumentFormatting: () => absent,
+    showMessage: () => {},
     onCodeAction: () => absent,
     onNotification: (method, handler) => {
       notifications.set(method, handler);
