@@ -255,6 +255,31 @@ test("a legacy row and the same package named explicitly are one manifest entry"
   deepEqual(result.manifest.slice(-2).map((entry) => entry.id), ["stock_battle", "stock_menu"]);
 });
 
+test("older main files use the available stock battle package when the package list is absent", () => {
+  const main = unwrap(readMainFile(new BinaryReader(
+    new Uint8Array(readFileSync(join(repoRoot, "docs/spec/examples/versions/main/main_minor2.gam"))),
+    "main.gam",
+  )));
+  equal(main.minor, 2);
+  equal(main.packagePluginsExtension, undefined);
+  const catalogue = packageCatalogue();
+  const cases = [
+    { main, catalogue, expected: ["stock_battle"] },
+    { main, catalogue: [], expected: [] },
+    { main: { ...main, minor: 3 }, catalogue, expected: [] },
+    { main: { ...main, packagePluginsExtension: true, packagePlugins: [] }, catalogue, expected: [] },
+    { main: { ...main, packagePlugins: ["stock_menu"] }, catalogue, expected: ["stock_menu"] },
+    { main: { ...main, packagePlugins: ["stock_battle"] }, catalogue, expected: ["stock_battle"] },
+  ];
+  for (const scenario of cases) {
+    const { manifest, diagnostics } = pluginManifestFor(scenario.main, "main.gam", scenario.catalogue);
+    deepEqual(diagnostics, []);
+    const resolved = resolveManifestPlugins(manifest, "main.gam", scenario.catalogue);
+    deepEqual(resolved.diagnostics, []);
+    deepEqual(resolved.plugins.flatMap((plugin) => plugin.package === undefined ? [] : [plugin.package.name]), scenario.expected);
+  }
+});
+
 test("an unmapped custom DLL keeps its row as data and reports one located diagnostic", () => {
   const main = {
     ...createEmptyMainFile(),

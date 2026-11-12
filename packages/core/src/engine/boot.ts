@@ -113,9 +113,9 @@ export function mainFileLegacyPluginRows(main: MainFile): LegacyPluginRow[] {
 }
 
 /**
- * The main file's manifest patch: the package list in stored order, then one entry per mapped legacy
- * row. A package the list already names is not appended twice, so a legacy row and its explicit
- * equivalent are one entry (docs/spec/engine/main-loop-and-startup.md#reawakened-boot-sequence step 3).
+ * The main file's manifest patch: the package list in stored order, then mapped legacy rows and
+ * the Toolkit 2 battle default, with each package appended once.
+ * See docs/spec/engine/main-loop-and-startup.md#reawakened-boot-sequence step 3.
  */
 export function mainFilePluginPatch(main: MainFile, catalogue: readonly PackageCatalogueEntry[] = []): PluginManifestPatch {
   const patch: PluginManifestOperation[] = [];
@@ -137,17 +137,22 @@ export function mainFilePluginPatch(main: MainFile, catalogue: readonly PackageC
           },
     });
   };
-  for (const name of mainFilePluginNames(main)) append(name);
+  const packageNames = mainFilePluginNames(main);
+  for (const name of packageNames) append(name);
   for (const row of mainFileLegacyPluginRows(main)) {
     if (row.package !== null) append(row.package);
+  }
+  // BAT-14: docs/spec/engine/battle.md#reawakened-legacy-battle-default.
+  if (main.minor < 3 && main.packagePluginsExtension !== true && packageNames.length === 0 &&
+      catalogue.some((item) => foldNamespace(item.name) === "stock_battle")) {
+    append("stock_battle");
   }
   return patch;
 }
 
 /**
- * E-02 step 3: the engine default manifest plus the package entries named by
- * the main file and by its legacy plugin rows. Legacy rows are data and are
- * never written back; an unmapped name is one located diagnostic.
+ * E-02 step 3: the engine default manifest plus the main file's explicit and
+ * compatibility packages. An unmapped legacy name is one located diagnostic.
  */
 export function pluginManifestFor(
   main: MainFile,
