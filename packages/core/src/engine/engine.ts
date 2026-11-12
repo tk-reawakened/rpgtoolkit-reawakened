@@ -60,7 +60,7 @@ import { BUILTIN_TRACKS, MAX_VOICES } from "../audio/model.ts";
 import type { Logger } from "../ports/logger.ts";
 import { composeBoard, type BoardBlit, type SpriteDraw, type SpriteFrame } from "../render/compose.ts";
 import { composeUi, composeUiCursor, composeUiMargins, renderNowBlit, uiAccessibilityTree } from "../render/ui.ts";
-import { emitText, layoutText, resolveFontAsset } from "../render/text.ts";
+import { emitText, resolveFontAsset } from "../render/text.ts";
 import { applyFxDrawList, advanceFx, applyFxEffect } from "../render/fx.ts";
 import { advanceAnimations, animationBlits, decodeAnimationFrames, loadAnimation, releaseAnimationSurfaces, type DecodedAnimation } from "../render/animation.ts";
 import { hydrateBoard } from "../world/hydrate.ts";
@@ -127,10 +127,10 @@ import {
 import { hasLiveBlockingThread, type Frame, type ObjectRecord, type Thread, type VmState } from "../script/state.ts";
 import { findObject, readMember } from "../script/objects.ts";
 import type { PackageCatalogueEntry, PluginDefinition } from "../script/plugin.ts";
-import { DEFAULT_FONT_ASSET } from "../raster/text.ts";
+import { DEFAULT_FONT_ASSET, textInk } from "../raster/text.ts";
 import type { WaitView } from "../ports/wait.ts";
 import { runTimePhase } from "../time/time.ts";
-import { blitTexture, rasterize, readSurfacePixels, replaceSurface, surfaceTextures, createSurfacesSection, ensureScriptScreen, scriptScreen, resetScriptScreen, copyPresentedFrameToScriptScreen, SCRIPT_SCREEN, renderNowCanvas, renderNowEnabled, type RasterAsset, type SurfacePixelCache } from "../raster/index.ts";
+import { blitTexture, drawSurfaceLine, editSurface, rasterize, readSurfacePixels, replaceSurface, surfaceTextures, createSurfacesSection, ensureScriptScreen, scriptScreen, resetScriptScreen, copyPresentedFrameToScriptScreen, SCRIPT_SCREEN, renderNowCanvas, renderNowEnabled, type RasterAsset, type SurfacePixelCache } from "../raster/index.ts";
 import { rasterizeAuthorMargin } from "../raster/raster.ts";
 import { beginSurfaceBatch, endSurfaceBatch, flushSurfaceBatch, killSurface } from "../raster/surfaces.ts";
 import { guardExternalPlugins } from "./surface-guard.ts";
@@ -1331,6 +1331,7 @@ export function createEngine(init: EngineInit): Engine {
       }),
       mainFile?.pixelMovement ?? 0,
       { width: init.width, height: init.height },
+      layoutFont,
     );
     init.spriteRuntime?.bindItemThreadCleanup?.((thread) => discardMenuFrames(nextServices, thread));
     media.activateDeclared();
@@ -1957,20 +1958,35 @@ export function createEngine(init: EngineInit): Engine {
     const y = typeof args[1] === "number" ? (cells ? Math.trunc((args[1] - 1) * font.size) : args[1]) : 0;
     const decoded = layoutFont(font.asset);
     const options = { ...(decoded === undefined ? {} : { font: decoded }), ...(cells ? { lineHeight: font.size } : {}), underline: state.ui.underline };
-    const layout = layoutText(value, font, options);
-    const width = Math.ceil(layout.width);
-    const height = Math.ceil(layout.height);
-    if (width <= 0 || height <= 0) return;
     const commands = emitText(value, 0, 0, state.ui.color, font, options);
     const assets = rasterAssets(canvasTextAssets);
     const fallbackFont = assets.get(defaultFontAsset);
     if (fallbackFont !== undefined && !assets.has(font.asset)) assets.set(font.asset, fallbackFont);
-    const rendered = rasterize({ tick: state.time.tick, width, height, commands, marginCommands: [] }, assets);
-    if (rendered.error !== null) {
-      diagnostics.push({ code: "render.failed", file: "", line: 0, message: `text: ${rendered.error}` });
+    const inkByCommand = commands.map((command) => command.kind === "text" ? textInk(command, assets.get(command.font.asset)) : []);
+    if (inkByCommand.some((ink) => ink === null)) {
+      diagnostics.push({ code: "render.failed", file: "", line: 0, message: "text: missing bitmap font asset" });
       return;
     }
-    blitTexture(state.surfaces, { w: rendered.width, h: rendered.height, rgba: rendered.rgba }, canvas, x, y);
+    editSurface(state.surfaces, canvas, (rgba, width, height) => {
+      commands.forEach((command, index) => {
+        if (command.kind === "line") {
+          drawSurfaceLine(rgba, width, height, x + command.x1, y + command.y1, x + command.x2, y + command.y2, command.rgb);
+        } else if (command.kind === "text") {
+          for (const point of inkByCommand[index] ?? []) {
+            const px = Math.trunc(x + point.x);
+            const py = Math.trunc(y + point.y);
+            if (px < 0 || py < 0 || px >= width || py >= height) continue;
+            const at = (py * width + px) * 4;
+            const coverage = point.coverage;
+            rgba[at] = Math.floor(((rgba[at] ?? 0) * (255 - coverage) + command.rgb.r * coverage + 127) / 255);
+            rgba[at + 1] = Math.floor(((rgba[at + 1] ?? 0) * (255 - coverage) + command.rgb.g * coverage + 127) / 255);
+            rgba[at + 2] = Math.floor(((rgba[at + 2] ?? 0) * (255 - coverage) + command.rgb.b * coverage + 127) / 255);
+            const alpha = rgba[at + 3] ?? 0;
+            rgba[at + 3] = Math.min(255, alpha + Math.floor((coverage * (255 - alpha) + 127) / 255));
+          }
+        }
+      });
+    });
   }
   function applySurfaceImage(effect: EffectRecord, texture: DecodedTexture, sourceAsset: AssetKey): void {
     const args = effect.args;
@@ -2344,7 +2360,7 @@ export function createEngine(init: EngineInit): Engine {
   }
   function bundledAsset(key: AssetKey, bytes: Uint8Array): RasterAsset | null {
     const lower = key.toLowerCase();
-    if (lower.endsWith(".ttf")) return bytes;
+    if (lower.endsWith(".ttf")) return layoutFont(key) ?? bytes;
     if (lower.endsWith(".fnt")) {
       const parsed = readLegacyFont(bytes, key);
       if (parsed.ok) return parsed.value;
@@ -2374,7 +2390,7 @@ export function createEngine(init: EngineInit): Engine {
       const asset = decodedBundled.get(key);
       if (asset !== undefined && asset !== null) assets.set(key, asset);
     }
-    for (const [key, bytes] of installedFonts) assets.set(key, bytes);
+    for (const [key, bytes] of installedFonts) assets.set(key, layoutFont(key) ?? bytes);
     for (const [key, texture] of decodedImages) assets.set(key, texture);
     for (const [key, texture] of decodedTiles) assets.set(key, texture);
     return assets;

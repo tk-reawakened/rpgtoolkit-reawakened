@@ -354,6 +354,23 @@ test("3.1 boot draws text in the initial bundled sans face at 20px without font(
   ok(pixels(engine).some((channel, index) => channel !== fallbackPixels[index]), "initial text uses sans pixels, not the bitmap fallback");
 });
 
+test("text measurements during 3.1 boot use bundled, project and bitmap font metrics", () => {
+  const game = authorGame({
+    startup: "start.prg", initChar: "hero.tem", boards: { "start.brd": { tiles: [8, 8] } },
+    fonts: { "custom.ttf": liberation },
+    programs: { "start.prg": 'initialwidth = gettextwidth("iiii")\ninitialheight = gettextheight("iiii")\nfont("custom")\ncustomwidth = gettextwidth("iiii")\nfont("unknown")\nbitmapwidth = gettextwidth("iiii")\nwait()\n' },
+  });
+  const doubles = makeDoubles();
+  const sans = assetKey("media/fonts/LiberationSans-Regular.ttf");
+  const engine = bootEngine(game, doubles, undefined, undefined, undefined, undefined, new Map([[sans, liberation]]));
+  const result = run(engine, game.files, 2);
+  deepEqual(result.diagnostics.filter((entry) => entry.code.startsWith("startup.") || entry.code.startsWith("program.")), []);
+  equal(doubles.state().vm.globals.initialwidth, 16);
+  equal(doubles.state().vm.globals.initialheight, 23);
+  equal(doubles.state().vm.globals.customwidth, 16);
+  equal(doubles.state().vm.globals.bitmapwidth, 80);
+});
+
 test("boot reports physical movement collisions and preserves ACT-4 dispatch", () => {
   const game = authorGame({ initChar: "hero.tem", boards: { "start.brd": {} }, programs: {} });
   const original = unwrap(readMainFile(new BinaryReader(game.files.get(assetKey(game.main))!, game.main)));

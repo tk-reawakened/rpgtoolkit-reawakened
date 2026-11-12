@@ -182,7 +182,7 @@ test("a killed reserved canvas is made again by rendernow(true), and an older sa
 });
 
 test("text and pixelText with a canvas draw into that canvas, not the screen text layer", () => {
-  const game = boot('rendernow(1)\nc = cnvrendernow\ncolorrgb(255,255,255)\npixelText(2,24,"HI",c)\ntext(1,5,"A",c)\nend()\n');
+  const game = boot('fontsize(8)\nrendernow(1)\nc = cnvrendernow\ncolorrgb(255,255,255)\npixelText(2,24,"HI",c)\ntext(1,5,"A",c)\nend()\n');
   const handle = game.state().surfaces.renderNow ?? 0;
   ok(handle > 0);
   let lit = 0;
@@ -195,7 +195,7 @@ test("text and pixelText with a canvas draw into that canvas, not the screen tex
 });
 
 test("canvas cell text keeps a fractional cell coordinate and truncates the scaled origin (E-56)", () => {
-  const game = boot('rendernow(1)\nc = cnvrendernow\ncolorrgb(255,255,255)\ntext(1.5,5.9,"A",c)\nend()\n');
+  const game = boot('fontsize(8)\nrendernow(1)\nc = cnvrendernow\ncolorrgb(255,255,255)\ntext(1.5,5.9,"A",c)\nend()\n');
   const handle = game.state().surfaces.renderNow ?? 0;
   ok(handle > 0);
   let leftHalf = 0;
@@ -209,6 +209,38 @@ test("canvas cell text keeps a fractional cell coordinate and truncates the scal
   let truncatedRow = 0;
   for (let y = 32; y < 39; y += 1) for (let x = 4; x < 12; x += 1) if (canvasPixel(game, handle, x, y)[3] === 255) truncatedRow += 1;
   equal(truncatedRow, 0, "truncating the cell first would put the glyphs at y=32; the scaled pixel origin is 39");
+});
+
+test("TrueType canvas text keeps negative bearings and descenders identical to screen text", () => {
+  const sans = new Uint8Array(readFileSync(join(here, "..", "..", "..", "media", "fonts", "LiberationSans-Regular.ttf")));
+  const extra = { "Font/Test.ttf": sans };
+  const screen = boot('font("Test")\nfontsize(20)\ncolorrgb(255,255,255)\npixeltext(5,5,"jgy")\nwait()\n', extra);
+  const canvas = boot('font("Test")\nfontsize(20)\ncolorrgb(255,255,255)\nrendernow(1)\nc = cnvrendernow\npixeltext(5,5,"jgy",c)\nwait()\n', extra);
+  const screenFrame = screen.frame();
+  const canvasHandle = canvas.state().surfaces.renderNow;
+  if (canvasHandle == null) throw new Error("render-now canvas missing");
+  const canvasEntry = canvas.state().surfaces.entries[String(canvasHandle)]!;
+  const canvasFrame = readSurfacePixels(canvas.state().surfaces, canvasHandle, canvasEntry.rev);
+  if (canvasFrame === null) throw new Error("render-now canvas unreadable");
+  deepEqual(canvasFrame.rgba, screenFrame.rgba, "canvas and screen retain the same glyph ink");
+  ok(Array.from({ length: 64 }, (_, y) => pixel(screenFrame, 4, y)[0] ?? 0).some((channel) => channel > 0), "the negative-bearing j reaches left of the origin");
+  ok(Array.from({ length: 64 }, (_, x) => pixel(screenFrame, x, 27)[0] ?? 0).some((channel) => channel > 0), "the descenders extend below the 20px cell");
+});
+
+test("repeated canvas text commands reuse the decoded project font", () => {
+  const sans = new Uint8Array(readFileSync(join(here, "..", "..", "..", "media", "fonts", "LiberationSans-Regular.ttf")));
+  const originalSlice = Uint8Array.prototype.slice;
+  let fontCopies = 0;
+  Uint8Array.prototype.slice = function(start?: number, end?: number): Uint8Array<ArrayBuffer> {
+    if (this.byteLength === sans.byteLength) fontCopies += 1;
+    return originalSlice.call(this, start, end) as Uint8Array<ArrayBuffer>;
+  };
+  try {
+    boot('font("Test")\nfontsize(20)\nrendernow(1)\nc = cnvrendernow\npixeltext(5,5,"jgy",c)\npixeltext(5,25,"abc",c)\npixeltext(5,45,"def",c)\nwait()\n', { "Font/Test.ttf": sans });
+    equal(fontCopies, 2, "font installation validates once and one decoded face serves all canvas rasterizations");
+  } finally {
+    Uint8Array.prototype.slice = originalSlice;
+  }
 });
 
 test("canvas text interleaved with graphics and rendernow has eager and batched pixel parity", () => {

@@ -3,9 +3,9 @@
 // keeps its fraction, is scaled to the logical-pixel origin ((x - 1) × size, (y - 1) × size)
 // and only that pixel origin is truncated toward zero; `pixeltext` keeps pixel coordinates.
 // The probe asserts fractional positive, sub-1, negative and multi-row runs, then replays the
-// demo game's title/menu program and records each run's baseline y, first-glyph x and advance
-// per line so a layout-rule violation, if any, is distinguishable from the program's own
-// coordinates.
+// demo game's title/menu program and compares each run with independently derived font-unit
+// advances and reference glyph pixels, so layout-rule violations are distinguishable from
+// the program's own coordinates.
 import { deepEqual, equal } from "node:assert/strict";
 import test from "node:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -153,18 +153,42 @@ test("the demo title menu's text runs land on their E-56 cell origins with unifo
   const parsedFont = readTrueTypeFont(sansBytes);
   if (!parsedFont.ok) throw new Error(parsedFont.error.message);
   const face = parsedFont.value;
-  const title = engine.drawList().commands.find((entry): entry is TextCommand => entry.kind === "text" && entry.text === "Test Game");
-  if (title === undefined) throw new Error("the Demo title is absent from the draw list");
-  deepEqual(title.advances.map((entry) => entry.glyph), Array.from("Test Game", (character) => face.charToGlyph(character).id), "glyph IDs spell the real title in the bundled face");
-  equal(new Set(title.advances.map((entry) => entry.advance)).size > 1, true, "the title uses proportional advances");
-  const expectedInk = textInk(title, face);
-  if (expectedInk === null) throw new Error("the title did not rasterize");
+  const expectedRuns = [
+    { text: "Test Game", x: 36, y: 36 },
+    { text: "New Game", x: 288, y: 171 },
+    { text: "Load Game", x: 288, y: 198 },
+    { text: "Quit", x: 288, y: 225 },
+  ] as const;
+  const commands = engine.drawList().commands.filter((entry): entry is TextCommand => entry.kind === "text");
+  equal(commands.length, expectedRuns.length, "the Demo title and all three menu labels are drawn");
+  // Independently extracted with fontTools (cmap/hmtx, 2048 units/em).
+  // The font's default GPOS script has no kern feature. Each pair is
+  // [glyph ID, round(advance * 18 / 2048) + synthetic-bold pixel].
+  const expectedAdvances = [
+    [[55,12],[72,11],[86,10],[87,6],[3,6],[42,15],[68,11],[80,16],[72,11]],
+    [[49,14],[72,11],[90,14],[3,6],[42,15],[68,11],[80,16],[72,11]],
+    [[47,11],[82,11],[68,11],[71,11],[3,6],[42,15],[68,11],[80,16],[72,11]],
+    [[52,15],[88,11],[76,5],[87,6]],
+  ].map((run) => run.map(([glyph, advance]) => ({ glyph: glyph!, advance: advance! })));
+  deepEqual(commands.map((command) => command.text), expectedRuns.map((run) => run.text));
+  deepEqual(commands.map((command) => command.advances), expectedAdvances, "glyph IDs and advances match the independent font reference");
+  const white = { r: 255, g: 255, b: 255 };
+  const expectedInk = expectedRuns.map((run, index) => textInk({
+    kind: "text", ...run, font: { asset: assetKey("media/fonts/LiberationSans-Regular.ttf"), size: S, bold: true, italic: false },
+    rgb: white, advances: expectedAdvances[index]!,
+  }, face));
+  if (expectedInk.some((ink) => ink === null)) throw new Error("the independent Demo reference commands did not rasterize");
   let pixels: Uint8Array | null = null;
   for (let rev = 0; rev < 64 && pixels === null; rev += 1) pixels = engine.surfacePixels(0 as never, rev)?.rgba ?? null;
   if (pixels === null) throw new Error("the Demo screen surface is unavailable");
-  const solid = expectedInk.filter((point) => point.coverage === 255);
-  equal(solid.length > 0, true);
-  equal(solid.every((point) => pixels![(point.y * 640 + point.x) * 4] === 255), true, "the rendered screen contains the white title glyph pixels");
+  const expectedWhitePixels = new Map<number, number>();
+  for (const ink of expectedInk) for (const point of ink!) {
+    const index = (point.y * 640 + point.x) * 4;
+    const previous = expectedWhitePixels.get(index) ?? 0;
+    expectedWhitePixels.set(index, Math.floor((previous * (255 - point.coverage) + 255 * point.coverage + 127) / 255));
+  }
+  equal(expectedWhitePixels.size > 0, true, "independent title/menu reference produces glyph pixels");
+  for (const [index, expected] of expectedWhitePixels) equal(pixels[index], expected, `rendered glyph coverage at ${index / 4}`);
   cellProbe: {
     equal(Array.isArray(ui.draws), true);
     const runs: readonly DemoRun[] = (ui.draws ?? []).map((entry) => ({ text: entry.text as string, x: entry.x as number, y: entry.y as number, cell: entry.cell as boolean, size: (entry.font as { size: number }).size }));
@@ -175,24 +199,6 @@ test("the demo title menu's text runs land on their E-56 cell origins with unifo
     // The fractional 10.5/13.5 rows keep their half cell: trunc(9.5×18)=171 and trunc(12.5×18)=225.
     deepEqual(runs.map((run) => [run.x, run.y, run.cell]), [[36, 36, true], [288, 171, true], [288, 198, true], [288, 225, true]]);
     deepEqual(runs.every((run) => Number.isInteger(run.x) && Number.isInteger(run.y)), true, "every run starts at a whole-pixel origin: the fraction is kept as a cell, then the scaled pixel is truncated — E-56 holds for fractional cells");
-    // Baseline y (top + bitmap ascent = size) and first-glyph x per run:
-    deepEqual(runs.map((run) => ({ baselineY: run.y + run.size, firstGlyphX: run.x })), [
-      { baselineY: 54, firstGlyphX: 36 },
-      { baselineY: 189, firstGlyphX: 288 },
-      { baselineY: 216, firstGlyphX: 288 },
-      { baselineY: 243, firstGlyphX: 288 },
-    ]);
-  }
-  advanceProbe: {
-    const commands = composeUi(ui, 640, 480).filter((entry): entry is TextCommand => entry.kind === "text");
-    equal(commands.length, 4);
-    deepEqual(commands.map((entry) => entry.y), [36, 171, 198, 225], "composeUi replays the runs without re-advancing rows");
-    deepEqual(commands.map((entry) => entry.advances.map((advance) => advance.advance)), [
-      Array.from({ length: "Test Game".length }, () => S + 1),
-      Array.from({ length: "New Game".length }, () => S + 1),
-      Array.from({ length: "Load Game".length }, () => S + 1),
-      Array.from({ length: "Quit".length }, () => S + 1),
-    ], "advance per line: single-row runs; tracking is uniform s+1 (size 18 bold)");
   }
   alignProbe: {
     // Alignment observation (issue #1046's second independent contributor): the program's own

@@ -64,6 +64,8 @@ import type { ActorHooks } from "../actors/rules.ts";
 import type { MediaScriptService } from "../audio/script.ts";
 
 import type { AssetDecoder } from "../formats/registry/decoder.ts";
+import type { AssetKey } from "../ports/keys.ts";
+import type { TrueTypeFont } from "../formats/font/truetype.ts";
 
 /** Read-only game setup data consumed by battle-start commands. */
 export type BattleStartView = {
@@ -118,6 +120,8 @@ export type CommandView = {
   readonly rng: RngPort;
   readonly clock: ClockPort;
   readonly state?: GameState;
+  /** Resolve the decoded active TrueType face for text measurement. */
+  readonly resolveFont?: (key: AssetKey) => TrueTypeFont | undefined;
   /** Main-file mode: 0 queues whole-tile script pushes, pixel modes queue quarter-tile pushes. */
   readonly pixelMovement?: number;
   /** Refresh the composed screen before a script-visible pixel read; host polling never invokes it. */

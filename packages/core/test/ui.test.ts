@@ -24,6 +24,10 @@ import { resetUiForProgramStart } from "../src/save/sections/ui.ts";
 import { killSurface } from "../src/raster/surfaces.ts";
 import { pollMenuScreen } from "../src/script/waits.ts";
 import type { DrawCommand } from "../src/ports/draw.ts";
+import { readTrueTypeFont, layoutText } from "../src/index.ts";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 function textAdvance(cmd: DrawCommand, index: number): number | undefined {
   return cmd.kind === "text" ? cmd.advances[index]?.advance : undefined;
@@ -294,6 +298,25 @@ test("text and pixelText record draws and text metrics", () => {
   equal(state.ui.draws[1]?.x, 10);
   equal(state.ui.draws[1]?.cell, false);
   equal(command("gettextwidth", state, [arg("AB")]).value, 16);
+});
+
+test("text measurement uses the resolved TrueType face with active FontRef style and falls back when absent", () => {
+  const state = createGameState({ seed: 0 });
+  const key = assetKey("media/fonts/LiberationSans-Regular.ttf");
+  const bytes = new Uint8Array(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../../media/fonts/LiberationSans-Regular.ttf")));
+  const parsed = readTrueTypeFont(bytes);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  state.ui.font = { asset: key, size: 20, bold: true, italic: true };
+  const expected = layoutText("AB", state.ui.font, { font: parsed.value });
+  const services = createScriptServices(state, [{ definition: UI_PLUGIN }], undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, false, undefined, undefined, undefined, null, undefined, undefined, undefined, undefined, undefined, undefined, 0, undefined, () => parsed.value);
+  const width = services.commands.get("gettextwidth")!.spec.call(services.view, [arg("AB")], () => ({ value: null }));
+  const height = services.commands.get("gettextheight")!.spec.call(services.view, [arg("AB")], () => ({ value: null }));
+  equal(width.value, expected.width);
+  equal(height.value, expected.height);
+  const fallback = command("gettextwidth", state, [arg("AB")]);
+  equal(fallback.value, 42);
+  const missing = createScriptServices(state, [{ definition: UI_PLUGIN }], undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, false, undefined, undefined, undefined, null, undefined, undefined, undefined, undefined, undefined, undefined, 0, undefined, () => undefined);
+  equal(missing.commands.get("gettextwidth")!.spec.call(missing.view, [arg("AB")], () => ({ value: null })).value, fallback.value);
 });
 
 test("cell text lays out multi-line strings with one cell row per line", () => {

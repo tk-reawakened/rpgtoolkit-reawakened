@@ -802,7 +802,8 @@ export const TRIUKEN_PLUGIN: PluginDefinition = {
         { name: "size", optional: true, byRef: false, variadic: false },
         { name: "dest", optional: true, byRef: true, variadic: false },
       ],
-      call: (_view, args) => {
+      call: (_view, args, next) => {
+        if (args.length === 1) return next(_view, args, next);
         const text = toStringValue(args[0]?.value as never);
         const width = text.length * 8;
         const out = byRefOut(args, 3, width);
@@ -818,7 +819,8 @@ export const TRIUKEN_PLUGIN: PluginDefinition = {
         { name: "size", optional: true, byRef: false, variadic: false },
         { name: "dest", optional: true, byRef: true, variadic: false },
       ],
-      call: (_view, args) => {
+      call: (_view, args, next) => {
+        if (args.length === 1) return next(_view, args, next);
         const out = byRefOut(args, 3, 16);
         return { value: 16, out, effects: [{ kind: "mixed", section: "ui" }] };
       },
