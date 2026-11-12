@@ -1,7 +1,7 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { after, before, test } from "node:test";
+import { after, test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { decodeCp1252, newProjectMainFile, writeMainFile } from "@tk-reawakened/core";
 import { analyse } from "@tk-reawakened/script-tools";
@@ -26,14 +26,12 @@ const game = join(legacy, "FinalDestiny");
 
 // One server for the file: the corpus is one running project, and a spawn per test would
 // spend most of each test's time starting Node rather than exercising the server.
-let client: StdioClient;
-before(async () => {
-  if (!haveLegacy) return;
-  client = await startStdio();
-  await client.project(folderSnapshot(join(game, "Main", "FinalDestiny.gam")));
-});
+const started: StdioClient | undefined = haveLegacy ? await startStdio() : undefined;
+await started?.project(folderSnapshot(join(game, "Main", "FinalDestiny.gam")));
+// Every test below skips without the corpus, so each runs only when the server started.
+const client = started as StdioClient;
 after(async () => {
-  if (haveLegacy) await client.close();
+  await started?.close();
 });
 
 function text(path: string): string {
@@ -53,8 +51,9 @@ test("FinalDestiny: every program is assessed as Toolkit 2 and the 3.1 false syn
     published.forEach((diagnostics, at) => {
       const name = programs[at]!;
       ok(diagnostics.every((item) => item.code !== UNASSESSED_CODE), `${name} is assessed`);
-      if (diagnostics.length > 0) failing.push(name);
-      if (diagnostics.length === 0 && !analyse(sources[at]!).ok) falseUnder31.push(name);
+      const syntax = diagnostics.filter((item) => item.code === "syntax.error");
+      if (syntax.length > 0) failing.push(name);
+      if (syntax.length === 0 && !analyse(sources[at]!).ok) falseUnder31.push(name);
     });
     deepEqual(failing, programs.filter((_, at) => !analyse(sources[at]!, { dialect: "tk2" }).ok), "the published errors are exactly the Toolkit 2 frontend's");
     equal(failing.length, 1, "one program the Toolkit 2 frontend still rejects");
@@ -65,7 +64,7 @@ test("FinalDestiny: every program is assessed as Toolkit 2 and the 3.1 false syn
 test("FinalDestiny: hover and the outline work on Toolkit 2 programs of the running project", { skip, timeout: 15_000 }, async () => {
   {
     const chest = pathToFileURL(join(game, "Prg", "Basic Armor chest.prg")).href;
-    deepEqual(await client.open(chest, text(join(game, "Prg", "Basic Armor chest.prg"))), []);
+    deepEqual((await client.open(chest, text(join(game, "Prg", "Basic Armor chest.prg")))).filter((item) => item.code === "syntax.error"), []);
     // `#mwin("You found Basic Armor!")` on line 3.
     const hover = await client.connection.sendRequest<Hover | null>("textDocument/hover", { textDocument: { uri: chest }, position: { line: 2, character: 2 } });
     ok(hover !== null, "hover on a Toolkit 2 built-in call");
@@ -74,7 +73,7 @@ test("FinalDestiny: hover and the outline work on Toolkit 2 programs of the runn
     equal(hover.range?.start.line, 2);
 
     const system = pathToFileURL(join(game, "Prg", "system.prg")).href;
-    deepEqual(await client.open(system, text(join(game, "Prg", "system.prg"))), []);
+    deepEqual((await client.open(system, text(join(game, "Prg", "system.prg")))).filter((item) => item.code === "syntax.error"), []);
     const symbols = await client.connection.sendRequest<DocumentSymbol[]>("textDocument/documentSymbol", { textDocument: { uri: system } });
     const pause = symbols.find((symbol) => symbol.name === "pause");
     ok(pause !== undefined, `the outline lists #Method Pause (${symbols.map((symbol) => symbol.name).join(", ")})`);

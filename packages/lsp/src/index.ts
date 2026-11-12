@@ -35,6 +35,7 @@ import {
 import { documentationText, signatureHelp } from "./signature-help.ts";
 import { documentContext, NO_PROJECT, projectLoader, projectModel, readSnapshot, type DocumentContext, type ProjectModel } from "./project.ts";
 import { PROJECT_NOTIFICATION } from "./protocol.ts";
+import { CONFIG_CODE, documentLint, readProjectLintConfig } from "./lint-publish.ts";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
   CompletionItemKind,
@@ -149,13 +150,13 @@ export function createServer(connection: ServerConnection, options: ServerOption
 
   const contextOf = (document: TextDocument): DocumentContext => documentContext(project, document.uri, document.languageId);
 
-  const indexOf = (document: TextDocument): IndexProgram | null => {
+  const indexOf = (document: TextDocument, name = document.uri): IndexProgram | null => {
     const context = contextOf(document);
     const ref = context.dialect === "tk2"
       ? { kind: "inline" as const, text: document.getText(), ir: "1", dialect: "tk2" as const }
       : { kind: "inline" as const, text: document.getText(), ir: "1" };
     const loader = context.kind === "assessed" ? projectLoader(context.project, (uri) => documents.get(uri)?.getText()) : undefined;
-    const documentIndex = buildIndex([{ name: document.uri, ref }], loader === undefined ? {} : { loader });
+    const documentIndex = buildIndex([{ name, ref }], loader === undefined ? {} : { loader });
     return documentIndex.programs[0] ?? null;
   };
 
@@ -164,7 +165,28 @@ export function createServer(connection: ServerConnection, options: ServerOption
     const analysis = analyse(document.getText(), { file: document.uri, dialect: context.dialect });
     const diagnostics = analysis.diagnostics.map(toLspDiagnostic);
     if (context.kind === "unassessed") diagnostics.unshift(unassessedDiagnostic(context.reason, context.dialect));
+    if (context.kind === "assessed" && analysis.ok) diagnostics.push(...lintDiagnostics(document, context));
     connection.sendDiagnostics({ uri: document.uri, version: document.version, diagnostics });
+  };
+
+  /**
+   * The project's lint findings for an assessed document that compiled (#2074). A
+   * malformed `tkr-lint.json` is reported, never silently treated as the defaults.
+   */
+  const lintDiagnostics = (document: TextDocument, context: Extract<DocumentContext, { kind: "assessed" }>): LspDiagnostic[] => {
+    const config = readProjectLintConfig(context.project.lintConfig);
+    if (!config.ok) {
+      return [{
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+        severity: DiagnosticSeverity.Error,
+        code: CONFIG_CODE,
+        source: "rpgcode",
+        message: `${config.message}. Lint findings are not published until the configuration is fixed.`,
+      }];
+    }
+    const program = indexOf(document, context.project.pathOfUri.get(document.uri) ?? document.uri);
+    if (program === null || program.diagnostics.length > 0) return [];
+    return documentLint(program, document.getText(), context.dialect, plugins, config.config).map(toLspDiagnostic);
   };
 
   connection.onNotification(PROJECT_NOTIFICATION, (params) => {
