@@ -151,10 +151,10 @@ function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined): strin
   if (!raw.trimStart().startsWith("#") && !/^(if|while|until|for|switch|case|default|else|function|return|[:{}])(?:\b|$)/i.test(line) && !line.includes("=") && !line.endsWith("{")) {
     return `mwin(${quoted(line)})`;
   }
+  // Bind raw text while variable sigils still distinguish names from literals.
+  line = bindRawArguments(line, lookup);
   line = stripSigils(line);
-  line = equalityInCondition(line);
-  if (line.length === 0) return "";
-  return bindRawArguments(line, lookup);
+  return equalityInCondition(line);
 }
 
 
