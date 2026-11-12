@@ -174,8 +174,11 @@ resolution, with AD-33's two presentation modes as viewport geometry. The pixel 
 from `core/raster`'s leaves rather than from a second implementation: `linePixels`, `rectOutlinePixels`,
 `ellipsePixels`, `isoSourceOffset` and `textInk` (which owns the legacy cell scaling, the italic shear, bold's second ink
 and the TrueType outline's coverage), plus `DEFAULT_FONT_ASSET` for AD-15's substitution of a family the game does not
-ship. A tiled blit uploads only the tile it names, because a `.tst` strip of a large board can exceed
-`MAX_TEXTURE_SIZE` and an incomplete texture samples as black.
+ship. A TrueType `text` command carries glyph IDs, which only the face that produced them can draw, so a host **MUST**
+give the renderer every face the engine installed from the project's `Font\` folder as well as the bundled faces, decoded
+once and shared across frames; the interactive session offers a project face only while the engine reports it installed
+(`boot.fonts`), and a project face wins over a bundled face of the same key. A tiled blit uploads only the tile it
+names, because a `.tst` strip of a large board can exceed `MAX_TEXTURE_SIZE` and an incomplete texture samples as black.
 
 A renderer that cannot draw a command **MUST** count it as deferred and report a diagnostic, never draw an approximate
 pixel in its place. A frame that reports a deferred command is a partial frame, not a pass; the browser lane today
