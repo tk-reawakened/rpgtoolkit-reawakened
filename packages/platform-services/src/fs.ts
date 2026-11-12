@@ -1,4 +1,4 @@
-import type { Disposable, PlatformResult } from "./result.ts";
+import { platformError, type Disposable, type PlatformResult } from "./result.ts";
 
 /**
  * The `fs` surface of AD-20: `list`, `read`, `write`, `stat`, `delete`, `rename`, `watch`.
@@ -6,14 +6,18 @@ import type { Disposable, PlatformResult } from "./result.ts";
  * Every path is **project-relative with `/` separators**, with no leading `/`, no `.` or `..` segment and no empty
  * segment; `""` names the project root, and only `list`, `stat` and `watch` accept it. This is the identity form of
  * ADR 0022 D1.1 before it is ASCII-folded for comparison. A host that is handed anything else answers `invalid-path`.
- * The project is the one the host's `project` service last opened; the host-native location behind it is not visible
- * here (ADR 0022 D1.1).
+ * Ordinary paths address the service's project. Document I/O also supplies its project identity, so a project switch
+ * cannot redirect an in-flight read or write (ADR 0022 D1.1).
  */
 export interface FileSystemService {
   /** The entries directly inside the folder `path`, in no promised order. */
   list(path: string): Promise<PlatformResult<readonly DirectoryEntry[]>>;
   /** The whole file as bytes. */
   read(path: string): Promise<PlatformResult<Uint8Array>>;
+  /** Read only from the identified project. The host binds the operation to that project through completion. */
+  readProject(projectId: string, path: string): Promise<PlatformResult<Uint8Array>>;
+  /** Write only to the identified project; a project mismatch fails without changing either project. */
+  writeProject(projectId: string, path: string, bytes: Uint8Array): Promise<PlatformResult<void>>;
   /**
    * Replace the file's content with `bytes`, creating the file (and any missing folder) when it does not exist. The
    * result is `ok` only when the host reports the bytes durably written (ADR 0022 D3.3); a failed write leaves the
@@ -31,6 +35,27 @@ export interface FileSystemService {
    * files answers `unavailable` and does not list `fileWatch` among its capabilities (ADR 0022 D3.5).
    */
   watch(path: string, onChange: (change: FileChange) => void): Promise<PlatformResult<Disposable>>;
+}
+
+/** Add project-identified operations to a filesystem permanently bound to one project. */
+export function bindProjectFileSystem(
+  projectId: string,
+  fs: Omit<FileSystemService, "readProject" | "writeProject">,
+  isActive: () => boolean = () => true,
+): FileSystemService {
+  return {
+    list: (path) => fs.list(path),
+    read: (path) => fs.read(path),
+    write: (path, bytes) => fs.write(path, bytes),
+    stat: (path) => fs.stat(path),
+    delete: (path) => fs.delete(path),
+    rename: (from, to) => fs.rename(from, to),
+    watch: (path, onChange) => fs.watch(path, onChange),
+    readProject: (requested, path) => requested === projectId && isActive()
+      ? fs.read(path) : Promise.resolve(platformError("unavailable", "The document's project is unavailable.")),
+    writeProject: (requested, path, bytes) => requested === projectId && isActive()
+      ? fs.write(path, bytes) : Promise.resolve(platformError("unavailable", "The document's project is unavailable.")),
+  };
 }
 
 /** What a path names. */

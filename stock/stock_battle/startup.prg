@@ -1167,6 +1167,9 @@ stockBattleUi = {
         stockBattleUi.picture = ""
         if (stockBattle.battleBackgroundDataCache != null) {
             stockBattleUi.picture = stockBattle.battleBackgroundDataCache.image
+            if (stockBattleUi.picture == "") {
+                stockBattleUi.picture = stockBattle.battleBackgroundDataCache.legacyimage
+            }
         }
         if (stockBattleUi.picture != "") {
             bitmap(stockBattleUi.picture, scratch)
