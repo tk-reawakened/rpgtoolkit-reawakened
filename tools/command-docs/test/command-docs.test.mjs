@@ -89,11 +89,14 @@ test("check requires every public battle built-in and alias to have a spec row",
   equal(other.diagnostics.some((item) => item.code === "native.row-missing"), false);
 });
 
-test("the default gate documents and checks the script-spec package's seven commands", () => {
+test("the default gate documents and checks the script-spec package's twelve commands", () => {
   const result = check();
   deepEqual(result.diagnostics, []);
   deepEqual(
     result.documentation.filter((entry) => entry.pluginId === "script-spec").map((entry) => entry.name),
-    ["specresult", "speccapture", "specequal", "speccontain", "specclose", "specthrowbegin", "specthrowend"],
+    [
+      "specresult", "speccapture", "specequal", "speccontain", "specclose", "specthrowbegin", "specthrowend",
+      "speccalled", "specinput", "specticks", "specrng", "spyon",
+    ],
   );
 });
