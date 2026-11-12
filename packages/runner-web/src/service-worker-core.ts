@@ -2,7 +2,7 @@
  * Pure policy, routing, manifest validation, and cache management for the offline service worker (issue #934).
  *
  * SCOPE DECISION:
- * - Worker script: `/apps/browser/service-worker.js`
+ * - Worker script: `/apps/service-worker.js` (stable registration URL)
  * - Player page:   `/packages/runner-web/app/index.html`
  * - Player scope:  `/packages/runner-web/app/index.html`
  *
@@ -19,7 +19,7 @@
  */
 
 export const PLAYER_PAGE_URL = "/packages/runner-web/app/index.html";
-export const WORKER_SCRIPT_URL = "/apps/browser/service-worker.js";
+export const WORKER_SCRIPT_URL = "/apps/service-worker.js";
 export const PLAYER_SCOPE = "/packages/runner-web/app/index.html";
 export const ALLOWED_SCOPE_HEADER = "/packages/runner-web/app/";
 export const PRECACHE_MANIFEST_URL = "/apps/browser/precache.json";
