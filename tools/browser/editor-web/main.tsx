@@ -14,6 +14,7 @@ const recentSelect = document.querySelector<HTMLSelectElement>("#recent-project"
 const reopenButton = document.querySelector<HTMLButtonElement>("#reopen-project")!;
 let opened: ViewHandle | null = null;
 let openedElement: HTMLElement | null = null;
+let openedProject: WebProject | null = null;
 let projectWithChoices: WebProject | null = null;
 
 folderButton.addEventListener("click", () => {
@@ -144,6 +145,8 @@ async function show(project: WebProject, path: string): Promise<void> {
 
   const previous = opened;
   const previousElement = openedElement;
+  if (openedProject !== project) openedProject?.deactivate();
+  openedProject = project;
   opened = result.view;
   openedElement = candidateElement;
   candidateElement.hidden = false;

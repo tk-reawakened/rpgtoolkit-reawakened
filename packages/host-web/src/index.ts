@@ -5,7 +5,13 @@ import { mount, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { createWebFileSystem } from "./filesystem.ts";
 import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
 
-export interface WebProject { readonly services: PlatformServices; readonly project: ProjectHandle; readonly sessionCopy: boolean }
+export interface WebProject {
+  readonly services: PlatformServices;
+  readonly project: ProjectHandle;
+  readonly sessionCopy: boolean;
+  /** Retire this project from its host session; accepted operations remain bound to their original project. */
+  deactivate(): void;
+}
 type DirectoryPickerWindow = Window & {
   showDirectoryPicker?: (this: Window, options: { readonly mode: "readwrite" }) => Promise<FileSystemDirectoryHandle>;
 };
@@ -36,10 +42,11 @@ export async function listRecentWebProjects(): Promise<readonly ProjectHandle[] 
 }
 
 function createFolderProject(root: FileSystemDirectoryHandle, project: ProjectHandle): WebProject {
+  let active = true;
   const values = new Map<string, SettingValue>();
   const services: PlatformServices = {
     capabilities: new Set(["folderWrite", "stableProjectHandle"]),
-    fs: createWebFileSystem(root, project.id),
+    fs: bindProjectFileSystem(project.id, createWebFileSystem(root, project.id), () => active),
     project: {
       open: async () => platformOk(project),
       recent: async () => {
@@ -57,13 +64,14 @@ function createFolderProject(root: FileSystemDirectoryHandle, project: ProjectHa
     },
     document: { edited: () => undefined },
   };
-  return { services, project, sessionCopy: false };
+  return { services, project, sessionCopy: false, deactivate: () => { active = false; } };
 }
 
 
 /** A file-only browser session is explicitly a copy: writes stay in this page's memory, never in the source file. */
 export function createSessionCopy(fileName: string, bytes: Uint8Array): WebProject {
   const memory = new Map<string, Uint8Array>([[fileName, bytes.slice()]]);
+  let active = true;
   const project: ProjectHandle = { id: `session:${crypto.randomUUID()}`, name: `${fileName} (session copy)` };
   const valid = (path: string, allowRoot = false): boolean => path === "" ? allowRoot : !path.startsWith("/") && !path.includes("\\") && path.split("/").every((part) => part !== "" && part !== "." && part !== "..");
   const invalid = (path: string) => platformError("invalid-path", `Invalid project path: ${path}`);
@@ -94,12 +102,12 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array): WebProje
       },
       rename: async (from, to) => !valid(from) ? invalid(from) : !valid(to) ? invalid(to) : unavailable(),
       watch: async (path) => !valid(path, true) ? invalid(path) : unavailable(),
-    }),
+    }, () => active),
     project: { open: async () => platformOk(project), recent: async () => platformOk([project]) },
     settings: { get: async () => platformOk(null), set: async () => platformError("unavailable", "Settings are unavailable in a session copy.") },
     document: { edited: () => undefined },
   };
-  return { services, project, sessionCopy: true };
+  return { services, project, sessionCopy: true, deactivate: () => { active = false; } };
 }
 
 /** Mount the same view and authoritative model used by other hosts. The caller owns the returned view handle. */

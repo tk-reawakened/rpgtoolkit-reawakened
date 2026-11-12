@@ -41,12 +41,19 @@ export interface FileSystemService {
 export function bindProjectFileSystem(
   projectId: string,
   fs: Omit<FileSystemService, "readProject" | "writeProject">,
+  isActive: () => boolean = () => true,
 ): FileSystemService {
   return {
-    ...fs,
-    readProject: (requested, path) => requested === projectId
+    list: (path) => fs.list(path),
+    read: (path) => fs.read(path),
+    write: (path, bytes) => fs.write(path, bytes),
+    stat: (path) => fs.stat(path),
+    delete: (path) => fs.delete(path),
+    rename: (from, to) => fs.rename(from, to),
+    watch: (path, onChange) => fs.watch(path, onChange),
+    readProject: (requested, path) => requested === projectId && isActive()
       ? fs.read(path) : Promise.resolve(platformError("unavailable", "The document's project is unavailable.")),
-    writeProject: (requested, path, bytes) => requested === projectId
+    writeProject: (requested, path, bytes) => requested === projectId && isActive()
       ? fs.write(path, bytes) : Promise.resolve(platformError("unavailable", "The document's project is unavailable.")),
   };
 }

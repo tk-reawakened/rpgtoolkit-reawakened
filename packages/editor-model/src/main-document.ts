@@ -117,9 +117,10 @@ export type OpenResult =
 
 /** Read the file at `identity.path` through `storage` and open it. */
 export async function openMainDocument(storage: DocumentStorage, identity: DocumentIdentity): Promise<OpenResult> {
-  const read = await storage.readProject(identity.projectId, identity.path);
-  if (!read.ok) return { ok: false, error: { kind: "read", document: identity.path, error: read.error } };
-  return createMainDocument(storage, identity, read.value);
+  const captured = Object.freeze({ ...identity });
+  const read = await storage.readProject(captured.projectId, captured.path);
+  if (!read.ok) return { ok: false, error: { kind: "read", document: captured.path, error: read.error } };
+  return createMainDocument(storage, captured, read.value);
 }
 
 /**
@@ -200,7 +201,7 @@ class MainDocumentImpl implements MainDocument {
   #snapshot: MainDocumentSnapshot;
 
   constructor(storage: DocumentStorage, identity: DocumentIdentity, model: MainFile, readOnly: ReadOnlyReason | null) {
-    this.identity = identity;
+    this.identity = Object.freeze({ ...identity });
     this.#storage = storage;
     this.#base = model;
     this.#model = model;

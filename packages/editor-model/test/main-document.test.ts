@@ -702,3 +702,36 @@ test("document saves cannot be redirected by a project switch, including during 
   equal(titleOf(stored(projectA)), "Project A");
   deepEqual(stored(projectB), original);
 });
+
+test("document identity is captured before an asynchronous read and cannot redirect a later save", async () => {
+  const original = exampleMain(9);
+  const a = hostWith(original);
+  const b = createMemoryPlatformServices({ project: { id: "project-b", name: "B" }, files: { [PATH]: original } });
+  let active = a;
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const entered = new Promise<void>((resolve) => { started = resolve; });
+  const storage: DocumentStorage = {
+    readProject: async (projectId, path) => {
+      const reading = active.fs.readProject(projectId, path);
+      started();
+      await gate;
+      return reading;
+    },
+    writeProject: (projectId, path, bytes) => active.fs.writeProject(projectId, path, bytes),
+  };
+  const mutable = { ...identity };
+  const opening = openMainDocument(storage, mutable);
+  await entered;
+  active = b;
+  Object.assign(mutable, createDocumentIdentity("project-b", PATH));
+  release();
+  const opened = await opening;
+  ok(opened.ok);
+  equal(opened.document.identity.projectId, identity.projectId);
+  opened.document.apply({ type: "set-game-title", title: "Must not reach B" });
+  ok(!(await opened.document.save()).ok);
+  deepEqual(stored(a), original);
+  deepEqual(stored(b), original);
+});
