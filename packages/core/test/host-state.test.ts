@@ -255,7 +255,7 @@ test("validated boundary gamepad records drive real engine input and snapshot re
 });
 test("delayed replacement MainFile re-registers external actions before recomputing held gamepad state", () => {
   const encodeMain = (startupPrg: string) => {
-    const result = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, initBoard: "start.brd", startupPrg });
+    const result = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, initBoard: "start.brd", startupPrg, useJoystick: 1 });
     if (!result.ok) throw new Error(result.error.message);
     return result.value;
   };

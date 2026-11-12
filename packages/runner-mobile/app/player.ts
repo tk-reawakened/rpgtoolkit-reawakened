@@ -241,6 +241,7 @@ function run(
     observedGeometry.observe(event);
     pending.push({ tick: null, event, pointerGeometry: null });
   }, session.hostState ?? undefined);
+  session.setGamepadResampler(hostObserver.resampleGamepads);
   session.setHostRestoreSnapshotProvider(() => {
     const snapshot = hostObserver.snapshotForRestore(pending);
     for (const event of snapshot.observations) observedGeometry.observe(event);
@@ -377,7 +378,6 @@ function run(
         moved ? "moved: yes" : "moved: no",
         `save ${savePath}: ${saveLabel}`,
         ...(session.audioError() === null ? [] : [`audio: ${session.audioError()}`]),
-        "Move: arrows or WASD; tap/click to walk.",
       ].join("\n");
       if (!disposed && isCurrent()) frameId = window.requestAnimationFrame(draw);
     }).catch((error: unknown) => {

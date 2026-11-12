@@ -99,6 +99,7 @@ export type LiveSession = {
   /** Persistent host audio initialization failure, if one occurred. */
   readonly audioError: () => string | null;
   readonly advance: (ticks: number, inputs?: readonly InputRecord[]) => Promise<void>;
+  readonly setGamepadResampler: (resample: () => void) => void;
   readonly setHostRestoreSnapshotProvider: (provider: (() => HostRestoreSnapshot) | null) => void;
 };
 type LiveSessionBase = {
@@ -438,6 +439,23 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     }
   };
 
+  let resampleGamepads: (() => void) | null = null;
+  let controllerWasEnabled = false;
+  const missingGamepadApiReported = new Set<string>();
+  function reconcileControllerPolicy(): void {
+    if (!interactive || options.hostViewport === undefined) return;
+    const policy = engine.gamepadPolicy();
+    const enabled = policy?.enabled === true;
+    if (enabled && !controllerWasEnabled) resampleGamepads?.();
+    controllerWasEnabled = enabled;
+    if (enabled && typeof navigator.getGamepads !== "function" && !missingGamepadApiReported.has(policy.file)) {
+      missingGamepadApiReported.add(policy.file);
+      reportDiagnostic({
+        code: "input.gamepad-api-unavailable", file: policy.file, line: 0,
+        message: "the active game enables controllers, but this player cannot observe gamepads",
+      });
+    }
+  }
   let hostRestoreSnapshotProvider: (() => HostRestoreSnapshot) | null = null;
   const pump = async (initialTicks: number, initialInputs: readonly InputRecord[]): Promise<void> => {
     let ticks = initialTicks;
@@ -456,6 +474,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
       currentTick = report.tickAfter;
       currentStateHash = report.stateHash;
       for (const diagnostic of report.diagnostics) reportDiagnostic(diagnostic);
+      reconcileControllerPolicy();
       // Cues are handed to the player on their own chain, in report order, once the assets they name are cached (the
       // player and the sink read assets synchronously). The simulation never waits on this chain, and a stall in the
       // chain cannot reorder cues, because each report's cues run only after the previous report's.
@@ -524,6 +543,10 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     close,
     tick: () => currentTick,
     stateHash: () => currentStateHash,
+    setGamepadResampler(resample) {
+      resampleGamepads = resample;
+      if (controllerWasEnabled) resample();
+    },
     setHostRestoreSnapshotProvider(provider) { hostRestoreSnapshotProvider = provider; },
     viewSize: () => ({ width: viewport.width, height: viewport.height }),
     hostState: hostFeatures === null ? null : { features: hostFeatures, geometry: initialGeometry },

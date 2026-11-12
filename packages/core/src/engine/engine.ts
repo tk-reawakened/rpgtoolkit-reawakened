@@ -23,7 +23,7 @@ import { readCharacter } from "../formats/actor/character.ts";
 import { readItem } from "../formats/actor/item.ts";
 import type { Character, Item, LegacyWalkFrame } from "../formats/actor/model.ts";
 import { actorInputFromCharacter } from "../actors/hydrate.ts";
-import { readMainFile } from "../formats/main-file/reader.ts";
+import { detectBinaryMainFile, readMainFile } from "../formats/main-file/reader.ts";
 import { planPrefetch, prefetchSignature, type PrefetchFacts } from "../prefetch/plan.ts";
 import { readBattleBackground } from "../formats/battle/battle-background.ts";
 import { BinaryReader } from "../formats/binary/reader.ts";
@@ -68,7 +68,8 @@ import { coordLayout, tileToPixel, usesPixelCoordinates } from "../world/coords.
 import { boardEmitterKey, type WorldBoard, type WorldImageCell, type WorldTile } from "../world/model.ts";
 import type { AnimationState, FxSection } from "../save/sections.ts";
 import type { UiActionClaim } from "../save/sections/ui.ts";
-import { applyInputEvent, applySemanticActionEdge, claimInputBefore, createInputSection, inputView, processGamepadEvents, pruneClaimed, rebuildKeyboardActionClaimIndex, recomputeInputActions, registerGameAction, routePointerUpActivations, setPointerMovementSuppressed } from "../input/index.ts";
+import { applyInputEvent, applySemanticActionEdge, claimInputBefore, configureMainFileMovement, createInputSection, inputView, movementBindingCollisions, processGamepadEvents, pruneClaimed, rebuildKeyboardActionClaimIndex, recomputeInputActions, registerGameAction, routePointerUpActivations, setPointerMovementSuppressed } from "../input/index.ts";
+import { mainFileMovementSettings } from "../input/movement-settings.ts";
 import { applyWorldEffect, expireProgramTileEdits } from "../world/effects.ts";
 import { applyCameraEffect, createCameraSection, initCameraForBoard, positionAt, realignCamera, updateCamera } from "../world/camera.ts";
 import { applyInputEffect, applySpriteEffect } from "../script/packs/world.ts";
@@ -442,6 +443,24 @@ export function createEngine(init: EngineInit): Engine {
   let recoveryInitialized = false;
   let recoveryResumed = false;
   const diagnostics: Diagnostic[] = [];
+  let activeMovement: (ReturnType<typeof mainFileMovementSettings> & { file: AssetKey }) | null = null;
+  const reportedMovementCollisions = new Set<string>();
+  function reportMovementCollisions(): void {
+    for (const { code, actions } of movementBindingCollisions(state.input)) {
+      const key = `${code}:${actions.join(",")}`;
+      if (reportedMovementCollisions.has(key)) continue;
+      reportedMovementCollisions.add(key);
+      diagnostics.push({
+        code: "input.control-collision", file: mainKey ?? "", line: 0,
+        message: `physical key ${code} is shared by ${actions.join(", ")}`,
+      });
+    }
+  }
+  function restoreMovementPolicy(): void {
+    if (activeMovement === null) return;
+    configureMainFileMovement(state.input, activeMovement.settings);
+    reportMovementCollisions();
+  }
   const reportedUnknownActions = new Set<string>();
   const reportUnknownAction = (action: string): void => {
     if (Object.hasOwn(state.input.actionRegistry, action) || reportedUnknownActions.has(action)) return;
@@ -1460,6 +1479,7 @@ export function createEngine(init: EngineInit): Engine {
         state.input.directionOrder = state.input.directionOrder.filter((held) => held !== action);
       }
       rebuildKeyboardActionClaimIndex(state.input);
+      restoreMovementPolicy();
       state.world = {
         ...state.world,
         movement: {
@@ -1575,6 +1595,7 @@ export function createEngine(init: EngineInit): Engine {
       if (!restoredHold) boardRedraw();
     } catch (error) {
       Object.assign(state, previous);
+      restoreMovementPolicy();
       init.spriteRuntime?.bindState(state.sprites, state.vm, resolveSpriteProgram, state.world.board ?? null);
       init.spriteRuntime?.bindItemThreadCleanup?.((thread) => discardMenuFrames(previousServices, thread));
       services = previousServices;
@@ -2454,6 +2475,7 @@ export function createEngine(init: EngineInit): Engine {
   }
   function resetLifecycle(nextMain?: string): void {
     reportedUnknownActions.clear();
+    reportedMovementCollisions.clear();
     discardRecoveryCandidates();
     clearStartupAnchors();
     const rng = state.rng;
@@ -2552,9 +2574,12 @@ export function createEngine(init: EngineInit): Engine {
       services = makeServices(activePlugins, loader ?? undefined, true);
     }
     state.input.gamepads = { ...hostGamepads };
-    recomputeInputActions(state.input, (action, down, firstSeq) => {
-      routeAuthorSurfaceAction(action, down, down ? firstSeq : null);
-    });
+    if (nextMain === undefined) {
+      restoreMovementPolicy();
+      recomputeInputActions(state.input, (action, down, firstSeq) => {
+        routeAuthorSurfaceAction(action, down, down ? firstSeq : null);
+      });
+    }
     audio.retry();
   }
   function fail(diagnostic: Diagnostic): void {
@@ -3087,12 +3112,17 @@ export function createEngine(init: EngineInit): Engine {
         request(mainKey, "main");
         return false;
       }
-      const parsed = readMainFile(new BinaryReader(bytes, mainKey));
+      const reader = new BinaryReader(bytes, mainKey);
+      const binary = detectBinaryMainFile(reader);
+      const parsed = readMainFile(reader);
       if (!parsed.ok) {
         fail({ code: "asset.invalid", file: mainKey, line: parsed.error.offset, message: parsed.error.message });
         return false;
       }
       mainFile = parsed.value;
+      activeMovement = { file: mainKey, ...mainFileMovementSettings(mainFile, mainKey, !binary.ok || binary.value) };
+      diagnostics.push(...activeMovement.diagnostics);
+      restoreMovementPolicy();
       projectDebug = debugFromMainFile(mainFile);
       state.world = { ...state.world, movement: movementDefaults(mainFile) };
       if (root.kind === "game") root = { kind: "game", projectPath: mainFile.projectPath };
@@ -3140,6 +3170,7 @@ export function createEngine(init: EngineInit): Engine {
       }
       if (!startupServicesReady) {
         services = makeServices(activePlugins, loader, true);
+        reportMovementCollisions();
         recomputeInputActions(state.input, (action, down, firstSeq) => {
           routeAuthorSurfaceAction(action, down, down ? firstSeq : null);
         });
@@ -5071,6 +5102,7 @@ export function createEngine(init: EngineInit): Engine {
       if (registered && !externallyRegisteredActions.some((existing) => existing.name === action.name)) {
         const definition = state.input.registeredActions.find((existing) => existing.name === action.name);
         if (definition !== undefined) externallyRegisteredActions.push(definition);
+        reportMovementCollisions();
       }
       if (!registered) diagnostics.push({
         code: "input.action-registration",
@@ -5121,6 +5153,11 @@ export function createEngine(init: EngineInit): Engine {
     },
     hostFeatures(): NormalizedHostFeatures {
       return { ...state.features };
+    },
+    gamepadPolicy() {
+      return activeMovement === null
+        ? null
+        : { file: activeMovement.file, enabled: activeMovement.settings.controllerEnabled };
     },
     hostDisplayGeometry(): HostDisplayGeometry {
       const { content, game, safeArea } = state.display.geometry;

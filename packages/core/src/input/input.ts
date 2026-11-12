@@ -2,6 +2,7 @@
 import type { InputEvent, GamepadInput, KeyInput, PointerInput } from "../ports/input.ts";
 import { INPUT_SCHEMA_VERSION, type InputBindings, type InputButton, type InputButtonSlot, type InputGamepad, type InputKeyState, type InputSection, type RegisteredAction } from "../save/sections/input.ts";
 
+import type { MainFileMovementSettings } from "./movement-settings.ts";
 import { canon } from "../canon/canon.ts";
 import type { PlainData } from "../ports/plain-data.ts";
 export type InputKey = InputKeyState;
@@ -31,6 +32,86 @@ const DEFAULT_KEY_ACTIONS: Readonly<Record<string, readonly string[]>> = {
   ArrowUp: ["up"], ArrowDown: ["down"], ArrowLeft: ["left"], ArrowRight: ["right"],
   Enter: ["confirm", "menu"], Space: ["confirm"], Escape: ["cancel"],
 };
+// Game configuration is derived from the active main file. Only held state and press order are saved.
+const movementSettings = new WeakMap<InputSection, MainFileMovementSettings>();
+const CARDINAL_DIRECTIONS = ["up", "down", "left", "right"] as const;
+const MOVEMENT_ORDER = [...CARDINAL_DIRECTIONS, "southeast", "southwest", "northwest", "northeast"] as const;
+const DIRECTION_ACTIONS: Readonly<Record<string, readonly string[]>> = {
+  right: ["right"], southeast: ["down", "right"], down: ["down"], southwest: ["down", "left"],
+  left: ["left"], northwest: ["up", "left"], up: ["up"], northeast: ["up", "right"],
+};
+
+export function configureMainFileMovement(state: InputSection, settings: MainFileMovementSettings): void {
+  movementSettings.set(state, settings);
+  if (!settings.controllerEnabled) {
+    const pads = state.gamepads;
+    state.gamepads = {};
+    state.pendingGamepads = [];
+    for (const pad of Object.values(pads)) updatePadActions(state, pad.mask, 0, false, "gamepad");
+  }
+  updateMovementOrder(state);
+}
+
+export function movementAllowsPointer(state: InputSection): boolean {
+  return movementSettings.get(state)?.pointerEnabled ?? true;
+}
+
+export function movementAllowsDiagonals(state: InputSection): boolean {
+  return movementSettings.get(state)?.diagonalsEnabled ?? state.allowDiagonals;
+}
+
+export function movementDirections(state: InputSection): ReadonlySet<string> {
+  const settings = movementSettings.get(state);
+  const held = new Set<string>();
+  if (settings === undefined) {
+    for (const action of CARDINAL_DIRECTIONS) if (state.actions[action] === true) held.add(action);
+    return held;
+  }
+  for (const action of CARDINAL_DIRECTIONS) {
+    const keyboard = settings.keyboardEnabled && Object.keys(state.keyboardActionSources[action] ?? {}).some((control) => {
+      const code = control.slice(4);
+      return state.controlActions[control]?.includes(action) === true
+        || (state.bindings.keys[code] === action && !(DEFAULT_KEY_ACTIONS[code] ?? []).includes(action));
+    });
+    if (keyboard || actionHeldFromPads(state, action) || Object.keys(state.semanticActionSources[action] ?? {}).length > 0) held.add(action);
+  }
+  if (settings.keyboardEnabled) {
+    for (const [code, directions] of settings.keys) {
+      if (state.held[code] === true) for (const direction of directions) held.add(direction);
+    }
+  }
+  return held;
+}
+
+function updateMovementOrder(state: InputSection): void {
+  if (!movementSettings.has(state)) return;
+  const held = movementDirections(state);
+  const order = state.directionOrder.filter((direction) => held.has(direction));
+  // One record can introduce several directions. Apply the engine action order, then the dedicated diagonal slots.
+  for (const direction of MOVEMENT_ORDER) {
+    if (held.has(direction) && !order.includes(direction)) order.push(direction);
+  }
+  state.directionOrder = order;
+}
+
+/** Report all shared controls without altering ACT-4 dispatch. */
+export function movementBindingCollisions(state: InputSection): { code: string; actions: string[] }[] {
+  const settings = movementSettings.get(state);
+  if (settings === undefined) return [];
+  const collisions: { code: string; actions: string[] }[] = [];
+  for (const [code, directions] of settings.keys) {
+    const legacyActions = directions.flatMap((direction) => DIRECTION_ACTIONS[direction] ?? []);
+    const mapped = state.bindings.keys[code];
+    const other = [
+      ...(DEFAULT_KEY_ACTIONS[code] ?? []),
+      ...(state.controlActions[`key:${code}`] ?? []),
+      ...(mapped === undefined ? [] : [LEGACY_ACTION_ALIASES[mapped] ?? mapped]),
+    ].filter((action) => Object.hasOwn(state.actionRegistry, action) && !legacyActions.includes(action));
+    if (directions.length > 1 || other.length > 0) collisions.push({ code, actions: [...new Set([...directions, ...other])] });
+  }
+  return collisions;
+}
+
 const DIRECTIONS: Readonly<Record<string, true>> = { up: true, down: true, left: true, right: true };
 
 // Reverse index for physical keyboard claims. It is derived from saved action→source
@@ -372,6 +453,7 @@ export function applySemanticActionEdge(
   }
   const isHeld = Object.keys(claims).length > 0 || state.keyboardActions[action] === true || actionHeldFromPads(state, action);
   state.actions[action] = isHeld;
+  updateMovementOrder(state);
   if (isHeld !== wasHeld) {
     setDirectionOrder(state, action, isHeld);
     if (isHeld) {
@@ -422,7 +504,7 @@ function actionHeldFromPads(state: InputSection, action: string): boolean {
 }
 
 function setDirectionOrder(state: InputSection, action: string, pressed: boolean): void {
-  if (DIRECTIONS[action] !== true) return;
+  if (DIRECTIONS[action] !== true || movementSettings.has(state)) return;
   if (pressed) state.directionOrder = [...state.directionOrder.filter((value) => value !== action), action];
   else state.directionOrder = state.directionOrder.filter((value) => value !== action);
 }
@@ -489,16 +571,19 @@ function updatePadActions(
 }
 
 function applyKey(state: InputSection, event: KeyInput, onUnknownAction?: (action: string) => void, onActionTransition?: (action: string, down: boolean, firstSeq: number) => void): void {
-  if (event.down && event.repeat === true && state.held[event.name] !== true) return;
-  const priorRaw = state.held[event.name] === true;
   const physicalControl = event.code.length > 0 ? event.code : event.name;
+  const priorRaw = state.held[physicalControl] === true;
+  if (event.down && event.repeat === true && !priorRaw) return;
   updateHeldClaims(state, physicalControl, event.name, event.down);
   const control = `key:${event.code}`;
   const configured = mappedAction(state, event);
   const defaultActions = DEFAULT_KEY_ACTIONS[event.code] ?? [];
   const mapped = configured === undefined ? undefined : LEGACY_ACTION_ALIASES[configured] ?? configured;
   const bound = state.controlActions[control] ?? [];
-  const candidates = [...defaultActions, ...bound, ...(mapped === undefined ? [] : [mapped])];
+  const settings = movementSettings.get(state);
+  const movement = settings?.keys.get(event.code) ?? [];
+  const candidates = [...defaultActions, ...bound, ...movement.flatMap((direction) => DIRECTION_ACTIONS[direction] ?? []),
+    ...(mapped === undefined ? [] : [mapped])];
   const gameSet = new Set<string>();
   for (const action of [...bound, ...(mapped === undefined ? [] : [mapped])]) {
     if (ENGINE_ACTIONS.has(action) || gameSet.has(action)) continue;
@@ -536,6 +621,7 @@ function applyKey(state: InputSection, event: KeyInput, onUnknownAction?: (actio
     }
     updateAction(state, action, false, event.code, onActionTransition);
   }
+  updateMovementOrder(state);
 }
 
 /**
@@ -554,6 +640,7 @@ function releaseHeld(state: InputSection): void {
   for (const sources of Object.values(state.keyboardActionSources)) for (const source of Object.keys(sources)) delete sources[source];
   rebuildKeyboardActionClaimIndex(state);
   updateAllActions(state, false, "focus");
+  updateMovementOrder(state);
   state.pointer = { ...state.pointer, buttons: 0 };
   state.pressedButtonSlot = null;
   state.pointerMovementSuppressed = false;
@@ -697,6 +784,7 @@ export function processGamepadEvents(
 ): void {
   const events = state.pendingGamepads.map((event, index) => ({ event, index })).sort((left, right) => left.event.device - right.event.device || left.index - right.index);
   state.pendingGamepads = [];
+  if (movementSettings.get(state)?.controllerEnabled === false) return;
   for (const { event } of events) {
     if (!Number.isInteger(event.device) || event.device < 0 || event.device > 3) continue;
     if (!event.connected) {
@@ -707,6 +795,7 @@ export function processGamepadEvents(
       prior.mask = 0;
       onConnectionTransition?.({ device: event.device, connected: false });
       updatePadActions(state, priorMask, 0, true, `gamepad:${event.device}`, onActionTransition);
+      updateMovementOrder(state);
       continue;
     }
     if (!Number.isInteger(event.axes.x) || !Number.isInteger(event.axes.y)) continue;
@@ -718,6 +807,7 @@ export function processGamepadEvents(
     state.gamepads[String(event.device)] = prior;
     if (newlyConnected) onConnectionTransition?.({ device: event.device, connected: true });
     updatePadActions(state, priorMask, prior.mask, true, `gamepad:${event.device}`, onActionTransition);
+    updateMovementOrder(state);
   }
 }
 
@@ -753,4 +843,5 @@ export function recomputeInputActions(
   onActionTransition?: (action: string, down: boolean, firstSeq: number) => void,
 ): void {
   updateAllActions(state, true, "gamepad", onActionTransition);
+  updateMovementOrder(state);
 }

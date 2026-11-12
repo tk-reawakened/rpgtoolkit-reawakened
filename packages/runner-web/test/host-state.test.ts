@@ -438,6 +438,7 @@ test("live host capabilities are reconciled after save restore as logged feature
   };
   const observer: HostStateObserver = {
     poll() {},
+    resampleGamepads() {},
     currentFeatures: () => ({ ...current }),
     snapshotForRestore: () => ({ pending: [], observations: [] }),
     dispose() {},

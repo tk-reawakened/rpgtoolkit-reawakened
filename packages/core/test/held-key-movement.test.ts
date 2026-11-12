@@ -5,6 +5,7 @@ import {
   assetKey,
   createAssetIndex,
   createEmptyBoard,
+  createEmptyMainFile,
   createEngine,
   createGameState,
   createInputSection,
@@ -31,6 +32,8 @@ import {
   type PluginDefinition,
   type WorldBoard,
 } from "../src/index.ts";
+import { configureMainFileMovement, movementBindingCollisions, registerGameAction } from "../src/input/input.ts";
+import { mainFileMovementSettings } from "../src/input/movement-settings.ts";
 import { applySpriteEffect } from "../src/script/packs/movement.ts";
 import { setWaypoint } from "../src/sprites/runtime.ts";
 import { createScriptServices } from "./script-test-services.ts";
@@ -617,4 +620,94 @@ test("a logged pointer gesture replays identically across tick batchings with a 
   deepEqual(a.input.pendingClicks, b.input.pendingClicks);
   deepEqual(a.input.pendingPointerUps, b.input.pendingPointerUps);
   equal(a.input.pendingPointerUps.length, 1, "the release is retained in replay");
+});
+
+const arrowScanCodes = [0xcd, 0, 0xd0, 0, 0xcb, 0, 0xc8, 0];
+
+function withMovementPolicy(controls: number, codes = arrowScanCodes, joystick = 0, minor = 9): GameState {
+  const state = makeState();
+  configureMainFileMovement(state.input, mainFileMovementSettings({
+    ...createEmptyMainFile(), minor, movementControls: controls, movementScanCodes: codes, useJoystick: joystick,
+  }, "main.gam").settings);
+  return state;
+}
+
+test("absent movement fields use the version defaults and present zeroes leave the sources off", () => {
+  const absent = withMovementPolicy(0, [], 0, 2);
+  tick(absent, 0, [key("ArrowRight", true)]);
+  equal(absent.sprites.players[0]!.movement.active?.facing, "E");
+
+  const zero = withMovementPolicy(0, Array(8).fill(0));
+  tick(zero, 0, [key("ArrowRight", true)]);
+  equal(zero.sprites.players[0]!.movement.active, null);
+  equal(zero.input.keys.at(-1)?.name, "RIGHT");
+  equal(zero.input.actions.right, true, "the engine's surfaces still receive the arrow");
+});
+
+test("keyboard and pointer movement gates preserve raw key and pointer observations", () => {
+  const pointerOnly = withMovementPolicy(2);
+  tick(pointerOnly, 0, [key("ArrowRight", true)]);
+  equal(pointerOnly.sprites.players[0]!.movement.active, null);
+  const down = { kind: "pointer", buttons: 1, x: 112, y: 63 } as const;
+  const up = { ...down, buttons: 0 };
+  tick(pointerOnly, 1, [down, up]);
+  ok(pointerOnly.sprites.players[0]!.movement.active, "the permitted pointer can enqueue a path");
+
+  const keyboardOnly = withMovementPolicy(1);
+  tick(keyboardOnly, 0, [down, up]);
+  equal(keyboardOnly.sprites.players[0]!.movement.active, null);
+  equal(keyboardOnly.input.pointer.downs, 1);
+  equal(keyboardOnly.input.pointer.ups, 1);
+  tick(keyboardOnly, 1, [key("ArrowRight", true)]);
+  equal(keyboardOnly.sprites.players[0]!.movement.active?.facing, "E");
+});
+
+test("the diagonal flag controls cardinal composition and keeps a dedicated keypad diagonal", () => {
+  for (const [controls, expected] of [[1, "S"], [5, "SE"]] as const) {
+    const state = withMovementPolicy(controls);
+    tick(state, 0, [key("ArrowRight", true), key("ArrowDown", true), key("ArrowRight", true, true)]);
+    equal(state.sprites.players[0]!.movement.active?.facing, expected);
+    deepEqual(state.input.directionOrder, ["right", "down"], "repeat does not promote a held key");
+  }
+  const state = withMovementPolicy(1, [0, 0x51, 0, 0, 0, 0, 0, 0]);
+  tick(state, 0, [{ kind: "key", code: "Numpad3", name: "3", char: "3", down: true }]);
+  equal(state.sprites.players[0]!.movement.active?.facing, "SE");
+  deepEqual(state.input.keys.at(-1)?.resolvedActions, ["down", "right"]);
+});
+
+test("an explicitly effective directional control walks while an unbound arrow remains available to menus", () => {
+  for (const controls of [0, 1]) {
+    const state = withMovementPolicy(controls, Array(8).fill(0));
+    state.input.controlActions["key:KeyF"] = ["right"];
+    tick(state, 0, [key("ArrowRight", true)]);
+    equal(state.sprites.players[0]!.movement.active, null);
+    tick(state, 1, [{ kind: "key", code: "KeyF", name: "F", char: "f", down: true }]);
+    equal(state.sprites.players[0]!.movement.active?.facing ?? null, controls === 1 ? "E" : null);
+    deepEqual(state.input.keys.at(-1)?.resolvedActions, ["right"]);
+  }
+});
+
+test("a collision reports each binding and dispatches all actions in ACT-4 order", () => {
+  const state = withMovementPolicy(1, [0x39, 0, 0x39, 0, 0, 0, 0, 0]);
+  for (const name of ["game.z", "game.a"]) {
+    ok(registerGameAction(state.input, { name, label: name, controls: ["key:Space"], icon: null, group: null, locked: false, hidden: false }));
+  }
+  deepEqual(movementBindingCollisions(state.input), [
+    { code: "Space", actions: ["right", "down", "confirm", "game.z", "game.a"] },
+  ]);
+  tick(state, 0, [{ kind: "key", code: "Space", name: " ", char: " ", down: true }]);
+  equal(state.input.keys.length, 1);
+  deepEqual(state.input.keys[0]!.resolvedActions, ["down", "right", "confirm", "game.z", "game.a"]);
+  equal(state.sprites.players[0]!.movement.active?.facing, "E");
+});
+
+test("a disabled pad contributes no movement, actions or active device state", () => {
+  const event = { kind: "gamepad", device: 0, connected: true, axes: { x: 1000, y: 0 }, buttons: 1 } as const;
+  for (const [minor, useJoystick, enabled] of [[9, 0, false], [9, 1, true], [2, 0, true]] as const) {
+    const state = withMovementPolicy(0, [], useJoystick, minor);
+    tick(state, 0, [event]);
+    equal(state.sprites.players[0]!.movement.active?.facing ?? null, enabled ? "E" : null);
+    equal(state.input.gamepads["0"]?.connected ?? false, enabled);
+    equal(state.input.keys.some(({ resolvedActions }) => resolvedActions.includes("confirm")), enabled);
+  }
 });

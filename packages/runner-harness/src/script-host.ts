@@ -320,6 +320,7 @@ function createHost(
     hostFeatures() {
       return { ...gameState.features };
     },
+    gamepadPolicy() { return null; },
     hostDisplayGeometry() {
       const { content, game, safeArea } = gameState.display.geometry;
       return {

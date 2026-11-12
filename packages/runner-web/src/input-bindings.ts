@@ -7,10 +7,6 @@ export const INTERACTIVE_INPUT_BINDINGS = {
     ArrowDown: "down",
     ArrowLeft: "left",
     ArrowRight: "right",
-    KeyW: "up",
-    KeyS: "down",
-    KeyA: "left",
-    KeyD: "right",
     Space: " ",
   },
 };

@@ -15,6 +15,7 @@ import {
   writeCharacter,
   writeDistributionPackage,
   writeMainFile,
+  type MainFile,
 } from "@tk-reawakened/core";
 
 declare global {
@@ -47,7 +48,13 @@ type LiveFixture = { readonly name: string; readonly packageBytes: Uint8Array; r
  * during step 7 and only the initial-character step can
  * (docs/spec/engine/main-loop-and-startup.md#reawakened-boot-sequence steps 6 and 8).
  */
-function packageWithoutStartupProgram(name: string, pixelMovement?: number, startupProgram?: string): LiveFixture {
+function packageWithoutStartupProgram(
+  name: string,
+  pixelMovement?: number,
+  startupProgram?: string,
+  movement?: Pick<MainFile, "movementControls" | "movementScanCodes" | "useJoystick">,
+  switchToJoystick = false,
+): LiveFixture {
   const loaded = loadPackage({ kind: "tpk", name: "demo.tpk", bytes: new Uint8Array(readFileSync("fixtures/packages/demo.tpk")) });
   if (!loaded.ok) throw new Error(loaded.error.message);
   const manifest = readDistributionManifest(loaded.value);
@@ -59,10 +66,16 @@ function packageWithoutStartupProgram(name: string, pixelMovement?: number, star
   const parsed = readMainFile(new BinaryReader(gameMain.bytes, main));
   if (!parsed.ok) throw new Error(parsed.error.message);
   const startupPath = startupProgram === undefined ? "" : "host-resize.prg";
-  const cleared = writeMainFile({ ...parsed.value, startupPrg: startupPath, pixelMovement: pixelMovement ?? parsed.value.pixelMovement });
+  const mainModel = { ...parsed.value, startupPrg: startupPath, pixelMovement: pixelMovement ?? parsed.value.pixelMovement, ...movement };
+  const cleared = writeMainFile(mainModel);
   if (!cleared.ok) throw new Error(cleared.error.message);
   const tree = files.map((file) => (file.path === main ? { path: file.path, bytes: cleared.value } : file));
   if (startupProgram !== undefined) tree.push({ path: `Prg/${startupPath}`, bytes: new TextEncoder().encode(startupProgram) });
+  if (switchToJoystick) {
+    const alternate = writeMainFile({ ...mainModel, startupPrg: "", useJoystick: 1 });
+    if (!alternate.ok) throw new Error(alternate.error.message);
+    tree.push({ path: "controller.gam", bytes: alternate.value });
+  }
   const written = writeDistributionPackage({ files: tree, manifest: { schema: manifest.value.schema, main, index: tree.map((file) => file.path) } });
   if (!written.ok) throw new Error(written.error.message);
   return {
@@ -149,6 +162,9 @@ function triggerPhaseFixture(
     major: 2,
     minor: 9,
     startupPrg: "wait-for-start.prg",
+    movementControls: 7,
+    movementScanCodes: [0xcd, 0, 0xd0, 0, 0xcb, 0, 0xc8, 0],
+    useJoystick: 1,
     initBoard: "start.brd",
     initChar: "hero.tem",
   };
@@ -365,6 +381,106 @@ test("live demo attaches a board canvas and movement changes the player and pres
 
   const movedFrame = await readCanvas();
   expect(movedFrame?.frameHash).not.toBe(canvasInfo?.frameHash);
+});
+
+test.describe("packaged movement policy", () => {
+  test.use({ serviceWorkers: "block" });
+
+  test("the remapped key steps east and the old arrow is inert", async ({ page }) => {
+    const fixture = packageWithoutStartupProgram("remapped-east.tpk", undefined, undefined, {
+      movementControls: 5, movementScanCodes: [0x26, 0, 0xd0, 0, 0xcb, 0, 0xc8, 0], useJoystick: 0,
+    });
+    await servePackage(page, fixture);
+    await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${fixture.name}`);
+    await page.waitForFunction(() => window.__live?.player != null && window.__live.tick > 30);
+    const start = await page.evaluate(() => ({ tick: window.__live!.tick, player: window.__live!.player }));
+    await page.keyboard.down("ArrowRight");
+    try {
+      await page.waitForFunction((tick) => (window.__live?.tick ?? 0) >= tick + 8, start.tick);
+      expect(await page.evaluate(() => window.__live?.player)).toEqual(start.player);
+    } finally {
+      await page.keyboard.up("ArrowRight");
+    }
+    await page.keyboard.down("l");
+    try {
+      await page.waitForFunction(({ x, y }) => {
+        const player = window.__live?.player;
+        return player != null && player.x >= x + 32 && player.y === y;
+      }, start.player!);
+    } finally {
+      await page.keyboard.up("l");
+    }
+  });
+
+  for (const source of ["pointer", "keyboard"] as const) {
+    test(`only the enabled ${source} moves the packaged player`, async ({ page }) => {
+      const fixture = packageWithoutStartupProgram(`movement-${source}.tpk`, undefined, undefined, {
+        movementControls: source === "pointer" ? 2 : 1,
+        movementScanCodes: [0xcd, 0, 0xd0, 0, 0xcb, 0, 0xc8, 0],
+        useJoystick: 0,
+      });
+      await servePackage(page, fixture);
+      await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${fixture.name}`);
+      await page.waitForFunction(() => window.__live?.player != null && window.__live.tick > 30);
+      const start = await page.evaluate(() => window.__live!.player!);
+      const view = await page.evaluate(() => window.__session!.viewSize());
+      const screen = await page.locator("#screen").boundingBox();
+      if (screen === null) throw new Error("live canvas has no layout box");
+      const goal = { x: screen.x + (start.x + 32) * screen.width / view.width, y: screen.y + start.y * screen.height / view.height };
+      const tick = await page.evaluate(() => window.__live!.tick);
+      if (source === "pointer") await page.keyboard.down("ArrowRight");
+      else await page.mouse.click(goal.x, goal.y);
+      try {
+        await page.waitForFunction((at) => (window.__live?.tick ?? 0) >= at + 8, tick);
+        expect(await page.evaluate(() => window.__live!.player)).toEqual(start);
+      } finally {
+        if (source === "pointer") await page.keyboard.up("ArrowRight");
+      }
+      if (source === "pointer") await page.mouse.click(goal.x, goal.y);
+      else await page.keyboard.down("ArrowRight");
+      try {
+        await page.waitForFunction(({ x, y }) => {
+          const player = window.__live?.player;
+          return player != null && (player.x !== x || player.y !== y);
+        }, start);
+      } finally {
+        if (source === "keyboard") await page.keyboard.up("ArrowRight");
+      }
+    });
+  }
+
+  for (const controller of ["a stationary pad", "no connected pad", "no host API"] as const) {
+    test(`MainFile enables controller policy with ${controller}`, async ({ page }) => {
+      await page.addInitScript((controller) => {
+        const pad = {
+          id: "stationary controller", index: 0, connected: true, mapping: "standard",
+          axes: [1, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false })),
+        };
+        Object.defineProperty(navigator, "getGamepads", { configurable: true, value: controller === "no host API" ? undefined : () => controller === "a stationary pad" ? [pad] : [] });
+      }, controller);
+      const fixture = packageWithoutStartupProgram(
+        "controller-switch.tpk", undefined, 'wait()\nmainfile("controller.gam")\nend()',
+        { movementControls: 0, movementScanCodes: Array(8).fill(0), useJoystick: 0 }, true,
+      );
+      await servePackage(page, fixture);
+      await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${fixture.name}`);
+      await page.waitForFunction(() => (window.__live?.tick ?? 0) >= 8);
+      expect(await page.evaluate(() => window.__live?.diagnostics?.some(({ code }) => code === "input.gamepad-api-unavailable"))).toBeFalsy();
+
+      await page.keyboard.press("q");
+      if (controller === "a stationary pad") {
+        await page.waitForFunction(() => window.__live?.board != null && window.__live.player != null);
+        const start = await page.evaluate(() => window.__live!.player!.x);
+        await page.waitForFunction((x) => (window.__live?.player?.x ?? 0) >= x + 32, start);
+      } else if (controller === "no connected pad") {
+        await page.waitForFunction(() => window.__live?.board != null);
+        expect(await page.evaluate(() => window.__live?.diagnostics?.some(({ code }) => code === "input.gamepad-api-unavailable"))).toBeFalsy();
+      } else {
+        await page.waitForFunction(() => window.__live?.diagnostics?.some(({ code, file }) =>
+          code === "input.gamepad-api-unavailable" && file === "controller.gam"));
+      }
+    });
+  }
 });
 
 test("live session flushes GPU surface cache after loading a same-id/revision save", async ({ page }) => {
