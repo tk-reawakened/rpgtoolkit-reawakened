@@ -73,6 +73,16 @@ test("a 3.1 project publishes the unknown command and not the registered one", (
   equal(found[0]?.severity, 1, "the rule's default severity, error");
 });
 
+test("scan publishes arity warnings only for invalid calls", () => {
+  const text = "scan(1, 2, 0)\nscan(1, 2)\nscan(1, 2, 0, 4)\n";
+  const project = modern({ "Prg/main.prg": text });
+  const server = client();
+  server.project(project);
+  const found = server.open(project.uri("Prg/main.prg"), text).filter((item) => item.code === "lint/command-arity");
+  deepEqual(found.map((item) => item.range.start.line), [1, 2]);
+  for (const item of found) match(item.message, /`scan` takes 3 parameter/);
+});
+
 test("in a Toolkit 2 project nope() is dialogue, so nothing is published", () => {
   const project = memoryProject({ "Main/legacy.gam": mainFileBytes("tk2"), "Prg/main.prg": MAIN }, "Main/legacy.gam");
   const server = client();

@@ -61,6 +61,20 @@ test("FinalDestiny: every program is assessed as Toolkit 2 and the 3.1 false syn
   }
 });
 
+test("FinalDestiny: assessed system program publishes no scan arity warnings", { skip, timeout: 15_000 }, async () => {
+  const path = join(game, "Prg", "system.prg");
+  const source = text(path);
+  const lines = source.split(/\r?\n/);
+  for (const line of [69, 81]) matchScan(lines[line - 1]!);
+  const diagnostics = await client.open(pathToFileURL(path).href, source, "rpgcode");
+  deepEqual(diagnostics.filter((item) => item.code === UNASSESSED_CODE || item.code === "syntax.error"), []);
+  deepEqual(diagnostics.filter((item) => item.code === "lint/command-arity" && item.message.includes("`scan`")), []);
+});
+
+function matchScan(line: string): void {
+  ok(/#scan\(mgxx!,mgyy!,0\)/i.test(line), `expected a three-argument scan call: ${line}`);
+}
+
 test("FinalDestiny: hover and the outline work on Toolkit 2 programs of the running project", { skip, timeout: 15_000 }, async () => {
   {
     const chest = pathToFileURL(join(game, "Prg", "Basic Armor chest.prg")).href;
