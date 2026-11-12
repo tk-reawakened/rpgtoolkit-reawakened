@@ -173,6 +173,20 @@ When you need a list you can pass, use a dictionary: `list = { length: 0 }`, the
 
 *3.1.* Rule: [compatibility notes](rpgcode-language.md#compatibility-notes), note 6; [unset variables and array elements](rpgcode-runtime.md#sem-5--unset-variables-and-array-elements).
 
+### A word in `[ ]` is a variable, even in an old Toolkit 2.x script
+
+`m[key]` uses the value of the variable `key` as the index. Only `m["key"]` uses the text `key`. Some old Toolkit 2.x scripts may have meant `m[key]` as the text `key`, but they are read the same way as 3.1, so a working game keeps reading the same entries.
+
+```
+key = "sword"
+m[key] = 1       // sets m["sword"]
+m["key"] = 2     // sets the entry named key
+```
+
+Quote a text key. The Toolkit 2.x converter keeps `m[key]` as it is and adds a `// TKR review:` comment so you can check what was meant.
+
+*Reawakened (owner ruling, #2101).* Rule: [bare index](rpgcode-dialects.md#tk2-bare-index); [values and variables](rpgcode-language.md#values-and-variables) (EXP-1).
+
 ### Assigning a dictionary does not copy it
 
 ```
