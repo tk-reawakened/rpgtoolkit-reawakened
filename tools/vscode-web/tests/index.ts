@@ -147,6 +147,7 @@ async function runningProjectScenario(folder: vscode.WorkspaceFolder): Promise<v
   await write("modern/Prg/talk.prg", new TextEncoder().encode("Hello there\n"));
   await write("modern/Prg/lint.prg", new TextEncoder().encode('nope()\nmwin("hi")\n'));
   await write("modern/tkr-lint.json", new TextEncoder().encode(JSON.stringify({ severity: { "lint/unknown-command": "warning" } })));
+  await write("modern/Prg/fmt.prg", new TextEncoder().encode("if (x) {\nMWIN(hello)\n}\n"));
   await write("modern/Prg/uses.prg", new TextEncoder().encode('#include "tools/my lib.prg"\ny = helper(1)\n'));
   await write("modern/Prg/Tools/My Lib.PRG", new TextEncoder().encode("// helpers\nfunction helper(a) { return a }\n"));
   const settings = vscode.workspace.getConfiguration("rpgcode");
@@ -185,6 +186,30 @@ async function runningProjectScenario(folder: vscode.WorkspaceFolder): Promise<v
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(linted));
   const findings = await diagnosticsOf(linted, (items) => items.length > 0, "the project lint findings");
   equal(JSON.stringify(findings.map((item) => [codeOf(item), item.severity, item.range.start.line])), JSON.stringify([["lint/unknown-command", vscode.DiagnosticSeverity.Warning, 0]]), "nope() is reported at the configured severity and mwin is not");
+
+  // #2091: a 3.1 project's file is formatted by TOOL-4; a Toolkit 2 project's file is refused unchanged.
+  const formatOptions = { tabSize: 4, insertSpaces: true };
+  const fmt = vscode.Uri.joinPath(folder.uri, "modern", "Prg", "fmt.prg");
+  const fmtDocument = await vscode.workspace.openTextDocument(fmt);
+  await vscode.window.showTextDocument(fmtDocument);
+  await diagnosticsOf(fmt, (items) => items.length === 0, "the format program to be assessed and clean");
+  const formatEdits = await withTimeout(
+    vscode.commands.executeCommand<vscode.TextEdit[]>("vscode.executeFormatDocumentProvider", fmt, formatOptions),
+    "web language-server formatting",
+  );
+  const formatEdit = new vscode.WorkspaceEdit();
+  formatEdit.set(fmt, formatEdits ?? []);
+  equal(await vscode.workspace.applyEdit(formatEdit), true, "the formatting edit applies");
+  equal(fmtDocument.getText(), "if (x) {\n    mwin(hello)\n}\n", "the 3.1 file is formatted");
+  await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
+
+  await settings.update("project", "legacy/Main/legacy.gam", vscode.ConfigurationTarget.Workspace);
+  await diagnosticsOf(talk, (items) => items.length === 0, "the Toolkit 2 project to be selected again");
+  const refused = await withTimeout(
+    vscode.commands.executeCommand<vscode.TextEdit[] | undefined>("vscode.executeFormatDocumentProvider", talk, formatOptions),
+    "web language-server formatting refusal",
+  );
+  equal((refused ?? []).length, 0, "a Toolkit 2 project's file is not rewritten");
 
   await settings.update("project", undefined, vscode.ConfigurationTarget.Workspace);
   await vscode.commands.executeCommand("workbench.action.closeAllEditors");

@@ -82,6 +82,8 @@ function pair(): Pair {
       return absent;
     },
     onSignatureHelp: () => absent,
+    onDocumentFormatting: () => absent,
+    showMessage: () => {},
     onCodeAction: (handler) => {
       codeActionHandler = handler;
       return absent;

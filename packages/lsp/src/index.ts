@@ -23,6 +23,7 @@ import {
   analyse,
   applyEdits,
   buildIndex,
+  formatSource,
   legacyFixes,
   projectHelp,
   type Diagnostic as AnalysisDiagnostic,
@@ -47,6 +48,7 @@ import {
   type CompletionParams,
   type DidChangeTextDocumentParams,
   type DidOpenTextDocumentParams,
+  type DocumentFormattingParams,
   type Diagnostic as LspDiagnostic,
   type Disposable,
   type DocumentSymbol,
@@ -60,6 +62,9 @@ import {
   type PublishDiagnosticsParams,
   type SignatureHelp,
   type SignatureHelpParams,
+  type ShowMessageParams,
+  MessageType,
+  type TextEdit,
   type Range,
   type TextDocumentPositionParams,
 } from "vscode-languageserver-protocol";
@@ -92,6 +97,9 @@ export type ServerConnection = {
   onDocumentSymbol(handler: (params: DocumentSymbolParams) => DocumentSymbol[]): Disposable;
   onSignatureHelp(handler: (params: SignatureHelpParams) => SignatureHelp | null): Disposable;
   onCodeAction(handler: (params: CodeActionParams) => CodeAction[]): Disposable;
+  onDocumentFormatting(handler: (params: DocumentFormattingParams) => TextEdit[] | null): Disposable;
+  /** `window/showMessage`, which tells the author why a request did nothing. */
+  showMessage(params: ShowMessageParams): void;
   /** Client notifications outside the LSP's own methods; the server listens for `rpgcode/project`. */
   onNotification(method: string, handler: (params: unknown) => void): Disposable;
   sendDiagnostics(params: PublishDiagnosticsParams): void;
@@ -248,6 +256,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
       definitionProvider: true,
       documentSymbolProvider: true,
       codeActionProvider: true,
+      documentFormattingProvider: true,
     },
   }));
 
@@ -370,6 +379,33 @@ export function createServer(connection: ServerConnection, options: ServerOption
         },
       };
     });
+  });
+
+  /**
+   * TOOL-4 formatting, for a document the running project assesses as 3.1. A
+   * Toolkit 2.x or unassessed document is refused: no edit, and a warning that
+   * says why, because its loose lines may be dialogue the rewrite would change
+   * (docs/spec/engine/rpgcode-tooling.md#tool-1-project, #tool-4).
+   */
+  connection.onDocumentFormatting((params) => {
+    const document = documents.get(params.textDocument.uri);
+    if (document === undefined) return null;
+    const context = contextOf(document);
+    const refuse = (why: string): TextEdit[] => {
+      connection.showMessage({ type: MessageType.Warning, message: `RPGCode did not format ${document.uri}: ${why}` });
+      return [];
+    };
+    if (context.kind === "unassessed") {
+      return refuse(`its dialect is unassessed (${context.reason}). Formatting rewrites only 3.1 source; select the running project (.gam) to establish the dialect.`);
+    }
+    const text = document.getText();
+    const indentWidth = Number.isInteger(params.options.tabSize) && params.options.tabSize > 0 ? params.options.tabSize : 4;
+    const result = formatSource(text, { dialect: context.dialect, indentWidth });
+    if (result.skipped === "tk2-dialect") {
+      return refuse("the running project is Toolkit 2.x (tk2-dialect), where a loose line is dialogue the formatter must not rewrite.");
+    }
+    if (!result.changed) return [];
+    return [{ range: { start: { line: 0, character: 0 }, end: document.positionAt(text.length) }, newText: result.text }];
   });
 
   connection.onDocumentSymbol((params) => {

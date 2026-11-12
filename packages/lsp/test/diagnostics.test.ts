@@ -51,6 +51,8 @@ function pair(): Pair {
     onDefinition: () => disposable,
     onDocumentSymbol: () => disposable,
     onSignatureHelp: () => disposable,
+    onDocumentFormatting: () => disposable,
+    showMessage: () => {},
     onCodeAction: () => disposable,
     onNotification: (method, handler) => {
       notifications.set(method, handler);
