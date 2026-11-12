@@ -12,6 +12,10 @@ declare module "node:fs" {
   export function writeFileSync(path: string, data: string | Uint8Array): void;
 }
 
+declare module "node:crypto" {
+  export function createHash(algorithm: string): { update(data: Uint8Array): { digest(encoding: "hex"): string } };
+}
+
 declare module "node:path" {
   export function join(...parts: string[]): string;
   export function dirname(path: string): string;

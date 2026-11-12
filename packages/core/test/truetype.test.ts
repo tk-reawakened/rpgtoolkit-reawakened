@@ -226,7 +226,7 @@ test("dynamic sandbox: font reading and rasterisation touches no forbidden globa
 
     const ref = { asset: "media/fonts/LiberationMono-Regular.ttf" as AssetKey, size: 16, bold: false, italic: false };
     const cmds = emitText("AV 123", 0, 0, { r: 255, g: 255, b: 255 }, ref, { font });
-    const result = rasterize({ tick: 0, width: 64, height: 24, commands: cmds, marginCommands: [] }, new Map([[ref.asset, font]]));
+    const result = rasterize({ protocolVersion: 3, tick: 0, width: 64, height: 24, commands: cmds, marginCommands: [] }, new Map([[ref.asset, font]]));
     equal(result.error, null);
   } finally {
     globalThis.Math = originalMath;
@@ -319,7 +319,7 @@ test("rasterisation: nonzero winding hollows out interior holes (e.g. letter O)"
   const ref = { asset: "media/fonts/LiberationMono-Regular.ttf" as AssetKey, size: 24, bold: false, italic: false };
   const commands = emitText("O", 0, 0, { r: 255, g: 255, b: 255 }, ref, { font: mono });
 
-  const result = rasterize({ tick: 0, width: 20, height: 28, commands, marginCommands: [] }, new Map([[ref.asset, mono]]));
+  const result = rasterize({ protocolVersion: 3, tick: 0, width: 20, height: 28, commands, marginCommands: [] }, new Map([[ref.asset, mono]]));
   equal(result.error, null);
 
   // In the center of the 'O', pixel should be transparent (0 alpha)
@@ -332,6 +332,25 @@ test("rasterisation: nonzero winding hollows out interior holes (e.g. letter O)"
   equal((edgeAlpha ?? 0) > 0, true, "Outer ring of letter O must be filled");
 });
 
+test("TrueType partial coverage stays straight alpha through a source-over consumer", () => {
+  const font = loadFont("media/fonts/LiberationSans-Regular.ttf");
+  const ref = { asset: "media/fonts/LiberationSans-Regular.ttf" as AssetKey, size: 20, bold: false, italic: false };
+  const commands = emitText("A", 0, 0, { r: 255, g: 255, b: 255 }, ref, { font });
+  const frame = rasterize({ protocolVersion: 3, tick: 0, width: 24, height: 24, commands, marginCommands: [] }, new Map([[ref.asset, font]]));
+  equal(frame.error, null);
+  const alphaIndex = frame.rgba.findIndex((value, index) => index % 4 === 3 && value > 0 && value < 255);
+  equal(alphaIndex >= 0, true);
+  const coverage = frame.rgba[alphaIndex]!;
+  deepEqual(Array.from(frame.rgba.slice(alphaIndex - 3, alphaIndex + 1)), [255, 255, 255, coverage]);
+  const key = "test/glyph" as AssetKey;
+  const replay = rasterize({ protocolVersion: 3, tick: 0, width: 24, height: 24, marginCommands: [], commands: [
+    { kind: "fill", rgb: { r: 0, g: 0, b: 0 } },
+    { kind: "blit", source: { asset: key, tile: null }, src: { x: 0, y: 0, w: 24, h: 24 }, dst: { x: 0, y: 0, w: 24, h: 24 }, key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend: "source-over", iso2d: false },
+  ] }, new Map([[key, { w: 24, h: 24, rgba: frame.rgba }]]));
+  equal(replay.error, null);
+  deepEqual(Array.from(replay.rgba.slice(alphaIndex - 3, alphaIndex + 1)), [coverage, coverage, coverage, 255]);
+});
+
 test("rasterisation: anti-aliasing blends correctly onto colored background", () => {
   const mono = loadFont("media/fonts/LiberationMono-Regular.ttf");
   const ref = { asset: "media/fonts/LiberationMono-Regular.ttf" as AssetKey, size: 16, bold: false, italic: false };
@@ -340,7 +359,7 @@ test("rasterisation: anti-aliasing blends correctly onto colored background", ()
     ...emitText("A", 2, 2, { r: 0, g: 200, b: 0 }, ref, { font: mono }),
   ];
 
-  const result = rasterize({ tick: 0, width: 16, height: 24, commands, marginCommands: [] }, new Map([[ref.asset, mono]]));
+  const result = rasterize({ protocolVersion: 3, tick: 0, width: 16, height: 24, commands, marginCommands: [] }, new Map([[ref.asset, mono]]));
   equal(result.error, null);
 
   // Every pixel must remain valid straight RGBA with alpha 255 because of the background fill

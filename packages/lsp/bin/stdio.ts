@@ -35,6 +35,10 @@ createServer({
   onDocumentSymbol: (handler) => connection.onDocumentSymbol(handler),
   onSignatureHelp: (handler) => connection.onSignatureHelp(handler),
   onCodeAction: (handler) => connection.onCodeAction(handler),
+  onDocumentFormatting: (handler) => connection.onDocumentFormatting(handler),
+  showMessage: (params) => void connection.sendNotification("window/showMessage", params),
+  // The running project arrives as `rpgcode/project` (docs/spec/engine/rpgcode-tooling.md#tool-1-project).
+  onNotification: (method, handler) => connection.onNotification(method, handler),
   sendDiagnostics: (params) => void connection.sendDiagnostics(params),
 });
 

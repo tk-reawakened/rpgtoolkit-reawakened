@@ -76,6 +76,7 @@ test("a cell origin is scaled first and floored as a pixel, not truncated as a c
 test("bitmap text replay is a deterministic pixel vector", () => {
   const ref = { asset: key, size: 8, bold: false, italic: false } as const;
   const result = rasterize({
+    protocolVersion: 3,
     tick: 0,
     width: 12,
     height: 16,

@@ -56,10 +56,12 @@ function createProgram(sources, roots) {
 }
 
 /** Problems between the wire types in `core` and `schema`; empty when they describe the same records. */
-export function typeProblems(schema, { sources = {}, inputAlias = "InputRecordV1" } = {}) {
+export function typeProblems(schema, { sources = {}, drawAlias, inputAlias = "InputRecordV1" } = {}) {
+  if (drawAlias === undefined) throw new Error("typeProblems: name the draw list alias explicitly (DrawListV1 for the historical schema, DrawList for the active one)");
   const problems = [];
   const defs = schema.$defs ?? {};
-  const roots = ROOTS.map((root) => root.def === "inputRecord" ? { ...root, alias: inputAlias } : root);
+  const roots = ROOTS.map((root) =>
+    root.def === "inputRecord" ? { ...root, alias: inputAlias } : root.def === "drawList" ? { ...root, alias: drawAlias } : root);
   const rootRefs = (schema.oneOf ?? []).map((alternative) => refName(alternative.$ref)).sort();
   const wanted = roots.map((root) => root.def).sort();
   if (JSON.stringify(rootRefs) !== JSON.stringify(wanted)) {

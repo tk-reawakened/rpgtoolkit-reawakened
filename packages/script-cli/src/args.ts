@@ -12,6 +12,8 @@ export type ParsedArgs = {
   readonly check: boolean;
   readonly out: string | null;
   readonly dialect: "tk3" | "tk2";
+  /** Whether `--dialect` was given; `check` treats an unstated dialect as unknown (TOOL-3 assessment). */
+  readonly dialectGiven: boolean;
   readonly strict: boolean;
   readonly name: string;
   readonly reporter: "spec" | "junit" | "json";
@@ -58,6 +60,7 @@ export function parseArgs(argv: readonly string[]): { readonly ok: true; readonl
   let check = false;
   let out: string | null = null;
   let dialect: "tk3" | "tk2" = "tk3";
+  let dialectGiven = false;
   let strict = true;
   let name = "";
   let reporter: "spec" | "junit" | "json" = "spec";
@@ -82,11 +85,13 @@ export function parseArgs(argv: readonly string[]): { readonly ok: true; readonl
       const value = args[index + 1];
       if (value !== "tk3" && value !== "tk2") return { ok: false, message: "--dialect must be tk3 or tk2", subcommand, attemptedSubcommand: subcommand };
       dialect = value;
+      dialectGiven = true;
       index += 1;
     } else if (arg.startsWith("--dialect=")) {
       const value = arg.slice("--dialect=".length);
       if (value !== "tk3" && value !== "tk2") return { ok: false, message: "--dialect must be tk3 or tk2", subcommand, attemptedSubcommand: subcommand };
       dialect = value;
+      dialectGiven = true;
     } else if (arg === "--name" || arg.startsWith("--name=")) {
       const value = arg === "--name" ? args[++index] : arg.slice("--name=".length);
       if (subcommand !== "test" || value === undefined) return { ok: false, message: "--name requires a value for test", subcommand, attemptedSubcommand: subcommand };
@@ -132,6 +137,7 @@ export function parseArgs(argv: readonly string[]): { readonly ok: true; readonl
       check,
       out,
       dialect,
+      dialectGiven,
       strict,
       name,
       reporter,

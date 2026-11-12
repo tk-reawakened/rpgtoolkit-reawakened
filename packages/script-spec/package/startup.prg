@@ -1,10 +1,12 @@
 // The script-spec library (docs/spec/engine/rpgcode-tooling.md#tool-5,
 // docs/spec/engine/rpgcode-functions.md#tooling-the-rpgcode-spec-package).
-// Every name here is RPGCode. The native commands are the closed set of seven the
-// test runner registers: specResult records one outcome with this call's position,
-// and specCapture, specEqual, specContain, specClose, specThrowBegin and
-// specThrowEnd read what a library program cannot (a value's type, an element
-// array's indices, a stored double, an error raised in a called function).
+// Every name here is RPGCode. The native commands are the closed set of twelve the
+// test runner registers: specResult records one outcome with this call's position;
+// specCapture, specEqual, specContain, specClose, specThrowBegin, specThrowEnd and
+// specCalled read what a library program cannot (a value's type, an element
+// array's indices, a stored double, an error raised in a called function, the calls
+// a spy recorded); specInput, specTicks, specRng and spyOn are test doubles a case
+// calls directly (TOOL-5 "Test doubles and spies").
 //
 // Registration and running are separate. `describe`, `it`, `test`, `skip`, `only`
 // and the four hooks only fill the tables below; the runner then calls `specRun()`
@@ -85,6 +87,21 @@ function specMatchThrow(subject, negate) {
   threw = specThrowEnd(code)
   if (negate) { specVerdict(!threw, "toThrow", "no runtime error", code) }
   else { specVerdict(threw, "toThrow", "a runtime error", code) }
+}
+
+// toHaveBeenCalledWith and toHaveBeenNthCalledWith. specCalled returns -1 for a
+// subject that is not a spy, an args that is not a list or a bad call number:
+// that fails in both polarities.
+function specMatchCalled(snap, &args, any, &nth, name, negate) {
+  local(ok)
+  local(expectedText)
+  local(actualText)
+  ok = specCalled(snap, args, any, nth, expectedText, actualText)
+  if (ok == -1) {
+    specResult("fail", specCaseName + "/" + name, expectedText, actualText)
+    return
+  }
+  specCheck(ok, name, expectedText, actualText, negate)
 }
 
 // ----------------------------------------------------------------- registration
@@ -181,6 +198,8 @@ function expect(&specSubject) {
     // is the located failure callable.arity (owner ruling F-F; TOOL-5 "Arities").
     toBeCloseTo: (&expected, &tolerance) => specMatchClose(specSnap, expected, tolerance, 0),
     toThrow: () => specMatchThrow(specSubject, 0),
+    toHaveBeenCalledWith: (&args) => specMatchCalled(specSnap, args, 1, 0, "toHaveBeenCalledWith", 0),
+    toHaveBeenNthCalledWith: (&n, &args) => specMatchCalled(specSnap, args, 0, n, "toHaveBeenNthCalledWith", 0),
     not: {
       toBe: (&expected) => specMatchEqual(specSnap, expected, 1, "toBe", 1),
       toEqual: (&expected) => specMatchEqual(specSnap, expected, 0, "toEqual", 1),
@@ -188,7 +207,9 @@ function expect(&specSubject) {
       toBeNull: () => specCheck(specSubject == 0, "toBeNull", 0, specSubject, 1),
       toContain: (&needle) => specMatchContain(specSnap, needle, 1),
       toBeCloseTo: (&expected, &tolerance) => specMatchClose(specSnap, expected, tolerance, 1),
-      toThrow: () => specMatchThrow(specSubject, 1)
+      toThrow: () => specMatchThrow(specSubject, 1),
+      toHaveBeenCalledWith: (&args) => specMatchCalled(specSnap, args, 1, 0, "toHaveBeenCalledWith", 1),
+      toHaveBeenNthCalledWith: (&n, &args) => specMatchCalled(specSnap, args, 0, n, "toHaveBeenNthCalledWith", 1)
     }
   }
 }

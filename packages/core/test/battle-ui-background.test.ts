@@ -6,7 +6,10 @@
 // read back from the engine, so a decoded picture, a wrong picture and the stock flat fallback are distinguishable.
 import { test } from "node:test";
 import { deepEqual, equal, ok } from "node:assert/strict";
-import { assetKey } from "../src/index.ts";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { assetKey, expandTileToRgba, readTileset } from "../src/index.ts";
 import { awaitMenu, bootUiRig, tbmColourAt, type UiRig } from "./battle-ui-rig.ts";
 
 /** The stock screen's flat fallback colour when the `.bkg` names no picture (BAT-11 item 3). */
@@ -80,5 +83,84 @@ test("a .bkg with no picture keeps the flat fallback, so the .tbm path is not a 
   const rig = bootUiRig({ background: "none" });
   const frame = openScreen(rig);
   equal(fallbackPixels(frame, FIELD), (FIELD.x2 - FIELD.x1 + 1) * (FIELD.y2 - FIELD.y1 + 1), "the battlefield is the flat fallback colour");
+  deepEqual(rig.diagnostics, []);
+});
+
+test("an image-only battle background still paints its authored PNG", () => {
+  const rig = bootUiRig({ background: "png" });
+  rig.until(() => Number(rig.ui()?.["backgroundcount"] ?? 0) > 0, 2000);
+  rig.tick(8);
+  const frame = rig.frame();
+  deepEqual(pixel(frame, 300, 150), [36, 48, 90]);
+  ok(rig.requested.includes(assetKey("Bitmap/meadow.png")));
+  deepEqual(rig.diagnostics, []);
+});
+
+test("an image path resembling the old internal prefix remains an ordinary bitmap", () => {
+  const rig = bootUiRig({ background: "prefix-png" });
+  rig.until(() => Number(rig.ui()?.["backgroundcount"] ?? 0) > 0, 2000);
+  rig.tick(8);
+  deepEqual(pixel(rig.frame(), 300, 150), [36, 48, 90]);
+  ok(rig.requested.includes(assetKey("Bitmap/@battle-background/meadow.png")));
+  deepEqual(rig.diagnostics, []);
+});
+
+test("text background cell tints retain their signed channels and positions", () => {
+  const rig = bootUiRig({ background: "tinted-text" });
+  rig.until(() => Number(rig.ui()?.["backgroundcount"] ?? 0) > 0, 2000);
+  rig.tick(8);
+  const frame = rig.frame();
+  const cell = (column: number, row: number) =>
+    pixel(frame, Math.floor((column * 32 + 16) * 640 / 608), Math.floor((row * 32 + 16) * 480 / 352));
+  deepEqual(cell(8, 4), [70, 70, 70]);
+  deepEqual(cell(9, 2), [30, 105, 35]);
+  deepEqual(cell(8, 3), [40, 90, 60]);
+  deepEqual(rig.diagnostics, []);
+});
+
+test("a cold text background requests all independent tiles in one batch", () => {
+  // Count the row copies out of decoded tile strips, while delivering the
+  // independently requested files one at a time. This catches eager retries
+  // that re-copy all previously resolved tiles as well as serial requests.
+  const originalSet = Uint8Array.prototype.set;
+  let tileRowCopies = 0;
+  Uint8Array.prototype.set = function (source, offset) {
+    if (this.length === 4096 && source.length === 128 && new Error().stack?.includes("tileCellPixels")) tileRowCopies += 1;
+    return originalSet.call(this, source, offset);
+  };
+  try {
+    const rig = bootUiRig({ background: "many-tiles", staggerColdTiles: true });
+    rig.until(() => Number(rig.ui()?.["backgroundcount"] ?? 0) > 0, 2000);
+    rig.tick(8);
+    const batches = rig.requestBatches.map((batch) => batch.filter((key) => /tiles\/cold\d+\.tst$/i.test(key))).filter((batch) => batch.length > 0);
+    equal(batches.length, 1, "independent tile files must not require serial host round trips");
+    equal(new Set(batches[0]).size, 19);
+    equal(tileRowCopies, 19 * 32, "each distinct 32-row tile is copied once");
+    deepEqual(pixel(rig.frame(), 256, 128), [40, 90, 60]);
+    equal(rig.diagnostics.length, 0);
+  } finally {
+    Uint8Array.prototype.set = originalSet;
+  }
+});
+
+test("Final Destiny's text background paints its stored tiles in a stock fight", () => {
+  const rig = bootUiRig({ background: "final-destiny" });
+  rig.until(() => Number(rig.ui()?.["backgroundcount"] ?? 0) > 0, 2000);
+  rig.tick(8);
+  const frame = rig.frame();
+  deepEqual(rig.diagnostics, [], `requests: ${rig.requested.join(", ")}`);
+  const parsed = readTileset(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../../fixtures/legacy/FinalDestiny/Tiles/default.tst")));
+  ok(parsed.ok);
+  for (const [column, row, tileNumber] of [[9, 2, 12], [12, 4, 12], [8, 4, 1]] as const) {
+    const x = Math.floor((column * 32 + 16) * 640 / 608);
+    const y = Math.floor((row * 32 + 16) * 480 / 352);
+    const sourceX = Math.floor(x * 608 / 640) % 32;
+    const sourceY = Math.floor(y * 352 / 480) % 32;
+    const expanded = expandTileToRgba(parsed.value, tileNumber - 1);
+    ok(expanded.ok);
+    const offset = (sourceX * 32 + sourceY) * 4;
+    deepEqual(pixel(frame, x, y), Array.from(expanded.value.slice(offset, offset + 3)), `tile ${tileNumber} at ${column},${row}`);
+  }
+  ok(rig.requested.includes(assetKey("Tiles/default.tst")));
   deepEqual(rig.diagnostics, []);
 });

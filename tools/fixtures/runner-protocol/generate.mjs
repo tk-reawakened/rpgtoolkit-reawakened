@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isEntryPoint } from "../fetch.mjs";
 import { refName, schemaErrors, schemaProblems } from "./schema.mjs";
+import { typeProblems } from "./types.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const output = join(here, "vectors.json");
@@ -175,7 +176,7 @@ function actualKinds(vectorList) {
   return actual;
 }
 
-export function check({ schema: schemaOverride, committed, vectors: vectorsOverride, sources = {} } = {}) {
+export async function check({ schema: schemaOverride, committed, vectors: vectorsOverride, sources = {} } = {}) {
   const schema = schemaOverride ?? JSON.parse(readFileSync(schemaPath, "utf8"));
   const committedText = committed ?? (existsSync(output) ? readFileSync(output, "utf8") : null);
   const vectorList = vectorsOverride ?? vectors;
@@ -205,6 +206,13 @@ export function check({ schema: schemaOverride, committed, vectors: vectorsOverr
   const action = input({ kind: "action", action: "confirm", down: true, source: "runner.fallback", modalId: null });
   if (schemaErrors(schema, action).length === 0) problems.push("v1 schema must reject semantic action input");
 
+  // The v3-only blend is not added to the frozen v1 schema or vector kit.
+  const sourceOver = list({ kind: "blit", source: { asset: "ui/overlay.bmp", tile: null }, src: rect, dst: rect, key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 128, blend: "source-over", iso2d: false });
+  if (schemaErrors(schema, sourceOver).length === 0) problems.push("v1 schema must reject source-over blend");
+
+  // The TypeScript half compares the historical DrawListV1, never the active DrawList.
+  problems.push(...typeProblems(schema, { sources, drawAlias: "DrawListV1", inputAlias: "InputRecordV1" }));
+
   // 4. The kit covers every kind the schema lists.
   const expected = coveredKinds(schema);
   const actual = actualKinds(vectorList);
@@ -225,7 +233,7 @@ const document = documentOf(vectors);
 // calls, and a write on import would let it compare a file against itself and always pass.
 if (isEntryPoint(import.meta.url)) {
   if (process.argv.includes("--check")) {
-    const problems = check();
+    const problems = await check();
     if (problems.length > 0) {
       console.error(problems.join("\n"));
       process.exitCode = 1;

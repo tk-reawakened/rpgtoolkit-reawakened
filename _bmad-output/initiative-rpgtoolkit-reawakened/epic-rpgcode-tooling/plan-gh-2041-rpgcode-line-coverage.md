@@ -1,9 +1,9 @@
 ---
 title: 'RPGCode line coverage'
 type: 'bugfix'
-ticket: ''
+ticket: '#2041'
 created: '2026-11-11'
-status: 'draft'
+status: 'in-review'
 baseline_revision: 'f06ab8af36d5b8763d593ada6ad9831b2485df7b'
 route: 'full'
 route_source: 'pinned'
@@ -90,6 +90,11 @@ The VM lowers one source statement to multiple instructions; line transitions al
 - Planning environment: default Node is 26.13.0, not the repository-pinned 24.21.0; find/use the pinned runtime before implementation gates. `lcov` was not found on PATH; choose an available independent tracefile validator or report validation unavailable.
 
 ## Implementation Notes
+
+- Owner ruling 2026-11-12: count executable lines in every program the run encounters, including uncalled functions and includes. Exclude never-loaded project programs and test-harness lines. Deterministic LCOV through the API only, with no CLI flag. The per-run-maximum-then-sum line rule was adopted as recommended.
+- No core seam was needed. The existing `postStep` observer fires before each instruction, and the thread's top frame then names the exact program and instruction index (`packages/script-spec/src/coverage.ts`). Coverage is opt-in (`coverage: true`); without it the runner installs no extra observer and the report has no `coverage` field, so the CLI JSON and dogfood baselines are unchanged.
+- Two rules found while implementing were committed as a separate docs commit before the code. The compiler's implicit end-of-body `return` (outside every statement range) makes no line executable. A skipped case's run starts from a fresh fixture, so it re-executes the file's registration but never its body.
+- Perturbation controls C1–C8, including removing the instrumentation, are recorded in the PR.
 
 ## Plan Change Log
 

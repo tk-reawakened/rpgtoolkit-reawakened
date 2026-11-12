@@ -742,6 +742,7 @@ export function createScriptServices(
   menuSounds?: () => { readonly move: string; readonly choose: string; readonly cancel: string },
   pixelMovement = 0,
   logicalViewport: CommandView["logicalViewport"] = { width: 320, height: 240 },
+  resolveFont?: CommandView["resolveFont"],
 ): ScriptServices {
   const loader = typeof loaderOrGameId === "string" ? undefined : loaderOrGameId;
   const gameId = typeof loaderOrGameId === "string" ? loaderOrGameId : explicitGameId ?? null;
@@ -847,6 +848,7 @@ export function createScriptServices(
     actors,
     battle,
     logicalViewport,
+    ...(resolveFont === undefined ? {} : { resolveFont }),
     ...(battleStartView === undefined ? {} : { battleStart: battleStartView }),
     ...(refreshScreen === undefined ? {} : { refreshScreen }),
     ...(requestRecoveryCapture === undefined ? {} : { requestRecoveryCapture }),

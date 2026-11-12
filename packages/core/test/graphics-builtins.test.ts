@@ -77,6 +77,7 @@ test("screen vector primitives emit safe Plane 3 pixels for every author primiti
     safeArea: { top: 0, right: 0, bottom: 0, left: 0 },
   };
   const result = rasterizePresentation({
+    protocolVersion: 3,
     tick: 0,
     width: 8,
     height: 8,

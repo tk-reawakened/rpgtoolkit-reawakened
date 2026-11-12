@@ -1,8 +1,9 @@
 import { existsSync, readFileSync, readdirSync, watch, type FSWatcher } from "node:fs";
-import { assetKey, createAssetIndex, decodeCp1252, FIRST_PARTY_PLUGINS, PACKAGE_ROOT, type PluginDefinition, type ProgramLoader } from "@tk-reawakened/core";
+import { assetKey, createAssetIndex, decodeCp1252, FIRST_PARTY_PLUGINS, PACKAGE_ROOT, type PluginDefinition } from "@tk-reawakened/core";
 import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { discoverCases, hasOnlyCases, runSpecFile, type SpecFileReport, type SpecRunOptions } from "./runner.ts";
+import { mergeCoverage, type SpecCoverage } from "./coverage.ts";
+import { discoverCases, hasOnlyCases, runSpecFile, type SpecFileReport, type SpecProgramLoader, type SpecRunOptions } from "./runner.ts";
 
 const compareNames = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
 
@@ -34,7 +35,7 @@ export function discoverProjectSpecs(projectRoot: string): string[] {
     .map((file) => relative(root, file).split(sep).join("/"));
 }
 
-function projectProgramLoader(projectRoot: string): ProgramLoader & { nativePlugin?: PluginDefinition } {
+function projectProgramLoader(projectRoot: string): SpecProgramLoader {
   const rootEntries = readdirSync(projectRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && assetKey(entry.name) === assetKey("Prg"))
     .sort((left, right) => compareNames(left.name, right.name));
@@ -66,11 +67,19 @@ function projectProgramLoader(projectRoot: string): ProgramLoader & { nativePlug
   }
   const index = createAssetIndex(programEntries.map((entry) => entry.path));
   const contents = new Map<string, Uint8Array>();
+  // Coverage names a served program by its real project path, even when the loader serves it under `Prg/`.
+  const projectPaths = new Map<string, string>();
   for (const entry of programEntries) {
     const key = assetKey(entry.path);
-    if (!contents.has(key)) contents.set(key, readFileSync(entry.file));
+    if (!contents.has(key)) {
+      contents.set(key, readFileSync(entry.file));
+      projectPaths.set(key, relative(projectRoot, entry.file).split(sep).join("/"));
+    }
   }
-  return { index, root: PACKAGE_ROOT, read: (key) => contents.get(key), ...(nativePlugin === undefined ? {} : { nativePlugin }) };
+  return {
+    index, root: PACKAGE_ROOT, read: (key) => contents.get(key), sourcePath: (key) => projectPaths.get(key),
+    ...(nativePlugin === undefined ? {} : { nativePlugin }),
+  };
 }
 
 export type SpecProjectReport = {
@@ -81,9 +90,11 @@ export type SpecProjectReport = {
   readonly skipped: readonly string[];
   /** `only()` warnings, prefixed by their project-relative spec path. */
   readonly warnings: readonly string[];
+  /** The file reports' coverage summed line by line; present only when the run asked for `coverage`. */
+  readonly coverage?: SpecCoverage;
 };
 
-export type SpecProjectOptions = Pick<SpecRunOptions, "seed" | "strict" | "name">;
+export type SpecProjectOptions = Pick<SpecRunOptions, "seed" | "strict" | "name" | "coverage">;
 
 /** Read and run every discovered project spec against its RPGCode files and the bundled API. */
 export function runSpecProject(projectRoot: string, options: SpecProjectOptions = {}): SpecProjectReport {
@@ -127,6 +138,7 @@ export function runSpecProject(projectRoot: string, options: SpecProjectOptions 
     failures,
     skipped: reports.flatMap((report) => report.skipped.map((name) => `${report.file}: ${name}`)),
     warnings: reports.flatMap((report) => report.warning === null ? [] : [`${report.file}: ${report.warning}`]),
+    ...(options.coverage === true ? { coverage: mergeCoverage(reports.flatMap((report) => report.coverage === undefined ? [] : [report.coverage])) } : {}),
   };
 }
 

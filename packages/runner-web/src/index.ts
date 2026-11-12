@@ -25,6 +25,7 @@ import {
   type InputRecord,
   type RasterAsset,
   type SurfaceId,
+  type TrueTypeFont,
 } from "@tk-reawakened/core";
 
 export type { InputRecord };
@@ -241,6 +242,34 @@ export function fontProvider(files: ClosingFiles): ReadonlyMap<AssetKey, RasterA
 }
 
 /**
+ * The fonts a text command's `asset` can name in one running game: its installed project faces first, then the bundled
+ * ones, the engine's own precedence. A TrueType draw list carries glyph IDs, which mean something only against the face
+ * that produced them, so a project face MUST reach the renderer too, not only the bundled set (#1938). `project` returns
+ * the bytes of a project font the engine installed, or null for any other key. Each distinct byte buffer is decoded once
+ * and shared, because the renderer would otherwise re-parse raw bytes for every text command of every frame; a buffer
+ * that does not decode is remembered as absent.
+ */
+export function gameFontProvider(
+  bundled: ReadonlyMap<AssetKey, RasterAsset>,
+  project: (asset: AssetKey) => Uint8Array | null | undefined,
+): (asset: AssetKey) => RasterAsset | undefined {
+  const decoded = new WeakMap<Uint8Array, TrueTypeFont | null>();
+  return (asset) => {
+    const bytes = project(asset);
+    if (bytes !== null && bytes !== undefined) {
+      let font = decoded.get(bytes);
+      if (font === undefined) {
+        const parsed = readTrueTypeFont(bytes, asset);
+        font = parsed.ok ? parsed.value : null;
+        decoded.set(bytes, font);
+      }
+      if (font !== null) return font;
+    }
+    return bundled.get(asset);
+  };
+}
+
+/**
  * Boot one game exactly as the headless closing suite does and present one captured frame through WebGL2. Returns the
  * hashes the core reported, so a lane can compare them with the committed baseline without trusting the renderer.
  */
@@ -252,6 +281,12 @@ export function runScriptedFrame(options: ScriptedFrameOptions): FrameReport {
   const frame = run.frames.find((candidate) => candidate.tick === (options.tick ?? 120)) ?? run.frames.at(-1);
   if (frame === undefined) throw new Error(`runner-web: ${options.game} captured no frame`);
   const renderer = createWebgl2Renderer(options.gl);
+  const projectFonts = new Map<AssetKey, Uint8Array>();
+  for (const [path, bytes] of options.files) {
+    const key = assetKey(path);
+    if (key.endsWith(".ttf")) projectFonts.set(key, bytes);
+  }
+  const fonts = gameFontProvider(options.fonts ?? new Map(), (asset) => projectFonts.get(asset));
   const list = frame.drawList as DrawList;
   const geometry = { content: { width: list.width, height: list.height }, game: { x: 0, y: 0, width: list.width, height: list.height }, safeArea: { top: 0, right: 0, bottom: 0, left: 0 } };
   const render = renderer.render(list, geometry, {
@@ -260,8 +295,8 @@ export function runScriptedFrame(options: ScriptedFrameOptions): FrameReport {
       const pixels = frame.surfaces.get(`${id}:${rev}`);
       return pixels === undefined || pixels === null ? null : { w: pixels.w, h: pixels.h, rgba: pixels.rgba };
     },
-    fonts: (asset: AssetKey) => options.fonts?.get(asset),
-    ...(options.fonts?.get(DEFAULT_FONT_ASSET) === undefined ? {} : { fallbackFont: options.fonts.get(DEFAULT_FONT_ASSET) }),
+    fonts,
+    ...(fonts(DEFAULT_FONT_ASSET) === undefined ? {} : { fallbackFont: fonts(DEFAULT_FONT_ASSET) }),
   });
   return { tick: frame.tick, stateHash: frame.stateHash, drawHash: frame.drawHash, commands: frame.commands, render };
 }

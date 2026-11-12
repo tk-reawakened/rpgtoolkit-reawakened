@@ -303,10 +303,9 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm oracle:check
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-      # The corpus gate (epic 2 Done-when 1): `dump --check` re-runs the dump
-      # against the complete baseline selected by the exact fixture source configuration (#2119).
-      # An unknown configuration fails closed before either corpus or spec-example checks.
-      - run: node tools/fixtures/check-corpus.mjs && node packages/runner-headless/dist/cli.js dump --check golden/spec-examples.json docs/spec/examples
+      # The corpus gate (epic 2 Done-when 1): `dump --check` compares every fetched game
+      # with the complete baseline for the pinned fixture configuration.
+      - run: node packages/runner-headless/dist/cli.js dump --check golden/legacy-corpus.json fixtures/legacy && node packages/runner-headless/dist/cli.js dump --check golden/spec-examples.json docs/spec/examples
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
   # Classified (ADR 0016): runs independently of `checks`, so a `checks` failure never skips it.
   script-dogfood:

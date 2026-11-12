@@ -6,19 +6,24 @@
  * from `analyse()`; hover, completion, definition and the outline are lookups
  * into the one index of TOOL-6 and the gate-checked command documentation of
  * TOOL-3. Nothing here imports a Node API (G2; dependency rule `r5-lsp-no-node`).
+ *
+ * Project knowledge — the dialect, the include inventory, the lint
+ * configuration — comes only from the running project the client sends as
+ * `rpgcode/project` (docs/spec/engine/rpgcode-tooling.md#tool-1-project). A
+ * document outside it is analysed provisionally and marked `project.unassessed`.
  */
 
 import {
   FIRST_PARTY_PLUGINS,
   commandDocumentation,
   foldAscii,
-  type ProgramLoader,
   type ResolvedPlugin,
 } from "@tk-reawakened/core";
 import {
   analyse,
   applyEdits,
   buildIndex,
+  formatSource,
   legacyFixes,
   projectHelp,
   type Diagnostic as AnalysisDiagnostic,
@@ -29,6 +34,9 @@ import {
   type Severity,
 } from "@tk-reawakened/script-tools";
 import { documentationText, signatureHelp } from "./signature-help.ts";
+import { documentContext, NO_PROJECT, projectLoader, projectModel, readSnapshot, type DocumentContext, type ProjectModel } from "./project.ts";
+import { PROJECT_NOTIFICATION } from "./protocol.ts";
+import { CONFIG_CODE, documentLint, readProjectLintConfig } from "./lint-publish.ts";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
   CompletionItemKind,
@@ -40,6 +48,7 @@ import {
   type CompletionParams,
   type DidChangeTextDocumentParams,
   type DidOpenTextDocumentParams,
+  type DocumentFormattingParams,
   type Diagnostic as LspDiagnostic,
   type Disposable,
   type DocumentSymbol,
@@ -53,6 +62,9 @@ import {
   type PublishDiagnosticsParams,
   type SignatureHelp,
   type SignatureHelpParams,
+  type ShowMessageParams,
+  MessageType,
+  type TextEdit,
   type Range,
   type TextDocumentPositionParams,
 } from "vscode-languageserver-protocol";
@@ -85,12 +97,15 @@ export type ServerConnection = {
   onDocumentSymbol(handler: (params: DocumentSymbolParams) => DocumentSymbol[]): Disposable;
   onSignatureHelp(handler: (params: SignatureHelpParams) => SignatureHelp | null): Disposable;
   onCodeAction(handler: (params: CodeActionParams) => CodeAction[]): Disposable;
+  onDocumentFormatting(handler: (params: DocumentFormattingParams) => TextEdit[] | null): Disposable;
+  /** `window/showMessage`, which tells the author why a request did nothing. */
+  showMessage(params: ShowMessageParams): void;
+  /** Client notifications outside the LSP's own methods; the server listens for `rpgcode/project`. */
+  onNotification(method: string, handler: (params: unknown) => void): Disposable;
   sendDiagnostics(params: PublishDiagnosticsParams): void;
 };
 
 export type ServerOptions = {
-  /** Resolves `#include` and `file.func` for the index; without one, includes are listed but unresolved. */
-  readonly loader?: ProgramLoader;
   /** The catalogue the help projection reads; defaults to the registered built-in plugins. */
   readonly plugins?: readonly ResolvedPlugin[];
 };
@@ -98,7 +113,16 @@ export type ServerOptions = {
 export type LanguageServer = {
   /** The open buffers, keyed by URI, so a host can inspect them (tests, debugging). */
   readonly text: (uri: string) => string | undefined;
+  /** The running project the server analyses against, so a host can inspect it. */
+  readonly project: () => ProjectModel;
 };
+
+export { PROJECT_NOTIFICATION } from "./protocol.ts";
+export type { ProjectSnapshot, ProjectSnapshotFile } from "./protocol.ts";
+export type { ProjectModel } from "./project.ts";
+
+/** The code of the diagnostic that marks a document the running project does not cover. */
+export const UNASSESSED_CODE = "project.unassessed";
 
 /** TOOL-3 ranges are 1-based with an inclusive end; LSP positions are 0-based with an exclusive end. */
 function lspRange(line: number, col: number | undefined, endCol: number | undefined): Range {
@@ -130,37 +154,98 @@ export function createServer(connection: ServerConnection, options: ServerOption
   const plugins = options.plugins ?? defaultPlugins();
   const help = projectHelp(plugins);
   const documentation = commandDocumentation(plugins);
+  let project: ProjectModel = NO_PROJECT;
 
-  const indexOf = (document: TextDocument): IndexProgram | null => {
-    const documentIndex = buildIndex([{ name: document.uri, ref: { kind: "inline", text: document.getText(), ir: "1" } }], options.loader === undefined ? {} : { loader: options.loader });
+  const contextOf = (document: TextDocument): DocumentContext => documentContext(project, document.uri, document.languageId);
+
+  const indexOf = (document: TextDocument, name = document.uri): IndexProgram | null => {
+    const context = contextOf(document);
+    const ref = context.dialect === "tk2"
+      ? { kind: "inline" as const, text: document.getText(), ir: "1", dialect: "tk2" as const }
+      : { kind: "inline" as const, text: document.getText(), ir: "1" };
+    const loader = context.kind === "assessed" ? projectLoader(context.project, (uri) => documents.get(uri)?.getText()) : undefined;
+    const documentIndex = buildIndex([{ name, ref }], loader === undefined ? {} : { loader });
     return documentIndex.programs[0] ?? null;
   };
 
   const publish = (document: TextDocument): void => {
-    const analysis = analyse(document.getText(), { file: document.uri });
-    connection.sendDiagnostics({ uri: document.uri, version: document.version, diagnostics: analysis.diagnostics.map(toLspDiagnostic) });
+    const context = contextOf(document);
+    const analysis = analyse(document.getText(), { file: document.uri, dialect: context.dialect });
+    const diagnostics = analysis.diagnostics.map(toLspDiagnostic);
+    if (context.kind === "unassessed") diagnostics.unshift(unassessedDiagnostic(context.reason, context.dialect));
+    if (context.kind === "assessed" && analysis.ok) diagnostics.push(...lintDiagnostics(document, context));
+    connection.sendDiagnostics({ uri: document.uri, version: document.version, diagnostics });
+  };
+
+  /**
+   * The project's lint findings for an assessed document that compiled (#2074). A
+   * malformed `tkr-lint.json` is reported, never silently treated as the defaults.
+   */
+  const lintDiagnostics = (document: TextDocument, context: Extract<DocumentContext, { kind: "assessed" }>): LspDiagnostic[] => {
+    const config = readProjectLintConfig(context.project.lintConfig);
+    if (!config.ok) {
+      return [{
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+        severity: DiagnosticSeverity.Error,
+        code: CONFIG_CODE,
+        source: "rpgcode",
+        message: `${config.message}. Lint findings are not published until the configuration is fixed.`,
+      }];
+    }
+    const program = indexOf(document, context.project.pathOfUri.get(document.uri) ?? document.uri);
+    if (program === null || program.diagnostics.length > 0) return [];
+    return documentLint(program, document.getText(), context.dialect, plugins, config.config).map(toLspDiagnostic);
+  };
+
+  connection.onNotification(PROJECT_NOTIFICATION, (params) => {
+    const snapshot = readSnapshot(params);
+    if (snapshot === undefined || snapshot.revision <= project.revision) return;
+    project = projectModel(snapshot);
+    for (const document of documents.values()) publish(document);
+  });
+
+  /**
+   * The document URI of a unit the index names: the open document for its own
+   * unit, the original inventory URI for an included one. A folded key is never
+   * a location (docs/spec/engine/rpgcode-tooling.md#tool-1-project).
+   */
+  const uriOfUnit = (document: TextDocument, program: IndexProgram, unit: string): string | null => {
+    if (unit === program.key) return document.uri;
+    const context = contextOf(document);
+    if (context.kind !== "assessed") return null;
+    return context.project.uriOfKey.get(unit) ?? null;
   };
 
   /** The function a call names, inside the file its include resolved to. */
-  const targetOf = (program: IndexProgram, call: IndexCall): Location | null => {
+  const targetOf = (document: TextDocument, program: IndexProgram, call: IndexCall): Location | null => {
     if (call.file === null) {
       const local = program.functions.find((fn) => fn.name === call.name && fn.arity === call.arity);
-      return local === undefined ? null : locationOf(local);
+      return local === undefined ? null : locationOf(document, program, local);
     }
     const wanted = foldAscii(`${call.file}.prg`);
     const include = program.includes.find((item) => foldAscii(item.path) === wanted && item.key !== undefined);
     if (include === undefined || include.key === undefined) return null;
     const fn = program.functions.find((item) => item.file === include.key && item.name === call.name && item.arity === call.arity);
-    return fn === undefined ? null : locationOf(fn);
+    return fn === undefined ? null : locationOf(document, program, fn);
   };
 
-  const locationOf = (declaration: { readonly file: string; readonly line: number; readonly col?: number }): Location => ({
-    uri: declaration.file,
-    range: lspRange(declaration.line, declaration.col, declaration.col),
-  });
+  const locationOf = (
+    document: TextDocument,
+    program: IndexProgram,
+    declaration: { readonly file: string; readonly line: number; readonly col?: number; readonly endCol?: number },
+  ): Location | null => {
+    const uri = uriOfUnit(document, program, declaration.file);
+    return uri === null ? null : { uri, range: lspRange(declaration.line, declaration.col, declaration.endCol) };
+  };
 
-  const includeTarget = (program: IndexProgram, include: IndexInclude): Location | null =>
-    include.key === undefined ? null : { uri: include.key, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } } };
+  const includeTarget = (document: TextDocument, program: IndexProgram, include: IndexInclude): Location | null => {
+    if (include.key === undefined) return null;
+    const uri = uriOfUnit(document, program, include.key);
+    return uri === null ? null : { uri, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } } };
+  };
+
+  /** Sites of the open document's own unit; an included unit's sites have its own lines. */
+  const ownCalls = (program: IndexProgram): readonly IndexCall[] => program.calls.filter((item) => item.pos.file === program.key);
 
   connection.onInitialize(() => ({
     capabilities: {
@@ -171,6 +256,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
       definitionProvider: true,
       documentSymbolProvider: true,
       codeActionProvider: true,
+      documentFormattingProvider: true,
     },
   }));
 
@@ -200,7 +286,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
     if (program === null) return null;
     const line = params.position.line + 1;
     const column = params.position.character + 1;
-    const call = program.calls.find((item) => covers(item.pos, line, column));
+    const call = ownCalls(program).find((item) => covers(item.pos, line, column));
     if (call === undefined) return null;
     const entry = help.find((item) => foldAscii(item.name) === foldAscii(call.name));
     if (entry === undefined) return null;
@@ -244,12 +330,12 @@ export function createServer(connection: ServerConnection, options: ServerOption
     if (program === null) return [];
     const line = params.position.line + 1;
     const column = params.position.character + 1;
-    const call = program.calls.find((item) => covers(item.pos, line, column));
+    const call = ownCalls(program).find((item) => covers(item.pos, line, column));
     if (call !== undefined) {
-      const target = targetOf(program, call);
+      const target = targetOf(document, program, call);
       return target === null ? [] : [target];
     }
-    const include = program.includes.find((item) =>
+    const include = program.includes.find((item) => item.file === program.key &&
       covers(
         item.col === undefined || item.endCol === undefined
           ? { line: item.line }
@@ -259,7 +345,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
       ),
     );
     if (include !== undefined) {
-      const target = includeTarget(program, include);
+      const target = includeTarget(document, program, include);
       return target === null ? [] : [target];
     }
     return [];
@@ -295,16 +381,43 @@ export function createServer(connection: ServerConnection, options: ServerOption
     });
   });
 
+  /**
+   * TOOL-4 formatting, for a document the running project assesses as 3.1. A
+   * Toolkit 2.x or unassessed document is refused: no edit, and a warning that
+   * says why, because its loose lines may be dialogue the rewrite would change
+   * (docs/spec/engine/rpgcode-tooling.md#tool-1-project, #tool-4).
+   */
+  connection.onDocumentFormatting((params) => {
+    const document = documents.get(params.textDocument.uri);
+    if (document === undefined) return null;
+    const context = contextOf(document);
+    const refuse = (why: string): TextEdit[] => {
+      connection.showMessage({ type: MessageType.Warning, message: `RPGCode did not format ${document.uri}: ${why}` });
+      return [];
+    };
+    if (context.kind === "unassessed") {
+      return refuse(`its dialect is unassessed (${context.reason}). Formatting rewrites only 3.1 source; select the running project (.gam) to establish the dialect.`);
+    }
+    const text = document.getText();
+    const indentWidth = Number.isInteger(params.options.tabSize) && params.options.tabSize > 0 ? params.options.tabSize : 4;
+    const result = formatSource(text, { dialect: context.dialect, indentWidth });
+    if (result.skipped === "tk2-dialect") {
+      return refuse("the running project is Toolkit 2.x (tk2-dialect), where a loose line is dialogue the formatter must not rewrite.");
+    }
+    if (!result.changed) return [];
+    return [{ range: { start: { line: 0, character: 0 }, end: document.positionAt(text.length) }, newText: result.text }];
+  });
+
   connection.onDocumentSymbol((params) => {
     const document = documents.get(params.textDocument.uri);
     if (document === undefined) return [];
     const program = indexOf(document);
     if (program === null) return [];
     const symbols: DocumentSymbol[] = [];
-    for (const fn of program.functions) {
+    for (const fn of program.functions.filter((item) => item.file === program.key)) {
       symbols.push({ name: fn.qualifiedName, kind: SymbolKind.Function, range: lspRange(fn.line, fn.col, fn.endCol), selectionRange: lspRange(fn.line, fn.col, fn.endCol) });
     }
-    for (const cls of program.classes) {
+    for (const cls of program.classes.filter((item) => item.file === program.key)) {
       symbols.push({
         name: cls.qualifiedName,
         kind: SymbolKind.Class,
@@ -316,7 +429,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
         ],
       });
     }
-    for (const label of program.labels) {
+    for (const label of program.labels.filter((item) => item.file === program.key)) {
       symbols.push({ name: label.name, kind: SymbolKind.Key, range: lspRange(label.line, label.col, label.endCol), selectionRange: lspRange(label.line, label.col, label.endCol) });
     }
     return symbols;
@@ -324,6 +437,19 @@ export function createServer(connection: ServerConnection, options: ServerOption
 
   return {
     text: (uri) => documents.get(uri)?.getText(),
+    project: () => project,
+  };
+}
+
+/** The marker that an unassessed document's diagnostics are provisional, never a clean result. */
+function unassessedDiagnostic(reason: string, dialect: "tk2" | "tk3"): LspDiagnostic {
+  const reading = dialect === "tk2" ? "Toolkit 2.x" : "3.1";
+  return {
+    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+    severity: DiagnosticSeverity.Information,
+    code: UNASSESSED_CODE,
+    source: "rpgcode",
+    message: `Dialect unassessed: ${reason}. This file is read provisionally as ${reading} from its language mode; select the running project (.gam) to analyse it as the game runs it.`,
   };
 }
 

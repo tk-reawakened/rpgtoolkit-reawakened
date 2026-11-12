@@ -342,7 +342,7 @@ function createHost(
           x < item.bounds.x + item.bounds.w && y < item.bounds.y + item.bounds.h)) ? "author" : null;
     },
     drawList(_alpha?: number): DrawList {
-      return { tick: gameState.time.tick, width: 320, height: 240, commands: [], marginCommands: [] };
+      return { protocolVersion: 3, tick: gameState.time.tick, width: 320, height: 240, commands: [], marginCommands: [] };
     },
 
     surfacePixels(_id: SurfaceId, _rev: number): SurfacePixels | null {

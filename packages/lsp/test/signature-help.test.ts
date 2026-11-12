@@ -21,7 +21,10 @@ function session() {
     onCompletion: () => disposable,
     onDefinition: () => disposable,
     onDocumentSymbol: () => disposable,
+    onDocumentFormatting: () => disposable,
+    showMessage: () => {},
     onCodeAction: () => disposable,
+    onNotification: () => disposable,
     onSignatureHelp: (handler) => { signature = handler; return disposable; },
     sendDiagnostics: () => {},
   };

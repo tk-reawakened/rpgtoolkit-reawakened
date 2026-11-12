@@ -264,6 +264,7 @@ function applyUiEffects(state: GameState): void {
 }
 function drawListFor(state: GameState): DrawList {
   return {
+    protocolVersion: 3,
     tick: state.time.tick,
     width: 640,
     height: 480,

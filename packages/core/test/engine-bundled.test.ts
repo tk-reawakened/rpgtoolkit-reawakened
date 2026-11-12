@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { assetKey, createAssetIndex, createEmptyBoard, createEngine, PACKAGE_ROOT, writeBoard } from "../src/index.ts";
-import type { AssetKey, Diagnostic, Engine } from "../src/index.ts";
+import type { AssetKey, Diagnostic, Engine, GameState } from "../src/index.ts";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const bundledFont = assetKey("media/fonts/tkr-8x8.fnt");
@@ -22,8 +22,10 @@ function boardBytes(): Uint8Array {
 }
 
 /** A scene-mode engine that has loaded its board and run `program` for a few ticks. */
-function runProgram(program: string, bundled?: ReadonlyMap<AssetKey, Uint8Array>, extraKeys: readonly string[] = []): { readonly engine: Engine; readonly diagnostics: Diagnostic[] } {
+function runProgram(program: string, bundled?: ReadonlyMap<AssetKey, Uint8Array>, extraKeys: readonly string[] = []): { readonly engine: Engine; readonly diagnostics: Diagnostic[]; readonly state: () => GameState } {
+  let latest: GameState | null = null;
   const engine = createEngine({
+    phaseRegistrations: [{ phase: "audio", run: (state) => { latest = state; } }],
     seed: 5,
     assetIndex: createAssetIndex(["Boards/test.brd", ...extraKeys]),
     assetRoot: PACKAGE_ROOT,
@@ -44,7 +46,14 @@ function runProgram(program: string, bundled?: ReadonlyMap<AssetKey, Uint8Array>
   }
   report = engine.advance(3, []);
   diagnostics.push(...report.diagnostics);
-  return { engine, diagnostics };
+  return {
+    engine,
+    diagnostics,
+    state: () => {
+      if (latest === null) throw new Error("no tick has run yet");
+      return latest;
+    },
+  };
 }
 
 /** The screen surface's pixels; its revision depends on how the ticks were batched, so scan for the current one. */
@@ -146,4 +155,97 @@ test("a bundled file that does not decode is reported once with its key", () => 
   equal(reported.length, 1);
   screen(engine);
   equal(engine.advance(0, []).diagnostics.filter((diagnostic) => diagnostic.code === "asset.invalid").length, 0);
+});
+
+const liberationFiles = (names: readonly string[]): Map<AssetKey, Uint8Array> => new Map<AssetKey, Uint8Array>([
+  ...bundledFiles,
+  ...names.map((name): [AssetKey, Uint8Array] => [assetKey(`media/fonts/${name}`), new Uint8Array(readFileSync(join(repoRoot, "media", "fonts", name)))]),
+]);
+
+test("standard family names select the bundled Liberation faces under their shipped keys", () => {
+  const bundled = liberationFiles(["LiberationSans-Regular.ttf", "LiberationSerif-Regular.ttf", "LiberationMono-Regular.ttf"]);
+  const program = [
+    'before = gettextwidth("iiii")',
+    'font("Arial")', 'sans = gettextwidth("iiii")',
+    'font("Times New Roman")', 'serif = gettextwidth("iiii")',
+    'font("Courier New")', 'mono = gettextwidth("iiii")',
+    "wait()", "end()", "",
+  ].join("\n");
+  const run = runProgram(program, bundled);
+  const serif = runProgram('font("Times New Roman")\nwait()\nend()\n', bundled).state().ui.font.asset;
+  const mono = runProgram('font("monospace")\nwait()\nend()\n', bundled).state().ui.font.asset;
+  const sans = runProgram('font("Arial")\nwait()\nend()\n', bundled).state().ui.font.asset;
+  equal(sans, assetKey("media/fonts/LiberationSans-Regular.ttf"));
+  equal(serif, assetKey("media/fonts/LiberationSerif-Regular.ttf"));
+  equal(mono, assetKey("media/fonts/LiberationMono-Regular.ttf"));
+  for (const key of [sans, serif, mono]) equal(bundled.has(key), true, `${key} is a key the host actually bundles`);
+  const globals = run.state().vm.globals;
+  equal(globals.before, 32, "the bitmap fallback measures four 8-pixel cells");
+  // `i` is narrow in the proportional faces and a full cell in the monospace face, so a bitmap substitution would repeat 32.
+  equal(globals.sans !== 32 && globals.serif !== 32, true, "the bundled sans and serif faces measure, not the bitmap fallback");
+  equal(globals.mono !== 32, true, "the bundled monospace face measures, not the bitmap fallback");
+});
+
+test("a project face of the requested family wins over the bundled Liberation face", () => {
+  const projectFace = assetKey("media/fonts/arial.ttf");
+  const bundled = liberationFiles(["LiberationSans-Regular.ttf"]);
+  bundled.set(projectFace, new Uint8Array(readFileSync(join(repoRoot, "media", "fonts", "LiberationMono-Regular.ttf"))));
+  const run = runProgram('font("Arial")\nwait()\nend()\n', bundled, [projectFace]);
+  equal(run.state().ui.font.asset, projectFace);
+  // Without the project face the same name selects the bundled sans face.
+  equal(runProgram('font("Arial")\nwait()\nend()\n', bundled).state().ui.font.asset, assetKey("media/fonts/LiberationSans-Regular.ttf"));
+});
+
+test("gettextwidth and gettextheight keep the core output reference beside Triuken's explicit font forms", () => {
+  const bundled = liberationFiles(["LiberationSans-Regular.ttf"]);
+  const program = [
+    'font("Arial")',
+    'direct = gettextwidth("iiii")',
+    'direct5 = gettextwidth("12345")',
+    'directheight = gettextheight("iiii")',
+    "outw = 999", 'w = gettextwidth("iiii", outw)',
+    "outh = 999", 'h = gettextheight("iiii", outh)',
+    'literal = gettextwidth("12345", "Arial")',
+    'prev = "previous text"', 'pw = gettextwidth("iiii", prev)',
+    'prevh = "previous text"', 'ph = gettextheight("iiii", prevh)',
+    'emptyw = ""', 'ew = gettextwidth("iiii", emptyw)',
+    'fontname = "Arial"', 'ambiguous = gettextwidth("12345", fontname)',
+    'fontname2 = "Arial"', 'named = gettextwidth("12345", fontname2, 12)',
+    'fontnameexpr = "Arial"', 'expr = gettextwidth("12345", fontnameexpr + "")',
+    'fontheight = "Arial"', 'namedheight = gettextheight("iiii", fontheight, 12)',
+    'fontname3 = "Arial"', 'fontout = 999', 'namedout = gettextwidth("12345", fontname3, 12, fontout)',
+    'sized = gettextwidth("12345", "Arial", 12)',
+    'sizedout = 999', 'gettextwidth("12345", "Arial", 12, sizedout)',
+    "wait()", "end()", "",
+  ].join("\n");
+  const run = runProgram(program, bundled);
+  equal(run.diagnostics.filter((diagnostic) => diagnostic.code.startsWith("program.") || diagnostic.code.startsWith("script.") || diagnostic.code === "builtin.out-not-by-ref").length, 0);
+  const globals = run.state().vm.globals;
+  equal(globals.direct !== 32, true, "the current Liberation face is measured, not the Triuken eight-pixel cell");
+  equal(globals.outw, globals.direct, "the output reference receives the current-face width");
+  equal(globals.w, globals.direct);
+  equal(globals.outh, globals.directheight, "the output reference receives the current-face height");
+  equal(globals.h, globals.directheight);
+  equal(globals.literal, 40, "a literal second argument is still Triuken's explicit font");
+  equal(globals.pw, globals.direct, "a destination that already holds text still receives the current-face width");
+  equal(globals.prev, globals.direct, "the previous text is replaced, not read as a font name");
+  equal(globals.ph, globals.directheight);
+  equal(globals.prevh, globals.directheight);
+  equal(globals.ew, globals.direct);
+  equal(globals.emptyw, globals.direct);
+  equal(globals.ambiguous, globals.fontname, "a variable second argument is the output reference even when it holds a font name");
+  equal(globals.fontname, globals.direct5, "the overwritten variable holds the current-face width of the measured text");
+  equal(globals.direct5 !== 40, true, "the current face is not the Triuken eight-pixel cell");
+  equal(typeof globals.fontname, "number", "the stored font name was overwritten by the metric");
+  equal(globals.named, 40, "a variable font with an explicit size is Triuken's extended form");
+  equal(globals.fontname2, "Arial", "the extended form reads its font variable without writing it");
+  equal(globals.expr, 40, "a non-reference font expression keeps the explicit-font form");
+  equal(globals.fontnameexpr, "Arial", "the expression does not overwrite its variable");
+  equal(globals.namedheight, 16, "height supports a variable font in the three-argument form");
+  equal(globals.fontheight, "Arial");
+  equal(globals.namedout, 40);
+  equal(globals.fontname3, "Arial");
+  equal(globals.fontout, 40, "the fourth argument receives the Triuken width");
+  equal(globals.sized, 40);
+  equal(globals.sizedout, 40, "the fourth argument stays the Triuken output reference");
 });

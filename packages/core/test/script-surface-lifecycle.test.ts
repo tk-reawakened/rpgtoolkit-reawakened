@@ -523,7 +523,7 @@ test("an enter program awaiting promotion survives a snapshot (#1132)", () => {
 
 test("engine presents no-enemies message in a blocking program (#1133)", () => {
   let fired = false;
-  const game = boot('mwin("title")\nwait()', {}, [
+  const game = boot('fontsize(8)\nmwin("title")\nwait()', {}, [
     {
       phase: "triggers",
       run: (state, post) => {

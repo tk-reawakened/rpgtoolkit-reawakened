@@ -39,7 +39,7 @@ import { catalogueEntry, parseClosingPlan, parsePackageManifest, type ClosingFil
 import { createWebgl2Renderer, type RenderStats } from "@tk-reawakened/render-webgl2";
 import { BUNDLED_BANK, CuePlayer, describePatchGap } from "@tk-reawakened/synth";
 import { connectSinkToGraph, defaultWorkletUrl, PcmSink, type AudioArtifactHost, type ScheduledPlay } from "./audio-sink.ts";
-import { fontProvider, liveTextureProvider } from "./index.ts";
+import { fontProvider, gameFontProvider, liveTextureProvider } from "./index.ts";
 import type { DecodeAhead } from "./decode-types.ts";
 import type { PackageSource } from "./package-source.ts";
 import { createSessionAssets, packageOrigin, type AssetLoadState } from "./session-assets.ts";
@@ -337,7 +337,12 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     // A composed tile bitmap is the core's picture, not something the host can decode from bytes (#1269).
     (key) => engine.picturePixels(key),
   );
-  const fonts = fontProvider(options.bundled);
+  // Project faces the engine installed (`boot.fonts`) are decoded for the renderer too: the draw list names their TrueType
+  // glyph IDs, which only that face can draw (#1938).
+  const fonts = gameFontProvider(
+    fontProvider(options.bundled),
+    (key) => latest?.engine.boot?.fonts.includes(key) === true ? assets.peek(key) : null,
+  );
   let renderedSurfaceEpoch = engine.surfaceCacheEpoch();
   let currentTick = 0;
   let currentStateHash = "";
@@ -577,8 +582,8 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
           const pixels = engine.surfacePixels(id, rev);
           return pixels === null ? null : { w: pixels.w, h: pixels.h, rgba: pixels.rgba };
         },
-        fonts: (asset: AssetKey) => fonts.get(asset),
-        ...(fonts.get(DEFAULT_FONT_ASSET) === undefined ? {} : { fallbackFont: fonts.get(DEFAULT_FONT_ASSET) }),
+        fonts,
+        ...(fonts(DEFAULT_FONT_ASSET) === undefined ? {} : { fallbackFont: fonts(DEFAULT_FONT_ASSET) }),
       });
       return { drawHash: hashDrawList(list), commands: list.commands.length + list.marginCommands.length, render };
     },

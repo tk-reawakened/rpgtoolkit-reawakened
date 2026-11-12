@@ -3,32 +3,27 @@
 // keeps its fraction, is scaled to the logical-pixel origin ((x - 1) × size, (y - 1) × size)
 // and only that pixel origin is truncated toward zero; `pixeltext` keeps pixel coordinates.
 // The probe asserts fractional positive, sub-1, negative and multi-row runs, then replays the
-// demo game's title/menu program and records each run's baseline y, first-glyph x and advance
-// per line so a layout-rule violation, if any, is distinguishable from the program's own
-// coordinates.
+// demo game's title/menu program and compares each run with independently derived font-unit
+// advances and reference glyph pixels, so layout-rule violations are distinguishable from
+// the program's own coordinates.
 import { deepEqual, equal } from "node:assert/strict";
 import test from "node:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import {
   applyUiEffect,
   assetKey,
   composeUi,
   createAssetIndex,
-  createEmptyMainFile,
   createEngine,
   createGameState,
   PACKAGE_ROOT,
-  writeMainFile,
   type GameState,
   type TextCommand,
 } from "../src/index.ts";
 
-function unwrap<T>(result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } }): T {
-  if (!result.ok) throw new Error(result.error.message);
-  return result.value;
-}
 
 const S = 18;
 
@@ -91,18 +86,12 @@ function sampleGame(name: string) {
   if (!existsSync(root)) return null;
   const relativePaths = listFiles(root);
   const lower = (path: string): string => path.toLowerCase();
-  const startup = relativePaths.find((path) => lower(path) === "prg/start.prg");
-  const board = relativePaths.find((path) => lower(path) === "boards/start.brd") ?? relativePaths.find((path) => lower(path).startsWith("boards/") && lower(path).endsWith(".brd"));
-  const character = relativePaths.find((path) => lower(path) === "chrs/start.tem") ?? relativePaths.find((path) => lower(path).startsWith("chrs/") && lower(path).endsWith(".tem"));
-  if (startup === undefined || board === undefined || character === undefined) return null;
-  const initBoard = board.slice("Boards/".length);
-  const initChar = character.slice("Chrs/".length);
-  const main = { ...createEmptyMainFile(), major: 2, minor: 9, startupPrg: "start.prg", initBoard, initChar };
+  const main = relativePaths.find((path) => lower(path) === "demo.gam");
+  if (main === undefined) return null;
   const files = new Map<string, Uint8Array>();
-  files.set(assetKey("main.gam"), unwrap(writeMainFile(main)));
-  const paths = ["main.gam", ...relativePaths];
+  const paths = relativePaths;
   for (const path of relativePaths) files.set(assetKey(path), new Uint8Array(readFileSync(join(root, path))));
-  return { files, index: createAssetIndex(paths), initBoard, initChar };
+  return { files, index: createAssetIndex(paths), main };
 }
 
 interface DemoRun {
@@ -113,16 +102,25 @@ interface DemoRun {
   readonly size: number;
 }
 
+interface DemoPixelReference {
+  readonly fontSha256: string;
+  readonly regions: readonly { readonly name: string; readonly x: number; readonly y: number; readonly width: number; readonly height: number; readonly rows: readonly string[] }[];
+}
+
 test("the demo title menu's text runs land on their E-56 cell origins with uniform tracking", { skip: haveLegacy ? false : "run pnpm fixtures:fetch" }, () => {
   const sample = sampleGame("demo");
-  if (sample === null) throw new Error("fixtures/legacy/demo has no start program, board and character");
+  if (sample === null) throw new Error("fixtures/legacy/demo has no authored demo.gam; run pnpm fixtures:fetch with the Demo main fixture pin");
   const players: unknown[] = [];
   let latest: GameState | null = null;
   const engine = createEngine({
     seed: 3,
     assetIndex: sample.index,
     assetRoot: PACKAGE_ROOT,
-    mainFile: "main.gam",
+    mainFile: sample.main,
+    bundled: new Map([
+      [assetKey("media/fonts/LiberationSans-Regular.ttf"), new Uint8Array(readFileSync(join(legacyRoot, "..", "..", "media", "fonts", "LiberationSans-Regular.ttf")))],
+      [assetKey("media/fonts/tkr-8x8.fnt"), new Uint8Array(readFileSync(join(legacyRoot, "..", "..", "media", "fonts", "tkr-8x8.fnt")))],
+    ]),
     gameIdentity: "ui-text-coordinates-demo-probe",
     startup: { presence: { hasPlayer: () => players.length > 0 }, savedGame: { load: () => ({ kind: "missing" }), restored: () => false } },
     width: 640,
@@ -151,7 +149,66 @@ test("the demo title menu's text runs land on their E-56 cell origins with unifo
   deepEqual(diagnostics.filter((code) => code.startsWith("asset.") || code.startsWith("startup.") || code.startsWith("program.")), []);
   const ui = state.ui;
   equal(ui.font.size, S, "the demo menu runs at font size 18 like the authoring cells");
-  equal(ui.font.asset, "media/fonts/tkr-8x8.fnt", "the bundled bitmap font resolves; no unexpected fallback face");
+  equal(ui.font.asset, assetKey("media/fonts/LiberationSans-Regular.ttf"), "the initial face is bundled Liberation Sans");
+  equal(ui.font.bold, true, "the unmodified startup program enables bold");
+  equal(ui.font.italic, false);
+  deepEqual(ui.draws.map((entry) => [entry.font.asset, entry.font.size, entry.font.bold]), Array.from({ length: 4 }, () => [assetKey("media/fonts/LiberationSans-Regular.ttf"), 18, true]));
+  const sansBytes = new Uint8Array(readFileSync(join(legacyRoot, "..", "..", "media", "fonts", "LiberationSans-Regular.ttf")));
+  const expectedRuns = [
+    { text: "Test Game", x: 36, y: 36 },
+    { text: "New Game", x: 288, y: 171 },
+    { text: "Load Game", x: 288, y: 198 },
+    { text: "Quit", x: 288, y: 225 },
+  ] as const;
+  const commands = engine.drawList().commands.filter((entry): entry is TextCommand => entry.kind === "text");
+  equal(commands.length, expectedRuns.length, "the Demo title and all three menu labels are drawn");
+  // Independently extracted with fontTools (cmap/hmtx, 2048 units/em).
+  // The font's default GPOS script has no kern feature. Each pair is
+  // [glyph ID, round(advance * 18 / 2048) + synthetic-bold pixel].
+  const expectedAdvances = [
+    [[55,12],[72,11],[86,10],[87,6],[3,6],[42,15],[68,11],[80,16],[72,11]],
+    [[49,14],[72,11],[90,14],[3,6],[42,15],[68,11],[80,16],[72,11]],
+    [[47,11],[82,11],[68,11],[71,11],[3,6],[42,15],[68,11],[80,16],[72,11]],
+    [[52,15],[88,11],[76,5],[87,6]],
+  ].map((run) => run.map(([glyph, advance]) => ({ glyph: glyph!, advance: advance! })));
+  deepEqual(commands.map((command) => command.text), expectedRuns.map((run) => run.text));
+  deepEqual(commands.map((command) => command.advances), expectedAdvances, "glyph IDs and advances match the independent font reference");
+  let pixels: Uint8Array | null = null;
+  for (let rev = 0; rev < 64 && pixels === null; rev += 1) pixels = engine.surfacePixels(0 as never, rev)?.rgba ?? null;
+  if (pixels === null) throw new Error("the Demo screen surface is unavailable");
+  // Independent pixel reference (fixtures/demo-title-menu-freetype-reference.json): FreeType's exact-area
+  // coverage of the unmodified Demo's four runs, not this project's rasteriser and not `textInk`. The
+  // whole 640×480 surface is compared, so ink outside the title/menu rectangles, misplaced edges and
+  // any shifted glyph (for example TrueType `startX` ± 1) are caught, not only the pixels a model predicts.
+  const reference = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "demo-title-menu-freetype-reference.json"), "utf8")) as DemoPixelReference;
+  equal(createHash("sha256").update(sansBytes).digest("hex"), reference.fontSha256, "the reference was generated from the bundled Liberation Sans Regular");
+  const expectedAlpha = new Uint8Array(640 * 480);
+  for (const region of reference.regions) {
+    equal(region.rows.length, region.height, `${region.name} reference has every row`);
+    region.rows.forEach((row, rowIndex) => {
+      let column = 0;
+      for (const token of row.split(" ")) {
+        if (token.startsWith("-")) { column += Number(token.slice(1)); continue; }
+        for (let at = 0; at < token.length; at += 2, column += 1) expectedAlpha[(region.y + rowIndex) * 640 + region.x + column] = Number.parseInt(token.slice(at, at + 2), 16);
+      }
+      equal(column, region.width, `${region.name} reference row ${rowIndex} spans the region`);
+    });
+  }
+  equal(expectedAlpha.some((value) => value === 255), true, "the independent title/menu reference contains solid glyph pixels");
+  // The project flattens outlines to within 0.25 px in 1/64-pixel fixed point; against FreeType's exact areas the
+  // actual Demo differs by at most 34 levels with a summed difference of 5676. A one-pixel shift of any glyph
+  // gives a summed difference above 220000 and more than 1400 pixels over 40 levels.
+  const mismatches: string[] = [];
+  let totalDifference = 0;
+  for (let pixel = 0; pixel < 640 * 480; pixel += 1) {
+    const actual = pixels[pixel * 4 + 3]!;
+    const expected = expectedAlpha[pixel]!;
+    totalDifference += Math.abs(actual - expected);
+    if (expected === 0 ? actual > 2 : Math.abs(actual - expected) > 40) mismatches.push(`(${pixel % 640},${Math.floor(pixel / 640)}) actual ${actual} expected ${expected}`);
+    if (actual > 0) deepEqual([pixels[pixel * 4], pixels[pixel * 4 + 1], pixels[pixel * 4 + 2]], [255, 255, 255], `straight-alpha white glyph pixel ${pixel % 640},${Math.floor(pixel / 640)}`);
+  }
+  deepEqual(mismatches.slice(0, 8), [], `${mismatches.length} screen pixels differ from the independent reference`);
+  equal(totalDifference <= 6500, true, `summed coverage difference ${totalDifference} exceeds the 6500 flattening budget`);
   cellProbe: {
     equal(Array.isArray(ui.draws), true);
     const runs: readonly DemoRun[] = (ui.draws ?? []).map((entry) => ({ text: entry.text as string, x: entry.x as number, y: entry.y as number, cell: entry.cell as boolean, size: (entry.font as { size: number }).size }));
@@ -162,24 +219,6 @@ test("the demo title menu's text runs land on their E-56 cell origins with unifo
     // The fractional 10.5/13.5 rows keep their half cell: trunc(9.5×18)=171 and trunc(12.5×18)=225.
     deepEqual(runs.map((run) => [run.x, run.y, run.cell]), [[36, 36, true], [288, 171, true], [288, 198, true], [288, 225, true]]);
     deepEqual(runs.every((run) => Number.isInteger(run.x) && Number.isInteger(run.y)), true, "every run starts at a whole-pixel origin: the fraction is kept as a cell, then the scaled pixel is truncated — E-56 holds for fractional cells");
-    // Baseline y (top + bitmap ascent = size) and first-glyph x per run:
-    deepEqual(runs.map((run) => ({ baselineY: run.y + run.size, firstGlyphX: run.x })), [
-      { baselineY: 54, firstGlyphX: 36 },
-      { baselineY: 189, firstGlyphX: 288 },
-      { baselineY: 216, firstGlyphX: 288 },
-      { baselineY: 243, firstGlyphX: 288 },
-    ]);
-  }
-  advanceProbe: {
-    const commands = composeUi(ui, 640, 480).filter((entry): entry is TextCommand => entry.kind === "text");
-    equal(commands.length, 4);
-    deepEqual(commands.map((entry) => entry.y), [36, 171, 198, 225], "composeUi replays the runs without re-advancing rows");
-    deepEqual(commands.map((entry) => entry.advances.map((advance) => advance.advance)), [
-      Array.from({ length: "Test Game".length }, () => S + 1),
-      Array.from({ length: "New Game".length }, () => S + 1),
-      Array.from({ length: "Load Game".length }, () => S + 1),
-      Array.from({ length: "Quit".length }, () => S + 1),
-    ], "advance per line: single-row runs; tracking is uniform s+1 (size 18 bold)");
   }
   alignProbe: {
     // Alignment observation (issue #1046's second independent contributor): the program's own

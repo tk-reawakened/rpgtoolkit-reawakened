@@ -67,12 +67,36 @@ Toolkit 1.x (RPGCode v1) is not in the first release.
 |---|---|
 | `#Mwin(Hello there)` with unquoted string args | `mwin("Hello there")` |
 | `if (x = 5)` (`=` as comparison inside a condition) | `if (x == 5)` |
-| unquoted map keys `m[key]` | `m["key"]` |
+| bare index `m[key]` | `m[key]`: `key` is a variable index, as in 3.1; see [bare index](#tk2-bare-index) |
 | `x! = 1`, `name$ = "a"` | sigils ignored (`x = 1`, `name = "a"`) |
 | loose text lines (no `#`) shown as dialogue | `mwin("…")` |
 | `#Method` | `function` — the same keyword; neither is legacy |
 | `#ReturnMethod(x)` | `return x` (pre-3.1 spelling; 3.1 has no `returnMethod`) |
 | `* comment` lines | comments |
 | `#Dos`, `#Windows`, `#Gone`, `#Over`, `#Reset`, `#Win` | obsolete engine controls |
+
+<a id="tk2-bare-index"></a>
+**Bare index (resolves #2050).** In a Toolkit 2.x program, a word written inside `[ ]` without quotes is read like any other index expression. `m[key]` and `m[key!]` read the variable `key` and use its value as the index, exactly as the 3.1 `m[key]` does (EXP-1). Only a quoted index names a literal key: `m["key"]`. This is what the Toolkit 2.x frontend does: `#m[key] = 1` compiles to `name m; load key; index`, the same steps as 3.1 `m[key] = 1`. The literal-key reading `m[key]` → `m["key"]` comes from the 3.0-era update wizard, which quoted every bare word in brackets ([facts round 1, Q8](../../provenance/facts-round-1.md)). That source has no Toolkit 2.x converter, so it does not prove what Toolkit 2.x itself did. Whether the original Toolkit 2.x engine read some bare indices as literal keys is not settled. **Owner ruling (2026-11-12, #2101):** every bare index stays an expression, including one that looks odd, such as `m[1key]`, or that fails to compile, such as `m[hello world]`. A text key must be quoted. There are no literal-key exceptions until there is evidence from the original Toolkit 2.x runtime or behaviour reproduced from a Toolkit 2.x release. This is a conservative compatibility choice, not a claim about what Toolkit 2.x did.
+
+<a id="tk2-conversion-contract"></a>
+**Converting Toolkit 2.x to 3.1 (Reawakened rule; owner rulings of 2026-11-12 on #2045 and #2050).** In plain terms: the converter rewrites a Toolkit 2.x program into 3.1 only when the 3.1 program does exactly the same thing, and it marks every spot a person should check. Technically, the converter offers its rewrite only when the original compiled by the Toolkit 2.x frontend and the rewrite compiled by the 3.1 frontend produce the same step code, functions, classes, labels and includes (`sameLowering`). Source positions are not compared. It offers nothing when either compile fails, an include is unresolved, or a command loads another program at run time. It keeps every comment's text and every line ending, and never changes the line count. Each row of the table above is handled as follows:
+
+| Legacy form | Conversion |
+|---|---|
+| unquoted command arguments | Quoted one argument at a time, where the frontend reads them as text: `#Mwin(hello, world)` → `Mwin("hello", "world")`. Numbers, expressions and sigil variables stay code: `#threadSleep(1, 2)` → `threadSleep(1, 2)`. |
+| `=` inside a `#If` or `#While` condition | Rewritten to `==`. |
+| bare index `m[key]` | Kept as the variable index `m[key]`; a sigil is dropped (`m[key!]` → `m[key]`). The converter never adds quotes here, because no context proves a literal-key reading under the [bare-index rule](#tk2-bare-index). Each bare index is flagged for review: a trailing comment `// TKR review: …` is added to the line and the conversion lists it, so the author can write `m["key"]` if a literal key was meant. An index expression such as `m[a + 1]` or `m[1]` is not flagged. |
+| sigils `x!`, `name$` | Removed everywhere, including inside expressions (`a! + 1` → `a + 1`). |
+| loose text lines | Rewritten to `mwin("…")` with the text exactly as written, including any `//`, `/*` or `*/` in it. |
+| `#Method`, `#ReturnMethod(x)` | `function`, `return x`. |
+| `* comment` | A whole-line star comment is kept unchanged; 3.1 also reads it as a comment. A trailing star comment after a command becomes `// …` with the same text. |
+| obsolete engine controls | Kept by name (`#Dos` → `Dos`); never deleted. |
+| `@` on its own line | `mwin("")`. |
+
+**Not converted.** These are refused. The converter offers no rewrite for the file and changes nothing:
+
+* A code line that contains `//`, `/*` or `*/` outside a quoted string. A code line is any line that is not blank, a star comment or dialogue. This dialect page does not say whether Toolkit 2.x treats these markers as comments, so the converter cannot show that it keeps their meaning.
+* Includes, implicit `file.method` calls and commands that load other programs (`#Include`, `#lib.hello()`, `executeProgram`, `run`, `thread`, `rpgcode` and others). One file cannot be compared on its own when its behaviour depends on another file.
+* A program the Toolkit 2.x frontend cannot compile.
 
 **References.** `_bmad-output/initiative-rpgtoolkit-reawakened/epic-rpgcode-vm/discovery/` (the Toolkit 2.x coverage study and the TK2/community material survey); [ADR 0004](../../adr/0004-script-ast-step-ir-and-plugins.md); the guard-rail on clean-room provenance ([guardrails.md](../../guardrails.md), G7).

@@ -6,6 +6,7 @@ import type { ScratchId } from "../src/ports/keys.ts";
 test("normal RGBA blits preserve source order and color-key alpha deterministically", () => {
   const key = assetKey("tiles/tiny.tst");
   const drawList = {
+    protocolVersion: 3 as const,
     tick: 0, width: 2, height: 1,
     commands: [
       { kind: "fill" as const, rgb: { r: 0, g: 0, b: 0 } },
@@ -21,11 +22,27 @@ test("normal RGBA blits preserve source order and color-key alpha deterministica
   deepEqual(first.rgba, new Uint8Array([0, 0, 0, 255, 7, 8, 9, 255]));
 });
 
+test("source-over preserves straight alpha over transparent and translucent destinations", () => {
+  const target = assetKey("test/target");
+  const source = assetKey("test/source");
+  const blit = (asset: typeof target, blend: "normal" | "source-over") => ({
+    kind: "blit" as const, source: { asset, tile: null }, src: { x: 0, y: 0, w: 4, h: 1 },
+    dst: { x: 0, y: 0, w: 4, h: 1 }, key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend, iso2d: false,
+  });
+  const assets = new Map([
+    [target, { w: 4, h: 1, rgba: new Uint8Array([12,30,50,0, 12,30,50,64, 12,30,50,128, 12,30,50,255]) }],
+    [source, { w: 4, h: 1, rgba: new Uint8Array([255,255,255,128, 255,255,255,128, 255,255,255,128, 255,255,255,128]) }],
+  ]);
+  const result = rasterize({ protocolVersion: 3, tick: 0, width: 4, height: 1, commands: [blit(target, "normal"), blit(source, "source-over")], marginCommands: [] }, assets);
+  equal(result.error, null);
+  deepEqual(result.rgba, new Uint8Array([255,255,255,128, 207,210,214,160, 174,180,187,192, 134,143,153,255]));
+});
+
 test("AD-3 tint, blend and scaling vectors are deterministic", () => {
   const key = assetKey("test/vector");
   const source = { w: 2, h: 1, rgba: new Uint8Array([255, 0, 100, 255, 7, 8, 9, 255]) };
   const tinted = rasterize({
-    tick: 0, width: 1, height: 1, marginCommands: [], commands: [
+    protocolVersion: 3, tick: 0, width: 1, height: 1, marginCommands: [], commands: [
       { kind: "blit", source: { asset: key, tile: null }, src: { x: 0, y: 0, w: 1, h: 1 }, dst: { x: 0, y: 0, w: 1, h: 1 },
         key: null, tint: { r: -1020, g: 1020, b: 1020 }, alpha: 255, blend: "normal", iso2d: false },
     ],
@@ -33,7 +50,7 @@ test("AD-3 tint, blend and scaling vectors are deterministic", () => {
   deepEqual(tinted.rgba, new Uint8Array([0, 255, 255, 255]));
 
   const translucent = rasterize({
-    tick: 0, width: 1, height: 1, marginCommands: [], commands: [
+    protocolVersion: 3, tick: 0, width: 1, height: 1, marginCommands: [], commands: [
       { kind: "fill", rgb: { r: 10, g: 20, b: 30 } },
       { kind: "blit", source: { asset: key, tile: null }, src: { x: 0, y: 0, w: 1, h: 1 }, dst: { x: 0, y: 0, w: 1, h: 1 },
         key: null, tint: { r: -155, g: 150, b: 100 }, alpha: 127, blend: "translucent", iso2d: false },
@@ -42,7 +59,7 @@ test("AD-3 tint, blend and scaling vectors are deterministic", () => {
   deepEqual(translucent.rgba, new Uint8Array([50, 90, 115, 255]));
 
   const scaled = rasterize({
-    tick: 0, width: 4, height: 2, marginCommands: [], commands: [
+    protocolVersion: 3, tick: 0, width: 4, height: 2, marginCommands: [], commands: [
       { kind: "blit", source: { asset: key, tile: null }, src: { x: 0, y: 0, w: 2, h: 1 }, dst: { x: 0, y: 0, w: 4, h: 2 },
         key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend: "normal", iso2d: false },
     ],
@@ -55,7 +72,7 @@ test("AD-3 tint, blend and scaling vectors are deterministic", () => {
 
 test("integer primitives use inclusive lines and half-open rectangles", () => {
   const result = rasterize({
-    tick: 0, width: 5, height: 5, marginCommands: [], commands: [
+    protocolVersion: 3, tick: 0, width: 5, height: 5, marginCommands: [], commands: [
       { kind: "fill", rgb: { r: 1, g: 2, b: 3 } },
       { kind: "line", x1: 0, y1: 0, x2: 4, y2: 4, rgb: { r: 9, g: 8, b: 7 } },
       { kind: "rect", rect: { x: 1, y: 1, w: 3, h: 2 }, rgb: { r: 6, g: 5, b: 4 }, filled: false },
@@ -69,7 +86,7 @@ test("integer primitives use inclusive lines and half-open rectangles", () => {
 
 test("scratch targets are cleared on push and balanced on pop", () => {
   const result = rasterize({
-    tick: 0, width: 2, height: 1, marginCommands: [], commands: [
+    protocolVersion: 3, tick: 0, width: 2, height: 1, marginCommands: [], commands: [
       { kind: "pushTarget", scratch: 1 as ScratchId },
       { kind: "fill", rgb: { r: 4, g: 5, b: 6 } },
       { kind: "popTarget" },
@@ -79,7 +96,7 @@ test("scratch targets are cleared on push and balanced on pop", () => {
   deepEqual(result.rgba, new Uint8Array(8));
   const unbalanced = rasterize({
     marginCommands: [],
-    tick: 0, width: 1, height: 1, commands: [{ kind: "popTarget" }],
+    protocolVersion: 3, tick: 0, width: 1, height: 1, commands: [{ kind: "popTarget" }],
   }, new Map());
   equal(unbalanced.error, "popTarget without pushTarget");
 });
@@ -88,7 +105,7 @@ test("iso2d blits leave pixels outside the exact diamond transparent", () => {
   const key = assetKey("test/iso");
   const texture = { w: 32, h: 32, rgba: new Uint8Array(32 * 32 * 4).fill(255) };
   const result = rasterize({
-    tick: 0, width: 64, height: 32, marginCommands: [], commands: [
+    protocolVersion: 3, tick: 0, width: 64, height: 32, marginCommands: [], commands: [
       { kind: "blit", source: { asset: key, tile: null }, src: { x: 0, y: 0, w: 32, h: 32 }, dst: { x: 0, y: 0, w: 64, h: 32 },
         key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend: "normal", iso2d: true },
     ],
@@ -110,7 +127,7 @@ test("a tile index selects the 64-pixel diamond of an .iso tileset and the 32-pi
   for (const [name, tileWidth] of [["tiles/a.iso", 64], ["tiles/a.tst", 32]] as const) {
     const key = assetKey(name);
     const result = rasterize({
-      tick: 0, width: tileWidth, height: 32, marginCommands: [], commands: [
+      protocolVersion: 3, tick: 0, width: tileWidth, height: 32, marginCommands: [], commands: [
         { kind: "blit", source: { asset: key, tile: 2 }, src: { x: 0, y: 0, w: tileWidth, h: 32 }, dst: { x: 0, y: 0, w: tileWidth, h: 32 },
           key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend: "normal", iso2d: false },
       ],
@@ -132,7 +149,7 @@ test("iso2d uses the documented half-up source coordinates at diamond edges", ()
     }
   }
   const result = rasterize({
-    tick: 0, width: 64, height: 32, marginCommands: [], commands: [
+    protocolVersion: 3, tick: 0, width: 64, height: 32, marginCommands: [], commands: [
       { kind: "blit", source: { asset: key, tile: null }, src: { x: 0, y: 0, w: 32, h: 32 }, dst: { x: 0, y: 0, w: 64, h: 32 },
         key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend: "normal", iso2d: true },
     ],
@@ -141,4 +158,19 @@ test("iso2d uses the documented half-up source coordinates at diamond edges", ()
   deepEqual(Array.from(result.rgba.slice((0 * 64 + 31) * 4, (0 * 64 + 31) * 4 + 4)), [0, 1, 0, 255]);
   deepEqual(Array.from(result.rgba.slice((0 * 64 + 32) * 4, (0 * 64 + 32) * 4 + 4)), [0, 0, 0, 255]);
   deepEqual(Array.from(result.rgba.slice((31 * 64 + 32) * 4, (31 * 64 + 32) * 4 + 4)), [31, 31, 0, 255]);
+});
+test("CPU rasterizer rejects missing and unsupported draw-list protocol versions before replay", () => {
+  for (const protocolVersion of [undefined, 2, 4]) {
+    const list = {
+      ...(protocolVersion === undefined ? {} : { protocolVersion }),
+      tick: 0,
+      width: 1,
+      height: 1,
+      commands: [{ kind: "fill" as const, rgb: { r: 1, g: 2, b: 3 } }],
+      marginCommands: [],
+    } as Parameters<typeof rasterize>[0];
+    const result = rasterize(list, new Map());
+    equal(result.error, `unsupported draw-list protocol version: ${String(protocolVersion)}`);
+    equal(result.rgba.length, 0);
+  }
 });
