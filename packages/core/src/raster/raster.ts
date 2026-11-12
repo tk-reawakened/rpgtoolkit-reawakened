@@ -264,6 +264,14 @@ function rasterizeWithBlendTarget(
   surfaces: RasterSurfaces,
   blendTarget: BlendTarget,
 ): RasterResult {
+  if (list.protocolVersion !== 3) {
+    return {
+      width: list.width,
+      height: list.height,
+      rgba: new Uint8Array(),
+      error: `unsupported draw-list protocol version: ${String(list.protocolVersion)}`,
+    };
+  }
   if (!Number.isInteger(list.width) || !Number.isInteger(list.height) || list.width <= 0 || list.height <= 0) {
     return { width: list.width, height: list.height, rgba: new Uint8Array(), error: "invalid draw-list dimensions" };
   }

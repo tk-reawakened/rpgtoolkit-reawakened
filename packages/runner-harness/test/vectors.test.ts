@@ -42,7 +42,7 @@ const VALID_VECTORS = {
   hashDrawList: [
     {
       id: "draw-simple",
-      input: { tick: 0, width: 320, height: 240, commands: [] },
+      input: { protocolVersion: 3, tick: 0, width: 320, height: 240, commands: [] },
       hash: "a4c8af5374ed8af0",
     },
   ],

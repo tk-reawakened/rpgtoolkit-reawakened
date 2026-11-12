@@ -48,7 +48,7 @@ test("schema-only change widening a request enum is caught", async () => {
 
 test("TypeScript-only change to a nested enum is caught", async () => {
   ok(await run({
-    sources: { [drawPath]: (text) => text.replace('export type Blend = BlendV1 | "source-over";', 'export type Blend = BlendV1 | "source-over" | "multiply";') },
+    sources: { [drawPath]: (text) => text.replace('export type BlendV1 = "normal" | "additive" | "translucent";', 'export type BlendV1 = "normal" | "additive" | "translucent" | "multiply";') },
     expect: 'TypeScript allows "multiply"',
   }));
 });
@@ -69,7 +69,7 @@ test("TypeScript-only change widening a request enum is caught", async () => {
 
 test("TypeScript-only change adding a required top-level key is caught", async () => {
   ok(await run({
-    sources: { [drawPath]: (text) => text.replace('readonly iso2d: boolean;\n};', 'readonly iso2d: boolean;\n  readonly extra: number;\n};') },
+    sources: { [drawPath]: (text) => text.replace(/(export type BlitCommandV1 = \{[\s\S]*?readonly iso2d: boolean;)/, "$1\n  readonly extra: number;") },
     expect: 'TypeScript has key "extra" that schema definition blit lacks',
   }));
 });
@@ -105,38 +105,20 @@ test("published ordering refusals catch removal of the schema ordering guard", a
   ok(await run({ schema, expect: "vector host-gamepads-order-descending: should be refused" }));
   ok(await run({ schema, expect: "vector host-gamepads-order-duplicate: should be refused" }));
 });
-
-test("v2 schema dropping source-over from the blit blend enum is caught", async () => {
-  const schema = loadSchema();
-  schema.$defs.blit.properties.blend.enum = schema.$defs.blit.properties.blend.enum.filter((blend) => blend !== "source-over");
-  ok(await run({ schema, expect: 'TypeScript allows "source-over"; the schema does not' }));
-  ok(await run({ schema, expect: "vector draw-blit-source-over: should be valid but" }));
-  ok(await run({ schema, expect: 'schema: v2 blit blend must allow "source-over"' }));
+test("frozen v2 schema and vectors reject source-over without widening", async () => {
+  const vectors = loadVectors();
+  vectors.vectors.push({
+    id: "v2-must-refuse-source-over",
+    family: "draw",
+    valid: true,
+    record: {
+      tick: 12, width: 640, height: 480, commands: [{
+        kind: "blit", source: { asset: "ui/overlay.bmp", tile: null },
+        src: { x: 0, y: 0, w: 2, h: 2 }, dst: { x: 4, y: 6, w: 2, h: 2 },
+        key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 128, blend: "source-over", iso2d: false,
+      }], marginCommands: [],
+    },
+  });
+  ok(await run({ vectors, expect: "vector v2-must-refuse-source-over: should be valid but" }));
 });
 
-test("TypeScript dropping source-over from the active v2 blend is caught", async () => {
-  ok(await run({
-    sources: { [drawPath]: (text) => text.replace('export type Blend = BlendV1 | "source-over";', "export type Blend = BlendV1;") },
-    expect: 'the schema allows "source-over"; the TypeScript type does not',
-  }));
-});
-
-test("v2 active type check is not satisfied by the historical command union", async () => {
-  ok(await run({
-    sources: { [drawPath]: (text) => text.replace("  readonly commands: DrawCommand[];\n  readonly marginCommands: DrawCommand[];", "  readonly commands: DrawCommandV1[];\n  readonly marginCommands: DrawCommandV1[];") },
-    expect: 'the schema allows "source-over"; the TypeScript type does not',
-  }));
-});
-
-test("vector kit that stops exercising source-over is caught", async () => {
-  const kit = loadVectors();
-  kit.vectors = kit.vectors.filter((vector) => !(vector.valid && JSON.stringify(vector.record).includes('"source-over"')));
-  ok(await run({ vectors: kit, expect: 'vector kit covers blit blend "source-over" defined in the schema' }));
-});
-
-test("v2 refusal vectors catch a schema that accepts an unknown blend", async () => {
-  const schema = loadSchema();
-  schema.$defs.blit.properties.blend = { type: "string" };
-  ok(await run({ schema, expect: "vector refuse-blit-unknown-blend: should be refused" }));
-  ok(await run({ schema, expect: "vector refuse-blit-source-over-spelling: should be refused" }));
-});

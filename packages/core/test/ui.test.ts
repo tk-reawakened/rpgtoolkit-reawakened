@@ -206,7 +206,7 @@ test("TrueType text crossing each viewport edge draws its actual ink into margin
     state.ui.font = { asset: key, size: 20, bold: false, italic: false };
     applyUiEffect(state, "pixeltext", [x, y, text, 0]);
     const marginCommands = composeUiMargins(state.ui, 64, 64, fonts);
-    const result = rasterizePresentation({ tick: 0, width: 64, height: 64, commands: [], marginCommands }, geometry, fonts);
+    const result = rasterizePresentation({ protocolVersion: 3, tick: 0, width: 64, height: 64, commands: [], marginCommands }, geometry, fonts);
     equal(result.error, null);
     let ink = 0;
     for (let py = 0; py < result.height; py += 1) for (let px = 0; px < result.width; px += 1) {

@@ -6,7 +6,7 @@ import {
   textInk,
   type RasterAsset,
 } from "@tk-reawakened/core";
-import type { AssetKey, DrawCommand, DrawListV2, HostDisplayGeometry, SurfaceId } from "@tk-reawakened/core";
+import type { AssetKey, DrawCommand, DrawList, HostDisplayGeometry, SurfaceId } from "@tk-reawakened/core";
 
 export type TexturePixels = { readonly w: number; readonly h: number; readonly rgba: Uint8Array };
 export type TextureProvider = (asset: AssetKey) => TexturePixels | null;
@@ -15,7 +15,7 @@ export type FontProvider = (asset: AssetKey) => RasterAsset | undefined;
 export type RenderStats = { readonly drawn: number; readonly deferred: number; readonly deferredByKind: { readonly [kind: string]: number }; readonly diagnostics: readonly string[] };
 export type RenderOptions = { readonly textures: TextureProvider; readonly surfaces?: SurfaceProvider; readonly fonts?: FontProvider; readonly fallbackFont?: RasterAsset | undefined };
 export interface Webgl2Renderer {
-  render(list: DrawListV2, geometry: HostDisplayGeometry, options: RenderOptions): RenderStats;
+  render(list: DrawList, geometry: HostDisplayGeometry, options: RenderOptions): RenderStats;
   flush(): void;
   readonly canvas: { readonly width: number; readonly height: number };
   dispose(): void;
@@ -79,7 +79,7 @@ function cropTile(pixels: TexturePixels, width: number, tile: number): TexturePi
   for (let y = 0; y < pixels.h; y += 1) rgba.set(pixels.rgba.subarray((y * pixels.w + x) * 4, (y * pixels.w + x + w) * 4), y * w * 4);
   return { w, h: pixels.h, rgba };
 }
-function marginBounds(list: DrawListV2, geometry: HostDisplayGeometry) {
+function marginBounds(list: DrawList, geometry: HostDisplayGeometry) {
   const { content, game, safeArea } = geometry; const right = content.width - safeArea.right; const bottom = content.height - safeArea.bottom;
   const empty = right <= safeArea.left || bottom <= safeArea.top; const sx = game.width / list.width; const sy = game.height / list.height;
   const left = empty ? 0 : Math.floor(Math.max(0, game.x - safeArea.left) / sx);
@@ -191,7 +191,10 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
   return {
     get canvas(){return size;},
     render(list,geometry,options){
-      if(disposed)throw new Error("render-webgl2: renderer was disposed");
+      if (disposed) throw new Error("render-webgl2: renderer was disposed");
+      if (list.protocolVersion !== 3) {
+        throw new Error(`render-webgl2: unsupported draw-list protocol version: ${String(list.protocolVersion)}`);
+      }
       const contentW=Math.ceil(geometry.content.width),contentH=Math.ceil(geometry.content.height);if(gl.canvas.width!==contentW||gl.canvas.height!==contentH){gl.canvas.width=contentW;gl.canvas.height=contentH;}size={width:contentW,height:contentH};
       const bounds=marginBounds(list,geometry);const roots=[targetAt(targets,0,list.width,list.height),targetAt(targets,1,bounds.width,bounds.height)];
       surfacePixels.clear();

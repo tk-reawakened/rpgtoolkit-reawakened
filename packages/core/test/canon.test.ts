@@ -138,6 +138,7 @@ function makePlainData(random: () => number, depth: number): PlainData {
 
 function drawList(surfaceRev: number): DrawList {
   return {
+    protocolVersion: 3,
     tick: 0,
     width: 320,
     height: 200,
@@ -444,6 +445,7 @@ test("hashDrawList covers surface revs and is stable", () => {
 
 test("hashDrawList matches fixed external Python vector", () => {
   const dl: DrawList = {
+    protocolVersion: 3,
     tick: 1,
     width: 320,
     height: 240,

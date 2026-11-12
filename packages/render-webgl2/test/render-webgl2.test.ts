@@ -1,7 +1,7 @@
-import { deepEqual, equal } from "node:assert/strict";
+import { deepEqual, equal, throws } from "node:assert/strict";
 import { test } from "node:test";
 import { createWebgl2Renderer } from "../src/index.ts";
-import type { DrawListV2, HostDisplayGeometry, ScratchId, SurfaceId } from "@tk-reawakened/core";
+import type { DrawList, HostDisplayGeometry, ScratchId, SurfaceId } from "@tk-reawakened/core";
 
 type DrawEvent = { readonly kind: "arrays" | "instanced"; readonly instanced: number };
 
@@ -70,7 +70,8 @@ const geometry: HostDisplayGeometry = {
   game: { x: 1, y: 0, width: 2, height: 2 },
   safeArea: { top: 0, right: 0, bottom: 0, left: 0 },
 };
-const list: DrawListV2 = {
+const list: DrawList = {
+  protocolVersion: 3,
   tick: 0,
   width: 2,
   height: 2,
@@ -109,7 +110,7 @@ test("WebGL2 keeps distinct same-frame surface revisions and evicts obsolete GPU
     kind: "blit" as const, source: { surface, rev }, src: { x: 0, y: 0, w: 1, h: 1 }, dst: { x, y: 0, w: 1, h: 1 },
     key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend: "normal" as const, iso2d: false,
   });
-  const listFor = (commands: DrawListV2["commands"]): DrawListV2 => ({ tick: 0, width: 2, height: 1, commands, marginCommands: [] });
+  const listFor = (commands: DrawList["commands"]): DrawList => ({ protocolVersion: 3, tick: 0, width: 2, height: 1, commands, marginCommands: [] });
   const options = {
     textures: () => null,
     surfaces: (_id: SurfaceId, rev: number) => {
@@ -136,7 +137,8 @@ test("WebGL2 flush forces same-revision surfaces to upload again after restore",
   const { gl, uploads } = fakeContext();
   const renderer = createWebgl2Renderer(gl);
   const surface = 9 as SurfaceId;
-  const one: DrawListV2 = {
+  const one: DrawList = {
+    protocolVersion: 3,
     tick: 0, width: 1, height: 1, marginCommands: [],
     commands: [{ kind: "blit", source: { surface, rev: 1 }, src: { x: 0, y: 0, w: 1, h: 1 }, dst: { x: 0, y: 0, w: 1, h: 1 }, key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend: "normal", iso2d: false }],
   };
@@ -159,7 +161,8 @@ test("WebGL2 restores non-instanced mode before iso replay after a pixel batch",
   const { gl, drawEvents } = fakeContext();
   const renderer = createWebgl2Renderer(gl);
   const surface = 10 as SurfaceId;
-  const list: DrawListV2 = {
+  const list: DrawList = {
+    protocolVersion: 3,
     tick: 0, width: 32, height: 32, marginCommands: [],
     commands: [
       { kind: "rect", rect: { x: 0, y: 0, w: 2, h: 2 }, rgb: { r: 1, g: 2, b: 3 }, filled: false },
@@ -185,7 +188,7 @@ test("WebGL2 reports unclosed target stacks and defers missing draws individuall
   const renderer = createWebgl2Renderer(gl);
   const missing = "missing.png" as never;
   const blit = { kind: "blit" as const, source: { asset: missing, tile: null }, src: { x: 0, y: 0, w: 1, h: 1 }, dst: { x: 0, y: 0, w: 1, h: 1 }, key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend: "normal" as const, iso2d: false };
-  const partial: DrawListV2 = { tick: 0, width: 2, height: 1, commands: [{ kind: "fill", rgb: { r: 1, g: 2, b: 3 } }, blit, blit, { kind: "pushTarget", scratch: 1 as ScratchId }], marginCommands: [] };
+  const partial: DrawList = { protocolVersion: 3, tick: 0, width: 2, height: 1, commands: [{ kind: "fill", rgb: { r: 1, g: 2, b: 3 } }, blit, blit, { kind: "pushTarget", scratch: 1 as ScratchId }], marginCommands: [] };
   const unresolved = renderer.render(partial, fullGeometry, { textures: () => null });
   equal(unresolved.drawn, 2);
   equal(unresolved.deferred, 3);
@@ -194,5 +197,24 @@ test("WebGL2 reports unclosed target stacks and defers missing draws individuall
     `webgl2.missing-texture: ${missing}`,
     "webgl2.unclosed-push: pushTarget without matching popTarget",
   ]);
+  renderer.dispose();
+});
+test("WebGL2 renderer rejects missing and unsupported draw-list protocol versions before drawing", () => {
+  const { gl, drawEvents } = fakeContext();
+  const renderer = createWebgl2Renderer(gl);
+  const invalidLists = [
+    { tick: 0, width: 1, height: 1, commands: [], marginCommands: [] },
+    { protocolVersion: 2, tick: 0, width: 1, height: 1, commands: [], marginCommands: [] },
+    { protocolVersion: 4, tick: 0, width: 1, height: 1, commands: [], marginCommands: [] },
+  ] as DrawList[];
+  for (const list of invalidLists) {
+    throws(
+      () => renderer.render(list, fullGeometry, { textures: () => null }),
+      /render-webgl2: unsupported draw-list protocol version:/,
+    );
+  }
+  equal(drawEvents().length, 0);
+  equal(renderer.canvas.width, 0);
+  equal(renderer.canvas.height, 0);
   renderer.dispose();
 });

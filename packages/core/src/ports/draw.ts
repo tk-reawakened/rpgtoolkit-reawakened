@@ -48,7 +48,7 @@ export type Rect = {
 /** The `blit` blend modes of historical protocol v1 (AD-3). */
 export type BlendV1 = "normal" | "additive" | "translucent";
 
-/** A `blit` blend mode: the v1 modes plus v2 straight-alpha `source-over` (AD-3). */
+/** A `blit` blend mode: the v1 modes plus v3 straight-alpha `source-over` (AD-3). */
 export type Blend = BlendV1 | "source-over";
 
 /**
@@ -208,8 +208,29 @@ export type DrawListV1 = {
   readonly commands: DrawCommandV1[];
 };
 
-/** Strict protocol-v2 frame with a separate author-owned Plane 3 command layer. */
+/** Protocol-v2 command union: v1 blits and the separate author-owned Plane 3 layer. */
+export type DrawCommandV2 =
+  | BlitCommandV1
+  | FillCommand
+  | LineCommand
+  | RectCommand
+  | EllipseCommand
+  | TextCommand
+  | PushTargetCommand
+  | PopTargetCommand;
+
+/** Strict historical protocol-v2 frame with a separate author-owned Plane 3 command layer. */
 export type DrawListV2 = {
+  readonly tick: number;
+  readonly width: number;
+  readonly height: number;
+  readonly commands: DrawCommandV2[];
+  readonly marginCommands: DrawCommandV2[];
+};
+
+/** Current strict protocol-v3 frame with source-over and the author-owned Plane 3 command layer. */
+export type DrawListV3 = {
+  readonly protocolVersion: 3;
   readonly tick: number;
   readonly width: number;
   readonly height: number;
@@ -217,5 +238,5 @@ export type DrawListV2 = {
   readonly marginCommands: DrawCommand[];
 };
 
-/** Current runner/core draw-list contract: strict v2. */
-export type DrawList = DrawListV2;
+/** Current runner/core draw-list contract. */
+export type DrawList = DrawListV3;

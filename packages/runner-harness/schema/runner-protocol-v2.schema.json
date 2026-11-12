@@ -239,8 +239,7 @@
           "enum": [
             "normal",
             "additive",
-            "translucent",
-            "source-over"
+            "translucent"
           ]
         },
         "iso2d": {

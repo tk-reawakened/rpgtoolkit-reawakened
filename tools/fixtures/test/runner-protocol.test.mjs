@@ -38,10 +38,11 @@ const blitWith = (blend) => ({
 });
 const loadSchema = (version) => JSON.parse(readFileSync(new URL(`../../../packages/runner-harness/schema/runner-protocol-v${version}.schema.json`, import.meta.url), "utf8"));
 
-test("published v1 refuses source-over while published v2 accepts it", () => {
+test("published v1 and v2 refuse source-over while v3 accepts it", () => {
   ok(schemaErrors(loadSchema(1), blitWith("source-over")).length > 0, "v1 refuses source-over");
   deepEqual(schemaErrors(loadSchema(1), blitWith("additive")), [], "v1 still accepts its own blends");
-  deepEqual(schemaErrors(loadSchema(2), { ...blitWith("source-over"), marginCommands: [] }), [], "v2 accepts source-over");
+  ok(schemaErrors(loadSchema(2), { ...blitWith("source-over"), marginCommands: [] }).length > 0, "v2 refuses source-over");
+  deepEqual(schemaErrors(loadSchema(3), { protocolVersion: 3, ...blitWith("source-over"), marginCommands: [] }), [], "v3 accepts source-over");
 });
 
 test("v1 checker rejects a schema that admits source-over", async () => {
@@ -56,7 +57,7 @@ test("v1 type check compares the historical DrawListV1, not the active DrawList"
     sources: { [drawPath]: (text) => text.replace('export type BlendV1 = "normal" | "additive" | "translucent";', 'export type BlendV1 = "normal" | "additive" | "translucent" | "source-over";') },
   });
   ok(widenedV1.some((problem) => problem.includes('TypeScript allows "source-over"; the schema does not')));
-  // Perturbing only the active v2 blend leaves the frozen v1 comparison untouched.
+  // Perturbing only the active v3 blend leaves the frozen v1 comparison untouched.
   deepEqual(await check({
     sources: { [drawPath]: (text) => text.replace('export type Blend = BlendV1 | "source-over";', 'export type Blend = BlendV1 | "source-over" | "multiply";') },
   }), []);
