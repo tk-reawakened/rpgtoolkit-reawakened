@@ -16,12 +16,12 @@ import { classifyImageReference } from "../formats/animation/image-reference.ts"
 import { decodeTexture, type DecodedTexture } from "../formats/image/index.ts";
 import { expandSingleTileToRgba, readSingleTile } from "../formats/single-tile/index.ts";
 import { expandTileToRgba, readTileset, tileDimensions } from "../formats/tileset/index.ts";
-import { compositeTileBitmap, readTileBitmap, tileBitmapCell, type TileBitmapTile } from "../formats/tile-bitmap/index.ts";
+import { compositeTileBitmap, readTileBitmap, tileBitmapCell, TILE_BITMAP_MAGIC, type TileBitmapTile } from "../formats/tile-bitmap/index.ts";
 import { readTileAnimation } from "../formats/tile-animation/reader.ts";
 import { err, ok, type Result } from "../formats/result.ts";
 import { readCharacter } from "../formats/actor/character.ts";
 import { readItem } from "../formats/actor/item.ts";
-import type { Character, Item } from "../formats/actor/model.ts";
+import type { Character, Item, LegacyWalkFrame } from "../formats/actor/model.ts";
 import { actorInputFromCharacter } from "../actors/hydrate.ts";
 import { readMainFile } from "../formats/main-file/reader.ts";
 import { planPrefetch, prefetchSignature, type PrefetchFacts } from "../prefetch/plan.ts";
@@ -288,6 +288,7 @@ const DEFAULT_ENGINE_PLUGINS: readonly ResolvedPlugin[] = resolveManifestPlugins
 /** The engine's own packs: the only plugin definitions that may run mid-thread without a surface flush. */
 const FIRST_PARTY_PLUGINS: ReadonlySet<PluginDefinition> = new Set(Object.values(ENGINE_PLUGIN_TABLE));
 const SCRIPT_REQUEST_BASE = 0x40000000;
+const LEGACY_WALK_PREFIX = "\u0000tkr-legacy-walk/";
 const SCRIPT_ASSET_AREAS: Readonly<Record<string, { readonly folder: string; readonly kind: "script-character" | "script-item" | "script-asset" }>> = {
   characters: { folder: "characters", kind: "script-character" },
   items: { folder: "item", kind: "script-item" },
@@ -391,6 +392,8 @@ export function createEngine(init: EngineInit): Engine {
   const spriteGifPageAssets = new Map<AssetKey, readonly AssetKey[]>();
   /** Animation files whose frames name a missing asset, so each is reported once rather than every tick. */
   const missingSpriteAnimationAssets = new Set<AssetKey>();
+  const missingLegacySpriteAssets = new Set<AssetKey>();
+  const legacyCharacterWalks = new Map<AssetKey, { readonly bytes: Uint8Array; readonly clips: readonly (DecodedAnimation | null)[] }>();
   const decodedBundled = new Map<AssetKey, RasterAsset | null>();
   const canvasTextAssets = new Map<AssetKey, RasterAsset>();
   const pending = new Map<number, RequestEntry>();
@@ -1539,6 +1542,8 @@ export function createEngine(init: EngineInit): Engine {
       spriteGifPageAssets.clear();
       spriteCellSizes.clear();
       missingSpriteAnimationAssets.clear();
+      missingLegacySpriteAssets.clear();
+      legacyCharacterWalks.clear();
       decodedBundled.clear();
       canvasTextAssets.clear();
       deferredRestoreDecode.clear();
@@ -1724,7 +1729,7 @@ export function createEngine(init: EngineInit): Engine {
    * `sourceOffset` (core/raster) steps through, which is 32 pixels per tile (16×16 details doubled) or 64 for the
    * diamonds of an `.iso` tileset; tile references are 1-based, so `name.tst8` is the eighth slice.
    */
-  function tileCellPixels(reference: string): Result<TileBitmapTile> | null {
+  function tileCellPixels(reference: string, optional = false): Result<TileBitmapTile> | null {
     const resolved = resolveTileReference(index, root, reference);
     if (!resolved.ok) return resolved;
     let kind = resolved.value;
@@ -1738,7 +1743,8 @@ export function createEngine(init: EngineInit): Engine {
     if (kind.kind === "animatedTile") {
       const animationBytes = cache.get(kind.asset);
       if (animationBytes === undefined) {
-        request(kind.asset, requestKindFor(kind.asset));
+        if (optional && missingLegacySpriteAssets.has(kind.asset)) return missingLegacyTile(reference);
+        request(kind.asset, optional ? "legacy-sprite" : requestKindFor(kind.asset));
         return null;
       }
       const animation = readTileAnimation(new BinaryReader(animationBytes, kind.asset));
@@ -1763,7 +1769,8 @@ export function createEngine(init: EngineInit): Engine {
       kind = frame.value;
     }
     if (!cache.has(kind.asset)) {
-      request(kind.asset, requestKindFor(kind.asset));
+      if (optional && missingLegacySpriteAssets.has(kind.asset)) return missingLegacyTile(reference);
+      request(kind.asset, optional ? "legacy-sprite" : requestKindFor(kind.asset));
       return null;
     }
     const strip = tileTexture(kind.asset);
@@ -1784,6 +1791,14 @@ export function createEngine(init: EngineInit): Engine {
       rgba.set(strip.rgba.subarray(from, from + tileWidth * 4), y * tileWidth * 4);
     }
     return ok({ w: tileWidth, h: strip.h, rgba });
+  }
+
+  function missingLegacyTile(reference: string): Result<TileBitmapTile> {
+    return err({
+      offset: 0,
+      section: "docs/spec/formats/legacy/conversion.md#reawakened-legacy-character-walk",
+      message: `tile "${reference}" was unavailable`,
+    });
   }
   function tileTexture(key: AssetKey): DecodedTexture | null {
     deferredRestoreDecode.delete(key);
@@ -2155,6 +2170,15 @@ export function createEngine(init: EngineInit): Engine {
       }
       return;
     }
+    if (entry.kind === "legacy-sprite") {
+      if (record.event.bytes === null) {
+        missingLegacySpriteAssets.add(entry.key);
+        diagnostics.push({ code: "asset.missing", file: entry.key, line: 0, message: `asset not found: ${entry.key}` });
+      } else {
+        cacheAsset(entry.key, new Uint8Array(record.event.bytes));
+      }
+      return;
+    }
     if (entry.kind === "script-character" || entry.kind === "script-item" || entry.kind === "script-asset") {
       if (record.event.bytes === null) {
         replyToRequest(state.vm, entry.reqId - SCRIPT_REQUEST_BASE, { ok: false, value: "" });
@@ -2486,6 +2510,8 @@ export function createEngine(init: EngineInit): Engine {
     installedFonts.clear();
     decodedImages.clear();
     decodedTiles.clear();
+    missingLegacySpriteAssets.clear();
+    legacyCharacterWalks.clear();
     failed = false;
     postQuitWriteFailures.length = 0;
     state.engine = mainKey === null ? { cacheKeys: [], claims: [] } : { cacheKeys: [], claims: [], boot: { stage: "assets", main: mainKey, fonts: [] } };
@@ -3717,7 +3743,7 @@ export function createEngine(init: EngineInit): Engine {
     const files: string[] = [];
     const seen = new Set<string>();
     const add = (file: string): void => {
-      if (file === "") return;
+      if (file === "" || file.startsWith(LEGACY_WALK_PREFIX)) return;
       const key = assetKey(file);
       if (seen.has(key)) return;
       seen.add(key);
@@ -3870,12 +3896,85 @@ export function createEngine(init: EngineInit): Engine {
     }
   }
 
+  /** Adapt Toolkit 2 character tile pairs to the same clip and picture contracts as authored animations. */
+  function buildLegacyCharacterWalks(frames: readonly LegacyWalkFrame[]): readonly (DecodedAnimation | null)[] | null {
+    const tiles = new Map<string, TileBitmapTile>();
+    const references = new Set(frames.flatMap(({ top, bottom }) => [top, bottom]).filter((tile) => tile !== ""));
+    let waiting = false;
+    for (const reference of references) {
+      const tile = tileCellPixels(reference, true);
+      if (tile === null) waiting = true;
+      else if (tile.ok) tiles.set(reference, tile.value);
+    }
+    if (waiting) return null;
+    const width = 32;
+    const height = 64;
+    const delayTicks = Math.ceil(0.167 * 60);
+    const transparent = { r: 255, g: 255, b: 255 };
+    const cell = (tile: string) => ({ tile: tiles.has(tile) ? tile : "", r: 0, g: 0, b: 0 });
+    return [0, 4, 8, 12].map((start) => {
+      const group = frames.slice(start, start + 4);
+      if (!group.some(({ top, bottom }) => tiles.has(top) || tiles.has(bottom))) return null;
+      const clipFrames: AnimationState["frames"][number][] = [];
+      for (const { top, bottom } of group) {
+        const bitmap = compositeTileBitmap({
+          magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 1, height: 2,
+          cells: [cell(top), cell(bottom), cell(""), cell(""), cell(""), cell("")],
+          residue: new Uint8Array(),
+        }, tiles);
+        if (!bitmap.ok) return null;
+        // Private content-addressed pictures share identical frames and can be rebuilt after restoring a save.
+        const asset = `\u0000tkr-legacy-walk-picture/${fnv1a64(bitmap.value.rgba)}` as AssetKey;
+        decodedImages.set(asset, bitmap.value);
+        clipFrames.push({ image: "", asset, tile: null, srcWidth: width, srcHeight: height, transparent, sound: "" });
+      }
+      return { width, height, delayTicks, frames: clipFrames };
+    });
+  }
+
+  function prepareLegacyCharacterWalks(): void {
+    if (state.world.board == null) return;
+    for (const player of state.sprites.players) {
+      const movement = player.visual.movement;
+      if (movement.length !== 0 && !movement.some((file) => file.startsWith(LEGACY_WALK_PREFIX))) continue;
+      const direct = assetKey(player.source);
+      let source = direct;
+      if (!index.byKey.has(direct)) {
+        const resolved = resolveAsset(index, root, "characters", player.source);
+        if (!resolved.ok) continue;
+        source = resolved.value;
+      }
+      if (missingLegacySpriteAssets.has(source)) continue;
+      const bytes = cache.get(source);
+      if (bytes === undefined) {
+        request(source, "legacy-sprite");
+        continue;
+      }
+      let data = legacyCharacterWalks.get(source);
+      if (data?.bytes !== bytes) {
+        const character = readCharacter(new BinaryReader(bytes, source));
+        const frames = character.ok ? character.value.legacyGraphics?.walkFrames : undefined;
+        const clips = frames === undefined ? [] : buildLegacyCharacterWalks(frames);
+        if (clips === null) continue;
+        data = { bytes, clips };
+        legacyCharacterWalks.set(source, data);
+      }
+      const { clips } = data;
+      if (movement.length === 0 && clips.some((clip) => clip !== null)) {
+        // Legacy clip order is S, E, N, W. The current movement slots use S, N, E, W, then diagonals.
+        player.visual.movement = [0, 2, 1, 3].map((slot) =>
+          clips[slot] == null ? "" : `${LEGACY_WALK_PREFIX}${source}/${slot}`);
+      }
+    }
+  }
+
   /**
    * Ask for every actor animation file before a tick can use it. Runs beside the boot/board driver, so a board never
    * ticks its sprites with an unknown frame clock: the requests it posts stop ticking until the host answers (E-21).
    */
   function prepareSpriteVisuals(): void {
     if (failed || pending.size > 0 || pendingBlobs.size > 0) return;
+    prepareLegacyCharacterWalks();
     const active = new Set<AssetKey>();
     for (const file of spriteAnimationFiles()) {
       const key = resolveAnimationFile(file);
@@ -3893,11 +3992,18 @@ export function createEngine(init: EngineInit): Engine {
     }
     releaseInactiveSpriteGifPages(active);
   }
-  /** The actor animation clock's metadata: the count of non-empty frames and the frame delay (E-21, E-54). */
-  function resolveSpriteAnimationSpec(file: string): { readonly file: string; readonly frames: number; readonly delayTicks: number } | null {
+  function spriteAnimationFor(file: string): DecodedAnimation | null {
+    if (file.startsWith(LEGACY_WALK_PREFIX)) {
+      const source = file.slice(LEGACY_WALK_PREFIX.length, -2) as AssetKey;
+      return legacyCharacterWalks.get(source)?.clips[Number(file.at(-1))] ?? null;
+    }
     const key = resolveAnimationFile(file);
-    if (key === null) return null;
-    const data = spriteAnimations.get(key) ?? decodeSpriteAnimation(key);
+    return key === null ? null : spriteAnimations.get(key) ?? decodeSpriteAnimation(key);
+  }
+
+  /** The actor animation clock's metadata: the count of frames and the frame delay (E-21, E-54). */
+  function resolveSpriteAnimationSpec(file: string): { readonly file: string; readonly frames: number; readonly delayTicks: number } | null {
+    const data = spriteAnimationFor(file);
     if (data === null || data.frames.length === 0) return null;
     return { file, frames: data.frames.length, delayTicks: data.delayTicks };
   }
@@ -3908,15 +4014,13 @@ export function createEngine(init: EngineInit): Engine {
    * is available.
    */
   function spriteFrameFor(file: string, frame: number): SpriteFrame | null {
-    const key = resolveAnimationFile(file);
-    if (key === null) return null;
-    const data = spriteAnimations.get(key) ?? decodeSpriteAnimation(key);
+    const data = spriteAnimationFor(file);
     if (data === null || data.frames.length === 0) return null;
     const index = ((Math.trunc(frame) % data.frames.length) + data.frames.length) % data.frames.length;
     const entry = data.frames[index];
     if (entry === undefined || entry.asset === null) return null;
     if (data.gifPixels !== undefined) {
-      const pageAsset = spriteGifPageAssets.get(key)?.[index];
+      const pageAsset = spriteGifPageAssets.get(entry.asset)?.[index];
       if (pageAsset === undefined) return null;
       return {
         file,

@@ -186,6 +186,7 @@ function boardBytes(): Uint8Array {
 }
 
 type GameOptions = {
+  readonly character?: Uint8Array;
   readonly walkFile?: string;
   readonly animation?: Uint8Array;
   /** Extra authored files by package path; each joins the asset index too. */
@@ -199,7 +200,7 @@ function authorGame(options: GameOptions = {}): { readonly files: Files; readonl
   const main = { ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "", startupPrg: "", initBoard: "start.brd", initChar: "hero.tem" };
   files.set("main.gam" as AssetKey, unwrap(writeMainFile(main)));
   files.set("boards/start.brd" as AssetKey, boardBytes());
-  files.set("chrs/hero.tem" as AssetKey, characterBytes(walkFile));
+  files.set("chrs/hero.tem" as AssetKey, options.character ?? characterBytes(walkFile));
   files.set(`misc/${walkFile}` as AssetKey, options.animation ?? walkAnimationBytes());
   files.set("tiles/hero.tst" as AssetKey, tilesetBytes());
   for (const [path, bytes] of Object.entries(options.extra ?? {})) {
@@ -270,8 +271,13 @@ type LifecycleRun = {
 };
 
 /** Run a real engine script and service asset/game-save requests like a runner. */
-function runLifecycle(ticks: number, program: string, savedGame: Uint8Array | null = null): LifecycleRun {
-  const game = authorGame({ walkFile: "hero.gif", animation: twoPageSolidGif() });
+function runLifecycle(
+  ticks: number,
+  program: string,
+  savedGame: Uint8Array | null = null,
+  options: GameOptions = { walkFile: "hero.gif", animation: twoPageSolidGif() },
+): LifecycleRun {
+  const game = authorGame(options);
   const spriteRuntime = createSpriteRuntime();
   const diagnostics: { readonly code: string; readonly message: string }[] = [];
   let latest: GameState | null = null;
@@ -431,6 +437,51 @@ test("the engine draws the player's walk-animation tile, not the marker rectangl
   equal(list.commands.some((command) => command.kind === "rect" && command.rgb.r === 64 && command.rgb.g === 96 && command.rgb.b === 224), false);
   const screen = presented(host);
   deepEqual(pixelAt(screen, 64, 48), [220, 30, 30, 255], "the first walk frame's tile colour is presented");
+});
+
+test("a TK2 character draws its authored tile pairs and advances through the original walk slots (#1960)", () => {
+  const empty = { top: "", bottom: "" };
+  const character = unwrap(writeCharacter({
+    ...createEmptyCharacter(), minor: 4, sizeType: 1, name: "Hero", battleSounds: Array(4).fill(""),
+    legacyGraphics: {
+      walkFrames: [
+        { top: "hero.tst1", bottom: "" }, { top: "hero.tst2", bottom: "hero.tst1" }, empty, empty,
+        ...Array(12).fill(empty),
+      ],
+      battleTiles: Array(64).fill(""),
+      restTiles: Array(4).fill(""),
+      customFrames: Array(10).fill(empty),
+    },
+  }));
+
+  const first = run(3, { character });
+  const player = first.state().sprites.players[0];
+  equal(player?.controlled, true);
+  equal(player?.visual.frame, 0);
+  deepEqual(first.diagnostics.map((diagnostic) => diagnostic.code), []);
+  deepEqual(first.requests.filter((key) => key.endsWith(".tst")), ["tiles/hero.tst"]);
+  equal(first.requests.some((key) => key.endsWith(".anm") || key.endsWith(".tbm")), false);
+  deepEqual(pixelAt(presented(first), 64, 16), [220, 30, 30, 255]);
+  const firstFrame = first.engine.drawList(0, { shading: true, images: true, sprites: true }).commands
+    .find((command) => command.kind === "blit" && "asset" in command.source);
+  ok(firstFrame?.kind === "blit" && "asset" in firstFrame.source);
+  const pixels = first.engine.picturePixels(firstFrame.source.asset);
+  ok(pixels);
+  deepEqual(pixelAt(pixels, 16, 48), [0, 0, 0, 0]);
+
+  const second = run(15, { character });
+  equal(second.state().sprites.players[0]?.visual.frame, 1);
+  deepEqual(pixelAt(presented(second), 64, 16), [30, 200, 60, 255]);
+  deepEqual(pixelAt(presented(second), 64, 48), [220, 30, 30, 255]);
+
+  const saved = runLifecycle(4, 'Save("slot")\nend()\n', null, { character }).saved;
+  ok(saved);
+  const loaded = runLifecycle(8, 'Load("slot")\nend()\n', saved, { character });
+  equal(loaded.loadObserved, true);
+  deepEqual(loaded.diagnostics.map((diagnostic) => diagnostic.code), []);
+  const restored = loaded.engine.picturePixels(firstFrame.source.asset);
+  ok(restored);
+  deepEqual(pixelAt(restored, 16, 16), [220, 30, 30, 255]);
 });
 
 test("a wide animation frame naming a 32x32 cell draws one cell, not the header's width (#1258)", () => {
