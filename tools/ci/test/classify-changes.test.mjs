@@ -283,6 +283,23 @@ test("workflow: classify seals the verdict before any PR code runs, and no job c
   ok(gate.includes("--no-replace-objects diff"), "gate's own diff must ignore replacement refs");
 });
 
+test("unit shards have a bounded job timeout and a timed-out shard fails the gate", () => {
+  const jobs = readWorkflowJobs();
+  const unit = jobs.get("unit")?.join("\n") ?? "";
+  match(unit, /^ {4}timeout-minutes: 30$/mu);
+  const gate = jobs.get("gate")?.join("\n") ?? "";
+  match(gate, /^ {4}needs: \[.*\bunit\b.*\]$/mu);
+  const guard = gate.split("\n").find((line) => line.includes('for r in $RESULTS;'));
+  ok(guard, "gate must reject every result other than success");
+  for (const result of ["failure", "cancelled", "timed_out"]) {
+    const run = spawnSync("bash", ["-c", guard], { env: { ...process.env, RESULTS: `success ${result}`, NEEDS: result }, encoding: "utf8" });
+    equal(run.status, 1, `gate accepted ${result}`);
+    match(run.stdout, /gate failed/);
+  }
+  const success = spawnSync("bash", ["-c", guard], { env: { ...process.env, RESULTS: "success success", NEEDS: "{}" }, encoding: "utf8" });
+  equal(success.status, 0);
+});
+
 test("mobile CI reserves AVD space and keeps the real emulator proof", () => {
   const lines = readWorkflowJobs().get("mobile");
   ok(lines, "mobile job must exist");

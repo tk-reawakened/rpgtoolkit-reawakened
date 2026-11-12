@@ -189,6 +189,8 @@ jobs:
     needs: [changes]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
+    # The slowest observed shard was 9m13s; allow over 3x that time, then fail closed instead of waiting six hours.
+    timeout-minutes: 30
     # Heavy core tests allocate many short-lived buffers; a larger young generation cuts the GC time (#1885).
     env:
       NODE_OPTIONS: --max-semi-space-size=128
