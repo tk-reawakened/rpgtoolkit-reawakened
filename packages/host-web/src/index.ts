@@ -1,6 +1,6 @@
 import { createDocumentIdentity, openMainDocument, type MainDocument, type OpenResult } from "@tk-reawakened/editor-model";
 import type { PlatformServices, ProjectHandle, SettingValue, SettingsLayer } from "@tk-reawakened/platform-services";
-import { platformError, platformOk } from "@tk-reawakened/platform-services";
+import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { mount, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { createWebFileSystem } from "./filesystem.ts";
 import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
@@ -39,7 +39,7 @@ function createFolderProject(root: FileSystemDirectoryHandle, project: ProjectHa
   const values = new Map<string, SettingValue>();
   const services: PlatformServices = {
     capabilities: new Set(["folderWrite", "stableProjectHandle"]),
-    fs: createWebFileSystem(root),
+    fs: createWebFileSystem(root, project.id),
     project: {
       open: async () => platformOk(project),
       recent: async () => {
@@ -70,7 +70,7 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array): WebProje
   const unavailable = () => platformError("unavailable", "This session copy does not support folder watching or persistent writes.");
   const services: PlatformServices = {
     capabilities: new Set(),
-    fs: {
+    fs: bindProjectFileSystem(project.id, {
       list: async (path) => {
         if (!valid(path, true)) return invalid(path);
         if (path !== "") return memory.has(path) ? platformError("not-a-directory", `Not a directory: ${path}`) : platformError("not-found", `Folder not found: ${path}`);
@@ -94,7 +94,7 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array): WebProje
       },
       rename: async (from, to) => !valid(from) ? invalid(from) : !valid(to) ? invalid(to) : unavailable(),
       watch: async (path) => !valid(path, true) ? invalid(path) : unavailable(),
-    },
+    }),
     project: { open: async () => platformOk(project), recent: async () => platformOk([project]) },
     settings: { get: async () => platformOk(null), set: async () => platformError("unavailable", "Settings are unavailable in a session copy.") },
     document: { edited: () => undefined },
