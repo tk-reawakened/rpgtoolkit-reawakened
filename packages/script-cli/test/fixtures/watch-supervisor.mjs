@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 
-process.once("disconnect", () => process.exit(0));
+process.once("disconnect", () => {
+  if (process.platform !== "win32") process.kill(-process.pid, "SIGKILL");
+  else process.exit(0); // The Windows job owner terminates the remaining descendants on pipe EOF.
+});
 
 const child = spawn(process.execPath, process.argv.slice(2), {
   env: process.env,
