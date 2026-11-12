@@ -2354,6 +2354,55 @@ test("send leaves the ruled state: old board threads dead, a persistent thread a
   ]);
 });
 
+for (const keepHolding of [false, true]) {
+  test(`send drops the source step with the direction ${keepHolding ? "held" : "released"}`, () => {
+    const game = authorGame({
+      initChar: "hero.tem",
+      boards: {
+        "start.brd": { start: [160, 95], tiles: [8, 5] },
+        "other.brd": { tiles: [5, 5] },
+      },
+      programs: {},
+    });
+    const doubles = makeDoubles(false, [inputPhaseRegistration(), movementPhaseRegistration()]);
+    const runtime = createSpriteRuntime();
+    const engine = createEngine({
+      seed: 11, assetIndex: game.index, assetRoot: game.root, mainFile: game.main,
+      gameIdentity: "send-midstep-test", width: 320, height: 240, maxTicks: 30,
+      startup: { presence: runtime, savedGame: doubles.startup.savedGame },
+      spriteRuntime: runtime,
+      phaseRegistrations: doubles.options.phaseRegistrations!,
+    });
+    const key = (direction: "Right" | "Up", down: boolean): InputRecord => ({
+      tick: doubles.state().time.tick,
+      event: { kind: "key", code: `Arrow${direction}`, name: direction.toUpperCase(), char: null, down },
+    });
+    deepEqual(run(engine, game.files, 4).diagnostics, []);
+    equal(doubles.state().world.board?.key, "boards/start.brd");
+    deepEqual(run(engine, game.files, 1, [key("Right", true)]).diagnostics, []);
+    ok(doubles.state().sprites.players[0]?.movement.active, "a source-board step is in flight");
+    startThread(doubles.state().vm, {
+      ref: { kind: "inline", text: 'send("other.brd", 2, 3, 1)\nend()', ir: IR_VERSION },
+      kind: "blocking", owner: "script",
+    });
+
+    const result = run(engine, game.files, 3, keepHolding ? [] : [key("Right", false)]);
+    deepEqual(result.diagnostics, []);
+    equal(doubles.state().world.board?.key, "boards/other.brd");
+    const arrival = { x: 48, y: 95 };
+    if (!keepHolding) {
+      const player = doubles.state().sprites.players[0]!;
+      deepEqual({ x: player.x, y: player.y }, arrival);
+      equal(player.movement.active, null);
+      run(engine, game.files, 1, [key("Up", true)]);
+    }
+    const step = doubles.state().sprites.players[0]?.movement.active;
+    ok(step, "a direction starts a destination-board step");
+    deepEqual(step.start, arrival);
+    deepEqual(step.target, keepHolding ? { x: 80, y: 95 } : { x: 48, y: 63 });
+  });
+}
+
 test("send resumes the caller on the next tick and a different board music posts one replacement", () => {
   const game = authorGame({ ...SEND_GAME, programs: { ...SEND_GAME.programs, "enter.prg": 'send("quiet.brd", 2, 3)\naftersend = 1\nend()\n' } });
   const doubles = makeDoubles();

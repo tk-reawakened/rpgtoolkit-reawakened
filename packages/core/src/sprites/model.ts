@@ -86,6 +86,10 @@ export type SpriteMovement = {
   readonly lastStepDistance: number;
 };
 
+export function createSpriteMovement(): SpriteMovement {
+  return { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0 };
+}
+
 /** Persisted progress for movement-owned random encounters. */
 export type RandomEncounterProgress = {
   readonly boardKey: string;
@@ -244,7 +248,7 @@ export function actorFromSource(source: SpriteActorSource, board: WorldBoard | n
     activationBase: actorBase(actor, fallback.activation, 1),
     visual: actorVisual(source.character, source.item),
     queue: { moves: [], waypoint: null },
-    movement: { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0 },
+    movement: createSpriteMovement(),
     prev: null,
     frozenUntil: null,
     multitaskProgram: multitask === "" ? null : multitask,

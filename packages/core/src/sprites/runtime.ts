@@ -11,6 +11,7 @@ import {
   actorFromSource,
   actorLinkForSource,
   boardItemSources,
+  createSpriteMovement,
   createSpritesSection,
   SPRITES_SCHEMA_VERSION,
   type SpriteActor,
@@ -122,7 +123,7 @@ export function createInitialPlayer(
   return player;
 }
 
-/** Place the selected player without changing its queue or actor identity. */
+/** Place the selected player at rest, preserving its actor identity. */
 export function placeSelectedPlayer(
   section: SpritesSection,
   x: number,
@@ -137,7 +138,17 @@ export function placeSelectedPlayer(
   const player = section.players[index]!;
   const point = unit === "pixel" ? { x, y } : tileToPixel(layout, sizeX, x, y);
   section.players = section.players.map((actor, current) => current === index
-    ? { ...actor, x: point.x, y: point.y, layer, prev: null, state: "waiting", queue: { moves: [], waypoint: null } }
+    ? {
+      ...actor,
+      x: point.x,
+      y: point.y,
+      layer,
+      state: "waiting",
+      prev: null,
+      frozenUntil: null,
+      queue: { moves: [], waypoint: null },
+      movement: createSpriteMovement(),
+    }
     : actor);
   return true;
 }
