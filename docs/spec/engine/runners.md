@@ -90,7 +90,7 @@ the world tint (`tint`), `alpha` and `blend`:
 2. **World stage.** Apply `tint` — the pre-summed board shading and ambient — to the sampled texel under the R-15 rule
    ([tiles.md#shading](../formats/tiles.md#shading)): remap pure white to `245` and pure black to `10` when this tint
    is non-zero, add it, and clamp once.
-3. **Blend.** `normal`, `additive` or `translucent` with `alpha` (AD-3).
+3. **Blend.** `normal`, `additive`, `translucent`, or v2 `source-over` (AD-3). For `source-over`, let `a = floor(sourceAlpha × alpha / 255)`; each target colour channel is `floor((source × a + target × (255 − a) + 127) / 255)` and target alpha is `a + floor((targetAlpha × (255 − a) + 127) / 255`. The normal mode still replaces, not composites. An enabled render-now overlay uses `source-over` so its straight-alpha ink covers the frame once.
 
 The order is part of the agreement bound below: **colour-key exclusion is compared exactly**, so a runner that keys
 after the world tint fails the colour-key vectors.
@@ -489,7 +489,7 @@ The historical v1 schema and vector kit remain fixed together; the active core i
 3. **The schema and the kit agree.** Every vector's verdict matches what the schema returns: a valid record is accepted
    and a refusal is refused. A kit that holds no valid record for some kind the schema lists fails.
    The v1 check also requires the schema to reject a representative v2 semantic `action` record, without changing the frozen v1 vector kit.
-4. **The schema and historical TypeScript types agree.** The check reads `DrawList`, `InputRecordV1` and `RunnerRequest` from
+4. **The schema and historical TypeScript types agree.** The check reads `DrawListV1`, `InputRecordV1` and `RunnerRequest` from
    `packages/core/src/ports/` with the TypeScript compiler and compares each with its schema definition in the JSON
    projection, recursively: the keys a record carries, which are required (every key but `repeat`, AD-14), literal and
    enum values, `null`, arrays, records and nested objects, with a `Uint8Array` leaf as a base64 string. It names the
