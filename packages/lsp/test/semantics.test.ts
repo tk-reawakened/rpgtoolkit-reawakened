@@ -218,6 +218,16 @@ test("Toolkit 2 conversion previews an unsaved 3.1 copy without editing the proj
   deepEqual(actions[0]!.command?.arguments, ['Mwin("hello", "world")\nthreadSleep(1, 2)\n']);
 });
 
+test("Toolkit 2 conversion keeps a bare index as a variable and flags it in the preview (#2050)", () => {
+  const text = "#m[key!] = 1\n";
+  const started = server({ "main.prg": text });
+  started.open("file:///main.prg", text, "rpgcode-tk2");
+  const actions = started.codeActions("file:///main.prg");
+  equal(actions.length, 1);
+  equal(actions[0]!.title, "Preview Toolkit 2.x conversion in an unsaved 3.1 file (1 bare index to review)");
+  deepEqual(actions[0]!.command?.arguments, ['m[key] = 1 // TKR review: [key] reads the variable key; write ["key"] if a literal key was meant\n']);
+});
+
 test("Toolkit 2 conversion refuses unresolved project dependencies even when the project loader can read them", () => {
   const main = "#lib.hello()";
   const projectLoader = loader({ "main.prg": main, "lib.prg": "#Method hello() {\n  #Mwin(Hello there)\n}" });
