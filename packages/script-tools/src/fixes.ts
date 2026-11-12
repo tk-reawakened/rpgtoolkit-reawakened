@@ -11,10 +11,21 @@ const DYNAMIC_SOURCE_COMMANDS: Readonly<Record<string, true>> = {
   include: true, executeprogram: true, replaceprogram: true, thread: true, tellthread: true, run: true, change: true, rpgcode: true,
 };
 
+/** A converted spot a person should check; the conversion kept its meaning but the intent is unclear. */
+export type LegacyReview = {
+  /** 1-based line of the source (and of the converted text: conversion never changes the line count). */
+  readonly line: number;
+  /** The index as written in the converted text, without brackets. */
+  readonly index: string;
+  readonly message: string;
+};
+
 export type LegacyFix = {
   readonly rule: string;
   readonly title: string;
   readonly edits: readonly TextEdit[];
+  /** Bare TK2 indices preserved as variable indices (docs/spec/engine/rpgcode-dialects.md#tk2-bare-index). */
+  readonly reviews?: readonly LegacyReview[];
 };
 
 /** Apply non-overlapping, single-line edits from right to left. */
@@ -93,11 +104,66 @@ function trailingComment(line: string): string | null {
   return null;
 }
 
+/** Remove quoted strings so comment markers are only seen in code. */
+function withoutStrings(text: string): string {
+  return text.replace(/"[^"]*"/g, '""');
+}
+
+/** A converted loose dialogue line: exactly `mwin("…")` produced from a line with no `#`. */
+function isDialogue(trimmed: string, converted: string): boolean {
+  if (trimmed.startsWith("#") || !converted.startsWith("mwin(")) return false;
+  try {
+    const tokens = tokenizeObjects(converted).filter((token) => token.kind !== "end" && token.kind !== "eof");
+    return tokens.length === 4 && tokens[2]!.kind === "string" && tokens[3]!.kind === "op" && tokens[3]!.text === ")";
+  } catch (error) {
+    if (error instanceof ScriptError) return false;
+    throw error;
+  }
+}
+
+/**
+ * Find bare single-word indices (`m[key]`) in converted 3.1 text. Both dialects
+ * read them as variable indices; a person must confirm a literal key was not meant
+ * (docs/spec/engine/rpgcode-dialects.md#tk2-bare-index, #2050).
+ */
+function bareIndices(fixed: string): Map<number, string[]> {
+  const found = new Map<number, string[]>();
+  const tokens = tokenizeObjects(fixed);
+  for (let index = 1; index + 1 < tokens.length; index++) {
+    const open = tokens[index - 1]!;
+    const word = tokens[index]!;
+    const close = tokens[index + 1]!;
+    if (open.kind !== "op" || open.text !== "[" || word.kind !== "identifier" || close.kind !== "op" || close.text !== "]") continue;
+    const written = fixed.split("\n")[word.line - 1]!.slice(word.col - 1, word.endCol);
+    found.set(word.line, [...(found.get(word.line) ?? []), written]);
+  }
+  return found;
+}
+
+/** Drop every ignored `!`/`$` sigil the TK2 frontend left inside expressions, editing `lines` in place. */
+function dropSigils(lines: string[]): string | null {
+  let tokens;
+  try {
+    tokens = tokenizeObjects(lines.join("\n"));
+  } catch (error) {
+    if (error instanceof ScriptError) return null;
+    throw error;
+  }
+  for (const token of [...tokens].reverse()) {
+    if (token.kind !== "identifier") continue;
+    const line = lines[token.line - 1]!;
+    const last = line[token.endCol - 1];
+    if (last === "!" || last === "$") lines[token.line - 1] = line.slice(0, token.endCol - 1) + line.slice(token.endCol);
+  }
+  return lines.join("\n");
+}
+
+function reviewMessage(word: string): string {
+  return `[${word}] reads the variable ${word}; write ["${word}"] if a literal key was meant`;
+}
+
 /** Convert all TK2 lines as one action; never drop comment text or line endings. */
 function migrateTk2(source: string): LegacyFix[] {
-  // The spec conflicts with dynamic array indices for this shape (#2050).
-  // Do not offer a conversion whose meaning has not been established.
-  if (/\[\s*\d*[A-Za-z_]\w*[$!]?\s*\]/.test(source)) return [];
   let converted: string[];
   try {
     converted = normaliseTk2(source).split("\n");
@@ -106,23 +172,44 @@ function migrateTk2(source: string): LegacyFix[] {
     throw error;
   }
   const lines = source.split("\n");
-  const edits: TextEdit[] = [];
+  const rewritten: string[] = [];
+  const comments: string[] = [];
   for (let index = 0; index < lines.length; index++) {
     const original = lines[index]!;
     const content = original.endsWith("\r") ? original.slice(0, -1) : original;
-    const ending = original.endsWith("\r") ? "\r" : "";
     const trimmed = content.trimStart();
+    rewritten.push(content);
+    comments.push("");
     if (trimmed === "" || trimmed.startsWith("*")) continue;
-    // Until comment parsing is shared, refuse these rather than delete or reinterpret them.
-    if (trimmed.includes("//") || trimmed.includes("/*") || trimmed.includes("*/")) return [];
+    const line = converted[index] ?? "";
+    // TK2 does not specify `//` or `/* */` in code, so their meaning cannot be shown to be kept.
+    // Dialogue keeps them as text inside its string.
+    if (!isDialogue(trimmed, line) && /\/\/|\/\*|\*\//.test(withoutStrings(content))) return [];
     const indent = content.slice(0, content.length - trimmed.length);
-    const rewritten = indent + (converted[index] ?? "") + (trailingComment(content) ?? "") + ending;
-    if (original !== rewritten) edits.push(edit(index + 1, 1, original.length, rewritten));
+    rewritten[index] = indent + line;
+    comments[index] = trailingComment(content) ?? "";
+  }
+  const code = dropSigils(rewritten);
+  if (code === null) return [];
+  const reviews: LegacyReview[] = [];
+  for (const [line, words] of bareIndices(code)) {
+    comments[line - 1] += ` // TKR review: ${words.map(reviewMessage).join("; ")}`;
+    for (const word of words) reviews.push({ line, index: word, message: reviewMessage(word) });
+  }
+  const edits: TextEdit[] = [];
+  for (let index = 0; index < lines.length; index++) {
+    const original = lines[index]!;
+    const ending = original.endsWith("\r") ? "\r" : "";
+    const next = rewritten[index]! + comments[index] + ending;
+    if (original !== next) edits.push(edit(index + 1, 1, original.length, next));
   }
   if (edits.length === 0) return [];
-  const fixed = applyEdits(source, edits);
-  if (!sameLowering(source, fixed)) return [];
-  return [{ rule: "dialect/tk2-to-tk3", title: "Preview Toolkit 2.x conversion in an unsaved 3.1 file", edits }];
+  // The review comments are part of the offered text, so compare it as offered.
+  if (!sameLowering(source, applyEdits(source, edits))) return [];
+  const title = "Preview Toolkit 2.x conversion in an unsaved 3.1 file";
+  if (reviews.length === 0) return [{ rule: "dialect/tk2-to-tk3", title, edits }];
+  const noun = reviews.length === 1 ? "bare index" : "bare indices";
+  return [{ rule: "dialect/tk2-to-tk3", title: `${title} (${reviews.length} ${noun} to review)`, edits, reviews }];
 }
 
 /** Offer only edits proved against the caller-selected source dialect. */
