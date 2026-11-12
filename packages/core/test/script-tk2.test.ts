@@ -89,6 +89,17 @@ test("TK2 compiles and executes assignments with a type sigil after an array sub
   equal(state.vm.threads[0]?.status, "finished");
 });
 
+test("TK2 strips sigils inside and after an array subscript before ~= comparison", () => {
+  const source = '#if(level[diagnalrightuppeaposition!]$~="L") {\n#value = 1\n}';
+  equal(
+    normaliseTk2(source),
+    'if(level[diagnalrightuppeaposition]~="L") {\nvalue = 1\n}',
+  );
+  const statement = compileTk2(source, "subscript-condition.prg").units[0]?.ast.statements[0];
+  if (statement?.kind !== "if") throw new Error("expected Toolkit 2 conditional");
+  equal(statement.branches[0]?.cond.kind, "binary");
+});
+
 test("TK2 sigil stripping preserves punctuation in quoted strings", () => {
   const source = '#Mwin("[OK]!, continue")';
   equal(normaliseTk2(source), 'Mwin("[OK]!, continue")');

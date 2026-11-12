@@ -119,7 +119,7 @@ function bindRawArguments(line: string, lookup: Tk2CommandLookup | undefined): s
 
 function stripSigils(text: string): string {
   return text.replace(
-    /"(?:\\.|[^"\\])*"|([A-Za-z_][A-Za-z0-9_]*|\])([$!])(?=\s*(?:=|[),;]|$))/g,
+    /"(?:\\.|[^"\\])*"|([A-Za-z_][A-Za-z0-9_]*|\])([$!])(?=\s*(?:=|[\]),;]|$))/g,
     (match, name: string | undefined) => name === undefined ? match : match.slice(0, -1),
   );
 }
