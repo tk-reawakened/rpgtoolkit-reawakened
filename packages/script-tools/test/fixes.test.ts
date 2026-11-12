@@ -71,6 +71,17 @@ test("migration refuses unresolved explicit and implicit dependencies", () => {
   deepEqual(legacyFixes('  #foo.bar("*") * KEEP\r\n', "tk2"), []);
 });
 
+test("migration refuses known dynamic program loaders", () => {
+  for (const source of [
+    '#executeProgram("lib.prg")',
+    '#replaceProgram("lib.prg")',
+    '#thread("lib.prg",0)',
+    '#run("lib.prg")',
+    '#change("lib.prg")',
+    '#rpgcode("Mwin(1)")',
+  ]) deepEqual(legacyFixes(source, "tk2"), [], source);
+});
+
 test("3.1 code keeps assignment semantics and never gets a TK2-only edit", () => {
   const source = "if (x = 5) {\n  y = 1\n}\n";
   deepEqual(legacyFixes(source, "tk3"), []);

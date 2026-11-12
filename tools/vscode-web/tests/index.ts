@@ -124,6 +124,8 @@ export async function run(): Promise<void> {
   equal(preview.languageId, "rpgcode", "preview uses the 3.1 language mode");
   equal(preview.getText(), previewText, "preview contains the converted text");
   equal(new TextDecoder().decode(await vscode.workspace.fs.readFile(program)), text, "preview leaves the original file untouched");
+  // Debug's save-before-start must not wait on the deliberately unsaved preview.
+  await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
 
   const stops = stopQueue();
   const started = new Promise<vscode.DebugSession>((resolve) => {

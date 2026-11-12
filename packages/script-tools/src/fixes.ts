@@ -6,6 +6,11 @@
 import { compileInline, normaliseTk2, ScriptError, tokenizeObjects, type Program, type ScriptDialect } from "@tk-reawakened/core";
 import type { TextEdit } from "./diagnostics.ts";
 
+/** These calls can read or execute source outside the one-file comparison. */
+const DYNAMIC_SOURCE_COMMANDS: Readonly<Record<string, true>> = {
+  include: true, executeprogram: true, replaceprogram: true, thread: true, run: true, change: true, rpgcode: true,
+};
+
 export type LegacyFix = {
   readonly rule: string;
   readonly title: string;
@@ -55,7 +60,7 @@ function sameBehavior(original: string, fixed: string, dialect: ScriptDialect): 
     const after = compileInline(fixed, "<migration>");
     if (dialect === "tk2" && [before, after].some((program) =>
       program.units.some((unit) => unit.requests.length > 0) ||
-      program.ops.some((op) => op.op === "call" && op.name === "include"))) return false;
+      program.ops.some((op) => op.op === "call" && Object.hasOwn(DYNAMIC_SOURCE_COMMANDS, op.name)))) return false;
     return behavior(before) === behavior(after);
   } catch (error) {
     if (error instanceof ScriptError) return false;
