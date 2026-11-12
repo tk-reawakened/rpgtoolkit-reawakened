@@ -68,6 +68,14 @@ test("conversion explains its refusal of literal quotes without suppressing exec
   equal(tk2ConversionRefusal('#Mwin("friend")'), null);
 });
 
+test("migration preserves unprefixed calls and angle dialogue execution", () => {
+  const source = '#Method foo(n) {\n#result = n\n}\n#friend$ = "Ada"\nfoo(x = 1)\nMwin("x=y")\nHi #there = <friend>\n#Mwin(result!)';
+  const fixed = migrate(source);
+  const expected = ["x=y", "Hi #there = Ada", "1"];
+  deepEqual(mwinText(source, "tk2"), expected);
+  deepEqual(mwinText(fixed, "tk3"), expected);
+});
+
 test("mixed legacy forms are converted together and retain comments and CRLF", () => {
   const source = "* keep this comment\r\n#If (x = 5) {\r\n  #y! = 1\r\n}\r\nHello there\r\n#threadSleep(1, 2) * keep this too\r\n";
   const fixed = migrate(source);
