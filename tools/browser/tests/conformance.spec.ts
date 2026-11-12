@@ -22,7 +22,7 @@ test("render-webgl2 replays every committed raster vector within the D-7 bound",
   await page.waitForFunction(() => window.__vectors !== undefined, undefined, { timeout: 60_000 });
   const results = (await page.evaluate(() => window.__vectors)) as readonly VectorReport[];
   // Pipeline, text, source-over and three independently calculated glyph-alpha cases.
-  expect(results.length).toBe(27);
+  expect(results.length).toBe(29);
 
   const blendArithmetic = (id: string): boolean => id.includes("translucent") || id.includes("additive") || id.includes("source-over");
   for (const result of results) {

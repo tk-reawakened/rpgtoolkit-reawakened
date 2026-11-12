@@ -249,6 +249,24 @@ void (async () => {
     renderer.dispose();
   }
 
+  // Both planes blend in consecutive frames with different framebuffer sizes.
+  {
+    const canvas = document.createElement("canvas"); canvas.width = 3; canvas.height = 2;
+    const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: false, antialias: false, preserveDrawingBuffer: true });
+    if (gl === null) throw new Error("vectors: no WebGL2 context for plane snapshots");
+    const renderer = createWebgl2Renderer(gl); const asset = "test/plane-overlay" as AssetKey;
+    const blit = (x: number) => ({ kind: "blit" as const, source: { asset, tile: null }, src: { x: 0, y: 0, w: 1, h: 1 }, dst: { x, y: 0, w: 1, h: 1 }, key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend: "source-over" as const, iso2d: false });
+    const frame: DrawList = { protocolVersion: 3, tick: 0, width: 2, height: 2, commands: [blit(0)], marginCommands: [blit(-1)] };
+    const geometry = { content: { width: 3, height: 2 }, game: { x: 1, y: 0, width: 2, height: 2 }, safeArea: { top: 0, right: 0, bottom: 0, left: 0 } };
+    const options = { textures: () => ({ w: 1, h: 1, rgba: new Uint8Array([255, 255, 255, 128]) }) };
+    for (let i = 0; i < 2; i += 1) {
+      renderer.render(frame, geometry, options);
+      const actual = new Uint8Array(8); gl.readPixels(0, 1, 2, 1, gl.RGBA, gl.UNSIGNED_BYTE, actual);
+      results.push(report(`source-over-plane-reuse-${i}`, actual, new Uint8Array([255,255,255,128,255,255,255,128]), 2));
+    }
+    renderer.dispose();
+  }
+
   // Hand-calculated source-over checks: opaque RGB(12,30,50), white texels with alpha 0,81,128,255.
   const coverageAsset = "test/source-over" as AssetKey;
   const coverageTextures = new Map<AssetKey, TexturePixels>([[coverageAsset, { w: 4, h: 1, rgba: new Uint8Array([255,255,255,0, 255,255,255,81, 255,255,255,128, 255,255,255,255]) }]]);

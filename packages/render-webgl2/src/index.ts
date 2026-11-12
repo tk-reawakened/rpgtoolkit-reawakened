@@ -102,11 +102,13 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
   gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0,1,0,0,1,0,1,1,0,1,1]), gl.STATIC_DRAW);
   const unit = gl.getAttribLocation(replayProgram, "aUnit"); const rectAttrib = gl.getAttribLocation(replayProgram, "aRect"); const coverageAttrib = gl.getAttribLocation(replayProgram, "aCoverage");
   const uploads = new Map<string, Uploaded>(); const targets: Target[] = []; const scratch: Target[][] = [[], []]; let size = { width: 0, height: 0 }; let disposed = false;
-  let destination: Uploaded | null = null;
+  const destinations: (Uploaded | null)[] = [null, null];
+  let activePlane = 0;
   // Straight-alpha source-over needs the destination alpha as well as its colour; fixed-function blending alone
   // cannot normalize RGB by the resulting alpha. Reuse one GPU-only snapshot per blit, never a CPU readback.
   function snapshotDestination(width: number, height: number): void {
     gl.activeTexture(gl.TEXTURE1);
+    let destination = destinations[activePlane] ?? null;
     if (destination === null || destination.w !== width || destination.h !== height) {
       if (destination !== null) gl.deleteTexture(destination.texture);
       const texture = gl.createTexture();
@@ -118,6 +120,7 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
       destination = { texture, w: width, h: height };
+      destinations[activePlane] = destination;
     } else gl.bindTexture(gl.TEXTURE_2D, destination.texture);
     gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
     gl.uniform1i(replay.destination, 1);
@@ -159,7 +162,7 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
   const usedSurfaceUploads = new Set<string>();
   function drawCommands(commands: readonly DrawCommand[], dimensions: { width: number; height: number }, offset: { x: number; y: number }, root: Target, scratchPool: Target[], options: RenderOptions, defer: (kind: string, reason: string) => void): { drawn: number; deferred: number } {
     const stack: Target[] = []; let drawn = 0; let deferred = 0;
-    gl.useProgram(replayProgram); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,destination?.texture??null); gl.uniform1i(replay.destination,1); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, null); gl.bindBuffer(gl.ARRAY_BUFFER,quad); gl.enableVertexAttribArray(unit); gl.vertexAttribPointer(unit,2,gl.FLOAT,false,0,0); gl.uniform1i(replay.tex,0); gl.uniform1i(replay.instanced,0); gl.enable(gl.BLEND);
+    gl.useProgram(replayProgram); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,destinations[activePlane]?.texture??null); gl.uniform1i(replay.destination,1); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, null); gl.bindBuffer(gl.ARRAY_BUFFER,quad); gl.enableVertexAttribArray(unit); gl.vertexAttribPointer(unit,2,gl.FLOAT,false,0,0); gl.uniform1i(replay.tex,0); gl.uniform1i(replay.instanced,0); gl.enable(gl.BLEND);
     const bind = (target: Target) => { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,null); gl.bindFramebuffer(gl.FRAMEBUFFER,target.framebuffer); gl.viewport(0,0,target.width,target.height); gl.uniform2f(replay.viewport,target.width,target.height); };
     bind(root); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
     const color = (rgb: {r:number;g:number;b:number}, coverage=255) => { gl.uniform1i(replay.mode,coverage===255?1:3); gl.uniform1i(replay.keyOn,0); gl.uniform3f(replay.color,rgb.r/255,rgb.g/255,rgb.b/255); blend(coverage===255?"normal":"coverage"); };
@@ -221,7 +224,9 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
       surfacePixels.clear();
       usedSurfaceUploads.clear();
       const diagnostics:string[]=[];const byKind:{[kind:string]:number}={};const defer=(kind:string,why:string)=>{byKind[kind]=(byKind[kind]??0)+1;if(!diagnostics.includes(why))diagnostics.push(why);};
+      activePlane=0;
       const a=drawCommands(list.commands,{width:list.width,height:list.height},{x:0,y:0},roots[0]!,scratch[0]!,options,defer);
+      activePlane=1;
       const b=drawCommands(list.marginCommands,{width:bounds.width,height:bounds.height},{x:bounds.left,y:bounds.top},roots[1]!,scratch[1]!,options,defer);
       for(const [key,value] of uploads) if(key.startsWith("surface:")&&!usedSurfaceUploads.has(key)){gl.deleteTexture(value.texture);uploads.delete(key);}
       const attributes=gl.getContextAttributes();gl.useProgram(presentProgram);gl.uniform1i(present.opaque,attributes?.alpha===false?1:attributes?.premultipliedAlpha===true?2:0);
@@ -229,6 +234,6 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
       return {drawn:a.drawn+b.drawn,deferred:a.deferred+b.deferred,deferredByKind:byKind,diagnostics};
     },
     flush(){if(disposed)return;for(const value of uploads.values())gl.deleteTexture(value.texture);uploads.clear();surfacePixels.clear();},
-    dispose(){if(disposed)return;this.flush();disposeTargets(targets);for(const pool of scratch)disposeTargets(pool);if(destination!==null)gl.deleteTexture(destination.texture);gl.deleteBuffer(quad);gl.deleteBuffer(pointBuffer);gl.deleteProgram(replayProgram);gl.deleteProgram(presentProgram);disposed=true;},
+    dispose(){if(disposed)return;this.flush();disposeTargets(targets);for(const pool of scratch)disposeTargets(pool);for(const destination of destinations)if(destination!==null)gl.deleteTexture(destination.texture);gl.deleteBuffer(quad);gl.deleteBuffer(pointBuffer);gl.deleteProgram(replayProgram);gl.deleteProgram(presentProgram);disposed=true;},
   };
 }

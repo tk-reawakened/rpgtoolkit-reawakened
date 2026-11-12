@@ -107,6 +107,23 @@ test("WebGL2 replays game and margin commands into separate reusable GPU planes 
   renderer.dispose();
 });
 
+test("game and margin source-over snapshots reuse their differently sized textures", () => {
+  const { gl, allocated, deletedTextureCount, snapshotCount } = fakeContext();
+  const renderer = createWebgl2Renderer(gl);
+  const asset = "test/overlay" as AssetKey;
+  const blit = (x: number) => ({ kind: "blit" as const, source: { asset, tile: null }, src: { x: 0, y: 0, w: 1, h: 1 }, dst: { x, y: 0, w: 1, h: 1 }, key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend: "source-over" as const, iso2d: false });
+  const frame: DrawList = { protocolVersion: 3, tick: 0, width: 2, height: 2, commands: [blit(0)], marginCommands: [blit(-1)] };
+  const options = { textures: () => ({ w: 1, h: 1, rgba: new Uint8Array([255, 255, 255, 128]) }) };
+  equal(renderer.render(frame, geometry, options).deferred, 0);
+  deepEqual(allocated(), [[2, 2], [3, 2], [2, 2], [3, 2]]);
+  equal(renderer.render(frame, geometry, options).deferred, 0);
+  equal(snapshotCount(), 4);
+  equal(allocated().length, 4, "a stable second frame creates no target or snapshot textures");
+  equal(deletedTextureCount(), 0);
+  renderer.dispose();
+  equal(deletedTextureCount(), 5, "two targets, two snapshots and one source texture are released");
+});
+
 test("bold bitmap text needs no framebuffer snapshots despite overlapping ink", () => {
   const decoded = readLegacyFont(new Uint8Array(readFileSync("media/fonts/tkr-8x8.fnt")), "tkr-8x8.fnt");
   if (!decoded.ok) throw new Error(decoded.error.message);
