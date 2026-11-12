@@ -49,6 +49,7 @@ This is the dialect most surviving games use.
 * **`@` on a line of its own** writes a blank Message-Window line.
 * **Unquoted string arguments** (`#Mwin(Hello there)`, `#SetImage(title.gif, …)`) are read as strings, and a variable name
   may be passed where a value is wanted.
+* **Type sigils on variables.** A trailing `!` (numeric) or `$` (string) is ignored when it follows a variable name. For an array element, the sigil may follow the closing `]` of the subscript, and is ignored there too: `#values[index]! = 1` assigns to `values[index]`. The array name and each index expression retain their ordinary Toolkit 2.x meaning.
 * **Loose text lines** with no `#`, `*`, `:` or brace are shown as dialogue.
 
 **STX-7.** Loose text lines and `#Mwin` unquoted arguments exist only in legacy files; accepting them is the frontends' and the converter's job, not the 3.1 parser's.
