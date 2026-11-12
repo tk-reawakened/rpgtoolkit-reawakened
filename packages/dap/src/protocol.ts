@@ -38,6 +38,9 @@ export type DapEvent = {
 /** A message the session sends to the client. */
 export type DapMessage = DapResponse | DapEvent;
 
+/** Either direction of the wire: a client's request, or what the session sends back. */
+export type DapIncoming = DapRequest | DapMessage;
+
 const HEADER_END = [13, 10, 13, 10];
 
 function indexOfHeaderEnd(bytes: Uint8Array, from: number): number {
@@ -50,7 +53,7 @@ function indexOfHeaderEnd(bytes: Uint8Array, from: number): number {
 }
 
 /** One framed message, ready to write to a stream. */
-export function frameMessage(message: DapMessage): string {
+export function frameMessage(message: DapIncoming): string {
   // The payload is escaped to pure ASCII, so its character count is its byte count and the
   // frame needs no ambient encoder: the package uses no global beyond the language itself.
   const body = JSON.stringify(message).replace(
@@ -105,14 +108,14 @@ function decodeUtf8(bytes: Uint8Array): string {
  * no usable `Content-Length`, or whose body is not JSON, is dropped and the
  * stream continues, because DAP has no frame to report a framing error in.
  */
-export function createFramer(): { feed(chunk: Uint8Array): readonly DapRequest[] } {
+export function createFramer(): { feed(chunk: Uint8Array): readonly DapIncoming[] } {
   let pending = new Uint8Array(0);
   return {
-    feed(chunk: Uint8Array): readonly DapRequest[] {
+    feed(chunk: Uint8Array): readonly DapIncoming[] {
       const merged = new Uint8Array(pending.length + chunk.length);
       merged.set(pending);
       merged.set(chunk, pending.length);
-      const messages: DapRequest[] = [];
+      const messages: DapIncoming[] = [];
       let start = 0;
       for (;;) {
         const headerEnd = indexOfHeaderEnd(merged, start);
@@ -128,7 +131,7 @@ export function createFramer(): { feed(chunk: Uint8Array): readonly DapRequest[]
         const body = decodeUtf8(merged.subarray(headerEnd + 4, bodyEnd));
         start = bodyEnd;
         try {
-          messages.push(JSON.parse(body) as DapRequest);
+          messages.push(JSON.parse(body) as DapIncoming);
         } catch {
           // A frame whose body is not JSON is dropped; the next frame still parses.
         }

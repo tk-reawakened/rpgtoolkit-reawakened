@@ -25,7 +25,9 @@ export function serveDebugSession(streams: DebugStreams, options: DebugSessionOp
   const session = createDebugSession(options, (message) => streams.output.write(frameMessage(message)));
   const framer = createFramer();
   streams.input.onData((chunk) => {
-    for (const request of framer.feed(chunk)) session.handle(request);
+    for (const message of framer.feed(chunk)) {
+      if (message.type === "request") session.handle(message);
+    }
   });
   return session;
 }

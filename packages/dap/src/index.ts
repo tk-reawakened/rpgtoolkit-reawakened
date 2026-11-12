@@ -18,4 +18,4 @@ export type { DebugSession, DebugSessionOptions } from "./session.ts";
 export { serveDebugSession } from "./channel.ts";
 export type { DebugStreams } from "./channel.ts";
 export { createFramer, frameMessage } from "./protocol.ts";
-export type { DapEvent, DapMessage, DapRequest, DapResponse } from "./protocol.ts";
+export type { DapEvent, DapIncoming, DapMessage, DapRequest, DapResponse } from "./protocol.ts";

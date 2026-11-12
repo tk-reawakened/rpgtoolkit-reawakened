@@ -23,6 +23,7 @@ test("runner-harness public surface matches the pinned export list with no doubl
     "compareScriptsGolden",
     "createMemoryLoader",
     "createNullAudio",
+    "createSceneDebugTarget",
     "createScriptHost",
     "encodeRgbaPng",
     "formatAudioGolden",

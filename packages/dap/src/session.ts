@@ -26,8 +26,14 @@ type Stop = { readonly thread: number; readonly frame: number; readonly line: nu
 type Outcome = { readonly kind: "stop"; readonly stop: Stop } | { readonly kind: "ended" } | { readonly kind: "limit" };
 
 export type DebugSessionOptions = {
-  /** Build the scene to debug from the client's `launch` arguments. */
-  readonly launch: (launchArguments: Record<string, unknown>) => SceneDebugTarget;
+  /**
+   * Build the scene to debug from the client's `launch` arguments. A host that
+   * must read the program and the board first (an editor reading the workspace
+   * through its own file API) returns a promise; the session answers `launch`
+   * and sends `initialized` when it settles, so no request can arrive before
+   * the target exists.
+   */
+  readonly launch: (launchArguments: Record<string, unknown>) => SceneDebugTarget | Promise<SceneDebugTarget>;
   /** The most whole ticks one `continue`, `next`, `stepIn` or `stepOut` may run (default 600). */
   readonly tickLimit?: number;
   /** The most one-instruction resumes one `next`, `stepIn` or `stepOut` may run (default 10000). */
@@ -349,14 +355,7 @@ export function createDebugSession(options: DebugSessionOptions, send: (message:
     respond(request, { result: debugText(result.value), type: debugType(result.value), variablesReference: 0 });
   }
 
-  function launch(request: DapRequest): void {
-    let scene: SceneDebugTarget;
-    try {
-      scene = options.launch(asRecord(request.arguments));
-    } catch (error) {
-      fail(request, error instanceof Error ? error.message : String(error));
-      return;
-    }
+  function started(scene: SceneDebugTarget, request: DapRequest): void {
     target = scene;
     stop = null;
     pending = [];
@@ -364,6 +363,24 @@ export function createDebugSession(options: DebugSessionOptions, send: (message:
     applyBreakpoints(scene);
     respond(request);
     event("initialized");
+  }
+
+  function launch(request: DapRequest): void {
+    let pendingLaunch: SceneDebugTarget | Promise<SceneDebugTarget>;
+    try {
+      pendingLaunch = options.launch(asRecord(request.arguments));
+    } catch (error) {
+      fail(request, error instanceof Error ? error.message : String(error));
+      return;
+    }
+    if (typeof (pendingLaunch as Promise<SceneDebugTarget>).then === "function") {
+      void (pendingLaunch as Promise<SceneDebugTarget>).then(
+        (scene) => started(scene, request),
+        (error: unknown) => fail(request, error instanceof Error ? error.message : String(error)),
+      );
+      return;
+    }
+    started(pendingLaunch as SceneDebugTarget, request);
   }
 
   function configurationDone(request: DapRequest): void {
