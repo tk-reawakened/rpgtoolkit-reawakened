@@ -85,7 +85,6 @@ test("a .bkg with no picture keeps the flat fallback, so the .tbm path is not a 
   equal(fallbackPixels(frame, FIELD), (FIELD.x2 - FIELD.x1 + 1) * (FIELD.y2 - FIELD.y1 + 1), "the battlefield is the flat fallback colour");
   deepEqual(rig.diagnostics, []);
 });
-// Fast-test exception (5 s maximum): a full stock fight and 640×480 raster are needed to verify the image consumer; permanent for this integration proof.
 
 test("an image-only battle background still paints its authored PNG", () => {
   const rig = bootUiRig({ background: "png" });
@@ -97,7 +96,6 @@ test("an image-only battle background still paints its authored PNG", () => {
   deepEqual(rig.diagnostics, []);
 });
 
-// Fast-test exception (5 s maximum): a full stock fight and 640×480 raster are needed to verify the tile consumer; permanent for this integration proof.
 test("Final Destiny's text background paints its stored tiles in a stock fight", () => {
   const rig = bootUiRig({ background: "final-destiny" });
   rig.until(() => Number(rig.ui()?.["backgroundcount"] ?? 0) > 0, 2000);
