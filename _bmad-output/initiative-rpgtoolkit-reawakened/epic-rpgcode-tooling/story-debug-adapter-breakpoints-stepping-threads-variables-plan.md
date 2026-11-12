@@ -173,6 +173,26 @@ development extension, not in the contribution. The lane was removed rather than
 a future attempt should first prove that *any* development extension's `activate` runs in this
 host (one built-in extension with a `console.log`), then bring the debugger scenario back.
 
+### The web host fix (#2008) and what is left
+
+The blocker was ours, not the host's: the `browser` entry was bundled as an IIFE, and the web
+extension host reads `exports.activate` from a module — so the host never entered `activate`
+while still reporting the extension active. A controlled experiment settled it: a two-file probe
+extension (`tools/vscode-web/fixtures/minimal-extension`) that only logs in `activate` and
+registers a debug adapter factory reproduces the exact failure with `PROBE_FORMAT=iife` (no
+`activate`, *"Couldn't find a debug adapter descriptor"*) and passes with `PROBE_FORMAT=cjs`
+(`activate` runs, factory registers, session starts, adapter receives `initialize`/`launch`/
+`disconnect`). `extensions/rpgcode/build.mjs` now builds the browser bundle as CommonJS, and
+the RPGCode debugger then starts a real session in VS Code for the Web.
+
+Remaining before this lane can gate CI: the scenario's own sequencing. `session.customRequest`
+sent immediately after `onDidStartDebugSession` is cancelled by VS Code (`Canceled: Canceled`)
+because the client is still in its configuration phase; the test must wait for the client's
+paused state (`onDidChangeActiveStackItem`) before its first `continue`, and only then assert
+the two threads (the program has not run `spare = thread(...)` before that stop). `run.mjs`
+and its tests are committed and `pnpm vscode-web:probe` is green; `pnpm vscode-web:test` is not
+wired into CI until it is green.
+
 ### Remaining gap (why the PR says `Refs #950`)
 
 * The `vscode.dev` session is not run in CI. Everything else in the acceptance list is
