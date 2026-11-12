@@ -3,7 +3,7 @@ title: 'Public harness and release'
 type: 'feature'
 ticket: 11
 created: '2026-11-11'
-status: 'draft'
+status: 'in-progress'
 baseline_revision: '0dd69052b76d402eab0235ab6ee0290d9ee44535'
 route: 'full'
 route_source: 'auto'
@@ -50,12 +50,11 @@ context: ['docs/guardrails.md', 'docs/spec/engine/rpgcode-tooling.md']
 
 ## Decisions and checkpoint
 
-Already approved: early extension publishes under its own ID to both registries; `tkr script` command family and TOOL-9 schema/exit contract; epic scope includes all release surfaces. Approval of epic inception is not approval of this implementation plan or of a particular version.
+Already approved: early extension publishes under its own ID to both registries; `tkr script` command family and TOOL-9 schema/exit contract; epic scope includes all release surfaces. In this session the user selected the following recommendations and authorized release:
 
-Recommendations, **not owner rulings**:
-1. Publish the seven-package production closure above as coordinated `1.0.0` versions under the existing `@tk-reawakened` scope, including `core` and `plugin-tk2-compat`; recompute before release. This aligns with the product's first release but makes a substantial semver promise. Alternative: coordinated `0.x` versions, with a specifically documented pre-1.0 compatibility policy. Owner must choose version and API stability promise before implementation.
-2. Publish a repository-hosted composite Action pinned to an immutable release commit and install the exact released CLI version; use Node as the Action runtime while independently testing Bun. Alternative: a dedicated Action repository, requiring ownership and separate release process. Owner chooses hosting/versioning and Action input policy at checkpoint.
-3. Use registry-supported automated authentication and least-privilege publisher credentials for npm, Marketplace and Open VSX; confirm namespace/publisher control without exposing secrets. Owner/operator supplies or configures credentials and approves the actual publication at the release gate.
+1. Publish the seven-package production closure above as coordinated `1.0.0` versions under the existing `@tk-reawakened` scope; recompute before release.
+2. Use a repository-hosted composite Action pinned to an immutable release commit and install an exact released CLI version; use Node as the Action runtime while independently testing Bun.
+3. Use registry-supported automated authentication and least-privilege publisher credentials for npm, Marketplace and Open VSX. Missing credentials or access block publication.
 
 ## Tasks & Acceptance
 
@@ -77,6 +76,11 @@ Recommendations, **not owner rulings**:
 4. Run the released Action in an independent fixture repository, including its failure case. Install the published extension from Marketplace and Open VSX separately and exercise desktop and web paths. Record registry URLs, versions, job URLs and actual outcomes; leave #951 open if any proof or credential is missing.
 
 ## Implementation Notes
+
+- Candidate preparation: seven packages packed with their licences and `script-spec/package/startup.prg`. In an independent local directory, Node 26.13.0 and Bun 1.4.2 ran the packed CLI on a copied stock package, and both ran three actual cases in the copied `pass-project`. The stock package itself contains no spec cases. The programmatic `createScriptHost` example ran under Node. This is not fresh-clone or published-registry proof.
+- `pnpm build`, `pnpm licence`, `pnpm graph`, `pnpm provenance` and six release helper tests passed locally. An installed-package licence scan found nine MIT packages. `npm ls --omit=dev --all` on this local-tarball install reported the seven file-installed workspace packages invalid; do not treat that install as proof of normal registry dependency resolution.
+- `npm whoami` returned `ENEEDAUTH`; access to organisation secrets returned HTTP 403. Registry scope control and both extension publisher credentials remain unverified. No publication was attempted.
+- Remaining acceptance includes clean-clone proof, schema and negative-case validation against released packages, the Action fixture repository, extension publication and both registry installs, and release automation. The local preparation is not release completion.
 
 ## Plan Change Log
 
