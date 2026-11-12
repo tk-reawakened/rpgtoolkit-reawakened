@@ -309,6 +309,14 @@ function backgroundBytes(image: string): Uint8Array {
   }));
 }
 
+/** A text battle background with two independently tinted cells, x-major as on disk. */
+function tintedBackgroundBytes(): Uint8Array {
+  const tiles = Array.from({ length: 19 * 11 }, () => "meadow.tst1");
+  const tints = Array.from({ length: 19 * 11 }, (_, index) =>
+    index === 8 * 11 + 4 ? [30, -20, 10] : index === 9 * 11 + 2 ? [-10, 15, -25] : [0, 0, 0]);
+  return encoder.encode(["RPGTLKIT BKG", "2", "0", ...tiles, "", "", "", "", "", "", ...tints.flat().map(String)].join("\n") + "\n");
+}
+
 // ---- the authored .tbm battle background ------------------------------------------------------------------------
 //
 // A 20 × 15 grid of 32-pixel tiles is exactly the 640 × 480 screen, so the composed picture is a 1:1 copy of the art
@@ -418,7 +426,7 @@ export type RigOptions = {
    * The battle background picture the `.bkg` names: the authored PNG (default, the golden frames), the authored
    * 20 × 15 tile bitmap, or none (the stock screen's flat fallback colour).
    */
-  readonly background?: "png" | "tbm" | "none" | "final-destiny";
+  readonly background?: "png" | "prefix-png" | "tbm" | "none" | "final-destiny" | "tinted-text";
   /** Instrument scanner completion in the one regression test that distinguishes fast-path from fallback scanning. */
   readonly watchFastPathCompletion?: boolean;
 };
@@ -466,13 +474,16 @@ export function gameFiles(options: RigOptions = {}): { readonly files: Map<strin
   const backgroundKind = options.background ?? "png";
   put("Bkrounds/meadow.bkg", backgroundKind === "final-destiny"
     ? new Uint8Array(readFileSync(join(repoRoot, "fixtures", "legacy", "FinalDestiny", "Bkrounds", "Background 1.bkg")))
-    : backgroundBytes(backgroundKind === "none" ? "" : backgroundKind === "tbm" ? "meadow.tbm" : "meadow.png"));
-  if (backgroundKind === "png") {
+    : backgroundKind === "tinted-text" ? tintedBackgroundBytes()
+      : backgroundBytes(backgroundKind === "none" ? "" : backgroundKind === "tbm" ? "meadow.tbm" : backgroundKind === "prefix-png" ? "@battle-background/meadow.png" : "meadow.png"));
+  if (backgroundKind === "png" || backgroundKind === "prefix-png") {
     const background = backdrop();
-    put("Bitmap/meadow.png", encodePng(background.w, background.h, background.rgba));
+    put(backgroundKind === "prefix-png" ? "Bitmap/@battle-background/meadow.png" : "Bitmap/meadow.png", encodePng(background.w, background.h, background.rgba));
   } else if (backgroundKind === "tbm") {
     put("Tiles/meadow.tst", tilesetBytes());
     put("Bitmap/meadow.tbm", tileBitmapBytes());
+  } else if (backgroundKind === "tinted-text") {
+    put("Tiles/meadow.tst", tilesetBytes());
   } else if (backgroundKind === "final-destiny") {
     put("Tiles/default.tst", new Uint8Array(readFileSync(join(repoRoot, "fixtures", "legacy", "FinalDestiny", "Tiles", "default.tst"))));
     put("Media/VIP - Boss2.mid", new Uint8Array(readFileSync(join(repoRoot, "fixtures", "legacy", "FinalDestiny", "Media", "VIP - Boss2.mid"))));

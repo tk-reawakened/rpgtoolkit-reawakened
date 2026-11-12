@@ -1313,7 +1313,7 @@ const BACKGROUND_DATA_ASSET = {
   doc: internalDocumentation("Resume a battle-background asset request.", "Reads the `.bkg` bytes and returns the documented battle background values as a plain-data dictionary.", [...ASSET_REPLY_THROWS, { code: "format.battle-background", when: "the bytes are not a valid fight-background `.bkg` file" }]),
   call: dataAssetContinuation("battle background", "format.battle-background", readBattleBackground, (view, args, background) => dictionary(view, {
     image: background.image,
-    legacyimage: background.tiles === undefined ? "" : `@battle-background/${text(args, 2)}`,
+    legacyimage: background.tiles === undefined ? "" : dictionaryValue(view, { kind: "battle-background", file: text(args, 2) }),
     music: background.music,
     selectsound: background.menuMoveSound,
     choosesound: background.menuChooseSound,
@@ -1326,7 +1326,7 @@ const BACKGROUND_DATA = {
   name: "battlebackgrounddata", aliases: [], params: [],
   doc: {
     summary: "Read the active battle's background settings.",
-    behaviour: "Reads the active battle's `.bkg` file without changing battle state and returns `{ image, legacyimage, music, selectsound, choosesound, readysound, cantsound }`, preserving the stored file names. For a text tile background, `legacyimage` is an internal picture reference accepted by `bitmap`; otherwise it is empty. Returns null when the active battle has no background.",
+    behaviour: "Reads the active battle's `.bkg` file without changing battle state and returns `{ image, legacyimage, music, selectsound, choosesound, readysound, cantsound }`, preserving the stored file names. For a text tile background, `legacyimage` is a typed picture reference accepted by `bitmap`; otherwise it is empty. Returns null when the active battle has no background.",
     groups: REAWAKENED, tags: ["experimental"], waits: ASSET_WAIT,
     throws: [
       { code: "battle.not-active", when: "there is no active battle" },

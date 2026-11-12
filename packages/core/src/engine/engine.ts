@@ -1693,7 +1693,6 @@ export function createEngine(init: EngineInit): Engine {
     // (docs/spec/formats/tiles.md#tile-bitmap-tbm: "can be used wherever an image file is accepted"), but its pixels
     // are tiles from other files, so it is composed from the tile decoders rather than the picture decoders.
     if (key.toLowerCase().endsWith(".tbm")) return tileBitmapTexture(key);
-    if (key.toLowerCase().endsWith(".bkg")) return battleBackgroundTexture(key);
     const bytes = cache.get(key) ?? init.bundled?.get(key);
     if (bytes === undefined) return null;
     const decoded = decodeTexture(bytes, key);
@@ -1730,6 +1729,9 @@ export function createEngine(init: EngineInit): Engine {
   }
   /** Convert the text background's x-major grid to the ordinary tile-picture layout. */
   function battleBackgroundTexture(key: AssetKey): DecodedTexture | null {
+    deferredRestoreDecode.delete(key);
+    const cached = decodedImages.get(key);
+    if (cached !== undefined) return cached;
     const bytes = cache.get(key);
     if (bytes === undefined) {
       request(key, "image");
@@ -1916,12 +1918,20 @@ export function createEngine(init: EngineInit): Engine {
     decodedTiles.set(key, texture);
     return texture;
   }
+  function battlePictureName(file: unknown): string | null {
+    if (typeof file !== "object" || file === null || Array.isArray(file)) return null;
+    const reference = file as Record<string, unknown>;
+    return reference.kind === "battle-background" && typeof reference.file === "string" && reference.file !== ""
+      ? reference.file : null;
+  }
   function imageAsset(file: unknown): AssetKey | null {
+    const background = battlePictureName(file);
+    if (background !== null) {
+      const resolved = resolveAsset(index, root, "backgrounds", background);
+      return resolved.ok ? resolved.value : null;
+    }
     if (typeof file !== "string" || file === "") return null;
-    const prefix = "@battle-background/";
-    const resolved = file.startsWith(prefix)
-      ? resolveAsset(index, root, "backgrounds", file.slice(prefix.length))
-      : resolveAsset(index, root, "bitmaps", file);
+    const resolved = resolveAsset(index, root, "bitmaps", file);
     return resolved.ok ? resolved.value : null;
   }
   /**
@@ -2103,7 +2113,7 @@ export function createEngine(init: EngineInit): Engine {
       imageDiagnostic(effect.args[0], `${effect.name}: image is not in the asset index`);
       return;
     }
-    const texture = imageTexture(key);
+    const texture = battlePictureName(effect.args[0]) === null ? imageTexture(key) : battleBackgroundTexture(key);
     if (texture === null) {
       pendingImageEffects.push({ key, effect });
       request(key, "image");
@@ -2275,7 +2285,11 @@ export function createEngine(init: EngineInit): Engine {
     }
     cacheAsset(entry.key, new Uint8Array(record.event.bytes));
     if (entry.kind === "image") {
-      imageTexture(entry.key);
+      if (pendingImageEffects.some((item) => item.key === entry.key && battlePictureName(item.effect.args[0]) !== null)) {
+        battleBackgroundTexture(entry.key);
+      } else {
+        imageTexture(entry.key);
+      }
     } else if (entry.kind === "tile") {
       tileTexture(entry.key);
     }
@@ -2288,7 +2302,7 @@ export function createEngine(init: EngineInit): Engine {
     if (pendingImageEffects.length === 0 || failed) return;
     for (let index = 0; index < pendingImageEffects.length;) {
       const item = pendingImageEffects[index]!;
-      const texture = imageTexture(item.key);
+      const texture = battlePictureName(item.effect.args[0]) === null ? imageTexture(item.key) : battleBackgroundTexture(item.key);
       if (texture === null) {
         // A picture that cannot be decoded is reported once and its effect is dropped, as before; one that is only
         // waiting for another asset stays queued.

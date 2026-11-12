@@ -11,6 +11,7 @@ import type { SurfaceId } from "../../ports/keys.ts";
 import type { Arg, BuiltinDoc, BuiltinSpec, ParamSpec } from "../builtins.ts";
 import type { CommandEffect, CommandView, PluginDefinition } from "../plugin.ts";
 import { ScriptError } from "../errors.ts";
+import { findObject, isDictionary, readMember } from "../objects.ts";
 import {
   blitSurface,
   canvasGetScreen,
@@ -312,7 +313,23 @@ const FILL_CIRCLE = primitive("fillcircle", true, true);
 function image(name: string, aliases: readonly string[], commandParams: ParamSpec[], mode: string): BuiltinSpec {
   return command(name, aliases, commandParams, docs(`Draw an image ${mode}.`, "Records the image asset, geometry, blend and optional canvas in the core surface effect seam; decoded assets are applied by the asset/render owner without host APIs."), (_view, args) => ({ value: null, effects: effects(args, "mixed") }));
 }
-const BITMAP = image("bitmap", [], params(["file", "canvas"], 1), "to fill the target surface");
+const BITMAP = command("bitmap", [], params(["file", "canvas"], 1), docs(
+  "Fill a surface with an image.",
+  "Draws an ordinary image name or the typed tile-background picture returned by battlebackgrounddata.",
+), (view, args) => {
+  const value = args[0]?.value;
+  if (typeof value === "object" && value !== null && "kind" in value && value.kind === "object" && view.state !== undefined) {
+    const record = findObject(view.state.vm, value.handle);
+    if (record !== undefined && isDictionary(record)) {
+      const kind = readMember(record, "kind");
+      const file = readMember(record, "file");
+      if (kind === "battle-background" && typeof file === "string" && file !== "") {
+        return { value: null, effects: [{ kind: "mixed", section: "surfaces", args: [{ kind, file }, ...args.slice(1).map((arg) => arg.value as never)] }] };
+      }
+    }
+  }
+  return { value: null, effects: effects(args, "mixed") };
+});
 const SET_IMAGE = image("setimage", [], params(["file", "x", "y", "width", "height", "canvas"], 5), "normally");
 const SET_IMAGE_TRANSPARENT = image("setimagetransparent", [], params(["file", "x", "y", "width", "height", "r", "g", "b", "canvas"], 8), "with a colour key");
 const SET_IMAGE_TRANSLUCENT = image("setimagetranslucent", [], params(["file", "x", "y", "width", "height", "canvas"], 5), "with translucency");

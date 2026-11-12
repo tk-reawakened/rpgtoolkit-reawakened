@@ -96,6 +96,28 @@ test("an image-only battle background still paints its authored PNG", () => {
   deepEqual(rig.diagnostics, []);
 });
 
+test("an image path resembling the old internal prefix remains an ordinary bitmap", () => {
+  const rig = bootUiRig({ background: "prefix-png" });
+  rig.until(() => Number(rig.ui()?.["backgroundcount"] ?? 0) > 0, 2000);
+  rig.tick(8);
+  deepEqual(pixel(rig.frame(), 300, 150), [36, 48, 90]);
+  ok(rig.requested.includes(assetKey("Bitmap/@battle-background/meadow.png")));
+  deepEqual(rig.diagnostics, []);
+});
+
+test("text background cell tints retain their signed channels and positions", () => {
+  const rig = bootUiRig({ background: "tinted-text" });
+  rig.until(() => Number(rig.ui()?.["backgroundcount"] ?? 0) > 0, 2000);
+  rig.tick(8);
+  const frame = rig.frame();
+  const cell = (column: number, row: number) =>
+    pixel(frame, Math.floor((column * 32 + 16) * 640 / 608), Math.floor((row * 32 + 16) * 480 / 352));
+  deepEqual(cell(8, 4), [70, 70, 70]);
+  deepEqual(cell(9, 2), [30, 105, 35]);
+  deepEqual(cell(8, 3), [40, 90, 60]);
+  deepEqual(rig.diagnostics, []);
+});
+
 test("Final Destiny's text background paints its stored tiles in a stock fight", () => {
   const rig = bootUiRig({ background: "final-destiny" });
   rig.until(() => Number(rig.ui()?.["backgroundcount"] ?? 0) > 0, 2000);
