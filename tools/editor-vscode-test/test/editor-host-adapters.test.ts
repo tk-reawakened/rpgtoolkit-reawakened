@@ -20,7 +20,7 @@ after(() => GlobalRegistrator.unregister());
 test("real web and VS Code adapters keep mounted title edits dirty and named after write rejection", async () => {
   const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
   const { createWebFileSystem } = await import("@tk-reawakened/host-web/testing");
-  const webFs = createWebFileSystem(webRoot(original));
+  const webFs = createWebFileSystem(webRoot(original), "web-project");
   const webOpened = await openMainDocument(webFs, createDocumentIdentity("web-project", gamePath));
   ok(webOpened.ok);
   const webElement = document.createElement("div");
@@ -47,7 +47,7 @@ test("real web and VS Code adapters keep mounted title edits dirty and named aft
     async watch() { return { dispose() {} }; },
     errorCode(error) { return typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined; },
   };
-  const vscodeFs = createVscodeFileSystemWithPort(root, vscodePort);
+  const vscodeFs = createVscodeFileSystemWithPort(root, vscodePort, "file:///project");
   const vscodeOpened = await openMainDocument(vscodeFs, createDocumentIdentity("file:///project", gamePath));
   ok(vscodeOpened.ok);
   const hostDocument = {
@@ -72,7 +72,12 @@ test("web and VS Code adapters persist identical edited bytes through the workbe
   const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
   const { createWebFileSystem } = await import("@tk-reawakened/host-web/testing");
   const path = "/project/Main/example.gam";
-  const webFs = createWebFileSystem(webRoot(original, false));
+  const webFs = createWebFileSystem(webRoot(original, false), "web-project");
+  equal((await webFs.readProject("wrong-project", gamePath)).ok, false);
+  equal((await webFs.writeProject("wrong-project", gamePath, new Uint8Array(0))).ok, false);
+  const untouchedWeb = await webFs.read(gamePath);
+  ok(untouchedWeb.ok);
+  deepEqual(untouchedWeb.value, original);
   const webIdentity = createDocumentIdentity("web-project", gamePath);
   const webOpened = await openMainDocument(webFs, webIdentity);
   ok(webOpened.ok);
@@ -105,7 +110,10 @@ test("web and VS Code adapters persist identical edited bytes through the workbe
     async watch() { return { dispose() {} }; },
     errorCode(error) { return typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined; },
   };
-  const vscodeFs = createVscodeFileSystemWithPort(vscodeRoot, vscodePort);
+  const vscodeFs = createVscodeFileSystemWithPort(vscodeRoot, vscodePort, "file:///project");
+  equal((await vscodeFs.readProject("wrong-project", gamePath)).ok, false);
+  equal((await vscodeFs.writeProject("wrong-project", gamePath, new Uint8Array(0))).ok, false);
+  deepEqual(vscodeFiles.get(path), original);
   const vscodeIdentity = createDocumentIdentity("file:///project", gamePath);
   const vscodeOpened = await openMainDocument(vscodeFs, vscodeIdentity);
   ok(vscodeOpened.ok);
@@ -143,7 +151,7 @@ test("web and VS Code adapters persist identical edited bytes through the workbe
 test("VS Code backup recovery restores serialized edits as dirty and saves them to the original file", async () => {
   const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
   const identity = createDocumentIdentity("file:///project", gamePath);
-  const source = await openMainDocument({ read: async () => ({ ok: true, value: original }), write: async () => ({ ok: true, value: undefined }) }, identity);
+  const source = await openMainDocument({ readProject: async () => ({ ok: true, value: original }), writeProject: async () => ({ ok: true, value: undefined }) }, identity);
   ok(source.ok);
   const title = "Recovered unsaved title";
   const edit = source.document.apply({ type: "set-game-title", title });
@@ -165,7 +173,7 @@ test("VS Code backup recovery restores serialized edits as dirty and saves them 
     async watch() { return { dispose() {} }; },
     errorCode(error) { return typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined; },
   };
-  const recovered = recoverMainDocument(createVscodeFileSystemWithPort(root, port), identity, backup);
+  const recovered = recoverMainDocument(createVscodeFileSystemWithPort(root, port, "file:///project"), identity, backup);
   ok(recovered.ok);
   equal(recovered.document.getSnapshot().gameTitle, title);
   equal(recovered.document.getSnapshot().dirty, true);

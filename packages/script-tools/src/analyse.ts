@@ -9,14 +9,18 @@
  * diagnostic, located at the token the compiler named.
  */
 
-import { compileInline, ScriptError } from "@tk-reawakened/core";
+import { compileInline, ScriptError, type ScriptDialect } from "@tk-reawakened/core";
 import { rangeOf, type Diagnostic } from "./diagnostics.ts";
 
 export type AnalyseOptions = {
   /** The file name a diagnostic carries; defaults to the compiler's `<inline>` key. */
   readonly file?: string;
-  /** The source dialect; the compiler's 3.1 default applies when it is absent. */
-  readonly dialect?: "tk3" | "tk2";
+  /**
+   * The source dialect to read the buffer in; defaults to 3.1. A caller passes
+   * Toolkit 2.x only when it knows the program's dialect, as the language server
+   * does from the running project (docs/spec/engine/rpgcode-tooling.md#tool-1-project).
+   */
+  readonly dialect?: ScriptDialect;
 };
 
 export type Analysis = {

@@ -15,6 +15,39 @@ The debug adapter is the package `dap`, which depends on `core` for the `Engine`
 
 **Call tips (implementation note, #2079).** While an author types arguments, the language server provides the registered command's signature and help from the same catalogue as hover. It identifies the active argument without counting commas inside nested expressions, strings or comments; incomplete buffers need not compile. A member call, unknown name or cursor inside a comment gets no guessed built-in signature. The feature is available through both stdio and web transports.
 
+<a id="tool-1-project"></a>
+**The running project (implementation note, #2089, #2081, #2074, #2091; owner ruling 2026-11-12).** The language server learns everything it knows about a project from one main file, the way a build tool learns a project from its project file. Without that file a document is analysed on its own, and the server says so rather than claiming a clean result.
+
+- **Selection.** The running project is one `.gam` file, which the author selects explicitly. The host records the selection in the workspace and shows it. In the VS Code extension the record is the workspace setting `rpgcode.project`, written by the command **RPGCode: Select Running Project** and shown in the status bar. The host never chooses a file itself: if no file is selected, the workspace has no running project, even when it holds one `.gam`, several of them or none. The project is never inferred from the workspace root, the open file or the editor language mode.
+- **Root.** If the `.gam` file is in a folder named `Main` (ASCII case-insensitive), the project root is that folder's parent. Otherwise the root is the folder that holds the `.gam`. This covers the Toolkit folder (`Main/<name>.gam` beside `Game/`), a loose folder, and a package with a root-level `main.gam` ([project layout](../formats/packaging-and-paths.md)). If the inventory holds files under `Game/<projectPath>/`, references resolve there, as in the Toolkit folder. Otherwise the root is a package root and the stored `projectPath` is ignored, as for a loose folder.
+- **What the project supplies.** The server reads the main file with the same reader the engine boots with, then selects the dialect with the [boot rule](rpgcode-dialects.md#reawakened-project-script-dialect): main-file version 2.0–2.2 is Toolkit 2.x and every later version is 3.1. The project also supplies its inventory: every `.prg` and `.rnc` file under the root, with its root-relative path, its original document URI and its bytes. `#include` and `file.func` resolve through that inventory with the engine's resolver. A reference that resolves to a folded key goes back to that file's original URI, never to the key. The resolver's first-wins rule picks the file when two paths fold to the same key. The project's lint configuration is `tkr-lint.json` at the root ([TOOL-3](#tool-3)).
+- **Transport.** The client sends the project to the server as the `rpgcode/project` notification, which carries one complete snapshot:
+
+  | Field | Contents |
+  |---|---|
+  | `revision` | a number that increases with every snapshot the client sends |
+  | `main` | `{ uri, bytes }` (bytes in base64), or `null` when no project is selected |
+  | `rootUri` | the project root, as defined under **Root** |
+  | `files` | `{ path, uri, bytes }` per inventory file, where `path` is relative to the root with `/` separators and keeps its original spelling |
+  | `lintConfig` | `{ uri, text }` for `tkr-lint.json`, or `null` when the file is absent |
+  | `problem` | optional: why the client could not read the complete project |
+
+  The server replaces its whole project with the snapshot that has the highest revision, ignores an older one and republishes every open document. A client sends a new snapshot when the selection changes and when a `.gam`, a program or the lint configuration under the root is created, changed or deleted. The VS Code extension builds the snapshot through `workspace.fs`, so the desktop (stdio) and web (worker) hosts get the same project, including in virtual workspaces. Any other LSP client may send the same notification. A buffer open in the editor supersedes the snapshot's bytes for the same URI.
+- **Scope.** A document belongs to the running project when its URI is exactly the URI of an inventory file. For such a document the dialect, include resolution and lint configuration are **assessed**.
+- **Unassessed.** A document is **unassessed** when it is outside the project, when no project is selected, or when the main file is missing, unreadable or not a main file. A snapshot that reports a `problem` also leaves every document unassessed. The server then publishes one Information diagnostic with the code `project.unassessed` at the start of the document, giving the reason. It never treats an unassessed document as clean:
+
+  | Feature | Assessed | Unassessed |
+  |---|---|---|
+  | Parse diagnostics | in the project dialect, authoritative | provisional, in the language mode's reading (`rpgcode` as 3.1, `rpgcode-tk2` as Toolkit 2.x), next to the `project.unassessed` diagnostic |
+  | Hover, completion, outline | project dialect; includes resolved | language mode's reading; includes unresolved |
+  | Go to definition | in the document, and across explicit and implicit includes, to the original URI | in the document only |
+  | Lint findings | published with the project's configuration, for the document's own range only | not published |
+  | Formatting | 3.1: [TOOL-4](#tool-4); Toolkit 2.x: refused | refused |
+
+  A refused format returns no edit and tells the author why with a `window/showMessage` warning. It never rewrites the text.
+
+<!-- OWNER: approved by Jensen 2026-11-12 on #2089, #2081, #2074 and #2091: "The selected .gam is the project file (like a csproj): it is selected and marked as the running project in the workspace, and project scope and all other project knowledge flow from it." Rejected: a guessed workspace root, the editor language mode as the dialect, and a separately maintained inventory — each can disagree with the game the engine actually boots. -->
+
 <a id="tool-2"></a>
 **TOOL-2 The early extension.** Until the editor exists, the language server ships in its own extension, `extensions/rpgcode/`: a thin language client over `lsp` with its own extension id, built to a VSIX in CI and published to the Visual Studio Marketplace and to Open VSX (`ovsx` is the repository's named dev-tool licence exception in [G6](../../guardrails.md)). It registers `.prg` and `.rnc` and contributes no editor feature of its own; the `contributes.languages` block is one file shared with any later host, so the two registrations cannot diverge. When the editor host exists it either takes this client over or supersedes the extension, and that decision belongs to the editor epic.
 

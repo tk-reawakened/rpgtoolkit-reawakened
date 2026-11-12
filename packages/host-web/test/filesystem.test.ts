@@ -43,7 +43,7 @@ class FakeDirectory {
 function fixture() {
   const root = new FakeDirectory();
   root.children.set("game.gam", { bytes: new Uint8Array([1, 2, 3]) });
-  return { root, fs: createWebFileSystem(root as unknown as FileSystemDirectoryHandle) };
+  return { root, fs: createWebFileSystem(root as unknown as FileSystemDirectoryHandle, "project") };
 }
 
 test("web filesystem obeys project-relative path, file operation and unsupported-operation contracts", async () => {
