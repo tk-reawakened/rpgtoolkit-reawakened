@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 /**
  * The ledger limb of entry 9.4's agreement bound: every gating row of `golden/ledger.json` replays through
@@ -19,6 +21,12 @@ type RowReport = {
   readonly error: string | null;
 };
 
+type LedgerRow = {
+  readonly scene: string;
+  readonly gating: boolean;
+  readonly class: string;
+};
+
 test("every gating ledger row replays through WebGL2 and agrees with its oracle", async ({ page }) => {
   test.setTimeout(300_000);
   await page.goto("/packages/runner-web/app/agreement.html");
@@ -27,14 +35,13 @@ test("every gating ledger row replays through WebGL2 and agrees with its oracle"
   const rows = (await page.evaluate(() => window.__agreement)) as readonly RowReport[];
   for (const row of rows) console.log("row:", JSON.stringify(row));
 
-  // The ledger has nineteen gating rows today; the page reports one entry per row either way.
-  expect(rows.length).toBe(19);
-  const replayed = rows.filter((row) => row.kind === "scene" || row.kind === "closing");
-  // Every row must be replayed: a vacuous or skipped row is a gap in the lane, not a pass.
+  const ledger = JSON.parse(readFileSync(resolve("golden/ledger.json"), "utf8")) as { goldens: LedgerRow[] };
+  const expected = ledger.goldens.filter((row) => row.gating && row.class !== "legacy-screenshot");
+  expect(expected.length).toBeGreaterThan(0);
+  expect(rows.map((row) => row.scene).sort()).toEqual(expected.map((row) => row.scene).sort());
   expect(rows.filter((row) => row.kind !== "scene" && row.kind !== "closing").map((row) => `${row.scene}: ${row.kind} ${row.error ?? row.diagnostics}`)).toEqual([]);
-  expect(replayed.length).toBe(19);
 
-  for (const row of replayed) {
+  for (const row of rows) {
     expect(row.commands, `${row.scene} has commands`).toBeGreaterThan(0);
     expect(row.deferred, `${row.scene} drew every command (${row.diagnostics})`).toBe(0);
     expect(row.flushStable, `${row.scene} is pixel-identical after a cache flush`).toBe(true);

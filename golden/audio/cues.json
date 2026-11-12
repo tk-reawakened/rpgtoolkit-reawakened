@@ -121,11 +121,11 @@
       },
       {
         "cueId": 2,
-        "tick": 0,
+        "tick": 31,
         "kind": "media.play",
         "track": "music",
         "voice": 0,
-        "asset": "media/town.mid",
+        "asset": "media/title.mid",
         "loop": true,
         "flags": 1,
         "positionTicks": 0,
@@ -151,11 +151,11 @@
       },
       {
         "cueId": 2,
-        "tick": 0,
+        "tick": 31,
         "kind": "media.play",
         "track": "music",
         "voice": 0,
-        "asset": "media/vip - forest1.mid",
+        "asset": "media/scarydoor.mid",
         "loop": true,
         "flags": 1,
         "positionTicks": 0,
@@ -178,20 +178,6 @@
         "volume": null,
         "targetVolume": null,
         "durationTicks": null
-      },
-      {
-        "cueId": 2,
-        "tick": 0,
-        "kind": "media.play",
-        "track": "music",
-        "voice": 0,
-        "asset": "media/vip -  battle or boss.mid",
-        "loop": true,
-        "flags": 1,
-        "positionTicks": 0,
-        "volume": 100,
-        "targetVolume": null,
-        "durationTicks": null
       }
     ],
     "School2Demo": [
@@ -208,6 +194,20 @@
         "volume": null,
         "targetVolume": null,
         "durationTicks": null
+      },
+      {
+        "cueId": 2,
+        "tick": 31,
+        "kind": "media.play",
+        "track": "music",
+        "voice": 0,
+        "asset": "media/vip - title1.mid",
+        "loop": true,
+        "flags": 1,
+        "positionTicks": 0,
+        "volume": 100,
+        "targetVolume": null,
+        "durationTicks": null
       }
     ],
     "LittleMan": [
@@ -217,6 +217,34 @@
         "kind": "soundfont.set",
         "track": null,
         "voice": null,
+        "asset": null,
+        "loop": null,
+        "flags": null,
+        "positionTicks": null,
+        "volume": null,
+        "targetVolume": null,
+        "durationTicks": null
+      },
+      {
+        "cueId": 2,
+        "tick": 1,
+        "kind": "media.play",
+        "track": "music",
+        "voice": 0,
+        "asset": "media/title.mid",
+        "loop": true,
+        "flags": 1,
+        "positionTicks": 0,
+        "volume": 100,
+        "targetVolume": null,
+        "durationTicks": null
+      },
+      {
+        "cueId": 3,
+        "tick": 30,
+        "kind": "media.stop",
+        "track": "music",
+        "voice": 0,
         "asset": null,
         "loop": null,
         "flags": null,
