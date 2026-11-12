@@ -145,6 +145,8 @@ async function runningProjectScenario(folder: vscode.WorkspaceFolder): Promise<v
   await write("legacy/Prg/talk.prg", new TextEncoder().encode("Hello there\n"));
   await write("modern/Main/modern.gam", modern.value);
   await write("modern/Prg/talk.prg", new TextEncoder().encode("Hello there\n"));
+  await write("modern/Prg/uses.prg", new TextEncoder().encode('#include "tools/my lib.prg"\ny = helper(1)\n'));
+  await write("modern/Prg/Tools/My Lib.PRG", new TextEncoder().encode("// helpers\nfunction helper(a) { return a }\n"));
   const settings = vscode.workspace.getConfiguration("rpgcode");
   await settings.update("project", undefined, vscode.ConfigurationTarget.Workspace);
 
@@ -161,6 +163,20 @@ async function runningProjectScenario(folder: vscode.WorkspaceFolder): Promise<v
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(modernTalk));
   await diagnosticsOf(modernTalk, (items) => items.length === 1 && codeOf(items[0]!) === "syntax.error", "the 3.1 project's genuine error");
   await diagnosticsOf(talk, (items) => items.some((item) => codeOf(item) === "project.unassessed"), "the old project's file to be unassessed");
+
+  // #2081: go to definition across an include lands on the file's own URI, spelled as it is.
+  const uses = vscode.Uri.joinPath(folder.uri, "modern", "Prg", "uses.prg");
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uses));
+  await diagnosticsOf(uses, (items) => items.length === 0, "the include program to be assessed and clean");
+  const targets = await withTimeout(
+    vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>("vscode.executeDefinitionProvider", uses, new vscode.Position(1, 5)),
+    "web language-server definition",
+  );
+  const target = targets[0];
+  const targetUri = target === undefined ? undefined : "targetUri" in target ? target.targetUri : target.uri;
+  equal(targetUri?.toString(), vscode.Uri.joinPath(folder.uri, "modern", "Prg", "Tools", "My Lib.PRG").toString(), "definition opens the included file");
+  const targetText = new TextDecoder().decode(await vscode.workspace.fs.readFile(targetUri!));
+  equal(targetText.includes("function helper"), true, "the definition URI is readable through the workspace");
 
   await settings.update("project", undefined, vscode.ConfigurationTarget.Workspace);
   await vscode.commands.executeCommand("workbench.action.closeAllEditors");

@@ -174,26 +174,48 @@ export function createServer(connection: ServerConnection, options: ServerOption
     for (const document of documents.values()) publish(document);
   });
 
+  /**
+   * The document URI of a unit the index names: the open document for its own
+   * unit, the original inventory URI for an included one. A folded key is never
+   * a location (docs/spec/engine/rpgcode-tooling.md#tool-1-project).
+   */
+  const uriOfUnit = (document: TextDocument, program: IndexProgram, unit: string): string | null => {
+    if (unit === program.key) return document.uri;
+    const context = contextOf(document);
+    if (context.kind !== "assessed") return null;
+    return context.project.uriOfKey.get(unit) ?? null;
+  };
+
   /** The function a call names, inside the file its include resolved to. */
-  const targetOf = (program: IndexProgram, call: IndexCall): Location | null => {
+  const targetOf = (document: TextDocument, program: IndexProgram, call: IndexCall): Location | null => {
     if (call.file === null) {
       const local = program.functions.find((fn) => fn.name === call.name && fn.arity === call.arity);
-      return local === undefined ? null : locationOf(local);
+      return local === undefined ? null : locationOf(document, program, local);
     }
     const wanted = foldAscii(`${call.file}.prg`);
     const include = program.includes.find((item) => foldAscii(item.path) === wanted && item.key !== undefined);
     if (include === undefined || include.key === undefined) return null;
     const fn = program.functions.find((item) => item.file === include.key && item.name === call.name && item.arity === call.arity);
-    return fn === undefined ? null : locationOf(fn);
+    return fn === undefined ? null : locationOf(document, program, fn);
   };
 
-  const locationOf = (declaration: { readonly file: string; readonly line: number; readonly col?: number }): Location => ({
-    uri: declaration.file,
-    range: lspRange(declaration.line, declaration.col, declaration.col),
-  });
+  const locationOf = (
+    document: TextDocument,
+    program: IndexProgram,
+    declaration: { readonly file: string; readonly line: number; readonly col?: number; readonly endCol?: number },
+  ): Location | null => {
+    const uri = uriOfUnit(document, program, declaration.file);
+    return uri === null ? null : { uri, range: lspRange(declaration.line, declaration.col, declaration.endCol) };
+  };
 
-  const includeTarget = (program: IndexProgram, include: IndexInclude): Location | null =>
-    include.key === undefined ? null : { uri: include.key, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } } };
+  const includeTarget = (document: TextDocument, program: IndexProgram, include: IndexInclude): Location | null => {
+    if (include.key === undefined) return null;
+    const uri = uriOfUnit(document, program, include.key);
+    return uri === null ? null : { uri, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } } };
+  };
+
+  /** Sites of the open document's own unit; an included unit's sites have its own lines. */
+  const ownCalls = (program: IndexProgram): readonly IndexCall[] => program.calls.filter((item) => item.pos.file === program.key);
 
   connection.onInitialize(() => ({
     capabilities: {
@@ -233,7 +255,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
     if (program === null) return null;
     const line = params.position.line + 1;
     const column = params.position.character + 1;
-    const call = program.calls.find((item) => covers(item.pos, line, column));
+    const call = ownCalls(program).find((item) => covers(item.pos, line, column));
     if (call === undefined) return null;
     const entry = help.find((item) => foldAscii(item.name) === foldAscii(call.name));
     if (entry === undefined) return null;
@@ -277,12 +299,12 @@ export function createServer(connection: ServerConnection, options: ServerOption
     if (program === null) return [];
     const line = params.position.line + 1;
     const column = params.position.character + 1;
-    const call = program.calls.find((item) => covers(item.pos, line, column));
+    const call = ownCalls(program).find((item) => covers(item.pos, line, column));
     if (call !== undefined) {
-      const target = targetOf(program, call);
+      const target = targetOf(document, program, call);
       return target === null ? [] : [target];
     }
-    const include = program.includes.find((item) =>
+    const include = program.includes.find((item) => item.file === program.key &&
       covers(
         item.col === undefined || item.endCol === undefined
           ? { line: item.line }
@@ -292,7 +314,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
       ),
     );
     if (include !== undefined) {
-      const target = includeTarget(program, include);
+      const target = includeTarget(document, program, include);
       return target === null ? [] : [target];
     }
     return [];
@@ -334,10 +356,10 @@ export function createServer(connection: ServerConnection, options: ServerOption
     const program = indexOf(document);
     if (program === null) return [];
     const symbols: DocumentSymbol[] = [];
-    for (const fn of program.functions) {
+    for (const fn of program.functions.filter((item) => item.file === program.key)) {
       symbols.push({ name: fn.qualifiedName, kind: SymbolKind.Function, range: lspRange(fn.line, fn.col, fn.endCol), selectionRange: lspRange(fn.line, fn.col, fn.endCol) });
     }
-    for (const cls of program.classes) {
+    for (const cls of program.classes.filter((item) => item.file === program.key)) {
       symbols.push({
         name: cls.qualifiedName,
         kind: SymbolKind.Class,
@@ -349,7 +371,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
         ],
       });
     }
-    for (const label of program.labels) {
+    for (const label of program.labels.filter((item) => item.file === program.key)) {
       symbols.push({ name: label.name, kind: SymbolKind.Key, range: lspRange(label.line, label.col, label.endCol), selectionRange: lspRange(label.line, label.col, label.endCol) });
     }
     return symbols;
