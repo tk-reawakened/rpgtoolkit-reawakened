@@ -31,7 +31,7 @@ This is the dialect most surviving games use.
 * **Comparisons.** Inside a `#If` or `#While` condition a **single `=` is equality** (the help says "you can use one equal
   sign"); the comparison set is `==`, `!=`, `~=`, `<`, `>`, `<=`, `>=`. `!=` is a second "not equal" spelling alongside
   `~=` (3.1 accepts both, [rpgcode-language.md](rpgcode-language.md)). This rule is Toolkit 2.x only: in 3.1 `=` is
-  assignment.
+  assignment. Quoted text is not an operator: `#If (a$ = "p=q")` compares against `p=q`.
 * **Includes and redirects.** `#Include(filename$)`, an implicit namespace include `#lib.method(args)` (loads
   `Prg/lib.prg` and calls `method`), `#Redirect(old, new)`, `#KillRedirect(name)` and `#KillAllRedirects()`. The
   `#Redirect` operands may themselves be `#`-prefixed names and the target may be an implicit `file.method` — for example
@@ -50,7 +50,7 @@ This is the dialect most surviving games use.
 * **Unquoted string arguments** (`#Mwin(Hello there)`, `#SetImage(title.gif, …)`) are read as strings, and a variable name
   may be passed where a value is wanted.
 * **Type sigils on variables.** A trailing `!` (numeric) or `$` (string) is ignored when it follows a variable name, including immediately before an array subscript's closing `]`. For an array element, the sigil may also follow the closing `]` of the subscript, and is ignored there too: `#values[index!]$ = 1` assigns to `values[index]`. The array name and each index expression retain their ordinary Toolkit 2.x meaning.
-* **Loose text lines** with no `#`, `*`, `:` or brace are shown as dialogue exactly as written; trailing punctuation such as `!` is not a type sigil.
+* **Loose text lines** are shown as dialogue exactly as written; an embedded `#` is text, not a statement introducer, and trailing punctuation such as `!` is not a type sigil. A leading `#`, `*`, `:`, or brace marks syntax rather than loose text.
 
 **STX-7.** Loose text lines and `#Mwin` unquoted arguments exist only in legacy files; accepting them is the frontends' and the converter's job, not the 3.1 parser's.
 
