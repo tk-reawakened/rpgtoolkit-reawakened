@@ -39,6 +39,8 @@ export type ProjectModel =
       readonly uriOfKey: ReadonlyMap<string, string>;
       /** Document URI to its canonical key, for every inventory file. */
       readonly keyOfUri: ReadonlyMap<string, AssetKey>;
+      /** Document URI to its root-relative path, the name `tkr script check` reports it under. */
+      readonly pathOfUri: ReadonlyMap<string, string>;
       readonly bytes: ReadonlyMap<string, Uint8Array>;
       /** `tkr-lint.json` at the root, or `null` when the project has none. */
       readonly lintConfig: { readonly uri: string; readonly text: string } | null;
@@ -70,12 +72,14 @@ export function projectModel(snapshot: ProjectSnapshot): ProjectModel {
   const index = createAssetIndex(paths);
   const uriOfKey = new Map<string, string>();
   const keyOfUri = new Map<string, AssetKey>();
+  const pathOfUri = new Map<string, string>();
   const bytes = new Map<string, Uint8Array>();
   for (const [position, file] of files.entries()) {
     const key = index.keys[position]!;
     const decoded = decodeBase64(file.bytes);
     if (decoded === undefined) return none(revision, `the bytes of ${file.uri} are not base64`);
     keyOfUri.set(file.uri, key);
+    pathOfUri.set(file.uri, paths[position]!);
     if (uriOfKey.has(key)) continue;
     uriOfKey.set(key, file.uri);
     bytes.set(key, decoded);
@@ -98,6 +102,7 @@ export function projectModel(snapshot: ProjectSnapshot): ProjectModel {
     root,
     uriOfKey,
     keyOfUri,
+    pathOfUri,
     bytes,
     lintConfig: snapshot.lintConfig ?? null,
   };

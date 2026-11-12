@@ -145,6 +145,8 @@ async function runningProjectScenario(folder: vscode.WorkspaceFolder): Promise<v
   await write("legacy/Prg/talk.prg", new TextEncoder().encode("Hello there\n"));
   await write("modern/Main/modern.gam", modern.value);
   await write("modern/Prg/talk.prg", new TextEncoder().encode("Hello there\n"));
+  await write("modern/Prg/lint.prg", new TextEncoder().encode('nope()\nmwin("hi")\n'));
+  await write("modern/tkr-lint.json", new TextEncoder().encode(JSON.stringify({ severity: { "lint/unknown-command": "warning" } })));
   await write("modern/Prg/uses.prg", new TextEncoder().encode('#include "tools/my lib.prg"\ny = helper(1)\n'));
   await write("modern/Prg/Tools/My Lib.PRG", new TextEncoder().encode("// helpers\nfunction helper(a) { return a }\n"));
   const settings = vscode.workspace.getConfiguration("rpgcode");
@@ -177,6 +179,12 @@ async function runningProjectScenario(folder: vscode.WorkspaceFolder): Promise<v
   equal(targetUri?.toString(), vscode.Uri.joinPath(folder.uri, "modern", "Prg", "Tools", "My Lib.PRG").toString(), "definition opens the included file");
   const targetText = new TextDecoder().decode(await vscode.workspace.fs.readFile(targetUri!));
   equal(targetText.includes("function helper"), true, "the definition URI is readable through the workspace");
+
+  // #2074: the project's lint findings, at the severity its tkr-lint.json sets.
+  const linted = vscode.Uri.joinPath(folder.uri, "modern", "Prg", "lint.prg");
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(linted));
+  const findings = await diagnosticsOf(linted, (items) => items.length > 0, "the project lint findings");
+  equal(JSON.stringify(findings.map((item) => [codeOf(item), item.severity, item.range.start.line])), JSON.stringify([["lint/unknown-command", vscode.DiagnosticSeverity.Warning, 0]]), "nope() is reported at the configured severity and mwin is not");
 
   await settings.update("project", undefined, vscode.ConfigurationTarget.Workspace);
   await vscode.commands.executeCommand("workbench.action.closeAllEditors");
