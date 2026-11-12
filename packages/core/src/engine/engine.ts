@@ -3898,7 +3898,9 @@ export function createEngine(init: EngineInit): Engine {
   }
 
   /** Adapt Toolkit 2 character tile pairs to the same clip and picture contracts as authored animations. */
-  function buildLegacyCharacterWalks(frames: readonly LegacyWalkFrame[]): readonly (DecodedAnimation | null)[] | null {
+  function buildLegacyCharacterWalks(frames: readonly LegacyWalkFrame[], sizeType: number): readonly (DecodedAnimation | null)[] | null {
+    // docs/spec/formats/legacy/conversion.md#reawakened-single-tile-walk-anchor
+    const oneTileWalk = sizeType === 0 && frames.every(({ top, bottom }) => top === "" || bottom === "");
     const tiles = new Map<string, TileBitmapTile>();
     const references = new Set(frames.flatMap(({ top, bottom }) => [top, bottom]).filter((tile) => tile !== ""));
     let waiting = false;
@@ -3918,9 +3920,10 @@ export function createEngine(init: EngineInit): Engine {
       if (!group.some(({ top, bottom }) => tiles.has(top) || tiles.has(bottom))) return null;
       const clipFrames: AnimationState["frames"][number][] = [];
       for (const { top, bottom } of group) {
+        const [upper, lower] = oneTileWalk ? ["", bottom || top] : [top, bottom];
         const bitmap = compositeTileBitmap({
           magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 1, height: 2,
-          cells: [cell(top), cell(bottom), cell(""), cell(""), cell(""), cell("")],
+          cells: [cell(upper), cell(lower), cell(""), cell(""), cell(""), cell("")],
           residue: new Uint8Array(),
         }, tiles);
         if (!bitmap.ok) return null;
@@ -3954,8 +3957,9 @@ export function createEngine(init: EngineInit): Engine {
       let data = legacyCharacterWalks.get(source);
       if (data?.bytes !== bytes) {
         const character = readCharacter(new BinaryReader(bytes, source));
-        const frames = character.ok ? character.value.legacyGraphics?.walkFrames : undefined;
-        const clips = frames === undefined ? [] : buildLegacyCharacterWalks(frames);
+        const clips = character.ok && character.value.legacyGraphics !== undefined
+          ? buildLegacyCharacterWalks(character.value.legacyGraphics.walkFrames, character.value.sizeType)
+          : [];
         if (clips === null) continue;
         data = { bytes, clips };
         legacyCharacterWalks.set(source, data);

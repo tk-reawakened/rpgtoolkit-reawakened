@@ -36,6 +36,7 @@ import {
   type Engine,
   type GameState,
   type InputRecord,
+  type LegacyWalkFrame,
   type RunnerRequest,
   type SurfaceId,
   type SurfacePixels,
@@ -167,6 +168,19 @@ function characterBytes(walkFile = "hero_s.anm"): Uint8Array {
     idleAnimations: Array(8).fill(""),
     idleTime: 0,
     speed: 0.05,
+  }));
+}
+
+function legacyCharacterBytes(sizeType: number, south: readonly [LegacyWalkFrame, LegacyWalkFrame]): Uint8Array {
+  const empty = { top: "", bottom: "" };
+  return unwrap(writeCharacter({
+    ...createEmptyCharacter(), minor: 4, sizeType, name: "Hero", battleSounds: Array(4).fill(""),
+    legacyGraphics: {
+      walkFrames: [...south, ...Array(14).fill(empty)],
+      battleTiles: Array(64).fill(""),
+      restTiles: Array(4).fill(""),
+      customFrames: Array(10).fill(empty),
+    },
   }));
 }
 
@@ -440,19 +454,9 @@ test("the engine draws the player's walk-animation tile, not the marker rectangl
 });
 
 test("a TK2 character draws its authored tile pairs and advances through the original walk slots (#1960)", () => {
-  const empty = { top: "", bottom: "" };
-  const character = unwrap(writeCharacter({
-    ...createEmptyCharacter(), minor: 4, sizeType: 1, name: "Hero", battleSounds: Array(4).fill(""),
-    legacyGraphics: {
-      walkFrames: [
-        { top: "hero.tst1", bottom: "" }, { top: "hero.tst2", bottom: "hero.tst1" }, empty, empty,
-        ...Array(12).fill(empty),
-      ],
-      battleTiles: Array(64).fill(""),
-      restTiles: Array(4).fill(""),
-      customFrames: Array(10).fill(empty),
-    },
-  }));
+  const character = legacyCharacterBytes(1, [
+    { top: "hero.tst1", bottom: "" }, { top: "hero.tst2", bottom: "hero.tst1" },
+  ]);
 
   const first = run(3, { character });
   const player = first.state().sprites.players[0];
@@ -482,6 +486,24 @@ test("a TK2 character draws its authored tile pairs and advances through the ori
   const restored = loaded.engine.picturePixels(firstFrame.source.asset);
   ok(restored);
   deepEqual(pixelAt(restored, 16, 16), [220, 30, 30, 255]);
+});
+
+test("one-tile Toolkit 2 walks draw either stored slot at the actor's feet (#1978)", () => {
+  const character = legacyCharacterBytes(0, [
+    { top: "hero.tst1", bottom: "" }, { top: "", bottom: "hero.tst2" },
+  ]);
+  const first = run(3, { character });
+  equal(first.state().sprites.players[0]?.y, 64);
+  deepEqual(pixelAt(presented(first), 64, 63), [220, 30, 30, 255]);
+
+  const next = run(15, { character });
+  equal(next.state().sprites.players[0]?.y, 64);
+  deepEqual(pixelAt(presented(next), 64, 63), [30, 200, 60, 255]);
+
+  const mixed = legacyCharacterBytes(0, [
+    { top: "hero.tst1", bottom: "" }, { top: "hero.tst2", bottom: "hero.tst1" },
+  ]);
+  deepEqual(pixelAt(presented(run(3, { character: mixed })), 64, 16), [220, 30, 30, 255]);
 });
 
 test("a wide animation frame naming a 32x32 cell draws one cell, not the header's width (#1258)", () => {
