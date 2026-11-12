@@ -48,7 +48,7 @@ test("schema-only change widening a request enum is caught", async () => {
 
 test("TypeScript-only change to a nested enum is caught", async () => {
   ok(await run({
-    sources: { [drawPath]: (text) => text.replace('"normal" | "additive" | "translucent"', '"normal" | "additive" | "translucent" | "multiply"') },
+    sources: { [drawPath]: (text) => text.replace('export type BlendV1 = "normal" | "additive" | "translucent";', 'export type BlendV1 = "normal" | "additive" | "translucent" | "multiply";') },
     expect: 'TypeScript allows "multiply"',
   }));
 });
@@ -69,7 +69,7 @@ test("TypeScript-only change widening a request enum is caught", async () => {
 
 test("TypeScript-only change adding a required top-level key is caught", async () => {
   ok(await run({
-    sources: { [drawPath]: (text) => text.replace('readonly iso2d: boolean;\n};', 'readonly iso2d: boolean;\n  readonly extra: number;\n};') },
+    sources: { [drawPath]: (text) => text.replace(/(export type BlitCommandV1 = \{[\s\S]*?readonly iso2d: boolean;)/, "$1\n  readonly extra: number;") },
     expect: 'TypeScript has key "extra" that schema definition blit lacks',
   }));
 });
@@ -105,3 +105,20 @@ test("published ordering refusals catch removal of the schema ordering guard", a
   ok(await run({ schema, expect: "vector host-gamepads-order-descending: should be refused" }));
   ok(await run({ schema, expect: "vector host-gamepads-order-duplicate: should be refused" }));
 });
+test("frozen v2 schema and vectors reject source-over without widening", async () => {
+  const vectors = loadVectors();
+  vectors.vectors.push({
+    id: "v2-must-refuse-source-over",
+    family: "draw",
+    valid: true,
+    record: {
+      tick: 12, width: 640, height: 480, commands: [{
+        kind: "blit", source: { asset: "ui/overlay.bmp", tile: null },
+        src: { x: 0, y: 0, w: 2, h: 2 }, dst: { x: 4, y: 6, w: 2, h: 2 },
+        key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 128, blend: "source-over", iso2d: false,
+      }], marginCommands: [],
+    },
+  });
+  ok(await run({ vectors, expect: "vector v2-must-refuse-source-over: should be valid but" }));
+});
+

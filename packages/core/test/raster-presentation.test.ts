@@ -1,7 +1,7 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { test } from "node:test";
 import { assetKey, blitTexture, createSurface, createSurfacesSection, rasterizePresentation, readSurfacePixels } from "../src/index.ts";
-import type { DrawListV2, HostDisplayGeometry } from "../src/index.ts";
+import type { DrawList, HostDisplayGeometry } from "../src/index.ts";
 import type { SurfaceId } from "../src/ports/keys.ts";
 import type { DecodedTexture } from "../src/formats/image/model.ts";
 
@@ -11,7 +11,8 @@ const geometry: HostDisplayGeometry = {
   safeArea: { top: 0, right: 0, bottom: 0, left: 0 },
 };
 
-const list: DrawListV2 = {
+const list: DrawList = {
+  protocolVersion: 3,
   tick: 0,
   width: 2,
   height: 1,
@@ -76,6 +77,7 @@ test("Plane 3 blits retain standard AD-3 blend semantics", () => {
       iso2d: false,
     };
     const result = rasterizePresentation({
+      protocolVersion: 3,
       tick: 0,
       width: 1,
       height: 1,
@@ -131,6 +133,7 @@ test("surface blits resolve the exact referenced revision", () => {
     }
   }
   const result = rasterizePresentation({
+    protocolVersion: 3,
     tick: 0,
     width: 2,
     height: 1,
@@ -146,6 +149,7 @@ test("surface blits resolve the exact referenced revision", () => {
 
 test("surface revision errors fail closed at content dimensions", () => {
   const result = rasterizePresentation({
+    protocolVersion: 3,
     tick: 0,
     width: 2,
     height: 1,
@@ -169,6 +173,7 @@ test("surface revision errors fail closed at content dimensions", () => {
 });
 test("margin replay errors fail closed in content coordinates", () => {
   const result = rasterizePresentation({
+    protocolVersion: 3,
     tick: 0,
     width: 2,
     height: 1,
@@ -189,4 +194,19 @@ test("margin replay errors fail closed in content coordinates", () => {
   equal(result.width, 7);
   equal(result.height, 1);
   deepEqual(result.rgba, new Uint8Array(28));
+});
+test("presentation rasterizer rejects missing and unsupported draw-list protocol versions", () => {
+  for (const protocolVersion of [undefined, 2, 4]) {
+    const invalid = {
+      ...(protocolVersion === undefined ? {} : { protocolVersion }),
+      tick: 0,
+      width: 2,
+      height: 1,
+      commands: [],
+      marginCommands: [],
+    } as Parameters<typeof rasterizePresentation>[0];
+    const result = rasterizePresentation(invalid, geometry, new Map());
+    equal(result.error, `unsupported draw-list protocol version: ${String(protocolVersion)}`);
+    equal(result.rgba.length, result.width * result.height * 4);
+  }
 });

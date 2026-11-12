@@ -59,6 +59,37 @@ export function textInk(command: TextCommand, asset: TextAsset): readonly TextIn
   return null;
 }
 
+/** Conservative bounds of a decoded TrueType command's glyph ink, without expanding its coverage pixels. */
+export function trueTypeInkBounds(command: TextCommand, font: TrueTypeFont): { left: number; top: number; right: number; bottom: number } | null {
+  const size = textSize(command.font.size);
+  const metrics = trueTypeFontMetrics(font, size);
+  let cursorX = Math.trunc(command.x);
+  let cursorY = Math.trunc(command.y);
+  let glyphIndex = 0;
+  let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+  for (const character of command.text) {
+    if (character === "\n") {
+      cursorX = Math.trunc(command.x);
+      cursorY += metrics.lineHeight;
+      continue;
+    }
+    const info = command.advances[glyphIndex++];
+    const glyph = info === undefined ? font.charToGlyph(character) : font.glyphById(info.glyph);
+    const raster = getGlyphRaster(font, glyph, size, command.font.bold, command.font.italic);
+    if (raster.width > 0 && raster.height > 0) {
+      const x = cursorX + raster.offsetX;
+      const y = cursorY + metrics.ascent + raster.offsetY;
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x + raster.width);
+      bottom = Math.max(bottom, y + raster.height);
+    }
+    const advance = info?.advance ?? Math.floor(glyph.advance * size / font.unitsPerEm + 0.5) + (command.font.bold ? 1 : 0);
+    cursorX += Math.max(0, Math.trunc(advance));
+  }
+  return left === Infinity ? null : { left, top, right, bottom };
+}
+
 function trueTypeInk(command: TextCommand, font: TrueTypeFont): readonly TextInk[] {
   const size = textSize(command.font.size);
   const metrics = trueTypeFontMetrics(font, size);

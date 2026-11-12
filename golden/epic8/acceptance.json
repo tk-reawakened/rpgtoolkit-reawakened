@@ -3,8 +3,8 @@
   "checkpoints": [
     {
       "id": "main-opened",
-      "stateHash": "c83aa1dc1478b381",
-      "drawHash": "c7fb0219e7f9545b",
+      "stateHash": "a957af7488e1fe89",
+      "drawHash": "c909d391e2b9cb05",
       "events": [
         {
           "type": "itemAdded",
@@ -105,14 +105,14 @@
     },
     {
       "id": "items-opened",
-      "stateHash": "43e5bafbbc0019bf",
-      "drawHash": "ef9e282ef04c23ff",
+      "stateHash": "27db611e43951d34",
+      "drawHash": "1bce7d72e684fbdd",
       "events": []
     },
     {
       "id": "item-used",
-      "stateHash": "e2fc8f32972f1096",
-      "drawHash": "6c3a78fea9e8350e",
+      "stateHash": "9774c438f519b128",
+      "drawHash": "93aac7959af09e30",
       "events": [
         {
           "type": "itemRemoved",
@@ -132,8 +132,8 @@
     },
     {
       "id": "equip-opened",
-      "stateHash": "0733cce6678430bd",
-      "drawHash": "cc018ebd350b1683",
+      "stateHash": "7528a35a63d90c97",
+      "drawHash": "ef8fc58887d68c23",
       "events": [
         {
           "type": "itemRemoved",
@@ -153,8 +153,8 @@
     },
     {
       "id": "sword-equipped",
-      "stateHash": "88841aa85fd568ad",
-      "drawHash": "d21eecc6de19d256",
+      "stateHash": "433365368073a132",
+      "drawHash": "44dface8224dc036",
       "events": [
         {
           "type": "itemRemoved",
@@ -174,8 +174,8 @@
     },
     {
       "id": "sword-replaced",
-      "stateHash": "5fcfb4c71d575ea5",
-      "drawHash": "efc8c7d369c83b88",
+      "stateHash": "17e80ef153716621",
+      "drawHash": "c5f5197b9eb81acc",
       "events": [
         {
           "type": "itemRemoved",
@@ -209,8 +209,8 @@
     },
     {
       "id": "accessory-equipped",
-      "stateHash": "959ae70b65b78b9f",
-      "drawHash": "ed03fba7fe4bab2f",
+      "stateHash": "7f1b7db502dae1d9",
+      "drawHash": "d7319f181eecbbbb",
       "events": [
         {
           "type": "itemAdded",
@@ -244,8 +244,8 @@
     },
     {
       "id": "equipment-removed",
-      "stateHash": "5d20214cd1d89461",
-      "drawHash": "a6ded9db71df1cce",
+      "stateHash": "27fd0d7f957b9c69",
+      "drawHash": "e8a80d388b7ed6c6",
       "events": [
         {
           "type": "itemAdded",
@@ -265,14 +265,14 @@
     },
     {
       "id": "abilities-opened",
-      "stateHash": "387b463ed2c64ab9",
-      "drawHash": "0b09b66908311ac9",
+      "stateHash": "af5eb38e6a112883",
+      "drawHash": "824b3e2e628e1699",
       "events": []
     },
     {
       "id": "ability-used",
-      "stateHash": "7565e30e19aa1579",
-      "drawHash": "fa96bc2d39d7e2b7",
+      "stateHash": "f070678e0809dfa4",
+      "drawHash": "fb39a6afa2e5d983",
       "events": []
     }
   ]

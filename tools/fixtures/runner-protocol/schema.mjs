@@ -95,7 +95,7 @@ function children(node) {
 export function schemaProblems(schema) {
   const problems = [];
   if (schema.$schema !== DRAFT) problems.push(`schema: $schema must be ${DRAFT}`);
-  if (typeof schema.$id !== "string" || !/^https:\/\/tk-reawakened\.dev\/schema\/runner-protocol-v[12]\.schema\.json$/.test(schema.$id)) {
+  if (typeof schema.$id !== "string" || !/^https:\/\/tk-reawakened\.dev\/schema\/runner-protocol-v[123]\.schema\.json$/.test(schema.$id)) {
     problems.push("schema: $id must name a supported runner-protocol schema version");
   }
   if (!isObject(schema.$defs)) return [...problems, "schema: $defs is missing"];

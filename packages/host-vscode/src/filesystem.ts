@@ -29,5 +29,5 @@ const port: VscodeFileSystemPort<vscode.Uri> = {
 
 /** workspace.fs adapter for browser and desktop VS Code; it deliberately has no Node imports. */
 export function createVscodeFileSystem(root: vscode.Uri) {
-  return createVscodeFileSystemWithPort(root, port);
+  return createVscodeFileSystemWithPort(root, port, root.toString());
 }

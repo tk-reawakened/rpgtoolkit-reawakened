@@ -506,10 +506,10 @@ test("Save is disabled and the state says Saving while a save is in flight", asy
   });
   const slow = await openMainDocument(
     {
-      read: (path) => s.host.fs.read(path),
-      write: async (path, bytes) => {
+      readProject: (projectId, path) => s.host.fs.readProject(projectId, path),
+      writeProject: async (projectId, path, bytes) => {
         await gate;
-        return s.host.fs.write(path, bytes);
+        return s.host.fs.writeProject(projectId, path, bytes);
       },
     },
     identity,

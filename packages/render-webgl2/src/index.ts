@@ -6,7 +6,7 @@ import {
   textInk,
   type RasterAsset,
 } from "@tk-reawakened/core";
-import type { AssetKey, DrawCommand, DrawListV2, HostDisplayGeometry, SurfaceId } from "@tk-reawakened/core";
+import type { AssetKey, DrawCommand, DrawList, HostDisplayGeometry, SurfaceId } from "@tk-reawakened/core";
 
 export type TexturePixels = { readonly w: number; readonly h: number; readonly rgba: Uint8Array };
 export type TextureProvider = (asset: AssetKey) => TexturePixels | null;
@@ -15,7 +15,7 @@ export type FontProvider = (asset: AssetKey) => RasterAsset | undefined;
 export type RenderStats = { readonly drawn: number; readonly deferred: number; readonly deferredByKind: { readonly [kind: string]: number }; readonly diagnostics: readonly string[] };
 export type RenderOptions = { readonly textures: TextureProvider; readonly surfaces?: SurfaceProvider; readonly fonts?: FontProvider; readonly fallbackFont?: RasterAsset | undefined };
 export interface Webgl2Renderer {
-  render(list: DrawListV2, geometry: HostDisplayGeometry, options: RenderOptions): RenderStats;
+  render(list: DrawList, geometry: HostDisplayGeometry, options: RenderOptions): RenderStats;
   flush(): void;
   readonly canvas: { readonly width: number; readonly height: number };
   dispose(): void;
@@ -33,10 +33,11 @@ void main(){ vec4 r=uInstanced==1?aRect:uRect; vec2 p=r.xy+aUnit*r.zw; vec2 c=(p
 const FRAGMENT = `#version 300 es
 precision highp float; precision highp int;
 in vec2 vLocal; in float vCoverage; out vec4 outColor;
-uniform sampler2D uTex; uniform int uMode; uniform vec3 uColor; uniform vec3 uTint;
-uniform int uKeyOn; uniform vec3 uKey; uniform ivec2 uSrcOrigin; uniform ivec2 uSrcSize; uniform ivec2 uDstSize;
+uniform sampler2D uTex; uniform sampler2D uDestination; uniform int uMode; uniform vec3 uColor; uniform vec3 uTint;
+uniform int uKeyOn; uniform vec3 uKey; uniform ivec2 uSrcOrigin; uniform ivec2 uSrcSize; uniform ivec2 uDstSize; uniform float uOpacity;
 void main(){
- if(uMode==0||uMode==2){ ivec2 at=ivec2(int(floor(vLocal.x*float(uDstSize.x)+0.0001)),int(floor(vLocal.y*float(uDstSize.y)+0.0001))); ivec2 t=uSrcOrigin+at*uSrcSize/uDstSize; vec4 s=texelFetch(uTex,t,0); if(s.a==0.0)discard; vec3 c=s.rgb*255.0; if(uKeyOn==1&&all(lessThan(abs(c-uKey),vec3(0.5))))discard; if(any(notEqual(uTint,vec3(0.0)))) c=vec3(c.r==255.0?245.0:(c.r==0.0?10.0:c.r),c.g==255.0?245.0:(c.g==0.0?10.0:c.g),c.b==255.0?245.0:(c.b==0.0?10.0:c.b)); outColor=vec4(clamp(c+uTint,0.0,255.0)/255.0,uMode==0?s.a:1.0); return; }
+ if(uMode==0||uMode==2||uMode==4){ ivec2 at=ivec2(int(floor(vLocal.x*float(uDstSize.x)+0.0001)),int(floor(vLocal.y*float(uDstSize.y)+0.0001))); ivec2 t=uSrcOrigin+at*uSrcSize/uDstSize; vec4 s=texelFetch(uTex,t,0); if(s.a==0.0)discard; vec3 c=s.rgb*255.0; if(uKeyOn==1&&all(lessThan(abs(c-uKey),vec3(0.5))))discard; if(any(notEqual(uTint,vec3(0.0)))) c=vec3(c.r==255.0?245.0:(c.r==0.0?10.0:c.r),c.g==255.0?245.0:(c.g==0.0?10.0:c.g),c.b==255.0?245.0:(c.b==0.0?10.0:c.b)); c=clamp(c+uTint,0.0,255.0); if(uMode==4){ vec4 d=texelFetch(uDestination,ivec2(gl_FragCoord.xy),0); float a=floor(floor(s.a*255.0+0.5)*uOpacity+0.0001); float da=floor(d.a*255.0+0.5); float n=a*255.0+da*(255.0-a); if(n==0.0)discard; vec3 rgb=floor((c*a*255.0+floor(d.rgb*255.0+0.5)*da*(255.0-a)+floor(n/2.0))/n); outColor=vec4(rgb/255.0,floor((n+127.0)/255.0)/255.0); return; } outColor=vec4(c/255.0,uMode==0?s.a:1.0); return; }
+ if(uMode==5){vec4 d=texelFetch(uDestination,ivec2(gl_FragCoord.xy),0);float a=floor(vCoverage*255.0+0.5);float da=floor(d.a*255.0+0.5);float n=a*255.0+da*(255.0-a);if(n==0.0)discard;vec3 rgb=floor((floor(uColor*255.0+0.5)*a*255.0+floor(d.rgb*255.0+0.5)*da*(255.0-a)+floor(n/2.0))/n);outColor=vec4(rgb/255.0,floor((n+127.0)/255.0)/255.0);return;}
  if(uMode==3){outColor=vec4(uColor,vCoverage);return;} outColor=vec4(uColor,1.0);
 }`;
 const PRESENT_VERTEX = `#version 300 es
@@ -44,18 +45,19 @@ void main(){vec2 p=gl_VertexID==0?vec2(-1.,-1.):(gl_VertexID==1?vec2(3.,-1.):vec
 const PRESENT_FRAGMENT = `#version 300 es
 precision highp float; precision highp int;
 uniform sampler2D uGamePlane; uniform sampler2D uMarginPlane;
-uniform vec2 uContent; uniform vec4 uGame; uniform vec4 uSafe; uniform ivec2 uLogical; uniform ivec4 uBounds; uniform ivec2 uMarginSize;
+uniform vec2 uContent; uniform vec4 uGame; uniform vec4 uSafe; uniform ivec2 uLogical; uniform ivec4 uBounds; uniform ivec2 uMarginSize; uniform int uOpaque;
 out vec4 outColor;
+vec4 outputPixel(vec4 color){return uOpaque==1?vec4(color.rgb*color.a,1.0):uOpaque==2?vec4(color.rgb*color.a,color.a):color;}
 void main(){
  vec2 center=vec2(gl_FragCoord.x,ceil(uContent.y)-gl_FragCoord.y);
  if(center.x>=uContent.x||center.y>=uContent.y){outColor=vec4(0.);return;}
  vec2 scale=uGame.zw/vec2(uLogical); ivec2 p=ivec2(floor((center-uGame.xy)/scale));
  bool game=center.x>=uGame.x&&center.x<uGame.x+uGame.z&&center.y>=uGame.y&&center.y<uGame.y+uGame.w;
- if(game&&all(greaterThanEqual(p,ivec2(0)))&&all(lessThan(p,uLogical))){outColor=texelFetch(uGamePlane,ivec2(p.x,uLogical.y-1-p.y),0);return;}
+ if(game&&all(greaterThanEqual(p,ivec2(0)))&&all(lessThan(p,uLogical))){outColor=outputPixel(texelFetch(uGamePlane,ivec2(p.x,uLogical.y-1-p.y),0));return;}
  bool safe=center.x>=uSafe.x&&center.y>=uSafe.y&&center.x<uContent.x-uSafe.z&&center.y<uContent.y-uSafe.w;
  vec2 cell0=uGame.xy+vec2(p)*scale; vec2 cell1=uGame.xy+(vec2(p)+vec2(1.))*scale;
  bool eligible=safe&&!(all(greaterThanEqual(p,ivec2(0)))&&all(lessThan(p,uLogical)))&&p.x>=-uBounds.x&&p.x<uLogical.x+uBounds.y&&p.y>=-uBounds.z&&p.y<uLogical.y+uBounds.w&&all(greaterThanEqual(cell0,vec2(0.)))&&all(lessThanEqual(cell1,uContent))&&cell0.x>=uSafe.x&&cell0.y>=uSafe.y&&cell1.x<=uContent.x-uSafe.z&&cell1.y<=uContent.y-uSafe.w;
- if(eligible){ivec2 m=p+uBounds.xz;outColor=texelFetch(uMarginPlane,ivec2(m.x,uMarginSize.y-1-m.y),0);return;} outColor=vec4(0.);
+ if(eligible){ivec2 m=p+uBounds.xz;outColor=outputPixel(texelFetch(uMarginPlane,ivec2(m.x,uMarginSize.y-1-m.y),0));return;} outColor=vec4(0.);
 }`;
 function compile(gl: WebGL2RenderingContext, kind: number, source: string): WebGLShader {
   const shader = gl.createShader(kind);
@@ -79,7 +81,7 @@ function cropTile(pixels: TexturePixels, width: number, tile: number): TexturePi
   for (let y = 0; y < pixels.h; y += 1) rgba.set(pixels.rgba.subarray((y * pixels.w + x) * 4, (y * pixels.w + x + w) * 4), y * w * 4);
   return { w, h: pixels.h, rgba };
 }
-function marginBounds(list: DrawListV2, geometry: HostDisplayGeometry) {
+function marginBounds(list: DrawList, geometry: HostDisplayGeometry) {
   const { content, game, safeArea } = geometry; const right = content.width - safeArea.right; const bottom = content.height - safeArea.bottom;
   const empty = right <= safeArea.left || bottom <= safeArea.top; const sx = game.width / list.width; const sy = game.height / list.height;
   const left = empty ? 0 : Math.floor(Math.max(0, game.x - safeArea.left) / sx);
@@ -93,13 +95,37 @@ function marginBounds(list: DrawListV2, geometry: HostDisplayGeometry) {
 export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer {
   const replayProgram = makeProgram(gl, VERTEX, FRAGMENT); const presentProgram = makeProgram(gl, PRESENT_VERTEX, PRESENT_FRAGMENT);
   const loc = (name: string) => uniform(gl, replayProgram, name);
-  const replay = { rect: loc("uRect"), viewport: loc("uViewport"), instanced: loc("uInstanced"), mode: loc("uMode"), color: loc("uColor"), tint: loc("uTint"), keyOn: loc("uKeyOn"), key: loc("uKey"), srcOrigin: loc("uSrcOrigin"), srcSize: loc("uSrcSize"), dstSize: loc("uDstSize"), tex: loc("uTex") };
-  const present = { game: uniform(gl, presentProgram, "uGamePlane"), margin: uniform(gl, presentProgram, "uMarginPlane"), content: uniform(gl, presentProgram, "uContent"), gameRect: uniform(gl, presentProgram, "uGame"), safe: uniform(gl, presentProgram, "uSafe"), logical: uniform(gl, presentProgram, "uLogical"), bounds: uniform(gl, presentProgram, "uBounds"), marginSize: uniform(gl, presentProgram, "uMarginSize") };
+  const replay = { rect: loc("uRect"), viewport: loc("uViewport"), instanced: loc("uInstanced"), mode: loc("uMode"), color: loc("uColor"), tint: loc("uTint"), keyOn: loc("uKeyOn"), key: loc("uKey"), srcOrigin: loc("uSrcOrigin"), srcSize: loc("uSrcSize"), dstSize: loc("uDstSize"), tex: loc("uTex"), destination: loc("uDestination"), opacity: loc("uOpacity") };
+  const present = { game: uniform(gl, presentProgram, "uGamePlane"), margin: uniform(gl, presentProgram, "uMarginPlane"), content: uniform(gl, presentProgram, "uContent"), gameRect: uniform(gl, presentProgram, "uGame"), safe: uniform(gl, presentProgram, "uSafe"), logical: uniform(gl, presentProgram, "uLogical"), bounds: uniform(gl, presentProgram, "uBounds"), marginSize: uniform(gl, presentProgram, "uMarginSize"), opaque: uniform(gl, presentProgram, "uOpaque") };
   const quad = gl.createBuffer(); const pointBuffer = gl.createBuffer();
   if (quad === null || pointBuffer === null) throw new Error("render-webgl2: could not create geometry buffers");
   gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0,1,0,0,1,0,1,1,0,1,1]), gl.STATIC_DRAW);
   const unit = gl.getAttribLocation(replayProgram, "aUnit"); const rectAttrib = gl.getAttribLocation(replayProgram, "aRect"); const coverageAttrib = gl.getAttribLocation(replayProgram, "aCoverage");
   const uploads = new Map<string, Uploaded>(); const targets: Target[] = []; const scratch: Target[][] = [[], []]; let size = { width: 0, height: 0 }; let disposed = false;
+  const destinations: (Uploaded | null)[] = [null, null];
+  let activePlane = 0;
+  // Straight-alpha source-over needs the destination alpha as well as its colour; fixed-function blending alone
+  // cannot normalize RGB by the resulting alpha. Reuse one GPU-only snapshot per blit, never a CPU readback.
+  function snapshotDestination(width: number, height: number): void {
+    gl.activeTexture(gl.TEXTURE1);
+    let destination = destinations[activePlane] ?? null;
+    if (destination === null || destination.w !== width || destination.h !== height) {
+      if (destination !== null) gl.deleteTexture(destination.texture);
+      const texture = gl.createTexture();
+      if (texture === null) throw new Error("render-webgl2: unable to allocate source-over snapshot");
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      destination = { texture, w: width, h: height };
+      destinations[activePlane] = destination;
+    } else gl.bindTexture(gl.TEXTURE_2D, destination.texture);
+    gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
+    gl.uniform1i(replay.destination, 1);
+    gl.activeTexture(gl.TEXTURE0);
+  }
   function targetAt(pool: Target[], index: number, width: number, height: number): Target {
     let target = pool[index];
     if (target !== undefined && target.width === width && target.height === height) return target;
@@ -136,7 +162,7 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
   const usedSurfaceUploads = new Set<string>();
   function drawCommands(commands: readonly DrawCommand[], dimensions: { width: number; height: number }, offset: { x: number; y: number }, root: Target, scratchPool: Target[], options: RenderOptions, defer: (kind: string, reason: string) => void): { drawn: number; deferred: number } {
     const stack: Target[] = []; let drawn = 0; let deferred = 0;
-    gl.useProgram(replayProgram); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, null); gl.bindBuffer(gl.ARRAY_BUFFER,quad); gl.enableVertexAttribArray(unit); gl.vertexAttribPointer(unit,2,gl.FLOAT,false,0,0); gl.uniform1i(replay.tex,0); gl.uniform1i(replay.instanced,0); gl.enable(gl.BLEND);
+    gl.useProgram(replayProgram); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,destinations[activePlane]?.texture??null); gl.uniform1i(replay.destination,1); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, null); gl.bindBuffer(gl.ARRAY_BUFFER,quad); gl.enableVertexAttribArray(unit); gl.vertexAttribPointer(unit,2,gl.FLOAT,false,0,0); gl.uniform1i(replay.tex,0); gl.uniform1i(replay.instanced,0); gl.enable(gl.BLEND);
     const bind = (target: Target) => { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,null); gl.bindFramebuffer(gl.FRAMEBUFFER,target.framebuffer); gl.viewport(0,0,target.width,target.height); gl.uniform2f(replay.viewport,target.width,target.height); };
     bind(root); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
     const color = (rgb: {r:number;g:number;b:number}, coverage=255) => { gl.uniform1i(replay.mode,coverage===255?1:3); gl.uniform1i(replay.keyOn,0); gl.uniform3f(replay.color,rgb.r/255,rgb.g/255,rgb.b/255); blend(coverage===255?"normal":"coverage"); };
@@ -154,11 +180,30 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
           else {const {surface,rev}=command.source;key=`surface:${surface}:${rev}`;const cacheKey=`${surface}:${rev}`;if(!surfacePixels.has(cacheKey))surfacePixels.set(cacheKey,options.surfaces?.(surface,rev)??null);pixels=surfacePixels.get(cacheKey)??null;}
           if(pixels===null){const reason="asset" in command.source?`webgl2.missing-texture: ${command.source.asset}`:options.surfaces===undefined?"webgl2.no-source: a surface blit with no surface provider":`webgl2.missing-texture: surface ${String(command.source.surface)}`;defer("blit",reason);deferred++;break;}
           if("surface" in command.source) usedSurfaceUploads.add(key);
-          const source=upload(key,pixels);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,source.texture);gl.uniform3f(replay.tint,command.tint.r,command.tint.g,command.tint.b);if(command.key===null)gl.uniform1i(replay.keyOn,0);else{gl.uniform1i(replay.keyOn,1);gl.uniform3f(replay.key,command.key.r,command.key.g,command.key.b);}gl.uniform1i(replay.mode,command.blend==="normal"?0:2);blend(command.blend,command.alpha/255);
+          const source=upload(key,pixels);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,source.texture);gl.uniform3f(replay.tint,command.tint.r,command.tint.g,command.tint.b);if(command.key===null)gl.uniform1i(replay.keyOn,0);else{gl.uniform1i(replay.keyOn,1);gl.uniform3f(replay.key,command.key.r,command.key.g,command.key.b);}gl.uniform1f(replay.opacity,command.alpha/255);gl.uniform1i(replay.mode,command.blend==="normal"?0:command.blend==="source-over"?4:2);if(command.blend==="source-over"){const target=stack.at(-1)??root;snapshotDestination(target.width,target.height);blend("normal");}else blend(command.blend,command.alpha/255);
           if(!command.iso2d){drawQuad(offsetRect(command.dst),{x:originX,y:originY,w:command.src.w,h:command.src.h});drawn++;break;}
           let count=0;for(let y=0;y<command.dst.h;y++)for(let x=0;x<command.dst.w;x++){const unitOffset=isoSourceOffset(x,y);if(unitOffset===null)continue;gl.uniform2i(replay.srcOrigin,originX+Math.floor(unitOffset[0]*command.src.w/32),originY+Math.floor(unitOffset[1]*command.src.h/32));gl.uniform2i(replay.srcSize,1,1);gl.uniform2i(replay.dstSize,1,1);gl.uniform4f(replay.rect,command.dst.x+offset.x+x,command.dst.y+offset.y+y,1,1);gl.drawArrays(gl.TRIANGLES,0,6);count++;}if(count)drawn++;else{defer("blit","webgl2.iso-empty: the .iso diamond covers no destination pixel");deferred++;}break;
         }
-        case "text": {const ink=textInk(command,options.fonts?.(command.font.asset)??options.fallbackFont);if(ink===null){defer("text",`webgl2.missing-font: ${command.font.asset}`);deferred++;break;}gl.uniform1i(replay.mode,3);gl.uniform1i(replay.keyOn,0);gl.uniform3f(replay.color,command.rgb.r/255,command.rgb.g/255,command.rgb.b/255);blend("coverage");drawPixels(ink.map(({x,y,coverage})=>[x+offset.x,y+offset.y,coverage/255] as const));drawn++;break;}
+        case "text": {
+          const ink=textInk(command,options.fonts?.(command.font.asset)??options.fallbackFont);
+          if(ink===null){defer("text",`webgl2.missing-font: ${command.font.asset}`);deferred++;break;}
+          if(ink.every(({coverage})=>coverage===255)){
+            gl.uniform1i(replay.mode,3);gl.uniform3f(replay.color,command.rgb.r/255,command.rgb.g/255,command.rgb.b/255);blend("normal");
+            drawPixels(ink.map(({x,y})=>[x+offset.x,y+offset.y,1] as const));drawn++;break;
+          }
+          gl.uniform1i(replay.mode,5);gl.uniform1i(replay.keyOn,0);gl.uniform3f(replay.color,command.rgb.r/255,command.rgb.g/255,command.rgb.b/255);blend("normal");
+          const target=stack.at(-1)??root; const layers: Point[][]=[]; const counts=new Map<number,number>();
+          // Pixels commute across coordinates, but repeated ink at one coordinate must retain its order.
+          // Each layer has at most one contribution per pixel, so one snapshot suffices per overlap depth.
+          for(const {x,y,coverage} of ink){
+            const px=x+offset.x,py=y+offset.y;
+            if(px<0||py<0||px>=target.width||py>=target.height)continue;
+            const key=py*target.width+px,level=counts.get(key)??0;
+            counts.set(key,level+1);(layers[level]??= []).push([px,py,coverage/255]);
+          }
+          for(const points of layers){snapshotDestination(target.width,target.height);drawPixels(points);}
+          drawn++;break;
+        }
         case "pushTarget": {const target=targetAt(scratchPool,stack.length,dimensions.width,dimensions.height);stack.push(target);bind(target);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);drawn++;break;}
         case "popTarget": {const top=stack.pop();if(top===undefined){defer("popTarget","webgl2.unbalanced-pop: popTarget without pushTarget");deferred++;break;}bind(stack.at(-1)??root);drawn++;break;}
       }
@@ -170,19 +215,25 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
   return {
     get canvas(){return size;},
     render(list,geometry,options){
-      if(disposed)throw new Error("render-webgl2: renderer was disposed");
+      if (disposed) throw new Error("render-webgl2: renderer was disposed");
+      if (list.protocolVersion !== 3) {
+        throw new Error(`render-webgl2: unsupported draw-list protocol version: ${String(list.protocolVersion)}`);
+      }
       const contentW=Math.ceil(geometry.content.width),contentH=Math.ceil(geometry.content.height);if(gl.canvas.width!==contentW||gl.canvas.height!==contentH){gl.canvas.width=contentW;gl.canvas.height=contentH;}size={width:contentW,height:contentH};
       const bounds=marginBounds(list,geometry);const roots=[targetAt(targets,0,list.width,list.height),targetAt(targets,1,bounds.width,bounds.height)];
       surfacePixels.clear();
       usedSurfaceUploads.clear();
       const diagnostics:string[]=[];const byKind:{[kind:string]:number}={};const defer=(kind:string,why:string)=>{byKind[kind]=(byKind[kind]??0)+1;if(!diagnostics.includes(why))diagnostics.push(why);};
+      activePlane=0;
       const a=drawCommands(list.commands,{width:list.width,height:list.height},{x:0,y:0},roots[0]!,scratch[0]!,options,defer);
+      activePlane=1;
       const b=drawCommands(list.marginCommands,{width:bounds.width,height:bounds.height},{x:bounds.left,y:bounds.top},roots[1]!,scratch[1]!,options,defer);
       for(const [key,value] of uploads) if(key.startsWith("surface:")&&!usedSurfaceUploads.has(key)){gl.deleteTexture(value.texture);uploads.delete(key);}
+      const attributes=gl.getContextAttributes();gl.useProgram(presentProgram);gl.uniform1i(present.opaque,attributes?.alpha===false?1:attributes?.premultipliedAlpha===true?2:0);
       gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,contentW,contentH);gl.disable(gl.BLEND);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(presentProgram);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,roots[0]!.texture);gl.uniform1i(present.game,0);gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,roots[1]!.texture);gl.uniform1i(present.margin,1);gl.uniform2f(present.content,geometry.content.width,geometry.content.height);gl.uniform4f(present.gameRect,geometry.game.x,geometry.game.y,geometry.game.width,geometry.game.height);gl.uniform4f(present.safe,geometry.safeArea.left,geometry.safeArea.top,geometry.safeArea.right,geometry.safeArea.bottom);gl.uniform2i(present.logical,list.width,list.height);gl.uniform4i(present.bounds,bounds.left,bounds.right,bounds.top,bounds.bottom);gl.uniform2i(present.marginSize,bounds.width,bounds.height);gl.drawArrays(gl.TRIANGLES,0,3);
       return {drawn:a.drawn+b.drawn,deferred:a.deferred+b.deferred,deferredByKind:byKind,diagnostics};
     },
     flush(){if(disposed)return;for(const value of uploads.values())gl.deleteTexture(value.texture);uploads.clear();surfacePixels.clear();},
-    dispose(){if(disposed)return;this.flush();disposeTargets(targets);for(const pool of scratch)disposeTargets(pool);gl.deleteBuffer(quad);gl.deleteBuffer(pointBuffer);gl.deleteProgram(replayProgram);gl.deleteProgram(presentProgram);disposed=true;},
+    dispose(){if(disposed)return;this.flush();disposeTargets(targets);for(const pool of scratch)disposeTargets(pool);for(const destination of destinations)if(destination!==null)gl.deleteTexture(destination.texture);gl.deleteBuffer(quad);gl.deleteBuffer(pointBuffer);gl.deleteProgram(replayProgram);gl.deleteProgram(presentProgram);disposed=true;},
   };
 }

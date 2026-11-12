@@ -5,7 +5,7 @@ import { parseSpecTable } from "./spec-table.mjs";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const core = await import(pathToFileURL(join(root, "packages/core/dist/index.js")).href);
-// The spec package is not in the engine's default manifest (TOOL-5), but its seven commands are registered
+// The spec package is not in the engine's default manifest (TOOL-5), but its twelve commands are registered
 // commands with documentation, so the gate checks them like any other.
 const { SPEC_PLUGIN } = await import(pathToFileURL(join(root, "packages/script-spec/dist/index.js")).href);
 const { commandDocumentation, validateCommandDocumentation, CORE_PLUGIN, MEDIA_PLUGIN, BATTLE_PLUGIN, CATALOGUE_PLUGIN, NATIVE_PACK_TABLE } = core;

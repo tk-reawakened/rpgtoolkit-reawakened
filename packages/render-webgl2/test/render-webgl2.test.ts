@@ -1,7 +1,9 @@
-import { deepEqual, equal } from "node:assert/strict";
+import { deepEqual, equal, throws } from "node:assert/strict";
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
+import { readLegacyFont, readTrueTypeFont, textInk, type AssetKey } from "@tk-reawakened/core";
 import { createWebgl2Renderer } from "../src/index.ts";
-import type { DrawListV2, HostDisplayGeometry, ScratchId, SurfaceId } from "@tk-reawakened/core";
+import type { DrawList, HostDisplayGeometry, ScratchId, SurfaceId } from "@tk-reawakened/core";
 
 type DrawEvent = { readonly kind: "arrays" | "instanced"; readonly instanced: number };
 
@@ -12,6 +14,7 @@ function fakeContext(): {
   readonly deletedTextureCount: () => number;
   readonly drawEvents: () => readonly DrawEvent[];
   readonly blendAlphas: () => readonly number[];
+  readonly snapshotCount: () => number;
 } {
   let next = 1;
   let instanced = 0;
@@ -20,6 +23,7 @@ function fakeContext(): {
   const deletedTextures: unknown[] = [];
   const drawEvents: DrawEvent[] = [];
   const blendAlphas: number[] = [];
+  let snapshots = 0;
   const canvas = { width: 0, height: 0 };
   const methods: Record<string, (...args: unknown[]) => unknown> = {
     createProgram: () => ({}), createShader: () => ({}), createBuffer: () => ({}), createFramebuffer: () => ({}),
@@ -30,6 +34,7 @@ function fakeContext(): {
     blendColor: (_r, _g, _b, alpha) => { blendAlphas.push(alpha as number); },
     drawArrays: () => { drawEvents.push({ kind: "arrays", instanced }); },
     drawArraysInstanced: () => { drawEvents.push({ kind: "instanced", instanced }); },
+    copyTexSubImage2D: () => { snapshots += 1; },
     texImage2D: (...args) => {
       uploads.push(args);
       if (args[8] === null) allocated.push([args[3] as number, args[4] as number]);
@@ -62,6 +67,7 @@ function fakeContext(): {
     deletedTextureCount: () => deletedTextures.length,
     drawEvents: () => drawEvents,
     blendAlphas: () => blendAlphas,
+    snapshotCount: () => snapshots,
   };
 }
 
@@ -70,7 +76,8 @@ const geometry: HostDisplayGeometry = {
   game: { x: 1, y: 0, width: 2, height: 2 },
   safeArea: { top: 0, right: 0, bottom: 0, left: 0 },
 };
-const list: DrawListV2 = {
+const list: DrawList = {
+  protocolVersion: 3,
   tick: 0,
   width: 2,
   height: 2,
@@ -100,6 +107,64 @@ test("WebGL2 replays game and margin commands into separate reusable GPU planes 
   renderer.dispose();
 });
 
+test("game and margin source-over snapshots reuse their differently sized textures", () => {
+  const { gl, allocated, deletedTextureCount, snapshotCount } = fakeContext();
+  const renderer = createWebgl2Renderer(gl);
+  const asset = "test/overlay" as AssetKey;
+  const blit = (x: number) => ({ kind: "blit" as const, source: { asset, tile: null }, src: { x: 0, y: 0, w: 1, h: 1 }, dst: { x, y: 0, w: 1, h: 1 }, key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend: "source-over" as const, iso2d: false });
+  const frame: DrawList = { protocolVersion: 3, tick: 0, width: 2, height: 2, commands: [blit(0)], marginCommands: [blit(-1)] };
+  const options = { textures: () => ({ w: 1, h: 1, rgba: new Uint8Array([255, 255, 255, 128]) }) };
+  equal(renderer.render(frame, geometry, options).deferred, 0);
+  deepEqual(allocated(), [[2, 2], [3, 2], [2, 2], [3, 2]]);
+  equal(renderer.render(frame, geometry, options).deferred, 0);
+  equal(snapshotCount(), 4);
+  equal(allocated().length, 4, "a stable second frame creates no target or snapshot textures");
+  equal(deletedTextureCount(), 0);
+  renderer.dispose();
+  equal(deletedTextureCount(), 5, "two targets, two snapshots and one source texture are released");
+});
+
+test("bold bitmap text needs no framebuffer snapshots despite overlapping ink", () => {
+  const decoded = readLegacyFont(new Uint8Array(readFileSync("media/fonts/tkr-8x8.fnt")), "tkr-8x8.fnt");
+  if (!decoded.ok) throw new Error(decoded.error.message);
+  const font = { asset: "media/fonts/tkr-8x8.fnt" as AssetKey, size: 20, bold: true, italic: false };
+  const command = { kind: "text" as const, x: 0, y: 0, text: "Hello, world!", font, rgb: { r: 255, g: 255, b: 255 }, advances: [] };
+  const ink = textInk(command, decoded.value);
+  if (ink === null) throw new Error("bitmap glyph ink is unavailable");
+  const counts = new Map<string, number>();
+  for (const p of ink) { const key = `${p.x},${p.y}`; counts.set(key, (counts.get(key) ?? 0) + 1); }
+  const overlap = Math.max(...counts.values());
+  const { gl, snapshotCount } = fakeContext();
+  const renderer = createWebgl2Renderer(gl);
+  const geometry: HostDisplayGeometry = { content: { width: 640, height: 480 }, game: { x: 0, y: 0, width: 640, height: 480 }, safeArea: { top: 0, right: 0, bottom: 0, left: 0 } };
+  renderer.render({ protocolVersion: 3, tick: 0, width: 640, height: 480, commands: [command], marginCommands: [] }, geometry, { textures: () => null, fonts: () => decoded.value });
+  equal(overlap > 1 && ink.length > overlap * 20, true, "the input exercises many repeated coordinates");
+  equal(snapshotCount(), 0);
+  renderer.dispose();
+});
+
+test("overlapping TrueType ink snapshots once per pixel overlap depth", () => {
+  const decoded = readTrueTypeFont(new Uint8Array(readFileSync("media/fonts/LiberationSans-Regular.ttf")));
+  if (!decoded.ok) throw new Error(decoded.error.message);
+  const font = { asset: "media/fonts/LiberationSans-Regular.ttf" as AssetKey, size: 20, bold: false, italic: false };
+  const glyph = decoded.value.charToGlyph("A").id;
+  const command = { kind: "text" as const, x: 0, y: 0, text: "AAAA", font, rgb: { r: 255, g: 255, b: 255 }, advances: Array.from({ length: 4 }, () => ({ glyph, advance: 1 })) };
+  const ink = textInk(command, decoded.value);
+  if (ink === null) throw new Error("TrueType glyph ink is unavailable");
+  const counts = new Map<string, number>();
+  for (const p of ink) { const key = `${p.x},${p.y}`; counts.set(key, (counts.get(key) ?? 0) + 1); }
+  const overlap = Math.max(...counts.values());
+  equal(ink.some((p) => p.coverage < 255), true);
+  equal(overlap > 1, true);
+  const { gl, snapshotCount } = fakeContext();
+  const renderer = createWebgl2Renderer(gl);
+  const geometry: HostDisplayGeometry = { content: { width: 640, height: 480 }, game: { x: 0, y: 0, width: 640, height: 480 }, safeArea: { top: 0, right: 0, bottom: 0, left: 0 } };
+  renderer.render({ protocolVersion: 3, tick: 0, width: 640, height: 480, commands: [command], marginCommands: [] }, geometry, { textures: () => null, fonts: () => decoded.value });
+  equal(snapshotCount(), overlap);
+  equal(ink.length > overlap * 20, true);
+  renderer.dispose();
+});
+
 test("WebGL2 keeps distinct same-frame surface revisions and evicts obsolete GPU surfaces", () => {
   const { gl, uploads, deletedTextureCount } = fakeContext();
   const renderer = createWebgl2Renderer(gl);
@@ -109,7 +174,7 @@ test("WebGL2 keeps distinct same-frame surface revisions and evicts obsolete GPU
     kind: "blit" as const, source: { surface, rev }, src: { x: 0, y: 0, w: 1, h: 1 }, dst: { x, y: 0, w: 1, h: 1 },
     key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend: "normal" as const, iso2d: false,
   });
-  const listFor = (commands: DrawListV2["commands"]): DrawListV2 => ({ tick: 0, width: 2, height: 1, commands, marginCommands: [] });
+  const listFor = (commands: DrawList["commands"]): DrawList => ({ protocolVersion: 3, tick: 0, width: 2, height: 1, commands, marginCommands: [] });
   const options = {
     textures: () => null,
     surfaces: (_id: SurfaceId, rev: number) => {
@@ -136,7 +201,8 @@ test("WebGL2 flush forces same-revision surfaces to upload again after restore",
   const { gl, uploads } = fakeContext();
   const renderer = createWebgl2Renderer(gl);
   const surface = 9 as SurfaceId;
-  const one: DrawListV2 = {
+  const one: DrawList = {
+    protocolVersion: 3,
     tick: 0, width: 1, height: 1, marginCommands: [],
     commands: [{ kind: "blit", source: { surface, rev: 1 }, src: { x: 0, y: 0, w: 1, h: 1 }, dst: { x: 0, y: 0, w: 1, h: 1 }, key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend: "normal", iso2d: false }],
   };
@@ -159,7 +225,8 @@ test("WebGL2 restores non-instanced mode before iso replay after a pixel batch",
   const { gl, drawEvents } = fakeContext();
   const renderer = createWebgl2Renderer(gl);
   const surface = 10 as SurfaceId;
-  const list: DrawListV2 = {
+  const list: DrawList = {
+    protocolVersion: 3,
     tick: 0, width: 32, height: 32, marginCommands: [],
     commands: [
       { kind: "rect", rect: { x: 0, y: 0, w: 2, h: 2 }, rgb: { r: 1, g: 2, b: 3 }, filled: false },
@@ -185,7 +252,7 @@ test("WebGL2 reports unclosed target stacks and defers missing draws individuall
   const renderer = createWebgl2Renderer(gl);
   const missing = "missing.png" as never;
   const blit = { kind: "blit" as const, source: { asset: missing, tile: null }, src: { x: 0, y: 0, w: 1, h: 1 }, dst: { x: 0, y: 0, w: 1, h: 1 }, key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend: "normal" as const, iso2d: false };
-  const partial: DrawListV2 = { tick: 0, width: 2, height: 1, commands: [{ kind: "fill", rgb: { r: 1, g: 2, b: 3 } }, blit, blit, { kind: "pushTarget", scratch: 1 as ScratchId }], marginCommands: [] };
+  const partial: DrawList = { protocolVersion: 3, tick: 0, width: 2, height: 1, commands: [{ kind: "fill", rgb: { r: 1, g: 2, b: 3 } }, blit, blit, { kind: "pushTarget", scratch: 1 as ScratchId }], marginCommands: [] };
   const unresolved = renderer.render(partial, fullGeometry, { textures: () => null });
   equal(unresolved.drawn, 2);
   equal(unresolved.deferred, 3);
@@ -194,5 +261,24 @@ test("WebGL2 reports unclosed target stacks and defers missing draws individuall
     `webgl2.missing-texture: ${missing}`,
     "webgl2.unclosed-push: pushTarget without matching popTarget",
   ]);
+  renderer.dispose();
+});
+test("WebGL2 renderer rejects missing and unsupported draw-list protocol versions before drawing", () => {
+  const { gl, drawEvents } = fakeContext();
+  const renderer = createWebgl2Renderer(gl);
+  const invalidLists = [
+    { tick: 0, width: 1, height: 1, commands: [], marginCommands: [] },
+    { protocolVersion: 2, tick: 0, width: 1, height: 1, commands: [], marginCommands: [] },
+    { protocolVersion: 4, tick: 0, width: 1, height: 1, commands: [], marginCommands: [] },
+  ] as unknown as DrawList[];
+  for (const list of invalidLists) {
+    throws(
+      () => renderer.render(list, fullGeometry, { textures: () => null }),
+      /render-webgl2: unsupported draw-list protocol version:/,
+    );
+  }
+  equal(drawEvents().length, 0);
+  equal(renderer.canvas.width, 0);
+  equal(renderer.canvas.height, 0);
   renderer.dispose();
 });

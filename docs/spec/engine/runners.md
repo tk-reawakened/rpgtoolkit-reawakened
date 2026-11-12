@@ -48,6 +48,14 @@ which sources and banks are installed, presentation scaling and letterboxing (AD
 
 A runner replays the `DrawList` of the current tick and nothing more (G4). Two obligations follow.
 
+**Protocol version selection.** The current draw-list boundary is runner-protocol-v3: each frame carries the required
+`protocolVersion: 3` marker. A renderer and reference replay MUST reject a missing or unsupported marker before drawing;
+they MUST NOT treat an unknown version as v2 or infer it from the commands. The marker is part of the draw hash. This
+repository's in-process hosts and bundled renderer consume v3; there is no independent network negotiation protocol.
+An external producer/runner MUST agree on v3 before exchanging these frames and fail closed if it cannot. The historical
+v1 and v2 schemas, vector kits and corresponding TypeScript frame types remain unchanged. In particular, the v2 schema
+rejects a v3 frame (even one containing no new blend mode), and the v3 schema rejects an unmarked v2 frame.
+
 **Scaling is presentation.** The core emits a draw list for the logical viewport; a runner maps it to the physical
 display in one of the two modes AD-33 allows — integer-scaled pixel-perfect letterbox, or responsive expand-viewport —
 chosen by the player, never by the game state. `alpha` is presentation-only and is excluded from state and draw hashes,
@@ -90,7 +98,10 @@ the world tint (`tint`), `alpha` and `blend`:
 2. **World stage.** Apply `tint` — the pre-summed board shading and ambient — to the sampled texel under the R-15 rule
    ([tiles.md#shading](../formats/tiles.md#shading)): remap pure white to `245` and pure black to `10` when this tint
    is non-zero, add it, and clamp once.
-3. **Blend.** `normal`, `additive` or `translucent` with `alpha` (AD-3).
+3. **Blend.** `normal`, `additive`, `translucent`, or v3 `source-over` (AD-3). Source and target are straight-alpha RGBA. For `source-over`, let `a = floor(sourceAlpha × alpha / 255)`, `d = targetAlpha`, and `n = a × 255 + d × (255 − a)`. If `n` is zero, leave the target unchanged; otherwise the output alpha is `floor((n + 127) / 255)` and each output colour channel is `floor((source × a × 255 + target × d × (255 − a) + floor(n / 2)) / n)`. Thus a partially transparent destination is not treated as opaque. The normal mode still replaces, not composites. An enabled render-now overlay uses `source-over` so its straight-alpha ink covers the frame once.
+
+**Text coverage.** Each glyph coverage value is a source alpha for the command's straight RGB colour. Composite it source-over the current straight-alpha target using the same integer rule above (with `a = coverage`), including transparent and translucent targets. An edge of white ink over transparent pixels therefore retains RGB `(255,255,255)` with alpha equal to its coverage; consumers must not multiply the colour a second time.
+An opaque host framebuffer presents a straight-alpha pixel over black. An alpha-capable WebGL host with `premultipliedAlpha: false` receives straight RGBA; with `premultipliedAlpha: true`, the renderer premultiplies RGB at presentation only, so browser composition produces the same visible result. Internal planes remain straight alpha in both cases.
 
 The order is part of the agreement bound below: **colour-key exclusion is compared exactly**, so a runner that keys
 after the world tint fails the colour-key vectors.
@@ -165,8 +176,8 @@ vectors and on every gating golden scene:
 
 - **exactly** on every decision the CPU pipeline makes discretely — colour-key exclusion, tint saturation, and the
   choice of blend;
-- **within one unit per channel** on the arithmetic a GPU may round differently, which is the `translucent` and
-  `additive` blend of AD-3's pixel pipeline, with the worst per-channel difference reported per vector.
+- **within one unit per channel** on the arithmetic a GPU may round differently, which is the `translucent`,
+  `additive`, and v3 `source-over` blend of AD-3's pixel pipeline, with the worst per-channel difference reported per vector.
 
 **What is drawn today.** Entry 4 replays all eight commands of AD-3's union — `fill`, `rect`, `line`, `ellipse`, `blit`
 (with the `.iso` projection and persistent surfaces), `text`, `pushTarget` and `popTarget` — at the draw list's logical
@@ -174,8 +185,11 @@ resolution, with AD-33's two presentation modes as viewport geometry. The pixel 
 from `core/raster`'s leaves rather than from a second implementation: `linePixels`, `rectOutlinePixels`,
 `ellipsePixels`, `isoSourceOffset` and `textInk` (which owns the legacy cell scaling, the italic shear, bold's second ink
 and the TrueType outline's coverage), plus `DEFAULT_FONT_ASSET` for AD-15's substitution of a family the game does not
-ship. A tiled blit uploads only the tile it names, because a `.tst` strip of a large board can exceed
-`MAX_TEXTURE_SIZE` and an incomplete texture samples as black.
+ship. A TrueType `text` command carries glyph IDs, which only the face that produced them can draw, so a host **MUST**
+give the renderer every face the engine installed from the project's `Font\` folder as well as the bundled faces, decoded
+once and shared across frames; the interactive session offers a project face only while the engine reports it installed
+(`boot.fonts`), and a project face wins over a bundled face of the same key. A tiled blit uploads only the tile it
+names, because a `.tst` strip of a large board can exceed `MAX_TEXTURE_SIZE` and an incomplete texture samples as black.
 
 A renderer that cannot draw a command **MUST** count it as deferred and report a diagnostic, never draw an approximate
 pixel in its place. A frame that reports a deferred command is a partial frame, not a pass; the browser lane today
@@ -466,9 +480,9 @@ build-output check rejects any path claimed by multiple host builds. The browser
 
 A runner proves itself by replaying vectors, not by sharing types. Two artefacts do that:
 
-- **the schema** — `packages/runner-harness/schema/runner-protocol-v1.schema.json`, one JSON Schema for every record
-  this page's boundary carries, with fixed keys and `null` for absence (AD-14). A non-TypeScript runner validates its
-  messages against it;
+- **the schemas** — `packages/runner-harness/schema/runner-protocol-v{1,2,3}.schema.json`, one strict, separately
+  identified JSON Schema per published version. V3 is current; v1 and v2 remain historical and unchanged. A
+  non-TypeScript runner selects and validates against the version it supports;
 - **the vector kit** — `tools/fixtures/runner-protocol/`, a generator with a `--check` mode on the
   `audio-protocol:check` pattern. It holds one record per kind across the three families — a draw list, an input record and
   a host request — each with the verdict a conforming schema must return, plus the refusals a runner must reject (an
@@ -476,9 +490,9 @@ A runner proves itself by replaying vectors, not by sharing types. Two artefacts
   replaying them.
 
 <a id="drift-check"></a>
-The historical v1 schema and vector kit remain fixed together; the active core input union also serves v2 and is wider. **`pnpm runner-protocol:check`** checks the historical contract without treating v2-only records as v1 changes. It runs, in this order, and reports every problem it finds:
+The historical v1 and v2 schemas, TypeScript frame types and vector kits remain fixed together; v3 is the current version. **`pnpm runner-protocol:check`** checks each independently, including v2 rejecting v3 and v3 rejecting missing or unsupported markers. For each contract it reports every problem it finds:
 
-1. **The kit is reproducible.** It regenerates the vectors and fails if the committed `vectors.json` differs.
+1. **The kits are reproducible.** Each version's generator checks its own committed vector bytes and schema.
 2. **The schema is well formed.** Every `$ref` resolves, every `$defs` entry is reachable from the three roots
    (`drawList`, `inputRecord`, `request`), every object is closed (`additionalProperties: false`) with every `required`
    key declared, and only the JSON Schema keywords the checker evaluates appear, so a keyword it would silently ignore
@@ -486,14 +500,12 @@ The historical v1 schema and vector kit remain fixed together; the active core i
 3. **The schema and the kit agree.** Every vector's verdict matches what the schema returns: a valid record is accepted
    and a refusal is refused. A kit that holds no valid record for some kind the schema lists fails.
    The v1 check also requires the schema to reject a representative v2 semantic `action` record, without changing the frozen v1 vector kit.
-4. **The schema and historical TypeScript types agree.** The check reads `DrawList`, `InputRecordV1` and `RunnerRequest` from
-   `packages/core/src/ports/` with the TypeScript compiler and compares each with its schema definition in the JSON
-   projection, recursively: the keys a record carries, which are required (every key but `repeat`, AD-14), literal and
-   enum values, `null`, arrays, records and nested objects, with a `Uint8Array` leaf as a base64 string. It names the
-   path of every difference, so a historical type change with no schema change, or the reverse, fails. Numeric bounds,
-   string patterns and lengths exist only in the schema (TypeScript has no integer type), and the refusals in the kit
-   hold them. The active core `InputRecord` includes semantic `action` events for v2; it is intentionally excluded from
-   this v1 drift check.
+4. **Schemas and TypeScript types agree.** The check compares `DrawListV1`, `DrawListV2` and current `DrawList`
+   against their respective schemas, with the appropriate historical or current input union and `RunnerRequest`.
+   It recursively checks required keys, literals and enums, `null`, arrays, records and nested objects, projecting
+   `Uint8Array` leaves as base64 strings. It names every difference. Numeric bounds, string patterns and lengths
+   exist only in the schema (TypeScript has no integer type), so refusal vectors enforce them. V1's input union is
+   intentionally narrower than the current input union.
 
 `packages/core` also fails its own type check when a request kind is missing from `HOST_REQUEST_KINDS`, so a request
 kind cannot be added to the wire without being declarable by a package. The same check, plus perturbation tests that

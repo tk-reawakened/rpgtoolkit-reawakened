@@ -11,11 +11,11 @@
 export { analyse } from "./analyse.ts";
 export type { Analysis, AnalyseOptions } from "./analyse.ts";
 export { applyEdits, legacyFixes, sameLowering } from "./fixes.ts";
-export type { LegacyFix } from "./fixes.ts";
+export type { LegacyFix, LegacyReview } from "./fixes.ts";
 export { canonicalNames, formatChanged, formatCheck, formatSource } from "./format.ts";
 export type { FormatCheck, FormatDialect, FormatFile, FormatOptions, FormatResult, FormatSkipReason } from "./format.ts";
 export { lint, readLintConfig, RULES } from "./lint.ts";
-export type { LintConfig, LintIgnore, LintResult, LintSeverity, LintSummary, LintOptions, RuleDefinition, RuleId } from "./lint.ts";
+export type { LintConfig, LintIgnore, LintResult, LintSeverity, LintSummary, LintOptions, RuleDefinition, RuleId, Unassessed, UnassessedReason } from "./lint.ts";
 export { rangeOf, sliceRange } from "./diagnostics.ts";
 export type { Diagnostic, Position, Range, Severity, TextEdit } from "./diagnostics.ts";
 export { helpFor, projectHelp } from "./help.ts";

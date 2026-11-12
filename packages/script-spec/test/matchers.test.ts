@@ -304,9 +304,9 @@ test("two runs of a matcher spec give identical result JSON and identical state 
   deepEqual(first.cases.map((item) => item.stateHash), second.cases.map((item) => item.stateHash));
 });
 
-test("the spec package is absent from the default manifest and its seven commands pass the command-docs gate", () => {
+test("the spec package is absent from the default manifest and its twelve commands pass the command-docs gate", () => {
   equal(ENGINE_DEFAULT_MANIFEST.some((entry) => entry.id === SPEC_PLUGIN.id), false);
-  equal(SPEC_PLUGIN.commands.length, 7);
+  equal(SPEC_PLUGIN.commands.length, 12);
   // The gate checks the spec package's documentation too; it reads the built core and script-spec, which `tsc -b`
   // writes before the tests run.
   const gate = join(import.meta.dirname, "..", "..", "..", "tools", "command-docs", "check.mjs");

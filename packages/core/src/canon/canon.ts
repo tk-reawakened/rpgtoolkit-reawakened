@@ -8,7 +8,7 @@
  * equal data hashes equal and a differing surface `rev` hashes differently.
  */
 
-import type { DrawListV2 } from "../ports/draw.ts";
+import type { DrawList } from "../ports/draw.ts";
 import type { PlainData } from "../ports/plain-data.ts";
 import { fnv1a64 } from "./fnv1a.ts";
 
@@ -234,9 +234,9 @@ export function hashState(state: PlainData): string {
 }
 
 /**
- * FNV-1a 64-bit of a DrawListV2 canonical form (AD-11). Covers both command planes and the surface `rev` numbers they reference, never pixel bytes.
+ * FNV-1a 64-bit of a current DrawList canonical form (AD-11). Covers protocol version, both command planes and the surface `rev` numbers they reference, never pixel bytes.
  */
-export function hashDrawList(drawList: DrawListV2): string {
+export function hashDrawList(drawList: DrawList): string {
   return fnv1a64(canon(drawList));
 }
 

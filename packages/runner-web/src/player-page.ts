@@ -181,7 +181,7 @@ export async function bootPlayerPage(
           blendTextures.set(texture.asset as AssetKey, { w: texture.w, h: texture.h, rgba: bytes });
         }
         const blendRenderer = createWebgl2Renderer(blendGl);
-        const blendList: DrawList = { tick: 0, width: blend.width, height: blend.height, commands: blend.commands as DrawList["commands"], marginCommands: [] };
+        const blendList: DrawList = { protocolVersion: 3, tick: 0, width: blend.width, height: blend.height, commands: blend.commands as DrawList["commands"], marginCommands: [] };
         const blendGeometry: HostDisplayGeometry = {
           content: { width: blend.width, height: blend.height },
           game: { x: 0, y: 0, width: blend.width, height: blend.height },

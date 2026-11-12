@@ -45,8 +45,11 @@ export type Rect = {
   readonly h: number;
 };
 
-/** A `blit` blend mode (AD-3). */
-export type Blend = "normal" | "additive" | "translucent";
+/** The `blit` blend modes of historical protocol v1 (AD-3). */
+export type BlendV1 = "normal" | "additive" | "translucent";
+
+/** A `blit` blend mode: the v1 modes plus v3 straight-alpha `source-over` (AD-3). */
+export type Blend = BlendV1 | "source-over";
 
 /**
  * A texture: a canonical asset key plus a 1-based tile index, or `null` when
@@ -101,6 +104,19 @@ export type BlitCommand = {
   readonly tint: Tint;
   readonly alpha: number;
   readonly blend: Blend;
+  readonly iso2d: boolean;
+};
+
+/** The protocol-v1 `blit`: identical to {@link BlitCommand} except it cannot carry `source-over`. */
+export type BlitCommandV1 = {
+  readonly kind: "blit";
+  readonly source: BlitSource;
+  readonly src: Rect;
+  readonly dst: Rect;
+  readonly key: Rgb | null;
+  readonly tint: Tint;
+  readonly alpha: number;
+  readonly blend: BlendV1;
   readonly iso2d: boolean;
 };
 
@@ -173,16 +189,48 @@ export type DrawCommand =
   | PushTargetCommand
   | PopTargetCommand;
 
+/** The protocol-v1 command union, retained for the immutable v1 schema and vectors. */
+export type DrawCommandV1 =
+  | BlitCommandV1
+  | FillCommand
+  | LineCommand
+  | RectCommand
+  | EllipseCommand
+  | TextCommand
+  | PushTargetCommand
+  | PopTargetCommand;
+
 /** Strict protocol-v1 frame, retained for its immutable schema and vectors. */
 export type DrawListV1 = {
   readonly tick: number;
   readonly width: number;
   readonly height: number;
-  readonly commands: DrawCommand[];
+  readonly commands: DrawCommandV1[];
 };
 
-/** Strict protocol-v2 frame with a separate author-owned Plane 3 command layer. */
+/** Protocol-v2 command union: v1 blits and the separate author-owned Plane 3 layer. */
+export type DrawCommandV2 =
+  | BlitCommandV1
+  | FillCommand
+  | LineCommand
+  | RectCommand
+  | EllipseCommand
+  | TextCommand
+  | PushTargetCommand
+  | PopTargetCommand;
+
+/** Strict historical protocol-v2 frame with a separate author-owned Plane 3 command layer. */
 export type DrawListV2 = {
+  readonly tick: number;
+  readonly width: number;
+  readonly height: number;
+  readonly commands: DrawCommandV2[];
+  readonly marginCommands: DrawCommandV2[];
+};
+
+/** Current strict protocol-v3 frame with source-over and the author-owned Plane 3 command layer. */
+export type DrawListV3 = {
+  readonly protocolVersion: 3;
   readonly tick: number;
   readonly width: number;
   readonly height: number;
@@ -190,5 +238,5 @@ export type DrawListV2 = {
   readonly marginCommands: DrawCommand[];
 };
 
-/** Current runner/core draw-list contract: strict v2. */
-export type DrawList = DrawListV2;
+/** Current runner/core draw-list contract. */
+export type DrawList = DrawListV3;
