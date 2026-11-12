@@ -6,11 +6,14 @@ Reproduce from the repository root after `pnpm install --frozen-lockfile`:
 
 ```sh
 node tools/spikes/e11-editor/install.mjs
+node tools/spikes/e11-editor/inventory.mjs > /tmp/spike-package-inventory.json
 node tools/spikes/e11-editor/build.mjs
 pnpm exec playwright test -c tools/spikes/e11-editor/playwright.config.mjs
 ```
 
 `TKR_SPIKE_DEPS` and `TKR_SPIKE_OUT` may set external directories. The latter receives `build.json` and `results/`; snapshots from this run are in [raw/](raw/). Bundle sizes below are minified bytes / gzip -9 bytes: JS includes the same Preact panels and prototype adapter, CSS separate. Sizes are not a production build budget. `raw/build.json` includes the esbuild input attribution and static scan; static pattern counts are not proof of absence of dynamically generated code.
+
+The installer copies `spike-package-lock.json` into the external directory and runs `npm ci --ignore-scripts`, pinning the full isolated dependency tree without changing the pnpm workspace. The inventory command walks all installed lockfile package paths, including nested copies; its output regenerates each findings directory's `raw/package-inventory.json`. The VS Code webview probe pins stable commit `69047191fc427f2f92828279aae1d90d8eeda7ab`, not the moving stable channel.
 
 | Candidate | JS / gzip | CSS / gzip | Web host / simulated webview CSP violations after operations | Keyboard and ARIA observed | Layout features and licence |
 |---|---:|---:|---|---|---|

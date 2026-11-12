@@ -1,4 +1,4 @@
-// Monaco inside a real VS Code for the Web webview (the stable build @vscode/test-web downloads), under host-vscode's
+// Monaco inside a real VS Code for the Web webview (the pinned build @vscode/test-web downloads), under host-vscode's
 // own CSP template. ADR 0021 decision 2 keeps Monaco out of VS Code (native text editors are used there); this run
 // answers what it would take if a webview ever embedded it, and checks the Chromium simulation of that policy.
 import { spawn } from "node:child_process";
@@ -22,6 +22,7 @@ const variants = {
   },
 };
 const port = Number(process.env.TKR_SPIKE_VSCODE_PORT ?? "3197");
+const vscodeCommit = "69047191fc427f2f92828279aae1d90d8eeda7ab";
 
 async function waitFor(url, child) {
   for (let i = 0; i < 600; i++) {
@@ -47,7 +48,7 @@ for (const [name, variant] of Object.entries(variants)) {
     mkdirSync(workspace, { recursive: true });
     const server = spawn(
       process.execPath,
-      [join(repoRoot, "node_modules/@vscode/test-web/out/server/index.js"), "--browser", "none", "--quality", "stable", "--extensionDevelopmentPath", extension, "--port", String(port), "--testRunnerDataDir", join(outDir, ".vscode-test-web"), workspace],
+      [join(repoRoot, "node_modules/@vscode/test-web/out/server/index.js"), "--browser", "none", "--quality", "stable", "--commit", vscodeCommit, "--extensionDevelopmentPath", extension, "--port", String(port), "--testRunnerDataDir", join(outDir, ".vscode-test-web"), workspace],
       { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
     );
     server.stdout.resume();
@@ -88,6 +89,38 @@ for (const [name, variant] of Object.entries(variants)) {
       };
       record("vscode", name, result);
       expect(result.typed).toBe(true);
+      expect(result.undone).toBe(true);
+      expect(result.render.linesPositioned).toBe(true);
+      expect(result.find.visible).toBe(true);
+      if (name === "proposed+fetch-blob-worker") {
+        expect(result.afterUse.total).toBe(0);
+        expect(result.consoleErrors).toEqual([]);
+        expect(result.render.tokensColoured).toBe(true);
+        expect(result.render.currentLineWidth).toBeGreaterThan(0);
+        expect(result.find.codiconFont).toBe("loaded");
+        expect(result.suggest.rows).toBeGreaterThan(0);
+        expect(result.worker.created).toHaveLength(1);
+        expect(result.worker.created[0].url).toMatch(/^blob:/);
+        expect(result.worker.messages).toBeGreaterThan(0);
+        expect(result.worker.errors).toEqual([]);
+      } else {
+        expect(result.worker.created).toHaveLength(0);
+        expect(result.worker.messages).toBe(0);
+        expect(result.consoleErrors.some((message) => /Falling back to loading web worker code in main thread/.test(message))).toBe(true);
+        expect(result.consoleErrors.some((message) => /Failed to construct 'Worker'/.test(message))).toBe(true);
+        if (name === "verbatim") {
+          expect(result.afterUse.byDirective["style-src-elem"]).toBeGreaterThan(0);
+          expect(result.afterUse.byDirective["style-src-attr"]).toBeGreaterThan(0);
+          expect(result.consoleErrors.some((message) => /Loading the font.*violates/.test(message))).toBe(true);
+          expect(result.render.tokensColoured).toBe(false);
+          expect(result.render.currentLineWidth).toBe(0);
+        } else {
+          expect(result.afterUse.total).toBe(0);
+          expect(result.render.tokensColoured).toBe(true);
+          expect(result.render.currentLineWidth).toBeGreaterThan(0);
+          expect(result.find.codiconFont).toBe("loaded");
+        }
+      }
     } finally {
       server.kill();
     }
