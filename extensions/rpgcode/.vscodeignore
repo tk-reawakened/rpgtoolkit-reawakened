@@ -4,6 +4,7 @@ src/**
 .gitignore
 tsconfig*.json
 **/*.map
+dist/bundle-metafiles.json
 node_modules/**
 server-src/**
 *.tsbuildinfo

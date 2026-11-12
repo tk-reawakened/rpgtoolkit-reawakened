@@ -1,0 +1,97 @@
+name: Publish RPGCode tooling
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Publish the committed package and extension versions to public registries
+        type: boolean
+        required: true
+        default: false
+      extension_target:
+        description: Publish to both registries, or resume only the missing registry
+        type: choice
+        options: [both, marketplace, openvsx]
+        required: true
+        default: both
+      previous_extension_verified:
+        description: For a one-registry recovery, the existing registry's version and VSIX were verified to match
+        type: boolean
+        required: true
+        default: false
+concurrency:
+  group: rpgcode-public-release
+  cancel-in-progress: false
+permissions:
+  actions: read
+  contents: read
+jobs:
+  publish:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.confirm }}
+    runs-on: ubuntu-24.04
+    environment: release
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Require verification before a partial extension recovery
+        if: ${{ inputs.extension_target != 'both' && !inputs.previous_extension_verified }}
+        run: echo 'Verify the already-published registry version and VSIX before resuming' >&2; exit 1
+      - name: Require a successful CI run for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          count="$(gh run list --workflow ci.yml --branch main --event push --commit "$GITHUB_SHA" --json status,conclusion,headSha,headBranch,event --jq '[.[] | select(.event == "push" and .headBranch == "main" and .status == "completed" and .conclusion == "success")] | length')"
+          if [ "$count" -eq 0 ]; then echo 'No successful CI run for this exact commit' >&2; exit 1; fi
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.21.0
+          registry-url: https://registry.npmjs.org/
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Require all publisher credentials before publishing anything
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          set -euo pipefail
+          [ -n "$NODE_AUTH_TOKEN" ] && [ -n "$VSCE_PAT" ] && [ -n "$OVSX_PAT" ] || { echo 'NPM_TOKEN, VSCE_PAT and OVSX_PAT must all be configured' >&2; exit 1; }
+          npm whoami
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm release:test && pnpm release:preflight && pnpm licence && pnpm graph && pnpm provenance
+      - run: npm --prefix extensions/rpgcode ci --no-audit --no-fund
+      - name: Verify extension publisher rights before publishing anything
+        working-directory: extensions/rpgcode
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          set -euo pipefail
+          npx --no-install vsce verify-pat tk-reawakened
+          npx --yes ovsx@1.4.0 verify-pat tk-reawakened
+      - run: node extensions/rpgcode/build.mjs && node tools/release/audit-extension.mjs
+      - name: Package the extension once for both registries
+        working-directory: extensions/rpgcode
+        run: npx --no-install vsce package --no-dependencies -o rpgcode-language.vsix
+      - name: Publish the npm dependency closure
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node tools/release/publish-packages.mjs
+      - name: Verify the public npm packages in an isolated consumer
+        run: pnpm release:preflight --published
+      - name: Publish the extension to Marketplace
+        if: ${{ inputs.extension_target == 'both' || inputs.extension_target == 'marketplace' }}
+        working-directory: extensions/rpgcode
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx --no-install vsce publish --packagePath rpgcode-language.vsix
+      - name: Publish the same extension to Open VSX
+        if: ${{ inputs.extension_target == 'both' || inputs.extension_target == 'openvsx' }}
+        working-directory: extensions/rpgcode
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: npx --yes ovsx@1.4.0 publish rpgcode-language.vsix

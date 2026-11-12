@@ -84,13 +84,12 @@ available at <https://www.apache.org/licenses/LICENSE-2.0>.
 text is distributed in the dependency's `LICENSE` file and is also available
 at <https://www.apache.org/licenses/LICENSE-2.0>.
 
-### vscode-languageserver 9.0.1, vscode-languageserver-protocol 3.17.5, vscode-languageserver-textdocument 1.0.12 — MIT
+### vscode-languageserver 9.0.1, vscode-languageserver-protocol 3.17.5, vscode-languageserver-textdocument 1.0.12 and 1.0.16 — MIT
 
 A dependency of `@tk-reawakened/lsp`, which uses the official LSP libraries for
 the connection, the document text and the protocol types
-(`docs/spec/engine/rpgcode-tooling.md#tool-1`). With their transitive
-`vscode-jsonrpc` 8.2.1 and `vscode-languageserver-types` 3.17.5, also MIT, they
-are the complete addition to the production tree of the shipped artefacts.
+(the `docs/spec/engine/rpgcode-tooling.md#tool-1` contract). Their transitive
+`vscode-jsonrpc` 8.2.1 and `vscode-languageserver-types` 3.17.5 are also MIT.
 
 ```
 MIT License
@@ -464,4 +463,69 @@ INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
 DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM OTHER
 DEALINGS IN THE FONT SOFTWARE.
+```
+
+### RPGCode extension client dependencies
+
+The extension bundles `vscode-languageclient` 9.0.1 and its `vscode-jsonrpc`
+8.2.0 dependency (MIT). Their licence text is:
+
+```text
+Copyright (c) Microsoft Corporation
+
+All rights reserved.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED *AS IS*, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+`minimatch` 5.1.9 and `semver` 7.8.6 (ISC) have these notices:
+
+```text
+The ISC License
+
+Copyright (c) 2011-2023 Isaac Z. Schlueter and Contributors (minimatch)
+Copyright (c) Isaac Z. Schlueter and Contributors (semver)
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
+IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+```
+
+`balanced-match` 1.0.2 and `brace-expansion` 2.1.8 (MIT) have these notices:
+
+```text
+Copyright (c) 2013 Julian Gruber &lt;julian@juliangruber.com&gt; (balanced-match)
+Copyright (c) 2013 Julian Gruber <julian@juliangruber.com> (brace-expansion)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```

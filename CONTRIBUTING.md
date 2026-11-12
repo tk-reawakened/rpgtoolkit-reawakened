@@ -116,6 +116,31 @@ additions are minor releases and breaking removals or changes require a major
 release. The result protocol has the explicit TOOL-9 compatibility policy above.
 Internal files and unexported paths are not public API.
 
+### Preparing a tooling release
+
+`pnpm release:preflight` builds and packs the seven packages, installs them in
+an isolated temporary directory, checks their licences, runs real CLI and Action
+commands under Node and Bun, and validates the JSON against TOOL-9. It does not
+publish. After publication, `pnpm release:preflight --published` installs exact
+versions from the public npm registry with a separate home and cache and repeats
+those checks. Both commands also test failure paths; they require network access.
+
+The manual **Publish RPGCode tooling** workflow operates only on `main` after a
+successful CI push run for the same commit. Configure and protect its `release`
+environment and provide `NPM_TOKEN`, `VSCE_PAT`, and `OVSX_PAT`; the publisher must control
+the npm scope and the `tk-reawakened` namespace in both extension registries.
+The workflow checks publisher credentials, package and bundle licences, and
+the preflight before publishing. Never put those secrets in a repository file.
+
+Publishing can fail partway through: npm versions already present are skipped
+only if their registry integrity matches the candidate tarball; a mismatch
+stops the run. Extension uploads are not automatically skipped or overwritten.
+If an upload fails after the other registry accepted it, inspect the published
+version and VSIX; then select only the missing registry and confirm that the
+existing registry matches when dispatching the workflow again. Never blindly
+skip a mismatched version. Verify the Action in a separate fixture repository and
+install and exercise the extension from both registries before closing #951.
+
 
 ## Set up
 

@@ -3,5 +3,4 @@ dist
 server
 *.vsix
 .vscode-test
-package-lock.json
 

@@ -1,7 +1,7 @@
 {
   "name": "@tk-reawakened/runner-headless",
   "version": "1.0.0",
-  "files": ["dist"],
+  "files": ["dist", "!dist/.tsbuildinfo"],
   "license": "MIT",
   "type": "module",
   "exports": {

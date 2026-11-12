@@ -1,4 +1,4 @@
-// Build and exercise packed release candidates outside the workspace. This does not publish.
+// Exercise packed candidates or publicly published versions outside the workspace. Never publishes.
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -8,6 +8,17 @@ import { join, resolve } from 'node:path';
 const repo = resolve(import.meta.dirname, '../..');
 const work = mkdtempSync(join(tmpdir(), 'tkr-release-'));
 const names = ['core', 'plugin-tk2-compat', 'runner-harness', 'runner-headless', 'script-tools', 'script-spec', 'script-cli'];
+const published = process.argv.slice(2).includes('--published');
+if (process.argv.slice(2).some((arg) => arg !== '--published')) throw new Error('usage: preflight.mjs [--published]');
+const isolatedEnv = {
+  ...process.env,
+  HOME: work,
+  NPM_CONFIG_CACHE: join(work, 'npm-cache'),
+  NPM_CONFIG_USERCONFIG: join(work, 'npmrc.user'),
+  NPM_CONFIG_GLOBALCONFIG: join(work, 'npmrc.global'),
+  NPM_CONFIG_REGISTRY: 'https://registry.npmjs.org/',
+  NODE_AUTH_TOKEN: '',
+};
 
 function run(command, args, cwd, expected = 0, env = process.env) {
   const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
@@ -25,11 +36,17 @@ function validate(result) {
 }
 
 try {
-  run('pnpm', ['build'], repo);
-  for (const name of names) run('pnpm', ['--dir', join(repo, 'packages', name), 'pack', '--pack-destination', work], repo);
-  const packs = readdirSync(work).filter((file) => file.endsWith('.tgz')).map((file) => join(work, file));
-  assert.equal(packs.length, names.length);
-  run('npm', ['install', '--no-audit', '--no-fund', '--ignore-scripts', ...packs], work);
+  let dependencies;
+  if (published) {
+    dependencies = names.map((name) => `@tk-reawakened/${name}@1.0.0`);
+  } else {
+    run('pnpm', ['build'], repo);
+    for (const name of names) run('pnpm', ['--dir', join(repo, 'packages', name), 'pack', '--pack-destination', work], repo);
+    dependencies = readdirSync(work).filter((file) => file.endsWith('.tgz')).map((file) => join(work, file));
+    assert.equal(dependencies.length, names.length);
+  }
+  run('npm', ['install', '--registry=https://registry.npmjs.org/', '--no-audit', '--no-fund', '--ignore-scripts', ...dependencies], work, 0, isolatedEnv);
+  if (published) run('npm', ['ls', '--omit=dev', '--all'], work, 0, isolatedEnv);
   run(process.execPath, [join(repo, 'tools/release/audit-installed.mjs'), work], work);
   cpSync(join(repo, 'stock/stock_rpg'), join(work, 'game'), { recursive: true });
   cpSync(join(repo, 'packages/script-cli/test/fixtures/pass-project'), join(work, 'specs'), { recursive: true });
@@ -56,14 +73,14 @@ try {
     ['game', 0, ['check', 'fmt', 'test']],
     ['invalid.prg', 1, ['check']],
   ]) {
-    const env = { ...process.env, TKR_PROJECT: project, TKR_VERSION: '1.0.0' };
+    const env = { ...isolatedEnv, TKR_PROJECT: project, TKR_VERSION: '1.0.0' };
     const stdout = run('bash', [join(repo, '.github/actions/script/run.sh')], work, expected, env);
     const documents = stdout.trim().split(/(?<=\})\s*(?=\{)/u).map((text) => JSON.parse(text));
     assert.deepEqual(documents.map((item) => item.subcommand), subcommands);
     for (const document of documents) validate(document);
     assert.equal(documents.at(-1).exitCode, expected);
   }
-  console.log('Packed candidate passed isolated Node/Bun CLI, schema, negative-case and licence checks. Published-registry proof is still required.');
+  console.log(`${published ? 'Published packages' : 'Packed candidate'} passed isolated Node/Bun CLI, schema, negative-case and licence checks.${published ? '' : ' Published-registry proof is still required.'}`);
 } finally {
   rmSync(work, { recursive: true, force: true });
 }
