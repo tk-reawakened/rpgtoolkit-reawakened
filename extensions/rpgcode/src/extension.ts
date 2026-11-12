@@ -13,7 +13,10 @@ export function activate(context: ExtensionContext): void {
     debug: { module: serverModule, transport: TransportKind.stdio },
   };
   const clientOptions: LanguageClientOptions = {
-    documentSelector: [{ scheme: "file", language: "rpgcode" }, { scheme: "untitled", language: "rpgcode" }],
+    documentSelector: [
+      { scheme: "file", language: "rpgcode" }, { scheme: "untitled", language: "rpgcode" },
+      { scheme: "file", language: "rpgcode-tk2" }, { scheme: "untitled", language: "rpgcode-tk2" },
+    ],
     synchronize: {
       fileEvents: workspace.createFileSystemWatcher("**/*.{prg,rnc}"),
     },

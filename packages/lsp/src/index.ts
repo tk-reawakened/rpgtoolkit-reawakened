@@ -256,7 +256,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
   connection.onCodeAction((params) => {
     const document = documents.get(params.textDocument.uri);
     if (document === undefined) return [];
-    return legacyFixes(document.getText()).map((fix) => ({
+    return legacyFixes(document.getText(), document.languageId === "rpgcode-tk2" ? "tk2" : "tk3").map((fix) => ({
       title: fix.title,
       kind: "quickfix",
       diagnostics: params.context.diagnostics,

@@ -8,7 +8,7 @@ export function activate(context: ExtensionContext): void {
   const serverMain = Uri.joinPath(context.extensionUri, "dist", "server.worker.js");
   const worker = new Worker(serverMain.toString(true));
   const clientOptions: LanguageClientOptions = {
-    documentSelector: [{ language: "rpgcode" }],
+    documentSelector: [{ language: "rpgcode" }, { language: "rpgcode-tk2" }],
   };
   client = new LanguageClient("rpgcode", "RPGCode Language Server", clientOptions, worker);
   void client.start();
