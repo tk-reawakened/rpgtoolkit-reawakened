@@ -18,7 +18,7 @@
                   "line": 2
                 }
               ],
-              "stateHash": "1e6649f3305a4dfd"
+              "stateHash": "5dfdd6c7f8e4e5fd"
             },
             {
               "name": "subtracts",
@@ -33,7 +33,46 @@
                   "line": 3
                 }
               ],
-              "stateHash": "b1966defbeb5af13"
+              "stateHash": "5c26ef0cf711917f"
+            },
+            {
+              "name": "the engine built-ins are available to specs",
+              "ok": true,
+              "outcomes": [
+                {
+                  "actual": "",
+                  "column": 22,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "the engine built-ins are available to specs/toBe",
+                  "line": 9
+                },
+                {
+                  "actual": "",
+                  "column": 24,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "the engine built-ins are available to specs/toBe",
+                  "line": 10
+                },
+                {
+                  "actual": "",
+                  "column": 32,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "the engine built-ins are available to specs/toBe",
+                  "line": 11
+                },
+                {
+                  "actual": "",
+                  "column": 21,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "the engine built-ins are available to specs/toBe",
+                  "line": 15
+                }
+              ],
+              "stateHash": "0031844a817b7e17"
             }
           ],
           "failures": [],
@@ -56,7 +95,7 @@
       },
       "failed": 0,
       "files": 1,
-      "passed": 2,
+      "passed": 3,
       "skipped": 0
     },
     "tool": "tkr"

@@ -12,6 +12,8 @@ import { emptySummary, makeResult, stableStringify, type ResultDiagnostic, type 
 export type TestResult = {
   readonly result: ScriptResult;
   readonly text: string;
+  /** The readable report, for stderr when `--json` keeps stdout for the envelope. */
+  readonly human: string;
 };
 
 export function runTest(paths: readonly string[], strict: boolean, json: boolean): TestResult {
@@ -44,8 +46,8 @@ export function runTest(paths: readonly string[], strict: boolean, json: boolean
   const exitCode = projectReport.failures.length > 0 || (strict && projectReport.skipped.length > 0) ? 1 : 0;
   const summary = { ...emptySummary, files: sourceFiles.length, passed, failed, skipped };
   const result = makeResult("test", exitCode, diagnostics, summary, { files: projectReport.files });
-  const text = json ? stableStringify(result) : formatTestText(result);
-  return { result, text };
+  const human = formatTestText(result);
+  return { result, text: json ? stableStringify(result) : human, human };
 }
 
 function collectSpecSources(projectRoot: string): { readonly name: string; readonly source: string }[] {

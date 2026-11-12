@@ -12,7 +12,7 @@
  * reports them instead.
  */
 
-import { compileInline, compileTk2, tokenize } from "@tk-reawakened/core";
+import { compileInline, compileTk2, tokenizeObjects } from "@tk-reawakened/core";
 import { analyse } from "./analyse.ts";
 import type { TextEdit } from "./diagnostics.ts";
 
@@ -78,7 +78,7 @@ function candidates(source: string): LegacyFix[] {
   });
 
   // Sigils: `x!` and `name$` are ignored by the lexer, so deleting the sigil keeps the program.
-  for (const token of tokenize(source)) {
+  for (const token of tokenizeObjects(source)) {
     if (token.kind !== "identifier") continue;
     const text = (lines[token.line - 1] ?? "").slice(token.col - 1, token.endCol);
     if (text.endsWith("!") || text.endsWith("$")) {

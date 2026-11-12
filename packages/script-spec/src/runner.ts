@@ -22,6 +22,7 @@ import {
   createAssetIndex,
   createGameState,
   createScriptServices,
+  DEFAULT_ENGINE_PLUGINS,
   drainDiagnostics,
   drainEffects,
   encodeCp1252,
@@ -186,7 +187,7 @@ function runTask(source: string, seed: number, loader: ProgramLoader | undefined
   let checkpoint: string | null = null;
   let checkpointFailure: string | null = null;
   let lastSeq = state.vm.effectSeq;
-  const services: ScriptServices = createScriptServices(state, [{ definition: SPEC_PLUGIN }], undefined, undefined, specProgram,
+  const services: ScriptServices = createScriptServices(state, [...DEFAULT_ENGINE_PLUGINS, { definition: SPEC_PLUGIN }], undefined, undefined, specProgram,
     undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
       postHandler: (handler, threadId) => {
         if (handler.plugin !== "script-spec" || handler.name !== "specresult") return;

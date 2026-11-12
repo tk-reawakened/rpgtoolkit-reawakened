@@ -65,3 +65,12 @@ test("the rows whose rewrite would change behaviour are diagnostic-only", () => 
     deepEqual(legacyFixes(source).map((fix) => fix.rule), [], source);
   }
 });
+
+test("a class-bearing program is read in the object dialect, not rejected by the sigil scan", () => {
+  // `this` is a keyword only in the object dialect; the scan must not throw on a program `analyse` accepts.
+  const source = "same = context == this\nclass K {\n  public:\n  var n\n}\n";
+  equal(analyse(source).ok, true);
+  deepEqual(legacyFixes(source), []);
+  const sigil = "x! = 1\nthis_is = this\n";
+  deepEqual(legacyFixes(sigil).map((item) => item.rule), ["dialect/sigil"]);
+});

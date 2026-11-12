@@ -9,6 +9,8 @@ import { emptySummary, makeResult, stableStringify, type ResultDiagnostic, type 
 export type FmtResult = {
   readonly result: ScriptResult;
   readonly text: string;
+  /** The readable report, for stderr when `--json` keeps stdout for the envelope. */
+  readonly human: string;
 };
 
 export function runFmt(paths: readonly string[], dialect: FormatDialect, check: boolean, json: boolean): FmtResult {
@@ -28,7 +30,7 @@ export function runFmt(paths: readonly string[], dialect: FormatDialect, check: 
 
   const changed = checkResult.changed;
   const skipped = checkResult.skipped.map((entry) => entry.path);
-  const exitCode = changed.length > 0 || checkResult.skipped.length > 0 ? 1 : 0;
+  const exitCode = (check && changed.length > 0) || checkResult.skipped.length > 0 ? 1 : 0;
 
   for (const entry of checkResult.skipped) {
     diagnostics.push({
@@ -42,8 +44,8 @@ export function runFmt(paths: readonly string[], dialect: FormatDialect, check: 
 
   const summary = { ...emptySummary, files: sources.length, changed: changed.length };
   const result = makeResult("fmt", exitCode, diagnostics, summary, { changed, skipped });
-  const text = json ? stableStringify(result) : formatFmtText(result, check);
-  return { result, text };
+  const human = formatFmtText(result, check);
+  return { result, text: json ? stableStringify(result) : human, human };
 }
 
 type FmtResults = {
