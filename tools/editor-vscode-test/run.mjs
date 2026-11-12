@@ -7,7 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { runVscodeWebProof } from "./web-proof.ts";
-import { cleanupTestRun, combineProofErrors, trackProcess } from "./lifecycle.ts";
+import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const harness = resolve(root, "tools/editor-vscode-test");
@@ -47,13 +47,21 @@ let cleanupErrors = [];
 const browserDiagnostics = [];
 try {
   const child = spawn(resolve(harness, "node_modules/.bin/vscode-test-web"), [
-    "--browserType=chromium", `--browserOption=--remote-debugging-port=${cdpPort}`,
+    "--host=localhost", "--browserType=chromium", `--browserOption=--remote-debugging-port=${cdpPort}`,
     `--extensionDevelopmentPath=${extension}`, `--extensionPath=${resolve(harness, "probe-extension")}`,
     `--port=${port}`, proofWorkspace,
-  ], { cwd: root, stdio: "inherit" });
+  ], {
+    cwd: root,
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, "--dns-result-order=ipv4first"].filter(Boolean).join(" "),
+    },
+  });
   trackedProcess = trackProcess(child);
   const workbenchUrl = `http://localhost:${port}/`;
-  await Promise.race([waitForServer(child, workbenchUrl), trackedProcess.error]);
+  const readinessUrl = `http://127.0.0.1:${port}/`;
+  await Promise.race([waitForHttpServer(child, readinessUrl), trackedProcess.error]);
   browser = await connectBrowser(child, cdpPort);
   const { page } = await waitForBrowserPage(browser, child);
   const recordBrowserDiagnostic = (message) => { if (browserDiagnostics.length < 100) browserDiagnostics.push(message); };
@@ -176,17 +184,4 @@ async function waitForBrowserPage(browser, child) {
   throw new Error(`Timed out waiting for vscode-test-web to create its initial page (${observedContexts} browser context(s) observed)`);
 }
 
-async function waitForServer(child, url) {
-  const deadline = Date.now() + 120_000;
-  let pause = 100;
-  let lastError;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`vscode-test-web exited early (${child.exitCode})`);
-    try { const response = await fetch(url); if (response.ok) return; lastError = new Error(`HTTP ${response.status}`); }
-    catch (error) { lastError = error; }
-    await delay(pause);
-    pause = Math.min(pause * 2, 2_000);
-  }
-  throw new Error(`Timed out waiting for vscode-test-web at ${url}: ${String(lastError)}`);
-}
 

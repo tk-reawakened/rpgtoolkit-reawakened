@@ -41,6 +41,25 @@ export async function cleanupTestRun(browser: ClosableBrowser | undefined, proce
   try { await rm(workspace, { recursive: true, force: true }); } catch (error) { errors.push(error); }
   return errors;
 }
+/** Require an HTTP success response before treating the workbench as ready. */
+export async function waitForHttpServer(child: Pick<ChildProcess, "exitCode">, url: string): Promise<void> {
+  const deadline = Date.now() + 120_000;
+  let pause = 100;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) throw new Error(`vscode-test-web exited early (${child.exitCode})`);
+    try {
+      const response = await fetch(url);
+      if (response.ok) return;
+      lastError = new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, pause));
+    pause = Math.min(pause * 2, 2_000);
+  }
+  throw new Error(`Timed out waiting for vscode-test-web at ${url}: ${String(lastError)}`);
+}
 export function combineProofErrors(primary: unknown, cleanupErrors: readonly unknown[]): unknown | undefined {
   const additional = primary === undefined ? cleanupErrors : cleanupErrors.filter((error) => error !== primary);
   if (primary !== undefined && additional.length === 0) return primary;
