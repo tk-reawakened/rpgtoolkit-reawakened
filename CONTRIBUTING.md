@@ -58,9 +58,12 @@ its tolerance is required (one argument is the failure `callable.arity`); and
 snapshot taken after it ([group hooks](docs/spec/engine/rpgcode-tooling.md#tool-5-group-hooks));
 a spec file that registers no case fails as `spec.no-cases`. `skip(name, body)` and
 `only(name, body)` still mark cases, not groups, and the library is reached by
-`#include` until the package load path (PKG-7) is ruled. A spec run registers only
-the spec package's commands, not the engine's built-in commands (tracked as a defect
-of the runner).
+`#include` until the general package load path (PKG-7) is ruled. A package-root
+test can call `executeProgram` on its manifest's startup program; the runner also
+loads its matching first-party native commands. `specActor` and `specActorId`
+expose the fixture's real selected actor for event tests. `pnpm script:dogfood`
+runs each stock package's specs in strict mode and compares its report with the
+reviewed baselines. Run `pnpm script:dogfood:record` deliberately to update them.
 
 
 ## Set up

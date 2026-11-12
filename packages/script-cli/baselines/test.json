@@ -18,7 +18,7 @@
                   "line": 2
                 }
               ],
-              "stateHash": "5dfdd6c7f8e4e5fd"
+              "stateHash": "368dc2db4dadf1c2"
             },
             {
               "name": "subtracts",
@@ -33,7 +33,7 @@
                   "line": 3
                 }
               ],
-              "stateHash": "5c26ef0cf711917f"
+              "stateHash": "cc2c74c15186fc1a"
             },
             {
               "name": "the engine built-ins are available to specs",
@@ -72,7 +72,7 @@
                   "line": 15
                 }
               ],
-              "stateHash": "0031844a817b7e17"
+              "stateHash": "e7f44ba1fbdca316"
             }
           ],
           "failures": [],
