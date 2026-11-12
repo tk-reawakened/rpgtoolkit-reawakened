@@ -42,21 +42,23 @@ const VALID_VECTORS = {
   hashDrawList: [
     {
       id: "draw-simple",
-      input: { protocolVersion: 3, tick: 0, width: 320, height: 240, commands: [] },
-      hash: "a4c8af5374ed8af0",
+      input: { protocolVersion: 3, tick: 12, width: 640, height: 480, commands: [], marginCommands: [] },
+      // The published v3 empty-margin vector, independently checked with Python JSON sorting and FNV-1a-64.
+      hash: "f66cea8e09d1901f",
     },
   ],
   rev: [
     {
       id: "rev-diff",
       a: {
+        protocolVersion: 3,
         tick: 0,
         width: 320,
         height: 240,
         commands: [
           {
             kind: "blit",
-            source: { surface: "s1", rev: 1 },
+            source: { surface: 1, rev: 1 },
             src: { x: 0, y: 0, w: 10, h: 10 },
             dst: { x: 0, y: 0, w: 10, h: 10 },
             key: null,
@@ -66,15 +68,17 @@ const VALID_VECTORS = {
             iso2d: false,
           },
         ],
+        marginCommands: [],
       },
       b: {
+        protocolVersion: 3,
         tick: 0,
         width: 320,
         height: 240,
         commands: [
           {
             kind: "blit",
-            source: { surface: "s1", rev: 2 },
+            source: { surface: 1, rev: 2 },
             src: { x: 0, y: 0, w: 10, h: 10 },
             dst: { x: 0, y: 0, w: 10, h: 10 },
             key: null,
@@ -84,6 +88,7 @@ const VALID_VECTORS = {
             iso2d: false,
           },
         ],
+        marginCommands: [],
       },
     },
   ],
