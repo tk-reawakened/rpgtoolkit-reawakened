@@ -9,7 +9,7 @@ The language the tools read is in [rpgcode-language.md](rpgcode-language.md); it
 
 The libraries the server is built on are `vscode-languageserver`, `vscode-languageserver-protocol`, `vscode-languageserver-textdocument` and, on the host side of the early extension, `vscode-languageclient`; with their transitive `vscode-jsonrpc` and `vscode-languageserver-types` they are the complete addition to the production dependency tree of the shipped artefacts. All are MIT and acceptable under [G6](../../guardrails.md). Nothing else is added without a ruling recorded here.
 
-The debug adapter is the package `dap`, which depends on `runner-harness` (the platform-neutral half of the headless runner) and never on Node; on the web it registers as a `DebugAdapterInlineImplementation`. Dependency direction is the guard-rails' `core ← synth ← runner-*/lsp/dap/editor-ui ← host-*` ([G2](../../guardrails.md)), unchanged by this page.
+The debug adapter is the package `dap`, which depends on `core` for the `Engine` port and on `runner-harness` (the platform-neutral half of the headless runner) for the scene it drives, and never on Node; on the web it registers as a `DebugAdapterInlineImplementation`. It adds no third-party dependency: the Debug Adapter Protocol it speaks is a small typed subset of messages, so the length-prefixed framing is thirty lines this page owns rather than a library, and nothing here needs a ruling. Dependency direction is the guard-rails' `core ← synth ← runner-*/lsp/dap/editor-ui ← host-*` ([G2](../../guardrails.md)), unchanged by this page.
 
 <!-- OWNER: D-1, approved 2026-10-31. Rejected: hand-rolled JSON-RPC framing — about 200 lines owned for ever, drifting on cancellation, progress and workspace/configuration, while the browser client is an official dependency anyway. -->
 
@@ -172,14 +172,71 @@ Until a change classifier exists in the pipeline, the job runs unconditionally a
 | Field | Contents |
 |---|---|
 | `tick` | the tick the view was taken in |
-| `threads` | per thread: `id`, `kind`, `status`, the wait it is parked on (kind and remaining ticks) and its frames |
-| `frames` | outermost to innermost: the program reference, the instruction pointer, the source line and the function name |
-| `locals` | the innermost frame's variables as name/value pairs |
-| `globals` | the global table as name/value pairs |
+| `threads` | per thread: `id`, `kind`, `status` (`ready`, `waiting` or `finished`), the wait it is parked on (its `kind`, whether it is `global` and, for a `sleep` wait, the whole ticks it still has to run) and its frames |
+| `frames` | outermost to innermost: the frame `index`, the program identity (`key`, plus the decoded `text` so a client can show an inline snippet it has no file for), the instruction pointer `ip`, the source `line` the frame is at, the `function` name (`null` for top-level code) and that frame's own `locals` |
+| `locals` | the same list as the innermost frame of `threads`, so a reader that wants only the current scope needs one field |
+| `globals` | the global table as name/value pairs, array elements (`name[index]`) included |
+
+A value in the view is a number, a string, `null` for the unset value, `{ kind: "object", handle, className }` for a live object (a dictionary included) or `{ kind: "callable", def }` for a callable; it is never a reference into live storage.
 
 The view is **copied out, never aliased to the live frames or tables**: mutating anything it returns cannot change the VM, and a call leaves the state hash unchanged. It is the only seam a debug adapter reads. Step over, step in and step out are computed by the adapter from the frame depth it sees between one-instruction resumes ([THR-3](rpgcode-errors-and-threads.md#thr-3)), so the engine gains no new stepping mode beyond the breakpoint contract in [AD-1](../../../_bmad-output/initiative-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md).
 
 <!-- OWNER: D-8, approved 2026-10-31. Rejected: exposing the whole game state from the engine — it would let a debugger read and, through a shared reference, mutate the versioned state, and it couples the debugger to every section's shape rather than to one projection. -->
+
+<a id="tool-8-locals"></a>
+**TOOL-8 locals travel with the frame (P2).** *In plain terms:* a debugger shows the call stack, and clicking a frame shows what the variables of **that** call were, not only the variables of the call that is currently running. *Precisely:* every entry of `frames` carries its own `locals` list, read through each slot's reference, so a local that aliases another variable, a captured closure cell or an object field shows the value the script itself would read; the top-level `locals` of the view is the innermost frame's list and is the same data, not a second query. A frame with no locals has an empty list.
+
+<!-- OWNER: P2, approved by Jensen 2026-11-11 (#950). Decided: locals are a field of each frame. Rejected: restricting scopes to the innermost frame's locals plus the globals — a stack-trace frame could then not be inspected, which is the main use of a call stack; and a second projection (`debugLocals(thread, frame)`) — two reads of one thing drift, and a debugger would have to fetch twice for one screen. -->
+
+<a id="tool-8-evaluate"></a>
+**TOOL-8 expression evaluation (P1).** The engine exposes one expression reader for debuggers, `evaluate(expression, threadId, frameDepth?)`, returning `{ value, error }` with exactly one of the two set.
+
+*In plain terms:* while the game is paused, a watch window or a hover can ask "what is `x + 1` right now?" and gets the value or a plain explanation, and asking never changes the game.
+
+*Precisely:*
+
+- **One expression, not a statement.** The text is parsed in the dialect of the paused thread's program and must be exactly one expression. A statement (`x = 1`, `if …`), a write of any kind (`=`, `+=` and the other compound forms, `++`, `--`), a `return`, a `class`/`function` definition, a lambda and a dictionary literal are all refused before anything runs.
+- **Scope.** `frameDepth` is an index into the thread's `frames` (`0` is the outermost) and defaults to the innermost frame. Names resolve exactly as the paused frame resolves them: its own locals through their aliases (a captured cell, a by-reference parameter), then the enclosing frames, then the global table, then the engine virtuals. `threadId` must name a thread the view lists that still has frames.
+- **Copied out.** The expression runs against a **copy** of the thread's frames and of the global table, so any value it writes is discarded with the copy, and the call leaves the state hash unchanged. An error it raises is reported as its result, never as a `TickReport` diagnostic, and never reaches the game's `error` event or a script handler.
+- **Closed list of calls.** An expression may call only a **named** built-in whose catalogue row in [rpgcode-functions.md](rpgcode-functions.md) changes nothing and does not wait. The list is closed: it grows only by editing this table, and it is the whole of what `evaluate` will run.
+
+| Built-in (as written) | Folded name | Why it is on the list |
+|---|---|---|
+| `castint`, `castnum`, `castlit` | `castint`, `castnum`, `castlit` | converts one value |
+| `charat`, `chr`, `asc` | `charat`, `chr`, `asc` | reads or builds a character |
+| `length`, `len` | `length`, `len` | measures a string; `len` is its alias |
+| `instr` | `instr` | searches a string |
+| `left`, `right`, `mid` | `left`, `right`, `mid` | takes a substring |
+| `lcase`, `ucase` | `lcase`, `ucase` | changes a string's case |
+| `replace` | `replace` | replaces one substring |
+| `trim` | `trim` | trims whitespace |
+| `sin`, `cos`, `tan`, `sqrt`, `log` | `sin`, `cos`, `tan`, `sqrt`, `log` | deterministic maths from `fmath` |
+| `integermuldiv` | `integermuldiv` | exact whole-number arithmetic |
+| `isNaN`, `isInfinity`, `isFinite` | `isnan`, `isinfinity`, `isfinite` | classifies a number |
+
+Everything else is refused, including a call through a value (`f()` where `f` holds a callable), a method call, a constructor, a `file.`-qualified call, and every command that starts a thread, waits, writes a variable or a section, draws, plays audio, reads a file or consumes the seeded RNG; `random` is refused for that last reason.
+
+- **Budget.** The expression may execute at most **1000** VM instructions — the same figure a thread gets per tick ([THR-3](rpgcode-errors-and-threads.md#thr-3)) — and reaching it is the error `evaluate.budget`. The budget bounds the instruction count, not the cost of one instruction, which is why the list above holds only commands whose own work is proportional to their arguments.
+
+| Error code | Meaning |
+|---|---|
+| `evaluate.syntax` | the text is not one expression; the message carries the parser's reason |
+| `evaluate.assignment` | the expression writes a variable, an element, a field or an object |
+| `evaluate.call` | the expression calls something that is not on the list above, and the message names it |
+| `evaluate.form` | the expression builds a value this reader does not have: a lambda, a dictionary literal or a class instance |
+| `evaluate.budget` | the expression reached the 1000-instruction limit |
+| `evaluate.thread` | `threadId` names no thread, or a thread with no frames left |
+| `evaluate.frame` | `frameDepth` is not an index into that thread's frames |
+| `evaluate.wait` | the expression entered a wait, which the list above cannot allow; reported rather than run |
+
+Any other failure the expression raises while it runs is reported with the engine's own error code (`builtin.bad-arg`, `vm.modulo-by-zero` and so on) and its message, so a watch reads like the script does. The error carries the 1-based line of the expression text it happened on.
+
+<!-- OWNER: P1, approved narrowly by Jensen 2026-11-11 (#950). Decided: one engine-side expression reader, expressions only, a named and closed list of pure built-ins, an instruction cap reported as `evaluate.budget`, a run on a copy whose effects are discarded, and a state hash that does not move. Rejected: evaluating in the adapter with a shadow interpreter — it would re-implement expression semantics (numeric truncation on a variable read SEM-3, comparison and truthiness SEM-3, the alias rules) and drift from the engine at the first change; evaluating by temporarily mutating engine state and rolling it back — a save, a queued event or an observer fires during the run and the rollback cannot undo it; allowing every built-in — a watch could `save()`, start a thread or block the host, and the read-only promise would be false; a time-based limit — it is not deterministic (G3) and would make one run of the same watch differ from the next. -->
+
+<a id="tool-8-server"></a>
+**TOOL-8 the session and its transport.** `dap` exports a transport-free session: the host hands it the engine to drive, the source the breakpoints name, and a callback that receives DAP responses and events. The stdio entry point is a program binary outside the package's public export (the same rule as [TOOL-1](#tool-1)), so importing the package never opens a pipe, and a test drives a session through an in-memory pair of streams. Breakpoints, the `threads`/`stackTrace`/`scopes`/`variables`/`evaluate` requests, `continue`, `next`, `stepIn` and `stepOut` are answered from `debugView()`, `evaluate()` and `setBreakpoints`, and the stepping requests are computed in the adapter per [THR-3](rpgcode-errors-and-threads.md#thr-3): one `advance(0, [], undefined, "step")` per instruction, comparing the frame depth of the stop with the depth the step started at.
+
+<!-- OWNER: approved by Jensen 2026-11-11 (#950), as the wording P3 already ruled (THR-3, AD-1). Rejected: a `stepOver`/`stepIn`/`stepOut` mode inside the VM — it would put DAP's vocabulary in the save-state contract and add three cursor modes to the open-tick record. -->
 
 <a id="tool-9"></a>
 **TOOL-9 The command-line front end.** The tool is one binary, `tkr`, and RPGCode tooling is its `script` group: `tkr script check`, `fmt`, `test`, `docs` and `index`. Later groups (`tkr run`, `tkr pack`) may follow without renaming anything.
