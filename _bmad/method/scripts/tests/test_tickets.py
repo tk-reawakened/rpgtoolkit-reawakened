@@ -116,6 +116,29 @@ class ChoreTicketTests(unittest.TestCase):
         self.assertIsNone(row["story_file"])
         self.assertEqual(row["status"], "blocked")
 
+    def test_story_typed_plan_with_ticket_joins_entry(self):
+        self.write_entry("story")
+        plan = self.epic / "story-ci-change-classifier-plan.md"
+        plan.write_text(
+            "---\ntitle: CI change classifier\ntype: story\nticket: '23'\n"
+            "status: in-progress\n---\n# Plan\n", encoding="utf-8"
+        )
+        found = self.run_ticket("find", str(self.epic), "23")
+        self.assertEqual(found.returncode, 0, found.stderr)
+        row = json.loads(found.stdout)
+        self.assertEqual(Path(row["plan"]).resolve(), plan.resolve())
+        self.assertIsNone(row["story_file"])
+        self.assertEqual(row["status"], "in-progress")
+
+        status = self.run_ticket("status", str(self.epic))
+        self.assertEqual(status.returncode, 0, status.stderr)
+        tickets = json.loads(status.stdout)["tickets"]
+        self.assertTrue(all(ticket["id"] is not None for ticket in tickets), tickets)
+        rows = [ticket for ticket in tickets if ticket["ref"] == "23"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["type"], "story")
+        self.assertEqual(rows[0]["state"], "in-progress")
+
     def test_duplicate_tracker_ids_still_fail(self):
         (self.epic / "tickets.toml").write_text(
             '[[entry]]\nid = 23\ntype = "bug"\ntitle = "First"\ntracker_id = "#1045"\n'
