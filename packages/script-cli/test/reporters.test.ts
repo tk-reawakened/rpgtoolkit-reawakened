@@ -43,6 +43,10 @@ test("nested names and selected cases survive every deterministic reporter", () 
     const filtered = runTest([root], true, false, "passes");
     equal(filtered.result.exitCode, 0);
     doesNotMatch(filtered.text, /fails <bad>/);
+    const cli = spawnSync(process.execPath, [new URL("../dist/cli.js", import.meta.url).pathname, "script", "test", root, "--name", "passes", "--reporter=json"], { encoding: "utf8" });
+    equal(cli.status, 0, cli.stderr);
+    match(cli.stdout, /"passes"/);
+    doesNotMatch(cli.stdout, /fails <bad>/);
     equal(parseArgs(["node", "tkr", "script", "test", "--reporter", "junit", "--json"]).ok, false);
     writeFileSync(join(root, "focused.spec.prg"), 'only("focus", () => { expect(1).toBe(1) })');
     const focusedJunit = runTest([root], true, false, "", "junit");
