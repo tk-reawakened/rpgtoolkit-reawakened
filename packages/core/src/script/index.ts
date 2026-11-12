@@ -79,7 +79,7 @@ export type {
   RedirectPairs,
   ScriptDialect,
 } from "./program.ts";
-export { readProgram, resolveProgram } from "./loader.ts";
+export { projectScriptDialect, readProgram, resolveProgram } from "./loader.ts";
 export type { LoadedSource, ProgramLoader } from "./loader.ts";
 export { createProgramCache } from "./cache.ts";
 export type { ProgramCache } from "./cache.ts";

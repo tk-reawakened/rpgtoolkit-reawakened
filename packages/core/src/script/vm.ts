@@ -1239,7 +1239,10 @@ function resolveWait(vm: VmState, view: WaitView, poll: WaitPoll, thread: Thread
   }
   if ("resumeRefs" in wait && wait.resumeRefs !== undefined) {
     const topIndex = thread.frames.length - 1;
-    for (const ref of wait.resumeRefs) writeRef(vm, thread, topIndex, ref as RefId, resumed, services);
+    for (const [index, ref] of wait.resumeRefs.entries()) {
+      const value = result.outputs === undefined ? resumed : result.outputs[index] ?? null;
+      writeRef(vm, thread, topIndex, ref as RefId, value, services);
+    }
   }
   if (wait.kind === "sleep" && !wait.resumesCall) return;
   frame.operands.push({ value: resumed, ref: null });
@@ -3219,8 +3222,17 @@ function dispatchResolved(
           if (services.loader === undefined) {
             throw new ScriptError("program.missing", `no program "${file}" is in the asset index`, pos);
           }
-          const newRef = fileProgramRef(services.loader, file, vm.redirects);
-          services.programs.get(newRef);
+          let newRef: ProgramRef;
+          try {
+            newRef = fileProgramRef(services.loader, file, vm.redirects);
+            services.programs.get(newRef);
+          } catch (error) {
+            if (!(error instanceof ScriptError) || failureClass(error.code) !== null) throw error;
+            // Load errors belong to the new source and cannot be caught by the caller (ERR-2).
+            services.diagnostics.push({ code: error.code, file: error.pos?.file || file, line: error.pos?.line ?? 0, message: error.message });
+            frame.operands.push({ value: 0, ref: null });
+            return "continue";
+          }
           const context = materializeProgramContext(vm, plan);
           const rootFrame: Frame = {
             program: newRef,

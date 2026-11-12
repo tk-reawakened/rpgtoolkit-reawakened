@@ -171,6 +171,7 @@ export function fileProgramRef(
     path: name,
     sourceHash: source.hash,
     ir: IR_VERSION,
+    ...(loader.dialect === "tk2" ? { dialect: loader.dialect } : {}),
   };
   return withRedirects(ref, redirects);
 }
