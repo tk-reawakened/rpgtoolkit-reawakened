@@ -1,0 +1,62 @@
+{
+  "bundle": "monaco-core-nonce",
+  "policyName": "vscode-webview+font+attr+worker",
+  "policy": "default-src 'none'; img-src http://127.0.0.1:4199; script-src 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg'; style-src 'self' http://127.0.0.1:4199 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg'; font-src http://127.0.0.1:4199; style-src-attr 'unsafe-inline'; worker-src 'self'",
+  "nonce": "c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg",
+  "afterCreate": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "render": {
+    "lineNumbers": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "viewLines": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "keywordColour": "rgb(170, 0, 170)",
+    "identifierColour": "rgb(0, 0, 0)",
+    "currentLineWidth": 62,
+    "styleElements": 3,
+    "adoptedStyleSheets": 0,
+    "tokensColoured": true,
+    "linesPositioned": true
+  },
+  "typed": true,
+  "suggest": {
+    "visible": true,
+    "rows": 1,
+    "labels": [
+      "counter"
+    ]
+  },
+  "undone": true,
+  "find": {
+    "visible": true,
+    "codiconFont": "loaded"
+  },
+  "worker": {
+    "created": [
+      {
+        "url": "./editor.worker.js",
+        "type": "classic"
+      }
+    ],
+    "messages": 17,
+    "errors": []
+  },
+  "afterUse": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "workerRequests": [
+    "/b/monaco-core-nonce.html?csp=default-src+%27none%27%3B+img-src+http%3A%2F%2F127.0.0.1%3A4199%3B+script-src+%27nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg%27%3B+style-src+%27self%27+http%3A%2F%2F127.0.0.1%3A4199+%27nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg%27%3B+font-src+http%3A%2F%2F127.0.0.1%3A4199%3B+style-src-attr+%27unsafe-inline%27%3B+worker-src+%27self%27&root=editor&nonce=c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg",
+    "/b/editor.worker.js"
+  ],
+  "console": [],
+  "pageErrors": []
+}

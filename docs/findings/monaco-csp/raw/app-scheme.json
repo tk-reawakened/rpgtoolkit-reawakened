@@ -1,0 +1,274 @@
+{
+  "versions": {
+    "electron": "45.2.1",
+    "chrome": "156.0.8078.75",
+    "name": "Electron"
+  },
+  "policyWeb": "default-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; frame-ancestors 'none'",
+  "policyRelaxed": "default-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; frame-ancestors 'none'; font-src 'self'; style-src-attr 'unsafe-inline'; style-src-elem 'self' 'unsafe-inline'",
+  "dockAfterLoad": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "keyboardSteps": [
+    {
+      "label": "F6 enters the first group",
+      "keys": [
+        "F6"
+      ],
+      "focus": "div[role=tab]:Files",
+      "status": "Files, group 1 of 3",
+      "pass": true
+    },
+    {
+      "label": "F6 goes to the next group",
+      "keys": [
+        "F6"
+      ],
+      "focus": "div[role=tab]:Board view 1",
+      "status": "Board view 1, group 2 of 3",
+      "pass": true
+    },
+    {
+      "label": "F6 again",
+      "keys": [
+        "F6"
+      ],
+      "focus": "div[role=tab]:Outline",
+      "status": "Outline, group 3 of 3",
+      "pass": true
+    },
+    {
+      "label": "Shift+F6 goes back",
+      "keys": [
+        "Shift+F6"
+      ],
+      "focus": "div[role=tab]:Board view 1",
+      "status": "Board view 1, group 2 of 3",
+      "pass": true
+    },
+    {
+      "label": "Enter on the active tab visits the panel",
+      "keys": [
+        "Enter"
+      ],
+      "focus": "input:",
+      "status": "Board view 1, group 2 of 3",
+      "pass": true
+    },
+    {
+      "label": "F6 from inside a panel returns to the dock",
+      "keys": [
+        "Shift+F6",
+        "F6"
+      ],
+      "focus": "div[role=tab]:Board view 1",
+      "status": "Board view 1, group 2 of 3",
+      "pass": true
+    },
+    {
+      "label": "Alt+Shift+ArrowRight moves the panel into the right group",
+      "keys": [
+        "Alt+Shift+ArrowRight"
+      ],
+      "focus": "div[role=tab]:Board view 1",
+      "status": "Moved Board view 1 right",
+      "pass": true
+    },
+    {
+      "label": "Alt+Shift+ArrowDown splits the group downwards",
+      "keys": [
+        "Alt+Shift+ArrowDown"
+      ],
+      "focus": "div[role=tab]:Board view 1",
+      "status": "Moved Board view 1 down",
+      "pass": true
+    },
+    {
+      "label": "Ctrl+Shift+ArrowLeft narrows the group",
+      "keys": [
+        "Control+Shift+ArrowLeft"
+      ],
+      "focus": "div[role=tab]:Board view 1",
+      "status": "Board view 1 width 592 pixels",
+      "pass": true
+    },
+    {
+      "label": "Delete closes the last tab of a group and focus lands on another group's tab",
+      "keys": [
+        "Delete"
+      ],
+      "focus": "div[role=tab]:Files",
+      "status": "Focus moved to Files",
+      "pass": true
+    },
+    {
+      "label": "Arrow keys still rove within a two-tab group",
+      "keys": [
+        "ArrowLeft"
+      ],
+      "focus": "div[role=tab]:Properties",
+      "status": "Outline, group 2 of 2",
+      "pass": true
+    }
+  ],
+  "dockAfterSteps": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "dockPageErrors": [],
+  "monaco web-host": {
+    "afterCreate": {
+      "total": 110,
+      "byDirective": {
+        "font-src": 1,
+        "style-src-elem": 5,
+        "style-src-attr": 104
+      },
+      "samples": [
+        {
+          "directive": "font-src",
+          "blockedURI": "app",
+          "sample": "",
+          "source": ""
+        },
+        {
+          "directive": "style-src-elem",
+          "blockedURI": "inline",
+          "sample": "",
+          "source": "app"
+        },
+        {
+          "directive": "style-src-attr",
+          "blockedURI": "inline",
+          "sample": "",
+          "source": "app"
+        }
+      ]
+    },
+    "render": {
+      "lineNumbers": {
+        "count": 20,
+        "distinctTops": 20
+      },
+      "viewLines": {
+        "count": 20,
+        "distinctTops": 20
+      },
+      "keywordColour": "rgb(0, 0, 0)",
+      "identifierColour": "rgb(0, 0, 0)",
+      "currentLineWidth": 0,
+      "styleElements": 3,
+      "adoptedStyleSheets": 0,
+      "tokensColoured": false,
+      "linesPositioned": true
+    },
+    "typed": true,
+    "suggest": {
+      "visible": true,
+      "rows": 1,
+      "labels": [
+        "counter"
+      ]
+    },
+    "undone": true,
+    "find": {
+      "visible": true,
+      "codiconFont": "unloaded"
+    },
+    "worker": {
+      "created": [
+        {
+          "url": "./editor.worker.js",
+          "type": "classic"
+        }
+      ],
+      "messages": 17,
+      "errors": []
+    },
+    "afterUse": {
+      "total": 132,
+      "byDirective": {
+        "font-src": 1,
+        "style-src-elem": 6,
+        "style-src-attr": 125
+      },
+      "samples": [
+        {
+          "directive": "font-src",
+          "blockedURI": "app",
+          "sample": "",
+          "source": ""
+        },
+        {
+          "directive": "style-src-elem",
+          "blockedURI": "inline",
+          "sample": "",
+          "source": "app"
+        },
+        {
+          "directive": "style-src-attr",
+          "blockedURI": "inline",
+          "sample": "",
+          "source": "app"
+        }
+      ]
+    },
+    "pageErrors": []
+  },
+  "monaco web-host+font+attr+elem-unsafe": {
+    "afterCreate": {
+      "total": 0,
+      "byDirective": {},
+      "samples": []
+    },
+    "render": {
+      "lineNumbers": {
+        "count": 20,
+        "distinctTops": 20
+      },
+      "viewLines": {
+        "count": 20,
+        "distinctTops": 20
+      },
+      "keywordColour": "rgb(170, 0, 170)",
+      "identifierColour": "rgb(0, 0, 0)",
+      "currentLineWidth": 62,
+      "styleElements": 3,
+      "adoptedStyleSheets": 0,
+      "tokensColoured": true,
+      "linesPositioned": true
+    },
+    "typed": true,
+    "suggest": {
+      "visible": true,
+      "rows": 1,
+      "labels": [
+        "counter"
+      ]
+    },
+    "undone": true,
+    "find": {
+      "visible": true,
+      "codiconFont": "loaded"
+    },
+    "worker": {
+      "created": [
+        {
+          "url": "./editor.worker.js",
+          "type": "classic"
+        }
+      ],
+      "messages": 17,
+      "errors": []
+    },
+    "afterUse": {
+      "total": 0,
+      "byDirective": {},
+      "samples": []
+    },
+    "pageErrors": []
+  }
+}

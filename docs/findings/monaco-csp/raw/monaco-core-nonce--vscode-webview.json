@@ -1,0 +1,120 @@
+{
+  "bundle": "monaco-core-nonce",
+  "policyName": "vscode-webview",
+  "policy": "default-src 'none'; img-src http://127.0.0.1:4199; script-src 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg'; style-src 'self' http://127.0.0.1:4199 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg';",
+  "nonce": "c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg",
+  "afterCreate": {
+    "total": 106,
+    "byDirective": {
+      "font-src": 1,
+      "style-src-attr": 104,
+      "worker-src": 1
+    },
+    "samples": [
+      {
+        "directive": "font-src",
+        "blockedURI": "http://127.0.0.1:4199/b/codicon.ttf",
+        "sample": "",
+        "source": ""
+      },
+      {
+        "directive": "style-src-attr",
+        "blockedURI": "inline",
+        "sample": "",
+        "source": "monaco-core-nonce.js"
+      },
+      {
+        "directive": "worker-src",
+        "blockedURI": "http://127.0.0.1:4199/b/editor.worker.js",
+        "sample": "",
+        "source": "monaco-core-nonce.js"
+      }
+    ]
+  },
+  "render": {
+    "lineNumbers": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "viewLines": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "keywordColour": "rgb(170, 0, 170)",
+    "identifierColour": "rgb(0, 0, 0)",
+    "currentLineWidth": 0,
+    "styleElements": 3,
+    "adoptedStyleSheets": 0,
+    "tokensColoured": true,
+    "linesPositioned": true
+  },
+  "typed": true,
+  "suggest": {
+    "visible": true,
+    "rows": 0,
+    "labels": []
+  },
+  "undone": true,
+  "find": {
+    "visible": true,
+    "codiconFont": "error"
+  },
+  "worker": {
+    "created": [
+      {
+        "url": "./editor.worker.js",
+        "type": "classic"
+      }
+    ],
+    "messages": 0,
+    "errors": [
+      "error"
+    ]
+  },
+  "afterUse": {
+    "total": 124,
+    "byDirective": {
+      "font-src": 1,
+      "style-src-attr": 122,
+      "worker-src": 1
+    },
+    "samples": [
+      {
+        "directive": "font-src",
+        "blockedURI": "http://127.0.0.1:4199/b/codicon.ttf",
+        "sample": "",
+        "source": ""
+      },
+      {
+        "directive": "style-src-attr",
+        "blockedURI": "inline",
+        "sample": "",
+        "source": "monaco-core-nonce.js"
+      },
+      {
+        "directive": "worker-src",
+        "blockedURI": "http://127.0.0.1:4199/b/editor.worker.js",
+        "sample": "",
+        "source": "monaco-core-nonce.js"
+      }
+    ]
+  },
+  "workerRequests": [],
+  "console": [
+    "Loading the font 'http://127.0.0.1:4199/b/codicon.ttf' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self' http://127.0.0.1:4199 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg''. Either the 'unsafe-inline' keyword, a hash ('sha256-ZLWkky/ffgfOvh7p3RgjBCVTVGllWxvO0X0DNDPsGvY='), or a nonce ('nonce-...') is required to ",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self' http://127.0.0.1:4199 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg''. Either the 'unsafe-inline' keyword, a hash ('sha256-9jTC7TPhnl8bcKVdZ+9EZqDOUIsWnlwHBb9TWKfp3aI='), or a nonce ('nonce-...') is required to ",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self' http://127.0.0.1:4199 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg''. Either the 'unsafe-inline' keyword, a hash ('sha256-U69TOEWuuz9BXScoxosKXXlsb5yPlcHKkLj1crvJaYI='), or a nonce ('nonce-...') is required to ",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self' http://127.0.0.1:4199 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg''. Either the 'unsafe-inline' keyword, a hash ('sha256-isOCHUq/sPTX5hPrwrxE5egp8TyCr5szP/3/gpUSmpo='), or a nonce ('nonce-...') is required to ",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self' http://127.0.0.1:4199 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg''. Either the 'unsafe-inline' keyword, a hash ('sha256-WPRsCM1WiCyvetRzl7R/X2Nsu/NkVeIB0a/YZ8QDsK8='), or a nonce ('nonce-...') is required to ",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self' http://127.0.0.1:4199 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg''. Either the 'unsafe-inline' keyword, a hash ('sha256-IDWa8iTU2ej1g3/QR+h+Y9TKBpgRIcI7pCfm6+cagoU='), or a nonce ('nonce-...') is required to ",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self' http://127.0.0.1:4199 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg''. Either the 'unsafe-inline' keyword, a hash ('sha256-S+2eBZO5Bt5d0UVaPMmwu/HZoZsm6XgM2/bTzyZmmUA='), or a nonce ('nonce-...') is required to ",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self' http://127.0.0.1:4199 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg''. Either the 'unsafe-inline' keyword, a hash ('sha256-NyJa3woIV84oryZeKMd0QqiFluK4b3b0uvq7B0NPKvY='), or a nonce ('nonce-...') is required to ",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self' http://127.0.0.1:4199 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg''. Either the 'unsafe-inline' keyword, a hash ('sha256-O7fXuBsIRS+kD4iGrCGR36rcJ3aycyHN/O7DTw5ngbc='), or a nonce ('nonce-...') is required to ",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self' http://127.0.0.1:4199 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg''. Either the 'unsafe-inline' keyword, a hash ('sha256-xSW/HUR6k6sHgRsrtymOsTn3QZjgVFsk1m2MMD8MqMY='), or a nonce ('nonce-...') is required to ",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self' http://127.0.0.1:4199 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg''. Either the 'unsafe-inline' keyword, a hash ('sha256-aeeN2w0Snf2zNUlJasDu9LDebWLo42+sHLnU9NPES5s='), or a nonce ('nonce-...') is required to "
+  ],
+  "pageErrors": [
+    "Event"
+  ]
+}

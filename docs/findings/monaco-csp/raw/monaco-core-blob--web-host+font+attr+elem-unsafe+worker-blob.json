@@ -1,0 +1,64 @@
+{
+  "bundle": "monaco-core-blob",
+  "policyName": "web-host+font+attr+elem-unsafe+worker-blob",
+  "policy": "default-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; frame-ancestors 'none'; font-src 'self'; style-src-attr 'unsafe-inline'; style-src-elem 'self' 'unsafe-inline'; worker-src 'self' blob:",
+  "nonce": null,
+  "afterCreate": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "render": {
+    "lineNumbers": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "viewLines": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "keywordColour": "rgb(170, 0, 170)",
+    "identifierColour": "rgb(0, 0, 0)",
+    "currentLineWidth": 62,
+    "styleElements": 3,
+    "adoptedStyleSheets": 0,
+    "tokensColoured": true,
+    "linesPositioned": true
+  },
+  "typed": true,
+  "suggest": {
+    "visible": true,
+    "rows": 1,
+    "labels": [
+      "counter"
+    ]
+  },
+  "undone": true,
+  "find": {
+    "visible": true,
+    "codiconFont": "loaded"
+  },
+  "worker": {
+    "created": [
+      {
+        "url": "blob:http://127.0.0.1:4199/8d6d20fe-5d4b-4ccd-b52f-79f44584ae24",
+        "type": "module"
+      }
+    ],
+    "messages": 18,
+    "errors": []
+  },
+  "afterUse": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "workerRequests": [
+    "/b/monaco-core-blob.html?csp=default-src+%27none%27%3B+base-uri+%27none%27%3B+connect-src+%27self%27%3B+img-src+%27self%27+data%3A%3B+script-src+%27self%27%3B+style-src+%27self%27%3B+frame-ancestors+%27none%27%3B+font-src+%27self%27%3B+style-src-attr+%27unsafe-inline%27%3B+style-src-elem+%27self%27+%27unsafe-inline%27%3B+worker-src+%27self%27+blob%3A&root=editor",
+    "/b/editor.worker.module.js"
+  ],
+  "console": [
+    "The Content Security Policy directive 'frame-ancestors' is ignored when delivered via a <meta> element."
+  ],
+  "pageErrors": []
+}

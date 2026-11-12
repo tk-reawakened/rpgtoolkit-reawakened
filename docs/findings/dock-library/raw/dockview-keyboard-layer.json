@@ -1,0 +1,112 @@
+{
+  "steps": [
+    {
+      "label": "F6 enters the first group",
+      "keys": [
+        "F6"
+      ],
+      "focus": "div[role=tab]:Files",
+      "status": "Files, group 1 of 3",
+      "pass": true
+    },
+    {
+      "label": "F6 goes to the next group",
+      "keys": [
+        "F6"
+      ],
+      "focus": "div[role=tab]:Board view 1",
+      "status": "Board view 1, group 2 of 3",
+      "pass": true
+    },
+    {
+      "label": "F6 again",
+      "keys": [
+        "F6"
+      ],
+      "focus": "div[role=tab]:Outline",
+      "status": "Outline, group 3 of 3",
+      "pass": true
+    },
+    {
+      "label": "Shift+F6 goes back",
+      "keys": [
+        "Shift+F6"
+      ],
+      "focus": "div[role=tab]:Board view 1",
+      "status": "Board view 1, group 2 of 3",
+      "pass": true
+    },
+    {
+      "label": "Enter on the active tab visits the panel",
+      "keys": [
+        "Enter"
+      ],
+      "focus": "input:",
+      "status": "Board view 1, group 2 of 3",
+      "pass": true
+    },
+    {
+      "label": "F6 from inside a panel returns to the dock",
+      "keys": [
+        "Shift+F6",
+        "F6"
+      ],
+      "focus": "div[role=tab]:Board view 1",
+      "status": "Board view 1, group 2 of 3",
+      "pass": true
+    },
+    {
+      "label": "Alt+Shift+ArrowRight moves the panel into the right group",
+      "keys": [
+        "Alt+Shift+ArrowRight"
+      ],
+      "focus": "div[role=tab]:Board view 1",
+      "status": "Moved Board view 1 right",
+      "pass": true
+    },
+    {
+      "label": "Alt+Shift+ArrowDown splits the group downwards",
+      "keys": [
+        "Alt+Shift+ArrowDown"
+      ],
+      "focus": "div[role=tab]:Board view 1",
+      "status": "Moved Board view 1 down",
+      "pass": true
+    },
+    {
+      "label": "Ctrl+Shift+ArrowLeft narrows the group",
+      "keys": [
+        "Control+Shift+ArrowLeft"
+      ],
+      "focus": "div[role=tab]:Board view 1",
+      "status": "Board view 1 width 592 pixels",
+      "pass": true
+    },
+    {
+      "label": "Delete closes the last tab of a group and focus lands on another group's tab",
+      "keys": [
+        "Delete"
+      ],
+      "focus": "div[role=tab]:Files",
+      "status": "Focus moved to Files",
+      "pass": true
+    },
+    {
+      "label": "Arrow keys still rove within a two-tab group",
+      "keys": [
+        "ArrowLeft"
+      ],
+      "focus": "div[role=tab]:Properties",
+      "status": "Outline, group 2 of 2",
+      "pass": true
+    }
+  ],
+  "keyboardLayerLines": 100,
+  "violations": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "pageErrors": [],
+  "liveRegion": "polite"
+}

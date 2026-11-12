@@ -1,0 +1,1347 @@
+{
+  "node": "v26.13.0",
+  "esbuild": "0.28.2",
+  "deps": {
+    "dockview": "8.9.0",
+    "dockview-core": "8.9.0",
+    "dock-spawn-ts": "4.5.4",
+    "@lumino/widgets": "2.10.0",
+    "golden-layout": "2.6.0",
+    "monaco-editor": "0.57.0",
+    "codemirror": "6.0.2",
+    "@codemirror/view": "6.43.15",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/commands": "6.11.1",
+    "@lezer/highlight": "1.2.5"
+  },
+  "monacoCoreImports": 74,
+  "bundles": {
+    "dock-dockview": {
+      "outputs": {
+        "dock-dockview.js": {
+          "bytes": 388172,
+          "gzip": 95939,
+          "brotli": 80586,
+          "dynamicCode": []
+        },
+        "dock-dockview.css": {
+          "bytes": 142792,
+          "gzip": 10863,
+          "brotli": 9107
+        }
+      },
+      "libraryBytesInOutput": 370362,
+      "packages": {
+        "dockview-core": {
+          "bytesInOutput": 370362,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 1,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 2,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "dockview": {
+          "bytesInOutput": 0,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "spike code": {
+          "bytesInOutput": 4262,
+          "files": 5,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "preact": {
+          "bytesInOutput": 13341,
+          "files": 2,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 1,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 2,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        }
+      }
+    },
+    "dock-dockview-kbd": {
+      "outputs": {
+        "dock-dockview-kbd.js": {
+          "bytes": 390729,
+          "gzip": 96866,
+          "brotli": 81240,
+          "dynamicCode": []
+        },
+        "dock-dockview-kbd.css": {
+          "bytes": 142792,
+          "gzip": 10863,
+          "brotli": 9107
+        }
+      },
+      "libraryBytesInOutput": 370362,
+      "packages": {
+        "dockview-core": {
+          "bytesInOutput": 370362,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 1,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 2,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "dockview": {
+          "bytesInOutput": 0,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "spike code": {
+          "bytesInOutput": 6819,
+          "files": 6,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "preact": {
+          "bytesInOutput": 13341,
+          "files": 2,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 1,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 2,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        }
+      }
+    },
+    "dock-dockspawn": {
+      "outputs": {
+        "dock-dockspawn.js": {
+          "bytes": 148362,
+          "gzip": 36123,
+          "brotli": 31594,
+          "dynamicCode": []
+        },
+        "dock-dockspawn.css": {
+          "bytes": 56598,
+          "gzip": 11692,
+          "brotli": 9987
+        }
+      },
+      "libraryBytesInOutput": 130790,
+      "packages": {
+        "dock-spawn-ts": {
+          "bytesInOutput": 130790,
+          "files": 42,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 8,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 1,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 2,
+            "constructableStylesheet": 4,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "spike code": {
+          "bytesInOutput": 4250,
+          "files": 5,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "preact": {
+          "bytesInOutput": 13310,
+          "files": 2,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 1,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 2,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        }
+      }
+    },
+    "dock-lumino": {
+      "outputs": {
+        "dock-lumino.js": {
+          "bytes": 209863,
+          "gzip": 56323,
+          "brotli": 47875,
+          "dynamicCode": []
+        },
+        "dock-lumino.css": {
+          "bytes": 5786,
+          "gzip": 1363,
+          "brotli": 1130
+        }
+      },
+      "libraryBytesInOutput": 191563,
+      "packages": {
+        "@lumino/algorithm": {
+          "bytesInOutput": 8089,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@lumino/coreutils": {
+          "bytesInOutput": 8114,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@lumino/widgets": {
+          "bytesInOutput": 135538,
+          "files": 2,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 2,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@lumino/domutils": {
+          "bytesInOutput": 3378,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@lumino/messaging": {
+          "bytesInOutput": 1751,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@lumino/collections": {
+          "bytesInOutput": 2792,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@lumino/properties": {
+          "bytesInOutput": 1190,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@lumino/signaling": {
+          "bytesInOutput": 2305,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@lumino/disposable": {
+          "bytesInOutput": 886,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@lumino/dragdrop": {
+          "bytesInOutput": 9668,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@lumino/commands": {
+          "bytesInOutput": 9610,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@lumino/keyboard": {
+          "bytesInOutput": 1533,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@lumino/virtualdom": {
+          "bytesInOutput": 6709,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "spike code": {
+          "bytesInOutput": 4334,
+          "files": 5,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "preact": {
+          "bytesInOutput": 13383,
+          "files": 2,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 1,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 2,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        }
+      }
+    },
+    "dock-golden": {
+      "outputs": {
+        "dock-golden.js": {
+          "bytes": 145775,
+          "gzip": 37262,
+          "brotli": 32443,
+          "dynamicCode": []
+        },
+        "dock-golden.css": {
+          "bytes": 8738,
+          "gzip": 2323,
+          "brotli": 1959
+        }
+      },
+      "libraryBytesInOutput": 128389,
+      "packages": {
+        "golden-layout": {
+          "bytesInOutput": 128389,
+          "files": 35,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 1,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "spike code": {
+          "bytesInOutput": 4033,
+          "files": 5,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "preact": {
+          "bytesInOutput": 13341,
+          "files": 2,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 1,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 2,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        }
+      }
+    },
+    "monaco-core-classic": {
+      "outputs": {
+        "monaco-core-classic.js": {
+          "bytes": 3951305,
+          "gzip": 1014111,
+          "brotli": 793080,
+          "dynamicCode": []
+        },
+        "codicon.ttf": {
+          "bytes": 153228,
+          "gzip": 75013,
+          "brotli": 67162
+        },
+        "monaco-core-classic.css": {
+          "bytes": 175654,
+          "gzip": 27349,
+          "brotli": 22975
+        }
+      },
+      "libraryBytesInOutput": 3948695,
+      "packages": {
+        "monaco-editor": {
+          "bytesInOutput": 3948695,
+          "files": 1053,
+          "scan": {
+            "setAttributeStyle": 1,
+            "innerHTML": 10,
+            "insertAdjacentHTML": 3,
+            "createStyleElement": 2,
+            "styleAttributeInMarkup": 28,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 1,
+            "blobUrl": 1
+          }
+        },
+        "spike code": {
+          "bytesInOutput": 2215,
+          "files": 3,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 3,
+            "blobUrl": 1
+          }
+        }
+      }
+    },
+    "monaco-core-blob": {
+      "outputs": {
+        "monaco-core-blob.js": {
+          "bytes": 3951302,
+          "gzip": 1014114,
+          "brotli": 793038,
+          "dynamicCode": []
+        },
+        "codicon.ttf": {
+          "bytes": 153228,
+          "gzip": 75013,
+          "brotli": 67162
+        },
+        "monaco-core-blob.css": {
+          "bytes": 175654,
+          "gzip": 27349,
+          "brotli": 22975
+        }
+      },
+      "libraryBytesInOutput": 3948695,
+      "packages": {
+        "monaco-editor": {
+          "bytesInOutput": 3948695,
+          "files": 1053,
+          "scan": {
+            "setAttributeStyle": 1,
+            "innerHTML": 10,
+            "insertAdjacentHTML": 3,
+            "createStyleElement": 2,
+            "styleAttributeInMarkup": 28,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 1,
+            "blobUrl": 1
+          }
+        },
+        "spike code": {
+          "bytesInOutput": 2212,
+          "files": 3,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 3,
+            "blobUrl": 1
+          }
+        }
+      }
+    },
+    "monaco-core-nonce": {
+      "outputs": {
+        "monaco-core-nonce.js": {
+          "bytes": 3951520,
+          "gzip": 1014191,
+          "brotli": 792932,
+          "dynamicCode": []
+        },
+        "codicon.ttf": {
+          "bytes": 153228,
+          "gzip": 75013,
+          "brotli": 67162
+        },
+        "monaco-core-nonce.css": {
+          "bytes": 175654,
+          "gzip": 27349,
+          "brotli": 22975
+        }
+      },
+      "libraryBytesInOutput": 3948825,
+      "packages": {
+        "monaco-editor": {
+          "bytesInOutput": 3948825,
+          "files": 1053,
+          "scan": {
+            "setAttributeStyle": 1,
+            "innerHTML": 10,
+            "insertAdjacentHTML": 3,
+            "createStyleElement": 2,
+            "styleAttributeInMarkup": 28,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 1,
+            "blobUrl": 1
+          }
+        },
+        "spike code": {
+          "bytesInOutput": 2215,
+          "files": 3,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 3,
+            "blobUrl": 1
+          }
+        }
+      }
+    },
+    "monaco-core-nonce-fetchblob": {
+      "outputs": {
+        "monaco-core-nonce-fetchblob.js": {
+          "bytes": 3951523,
+          "gzip": 1014194,
+          "brotli": 792976,
+          "dynamicCode": []
+        },
+        "codicon.ttf": {
+          "bytes": 153228,
+          "gzip": 75013,
+          "brotli": 67162
+        },
+        "monaco-core-nonce-fetchblob.css": {
+          "bytes": 175654,
+          "gzip": 27349,
+          "brotli": 22975
+        }
+      },
+      "libraryBytesInOutput": 3948825,
+      "packages": {
+        "monaco-editor": {
+          "bytesInOutput": 3948825,
+          "files": 1053,
+          "scan": {
+            "setAttributeStyle": 1,
+            "innerHTML": 10,
+            "insertAdjacentHTML": 3,
+            "createStyleElement": 2,
+            "styleAttributeInMarkup": 28,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 1,
+            "blobUrl": 1
+          }
+        },
+        "spike code": {
+          "bytesInOutput": 2218,
+          "files": 3,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 3,
+            "blobUrl": 1
+          }
+        }
+      }
+    },
+    "monaco-full": {
+      "outputs": {
+        "monaco-full.js": {
+          "bytes": 4552100,
+          "gzip": 1180423,
+          "brotli": 917901,
+          "dynamicCode": []
+        },
+        "codicon.ttf": {
+          "bytes": 153228,
+          "gzip": 75013,
+          "brotli": 67162
+        },
+        "monaco-full.css": {
+          "bytes": 175654,
+          "gzip": 27257,
+          "brotli": 22963
+        }
+      },
+      "libraryBytesInOutput": 4549074,
+      "packages": {
+        "monaco-editor": {
+          "bytesInOutput": 4549074,
+          "files": 1242,
+          "scan": {
+            "setAttributeStyle": 1,
+            "innerHTML": 10,
+            "insertAdjacentHTML": 3,
+            "createStyleElement": 2,
+            "styleAttributeInMarkup": 28,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 6,
+            "blobUrl": 1
+          }
+        },
+        "spike code": {
+          "bytesInOutput": 2218,
+          "files": 3,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 3,
+            "blobUrl": 1
+          }
+        }
+      }
+    },
+    "codemirror": {
+      "outputs": {
+        "codemirror.js": {
+          "bytes": 395697,
+          "gzip": 128233,
+          "brotli": 110027,
+          "dynamicCode": []
+        },
+        "codemirror.css": {
+          "bytes": 293,
+          "gzip": 205,
+          "brotli": 137
+        }
+      },
+      "libraryBytesInOutput": 394934,
+      "packages": {
+        "@marijn/find-cluster-break": {
+          "bytesInOutput": 2329,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@codemirror/state": {
+          "bytesInOutput": 47139,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "style-mod": {
+          "bytesInOutput": 2223,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 1,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 4,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "w3c-keyname": {
+          "bytesInOutput": 1516,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "crelt": {
+          "bytesInOutput": 610,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@codemirror/view": {
+          "bytesInOutput": 195603,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 5,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@lezer/common": {
+          "bytesInOutput": 20531,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@lezer/highlight": {
+          "bytesInOutput": 7084,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@codemirror/streamparser": {
+          "bytesInOutput": 1605,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@codemirror/language": {
+          "bytesInOutput": 30351,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@codemirror/commands": {
+          "bytesInOutput": 23216,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@codemirror/search": {
+          "bytesInOutput": 20212,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@codemirror/autocomplete": {
+          "bytesInOutput": 31148,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 2,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@codemirror/lint": {
+          "bytesInOutput": 11178,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "codemirror": {
+          "bytesInOutput": 189,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "spike code": {
+          "bytesInOutput": 751,
+          "files": 3,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 1,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        }
+      }
+    },
+    "codemirror-shadow": {
+      "outputs": {
+        "codemirror-shadow.js": {
+          "bytes": 395721,
+          "gzip": 128260,
+          "brotli": 110025,
+          "dynamicCode": []
+        },
+        "codemirror-shadow.css": {
+          "bytes": 293,
+          "gzip": 205,
+          "brotli": 137
+        }
+      },
+      "libraryBytesInOutput": 394934,
+      "packages": {
+        "@marijn/find-cluster-break": {
+          "bytesInOutput": 2329,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@codemirror/state": {
+          "bytesInOutput": 47139,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "style-mod": {
+          "bytesInOutput": 2223,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 1,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 4,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "w3c-keyname": {
+          "bytesInOutput": 1516,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "crelt": {
+          "bytesInOutput": 610,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@codemirror/view": {
+          "bytesInOutput": 195603,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 5,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@lezer/common": {
+          "bytesInOutput": 20531,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@lezer/highlight": {
+          "bytesInOutput": 7084,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@codemirror/streamparser": {
+          "bytesInOutput": 1605,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@codemirror/language": {
+          "bytesInOutput": 30351,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@codemirror/commands": {
+          "bytesInOutput": 23216,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@codemirror/search": {
+          "bytesInOutput": 20212,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@codemirror/autocomplete": {
+          "bytesInOutput": 31148,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 2,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "@codemirror/lint": {
+          "bytesInOutput": 11178,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "codemirror": {
+          "bytesInOutput": 189,
+          "files": 1,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 0,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        },
+        "spike code": {
+          "bytesInOutput": 775,
+          "files": 3,
+          "scan": {
+            "setAttributeStyle": 0,
+            "innerHTML": 0,
+            "insertAdjacentHTML": 0,
+            "createStyleElement": 0,
+            "styleAttributeInMarkup": 0,
+            "cssTextAssign": 0,
+            "constructableStylesheet": 1,
+            "newWorker": 0,
+            "blobUrl": 0
+          }
+        }
+      }
+    },
+    "editor.worker": {
+      "outputs": {
+        "editor.worker.js": {
+          "bytes": 307264,
+          "gzip": 94632,
+          "brotli": 75473,
+          "dynamicCode": []
+        }
+      }
+    },
+    "editor.worker.module": {
+      "outputs": {
+        "editor.worker.module.js": {
+          "bytes": 307278,
+          "gzip": 94646,
+          "brotli": 75459,
+          "dynamicCode": []
+        }
+      }
+    }
+  }
+}

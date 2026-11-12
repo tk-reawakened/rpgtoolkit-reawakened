@@ -1,0 +1,92 @@
+{
+  "variant": "verbatim",
+  "bundle": "monaco-core-classic",
+  "frameUrl": "http://1r0ca2ei4p1pv787kgi2av6fksmitpqsbr96896f0tne5tost87m.localhost:3197/static/build/out/vs/workbench/contrib/webview/browser/pre/fake.html?id=…",
+  "policy": "default-src 'none'; img-src http://localhost:3197/static/devextensions/ 'self' https://*.vscode-cdn.net; script-src 'nonce-3320e812545b976d9fc4e3541da438a33329'; style-src 'self' http://localhost:3197/static/devextensions/ 'self' https://*.vscode-cdn.net 'nonce-3320e812545b976d9fc4e3541da438a33329';",
+  "vscode": [
+    "1.146.0 (vscode-web-stable-69047191fc427f2f92828279aae1d90d8eeda7ab)"
+  ],
+  "afterCreate": {
+    "total": 109,
+    "byDirective": {
+      "style-src-elem": 5,
+      "style-src-attr": 104
+    },
+    "samples": [
+      {
+        "directive": "style-src-elem",
+        "blockedURI": "inline",
+        "sample": "",
+        "source": "monaco-core-classic.js"
+      },
+      {
+        "directive": "style-src-attr",
+        "blockedURI": "inline",
+        "sample": "",
+        "source": "monaco-core-classic.js"
+      }
+    ]
+  },
+  "render": {
+    "lineNumbers": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "viewLines": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "keywordColour": "rgb(32, 32, 32)",
+    "identifierColour": "rgb(32, 32, 32)",
+    "currentLineWidth": 0,
+    "styleElements": 4,
+    "adoptedStyleSheets": 0,
+    "tokensColoured": false,
+    "linesPositioned": true
+  },
+  "typed": true,
+  "suggest": {
+    "visible": true,
+    "rows": 1,
+    "labels": [
+      "counter"
+    ]
+  },
+  "undone": true,
+  "find": {
+    "visible": true,
+    "codiconFont": "unloaded"
+  },
+  "worker": {
+    "created": [],
+    "messages": 0,
+    "errors": []
+  },
+  "afterUse": {
+    "total": 129,
+    "byDirective": {
+      "style-src-elem": 6,
+      "style-src-attr": 123
+    },
+    "samples": [
+      {
+        "directive": "style-src-elem",
+        "blockedURI": "inline",
+        "sample": "",
+        "source": "monaco-core-classic.js"
+      },
+      {
+        "directive": "style-src-attr",
+        "blockedURI": "inline",
+        "sample": "",
+        "source": "monaco-core-classic.js"
+      }
+    ]
+  },
+  "consoleErrors": [
+    "error: Loading the font 'http://localhost:3197/static/devextensions/media/codicon.ttf' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
+    "error: Applying inline style violates the following Content Security Policy directive 'style-src 'self' http://localhost:3197/static/devextensions/ 'self' https://*.vscode-cdn.net 'nonce-3320e812545b976d9fc4e3541da438a33329''. Either the 'unsafe-inline' keyword, a hash ('sha256-…",
+    "warning: Could not create web worker(s). Falling back to loading web worker code in main thread, which might cause UI freezes. Please see https://github.com/microsoft/monaco-editor#faq",
+    "warning: Failed to construct 'Worker': Script at 'http://localhost:3197/static/devextensions/media/editor.worker.js' cannot be accessed from origin 'http://1r0ca2ei4p1pv787kgi2av6fksmitpqsbr96896f0tne5tost87m.localhost:3197'."
+  ]
+}
