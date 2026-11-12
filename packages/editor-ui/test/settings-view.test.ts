@@ -197,6 +197,7 @@ test("disposing the view removes its listener and its DOM and leaves the documen
   const counted: MainDocument = {
     identity: s.doc.identity,
     getSnapshot: () => s.doc.getSnapshot(),
+    serialize: () => s.doc.serialize(),
     subscribe: (listener) => {
       live += 1;
       const stop = s.doc.subscribe(listener);
@@ -487,6 +488,7 @@ test("a failure that replaces another with the same words, with no clean state b
   const stub: MainDocument = {
     identity: s.doc.identity,
     getSnapshot: () => snapshot,
+    serialize: () => s.doc.serialize(),
     subscribe: (listener) => {
       listeners.add(listener);
       return () => void listeners.delete(listener);
@@ -523,6 +525,7 @@ test("a save that is rejected rather than answered leaves no unhandled rejection
   const rejecting: MainDocument = {
     identity: s.doc.identity,
     getSnapshot: () => ({ ...s.doc.getSnapshot(), dirty: true }),
+    serialize: () => s.doc.serialize(),
     subscribe: (listener) => s.doc.subscribe(listener),
     apply: (command) => s.doc.apply(command),
     undo: (editId) => s.doc.undo(editId),

@@ -59,7 +59,11 @@
       "path": "packages/editor-ui"
     },
     {
-      "path": "tools/editor-ui-toolchain"
-    }
+      "path": "packages/host-web"
+    },
+    {
+      "path": "packages/host-vscode"
+    },
+    { "path": "packages/host-vscode/tsconfig.webview.json" }
   ]
 }

@@ -1,17 +1,17 @@
+import type { ApplyResult, MainCommand, SaveFailure } from "@tk-reawakened/editor-model";
 import type { DocumentEdited } from "@tk-reawakened/platform-services";
-import type { MainDocument, SaveFailure } from "@tk-reawakened/editor-model";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useDocumentSnapshot } from "./use-document.ts";
+import type { ViewDocument } from "./mount.ts";
 
 /** How many views have been given ids. Ids must be unique in the page, and two views mounted by one host are two render roots. */
 let viewsMade = 0;
 
 export interface SettingsViewProps {
-  readonly doc: MainDocument;
-  /** Told about each accepted edit: the `document.edited` message of AD-19. */
+  readonly doc: ViewDocument;
+  /** A command result is acknowledged only after the document adapter has accepted it. */
   readonly onEdited: (event: DocumentEdited) => void;
 }
-
 /**
  * The game settings view; its one field is the game title (`docs/spec/formats/main-file.md#layout`, `gameTitle`).
  * The field edits a draft; leaving the field or pressing Enter commits it as one command. The text shown is the
@@ -21,6 +21,7 @@ export interface SettingsViewProps {
 export function SettingsView({ doc, onEdited }: SettingsViewProps) {
   const snapshot = useDocumentSnapshot(doc);
   const [draft, setDraft] = useState<string | null>(null);
+  const [savePending, setSavePending] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   // `useId` numbers a component by its place in its own render tree, so two mounted views would both be `P0-0`: their
   // labels and descriptions would point into each other. The view takes its prefix once, when it is first made.
@@ -30,7 +31,9 @@ export function SettingsView({ doc, onEdited }: SettingsViewProps) {
   });
   // A live region announces an inserted element, not an unchanged one: a failure that arrives as a new value is rendered
   // under a new key, so the same words twice are announced twice.
-  const failureShown = useRef<{ readonly failure: SaveFailure | null; readonly key: number }>({ failure: null, key: 0 });
+  const commitFlight = useRef<Promise<boolean> | null>(null);
+  const saveErrorAtStart = useRef<SaveFailure | null>(null);
+  const failureShown = useRef<{ failure: SaveFailure | null; key: number }>({ failure: null, key: 0 });
   const titleId = `${ids}-title`;
   const stateId = `${ids}-state`;
   const errorId = `${ids}-error`;
@@ -42,20 +45,40 @@ export function SettingsView({ doc, onEdited }: SettingsViewProps) {
     setRefusal(null);
   }, [snapshot.gameTitle]);
 
-  const commit = (): void => {
+  const commit = (): Promise<boolean> => {
+    if (commitFlight.current) return commitFlight.current;
     if (draft === null || draft === snapshot.gameTitle) {
       setDraft(null);
-      return;
+      return Promise.resolve(true);
     }
-    const result = doc.apply({ type: "set-game-title", title: draft });
-    if (result.ok) {
+    const command: MainCommand = { type: "set-game-title", title: draft };
+    const finish = (accepted: ApplyResult): boolean => {
+      if (!accepted.ok) {
+        setRefusal(accepted.rejection.message);
+        return false;
+      }
       setDraft(null);
       setRefusal(null);
-      const edit = doc.getSnapshot().edits.at(-1);
-      onEdited({ document: doc.identity.key, editId: result.editId, label: edit?.label ?? "Set game title" });
-    } else {
-      setRefusal(result.rejection.message);
+      const edit = doc.getSnapshot().edits.find((entry) => entry.editId === accepted.editId);
+      onEdited({ document: doc.identity.key, editId: accepted.editId, label: edit?.label ?? "Set game title" });
+      return true;
+    };
+    let result: ApplyResult | Promise<ApplyResult>;
+    try {
+      result = doc.apply(command);
+    } catch (error) {
+      setRefusal(error instanceof Error ? error.message : String(error));
+      return Promise.resolve(false);
     }
+    if (typeof (result as Promise<ApplyResult>).then !== "function") return Promise.resolve(finish(result as ApplyResult));
+    const pending = Promise.resolve(result).then(finish).catch((error: unknown) => {
+      setRefusal(error instanceof Error ? error.message : String(error));
+      return false;
+    }).finally(() => {
+      if (commitFlight.current === pending) commitFlight.current = null;
+    });
+    commitFlight.current = pending;
+    return pending;
   };
 
   const failure = snapshot.saveError;
@@ -91,17 +114,22 @@ export function SettingsView({ doc, onEdited }: SettingsViewProps) {
         </p>
       )}
       <p id={stateId} class="tkr-settings-state" role="status">
-        {snapshot.saving ? "Saving…" : snapshot.dirty ? "Unsaved changes" : "All changes saved"}
+        {snapshot.saving || (savePending && snapshot.saveError === saveErrorAtStart.current) ? "Saving…" : snapshot.dirty ? "Unsaved changes" : "All changes saved"}
       </p>
       <button
         type="button"
         class="tkr-settings-save"
-        disabled={readOnly || snapshot.saving || (!snapshot.dirty && draft === null)}
+        disabled={readOnly || savePending || snapshot.saving || (!snapshot.dirty && draft === null)}
         onClick={() => {
-          commit();
-          // A save reports failure as a value and the failure is on the snapshot; a document that rejects instead has
-          // broken that contract, and there is nothing more the view could show, so the rejection is not left unhandled.
-          doc.save().catch(() => undefined);
+          saveErrorAtStart.current = snapshot.saveError;
+          setSavePending(true);
+          void commit()
+            .then((committed) => {
+              if (!committed) return;
+              // Save failures are reported as values and shown from the document snapshot.
+              return doc.save().catch(() => undefined);
+            })
+            .finally(() => setSavePending(false));
         }}
       >
         Save

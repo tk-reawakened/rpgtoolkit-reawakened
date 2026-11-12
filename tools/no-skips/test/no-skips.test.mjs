@@ -184,7 +184,7 @@ test("the tool fails saying no test ran when a directory holds none", () => {
 
 // ====================================================== groups & LCOV merge
 
-test("verifyGroups confirms that the repository's 24 groups partition every package test file", () => {
+test("verifyGroups confirms that its 25 groups partition package and neutral editor-host integration test files", () => {
   const report = verifyGroups(repoRoot);
   equal(report.ok, true, JSON.stringify(report));
   equal(report.emptyGroups.length, 0);
@@ -195,7 +195,7 @@ test("verifyGroups confirms that the repository's 24 groups partition every pack
   }
   const result = runTool(repoRoot, ["--verify-groups"]);
   equal(result.status, 0, result.output);
-  match(result.stdout, /verified 24 test groups: \d+ files/);
+  match(result.stdout, /verified 25 test groups: \d+ files/);
   ok(report.byGroup["core-battle"].length > 0, "core-battle is non-empty");
   ok(report.byGroup["core-battle"].every((file) => /^packages\/core\/test\/battle-.*\.test\.ts$/.test(file)), "core-battle contains only battle-*.test.ts files");
   ok(report.byGroup["core-engine"].every((file) => !/^packages\/core\/test\/battle-.*\.test\.ts$/.test(file)), "core-engine excludes battle-*.test.ts files");
@@ -204,9 +204,10 @@ test("verifyGroups confirms that the repository's 24 groups partition every pack
 test("verifyGroups fails when an unmapped package has test files or a group is empty", () => {
   const root = makeDir("groups");
   // `runner-desktop`, `runner-mobile`, `runner-web`, `script-cli`, `dap`, `native-data`, `native-data-cli`, `native-data-import`, `native-data-rename`, `platform-services`, `editor-model` and `editor-ui` get no file, so exactly those groups are empty.
-  for (const pkg of ["core", "synth", "plugin-tk2-compat", "render-webgl2", "runner-harness", "runner-headless", "runner-web", "script-tools", "lsp", "script-spec", "extra-pkg"]) {
+  for (const pkg of ["core", "synth", "plugin-tk2-compat", "render-webgl2", "runner-harness", "runner-headless", "runner-web", "script-tools", "lsp", "script-spec", "extra-pkg", "host-web"]) {
     mkdirSync(join(root, "packages", pkg, "test"), { recursive: true });
   }
+  writeFileSync(join(root, "packages/host-web/test/session-copy.test.ts"), "");
   writeFileSync(join(root, "packages/core/test/format-one.test.ts"), "");
   writeFileSync(join(root, "packages/core/test/script-one.test.ts"), "");
   writeFileSync(join(root, "packages/core/test/engine-one.test.ts"), "");

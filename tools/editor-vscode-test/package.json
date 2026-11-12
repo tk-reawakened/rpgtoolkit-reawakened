@@ -1,0 +1,23 @@
+{
+  "name": "@tk-reawakened/editor-vscode-test",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "proof": "node run.mjs",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "21.0.4",
+    "@playwright/test": "1.64.0",
+    "@tk-reawakened/core": "workspace:*",
+    "@tk-reawakened/editor-model": "workspace:*",
+    "@tk-reawakened/editor-ui": "workspace:*",
+    "@tk-reawakened/host-vscode": "workspace:*",
+    "@tk-reawakened/host-web": "workspace:*",
+    "@tk-reawakened/runner-harness": "workspace:*",
+    "@types/node": "24.0.0",
+    "@vscode/test-web": "0.0.81",
+    "preact": "11.2.0",
+    "typescript": "5.9.3"
+  }
+}

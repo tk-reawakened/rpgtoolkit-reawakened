@@ -280,6 +280,24 @@ test("matrix row: Dev exemption in prod fails", () => {
   });
 });
 
+test("matrix row: vscode-test-web is permitted as MIT dev-only and rejected in production", () => {
+  withTempWorkspace((dir) => {
+    const tool = { name: "@vscode/test-web", versions: ["0.0.81"], license: "MIT" };
+    const development = checkLicences(dir, {
+      prodLicensesJson: {},
+      allLicensesJson: { MIT: [tool] },
+    });
+    assert.equal(development.pass, true);
+
+    const leaked = checkLicences(dir, {
+      prodLicensesJson: { MIT: [tool] },
+      allLicensesJson: { MIT: [tool] },
+    });
+    assert.equal(leaked.pass, false);
+    assert.ok(leaked.violations.some((violation) => violation.type === "dev-exemption-in-prod" && violation.package === "@vscode/test-web"));
+  });
+});
+
 test("matrix row: Compound OR passing (MIT OR GPL-3.0)", () => {
   withTempWorkspace((dir) => {
     writeFileSync(join(dir, "THIRD_PARTY_NOTICES"), "dual-pkg\n");

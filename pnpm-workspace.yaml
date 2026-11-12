@@ -1,8 +1,10 @@
 packages:
   - packages/*
-
+  - tools/editor-vscode-test
 # Build scripts allowed to run on install: esbuild downloads its platform binary (ADR 0015, dev-only).
 allowBuilds:
   esbuild: true
   # Electron's install script downloads the shell binary the desktop runner measures (ADR 0013, dev-only).
   electron: true
+  # The web-workbench proof's dev-only VS Code test harness installs the pinned Chromium browser.
+  '@playwright/browser-chromium': true
