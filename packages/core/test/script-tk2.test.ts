@@ -88,6 +88,28 @@ test("unprefixed calls with equals execute and angle dialogue splices", () => {
   throws(() => compileTk2("#If (x) then < #Mwin(hello) >"), /Toolkit 1\.x/);
 });
 
+test("digit-leading and multiple unprefixed calls run their assignment arguments", () => {
+  const source = '#Method 1foo(n) {\n#first = n\n}\n#Method bar(n) {\n#second = n\n}\n1foo(x = 1); bar(y = 2)';
+  const state = createGameState({ seed: 0 });
+  const program = compileTk2(source, "multi-call.prg");
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state));
+  equal(state.vm.globals.x, 1);
+  equal(state.vm.globals.y, 2);
+  equal(state.vm.globals.first, 1);
+  equal(state.vm.globals.second, 2);
+  const ast = parseTk2("system.foo(x = 1)");
+  const stmt = ast.statements[0];
+  if (stmt?.kind !== "expr" || stmt.expr.kind !== "call") throw new Error("expected qualified call");
+  equal(stmt.expr.file, "system");
+});
+
+test("compact TK1 blocks and standalone closing delimiters remain unsupported", () => {
+  for (const source of ["<#Mwin(hello)>", ">"]) {
+    throws(() => compileTk2(source), /Toolkit 1\.x/);
+  }
+});
+
 test("TK2 methods, labels, namespace calls and fbranch preserve shared shapes", () => {
   const ast = parseTk2("#Method Add(a, b) { #ReturnMethod(a + b) }\n:again\n#FBranch(:again)\n#system.start()");
   equal(ast.functions[0]?.name, "add");
