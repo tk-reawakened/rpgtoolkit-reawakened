@@ -165,9 +165,10 @@ test("go-to-definition lands on the included function through an explicit #inclu
   started.open(MAIN_URI, MAIN);
   const locations = started.definition(MAIN_URI, 4, 5);
   equal(locations.length, 1);
-  equal(locations[0]?.uri, "prg/lib.prg");
+  // The original document URI from the project inventory, never the folded key (#2081).
+  equal(locations[0]?.uri, "file:///game/Prg/lib.prg");
   // The definition's anchor is the `function` keyword (TOOL-3), at column 1 of lib.prg.
-  deepEqual(locations[0]?.range.start, { line: 0, character: 0 });
+  deepEqual(locations[0]?.range, { start: { line: 0, character: 0 }, end: { line: 0, character: 8 } });
 });
 
 test("go-to-definition lands on the included function through file.func alone", () => {
@@ -175,7 +176,7 @@ test("go-to-definition lands on the included function through file.func alone", 
   started.open(MAIN_URI, IMPLICIT);
   const locations = started.definition(MAIN_URI, 2, 5);
   equal(locations.length, 1);
-  equal(locations[0]?.uri, "prg/lib.prg");
+  equal(locations[0]?.uri, "file:///game/Prg/lib.prg");
 });
 
 test("go-to-definition returns nothing when no file served the include", () => {
@@ -243,4 +244,45 @@ test("ordinary 3.1 mode never guesses that assignment is Toolkit 2 equality", ()
   deepEqual(started.codeActions(MAIN_URI), []);
   started.open(LEGACY_URI, text, "rpgcode-tk2");
   equal(started.codeActions(LEGACY_URI).length, 1);
+});
+
+// #2081: a definition is a navigable URI in its original spelling, from the running project.
+
+function project(files: Readonly<Record<string, string>>, open: string): { pair: Pair; uri(path: string): string } {
+  const started = pair();
+  createServer(started.connection, { plugins });
+  const memory = memoryProject({ "Main/game.gam": mainFileBytes("tk3"), ...files }, "Main/game.gam");
+  started.notify(PROJECT_NOTIFICATION, memory.snapshot());
+  started.open(memory.uri(open), files[open]!);
+  return { pair: started, uri: memory.uri };
+}
+
+test("a definition keeps the target's spelling, folder and spaces, which its folded key loses", () => {
+  const main = '#include "tools/my lib.prg"\ny = helper(1)\nz = mine()\nfunction mine() { return 1 }\n';
+  const { pair: started, uri } = project({ "Prg/main.prg": main, "Prg/Tools/My Lib.PRG": "\nfunction helper(a) { return a }\n" }, "Prg/main.prg");
+  const call = started.definition(uri("Prg/main.prg"), 1, 5);
+  deepEqual(call.map((item) => item.uri), ["file:///game/Prg/Tools/My%20Lib.PRG"]);
+  deepEqual(call[0]?.range, { start: { line: 1, character: 0 }, end: { line: 1, character: 8 } });
+  deepEqual(started.definition(uri("Prg/main.prg"), 0, 3).map((item) => item.uri), ["file:///game/Prg/Tools/My%20Lib.PRG"], "the #include line navigates to the file");
+  deepEqual(started.definition(uri("Prg/main.prg"), 2, 5).map((item) => item.uri), [uri("Prg/main.prg")], "a local function is in the open document, not <inline>");
+});
+
+test("two paths that fold to one key navigate to the resolver's winner", () => {
+  const main = "y = lib.helper(1)\n";
+  const { pair: started, uri } = project({ "Prg/main.prg": main, "Prg/Lib.prg": "function helper(a) { return a }\n", "Prg/LIB.PRG": "\n\nfunction helper(a) { return 2 }\n" }, "Prg/main.prg");
+  const found = started.definition(uri("Prg/main.prg"), 0, 5);
+  deepEqual(found.map((item) => [item.uri, item.range.start.line]), [["file:///game/Prg/Lib.prg", 0]]);
+});
+
+test("the outline lists only the open document's own symbols, not those of its includes", () => {
+  const main = '#include "lib.prg"\nfunction mine() { return 1 }\n';
+  const { pair: started, uri } = project({ "Prg/main.prg": main, "Prg/lib.prg": "function helper(a) { return a }\n:label\n" }, "Prg/main.prg");
+  deepEqual(started.symbols(uri("Prg/main.prg")).map((symbol) => symbol.name), ["mine"]);
+});
+
+test("an unassessed document resolves no include and invents no location", () => {
+  const started = pair();
+  createServer(started.connection, { plugins });
+  started.open("file:///elsewhere/main.prg", IMPLICIT);
+  deepEqual(started.definition("file:///elsewhere/main.prg", 2, 5), []);
 });

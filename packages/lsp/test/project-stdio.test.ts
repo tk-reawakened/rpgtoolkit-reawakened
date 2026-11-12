@@ -1,7 +1,12 @@
-import { deepEqual, equal, match } from "node:assert/strict";
+import { deepEqual, equal, match, ok } from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import type { Location } from "vscode-languageserver-protocol";
 import { test } from "node:test";
 import { UNASSESSED_CODE } from "../src/index.ts";
-import { mainFileBytes, memoryProject } from "./project-support.ts";
+import { folderSnapshot, mainFileBytes, memoryProject } from "./project-support.ts";
 import { startStdio } from "./stdio-client.ts";
 
 /**
@@ -27,5 +32,37 @@ test("stdio: a Toolkit 2 project parses loose dialogue; a 3.1 project and an una
     equal(modern[0]!.severity, 1);
   } finally {
     await client.close();
+  }
+});
+
+test("stdio #2081: definitions across explicit and implicit includes land on the real file's URI", { timeout: 15_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "tkr-lsp-2081-"));
+  const client = await startStdio();
+  try {
+    mkdirSync(join(root, "Main"));
+    mkdirSync(join(root, "Prg", "Tools"), { recursive: true });
+    writeFileSync(join(root, "Main", "game.gam"), mainFileBytes("tk3"));
+    const main = '#include "tools/my lib.prg"\ny = helper(1)\nz = lib.twice(2)\n';
+    writeFileSync(join(root, "Prg", "main.prg"), main);
+    writeFileSync(join(root, "Prg", "Tools", "My Lib.PRG"), "// helpers\nfunction helper(a) { return a }\n");
+    writeFileSync(join(root, "Prg", "Lib.prg"), "function twice(a) { return a * 2 }\n");
+    await client.project(folderSnapshot(join(root, "Main", "game.gam")));
+    const mainUri = pathToFileURL(join(root, "Prg", "main.prg")).href;
+    deepEqual(await client.open(mainUri, main), []);
+    const definition = (line: number, character: number): Promise<Location[]> =>
+      client.connection.sendRequest<Location[]>("textDocument/definition", { textDocument: { uri: mainUri }, position: { line, character } });
+
+    const explicit = await definition(1, 5);
+    equal(explicit.length, 1);
+    equal(explicit[0]!.uri, pathToFileURL(join(root, "Prg", "Tools", "My Lib.PRG")).href, "the original spelling, not prg/tools/my lib.prg");
+    ok(existsSync(fileURLToPath(explicit[0]!.uri)), "the URI names a file a client can open");
+    deepEqual(explicit[0]!.range, { start: { line: 1, character: 0 }, end: { line: 1, character: 8 } });
+
+    const implicit = await definition(2, 5);
+    deepEqual(implicit.map((item) => item.uri), [pathToFileURL(join(root, "Prg", "Lib.prg")).href]);
+    deepEqual((await definition(0, 3)).map((item) => item.uri), [explicit[0]!.uri], "the #include line opens the file");
+  } finally {
+    await client.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
