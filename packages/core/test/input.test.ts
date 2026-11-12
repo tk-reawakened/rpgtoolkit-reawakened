@@ -44,6 +44,7 @@ test("configured keyboard edges and disabled diagonals are deterministic", () =>
   applyInputEvent(state, { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true });
   applyInputEvent(state, { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true, repeat: true });
   equal(state.keys.length, 3);
+  deepEqual(state.keys.map(({ name, action }) => [name, action]), [["UP", "up"], ["RIGHT", "right"], ["RIGHT", "right"]]);
   equal(state.actions.up, true);
   equal(state.actions.right, true);
   deepEqual(state.directionOrder, ["up", "right"]);

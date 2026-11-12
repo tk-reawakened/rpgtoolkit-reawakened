@@ -28,7 +28,9 @@ test("TK2 methods, labels, namespace calls and fbranch preserve shared shapes", 
   equal(fbranch.expr.name, "fbranch");
   const namespace = ast.statements[2];
   if (namespace === undefined || namespace.kind !== "expr" || namespace.expr.kind !== "call") throw new Error("expected namespace call");
-  equal(namespace.expr.name, "system.start");
+  equal(namespace.expr.name, "start");
+  equal(namespace.expr.file, "system");
+  deepEqual(ast.includes.map((entry) => entry.path), ["system.prg"]);
 });
 
 test("TK2 compile is non-destructive and rejects Toolkit 1.x blocks", () => {

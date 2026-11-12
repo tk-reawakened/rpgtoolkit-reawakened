@@ -756,7 +756,7 @@ export function createEngine(init: EngineInit): Engine {
   // The audio track engine owns `state.audio`: it applies the `audio` effects and asks for a file's bytes only to
   // learn its length (docs/spec/engine/audio-media.md#audio-core-pins), then drops them.
   let audioDecoders: readonly AssetDecoder[] = [];
-  const audioInfo = new Map<AssetKey, AudioInfo | null>();
+  const audioInfo = new Map<AssetKey, AudioInfo | null | "missing">();
   const decoderLogger: Logger = {
     debug: () => undefined,
     info: () => undefined,
@@ -774,6 +774,7 @@ export function createEngine(init: EngineInit): Engine {
   const audio = createAudioRuntime(state, {
     lookup: (key) => {
       const info = audioInfo.get(key);
+      if (info === "missing") return { kind: "known", lengthTicks: null };
       return info === undefined ? { kind: "pending" } : info === null ? { kind: "unsupported" } : { kind: "known", lengthTicks: info.lengthTicks };
     },
     need: (key) => request(key, "audio"),
@@ -2119,7 +2120,7 @@ export function createEngine(init: EngineInit): Engine {
   function rememberAudio(key: AssetKey, bytes: Uint8Array | null): void {
     if (bytes === null) {
       diagnostics.push({ code: "asset.missing", file: key, line: 0, message: `asset not found: ${key}` });
-      audioInfo.set(key, null);
+      audioInfo.set(key, "missing");
       return;
     }
     audioInfo.set(key, decodeAudioInfo(audioDecoders, bytes, key, { index, root }));

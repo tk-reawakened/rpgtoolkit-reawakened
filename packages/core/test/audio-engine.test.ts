@@ -149,7 +149,7 @@ test("a play waits for the audio file's bytes: the world stalls on the blocking 
   equal(music.voices[0]?.startTick, play?.tick, "the voice starts at the tick the cue names");
 });
 
-test("a file no decoder accepts plays with an unknown length and one asset-format diagnostic; a reply with no bytes does too", () => {
+test("rejected audio bytes report a format error while a missing reply reports only a missing asset", () => {
   const game = authorGame();
   const junk = startEngine(game, sends("f"));
   const first = run(junk.engine, game.files, 10);
@@ -160,7 +160,7 @@ test("a file no decoder accepts plays with an unknown length and one asset-forma
   const missing = authorGame({}, ["Media/town.mid"]);
   const gone = startEngine(missing, sends("b"));
   const second = run(gone.engine, missing.files, 10);
-  deepEqual(second.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.file]), [["asset.missing", "media/town.mid"], ["media.asset-format", "media/town.mid"]]);
+  deepEqual(second.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.file]), [["asset.missing", "media/town.mid"]]);
   equal(second.report.loading, false, "an audio file that cannot be fetched is not a boot failure");
   equal(gone.state().audio.tracks[0]?.file, "media/town.mid");
   ok(second.report.ticksRun > 0 || gone.state().time.tick > 0, "the game goes on ticking");

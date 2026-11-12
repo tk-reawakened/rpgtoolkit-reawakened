@@ -105,13 +105,13 @@
     },
     {
       "id": "items-opened",
-      "stateHash": "ef77131d5d04fdc2",
+      "stateHash": "97046a4709a0f2f7",
       "drawHash": "ef9e282ef04c23ff",
       "events": []
     },
     {
       "id": "item-used",
-      "stateHash": "57d3b9833e742b9f",
+      "stateHash": "8db61306cc405b72",
       "drawHash": "6c3a78fea9e8350e",
       "events": [
         {
@@ -132,7 +132,7 @@
     },
     {
       "id": "equip-opened",
-      "stateHash": "217a37f22d3446e1",
+      "stateHash": "bfc7ad024ada8892",
       "drawHash": "cc018ebd350b1683",
       "events": [
         {
@@ -153,7 +153,7 @@
     },
     {
       "id": "sword-equipped",
-      "stateHash": "0f8a8a97ede5a275",
+      "stateHash": "6bc7f189109e71e6",
       "drawHash": "d21eecc6de19d256",
       "events": [
         {
@@ -209,7 +209,7 @@
     },
     {
       "id": "accessory-equipped",
-      "stateHash": "b375d81d8e501542",
+      "stateHash": "90da5153a748fe3c",
       "drawHash": "ed03fba7fe4bab2f",
       "events": [
         {
@@ -265,13 +265,13 @@
     },
     {
       "id": "abilities-opened",
-      "stateHash": "67dadebaee2b58a1",
+      "stateHash": "9eff46b3dc218d76",
       "drawHash": "0b09b66908311ac9",
       "events": []
     },
     {
       "id": "ability-used",
-      "stateHash": "97e5f70e42b605a0",
+      "stateHash": "fdfb7a47e4b0ed22",
       "drawHash": "fa96bc2d39d7e2b7",
       "events": []
     }
