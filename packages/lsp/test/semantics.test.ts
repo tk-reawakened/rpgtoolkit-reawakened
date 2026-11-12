@@ -212,6 +212,13 @@ test("Toolkit 2 conversion refuses unresolved project dependencies even when the
   deepEqual(started.codeActions("file:///main.prg"), []);
 });
 
+test("3.1 editor mode does not offer an in-place edit that changes TK2 dialogue", () => {
+  const text = "foo(name$)";
+  const started = server({ "main.prg": text });
+  started.open("file:///main.prg", text, "rpgcode");
+  deepEqual(started.codeActions("file:///main.prg"), []);
+});
+
 test("ordinary 3.1 mode never guesses that assignment is Toolkit 2 equality", () => {
   const text = "if (x = 5) {\n  y = 1\n}\n";
   const started = server({ "main.prg": text });

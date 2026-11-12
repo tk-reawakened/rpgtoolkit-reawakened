@@ -54,10 +54,10 @@ function behavior(program: Program): string {
   });
 }
 
-function sameBehavior(original: string, fixed: string, dialect: ScriptDialect): boolean {
+function sameBehavior(original: string, fixed: string, dialect: ScriptDialect, fixedDialect: ScriptDialect = "tk3"): boolean {
   try {
     const before = compileInline(original, "<migration>", dialect);
-    const after = compileInline(fixed, "<migration>");
+    const after = compileInline(fixed, "<migration>", fixedDialect);
     if (dialect === "tk2" && [before, after].some((program) =>
       program.units.some((unit) => unit.requests.length > 0) ||
       program.ops.some((op) => op.op === "call" && Object.hasOwn(DYNAMIC_SOURCE_COMMANDS, op.name)))) return false;
@@ -142,7 +142,8 @@ export function legacyFixes(source: string, dialect: ScriptDialect = "tk3"): rea
     const written = (lines[token.line - 1] ?? "").slice(token.col - 1, token.endCol);
     if (!written.endsWith("!") && !written.endsWith("$")) continue;
     const edits = [edit(token.line, token.endCol, token.endCol, "")];
-    if (sameBehavior(source, applyEdits(source, edits), "tk3")) {
+    const fixed = applyEdits(source, edits);
+    if (sameBehavior(source, fixed, "tk3") && sameBehavior(source, fixed, "tk2", "tk2")) {
       fixes.push({ rule: "dialect/sigil", title: `Drop the ignored sigil in \`${written}\``, edits });
     }
   }

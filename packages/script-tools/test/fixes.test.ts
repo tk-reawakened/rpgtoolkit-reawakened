@@ -96,6 +96,19 @@ test("3.1 sigils are removed only after comparing the original 3.1 program", () 
   equal(applyEdits(source, fixes.flatMap((fix) => [...fix.edits])), 'x = 1\nname = "a"');
 });
 
+test("3.1 sigil fixes do not alter possible Toolkit 2 dialogue", () => {
+  const uiText = (source: string): unknown[] => {
+    const program = compileInline(source, "<sigil>", "tk2");
+    const state = createGameState({ seed: 0 });
+    startProgram(state.vm, program.ref);
+    advanceScriptTick(state, createScriptServices(state, [{ definition: UI_PLUGIN }]));
+    return state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]);
+  };
+  deepEqual(uiText("foo(name$)"), ["foo(name$)"]);
+  deepEqual(uiText("foo(name)"), ["foo(name)"]);
+  deepEqual(legacyFixes("foo(name$)", "tk3"), []);
+});
+
 test("uncompilable, unsupported or comment-ambiguous input never gets an edit", () => {
   for (const source of ["x = )\n#Dos", "< unsupported >", '#Mwin(hi) // comment']) {
     deepEqual(legacyFixes(source, "tk2"), []);
