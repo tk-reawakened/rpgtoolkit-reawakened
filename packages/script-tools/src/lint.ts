@@ -112,6 +112,8 @@ export type LintSummary = {
 
 export type LintResult = {
   readonly diagnostics: readonly Diagnostic[];
+  /** `programs[i]` is the name of the program `diagnostics[i]` was found in, so a caller can name the file. */
+  readonly programs: readonly string[];
   readonly summary: LintSummary;
 };
 
@@ -292,7 +294,7 @@ function dialectDiagnostics(source: string): Diagnostic[] {
       range: first.range,
       message: fix.title,
       rule: fix.rule,
-      fix: [...fix.edits],
+      fix: fix.edits.map((item) => ({ ...item, rule: fix.rule })),
     };
   });
 }
@@ -326,6 +328,7 @@ export function lint(document: IndexDocument, options: LintOptions): LintResult 
     return override === undefined || override === "off" ? rule.defaultSeverity : override;
   };
   const diagnostics: Diagnostic[] = [];
+  const programs: string[] = [];
   let ignoredRanges = 0;
   for (const program of document.programs) {
     for (const found of rulesFor(program, catalogue, options.resolveIncludes === true)) {
@@ -336,6 +339,7 @@ export function lint(document: IndexDocument, options: LintOptions): LintResult 
         continue;
       }
       diagnostics.push({ ...found, severity: severityOf(rule) });
+      programs.push(program.name);
     }
     const source = options.sources?.[program.name];
     if (source === undefined) continue;
@@ -347,10 +351,12 @@ export function lint(document: IndexDocument, options: LintOptions): LintResult 
         continue;
       }
       diagnostics.push({ ...found, severity: severityOf(rule) });
+      programs.push(program.name);
     }
   }
   return {
     diagnostics,
+    programs,
     summary: { diagnostics: diagnostics.length, disabledRules: disabled, ignoredRanges },
   };
 }

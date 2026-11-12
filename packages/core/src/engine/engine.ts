@@ -283,7 +283,8 @@ type Paused = { thread: number; frame: number; line: number };
 type BlobReplyResult = "ignored" | "consumed" | "loaded";
 type Arrival = { readonly x: number; readonly y: number; readonly layer: number; readonly unit: "pixel" | "tile" };
 
-const DEFAULT_ENGINE_PLUGINS: readonly ResolvedPlugin[] = resolveManifestPlugins(ENGINE_DEFAULT_MANIFEST).plugins;
+/** The engine default manifest's built-ins (`ENGINE_DEFAULT_MANIFEST`), resolved: what a game boots with and what a spec runs on (TOOL-5). */
+export const DEFAULT_ENGINE_PLUGINS: readonly ResolvedPlugin[] = resolveManifestPlugins(ENGINE_DEFAULT_MANIFEST).plugins;
 /** The engine's own packs: the only plugin definitions that may run mid-thread without a surface flush. */
 const FIRST_PARTY_PLUGINS: ReadonlySet<PluginDefinition> = new Set(Object.values(ENGINE_PLUGIN_TABLE));
 const SCRIPT_REQUEST_BASE = 0x40000000;

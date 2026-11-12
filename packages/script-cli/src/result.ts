@@ -71,6 +71,18 @@ export function makeResult(
   };
 }
 
+/** A usage or configuration error (exit 2), located at the file or argument it is about. */
+export function usageDiagnostic(file: string, message: string): ResultDiagnostic {
+  return { code: "tkr.usage", severity: "error", file, range: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } }, message };
+}
+
+/** The envelope for the tool itself failing (exit 3): never for a program's content (TOOL-9). */
+export function internalErrorResult(subcommand: Subcommand, error: unknown): ScriptResult {
+  const message = error instanceof Error ? error.message : String(error);
+  const diagnostic: ResultDiagnostic = { code: "tkr.internal", severity: "error", file: "<cli>", range: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } }, message: message === "" ? "unknown error" : message };
+  return makeResult(subcommand, 3, [diagnostic], { ...emptySummary, diagnostics: { error: 1, warning: 0, info: 0, hint: 0 } }, {});
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

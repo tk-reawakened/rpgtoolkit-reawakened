@@ -17,5 +17,5 @@ export { runIndex } from "./commands/index.ts";
 export type { IndexResult } from "./commands/index.ts";
 export { runTest } from "./commands/test.ts";
 export type { TestResult } from "./commands/test.ts";
-export { isScriptResult, makeResult, RESULT_SCHEMA, stableStringify, TOOL_NAME } from "./result.ts";
+export { internalErrorResult, isScriptResult, makeResult, RESULT_SCHEMA, stableStringify, TOOL_NAME, usageDiagnostic } from "./result.ts";
 export type { ResultDiagnostic, ScriptResult, Subcommand, Summary } from "./result.ts";
