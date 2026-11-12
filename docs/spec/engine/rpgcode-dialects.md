@@ -87,7 +87,7 @@ Toolkit 1.x (RPGCode v1) is not in the first release.
 | `=` inside a `#If` or `#While` condition | Rewritten to `==`. |
 | bare index `m[key]` | Kept as the variable index `m[key]`; a sigil is dropped (`m[key!]` → `m[key]`). The converter never adds quotes here, because no context proves a literal-key reading under the [bare-index rule](#tk2-bare-index). Each bare index is flagged for review: a trailing comment `// TKR review: …` is added to the line and the conversion lists it, so the author can write `m["key"]` if a literal key was meant. An index expression such as `m[a + 1]` or `m[1]` is not flagged. |
 | sigils `x!`, `name$` | Removed everywhere, including inside expressions (`a! + 1` → `a + 1`). |
-| loose text lines | Rewritten to `mwin("…")` with the text exactly as written, including any `//`, `/*` or `*/` in it. |
+| loose text lines | Rewritten to `mwin("…")` with the text exactly as written, including backslashes and any `//`, `/*` or `*/` in it, unless the text contains a double quote (see refusal below). |
 | `#Method`, `#ReturnMethod(x)` | `function`, `return x`. |
 | `* comment` | A whole-line star comment is kept unchanged; 3.1 also reads it as a comment. A trailing star comment after a command becomes `// …` with the same text. |
 | obsolete engine controls | Kept by name (`#Dos` → `Dos`); never deleted. |
@@ -95,6 +95,7 @@ Toolkit 1.x (RPGCode v1) is not in the first release.
 
 **Not converted.** These are refused. The converter offers no rewrite for the file and changes nothing:
 
+* Loose dialogue containing a double quote. Toolkit 3.1 string literals have no escape for a quote (LEX-8); building it with `chr(34)` is not a safe equivalent because that call can be intercepted. The frontend still displays the literal text. The converter offers no edit and reports why.
 * A code line that contains `//`, `/*` or `*/` outside a quoted string. A code line is any line that is not blank, a star comment or dialogue. This dialect page does not say whether Toolkit 2.x treats these markers as comments, so the converter cannot show that it keeps their meaning.
 * Includes, implicit `file.method` calls and commands that load other programs (`#Include`, `#lib.hello()`, `executeProgram`, `run`, `thread`, `rpgcode` and others). One file cannot be compared on its own when its behaviour depends on another file.
 * A program the Toolkit 2.x frontend cannot compile.
