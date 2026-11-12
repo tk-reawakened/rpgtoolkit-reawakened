@@ -11,8 +11,8 @@ import { discoverCases, failureMessage, ONLY_WARNING, runSpecFile, SPEC_PLUGIN }
  * mode failing a skip, `only` narrowing with a warning, the exact failure
  * message, and the package's absence from the engine's default manifest.
  *
- * The three matchers blocked on F-A (element-wise toEqual, array toContain,
- * toThrow) are deliberately absent from these fixtures.
+ * The matcher surface itself (arrays, lists, closeness, toThrow) is in matchers.test.ts and the
+ * group hooks are in group-hooks.test.ts; these fixtures use scalar matchers only.
  */
 
 
@@ -138,7 +138,9 @@ test("only narrows the run and warns with the documented text", () => {
   equal(report.cases[0]?.outcomes.some((item) => item.kind === "only"), true);
 });
 
-test("script-spec is absent from the engine's default manifest, and registers only specresult", () => {
+test("script-spec is absent from the engine's default manifest, and registers its closed set of seven", () => {
   equal(ENGINE_DEFAULT_MANIFEST.map((entry) => entry.id).includes("script-spec"), false);
-  deepEqual(SPEC_PLUGIN.commands.map((command) => command.name), ["specresult"]);
+  deepEqual(SPEC_PLUGIN.commands.map((command) => command.name), [
+    "specresult", "speccapture", "specequal", "speccontain", "specclose", "specthrowbegin", "specthrowend",
+  ]);
 });

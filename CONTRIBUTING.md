@@ -47,17 +47,20 @@ assertion line.
 Includes resolve against the project's `Prg/` programs using the normal
 case-insensitive path rules; spec files use Windows-1252 RPGCode source encoding.
 
-This package is still incomplete: array equality and containment and `toThrow`
-remain subject to the owner's F-A ruling; strict `toBe` type identity also
-needs a type distinction the current library does not provide; and `toBeCloseTo`
-takes both arguments and compares truncated whole numbers only, because RPGCode
-truncates a variable's number in arithmetic (F-D) and one callable cannot accept
-both one and two arguments without a language change (F-F). The current
-`skip(name, body)` and `only(name, body)` forms mark cases, not groups. Group
-`beforeAll` and `afterAll` hooks are rerun for each isolated case, including
-when that case is outside the group; they do not yet satisfy the once-per-group
-contract. Consult [TOOL-5](docs/spec/engine/rpgcode-tooling.md#tool-5) for the
-intended API; do not treat the current runner as full conformance.
+The matcher surface is [TOOL-5](docs/spec/engine/rpgcode-tooling.md#tool-5) as ruled:
+`toEqual` compares element arrays (`name[index]`), dictionaries and lists
+element by element with no number/string conversion; `toBe` is strict and
+compares arrays and instances by identity; `toContain` searches strings, element
+arrays and lists; `toBeCloseTo(expected, tolerance)` compares stored doubles and
+its tolerance is required (one argument is the failure `callable.arity`); and
+`toThrow()` sees an unhandled error raised in a nested call and consumes it. A
+`describe`'s `beforeAll` runs once and each case of the group starts from the
+snapshot taken after it ([group hooks](docs/spec/engine/rpgcode-tooling.md#tool-5-group-hooks));
+a spec file that registers no case fails as `spec.no-cases`. `skip(name, body)` and
+`only(name, body)` still mark cases, not groups, and the library is reached by
+`#include` until the package load path (PKG-7) is ruled. A spec run registers only
+the spec package's commands, not the engine's built-in commands (tracked as a defect
+of the runner).
 
 
 ## Set up

@@ -450,16 +450,16 @@ export type ErrorEventDetail = {
  * whose `detail` holds `code`, `message`, `file`, `line` and `handled` (`1` or `0`), in that
  * order. `thread` is the failing thread; a failure of the thread that is running a listener
  * of an `error` event on the game is not emitted again, so a faulty listener cannot loop.
- * Returns whether an event was queued.
+ * Returns the queued event's object handle, or `null` when none was queued.
  */
-export function queueErrorEvent(vm: VmState, events: EventsSection, thread: number, error: ErrorEventDetail): boolean {
+export function queueErrorEvent(vm: VmState, events: EventsSection, thread: number, error: ErrorEventDetail): number | null {
   const cursor = events.dispatch;
   if (cursor !== null && cursor.thread === thread && cursor.emitter === GAME_EMITTER) {
     const delivering = findObject(vm, cursor.event);
-    if (delivering !== undefined && readMember(delivering, "type") === ERROR_EVENT) return false;
+    if (delivering !== undefined && readMember(delivering, "type") === ERROR_EVENT) return null;
   }
   const game = registerEmitter(vm, events, GAME_EMITTER);
-  queueEvent(
+  return queueEvent(
     vm,
     events,
     game,
@@ -474,6 +474,17 @@ export function queueErrorEvent(vm: VmState, events: EventsSection, thread: numb
     ],
     false,
   );
+}
+
+/**
+ * Remove one event that is queued and not yet being delivered, by its event object's handle. The object itself
+ * is left to the end-of-tick collection (R-34), which frees it once nothing names it. Returns whether the event
+ * was still queued; an event already delivered is no longer on the queue, so nothing is removed.
+ */
+export function dequeueEvent(events: EventsSection, handle: number): boolean {
+  const at = events.queue.findIndex((queued) => queued.event === handle);
+  if (at < 0) return false;
+  events.queue.splice(at, 1);
   return true;
 }
 

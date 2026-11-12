@@ -20,10 +20,10 @@ import { discoverProjectSpecs, ONLY_WARNING, runSpecFile, runSpecProject, SPEC_P
 /**
  * The TOOL-5 acceptance checklist (docs/spec/engine/rpgcode-tooling.md#tool-5).
  * Every item is proved through the public consumer, not by reading internals.
- * B1–B4 are recorded decisions: optional tolerance resolves by exact arity
- * (FUN-1/ERR-2); repeated hooks append in registration order; a group's
- * `beforeAll`/`afterAll` run once per isolated case run (F-E, still open);
- * sibling describes never run each other's hooks.
+ * B1–B4 are recorded decisions: tolerance is required (FUN-1/ERR-2, owner ruling F-F, so one
+ * argument is the located failure `callable.arity`); repeated hooks append in registration
+ * order; a group's `beforeAll`/`afterAll` run once per group (TOOL-5 "Group hooks", see
+ * group-hooks.test.ts); sibling describes never run each other's hooks.
  */
 
 const packageFolder = join(dirname(fileURLToPath(import.meta.url)), "..", "package");
@@ -132,7 +132,7 @@ test("A7 the manifest parses and the catalogue resolves the start-up program; th
   deepEqual(drainDiagnostics(services).map((item) => item.code), ["unknown.command"]);
 });
 
-test("B1 the optional tolerance is a recorded decision: one argument is an arity failure today", () => {
+test("B1 the tolerance is required: one argument is the arity failure callable.arity", () => {
   const report = runSpecFile("arity.spec.prg", 'it("one", () => { expect(3).toBeCloseTo(3) })', {});
   equal(report.cases[0]?.ok, false);
   ok(report.failures[0]?.includes("callable.arity"), report.failures[0]);
@@ -140,9 +140,11 @@ test("B1 the optional tolerance is a recorded decision: one argument is an arity
   equal(two.cases[0]?.ok, true);
 });
 
-test("A8/A9 script-spec stays out of the default manifest and registers only specresult", () => {
+test("A8/A9 script-spec stays out of the default manifest and registers its closed set of seven", () => {
   equal(ENGINE_DEFAULT_MANIFEST.map((entry) => entry.id).includes("script-spec"), false);
-  deepEqual(SPEC_PLUGIN.commands.map((command) => command.name), ["specresult"]);
+  deepEqual(SPEC_PLUGIN.commands.map((command) => command.name), [
+    "specresult", "speccapture", "specequal", "speccontain", "specclose", "specthrowbegin", "specthrowend",
+  ]);
 });
 
 test("B4 sibling describes never run each other's hooks", () => {

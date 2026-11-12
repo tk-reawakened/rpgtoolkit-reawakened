@@ -1,11 +1,17 @@
 /**
  * The spec runner (TOOL-5): `*.spec.prg` discovery, a fresh fixture per case,
- * determinism, and the strict/`only` modes.
+ * group hooks that run once, determinism, and the strict/`only` modes.
  *
- * Each case is isolated by re-running the spec file once with the library's
- * `specOnlyCase` global set, so every case starts from a fresh `GameState` and
- * cannot see or leak state to its neighbour. Two runs of the same case must
- * produce the same outcomes and the same state hash.
+ * A run executes the spec file once on a `GameState` and walks the library's
+ * registration tables (`package/startup.prg`); the library's `specMode` global
+ * says what the walk does (collect the registered groups and cases, run one case,
+ * run a group's beforeAll hooks, run its afterAll hooks). Every case starts from a
+ * fresh fixture: either a new `GameState`, or the snapshot taken after the
+ * `beforeAll` hooks of the innermost group that has any (TOOL-5, "Group hooks and
+ * the fresh fixture"). The snapshot is the VM's own (`snapshot`/`restoreGameState`),
+ * taken at the library's checkpoint report, so a restored run resumes in the middle
+ * of the group's walk. Every task runs twice and must give identical outcomes and
+ * state hashes.
  */
 
 import { readFileSync } from "node:fs";
@@ -18,16 +24,18 @@ import {
   createScriptServices,
   drainDiagnostics,
   drainEffects,
+  encodeCp1252,
   fileProgramRef,
   hashGameState,
   PACKAGE_ROOT,
+  restoreGameState,
+  snapshot,
   startProgram,
   STEP_BUDGET,
-  encodeCp1252,
-  utf8Encode,
+  type EffectRecord,
+  type GameState,
   type ProgramLoader,
   type ScriptServices,
-  type GameState,
 } from "@tk-reawakened/core";
 import { SPEC_PLUGIN } from "./index.ts";
 
@@ -39,8 +47,9 @@ import { SPEC_PLUGIN } from "./index.ts";
  * documented **include** branch: the library is served as an includable unit of
  * the project's `Prg/` view. `#include` merges only functions and is collected
  * wherever it appears (MOD rules, docs/spec/engine/rpgcode-modules-and-objects.md),
- * so it sits after the spec's own text: every spec statement keeps its authored
- * line and positions come from the compiled units, not an offset guess.
+ * so it sits after the spec's own text, behind the one `specRun()` call that walks
+ * the registered tables: every spec statement keeps its authored line and positions
+ * come from the compiled units, not an offset guess.
  */
 const PACKAGE_STARTUP = readFileSync(new URL("../package/startup.prg", import.meta.url), "utf8");
 const SPEC_PROGRAM = "__spec.prg";
@@ -56,7 +65,7 @@ function specLoader(base: ProgramLoader | undefined, source: string): ProgramLoa
   // Program bytes are Windows-1252 (docs/spec/formats/rpgcode-program.md), so the
   // source the project already decoded is encoded back with the same codec; the
   // bundled library is converted the same way, not UTF-8.
-  const specEncoded = encodeCp1252(`${source}\n#include "${LIBRARY_INCLUDE}"\n`);
+  const specEncoded = encodeCp1252(`${source}\nspecRun()\n#include "${LIBRARY_INCLUDE}"\n`);
   const libraryEncoded = encodeCp1252(PACKAGE_STARTUP);
   if (!specEncoded.ok) throw new Error(`spec source is not Windows-1252: ${specEncoded.error.message}`);
   if (!libraryEncoded.ok) throw new Error(`the bundled spec library is not Windows-1252: ${libraryEncoded.error.message}`);
@@ -114,15 +123,37 @@ export type SpecRunOptions = {
 
 export const ONLY_WARNING = "only() narrowed the run to the marked cases; unmarked cases were not run";
 
+/** The name of the failing outcome of a spec file that registers no case (TOOL-5). */
+export const NO_CASES = "spec.no-cases";
+
 const OUTCOME_KINDS = new Set(["pass", "fail", "skip", "only"]);
 
-type IsolatedRun = {
-  readonly outcomes: SpecOutcome[];
-  readonly hash: string;
-  readonly errors: readonly { readonly code: string; readonly message: string; readonly line: number }[];
+/** What one run of the library's walk does; the numbers are the library's `specMode`. */
+const COLLECT = 1;
+const CASE = 2;
+const SETUP = 3;
+const TEARDOWN = 4;
+
+type Task = {
+  readonly mode: typeof COLLECT | typeof CASE | typeof SETUP | typeof TEARDOWN;
+  /** The case (mode `CASE`) or the group (modes `SETUP`, `TEARDOWN`) the run is for. */
+  readonly target: number;
+  /** The snapshot to resume from, or `null` for a fresh fixture. */
+  readonly from: string | null;
 };
 
-function runIsolated(source: string, onlyCase: number, seed: number, collect = false, loader?: ProgramLoader): IsolatedRun {
+type TaskError = { readonly code: string; readonly message: string; readonly line: number };
+
+type TaskRun = {
+  readonly outcomes: readonly SpecOutcome[];
+  readonly errors: readonly TaskError[];
+  readonly hash: string;
+  /** The snapshot taken at a setup run's checkpoint, or `null`. */
+  readonly checkpoint: string | null;
+};
+
+/** A fresh 1×1 board, one selected party actor and no variables. */
+function freshState(seed: number): GameState {
   const state: GameState = createGameState({ seed });
   state.world = {
     ...state.world,
@@ -135,17 +166,26 @@ function runIsolated(source: string, onlyCase: number, seed: number, collect = f
   const actor = addActor(state.actors, { kind: "party", source: "spec-fixture.tem", stats: { hp: 10, maxHp: 10 } });
   state.party.members.push(actor.id);
   state.party.selected = actor.id;
-  // The library reaches the program by `#include`, so the spec keeps its own lines.
-  // The record carries `specResult`'s own library position, not the assertion's,
-  // so the spec-file line is captured where the handler runs and keyed by the
-  // effect sequence the call is about to take: the effect log may evict records,
-  // so pairing by array index would silently drift.
-  const positions = new Map<number, { line: number; column: number }>();
-  state.vm.globals.speconlycase = onlyCase + 1;
-  state.vm.globals.speccollect = collect ? 1 : 0;
+  return state;
+}
+
+function runTask(source: string, seed: number, loader: ProgramLoader | undefined, task: Task): TaskRun {
+  const state = task.from === null ? freshState(seed) : restoreGameState(task.from);
+  // The snapshot carries the effect log of the run that took it; this run reports only its own.
+  if (task.from !== null) drainEffects(state.vm);
+  state.vm.globals.specmode = task.mode;
+  state.vm.globals.spectarget = task.target;
   const specProgram = specLoader(loader, source);
   const specRef = fileProgramRef(specProgram, SPEC_PROGRAM);
-  startProgram(state.vm, specRef);
+  if (task.from === null) startProgram(state.vm, specRef);
+  // The record carries `specResult`'s own library position, not the assertion's, so the
+  // spec-file line is captured where the handler runs and keyed by the effect sequence the
+  // call is about to take: the effect log may evict records, so pairing by array index would
+  // silently drift.
+  const positions = new Map<number, { line: number; column: number }>();
+  let checkpoint: string | null = null;
+  let checkpointFailure: string | null = null;
+  let lastSeq = state.vm.effectSeq;
   const services: ScriptServices = createScriptServices(state, [{ definition: SPEC_PLUGIN }], undefined, undefined, specProgram,
     undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
       postHandler: (handler, threadId) => {
@@ -163,25 +203,46 @@ function runIsolated(source: string, onlyCase: number, seed: number, collect = f
           }
         }
       },
+      // A step is observed before it runs, so the first step after the library's checkpoint
+      // report sees a state whose last call has finished: the snapshot resumes right after it.
+      ...(task.mode !== SETUP ? {} : {
+        postStep: () => {
+          const last = state.vm.effects[state.vm.effects.length - 1];
+          if (last === undefined || last.seq === lastSeq) return;
+          lastSeq = last.seq;
+          if (checkpoint !== null || last.name !== "specresult" || last.args[2] !== "checkpoint") return;
+          try {
+            checkpoint = snapshot(state);
+          } catch (error) {
+            checkpointFailure = error instanceof Error ? error.message : String(error);
+          }
+        },
+      }),
     });
+  const records: EffectRecord[] = [];
   let finished = false;
-  for (let step = 0; step < 1000; step += 1) {
-    if (advanceScriptTick(state, services, STEP_BUDGET) === "finished") {
+  for (let tick = 0; tick < 1000; tick += 1) {
+    const status = advanceScriptTick(state, services, STEP_BUDGET);
+    // The effect log is a bounded ring: drain it every tick so no record is evicted.
+    for (const record of drainEffects(state.vm)) records.push(record);
+    if (status === "finished") {
       finished = true;
       break;
     }
   }
-  const errors = drainDiagnostics(services).map((error) => ({
+  const errors: TaskError[] = drainDiagnostics(services).map((error) => ({
     code: error.code,
     message: error.message,
     line: error.line,
   }));
   if (!finished) errors.push({ code: "spec.timeout", message: "spec did not finish within 1000 ticks", line: 0 });
+  if (checkpointFailure !== null) errors.push({ code: "spec.snapshot", message: checkpointFailure, line: 0 });
   const outcomes: SpecOutcome[] = [];
-  for (const record of drainEffects(state.vm)) {
+  for (const record of records) {
     if (record.name !== "specresult") continue;
     const kind = String(record.args[0] ?? "");
-    if (!OUTCOME_KINDS.has(kind)) continue;
+    // The checkpoint report is the library talking to this runner, not an outcome.
+    if (!OUTCOME_KINDS.has(kind) || record.args[2] === "checkpoint") continue;
     const position = positions.get(record.seq);
     outcomes.push({
       kind: kind as SpecOutcomeKind,
@@ -192,7 +253,22 @@ function runIsolated(source: string, onlyCase: number, seed: number, collect = f
       column: position?.column ?? 0,
     });
   }
-  return { outcomes, hash: hashGameState(state), errors };
+  return { outcomes, errors, hash: hashGameState(state), checkpoint };
+}
+
+/** Run a task twice: determinism is part of the contract, so a difference is a runner failure. */
+function runTwice(what: string, source: string, seed: number, loader: ProgramLoader | undefined, task: Task): TaskRun {
+  const first = runTask(source, seed, loader, task);
+  const second = runTask(source, seed, loader, task);
+  if (first.hash !== second.hash) {
+    throw new Error(`${what}: two runs gave different state hashes (${first.hash} vs ${second.hash})`);
+  }
+  if (JSON.stringify(first.outcomes) !== JSON.stringify(second.outcomes)
+    || JSON.stringify(first.errors) !== JSON.stringify(second.errors)
+    || first.checkpoint !== second.checkpoint) {
+    throw new Error(`${what}: two runs gave different outcomes`);
+  }
+  return first;
 }
 
 /** `<matcher>: expected X, actual Y`, the message a failing case reports verbatim. */
@@ -202,62 +278,201 @@ export function failureMessage(outcome: SpecOutcome): string {
   return `${matcher}: expected ${outcome.expected}, actual ${outcome.actual}`;
 }
 
-type DiscoveredCase = { readonly name: string; readonly kind: "normal" | "skip" | "only" };
+type Group = {
+  readonly id: number;
+  readonly parent: number;
+  readonly hasBeforeAll: boolean;
+  readonly hasAfterAll: boolean;
+};
 
-function collectCases(source: string, seed: number, loader?: ProgramLoader): DiscoveredCase[] {
-  const discovery = runIsolated(source, -1, seed, true, loader);
-  if (discovery.errors.length > 0) {
-    const error = discovery.errors[0]!;
+type RegisteredCase = {
+  readonly id: number;
+  readonly name: string;
+  readonly kind: "normal" | "skip" | "only";
+  readonly group: number;
+};
+
+type Structure = {
+  readonly groups: ReadonlyMap<number, Group>;
+  readonly cases: readonly RegisteredCase[];
+  readonly hash: string;
+};
+
+const CASE_KINDS = ["normal", "skip", "only"] as const;
+
+/**
+ * Run the spec file's registration alone: the library reports every group, case and group hook it registers
+ * (collect mode records them and executes no body). A failure while registering fails discovery.
+ */
+function collect(source: string, seed: number, loader?: ProgramLoader): Structure {
+  const run = runTask(source, seed, loader, { mode: COLLECT, target: 0, from: null });
+  if (run.errors.length > 0) {
+    const error = run.errors[0]!;
     throw new Error(`spec discovery failed at line ${error.line} (${error.code}): ${error.message}`);
   }
-  return discovery.outcomes
-    .filter((outcome) => outcome.kind === "pass" && outcome.expected === "case"
-      && (outcome.actual === "normal" || outcome.actual === "skip" || outcome.actual === "only"))
-    .map((outcome) => ({ name: outcome.label, kind: outcome.actual as DiscoveredCase["kind"] }));
+  const groups = new Map<number, { id: number; parent: number; hasBeforeAll: boolean; hasAfterAll: boolean }>();
+  groups.set(0, { id: 0, parent: 0, hasBeforeAll: false, hasAfterAll: false });
+  const cases: RegisteredCase[] = [];
+  for (const outcome of run.outcomes) {
+    if (outcome.kind !== "pass") continue;
+    const parts = outcome.actual.split(":").map(Number);
+    if (outcome.expected === "group") {
+      groups.set(parts[0]!, { id: parts[0]!, parent: parts[1]!, hasBeforeAll: false, hasAfterAll: false });
+    } else if (outcome.expected === "case") {
+      cases.push({ id: parts[1]!, name: outcome.label, kind: CASE_KINDS[parts[0]!] ?? "normal", group: parts[2]! });
+    } else if (outcome.expected === "hook") {
+      const group = groups.get(parts[0]!);
+      if (group !== undefined) {
+        if (outcome.label === "beforeAll") group.hasBeforeAll = true;
+        else group.hasAfterAll = true;
+      }
+    }
+  }
+  return { groups, cases, hash: run.hash };
 }
 
 /** The registered cases in source order, without executing their bodies. */
 export function discoverCases(source: string, seed = 0, loader?: ProgramLoader): string[] {
-  return collectCases(source, seed, loader).map((item) => item.name);
+  return collect(source, seed, loader).cases.map((item) => item.name);
 }
 
 /** Whether the file registers at least one focused case, without running cases. */
 export function hasOnlyCases(source: string, seed = 0, loader?: ProgramLoader): boolean {
-  return collectCases(source, seed, loader).some((item) => item.kind === "only");
+  return collect(source, seed, loader).cases.some((item) => item.kind === "only");
+}
+
+function runtimeFailures(label: string, expected: string, errors: readonly TaskError[]): SpecOutcome[] {
+  return errors.map((error) => ({
+    kind: "fail" as const,
+    label,
+    expected,
+    actual: `${error.code}: ${error.message}`,
+    line: error.line,
+    column: 0,
+  }));
+}
+
+/** The result of one group's `beforeAll` hooks: what they recorded and the snapshot every case of the group starts from. */
+type Setup = {
+  readonly outcomes: readonly SpecOutcome[];
+  readonly errors: readonly TaskError[];
+  readonly snapshot: string | null;
+  readonly hash: string;
+};
+
+function setupFailed(setup: Setup): boolean {
+  return setup.snapshot === null || setup.errors.length > 0 || setup.outcomes.some((outcome) => outcome.kind === "fail");
 }
 
 /** Run one spec file: every case on a fresh fixture, twice, and compare. */
 export function runSpecFile(file: string, source: string, options: SpecRunOptions): SpecFileReport {
   const seed = options.seed ?? 0;
   const strict = options.strict ?? true;
-  const discovered = collectCases(source, seed, options.loader);
-  const onlySeen = discovered.some((item) => item.kind === "only");
+  const loader = options.loader;
+  const structure = collect(source, seed, loader);
+  if (structure.cases.length === 0) {
+    const outcome: SpecOutcome = {
+      kind: "fail", label: NO_CASES, expected: "at least one case", actual: "no case is registered", line: 1, column: 1,
+    };
+    return {
+      file,
+      cases: [{ name: NO_CASES, outcomes: [outcome], ok: false, stateHash: structure.hash }],
+      skipped: [],
+      warning: null,
+      failures: [`${file}: ${NO_CASES}: the spec file registers no case (line 1)`],
+    };
+  }
+  const onlySeen = structure.cases.some((item) => item.kind === "only");
+  const selected = structure.cases.filter((item) => !onlySeen || item.kind === "only");
+
+  /** The group and its ancestors, innermost first, up to and including the file (group 0). */
+  const lineage = (group: number): number[] => {
+    const chain = [group];
+    while (chain[chain.length - 1] !== 0) chain.push(structure.groups.get(chain[chain.length - 1]!)!.parent);
+    return chain;
+  };
+  const setups = new Map<number, Setup>();
+  const setupOf = (group: number): Setup => {
+    const known = setups.get(group);
+    if (known !== undefined) return known;
+    // A group's setup resumes from the snapshot of its nearest ancestor that has a beforeAll.
+    const above = lineage(group).slice(1).find((id) => structure.groups.get(id)!.hasBeforeAll);
+    const from = above === undefined ? null : setupOf(above).snapshot;
+    const run = runTwice(`beforeAll of group ${group}`, source, seed, loader, { mode: SETUP, target: group, from });
+    const setup: Setup = { outcomes: run.outcomes, errors: run.errors, snapshot: run.checkpoint, hash: run.hash };
+    setups.set(group, setup);
+    return setup;
+  };
+  /** The snapshot a run for `group` resumes from: its own setup, else the nearest ancestor's, else a fresh fixture. */
+  const snapshotFor = (group: number): string | null => {
+    const owner = lineage(group).find((id) => structure.groups.get(id)!.hasBeforeAll);
+    return owner === undefined ? null : setupOf(owner).snapshot;
+  };
+  /** Whether the beforeAll of a proper ancestor of `group` failed; outermost first, so no setup resumes from a failed one. */
+  const failedAbove = (group: number): boolean =>
+    lineage(group).slice(1).filter((id) => structure.groups.get(id)!.hasBeforeAll).reverse().some((id) => setupFailed(setupOf(id)));
+
+  // The cases still to run in each group's subtree: a group's afterAll runs after the last one.
+  const remaining = new Map<number, number>();
+  for (const item of selected) {
+    if (item.kind === "skip") continue;
+    for (const id of lineage(item.group)) remaining.set(id, (remaining.get(id) ?? 0) + 1);
+  }
+
   const cases: SpecCaseResult[] = [];
   const skipped: string[] = [];
   const failures: string[] = [];
-  discovered.forEach(({ name, kind }, index) => {
-    if (onlySeen && kind !== "only") return;
-    const first = runIsolated(source, index, seed, false, options.loader);
-    const second = runIsolated(source, index, seed, false, options.loader);
-    if (first.hash !== second.hash) {
-      throw new Error(`${name}: two runs gave different state hashes (${first.hash} vs ${second.hash})`);
+  for (const item of selected) {
+    const { name } = item;
+    const own: SpecOutcome[] = [];
+    const prefix: SpecOutcome[] = [];
+    const suffix: SpecOutcome[] = [];
+    let hash = structure.hash;
+    let from: string | null = null;
+    let blocked = false;
+    if (item.kind !== "skip") {
+      // Setups run outermost first, each from the one above; a failed one fails every case of its group.
+      const owners = lineage(item.group).filter((id) => structure.groups.get(id)!.hasBeforeAll).reverse();
+      for (const owner of owners) {
+        const setup = setupOf(owner);
+        prefix.push(...setup.outcomes, ...runtimeFailures(`${name}/beforeAll`, "beforeAll without a runtime error", setup.errors));
+        hash = setup.hash;
+        if (setupFailed(setup)) {
+          blocked = true;
+          if (setup.errors.length === 0 && !setup.outcomes.some((outcome) => outcome.kind === "fail")) {
+            prefix.push({ kind: "fail", label: `${name}/beforeAll`, expected: "beforeAll completes", actual: "beforeAll did not reach its checkpoint", line: 0, column: 0 });
+          }
+          break;
+        }
+        from = setup.snapshot;
+      }
     }
-    if (JSON.stringify(first.outcomes) !== JSON.stringify(second.outcomes)
-      || JSON.stringify(first.errors) !== JSON.stringify(second.errors)) {
-      throw new Error(`${name}: two runs gave different outcomes`);
+    if (!blocked) {
+      const run = runTwice(name, source, seed, loader, { mode: CASE, target: item.id, from });
+      own.push(...run.outcomes, ...runtimeFailures(`${name}/runtime error`, "no runtime error", run.errors));
+      hash = run.hash;
     }
-    if (kind === "skip") skipped.push(name);
-    const outcomes = [...first.outcomes];
-    for (const error of first.errors) {
-      outcomes.push({ kind: "fail", label: `${name}/runtime error`, expected: "no runtime error", actual: `${error.code}: ${error.message}`, line: error.line, column: 0 });
+    if (item.kind === "skip") skipped.push(name);
+    if (item.kind !== "skip") {
+      // afterAll runs once per group, from the group's own snapshot, after the group's last case.
+      for (const group of lineage(item.group)) {
+        remaining.set(group, remaining.get(group)! - 1);
+        const info = structure.groups.get(group)!;
+        if (remaining.get(group) !== 0 || !info.hasAfterAll || failedAbove(group)) continue;
+        const from = info.hasBeforeAll ? setupOf(group).snapshot : snapshotFor(group);
+        if (info.hasBeforeAll && from === null) continue;
+        const run = runTwice(`afterAll of group ${group}`, source, seed, loader, { mode: TEARDOWN, target: group, from });
+        suffix.push(...run.outcomes, ...runtimeFailures(`${name}/afterAll`, "afterAll without a runtime error", run.errors));
+      }
     }
+    const outcomes = [...prefix, ...own, ...suffix];
     // A case that records nothing has tested nothing: it must not read as healthy.
-    const ok = outcomes.length > 0
+    const ok = (blocked || own.length > 0)
       && outcomes.every((outcome) => outcome.kind === "pass" || outcome.kind === "only" || (!strict && outcome.kind === "skip"));
-    if (outcomes.length === 0) failures.push(`${file}: ${name}: recorded no assertion`);
-    if (kind === "skip" && strict) failures.push(`${file}: ${name}: skipped in strict mode`);
+    if (!blocked && own.length === 0) failures.push(`${file}: ${name}: recorded no assertion`);
+    if (item.kind === "skip" && strict) failures.push(`${file}: ${name}: skipped in strict mode`);
     for (const outcome of outcomes) if (outcome.kind === "fail") failures.push(`${file}: ${name}: ${failureMessage(outcome)} (line ${outcome.line})`);
-    cases.push({ name, outcomes, ok, stateHash: first.hash });
-  });
+    cases.push({ name, outcomes, ok, stateHash: hash });
+  }
   return { file, cases, skipped, warning: onlySeen ? ONLY_WARNING : null, failures };
 }
