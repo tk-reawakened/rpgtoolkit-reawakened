@@ -3,7 +3,7 @@
   "checkpoints": [
     {
       "id": "main-opened",
-      "stateHash": "535cb152002ca7a3",
+      "stateHash": "c83aa1dc1478b381",
       "drawHash": "c7fb0219e7f9545b",
       "events": [
         {
@@ -105,13 +105,13 @@
     },
     {
       "id": "items-opened",
-      "stateHash": "97046a4709a0f2f7",
+      "stateHash": "43e5bafbbc0019bf",
       "drawHash": "ef9e282ef04c23ff",
       "events": []
     },
     {
       "id": "item-used",
-      "stateHash": "8db61306cc405b72",
+      "stateHash": "e2fc8f32972f1096",
       "drawHash": "6c3a78fea9e8350e",
       "events": [
         {
@@ -132,7 +132,7 @@
     },
     {
       "id": "equip-opened",
-      "stateHash": "bfc7ad024ada8892",
+      "stateHash": "0733cce6678430bd",
       "drawHash": "cc018ebd350b1683",
       "events": [
         {
@@ -153,7 +153,7 @@
     },
     {
       "id": "sword-equipped",
-      "stateHash": "6bc7f189109e71e6",
+      "stateHash": "88841aa85fd568ad",
       "drawHash": "d21eecc6de19d256",
       "events": [
         {
@@ -174,7 +174,7 @@
     },
     {
       "id": "sword-replaced",
-      "stateHash": "ebe0e3aa1a3bb0e2",
+      "stateHash": "5fcfb4c71d575ea5",
       "drawHash": "efc8c7d369c83b88",
       "events": [
         {
@@ -209,7 +209,7 @@
     },
     {
       "id": "accessory-equipped",
-      "stateHash": "90da5153a748fe3c",
+      "stateHash": "959ae70b65b78b9f",
       "drawHash": "ed03fba7fe4bab2f",
       "events": [
         {
@@ -244,7 +244,7 @@
     },
     {
       "id": "equipment-removed",
-      "stateHash": "afd05d192c8ff2e2",
+      "stateHash": "5d20214cd1d89461",
       "drawHash": "a6ded9db71df1cce",
       "events": [
         {
@@ -265,13 +265,13 @@
     },
     {
       "id": "abilities-opened",
-      "stateHash": "9eff46b3dc218d76",
+      "stateHash": "387b463ed2c64ab9",
       "drawHash": "0b09b66908311ac9",
       "events": []
     },
     {
       "id": "ability-used",
-      "stateHash": "fdfb7a47e4b0ed22",
+      "stateHash": "7565e30e19aa1579",
       "drawHash": "fa96bc2d39d7e2b7",
       "events": []
     }

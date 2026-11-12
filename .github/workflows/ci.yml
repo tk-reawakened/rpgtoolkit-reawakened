@@ -340,23 +340,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-      - run: pnpm build
+      - name: Run RPGCode dogfood
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-      - name: tkr script check
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-        run: node packages/script-cli/dist/cli.js script check stock docs/spec/examples/game --json > /tmp/check.json && diff -u packages/script-cli/baselines/check.json /tmp/check.json
-      - name: tkr script fmt --check
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-        run: node packages/script-cli/dist/cli.js script fmt --check stock docs/spec/examples/game --json > /tmp/fmt.json && diff -u packages/script-cli/baselines/fmt.json /tmp/fmt.json
-      - name: tkr script index
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-        run: node packages/script-cli/dist/cli.js script index stock docs/spec/examples/game --json > /tmp/index.json && diff -u packages/script-cli/baselines/index.json /tmp/index.json
-      - name: tkr script docs
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-        run: node packages/script-cli/dist/cli.js script docs --json > /tmp/docs.json && diff -u packages/script-cli/baselines/docs.json /tmp/docs.json
-      - name: tkr script test
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-        run: node packages/script-cli/dist/cli.js script test packages/script-cli/test/fixtures/pass-project --json > /tmp/test.json && diff -u packages/script-cli/baselines/test.json /tmp/test.json
+        run: pnpm script:dogfood
       - name: Install extension dependencies
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
         run: npm --prefix extensions/rpgcode ci --ignore-scripts --no-audit --no-fund

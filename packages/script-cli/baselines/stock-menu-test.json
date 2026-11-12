@@ -1,0 +1,103 @@
+{
+    "diagnostics": [],
+    "exitCode": 0,
+    "results": {
+      "files": [
+        {
+          "cases": [
+            {
+              "name": "normalizes legacy keys",
+              "ok": true,
+              "outcomes": [
+                {
+                  "actual": "",
+                  "column": 43,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "normalizes legacy keys/toBe",
+                  "line": 5
+                },
+                {
+                  "actual": "",
+                  "column": 46,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "normalizes legacy keys/toBe",
+                  "line": 6
+                },
+                {
+                  "actual": "",
+                  "column": 44,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "normalizes legacy keys/toBe",
+                  "line": 7
+                },
+                {
+                  "actual": "",
+                  "column": 45,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "normalizes legacy keys/toBe",
+                  "line": 8
+                }
+              ],
+              "stateHash": "672f49b04809bae2"
+            },
+            {
+              "name": "chooses the first row of the selected page",
+              "ok": true,
+              "outcomes": [
+                {
+                  "actual": "",
+                  "column": 44,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "chooses the first row of the selected page/toBe",
+                  "line": 11
+                },
+                {
+                  "actual": "",
+                  "column": 45,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "chooses the first row of the selected page/toBe",
+                  "line": 12
+                },
+                {
+                  "actual": "",
+                  "column": 46,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "chooses the first row of the selected page/toBe",
+                  "line": 13
+                }
+              ],
+              "stateHash": "b23950022bc2ff07"
+            }
+          ],
+          "failures": [],
+          "file": "menu.spec.prg",
+          "skipped": [],
+          "warning": null
+        }
+      ]
+    },
+    "schema": "tkr-script-result/1",
+    "status": "ok",
+    "subcommand": "test",
+    "summary": {
+      "changed": 0,
+      "diagnostics": {
+        "error": 0,
+        "hint": 0,
+        "info": 0,
+        "warning": 0
+      },
+      "failed": 0,
+      "files": 1,
+      "passed": 2,
+      "skipped": 0
+    },
+    "tool": "tkr"
+  }
