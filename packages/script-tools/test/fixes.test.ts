@@ -35,6 +35,13 @@ test("migration preserves the values seen by real UI commands", () => {
   deepEqual(effects(fixed, "tk3"), ["Ada", "9", "Hello there!"]);
 });
 
+test("migration preserves quoted equality and embedded hash dialogue at runtime", () => {
+  const source = '#a$ = "p=q"\n#If (a$ = "p=q") {\nHi #there\n}\n#If (a$ = "p==q") {\nWrong branch\n}';
+  const fixed = migrate(source);
+  deepEqual(mwinText(source, "tk2"), ["Hi #there"]);
+  deepEqual(mwinText(fixed, "tk3"), ["Hi #there"]);
+});
+
 test("mixed legacy forms are converted together and retain comments and CRLF", () => {
   const source = "* keep this comment\r\n#If (x = 5) {\r\n  #y! = 1\r\n}\r\nHello there\r\n#threadSleep(1, 2) * keep this too\r\n";
   const fixed = migrate(source);

@@ -142,10 +142,21 @@ function stripSigils(text: string): string {
 }
 
 function equalityInCondition(text: string): string {
-  return text.replace(/\b(if|while)\s*\(([^\n]*)\)/gi, (_whole, keyword: string, body: string) => {
-    const fixed = body.replace(/(^|[^<>=!~])=([^=]|$)/g, "$1==$2");
-    return `${keyword} (${fixed})`;
-  });
+  const masked = text.replace(/"(?:\\.|[^"\\])*"/g, (value) => " ".repeat(value.length));
+  const condition = /\b(if|while)\s*\(/gi;
+  let cursor = 0;
+  let result = "";
+  for (let found = condition.exec(masked); found !== null; found = condition.exec(masked)) {
+    const open = masked.indexOf("(", found.index);
+    const close = matchingClose(text, open);
+    if (close < 0) break;
+    const body = text.slice(open + 1, close);
+    const fixed = body.replace(/"(?:\\.|[^"\\])*"|(?<![<>=!~])=(?!=)/g, (match) => match === "=" ? "==" : match);
+    result += text.slice(cursor, found.index) + found[1] + " (" + fixed + ")";
+    cursor = close + 1;
+    condition.lastIndex = cursor;
+  }
+  return result + text.slice(cursor);
 }
 
 function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined): string {
@@ -162,12 +173,12 @@ function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined): strin
       if (close >= 0 && /^[ \t]+\*/.test(line.slice(close + 1))) line = line.slice(0, close + 1);
     }
   }
-  line = line.replace(/(^|[{\s;])#(?=[A-Za-z_@])/g, "$1");
   line = line.replace(/^returnmethod\b/i, "return").replace(/^method\b/i, "function");
   if (line.length === 0) return "";
   if (!raw.trimStart().startsWith("#") && !/^(if|while|until|for|switch|case|default|else|function|return|[:{}])(?:\b|$)/i.test(line) && !line.includes("=") && !line.endsWith("{")) {
     return `mwin(${quoted(line)})`;
   }
+  line = line.replace(/"(?:\\.|[^"\\])*"|(^|[{\s;])#(?=[A-Za-z_@])/g, (match, prefix: string | undefined) => prefix === undefined ? match : prefix);
   // Bind raw text while variable sigils still distinguish names from literals.
   line = bindRawArguments(line, lookup);
   line = stripSigils(line);
