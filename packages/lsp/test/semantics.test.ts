@@ -12,7 +12,7 @@ import {
   type ProgramLoader,
   type ResolvedPlugin,
 } from "@tk-reawakened/core";
-import { buildIndex, projectHelp } from "@tk-reawakened/script-tools";
+import { buildIndex, lint, projectHelp } from "@tk-reawakened/script-tools";
 import type {
   CodeAction,
   CodeActionParams,
@@ -39,6 +39,7 @@ type Pair = {
   readonly connection: ServerConnection;
   readonly published: Diagnostic[][];
   open(uri: string, text: string, languageId?: string): void;
+  change(uri: string, text: string, version: number): void;
   hover(uri: string, line: number, character: number): Hover | null;
   completion(uri: string, line: number, character: number): CompletionItem[];
   definition(uri: string, line: number, character: number): Location[];
@@ -49,6 +50,7 @@ type Pair = {
 function pair(): Pair {
   const published: Diagnostic[][] = [];
   let openHandler: (params: DidOpenTextDocumentParams) => void = () => {};
+  let changeHandler: (params: DidChangeTextDocumentParams) => void = () => {};
   let hoverHandler: (params: HoverParams) => Hover | null = () => null;
   let completionHandler: (params: CompletionParams) => CompletionItem[] = () => [];
   let definitionHandler: (params: HoverParams) => Location[] = () => [];
@@ -61,7 +63,10 @@ function pair(): Pair {
       openHandler = handler;
       return absent;
     },
-    onDidChangeTextDocument: (_handler: (params: DidChangeTextDocumentParams) => void) => absent,
+    onDidChangeTextDocument: (handler) => {
+      changeHandler = handler;
+      return absent;
+    },
     onHover: (handler) => {
       hoverHandler = handler;
       return absent;
@@ -88,6 +93,7 @@ function pair(): Pair {
     connection,
     published,
     open: (uri, text, languageId = "rpgcode") => openHandler({ textDocument: { uri, languageId, version: 1, text } }),
+    change: (uri, text, version) => changeHandler({ textDocument: { uri, version }, contentChanges: [{ text }] }),
     hover: (uri, line, character) => hoverHandler({ textDocument: { uri }, position: { line, character } }),
     completion: (uri, line, character) => completionHandler({ textDocument: { uri }, position: { line, character } }),
     definition: (uri, line, character) => definitionHandler({ textDocument: { uri }, position: { line, character } }),
@@ -115,6 +121,22 @@ function server(files: Readonly<Record<string, string>>): Pair {
   createServer(started.connection, { loader: loader(files), plugins });
   return started;
 }
+
+test("an unknown project dialect must not be guessed from the editor mode", () => {
+  const text = "nope()\n";
+  const known = (dialect: "tk2" | "tk3"): string[] => {
+    const index = buildIndex([{ name: "main.prg", ref: { kind: "inline", text, ir: IR_VERSION, dialect } }]);
+    return lint(index, { plugins, sources: { "main.prg": text } }).diagnostics.map((finding) => finding.code);
+  };
+  deepEqual(known("tk3"), ["lint/unknown-command"]);
+  deepEqual(known("tk2"), []);
+  const started = server({ "main.prg": text });
+  started.open("file:///main.prg", text, "rpgcode");
+  equal(started.published.at(-1)?.some((finding) => finding.code === "lint/unknown-command"), false);
+  started.change("file:///main.prg", "nope(\n", 2);
+  equal(started.published.at(-1)?.[0]?.code, "syntax.error");
+  equal(started.published.at(-1)?.some((finding) => finding.code === "lint/unknown-command"), false);
+});
 
 test("hover is the catalogue's summary and behaviour, byte for byte", () => {
   const started = server({ "main.prg": MAIN, "lib.prg": LIB });
