@@ -275,7 +275,7 @@ const ROWS: readonly Row[] = [
   { name: "wait", kind: "wait", params: "[&dest]", sections: [], wait: "input.key", obsolete: false, byRefOut: true },
   { name: "get", kind: "mixed", params: "[&dest]", sections: ["input"], wait: null, obsolete: false, byRefOut: true },
   { name: "mouseclick", kind: "wait", params: "&x,&y[,noWait]", sections: [], wait: "input.mouse", obsolete: false, byRefOut: true },
-  { name: "scan", kind: "mixed", params: "x,y,layer,&mem", sections: ["world"], wait: null, obsolete: false, byRefOut: false },
+  { name: "scan", kind: "mixed", params: "x,y,pos", sections: ["world"], wait: null, obsolete: false, byRefOut: false },
   { name: "mem", kind: "mixed", params: "x,y[,layer],mem", sections: ["world"], wait: null, obsolete: false, byRefOut: false },
   { name: "cursormaprun", kind: "wait", params: "...", sections: ["ui"], wait: "input.key", obsolete: false, byRefOut: false },
   { name: "bitmap", kind: "mixed", params: "file[,cnv]", sections: ["surfaces"], wait: null, obsolete: false, byRefOut: false },
