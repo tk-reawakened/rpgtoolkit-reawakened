@@ -17,6 +17,7 @@ import {
 } from "@tk-reawakened/core";
 import {
   analyse,
+  applyEdits,
   buildIndex,
   legacyFixes,
   projectHelp,
@@ -256,22 +257,31 @@ export function createServer(connection: ServerConnection, options: ServerOption
   connection.onCodeAction((params) => {
     const document = documents.get(params.textDocument.uri);
     if (document === undefined) return [];
-    return legacyFixes(document.getText()).map((fix) => ({
-      title: fix.title,
-      kind: "quickfix",
-      diagnostics: params.context.diagnostics,
-      edit: {
-        changes: {
-          [document.uri]: fix.edits.map((item) => ({
-            range: {
-              start: { line: item.range.start.line - 1, character: item.range.start.column - 1 },
-              end: { line: item.range.end.line - 1, character: item.range.end.column },
-            },
-            newText: item.newText,
-          })),
+    return legacyFixes(document.getText(), document.languageId === "rpgcode-tk2" ? "tk2" : "tk3").map((fix) => {
+      if (fix.rule === "dialect/tk2-to-tk3") {
+        return {
+          title: fix.title,
+          kind: "refactor.rewrite",
+          command: { title: fix.title, command: "rpgcode.previewTk2Conversion", arguments: [applyEdits(document.getText(), fix.edits)] },
+        };
+      }
+      return {
+        title: fix.title,
+        kind: "quickfix",
+        diagnostics: params.context.diagnostics,
+        edit: {
+          changes: {
+            [document.uri]: fix.edits.map((item) => ({
+              range: {
+                start: { line: item.range.start.line - 1, character: item.range.start.column - 1 },
+                end: { line: item.range.end.line - 1, character: item.range.end.column },
+              },
+              newText: item.newText,
+            })),
+          },
         },
-      },
-    }));
+      };
+    });
   });
 
   connection.onDocumentSymbol((params) => {

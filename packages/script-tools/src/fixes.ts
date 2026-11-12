@@ -1,42 +1,34 @@
 /**
- * The legacy-form quick fixes of docs/spec/engine/rpgcode-dialects.md:57-69.
- *
- * Each fix is a set of span edits over the source text - never an AST printer,
- * which would drop comments and whitespace (TOOL-4's ruling) - and each is
- * re-parsed after it is applied: a fix whose result does not compile is dropped
- * rather than offered, so a rewrite can never leave a worse diagnostic behind.
- *
- * A row is offered only when it is a rewrite of the *same* program. Two rows are
- * deliberately diagnostic-only: `#Method` is the same keyword in 3.1, and a loose
- * text line cannot be told from a typo without guessing, so the linter (10.6)
- * reports them instead.
+ * Behavior-preserving legacy edits (docs/spec/engine/rpgcode-dialects.md and
+ * docs/spec/engine/rpgcode-tooling.md#tool-4). The Toolkit 2 converter is only
+ * used when the caller explicitly identifies the source dialect.
  */
-
-import { compileInline, compileTk2, tokenizeObjects } from "@tk-reawakened/core";
-import { analyse } from "./analyse.ts";
+import { compileInline, normaliseTk2, ScriptError, tokenizeObjects, type Program, type ScriptDialect } from "@tk-reawakened/core";
 import type { TextEdit } from "./diagnostics.ts";
 
+/** These calls can read or execute source outside the one-file comparison. */
+const DYNAMIC_SOURCE_COMMANDS: Readonly<Record<string, true>> = {
+  include: true, executeprogram: true, replaceprogram: true, thread: true, tellthread: true, run: true, change: true, rpgcode: true,
+};
+
 export type LegacyFix = {
-  /** The dialect row this rewrite implements, as `<area>/<rule>` (TOOL-3 rule id). */
   readonly rule: string;
   readonly title: string;
   readonly edits: readonly TextEdit[];
 };
 
-/** Apply span edits: they never overlap, and replacements are applied right to left. */
+/** Apply non-overlapping, single-line edits from right to left. */
 export function applyEdits(source: string, edits: readonly TextEdit[]): string {
   const lines = source.split("\n");
   const sorted = [...edits].sort((a, b) => {
     if (a.range.start.line !== b.range.start.line) return b.range.start.line - a.range.start.line;
     return b.range.start.column - a.range.start.column;
   });
-  for (const edit of sorted) {
-    const index = edit.range.start.line - 1;
+  for (const item of sorted) {
+    const index = item.range.start.line - 1;
     const line = lines[index];
     if (line === undefined) continue;
-    const start = edit.range.start.column - 1;
-    const end = edit.range.end.column;
-    lines[index] = line.slice(0, start) + edit.newText + line.slice(end);
+    lines[index] = line.slice(0, item.range.start.column - 1) + item.newText + line.slice(item.range.end.column);
   }
   return lines.join("\n");
 }
@@ -45,88 +37,115 @@ function edit(line: number, from: number, to: number, newText: string): TextEdit
   return { range: { start: { line, column: from }, end: { line, column: to } }, newText };
 }
 
-const OBSOLETE = new Set(["dos", "windows", "gone", "over", "reset", "win"]);
-
-/** Every rewrite the source admits, before the re-parse filter. */
-function candidates(source: string): LegacyFix[] {
-  const fixes: LegacyFix[] = [];
-  const lines = source.split("\n");
-
-  // `#Command(arg)` / `#ReturnMethod(x)` / an obsolete `#Dos` control line (TK2).
-  lines.forEach((text, index) => {
-    const line = index + 1;
-    const match = /^(\s*)#(\w+)\s*(?:\((.*)\))?\s*$/.exec(text);
-    if (match === null) return;
-    const indent = match[1]!;
-    const name = match[2]!;
-    const argument = match[3];
-    if (OBSOLETE.has(name.toLowerCase())) {
-      fixes.push({ rule: "dialect/obsolete-control", title: `Remove the obsolete \`#${name}\` engine control`, edits: [edit(line, 1, text.length, indent)] });
-      return;
-    }
-    if (name.toLowerCase() === "returnmethod" && argument !== undefined) {
-      fixes.push({ rule: "dialect/return-method", title: "Rewrite `#ReturnMethod(x)` as `return x`", edits: [edit(line, 1, text.length, `${indent}return ${argument.trim()}`)] });
-      return;
-    }
-    if (argument !== undefined && !/^".*"$/.test(argument.trim())) {
-      fixes.push({
-        rule: "dialect/unquoted-command-argument",
-        title: `Quote the unquoted argument of \`#${name}\``,
-        edits: [edit(line, 1, text.length, `${indent}${name.toLowerCase()}("${argument.trim()}")`)],
-      });
-    }
+/** Compare code and execution metadata, not source spans or source hashes. */
+function behavior(program: Program): string {
+  return JSON.stringify({
+    ops: program.ops.map(({ pos, ...op }) => op),
+    functions: program.functions,
+    classes: Object.fromEntries(Object.entries(program.classes).map(([name, cls]) => [
+      name,
+      { ...cls, members: cls.members.map(({ line, col, endCol, ...member }) => member) },
+    ])),
+    labels: program.labels,
+    statements: program.statements,
+    files: program.files,
+    fileKeys: program.fileKeys,
+    includes: program.units.flatMap((unit) => unit.requests.map(({ path, implicit, line }) => ({ path, implicit, line }))),
   });
+}
 
-  // Sigils: `x!` and `name$` are ignored by the lexer, so deleting the sigil keeps the program.
-  for (const token of tokenizeObjects(source)) {
-    if (token.kind !== "identifier") continue;
-    const text = (lines[token.line - 1] ?? "").slice(token.col - 1, token.endCol);
-    if (text.endsWith("!") || text.endsWith("$")) {
-      fixes.push({
-        rule: "dialect/sigil",
-        title: `Drop the ignored sigil in \`${text}\``,
-        edits: [edit(token.line, token.endCol, token.endCol, "")],
-      });
+function sameBehavior(original: string, fixed: string, dialect: ScriptDialect, fixedDialect: ScriptDialect = "tk3"): boolean {
+  try {
+    const before = compileInline(original, "<migration>", dialect);
+    const after = compileInline(fixed, "<migration>", fixedDialect);
+    if (dialect === "tk2" && [before, after].some((program) =>
+      program.units.some((unit) => unit.requests.length > 0) ||
+      program.ops.some((op) => op.op === "call" && Object.hasOwn(DYNAMIC_SOURCE_COMMANDS, op.name)))) return false;
+    return behavior(before) === behavior(after);
+  } catch (error) {
+    if (error instanceof ScriptError) return false;
+    throw error;
+  }
+}
+
+/** Whether a TK2 program and the proposed 3.1 source compile to the same behavior. */
+export function sameLowering(original: string, fixed: string): boolean {
+  return sameBehavior(original, fixed, "tk2");
+}
+
+/** Return a TK2 trailing star comment after a standalone command, if present. */
+function trailingComment(line: string): string | null {
+  const match = /^\s*#(?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*\s*\(/.exec(line);
+  if (match === null) return null;
+  let depth = 1;
+  let quoted = false;
+  for (let index = match[0].length; index < line.length; index++) {
+    const ch = line[index];
+    if (ch === '"') quoted = !quoted;
+    if (quoted) continue;
+    if (ch === "(") depth++;
+    if (ch === ")" && --depth === 0) {
+      const suffix = line.slice(index + 1);
+      const comment = /^[ \t]+\*(.*)$/.exec(suffix);
+      return comment === null ? null : ` //${comment[1]}`;
     }
   }
+  return null;
+}
 
+/** Convert all TK2 lines as one action; never drop comment text or line endings. */
+function migrateTk2(source: string): LegacyFix[] {
+  // The spec conflicts with dynamic array indices for this shape (#2050).
+  // Do not offer a conversion whose meaning has not been established.
+  if (/\[\s*\d*[A-Za-z_]\w*[$!]?\s*\]/.test(source)) return [];
+  let converted: string[];
+  try {
+    converted = normaliseTk2(source).split("\n");
+  } catch (error) {
+    if (error instanceof ScriptError) return [];
+    throw error;
+  }
+  const lines = source.split("\n");
+  const edits: TextEdit[] = [];
+  for (let index = 0; index < lines.length; index++) {
+    const original = lines[index]!;
+    const content = original.endsWith("\r") ? original.slice(0, -1) : original;
+    const ending = original.endsWith("\r") ? "\r" : "";
+    const trimmed = content.trimStart();
+    if (trimmed === "" || trimmed.startsWith("*")) continue;
+    // Until comment parsing is shared, refuse these rather than delete or reinterpret them.
+    if (trimmed.includes("//") || trimmed.includes("/*") || trimmed.includes("*/")) return [];
+    const indent = content.slice(0, content.length - trimmed.length);
+    const rewritten = indent + (converted[index] ?? "") + (trailingComment(content) ?? "") + ending;
+    if (original !== rewritten) edits.push(edit(index + 1, 1, original.length, rewritten));
+  }
+  if (edits.length === 0) return [];
+  const fixed = applyEdits(source, edits);
+  if (!sameLowering(source, fixed)) return [];
+  return [{ rule: "dialect/tk2-to-tk3", title: "Preview Toolkit 2.x conversion in an unsaved 3.1 file", edits }];
+}
+
+/** Offer only edits proved against the caller-selected source dialect. */
+export function legacyFixes(source: string, dialect: ScriptDialect = "tk3"): readonly LegacyFix[] {
+  if (dialect === "tk2") return migrateTk2(source);
+  let tokens;
+  try {
+    tokens = tokenizeObjects(source);
+  } catch (error) {
+    if (error instanceof ScriptError) return [];
+    throw error;
+  }
+  const lines = source.split("\n");
+  const fixes: LegacyFix[] = [];
+  for (const token of tokens) {
+    if (token.kind !== "identifier") continue;
+    const written = (lines[token.line - 1] ?? "").slice(token.col - 1, token.endCol);
+    if (!written.endsWith("!") && !written.endsWith("$")) continue;
+    const edits = [edit(token.line, token.endCol, token.endCol, "")];
+    const fixed = applyEdits(source, edits);
+    if (sameBehavior(source, fixed, "tk3") && sameBehavior(source, fixed, "tk2", "tk2")) {
+      fixes.push({ rule: "dialect/sigil", title: `Drop the ignored sigil in \`${written}\``, edits });
+    }
+  }
   return fixes;
-}
-
-/**
- * Rows the page lists whose fix is **not** behaviour-preserving, so they are
- * reported and never rewritten:
- *
- * - `if (x = 5)`: as a 3.1 program that is an assignment, and rewriting it to a
- *   comparison changes what it does. It is a TK2-frontend reading, corrected
- *   when that source is migrated, not a 3.1 rewrite.
- * - unquoted map keys `m[key]`: in 3.1 `m[key]` indexes by the variable `key`;
- *   quoting it would silently turn a variable index into a string key.
- * - loose text lines: a line with no `#` may be a typo, a label or authored
- *   prose, and no rewrite can tell which without guessing.
- */
-export const DIAGNOSTIC_ONLY_ROWS = ["if (x = 5)", "m[key]", "loose text lines"] as const;
-
-/**
- * The fixes the source admits, each applied and re-parsed: a rewrite that leaves
- * a syntax error is dropped, because offering it would trade one diagnostic for
- * a worse one.
- */
-export function legacyFixes(source: string): readonly LegacyFix[] {
-  return candidates(source).filter((fix) => analyse(applyEdits(source, fix.edits)).ok);
-}
-
-/**
- * Whether a rewrite lowers to the same instruction array as the TK2 frontend's
- * own reading of the original. Identical ops mean identical behaviour for every
- * input (G3 determinism), which is stronger than one run's hash.
- */
-export function sameLowering(original: string, fixed: string): boolean {
-  // The original is read by the TK2 frontend and the fixed text by the 3.1
-  // reader: identical instructions mean the migration changed nothing about
-  // what the program does. Source positions are not compared - the rewrite
-  // moves text on the line, and a position is not behaviour.
-  const body = (ops: readonly { readonly pos?: unknown }[]): string =>
-    JSON.stringify(ops.map((op) => ({ ...op, pos: undefined })));
-  return body(compileTk2(original).ops) === body(compileInline(fixed, "<tk2>").ops);
 }
