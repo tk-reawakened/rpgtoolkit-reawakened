@@ -11,7 +11,7 @@ export function createWebFileSystem(root: FileSystemDirectoryHandle): FileSystem
   };
   const fail = (error: unknown, path: string): PlatformResult<never> => {
     const name = error instanceof DOMException ? error.name : "";
-    const code = name === "NotFoundError" ? "not-found" : name === "TypeMismatchError" ? "not-a-directory" : name === "NotAllowedError" || name === "SecurityError" ? "permission-denied" : "io-error";
+    const code = name === "NotFoundError" ? "not-found" : name === "IsADirectoryError" ? "is-a-directory" : name === "TypeMismatchError" ? "not-a-directory" : name === "NotAllowedError" || name === "SecurityError" ? "permission-denied" : "io-error";
     return platformError(code, `${path}: ${error instanceof Error ? error.message : String(error)}`);
   };
   const dir = async (parts: readonly string[], create = false): Promise<FileSystemDirectoryHandle> => {
@@ -21,7 +21,15 @@ export function createWebFileSystem(root: FileSystemDirectoryHandle): FileSystem
   };
   const file = async (parts: readonly string[], create = false): Promise<FileSystemFileHandle> => {
     if (!parts.length) throw new DOMException("Project root is a directory", "TypeMismatchError");
-    return dir(parts.slice(0, -1), create).then((parent) => parent.getFileHandle(parts[parts.length - 1]!, { create }));
+    const parent = await dir(parts.slice(0, -1), create);
+    try {
+      return await parent.getFileHandle(parts[parts.length - 1]!, { create });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "TypeMismatchError") {
+        throw new DOMException(error.message, "IsADirectoryError");
+      }
+      throw error;
+    }
   };
   const fs: FileSystemService = {
     async list(path) {

@@ -6,7 +6,7 @@
   "packageManager": "pnpm@12.10.1",
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc -b && pnpm -r --if-present run typecheck:tests && tsc -p packages/runner-web/tsconfig.app.json",
+    "typecheck": "tsc -b && pnpm -r --if-present run typecheck:tests && tsc -p packages/runner-web/tsconfig.app.json && tsc -p tools/browser/tsconfig.tests.json",
     "test": "tsc -b && node --max-semi-space-size=128 --test \"packages/*/test/*.test.ts\" \"tools/editor-vscode-test/test/*.test.ts\"",
     "coverage": "tsc -b && mkdir -p coverage && node --max-semi-space-size=128 --experimental-test-coverage --test-coverage-lines=91 --test-coverage-branches=81 --test-coverage-include='packages/*/src/**' --test-coverage-exclude='**/catalogue-stubs.ts' --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=coverage/lcov.info --test \"packages/*/test/*.test.ts\" \"tools/editor-vscode-test/test/*.test.ts\"",
     "test:strict": "tsc -b && node tools/no-skips/run.mjs",
@@ -87,6 +87,7 @@
     "@tk-reawakened/core": "workspace:*",
     "@tk-reawakened/runner-harness": "workspace:*",
     "@tk-reawakened/runner-web": "workspace:*",
+    "@types/node": "24.0.0",
     "@typescript/native": "npm:typescript@7.0.2",
     "dependency-cruiser": "18.5.0",
     "electron": "45.2.1",

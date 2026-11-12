@@ -11,7 +11,7 @@ risk: 'high'
 review: 'quick'
 review_source: 'pinned'
 lenses_ran: ['quick']
-review_loop_iteration: 0
+review_loop_iteration: 1
 context: ['docs/guardrails.md', 'docs/adr/0022-shared-editor-authoring-contracts.md', 'docs/adr/0025-editor-ui-framework-preact-tsx.md']
 ---
 
@@ -56,6 +56,8 @@ context: ['docs/guardrails.md', 'docs/adr/0022-shared-editor-authoring-contracts
 
 **Execution:**
 - [ ] `packages/host-web/` — implement the existing platform-services contracts over a project directory handle, including path validation, result/error mapping, durable writes, supported operations and truthful capabilities. Provide the documented session-copy behavior when a persistent handle is unavailable; mount the shared view and expose save/errors.
+- [ ] Browser stable projects (#2094) — persist structured-cloneable directory handles and generated unique project identities in IndexedDB; reuse identities by `isSameEntry`, restore handles across reloads, expose truthful recent/open behavior and request permissions only under a user gesture. Advertise `stableProjectHandle` only after durable registration; when persistence is unavailable offer only the existing genuinely in-memory session copy, never describe actual folder writes as a copy. Test identity collisions, re-selection, reload, denied permissions, storage failure, fallback, and capability reporting; exercise the real browser path.
+- [ ] Browser filesystem errors (#2093) — distinguish a directory used as the final file target (`is-a-directory`) from a file in a parent path (`not-a-directory`), including read and write behavioral tests.
 - [ ] `packages/host-vscode/` and extension packaging — implement the same contracts over VS Code's web-capable workspace APIs; register a `.gam` `CustomEditorProvider`, keep one model per document in the extension host, bridge edits and saved state to the view, and dispose resources correctly. Support both desktop and web extension hosts without Node-only imports in the web bundle.
 - [ ] Host tests — run one shared edit/save/reopen behavior against both adapters and compare their persisted bytes; test both write failures and all applicable matrix cases, including invalid paths and capability reporting. Keep the common suite independent of host-to-host imports.
 - [ ] Corpus test — use a fetched `.gam` and the real model/adapter save path; assert every byte outside the title field remains unchanged, then supply the saved bytes to the real headless runner. Only the named missing-fixture precondition may skip locally; make `pnpm test:strict` fail that skip in CI.
@@ -74,8 +76,12 @@ context: ['docs/guardrails.md', 'docs/adr/0022-shared-editor-authoring-contracts
 ## Implementation Notes
 
 ## Plan Change Log
+- Review loopback 1 (#2094): prior plan did not specify how a writable folder meets the stable-handle contract. Persist the real handle and identity before claiming stability; never mislabel persistent folder writes as a session copy. KEEP the shared Preact view, byte-preserving editor model, host boundaries, real VS Code proof and hot-exit coverage, verified CSP positive control, and tracked save/write-failure fixes. Also correct contextual filesystem errors (#2093).
 
 ## Review Triage Log
+- #2094 — medium / bad_plan: folder picker returned a durable-writing project without a stable handle, contradicting the approved no-stable-handle matrix row; persistence and fallback must be specified and re-derived.
+- #2093 — medium / patch: a final directory produces `TypeMismatchError` but the common mapper reports `not-a-directory` instead of `is-a-directory`; preserve parent traversal behavior.
+- #2096 — medium / patch: newer drafts and subsequent commit/save requests were lost or misreported while an asynchronous edit was pending. Queue the latest requested edit and show uncommitted drafts as unsaved; independent re-review found no remaining issue.
 
 ## Verification
 

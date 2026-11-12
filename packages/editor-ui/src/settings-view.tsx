@@ -29,9 +29,14 @@ export function SettingsView({ doc, onEdited }: SettingsViewProps) {
     viewsMade += 1;
     return `tkr-settings-${viewsMade}`;
   });
+  // A newer keystroke belongs to the user, not to the command currently being applied.
+  const draftRevision = useRef(0);
+  const titleCommit = useRef<{ readonly title: string; readonly revision: number } | null>(null);
   // A live region announces an inserted element, not an unchanged one: a failure that arrives as a new value is rendered
   // under a new key, so the same words twice are announced twice.
   const commitFlight = useRef<Promise<boolean> | null>(null);
+  const commitFlightRevision = useRef<number | null>(null);
+  const latestCommit = useRef<() => Promise<boolean>>(() => Promise.resolve(false));
   const saveErrorAtStart = useRef<SaveFailure | null>(null);
   const failureShown = useRef<{ failure: SaveFailure | null; key: number }>({ failure: null, key: 0 });
   const titleId = `${ids}-title`;
@@ -39,25 +44,42 @@ export function SettingsView({ doc, onEdited }: SettingsViewProps) {
   const errorId = `${ids}-error`;
   const readOnly = snapshot.readOnly !== null;
 
-  // A title the document changed under the draft (an undo) replaces what was being typed.
+  // A title the document changed under the draft (an undo) replaces what was being typed. A matching
+  // in-flight commit is different: preserve any draft typed after that command was submitted.
   useEffect(() => {
+    const committing = titleCommit.current;
+    if (committing !== null) {
+      if (snapshot.gameTitle !== committing.title) return;
+      titleCommit.current = null;
+      if (draftRevision.current !== committing.revision) return;
+    }
     setDraft(null);
     setRefusal(null);
   }, [snapshot.gameTitle]);
 
   const commit = (): Promise<boolean> => {
-    if (commitFlight.current) return commitFlight.current;
+    const flight = commitFlight.current;
+    if (flight !== null) {
+      if (commitFlightRevision.current !== null && draftRevision.current > commitFlightRevision.current) {
+        return flight.then(() => latestCommit.current());
+      }
+      return flight;
+    }
     if (draft === null || draft === snapshot.gameTitle) {
       setDraft(null);
       return Promise.resolve(true);
     }
     const command: MainCommand = { type: "set-game-title", title: draft };
+    const revision = draftRevision.current;
+    const submitted = { title: draft, revision };
+    titleCommit.current = submitted;
     const finish = (accepted: ApplyResult): boolean => {
       if (!accepted.ok) {
+        if (titleCommit.current === submitted) titleCommit.current = null;
         setRefusal(accepted.rejection.message);
         return false;
       }
-      setDraft(null);
+      if (draftRevision.current === revision) setDraft(null);
       setRefusal(null);
       const edit = doc.getSnapshot().edits.find((entry) => entry.editId === accepted.editId);
       onEdited({ document: doc.identity.key, editId: accepted.editId, label: edit?.label ?? "Set game title" });
@@ -67,19 +89,27 @@ export function SettingsView({ doc, onEdited }: SettingsViewProps) {
     try {
       result = doc.apply(command);
     } catch (error) {
+      if (titleCommit.current === submitted) titleCommit.current = null;
       setRefusal(error instanceof Error ? error.message : String(error));
       return Promise.resolve(false);
     }
     if (typeof (result as Promise<ApplyResult>).then !== "function") return Promise.resolve(finish(result as ApplyResult));
     const pending = Promise.resolve(result).then(finish).catch((error: unknown) => {
+      if (titleCommit.current === submitted) titleCommit.current = null;
       setRefusal(error instanceof Error ? error.message : String(error));
       return false;
     }).finally(() => {
-      if (commitFlight.current === pending) commitFlight.current = null;
+      if (commitFlight.current === pending) {
+        commitFlight.current = null;
+        commitFlightRevision.current = null;
+      }
     });
     commitFlight.current = pending;
+    commitFlightRevision.current = revision;
     return pending;
   };
+  latestCommit.current = commit;
+
 
   const failure = snapshot.saveError;
   if (failure !== failureShown.current.failure) failureShown.current = { failure, key: failureShown.current.key + 1 };
@@ -101,7 +131,10 @@ export function SettingsView({ doc, onEdited }: SettingsViewProps) {
           readOnly={readOnly}
           aria-describedby={`${stateId}${refusal === null ? "" : ` ${errorId}`}`}
           aria-invalid={refusal === null ? undefined : true}
-          onInput={(event) => setDraft(event.currentTarget.value)}
+          onInput={(event) => {
+            draftRevision.current += 1;
+            setDraft(event.currentTarget.value);
+          }}
           onChange={commit}
           onKeyDown={(event) => {
             if (event.key === "Enter") commit();
@@ -114,7 +147,7 @@ export function SettingsView({ doc, onEdited }: SettingsViewProps) {
         </p>
       )}
       <p id={stateId} class="tkr-settings-state" role="status">
-        {snapshot.saving || (savePending && snapshot.saveError === saveErrorAtStart.current) ? "Saving…" : snapshot.dirty ? "Unsaved changes" : "All changes saved"}
+        {snapshot.saving || (savePending && snapshot.saveError === saveErrorAtStart.current) ? "Saving…" : snapshot.dirty || draft !== null ? "Unsaved changes" : "All changes saved"}
       </p>
       <button
         type="button"

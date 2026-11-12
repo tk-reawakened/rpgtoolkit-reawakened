@@ -196,6 +196,9 @@ importers:
       '@tk-reawakened/runner-web':
         specifier: workspace:*
         version: link:packages/runner-web
+      '@types/node':
+        specifier: 24.0.0
+        version: 24.0.0
       '@typescript/native':
         specifier: npm:typescript@7.0.2
         version: typescript@7.0.2

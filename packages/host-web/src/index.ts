@@ -3,38 +3,68 @@ import type { PlatformServices, ProjectHandle, SettingValue, SettingsLayer } fro
 import { platformError, platformOk } from "@tk-reawakened/platform-services";
 import { mount, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { createWebFileSystem } from "./filesystem.ts";
+import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
 
 export interface WebProject { readonly services: PlatformServices; readonly project: ProjectHandle; readonly sessionCopy: boolean }
 type DirectoryPickerWindow = Window & {
   showDirectoryPicker?: (this: Window, options: { readonly mode: "readwrite" }) => Promise<FileSystemDirectoryHandle>;
 };
 
-/** Open a directory with the browser's native picker; absent support is reported rather than simulated as persistence. */
+/** Open a directory with the browser's native picker; stable identity requires successful IndexedDB registration. */
 export async function openWebProject(): Promise<WebProject | null> {
   const picker = (window as DirectoryPickerWindow).showDirectoryPicker;
   if (typeof picker !== "function") return null;
   try {
     const root = await picker.call(window, { mode: "readwrite" });
-    const project: ProjectHandle = { id: `web:${root.name}`, name: root.name };
-    const values = new Map<string, SettingValue>();
-    const services: PlatformServices = {
-      capabilities: new Set(["folderWrite"]),
-      fs: createWebFileSystem(root),
-      project: { open: async () => platformOk(project), recent: async () => platformOk([project]) },
-      settings: { get: async (layer, id) => platformOk(values.get(`${layer}:${id}`) ?? null), set: async (layer: SettingsLayer, id: string, value) => { const key = `${layer}:${id}`; if (value === null) values.delete(key); else values.set(key, value); return platformOk(undefined); } },
-      document: { edited: () => undefined },
-    };
-    return { services, project, sessionCopy: false };
+    const project = await registerWebProject(root);
+    return project ? createFolderProject(root, project) : null;
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") return null;
     throw error;
   }
 }
 
+/** Restore a recent folder only from an explicit user action, allowing permission prompts at that point. */
+export async function reopenWebProject(id: string): Promise<WebProject | null> {
+  const restored = await restoreWebProject(id);
+  return restored ? createFolderProject(restored.root, restored.handle) : null;
+}
+
+/** Read recent projects without prompting; null means browser persistence is unavailable. */
+export async function listRecentWebProjects(): Promise<readonly ProjectHandle[] | null> {
+  return recentWebProjects();
+}
+
+function createFolderProject(root: FileSystemDirectoryHandle, project: ProjectHandle): WebProject {
+  const values = new Map<string, SettingValue>();
+  const services: PlatformServices = {
+    capabilities: new Set(["folderWrite", "stableProjectHandle"]),
+    fs: createWebFileSystem(root),
+    project: {
+      open: async () => platformOk(project),
+      recent: async () => {
+        const recent = await recentWebProjects();
+        return recent ? platformOk(recent) : platformError("unavailable", "Browser project persistence is unavailable.");
+      },
+    },
+    settings: {
+      get: async (layer, id) => platformOk(values.get(`${layer}:${id}`) ?? null),
+      set: async (layer: SettingsLayer, id: string, value) => {
+        const key = `${layer}:${id}`;
+        if (value === null) values.delete(key); else values.set(key, value);
+        return platformOk(undefined);
+      },
+    },
+    document: { edited: () => undefined },
+  };
+  return { services, project, sessionCopy: false };
+}
+
+
 /** A file-only browser session is explicitly a copy: writes stay in this page's memory, never in the source file. */
 export function createSessionCopy(fileName: string, bytes: Uint8Array): WebProject {
   const memory = new Map<string, Uint8Array>([[fileName, bytes.slice()]]);
-  const project: ProjectHandle = { id: `session:${fileName}`, name: `${fileName} (session copy)` };
+  const project: ProjectHandle = { id: `session:${crypto.randomUUID()}`, name: `${fileName} (session copy)` };
   const valid = (path: string, allowRoot = false): boolean => path === "" ? allowRoot : !path.startsWith("/") && !path.includes("\\") && path.split("/").every((part) => part !== "" && part !== "." && part !== "..");
   const invalid = (path: string) => platformError("invalid-path", `Invalid project path: ${path}`);
   const unavailable = () => platformError("unavailable", "This session copy does not support folder watching or persistent writes.");

@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
-import { access, readdir, readFile } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
-import { resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
@@ -13,7 +14,8 @@ const args = parseArgs(process.argv[2] === "--" ? process.argv.slice(3) : proces
 const extension = resolve(root, args.extension);
 const workspace = resolve(root, args.workspace);
 const game = args.game.replaceAll("\\", "/");
-const port = Number(process.env.TKR_VSCODE_TEST_PORT ?? "4317");
+const configuredPort = process.env.TKR_VSCODE_TEST_PORT;
+const port = configuredPort === undefined ? await freePort() : Number(configuredPort);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("TKR_VSCODE_TEST_PORT must be a valid TCP port");
 if (game.startsWith("/") || game.split("/").includes("..") || !game.toLowerCase().endsWith(".gam")) throw new Error("--game must be a workspace-relative .gam path");
 await access(resolve(extension, "package.json"));
@@ -34,12 +36,13 @@ const [expectedBytes, recoveredBytes] = await Promise.all([
   createWebAdapterBytes(gameFiles[0], game, title),
   createWebAdapterBytes(gameFiles[0], game, recoveredTitle),
 ]);
+const proofWorkspace = await createProofWorkspace(gameFiles[0], game);
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
 const cdpPort = await freePort();
 const vscode = spawn(resolve(harness, "node_modules/.bin/vscode-test-web"), [
   "--browserType=chromium", `--browserOption=--remote-debugging-port=${cdpPort}`,
   `--extensionDevelopmentPath=${extension}`, `--extensionPath=${resolve(harness, "probe-extension")}`,
-  `--port=${port}`, workspace,
+  `--port=${port}`, proofWorkspace,
 ], { cwd: root, stdio: "inherit" });
 let browser;
 let failure;
@@ -62,11 +65,28 @@ try {
   vscode.kill("SIGTERM");
   const code = await exitCode(vscode);
   if (code !== 0 && failure === undefined) failure = new Error(`vscode-test-web exited with ${code}`);
+  await rm(proofWorkspace, { recursive: true, force: true });
 }
 if (failure !== undefined) {
   if (browserDiagnostics.length > 0) console.error(`[vscode-web:failure-diagnostics]\n${browserDiagnostics.join("\n")}`);
   throw failure;
 }
+async function createProofWorkspace(gameFile, gamePath) {
+  const directory = await mkdtemp(join(tmpdir(), "tkr-editor-vscode-proof-"));
+  try {
+    const gameCopy = resolve(directory, gamePath);
+    await mkdir(dirname(gameCopy), { recursive: true });
+    await copyFile(gameFile, gameCopy);
+    const settingsDirectory = resolve(directory, ".vscode");
+    await mkdir(settingsDirectory, { recursive: true });
+    await writeFile(resolve(settingsDirectory, "settings.json"), `${JSON.stringify({ "files.autoSave": "off" }, null, 2)}\n`);
+    return directory;
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 async function createWebAdapterBytes(file, gamePath, title) {
   const [web, model] = await Promise.all([
     import(pathToFileURL(resolve(root, "packages/host-web/dist/index.js")).href),
@@ -118,7 +138,7 @@ async function freePort() {
   const server = createServer();
   await new Promise((resolveListen, reject) => server.listen(0, "127.0.0.1", resolveListen).once("error", reject));
   const address = server.address();
-  if (address === null || typeof address === "string") throw new Error("Could not allocate a local CDP port");
+  if (address === null || typeof address === "string") throw new Error("Could not allocate a local port");
   await new Promise((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose()));
   return address.port;
 }

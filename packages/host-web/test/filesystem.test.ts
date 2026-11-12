@@ -69,6 +69,19 @@ test("web filesystem obeys project-relative path, file operation and unsupported
   ok(!watched.ok && watched.error.code === "unavailable");
 });
 
+test("web filesystem distinguishes a final directory from a non-directory parent during file access", async () => {
+  const { root, fs } = fixture();
+  root.children.set("folder", new FakeDirectory());
+  for (const result of [await fs.read("folder"), await fs.write("folder", new Uint8Array([1]))]) {
+    ok(!result.ok);
+    equal(result.error.code, "is-a-directory");
+  }
+  for (const result of [await fs.read("game.gam/child"), await fs.write("game.gam/child", new Uint8Array([1]))]) {
+    ok(!result.ok);
+    equal(result.error.code, "not-a-directory");
+  }
+});
+
 test("web filesystem reports a refused durable write and preserves the prior bytes", async () => {
   const { root, fs } = fixture();
   const file = root.children.get("game.gam");

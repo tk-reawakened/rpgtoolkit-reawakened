@@ -14,8 +14,10 @@ import {
   type MainDocument,
   type MainDocumentSnapshot,
   type SaveFailure,
+  type ApplyResult,
 } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
+import type { ViewDocument } from "../src/mount.ts";
 import { exampleMain, exampleTextMain, titleOf, withTitle } from "./fixtures.ts";
 
 const PATH = "Main/example.gam";
@@ -356,7 +358,146 @@ test("Enter in the field commits the title as one edit", async () => {
   });
   equal(s.host.editedEvents.length, 1, "another key commits nothing");
 });
+test("a newer title draft survives an earlier asynchronous apply", async () => {
+  const s = await setup();
+  let releaseApply: () => void = () => undefined;
+  const delayed: ViewDocument = {
+    identity: s.doc.identity,
+    getSnapshot: () => s.doc.getSnapshot(),
+    subscribe: (listener) => s.doc.subscribe(listener),
+    apply: (command) =>
+      new Promise<ApplyResult>((resolve) => {
+        releaseApply = () => resolve(s.doc.apply(command));
+      }),
+    save: () => s.doc.save(),
+  };
+  await act(() => {
+    mount(s.el, { document: delayed, services: s.host });
+  });
 
+  await type(s.el, "First title");
+  await type(s.el, "Newer draft");
+  equal(s.doc.getSnapshot().gameTitle, "Example Game", "the deferred apply has not settled");
+  await act(async () => {
+    releaseApply();
+    await Promise.resolve();
+  });
+
+  equal(s.doc.getSnapshot().gameTitle, "First title");
+  equal(input(s.el).value, "Newer draft", "the draft typed during apply remains visible");
+});
+
+
+test("Enter commits a newer title draft after an earlier asynchronous apply", async () => {
+  const s = await setup();
+  let releaseApply: () => void = () => undefined;
+  let firstApply = true;
+  const delayed: ViewDocument = {
+    identity: s.doc.identity,
+    getSnapshot: () => s.doc.getSnapshot(),
+    subscribe: (listener) => s.doc.subscribe(listener),
+    apply: (command) => {
+      if (!firstApply) return s.doc.apply(command);
+      firstApply = false;
+      return new Promise<ApplyResult>((resolve) => {
+        releaseApply = () => resolve(s.doc.apply(command));
+      });
+    },
+    save: () => s.doc.save(),
+  };
+  await act(() => {
+    mount(s.el, { document: delayed, services: s.host });
+  });
+  await type(s.el, "First title");
+
+  const field = input(s.el);
+  await act(() => {
+    field.value = "Newer draft";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(() => {
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  equal(status(s.el), "Unsaved changes");
+
+  let stop: () => void = () => undefined;
+  const newerTitleApplied = new Promise<void>((resolve) => {
+    stop = s.doc.subscribe(() => {
+      if (s.doc.getSnapshot().gameTitle === "Newer draft") {
+        stop();
+        resolve();
+      }
+    });
+  });
+  await act(async () => {
+    releaseApply();
+    await newerTitleApplied;
+  });
+  equal(s.doc.getSnapshot().gameTitle, "Newer draft");
+  equal(s.doc.getSnapshot().edits.length, 2);
+});
+
+test("Save commits a newer title draft after an earlier asynchronous apply", async () => {
+  const s = await setup();
+  let releaseApply: () => void = () => undefined;
+  let firstApply = true;
+  let finishSave: () => void = () => undefined;
+  const saveFinished = new Promise<void>((resolve) => {
+    finishSave = resolve;
+  });
+  const delayed: ViewDocument = {
+    identity: s.doc.identity,
+    getSnapshot: () => s.doc.getSnapshot(),
+    subscribe: (listener) => s.doc.subscribe(listener),
+    apply: (command) => {
+      if (!firstApply) return s.doc.apply(command);
+      firstApply = false;
+      return new Promise<ApplyResult>((resolve) => {
+        releaseApply = () => resolve(s.doc.apply(command));
+      });
+    },
+    save: () =>
+      s.doc.save().then((result) => {
+        finishSave();
+        return result;
+      }),
+  };
+  await act(() => {
+    mount(s.el, { document: delayed, services: s.host });
+  });
+  await type(s.el, "First title");
+
+  const field = input(s.el);
+  await act(() => {
+    field.value = "Newer draft";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(() => {
+    button(s.el).click();
+  });
+  equal(status(s.el), "Saving…");
+  const savedState = new Promise<void>((resolve) => {
+    const observer = new MutationObserver(() => {
+      if (status(s.el) === "All changes saved") {
+        observer.disconnect();
+        resolve();
+      }
+    });
+    observer.observe(s.el, { childList: true, characterData: true, subtree: true });
+  });
+  await act(async () => {
+    releaseApply();
+    await saveFinished;
+  });
+  await savedState;
+
+  equal(s.doc.getSnapshot().gameTitle, "Newer draft");
+  equal(s.doc.getSnapshot().dirty, false);
+  const savedBytes = s.host.bytesOf(PATH);
+  ok(savedBytes !== undefined);
+  equal(titleOf(savedBytes), "Newer draft");
+  equal(status(s.el), "All changes saved");
+});
 test("Save is disabled and the state says Saving while a save is in flight", async () => {
   const s = await setup();
   let release: () => void = () => undefined;

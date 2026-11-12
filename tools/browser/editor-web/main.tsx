@@ -1,4 +1,5 @@
-import { createSessionCopy, openGameSettings, openWebProject, type WebProject } from "@tk-reawakened/host-web";
+import { createSessionCopy, listRecentWebProjects, openGameSettings, openWebProject, reopenWebProject, type WebProject } from "@tk-reawakened/host-web";
+import type { ProjectHandle } from "@tk-reawakened/platform-services";
 import type { ViewHandle } from "@tk-reawakened/editor-ui";
 
 const status = document.querySelector<HTMLElement>("#host-status")!;
@@ -8,6 +9,9 @@ const fileInput = document.querySelector<HTMLInputElement>("#open-session")!;
 const gameLabel = document.querySelector<HTMLLabelElement>("#project-game-label")!;
 const gameSelect = document.querySelector<HTMLSelectElement>("#project-game")!;
 const openSelectedGame = document.querySelector<HTMLButtonElement>("#open-selected-game")!;
+const recentLabel = document.querySelector<HTMLLabelElement>("#recent-project-label")!;
+const recentSelect = document.querySelector<HTMLSelectElement>("#recent-project")!;
+const reopenButton = document.querySelector<HTMLButtonElement>("#reopen-project")!;
 let opened: ViewHandle | null = null;
 let openedElement: HTMLElement | null = null;
 let projectWithChoices: WebProject | null = null;
@@ -16,33 +20,24 @@ folderButton.addEventListener("click", () => {
   void (async () => {
     const project = await openWebProject();
     if (!project) {
-      status.textContent = "Project folders are not supported here; open a .gam session copy instead.";
+      status.textContent = "A persistent project folder could not be registered. Open a .gam session copy instead; folder changes will not be saved.";
       return;
     }
-    hideProjectChoices();
-    const paths = await projectGames(project);
-    if (paths.length === 0) {
-      status.textContent = "The selected folder has no .gam files.";
-      return;
-    }
-    if (paths.length > 1) {
-      projectWithChoices = project;
-      gameSelect.replaceChildren(...paths.map((path) => {
-        const option = document.createElement("option");
-        option.value = path;
-        option.textContent = path;
-        return option;
-      }));
-      gameLabel.hidden = false;
-      gameSelect.hidden = false;
-      openSelectedGame.hidden = false;
-      status.textContent = `${paths.length} games found; select the game to open.`;
-      return;
-    }
-    hideProjectChoices();
-    await show(project, paths[0]!);
+    await openProjectGame(project);
   })().catch(showFailure);
 });
+reopenButton.addEventListener("click", () => {
+  void (async () => {
+    const project = await reopenWebProject(recentSelect.value);
+    if (!project) {
+      status.textContent = "This project could not be reopened. Select its folder again or open a .gam session copy.";
+      return;
+    }
+    await openProjectGame(project);
+  })().catch(showFailure);
+});
+
+void refreshRecentProjects().catch(showFailure);
 
 openSelectedGame.addEventListener("click", () => {
   const project = projectWithChoices;
@@ -50,6 +45,52 @@ openSelectedGame.addEventListener("click", () => {
   if (!project || !path) return;
   void show(project, path).then(hideProjectChoices).catch(showFailure);
 });
+async function refreshRecentProjects(): Promise<void> {
+  const projects = await listRecentWebProjects();
+  recentSelect.replaceChildren();
+  if (!projects) {
+    recentLabel.hidden = true;
+    recentSelect.hidden = true;
+    reopenButton.hidden = true;
+    return;
+  }
+  recentSelect.replaceChildren(...projects.map((project: ProjectHandle) => {
+    const option = document.createElement("option");
+    option.value = project.id;
+    option.textContent = project.name;
+    return option;
+  }));
+  const hasProjects = projects.length > 0;
+  recentLabel.hidden = !hasProjects;
+  recentSelect.hidden = !hasProjects;
+  reopenButton.hidden = !hasProjects;
+}
+
+async function openProjectGame(project: WebProject): Promise<void> {
+  hideProjectChoices();
+  await refreshRecentProjects();
+  const paths = await projectGames(project);
+  if (paths.length === 0) {
+    status.textContent = "The selected folder has no .gam files.";
+    return;
+  }
+  if (paths.length > 1) {
+    projectWithChoices = project;
+    gameSelect.replaceChildren(...paths.map((path) => {
+      const option = document.createElement("option");
+      option.value = path;
+      option.textContent = path;
+      return option;
+    }));
+    gameLabel.hidden = false;
+    gameSelect.hidden = false;
+    openSelectedGame.hidden = false;
+    status.textContent = `${paths.length} games found; select the game to open.`;
+    return;
+  }
+  await show(project, paths[0]!);
+}
+
 
 fileInput.addEventListener("change", () => {
   void (async () => {
