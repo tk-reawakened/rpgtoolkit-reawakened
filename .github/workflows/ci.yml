@@ -147,6 +147,8 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm graph
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - run: pnpm release:test
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm fixtures:fetch
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm corpus:measure --check
@@ -408,6 +410,8 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: pnpm install --frozen-lockfile
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - run: pnpm release:preflight
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - uses: actions/cache@v6
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
