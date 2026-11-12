@@ -32,8 +32,18 @@ function pathArgument(args: LaunchArguments, name: "program" | "board"): string 
   return value;
 }
 
+/**
+ * A launch argument names a file, either as a plain path or as a URI string. A web
+ * workspace lives on a virtual file system, so a `vscode-test-web:` or `memfs:` URI
+ * cannot be turned into a `file:` one; it is parsed and read through `workspace.fs`.
+ */
+function uriOf(value: string): vscode.Uri {
+  const parsed = vscode.Uri.parse(value, true);
+  return parsed.scheme === "" || parsed.scheme === "file" ? vscode.Uri.file(value) : parsed;
+}
+
 async function readFixtureFile(path: string): Promise<Uint8Array> {
-  return vscode.workspace.fs.readFile(vscode.Uri.file(path));
+  return vscode.workspace.fs.readFile(uriOf(path));
 }
 
 class RpgcodeInlineAdapter implements vscode.DebugAdapter {
@@ -48,11 +58,15 @@ class RpgcodeInlineAdapter implements vscode.DebugAdapter {
           const program = pathArgument(launchArguments, "program");
           const board = pathArgument(launchArguments, "board");
           const [programBytes, boardBytes] = await Promise.all([readFixtureFile(program), readFixtureFile(board)]);
+          const programUri = uriOf(program);
+          const boardUri = uriOf(board);
           return createSceneDebugTarget({
-            board: board.split(/[\\/]/).at(-1) ?? board,
+            board: boardUri.scheme === "file" ? (board.split(/[\\/]/).at(-1) ?? board) : (boardUri.path.split("/").at(-1) ?? board),
             boardBytes,
             program: new TextDecoder().decode(programBytes),
-            programPath: program,
+            // A virtual document is named by its path, which is what a client reports as
+            // `source.path`, so its breakpoints match; a plain path stays exactly as given.
+            programPath: programUri.scheme === "file" ? program : programUri.path,
             seed: typeof launchArguments.seed === "number" ? launchArguments.seed : 7,
           });
         },

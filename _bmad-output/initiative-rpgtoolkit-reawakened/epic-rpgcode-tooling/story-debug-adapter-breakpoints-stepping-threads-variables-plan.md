@@ -143,6 +143,36 @@ implementation learned that the plan did not say:
    fixture `packages/dap/test/fixtures/probe` (empty authored board plus a two-thread
    program whose `compute()` calls `twice()`).
 
+### The `vscode.dev` attempt (recorded so it is not repeated blindly)
+
+The registration is in both bundles, and `extensions/rpgcode/build.mjs` fails the build if it
+stops being. Running a *real* VS Code web session was attempted with `@vscode/test-web` 0.0.81
+(MIT, dev-only) against VS Code Stable web (commit `69047191`), with the fixture folder mounted
+and an extension-host test module that drives `vscode.debug.startDebugging`, a
+`vscode.debug.addBreakpoints` breakpoint and `session.customRequest` for `threads`,
+`stackTrace`, `scopes`, `variables`, `evaluate`, `next`, `stepOut` and `continue`.
+
+What worked, in order: the VS Code web build downloaded and served; the extension loaded from
+the development mount (`Loading development extension at /static/devextensions`); the test
+module loaded and ran inside the web extension host (`[rpgcode web] test module loaded`, the
+workspace mounted at `vscode-test-web://mount/`, and `/Prg/probe.prg:21` resolved as the
+breakpoint line). Three defects were fixed on the way: the test module must live **inside** the
+served extension folder or the runner reports *"no extension host found that can launch the test
+runner"*; it must be **CommonJS** (the web worker host refuses ES modules: *"ESM modules are not
+supported in the web worker extension host"*, even though the page reports `Using ESM loader:
+true`); and a lane that runs beside another needs its own `port`.
+
+Where it blocks: `startDebugging` fails with *"Couldn't find a debug adapter descriptor for
+debug type 'rpgcode' (extension might have failed to activate)"*, and `extensions/rpgcode`'s
+`activate` is never entered — no `Activating extension` record appears and the trace added to
+`activate` never prints — even though `vscode.extensions.getExtension(...).activate()` resolves
+and `isActive` is true, and even when activation is left to the client's `onDebugResolve`. The
+extension is registered with the manifest the test reads (`browser=./dist/extension.browser.js`,
+`contributes.debuggers[0].type = "rpgcode"`), so the failure is in how this host activates a
+development extension, not in the contribution. The lane was removed rather than committed red;
+a future attempt should first prove that *any* development extension's `activate` runs in this
+host (one built-in extension with a `console.log`), then bring the debugger scenario back.
+
 ### Remaining gap (why the PR says `Refs #950`)
 
 * The `vscode.dev` session is not run in CI. Everything else in the acceptance list is
