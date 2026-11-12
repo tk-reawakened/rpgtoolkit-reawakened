@@ -57,7 +57,7 @@
       }
     },
     "results": {
-      "description": "The subcommand's own payload: changed paths for fmt, cases with expected and actual for test, the written path or a drift list for docs, the TOOL-6 document for index, and an empty object for check."
+      "description": "The subcommand's own payload: changed paths for fmt, cases with expected and actual for test, the written path or a drift list for docs, the TOOL-6 document for index, and for check the lint summary under `lint`: `disabledRules`, `ignoredRanges` and `unassessed` (TOOL-3 assessment)."
     }
   },
   "$defs": {

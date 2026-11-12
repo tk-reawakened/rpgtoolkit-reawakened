@@ -27,6 +27,13 @@ test("every rule has a stable id, a default severity and a rationale", () => {
       ["dialect/return-method", "warning", false],
       ["dialect/obsolete-control", "warning", false],
       ["dialect/unquoted-command-argument", "warning", false],
+      ["lint/unused-variable", "warning", false],
+      ["lint/unused-label", "warning", false],
+      ["lint/unused-function", "hint", false],
+      ["lint/unreachable-code", "warning", false],
+      ["lint/deprecated-command", "warning", false],
+      ["lint/obsolete-command", "warning", false],
+      ["style/format", "hint", true],
     ],
   );
   for (const rule of RULES) ok(rule.rationale.length > 0);

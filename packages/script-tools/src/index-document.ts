@@ -26,6 +26,7 @@ import {
   type Statement,
 } from "@tk-reawakened/core";
 import { rangeOf, type Diagnostic } from "./diagnostics.ts";
+import { recordParsed } from "./lint-analysis.ts";
 
 /** The document's schema identity. A change to a field's meaning is a major bump (TOOL-6). */
 export const INDEX_SCHEMA = "tkr-index/1.0";
@@ -563,7 +564,10 @@ export function buildIndex(programs: readonly IndexProgramInput[], options: Inde
         options.loader === undefined ? {} : { loader: options.loader },
       );
       const unitsByName = new Map(program.units.map((unit) => [unit.name, unit]));
-      output.push(programFacts(program, input.name, startupsOf(input.name), unitsByName));
+      const facts = programFacts(program, input.name, startupsOf(input.name), unitsByName);
+      // The scoped lint rules read the parsed units; they stay off the published shape.
+      recordParsed(facts, { units: program.units, dialect: input.ref.dialect });
+      output.push(facts);
     } catch (error) {
       // The text is the main unit's; a failure inside an included file has its own
       // file name, and slicing the main text with that position would be a lie.
