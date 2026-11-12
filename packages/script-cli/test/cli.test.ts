@@ -206,3 +206,43 @@ void test("parse-failure envelope reports the attempted subcommand", () => {
   ok(results !== null && typeof results === "object");
   strictEqual(results!.attemptedSubcommand, "frobnicate");
 });
+
+function lintResults(results: unknown): { readonly disabledRules: readonly string[]; readonly ignoredRanges: number; readonly unassessed: readonly { readonly rule: string; readonly reason: string }[] } {
+  const lint = (results as { readonly lint?: unknown }).lint;
+  ok(typeof lint === "object" && lint !== null, stableStringify(results));
+  return lint as ReturnType<typeof lintResults>;
+}
+
+void test("check exposes the lint summary and names unassessed rules instead of reading as fully checked", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tkr-unassessed-"));
+  try {
+    writeFileSync(join(dir, "main.prg"), "function f() {\n    local(x) = 1\n}\n");
+    const unstated = runCheck([join(dir, "main.prg")], true);
+    deepEqualRules(lintResults(unstated.result.results).unassessed.map((entry) => `${entry.rule}:${entry.reason}`), [
+      "lint/unused-variable:unknown-dialect",
+      "lint/unused-label:unknown-dialect",
+      "lint/unreachable-code:unknown-dialect",
+      "lint/deprecated-command:unknown-dialect",
+      "lint/obsolete-command:unknown-dialect",
+      "style/format:unknown-dialect",
+      "lint/unused-function:incomplete-project",
+    ]);
+    ok(unstated.human.includes("not fully checked: lint/unused-variable (unknown-dialect)"), unstated.human);
+    strictEqual(unstated.result.diagnostics.length, 0);
+
+    const stated = runCheck([join(dir, "main.prg")], true, "tk3");
+    deepEqualRules(stated.result.diagnostics.map((diagnostic) => diagnostic.rule ?? ""), ["lint/unused-variable"]);
+    deepEqualRules(lintResults(stated.result.results).unassessed.map((entry) => `${entry.rule}:${entry.reason}`), ["lint/unused-function:incomplete-project"]);
+
+    const parsed = parseArgs(["node", "tkr", "script", "check", "--dialect", "tk3", "main.prg"]);
+    ok(parsed.ok && parsed.args.dialectGiven && parsed.args.dialect === "tk3");
+    const defaulted = parseArgs(["node", "tkr", "script", "check", "main.prg"]);
+    ok(defaulted.ok && !defaulted.args.dialectGiven);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function deepEqualRules(actual: readonly string[], expected: readonly string[]): void {
+  strictEqual(JSON.stringify(actual), JSON.stringify(expected));
+}

@@ -1,7 +1,19 @@
 {
     "diagnostics": [],
     "exitCode": 0,
-    "results": {},
+    "results": {
+      "lint": {
+        "disabledRules": [],
+        "ignoredRanges": 0,
+        "unassessed": [
+          {
+            "file": "stock/stock_battle/startup.prg",
+            "reason": "incomplete-project",
+            "rule": "lint/unused-function"
+          }
+        ]
+      }
+    },
     "schema": "tkr-script-result/1",
     "status": "ok",
     "subcommand": "check",
