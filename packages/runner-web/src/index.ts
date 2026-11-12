@@ -76,9 +76,9 @@ export function fetchBundled(base: string, folders: readonly string[]): Promise<
 }
 
 /**
- * Fetch the bundled assets one static file at a time, from the file list the build writes to `apps/bundled.json`. Unlike
- * `fetchBundled` it asks the server for no API: every URL is an ordinary static path a service worker can cache, which
- * is what lets a second launch boot with no network and no `/api/` request at all.
+ * Fetch bundled assets one static file at a time from `apps/browser/bundled.json`. Unlike `fetchBundled` it asks the
+ * server for no API: every URL is an ordinary static path a service worker can cache, which lets a second launch boot
+ * with no network and no `/api/` request at all.
  */
 export async function fetchBundledFiles(base: string, files: readonly string[]): Promise<ClosingFiles> {
   const entries = await Promise.all(files.map(async (path) => {

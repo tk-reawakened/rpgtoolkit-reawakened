@@ -98,7 +98,7 @@ createServer((request, response) => {
   const header = request.headers.range;
   const extraHeaders = {};
   if (relative === "apps/service-worker.js") {
-    // Allow /apps/service-worker.js to control scopes under /packages/runner-web/app/ (specifically the player page).
+    // Keep the registered script URL stable so existing PWA installs can update to this build.
     extraHeaders["service-worker-allowed"] = "/packages/runner-web/app/";
   }
   if (header === undefined || request.headers["if-range"] !== undefined) {

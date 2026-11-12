@@ -62,17 +62,27 @@ export async function runClosingCheck(options: {
   };
 }
 
-/** The build-written list of each fetched game's files (`apps/closing-files.json`). */
+export type ClosingArtifactHost = "browser" | "desktop";
+
+function hostAppsPath(host: ClosingArtifactHost, file: string): string {
+  return `/apps/${host}/${file}`;
+}
+
+/** The build-written list of each fetched game's files (`apps/<host>/closing-files.json`). */
 export type ClosingManifest = { readonly schema: 1; readonly games: Readonly<Record<string, readonly string[]>> };
 
 /**
  * A loader over the build-written manifest: one ordinary static fetch per file, so a PWA page and the desktop shell read
  * the same tree the headless runner reads. A missing game or file is an error naming what the build did not see.
  */
-export function closingManifestLoader(base: string, manifest: ClosingManifest): (name: string) => Promise<ClosingFiles> {
+export function closingManifestLoader(
+  base: string,
+  manifest: ClosingManifest,
+  host: ClosingArtifactHost = "browser",
+): (name: string) => Promise<ClosingFiles> {
   return async (name) => {
     const listed = manifest.games[name];
-    if (listed === undefined) throw new Error(`${name} is not in ${"apps/closing-files.json"}; run pnpm fixtures:fetch and rebuild`);
+    if (listed === undefined) throw new Error(`${name} is not in ${hostAppsPath(host, "closing-files.json")}; run pnpm fixtures:fetch and rebuild`);
     const entries = await Promise.all(listed.map(async (path) => {
       const response = await fetch(`${base}/fixtures/legacy/${name}/${path.split("/").map(encodeURIComponent).join("/")}`);
       if (!response.ok) throw new Error(`${name}/${path} answered ${response.status}`);
@@ -83,8 +93,8 @@ export function closingManifestLoader(base: string, manifest: ClosingManifest): 
 }
 
 /** Fetch the manifest itself; `{}` when the build has not written it. */
-export async function fetchClosingManifest(base = ""): Promise<ClosingManifest> {
-  const response = await fetch(`${base}/apps/closing-files.json`);
+export async function fetchClosingManifest(base = "", host: ClosingArtifactHost = "browser"): Promise<ClosingManifest> {
+  const response = await fetch(`${base}${hostAppsPath(host, "closing-files.json")}`);
   if (!response.ok) return { schema: 1, games: {} };
   const parsed = await response.json() as ClosingManifest;
   return { schema: 1, games: parsed.games ?? {} };
@@ -94,8 +104,8 @@ export async function fetchClosingManifest(base = ""): Promise<ClosingManifest> 
  * The bundled assets, fetched one static file at a time from the build-written list. `/api/bundled` is the lane's API and
  * does not exist over `app://`, so the shared path is the static one: both hosts then hand the engine the same keys.
  */
-export async function closingBundled(base = ""): Promise<ClosingFiles> {
-  const listed = (await (await fetch(`${base}/apps/bundled.json`)).json()) as { readonly files: readonly string[] };
+export async function closingBundled(base = "", host: ClosingArtifactHost = "browser"): Promise<ClosingFiles> {
+  const listed = (await (await fetch(`${base}${hostAppsPath(host, "bundled.json")}`)).json()) as { readonly files: readonly string[] };
   const entries = await Promise.all(listed.files.map(async (path) => {
     const response = await fetch(`${base}/${path.split("/").map(encodeURIComponent).join("/")}`);
     if (!response.ok) throw new Error(`bundled ${path} answered ${response.status}`);

@@ -1,5 +1,5 @@
 /**
- * The decode lane's page: the real decode worker bundle (`apps/decode-worker.js`) spawned as a real `Worker`, and every
+ * The decode lane's page: the real decode worker bundle (`apps/browser/decode-worker.js`) spawned as a real `Worker`, and every
  * result compared with what the host thread makes from the same bytes (issue #934, OQ3). Driven by Playwright
  * (tools/browser/tests/decode.spec.ts); it plays no game.
  *
@@ -230,7 +230,7 @@ async function main(): Promise<DecodeReport> {
 
   const audio = [...await audioAt(44_100, wavBytes, intact), ...await audioAt(8_000, wavBytes, intact)];
 
-  const missing = createDecodeAhead({ outputRateHz: 44_100, workerUrl: "/apps/no-such-worker.js" });
+  const missing = createDecodeAhead({ outputRateHz: 44_100, workerUrl: "/apps/browser/no-such-worker.js" });
   missing.prepare("a.png" as AssetKey, imageBytes.get(IMAGES[0] as string) ?? new Uint8Array(0), "image");
   await missing.settled();
   const missingStats = missing.stats();

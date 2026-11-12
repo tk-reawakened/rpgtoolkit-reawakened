@@ -3,7 +3,8 @@
  *
  * The processor renders one `PcmSink` directly on the audio thread. The main thread resolves assets and banks
  * synchronously, then forwards protocol messages here; the worklet never does a synchronous read. The bundle is a
- * single-file IIFE loaded from `/apps/audio-worklet.js` (browser) or `app://player/apps/audio-worklet.js` (desktop).
+ * single-file IIFE loaded from `/apps/browser/audio-worklet.js` (browser), `/apps/mobile/audio-worklet.js` (mobile), or
+ * `app://player/apps/desktop/audio-worklet.js` (desktop).
  *
  * `docs/spec/engine/runners.md#audio` and `docs/spec/engine/audio-media.md#runner-audio-protocol` own the contract.
  */

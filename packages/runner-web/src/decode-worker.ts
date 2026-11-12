@@ -1,5 +1,5 @@
 /**
- * The decode-ahead worker (issue #934, OQ3): a classic-script IIFE bundle (`apps/decode-worker.js`, no runtime `import()`)
+ * The decode-ahead worker (issue #934, OQ3): a classic-script IIFE bundle (`apps/browser/decode-worker.js`, no runtime `import()`)
  * that turns bytes into prepared assets and posts them back.
  *
  * It runs only **pure** functions of bytes, the same ones the host thread uses: `decodeAssetTexture` for images,
