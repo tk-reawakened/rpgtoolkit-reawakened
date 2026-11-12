@@ -36,6 +36,8 @@ Lint rules carry a stable id of the form `<area>/<rule>`, a default severity, a 
 
 <!-- OWNER: D-3, approved 2026-10-31. Rejected: a linter-only diagnostic type — the premise of this page is that one model feeds the server, the CLI and CI; two shapes would need a translation layer whose only job is to lose the rule id. -->
 
+**Editor lint diagnostics (implementation note, #2074).** An editor must not show a syntactically valid program as free of findings merely because the parser accepted it. The language server publishes the shared linter's findings as well as parser diagnostics when it has a sound index; it does not guess about unresolved project dependencies. Project configuration and any indication that a rule could not be assessed remain governed by the project-wide lint contract, not by the editor's selected language mode.
+
 <a id="tool-3-range-convention"></a>
 **TOOL-3 range convention.** A range is a `start` and an `end` position. A position is a `line` and a `column`, both **1-based**, and `end` is **inclusive**: it names the last code unit of the range, so an empty range has `end` equal to `start`. A column counts **UTF-16 code units of the decoded source**, never bytes or code points. That single choice is what lets a consumer slice the text exactly: for a range on one line, `source.split("\n")[line - 1].slice(start.column - 1, end.column)` is exactly the text the diagnostic is about.
 
