@@ -6,17 +6,27 @@
 // `vscode.debug.addBreakpoints` is the breakpoint the client sends, and
 // `session.customRequest` is the channel an editor uses for a debug request.
 //
+// Sequencing is event-driven, never timed: the adapter sends the custom DAP event
+// `rpgcode.stopped` beside every standard `stopped`, and VS Code forwards custom events to
+// extensions, so `awaitStop()` is the deterministic signal that the run has reached a stop.
+// The client consumes the standard event, which is why it cannot be waited on from here.
+// Every wait has a failure bound (`withTimeout`) so a missing event fails the lane instead of
+// hanging it; no wait is a sleep.
+//
 // The module is bundled for the browser by `tools/vscode-web/build.mjs`, into the served
-// extension folder and as CommonJS (the web worker host refuses ES modules); it may import
-// `vscode` and nothing else.
+// extension folder and as CommonJS (the web worker host refuses ES modules).
 
 import * as vscode from "vscode";
 
 const EXTENSION_ID = "tk-reawakened.rpgcode-language";
+const STOP_EVENT = "rpgcode.stopped";
 
 type Body = Record<string, unknown>;
+type Stop = { readonly reason: string; readonly threadId: number; readonly line: number };
 
 console.log("[rpgcode web] test module loaded");
+
+const FAILURE_BOUND_MS = 30_000;
 
 function fail(message: string): never {
   throw new Error(message);
@@ -34,9 +44,10 @@ function log(message: string): void {
   console.log(`[rpgcode web] ${message}`);
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+/** A failure bound around a wait for an event, never a sleep: it rejects when the event never comes. */
+function withTimeout<T>(promise: Promise<T>, what: string, ms = FAILURE_BOUND_MS): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`timed out after ${ms} ms waiting for ${what}`)), ms);
+    const timer = setTimeout(() => reject(new Error(`no ${what} within ${ms} ms`)), ms);
     promise.then(
       (value) => { clearTimeout(timer); resolve(value); },
       (error: unknown) => { clearTimeout(timer); reject(error); },
@@ -44,9 +55,47 @@ function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<
   });
 }
 
+/** Every `rpgcode.stopped` the adapter sends, in order, as an awaitable queue. */
+function stopQueue(): { next(): Promise<Stop>; dispose(): void } {
+  const pending: Stop[] = [];
+  const waiters: { resolve: (stop: Stop) => void }[] = [];
+  const listener = vscode.debug.onDidReceiveDebugSessionCustomEvent((event) => {
+    if (event.event !== STOP_EVENT) return;
+    const body = recordOf(event.body);
+    const stop: Stop = {
+      reason: String(body.reason ?? ""),
+      threadId: Number(body.threadId ?? 0),
+      line: Number(body.line ?? 0),
+    };
+    const waiter = waiters.shift();
+    if (waiter === undefined) pending.push(stop);
+    else waiter.resolve(stop);
+  });
+  return {
+    next: () => {
+      const ready = pending.shift();
+      if (ready !== undefined) return Promise.resolve(ready);
+      const resume = Promise.withResolvers<Stop>();
+      waiters.push({ resolve: resume.resolve });
+      return resume.promise;
+    },
+    dispose: () => listener.dispose(),
+  };
+}
+
 async function stackFrames(session: vscode.DebugSession, threadId: number): Promise<Body[]> {
   const body = recordOf(await session.customRequest("stackTrace", { threadId }));
   return Array.isArray(body.stackFrames) ? body.stackFrames as Body[] : [];
+}
+
+async function variablesOf(session: vscode.DebugSession, frameId: unknown, scope: number): Promise<Record<string, string>> {
+  const scopes = recordOf(await session.customRequest("scopes", { frameId: Number(frameId) }));
+  const list = Array.isArray(scopes.scopes) ? scopes.scopes as Body[] : [];
+  const body = recordOf(await session.customRequest("variables", { variablesReference: list[scope]?.variablesReference }));
+  const entries = Array.isArray(body.variables) ? body.variables as Body[] : [];
+  const values: Record<string, string> = {};
+  for (const entry of entries) values[String(entry.name)] = String(entry.value);
+  return values;
 }
 
 export async function run(): Promise<void> {
@@ -59,11 +108,13 @@ export async function run(): Promise<void> {
   const text = new TextDecoder().decode(await vscode.workspace.fs.readFile(program));
   const callLine = text.split("\n").findIndex((line) => !line.trimStart().startsWith("//") && line.includes("result = twice(seed)")) + 1;
   equal(callLine > 0, true, "the fixture has the call line");
+  const calleeLine = text.split("\n").findIndex((line) => !line.trimStart().startsWith("//") && line.includes("local(doubled)")) + 1;
 
   const extension = vscode.extensions.getExtension(EXTENSION_ID);
   if (extension === undefined) fail(`the extension ${EXTENSION_ID} is installed (installed: ${vscode.extensions.all.map((entry) => entry.id).join(", ")})`);
   log(`manifest main=${String(extension.packageJSON.main)} browser=${String(extension.packageJSON.browser)}`);
 
+  const stops = stopQueue();
   const started = new Promise<vscode.DebugSession>((resolve) => {
     const listener = vscode.debug.onDidStartDebugSession((session) => {
       if (session.type === "rpgcode") {
@@ -86,50 +137,93 @@ export async function run(): Promise<void> {
   ]);
   log(`breakpoint at ${program.path}:${callLine}`);
 
-  const launched = await withTimeout(
-    vscode.debug.startDebugging(folder, {
-      type: "rpgcode",
-      request: "launch",
-      name: "RPGCode web probe",
-      program: program.toString(),
-      board: board.toString(),
-      seed: 7,
-    }),
-    30_000,
-    "the debug session to start",
-  );
-  equal(launched, true, "startDebugging returned true");
-  const session = await withTimeout(started, 30_000, "the rpgcode session");
-  log("session started");
+  try {
+    equal(await withTimeout(
+      vscode.debug.startDebugging(folder, {
+        type: "rpgcode",
+        request: "launch",
+        name: "RPGCode web probe",
+        program: program.toString(),
+        board: board.toString(),
+        seed: 7,
+      }),
+      "startDebugging",
+    ), true, "startDebugging returned true");
+    const session = await withTimeout(started, "the rpgcode session");
 
-  // The adapter pauses at entry; a continue reaches the breakpoint the client installed.
-  await withTimeout(session.customRequest("continue", { threadId: 1 }), 30_000, "the continue response");
-  // Only now has the program run `spare = thread(...)`, so both threads exist.
-  const threads = recordOf(await session.customRequest("threads"));
-  equal(JSON.stringify((threads.threads as Body[]).map((thread) => thread.id)), JSON.stringify([1, 2]), "two threads, the blocking one and the started one");
-  const stopped = await stackFrames(session, 1);
-  equal(stopped[0]?.name, "compute", "the breakpoint stop is inside compute()");
-  equal(stopped[0]?.line, callLine, "the breakpoint stop is on the call line");
-  equal(stopped.length, 2, "the top-level frame and compute()");
-  equal((await stackFrames(session, 2)).length, 1, "the started thread has a frame");
+    const entry = await withTimeout(stops.next(), "the entry stop");
+    equal(entry.reason, "entry", "the session stops at entry once the client is configured");
+    log(`entry stop on thread ${entry.threadId}`);
 
-  await withTimeout(session.customRequest("next", { threadId: 1 }), 30_000, "the next response");
-  const over = await stackFrames(session, 1);
-  equal(over.length, 2, "stepping over does not push a frame");
-  equal(over[0]?.line, callLine + 1, "stepping over lands on the following statement");
+    // Continue to the breakpoint the *client* installed.
+    await session.customRequest("continue", { threadId: 1 });
+    const hit = await withTimeout(stops.next(), "the breakpoint stop");
+    equal(hit.reason, "breakpoint", "the breakpoint the client set is hit");
+    equal(hit.threadId, 1, "the blocking thread stopped");
+    equal(hit.line, callLine, "the stop is on the call line");
 
-  const scopes = recordOf(await session.customRequest("scopes", { frameId: over[1]?.id }));
-  const callerLocals = recordOf(await session.customRequest("variables", { variablesReference: (scopes.scopes as Body[])[0]?.variablesReference }));
-  const seed = (callerLocals.variables as Body[]).find((variable) => variable.name === "seed");
-  equal(seed?.value, "3", "compute()'s local reads through the client");
-  const watch = recordOf(await session.customRequest("evaluate", { expression: "seed + 1", frameId: over[1]?.id }));
-  equal(watch.result, "4", "a watch expression evaluates in the caller's frame");
+    const threads = recordOf(await session.customRequest("threads"));
+    equal(JSON.stringify((threads.threads as Body[]).map((thread) => thread.id)), JSON.stringify([1, 2]), "two threads with their frames");
+    const stopped = await stackFrames(session, 1);
+    equal(stopped[0]?.name, "compute", "the stop is inside compute()");
+    equal(stopped[0]?.line, callLine, "the top frame reports the call line");
+    equal(stopped.length, 2, "the top-level frame and compute()");
+    equal((await stackFrames(session, 2)).length, 1, "the started thread has a frame of its own");
 
-  await withTimeout(session.customRequest("stepOut", { threadId: 1 }), 30_000, "the stepOut response");
-  equal((await stackFrames(session, 1)).length <= 2, true, "stepping out does not deepen the stack");
+    // A local of the innermost frame and the globals.
+    deepEqualish(await variablesOf(session, stopped[0]?.id, 0), { seed: "3" }, "compute()'s local");
+    const globals = await variablesOf(session, stopped[0]?.id, 1);
+    equal(globals.total, "1", "the global table");
+    equal(globals.spare, "2", "the started thread's id is a global");
 
-  await withTimeout(session.customRequest("continue", { threadId: 1 }), 30_000, "the final continue");
-  await withTimeout(terminated, 60_000, "the session to terminate");
-  vscode.debug.removeBreakpoints(vscode.debug.breakpoints);
-  log("the debugger scenario passed in VS Code for the Web");
+    // Step into the call: a third frame, on the callee's first line.
+    await session.customRequest("stepIn", { threadId: 1 });
+    const steppedIn = await withTimeout(stops.next(), "the stepIn stop");
+    equal(steppedIn.reason, "step", "stepping reports a step stop");
+    const inside = await stackFrames(session, 1);
+    equal(inside.length, 3, "stepping in pushed a frame");
+    equal(inside[0]?.name, "twice", "the new frame is the callee");
+    equal(inside[0]?.line, calleeLine, "the callee's first line");
+    // A local of the frame below the innermost, which is the frame we came from.
+    deepEqualish(await variablesOf(session, inside[1]?.id, 0), { seed: "3" }, "compute()'s local, read from below the innermost frame");
+    const watch = recordOf(await session.customRequest("evaluate", { expression: "seed + 1", frameId: inside[1]?.id }));
+    equal(watch.result, "4", "a watch expression evaluates in the caller's frame");
+
+    // Step out: back to the caller, the frame popped.
+    await session.customRequest("stepOut", { threadId: 1 });
+    const steppedOut = await withTimeout(stops.next(), "the stepOut stop");
+    equal(steppedOut.reason, "step");
+    const back = await stackFrames(session, 1);
+    equal(back.length, 2, "stepping out popped the frame");
+    equal(back[0]?.name, "compute");
+
+    // Step over the call: the frame count is unchanged and the line moves on.
+    await session.customRequest("next", { threadId: 1 });
+    const steppedOver = await withTimeout(stops.next(), "the next stop");
+    equal(steppedOver.reason, "step");
+    const over = await stackFrames(session, 1);
+    equal(over.length, 2, "stepping over does not push a frame");
+    equal(over[0]?.line, callLine + 1, "stepping over lands on the following statement");
+
+    // A watch that must be refused, with the adapter's own code in the message.
+    let refusal: string | undefined;
+    try {
+      await session.customRequest("evaluate", { expression: "counter = 1", frameId: over[0]?.id });
+    } catch (error) {
+      refusal = error instanceof Error ? error.message : String(error);
+    }
+    if (refusal === undefined || !refusal.includes("evaluate.assignment")) fail(`an assignment is refused with evaluate.assignment, got ${String(refusal)}`);
+
+    // Run to the end.
+    await session.customRequest("continue", { threadId: 1 });
+    await withTimeout(terminated, "the session to terminate", 60_000);
+    log("the debugger scenario passed in VS Code for the Web");
+  } finally {
+    stops.dispose();
+    vscode.debug.removeBreakpoints(vscode.debug.breakpoints);
+  }
+}
+
+function deepEqualish(actual: Record<string, string>, expected: Record<string, string>, message: string): void {
+  for (const [key, value] of Object.entries(expected)) equal(actual[key], value, `${message} (${key})`);
 }

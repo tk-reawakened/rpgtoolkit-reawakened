@@ -185,21 +185,35 @@ registers a debug adapter factory reproduces the exact failure with `PROBE_FORMA
 `disconnect`). `extensions/rpgcode/build.mjs` now builds the browser bundle as CommonJS, and
 the RPGCode debugger then starts a real session in VS Code for the Web.
 
-Remaining before this lane can gate CI: the scenario's own sequencing. `session.customRequest`
-sent immediately after `onDidStartDebugSession` is cancelled by VS Code (`Canceled: Canceled`)
-because the client is still in its configuration phase; the test must wait for the client's
-paused state (`onDidChangeActiveStackItem`) before its first `continue`, and only then assert
-the two threads (the program has not run `spare = thread(...)` before that stop). `run.mjs`
-and its tests are committed and `pnpm vscode-web:probe` is green; `pnpm vscode-web:test` is not
-wired into CI until it is green.
+The scenario is green and gates the aggregate in its own job (`vscode-web`, added to `gate`'s
+needs; the Playwright image, a cached VS Code web build, `pnpm vscode-web:test`). Two protocol
+facts made it deterministic, both found by reading the host's behaviour rather than guessing:
 
-### Remaining gap (why the PR says `Refs #950`)
+1. **A host outside the client's UI has no signal for a stop.** VS Code consumes the standard
+   DAP `stopped` event, and `onDidChangeActiveStackItem` depends on the workbench view. The
+   session now also sends the custom event `rpgcode.stopped` (`{ reason, threadId, line }`) on
+   every stop — entry, breakpoint, step and limit — which VS Code forwards to extensions'
+   `onDidReceiveDebugSessionCustomEvent`. The test's `stopQueue()` is an awaitable queue over
+   it, and every wait is bounded by a failure timeout, never a sleep.
+2. **A virtual document must be named the way the client can resolve it.** Reporting a frame's
+   source as `/Prg/probe.prg` made VS Code look on the *file* system ("No file system handle
+   registered (/Prg)"), so its breakpoints never reached the adapter; the launch now reports
+   the URI (`vscode-test-web://mount/Prg/probe.prg`) and the adapter matches a breakpoint's
+   `source.path` against either the URI or its path.
 
-* The `vscode.dev` session is not run in CI. Everything else in the acceptance list is
-  exercised: a stdio session, a breakpoint stop with its thread/frame/line, step over
-  a call without entering it, step in, step out, two threads with frames, a local and
-  a global (including a local of a frame below the innermost), a watch, the refusals
-  and the budget, and a run to the uninterrupted state hash.
+The lane asserts, in one session: the entry stop, the client's own breakpoint being hit at its
+line and thread, two threads with frames, a local of the innermost frame and the globals,
+`stepIn` (third frame, callee line), a local of the frame *below* the innermost, `evaluate`
+(`seed + 1` = 4), `stepOut` (frame popped), `next` (line moves on, no new frame), the
+`evaluate.assignment` refusal, and the run to `terminated`.
+
+### Acceptance
+
+Every item of the ticket's `verify` is exercised: a stdio session, a breakpoint stop with its
+thread, frame and line, step over a call without entering it, step in, step out, two threads
+with frames, a local and a global (including a local of a frame below the innermost), a watch,
+the refusals and the budget, a run to the uninterrupted state hash, and the same session in a
+real VS Code web build in CI.
 * Two defects found in this entry's own work, both fixed before the PR: the test
   helper waited for an event the session never sent (a fixture comment matched the
   line search, so the breakpoint landed on a comment and `continue` ran to the end),
