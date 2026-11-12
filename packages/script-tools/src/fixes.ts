@@ -87,7 +87,7 @@ function trailingComment(line: string): string | null {
 function migrateTk2(source: string): LegacyFix[] {
   // The spec conflicts with dynamic array indices for this shape (#2050).
   // Do not offer a conversion whose meaning has not been established.
-  if (/\[\s*[A-Za-z_]\w*\s*\]/.test(source)) return [];
+  if (/\[\s*\d*[A-Za-z_]\w*[$!]?\s*\]/.test(source)) return [];
   let converted: string[];
   try {
     converted = normaliseTk2(source).split("\n");

@@ -56,6 +56,8 @@ test("a control call is not silently removed", () => {
 
 test("ambiguous bracket indexing is not rewritten pending #2050", () => {
   deepEqual(legacyFixes("#m[key] = 1", "tk2"), []);
+  deepEqual(legacyFixes("#m[1key] = 1", "tk2"), []);
+  deepEqual(legacyFixes("#m[key$] = 1", "tk2"), []);
 });
 
 test("3.1 code keeps assignment semantics and never gets a TK2-only edit", () => {
