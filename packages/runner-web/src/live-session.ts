@@ -440,15 +440,17 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   };
 
   let resampleGamepads: (() => void) | null = null;
-  let controllerWasEnabled = false;
+  let resampledControllerRevision = 0;
   const missingGamepadApiReported = new Set<string>();
   function reconcileControllerPolicy(): void {
     if (!interactive || options.hostViewport === undefined) return;
     const policy = engine.gamepadPolicy();
-    const enabled = policy?.enabled === true;
-    if (enabled && !controllerWasEnabled) resampleGamepads?.();
-    controllerWasEnabled = enabled;
-    if (enabled && typeof navigator.getGamepads !== "function" && !missingGamepadApiReported.has(policy.file)) {
+    if (policy?.enabled !== true) return;
+    if (policy.revision !== resampledControllerRevision) {
+      resampledControllerRevision = policy.revision;
+      resampleGamepads?.();
+    }
+    if (typeof navigator.getGamepads !== "function" && !missingGamepadApiReported.has(policy.file)) {
       missingGamepadApiReported.add(policy.file);
       reportDiagnostic({
         code: "input.gamepad-api-unavailable", file: policy.file, line: 0,
@@ -545,7 +547,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     stateHash: () => currentStateHash,
     setGamepadResampler(resample) {
       resampleGamepads = resample;
-      if (controllerWasEnabled) resample();
+      if (engine.gamepadPolicy()?.enabled === true) resample();
     },
     setHostRestoreSnapshotProvider(provider) { hostRestoreSnapshotProvider = provider; },
     viewSize: () => ({ width: viewport.width, height: viewport.height }),

@@ -69,7 +69,7 @@ import { boardEmitterKey, type WorldBoard, type WorldImageCell, type WorldTile }
 import type { AnimationState, FxSection } from "../save/sections.ts";
 import type { UiActionClaim } from "../save/sections/ui.ts";
 import { applyInputEvent, applySemanticActionEdge, claimInputBefore, configureMainFileMovement, createInputSection, inputView, movementBindingCollisions, processGamepadEvents, pruneClaimed, rebuildKeyboardActionClaimIndex, recomputeInputActions, registerGameAction, routePointerUpActivations, setPointerMovementSuppressed } from "../input/index.ts";
-import { mainFileMovementSettings } from "../input/movement-settings.ts";
+import { mainFileMovementSettings, type MainFileMovementSettings } from "../input/movement-settings.ts";
 import { applyWorldEffect, expireProgramTileEdits } from "../world/effects.ts";
 import { applyCameraEffect, createCameraSection, initCameraForBoard, positionAt, realignCamera, updateCamera } from "../world/camera.ts";
 import { applyInputEffect, applySpriteEffect } from "../script/packs/world.ts";
@@ -443,7 +443,7 @@ export function createEngine(init: EngineInit): Engine {
   let recoveryInitialized = false;
   let recoveryResumed = false;
   const diagnostics: Diagnostic[] = [];
-  let activeMovement: (ReturnType<typeof mainFileMovementSettings> & { file: AssetKey }) | null = null;
+  let activeMovement: { file: AssetKey; revision: number; settings: MainFileMovementSettings } | null = null;
   const reportedMovementCollisions = new Set<string>();
   function reportMovementCollisions(): void {
     for (const { code, actions } of movementBindingCollisions(state.input)) {
@@ -3120,8 +3120,9 @@ export function createEngine(init: EngineInit): Engine {
         return false;
       }
       mainFile = parsed.value;
-      activeMovement = { file: mainKey, ...mainFileMovementSettings(mainFile, mainKey, !binary.ok || binary.value) };
-      diagnostics.push(...activeMovement.diagnostics);
+      const movement = mainFileMovementSettings(mainFile, mainKey, !binary.ok || binary.value);
+      activeMovement = { file: mainKey, revision: (activeMovement?.revision ?? 0) + 1, settings: movement.settings };
+      diagnostics.push(...movement.diagnostics);
       restoreMovementPolicy();
       projectDebug = debugFromMainFile(mainFile);
       state.world = { ...state.world, movement: movementDefaults(mainFile) };
@@ -5157,7 +5158,11 @@ export function createEngine(init: EngineInit): Engine {
     gamepadPolicy() {
       return activeMovement === null
         ? null
-        : { file: activeMovement.file, enabled: activeMovement.settings.controllerEnabled };
+        : {
+          file: activeMovement.file,
+          enabled: activeMovement.settings.controllerEnabled,
+          revision: activeMovement.revision,
+        };
     },
     hostDisplayGeometry(): HostDisplayGeometry {
       const { content, game, safeArea } = state.display.geometry;

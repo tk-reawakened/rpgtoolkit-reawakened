@@ -196,8 +196,8 @@ export interface Engine {
   customTouchControlsDeclared(): boolean;
   /** Current normalized host capabilities, including logged changes. */
   hostFeatures(): NormalizedHostFeatures;
-  /** Active game's controller policy, once its main file has loaded. */
-  gamepadPolicy(): { readonly file: string; readonly enabled: boolean } | null;
+  /** Active game's controller policy and the session-local revision of its loaded main file. */
+  gamepadPolicy(): { readonly file: string; readonly enabled: boolean; readonly revision: number } | null;
 
   /** Last consumed, normalized host geometry used for display planes and pointer mapping. */
   hostDisplayGeometry(): HostDisplayGeometry;

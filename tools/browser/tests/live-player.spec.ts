@@ -449,6 +449,49 @@ test.describe("packaged movement policy", () => {
     });
   }
 
+  test("a replacement main file records a fresh sample even when both games enable controllers", async ({ page }) => {
+    await page.addInitScript(() => {
+      const pad = {
+        id: "stationary controller", index: 0, connected: true, mapping: "standard",
+        axes: [0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false })),
+      };
+      Object.defineProperty(navigator, "getGamepads", { configurable: true, value: () => [pad] });
+    });
+    const fixture = packageWithoutStartupProgram(
+      "controller-replacement.tpk", undefined, 'wait()\nmainfile("controller.gam")\nend()',
+      { movementControls: 0, movementScanCodes: Array(8).fill(0), useJoystick: 1 }, true,
+    );
+    await servePackage(page, fixture);
+    await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${fixture.name}`);
+    await page.waitForFunction(() => (window.__live?.tick ?? 0) >= 8);
+    await page.evaluate(() => {
+      type Probe = Window & {
+        __session?: {
+          engine: {
+            gamepadPolicy(): { file: string } | null;
+            advance(...args: unknown[]): { consumed: readonly { event: { kind: string; devices?: readonly { device: number }[] } }[] };
+          };
+        };
+        __replacementPadSample?: boolean;
+      };
+      const probe = window as Probe;
+      const engine = probe.__session?.engine;
+      if (engine === undefined) throw new Error("live engine did not initialize");
+      const advance = engine.advance.bind(engine);
+      engine.advance = (...args) => {
+        const report = advance(...args);
+        if (engine.gamepadPolicy()?.file === "controller.gam" && report.consumed.some(({ event }) =>
+          event.kind === "host.gamepads" && event.devices?.some(({ device }) => device === 0))) {
+          probe.__replacementPadSample = true;
+        }
+        return report;
+      };
+    });
+    await page.keyboard.press("q");
+    await page.waitForFunction(() => window.__live?.board != null &&
+      (window as Window & { __replacementPadSample?: boolean }).__replacementPadSample === true);
+  });
+
   for (const controller of ["a stationary pad", "no connected pad", "no host API"] as const) {
     test(`MainFile enables controller policy with ${controller}`, async ({ page }) => {
       await page.addInitScript((controller) => {
