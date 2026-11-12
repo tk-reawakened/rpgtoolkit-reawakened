@@ -63,7 +63,7 @@ The editor's script test-runner differs: on overflow it waits for a key and clea
 
 | Input | Effect |
 |---|---|
-| Movement keys (main file, scan codes for 8 directions; default arrow keys) | when no blocking script owns the key queue, queue a step in that direction when the player is idle; while the key remains held, queue another step each time the player becomes idle again, at the normal movement cadence; two keys 90° apart give a diagonal if allowed |
+| Movement keys (main file, scan codes for 8 directions; default arrow keys) | when no blocking script owns the key queue, queue a step in that direction when the player is idle; while the key remains held, queue another step each time the player becomes idle again, at the normal movement cadence; two cardinal keys 90° apart give a diagonal if allowed, and a dedicated diagonal binding works with either setting |
 | Activation key (main file `key`, the demo uses space) | test programs and items in front of / under the player |
 | Menu key (main file `menuKey`, Enter in new projects) | open the menu plugin |
 | Run-time keys (main file) | run their programs |
