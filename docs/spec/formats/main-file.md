@@ -81,7 +81,7 @@ The file ends after the last field present.
 The player matches row 61 against the physical key code from the input record.
 Use the [Windows SDK DirectInput key offsets](https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/um/dinput.h#L1900)
 and [UI Events physical key codes](https://www.w3.org/TR/uievents-code/).
-The main and numeric keypads have distinct codes, even when Num Lock is off.
+The main keyboard and numeric keypad have distinct codes, even when Num Lock is off.
 A nonzero offset without an unambiguous physical-key mapping is unbound and
 reported with its movement direction.
 
