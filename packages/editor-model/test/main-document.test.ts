@@ -106,10 +106,10 @@ test("saving a document nobody edited writes nothing", async () => {
   const host = hostWith(exampleMain(9));
   let writes = 0;
   const counting: DocumentStorage = {
-    read: (path) => host.fs.read(path),
-    write: (path, bytes) => {
+    readProject: (projectId, path) => host.fs.readProject(projectId, path),
+    writeProject: (projectId, path, bytes) => {
       writes += 1;
-      return host.fs.write(path, bytes);
+      return host.fs.writeProject(projectId, path, bytes);
     },
   };
   const opened = await openMainDocument(counting, identity);
@@ -284,10 +284,10 @@ test("an edit made while a save is in flight stays dirty and is not lost", async
     release = resolve;
   });
   const slow: DocumentStorage = {
-    read: (path) => host.fs.read(path),
-    write: async (path, bytes) => {
+    readProject: (projectId, path) => host.fs.readProject(projectId, path),
+    writeProject: async (projectId, path, bytes) => {
       await gate;
-      return host.fs.write(path, bytes);
+      return host.fs.writeProject(projectId, path, bytes);
     },
   };
   const opened = await openMainDocument(slow, identity);
@@ -315,10 +315,10 @@ test("an undo and a different edit during a save leave the written revision out 
     release = resolve;
   });
   const slow: DocumentStorage = {
-    read: (path) => host.fs.read(path),
-    write: async (path, bytes) => {
+    readProject: (projectId, path) => host.fs.readProject(projectId, path),
+    writeProject: async (projectId, path, bytes) => {
       await gate;
-      return host.fs.write(path, bytes);
+      return host.fs.writeProject(projectId, path, bytes);
     },
   };
   const opened = await openMainDocument(slow, identity);
@@ -344,13 +344,13 @@ test("saves run one after another: the second write does not start until the fir
     release = resolve;
   });
   const logging: DocumentStorage = {
-    read: (path) => host.fs.read(path),
-    write: async (path, bytes) => {
+    readProject: (projectId, path) => host.fs.readProject(projectId, path),
+    writeProject: async (projectId, path, bytes) => {
       const title = titleOf(bytes);
       started.push(title);
       // The first write is the slow one: it finishes after the second would have, if the second were allowed to start.
       if (title === "A") await gate;
-      const result = await host.fs.write(path, bytes);
+      const result = await host.fs.writeProject(projectId, path, bytes);
       finished.push(title);
       return result;
     },
@@ -502,14 +502,14 @@ test("a failed write may leave the file in an unknown state: undoing back to the
   let writes = 0;
   // A host whose failed write has already truncated the file, which `fs.write` is allowed to do (platform-services fs.ts).
   const truncating: DocumentStorage = {
-    read: (path) => host.fs.read(path),
-    write: async (path, bytes) => {
+    readProject: (projectId, path) => host.fs.readProject(projectId, path),
+    writeProject: async (projectId, path, bytes) => {
       writes += 1;
       if (writes === 1) {
         host.seed(path, new Uint8Array(0));
         return { ok: false, error: { code: "io-error", message: "the disk went away" } };
       }
-      return host.fs.write(path, bytes);
+      return host.fs.writeProject(projectId, path, bytes);
     },
   };
   const opened = await openMainDocument(truncating, identity);
@@ -534,14 +534,14 @@ test("a write that throws or rejects is a failed save that names the document, a
     const host = hostWith(exampleMain(9));
     let calls = 0;
     const flaky: DocumentStorage = {
-      read: (path) => host.fs.read(path),
-      write: (path, bytes) => {
+      readProject: (projectId, path) => host.fs.readProject(projectId, path),
+      writeProject: (projectId, path, bytes) => {
         calls += 1;
         if (calls === 1) {
           if (how === "throws") throw new Error("the host blew up");
           return Promise.reject(new Error("the host blew up"));
         }
-        return host.fs.write(path, bytes);
+        return host.fs.writeProject(projectId, path, bytes);
       },
     };
     const opened = await openMainDocument(flaky, identity);
@@ -599,10 +599,10 @@ test("a failure is shown only until a later save starts, and a successful save c
   });
   let hold = false;
   const storage: DocumentStorage = {
-    read: (path) => host.fs.read(path),
-    write: async (path, bytes) => {
+    readProject: (projectId, path) => host.fs.readProject(projectId, path),
+    writeProject: async (projectId, path, bytes) => {
       if (hold) await gate;
-      return host.fs.write(path, bytes);
+      return host.fs.writeProject(projectId, path, bytes);
     },
   };
   const opened = await openMainDocument(storage, identity);
@@ -640,11 +640,11 @@ test("a save queued behind a failing one clears that failure when it starts and 
   const host = hostWith(exampleMain(9));
   let calls = 0;
   const failFirst: DocumentStorage = {
-    read: (path) => host.fs.read(path),
-    write: async (path, bytes) => {
+    readProject: (projectId, path) => host.fs.readProject(projectId, path),
+    writeProject: async (projectId, path, bytes) => {
       calls += 1;
       if (calls === 1) return { ok: false, error: { code: "io-error", message: "only the first" } };
-      return host.fs.write(path, bytes);
+      return host.fs.writeProject(projectId, path, bytes);
     },
   };
   const opened = await openMainDocument(failFirst, identity);
@@ -658,4 +658,80 @@ test("a save queued behind a failing one clears that failure when it starts and 
   equal(doc.getSnapshot().saveError, null, "the later save's success is the last word");
   equal(doc.getSnapshot().dirty, false);
   equal(titleOf(stored(host)), "Queued");
+});
+
+test("document saves cannot be redirected by a project switch, including during an asynchronous write", async () => {
+  const original = exampleMain(9);
+  const projectA = hostWith(original);
+  const projectB = createMemoryPlatformServices({ project: { id: "project-b", name: "B" }, files: { [PATH]: original } });
+  let active = projectA;
+  let resume!: () => void;
+  let started!: () => void;
+  const entered = new Promise<void>((resolve) => { started = resolve; });
+  const gate = new Promise<void>((resolve) => { resume = resolve; });
+  let pause = false;
+  const storage: DocumentStorage = {
+    readProject: (projectId, path) => active.fs.readProject(projectId, path),
+    writeProject: async (projectId, path, bytes) => {
+      const target = active.fs;
+      if (pause) { started(); await gate; }
+      return target.writeProject(projectId, path, bytes);
+    },
+  };
+  const opened = await openMainDocument(storage, identity);
+  ok(opened.ok);
+  opened.document.apply({ type: "set-game-title", title: "Project A" });
+  active = projectB;
+  const wrongProject = await openMainDocument(storage, identity);
+  ok(!wrongProject.ok);
+  equal(wrongProject.error.kind, "read");
+  const refused = await opened.document.save();
+  ok(!refused.ok);
+  equal(refused.failure.document, PATH);
+  deepEqual(stored(projectA), original);
+  deepEqual(stored(projectB), original);
+  ok(opened.document.getSnapshot().dirty);
+
+  active = projectA;
+  pause = true;
+  const saving = opened.document.save();
+  await entered;
+  active = projectB;
+  resume();
+  ok((await saving).ok);
+  equal(titleOf(stored(projectA)), "Project A");
+  deepEqual(stored(projectB), original);
+});
+
+test("document identity is captured before an asynchronous read and cannot redirect a later save", async () => {
+  const original = exampleMain(9);
+  const a = hostWith(original);
+  const b = createMemoryPlatformServices({ project: { id: "project-b", name: "B" }, files: { [PATH]: original } });
+  let active = a;
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const entered = new Promise<void>((resolve) => { started = resolve; });
+  const storage: DocumentStorage = {
+    readProject: async (projectId, path) => {
+      const reading = active.fs.readProject(projectId, path);
+      started();
+      await gate;
+      return reading;
+    },
+    writeProject: (projectId, path, bytes) => active.fs.writeProject(projectId, path, bytes),
+  };
+  const mutable = { ...identity };
+  const opening = openMainDocument(storage, mutable);
+  await entered;
+  active = b;
+  Object.assign(mutable, createDocumentIdentity("project-b", PATH));
+  release();
+  const opened = await opening;
+  ok(opened.ok);
+  equal(opened.document.identity.projectId, identity.projectId);
+  opened.document.apply({ type: "set-game-title", title: "Must not reach B" });
+  ok(!(await opened.document.save()).ok);
+  deepEqual(stored(a), original);
+  deepEqual(stored(b), original);
 });

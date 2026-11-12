@@ -2,7 +2,7 @@
 // a `Map`, not a recording stub: files, folders, watches, settings and projects behave as a host's would, and a test
 // can make writes fail on purpose. It reads no clock and no random source: modification times come from a counter, so a
 // run is the same every time (G3).
-import type { DirectoryEntry, FileChange, FileKind, FileStat, FileSystemService } from "./fs.ts";
+import { bindProjectFileSystem, type DirectoryEntry, type FileChange, type FileKind, type FileStat } from "./fs.ts";
 import { platformError, platformOk, type Disposable, type PlatformError, type PlatformResult } from "./result.ts";
 import type {
   Capability,
@@ -114,7 +114,7 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
 
   for (const [path, bytes] of Object.entries(options.files ?? {})) put(path, bytes);
 
-  const fs: FileSystemService = {
+  const fs = bindProjectFileSystem(project.id, {
     list(path): Promise<PlatformResult<readonly DirectoryEntry[]>> {
       const invalid = invalidPath(path, true);
       if (invalid !== undefined) return Promise.resolve(platformError("invalid-path", invalid));
@@ -220,7 +220,7 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
       watches.add(watch);
       return Promise.resolve(platformOk({ dispose: () => void watches.delete(watch) }));
     },
-  };
+  });
 
   const settingKey = (layer: SettingsLayer, id: string): string => `${layer}\u0000${id}`;
 

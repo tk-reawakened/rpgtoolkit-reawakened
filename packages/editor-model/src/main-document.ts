@@ -102,8 +102,8 @@ export interface MainDocument {
   save(): Promise<SaveResult>;
 }
 
-/** The slice of `platform-services` `fs` a document needs. */
-export type DocumentStorage = Pick<FileSystemService, "read" | "write">;
+/** Project-identified filesystem operations used by a document (ADR 0022 D1.1). */
+export type DocumentStorage = Pick<FileSystemService, "readProject" | "writeProject">;
 
 export type OpenError =
   /** The host could not read the file. */
@@ -117,9 +117,10 @@ export type OpenResult =
 
 /** Read the file at `identity.path` through `storage` and open it. */
 export async function openMainDocument(storage: DocumentStorage, identity: DocumentIdentity): Promise<OpenResult> {
-  const read = await storage.read(identity.path);
-  if (!read.ok) return { ok: false, error: { kind: "read", document: identity.path, error: read.error } };
-  return createMainDocument(storage, identity, read.value);
+  const captured = Object.freeze({ ...identity });
+  const read = await storage.readProject(captured.projectId, captured.path);
+  if (!read.ok) return { ok: false, error: { kind: "read", document: captured.path, error: read.error } };
+  return createMainDocument(storage, captured, read.value);
 }
 
 /**
@@ -200,7 +201,7 @@ class MainDocumentImpl implements MainDocument {
   #snapshot: MainDocumentSnapshot;
 
   constructor(storage: DocumentStorage, identity: DocumentIdentity, model: MainFile, readOnly: ReadOnlyReason | null) {
-    this.identity = identity;
+    this.identity = Object.freeze({ ...identity });
     this.#storage = storage;
     this.#base = model;
     this.#model = model;
@@ -298,7 +299,7 @@ class MainDocumentImpl implements MainDocument {
       if (this.#savedAt === revision && this.#isRevision(revision, head)) return { ok: true };
       let written: PlatformResult<void>;
       try {
-        written = await this.#storage.write(path, bytes);
+        written = await this.#storage.writeProject(this.identity.projectId, path, bytes);
       } catch (thrown) {
         // A host that throws or rejects instead of answering is a failed write like any other (ADR 0022 D3.3).
         return this.#failWrite(path, null, thrown instanceof Error ? thrown.message : String(thrown));

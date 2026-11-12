@@ -2,10 +2,29 @@
 // settings and edit stream would, because every other package's tests lean on it.
 import { test } from "node:test";
 import { deepEqual, equal, ok } from "node:assert/strict";
-import type { FileChange } from "../src/index.ts";
+import { bindProjectFileSystem, type FileChange } from "../src/index.ts";
 import { createMemoryPlatformServices } from "../src/testing.ts";
 
 const bytes = (...values: number[]): Uint8Array => new Uint8Array(values);
+
+test("project binding preserves prototype methods and their receiver", async () => {
+  class Adapter {
+    readonly delegate = createMemoryPlatformServices().fs;
+    list(path: string) { return this.delegate.list(path); }
+    read(path: string) { return this.delegate.read(path); }
+    write(path: string, value: Uint8Array) { return this.delegate.write(path, value); }
+    stat(path: string) { return this.delegate.stat(path); }
+    delete(path: string) { return this.delegate.delete(path); }
+    rename(from: string, to: string) { return this.delegate.rename(from, to); }
+    watch(path: string, callback: (event: FileChange) => void) { return this.delegate.watch(path, callback); }
+  }
+  const fs = bindProjectFileSystem("A", new Adapter());
+  ok((await fs.write("file", bytes(4))).ok);
+  const read = await fs.read("file");
+  ok(read.ok);
+  deepEqual(read.value, bytes(4));
+  ok((await fs.list("")).ok);
+});
 
 test("write, read, stat and list agree, and the caller's arrays are copies", async () => {
   const host = createMemoryPlatformServices();

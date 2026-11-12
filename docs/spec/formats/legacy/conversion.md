@@ -51,6 +51,11 @@ Text enemies only. The top-left width × height part of the 19 × 7 tile grid be
 
 Text backgrounds only. The 19 × 11 tile grid and its per-tile tints become `Bitmap\<p>.tbm`, which becomes the background's image.
 
+The player also performs this conversion in memory when a stock fight loads a
+text background. It composes the stored cells and their tints into one picture,
+without writing files into the game. The stock screen stretches that picture
+in the same way as an image background; binary image backgrounds are unchanged.
+
 ## Boards
 
 Pre-vector boards (minor 2-3) are upgraded in memory; see the rules in [older-binary-versions.md](older-binary-versions.md#board-minor-2-and-3-pre-vector). Nothing is written until the board is saved.
