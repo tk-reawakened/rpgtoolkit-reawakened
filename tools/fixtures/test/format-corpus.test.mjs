@@ -1,12 +1,12 @@
 // Epic 10, #2039: exercise the fetched sample games, not a copied source fixture.
 // TOOL-4 promises identical lowering for 3.1 and byte-identical refusal for TK2.
-import { deepEqual, equal, ok } from "node:assert/strict";
+import { deepEqual, equal, notDeepEqual, ok } from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { compileInline, decodeCp1252, encodeCp1252 } from "@tk-reawakened/core";
-import { buildFetchedCorpus } from "@tk-reawakened/runner-harness";
+import { compileProgram, decodeCp1252, encodeCp1252, fileProgramRef } from "@tk-reawakened/core";
+import { buildFetchedCorpus, createMemoryLoader } from "@tk-reawakened/runner-harness";
 import { formatSource } from "@tk-reawakened/script-tools";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -25,9 +25,33 @@ function source(bytes) {
   return decodeCp1252(bytes, 0, bytes.length);
 }
 
-function lower(text) {
-  return compileInline(text).ops.map(({ pos, ...op }) => op);
+function behavior(loader, name) {
+  const program = compileProgram(fileProgramRef(loader, name), { loader });
+  return JSON.parse(JSON.stringify({
+    ops: program.ops,
+    functions: program.functions,
+    classes: program.classes,
+    labels: program.labels,
+    statements: program.statements,
+    files: program.files,
+    fileKeys: program.fileKeys,
+    notices: program.notices,
+    units: program.units.map(({ key, requests }) => ({ key, requests })),
+  }, (key, value) => ["pos", "line", "col", "endCol", "offset", "endOffset"].includes(key) ? undefined : value));
 }
+
+test("the oracle detects method identity and include-binding changes", () => {
+  const files = {
+    "main.prg": '#include "one.prg"\nclass Box {\n  method setDynamicState() { return 1 }\n}\n',
+    "one.prg": "function helper() { return 1 }\n",
+    "two.prg": "function helper() { return 1 }\n",
+  };
+  const original = createMemoryLoader(files);
+  const renamed = createMemoryLoader({ ...files, "main.prg": files["main.prg"].replace("setDynamicState", "brokenState") });
+  const redirected = createMemoryLoader({ ...files, "main.prg": files["main.prg"].replace("one.prg", "two.prg") });
+  notDeepEqual(behavior(original, "main.prg"), behavior(renamed, "main.prg"));
+  notDeepEqual(behavior(original, "main.prg"), behavior(redirected, "main.prg"));
+});
 
 const originals = { demo: {}, basic: {} };
 const formatted = { demo: {}, basic: {} };
@@ -36,6 +60,9 @@ for (const game of plan.games) {
   test(`${game.name}: sample programs retain their ${game.dialect} behavior`, () => {
     ok(files.length > 0, `${game.name} has fetched programs`);
     let rewritten = 0;
+    const key = game.name === "demo" ? "demo" : "basic";
+    const beforeLoader = game.dialect === "tk3" ? createMemoryLoader(originals[key]) : null;
+    const afterLoader = game.dialect === "tk3" ? createMemoryLoader(formatted[key]) : null;
     for (const file of files) {
       const bytes = readFileSync(file);
       const text = source(bytes);
@@ -48,7 +75,8 @@ for (const game of plan.games) {
       }
       equal(result.skipped, undefined, name);
       equal(formatSource(result.text, { dialect: "tk3" }).text, result.text, `${name}: idempotence`);
-      deepEqual(lower(result.text), lower(text), `${name}: lowered instructions`);
+      const path = relative(join(corpus, game.name, "Prg"), file).split(sep).join("/");
+      deepEqual(behavior(afterLoader, path), behavior(beforeLoader, path), `${name}: compiled behavior and includes`);
       if (result.changed) rewritten++;
     }
     if (game.dialect === "tk3") ok(rewritten > 0, `${game.name}: exercise an actual rewrite`);

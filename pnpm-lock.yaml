@@ -204,6 +204,9 @@ importers:
       '@tk-reawakened/runner-web':
         specifier: workspace:*
         version: link:packages/runner-web
+      '@tk-reawakened/script-tools':
+        specifier: workspace:*
+        version: link:packages/script-tools
       '@typescript/native':
         specifier: npm:typescript@7.0.2
         version: typescript@7.0.2
