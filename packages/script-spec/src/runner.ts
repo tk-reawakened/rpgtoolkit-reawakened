@@ -29,12 +29,14 @@ import {
   fileProgramRef,
   hashGameState,
   PACKAGE_ROOT,
+  registerActorObject,
   restoreGameState,
   snapshot,
   startProgram,
   STEP_BUDGET,
   type EffectRecord,
   type GameState,
+  type PluginDefinition,
   type ProgramLoader,
   type ScriptServices,
 } from "@tk-reawakened/core";
@@ -56,6 +58,9 @@ const PACKAGE_STARTUP = readFileSync(new URL("../package/startup.prg", import.me
 const SPEC_PROGRAM = "__spec.prg";
 const LIBRARY_INCLUDE = "script-spec/startup.prg";
 const LIBRARY_PATH = `Prg/${LIBRARY_INCLUDE}`;
+
+/** Project loader with the native commands belonging to its package, if any. */
+export type SpecProgramLoader = ProgramLoader & { readonly nativePlugin?: PluginDefinition };
 const SPEC_FILE_KEY = assetKey(`Prg/${SPEC_PROGRAM}`);
 
 /** The project loader plus this spec file and the includable library unit. */
@@ -119,7 +124,7 @@ export type SpecRunOptions = {
   /** A skip fails the run unless this is `false` (default `true`). */
   readonly strict?: boolean;
   /** Optional project program loader for includes made by the spec. */
-  readonly loader?: ProgramLoader;
+  readonly loader?: SpecProgramLoader;
 };
 
 export const ONLY_WARNING = "only() narrowed the run to the marked cases; unmarked cases were not run";
@@ -167,10 +172,14 @@ function freshState(seed: number): GameState {
   const actor = addActor(state.actors, { kind: "party", source: "spec-fixture.tem", stats: { hp: 10, maxHp: 10 } });
   state.party.members.push(actor.id);
   state.party.selected = actor.id;
+  const actorObject = registerActorObject(state.vm, state.events, state.actors, actor.id);
+  if (actorObject === null) throw new Error("spec fixture actor was not registered");
+  state.vm.globals.specactor = { kind: "object", handle: actorObject.handle, className: actorObject.className };
+  state.vm.globals.specactorid = actor.id;
   return state;
 }
 
-function runTask(source: string, seed: number, loader: ProgramLoader | undefined, task: Task): TaskRun {
+function runTask(source: string, seed: number, loader: SpecProgramLoader | undefined, task: Task): TaskRun {
   const state = task.from === null ? freshState(seed) : restoreGameState(task.from);
   // The snapshot carries the effect log of the run that took it; this run reports only its own.
   if (task.from !== null) drainEffects(state.vm);
@@ -187,7 +196,8 @@ function runTask(source: string, seed: number, loader: ProgramLoader | undefined
   let checkpoint: string | null = null;
   let checkpointFailure: string | null = null;
   let lastSeq = state.vm.effectSeq;
-  const services: ScriptServices = createScriptServices(state, [...DEFAULT_ENGINE_PLUGINS, { definition: SPEC_PLUGIN }], undefined, undefined, specProgram,
+  const nativePlugin = loader?.nativePlugin;
+  const services: ScriptServices = createScriptServices(state, [...DEFAULT_ENGINE_PLUGINS, ...(nativePlugin === undefined ? [] : [{ definition: nativePlugin }]), { definition: SPEC_PLUGIN }], undefined, undefined, specProgram,
     undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
       postHandler: (handler, threadId) => {
         if (handler.plugin !== "script-spec" || handler.name !== "specresult") return;
@@ -258,7 +268,7 @@ function runTask(source: string, seed: number, loader: ProgramLoader | undefined
 }
 
 /** Run a task twice: determinism is part of the contract, so a difference is a runner failure. */
-function runTwice(what: string, source: string, seed: number, loader: ProgramLoader | undefined, task: Task): TaskRun {
+function runTwice(what: string, source: string, seed: number, loader: SpecProgramLoader | undefined, task: Task): TaskRun {
   const first = runTask(source, seed, loader, task);
   const second = runTask(source, seed, loader, task);
   if (first.hash !== second.hash) {
@@ -305,7 +315,7 @@ const CASE_KINDS = ["normal", "skip", "only"] as const;
  * Run the spec file's registration alone: the library reports every group, case and group hook it registers
  * (collect mode records them and executes no body). A failure while registering fails discovery.
  */
-function collect(source: string, seed: number, loader?: ProgramLoader): Structure {
+function collect(source: string, seed: number, loader?: SpecProgramLoader): Structure {
   const run = runTask(source, seed, loader, { mode: COLLECT, target: 0, from: null });
   if (run.errors.length > 0) {
     const error = run.errors[0]!;
@@ -333,12 +343,12 @@ function collect(source: string, seed: number, loader?: ProgramLoader): Structur
 }
 
 /** The registered cases in source order, without executing their bodies. */
-export function discoverCases(source: string, seed = 0, loader?: ProgramLoader): string[] {
+export function discoverCases(source: string, seed = 0, loader?: SpecProgramLoader): string[] {
   return collect(source, seed, loader).cases.map((item) => item.name);
 }
 
 /** Whether the file registers at least one focused case, without running cases. */
-export function hasOnlyCases(source: string, seed = 0, loader?: ProgramLoader): boolean {
+export function hasOnlyCases(source: string, seed = 0, loader?: SpecProgramLoader): boolean {
   return collect(source, seed, loader).cases.some((item) => item.kind === "only");
 }
 

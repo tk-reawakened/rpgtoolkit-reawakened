@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,9 +13,13 @@ const nodePaths = [
 
 mkdirSync(join(here, "dist"), { recursive: true });
 mkdirSync(join(here, "server"), { recursive: true });
+copyFileSync(join(root, "LICENSE"), join(here, "LICENSE"));
+copyFileSync(join(root, "THIRD_PARTY_NOTICES"), join(here, "THIRD_PARTY_NOTICES"));
 
 // Desktop (node) extension host client.
-await build({
+const desktop = await build({
+  absWorkingDir: root,
+  metafile: true,
   entryPoints: [join(here, "src/extension.ts")],
   outfile: join(here, "dist/extension.js"),
   bundle: true,
@@ -32,7 +36,9 @@ await build({
 // reads `exports.activate`, so it must be CommonJS: an IIFE bundle (what this lane shipped
 // until #950) exports nothing, the host never enters `activate`, and every contribution the
 // extension makes on the web — the language client and the debug adapter — is silently dead.
-await build({
+const browser = await build({
+  absWorkingDir: root,
+  metafile: true,
   entryPoints: [join(here, "src/extension.browser.ts")],
   outfile: join(here, "dist/extension.browser.js"),
   bundle: true,
@@ -46,7 +52,9 @@ await build({
 });
 
 // Self-contained stdio language server for the packaged desktop extension.
-await build({
+const server = await build({
+  absWorkingDir: root,
+  metafile: true,
   entryPoints: [join(root, "packages/lsp/bin/stdio.ts")],
   outfile: join(here, "server/stdio.js"),
   bundle: true,
@@ -62,7 +70,9 @@ await build({
 });
 
 // Self-contained web-worker language server for the vscode.dev/web build.
-await build({
+const worker = await build({
+  absWorkingDir: root,
+  metafile: true,
   entryPoints: [join(here, "src/server.worker.ts")],
   outfile: join(here, "dist/server.worker.js"),
   bundle: true,
@@ -73,6 +83,7 @@ await build({
   logLevel: "warning",
   nodePaths,
 });
+writeFileSync(join(here, "dist/bundle-metafiles.json"), JSON.stringify([desktop.metafile, browser.metafile, server.metafile, worker.metafile]));
 
 
 // The debug adapter is a VS Code inline implementation (TOOL-1, TOOL-8; AD-21), so both

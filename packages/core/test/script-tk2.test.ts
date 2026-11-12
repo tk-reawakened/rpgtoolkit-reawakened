@@ -1,6 +1,7 @@
 import { deepEqual, equal, throws } from "node:assert/strict";
 import { test } from "node:test";
-import { compileTk2, normaliseTk2, parseTk2 } from "../src/index.ts";
+import { advanceScriptTick, compileTk2, createGameState, normaliseTk2, parseTk2, startProgram } from "../src/index.ts";
+import { createScriptServices } from "./script-test-services.ts";
 
 test("TK2 prefixes, sigils, equality and loose dialogue lower through the shared AST", () => {
   const source = "#score! = 1\n#If (score = 1) {\n#Mwin(Hello there)\n}\nLoose dialogue\n@";
@@ -74,4 +75,46 @@ test("TK2 commands accept trailing star comments without treating multiplication
   equal(multiplies.length, 2);
   equal(program.ops.some((op) => op.op === "push" && op.value === "two * three"), true);
   equal(program.ops.find((op) => op.op === "call" && op.name === "mwin")?.pos?.line, 3);
+});
+
+test("TK2 compiles and executes assignments with a type sigil after an array subscript", () => {
+  const source = "#index = 2\n#values[index]! = 17\n#result = values[index]";
+  const program = compileTk2(source, "typed-array.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+
+  advanceScriptTick(state, createScriptServices(state));
+
+  equal(state.vm.globals.result, 17);
+  equal(state.vm.threads[0]?.status, "finished");
+});
+
+test("TK2 strips sigils inside and after an array subscript before ~= comparison", () => {
+  const source = '#diagnalrightuppeaposition = 0\n#level[diagnalrightuppeaposition!]$ = "L"\n#if(level[diagnalrightuppeaposition!]$~="X") {\n#different = 1\n}\n#if(level[diagnalrightuppeaposition!]$~="L") {\n#equal = 1\n}';
+  const program = compileTk2(source, "subscript-condition.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+
+  advanceScriptTick(state, createScriptServices(state));
+
+  equal(state.vm.globals.different, 1);
+  equal(state.vm.globals.equal, undefined);
+  equal(state.vm.threads[0]?.status, "finished");
+});
+
+test("TK2 sigil stripping preserves punctuation in quoted strings", () => {
+  const source = '#Mwin("[OK]!, continue")';
+  equal(normaliseTk2(source), 'Mwin("[OK]!, continue")');
+
+  const statement = parseTk2(source).statements[0];
+  if (statement?.kind !== "expr" || statement.expr.kind !== "call") throw new Error("expected TK2 message call");
+  const message = statement.expr.args[0];
+  if (message?.kind !== "literal") throw new Error("expected TK2 message literal");
+  equal(message.value, "[OK]!, continue");
+
+  const dialogue = parseTk2("[OK]!, continue").statements[0];
+  if (dialogue?.kind !== "expr" || dialogue.expr.kind !== "call") throw new Error("expected loose dialogue call");
+  const dialogueText = dialogue.expr.args[0];
+  if (dialogueText?.kind !== "literal") throw new Error("expected loose dialogue literal");
+  equal(dialogueText.value, "[OK]!, continue");
 });

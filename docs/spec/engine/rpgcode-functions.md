@@ -93,7 +93,7 @@ The Toolkit 3.1 engine registers 282 command names, grouped by area; 14 are alia
 | `setconstants` | `setconstants(...)` | Description. | obsolete: raises an error and the statement is skipped |
 | `multirun` | `multirun()` | Multirun()'s behaviour depends on the program's context. |  |
 | `iif` | `iif(condition, true, false)` | Obsolete. Use the tertiary operator result = (expression ? true part : false part) | obsolete: warning; use the `?:` operator |
-| `gettickcount` | `int gettickcount()` | Get the number of milliseconds since Windows started. |  |
+| `gettickcount` | `int gettickcount()` | Get the game time elapsed since startup, in milliseconds. The fixed 60 Hz simulation tick gives `floor(tick × 1000 / 60)`. |  |
 | `resumeNext` | `void resumeNext()` | Return to the statement after the statement where an error occurred. |  |
 | `setErrorHandler` | `void setErrorHandler(label lbl)` | Set an error handler for the current function. This does not propagate up the call stack! Refer to the language features section of the manual for more information. |  |
 | `setResumeNextHandler` | `void setResumeNextHandler()` | Cause errors in the current function to be silently ignored. |  |
