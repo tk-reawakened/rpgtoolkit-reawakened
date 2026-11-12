@@ -76,6 +76,14 @@ test("migration preserves unprefixed calls and angle dialogue execution", () => 
   deepEqual(mwinText(fixed, "tk3"), expected);
 });
 
+test("migration keeps digit-leading and multiple calls and refuses qualified dependencies", () => {
+  const source = '#Method 1foo(n) {\n#first = n\n}\n#Method bar(n) {\n#second = n\n}\n1foo(x = 1); bar(y = 2)\n#Mwin(first!)\n#Mwin(second!)';
+  const fixed = migrate(source);
+  deepEqual(mwinText(source, "tk2"), ["1", "2"]);
+  deepEqual(mwinText(fixed, "tk3"), ["1", "2"]);
+  deepEqual(legacyFixes("system.foo(x = 1)", "tk2"), []);
+});
+
 test("mixed legacy forms are converted together and retain comments and CRLF", () => {
   const source = "* keep this comment\r\n#If (x = 5) {\r\n  #y! = 1\r\n}\r\nHello there\r\n#threadSleep(1, 2) * keep this too\r\n";
   const fixed = migrate(source);
