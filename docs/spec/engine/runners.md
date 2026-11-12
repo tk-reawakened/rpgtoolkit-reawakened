@@ -90,7 +90,7 @@ the world tint (`tint`), `alpha` and `blend`:
 2. **World stage.** Apply `tint` — the pre-summed board shading and ambient — to the sampled texel under the R-15 rule
    ([tiles.md#shading](../formats/tiles.md#shading)): remap pure white to `245` and pure black to `10` when this tint
    is non-zero, add it, and clamp once.
-3. **Blend.** `normal`, `additive`, `translucent`, or v2 `source-over` (AD-3). For `source-over`, let `a = floor(sourceAlpha × alpha / 255)`; each target colour channel is `floor((source × a + target × (255 − a) + 127) / 255)` and target alpha is `a + floor((targetAlpha × (255 − a) + 127) / 255`. The normal mode still replaces, not composites. An enabled render-now overlay uses `source-over` so its straight-alpha ink covers the frame once.
+3. **Blend.** `normal`, `additive`, `translucent`, or v2 `source-over` (AD-3). Source and target are straight-alpha RGBA. For `source-over`, let `a = floor(sourceAlpha × alpha / 255)`, `d = targetAlpha`, and `n = a × 255 + d × (255 − a)`. If `n` is zero, leave the target unchanged; otherwise the output alpha is `floor((n + 127) / 255)` and each output colour channel is `floor((source × a × 255 + target × d × (255 − a) + floor(n / 2)) / n)`. Thus a partially transparent destination is not treated as opaque. The normal mode still replaces, not composites. An enabled render-now overlay uses `source-over` so its straight-alpha ink covers the frame once.
 
 The order is part of the agreement bound below: **colour-key exclusion is compared exactly**, so a runner that keys
 after the world tint fails the colour-key vectors.
