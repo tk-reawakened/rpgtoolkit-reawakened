@@ -13,6 +13,9 @@
     "bmad:tickets:test": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s _bmad/method/scripts/tests -v",
     "lint": "node tools/check-core-deps.mjs && eslint .",
     "ci:classify:test": "node --test tools/ci/test/classify-changes.test.mjs",
+    "release:test": "node --test tools/release/test/*.test.mjs",
+    "release:licence": "node tools/release/audit-installed.mjs",
+    "release:preflight": "node tools/release/preflight.mjs",
     "ci:playwright-image:check": "node tools/ci/check-playwright-image.mjs",
     "ci:playwright-image:test": "node --test tools/ci/test/check-playwright-image.test.mjs",
     "graph": "node tools/deps/graph.mjs",
@@ -95,6 +98,7 @@
     "electron": "45.2.1",
     "esbuild": "0.28.2",
     "eslint": "10.12.0",
+    "ovsx": "0.7.0",
     "preact": "11.2.0",
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "8.71.1"

@@ -62,6 +62,88 @@ a spec file that registers no case fails as `spec.no-cases`. `skip(name, body)` 
 the spec package's commands, not the engine's built-in commands (tracked as a defect
 of the runner).
 
+## RPGCode tools for game projects
+
+The public packages and Action described here are being prepared for release;
+their availability must be verified in the registries before relying on them.
+With Node 24.21.0, install `@tk-reawakened/script-cli@1.0.0` or run:
+
+```sh
+npx --yes --package @tk-reawakened/script-cli@1.0.0 -- tkr script check ./game --json
+npx --yes --package @tk-reawakened/script-cli@1.0.0 -- tkr script fmt --check ./game --json
+npx --yes --package @tk-reawakened/script-cli@1.0.0 -- tkr script test ./game --json
+```
+
+`--json` writes one `tkr-script-result/1` object to stdout; diagnostics for people
+go to stderr. Exit codes are 0 (success), 1 (findings), 2 (usage or configuration
+error), and 3 (internal error). The fields and schema evolution policy are in
+[TOOL-9](docs/spec/engine/rpgcode-tooling.md#tool-9).
+
+To use the released Action in an author's GitHub Actions workflow, replace
+`<release-commit>` with the full commit SHA of a reviewed release:
+
+```yaml
+steps:
+  - uses: actions/checkout@v7
+  - uses: actions/setup-node@v7
+    with:
+      node-version: 24.21.0
+  - uses: tk-reawakened/rpgtoolkit-reawakened/.github/actions/script@<release-commit>
+    with:
+      version: '1.0.0'
+      path: ./game
+```
+
+For another JavaScript test runner, install `@tk-reawakened/runner-harness@1.0.0`
+and use its public entry point. For example, a Node test can drive a script
+without a renderer:
+
+```js
+import { strict as assert } from 'node:assert';
+import { test } from 'node:test';
+import { createNullAudio, createScriptHost, runLog } from '@tk-reawakened/runner-harness';
+
+test('my script runs', () => {
+  const host = createScriptHost({ program: 'answer = 42\nend()\n', seed: 0 });
+  const ticks = runLog(host, { schema: 1, ticks: 1, log: [] }, 1, createNullAudio());
+  assert.equal(ticks.length, 1);
+  assert.equal(host.state().vm.globals.answer, 42);
+});
+```
+
+The packages' documented root exports follow semantic versioning: compatible
+additions are minor releases and breaking removals or changes require a major
+release. The result protocol has the explicit TOOL-9 compatibility policy above.
+Internal files and unexported paths are not public API.
+
+### Preparing a tooling release
+
+`pnpm release:preflight` builds and packs the seven packages, installs them in
+an isolated temporary directory, checks their licences, runs real CLI and Action
+commands under Node and Bun, and validates the JSON against TOOL-9. It does not
+publish. After publication, `pnpm release:preflight --published` installs exact
+versions from the public npm registry with a separate home and cache and repeats
+those checks. Both commands also test failure paths; they require network access.
+
+The manual **Publish RPGCode tooling** workflow operates only on `main` after a
+successful CI push run for the same commit. Configure and protect its `release`
+environment and provide `NPM_TOKEN`, `VSCE_PAT`, and `OVSX_PAT`. Independently
+confirm that the credentials can publish to the npm scope and the
+`tk-reawakened` namespace in both extension registries, then confirm that in
+the dispatch form. `vsce verify-pat` can succeed for a read-only Marketplace
+role, and `npm whoami` proves identity, not scope write access; neither alone
+proves publishing rights. The workflow also checks credentials, package and
+bundle licences, and preflight. Never put secrets in a repository file.
+
+Publishing can fail partway through: npm versions already present are skipped
+only if their registry integrity matches the candidate tarball; a mismatch
+stops the run. Extension uploads are not automatically skipped or overwritten.
+If an upload fails after the other registry accepted it, inspect the published
+version and VSIX; then select only the missing registry and confirm that the
+existing registry matches when dispatching the workflow again. Never blindly
+skip a mismatched version. Verify the Action in a separate fixture repository and
+install and exercise the extension from both registries before closing #951.
+
 
 ## Set up
 
