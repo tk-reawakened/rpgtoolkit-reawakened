@@ -466,8 +466,8 @@
         {
           "code": "syntax.error",
           "file": "prg/level1.prg",
-          "line": 15,
-          "message": "unknown character \"$\"; docs/spec/engine/rpgcode-functions.md#rpgcode-built-in-commands (LEX-11) makes this a lexical error"
+          "line": 629,
+          "message": "expected an expression but found `}`"
         }
       ],
       "checkpoints": [
