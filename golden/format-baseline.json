@@ -46,8 +46,11 @@
     "packages/core/test/fixtures/authored/program-call-run.prg",
     "packages/core/test/fixtures/authored/program-call-self.prg",
     "packages/core/test/fixtures/authored/program-call-stop.prg",
+    "stock/stock_battle/battle.spec.prg",
     "stock/stock_battle/startup.prg",
+    "stock/stock_menu/menu.spec.prg",
     "stock/stock_menu/startup.prg",
+    "stock/stock_rpg/bridge.spec.prg",
     "stock/stock_rpg/startup.prg"
   ],
   "tk2": [
