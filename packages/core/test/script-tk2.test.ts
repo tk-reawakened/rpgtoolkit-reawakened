@@ -90,14 +90,15 @@ test("TK2 compiles and executes assignments with a type sigil after an array sub
 });
 
 test("TK2 strips sigils inside and after an array subscript before ~= comparison", () => {
-  const source = '#diagnalrightuppeaposition = 0\n#level[diagnalrightuppeaposition!]$ = "L"\n#if(level[diagnalrightuppeaposition!]$~="L") {\n#result = 1\n}';
+  const source = '#diagnalrightuppeaposition = 0\n#level[diagnalrightuppeaposition!]$ = "L"\n#if(level[diagnalrightuppeaposition!]$~="X") {\n#different = 1\n}\n#if(level[diagnalrightuppeaposition!]$~="L") {\n#equal = 1\n}';
   const program = compileTk2(source, "subscript-condition.prg");
   const state = createGameState({ seed: 0 });
   startProgram(state.vm, program.ref);
 
   advanceScriptTick(state, createScriptServices(state));
 
-  equal(state.vm.globals.result, 1);
+  equal(state.vm.globals.different, 1);
+  equal(state.vm.globals.equal, undefined);
   equal(state.vm.threads[0]?.status, "finished");
 });
 
