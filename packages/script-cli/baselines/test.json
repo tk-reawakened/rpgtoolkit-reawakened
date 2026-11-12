@@ -6,6 +6,9 @@
         {
           "cases": [
             {
+              "groups": [
+                "math"
+              ],
               "name": "adds",
               "ok": true,
               "outcomes": [
@@ -21,6 +24,9 @@
               "stateHash": "368dc2db4dadf1c2"
             },
             {
+              "groups": [
+                "math"
+              ],
               "name": "subtracts",
               "ok": true,
               "outcomes": [
@@ -36,6 +42,7 @@
               "stateHash": "cc2c74c15186fc1a"
             },
             {
+              "groups": [],
               "name": "the engine built-ins are available to specs",
               "ok": true,
               "outcomes": [

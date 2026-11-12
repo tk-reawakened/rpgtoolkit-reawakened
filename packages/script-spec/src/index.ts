@@ -14,7 +14,7 @@ import { SPEC_COMMANDS, SPEC_GROUP } from "./natives.ts";
 
 export { discoverCases, failureMessage, hasOnlyCases, NO_CASES, ONLY_WARNING, runSpecFile } from "./runner.ts";
 export type { SpecCaseResult, SpecFileReport, SpecOutcome, SpecOutcomeKind, SpecRunOptions } from "./runner.ts";
-export { discoverProjectSpecs, runSpecProject } from "./project.ts";
+export { discoverProjectSpecs, runSpecProject, watchSpecProject } from "./project.ts";
 export type { SpecProjectOptions, SpecProjectReport } from "./project.ts";
 
 export const SPEC_PLUGIN: PluginDefinition = {

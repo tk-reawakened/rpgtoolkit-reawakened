@@ -102,6 +102,7 @@ export type SpecOutcome = {
 
 export type SpecCaseResult = {
   readonly name: string;
+  readonly groups: readonly string[];
   readonly outcomes: readonly SpecOutcome[];
   /** Strict: only passes count. Lenient: a skip is tolerated and still reported. */
   readonly ok: boolean;
@@ -123,6 +124,8 @@ export type SpecRunOptions = {
   readonly seed?: number;
   /** A skip fails the run unless this is `false` (default `true`). */
   readonly strict?: boolean;
+  /** Case-sensitive substring of the group and case names joined by ` > `. */
+  readonly name?: string;
   /** Optional project program loader for includes made by the spec. */
   readonly loader?: SpecProgramLoader;
 };
@@ -292,6 +295,7 @@ export function failureMessage(outcome: SpecOutcome): string {
 type Group = {
   readonly id: number;
   readonly parent: number;
+  readonly name: string;
   readonly hasBeforeAll: boolean;
   readonly hasAfterAll: boolean;
 };
@@ -321,14 +325,14 @@ function collect(source: string, seed: number, loader?: SpecProgramLoader): Stru
     const error = run.errors[0]!;
     throw new Error(`spec discovery failed at line ${error.line} (${error.code}): ${error.message}`);
   }
-  const groups = new Map<number, { id: number; parent: number; hasBeforeAll: boolean; hasAfterAll: boolean }>();
-  groups.set(0, { id: 0, parent: 0, hasBeforeAll: false, hasAfterAll: false });
+  const groups = new Map<number, { id: number; parent: number; name: string; hasBeforeAll: boolean; hasAfterAll: boolean }>();
+  groups.set(0, { id: 0, parent: 0, name: "", hasBeforeAll: false, hasAfterAll: false });
   const cases: RegisteredCase[] = [];
   for (const outcome of run.outcomes) {
     if (outcome.kind !== "pass") continue;
     const parts = outcome.actual.split(":").map(Number);
     if (outcome.expected === "group") {
-      groups.set(parts[0]!, { id: parts[0]!, parent: parts[1]!, hasBeforeAll: false, hasAfterAll: false });
+      groups.set(parts[0]!, { id: parts[0]!, parent: parts[1]!, name: outcome.label, hasBeforeAll: false, hasAfterAll: false });
     } else if (outcome.expected === "case") {
       cases.push({ id: parts[1]!, name: outcome.label, kind: CASE_KINDS[parts[0]!] ?? "normal", group: parts[2]! });
     } else if (outcome.expected === "hook") {
@@ -387,14 +391,13 @@ export function runSpecFile(file: string, source: string, options: SpecRunOption
     };
     return {
       file,
-      cases: [{ name: NO_CASES, outcomes: [outcome], ok: false, stateHash: structure.hash }],
+      cases: [{ name: NO_CASES, groups: [], outcomes: [outcome], ok: false, stateHash: structure.hash }],
       skipped: [],
       warning: null,
       failures: [`${file}: ${NO_CASES}: the spec file registers no case (line 1)`],
     };
   }
   const onlySeen = structure.cases.some((item) => item.kind === "only");
-  const selected = structure.cases.filter((item) => !onlySeen || item.kind === "only");
 
   /** The group and its ancestors, innermost first, up to and including the file (group 0). */
   const lineage = (group: number): number[] => {
@@ -402,6 +405,10 @@ export function runSpecFile(file: string, source: string, options: SpecRunOption
     while (chain[chain.length - 1] !== 0) chain.push(structure.groups.get(chain[chain.length - 1]!)!.parent);
     return chain;
   };
+  const groupsFor = (group: number): string[] =>
+    lineage(group).filter((id) => id !== 0).reverse().map((id) => structure.groups.get(id)!.name);
+  const selected = structure.cases.filter((item) =>
+    (!onlySeen || item.kind === "only") && [...groupsFor(item.group), item.name].join(" > ").includes(options.name ?? ""));
   const setups = new Map<number, Setup>();
   const setupOf = (group: number): Setup => {
     const known = setups.get(group);
@@ -483,7 +490,7 @@ export function runSpecFile(file: string, source: string, options: SpecRunOption
     if (!blocked && own.length === 0) failures.push(`${file}: ${name}: recorded no assertion`);
     if (item.kind === "skip" && strict) failures.push(`${file}: ${name}: skipped in strict mode`);
     for (const outcome of outcomes) if (outcome.kind === "fail") failures.push(`${file}: ${name}: ${failureMessage(outcome)} (line ${outcome.line})`);
-    cases.push({ name, outcomes, ok, stateHash: hash });
+    cases.push({ name, groups: groupsFor(item.group), outcomes, ok, stateHash: hash });
   }
   return { file, cases, skipped, warning: onlySeen ? ONLY_WARNING : null, failures };
 }

@@ -6,6 +6,9 @@
         {
           "cases": [
             {
+              "groups": [
+                "stock battle outcome"
+              ],
               "name": "continues while both parties have living fighters",
               "ok": true,
               "outcomes": [
@@ -21,6 +24,9 @@
               "stateHash": "1b11e9c5e4acc181"
             },
             {
+              "groups": [
+                "stock battle outcome"
+              ],
               "name": "declares victory when all enemies have fallen",
               "ok": true,
               "outcomes": [
@@ -36,6 +42,9 @@
               "stateHash": "a88e6ac36d28d4a3"
             },
             {
+              "groups": [
+                "stock battle outcome"
+              ],
               "name": "prioritizes defeat when both parties have fallen",
               "ok": true,
               "outcomes": [

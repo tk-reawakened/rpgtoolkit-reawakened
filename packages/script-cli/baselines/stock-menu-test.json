@@ -6,6 +6,9 @@
         {
           "cases": [
             {
+              "groups": [
+                "stock menu navigation"
+              ],
               "name": "normalizes legacy keys",
               "ok": true,
               "outcomes": [
@@ -45,6 +48,9 @@
               "stateHash": "672f49b04809bae2"
             },
             {
+              "groups": [
+                "stock menu navigation"
+              ],
               "name": "chooses the first row of the selected page",
               "ok": true,
               "outcomes": [

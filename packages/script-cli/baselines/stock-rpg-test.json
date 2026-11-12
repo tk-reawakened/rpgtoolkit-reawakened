@@ -6,6 +6,7 @@
         {
           "cases": [
             {
+              "groups": [],
               "name": "forwards completed dialogue to the speaking actor",
               "ok": true,
               "outcomes": [

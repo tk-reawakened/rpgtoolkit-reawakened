@@ -7,7 +7,7 @@
  * 1 findings in the project, 2 usage or configuration error, 3 internal error.
  */
 
-import { accessSync, constants, statSync } from "node:fs";
+import { accessSync, constants, statSync, watch } from "node:fs";
 import { parseArgs, type SubcommandName } from "./args.ts";
 import { runCheck } from "./commands/check.ts";
 import { runDocs } from "./commands/docs.ts";
@@ -68,7 +68,7 @@ function run(): Outcome {
     case "fmt":
       return runFmt(args.paths, args.dialect, args.check, args.json);
     case "test":
-      return runTest(args.paths, args.strict, args.json);
+      return runTest(args.paths, args.strict, args.json, args.name, args.reporter);
     case "docs":
       return runDocs(args.check, args.out, args.json);
     case "index":
@@ -76,21 +76,43 @@ function run(): Outcome {
   }
 }
 
-const jsonMode = process.argv.includes("--json");
+const parsed = parseArgs(process.argv);
+const jsonMode = process.argv.includes("--json") || process.argv.includes("--reporter=json")
+  || process.argv.some((arg, index) => arg === "--reporter" && process.argv[index + 1] === "json");
 
-try {
-  const { result, text, human } = run();
-  if (jsonMode) {
-    // The envelope is the whole of stdout; the readable report goes to stderr (TOOL-9).
-    process.stdout.write(stableStringify(result));
-    if (human.length > 0) process.stderr.write(human);
-  } else if (text.length > 0) {
-    process.stdout.write(text);
+function execute(): void {
+  try {
+    const { result, text, human } = run();
+    if (jsonMode) {
+      process.stdout.write(stableStringify(result));
+      if (human.length > 0) process.stderr.write(human);
+    } else if (text.length > 0) {
+      process.stdout.write(text);
+    }
+    process.exitCode = result.exitCode;
+  } catch (error) {
+    const result = internalErrorResult(activeSubcommand, error);
+    if (jsonMode) process.stdout.write(stableStringify(result));
+    process.stderr.write(`tkr: internal error: ${result.diagnostics[0]!.message}\n`);
+    process.exitCode = 3;
   }
-  process.exitCode = result.exitCode;
-} catch (error) {
-  const result = internalErrorResult(activeSubcommand, error);
-  if (jsonMode) process.stdout.write(stableStringify(result));
-  process.stderr.write(`tkr: internal error: ${result.diagnostics[0]!.message}\n`);
-  process.exitCode = 3;
+}
+
+if (parsed.ok && parsed.args.subcommand === "test" && parsed.args.watch && validatePaths(parsed.args.paths).length === 0) {
+  const root = parsed.args.paths.length === 1 && !parsed.args.paths[0]!.includes("*") ? parsed.args.paths[0]! : ".";
+  try {
+    const watcher = watch(root, { recursive: true }, execute);
+    watcher.on("error", (error) => {
+      process.stderr.write(`tkr: watch error: ${error.message}\n`);
+      process.exitCode = 3;
+      watcher.close();
+    });
+    process.once("SIGINT", () => { watcher.close(); });
+    execute();
+  } catch (error) {
+    process.stderr.write(`tkr: watch error: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 3;
+  }
+} else {
+  execute();
 }
