@@ -1,7 +1,7 @@
 {
   "name": "@tk-reawakened/script-spec",
-  "version": "0.0.0",
-  "private": true,
+  "version": "1.0.0",
+  "files": ["dist", "!dist/.tsbuildinfo", "package"],
   "license": "MIT",
   "type": "module",
   "scripts": {

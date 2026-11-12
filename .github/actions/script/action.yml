@@ -1,0 +1,20 @@
+name: Check RPGCode
+description: Check, format-check and test an RPGCode project with a released tkr CLI.
+inputs:
+  path:
+    description: Project directory relative to the workspace.
+    required: false
+    default: '.'
+  version:
+    description: Exact published @tk-reawakened/script-cli version.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Run RPGCode tools
+      shell: bash
+      env:
+        TKR_PROJECT: ${{ inputs.path }}
+        TKR_VERSION: ${{ inputs.version }}
+        TKR_ACTION_PATH: ${{ github.action_path }}
+      run: bash "$TKR_ACTION_PATH/run.sh"
