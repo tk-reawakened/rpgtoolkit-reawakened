@@ -88,3 +88,14 @@ test("TK2 compiles and executes assignments with a type sigil after an array sub
   equal(state.vm.globals.result, 17);
   equal(state.vm.threads[0]?.status, "finished");
 });
+
+test("TK2 sigil stripping preserves punctuation in quoted strings", () => {
+  const source = '#Mwin("[OK]!, continue")';
+  equal(normaliseTk2(source), 'Mwin("[OK]!, continue")');
+
+  const statement = parseTk2(source).statements[0];
+  if (statement?.kind !== "expr" || statement.expr.kind !== "call") throw new Error("expected TK2 message call");
+  const message = statement.expr.args[0];
+  if (message?.kind !== "literal") throw new Error("expected TK2 message literal");
+  equal(message.value, "[OK]!, continue");
+});
