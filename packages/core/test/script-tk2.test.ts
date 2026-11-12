@@ -34,6 +34,28 @@ test("TK2 normalization keeps quoted operators, hash text and comments distinct"
   equal(normaliseTk2('* #ignored = text\nHi #there'), '\nmwin("Hi #there")');
 });
 
+test("TK2 backslashes do not escape quotes and inline prefixes remain executable", () => {
+  const source = '#a$ = "x\\"\n#If (a$ = "x\\") { #matched$ = "yes" }\n#If (a$ = "y\\") { #wrong = 1 }\n#Mwin(a$)';
+  const state = createGameState({ seed: 0 });
+  const program = compileTk2(source, "backslash.prg");
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.a, "x\\");
+  equal(state.vm.globals.matched, "yes");
+  equal(state.vm.globals.wrong, undefined);
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["x\\"]);
+});
+
+test("TK2 loose dialogue can contain equals without changing unprefixed assignments", () => {
+  const source = 'value = 7\nHi #there = friend\n#Mwin(value!)';
+  const state = createGameState({ seed: 0 });
+  const program = compileTk2(source, "dialogue-equals.prg");
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.value, 7);
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Hi #there = friend", "7"]);
+});
+
 test("TK2 methods, labels, namespace calls and fbranch preserve shared shapes", () => {
   const ast = parseTk2("#Method Add(a, b) { #ReturnMethod(a + b) }\n:again\n#FBranch(:again)\n#system.start()");
   equal(ast.functions[0]?.name, "add");

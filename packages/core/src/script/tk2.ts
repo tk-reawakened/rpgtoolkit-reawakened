@@ -35,7 +35,7 @@ function matchingClose(text: string, open: number): number {
   let quote = false;
   for (let i = open; i < text.length; i += 1) {
     const ch = text[i]!;
-    if (ch === '"' && text[i - 1] !== "\\") quote = !quote;
+    if (ch === '"') quote = !quote;
     if (quote) continue;
     if (ch === "(") depth += 1;
     if (ch === ")") {
@@ -53,7 +53,7 @@ function splitArgs(text: string): string[] {
   let quote = false;
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i]!;
-    if (ch === '"' && text[i - 1] !== "\\") quote = !quote;
+    if (ch === '"') quote = !quote;
     if (quote) continue;
     if (ch === "(" || ch === "[") depth += 1;
     else if (ch === ")" || ch === "]") depth -= 1;
@@ -136,13 +136,13 @@ function bindRawArguments(line: string, lookup: Tk2CommandLookup | undefined): s
 
 function stripSigils(text: string): string {
   return text.replace(
-    /"(?:\\.|[^"\\])*"|([A-Za-z_][A-Za-z0-9_]*|\])([$!])(?=\s*(?:=|[)\],;~]|$))/g,
+    /"[^"]*"|([A-Za-z_][A-Za-z0-9_]*|\])([$!])(?=\s*(?:=|[)\],;~]|$))/g,
     (match, name: string | undefined) => name === undefined ? match : match.slice(0, -1),
   );
 }
 
 function equalityInCondition(text: string): string {
-  const masked = text.replace(/"(?:\\.|[^"\\])*"/g, (value) => " ".repeat(value.length));
+  const masked = text.replace(/"[^"]*"/g, (value) => " ".repeat(value.length));
   const condition = /\b(if|while)\s*\(/gi;
   let cursor = 0;
   let result = "";
@@ -151,12 +151,26 @@ function equalityInCondition(text: string): string {
     const close = matchingClose(text, open);
     if (close < 0) break;
     const body = text.slice(open + 1, close);
-    const fixed = body.replace(/"(?:\\.|[^"\\])*"|(?<![<>=!~])=(?!=)/g, (match) => match === "=" ? "==" : match);
+    const fixed = body.replace(/"[^"]*"|(?<![<>=!~])=(?!=)/g, (match) => match === "=" ? "==" : match);
     result += text.slice(cursor, found.index) + found[1] + " (" + fixed + ")";
     cursor = close + 1;
     condition.lastIndex = cursor;
   }
   return result + text.slice(cursor);
+}
+
+/** An unprefixed assignment is code; an equals sign in other loose text is not. */
+function isAssignment(line: string): boolean {
+  const operators = /(?:<<|>>|[+\-*/%^&|`])?=(?!=)/g;
+  for (let match = operators.exec(line); match !== null; match = operators.exec(line)) {
+    try {
+      const statements = parse(tokenizeObjects(`${line.slice(0, match.index)} = 0`)).statements;
+      if (statements.length === 1 && statements[0]?.kind === "expr" && statements[0].expr.kind === "assign") return true;
+    } catch (error) {
+      if (!(error instanceof ScriptError)) throw error;
+    }
+  }
+  return false;
 }
 
 function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined): string {
@@ -175,10 +189,10 @@ function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined): strin
   }
   line = line.replace(/^returnmethod\b/i, "return").replace(/^method\b/i, "function");
   if (line.length === 0) return "";
-  if (!raw.trimStart().startsWith("#") && !/^(if|while|until|for|switch|case|default|else|function|return|[:{}])(?:\b|$)/i.test(line) && !line.includes("=") && !line.endsWith("{")) {
+  if (!raw.trimStart().startsWith("#") && !/^(if|while|until|for|switch|case|default|else|function|return|[:{}])(?:\b|$)/i.test(line) && !isAssignment(line) && !line.endsWith("{")) {
     return `mwin(${quoted(line)})`;
   }
-  line = line.replace(/"(?:\\.|[^"\\])*"|(^|[{\s;])#(?=[A-Za-z_@])/g, (match, prefix: string | undefined) => prefix === undefined ? match : prefix);
+  line = line.replace(/"[^"]*"|(^|[{\s;])#(?=[A-Za-z_@])/g, (match, prefix: string | undefined) => prefix === undefined ? match : prefix);
   // Bind raw text while variable sigils still distinguish names from literals.
   line = bindRawArguments(line, lookup);
   line = stripSigils(line);
