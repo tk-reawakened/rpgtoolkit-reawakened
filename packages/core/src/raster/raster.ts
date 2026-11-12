@@ -241,14 +241,16 @@ function drawText(
       target.rgba[at + 3] = 255;
       continue;
     }
-    const dr = target.rgba[at] ?? 0;
-    const dg = target.rgba[at + 1] ?? 0;
-    const db = target.rgba[at + 2] ?? 0;
     const da = target.rgba[at + 3] ?? 0;
-    target.rgba[at] = Math.floor((dr * (255 - coverage) + r * coverage + 127) / 255);
-    target.rgba[at + 1] = Math.floor((dg * (255 - coverage) + g * coverage + 127) / 255);
-    target.rgba[at + 2] = Math.floor((db * (255 - coverage) + b * coverage + 127) / 255);
-    target.rgba[at + 3] = Math.min(255, da + Math.floor((coverage * (255 - da) + 127) / 255));
+    const sourceWeight = coverage * 255;
+    const targetWeight = da * (255 - coverage);
+    const weight = sourceWeight + targetWeight;
+    if (weight === 0) continue;
+    const half = Math.floor(weight / 2);
+    target.rgba[at] = Math.floor((clampByte(r) * sourceWeight + (target.rgba[at] ?? 0) * targetWeight + half) / weight);
+    target.rgba[at + 1] = Math.floor((clampByte(g) * sourceWeight + (target.rgba[at + 1] ?? 0) * targetWeight + half) / weight);
+    target.rgba[at + 2] = Math.floor((clampByte(b) * sourceWeight + (target.rgba[at + 2] ?? 0) * targetWeight + half) / weight);
+    target.rgba[at + 3] = Math.floor((weight + 127) / 255);
   }
   return null;
 }

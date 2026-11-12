@@ -78,20 +78,22 @@ function projectFontPackage(): { readonly bytes: Uint8Array; readonly descriptor
   };
 }
 
-type Pixel = readonly [number, number, number];
+type Pixel = readonly [number, number, number, number];
 
 /** How many pixels of `region` differ from what drawing `ink` over a uniform `background` would leave. */
 function mismatches(pixels: ReadonlyMap<string, Pixel>, ink: readonly TextInk[], rgb: Rgb, background: Pixel): number {
   const covered = new Map<string, number>();
   for (const point of ink) covered.set(`${point.x},${point.y}`, point.coverage);
-  const ink3: Pixel = [rgb.r, rgb.g, rgb.b];
+  const ink3 = [rgb.r, rgb.g, rgb.b];
   let bad = 0;
   for (const [at, pixel] of pixels) {
     const coverage = covered.get(at) ?? 0;
     const tolerance = coverage === 0 || coverage === 255 ? 0 : 2;
-    const expected = ink3.map((channel, index) => coverage === 0
-      ? background[index]!
-      : Math.round(background[index]! + (channel - background[index]!) * coverage / 255));
+    const weight = coverage * 255 + background[3] * (255 - coverage);
+    const expected = weight === 0 ? background : [
+      ...ink3.map((channel, index) => Math.floor((channel * coverage * 255 + background[index]! * background[3] * (255 - coverage) + Math.floor(weight / 2)) / weight)),
+      Math.floor((weight + 127) / 255),
+    ];
     if (pixel.some((channel, index) => Math.abs(channel - expected[index]!) > tolerance)) bad += 1;
   }
   return bad;
@@ -157,7 +159,7 @@ test("a project TrueType face in the package is what the live WebGL renderer dra
   for (let row = 0; row < region.height; row += 1) {
     for (let column = 0; column < region.width; column += 1) {
       const at = ((region.height - 1 - row) * region.width + column) * 4;
-      pixels.set(`${region.left + column},${region.top + row}`, [shot.rgba[at]!, shot.rgba[at + 1]!, shot.rgba[at + 2]!]);
+      pixels.set(`${region.left + column},${region.top + row}`, [shot.rgba[at]!, shot.rgba[at + 1]!, shot.rgba[at + 2]!, shot.rgba[at + 3]!]);
     }
   }
   // The background is whatever the region holds away from the reference glyph pixels, so no colour is assumed.
@@ -165,7 +167,7 @@ test("a project TrueType face in the package is what the live WebGL renderer dra
   const counts = new Map<string, number>();
   for (const [at, pixel] of pixels) if (!inked.has(at)) counts.set(pixel.join(","), (counts.get(pixel.join(",")) ?? 0) + 1);
   const channels = [...counts].sort((a, b) => b[1] - a[1])[0]![0].split(",").map(Number);
-  const background: Pixel = [channels[0]!, channels[1]!, channels[2]!];
+  const background: Pixel = [channels[0]!, channels[1]!, channels[2]!, channels[3]!];
 
   expect(mismatches(pixels, reference, command.rgb, background), "the canvas shows the project face's glyph pixels").toBe(0);
   // The same check against the bitmap fallback must fail, so a renderer that reverted to it could not pass this test.

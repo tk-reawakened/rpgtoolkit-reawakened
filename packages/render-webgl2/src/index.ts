@@ -37,6 +37,7 @@ uniform sampler2D uTex; uniform sampler2D uDestination; uniform int uMode; unifo
 uniform int uKeyOn; uniform vec3 uKey; uniform ivec2 uSrcOrigin; uniform ivec2 uSrcSize; uniform ivec2 uDstSize; uniform float uOpacity;
 void main(){
  if(uMode==0||uMode==2||uMode==4){ ivec2 at=ivec2(int(floor(vLocal.x*float(uDstSize.x)+0.0001)),int(floor(vLocal.y*float(uDstSize.y)+0.0001))); ivec2 t=uSrcOrigin+at*uSrcSize/uDstSize; vec4 s=texelFetch(uTex,t,0); if(s.a==0.0)discard; vec3 c=s.rgb*255.0; if(uKeyOn==1&&all(lessThan(abs(c-uKey),vec3(0.5))))discard; if(any(notEqual(uTint,vec3(0.0)))) c=vec3(c.r==255.0?245.0:(c.r==0.0?10.0:c.r),c.g==255.0?245.0:(c.g==0.0?10.0:c.g),c.b==255.0?245.0:(c.b==0.0?10.0:c.b)); c=clamp(c+uTint,0.0,255.0); if(uMode==4){ vec4 d=texelFetch(uDestination,ivec2(gl_FragCoord.xy),0); float a=floor(floor(s.a*255.0+0.5)*uOpacity+0.0001); float da=floor(d.a*255.0+0.5); float n=a*255.0+da*(255.0-a); if(n==0.0)discard; vec3 rgb=floor((c*a*255.0+floor(d.rgb*255.0+0.5)*da*(255.0-a)+floor(n/2.0))/n); outColor=vec4(rgb/255.0,floor((n+127.0)/255.0)/255.0); return; } outColor=vec4(c/255.0,uMode==0?s.a:1.0); return; }
+ if(uMode==5){vec4 d=texelFetch(uDestination,ivec2(gl_FragCoord.xy),0);float a=floor(vCoverage*255.0+0.5);float da=floor(d.a*255.0+0.5);float n=a*255.0+da*(255.0-a);if(n==0.0)discard;vec3 rgb=floor((floor(uColor*255.0+0.5)*a*255.0+floor(d.rgb*255.0+0.5)*da*(255.0-a)+floor(n/2.0))/n);outColor=vec4(rgb/255.0,floor((n+127.0)/255.0)/255.0);return;}
  if(uMode==3){outColor=vec4(uColor,vCoverage);return;} outColor=vec4(uColor,1.0);
 }`;
 const PRESENT_VERTEX = `#version 300 es
@@ -44,18 +45,19 @@ void main(){vec2 p=gl_VertexID==0?vec2(-1.,-1.):(gl_VertexID==1?vec2(3.,-1.):vec
 const PRESENT_FRAGMENT = `#version 300 es
 precision highp float; precision highp int;
 uniform sampler2D uGamePlane; uniform sampler2D uMarginPlane;
-uniform vec2 uContent; uniform vec4 uGame; uniform vec4 uSafe; uniform ivec2 uLogical; uniform ivec4 uBounds; uniform ivec2 uMarginSize;
+uniform vec2 uContent; uniform vec4 uGame; uniform vec4 uSafe; uniform ivec2 uLogical; uniform ivec4 uBounds; uniform ivec2 uMarginSize; uniform int uOpaque;
 out vec4 outColor;
+vec4 outputPixel(vec4 color){return uOpaque==1?vec4(color.rgb*color.a,1.0):color;}
 void main(){
  vec2 center=vec2(gl_FragCoord.x,ceil(uContent.y)-gl_FragCoord.y);
  if(center.x>=uContent.x||center.y>=uContent.y){outColor=vec4(0.);return;}
  vec2 scale=uGame.zw/vec2(uLogical); ivec2 p=ivec2(floor((center-uGame.xy)/scale));
  bool game=center.x>=uGame.x&&center.x<uGame.x+uGame.z&&center.y>=uGame.y&&center.y<uGame.y+uGame.w;
- if(game&&all(greaterThanEqual(p,ivec2(0)))&&all(lessThan(p,uLogical))){outColor=texelFetch(uGamePlane,ivec2(p.x,uLogical.y-1-p.y),0);return;}
+ if(game&&all(greaterThanEqual(p,ivec2(0)))&&all(lessThan(p,uLogical))){outColor=outputPixel(texelFetch(uGamePlane,ivec2(p.x,uLogical.y-1-p.y),0));return;}
  bool safe=center.x>=uSafe.x&&center.y>=uSafe.y&&center.x<uContent.x-uSafe.z&&center.y<uContent.y-uSafe.w;
  vec2 cell0=uGame.xy+vec2(p)*scale; vec2 cell1=uGame.xy+(vec2(p)+vec2(1.))*scale;
  bool eligible=safe&&!(all(greaterThanEqual(p,ivec2(0)))&&all(lessThan(p,uLogical)))&&p.x>=-uBounds.x&&p.x<uLogical.x+uBounds.y&&p.y>=-uBounds.z&&p.y<uLogical.y+uBounds.w&&all(greaterThanEqual(cell0,vec2(0.)))&&all(lessThanEqual(cell1,uContent))&&cell0.x>=uSafe.x&&cell0.y>=uSafe.y&&cell1.x<=uContent.x-uSafe.z&&cell1.y<=uContent.y-uSafe.w;
- if(eligible){ivec2 m=p+uBounds.xz;outColor=texelFetch(uMarginPlane,ivec2(m.x,uMarginSize.y-1-m.y),0);return;} outColor=vec4(0.);
+ if(eligible){ivec2 m=p+uBounds.xz;outColor=outputPixel(texelFetch(uMarginPlane,ivec2(m.x,uMarginSize.y-1-m.y),0));return;} outColor=vec4(0.);
 }`;
 function compile(gl: WebGL2RenderingContext, kind: number, source: string): WebGLShader {
   const shader = gl.createShader(kind);
@@ -94,7 +96,7 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
   const replayProgram = makeProgram(gl, VERTEX, FRAGMENT); const presentProgram = makeProgram(gl, PRESENT_VERTEX, PRESENT_FRAGMENT);
   const loc = (name: string) => uniform(gl, replayProgram, name);
   const replay = { rect: loc("uRect"), viewport: loc("uViewport"), instanced: loc("uInstanced"), mode: loc("uMode"), color: loc("uColor"), tint: loc("uTint"), keyOn: loc("uKeyOn"), key: loc("uKey"), srcOrigin: loc("uSrcOrigin"), srcSize: loc("uSrcSize"), dstSize: loc("uDstSize"), tex: loc("uTex"), destination: loc("uDestination"), opacity: loc("uOpacity") };
-  const present = { game: uniform(gl, presentProgram, "uGamePlane"), margin: uniform(gl, presentProgram, "uMarginPlane"), content: uniform(gl, presentProgram, "uContent"), gameRect: uniform(gl, presentProgram, "uGame"), safe: uniform(gl, presentProgram, "uSafe"), logical: uniform(gl, presentProgram, "uLogical"), bounds: uniform(gl, presentProgram, "uBounds"), marginSize: uniform(gl, presentProgram, "uMarginSize") };
+  const present = { game: uniform(gl, presentProgram, "uGamePlane"), margin: uniform(gl, presentProgram, "uMarginPlane"), content: uniform(gl, presentProgram, "uContent"), gameRect: uniform(gl, presentProgram, "uGame"), safe: uniform(gl, presentProgram, "uSafe"), logical: uniform(gl, presentProgram, "uLogical"), bounds: uniform(gl, presentProgram, "uBounds"), marginSize: uniform(gl, presentProgram, "uMarginSize"), opaque: uniform(gl, presentProgram, "uOpaque") };
   const quad = gl.createBuffer(); const pointBuffer = gl.createBuffer();
   if (quad === null || pointBuffer === null) throw new Error("render-webgl2: could not create geometry buffers");
   gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0,1,0,0,1,0,1,1,0,1,1]), gl.STATIC_DRAW);
@@ -179,7 +181,15 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
           if(!command.iso2d){drawQuad(offsetRect(command.dst),{x:originX,y:originY,w:command.src.w,h:command.src.h});drawn++;break;}
           let count=0;for(let y=0;y<command.dst.h;y++)for(let x=0;x<command.dst.w;x++){const unitOffset=isoSourceOffset(x,y);if(unitOffset===null)continue;gl.uniform2i(replay.srcOrigin,originX+Math.floor(unitOffset[0]*command.src.w/32),originY+Math.floor(unitOffset[1]*command.src.h/32));gl.uniform2i(replay.srcSize,1,1);gl.uniform2i(replay.dstSize,1,1);gl.uniform4f(replay.rect,command.dst.x+offset.x+x,command.dst.y+offset.y+y,1,1);gl.drawArrays(gl.TRIANGLES,0,6);count++;}if(count)drawn++;else{defer("blit","webgl2.iso-empty: the .iso diamond covers no destination pixel");deferred++;}break;
         }
-        case "text": {const ink=textInk(command,options.fonts?.(command.font.asset)??options.fallbackFont);if(ink===null){defer("text",`webgl2.missing-font: ${command.font.asset}`);deferred++;break;}gl.uniform1i(replay.mode,3);gl.uniform1i(replay.keyOn,0);gl.uniform3f(replay.color,command.rgb.r/255,command.rgb.g/255,command.rgb.b/255);blend("coverage");drawPixels(ink.map(({x,y,coverage})=>[x+offset.x,y+offset.y,coverage/255] as const));drawn++;break;}
+        case "text": {
+          const ink=textInk(command,options.fonts?.(command.font.asset)??options.fallbackFont);
+          if(ink===null){defer("text",`webgl2.missing-font: ${command.font.asset}`);deferred++;break;}
+          gl.uniform1i(replay.mode,5);gl.uniform1i(replay.keyOn,0);gl.uniform3f(replay.color,command.rgb.r/255,command.rgb.g/255,command.rgb.b/255);blend("normal");
+          const target=stack.at(-1)??root; let points: Point[]=[]; const occupied=new Set<string>();
+          const flush=()=>{if(points.length===0)return;snapshotDestination(target.width,target.height);drawPixels(points);points=[];occupied.clear();};
+          for(const {x,y,coverage} of ink){const px=x+offset.x,py=y+offset.y,key=`${px},${py}`;if(occupied.has(key))flush();occupied.add(key);points.push([px,py,coverage/255]);}
+          flush();drawn++;break;
+        }
         case "pushTarget": {const target=targetAt(scratchPool,stack.length,dimensions.width,dimensions.height);stack.push(target);bind(target);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);drawn++;break;}
         case "popTarget": {const top=stack.pop();if(top===undefined){defer("popTarget","webgl2.unbalanced-pop: popTarget without pushTarget");deferred++;break;}bind(stack.at(-1)??root);drawn++;break;}
       }
@@ -203,6 +213,7 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
       const a=drawCommands(list.commands,{width:list.width,height:list.height},{x:0,y:0},roots[0]!,scratch[0]!,options,defer);
       const b=drawCommands(list.marginCommands,{width:bounds.width,height:bounds.height},{x:bounds.left,y:bounds.top},roots[1]!,scratch[1]!,options,defer);
       for(const [key,value] of uploads) if(key.startsWith("surface:")&&!usedSurfaceUploads.has(key)){gl.deleteTexture(value.texture);uploads.delete(key);}
+      gl.useProgram(presentProgram);gl.uniform1i(present.opaque,gl.getContextAttributes()?.alpha===false?1:0);
       gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,contentW,contentH);gl.disable(gl.BLEND);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(presentProgram);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,roots[0]!.texture);gl.uniform1i(present.game,0);gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,roots[1]!.texture);gl.uniform1i(present.margin,1);gl.uniform2f(present.content,geometry.content.width,geometry.content.height);gl.uniform4f(present.gameRect,geometry.game.x,geometry.game.y,geometry.game.width,geometry.game.height);gl.uniform4f(present.safe,geometry.safeArea.left,geometry.safeArea.top,geometry.safeArea.right,geometry.safeArea.bottom);gl.uniform2i(present.logical,list.width,list.height);gl.uniform4i(present.bounds,bounds.left,bounds.right,bounds.top,bounds.bottom);gl.uniform2i(present.marginSize,bounds.width,bounds.height);gl.drawArrays(gl.TRIANGLES,0,3);
       return {drawn:a.drawn+b.drawn,deferred:a.deferred+b.deferred,deferredByKind:byKind,diagnostics};
     },

@@ -205,7 +205,7 @@ test("the demo title menu's text runs land on their E-56 cell origins with unifo
     const expected = expectedAlpha[pixel]!;
     totalDifference += Math.abs(actual - expected);
     if (expected === 0 ? actual > 2 : Math.abs(actual - expected) > 40) mismatches.push(`(${pixel % 640},${Math.floor(pixel / 640)}) actual ${actual} expected ${expected}`);
-    if (actual === 255) deepEqual([pixels[pixel * 4], pixels[pixel * 4 + 1], pixels[pixel * 4 + 2]], [255, 255, 255], `solid glyph pixel ${pixel % 640},${Math.floor(pixel / 640)} is white`);
+    if (actual > 0) deepEqual([pixels[pixel * 4], pixels[pixel * 4 + 1], pixels[pixel * 4 + 2]], [255, 255, 255], `straight-alpha white glyph pixel ${pixel % 640},${Math.floor(pixel / 640)}`);
   }
   deepEqual(mismatches.slice(0, 8), [], `${mismatches.length} screen pixels differ from the independent reference`);
   equal(totalDifference <= 6500, true, `summed coverage difference ${totalDifference} exceeds the 6500 flattening budget`);

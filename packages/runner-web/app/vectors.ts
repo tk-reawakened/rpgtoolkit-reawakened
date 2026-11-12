@@ -206,6 +206,27 @@ void (async () => {
     results.push(report(vector.id, actual, reference, vector.width, kitError));
   }
 
+  // Independent fixed pixel: Liberation Sans 20px "A" has coverage 98 at (5,4).
+  const sansKey = "media/fonts/LiberationSans-Regular.ttf" as AssetKey;
+  const sansBytes = new Uint8Array(await (await fetch(`/${sansKey}`)).arrayBuffer());
+  const sans = readTrueTypeFont(sansBytes, sansKey);
+  if (!sans.ok) throw new Error("vectors: Liberation Sans failed to parse");
+  for (const [alpha, expected] of [
+    [0, [255,255,255,98]], [128, [146,150,155,177]], [255, [104,110,116,255]],
+  ] as const) {
+    const background = "test/glyph-background" as AssetKey;
+    const rgba = new Uint8Array(24 * 24 * 4);
+    for (let i = 0; i < rgba.length; i += 4) rgba.set([10,20,30,alpha], i);
+    const commands = [
+      { kind: "blit", source: { asset: background, tile: null }, src: { x: 0, y: 0, w: 24, h: 24 }, dst: { x: 0, y: 0, w: 24, h: 24 }, key: null, tint: { r: 0, g: 0, b: 0 }, alpha: 255, blend: "normal", iso2d: false },
+      { kind: "text", x: 0, y: 0, text: "A", font: { asset: sansKey, size: 20, bold: false, italic: false }, rgb: { r: 255, g: 255, b: 255 }, advances: [] },
+    ];
+    const { actual, reference } = replay(24, 24, commands, new Map([[background, { w: 24, h: 24, rgba }]]), new Map([[sansKey, sans.value]]));
+    const at = (4 * 24 + 5) * 4;
+    const want = new Uint8Array(expected);
+    results.push(report(`glyph-source-over-${alpha}`, actual.slice(at, at + 4), want, 1, hexFromBytes(reference.slice(at, at + 4)) === hexFromBytes(want) ? null : "CPU glyph pixel differs from independent calculation"));
+  }
+
   // Hand-calculated source-over checks: opaque RGB(12,30,50), white texels with alpha 0,81,128,255.
   const coverageAsset = "test/source-over" as AssetKey;
   const coverageTextures = new Map<AssetKey, TexturePixels>([[coverageAsset, { w: 4, h: 1, rgba: new Uint8Array([255,255,255,0, 255,255,255,81, 255,255,255,128, 255,255,255,255]) }]]);
