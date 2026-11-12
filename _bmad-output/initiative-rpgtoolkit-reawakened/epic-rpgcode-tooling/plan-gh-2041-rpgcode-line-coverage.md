@@ -37,7 +37,9 @@ context:
 |----------|--------------|---------------------------|----------------|
 | Conditional and repetition | Two cases, opposite branches, one loop with known iterations | Per-line hits match hand-worked entries, including zero-hit alternate lines and repeated loop/body hits | No error expected |
 | Included program | Multiple specs include the same program using path case variants | One correctly identified project file with sums across logical runs; no synthetic runner/library lines | Follow the existing asset resolver; never merge distinct files merely because their basenames match |
+| Runtime-loaded program | A case calls `executeProgram` on a project file containing used and uncalled code | Actual project path, hit counts and zero-hit lines appear in public coverage and LCOV | Do not confuse its separate VM frame with an included unit |
 | Unrun code | Loaded file contains an uncalled function, comments and blank lines | Executable lines of the uncalled function appear as zero; comments and blank lines are absent | Invalid source or missing input is not reported as fully covered |
+| Physical-line edge cases | Two statements share a line; an evaluated expression continues to another line; a three-iteration `while` exits normally | Shared line counts once per execution (not per instruction); each executed expression line is covered; loop test is hit four times and body three | Source punctuation, comments and blank lines are not executable |
 | Replay, hooks, selection | Fresh cases, once-only group hooks, skips and focused runs; runner repeats for determinism | Count one logical run, actual hook executions once, no unselected bodies; do not add discovery/replay work | Keep existing case failure and strict-skip behavior |
 | LCOV | Per-file coverage contains hit and zero-hit lines | Stable `SF`, `DA`, `LF`, `LH`, `end_of_record`; counts match the public data exactly | Empty coverage is honestly empty; no TypeScript coverage mixed in |
 
@@ -65,7 +67,7 @@ context:
 - [ ] Run focused tests and their durations, `pnpm script:dogfood`, local typecheck/lint and applicable full fixture/golden/project gates. Request independent review on the exact pushed revision; merge only after review and required CI pass.
 
 **Acceptance Criteria:**
-- Given a project with known branch, loop, include and uncalled lines, when its cases run, then the result reports independently hand-counted physical source lines and serializes exactly the same counts in LCOV.
+- Given a project with known branch, loop, included and dynamically loaded programs, same-line statements, multiline expressions and uncalled lines, when its cases run, then the result reports independently hand-counted physical source lines and serializes exactly the same counts in LCOV.
 - Given two logical cases loading the same included file, when results are combined, then hits are summed once per logical execution; toggling observation off makes the coverage assertion fail for missing hits.
 - Given the same source, seed and selection, when repeated, then coverage and existing state hashes are deterministic, and the uninstrumented run retains the same game state.
 
@@ -76,7 +78,7 @@ The VM lowers one source statement to multiple instructions; line transitions al
 ## Open Questions
 
 1. **Executable-line denominator and scope.** Recommend reporting every executable source line in each compiled project program encountered in selected logical runs, including uncalled functions and reached includes, excluding bundled test infrastructure and synthetic appended lines. Alternative: enumerate every project program even if never loaded; that widens the denominator and requires a separate project-wide compilation/error policy. Should never-loaded project files be included?
-2. **Line hit definition.** Recommend per-source-line execution counts derived from source-level probes: sum a probe's entries across logical runs, then use the greatest probe count for a physical line when several executable constructs share it; define probes for control-flow conditions/loop headers as well as ordinary statements. This avoids counting bytecode instructions or double-counting two statements on one line. Alternative: sum all statement hits on a line, which inflates such lines; or report only hit/miss, losing repeated counts. LCOV defines `DA` as a line count but does not independently execute RPGCode: the proposed interpretation must be explicitly adopted rather than claimed to be a universal cross-language oracle.
+2. **Line hit definition.** Recommend probes for executable statements and evaluated expression portions on each physical line, including control-flow conditions and loop headers. Within each logical task, take the greatest probe count for a line; sum those per-task line counts across cases and once-only hooks. For example, if two probes on one line have hits `(2, 0)` in one task and `(0, 3)` in another, the combined line count is 5, not 3; if two statements on one line each run once in one task, it is 1. A continued expression's evaluated portions cover their own source lines. This makes combining separate task reports additive, unlike taking a maximum after summing each probe. Alternatives: sum every statement hit (inflates same-line statements), maximum after global aggregation (loses disjoint case hits), or hit/miss only (loses repeated counts). LCOV defines `DA` as a line count but does not execute RPGCode: this interpretation needs explicit adoption, not a claim of a universal cross-language oracle.
 3. **User-facing output.** Recommend an explicit `script-spec` API returning project coverage plus a deterministic `toLcov` serializer, with no implicit files or stdout changes. Alternative: also add a CLI `--coverage`/`--lcov` flag and specify destination, interaction with JSON/reporters, and failure semantics. Issue #2043 owns reporter formatting; a CLI flag needs coordination with that work.
 
 ## Verification
@@ -92,3 +94,5 @@ The VM lowers one source statement to multiple instructions; line transitions al
 ## Plan Change Log
 
 ## Review Triage Log
+
+- Independent reviewer, 2026-11-11: two P2 findings accepted. Added a separate dynamically loaded program acceptance case and explicit same-line/multiline evidence; clarified per-task-maximum then sum so separately reported tasks aggregate additively. The reviewer found the docs-first checkpoint and separate public serializer consistent with #2041; approval remains outstanding.
