@@ -454,10 +454,12 @@ stub whose readiness resolves and whose `decode` refuses, and SF3 cannot be play
 `WebAssembly` before any page script runs. SF3 playback on other runners is not established by the desktop result.
 
 The AudioWorklet module is loaded by `audioWorklet.addModule` from a **same-origin** URL — `/apps/browser/audio-worklet.js` in
-the browser, `/apps/mobile/audio-worklet.js` in Capacitor, and `app://player/apps/desktop/audio-worklet.js` under the desktop
-scheme. That fetch is governed by `script-src`, not `worker-src`. Each host build emits its bundles and manifests under its
-own `apps/<host>/` directory, and the build-output check rejects any path claimed by multiple host builds. The browser lane
-loads its module under the real CSP; the desktop smoke does the same over `app://`.
+the browser, `/apps/mobile/audio-worklet.js` on mobile (including Capacitor's HTTPS origin), and
+`app://player/apps/desktop/audio-worklet.js` under the desktop scheme. That fetch is governed by `script-src`, not
+`worker-src`. Each host build emits its bundles and manifests under its own `apps/<host>/` directory, and the
+build-output check rejects any path claimed by multiple host builds. The browser service worker retains its registered
+`/apps/service-worker.js` URL for existing clients; its precache manifest and all other browser artifacts are under
+`apps/browser/`. The browser lane loads its module under the real CSP; the desktop smoke does the same over `app://`.
 
 <a id="conformance-lane"></a>
 ## Conformance: the schema and the vector kit
