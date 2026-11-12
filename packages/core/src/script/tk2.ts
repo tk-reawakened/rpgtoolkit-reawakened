@@ -225,7 +225,7 @@ function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined, litera
 
 function normaliseTk2Internal(text: string, lookup: Tk2CommandLookup | undefined, literals: Map<number, string> | null): string {
   const codeWithoutStrings = text.replace(/"[^"\n]*"/g, "");
-  if (/\bthen\s*<|^\s*[<>]\s*$/im.test(codeWithoutStrings)) {
+  if (/\bthen\s*<|^\s*<(?=\s|$)|^\s*>\s*$/im.test(codeWithoutStrings)) {
     throw new ScriptError("syntax.unsupported", "Toolkit 1.x `< >` blocks are outside the MVP (docs/spec/engine/rpgcode-dialects.md#toolkit-1x)", { file: "", line: 1 });
   }
   return text.split("\n").map((line, index) => normaliseLine(line, lookup, (value) => {
