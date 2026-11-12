@@ -6,13 +6,17 @@
  * from `analyse()`; hover, completion, definition and the outline are lookups
  * into the one index of TOOL-6 and the gate-checked command documentation of
  * TOOL-3. Nothing here imports a Node API (G2; dependency rule `r5-lsp-no-node`).
+ *
+ * Project knowledge — the dialect, the include inventory, the lint
+ * configuration — comes only from the running project the client sends as
+ * `rpgcode/project` (docs/spec/engine/rpgcode-tooling.md#tool-1-project). A
+ * document outside it is analysed provisionally and marked `project.unassessed`.
  */
 
 import {
   FIRST_PARTY_PLUGINS,
   commandDocumentation,
   foldAscii,
-  type ProgramLoader,
   type ResolvedPlugin,
 } from "@tk-reawakened/core";
 import {
@@ -29,6 +33,8 @@ import {
   type Severity,
 } from "@tk-reawakened/script-tools";
 import { documentationText, signatureHelp } from "./signature-help.ts";
+import { documentContext, NO_PROJECT, projectLoader, projectModel, readSnapshot, type DocumentContext, type ProjectModel } from "./project.ts";
+import { PROJECT_NOTIFICATION } from "./protocol.ts";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
   CompletionItemKind,
@@ -85,12 +91,12 @@ export type ServerConnection = {
   onDocumentSymbol(handler: (params: DocumentSymbolParams) => DocumentSymbol[]): Disposable;
   onSignatureHelp(handler: (params: SignatureHelpParams) => SignatureHelp | null): Disposable;
   onCodeAction(handler: (params: CodeActionParams) => CodeAction[]): Disposable;
+  /** Client notifications outside the LSP's own methods; the server listens for `rpgcode/project`. */
+  onNotification(method: string, handler: (params: unknown) => void): Disposable;
   sendDiagnostics(params: PublishDiagnosticsParams): void;
 };
 
 export type ServerOptions = {
-  /** Resolves `#include` and `file.func` for the index; without one, includes are listed but unresolved. */
-  readonly loader?: ProgramLoader;
   /** The catalogue the help projection reads; defaults to the registered built-in plugins. */
   readonly plugins?: readonly ResolvedPlugin[];
 };
@@ -98,7 +104,16 @@ export type ServerOptions = {
 export type LanguageServer = {
   /** The open buffers, keyed by URI, so a host can inspect them (tests, debugging). */
   readonly text: (uri: string) => string | undefined;
+  /** The running project the server analyses against, so a host can inspect it. */
+  readonly project: () => ProjectModel;
 };
+
+export { PROJECT_NOTIFICATION } from "./protocol.ts";
+export type { ProjectSnapshot, ProjectSnapshotFile } from "./protocol.ts";
+export type { ProjectModel } from "./project.ts";
+
+/** The code of the diagnostic that marks a document the running project does not cover. */
+export const UNASSESSED_CODE = "project.unassessed";
 
 /** TOOL-3 ranges are 1-based with an inclusive end; LSP positions are 0-based with an exclusive end. */
 function lspRange(line: number, col: number | undefined, endCol: number | undefined): Range {
@@ -130,16 +145,34 @@ export function createServer(connection: ServerConnection, options: ServerOption
   const plugins = options.plugins ?? defaultPlugins();
   const help = projectHelp(plugins);
   const documentation = commandDocumentation(plugins);
+  let project: ProjectModel = NO_PROJECT;
+
+  const contextOf = (document: TextDocument): DocumentContext => documentContext(project, document.uri, document.languageId);
 
   const indexOf = (document: TextDocument): IndexProgram | null => {
-    const documentIndex = buildIndex([{ name: document.uri, ref: { kind: "inline", text: document.getText(), ir: "1" } }], options.loader === undefined ? {} : { loader: options.loader });
+    const context = contextOf(document);
+    const ref = context.dialect === "tk2"
+      ? { kind: "inline" as const, text: document.getText(), ir: "1", dialect: "tk2" as const }
+      : { kind: "inline" as const, text: document.getText(), ir: "1" };
+    const loader = context.kind === "assessed" ? projectLoader(context.project, (uri) => documents.get(uri)?.getText()) : undefined;
+    const documentIndex = buildIndex([{ name: document.uri, ref }], loader === undefined ? {} : { loader });
     return documentIndex.programs[0] ?? null;
   };
 
   const publish = (document: TextDocument): void => {
-    const analysis = analyse(document.getText(), { file: document.uri });
-    connection.sendDiagnostics({ uri: document.uri, version: document.version, diagnostics: analysis.diagnostics.map(toLspDiagnostic) });
+    const context = contextOf(document);
+    const analysis = analyse(document.getText(), { file: document.uri, dialect: context.dialect });
+    const diagnostics = analysis.diagnostics.map(toLspDiagnostic);
+    if (context.kind === "unassessed") diagnostics.unshift(unassessedDiagnostic(context.reason, context.dialect));
+    connection.sendDiagnostics({ uri: document.uri, version: document.version, diagnostics });
   };
+
+  connection.onNotification(PROJECT_NOTIFICATION, (params) => {
+    const snapshot = readSnapshot(params);
+    if (snapshot === undefined || snapshot.revision <= project.revision) return;
+    project = projectModel(snapshot);
+    for (const document of documents.values()) publish(document);
+  });
 
   /** The function a call names, inside the file its include resolved to. */
   const targetOf = (program: IndexProgram, call: IndexCall): Location | null => {
@@ -324,6 +357,19 @@ export function createServer(connection: ServerConnection, options: ServerOption
 
   return {
     text: (uri) => documents.get(uri)?.getText(),
+    project: () => project,
+  };
+}
+
+/** The marker that an unassessed document's diagnostics are provisional, never a clean result. */
+function unassessedDiagnostic(reason: string, dialect: "tk2" | "tk3"): LspDiagnostic {
+  const reading = dialect === "tk2" ? "Toolkit 2.x" : "3.1";
+  return {
+    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+    severity: DiagnosticSeverity.Information,
+    code: UNASSESSED_CODE,
+    source: "rpgcode",
+    message: `Dialect unassessed: ${reason}. This file is read provisionally as ${reading} from its language mode; select the running project (.gam) to analyse it as the game runs it.`,
   };
 }
 
