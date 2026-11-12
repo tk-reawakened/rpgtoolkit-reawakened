@@ -3,7 +3,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import { runSpecProject, watchSpecProject } from "@tk-reawakened/script-spec";
 import { parseArgs, runTest } from "../src/index.ts";
@@ -155,7 +155,7 @@ test("CLI watch exits with the latest full-run status", { timeout: watchTimeout 
   await done;
 });
 
-test("JUnit watch replaces one XML report and preserves a focused-run warning", { timeout: watchTimeout }, async (t) => {
+test("JUnit watch replaces one XML report and preserves a focused-run warning", { timeout: process.env.TKR_WATCH_CANCELLATION_PROBE === "1" ? watchTimeout : undefined }, async (t) => {
   const root = mkdtempSync(join(tmpdir(), "tkr-junit-watch-"));
   const filename = join(root, "case.spec.prg");
   const report = join(root, "report.xml");
@@ -204,7 +204,7 @@ test("JUnit watch replaces one XML report and preserves a focused-run warning", 
   await done;
 });
 
-async function runWatchProbe(pattern: string, env: NodeJS.ProcessEnv): Promise<{ status: number | null; stdout: string; stderr: string }> {
+async function runWatchProbe(pattern: string, env: NodeJS.ProcessEnv, sandbox: string, t: TestContext): Promise<{ status: number | null; stdout: string; stderr: string }> {
   const child = spawn(process.execPath, [
     "--test",
     `--test-name-pattern=${pattern}`,
@@ -214,20 +214,24 @@ async function runWatchProbe(pattern: string, env: NodeJS.ProcessEnv): Promise<{
   let stderr = "";
   child.stdout.setEncoding("utf8").on("data", (chunk: string) => { stdout += chunk; });
   child.stderr.setEncoding("utf8").on("data", (chunk: string) => { stderr += chunk; });
-  const status = await new Promise<number | null>((resolve, reject) => {
-    // Only a fail-safe: a leaked watcher must not hang the parent test process.
-    const timer = setTimeout(() => {
+  let closed = false;
+  const close = new Promise<void>((resolve) => {
+    child.once("close", () => { closed = true; resolve(); });
+  });
+  const completion = new Promise<number | null>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", resolve);
+  });
+  t.after(async () => {
+    if (!closed) {
       if (process.platform !== "win32" && child.pid !== undefined) {
         try { process.kill(-child.pid, "SIGKILL"); } catch { /* Already reaped. */ }
       } else child.kill("SIGKILL");
-      child.stdout.destroy();
-      child.stderr.destroy();
-      child.unref();
-      reject(new Error(`watch probe did not exit\n${stdout}\n${stderr}`));
-    }, 8000);
-    child.once("error", (error) => { clearTimeout(timer); reject(error); });
-    child.once("close", (code) => { clearTimeout(timer); resolve(code); });
+    }
+    await close;
+    rmSync(sandbox, { recursive: true, force: true });
   });
+  const status = await completion;
   return { status, stdout, stderr };
 }
 
@@ -242,11 +246,10 @@ function watchProbeEnv(fixtureName: string, sandbox: string): NodeJS.ProcessEnv 
   return env;
 }
 
-test("JUnit watch reruns even when generated output events are lost", { timeout: 12000 }, async (t) => {
+test("JUnit watch reruns even when generated output events are lost", async (t) => {
   // Exercise real OS watchers while dropping report-file notifications, not source-file notifications.
   const sandbox = mkdtempSync(join(tmpdir(), "tkr-watch-probe-"));
-  t.after(() => { rmSync(sandbox, { recursive: true, force: true }); });
-  const probe = await runWatchProbe("JUnit watch replaces", watchProbeEnv("suppress-output-watch.mjs", sandbox));
+  const probe = await runWatchProbe("JUnit watch replaces", watchProbeEnv("suppress-output-watch.mjs", sandbox), sandbox, t);
   equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
   match(probe.stdout, /pass 1/);
   deepEqual(readdirSync(sandbox), []);
@@ -255,10 +258,10 @@ test("JUnit watch reruns even when generated output events are lost", { timeout:
 test("watch test cancellation closes real watchers and child processes", { timeout: 12000 }, async (t) => {
   // This subprocess exercises real cancellation and process teardown; fake timers cannot prove handle cleanup.
   const sandbox = mkdtempSync(join(tmpdir(), "tkr-watch-probe-"));
-  t.after(() => { rmSync(sandbox, { recursive: true, force: true }); });
+  // The probe owns sandbox cleanup after its subprocess has closed.
   const env = watchProbeEnv("suppress-watch.mjs", sandbox);
   env.TKR_WATCH_CANCELLATION_PROBE = "1";
-  const probe = await runWatchProbe("watch reruns all files|CLI watch exits|JUnit watch replaces", env);
+  const probe = await runWatchProbe("watch reruns all files|CLI watch exits|JUnit watch replaces", env, sandbox, t);
   equal(probe.status, 1, `${probe.stdout}\n${probe.stderr}`);
   match(probe.stdout, /cancelled 3/);
   match(probe.stdout, /test timed out/);
