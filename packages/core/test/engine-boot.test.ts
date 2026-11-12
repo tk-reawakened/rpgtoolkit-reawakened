@@ -322,6 +322,38 @@ function bootEngine(game: AuthoredGame, doubles: Doubles, packageCatalogue?: rea
 
 const liberation = new Uint8Array(readFileSync(join(repoRoot, "media", "fonts", "LiberationSans-Regular.ttf")));
 
+test("3.1 boot draws text in the initial bundled sans face at 20px without font()", () => {
+  const game = authorGame({
+    startup: "start.prg", initChar: "hero.tem",
+    boards: { "start.brd": { tiles: [8, 8] } },
+    programs: { "start.prg": 'text(1, 1, "Hello")\nwait()\nend()' },
+  });
+  const doubles = makeDoubles();
+  const sans = assetKey("media/fonts/LiberationSans-Regular.ttf");
+  const bitmap = assetKey("media/fonts/tkr-8x8.fnt");
+  const fonts = new Map([[sans, liberation], [bitmap, new Uint8Array(readFileSync(join(repoRoot, "media", "fonts", "tkr-8x8.fnt")))]]);
+  const engine = bootEngine(game, doubles, undefined, undefined, undefined, undefined, fonts);
+  const result = run(engine, game.files, 2);
+  deepEqual(result.diagnostics.filter((entry) => entry.code.startsWith("startup.") || entry.code.startsWith("program.")), []);
+  deepEqual(doubles.state().ui.draws.map((draw) => draw.font), [{ asset: sans, size: 20, bold: false, italic: false }]);
+  const fallbackGame = authorGame({
+    startup: "start.prg", initChar: "hero.tem",
+    boards: { "start.brd": { tiles: [8, 8] } },
+    programs: { "start.prg": 'font("missing face")\ntext(1, 1, "Hello")\nwait()\nend()' },
+  });
+  const fallbackEngine = bootEngine(fallbackGame, makeDoubles(), undefined, undefined, undefined, undefined, fonts);
+  run(fallbackEngine, fallbackGame.files, 2);
+  const pixels = (current: Engine): Uint8Array => {
+    for (let rev = 0; rev < 64; rev += 1) {
+      const surface = current.surfacePixels(0 as never, rev);
+      if (surface !== null) return surface.rgba;
+    }
+    throw new Error("screen surface unavailable");
+  };
+  const fallbackPixels = pixels(fallbackEngine);
+  ok(pixels(engine).some((channel, index) => channel !== fallbackPixels[index]), "initial text uses sans pixels, not the bitmap fallback");
+});
+
 test("boot reports physical movement collisions and preserves ACT-4 dispatch", () => {
   const game = authorGame({ initChar: "hero.tem", boards: { "start.brd": {} }, programs: {} });
   const original = unwrap(readMainFile(new BinaryReader(game.files.get(assetKey(game.main))!, game.main)));
@@ -1204,6 +1236,7 @@ test("a Toolkit 2 main file selects its dialect for startup and later project pr
   const doubles = makeDoubles();
   const report = run(bootEngine(game, doubles), game.files, 10);
   deepEqual(report.diagnostics, []);
+  deepEqual(doubles.state().ui.font, { asset: assetKey("media/fonts/tkr-8x8.fnt"), size: 8, bold: false, italic: false }, "TK2 retains its bitmap initial state");
   equal(doubles.state().vm.globals.score, 3, "a comparison in the startup file does not change the variable");
   equal(doubles.state().vm.globals.wrong, undefined);
   equal(doubles.state().vm.globals.included, 1);

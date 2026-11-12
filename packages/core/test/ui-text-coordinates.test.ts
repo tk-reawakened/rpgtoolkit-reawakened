@@ -11,24 +11,20 @@ import test from "node:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readTrueTypeFont } from "../src/formats/font/truetype.ts";
+import { textInk } from "../src/raster/text.ts";
 import {
   applyUiEffect,
   assetKey,
   composeUi,
   createAssetIndex,
-  createEmptyMainFile,
   createEngine,
   createGameState,
   PACKAGE_ROOT,
-  writeMainFile,
   type GameState,
   type TextCommand,
 } from "../src/index.ts";
 
-function unwrap<T>(result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } }): T {
-  if (!result.ok) throw new Error(result.error.message);
-  return result.value;
-}
 
 const S = 18;
 
@@ -91,18 +87,12 @@ function sampleGame(name: string) {
   if (!existsSync(root)) return null;
   const relativePaths = listFiles(root);
   const lower = (path: string): string => path.toLowerCase();
-  const startup = relativePaths.find((path) => lower(path) === "prg/start.prg");
-  const board = relativePaths.find((path) => lower(path) === "boards/start.brd") ?? relativePaths.find((path) => lower(path).startsWith("boards/") && lower(path).endsWith(".brd"));
-  const character = relativePaths.find((path) => lower(path) === "chrs/start.tem") ?? relativePaths.find((path) => lower(path).startsWith("chrs/") && lower(path).endsWith(".tem"));
-  if (startup === undefined || board === undefined || character === undefined) return null;
-  const initBoard = board.slice("Boards/".length);
-  const initChar = character.slice("Chrs/".length);
-  const main = { ...createEmptyMainFile(), major: 2, minor: 9, startupPrg: "start.prg", initBoard, initChar };
+  const main = relativePaths.find((path) => lower(path) === "demo.gam");
+  if (main === undefined) return null;
   const files = new Map<string, Uint8Array>();
-  files.set(assetKey("main.gam"), unwrap(writeMainFile(main)));
-  const paths = ["main.gam", ...relativePaths];
+  const paths = relativePaths;
   for (const path of relativePaths) files.set(assetKey(path), new Uint8Array(readFileSync(join(root, path))));
-  return { files, index: createAssetIndex(paths), initBoard, initChar };
+  return { files, index: createAssetIndex(paths), main };
 }
 
 interface DemoRun {
@@ -115,14 +105,18 @@ interface DemoRun {
 
 test("the demo title menu's text runs land on their E-56 cell origins with uniform tracking", { skip: haveLegacy ? false : "run pnpm fixtures:fetch" }, () => {
   const sample = sampleGame("demo");
-  if (sample === null) throw new Error("fixtures/legacy/demo has no start program, board and character");
+  if (sample === null) throw new Error("fixtures/legacy/demo has no authored demo.gam; run pnpm fixtures:fetch with the Demo main fixture pin");
   const players: unknown[] = [];
   let latest: GameState | null = null;
   const engine = createEngine({
     seed: 3,
     assetIndex: sample.index,
     assetRoot: PACKAGE_ROOT,
-    mainFile: "main.gam",
+    mainFile: sample.main,
+    bundled: new Map([
+      [assetKey("media/fonts/LiberationSans-Regular.ttf"), new Uint8Array(readFileSync(join(legacyRoot, "..", "..", "media", "fonts", "LiberationSans-Regular.ttf")))],
+      [assetKey("media/fonts/tkr-8x8.fnt"), new Uint8Array(readFileSync(join(legacyRoot, "..", "..", "media", "fonts", "tkr-8x8.fnt")))],
+    ]),
     gameIdentity: "ui-text-coordinates-demo-probe",
     startup: { presence: { hasPlayer: () => players.length > 0 }, savedGame: { load: () => ({ kind: "missing" }), restored: () => false } },
     width: 640,
@@ -151,7 +145,26 @@ test("the demo title menu's text runs land on their E-56 cell origins with unifo
   deepEqual(diagnostics.filter((code) => code.startsWith("asset.") || code.startsWith("startup.") || code.startsWith("program.")), []);
   const ui = state.ui;
   equal(ui.font.size, S, "the demo menu runs at font size 18 like the authoring cells");
-  equal(ui.font.asset, "media/fonts/tkr-8x8.fnt", "the bundled bitmap font resolves; no unexpected fallback face");
+  equal(ui.font.asset, assetKey("media/fonts/LiberationSans-Regular.ttf"), "the initial face is bundled Liberation Sans");
+  equal(ui.font.bold, true, "the unmodified startup program enables bold");
+  equal(ui.font.italic, false);
+  deepEqual(ui.draws.map((entry) => [entry.font.asset, entry.font.size, entry.font.bold]), Array.from({ length: 4 }, () => [assetKey("media/fonts/LiberationSans-Regular.ttf"), 18, true]));
+  const sansBytes = new Uint8Array(readFileSync(join(legacyRoot, "..", "..", "media", "fonts", "LiberationSans-Regular.ttf")));
+  const parsedFont = readTrueTypeFont(sansBytes);
+  if (!parsedFont.ok) throw new Error(parsedFont.error.message);
+  const face = parsedFont.value;
+  const title = engine.drawList().commands.find((entry): entry is TextCommand => entry.kind === "text" && entry.text === "Test Game");
+  if (title === undefined) throw new Error("the Demo title is absent from the draw list");
+  deepEqual(title.advances.map((entry) => entry.glyph), Array.from("Test Game", (character) => face.charToGlyph(character).id), "glyph IDs spell the real title in the bundled face");
+  equal(new Set(title.advances.map((entry) => entry.advance)).size > 1, true, "the title uses proportional advances");
+  const expectedInk = textInk(title, face);
+  if (expectedInk === null) throw new Error("the title did not rasterize");
+  let pixels: Uint8Array | null = null;
+  for (let rev = 0; rev < 64 && pixels === null; rev += 1) pixels = engine.surfacePixels(0 as never, rev)?.rgba ?? null;
+  if (pixels === null) throw new Error("the Demo screen surface is unavailable");
+  const solid = expectedInk.filter((point) => point.coverage === 255);
+  equal(solid.length > 0, true);
+  equal(solid.every((point) => pixels![(point.y * 640 + point.x) * 4] === 255), true, "the rendered screen contains the white title glyph pixels");
   cellProbe: {
     equal(Array.isArray(ui.draws), true);
     const runs: readonly DemoRun[] = (ui.draws ?? []).map((entry) => ({ text: entry.text as string, x: entry.x as number, y: entry.y as number, cell: entry.cell as boolean, size: (entry.font as { size: number }).size }));

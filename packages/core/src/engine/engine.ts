@@ -29,7 +29,7 @@ import { readBattleBackground } from "../formats/battle/battle-background.ts";
 import { BinaryReader } from "../formats/binary/reader.ts";
 import type { MainFile } from "../formats/main-file/model.ts";
 import { readLegacyFont } from "../formats/font/reader.ts";
-import { gateTrueType } from "../formats/font/truetype.ts";
+import { gateTrueType, readTrueTypeFont, type TrueTypeFont } from "../formats/font/truetype.ts";
 import type { AssetKind } from "../formats/main-file/layout.ts";
 import type { AssetIndex, AssetRoot } from "../formats/resolver/model.ts";
 import type { DrawCommand, DrawList, Rgb, Tint } from "../ports/draw.ts";
@@ -45,7 +45,7 @@ import type { StartupPorts } from "../ports/startup.ts";
 import type { AssetKey, SurfaceId } from "../ports/keys.ts";
 import type { BlobKey } from "../ports/requests.ts";
 import { createGameState, type GameState, type SectionKey } from "../save/state.ts";
-import { resetUiForProgramStart, type UiMessageWindow } from "../save/sections/ui.ts";
+import { IMPORTED_31_INITIAL_FONT, resetUiForProgramStart, type UiMessageWindow } from "../save/sections/ui.ts";
 import { normalizeDisplayGeometry, normalizeHostFeatures } from "../save/sections/host.ts";
 import { applyMenuStateEffect, createMenuOwnerPorts } from "../menu/index.ts";
 import { createShopSessionRuntime } from "./shop-session.ts";
@@ -376,6 +376,7 @@ export function createEngine(init: EngineInit): Engine {
   let initialCharacterResolved = true;
   let mainKey: AssetKey | null = null;
   const installedFonts = new Map<AssetKey, Uint8Array>();
+  const parsedFonts = new WeakMap<Uint8Array, TrueTypeFont | null>();
   const cache = new Map<AssetKey, Uint8Array>();
   // Source resolution is synchronous; installed sources remain physically available when Load hides newer keys.
   const programSources = new Map<AssetKey, Uint8Array>();
@@ -1935,6 +1936,18 @@ export function createEngine(init: EngineInit): Engine {
     if (x >= 0 && y >= 0 && x + w <= init.width && y + h <= init.height) return;
     state.ui.authorMarginCommands = [...(state.ui.authorMarginCommands ?? []), command];
   }
+  function layoutFont(key: AssetKey): TrueTypeFont | undefined {
+    if (!key.toLowerCase().endsWith(".ttf")) return undefined;
+    const bytes = installedFonts.get(key) ?? init.bundled?.get(key);
+    if (bytes === undefined) return undefined;
+    let font = parsedFonts.get(bytes);
+    if (font === undefined) {
+      const parsed = readTrueTypeFont(bytes);
+      font = parsed.ok ? parsed.value : null;
+      parsedFonts.set(bytes, font);
+    }
+    return font ?? undefined;
+  }
   /** E-56 `text` / `pixelText` with a canvas: draw the glyphs into that canvas with the active font, colour and underline. */
   function applyCanvasText(cells: boolean, args: readonly PlainData[]): void {
     const canvas = args[3] as SurfaceId;
@@ -1942,11 +1955,13 @@ export function createEngine(init: EngineInit): Engine {
     const font = state.ui.font;
     const x = typeof args[0] === "number" ? (cells ? Math.trunc((args[0] - 1) * font.size) : args[0]) : 0;
     const y = typeof args[1] === "number" ? (cells ? Math.trunc((args[1] - 1) * font.size) : args[1]) : 0;
-    const layout = layoutText(value, font);
+    const decoded = layoutFont(font.asset);
+    const options = { ...(decoded === undefined ? {} : { font: decoded }), ...(cells ? { lineHeight: font.size } : {}), underline: state.ui.underline };
+    const layout = layoutText(value, font, options);
     const width = Math.ceil(layout.width);
     const height = Math.ceil(layout.height);
     if (width <= 0 || height <= 0) return;
-    const commands = emitText(value, 0, 0, state.ui.color, font, { underline: state.ui.underline });
+    const commands = emitText(value, 0, 0, state.ui.color, font, options);
     const assets = rasterAssets(canvasTextAssets);
     const fallbackFont = assets.get(defaultFontAsset);
     if (fallbackFont !== undefined && !assets.has(font.asset)) assets.set(font.asset, fallbackFont);
@@ -3120,6 +3135,7 @@ export function createEngine(init: EngineInit): Engine {
         return false;
       }
       mainFile = parsed.value;
+      if (projectScriptDialect(mainFile) === "tk3") state.ui.font = IMPORTED_31_INITIAL_FONT;
       const movement = mainFileMovementSettings(mainFile, mainKey, !binary.ok || binary.value);
       activeMovement = { file: mainKey, revision: (activeMovement?.revision ?? 0) + 1, settings: movement.settings };
       diagnostics.push(...movement.diagnostics);
@@ -4855,13 +4871,19 @@ export function createEngine(init: EngineInit): Engine {
         ...state.ui, draws: [], authorMarginCommands: [], modal: null,
         message: state.vm.block?.kind === "input.key" ? state.ui.message : { ...state.ui.message, visible: false },
       };
-    const withUi = { ...withOverlay, commands: [...withOverlay.commands, ...debugCommands(), ...composeUi(uiForCompose, init.width, init.height, state.input, false, cursorSelection, messageGraphicKey())] };
+    const uiFonts = new Map<AssetKey, TrueTypeFont>();
+    for (const key of [uiForCompose.font.asset, ...uiForCompose.draws.map((draw) => draw.font.asset)]) {
+      if (uiFonts.has(key)) continue;
+      const font = layoutFont(key);
+      if (font !== undefined) uiFonts.set(key, font);
+    }
+    const withUi = { ...withOverlay, commands: [...withOverlay.commands, ...debugCommands(), ...composeUi(uiForCompose, init.width, init.height, state.input, false, cursorSelection, messageGraphicKey(), uiFonts)] };
     return {
       ...withUi,
       commands: [...withUi.commands, ...composeUiCursor(state.ui, state.input, cursorSelection, waitingCursor !== undefined)],
       marginCommands: [
         ...lowerAuthorMarginCommands(uiForCompose.authorMarginCommands ?? []),
-        ...composeUiMargins(uiForCompose, init.width, init.height).slice(uiForCompose.authorMarginCommands?.length ?? 0),
+        ...composeUiMargins(uiForCompose, init.width, init.height, uiFonts).slice(uiForCompose.authorMarginCommands?.length ?? 0),
       ],
     };
   }

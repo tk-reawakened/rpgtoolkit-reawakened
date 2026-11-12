@@ -6,7 +6,7 @@ import { renderNowEnabled } from "../raster/surfaces.ts";
 import type { InputSection } from "../save/sections/input.ts";
 import type { SurfacesSection } from "../save/sections/surfaces.ts";
 import type { UiCursorImage, UiSection } from "../save/sections/ui.ts";
-import { emitText, layoutText } from "./text.ts";
+import { emitText, layoutText, type FontMap } from "./text.ts";
 
 const WINDOW_WIDTH = 600;
 const WINDOW_HEIGHT = 100;
@@ -33,10 +33,12 @@ function textCommands(
   maxWidth?: number,
   underline = false,
   cell = false,
+  fonts?: FontMap,
 ): DrawCommand[] {
   return emitText(text, x, y, color, font, {
     ...(maxWidth === undefined ? {} : { maxWidth }),
     ...(cell ? { lineHeight: font.size } : {}),
+    ...(fonts === undefined ? {} : { fonts }),
     underline,
   });
 }
@@ -69,7 +71,7 @@ function background(
   }
 }
 
-function drawMessage(commands: DrawCommand[], ui: UiSection, width: number, graphic: AssetKey | null): void {
+function drawMessage(commands: DrawCommand[], ui: UiSection, width: number, graphic: AssetKey | null, fonts?: FontMap): void {
   if (ui.message === undefined || !ui.message.visible) return;
   const x = Math.floor((width - WINDOW_WIDTH) / 2);
   const clippedX = Math.max(0, x);
@@ -91,22 +93,22 @@ function drawMessage(commands: DrawCommand[], ui: UiSection, width: number, grap
       iso2d: false,
     });
   }
-  commands.push(...textCommands(ui.message.text, clippedX, 0, ui.message.color, fontOf(ui), WINDOW_WIDTH, ui.underline));
+  commands.push(...textCommands(ui.message.text, clippedX, 0, ui.message.color, fontOf(ui), WINDOW_WIDTH, ui.underline, false, fonts));
 }
 
-function drawModal(commands: DrawCommand[], ui: UiSection, width: number, height: number): void {
+function drawModal(commands: DrawCommand[], ui: UiSection, width: number, height: number, fonts?: FontMap): void {
   const modal = ui.modal;
   if (modal === null || modal === undefined) return;
   const body = modal.title === "" ? modal.text : `${modal.title}\n${modal.text}`;
   const maxTextWidth = Math.max(0, Math.floor(width * 0.6) - MARGIN * 2);
-  const layout = layoutText(body, fontOf(ui), { maxWidth: maxTextWidth });
+  const layout = layoutText(body, fontOf(ui), { maxWidth: maxTextWidth, ...(fonts === undefined ? {} : { fonts }) });
   const buttonCount = modal.style === 1 ? 2 : 1;
   const panelWidth = Math.min(width, Math.max(BUTTON_WIDTH * buttonCount + BUTTON_GAP * (buttonCount - 1), layout.width) + MARGIN * 2);
   const panelHeight = Math.min(height, layout.height + BUTTON_HEIGHT + MARGIN * 2);
   const x = Math.floor((width - panelWidth) / 2);
   const y = Math.floor((height - panelHeight) / 2);
   background(commands, ui, x, y, panelWidth, panelHeight, modal.background, 100, false);
-  commands.push(...textCommands(body, x + MARGIN, y + MARGIN, modal.textColor, fontOf(ui), maxTextWidth));
+  commands.push(...textCommands(body, x + MARGIN, y + MARGIN, modal.textColor, fontOf(ui), maxTextWidth, false, false, fonts));
   const buttonsWidth = BUTTON_WIDTH * buttonCount + BUTTON_GAP * (buttonCount - 1);
   const buttonsX = x + Math.floor((panelWidth - buttonsWidth) / 2);
   const buttonsY = y + panelHeight - MARGIN - BUTTON_HEIGHT;
@@ -115,7 +117,7 @@ function drawModal(commands: DrawCommand[], ui: UiSection, width: number, height
     const bx = buttonsX + index * (BUTTON_WIDTH + BUTTON_GAP);
     const selected = index === modal.selected;
     commands.push({ kind: "rect", rect: { x: bx, y: buttonsY, w: BUTTON_WIDTH, h: BUTTON_HEIGHT }, rgb: selected ? modal.textColor : modal.background, filled: true });
-    commands.push(...textCommands(label, bx + Math.floor((BUTTON_WIDTH - layoutText(label, fontOf(ui)).width) / 2), buttonsY + 6, selected ? modal.background : modal.textColor, fontOf(ui)));
+    commands.push(...textCommands(label, bx + Math.floor((BUTTON_WIDTH - layoutText(label, fontOf(ui), fonts === undefined ? {} : { fonts }).width) / 2), buttonsY + 6, selected ? modal.background : modal.textColor, fontOf(ui), undefined, false, false, fonts));
   });
 }
 
@@ -210,15 +212,15 @@ function surfaceFocusCommands(ui: UiSection): DrawCommand[] {
   }
   return commands;
 }
-export function composeUi(ui: UiSection, width: number, height: number, input?: InputSection, includeCursor = true, cursorSelection?: number, messageGraphic: AssetKey | null = null): DrawCommand[] {
+export function composeUi(ui: UiSection, width: number, height: number, input?: InputSection, includeCursor = true, cursorSelection?: number, messageGraphic: AssetKey | null = null, fonts?: FontMap): DrawCommand[] {
   const commands: DrawCommand[] = [];
   if (Array.isArray(ui.draws)) {
     for (const draw of ui.draws) {
-      commands.push(...textCommands(draw.text, draw.x, draw.y, draw.rgb, draw.font, undefined, draw.underline, draw.cell));
+      commands.push(...textCommands(draw.text, draw.x, draw.y, draw.rgb, draw.font, undefined, draw.underline, draw.cell, fonts));
     }
   }
-  drawMessage(commands, ui, width, messageGraphic);
-  drawModal(commands, ui, width, height);
+  drawMessage(commands, ui, width, messageGraphic, fonts);
+  drawModal(commands, ui, width, height, fonts);
   drawButtons(commands, input);
   commands.push(...surfaceFocusCommands(ui));
   if (includeCursor) drawCursor(commands, ui, input, cursorSelection);
@@ -226,13 +228,13 @@ export function composeUi(ui: UiSection, width: number, height: number, input?: 
 }
 
 /** Author text that crosses the game viewport is duplicated into Plane 3; hosts clip it to eligible margin cells. */
-export function composeUiMargins(ui: UiSection, width: number, height: number): DrawCommand[] {
+export function composeUiMargins(ui: UiSection, width: number, height: number, fonts?: FontMap): DrawCommand[] {
   const commands: DrawCommand[] = [];
   commands.push(...(ui.authorMarginCommands ?? []));
   for (const draw of ui.draws ?? []) {
-    const layout = layoutText(draw.text, draw.font, draw.cell ? { lineHeight: draw.font.size } : undefined);
+    const layout = layoutText(draw.text, draw.font, { ...(draw.cell ? { lineHeight: draw.font.size } : {}), ...(fonts === undefined ? {} : { fonts }) });
     if (draw.x >= 0 && draw.y >= 0 && draw.x + layout.width <= width && draw.y + layout.height <= height) continue;
-    commands.push(...textCommands(draw.text, draw.x, draw.y, draw.rgb, draw.font, undefined, draw.underline, draw.cell));
+    commands.push(...textCommands(draw.text, draw.x, draw.y, draw.rgb, draw.font, undefined, draw.underline, draw.cell, fonts));
   }
   commands.push(...surfaceFocusCommands(ui).filter((command) => {
     if (command.kind !== "rect") return false;
