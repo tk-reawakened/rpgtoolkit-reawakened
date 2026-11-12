@@ -27,7 +27,7 @@ function lookupCommand(lookup: Tk2CommandLookup | undefined, name: string): Buil
 }
 
 function quoted(value: string): string {
-  return JSON.stringify(value);
+  return value.includes('"') ? JSON.stringify(value) : `"${value}"`;
 }
 
 function matchingClose(text: string, open: number): number {
@@ -164,8 +164,12 @@ function isAssignment(line: string): boolean {
   const operators = /(?:<<|>>|[+\-*/%^&|`])?=(?!=)/g;
   for (let match = operators.exec(line); match !== null; match = operators.exec(line)) {
     try {
-      const statements = parse(tokenizeObjects(`${line.slice(0, match.index)} = 0`)).statements;
-      if (statements.length === 1 && statements[0]?.kind === "expr" && statements[0].expr.kind === "assign") return true;
+      const ast = parse(tokenizeObjects(stripSigils(`${line.slice(0, match.index)} = 0`)));
+      const statement = ast.statements[0];
+      if (ast.statements.length === 1 && statement?.kind === "expr" && statement.expr.kind === "assign") {
+        lower(ast);
+        return true;
+      }
     } catch (error) {
       if (!(error instanceof ScriptError)) throw error;
     }
@@ -173,7 +177,7 @@ function isAssignment(line: string): boolean {
   return false;
 }
 
-function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined): string {
+function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined, literal: (value: string) => void): string {
   let line = raw.replace(/\r$/, "").trim();
   if (line.length === 0 || line.startsWith("*")) return "";
   if (line === "@") return 'mwin("")';
@@ -190,6 +194,10 @@ function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined): strin
   line = line.replace(/^returnmethod\b/i, "return").replace(/^method\b/i, "function");
   if (line.length === 0) return "";
   if (!raw.trimStart().startsWith("#") && !/^(if|while|until|for|switch|case|default|else|function|return|[:{}])(?:\b|$)/i.test(line) && !isAssignment(line) && !line.endsWith("{")) {
+    if (line.includes('"')) {
+      literal(line);
+      return 'mwin("")';
+    }
     return `mwin(${quoted(line)})`;
   }
   line = line.replace(/"[^"]*"|(^|[{\s;])#(?=[A-Za-z_@])/g, (match, prefix: string | undefined) => prefix === undefined ? match : prefix);
@@ -200,13 +208,22 @@ function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined): strin
 }
 
 
-/** Convert TK2 source into an equivalent TK3 source string for the shared parser. */
-export function normaliseTk2(text: string, lookup?: Tk2CommandLookup): string {
+function normaliseTk2Internal(text: string, lookup: Tk2CommandLookup | undefined, literals: Map<number, string> | null): string {
   const codeWithoutStrings = text.replace(/"[^"\n]*"/g, "");
   if (/(?:^|\bthen\s*)<|^\s*</m.test(codeWithoutStrings) || />\s*$/m.test(codeWithoutStrings)) {
     throw new ScriptError("syntax.unsupported", "Toolkit 1.x `< >` blocks are outside the MVP (docs/spec/engine/rpgcode-dialects.md#toolkit-1x)", { file: "", line: 1 });
   }
-  return text.split("\n").map((line) => normaliseLine(line, lookup)).join("\n");
+  return text.split("\n").map((line, index) => normaliseLine(line, lookup, (value) => {
+    if (literals === null) {
+      throw new ScriptError("syntax.unsupported", "Cannot convert loose dialogue containing a double quote: 3.1 has no unshadowable quote literal encoding (LEX-8).", { file: "", line: index + 1 });
+    }
+    literals.set(index + 1, value);
+  })).join("\n");
+}
+
+/** Convert TK2 source into equivalent 3.1 source, or report an unrepresentable literal. */
+export function normaliseTk2(text: string, lookup?: Tk2CommandLookup): string {
+  return normaliseTk2Internal(text, lookup, null);
 }
 
 function rewriteNamespaces(expr: Expr): Expr {
@@ -224,9 +241,17 @@ function rewriteNamespaces(expr: Expr): Expr {
   return expr;
 }
 
-function rewriteAst(ast: Ast): Ast {
+function rewriteAst(ast: Ast, literals: ReadonlyMap<number, string>): Ast {
   const rewriteStatement = (statement: Ast["statements"][number]): Ast["statements"][number] => {
-    if (statement.kind === "expr") return { ...statement, expr: rewriteNamespaces(statement.expr) };
+    if (statement.kind === "expr") {
+      const literal = literals.get(statement.line);
+      if (literal !== undefined && statement.expr.kind === "call" && statement.expr.name === "mwin") {
+        const arg = statement.expr.args[0];
+        if (arg === undefined || arg.kind !== "literal") throw new Error("invalid TK2 dialogue placeholder");
+        return { ...statement, expr: { ...statement.expr, args: [{ ...arg, value: literal }] } };
+      }
+      return { ...statement, expr: rewriteNamespaces(statement.expr) };
+    }
     if (statement.kind === "if") return { ...statement, branches: statement.branches.map((branch) => ({ ...branch, cond: rewriteNamespaces(branch.cond), body: branch.body.map(rewriteStatement) })), elseBody: statement.elseBody?.map(rewriteStatement) ?? null };
     if (statement.kind === "while" || statement.kind === "until") return { ...statement, cond: rewriteNamespaces(statement.cond), body: statement.body.map(rewriteStatement) };
     if (statement.kind === "for") return { ...statement, init: statement.init ? rewriteNamespaces(statement.init) : null, cond: statement.cond ? rewriteNamespaces(statement.cond) : null, step: statement.step ? rewriteNamespaces(statement.step) : null, body: statement.body.map(rewriteStatement) };
@@ -237,14 +262,16 @@ function rewriteAst(ast: Ast): Ast {
   return {
     statements: ast.statements.map(rewriteStatement),
     functions: ast.functions.map((fn) => ({ ...fn, body: fn.body.map(rewriteStatement) })),
-    classes: ast.classes,
+    classes: ast.classes.map((cls) => ({ ...cls, methods: cls.methods.map((method) => ({ ...method, body: method.body?.map(rewriteStatement) ?? null })) })),
     includes: ast.includes,
   };
 }
 
 /** Parse TK2 into the same Unified AST used by the TK3 frontend. */
 export function parseTk2(text: string, lookup?: Tk2CommandLookup): Ast {
-  return rewriteAst(parse(tokenizeObjects(normaliseTk2(text, lookup)), { redirects: new Map(), preserveSystemNamespace: true }));
+  const literals = new Map<number, string>();
+  const normalised = normaliseTk2Internal(text, lookup, literals);
+  return rewriteAst(parse(tokenizeObjects(normalised), { redirects: new Map(), preserveSystemNamespace: true }), literals);
 }
 
 /** Compile TK2 source into the shared flat Step IR without modifying its input. */

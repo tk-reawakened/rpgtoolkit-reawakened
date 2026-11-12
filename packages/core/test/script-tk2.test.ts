@@ -56,6 +56,26 @@ test("TK2 loose dialogue can contain equals without changing unprefixed assignme
   deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Hi #there = friend", "7"]);
 });
 
+test("TK2 assignment targets and literal dialogue keep their distinct meanings", () => {
+  const source = '#index = 2\nvalues[index!]$ = 11\nvalues[3]! = 12\n1 + 1 = 2\nA+B = friendship\nHi #there = "friend"\nHi #there = C:\\temp\n#Mwin(values[2])\n#Mwin(values[3])';
+  const program = compileTk2(source, "literal-dialogue.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), [
+    "1 + 1 = 2", "A+B = friendship", 'Hi #there = "friend"', "Hi #there = C:\\temp", "11", "12",
+  ]);
+});
+
+test("quoted loose dialogue remains literal inside TK2 blocks and methods", () => {
+  const source = '#Method Show() {\nHello "method"\n}\n#If (1 = 1) {\nHello "block"\n}\n#Show()';
+  const program = compileTk2(source, "nested-dialogue.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ['Hello "block"', 'Hello "method"']);
+});
+
 test("TK2 methods, labels, namespace calls and fbranch preserve shared shapes", () => {
   const ast = parseTk2("#Method Add(a, b) { #ReturnMethod(a + b) }\n:again\n#FBranch(:again)\n#system.start()");
   equal(ast.functions[0]?.name, "add");

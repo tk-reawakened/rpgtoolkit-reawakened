@@ -1,7 +1,7 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import test from "node:test";
 import { advanceScriptTick, compileInline, createGameState, createScriptServices, startProgram, UI_PLUGIN, type ScriptDialect } from "@tk-reawakened/core";
-import { applyEdits, legacyFixes, sameLowering } from "../src/index.ts";
+import { applyEdits, legacyFixes, sameLowering, tk2ConversionRefusal } from "../src/index.ts";
 
 function migrate(source: string): string {
   const actions = legacyFixes(source, "tk2");
@@ -50,6 +50,22 @@ test("migration keeps literal backslashes, inline prefixes and equals dialogue",
   deepEqual(mwinText(fixed, "tk3"), expected);
   equal(sameLowering(source, fixed.replace('a == "x\\"', 'a = "x\\"')), false);
   equal(sameLowering(source, fixed.replace("Hi #there = friend", "Hi there = friend")), false);
+});
+
+test("migration preserves sigilled assignments, non-lvalue text and literal backslashes", () => {
+  const source = '#index = 2\nvalues[index!]$ = 11\nvalues[3]! = 12\n1 + 1 = 2\nA+B = friendship\nHi #there = C:\\temp\n#Mwin(values[2])\n#Mwin(values[3])';
+  const fixed = migrate(source);
+  const expected = ["1 + 1 = 2", "A+B = friendship", "Hi #there = C:\\temp", "11", "12"];
+  deepEqual(mwinText(source, "tk2"), expected);
+  deepEqual(mwinText(fixed, "tk3"), expected);
+});
+
+test("conversion explains its refusal of literal quotes without suppressing executable code", () => {
+  const source = 'Hi #there = "friend"';
+  deepEqual(mwinText(source, "tk2"), ['Hi #there = "friend"']);
+  deepEqual(legacyFixes(source, "tk2"), []);
+  ok(tk2ConversionRefusal(source)?.includes("double quote"));
+  equal(tk2ConversionRefusal('#Mwin("friend")'), null);
 });
 
 test("mixed legacy forms are converted together and retain comments and CRLF", () => {
