@@ -86,7 +86,7 @@ const EARTHQUAKE = transition(
   "earthquake",
   [{ name: "intensity", optional: false, byRef: false, variadic: false }],
   {
-    summary: "Shake the whole game screen, from barely noticeable to strongest.",
+    summary: "Make the screen jump more strongly as intensity rises, from 1 (barely noticeable) to 10 (strongest). The command waits until the shaking ends.",
     behaviour: "Shakes the screen in increasingly strong four-tick bursts. Technically, intensity is clamped to 1..10; pass p moves the screen p logical pixels through the four corners, for 4*i fixed ticks total, and the script waits until the final pass.",
     groups: ["board-tiles-vectors-screen-effects-33"],
     waits: { kind: "ticks", summary: "Waits 4 times the intensity ticks, through all four-corner shake passes." },

@@ -1,7 +1,7 @@
 import { deepEqual, equal, match, throws } from "node:assert/strict";
 import { test } from "node:test";
 import { parseSpecTable } from "../spec-table.mjs";
-import { check } from "../check.mjs";
+import { check, retirementDiagnostics } from "../check.mjs";
 
 const command = (name, doc) => ({ name, aliases: [], params: [], call: () => ({ value: null }), ...(doc === undefined ? {} : { doc }) });
 const plugin = (id, commands) => ({ definition: { id, version: "1.0.0", commands } });
@@ -17,6 +17,20 @@ test("spec parser preserves punctuation, aliases, obsolete notes and sections", 
 
 test("spec parser rejects malformed command rows", () => {
   throws(() => parseSpecTable("## Fixtures\n| Command | Signature | Purpose | Notes |\n|---|---|---|---|\n| not backticked | void x() | Purpose |  |"), /malformed command name/);
+});
+
+test("a standalone anchor does not hide later rows of a command table", () => {
+  const rows = parseSpecTable("## Fixtures\n| Command | Signature | Purpose | Notes |\n|---|---|---|---|\n| `first` | void first() | First. | |\n<a id=\"second\"></a>\n| `second` | void second() | Second. | obsolete: warning |");
+  deepEqual(rows.map((row) => [row.name, row.obsolete]), [["first", undefined], ["second", true]]);
+});
+
+test("a deprecated spec row requires the status, reason and replacement in every catalogue layer", () => {
+  const rows = parseSpecTable("## Fixtures\n| Command | Signature | Purpose | Notes |\n|---|---|---|---|\n| `old` | void old() | Retired. | deprecated, still works |");
+  const maintained = { name: "old", pluginId: "maintained", tags: ["deprecated"], reason: "Legacy API.", replacedBy: { kind: "command", name: "new" } };
+  const incomplete = { ...maintained, pluginId: "incomplete", reason: null };
+  deepEqual(retirementDiagnostics([maintained], rows), []);
+  deepEqual(retirementDiagnostics([maintained, incomplete], rows).map((item) => item.key), ["incomplete/old"]);
+  deepEqual(retirementDiagnostics([], rows).map((item) => item.code), ["native.retirement-missing"]);
 });
 
 test("check accepts documented synthetic commands", () => {

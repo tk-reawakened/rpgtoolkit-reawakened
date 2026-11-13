@@ -8,7 +8,7 @@ const core = await import(pathToFileURL(join(root, "packages/core/dist/index.js"
 // The spec package is not in the engine's default manifest (TOOL-5), but its twelve commands are registered
 // commands with documentation, so the gate checks them like any other.
 const { SPEC_PLUGIN } = await import(pathToFileURL(join(root, "packages/script-spec/dist/index.js")).href);
-const { commandDocumentation, validateCommandDocumentation, CORE_PLUGIN, MEDIA_PLUGIN, BATTLE_PLUGIN, CATALOGUE_PLUGIN, NATIVE_PACK_TABLE } = core;
+const { commandDocumentation, validateCommandDocumentation, CORE_PLUGIN, MEDIA_PLUGIN, BATTLE_PLUGIN, CATALOGUE_PLUGIN, FIRST_PARTY_PLUGINS, NATIVE_PACK_TABLE } = core;
 const specPath = join(root, "docs/spec/engine/rpgcode-functions.md");
 const allowlistPath = join(root, "tools/command-docs/legacy-allowlist.json");
 
@@ -65,6 +65,38 @@ function battleRowDiagnostics(documentation, rows) {
     .map((entry) => ({ code: "native.row-missing", pluginId: entry.pluginId, name: entry.name, key: `${entry.pluginId}/${entry.name}`, message: `${entry.pluginId}/${entry.name} is a public battle built-in with no row in docs/spec/engine/rpgcode-functions.md` }));
 }
 
+/** Check every registered layer of a name whose spec row explicitly marks its retirement. */
+export function retirementDiagnostics(documentation, rows) {
+  const byName = new Map();
+  for (const entry of documentation) {
+    const name = entry.name.toLowerCase();
+    const entries = byName.get(name) ?? [];
+    entries.push(entry);
+    byName.set(name, entries);
+  }
+  return rows.flatMap((row) => {
+    const status = row.deprecated ? "deprecated" : row.obsolete ? "obsolete" : null;
+    if (status === null) return [];
+    const entries = byName.get(row.name.toLowerCase());
+    if (entries === undefined) return [{
+      code: "native.retirement-missing",
+      name: row.name,
+      message: `${row.name} is marked ${status} in the command spec and has no catalogue entry`,
+    }];
+    return entries.flatMap((entry) => {
+      if (entry.tags.includes(status) && entry.replacedBy !== null && entry.reason?.trim()) return [];
+      const key = `${entry.pluginId}/${entry.name}`;
+      return [{
+        code: "native.retirement-metadata",
+        pluginId: entry.pluginId,
+        name: entry.name,
+        key,
+        message: `${key} requires the ${status} tag, replacement and reason from the command spec`,
+      }];
+    });
+  });
+}
+
 export function check({ plugins = defaultPlugins(), rows = parseSpecTable(readFileSync(specPath, "utf8")), allowlist = readAllowlist() } = {}) {
   const documentation = commandDocumentation(plugins);
   const diagnostics = [...validateCommandDocumentation(plugins, rows, allowlist), ...specLinkDiagnostics(documentation), ...battleRowDiagnostics(documentation, rows)];
@@ -73,9 +105,12 @@ export function check({ plugins = defaultPlugins(), rows = parseSpecTable(readFi
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const result = check();
-    if (result.diagnostics.length > 0) {
-      for (const diagnostic of result.diagnostics) {
+    const rows = parseSpecTable(readFileSync(specPath, "utf8"));
+    const result = check({ rows });
+    const catalogue = commandDocumentation(FIRST_PARTY_PLUGINS.map((definition) => ({ definition })));
+    const diagnostics = [...result.diagnostics, ...retirementDiagnostics(catalogue, rows)];
+    if (diagnostics.length > 0) {
+      for (const diagnostic of diagnostics) {
         const location = diagnostic.pluginId === undefined ? "allowlist" : `${diagnostic.pluginId}/${diagnostic.name}`;
         console.error(`${diagnostic.code}: ${location}: ${diagnostic.message}`);
       }
