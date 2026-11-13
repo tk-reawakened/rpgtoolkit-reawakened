@@ -3,7 +3,7 @@ title: 'Refactor sweep: land the cleanups the twelve plans deferred'
 type: chore
 ticket: 13
 created: '2026-11-11'
-status: in-progress
+status: done
 tracker_id: "#942"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/942"
 baseline_revision: 'c33ea5dc'
