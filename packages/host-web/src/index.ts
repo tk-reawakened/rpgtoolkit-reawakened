@@ -1,20 +1,37 @@
-import { createDocumentIdentity, openMainDocument, type MainDocument, type OpenResult } from "@tk-reawakened/editor-model";
-import type { PlatformServices, ProjectHandle, SettingValue, SettingsLayer } from "@tk-reawakened/platform-services";
+import { createDocumentWorkspace, type DocumentWorkspace, type MainDocument, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import type { Capability, DialogService, PlatformServices, ProjectHandle, SettingValue, SettingsLayer } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { mount, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createPageDialogs } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
 
+/**
+ * A project open in the browser host. Its `workspace` is the host's workbench: one model per document, undo by `editId`,
+ * save all, close and revert that ask first, and Save As (ADR 0022 D3). The browser keeps no backup of unsaved work and
+ * cannot watch files, so neither `backup` nor `fileWatch` is declared: a change another program makes is found when the
+ * document is saved (D3.5, D11.3).
+ */
 export interface WebProject {
   readonly services: PlatformServices;
   readonly project: ProjectHandle;
   readonly sessionCopy: boolean;
+  readonly workspace: DocumentWorkspace;
   /** Retire this project from its host session; accepted operations remain bound to their original project. */
   deactivate(): void;
 }
+
+/** What a browser project is made with; `dialogs` defaults to the page's own modal dialogs. */
+export interface WebProjectOptions {
+  readonly dialogs?: DialogService;
+}
+
 type DirectoryPickerWindow = Window & {
   showDirectoryPicker?: (this: Window, options: { readonly mode: "readwrite" }) => Promise<FileSystemDirectoryHandle>;
 };
+
+/** The capabilities of a folder the File System Access API opened and the browser registered as a stable project. */
+const FOLDER_CAPABILITIES: readonly Capability[] = ["folderWrite", "stableProjectHandle"];
 
 /** Open a directory with the browser's native picker; stable identity requires successful IndexedDB registration. */
 export async function openWebProject(): Promise<WebProject | null> {
@@ -41,12 +58,29 @@ export async function listRecentWebProjects(): Promise<readonly ProjectHandle[] 
   return recentWebProjects();
 }
 
-function createFolderProject(root: FileSystemDirectoryHandle, project: ProjectHandle): WebProject {
+/**
+ * The page's dialogs, made on the first question. A host built without a page (a Node test, or a document opened before
+ * anything is asked) never touches a global `document`.
+ */
+function pageDialogs(): DialogService {
+  let made: DialogService | null = null;
+  return {
+    ask: (question) => (made ??= createPageDialogs(document)).ask(question),
+    pickSavePath: (request) => (made ??= createPageDialogs(document)).pickSavePath(request),
+  };
+}
+
+/** A project over a folder handle the host has already registered under `project` (or a test's own handle). */
+export function createFolderProject(root: FileSystemDirectoryHandle, project: ProjectHandle, options: WebProjectOptions = {}): WebProject {
   let active = true;
   const values = new Map<string, SettingValue>();
+  const capabilities = new Set(FOLDER_CAPABILITIES);
+  const fs = bindProjectFileSystem(project.id, createWebFileSystem(root, project.id), () => active);
+  const dialogs = options.dialogs ?? pageDialogs();
+  const workspace = createDocumentWorkspace({ projectId: project.id, services: { fs, dialogs, capabilities } });
   const services: PlatformServices = {
-    capabilities: new Set(["folderWrite", "stableProjectHandle"]),
-    fs: bindProjectFileSystem(project.id, createWebFileSystem(root, project.id), () => active),
+    capabilities,
+    fs,
     project: {
       open: async () => platformOk(project),
       recent: async () => {
@@ -62,68 +96,94 @@ function createFolderProject(root: FileSystemDirectoryHandle, project: ProjectHa
         return platformOk(undefined);
       },
     },
-    document: { edited: () => undefined },
+    document: workspace.document,
+    dialogs,
   };
-  return { services, project, sessionCopy: false, deactivate: () => { active = false; } };
+  return { services, project, sessionCopy: false, workspace, deactivate: () => { active = false; workspace.dispose(); } };
 }
 
 
 /** A file-only browser session is explicitly a copy: writes stay in this page's memory, never in the source file. */
-export function createSessionCopy(fileName: string, bytes: Uint8Array): WebProject {
+export function createSessionCopy(fileName: string, bytes: Uint8Array, options: WebProjectOptions = {}): WebProject {
   const memory = new Map<string, Uint8Array>([[fileName, bytes.slice()]]);
   let active = true;
   const project: ProjectHandle = { id: `session:${crypto.randomUUID()}`, name: `${fileName} (session copy)` };
   const valid = (path: string, allowRoot = false): boolean => path === "" ? allowRoot : !path.startsWith("/") && !path.includes("\\") && path.split("/").every((part) => part !== "" && part !== "." && part !== "..");
   const invalid = (path: string) => platformError("invalid-path", `Invalid project path: ${path}`);
   const unavailable = () => platformError("unavailable", "This session copy does not support folder watching or persistent writes.");
+  const capabilities = new Set<Capability>();
+  const fs = bindProjectFileSystem(project.id, {
+    list: async (path) => {
+      if (!valid(path, true)) return invalid(path);
+      if (memory.has(path)) return platformError("not-a-directory", `Not a directory: ${path}`);
+      const prefix = path === "" ? "" : `${path}/`;
+      const found = new Map<string, "file" | "directory">();
+      for (const key of memory.keys()) {
+        if (!key.startsWith(prefix)) continue;
+        const rest = key.slice(prefix.length);
+        const slash = rest.indexOf("/");
+        found.set(slash === -1 ? rest : rest.slice(0, slash), slash === -1 ? "file" : "directory");
+      }
+      return found.size === 0 ? platformError("not-found", `Folder not found: ${path || "."}`) : platformOk([...found].map(([name, kind]) => ({ name, kind })));
+    },
+    read: async (path) => !valid(path) ? invalid(path) : memory.has(path) ? platformOk(memory.get(path)!.slice()) : platformError("not-found", `File not found: ${path}`),
+    write: async (path, data) => {
+      if (!valid(path)) return invalid(path);
+      memory.set(path, data.slice());
+      return platformOk(undefined);
+    },
+    stat: async (path) => {
+      if (!valid(path, true)) return invalid(path);
+      if (path === "") return platformOk({ kind: "directory", size: 0, modifiedMs: 0 });
+      const data = memory.get(path);
+      return data ? platformOk({ kind: "file", size: data.length, modifiedMs: 0 }) : platformError("not-found", `File not found: ${path}`);
+    },
+    delete: async (path) => {
+      if (!valid(path)) return invalid(path);
+      return memory.delete(path) ? platformOk(undefined) : platformError("not-found", `File not found: ${path}`);
+    },
+    rename: async (from, to) => !valid(from) ? invalid(from) : !valid(to) ? invalid(to) : unavailable(),
+    watch: async (path) => !valid(path, true) ? invalid(path) : unavailable(),
+  }, () => active);
+  const dialogs = options.dialogs ?? pageDialogs();
+  const workspace = createDocumentWorkspace({ projectId: project.id, services: { fs, dialogs, capabilities } });
   const services: PlatformServices = {
-    capabilities: new Set(),
-    fs: bindProjectFileSystem(project.id, {
-      list: async (path) => {
-        if (!valid(path, true)) return invalid(path);
-        if (path !== "") return memory.has(path) ? platformError("not-a-directory", `Not a directory: ${path}`) : platformError("not-found", `Folder not found: ${path}`);
-        return platformOk([...memory.keys()].map((name) => ({ name, kind: "file" as const })));
-      },
-      read: async (path) => !valid(path) ? invalid(path) : memory.has(path) ? platformOk(memory.get(path)!.slice()) : platformError("not-found", `File not found: ${path}`),
-      write: async (path, data) => {
-        if (!valid(path)) return invalid(path);
-        memory.set(path, data.slice());
-        return platformOk(undefined);
-      },
-      stat: async (path) => {
-        if (!valid(path, true)) return invalid(path);
-        if (path === "") return platformOk({ kind: "directory", size: 0, modifiedMs: 0 });
-        const data = memory.get(path);
-        return data ? platformOk({ kind: "file", size: data.length, modifiedMs: 0 }) : platformError("not-found", `File not found: ${path}`);
-      },
-      delete: async (path) => {
-        if (!valid(path)) return invalid(path);
-        return memory.delete(path) ? platformOk(undefined) : platformError("not-found", `File not found: ${path}`);
-      },
-      rename: async (from, to) => !valid(from) ? invalid(from) : !valid(to) ? invalid(to) : unavailable(),
-      watch: async (path) => !valid(path, true) ? invalid(path) : unavailable(),
-    }, () => active),
+    capabilities,
+    fs,
     project: { open: async () => platformOk(project), recent: async () => platformOk([project]) },
     settings: { get: async () => platformOk(null), set: async () => platformError("unavailable", "Settings are unavailable in a session copy.") },
-    document: { edited: () => undefined },
+    document: workspace.document,
+    dialogs,
   };
-  return { services, project, sessionCopy: true, deactivate: () => { active = false; } };
+  return { services, project, sessionCopy: true, workspace, deactivate: () => { active = false; workspace.dispose(); } };
 }
 
-/** Mount the same view and authoritative model used by other hosts. The caller owns the returned view handle. */
-export async function openGameSettings(project: WebProject, path: string, element: HTMLElement): Promise<OpenResult | { readonly document: MainDocument; readonly view: ViewHandle }> {
-  const identity = createDocumentIdentity(project.project.id, path);
-  const opened = await openMainDocument(project.services.fs, identity);
+/** A mounted settings view over a workspace document, or why the document did not open. */
+export type GameSettingsOpenResult =
+  | Exclude<WorkspaceOpenResult, { readonly ok: true }>
+  | { readonly ok: true; readonly document: MainDocument; readonly view: ViewHandle };
+
+/**
+ * Open `path` in the project's workspace (one model per document, D1.2) and mount the shared view over it. The caller
+ * owns the returned view handle; disposing it never closes the document (D3.7), `project.workspace.close` does.
+ */
+export async function openGameSettings(project: WebProject, path: string, element: HTMLElement): Promise<GameSettingsOpenResult> {
+  const opened = await project.workspace.open(path);
   if (!opened.ok) return opened;
-  const mounted = mount(element, { document: opened.document, services: project.services });
+  return { ok: true, document: opened.document, view: mountGameSettings(project, opened.document, element) };
+}
+
+/** Mount a view over a document the project already has open: a second view, or a view recreated after a hidden one. */
+export function mountGameSettings(project: WebProject, document: MainDocument, element: HTMLElement): ViewHandle {
+  const mounted = mount(element, { document, services: project.services });
   const notice = project.sessionCopy ? element.ownerDocument.createElement("p") : null;
   if (notice) {
     notice.setAttribute("role", "status");
     notice.textContent = `${project.project.name} is a session copy. Changes stay in this browser session and are not saved to the original file.`;
     element.append(notice);
   }
-  const view: ViewHandle = { dispose: () => { mounted.dispose(); notice?.remove(); } };
-  return { document: opened.document, view };
+  return { dispose: () => { mounted.dispose(); notice?.remove(); } };
 }
 
+export { createPageDialogs } from "./dialogs.ts";
 export { createWebFileSystem } from "./filesystem.ts";

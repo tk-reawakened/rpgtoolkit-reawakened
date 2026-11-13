@@ -1,66 +1,10 @@
 import * as vscode from "vscode";
-import { createDocumentIdentity, openMainDocument, type MainDocument, type SaveResult } from "@tk-reawakened/editor-model";
+import { vscodeCapabilities } from "./capabilities.ts";
+import { createGameEditorProvider, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
+import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
-import { handleEditorHostRequest, isEditorHostRequest } from "./document-bridge.js";
-import { recoverMainDocument } from "./document-backup.ts";
 
 const VIEW_TYPE = "tkr.gameSettings";
-
-class GameDocument implements vscode.CustomDocument {
-  readonly uri: vscode.Uri;
-  readonly model: MainDocument;
-  private readonly events: vscode.EventEmitter<vscode.CustomDocumentEditEvent<GameDocument>>;
-  private pendingRecoveryEditId: string | null;
-
-  constructor(uri: vscode.Uri, model: MainDocument, events: vscode.EventEmitter<vscode.CustomDocumentEditEvent<GameDocument>>, recoveryEditId: string | null = null) {
-    this.uri = uri;
-    this.model = model;
-    this.events = events;
-    this.pendingRecoveryEditId = recoveryEditId;
-  }
-
-  didEdit(editId: string): void {
-    this.events.fire({ document: this, label: "Edit game title", undo: () => { this.model.undo(editId); }, redo: () => { this.model.redo(editId); } });
-  }
-
-  publishRecoveryEdit(): void {
-    const editId = this.pendingRecoveryEditId;
-    if (editId === null) return;
-    this.pendingRecoveryEditId = null;
-    this.didEdit(editId);
-  }
-
-  dispose(): void {}
-  save(): Promise<SaveResult> { return this.model.save(); }
-
-  async saveThroughWorkbench(): Promise<SaveResult> {
-    const path = this.model.identity.path;
-    try {
-      await vscode.commands.executeCommand("workbench.action.files.save");
-    } catch (error) {
-      const saveError = this.model.getSnapshot().saveError;
-      return { ok: false, failure: saveError ?? {
-        document: path,
-        kind: "write",
-        code: null,
-        message: `Could not save ${path}: ${error instanceof Error ? error.message : String(error)}`,
-      } };
-    }
-
-    const snapshot = this.model.getSnapshot();
-    if (snapshot.saveError !== null) return { ok: false, failure: snapshot.saveError };
-    if (snapshot.dirty || snapshot.saving) {
-      return { ok: false, failure: {
-        document: path,
-        kind: "write",
-        code: null,
-        message: `Could not save ${path}: VS Code did not save this custom document.`,
-      } };
-    }
-    return { ok: true };
-  }
-}
-
 
 function html(webview: vscode.Webview, context: vscode.ExtensionContext): string {
   const nonce = [...crypto.getRandomValues(new Uint8Array(18))].map((value) => value.toString(16).padStart(2, "0")).join("");
@@ -69,50 +13,43 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext): string
 }
 
 export function registerGameSettings(context: vscode.ExtensionContext): void {
-  const changes = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<GameDocument>>();
+  const changes = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<GameDocument<vscode.Uri>>>();
   context.subscriptions.push(changes);
-  const provider: vscode.CustomEditorProvider<GameDocument> = {
-    onDidChangeCustomDocument: changes.event,
-    openCustomDocument: async (uri, openContext) => {
+  const port: GameEditorPort<vscode.Uri> = {
+    capabilities: vscodeCapabilities(vscode.env.uiKind === vscode.UIKind.Desktop),
+    dialogs: (folder) => createVscodeDialogs(folder.uri),
+    folderOf: (uri) => {
       const folder = vscode.workspace.getWorkspaceFolder(uri);
-      if (!folder) throw new Error(`${uri.path.split("/").at(-1)} is outside the open workspace`);
-      const path = uri.path.slice(folder.uri.path.replace(/\/$/, "").length + 1);
-      const storage = createVscodeFileSystem(folder.uri);
-      const identity = createDocumentIdentity(folder.uri.toString(), path);
-      if (openContext.backupId !== undefined) {
-        const recovered = recoverMainDocument(storage, identity, await vscode.workspace.fs.readFile(vscode.Uri.parse(openContext.backupId)));
-        if (!recovered.ok) throw new Error(`${uri.path.split("/").at(-1)}: ${recovered.error.error.message}`);
-        return new GameDocument(uri, recovered.document, changes, recovered.editId);
-      }
-      const opened = await openMainDocument(storage, identity);
-      if (!opened.ok) throw new Error(`${uri.path.split("/").at(-1)}: ${opened.error.error.message}`);
-      return new GameDocument(uri, opened.document, changes);
+      return folder === undefined ? undefined : { uri: folder.uri, key: folder.uri.toString() };
     },
-    saveCustomDocument: async (document) => {
-      const result = await document.save();
-      if (!result.ok) throw new Error(result.failure.message);
+    fileSystem: (folder) => createVscodeFileSystem(folder.uri),
+    readBackup: async (id) => await vscode.workspace.fs.readFile(vscode.Uri.parse(id)),
+    writeBackup: async (destination, bytes) => {
+      await vscode.workspace.fs.writeFile(destination, bytes);
+      return destination.toString();
     },
-    saveCustomDocumentAs: async () => { throw new Error("Save As is not available for this settings tracer."); },
-    revertCustomDocument: async () => { throw new Error("Revert is not available for this settings tracer."); },
-    backupCustomDocument: async (document, backupContext) => {
-      await vscode.workspace.fs.writeFile(backupContext.destination, document.model.serialize());
-      return { id: backupContext.destination.toString(), delete: async () => { await vscode.workspace.fs.delete(backupContext.destination); } };
-    },
+    deleteBackup: async (destination) => { await vscode.workspace.fs.delete(destination); },
+    executeCommand: async (command) => await vscode.commands.executeCommand(command),
+  };
+  const core = createGameEditorProvider(port, (event: GameEditEvent<vscode.Uri>) => changes.fire(event));
+  const provider: vscode.CustomEditorProvider<GameDocument<vscode.Uri>> = {
+    onDidChangeCustomDocument: changes.event,
+    openCustomDocument: (uri, openContext) => core.openCustomDocument(uri, openContext.backupId),
+    saveCustomDocument: (document) => core.saveCustomDocument(document),
+    saveCustomDocumentAs: (document, destination) => core.saveCustomDocumentAs(document, destination),
+    revertCustomDocument: (document) => core.revertCustomDocument(document),
+    backupCustomDocument: (document, backupContext) => core.backupCustomDocument(document, backupContext.destination),
     resolveCustomEditor: async (document, panel) => {
       panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist")] };
-      const publish = () => { void panel.webview.postMessage({ type: "snapshot", snapshot: document.model.getSnapshot() }); };
-      const subscription = document.model.subscribe(publish);
-      const messageSubscription = panel.webview.onDidReceiveMessage(async (message: unknown) => {
-        if (!isEditorHostRequest(message)) return;
-        await handleEditorHostRequest(document, message, (reply) => panel.webview.postMessage(reply));
+      core.resolveCustomEditor(document, {
+        postMessage: (message) => panel.webview.postMessage(message),
+        onDidReceiveMessage: (listener) => panel.webview.onDidReceiveMessage(listener),
+        onDidDispose: (listener) => panel.onDidDispose(listener),
       });
       panel.webview.html = html(panel.webview, context);
-      document.publishRecoveryEdit();
-      panel.onDidDispose(() => { subscription(); messageSubscription.dispose(); });
     },
   };
+  // A hidden webview is destroyed (`retainContextWhenHidden: false`); the document lives here in the extension host, and
+  // the re-created view asks for it again (ADR 0022 D3.7).
   context.subscriptions.push(vscode.window.registerCustomEditorProvider(VIEW_TYPE, provider, { webviewOptions: { retainContextWhenHidden: false }, supportsMultipleEditorsPerDocument: true }));
 }
-
-
-export function deactivate(): void {}

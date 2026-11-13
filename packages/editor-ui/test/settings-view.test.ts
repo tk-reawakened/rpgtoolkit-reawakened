@@ -214,6 +214,10 @@ test("disposing the view removes its listener and its DOM and leaves the documen
     undo: (editId) => s.doc.undo(editId),
     redo: (editId) => s.doc.redo(editId),
     save: () => s.doc.save(),
+    checkExternal: () => s.doc.checkExternal(),
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
+    revert: () => s.doc.revert(),
+    saveAs: (storage, target) => s.doc.saveAs(storage, target),
   };
   let handle: ReturnType<Mount> | undefined;
   await act(() => {
@@ -370,6 +374,7 @@ test("a newer title draft survives an earlier asynchronous apply", async () => {
         releaseApply = () => resolve(s.doc.apply(command));
       }),
     save: () => s.doc.save(),
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
   };
   await act(() => {
     mount(s.el, { document: delayed, services: s.host });
@@ -404,6 +409,7 @@ test("Enter commits a newer title draft after an earlier asynchronous apply", as
       });
     },
     save: () => s.doc.save(),
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
   };
   await act(() => {
     mount(s.el, { document: delayed, services: s.host });
@@ -461,6 +467,7 @@ test("Save commits a newer title draft after an earlier asynchronous apply", asy
         finishSave();
         return result;
       }),
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
   };
   await act(() => {
     mount(s.el, { document: delayed, services: s.host });
@@ -638,6 +645,10 @@ test("a failure that replaces another with the same words, with no clean state b
     undo: (editId) => s.doc.undo(editId),
     redo: (editId) => s.doc.redo(editId),
     save: () => Promise.resolve({ ok: true }),
+    checkExternal: () => s.doc.checkExternal(),
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
+    revert: () => s.doc.revert(),
+    saveAs: (storage, target) => s.doc.saveAs(storage, target),
   };
   await act(() => {
     mount(s.el, { document: stub, services: s.host });
@@ -672,6 +683,10 @@ test("a save that is rejected rather than answered leaves no unhandled rejection
     undo: (editId) => s.doc.undo(editId),
     redo: (editId) => s.doc.redo(editId),
     save: () => Promise.reject(new Error("a document that breaks its contract")),
+    checkExternal: () => s.doc.checkExternal(),
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
+    revert: () => s.doc.revert(),
+    saveAs: (storage, target) => s.doc.saveAs(storage, target),
   };
   const unhandled: unknown[] = [];
   const onUnhandled = (reason: unknown): void => {
@@ -691,4 +706,23 @@ test("a save that is rejected rather than answered leaves no unhandled rejection
   } finally {
     process.off("unhandledRejection", onUnhandled);
   }
+});
+
+test("a title the document changes under a committed draft replaces it: a revert shows the file's title, not the stale draft", async () => {
+  const original = exampleMain(9);
+  const s = await setup(original);
+  show(s);
+  await type(s.el, "Committed");
+  await act(async () => {
+    button(s.el).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  equal(status(s.el), "All changes saved");
+  await type(s.el, "Not yet saved");
+  equal(input(s.el).value, "Not yet saved");
+  // The document goes back to the file's version while the draft's command is the latest one: the field must follow it.
+  await act(async () => { await s.doc.revert(); });
+  equal(input(s.el).value, "Committed", "the field shows the saved revision the file holds, not the discarded draft");
+  equal(status(s.el), "All changes saved");
+  equal(s.doc.getSnapshot().dirty, false);
 });

@@ -1,11 +1,12 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
-import { createVscodeFileSystemWithPort, VSCODE_CAPABILITIES, type VscodeFileSystemPort } from "@tk-reawakened/host-vscode/testing";
+import { createVscodeFileSystemWithPort, vscodeCapabilities, type VscodeFileSystemPort } from "@tk-reawakened/host-vscode/testing";
 
 interface Uri { readonly path: string }
 const root: Uri = { path: "/project" };
 test("VS Code reports only capabilities backed by its workspace adapter", () => {
-  deepEqual(new Set(VSCODE_CAPABILITIES), new Set(["folderWrite", "fileWatch", "stableProjectHandle"]));
+  deepEqual(new Set(vscodeCapabilities(true)), new Set(["folderWrite", "fileWatch", "stableProjectHandle", "backup"]));
+  deepEqual(new Set(vscodeCapabilities(false)), new Set(["folderWrite", "stableProjectHandle", "backup"]), "a browser VS Code claims no live change detection");
 });
 const original = new Uint8Array([1, 2, 3]);
 const files = new Map([["/project/Main.gam", original.slice()]]);

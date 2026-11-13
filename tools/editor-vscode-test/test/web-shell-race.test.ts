@@ -11,7 +11,7 @@ test("a stale shell open cannot replace the newer project", async () => {
   const dir = await mkdtemp(join(tmpdir(), "tkr-shell-race-"));
   GlobalRegistrator.register();
   try {
-    document.body.innerHTML = `<button id="open-project"></button><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><p id="host-status"></p><section id="settings"></section>`;
+    document.body.innerHTML = `<button id="open-project"></button><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="settings"></section>`;
     const hostUrl = pathToFileURL(resolve("packages/host-web/dist/index.js")).href;
     const fixtureUrl = pathToFileURL(resolve("docs/spec/examples/game/Main/example.gam")).href;
     await writeFile(join(dir, "host.mjs"), `
@@ -19,11 +19,12 @@ import * as real from ${JSON.stringify(hostUrl)};
 import { readFileSync } from 'node:fs';
 const data = new Uint8Array(readFileSync(new URL(${JSON.stringify(fixtureUrl)})));
 export const A = real.createSessionCopy('game.gam', data);
-A.services.fs.list = async () => ({ok:true,value:[{name:'game.gam',kind:'file'},{name:'game.gam',kind:'file'}]});
+A.services.fs.list = async () => ({ok:true,value:[{name:'game.gam',kind:'file'},{name:'other.gam',kind:'file'}]});
 export const openWebProject = async () => A;
 export const reopenWebProject = real.reopenWebProject;
 export const listRecentWebProjects = async () => [];
 export const createSessionCopy = real.createSessionCopy;
+export const mountGameSettings = real.mountGameSettings;
 let count = 0;
 let release;
 const gate = new Promise(resolve => { release = resolve; });

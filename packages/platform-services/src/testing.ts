@@ -6,9 +6,11 @@ import { bindProjectFileSystem, type DirectoryEntry, type FileChange, type FileK
 import { platformError, platformOk, type Disposable, type PlatformError, type PlatformResult } from "./result.ts";
 import type {
   Capability,
+  DialogQuestion,
   DocumentEdited,
   PlatformServices,
   ProjectHandle,
+  SavePathRequest,
   SettingsLayer,
   SettingValue,
 } from "./services.ts";
@@ -25,6 +27,17 @@ export interface MemoryPlatformServices extends PlatformServices {
   watchCount(): number;
   /** Make every later `fs.write` fail with `error` and change nothing; `null` restores normal writes. */
   failWrites(error: PlatformError | null): void;
+  /**
+   * Answer later `dialogs.ask` questions in turn with these choice ids. A question asked when none is left is dismissed
+   * and answers its `cancel`; an id the question does not offer rejects the call, so a test cannot answer the wrong one.
+   */
+  answerQuestions(...ids: readonly string[]): void;
+  /** Answer later `dialogs.pickSavePath` requests in turn; `null` cancels, and with none left a request is cancelled. */
+  answerSavePaths(...paths: readonly (string | null)[]): void;
+  /** Every question `dialogs.ask` was asked, in order. */
+  readonly questions: readonly DialogQuestion<string>[];
+  /** Every `dialogs.pickSavePath` request, in order. */
+  readonly savePathRequests: readonly SavePathRequest[];
 }
 
 /** What the double starts with. */
@@ -79,6 +92,10 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
   const edited: DocumentEdited[] = [];
   let tick = 0;
   let writeFailure: PlatformError | null = null;
+  const questionAnswers: string[] = [];
+  const pathAnswers: (string | null)[] = [];
+  const questions: DialogQuestion<string>[] = [];
+  const savePathRequests: SavePathRequest[] = [];
 
   const touch = (): number => {
     tick += 1;
@@ -244,6 +261,22 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
         edited.push(event);
       },
     },
+    dialogs: {
+      ask: <Id extends string>(question: DialogQuestion<Id>): Promise<Id> => {
+        questions.push(question);
+        const answer = questionAnswers.shift();
+        if (answer === undefined) return Promise.resolve(question.cancel);
+        const chosen = question.choices.find((choice) => choice.id === answer);
+        if (chosen === undefined) {
+          return Promise.reject(new Error(`"${answer}" is not an answer to "${question.message}"`));
+        }
+        return Promise.resolve(chosen.id);
+      },
+      pickSavePath: (request) => {
+        savePathRequests.push(request);
+        return Promise.resolve(pathAnswers.length === 0 ? null : pathAnswers.shift() ?? null);
+      },
+    },
     seed: (path, bytes) => {
       put(path, bytes);
     },
@@ -253,5 +286,13 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
     failWrites: (error) => {
       writeFailure = error;
     },
+    answerQuestions: (...ids) => {
+      questionAnswers.push(...ids);
+    },
+    answerSavePaths: (...paths) => {
+      pathAnswers.push(...paths);
+    },
+    questions,
+    savePathRequests,
   };
 }

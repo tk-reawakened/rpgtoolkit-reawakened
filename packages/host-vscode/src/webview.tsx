@@ -3,12 +3,17 @@ import { RemoteDocument, type BridgeMessage, type VscodeApi } from "./document-b
 
 declare function acquireVsCodeApi(): VscodeApi;
 
+// A hidden webview is destroyed and this script runs again when it is shown: the document and its history stay in the
+// extension host, and `ready` fetches them back (ADR 0022 D3.7).
 const api = acquireVsCodeApi();
 let remoteDocument: RemoteDocument | undefined;
 window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
   if (event.data.type === "initialize") {
     remoteDocument = new RemoteDocument(event.data.snapshot, api);
-    mount(documentRoot(), { document: remoteDocument, services: { document: { edited: () => undefined } } });
+    mount(documentRoot(), {
+      document: remoteDocument,
+      services: { document: { edited: () => undefined }, capabilities: new Set(event.data.capabilities) },
+    });
     return;
   }
   remoteDocument?.receive(event.data);

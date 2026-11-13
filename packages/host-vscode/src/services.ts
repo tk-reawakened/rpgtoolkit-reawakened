@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 import type { PlatformServices, ProjectHandle, SettingValue, SettingsLayer } from "@tk-reawakened/platform-services";
 import { platformOk } from "@tk-reawakened/platform-services";
-import { VSCODE_CAPABILITIES } from "./capabilities.ts";
+import { vscodeCapabilities } from "./capabilities.ts";
+import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
 
 /** Build the host service surface around the chosen workspace folder. */
@@ -9,7 +10,7 @@ export function createVscodeServices(root: vscode.Uri): PlatformServices {
   const folder = vscode.workspace.getWorkspaceFolder(root);
   const project: ProjectHandle = { id: root.toString(), name: folder?.name ?? root.path.split("/").at(-1) ?? "Workspace" };
   return {
-    capabilities: new Set(VSCODE_CAPABILITIES),
+    capabilities: new Set(vscodeCapabilities(vscode.env.uiKind === vscode.UIKind.Desktop)),
     fs: createVscodeFileSystem(root),
     project: {
       open: async () => platformOk(project),
@@ -28,5 +29,6 @@ export function createVscodeServices(root: vscode.Uri): PlatformServices {
       },
     },
     document: { edited: () => undefined },
+    dialogs: createVscodeDialogs(root),
   };
 }

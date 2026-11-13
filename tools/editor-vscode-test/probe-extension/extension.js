@@ -27,6 +27,23 @@ function activate(context) {
     panel.webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none';"></head><body><pre id="tkr-proof-persisted-bytes-${id}">${encoded}</pre></body></html>`;
     console.info(`[vscode-web-proof-probe] persisted bytes published in read-only webview #${id}`);
   }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.writeGameBytes", async (encoded) => {
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    const gameFiles = await findGameFiles(workspace.uri);
+    if (gameFiles.length !== 1) throw new Error(`Expected one .gam file in the proof workspace; found ${gameFiles.length}`);
+    const bytes = Uint8Array.from(atob(String(encoded)), (character) => character.charCodeAt(0));
+    await withTimeout(vscode.workspace.fs.writeFile(gameFiles[0], bytes), "workspace.fs.writeFile");
+    console.info(`[vscode-web-proof-probe] wrote ${bytes.length} bytes behind the editor's back`);
+  }));
+  const setAutosave = (value) => async () => {
+    const configuration = vscode.workspace.getConfiguration("files");
+    await configuration.update("autoSave", value, vscode.ConfigurationTarget.Workspace);
+    if (value !== "off") await configuration.update("autoSaveDelay", 1000, vscode.ConfigurationTarget.Workspace);
+    console.info(`[vscode-web-proof-probe] files.autoSave=${String(configuration.get("autoSave"))} delay=${String(configuration.get("autoSaveDelay"))}`);
+  };
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.enableAutosave", setAutosave("afterDelay")));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.disableAutosave", setAutosave("off")));
 }
 function withTimeout(operation, stage) {
   let timer;

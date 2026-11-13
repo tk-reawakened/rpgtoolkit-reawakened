@@ -33,9 +33,11 @@ if (gameFiles.length !== 1 || resolve(workspace, game) !== gameFiles[0]) {
 await access(gameFiles[0]);
 const title = `VS Code web proof ${Date.now()}`;
 const recoveredTitle = `${title} recovered`;
-const [expectedBytes, recoveredBytes] = await Promise.all([
+const autosaveTitle = `${title} autosaved`;
+const [expectedBytes, recoveredBytes, autosaveBytes] = await Promise.all([
   createWebAdapterBytes(gameFiles[0], game, title),
   createWebAdapterBytes(gameFiles[0], game, recoveredTitle),
+  createWebAdapterBytes(gameFiles[0], game, autosaveTitle),
 ]);
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
 const cdpPort = await freePort();
@@ -68,7 +70,7 @@ try {
   page.on("console", (message) => { if (message.type() === "error") recordBrowserDiagnostic(`[console] ${message.text()}`); });
   page.on("pageerror", (error) => recordBrowserDiagnostic(`[pageerror] ${error.stack ?? error.message}`));
   page.on("requestfailed", (request) => recordBrowserDiagnostic(`[requestfailed] ${request.url()}: ${request.failure()?.errorText ?? "unknown failure"}`));
-  await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes);
+  await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes);
   console.log("vscode.dev settings proof passed");
 } catch (error) {
   failure = error;
