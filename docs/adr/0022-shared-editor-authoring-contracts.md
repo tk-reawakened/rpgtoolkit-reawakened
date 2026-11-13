@@ -170,7 +170,7 @@ No cross-document atomic undo or save; no backup beyond what a host really provi
    * all of them are editor settings (D6.2), and **autosave and retention are user-only entries** (D6.3).
    * **The 11.14 artifact** (method and raw output in [`docs/findings/history-measurement/`](../findings/history-measurement/README.md)) records measured board-corpus sizes and a deterministic single-board scenario model. Its 500 generated saves have no timestamps, and 27 of 500 repeat an earlier digest. The scenario applies a modeled save rate to one board size at a time; **695 MB/day is one synthetic scenario, not a project upper bound or evidence for a 1 GB threshold.** No measured editing hour or project-wide storage model exists. Tilesets are not measured.
    * **Proposals, not adopted:** a 60 s merge window, a 24-hour autosave floor, and a 1 GB per-project warning remain proposals only. The data do not support selecting any of them. A timestamped editing trace and project-wide model, or an explicit owner decision with those limitations, are still required.
-   * Until the owner resolves these values, the settings stay `unset` and the store keeps the conservative cap described above.
+   * Until the owner resolves these values, no retention policy or capacity cap is implied; implementation behavior remains unspecified.
 9. **Same in every host.** History lives in shared code on top of `fs`; a host adds no history feature of its own (AD-20). VS Code's own Timeline (Local History) keeps working beside it and is not replaced or hidden.
 
 ### D13 — Git integration

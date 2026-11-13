@@ -40,12 +40,17 @@ The corpus figures match the ADR evidence table (36.5 KB, 149 KB, 482 KB).
 
 Single-board synthetic storage scenario per 24 hours (not a project estimate):
 
-| Window | Assumed saves/h | Modeled entries/h | One p90-size board | One max-size board | Synthetic-save mean |
+| Window | Modeled saves/h | Modeled entries/h | One p90-size board | One max-size board | Synthetic-save mean |
 |---:|---:|---:|---:|---:|---:|
 | 10 s | 60 | 60 | 215 MB | 695 MB | 2.2 MB |
-| 10 s | ≥360 | 360 | 1,291 MB | 4,168 MB | 13.0 MB |
-| 60 s | ≥60 | 60 | 215 MB | 695 MB | 2.2 MB |
-| 300 s | ≥60 | 12 | 43 MB | 139 MB | 0.4 MB |
+| 10 s | 360 | 360 | 1,291 MB | 4,168 MB | 13.0 MB |
+| 10 s | 3,600 | 360 | 1,291 MB | 4,168 MB | 13.0 MB |
+| 60 s | 60 | 60 | 215 MB | 695 MB | 2.2 MB |
+| 60 s | 360 | 60 | 215 MB | 695 MB | 2.2 MB |
+| 60 s | 3,600 | 60 | 215 MB | 695 MB | 2.2 MB |
+| 300 s | 60 | 12 | 43 MB | 139 MB | 0.4 MB |
+| 300 s | 360 | 12 | 43 MB | 139 MB | 0.4 MB |
+| 300 s | 3,600 | 12 | 43 MB | 139 MB | 0.4 MB |
 
 For example, **695 MB/day is only the synthetic scenario for one board of
 maximum corpus size (482,379 bytes)** at 60 modeled entries per hour for 24
