@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Refactor sweep for beginner tools"
 ticket: 9
 status: draft

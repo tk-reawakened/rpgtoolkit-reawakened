@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Character stats moves equipment and progression"
 ticket: 5
 status: draft

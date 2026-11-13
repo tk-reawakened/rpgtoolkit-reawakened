@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Build and inspect game setup"
 ticket: 6
 status: draft

@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "The scene editor saves a board directly or a scene, and converts only when asked"
 ticket: 16
 status: draft

@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Desktop preview and creator test services"
 status: draft
 risk: high

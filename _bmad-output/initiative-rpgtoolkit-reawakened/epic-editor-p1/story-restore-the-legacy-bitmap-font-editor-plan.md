@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Restore the legacy bitmap font editor"
 ticket: 20
 tracker_id: "#1939"

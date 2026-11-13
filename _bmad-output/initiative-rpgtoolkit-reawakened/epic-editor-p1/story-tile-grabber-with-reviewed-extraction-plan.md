@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Tile grabber with reviewed extraction"
 ticket: 4
 status: draft

@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Build a runnable visual event tracer"
 ticket: 2
 status: draft

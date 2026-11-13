@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Auto tile sample evidence and ordering ruling"
 ticket: 7
 status: draft

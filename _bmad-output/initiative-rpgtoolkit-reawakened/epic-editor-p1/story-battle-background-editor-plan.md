@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Battle background editor"
 ticket: 11
 status: draft

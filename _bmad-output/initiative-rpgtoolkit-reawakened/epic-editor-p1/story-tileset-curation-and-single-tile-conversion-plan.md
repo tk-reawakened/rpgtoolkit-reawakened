@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Tileset curation and single tile conversion"
 ticket: 5
 status: draft

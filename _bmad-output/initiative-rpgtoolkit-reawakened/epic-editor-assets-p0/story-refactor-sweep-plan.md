@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Refactor sweep"
 ticket: 13
 status: draft

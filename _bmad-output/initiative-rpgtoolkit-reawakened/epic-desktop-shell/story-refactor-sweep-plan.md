@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Refactor sweep"
 status: draft
 risk: medium

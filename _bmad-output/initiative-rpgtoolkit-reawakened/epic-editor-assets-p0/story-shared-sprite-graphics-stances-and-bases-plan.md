@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Shared sprite graphics stances and bases"
 ticket: 4
 status: draft

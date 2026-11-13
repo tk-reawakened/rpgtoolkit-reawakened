@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "P0 author to packaged game acceptance"
 ticket: 14
 status: draft

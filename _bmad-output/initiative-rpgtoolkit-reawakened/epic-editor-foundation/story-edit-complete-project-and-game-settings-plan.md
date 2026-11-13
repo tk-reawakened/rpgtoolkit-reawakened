@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Edit complete project and game settings"
 ticket: 6
 status: draft

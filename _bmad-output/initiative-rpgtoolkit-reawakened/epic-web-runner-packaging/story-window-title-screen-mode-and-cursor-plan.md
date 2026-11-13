@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "The window shows the project's title, screen mode and cursor"
 ticket: 34
 status: draft

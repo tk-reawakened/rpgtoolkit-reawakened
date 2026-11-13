@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Keep document history, checkpoint groups and package exclusion"
 ticket: 14
 status: draft

@@ -1,6 +1,6 @@
 ---
 title: 'Title-screen text and menu persist after entering a board'
-type: 'bug'
+type: 'feature'
 ticket: '38'
 status: 'blocked'
 blocked_reason: 'First-board clearing and the permitted UI reset scope await the owner ruling tracked by #642.'

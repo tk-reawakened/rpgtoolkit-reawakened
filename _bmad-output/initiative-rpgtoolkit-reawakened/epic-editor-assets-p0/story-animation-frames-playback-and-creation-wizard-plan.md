@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Animation frames playback and creation wizard"
 ticket: 7
 status: draft

@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Board properties links and player start"
 ticket: 3
 status: draft

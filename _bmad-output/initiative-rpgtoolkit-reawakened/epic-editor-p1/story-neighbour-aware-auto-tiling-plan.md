@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Neighbour aware auto tiling"
 ticket: 8
 status: draft

@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Package game and install descriptor"
 ticket: 9
 status: draft

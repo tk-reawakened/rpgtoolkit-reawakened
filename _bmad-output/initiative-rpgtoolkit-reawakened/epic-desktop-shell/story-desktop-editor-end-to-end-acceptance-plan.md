@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Desktop editor end-to-end acceptance"
 status: draft
 risk: high

@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Edit and preview interface skins"
 ticket: 4
 status: draft

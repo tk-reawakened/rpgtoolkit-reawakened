@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Independent editor release signing and updates"
 status: draft
 risk: high

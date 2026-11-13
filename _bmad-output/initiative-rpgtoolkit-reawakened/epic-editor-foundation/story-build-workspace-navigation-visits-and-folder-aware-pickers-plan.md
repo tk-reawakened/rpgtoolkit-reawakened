@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Build workspace navigation visits and folder-aware pickers"
 ticket: 4
 status: draft

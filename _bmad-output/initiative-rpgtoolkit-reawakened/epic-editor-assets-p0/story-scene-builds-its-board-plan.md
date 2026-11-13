@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "A scene builds its board, with vectors made from tile and asset collision"
 ticket: 15
 status: draft

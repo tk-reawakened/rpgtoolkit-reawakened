@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Provide schema-driven editor preferences"
 ticket: 5
 status: draft

@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Connect media conversion to project import and package export"
 ticket: 14
 status: draft

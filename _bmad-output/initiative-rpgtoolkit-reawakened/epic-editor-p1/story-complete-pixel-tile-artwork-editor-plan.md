@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Complete pixel tile artwork editor"
 ticket: 3
 status: draft

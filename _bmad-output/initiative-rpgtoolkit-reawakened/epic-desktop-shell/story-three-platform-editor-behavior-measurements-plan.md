@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Three-platform editor behavior measurements"
 status: draft
 risk: high

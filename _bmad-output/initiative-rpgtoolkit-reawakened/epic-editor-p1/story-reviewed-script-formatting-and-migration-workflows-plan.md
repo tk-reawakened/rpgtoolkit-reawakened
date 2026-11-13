@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Reviewed script formatting and migration workflows"
 ticket: 16
 status: draft

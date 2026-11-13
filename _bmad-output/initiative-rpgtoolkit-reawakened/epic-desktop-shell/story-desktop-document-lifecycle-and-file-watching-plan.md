@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Desktop document lifecycle and file watching"
 status: draft
 risk: high

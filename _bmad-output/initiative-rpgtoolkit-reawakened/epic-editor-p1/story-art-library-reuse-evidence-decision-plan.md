@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Art library reuse evidence decision"
 ticket: 2
 status: draft

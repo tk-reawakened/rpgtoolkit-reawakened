@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Desktop editor project tracer"
 status: draft
 risk: high

@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Tile bitmap stamp and per tile shading editor"
 ticket: 8
 status: draft

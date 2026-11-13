@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Build the settings model and view over an in-memory platform-services double"
 ticket: 17
 status: draft

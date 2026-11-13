@@ -1,6 +1,6 @@
 ---
 title: 'Package script functions do not join ordinary or namespaced lookup'
-type: 'bug'
+type: 'feature'
 ticket: '21'
 status: 'ready-for-dev'
 tracker_id: '#1051'

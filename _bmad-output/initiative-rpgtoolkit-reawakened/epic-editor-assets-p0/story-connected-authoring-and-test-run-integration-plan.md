@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Connected authoring and test run integration"
 ticket: 12
 status: draft

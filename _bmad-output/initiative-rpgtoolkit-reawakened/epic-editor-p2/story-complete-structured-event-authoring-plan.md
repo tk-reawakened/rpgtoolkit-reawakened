@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Complete structured event authoring"
 ticket: 3
 status: draft

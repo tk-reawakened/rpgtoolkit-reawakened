@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Verify beginner tools end to end"
 ticket: 10
 status: draft

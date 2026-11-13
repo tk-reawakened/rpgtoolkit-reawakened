@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Rule visual source and setup delivery contracts"
 ticket: 1
 status: draft

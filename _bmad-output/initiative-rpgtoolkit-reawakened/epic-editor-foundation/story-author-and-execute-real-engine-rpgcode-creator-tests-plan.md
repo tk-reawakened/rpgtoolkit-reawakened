@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Author and execute real engine RPGCode creator tests"
 ticket: 9
 status: draft
