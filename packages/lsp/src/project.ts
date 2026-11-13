@@ -11,8 +11,6 @@
 
 import {
   BinaryReader,
-  PACKAGE_ROOT,
-  assetKey,
   createAssetIndex,
   encodeCp1252,
   projectScriptDialect,
@@ -20,10 +18,12 @@ import {
   type AssetIndex,
   type AssetKey,
   type AssetRoot,
+  type MainFile,
   type ProgramLoader,
   type ScriptDialect,
 } from "@tk-reawakened/core";
-import { decodeBase64, isProgramPath, projectRootUri, type ProjectSnapshot } from "./protocol.ts";
+import { lintProjectRoot } from "@tk-reawakened/script-tools";
+import { decodeBase64, isHookAssetPath, isProgramPath, projectRootUri, type ProjectSnapshot } from "./protocol.ts";
 
 export type ProjectModel =
   | { readonly kind: "none"; readonly revision: number; readonly reason: string }
@@ -31,6 +31,8 @@ export type ProjectModel =
       readonly kind: "project";
       readonly revision: number;
       readonly mainUri: string;
+      readonly main: MainFile;
+      readonly inventoryComplete: boolean;
       readonly rootUri: string;
       readonly dialect: ScriptDialect;
       readonly index: AssetIndex;
@@ -67,7 +69,7 @@ export function projectModel(snapshot: ProjectSnapshot): ProjectModel {
   const main = readMainFile(new BinaryReader(mainBytes, snapshot.main.uri));
   if (!main.ok) return none(revision, `${snapshot.main.uri} is not a readable main file: ${main.error.message}`);
 
-  const files = (snapshot.files ?? []).filter((file) => isProgramPath(file.path));
+  const files = (snapshot.files ?? []).filter((file) => isProgramPath(file.path) || isHookAssetPath(file.path));
   const paths = files.map((file) => file.path.replace(/\\/g, "/"));
   const index = createAssetIndex(paths);
   const uriOfKey = new Map<string, string>();
@@ -78,8 +80,10 @@ export function projectModel(snapshot: ProjectSnapshot): ProjectModel {
     const key = index.keys[position]!;
     const decoded = decodeBase64(file.bytes);
     if (decoded === undefined) return none(revision, `the bytes of ${file.uri} are not base64`);
-    keyOfUri.set(file.uri, key);
-    pathOfUri.set(file.uri, paths[position]!);
+    if (isProgramPath(file.path) && !isHookAssetPath(file.path)) {
+      keyOfUri.set(file.uri, key);
+      pathOfUri.set(file.uri, paths[position]!);
+    }
     if (uriOfKey.has(key)) continue;
     uriOfKey.set(key, file.uri);
     bytes.set(key, decoded);
@@ -87,15 +91,14 @@ export function projectModel(snapshot: ProjectSnapshot): ProjectModel {
 
   // A Toolkit folder keeps the project under Game/<projectPath>/; a loose folder or a
   // package is its own root and ignores projectPath (docs/spec/formats/packaging-and-paths.md).
-  const projectPath = main.value.projectPath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-  const gamePrefix = assetKey(`Game/${projectPath}/`);
-  const underGame = projectPath !== "" && index.keys.some((key) => key.startsWith(gamePrefix));
-  const root: AssetRoot = underGame ? { kind: "game", projectPath: main.value.projectPath } : PACKAGE_ROOT;
+  const root = lintProjectRoot(main.value, index);
 
   return {
     kind: "project",
     revision,
     mainUri: snapshot.main.uri,
+    main: main.value,
+    inventoryComplete: snapshot.files !== undefined && snapshot.hookInventoryComplete === true,
     rootUri,
     dialect: projectScriptDialect(main.value),
     index,
@@ -130,8 +133,8 @@ export function documentContext(project: ProjectModel, uri: string, languageId: 
 
 /**
  * The loader the compiler reads includes through. An open buffer supersedes the
- * snapshot's bytes for its URI; a buffer that cannot be written as Windows-1252
- * falls back to the snapshot so the loader never invents bytes.
+ * snapshot's bytes for its URI. A buffer that cannot be written as Windows-1252
+ * cannot supply project facts until the encoding problem is resolved.
  */
 export function projectLoader(
   project: Extract<ProjectModel, { kind: "project" }>,
@@ -143,10 +146,10 @@ export function projectLoader(
     dialect: project.dialect,
     read: (key) => {
       const uri = project.uriOfKey.get(key);
-      const text = uri === undefined ? undefined : openText(uri);
+      const text = uri === undefined || !project.keyOfUri.has(uri) ? undefined : openText(uri);
       if (text !== undefined) {
         const encoded = encodeCp1252(text);
-        if (encoded.ok) return encoded.value;
+        return encoded.ok ? encoded.value : undefined;
       }
       return project.bytes.get(key);
     },
@@ -172,9 +175,10 @@ export function readSnapshot(value: unknown): ProjectSnapshot | undefined {
   if (main !== null && !(isRecord(main) && typeof main.uri === "string" && typeof main.bytes === "string")) return malformed("main");
   if (main === null) return { revision, main: null };
   if (value.rootUri !== undefined && typeof value.rootUri !== "string") return malformed("rootUri");
-  const files = value.files ?? [];
-  if (!Array.isArray(files)) return malformed("files");
-  for (const file of files) {
+  if (value.hookInventoryComplete !== undefined && typeof value.hookInventoryComplete !== "boolean") return malformed("hookInventoryComplete");
+  const files = value.files;
+  if (files !== undefined && !Array.isArray(files)) return malformed("files");
+  for (const file of files ?? []) {
     if (!isRecord(file) || typeof file.path !== "string" || typeof file.uri !== "string" || typeof file.bytes !== "string") return malformed("files");
   }
   const lint = value.lintConfig ?? null;
@@ -183,7 +187,8 @@ export function readSnapshot(value: unknown): ProjectSnapshot | undefined {
     revision,
     main: { uri: main.uri as string, bytes: main.bytes as string },
     ...(value.rootUri === undefined ? {} : { rootUri: value.rootUri as string }),
-    files: files as ProjectSnapshot["files"] & object,
+    ...(files === undefined ? {} : { files: files as NonNullable<ProjectSnapshot["files"]> }),
+    ...(value.hookInventoryComplete === true ? { hookInventoryComplete: true } : {}),
     lintConfig: lint as { readonly uri: string; readonly text: string } | null,
   };
 }

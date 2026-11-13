@@ -16,6 +16,7 @@
 import {
   FIRST_PARTY_PLUGINS,
   commandDocumentation,
+  decodeCp1252,
   foldAscii,
   type ResolvedPlugin,
 } from "@tk-reawakened/core";
@@ -24,13 +25,16 @@ import {
   applyEdits,
   buildIndex,
   formatSource,
+  indexLintProject,
   legacyFixes,
+  lint,
   projectHelp,
   type Diagnostic as AnalysisDiagnostic,
   type HelpEntry,
   type IndexCall,
   type IndexInclude,
   type IndexProgram,
+  type LintResult,
   type Severity,
 } from "@tk-reawakened/script-tools";
 import { documentationText, signatureHelp } from "./signature-help.ts";
@@ -47,6 +51,7 @@ import {
   type CompletionItem,
   type CompletionParams,
   type DidChangeTextDocumentParams,
+  type DidCloseTextDocumentParams,
   type DidOpenTextDocumentParams,
   type DocumentFormattingParams,
   type Diagnostic as LspDiagnostic,
@@ -91,6 +96,7 @@ export type ServerConnection = {
   onInitialize(handler: (params: InitializeParams) => InitializeResult): Disposable;
   onDidOpenTextDocument(handler: (params: DidOpenTextDocumentParams) => void): Disposable;
   onDidChangeTextDocument(handler: (params: DidChangeTextDocumentParams) => void): Disposable;
+  onDidCloseTextDocument?(handler: (params: DidCloseTextDocumentParams) => void): Disposable;
   onHover(handler: (params: HoverParams) => Hover | null): Disposable;
   onCompletion(handler: (params: CompletionParams) => CompletionItem[]): Disposable;
   onDefinition(handler: (params: TextDocumentPositionParams) => Location[]): Disposable;
@@ -116,6 +122,8 @@ export type LanguageServer = {
   /** The running project the server analyses against, so a host can inspect it. */
   readonly project: () => ProjectModel;
 };
+
+type ProjectLint = { readonly files: ReadonlySet<string>; readonly result: LintResult };
 
 export { PROJECT_NOTIFICATION } from "./protocol.ts";
 export type { ProjectSnapshot, ProjectSnapshotFile } from "./protocol.ts";
@@ -158,8 +166,15 @@ export function createServer(connection: ServerConnection, options: ServerOption
   const help = projectHelp(plugins);
   const documentation = commandDocumentation(plugins);
   let project: ProjectModel = NO_PROJECT;
+  let projectLint: ProjectLint | undefined;
 
   const contextOf = (document: TextDocument): DocumentContext => documentContext(project, document.uri, document.languageId);
+
+  const snapshotText = (context: Extract<DocumentContext, { kind: "assessed" }>, uri: string): string | undefined => {
+    if (context.project.uriOfKey.get(context.key) !== uri) return undefined;
+    const bytes = context.project.bytes.get(context.key);
+    return bytes === undefined ? undefined : decodeCp1252(bytes, 0, bytes.length);
+  };
 
   const indexOf = (document: TextDocument, name = document.uri): IndexProgram | null => {
     const context = contextOf(document);
@@ -171,12 +186,12 @@ export function createServer(connection: ServerConnection, options: ServerOption
     return documentIndex.programs[0] ?? null;
   };
 
-  const publish = (document: TextDocument): void => {
+  const publish = (document: TextDocument, projectLint?: ProjectLint): void => {
     const context = contextOf(document);
     const analysis = analyse(document.getText(), { file: document.uri, dialect: context.dialect });
     const diagnostics = analysis.diagnostics.map(toLspDiagnostic);
     if (context.kind === "unassessed") diagnostics.unshift(unassessedDiagnostic(context.reason, context.dialect));
-    if (context.kind === "assessed" && analysis.ok) diagnostics.push(...lintDiagnostics(document, context));
+    if (context.kind === "assessed" && analysis.ok) diagnostics.push(...lintDiagnostics(document, context, projectLint));
     connection.sendDiagnostics({ uri: document.uri, version: document.version, diagnostics });
   };
 
@@ -184,7 +199,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
    * The project's lint findings for an assessed document that compiled (#2074). A
    * malformed `tkr-lint.json` is reported, never silently treated as the defaults.
    */
-  const lintDiagnostics = (document: TextDocument, context: Extract<DocumentContext, { kind: "assessed" }>): LspDiagnostic[] => {
+  const lintDiagnostics = (document: TextDocument, context: Extract<DocumentContext, { kind: "assessed" }>, projectLint?: ProjectLint): LspDiagnostic[] => {
     const config = readProjectLintConfig(context.project.lintConfig);
     if (!config.ok) {
       return [{
@@ -197,7 +212,8 @@ export function createServer(connection: ServerConnection, options: ServerOption
     }
     const program = indexOf(document, context.project.pathOfUri.get(document.uri) ?? document.uri);
     if (program === null) return [];
-    const result = documentLint(program, document.getText(), context.dialect, plugins, config.config);
+    const inProjectLint = projectLint?.files.has(program.name) === true ? projectLint.result : undefined;
+    const result = documentLint(program, document.getText(), context.dialect, plugins, config.config, inProjectLint);
     const diagnostics = result.diagnostics.map(toLspDiagnostic);
     const { unassessed } = result.summary;
     if (unassessed.length > 0) {
@@ -213,11 +229,38 @@ export function createServer(connection: ServerConnection, options: ServerOption
     return diagnostics;
   };
 
+  const publishProject = (changed?: TextDocument): void => {
+    const previouslyAssessed = projectLint !== undefined;
+    projectLint = undefined;
+    if (project.kind === "project" && project.dialect === "tk3" && [...documents.values()].some((document) => contextOf(document).kind === "assessed")) {
+      const config = readProjectLintConfig(project.lintConfig);
+      if (config.ok && !(config.config.severity?.["lint/unused-label"] === "off" && config.config.severity?.["lint/unused-function"] === "off")) {
+        const loader = projectLoader(project, (uri) => documents.get(uri)?.getText());
+        const indexed = indexLintProject(project.main, loader, plugins, project.inventoryComplete);
+        if (indexed.project !== undefined) {
+          projectLint = {
+            files: new Set(indexed.gameFiles),
+            result: lint(indexed.document, {
+              plugins, config: config.config, dialect: project.dialect, project: indexed.project,
+            }),
+          };
+        }
+      }
+    }
+    if (changed !== undefined && !previouslyAssessed && projectLint === undefined) {
+      publish(changed);
+      return;
+    }
+    for (const document of documents.values()) {
+      if (changed === undefined || contextOf(document).kind === "assessed") publish(document, projectLint);
+    }
+  };
+
   connection.onNotification(PROJECT_NOTIFICATION, (params) => {
     const snapshot = readSnapshot(params);
     if (snapshot === undefined || snapshot.revision <= project.revision) return;
     project = projectModel(snapshot);
-    for (const document of documents.values()) publish(document);
+    publishProject();
   });
 
   /**
@@ -278,21 +321,37 @@ export function createServer(connection: ServerConnection, options: ServerOption
 
   connection.onDidOpenTextDocument((params) => {
     const { textDocument } = params;
+    const previous = documents.get(textDocument.uri)?.getText();
     const document = TextDocument.create(textDocument.uri, textDocument.languageId, textDocument.version, textDocument.text);
     documents.set(textDocument.uri, document);
-    publish(document);
+    const context = contextOf(document);
+    if (context.kind !== "assessed") publish(document);
+    else if (projectLint !== undefined && (previous ?? snapshotText(context, document.uri)) === document.getText()) publish(document, projectLint);
+    else publishProject(document);
   });
 
   connection.onDidChangeTextDocument((params) => {
     const current = documents.get(params.textDocument.uri);
     if (current === undefined) return;
+    const previous = current.getText();
     const next = TextDocument.update(
       current,
       params.contentChanges.map((change) => ("range" in change ? { range: change.range, text: change.text } : { text: change.text })),
       params.textDocument.version,
     );
     documents.set(next.uri, next);
-    publish(next);
+    if (contextOf(next).kind !== "assessed") publish(next);
+    else if (next.getText() === previous) publish(next, projectLint);
+    else publishProject(next);
+  });
+
+  connection.onDidCloseTextDocument?.(({ textDocument }) => {
+    const document = documents.get(textDocument.uri);
+    if (document === undefined) return;
+    documents.delete(textDocument.uri);
+    connection.sendDiagnostics({ uri: textDocument.uri, diagnostics: [] });
+    const context = contextOf(document);
+    if (context.kind === "assessed" && snapshotText(context, document.uri) !== document.getText()) publishProject();
   });
 
   connection.onHover((params) => {

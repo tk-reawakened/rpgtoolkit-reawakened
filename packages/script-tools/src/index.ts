@@ -15,6 +15,7 @@ export type { LegacyFix, LegacyReview } from "./fixes.ts";
 export { canonicalNames, formatChanged, formatCheck, formatSource } from "./format.ts";
 export type { FormatCheck, FormatDialect, FormatFile, FormatOptions, FormatResult, FormatSkipReason } from "./format.ts";
 export { lint, readLintConfig, RULES } from "./lint.ts";
+export { indexLintProject, isLintHookAssetPath, lintProjectRoot } from "./lint-project.ts";
 export type { LintConfig, LintIgnore, LintResult, LintSeverity, LintSummary, LintOptions, RuleDefinition, RuleId, Unassessed, UnassessedReason } from "./lint.ts";
 export { rangeOf, sliceRange } from "./diagnostics.ts";
 export type { Diagnostic, Position, Range, Severity, TextEdit } from "./diagnostics.ts";

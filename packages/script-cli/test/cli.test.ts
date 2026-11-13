@@ -2,9 +2,10 @@
  * Tests for `tkr script` subcommands and the result envelope.
  */
 
-import { equal, ok, strictEqual, throws } from "node:assert/strict";
+import { deepEqual, equal, ok, strictEqual, throws } from "node:assert/strict";
+import { createEmptyBoard, newProjectMainFile, writeBoard, writeMainFile } from "@tk-reawakened/core";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -49,6 +50,78 @@ void test("check reports a parser diagnostic for a broken file", () => {
   strictEqual(result.diagnostics.length, 1);
   strictEqual(result.diagnostics[0]!.severity, "error");
   ok(result.diagnostics[0]!.file.includes("bad.prg"));
+});
+
+void test("check --project uses the selected main file, project root, includes and entry files", () => {
+  const root = mkdtempSync(join(tmpdir(), "tkr-lint-project-"));
+  try {
+    const main = writeMainFile({ ...newProjectMainFile(), projectPath: "Game/Quest", startupPrg: "START.PRG", initBoard: "start.brd", menuPlugin: "", fightPlugin: "", packagePlugins: [] });
+    if (!main.ok) throw new Error(main.error.message);
+    const mainPath = join(root, "Main", "game.gam");
+    const programs = join(root, "Game", "Quest", "Prg");
+    const boards = join(root, "Game", "Quest", "Boards");
+    mkdirSync(dirname(mainPath));
+    mkdirSync(join(programs, "Prg"), { recursive: true });
+    mkdirSync(boards);
+    writeFileSync(mainPath, main.value);
+    const start = join(programs, "start.prg");
+    writeFileSync(start, '#include "Prg/Prg/tools.prg"\nused()\n');
+    writeFileSync(join(programs, "Prg", "tools.prg"), "function spare() { return 1 }\nfunction used() { return 2 }\nfunction triggered() { return 3 }\n");
+    const board = writeBoard({
+      ...createEmptyBoard(),
+      sizeX: 1, sizeY: 1, sizeL: 1, tileMatrix: [0], tileRuns: [{ lutIndex: 0, count: 1, marker: false }], layerTitles: ["", ""],
+      programs: [{
+        program: "triggered()", graphic: "", initialVar: "", initialValue: "", finalVar: "", finalValue: "",
+        activate: 0, activationType: 0, repeatDistance: 0, layer: 1, closed: 0, points: [], handle: "",
+      }],
+    });
+    if (!board.ok) throw new Error(board.error.message);
+    writeFileSync(join(boards, "start.brd"), board.value);
+    writeFileSync(join(root, "tkr-lint.json"), JSON.stringify({ severity: { "lint/unused-function": "warning" } }));
+
+    const args = parseArgs(["node", "tkr", "script", "check", "--project", mainPath]);
+    ok(args.ok);
+    equal(args.args.project, mainPath);
+    const checked = () => runCheck([], true, undefined, mainPath);
+    const unused = (result: ScriptResult) => result.diagnostics.filter((item) => item.code === "lint/unused-function");
+    const { result } = checked();
+    assertEnvelope(result);
+    deepEqual(unused(result).map((item) => [item.file, item.range.start.line, item.severity]), [["Game/Quest/Prg/Prg/tools.prg", 1, "warning"]]);
+    const cli = spawnSync(process.execPath, [fileURLToPath(new URL("../dist/cli.js", import.meta.url)), "script", "check", "--project", mainPath, "--json"], { encoding: "utf8" });
+    strictEqual(cli.status, 0, cli.stderr);
+    deepEqual(JSON.parse(cli.stdout), result);
+
+    writeFileSync(start, 'run("missing.prg")\n');
+    const missingRun = checked();
+    deepEqual(unused(missingRun.result), []);
+    ok(missingRun.human.includes("lint/unused-function (incomplete-project)"));
+
+    const bad = join(programs, "bad.prg");
+    writeFileSync(bad, "\n\n\nx = )\n");
+    writeFileSync(start, '#include "bad.prg"\n');
+    const invalidInclude = checked().result.diagnostics;
+    deepEqual(invalidInclude.filter((item) => item.severity === "error").map((item) => [item.file, item.code, item.range.start.line]), [
+      ["Game/Quest/Prg/bad.prg", "syntax.error", 4],
+      ["Game/Quest/Prg/start.prg", "tkr.project-compile", 1],
+    ]);
+    rmSync(bad);
+
+    writeFileSync(start, '#include "missing.prg"\n');
+    const missingInclude = checked();
+    deepEqual(unused(missingInclude.result), []);
+    ok(missingInclude.result.diagnostics.some((item) => item.code === "lint/unresolved-include"));
+    ok(missingInclude.human.includes("lint/unused-function (incomplete-project)"));
+
+    rmSync(start);
+    const missingStartup = checked();
+    deepEqual(unused(missingStartup.result), []);
+    ok(missingStartup.human.includes("lint/unused-function (incomplete-project)"));
+
+    rmSync(mainPath);
+    strictEqual(checked().result.exitCode, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 function fmtChanged(results: unknown): readonly string[] {

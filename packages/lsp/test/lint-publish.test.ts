@@ -1,6 +1,7 @@
 import { deepEqual, equal, match } from "node:assert/strict";
 import test from "node:test";
-import type { Diagnostic, DidOpenTextDocumentParams } from "vscode-languageserver-protocol";
+import { newProjectMainFile, writeMainFile } from "@tk-reawakened/core";
+import type { Diagnostic, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams } from "vscode-languageserver-protocol";
 import { createServer, LINT_UNASSESSED_CODE, PROJECT_NOTIFICATION, UNASSESSED_CODE, type ServerConnection } from "../src/index.ts";
 import { mainFileBytes, memoryProject, type MemoryProject } from "./project-support.ts";
 
@@ -12,6 +13,8 @@ import { mainFileBytes, memoryProject, type MemoryProject } from "./project-supp
 
 type Client = {
   open(uri: string, text: string, languageId?: string): Diagnostic[];
+  change(uri: string, text: string): void;
+  close(uri: string): void;
   project(project: MemoryProject, revision?: number): void;
   readonly published: Map<string, Diagnostic[]>;
 };
@@ -19,6 +22,8 @@ type Client = {
 function client(): Client {
   const published = new Map<string, Diagnostic[]>();
   let open: (params: DidOpenTextDocumentParams) => void = () => {};
+  let change: (params: DidChangeTextDocumentParams) => void = () => {};
+  let close: (params: DidCloseTextDocumentParams) => void = () => {};
   const notifications = new Map<string, (params: unknown) => void>();
   const absent = { dispose: () => {} };
   const connection: ServerConnection = {
@@ -27,7 +32,8 @@ function client(): Client {
       open = handler;
       return absent;
     },
-    onDidChangeTextDocument: () => absent,
+    onDidChangeTextDocument: (handler) => { change = handler; return absent; },
+    onDidCloseTextDocument: (handler) => { close = handler; return absent; },
     onHover: () => absent,
     onCompletion: () => absent,
     onDefinition: () => absent,
@@ -50,6 +56,8 @@ function client(): Client {
       return published.get(uri) ?? [];
     },
     project: (project, revision = 1) => notifications.get(PROJECT_NOTIFICATION)?.(project.snapshot(revision)),
+    change: (uri, text) => change({ textDocument: { uri, version: 2 }, contentChanges: [{ text }] }),
+    close: (uri) => close({ textDocument: { uri } }),
   };
 }
 
@@ -130,6 +138,33 @@ test("a broken include leaves the including document's parsed lint rules unasses
   deepEqual(codes(found), [LINT_UNASSESSED_CODE]);
   match(found[0]!.message, /style\/format \(invalid-program\)/);
   deepEqual(codes(server.open(project.uri("Prg/lib.prg"), "x = )\n")), ["syntax.error"]);
+});
+
+test("closed .gam lint follows references in other buffers and returns to disk when they close", () => {
+  const main = writeMainFile({ ...newProjectMainFile(), startupPrg: "start.prg", initBoard: "", menuPlugin: "", fightPlugin: "", packagePlugins: [] });
+  if (!main.ok) throw new Error(main.error.message);
+  const declarations = "function spare() { return 1 }\nfunction used() { return 2 }\n";
+  const project = memoryProject({
+    "Main/game.gam": main.value,
+    "Prg/start.prg": "tools.used()\n",
+    "Prg/tools.prg": declarations,
+  }, "Main/game.gam");
+  const server = client();
+  server.project(project);
+  const start = project.uri("Prg/start.prg");
+  const tools = project.uri("Prg/tools.prg");
+  const unused = () => (server.published.get(tools) ?? []).filter((item) => item.code === "lint/unused-function").map((item) => item.range.start.line);
+  server.open(tools, declarations);
+  deepEqual(unused(), [0], "only spare is unused in the disk inventory");
+  server.open(start, "tools.used()\n");
+  server.change(start, "tools.spare()\n");
+  deepEqual(unused(), [1], "an unsaved reference refreshes other buffers");
+  server.change(start, '#include "missing.prg"\n');
+  deepEqual(unused(), [], "a missing include invalidates the closed project");
+  match((server.published.get(tools) ?? []).find((item) => item.code === LINT_UNASSESSED_CODE)?.message ?? "", /lint\/unused-function \(incomplete-project\)/);
+  server.close(start);
+  deepEqual(unused(), [0], "closing the buffer restores the disk reference");
+  deepEqual(server.published.get(start), []);
 });
 
 test("tkr-lint.json sets a rule's severity or turns it off, as in tkr script check", () => {

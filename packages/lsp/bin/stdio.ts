@@ -30,6 +30,8 @@ createServer({
       }),
     ),
   onHover: (handler) => connection.onHover(handler),
+  onDidCloseTextDocument: (handler) =>
+    documents.onDidClose((event) => handler({ textDocument: { uri: event.document.uri } })),
   onCompletion: (handler) => connection.onCompletion(handler),
   onDefinition: (handler) => connection.onDefinition(handler),
   onDocumentSymbol: (handler) => connection.onDocumentSymbol(handler),

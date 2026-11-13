@@ -139,7 +139,9 @@ function tk2MainFile(): Uint8Array {
  */
 async function runningProjectScenario(folder: vscode.WorkspaceFolder): Promise<void> {
   const write = (path: string, bytes: Uint8Array): Thenable<void> => vscode.workspace.fs.writeFile(vscode.Uri.joinPath(folder.uri, ...path.split("/")), bytes);
-  const modern = writeMainFile(newProjectMainFile());
+  const modern = writeMainFile({
+    ...newProjectMainFile(), startupPrg: "uses.prg", initBoard: "", menuPlugin: "", fightPlugin: "", packagePlugins: [],
+  });
   if (!modern.ok) fail(modern.error.message);
   await write("legacy/Main/legacy.gam", tk2MainFile());
   await write("legacy/Prg/talk.prg", new TextEncoder().encode("Hello there\n"));
@@ -149,7 +151,7 @@ async function runningProjectScenario(folder: vscode.WorkspaceFolder): Promise<v
   await write("modern/tkr-lint.json", new TextEncoder().encode(JSON.stringify({ severity: { "lint/unknown-command": "warning" } })));
   await write("modern/Prg/fmt.prg", new TextEncoder().encode("if (x) {\nMWIN(hello)\n}\n"));
   await write("modern/Prg/uses.prg", new TextEncoder().encode('#include "tools/my lib.prg"\ny = helper(1)\n'));
-  await write("modern/Prg/Tools/My Lib.PRG", new TextEncoder().encode("// helpers\nfunction helper(a) { return a }\n"));
+  await write("modern/Prg/Tools/My Lib.PRG", new TextEncoder().encode("// helpers\nfunction helper(a) { return a }\nfunction spare() { return 1 }\n"));
   const settings = vscode.workspace.getConfiguration("rpgcode");
   await settings.update("project", undefined, vscode.ConfigurationTarget.Workspace);
 
@@ -182,6 +184,18 @@ async function runningProjectScenario(folder: vscode.WorkspaceFolder): Promise<v
   equal(targetUri?.toString(), vscode.Uri.joinPath(folder.uri, "modern", "Prg", "Tools", "My Lib.PRG").toString(), "definition opens the included file");
   const targetText = new TextDecoder().decode(await vscode.workspace.fs.readFile(targetUri!));
   equal(targetText.includes("function helper"), true, "the definition URI is readable through the workspace");
+
+  // #2105: the syntax error in another program initially prevents closure.
+  // Fix that open buffer and verify that the selected .gam makes the unused rule run.
+  const library = await vscode.workspace.openTextDocument(targetUri!);
+  await vscode.window.showTextDocument(library);
+  await diagnosticsOf(library.uri, onlyLintAssessment, "the unused-function rule to remain unassessed while the project is invalid");
+  const talkDocument = await vscode.workspace.openTextDocument(modernTalk);
+  const fixTalk = new vscode.WorkspaceEdit();
+  fixTalk.replace(modernTalk, new vscode.Range(0, 0, talkDocument.lineCount, 0), 'mwin("Hello there")\n');
+  equal(await vscode.workspace.applyEdit(fixTalk), true, "fix the other open project buffer");
+  const unused = await diagnosticsOf(library.uri, (items) => items.some((item) => codeOf(item) === "lint/unused-function"), "the project-wide unused function");
+  equal(JSON.stringify(unused.map((item) => [codeOf(item), item.range.start.line])), JSON.stringify([["lint/unused-function", 2]]), "only spare is unused in the selected project");
 
   // #2074: the project's lint findings, at the severity its tkr-lint.json sets.
   const linted = vscode.Uri.joinPath(folder.uri, "modern", "Prg", "lint.prg");
