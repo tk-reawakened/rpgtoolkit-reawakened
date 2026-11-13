@@ -122,14 +122,15 @@ class WebEditor implements ConformanceEditor {
   }
 
   async hide(): Promise<void> {
-    this.#unmount();
+    await this.#act(() => { this.#handle?.hide(); });
+    this.#view.element.remove();
     await settle(this.#act);
   }
 
   async show(): Promise<void> {
     const element = document.createElement("div");
     document.body.append(element);
-    await this.#act(() => { this.#handle = mountGameSettings(this.#project, this.model, element); });
+    await this.#act(() => { this.#handle?.show(element); });
     this.#view = new MountedView(element, this.#act);
     await settle(this.#act);
   }

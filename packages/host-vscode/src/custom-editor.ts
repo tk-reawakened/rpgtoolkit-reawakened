@@ -102,8 +102,8 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
 
   /**
    * A Save from the view goes through VS Code's own save, so its working copy is marked clean only by
-   * `saveCustomDocument` (#2092). The result is that call's: an edit made while it was writing stays dirty without making
-   * the save a failure (ADR 0022 D3.3), and a workbench that never called it is reported as not saving.
+   * `saveCustomDocument` (#2092). If newer work remains dirty, the provider refuses completion so VS Code cannot close
+   * the working copy as saved; a workbench that never called the provider is also reported as not saving.
    */
   async saveThroughWorkbench(): Promise<SaveResult> {
     const path = this.model.identity.path;
@@ -192,6 +192,9 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     async saveCustomDocument(document) {
       const result = await document.save();
       if (!result.ok) throw new Error(result.failure.message);
+      if (document.model.getSnapshot().dirty || document.model.getSnapshot().conflict !== null) {
+        throw new Error(`${document.model.identity.path} changed during save and remains open with unsaved work.`);
+      }
     },
     async saveCustomDocumentAs(document, destination) {
       // VS Code's save dialog has already chosen the destination and confirmed replacing an existing file (D3.4).
@@ -203,8 +206,12 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       if (project.workspace.documents().some((open) => open.identity.key === identity.key && open !== document.model)) {
         throw new Error(`${resolved.path} is open in another editor; close it before saving another document over it. Nothing was written.`);
       }
+      const copied = document.model.getSnapshot();
       const result = await document.model.saveAs(project.fs, identity);
       if (!result.ok) throw new Error(result.failure.message);
+      if (document.model.getSnapshot() !== copied) {
+        throw new Error(`${resolved.path} was written, but ${document.model.identity.path} changed during Save As and remains open with its work.`);
+      }
     },
     async revertCustomDocument(document) {
       // VS Code's Revert File is itself the user's choice to discard; the workbench asks nothing more and drops its own

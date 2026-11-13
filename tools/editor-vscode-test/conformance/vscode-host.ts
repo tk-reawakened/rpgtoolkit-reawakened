@@ -5,7 +5,8 @@
 // * the workbench keeps the undo stack of fired edit events, a save point and the dirty marker; Undo and Redo call an
 //   edit's own `undo`/`redo`; Save calls `saveCustomDocument` and moves the save point to the edit current when it
 //   started; Revert calls `revertCustomDocument` and drops the edits after the save point; closing a dirty tab asks
-//   Save / Don't Save / Cancel; Save As calls `saveCustomDocumentAs`, then opens the destination in place of the source;
+//   Save / Don't Save / Cancel; Save As calls `saveCustomDocumentAs` and replaces a clean source with the opened
+//   destination, but keeps the source tab if newer edits arrived while that save was in flight;
 // * a webview is a separate page that talks to the extension host only through asynchronous, structured-cloned
 //   messages, and with `retainContextWhenHidden: false` a hidden tab's page is destroyed and loaded again when shown;
 // * the desktop watcher reports every change below the folder, including the extension's own writes.
@@ -36,12 +37,19 @@ interface Uri { readonly path: string }
 const ROOT: Uri = { path: "/project" };
 const FOLDER = { uri: ROOT, key: "file:///project" };
 
+interface HeldWrite {
+  readonly wait: Promise<void>;
+  readonly started: Promise<void>;
+  start(): void;
+  release(): void;
+}
+
 /** The files on disk, by absolute path, case-sensitive, with the desktop watcher's listeners. */
 class Disk {
   readonly files = new Map<string, Uint8Array>();
   readonly watchers = new Set<{ readonly root: string; readonly onChange: (change: FileChange) => void }>();
   refuse = false;
-  hold: Promise<void> | null = null;
+  hold: HeldWrite | null = null;
 
   notify(path: string, kind: FileChange["kind"]): void {
     for (const watcher of [...this.watchers]) {
@@ -77,7 +85,11 @@ function fileSystemPort(disk: Disk): VscodeFileSystemPort<Uri> {
     async createDirectory() {},
     async writeFile(uri, bytes) {
       if (disk.refuse) throw Object.assign(new Error("the workspace refuses writes"), { code: "NoPermissions" });
-      if (disk.hold !== null) await disk.hold;
+      const held = disk.hold;
+      if (held !== null) {
+        held.start();
+        await held.wait;
+      }
       const kind = disk.files.has(uri.path) ? "changed" : "created";
       disk.files.set(uri.path, bytes.slice());
       disk.notify(uri.path, kind);
@@ -123,6 +135,10 @@ class WorkingCopy {
     return this.#index !== this.#savePoint || this.fromBackup;
   }
 
+  get editIndex(): number {
+    return this.#index;
+  }
+
   record(event: GameEditEvent<Uri>): void {
     this.#edits.splice(this.#index + 1);
     this.#edits.push(event);
@@ -159,9 +175,9 @@ class WorkingCopy {
     this.fromBackup = false;
   }
 
-  /** After Save As the workbench treats the source as saved: its content now lives at the destination. */
-  markSavedAs(): void {
-    this.#savePoint = this.#index;
+  /** After Save As, only the source revision copied to the destination counts as saved. */
+  markSavedAs(savedIndex: number): void {
+    this.#savePoint = savedIndex;
     this.fromBackup = false;
   }
 }
@@ -400,6 +416,7 @@ class VscodeEditor implements ConformanceEditor {
   }
 
   async saveAs(path: string): Promise<ConformanceEditor | null> {
+    const savedIndex = this.copy.editIndex;
     const destination = { path: posix.normalize(`${ROOT.path}/${path}`) };
     try {
       await this.#workbench.provider.saveCustomDocumentAs(this.copy.custom, destination);
@@ -407,9 +424,9 @@ class VscodeEditor implements ConformanceEditor {
       await settle(this.#act);
       return null;
     }
-    this.copy.markSavedAs();
+    this.copy.markSavedAs(savedIndex);
     const copy = await this.#workbench.open(posix.relative(ROOT.path, destination.path));
-    this.#workbench.closeTab(this);
+    if (!this.copy.dirty) this.#workbench.closeTab(this);
     await settle(this.#act);
     return copy;
   }
@@ -487,11 +504,21 @@ class VscodeHost implements ConformanceHost {
 
   holdWrites(): () => void {
     let release!: () => void;
-    this.drive.hold = new Promise<void>((resolve) => { release = resolve; });
+    let start!: () => void;
+    const started = new Promise<void>((resolve) => { start = resolve; });
+    const wait = new Promise<void>((resolve) => { release = resolve; });
+    const held: HeldWrite = { started, wait, start, release };
+    this.drive.hold = held;
     return () => {
+      if (this.drive.hold !== held) return;
       this.drive.hold = null;
-      release();
+      held.release();
     };
+  }
+
+  waitForHeldWrite(): Promise<void> {
+    const held = this.drive.hold;
+    return held === null ? Promise.reject(new Error("there is no held write")) : held.started;
   }
 
   settle(): Promise<void> {

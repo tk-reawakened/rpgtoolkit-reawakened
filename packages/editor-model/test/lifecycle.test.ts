@@ -233,13 +233,67 @@ test("Save As retains the source when its write misses a later edit (D3.4)", asy
   equal(titleOf(host.bytesOf("Main/copy.gam")!), "Copied revision");
   equal(doc.getSnapshot().gameTitle, "Later edit");
   equal(doc.getSnapshot().dirty, true);
-  ok(workspace.documents().includes(doc));
+  deepEqual(workspace.documents(), [doc], "the partially written copy is not silently registered");
   const reopened = await workspace.open(PATH);
   ok(reopened.ok);
   equal(reopened.document, doc);
-  const destination = await workspace.open("Main/copy.gam");
-  ok(destination.ok);
-  equal(destination.document.getSnapshot().gameTitle, "Copied revision");
+  host.answerSavePaths("Main/copy.gam");
+  host.answerQuestions("replace");
+  const retried = await workspace.saveAs(doc);
+  ok(retried.ok, "retrying the same destination is not blocked by an invisible open document");
+  equal(retried.document.getSnapshot().gameTitle, "Later edit");
+  equal(titleOf(host.bytesOf("Main/copy.gam")!), "Later edit");
+});
+
+test("an edit while opening a written Save As copy does not register a hidden destination", async () => {
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) }, capabilities: [] });
+  let started!: () => void;
+  let release!: () => void;
+  const reading = new Promise<void>((resolve) => { started = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const fs = {
+    ...host.fs,
+    async readProject(projectId: string, path: string) {
+      if (path === "Main/copy.gam") { started(); await gate; }
+      return host.fs.readProject(projectId, path);
+    },
+  };
+  const workspace = createDocumentWorkspace({ projectId: identity.projectId, services: { fs, dialogs: host.dialogs, capabilities: host.capabilities } });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  ok(opened.document.apply({ type: "set-game-title", title: "Written" }).ok);
+  host.answerSavePaths("Main/copy.gam");
+  const saving = workspace.saveAs(opened.document);
+  await reading;
+  ok(opened.document.apply({ type: "set-game-title", title: "Later" }).ok);
+  release();
+  const result = await saving;
+  ok(!result.ok);
+  equal(result.reason, "failed");
+  deepEqual(workspace.documents(), [opened.document]);
+  equal(opened.document.getSnapshot().gameTitle, "Later");
+  equal(opened.document.getSnapshot().dirty, true);
+  equal(titleOf(host.bytesOf("Main/copy.gam")!), "Written");
+});
+
+test("a Save As destination is reserved against competing saves and opens until its write finishes", async () => {
+  const { host, workspace, doc, writing, release } = await workspaceWithHeldWrite();
+  ok(doc.apply({ type: "set-game-title", title: "Copy" }).ok);
+  host.answerSavePaths("Main/copy.gam", "Main/copy.gam");
+  const first = workspace.saveAs(doc);
+  await writing;
+  const second = await workspace.saveAs(doc);
+  ok(!second.ok);
+  equal(second.reason, "failed");
+  const opening = workspace.open("Main/copy.gam");
+  release();
+  const saved = await first;
+  ok(saved.ok);
+  const opened = await opening;
+  ok(opened.ok);
+  equal(opened.document, saved.document);
+  equal(opened.document.getSnapshot().gameTitle, "Copy");
+  equal(titleOf(host.bytesOf("Main/copy.gam")!), "Copy");
 });
 
 test("concurrent view closes cannot both bypass the last dirty view's confirmation (D3.7)", async () => {

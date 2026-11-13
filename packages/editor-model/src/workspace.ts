@@ -144,6 +144,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
   const { fs, dialogs } = services;
   const documents = new Map<string, MainDocument>();
   const opening = new Map<string, Promise<WorkspaceOpenResult>>();
+  const savingAs = new Map<string, Promise<void>>();
   const histories = new Map<string, HostHistory>();
   const views = new Map<MainDocument, Set<DocumentViewLease>>();
   let watch: Promise<Disposable | null> | null = null;
@@ -185,6 +186,11 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       return { ok: false, error: { kind: "read", document: path, error: resolved.error } };
     }
     const identity = createDocumentIdentity(projectId, resolved.path);
+    const copyInProgress = savingAs.get(identity.key);
+    if (copyInProgress !== undefined) {
+      await copyInProgress;
+      return open(path);
+    }
     const existing = documents.get(identity.key);
     if (existing !== undefined) return { ok: true, document: existing };
     // Two opens of one document at once share one read and one model.
@@ -358,40 +364,55 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         const saved = await document.save();
         return saved.ok ? { ok: true, document } : failed(source, saved.failure.message);
       }
-      if (documents.has(identity.key)) {
-        return failed(resolved.path, `${resolved.path} is open in the editor; close it before saving another document over it.`);
+      if (documents.has(identity.key) || opening.has(identity.key) || savingAs.has(identity.key)) {
+        return failed(resolved.path, `${resolved.path} is open, opening, or being saved; choose another destination.`);
       }
-      // The destination and any collision are settled before anything is written (D3.4). A main file is not named by
-      // any other document, so Save As has no references to update.
-      if (resolved.exists) {
-        const stat = await fs.stat(resolved.path);
-        if (stat.ok && stat.value.kind === "directory") return failed(resolved.path, `${resolved.path} is a folder.`);
-        const answer = await dialogs.ask({
-          message: `${resolved.path} already exists. Replace it?`,
-          detail: `Its content is replaced by ${source}'s.`,
-          choices: [
-            { id: "replace", label: "Replace" },
-            { id: "cancel", label: "Cancel" },
-          ],
-          cancel: "cancel",
-        });
-        if (answer === "cancel") return { ok: false, reason: "cancelled" };
+      let finishCopy!: () => void;
+      const copying = new Promise<void>((resolve) => { finishCopy = resolve; });
+      savingAs.set(identity.key, copying);
+      try {
+        // The destination and any collision are settled before anything is written (D3.4). A main file is not named by
+        // any other document, so Save As has no references to update.
+        if (resolved.exists) {
+          const stat = await fs.stat(resolved.path);
+          if (stat.ok && stat.value.kind === "directory") return failed(resolved.path, `${resolved.path} is a folder.`);
+          const answer = await dialogs.ask({
+            message: `${resolved.path} already exists. Replace it?`,
+            detail: `Its content is replaced by ${source}'s.`,
+            choices: [
+              { id: "replace", label: "Replace" },
+              { id: "cancel", label: "Cancel" },
+            ],
+            cancel: "cancel",
+          });
+          if (answer === "cancel") return { ok: false, reason: "cancelled" };
+        }
+        const copied = document.getSnapshot();
+        const written = await document.saveAs(fs, identity);
+        if (!written.ok) return failed(resolved.path, written.failure.message);
+        if (document.getSnapshot() !== copied) {
+          return failed(resolved.path, `${resolved.path} was written, but ${source} changed during Save As and remains open with its work.`);
+        }
+        // Read the copy without registering it. A failed Save As must not strand an invisible open destination.
+        const reopened = await openMainDocument(fs, identity);
+        if (!reopened.ok) {
+          return failed(resolved.path, `${resolved.path} was written but could not be opened: ${reopened.error.document}: ${reopened.error.error.message}`);
+        }
+        if (document.getSnapshot() !== copied) {
+          return failed(resolved.path, `${resolved.path} was written, but ${source} changed during Save As and remains open with its work.`);
+        }
+        if (disposed || documents.has(identity.key) || opening.has(identity.key)) {
+          return failed(resolved.path, `${resolved.path} was written but is already open or opening; ${source} remains open.`);
+        }
+        documents.set(identity.key, reopened.document);
+        startWatching();
+        // Other views still own the source. Otherwise this view replaces it with the newly opened copy (D1.3).
+        if ((views.get(document)?.size ?? 0) <= 1) release(document);
+        return { ok: true, document: reopened.document };
+      } finally {
+        savingAs.delete(identity.key);
+        finishCopy();
       }
-      const copied = document.getSnapshot();
-      const written = await document.saveAs(fs, identity);
-      if (!written.ok) return failed(resolved.path, written.failure.message);
-      const reopened = await open(resolved.path);
-      if (!reopened.ok) {
-        const reason = reopened.error.kind === "case-conflict" ? reopened.error.message : `${reopened.error.document}: ${reopened.error.error.message}`;
-        return failed(resolved.path, `${resolved.path} was written but could not be opened: ${reason}`);
-      }
-      const current = document.getSnapshot();
-      if (current !== copied) {
-        return failed(resolved.path, `${resolved.path} was written, but ${source} changed during Save As and remains open with its work.`);
-      }
-      // Other views still own the source. Otherwise this view replaces it with the newly opened copy (D1.3).
-      if ((views.get(document)?.size ?? 0) <= 1) release(document);
-      return { ok: true, document: reopened.document };
     },
     dispose() {
       disposed = true;

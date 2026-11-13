@@ -158,8 +158,11 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
   return { services, project, sessionCopy: true, workspace, deactivate: () => { active = false; workspace.dispose(); } };
 }
 
-/** A mounted view can be closed through its own workspace lease, or merely disposed when hidden. */
-export type GameSettingsView = ViewHandle & DocumentViewLease;
+/** One editor tab owns a lease even while its mounted view is hidden. */
+export interface GameSettingsView extends ViewHandle, DocumentViewLease {
+  hide(): void;
+  show(element: HTMLElement): void;
+}
 
 /** A mounted settings view over a workspace document, or why the document did not open. */
 export type GameSettingsOpenResult =
@@ -167,8 +170,8 @@ export type GameSettingsOpenResult =
   | { readonly ok: true; readonly document: MainDocument; readonly view: GameSettingsView };
 
 /**
- * Open `path` in the project's workspace (one model per document, D1.2) and mount the shared view over it. Close through
- * the view handle; disposing it merely hides the view without closing its document (D3.7).
+ * Open `path` in the project's workspace (one model per document, D1.2). Hide destroys only the mounted UI; closing
+ * the tab goes through its lease, and disposing an abandoned tab releases its ownership (D3.7).
  */
 export async function openGameSettings(project: WebProject, path: string, element: HTMLElement): Promise<GameSettingsOpenResult> {
   const opened = await project.workspace.open(path);
@@ -176,17 +179,30 @@ export async function openGameSettings(project: WebProject, path: string, elemen
   return { ok: true, document: opened.document, view: mountGameSettings(project, opened.document, element) };
 }
 
-/** Mount a view over a document the project already has open: a second view, or a view recreated after a hidden one. */
+/** Make a view owner over a document the project already has open. */
 export function mountGameSettings(project: WebProject, document: MainDocument, element: HTMLElement): GameSettingsView {
-  const mounted = mount(element, { document, services: project.services });
   const lease = project.workspace.attachView(document);
-  const notice = project.sessionCopy ? element.ownerDocument.createElement("p") : null;
-  if (notice) {
-    notice.setAttribute("role", "status");
-    notice.textContent = `${project.project.name} is a session copy. Changes stay in this browser session and are not saved to the original file.`;
-    element.append(notice);
-  }
-  return { close: () => lease.close(), dispose: () => { mounted.dispose(); notice?.remove(); lease.dispose(); } };
+  let mounted: ViewHandle | null = null;
+  let notice: HTMLElement | null = null;
+  let disposed = false;
+  const hide = (): void => {
+    mounted?.dispose();
+    mounted = null;
+    notice?.remove();
+    notice = null;
+  };
+  const show = (container: HTMLElement): void => {
+    if (disposed || mounted !== null) throw new Error("Cannot show a disposed or already mounted editor view.");
+    mounted = mount(container, { document, services: project.services });
+    notice = project.sessionCopy ? container.ownerDocument.createElement("p") : null;
+    if (notice) {
+      notice.setAttribute("role", "status");
+      notice.textContent = `${project.project.name} is a session copy. Changes stay in this browser session and are not saved to the original file.`;
+      container.append(notice);
+    }
+  };
+  show(element);
+  return { close: () => lease.close(), hide, show, dispose: () => { hide(); lease.dispose(); disposed = true; } };
 }
 
 export { createPageDialogs } from "./dialogs.ts";
