@@ -31,7 +31,7 @@ type DirectoryPickerWindow = Window & {
 };
 
 /** The capabilities of a folder the File System Access API opened and the browser registered as a stable project. */
-const FOLDER_CAPABILITIES: readonly Capability[] = ["folderWrite", "stableProjectHandle"];
+const FOLDER_CAPABILITIES: readonly Capability[] = ["folderWrite", "stableProjectHandle", "conflictReload", "conflictAutoSave"];
 
 /** Open a directory with the browser's native picker; stable identity requires successful IndexedDB registration. */
 export async function openWebProject(): Promise<WebProject | null> {

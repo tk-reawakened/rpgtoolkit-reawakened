@@ -17,6 +17,7 @@ import {
   type ApplyResult,
 } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
+import type { Capability } from "@tk-reawakened/platform-services";
 import type { ViewDocument } from "../src/mount.ts";
 import { exampleMain, exampleTextMain, titleOf, withTitle } from "./fixtures.ts";
 
@@ -42,8 +43,8 @@ interface Setup {
   readonly el: HTMLElement;
 }
 
-async function setup(bytes: Uint8Array = exampleMain(9)): Promise<Setup> {
-  const host = createMemoryPlatformServices({ files: { [PATH]: bytes } });
+async function setup(bytes: Uint8Array = exampleMain(9), capabilities?: readonly Capability[]): Promise<Setup> {
+  const host = createMemoryPlatformServices(capabilities === undefined ? { files: { [PATH]: bytes } } : { files: { [PATH]: bytes }, capabilities });
   const opened = await openMainDocument(host.fs, identity);
   if (!opened.ok) throw new Error(`open failed: ${JSON.stringify(opened.error)}`);
   const el = document.createElement("div");
@@ -670,6 +671,67 @@ test("a failure that replaces another with the same words, with no clean state b
     for (const listener of listeners) listener();
   });
   equal(s.el.querySelector('[role="alert"]'), after, "an unrelated change keeps the alert as it was");
+});
+test("conflict without reload capability offers keep and cancel, and cancel preserves both versions and conflict", async () => {
+  const original = exampleMain(9);
+  const s = await setup(original, ["folderWrite"]);
+  show(s);
+  await type(s.el, "Local version");
+  s.host.seed(PATH, withTitle(exampleMain(9), "External version"));
+  await act(async () => { await s.doc.checkExternal(); });
+  const external = s.host.bytesOf(PATH);
+  ok(external !== undefined);
+  equal(s.el.querySelector(".tkr-settings-reload"), null);
+  ok(s.el.querySelector(".tkr-settings-keep"));
+  match(s.el.textContent ?? "", /cannot safely reload/);
+  const cancel = s.el.querySelector<HTMLButtonElement>(".tkr-settings-cancel");
+  ok(cancel);
+  await act(() => cancel.click());
+  ok(s.el.querySelector('[role="alert"]'), "conflict warning remains visible");
+  const review = s.el.querySelector<HTMLButtonElement>(".tkr-settings-review");
+  ok(review);
+  equal(s.el.querySelector(".tkr-settings-keep"), null);
+  equal(s.doc.getSnapshot().conflict?.externalTitle, "External version");
+  equal(s.doc.getSnapshot().gameTitle, "Local version");
+  equal(s.doc.getSnapshot().dirty, true);
+  deepEqual(s.host.bytesOf(PATH), external);
+  await act(() => review.click());
+  ok(s.el.querySelector(".tkr-settings-keep"), "the preserved conflict can be reviewed again");
+  equal(s.el.querySelector(".tkr-settings-reload"), null);
+});
+
+test("keeping a conflict without auto-save capability does not dispatch a save", async () => {
+  const s = await setup(exampleMain(9), ["folderWrite"]);
+  show(s);
+  await type(s.el, "Local version");
+  s.host.seed(PATH, withTitle(exampleMain(9), "External version"));
+  await act(async () => { await s.doc.checkExternal(); });
+  const keep = s.el.querySelector<HTMLButtonElement>(".tkr-settings-keep");
+  ok(keep);
+  equal(keep.textContent?.trim(), "Keep my version");
+  let saves = 0;
+  const save = s.doc.save.bind(s.doc);
+  s.doc.save = async () => {
+    saves += 1;
+    return save();
+  };
+  await act(async () => {
+    keep.click();
+    await Promise.resolve();
+  });
+  equal(saves, 0);
+  equal(s.doc.getSnapshot().conflict, null);
+  equal(s.doc.getSnapshot().dirty, true);
+  equal(titleOf(s.host.bytesOf(PATH) ?? new Uint8Array()), "External version");
+});
+
+test("conflict with reload capability offers Use disk", async () => {
+  const s = await setup();
+  show(s);
+  await type(s.el, "Local version");
+  s.host.seed(PATH, withTitle(exampleMain(9), "External version"));
+  await act(async () => { await s.doc.checkExternal(); });
+  ok(s.el.querySelector(".tkr-settings-reload"));
 });
 
 test("a save that is rejected rather than answered leaves no unhandled rejection (defect 2)", async () => {

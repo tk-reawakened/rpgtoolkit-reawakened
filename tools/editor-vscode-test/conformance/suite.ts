@@ -44,11 +44,21 @@ export interface ConformanceEditor {
   revert(answer: "revert" | "cancel"): Promise<boolean>;
   /** Save As to `path`, confirming a replace when asked; the new tab, or `null` when nothing was saved. */
   saveAs(path: string): Promise<ConformanceEditor | null>;
-  /** Press one of the view's changed-on-disk buttons and wait for the outcome. */
-  choose(button: "Save my version" | "Use the version on disk"): Promise<void>;
+  /** Choose a conflict action, or cancel without discarding either version. */
+  choose(button: "Save my version" | "Use the version on disk" | "Cancel"): Promise<void>;
+  /** Whether the mounted view currently offers an action. */
+  hasButton(label: string): boolean;
   /** Hide the tab (its webview or view is destroyed) and show it again. */
   hide(): Promise<void>;
   show(): Promise<void>;
+}
+
+export interface DeferredRead {
+  /** Resolves as soon as the held read reaches the filesystem adapter. */
+  readonly whenStarted: Promise<void>;
+  wasStarted(): boolean;
+  release(): void;
+  dispose(): void;
 }
 
 /** The next write the host starts, held at the point where its bytes would reach the file. */
@@ -80,10 +90,18 @@ export interface ConformanceHost {
   refuseWrites(refuse: boolean): void;
   /** Hold the next write the host starts (only that one) until it is released. */
   holdNextWrite(): HeldWrite;
+  /** Hold the next file read for a path, for deterministic editor-switch race proofs. */
+  deferNextRead?(path: string): DeferredRead;
+  /** Number of active-editor Revert File command dispatches observed by this host. */
+  workbenchRevertCommandCount?(): number;
   /** Let pending messages, events and writes run. */
   settle(): Promise<void>;
-  /** Restart from the host's backups and reopen `path`; `null` when the host keeps no backup. */
+  /** Restart from the host's backup, if one is available. */
   restartFromBackup(path: string): Promise<ConformanceEditor | null>;
+  /** Bytes retained in the host's hot-exit backup for `path`, where inspectable. */
+  recoveryBackupBytes?(path: string): Uint8Array | null;
+  /** Restart after capturing a hot-exit backup, changing the file while closed, then opening the backed-up document. */
+  restartFromBackupAfterDiskChange?(path: string, bytes: Uint8Array): Promise<ConformanceEditor | null>;
   /** How many document models the host holds. */
   modelsOpen(): number;
 }
@@ -419,7 +437,6 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
     name: "a backup is offered back only by a host that declares one",
     async run(host) {
       const editor = await host.open(GAME);
-      const opened = editor.title();
       await editor.type("Only in the backup");
       const recovered = await host.restartFromBackup(GAME);
       if (!host.capabilities.has("backup")) {
@@ -430,11 +447,10 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
       check(recovered !== null, `${host.name} declares backup, so the unsaved work comes back`);
       same(recovered.title(), "Only in the backup", "the recovered view shows the unsaved title");
       check(recovered.model.getSnapshot().dirty && recovered.hostDirty(), "recovered work is unsaved");
-      await recovered.undo();
-      same(recovered.title(), opened, "undoing the recovery shows the file as it is");
-      await recovered.redo();
-      await recovered.save();
-      same(await titleOnDisk(host, GAME), "Only in the backup", "and the recovered work saves to the original file");
+      check(recovered.conflictShown(), "the unknown backup baseline needs an explicit choice");
+      await recovered.choose("Save my version");
+      if (!host.capabilities.has("conflictAutoSave")) await recovered.save();
+      same(await titleOnDisk(host, GAME), "Only in the backup", "and the kept recovery is saved to the original file");
     },
   },
   {
@@ -455,9 +471,28 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
       sameBytes(await host.disk(GAME), theirs, "the other program's version was not overwritten");
       check(editor.model.getSnapshot().dirty && editor.hostDirty(), "the local work is still unsaved");
       same(editor.title(), "Mine", "and still shown");
-      await editor.choose("Use the version on disk");
-      same(editor.title(), "Theirs", "the disk's version is loaded by choice");
-      check(!editor.model.getSnapshot().dirty && !editor.hostDirty() && !editor.conflictShown(), "and it is clean");
+      if (host.capabilities.has("conflictReload")) {
+        check(editor.hasButton("Use the version on disk"), "the browser exposes reload when its capability permits it");
+        await editor.choose("Use the version on disk");
+        same(editor.title(), "Theirs", "the disk's version is loaded by choice");
+        check(!editor.model.getSnapshot().dirty && !editor.hostDirty() && !editor.conflictShown(), "and it is clean");
+      } else {
+        check(!editor.hasButton("Use the version on disk"), `${host.name} does not offer in-place reload`);
+        check(/cannot safely reload/i.test(editor.text()), `${host.name} explains why reload is unavailable`);
+        check(editor.hasButton("Keep my version") && editor.hasButton("Cancel"), "the safe actions are keep local and cancel");
+        await editor.choose("Use the version on disk");
+        same(editor.title(), "Mine", "a forged reload keeps the local version");
+        check(editor.model.getSnapshot().dirty && editor.hostDirty() && editor.conflictShown(), "a forged reload keeps the conflict and dirty markers");
+        sameBytes(await host.disk(GAME), theirs, "a forged reload leaves external bytes unchanged");
+        await editor.choose("Cancel");
+        same(editor.title(), "Mine", "cancel retains the local title");
+        check(editor.model.getSnapshot().dirty && editor.hostDirty() && editor.conflictShown(), "cancel leaves local work dirty and the conflict visible");
+        sameBytes(await host.disk(GAME), theirs, "cancel leaves the external bytes unchanged");
+        check(editor.hasButton("Review conflict"), "the warning remains available to review after cancelling");
+        await editor.choose("Save my version");
+        await editor.save();
+        same(await titleOnDisk(host, GAME), "Mine", "an explicit later save writes the kept local version");
+      }
 
       await editor.type("Mine again");
       await host.writeOutside(GAME, retitled(fixture, "Theirs again"));
@@ -465,7 +500,12 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
       if (!editor.conflictShown()) await editor.save();
       check(editor.conflictShown(), "a second change waits for a choice too");
       await editor.choose("Save my version");
-      same(await titleOnDisk(host, GAME), "Mine again", "keeping mine writes it, by choice");
+      if (!host.capabilities.has("conflictAutoSave")) {
+        sameBytes(await host.disk(GAME), retitled(fixture, "Theirs again"), "Keep my version does not save from VS Code's conflict action");
+        check(editor.model.getSnapshot().dirty && editor.hostDirty(), "the local version stays dirty until native Save");
+        await editor.save();
+      }
+      same(await titleOnDisk(host, GAME), "Mine again", "keeping mine and explicitly saving writes it");
       check(!editor.model.getSnapshot().dirty && !editor.hostDirty() && !editor.conflictShown(), "and it is clean");
     },
   },
@@ -577,8 +617,11 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
     name: "capabilities are truthful: each one declared is backed by behaviour, and none other is claimed",
     async run(host, fixture) {
       for (const capability of host.capabilities) {
-        check(["folderWrite", "fileWatch", "stableProjectHandle", "backup"].includes(capability), `${host.name} claims only what it does (${capability})`);
+        check(["folderWrite", "fileWatch", "stableProjectHandle", "backup", "conflictReload", "conflictAutoSave"].includes(capability), `${host.name} claims only what it does (${capability})`);
       }
+      const browser = host.name === "browser host";
+      same(host.capabilities.has("conflictReload"), browser, "conflictReload is declared only by the browser host");
+      same(host.capabilities.has("conflictAutoSave"), browser, "conflictAutoSave is declared only by the browser host");
       const editor = await host.open(GAME);
       await editor.type("Written through the host");
       await editor.save();
@@ -593,6 +636,174 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
       same(editor.title() === "Seen live?", host.capabilities.has("fileWatch"), "fileWatch is declared exactly when an outside change reaches the view without a save");
       await editor.type("Unsaved before a restart");
       same((await host.restartFromBackup(GAME)) !== null, host.capabilities.has("backup"), "backup is declared exactly when a restart can offer unsaved work back");
+    },
+  },
+  {
+    name: "a recovered backup never overwrites a different title written while VS Code was closed",
+    async run(host) {
+      if (!host.capabilities.has("backup") || host.restartFromBackupAfterDiskChange === undefined) return;
+      const external = retitled((await host.disk(GAME))!, "External while closed");
+      const recovered = await host.restartFromBackupAfterDiskChange(GAME, external);
+      check(recovered !== null, "the workbench reopens its backed-up document");
+      same(recovered.title(), "Local backup", "the recovered editor shows the backed-up title");
+      check(recovered.conflictShown(), "the unknown backup baseline requires a choice");
+      check(recovered.text().includes("Local backup") && recovered.text().includes("External while closed"), "the view shows both versions");
+      sameBytes(await host.disk(GAME), external, "the external bytes remain untouched before resolution");
+
+      const saveResults = await host.saveAll();
+      same(saveResults.get(GAME), false, "workbench Save All refuses before a recovery choice");
+      same(recovered.title(), "Local backup", "a failed keep-local save retains the recovery");
+      check(recovered.model.getSnapshot().dirty && recovered.hostDirty(), "a failed save retains dirty work");
+      check(recovered.conflictShown(), "a failed save keeps the conflict unresolved");
+      sameBytes(await host.disk(GAME), external, "a failed save does not overwrite external bytes");
+
+
+      await recovered.choose("Save my version");
+      if (!host.capabilities.has("conflictAutoSave")) {
+        sameBytes(await host.disk(GAME), external, "Keep my version does not write the recovered backup");
+        check(recovered.model.getSnapshot().dirty && recovered.hostDirty(), "the recovered work remains dirty until explicit Save");
+        await recovered.save();
+      }
+      same(await titleOnDisk(host, GAME), "Local backup", "an explicit successful keep-local save writes the backup");
+      check(!recovered.model.getSnapshot().dirty && !recovered.hostDirty(), "the resolved local version is clean");
+    },
+  },
+  {
+    name: "keeping a recovered edit matching disk stays dirty before a later external change",
+    async run(host) {
+      if (!host.capabilities.has("backup") || host.restartFromBackupAfterDiskChange === undefined) return;
+      const original = (await host.disk(GAME))!;
+      const matching = retitled(original, "Recovered B");
+      const recovered = await host.restartFromBackupAfterDiskChange(GAME, matching);
+      check(recovered !== null, "the workbench reopens the backup");
+      await recovered.type("Recovered B");
+      await recovered.choose("Save my version");
+      check(recovered.model.getSnapshot().dirty && recovered.hostDirty(), "Keep leaves the matching recovered edit dirty in model and workbench");
+      sameBytes(await host.disk(GAME), matching, "Keep does not write");
+      const external = retitled(original, "External C");
+      await host.writeOutside(GAME, external);
+      await host.settle();
+      if (!host.capabilities.has("fileWatch")) await recovered.save();
+      same(recovered.title(), "Recovered B", "the local recovered edit survives the later disk change");
+      check(recovered.model.getSnapshot().dirty && recovered.hostDirty() && recovered.conflictShown(), "watcher or webview Save preserves dirty conflict state");
+      sameBytes(await host.disk(GAME), external, "the newer external bytes are not overwritten");
+    },
+  },
+  {
+    name: "native Save cannot clear a matching recovery after a later external change",
+    async run(host) {
+      if (!host.capabilities.has("backup") || host.capabilities.has("fileWatch") || host.restartFromBackupAfterDiskChange === undefined) return;
+      const original = (await host.disk(GAME))!;
+      const matching = retitled(original, "Recovered B");
+      const recovered = await host.restartFromBackupAfterDiskChange(GAME, matching);
+      check(recovered !== null, "the workbench reopens the backup");
+      await recovered.type("Recovered B");
+      await recovered.choose("Save my version");
+      check(recovered.model.getSnapshot().dirty && recovered.hostDirty(), "Keep leaves recovery dirty");
+      const external = retitled(original, "External C");
+      await host.writeOutside(GAME, external);
+      const result = await host.saveAll();
+      same(result.get(GAME), false, "native Save refuses the newer external revision");
+      same(recovered.title(), "Recovered B", "native Save keeps the recovered edit");
+      check(recovered.model.getSnapshot().dirty && recovered.hostDirty() && recovered.conflictShown(), "both dirty markers and conflict remain");
+      sameBytes(await host.disk(GAME), external, "native Save leaves the later external revision untouched");
+    },
+  },
+  {
+    name: "recovered conflict reload is browser-only; VS Code preserves both backup and disk on cancel",
+    async run(host) {
+      if (!host.capabilities.has("backup") || host.restartFromBackupAfterDiskChange === undefined) return;
+      const original = (await host.disk(GAME))!;
+      const external = retitled(original, "External while closed");
+      const localBackup = retitled(original, "Local backup");
+      const recovered = await host.restartFromBackupAfterDiskChange(GAME, external);
+      check(recovered !== null, "the workbench reopens its backed-up document");
+      same(recovered.title(), "Local backup", "the recovered editor starts with the backed-up title");
+      check(recovered.conflictShown(), "the unknown backup baseline requires a choice");
+      sameBytes(await host.disk(GAME), external, "the external bytes remain untouched before resolution");
+      if (host.capabilities.has("conflictReload")) {
+        check(recovered.hasButton("Use the version on disk"), "the browser retains its reload action");
+        await recovered.choose("Use the version on disk");
+        same(recovered.title(), "External while closed", "reload shows the external title");
+        check(!recovered.model.getSnapshot().dirty && !recovered.hostDirty() && !recovered.conflictShown(), "the reloaded version is clean and resolved");
+        sameBytes(await host.disk(GAME), external, "reloading leaves the external bytes unchanged");
+      } else {
+        check(!recovered.hasButton("Use the version on disk"), `${host.name} does not offer in-place reload`);
+        check(/cannot safely reload/i.test(recovered.text()), `${host.name} explains why reload is unavailable`);
+        check(recovered.hasButton("Keep my version") && recovered.hasButton("Cancel"), "the safe recovered actions are keep-local and cancel");
+        check(recovered.text().includes("Local backup") && recovered.text().includes("External while closed"), "both recovered and external titles are shown before cancellation");
+        sameBytes(host.recoveryBackupBytes?.(GAME) ?? null, localBackup, "the recovered backup still contains the local version");
+        await recovered.choose("Cancel");
+        same(recovered.title(), "Local backup", "cancel retains the recovered title");
+        check(recovered.model.getSnapshot().dirty && recovered.hostDirty() && recovered.conflictShown(), "cancel leaves recovered work dirty and conflicted");
+        check(recovered.hasButton("Review conflict"), "the recovered conflict remains available to review after cancelling");
+        sameBytes(await host.disk(GAME), external, "cancel leaves the external disk bytes untouched");
+        sameBytes(host.recoveryBackupBytes?.(GAME) ?? null, localBackup, "cancel leaves the hot-exit backup intact");
+      }
+    },
+  },
+  {
+    name: "a recovered reload fails closed without reading or reverting another dirty editor",
+    async run(host) {
+      const deferNextRead = host.deferNextRead;
+      const getRevertCommandCount = host.workbenchRevertCommandCount;
+      if (
+        !host.capabilities.has("backup")
+        || host.restartFromBackupAfterDiskChange === undefined
+        || deferNextRead === undefined
+        || getRevertCommandCount === undefined
+      ) return;
+      const original = (await host.disk(GAME))!;
+      const external = retitled(original, "External while closed");
+      const localBackup = retitled(original, "Local backup");
+      const recovered = await host.restartFromBackupAfterDiskChange(GAME, external);
+      check(recovered !== null, "the workbench reopens its backed-up document");
+      check(!recovered.hasButton("Use the version on disk"), "the reload button is hidden while the provider still guards forged requests");
+      check(/cannot safely reload/i.test(recovered.text()), "the unavailable reload is explained");
+      const unrelated = await host.open(SECOND);
+      await unrelated.type("Unrelated unsaved title");
+      const read = deferNextRead.call(host, GAME);
+      const revertCommands = getRevertCommandCount.call(host);
+      await unrelated.type("Unrelated editor stays dirty");
+      const reloading = recovered.choose("Use the version on disk");
+      void reloading.catch(() => undefined);
+      try {
+        await host.settle();
+        if (read.wasStarted()) await read.whenStarted;
+        read.release();
+        await reloading;
+
+        check(!read.wasStarted(), "the unsupported reload is refused before reading disk");
+        same(getRevertCommandCount.call(host), revertCommands, "the active-editor Revert File command was not dispatched after focus moved to another dirty editor");
+        same(recovered.title(), "Local backup", "the recovered copy is retained");
+        check(recovered.model.getSnapshot().dirty && recovered.hostDirty() && recovered.conflictShown(), "its model, workbench dirty marker and conflict stay coherent");
+        same(unrelated.title(), "Unrelated editor stays dirty", "the other editor's content is untouched");
+        check(unrelated.model.getSnapshot().dirty && unrelated.hostDirty(), "the other editor remains dirty in both model and workbench");
+        same(unrelated.status(), UNSAVED, "the other editor keeps its unsaved status");
+        sameBytes(await host.disk(GAME), external, "the external file remains unchanged");
+        sameBytes(host.recoveryBackupBytes?.(GAME) ?? null, localBackup, "the unsupported request leaves the recovery backup intact");
+      } finally {
+        read.release();
+        read.dispose();
+      }
+    },
+  },
+  {
+    name: "workbench undo and redo retain user edits after the watcher has matched disk",
+    async run(host, fixture) {
+      if (!host.capabilities.has("fileWatch") || host.restartFromBackupAfterDiskChange === undefined) return;
+      const editor = await host.restartFromBackupAfterDiskChange(GAME, fixture);
+      check(editor !== null, "the workbench restores the backup");
+      await editor.type("User edit after recovery");
+      await host.writeOutside(GAME, retitled(fixture, "User edit after recovery"));
+      await host.settle();
+      await host.writeOutside(GAME, retitled(fixture, "User edit after recovery"));
+      await host.settle();
+      await editor.undo();
+      same(editor.title(), "Local backup", "workbench undo returns to the recovered title");
+      await editor.redo();
+      same(editor.title(), "User edit after recovery", "workbench redo restores the user edit");
+      sameBytes(await host.disk(GAME), retitled(fixture, "User edit after recovery"), "undo and redo do not write to disk");
     },
   },
 ];

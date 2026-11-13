@@ -31,13 +31,18 @@ import {
   type GameEditorProvider,
   type VscodeFileSystemPort,
 } from "@tk-reawakened/host-vscode/testing";
-import { GAME, SECOND, retitled, type CloseAnswer, type ConformanceEditor, type ConformanceHost, type HeldWrite } from "./suite.ts";
+import { GAME, SECOND, retitled, type CloseAnswer, type ConformanceEditor, type ConformanceHost, type DeferredRead, type HeldWrite } from "./suite.ts";
 import { MountedView, settle, type Act } from "./view.ts";
 
 interface Uri { readonly path: string }
 
 const ROOT: Uri = { path: "/project" };
 const FOLDER = { uri: ROOT, key: "file:///project" };
+
+interface DeferredReadGate {
+  readonly wait: Promise<void>;
+  start(): void;
+}
 
 /** The next write to hold: it calls `start` when it begins, then waits for `wait`. */
 interface WriteHold {
@@ -51,6 +56,28 @@ class Disk {
   readonly watchers = new Set<{ readonly root: string; readonly onChange: (change: FileChange) => void }>();
   refuse = false;
   hold: WriteHold | null = null;
+  readonly deferredReads = new Map<string, DeferredReadGate>();
+
+  deferNextRead(path: string): DeferredRead {
+    if (this.deferredReads.has(path)) throw new Error(`a read is already deferred for ${path}`);
+    let release!: () => void;
+    let markStarted!: () => void;
+    let started = false;
+    const whenStarted = new Promise<void>((resolve) => { markStarted = resolve; });
+    const gate: DeferredReadGate = {
+      wait: new Promise<void>((resolve) => { release = resolve; }),
+      start: () => { started = true; markStarted(); },
+    };
+    this.deferredReads.set(path, gate);
+    return {
+      whenStarted,
+      wasStarted: () => started,
+      release,
+      dispose: () => {
+        if (this.deferredReads.get(path) === gate) this.deferredReads.delete(path);
+      },
+    };
+  }
 
   notify(path: string, kind: FileChange["kind"]): void {
     for (const watcher of [...this.watchers]) {
@@ -79,6 +106,12 @@ function fileSystemPort(disk: Disk): VscodeFileSystemPort<Uri> {
       return [...entries];
     },
     async readFile(uri) {
+      const deferred = disk.deferredReads.get(uri.path);
+      if (deferred !== undefined) {
+        disk.deferredReads.delete(uri.path);
+        deferred.start();
+        await deferred.wait;
+      }
       const bytes = disk.files.get(uri.path);
       if (bytes === undefined) throw missing(uri);
       return bytes.slice();
@@ -234,6 +267,16 @@ class Webview {
     return new MountedView(this.#page.element, this.#act);
   }
 
+  /** Send a hidden reload request as an old or compromised webview, through the real bridge. */
+  async forgedReload(): Promise<void> {
+    const remote = this.#page?.remote;
+    if (remote === null || remote === undefined) throw new Error("the webview is not initialized");
+    const result = await remote.resolveConflict("reload");
+    if (result.ok || result.reason !== "cannot-reload") {
+      throw new Error(`forged reload must be rejected with cannot-reload, got ${JSON.stringify(result)}`);
+    }
+  }
+
   /** Load the page: what `webview.tsx` does on load, with this page's own `acquireVsCodeApi()`. */
   show(): void {
     const element = document.createElement("div");
@@ -311,7 +354,10 @@ class Workbench {
         const target = this.active?.copy;
         if (target === undefined) return;
         if (command === "workbench.action.files.save") await target.save();
-        else await target.revert();
+        else {
+          this.host.revertCommands += 1;
+          await target.revert();
+        }
       },
     }, (event) => {
       for (const copy of this.copies.values()) if (copy.custom === event.document) copy.record(event);
@@ -371,6 +417,7 @@ class VscodeEditor implements ConformanceEditor {
   alerts(): readonly string[] { return this.webview.view.alerts(); }
   text(): string { return this.webview.view.text(); }
   conflictShown(): boolean { return this.webview.view.conflictShown(); }
+  hasButton(label: string): boolean { return this.webview.view.hasButton(label); }
   hostDirty(): boolean { return this.copy.dirty; }
 
   async type(title: string): Promise<void> {
@@ -447,11 +494,26 @@ class VscodeEditor implements ConformanceEditor {
     return copy;
   }
 
-  async choose(button: "Save my version" | "Use the version on disk"): Promise<void> {
+  async choose(button: "Save my version" | "Use the version on disk" | "Cancel"): Promise<void> {
+    const view = this.webview.view;
+    if (button === "Use the version on disk" && !this.#workbench.host.capabilities.has("conflictReload")) {
+      // Model an untrusted/old webview sending the hidden reload request through the bridge.
+      await this.webview.forgedReload();
+      await settle(this.#act);
+      return;
+    }
+    const action = button === "Save my version" && !this.#workbench.host.capabilities.has("conflictAutoSave")
+      ? "Keep my version"
+      : button;
+    if (action !== "Cancel" && !view.hasButton(action) && view.hasButton("Review conflict")) {
+      await view.click("Review conflict");
+      await settle(this.#act);
+    }
     this.#workbench.active = this;
-    await this.webview.view.click(button);
+    await view.click(action);
     await untilSaved(this.webview.view, this.model, this.#act);
   }
+
 
   async hide(): Promise<void> {
     this.webview.hide();
@@ -472,6 +534,8 @@ class VscodeHost implements ConformanceHost {
   readonly saveWrites = 3;
   readonly drive = new Disk();
   readonly backups = new Map<string, Uint8Array>();
+  readonly #backupIdsByDocument = new Map<string, string>();
+  revertCommands = 0;
   readonly act: Act;
   #workbench: Workbench;
 
@@ -534,6 +598,18 @@ class VscodeHost implements ConformanceHost {
       },
     };
   }
+  deferNextRead(path: string): DeferredRead {
+    return this.drive.deferNextRead(posix.normalize(`${ROOT.path}/${path}`));
+  }
+
+  workbenchRevertCommandCount(): number {
+    return this.revertCommands;
+  }
+  recoveryBackupBytes(path: string): Uint8Array | null {
+    const backupId = this.#backupIdsByDocument.get(posix.normalize(`${ROOT.path}/${path}`));
+    return backupId === undefined ? null : this.backups.get(backupId)?.slice() ?? null;
+  }
+
 
   settle(): Promise<void> {
     return settle(this.act);
@@ -548,12 +624,31 @@ class VscodeHost implements ConformanceHost {
       next += 1;
       const backup = await this.#workbench.provider.backupCustomDocument(copy.custom, { path: `/backups/${next}` });
       backups.set(copy.uri.path, backup.id);
+      this.#backupIdsByDocument.set(copy.uri.path, backup.id);
     }
     for (const copy of this.#workbench.copies.values()) for (const tab of copy.tabs) tab.webview.hide();
     this.drive.watchers.clear();
     this.#workbench = new Workbench(this, [...this.capabilities]);
     return this.#workbench.open(path, backups.get(posix.normalize(`${ROOT.path}/${path}`)));
   }
+  /** Capture a real provider backup, close the workbench, change disk with no watcher running, then recover it. */
+  async restartFromBackupAfterDiskChange(path: string, bytes: Uint8Array): Promise<ConformanceEditor | null> {
+    const editor = await this.open(path);
+    await editor.type("Local backup");
+    const key = posix.normalize(`${ROOT.path}/${path}`);
+    const copy = this.#workbench.copies.get(key);
+    if (copy === undefined || !copy.dirty) throw new Error(`no dirty workbench document for ${path}`);
+    const backup = await this.#workbench.provider.backupCustomDocument(copy.custom, { path: "/backups/recovery-conflict" });
+    this.#backupIdsByDocument.set(key, backup.id);
+    for (const tab of copy.tabs) tab.webview.hide();
+    this.drive.watchers.clear();
+
+    // This write happens after the old workbench and its watchers have been stopped, before recovery opens.
+    this.drive.files.set(key, bytes.slice());
+    this.#workbench = new Workbench(this, [...this.capabilities]);
+    return this.#workbench.open(path, backup.id);
+  }
+
 
   modelsOpen(): number {
     return this.#workbench.copies.size;

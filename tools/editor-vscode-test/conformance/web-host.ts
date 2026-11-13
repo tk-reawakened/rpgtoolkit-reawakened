@@ -60,6 +60,7 @@ class WebEditor implements ConformanceEditor {
   alerts(): readonly string[] { return this.#view.alerts(); }
   text(): string { return this.#view.text(); }
   conflictShown(): boolean { return this.#view.conflictShown(); }
+  hasButton(label: string): boolean { return this.#view.hasButton(label); }
   hostDirty(): boolean { return this.model.getSnapshot().dirty; }
 
   async type(title: string): Promise<void> {
@@ -116,7 +117,7 @@ class WebEditor implements ConformanceEditor {
     return new WebEditor(this.#project, this.#dialogs, this.#act, saved.document, new MountedView(element, this.#act), handle);
   }
 
-  async choose(button: "Save my version" | "Use the version on disk"): Promise<void> {
+  async choose(button: "Save my version" | "Use the version on disk" | "Cancel"): Promise<void> {
     await this.#view.click(button);
     await untilSaved(this.#view, this.model, this.#act);
   }

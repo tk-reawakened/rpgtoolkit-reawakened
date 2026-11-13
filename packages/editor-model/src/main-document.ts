@@ -212,6 +212,12 @@ export function createMainDocument(storage: DocumentStorage, identity: DocumentI
   return { ok: true, document: new MainDocumentImpl(storage, identity, read.value, opened) };
 }
 
+/** @internal Keep a recovered revision unsaved until this document actually writes it or explicitly reloads it. */
+export function markRecoveredDocumentDirty(document: MainDocument): void {
+  if (!(document instanceof MainDocumentImpl)) throw new Error("Recovery requires a main document created by the editor model.");
+  document.markRecoveredDirty();
+}
+
 /**
  * `null` when the writer reproduces `bytes` exactly, which is what a same-version writer means for this file. A
  * Toolkit 2 text main file is named as such first: `readMainFile` tells it from a binary one by the byte after the magic
@@ -270,6 +276,8 @@ class MainDocumentImpl implements MainDocument {
   #applied = 0;
   /** How many commands were in force when the file was last written, or `null` when that state can no longer be reached. */
   #savedAt: number | null = 0;
+  /** A recovered revision needs a successful write, not another writer's coincidentally equal bytes. */
+  #recoveryRequiresWrite = false;
   /** Changes to the model or history, including edits that are subsequently undone. */
   #generation = 0;
   /** Never reset, so an edit id is never reused, even after a reload: a host still holding an old id gets `stale-edit`. */
@@ -298,6 +306,12 @@ class MainDocumentImpl implements MainDocument {
     this.#disk = bytes;
     this.#readOnly = readOnlyReason(model, bytes);
     this.#snapshot = this.#makeSnapshot();
+  }
+
+  markRecoveredDirty(): void {
+    this.#recoveryRequiresWrite = true;
+    this.#savedAt = null;
+    this.#publish();
   }
 
   serialize(): Uint8Array {
@@ -479,13 +493,16 @@ class MainDocumentImpl implements MainDocument {
         && sameBytes(onDisk.bytes, this.#failedWrite);
       if (!sameContent(onDisk.bytes, this.#disk) && !matchesFailedWrite) {
         if (this.#failedWrite === null && onDisk.bytes !== null && sameBytes(onDisk.bytes, bytes)) {
-          // Another editor saved exactly this revision; there is no failed write awaiting durable confirmation.
+          // An equal external revision is a valid baseline, but recovery still needs its own successful write.
           this.#disk = onDisk.bytes;
-          this.#savedAt = this.#isRevision(revision, head) ? revision : null;
-          return { ok: true };
+          if (!this.#recoveryRequiresWrite) {
+            this.#savedAt = this.#isRevision(revision, head) ? revision : null;
+            return { ok: true };
+          }
+        } else {
+          const change = this.#raise(onDisk.bytes);
+          return this.#fail(this.#conflictFailure(change));
         }
-        const change = this.#raise(onDisk.bytes);
-        return this.#fail(this.#conflictFailure(change));
       }
       let written: PlatformResult<void>;
       try {
@@ -498,6 +515,7 @@ class MainDocumentImpl implements MainDocument {
       this.#disk = bytes;
       this.#failedWrite = null;
       this.#failedWriteMatchesBaseline = false;
+      this.#recoveryRequiresWrite = false;
       // Clean only if that revision is still part of the history: an edit made during the write stays dirty, and an
       // undo followed by a different edit during the write means the written state is gone from the history.
       this.#savedAt = this.#isRevision(revision, head) ? revision : null;
@@ -529,9 +547,9 @@ class MainDocumentImpl implements MainDocument {
     }
     const current = this.#readOnly === null ? writeMainFile(this.#model) : null;
     if (this.#failedWrite === null && onDisk.bytes !== null && current?.ok === true && sameBytes(onDisk.bytes, current.value)) {
-      // Another editor wrote exactly what this document holds: it is saved, and there is no conflict.
+      // Another writer produced the current bytes. Recovery still requires its own successful write.
       this.#disk = onDisk.bytes;
-      this.#savedAt = this.#applied;
+      if (!this.#recoveryRequiresWrite) this.#savedAt = this.#applied;
       this.#external = null;
       this.#publish();
       return "unchanged";
@@ -596,6 +614,7 @@ class MainDocumentImpl implements MainDocument {
     this.#stack = [];
     this.#applied = 0;
     this.#savedAt = this.#failedWrite === null ? 0 : null;
+    this.#recoveryRequiresWrite = false;
     this.#disk = this.#opened;
     this.#failedWriteMatchesBaseline = false;
     this.#external = null;

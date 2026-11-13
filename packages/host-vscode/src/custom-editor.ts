@@ -1,6 +1,6 @@
 import { createDocumentIdentity, createDocumentWorkspace, resolveDocumentPath, sameRevision, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type MainDocument, type SaveResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, FileSystemService } from "@tk-reawakened/platform-services";
-import { recoverMainDocument } from "./document-backup.ts";
+import { recoverMainDocument, resolveRecoveryConflict } from "./document-backup.ts";
 import { handleEditorHostRequest, isEditorHostRequest, type BridgedDocument, type BridgeMessage } from "./document-bridge.ts";
 
 /**
@@ -62,32 +62,22 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   readonly #workspace: DocumentWorkspace;
   readonly #port: GameEditorPort<Uri>;
   readonly #fire: (event: GameEditEvent<Uri>) => void;
-  #pendingRecoveryEditId: string | null;
   /** How many `saveCustomDocument` calls have finished, and the last one's result. */
   #saves = 0;
   #lastSave: SaveResult = { ok: true };
 
-  constructor(uri: Uri, model: MainDocument, workspace: DocumentWorkspace, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void, recoveryEditId: string | null) {
+  constructor(uri: Uri, model: MainDocument, workspace: DocumentWorkspace, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void) {
     this.uri = uri;
     this.model = model;
     this.capabilities = port.capabilities;
     this.#workspace = workspace;
     this.#port = port;
     this.#fire = fire;
-    this.#pendingRecoveryEditId = recoveryEditId;
   }
 
   /** Hand an accepted edit to VS Code's undo stack; VS Code undoes it by its `editId` (AD-19). */
   didEdit(editId: string): void {
     this.#fire({ document: this, label: "Edit game title", undo: () => { this.model.undo(editId); }, redo: () => { this.model.redo(editId); } });
-  }
-
-  /** A recovered backup's edit is announced once a view exists, so VS Code can undo it like any other. */
-  publishRecoveryEdit(): void {
-    const editId = this.#pendingRecoveryEditId;
-    if (editId === null) return;
-    this.#pendingRecoveryEditId = null;
-    this.didEdit(editId);
   }
 
   /** VS Code disposes a custom document when its last editor closes; the workbench has already asked about unsaved work. */
@@ -152,14 +142,18 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   }
 
   /**
-   * Settle a change made on disk (ADR 0022 D3.5). Loading the disk's version starts a new history; VS Code is then told
-   * to revert, which drops its own edits after the save point so its dirty marker agrees (the model's revert finds the
-   * file it just loaded and changes nothing).
+   * Settle a change made on disk (ADR 0022 D14.2). Revert File only targets the active editor and cannot safely
+   * reload this document after a focus change. Reject even a forged reload request and keep both versions intact.
    */
   async resolveConflict(choice: ConflictChoice): Promise<ConflictResult> {
-    const resolved = this.model.resolveConflict(choice);
-    if (resolved.ok && choice === "reload") await this.#port.executeCommand("workbench.action.files.revert");
-    return resolved;
+    if (choice === "reload") {
+      return {
+        ok: false,
+        reason: "cannot-reload",
+        message: `Cannot safely reload ${this.model.identity.path}: VS Code's Revert File command only targets the active editor, which may change before command dispatch. Your changes and conflict were kept.`,
+      };
+    }
+    return resolveRecoveryConflict(this.model, choice);
   }
 }
 
@@ -200,7 +194,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         const recovered = await recoverMainDocument(fs, identity, await port.readBackup(backupId));
         if (!recovered.ok) throw new Error(`${nameOf(uri)}: ${recovered.error.error.message}`);
         if (!workspace.adopt(recovered.document)) throw new Error(`${path} is already open in another editor under another spelling.`);
-        return new GameDocument(uri, recovered.document, workspace, port, fire, recovered.editId);
+        return new GameDocument(uri, recovered.document, workspace, port, fire);
       }
       const known = new Set(workspace.documents());
       const opened = await workspace.open(path);
@@ -212,7 +206,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       if (known.has(opened.document)) {
         throw new Error(`${path} is already open as ${opened.document.identity.path}; one file is opened once.`);
       }
-      return new GameDocument(uri, opened.document, workspace, port, fire, null);
+      return new GameDocument(uri, opened.document, workspace, port, fire);
     },
     async saveCustomDocument(document) {
       const result = await document.save();
@@ -266,7 +260,6 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         messages.dispose();
         disposal.dispose();
       });
-      document.publishRecoveryEdit();
     },
   };
 }
