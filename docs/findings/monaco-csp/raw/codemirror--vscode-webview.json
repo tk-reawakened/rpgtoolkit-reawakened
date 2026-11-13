@@ -1,0 +1,45 @@
+{
+  "bundle": "codemirror",
+  "policyName": "vscode-webview",
+  "policy": "default-src 'none'; img-src http://127.0.0.1:4199; script-src 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg'; style-src 'self' http://127.0.0.1:4199 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg';",
+  "nonce": "c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg",
+  "afterCreate": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "render": {
+    "lineNumbers": {
+      "count": 21,
+      "distinctTops": 21
+    },
+    "viewLines": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "keywordColour": "rgb(119, 0, 136)",
+    "identifierColour": "rgb(0, 0, 0)",
+    "activeLine": true,
+    "shadowRoot": false,
+    "styleElements": 1,
+    "adoptedStyleSheets": 0,
+    "tokensColoured": true,
+    "linesPositioned": true
+  },
+  "typed": true,
+  "suggest": {
+    "visible": false
+  },
+  "undone": true,
+  "find": {
+    "visible": true
+  },
+  "afterUse": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "workerRequests": [],
+  "console": [],
+  "pageErrors": []
+}

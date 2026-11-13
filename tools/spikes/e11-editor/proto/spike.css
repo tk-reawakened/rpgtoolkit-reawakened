@@ -1,0 +1,6 @@
+html, body { margin: 0; height: 100%; font: 13px system-ui, sans-serif; }
+#dock { position: absolute; inset: 0; }
+.spike-bar { height: 4px; background: #36c; }
+.spike-board input { margin: 0 4px; }
+#spike-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.spike-fill { position: absolute; inset: 0; }

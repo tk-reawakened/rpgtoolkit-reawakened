@@ -223,3 +223,27 @@ references = ["Decision: ADR 0022 D13.3 (the standalone surface is allocated her
 after = [1, 3, 14]
 hitl = true
 risk = "medium"
+
+[[entry]]
+id = 19
+tracker_id = "#2182"
+type = "spike"
+title = "Evaluate docking libraries for the web editor"
+description = "Measure docking candidates against ADR 0022 D7.3 and propose an owner decision for 11.4 without claiming the packaged-host gate is closed."
+verify = "A reproducible browser spike, raw findings and Proposed ADR 0028 document licence, CSP, accessibility, features, size and maintenance evidence, including remaining gate obligations."
+covers = ["CAP-15", "CAP-18", "T-01", "T-02", "T-03"]
+after = [1]
+hitl = true
+risk = "medium"
+
+[[entry]]
+id = 20
+tracker_id = "#2183"
+type = "spike"
+title = "Measure Monaco CSP, worker and licence requirements"
+description = "Measure Monaco under the editor hosts' CSPs and propose an owner decision for 11.7 without reopening ADR 0021's editor choice."
+verify = "A reproducible host spike, raw findings and Proposed ADR 0029 document exact policies, worker behaviour, licences, bundle sizes and CodeMirror comparison."
+covers = ["CAP-15", "CAP-18", "T-40"]
+after = [1]
+hitl = true
+risk = "medium"

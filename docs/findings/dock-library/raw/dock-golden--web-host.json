@@ -1,0 +1,124 @@
+{
+  "bundle": "dock-golden",
+  "lib": "golden-layout",
+  "policy": "default-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; frame-ancestors 'none'",
+  "features": {
+    "tabs": true,
+    "split": true,
+    "float": "popout window only",
+    "popout": true,
+    "persist": true
+  },
+  "afterLoad": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "panelsRendered": 1,
+  "aria": {
+    "roles": {},
+    "tabs": 4,
+    "tabsWithRoleTab": 0,
+    "tabsWithAriaSelected": 0,
+    "tabsFocusable": 0,
+    "tabsProgrammaticallyFocusable": 0,
+    "tabsWithAriaControls": 0,
+    "sashes": 2,
+    "sashesWithRoleSeparator": 0,
+    "sashesFocusable": 0
+  },
+  "keyboard": {
+    "tabSequence": [
+      "button:Main/example.gam",
+      "button:Boards/start.brd",
+      "button:Prg/start.prg",
+      "input:",
+      "button:Paint",
+      "button:Undo",
+      "body",
+      "button:Main/example.gam",
+      "button:Boards/start.brd",
+      "button:Prg/start.prg",
+      "input:",
+      "button:Paint",
+      "button:Undo",
+      "body",
+      "button:Main/example.gam",
+      "button:Boards/start.brd",
+      "button:Prg/start.prg",
+      "input:",
+      "button:Paint",
+      "button:Undo"
+    ],
+    "tabReachable": false,
+    "tabTakesFocus": false,
+    "sashKeyboardResize": "not focusable"
+  },
+  "lifecycle": {
+    "boardViewsAfterSplit": 2,
+    "docViewsAfterSplit": 2,
+    "bothViewsShowEdit": [
+      "Start board: 1 painted, revision 1, unsaved",
+      "Start board: 1 painted, revision 1, unsaved"
+    ],
+    "afterCloseView1": {
+      "doc": {
+        "identity": "Boards/start.brd",
+        "title": "Start board",
+        "painted": 1,
+        "revision": 1,
+        "savedRevision": 0
+      },
+      "docViews": 1,
+      "undoDepth": 1
+    },
+    "afterReopen": [
+      "Start board: 1 painted, revision 1, unsaved"
+    ],
+    "undoFromOtherView": 0,
+    "savedBytes": 2036,
+    "restoredPanels": 5,
+    "afterRestore": {
+      "panels": [
+        "files",
+        "view-1",
+        "view-2",
+        "properties",
+        "outline"
+      ],
+      "doc": {
+        "identity": "Boards/start.brd",
+        "title": "Start board",
+        "painted": 1,
+        "revision": 3,
+        "savedRevision": 0
+      },
+      "views": [
+        "Start board: 1 painted, revision 3, unsaved",
+        "Start board: 1 painted, revision 3, unsaved"
+      ]
+    },
+    "unknownKind": {
+      "threw": true,
+      "message": "Error: Component type not registered and BindComponentEvent handler not assigned: {\"type\":\"component\",\"content\":[],\"size\":1,\"sizeUnit\":\"fr\",\"minSizeUnit\":\"px\",\"id\":\"files\",\"maximised\":false,\"isClosable\":true,\"reorderEnabled\":true,\"title\":\"Files\",\"componentType\":\"removed-plugin-panel\",\"componentState\":{}}",
+      "placeholderAfterRender": null,
+      "panelsAfterRender": []
+    },
+    "viewLog": {
+      "mounts": 11,
+      "disposes": 11
+    }
+  },
+  "afterOperations": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "The Content Security Policy directive 'frame-ancestors' is ignored when delivered via a <meta> element."
+    }
+  ],
+  "pageErrors": []
+}

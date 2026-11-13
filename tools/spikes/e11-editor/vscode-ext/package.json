@@ -1,0 +1,11 @@
+{
+  "name": "tkr-e11-webview-spike",
+  "displayName": "TKR epic 11 webview spike",
+  "publisher": "tkr-spike",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "engines": { "vscode": "^1.90.0" },
+  "browser": "./extension.cjs",
+  "activationEvents": ["onStartupFinished"]
+}

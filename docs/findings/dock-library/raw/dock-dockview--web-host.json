@@ -1,0 +1,146 @@
+{
+  "bundle": "dock-dockview",
+  "lib": "dockview",
+  "policy": "default-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; frame-ancestors 'none'",
+  "features": {
+    "tabs": true,
+    "split": true,
+    "float": true,
+    "popout": true,
+    "persist": true
+  },
+  "afterLoad": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "panelsRendered": 1,
+  "aria": {
+    "roles": {
+      "region": 3,
+      "tablist": 3,
+      "tab": 4,
+      "button": 4,
+      "tabpanel": 3,
+      "status": 1,
+      "alert": 1
+    },
+    "tabs": 4,
+    "tabsWithRoleTab": 4,
+    "tabsWithAriaSelected": 4,
+    "tabsFocusable": 3,
+    "tabsProgrammaticallyFocusable": 4,
+    "tabsWithAriaControls": 4,
+    "sashes": 2,
+    "sashesWithRoleSeparator": 0,
+    "sashesFocusable": 0
+  },
+  "keyboard": {
+    "tabSequence": [
+      "div[role=tab]:Files",
+      "button:Main/example.gam",
+      "button:Boards/start.brd",
+      "button:Prg/start.prg",
+      "div[role=tab]:Board view 1",
+      "input:",
+      "button:Paint",
+      "button:Undo",
+      "div[role=tab]:Outline",
+      "body",
+      "div[role=tab]:Files",
+      "button:Main/example.gam",
+      "button:Boards/start.brd",
+      "button:Prg/start.prg",
+      "div[role=tab]:Board view 1",
+      "input:",
+      "button:Paint",
+      "button:Undo",
+      "div[role=tab]:Outline",
+      "body"
+    ],
+    "tabReachable": true,
+    "tabTakesFocus": true,
+    "arrowMovesBetweenTabs": true,
+    "deleteClosesTab": true,
+    "focusAfterClose": "div[role=tab]:Properties",
+    "sashKeyboardResize": "not focusable"
+  },
+  "lifecycle": {
+    "boardViewsAfterSplit": 2,
+    "docViewsAfterSplit": 2,
+    "bothViewsShowEdit": [
+      "Start board: 1 painted, revision 1, unsaved",
+      "Start board: 1 painted, revision 1, unsaved"
+    ],
+    "afterCloseView1": {
+      "doc": {
+        "identity": "Boards/start.brd",
+        "title": "Start board",
+        "painted": 1,
+        "revision": 1,
+        "savedRevision": 0
+      },
+      "docViews": 1,
+      "undoDepth": 1
+    },
+    "afterReopen": [
+      "Start board: 1 painted, revision 1, unsaved"
+    ],
+    "undoFromOtherView": 0,
+    "move": true,
+    "float": "floating",
+    "floatedViewShowsDoc": [
+      "Start board: 1 painted, revision 3, unsaved"
+    ],
+    "savedBytes": 884,
+    "restoredPanels": 4,
+    "afterRestore": {
+      "panels": [
+        "files",
+        "view-1",
+        "properties",
+        "view-2"
+      ],
+      "doc": {
+        "identity": "Boards/start.brd",
+        "title": "Start board",
+        "painted": 1,
+        "revision": 3,
+        "savedRevision": 0
+      },
+      "views": [
+        "Start board: 1 painted, revision 3, unsaved",
+        "Start board: 1 painted, revision 3, unsaved"
+      ]
+    },
+    "unknownKind": {
+      "threw": false,
+      "placeholder": true,
+      "panels": 4,
+      "known": false,
+      "placeholderAfterRender": "This panel type is not available: removed-plugin-panel",
+      "panelsAfterRender": [
+        "files",
+        "view-1",
+        "properties",
+        "view-2"
+      ]
+    },
+    "viewLog": {
+      "mounts": 14,
+      "disposes": 10
+    }
+  },
+  "afterOperations": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "The Content Security Policy directive 'frame-ancestors' is ignored when delivered via a <meta> element."
+    }
+  ],
+  "pageErrors": []
+}

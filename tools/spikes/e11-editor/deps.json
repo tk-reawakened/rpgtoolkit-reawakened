@@ -1,0 +1,14 @@
+{
+  "dockview": "8.9.0",
+  "dockview-core": "8.9.0",
+  "dock-spawn-ts": "4.5.4",
+  "@lumino/widgets": "2.10.0",
+  "golden-layout": "2.6.0",
+  "monaco-editor": "0.57.0",
+  "codemirror": "6.0.2",
+  "@codemirror/view": "6.43.15",
+  "@codemirror/state": "6.7.6",
+  "@codemirror/language": "6.13.1",
+  "@codemirror/commands": "6.11.1",
+  "@lezer/highlight": "1.2.5"
+}

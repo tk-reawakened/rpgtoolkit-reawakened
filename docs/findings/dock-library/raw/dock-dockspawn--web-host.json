@@ -1,0 +1,136 @@
+{
+  "bundle": "dock-dockspawn",
+  "lib": "dock-spawn-ts",
+  "policy": "default-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; frame-ancestors 'none'",
+  "features": {
+    "tabs": true,
+    "split": true,
+    "float": true,
+    "popout": false,
+    "persist": true
+  },
+  "afterLoad": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "panelsRendered": 1,
+  "aria": {
+    "roles": {},
+    "tabs": 6,
+    "tabsWithRoleTab": 0,
+    "tabsWithAriaSelected": 0,
+    "tabsFocusable": 0,
+    "tabsProgrammaticallyFocusable": 0,
+    "tabsWithAriaControls": 0,
+    "sashes": 2,
+    "sashesWithRoleSeparator": 0,
+    "sashesFocusable": 0
+  },
+  "keyboard": {
+    "tabSequence": [
+      "div:Files",
+      "div:",
+      "button:Show tabs in multiple ro",
+      "select:Select tab",
+      "div:PropertiesOutline",
+      "div:Outline",
+      "button:Show tabs in multiple ro",
+      "select:Select tab",
+      "button:Main/example.gam",
+      "button:Boards/start.brd",
+      "button:Prg/start.prg",
+      "input:",
+      "button:Paint",
+      "button:Undo",
+      "body",
+      "div:Files",
+      "div:",
+      "button:Show tabs in multiple ro",
+      "select:Select tab",
+      "div:PropertiesOutline"
+    ],
+    "tabReachable": false,
+    "tabTakesFocus": false,
+    "sashKeyboardResize": "not focusable"
+  },
+  "lifecycle": {
+    "boardViewsAfterSplit": 2,
+    "docViewsAfterSplit": 2,
+    "bothViewsShowEdit": [
+      "Start board: 1 painted, revision 1, unsaved",
+      "Start board: 1 painted, revision 1, unsaved"
+    ],
+    "afterCloseView1": {
+      "doc": {
+        "identity": "Boards/start.brd",
+        "title": "Start board",
+        "painted": 1,
+        "revision": 1,
+        "savedRevision": 0
+      },
+      "docViews": 1,
+      "undoDepth": 1
+    },
+    "afterReopen": [
+      "Start board: 1 painted, revision 1, unsaved"
+    ],
+    "undoFromOtherView": 0,
+    "float": "floating",
+    "floatedViewShowsDoc": [
+      "Start board: 1 painted, revision 3, unsaved"
+    ],
+    "savedBytes": 1138,
+    "restoredPanels": 5,
+    "afterRestore": {
+      "panels": [
+        "files",
+        "view-1",
+        "properties",
+        "outline",
+        "view-2"
+      ],
+      "doc": {
+        "identity": "Boards/start.brd",
+        "title": "Start board",
+        "painted": 1,
+        "revision": 3,
+        "savedRevision": 0
+      },
+      "views": [
+        "Start board: 1 painted, revision 3, unsaved",
+        "Start board: 1 painted, revision 3, unsaved"
+      ]
+    },
+    "unknownKind": {
+      "threw": false,
+      "placeholder": true,
+      "panels": 5,
+      "known": false,
+      "placeholderAfterRender": "This panel type is not available: removed-plugin-panel",
+      "panelsAfterRender": [
+        "files",
+        "view-1",
+        "properties",
+        "outline",
+        "view-2"
+      ]
+    },
+    "viewLog": {
+      "mounts": 16,
+      "disposes": 11
+    }
+  },
+  "afterOperations": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "The Content Security Policy directive 'frame-ancestors' is ignored when delivered via a <meta> element."
+    }
+  ],
+  "pageErrors": []
+}
