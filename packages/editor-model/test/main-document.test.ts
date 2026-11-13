@@ -496,7 +496,7 @@ test("firstDifference: the first differing byte, or the length of the shorter on
   equal(firstDifference(bytes(), bytes(7)), 0);
 });
 
-test("a failed write may leave the file in an unknown state: undoing back to the saved state still needs a real write (ADR 0022 D3.3)", async () => {
+test("a failed write that truncates the file requires conflict resolution before a retry (ADR 0022 D3.3)", async () => {
   const original = exampleMain(9);
   const host = hostWith(original);
   let writes = 0;
@@ -522,6 +522,12 @@ test("a failed write may leave the file in an unknown state: undoing back to the
   ok(doc.undo().ok);
   equal(doc.getSnapshot().gameTitle, "Example Game");
   equal(doc.getSnapshot().dirty, true, "back at the opened state, but the file no longer holds it");
+  const retry = await doc.save();
+  ok(!retry.ok);
+  equal(retry.failure.kind, "conflict");
+  equal(writes, 1, "the unknown contents were not overwritten");
+  deepEqual(stored(host), new Uint8Array(0));
+  ok(doc.resolveConflict("keep-local").ok);
   ok((await doc.save()).ok);
   equal(writes, 2, "the save really wrote");
   deepEqual(stored(host), original, "and put the document back on disk");
