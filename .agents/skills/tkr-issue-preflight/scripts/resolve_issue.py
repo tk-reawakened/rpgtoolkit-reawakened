@@ -596,17 +596,45 @@ def check_stock(root: Path, result: dict) -> dict:
         found = json.loads(proc.stdout)
     except ValueError as e:
         raise Fail("stock_unreadable", f"stock `tickets.py find` printed no JSON: {e}") from e
-    mine = {"tracker_id": result["issue"], "plan": str(Path(result["plan"]["path"]).resolve())}
-    theirs = {"tracker_id": found.get("tracker_id", ""), "plan": str(Path(found.get("plan", "")).resolve())}
-    if mine != theirs:
+    # Stock reads a tracker id only from a pulled leaf file, so an entry-only ticket legitimately comes back with
+    # none. Empty is "stock does not know"; a non-empty id that differs is a conflict.
+    stock_tracker = str(found.get("tracker_id") or "").strip()
+    if stock_tracker and stock_tracker != result["issue"]:
         raise Fail(
             "stock_disagrees",
-            f"stock `tickets.py find {stock['ref']}` names {theirs['tracker_id'] or 'no tracker id'} and plan {theirs['plan']}; "
-            f"the preflight names {mine['tracker_id']} and plan {mine['plan']}",
-            stock=theirs,
-            preflight=mine,
+            f"stock `tickets.py find {stock['ref']}` names tracker id {stock_tracker}; the preflight resolved {result['issue']}",
+            stock={"tracker_id": stock_tracker},
+            preflight={"tracker_id": result["issue"]},
         )
-    return {"agrees": True, "ref": stock["ref"], "dir": stock["dir"]}
+    ours = {
+        "ref": stock["ref"],
+        "epic": result["epic"],
+        "id": result["entry_id"],
+        "plan": str(Path(result["plan"]["path"]).resolve()),
+    }
+    if result["entry_id"] is None:  # a file the breakdown does not number is named by its file name
+        ours["file"] = Path(result["leaf_file"]).name
+    theirs = {
+        "ref": found.get("ref"),
+        "epic": found.get("epic"),
+        "id": found.get("id"),
+        "plan": str(Path(found["plan"]).resolve()) if found.get("plan") else None,
+    }
+    if "file" in ours:
+        theirs["file"] = found.get("file")
+    if ours != theirs:
+        raise Fail(
+            "stock_disagrees",
+            f"stock `tickets.py find {stock['ref']}` names {theirs}; the preflight names {ours}",
+            stock=theirs,
+            preflight=ours,
+        )
+    return {
+        "agrees": True,
+        "ref": stock["ref"],
+        "dir": stock["dir"],
+        "stock_tracker_id": stock_tracker or None,
+    }
 
 
 def handoff(result: dict, active: str | None) -> dict:

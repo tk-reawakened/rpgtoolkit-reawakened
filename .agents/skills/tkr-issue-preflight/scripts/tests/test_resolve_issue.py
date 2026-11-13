@@ -5,8 +5,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 SCRIPT = Path(__file__).resolve().parents[1] / "resolve_issue.py"
+sys.path.insert(0, str(SCRIPT.parent))
+import resolve_issue  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parents[5]  # .agents/skills/<skill>/scripts/tests -> repository root
 REPO = "owner/name"
 INIT = "initiative-x"
@@ -375,7 +379,11 @@ class StockHandoffTests(unittest.TestCase):
         unplanned = fx.run("#102", "--check-stock")
         self.assertEqual(planned[0], 0, planned[1])
         self.assertEqual(unplanned[0], 0, unplanned[1])
-        self.assertEqual(planned[1]["stock_check"], {"agrees": True, "ref": "2.3", "dir": str((fx.store / INIT).resolve())})
+        # An entry that was never pulled has no tracker id in stock's answer; empty is not a conflict.
+        self.assertEqual(
+            planned[1]["stock_check"],
+            {"agrees": True, "ref": "2.3", "dir": str((fx.store / INIT).resolve()), "stock_tracker_id": None},
+        )
         self.assertTrue(planned[1]["plan"]["exists"])
         self.assertFalse(unplanned[1]["plan"]["exists"])
 
@@ -410,6 +418,56 @@ class StockHandoffTests(unittest.TestCase):
         self.assertEqual(fx.run("#101")[0], 0)
         code, out, _ = fx.run("#101", "--check-stock")
         self.assertEqual((code, out["code"]), (1, "stock_unreadable"), out)
+
+    def test_stock_reports_the_tracker_id_a_pulled_leaf_file_carries(self):
+        fx = self.project()
+        fx.write(f"{INIT}/epic-a/story-add-widget.md", md(id=3, type="story", title='"Add widget"', tracker_id='"#101"'))
+        code, out, _ = fx.run("#101", "--check-stock")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["stock_check"]["stock_tracker_id"], "#101")
+        self.assertEqual(Path(out["plan"]["path"]).name, "story-add-widget-plan.md")
+
+    def test_an_unlisted_leaf_agrees_with_stock_by_epic_and_id(self):
+        fx = self.project()
+        fx.write(f"{INIT}/epic-a/story-late.md", md(id=7, type="story", title='"Late"', tracker_id='"#103"'))
+        code, out, _ = fx.run("#103", "--check-stock")
+        self.assertEqual((code, out["stock_check"]["ref"]), (0, "2.7"), out)
+
+    def test_backlog_leaf_agrees_with_stock_by_file_name(self):
+        fx = self.project()
+        fx.write("backlog/bug-flaky.md", md(type="bug", title='"Flaky"', tracker_id='"#300"'))
+        code, out, _ = fx.run("#300", "--check-stock")
+        self.assertEqual((code, out["stock_check"]["ref"]), (0, "bug-flaky.md"), out)
+
+    def test_duplicates_still_fail_when_stock_would_have_answered(self):
+        fx = self.project()
+        fx.write(f"{INIT}/epic-b/tickets.toml", toml_entries((1, "#101", "story", "Other thing")))
+        code, out, _ = fx.run("#101", "--check-stock")
+        self.assertEqual((code, out["code"]), (1, "duplicate_tracker_id"), out)
+
+    def stock_answer(self, fx, **override):
+        """check_stock with stock's JSON faked, so a non-empty conflicting tracker id can be shown."""
+        result = fx.run("#101")[1]
+        found = {"tracker_id": "", "ref": "2.3", "epic": "epic-a", "id": 3, "plan": result["plan"]["path"], **override}
+        fake = SimpleNamespace(returncode=0, stdout=json.dumps(found), stderr="")
+        with mock.patch.object(resolve_issue.subprocess, "run", return_value=fake):
+            return resolve_issue.check_stock(fx.root, result)
+
+    def test_empty_stock_tracker_id_is_accepted_and_a_conflicting_one_is_not(self):
+        fx = self.project()
+        self.assertTrue(self.stock_answer(fx)["agrees"])
+        self.assertEqual(self.stock_answer(fx, tracker_id="#101")["stock_tracker_id"], "#101")
+        with self.assertRaises(resolve_issue.Fail) as caught:
+            self.stock_answer(fx, tracker_id="#999")
+        self.assertEqual(caught.exception.code, "stock_disagrees")
+        self.assertEqual(caught.exception.data["stock"], {"tracker_id": "#999"})
+
+    def test_a_different_stock_reference_epic_id_or_plan_is_a_disagreement(self):
+        fx = self.project()
+        for override in ({"ref": "2.4"}, {"epic": "epic-b"}, {"id": 4}, {"plan": str(fx.store / "elsewhere-plan.md")}):
+            with self.assertRaises(resolve_issue.Fail, msg=override) as caught:
+                self.stock_answer(fx, **override)
+            self.assertEqual(caught.exception.code, "stock_disagrees", override)
 
     def test_check_stock_has_nothing_to_compare_for_an_epic(self):
         code, out, _ = self.project().run("#10", "--check-stock")
