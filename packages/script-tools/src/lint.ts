@@ -726,9 +726,9 @@ export function lint(document: IndexDocument, options: LintOptions): LintResult 
     if (enabledIds.has("style/format")) {
       const stated = parsed?.dialect ?? options.dialect;
       if (program.diagnostics.length > 0) skip(program.name, "style/format", "invalid-program");
+      else if (stated === "tk2") skip(program.name, "style/format", "unsupported-dialect");
       else if (source === undefined) skip(program.name, "style/format", "missing-source");
       else if (stated === undefined) skip(program.name, "style/format", "unknown-dialect");
-      else if (stated === "tk2") skip(program.name, "style/format", "unsupported-dialect");
       else scoped.push(...styleFindings(source, sink));
     }
 

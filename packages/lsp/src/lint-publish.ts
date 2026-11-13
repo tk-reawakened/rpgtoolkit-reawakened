@@ -8,17 +8,18 @@
  * guessed reading would invent findings: in a Toolkit 2.x project `nope()` is
  * dialogue, not an unknown command.
  *
- * A lint finding carries a range but no file, while the index of a document
- * also holds the sites of the files it includes. A finding is published only
- * when its start is a site of the document's own unit and of no other unit;
- * a finding that cannot be attributed is not reported against the wrong file.
+ * Index rules can report a finding from an include, but only give us a range.
+ * Publish those findings only at sites unique to the document's own unit.
+ * Parsed rules and text rules already check the document's own source.
  */
 
 import type { ResolvedPlugin, ScriptDialect } from "@tk-reawakened/core";
-import { lint, readLintConfig, type Diagnostic, type IndexDocument, type IndexPos, type IndexProgram, type LintConfig } from "@tk-reawakened/script-tools";
+import { lint, readLintConfig, type IndexDocument, type IndexPos, type IndexProgram, type LintConfig, type LintResult } from "@tk-reawakened/script-tools";
 
 /** The code of the diagnostic that reports an unusable `tkr-lint.json`, as `tkr script check` does. */
 export const CONFIG_CODE = "tkr.config";
+
+const INDEX_RULES = new Set(["lint/unknown-command", "lint/command-arity", "lint/shadowed-builtin", "lint/unresolved-include"]);
 
 export type LintConfigRead =
   | { readonly ok: true; readonly config: LintConfig }
@@ -77,19 +78,20 @@ export function documentLint(
   dialect: ScriptDialect,
   plugins: readonly ResolvedPlugin[],
   config: LintConfig,
-): readonly Diagnostic[] {
+): Pick<LintResult, "diagnostics" | "summary"> {
   const document: IndexDocument = { schema: "tkr-index/1.0", programs: [program], diagnostics: [] };
   const result = lint(document, {
     plugins,
     config,
+    dialect,
     ...(dialect === "tk3" ? { sources: { [program.name]: source } } : {}),
     resolveIncludes: true,
   });
   const units = siteUnits(program);
-  return result.diagnostics.filter((found) => {
+  const diagnostics = result.diagnostics.filter((found) => {
+    if (!INDEX_RULES.has(found.code)) return true;
     const at = units.get(siteKey(found.range.start.line, found.range.start.column));
-    // No site: a text rule over this document's own source.
-    if (at === undefined) return dialect === "tk3";
-    return at.size === 1 && at.has(program.key);
+    return at?.size === 1 && at.has(program.key);
   });
+  return { diagnostics, summary: result.summary };
 }

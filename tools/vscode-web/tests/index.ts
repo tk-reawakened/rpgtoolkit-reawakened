@@ -159,7 +159,9 @@ async function runningProjectScenario(folder: vscode.WorkspaceFolder): Promise<v
   equal(unassessed.some((item) => codeOf(item) === "syntax.error"), true, "without a project the .prg is read provisionally as 3.1");
 
   await settings.update("project", "legacy/Main/legacy.gam", vscode.ConfigurationTarget.Workspace);
-  await diagnosticsOf(talk, (items) => items.length === 0, "the Toolkit 2 project to accept the dialogue");
+  const onlyLintAssessment = (items: readonly vscode.Diagnostic[]): boolean =>
+    items.length === 1 && codeOf(items[0]!) === "lint.unassessed";
+  await diagnosticsOf(talk, onlyLintAssessment, "the Toolkit 2 dialogue to parse and show the lint assessment");
 
   await settings.update("project", "modern/Main/modern.gam", vscode.ConfigurationTarget.Workspace);
   const modernTalk = vscode.Uri.joinPath(folder.uri, "modern", "Prg", "talk.prg");
@@ -170,7 +172,7 @@ async function runningProjectScenario(folder: vscode.WorkspaceFolder): Promise<v
   // #2081: go to definition across an include lands on the file's own URI, spelled as it is.
   const uses = vscode.Uri.joinPath(folder.uri, "modern", "Prg", "uses.prg");
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uses));
-  await diagnosticsOf(uses, (items) => items.length === 0, "the include program to be assessed and clean");
+  await diagnosticsOf(uses, onlyLintAssessment, "the include program to have no lint findings");
   const targets = await withTimeout(
     vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>("vscode.executeDefinitionProvider", uses, new vscode.Position(1, 5)),
     "web language-server definition",
@@ -192,7 +194,7 @@ async function runningProjectScenario(folder: vscode.WorkspaceFolder): Promise<v
   const fmt = vscode.Uri.joinPath(folder.uri, "modern", "Prg", "fmt.prg");
   const fmtDocument = await vscode.workspace.openTextDocument(fmt);
   await vscode.window.showTextDocument(fmtDocument);
-  await diagnosticsOf(fmt, (items) => items.length === 0, "the format program to be assessed and clean");
+  await diagnosticsOf(fmt, (items) => items.some((item) => codeOf(item) === "style/format"), "the style finding on the format program");
   const formatEdits = await withTimeout(
     vscode.commands.executeCommand<vscode.TextEdit[]>("vscode.executeFormatDocumentProvider", fmt, formatOptions),
     "web language-server formatting",
@@ -204,7 +206,7 @@ async function runningProjectScenario(folder: vscode.WorkspaceFolder): Promise<v
   await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
 
   await settings.update("project", "legacy/Main/legacy.gam", vscode.ConfigurationTarget.Workspace);
-  await diagnosticsOf(talk, (items) => items.length === 0, "the Toolkit 2 project to be selected again");
+  await diagnosticsOf(talk, onlyLintAssessment, "the Toolkit 2 project to be selected again");
   const refused = await withTimeout(
     vscode.commands.executeCommand<vscode.TextEdit[] | undefined>("vscode.executeFormatDocumentProvider", talk, formatOptions),
     "web language-server formatting refusal",

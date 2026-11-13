@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { decodeCp1252, newProjectMainFile, writeMainFile } from "@tk-reawakened/core";
 import { analyse } from "@tk-reawakened/script-tools";
 import type { DocumentSymbol, Hover, Location } from "vscode-languageserver-protocol";
-import { UNASSESSED_CODE } from "../src/index.ts";
+import { LINT_UNASSESSED_CODE, UNASSESSED_CODE } from "../src/index.ts";
 import { encodeBase64 } from "../src/protocol.ts";
 import { folderSnapshot } from "./project-support.ts";
 import { startStdio, type StdioClient } from "./stdio-client.ts";
@@ -68,6 +68,7 @@ test("FinalDestiny: assessed system program publishes no scan arity warnings", {
   for (const line of [69, 81]) matchScan(lines[line - 1]!);
   const diagnostics = await client.open(pathToFileURL(path).href, source, "rpgcode");
   deepEqual(diagnostics.filter((item) => item.code === UNASSESSED_CODE || item.code === "syntax.error"), []);
+  ok(diagnostics.some((item) => item.code === LINT_UNASSESSED_CODE && item.message.includes("style/format (unsupported-dialect)")));
   deepEqual(diagnostics.filter((item) => item.code === "lint/command-arity" && item.message.includes("`scan`")), []);
 });
 
@@ -135,7 +136,7 @@ test("School2Demo (TK2): the runtime #Include(...) form gets no guessed location
   deepEqual(pause, []);
 });
 
-test("Basic (3.1): #include \"system.prg\" and a call into it navigate to Prg/system.prg", { skip, timeout: 15_000 }, async () => {
+test("Basic (3.1): the include and call navigate to system.prg and project style findings are published", { skip, timeout: 15_000 }, async () => {
   // Basic ships no .gam; like the closing plan (golden/closing/plan.json) the client supplies a
   // synthesised 3.1 main file at Main/basic.gam beside the real program files.
   const basic = join(legacy, "Basic");
@@ -147,14 +148,26 @@ test("Basic (3.1): #include \"system.prg\" and a call into it navigate to Prg/sy
     main: { uri: pathToFileURL(join(basic, "Main", "basic.gam")).href, bytes: encodeBase64(main.value) },
     rootUri: pathToFileURL(basic).href + "/",
     files: programs.map((name) => ({ path: `Prg/${name}`, uri: pathToFileURL(join(basic, "Prg", name)).href, bytes: encodeBase64(readFileSync(join(basic, "Prg", name))) })),
-    lintConfig: null,
+    lintConfig: {
+      uri: pathToFileURL(join(basic, "tkr-lint.json")).href,
+      text: JSON.stringify({ severity: { "style/format": "warning" } }),
+    },
   });
   const start = join(basic, "Prg", "start.prg");
   const source = text(start);
   const lines = source.split(/\r?\n/);
   equal(lines[5], '#include "system.prg"');
   const system = pathToFileURL(join(basic, "Prg", "system.prg")).href;
-  deepEqual((await definitionIn(pathToFileURL(start).href, source, 5, 3)).map((item) => item.uri), [system]);
+  const startUri = pathToFileURL(start).href;
+  const diagnostics = await client.open(startUri, source);
+  ok(diagnostics.every((item) => item.code !== UNASSESSED_CODE && item.code !== "syntax.error"), "the project source is assessed and compiles");
+  const style = diagnostics.filter((item) => item.code === "style/format");
+  ok(style.length > 0, "a new lint family reports on the fetched sample source");
+  ok(style.every((item) => item.severity === 2), "the project severity override reaches the shipped LSP");
+  deepEqual((await client.connection.sendRequest<Location[]>("textDocument/definition", {
+    textDocument: { uri: startUri },
+    position: { line: 5, character: 3 },
+  })).map((item) => item.uri), [system]);
   const systemSource = text(join(basic, "Prg", "system.prg"));
   const pauseDefinition = systemSource.split(/\r?\n/).findIndex((line) => /^\s*(?:function|method)\s+pause\s*\(/i.test(line));
   ok(pauseDefinition >= 0, "system.prg defines pause");

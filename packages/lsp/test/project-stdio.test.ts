@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Location } from "vscode-languageserver-protocol";
 import { after, test } from "node:test";
-import { UNASSESSED_CODE } from "../src/index.ts";
+import { LINT_UNASSESSED_CODE, UNASSESSED_CODE } from "../src/index.ts";
 import { folderSnapshot, mainFileBytes, memoryProject } from "./project-support.ts";
 import { startStdio, type StdioClient } from "./stdio-client.ts";
 
@@ -28,7 +28,7 @@ const TK3 = memoryProject({ "Main/modern.gam": mainFileBytes("tk3"), "Prg/talk.p
 
 test("stdio: a Toolkit 2 project parses loose dialogue; a 3.1 project and an unassessed buffer do not claim it", { timeout: 15_000 }, async () => {
   await client.project(TK2.snapshot((revision += 1)));
-  deepEqual(await client.open(TK2.uri("Prg/talk.prg"), "Hello there\n", "rpgcode-tk2"), [], "assessed Toolkit 2 project");
+  deepEqual((await client.open(TK2.uri("Prg/talk.prg"), "Hello there\n", "rpgcode-tk2")).map((item) => item.code), [LINT_UNASSESSED_CODE], "the Toolkit 2 source parses; the 3.1-only rules are unassessed");
   const loose = await client.open("file:///loose/talk.prg", "Hello there\n", "rpgcode");
   deepEqual(loose.map((item) => item.code), [UNASSESSED_CODE, "syntax.error"], "outside the project: provisional 3.1 reading, marked unassessed");
   match(loose[0]!.message, /not a program of the running project/);
@@ -50,7 +50,7 @@ test("stdio #2081: definitions across explicit and implicit includes land on the
     writeFileSync(join(root, "Prg", "Lib.prg"), "function twice(a) { return a * 2 }\n");
     await client.project(folderSnapshot(join(root, "Main", "game.gam"), (revision += 1)));
     const mainUri = pathToFileURL(join(root, "Prg", "main.prg")).href;
-    deepEqual(await client.open(mainUri, main), []);
+    deepEqual((await client.open(mainUri, main)).map((item) => item.code), [LINT_UNASSESSED_CODE]);
     const definition = (line: number, character: number): Promise<Location[]> =>
       client.connection.sendRequest<Location[]>("textDocument/definition", { textDocument: { uri: mainUri }, position: { line, character } });
 
@@ -83,7 +83,7 @@ test("stdio #2074: project lint findings use the project's tkr-lint.json, and a 
 
     writeFileSync(join(root, "Main", "game.gam"), mainFileBytes("tk2"));
     await client.project(folderSnapshot(join(root, "Main", "game.gam"), (revision += 1)));
-    deepEqual(await client.open(pathToFileURL(join(root, "Prg", "main.prg")).href, "nope()\n", "rpgcode", 2), [], "nope() is Toolkit 2 dialogue");
+    deepEqual((await client.open(pathToFileURL(join(root, "Prg", "main.prg")).href, "nope()\n", "rpgcode", 2)).map((item) => item.code), [LINT_UNASSESSED_CODE], "nope() is Toolkit 2 dialogue");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

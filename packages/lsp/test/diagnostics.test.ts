@@ -7,7 +7,7 @@ import type {
   InitializeResult,
   PublishDiagnosticsParams,
 } from "vscode-languageserver-protocol";
-import { createServer, PROJECT_NOTIFICATION, UNASSESSED_CODE, type ServerConnection } from "../src/index.ts";
+import { createServer, LINT_UNASSESSED_CODE, PROJECT_NOTIFICATION, UNASSESSED_CODE, type ServerConnection } from "../src/index.ts";
 import { mainFileBytes, memoryProject } from "./project-support.ts";
 
 /**
@@ -135,7 +135,7 @@ test("a Toolkit 2 project accepts loose dialogue that 3.1 rejects", () => {
   for (const languageId of ["rpgcode-tk2", "rpgcode"]) {
     const { published, open } = started(TK2);
     open({ textDocument: { uri: TK2.uri("Prg/talk.prg"), languageId, version: 1, text: "Hello there\n" } });
-    deepEqual(published[0]?.diagnostics, [], `assessed TK2 project in ${languageId} mode`);
+    deepEqual(published[0]?.diagnostics.map((item) => item.code), [LINT_UNASSESSED_CODE], `no syntax errors in ${languageId} mode`);
   }
 });
 
@@ -185,7 +185,7 @@ test("a new snapshot republishes open documents, and an older revision is ignore
   client.open({ textDocument: { uri, languageId: "rpgcode", version: 1, text: "Hello there\n" } });
   equal(client.published[0]?.diagnostics[0]?.code, UNASSESSED_CODE);
   client.notify(PROJECT_NOTIFICATION, TK2.snapshot(2));
-  deepEqual(client.published[1]?.diagnostics, [], "assessed as Toolkit 2 once the project arrives");
+  deepEqual(client.published[1]?.diagnostics.map((item) => item.code), [LINT_UNASSESSED_CODE], "assessed as Toolkit 2 once the project arrives");
   client.notify(PROJECT_NOTIFICATION, { revision: 1, main: null });
   equal(client.published.length, 2, "a stale snapshot changes nothing");
   client.notify(PROJECT_NOTIFICATION, { revision: 3, main: null });

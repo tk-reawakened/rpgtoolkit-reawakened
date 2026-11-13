@@ -1,7 +1,7 @@
 import { deepEqual, equal, match } from "node:assert/strict";
 import test from "node:test";
 import type { Diagnostic, DidOpenTextDocumentParams } from "vscode-languageserver-protocol";
-import { createServer, PROJECT_NOTIFICATION, UNASSESSED_CODE, type ServerConnection } from "../src/index.ts";
+import { createServer, LINT_UNASSESSED_CODE, PROJECT_NOTIFICATION, UNASSESSED_CODE, type ServerConnection } from "../src/index.ts";
 import { mainFileBytes, memoryProject, type MemoryProject } from "./project-support.ts";
 
 /**
@@ -83,12 +83,29 @@ test("scan publishes arity warnings only for invalid calls", () => {
   for (const item of found) match(item.message, /`scan` takes 3 parameter/);
 });
 
-test("in a Toolkit 2 project nope() is dialogue, so nothing is published", () => {
+test("in a Toolkit 2 project nope() is dialogue and 3.1-only rules are unassessed", () => {
   const project = memoryProject({ "Main/legacy.gam": mainFileBytes("tk2"), "Prg/main.prg": MAIN }, "Main/legacy.gam");
   const server = client();
   server.project(project);
   // Quote-free: quoted loose text is a separate Toolkit 2 frontend defect (#2100).
-  deepEqual(server.open(project.uri("Prg/main.prg"), "nope()\n", "rpgcode"), []);
+  const found = server.open(project.uri("Prg/main.prg"), "nope()\n", "rpgcode");
+  deepEqual(codes(found), [LINT_UNASSESSED_CODE]);
+  match(found[0]!.message, /style\/format \(unsupported-dialect\)/);
+});
+
+test("the selected 3.1 project publishes scoped findings, style and rule assessment", () => {
+  const text = 'function helper() {\n    local(x) = 1\n    MWIN("hi")\n}\n';
+  const project = modern({ "Prg/main.prg": text }, JSON.stringify({ severity: { "lint/unused-variable": "error" } }));
+  const server = client();
+  server.project(project);
+  const found = server.open(project.uri("Prg/main.prg"), text, "rpgcode-tk2");
+  deepEqual(found.map(({ code, severity }) => [code, severity]), [
+    ["lint/unused-variable", 1],
+    ["style/format", 4],
+    [LINT_UNASSESSED_CODE, 3],
+  ]);
+  deepEqual(found[0]!.range, { start: { line: 1, character: 4 }, end: { line: 1, character: 9 } });
+  deepEqual(found[2]!.data, [{ file: "Prg/main.prg", rule: "lint/unused-function", reason: "incomplete-project" }]);
 });
 
 test("an unassessed document is not linted, in either language mode", () => {
@@ -138,14 +155,14 @@ test("an invalid tkr-lint.json is reported instead of silently linting with the 
 
 test("a finding inside an included file is published for that file, never for the includer", () => {
   const main = '#include "lib.prg"\ny = helper(1)\n';
-  const lib = "function helper(a) {\n  nope()\n  return a\n}\n";
+  const lib = "function helper(a) {\n    nope()\n    return a\n}\n";
   const project = modern({ "Prg/main.prg": main, "Prg/lib.prg": lib });
   const server = client();
   server.project(project);
-  deepEqual(server.open(project.uri("Prg/main.prg"), main), [], "the includer is clean; helper resolves through the include");
+  deepEqual(codes(server.open(project.uri("Prg/main.prg"), main)), [LINT_UNASSESSED_CODE], "no findings in the includer; helper resolves through the include");
   const own = server.open(project.uri("Prg/lib.prg"), lib);
-  deepEqual(codes(own), ["lint/unknown-command"]);
-  deepEqual(own[0]?.range.start, { line: 1, character: 2 });
+  deepEqual(codes(own), ["lint/unknown-command", LINT_UNASSESSED_CODE]);
+  deepEqual(own[0]?.range.start, { line: 1, character: 4 });
 });
 
 test("an include the project cannot serve is reported where it is written", () => {
