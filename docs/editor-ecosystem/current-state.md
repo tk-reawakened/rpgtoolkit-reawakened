@@ -35,7 +35,9 @@ The real vscode.dev proof exercises the mounted VS Code editor under CSP, edits 
 Story 11.3 adds the promises of ADR 0022 D3 to the shared code and proves them in both hosts:
 
 - **`editor-model`** now carries the lifecycle: a save compares the file with what the document last read or wrote, so
-  another program's change is never saved over and waits for an explicit choice; a clean document follows the file where
+  another program's change found by that comparison is never saved over and waits for an explicit choice (a change that
+  lands between the comparison and the write is still replaced unseen: [#2207](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2207),
+  [proposed ADR 0030](../adr/0030-save-check-and-write-are-two-steps.md)); a clean document follows the file where
   the host watches; revert returns to the saved revision or reloads a changed file; Save As writes a new identity without
   re-keying the source; and `createDocumentWorkspace` is the host-neutral workbench (one model per identity, undo and redo
   by `editId`, save all, close and revert that ask first). The browser and desktop hosts use it as their workbench; VS
