@@ -1,4 +1,4 @@
-import { createDocumentWorkspace, type DocumentWorkspace, type MainDocument, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import { createDocumentWorkspace, type DocumentViewLease, type DocumentWorkspace, type MainDocument, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PlatformServices, ProjectHandle, SettingValue, SettingsLayer } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { mount, type ViewHandle } from "@tk-reawakened/editor-ui";
@@ -158,14 +158,17 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
   return { services, project, sessionCopy: true, workspace, deactivate: () => { active = false; workspace.dispose(); } };
 }
 
+/** A mounted view can be closed through its own workspace lease, or merely disposed when hidden. */
+export type GameSettingsView = ViewHandle & DocumentViewLease;
+
 /** A mounted settings view over a workspace document, or why the document did not open. */
 export type GameSettingsOpenResult =
   | Exclude<WorkspaceOpenResult, { readonly ok: true }>
-  | { readonly ok: true; readonly document: MainDocument; readonly view: ViewHandle };
+  | { readonly ok: true; readonly document: MainDocument; readonly view: GameSettingsView };
 
 /**
- * Open `path` in the project's workspace (one model per document, D1.2) and mount the shared view over it. The caller
- * owns the returned view handle; disposing it never closes the document (D3.7), `project.workspace.close` does.
+ * Open `path` in the project's workspace (one model per document, D1.2) and mount the shared view over it. Close through
+ * the view handle; disposing it merely hides the view without closing its document (D3.7).
  */
 export async function openGameSettings(project: WebProject, path: string, element: HTMLElement): Promise<GameSettingsOpenResult> {
   const opened = await project.workspace.open(path);
@@ -174,15 +177,16 @@ export async function openGameSettings(project: WebProject, path: string, elemen
 }
 
 /** Mount a view over a document the project already has open: a second view, or a view recreated after a hidden one. */
-export function mountGameSettings(project: WebProject, document: MainDocument, element: HTMLElement): ViewHandle {
+export function mountGameSettings(project: WebProject, document: MainDocument, element: HTMLElement): GameSettingsView {
   const mounted = mount(element, { document, services: project.services });
+  const lease = project.workspace.attachView(document);
   const notice = project.sessionCopy ? element.ownerDocument.createElement("p") : null;
   if (notice) {
     notice.setAttribute("role", "status");
     notice.textContent = `${project.project.name} is a session copy. Changes stay in this browser session and are not saved to the original file.`;
     element.append(notice);
   }
-  return { dispose: () => { mounted.dispose(); notice?.remove(); } };
+  return { close: () => lease.close(), dispose: () => { mounted.dispose(); notice?.remove(); lease.dispose(); } };
 }
 
 export { createPageDialogs } from "./dialogs.ts";

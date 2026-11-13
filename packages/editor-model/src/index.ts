@@ -29,6 +29,7 @@ export {
   createDocumentWorkspace,
   resolveDocumentPath,
   type CloseResult,
+  type DocumentViewLease,
   type DocumentWorkspace,
   type PathResolution,
   type RevertOutcome,

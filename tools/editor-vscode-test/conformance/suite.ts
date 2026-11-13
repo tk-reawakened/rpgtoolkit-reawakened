@@ -376,6 +376,30 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
     },
   },
   {
+    name: "closing one of two views preserves the shared model and prompts when the last closes",
+    async run(host) {
+      const first = await host.open(GAME);
+      const second = await host.open(GAME);
+      const original = first.title();
+      await first.type("Shared unsaved work");
+      same(await first.close("cancel"), true, "closing one view needs no loss confirmation");
+      same(host.modelsOpen(), 1, "the remaining view still owns the model");
+      const reopened = await host.open(GAME);
+      check(reopened.model === second.model, "reopening reuses the model with the unsaved edit");
+      same(reopened.title(), "Shared unsaved work", "the edit is visible in the reopened view");
+      await second.undo();
+      same(reopened.title(), original, "the shared undo history survives closing a view");
+      await second.redo();
+      same(reopened.title(), "Shared unsaved work", "the shared redo history survives too");
+      same(await reopened.close("cancel"), true, "another non-final view closes");
+      same(await second.close("cancel"), false, "the last dirty view asks and honours cancel");
+      check(second.model.getSnapshot().dirty && second.hostDirty(), "the work remains dirty");
+      same(await second.close("save"), true, "the last view can save and close");
+      same(await titleOnDisk(host, GAME), "Shared unsaved work", "the work reached the file");
+      same(host.modelsOpen(), 0, "the last close releases the model");
+    },
+  },
+  {
     name: "capabilities are truthful: each one declared is backed by behaviour, and none other is claimed",
     async run(host, fixture) {
       for (const capability of host.capabilities) {

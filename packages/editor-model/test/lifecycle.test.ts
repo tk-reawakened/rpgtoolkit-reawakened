@@ -3,7 +3,7 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { createDocumentIdentity, createMainDocument, openMainDocument } from "../src/index.ts";
+import { createDocumentIdentity, createDocumentWorkspace, createMainDocument, openMainDocument } from "../src/index.ts";
 import { resolveDocumentPath } from "../src/workspace.ts";
 import { exampleMain, titleOf, withTitle } from "./fixtures.ts";
 
@@ -179,4 +179,80 @@ test("revert refuses rather than discarding an edit accepted after the user chos
   const reverting = await doc.revert(doc.getSnapshot().edits.at(-1)?.editId ?? null);
   ok(reverting.ok, "with the current edit named, the revert goes ahead");
   equal(doc.getSnapshot().gameTitle, "Saved");
+});
+
+async function workspaceWithHeldWrite() {
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) }, capabilities: [] });
+  let started!: () => void;
+  let release!: () => void;
+  const writing = new Promise<void>((resolve) => { started = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const fs = {
+    ...host.fs,
+    async writeProject(projectId: string, path: string, bytes: Uint8Array) {
+      started();
+      await gate;
+      return host.fs.writeProject(projectId, path, bytes);
+    },
+  };
+  const workspace = createDocumentWorkspace({ projectId: identity.projectId, services: { fs, dialogs: host.dialogs, capabilities: host.capabilities } });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  return { host, workspace, doc: opened.document, writing, release };
+}
+
+test("save then close keeps edits accepted during the write open and dirty (D3.3, D3.6)", async () => {
+  const { host, workspace, doc, writing, release } = await workspaceWithHeldWrite();
+  ok(doc.apply({ type: "set-game-title", title: "Saved revision" }).ok);
+  host.answerQuestions("save");
+  const closing = workspace.close(doc);
+  await writing;
+  ok(doc.apply({ type: "set-game-title", title: "Later edit" }).ok);
+  release();
+  deepEqual(await closing, { closed: false, reason: "cancelled" });
+  equal(titleOf(host.bytesOf(PATH)!), "Saved revision");
+  equal(doc.getSnapshot().gameTitle, "Later edit");
+  equal(doc.getSnapshot().dirty, true);
+  deepEqual(workspace.documents(), [doc]);
+  const reopened = await workspace.open(PATH);
+  ok(reopened.ok);
+  equal(reopened.document, doc);
+});
+
+test("Save As retains the source when its write misses a later edit (D3.4)", async () => {
+  const { host, workspace, doc, writing, release } = await workspaceWithHeldWrite();
+  ok(doc.apply({ type: "set-game-title", title: "Copied revision" }).ok);
+  host.answerSavePaths("Main/copy.gam");
+  const saving = workspace.saveAs(doc);
+  await writing;
+  ok(doc.apply({ type: "set-game-title", title: "Later edit" }).ok);
+  release();
+  const result = await saving;
+  ok(!result.ok);
+  equal(result.reason, "failed");
+  equal(titleOf(host.bytesOf("Main/copy.gam")!), "Copied revision");
+  equal(doc.getSnapshot().gameTitle, "Later edit");
+  equal(doc.getSnapshot().dirty, true);
+  ok(workspace.documents().includes(doc));
+  const reopened = await workspace.open(PATH);
+  ok(reopened.ok);
+  equal(reopened.document, doc);
+  const destination = await workspace.open("Main/copy.gam");
+  ok(destination.ok);
+  equal(destination.document.getSnapshot().gameTitle, "Copied revision");
+});
+
+test("concurrent view closes cannot both bypass the last dirty view's confirmation (D3.7)", async () => {
+  const { host, workspace, doc } = await workspaceWithHeldWrite();
+  const first = workspace.attachView(doc);
+  const second = workspace.attachView(doc);
+  ok(doc.apply({ type: "set-game-title", title: "Still here" }).ok);
+  host.answerQuestions("cancel");
+  const results = await Promise.all([first.close(), second.close()]);
+  deepEqual(results, [{ closed: true }, { closed: false, reason: "cancelled" }]);
+  equal(host.questions.length, 1);
+  deepEqual(workspace.documents(), [doc]);
+  equal(doc.getSnapshot().gameTitle, "Still here");
+  first.dispose();
+  second.dispose();
 });

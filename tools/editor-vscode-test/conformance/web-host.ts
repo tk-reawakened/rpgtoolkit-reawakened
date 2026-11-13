@@ -4,8 +4,7 @@
 // asks goes through its `dialogs` service, answered here as the user would.
 import type { MainDocument } from "@tk-reawakened/editor-model";
 import type { DialogQuestion, DialogService } from "@tk-reawakened/platform-services";
-import { createFolderProject, mountGameSettings, openGameSettings, type GameSettingsOpenResult, type WebProject } from "@tk-reawakened/host-web/testing";
-import type { ViewHandle } from "@tk-reawakened/editor-ui";
+import { createFolderProject, mountGameSettings, openGameSettings, type GameSettingsOpenResult, type GameSettingsView, type WebProject } from "@tk-reawakened/host-web/testing";
 import { GAME, SECOND, retitled, type CloseAnswer, type ConformanceEditor, type ConformanceHost } from "./suite.ts";
 import { MemoryDirectory, type WriteControl } from "./memory-directory.ts";
 import { MountedView, settle, type Act } from "./view.ts";
@@ -44,9 +43,9 @@ class WebEditor implements ConformanceEditor {
   readonly #dialogs: ScriptedDialogs;
   readonly #act: Act;
   #view: MountedView;
-  #handle: ViewHandle | null;
+  #handle: GameSettingsView | null;
 
-  constructor(project: WebProject, dialogs: ScriptedDialogs, act: Act, model: MainDocument, view: MountedView, handle: ViewHandle) {
+  constructor(project: WebProject, dialogs: ScriptedDialogs, act: Act, model: MainDocument, view: MountedView, handle: GameSettingsView) {
     this.path = model.identity.path;
     this.model = model;
     this.#project = project;
@@ -85,7 +84,7 @@ class WebEditor implements ConformanceEditor {
 
   async close(answer: CloseAnswer): Promise<boolean> {
     this.#dialogs.answer = answer;
-    const closed = await this.#project.workspace.close(this.model);
+    const closed = await (this.#handle?.close() ?? this.#project.workspace.close(this.model));
     this.#dialogs.answer = null;
     if (closed.closed) this.#unmount();
     await settle(this.#act);
@@ -111,7 +110,7 @@ class WebEditor implements ConformanceEditor {
     this.#unmount();
     const element = document.createElement("div");
     document.body.append(element);
-    let handle!: ViewHandle;
+    let handle!: GameSettingsView;
     await this.#act(() => { handle = mountGameSettings(this.#project, saved.document, element); });
     await settle(this.#act);
     return new WebEditor(this.#project, this.#dialogs, this.#act, saved.document, new MountedView(element, this.#act), handle);

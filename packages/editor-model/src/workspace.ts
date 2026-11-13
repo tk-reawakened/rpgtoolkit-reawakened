@@ -72,6 +72,12 @@ export type CloseResult =
   /** The user chose to save and the save failed: the document stays open with its work (D3.3). */
   | { readonly closed: false; readonly reason: "save-failed"; readonly failure: SaveFailure };
 
+/** A view's ownership of a workspace document. Disposing a view alone never closes its document. */
+export interface DocumentViewLease {
+  close(): Promise<CloseResult>;
+  dispose(): void;
+}
+
 export type RevertOutcome =
   | { readonly ok: true }
   | { readonly ok: false; readonly reason: "cancelled" }
@@ -107,8 +113,10 @@ export interface DocumentWorkspace {
   redo(document: MainDocument): HistoryResult;
   /** Save every dirty document, one after another, and report each (D4.1: there is no all-or-nothing save). */
   saveAll(): Promise<readonly SaveAllEntry[]>;
-  /** Close a document, asking first when closing would lose unsaved work or a waiting change (D3.6). */
+  /** Close a document with no attached views, asking before losing work; attached views close through their leases. */
   close(document: MainDocument): Promise<CloseResult>;
+  /** Track a mounted view; close its lease to close that view without releasing models used by other views. */
+  attachView(document: MainDocument): DocumentViewLease;
   /** Forget a document without asking: the host has already asked (VS Code's workbench), or nothing can be lost. */
   release(document: MainDocument): void;
   /** Go back to the file on disk, asking first when that discards unsaved work (D3.6). */
@@ -137,6 +145,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
   const documents = new Map<string, MainDocument>();
   const opening = new Map<string, Promise<WorkspaceOpenResult>>();
   const histories = new Map<string, HostHistory>();
+  const views = new Map<MainDocument, Set<DocumentViewLease>>();
   let watch: Promise<Disposable | null> | null = null;
   let disposed = false;
 
@@ -199,6 +208,46 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     histories.delete(key);
   };
 
+  const closeDocument = async (document: MainDocument, view?: DocumentViewLease): Promise<CloseResult> => {
+    const attached = views.get(document);
+    if (view !== undefined && !attached?.has(view)) return { closed: true };
+    if (view !== undefined && attached !== undefined && attached.size > 1) {
+      attached.delete(view);
+      return { closed: true };
+    }
+    // A document-level close cannot invalidate a model still owned by views.
+    if (view === undefined && attached !== undefined && attached.size > 0) return { closed: false, reason: "cancelled" };
+    const snapshot = document.getSnapshot();
+    if (documents.get(document.identity.key) === document && (snapshot.dirty || snapshot.conflict !== null)) {
+      const path = document.identity.path;
+      const answer = await dialogs.ask({
+        message: `Save the changes to ${path} before closing it?`,
+        detail: "If you close it without saving, the changes are lost.",
+        choices: [
+          { id: "save", label: "Save" },
+          { id: "discard", label: "Don't save" },
+          { id: "cancel", label: "Cancel" },
+        ],
+        cancel: "cancel",
+      });
+      if (answer === "cancel") return { closed: false, reason: "cancelled" };
+      if (answer === "save") {
+        const saved = await document.save();
+        if (!saved.ok) return { closed: false, reason: "save-failed", failure: saved.failure };
+        const current = document.getSnapshot();
+        if (current.dirty || current.conflict !== null) return { closed: false, reason: "cancelled" };
+      }
+    }
+    // Another view may have opened while a dialog or save was pending.
+    const currentViews = views.get(document);
+    if (view !== undefined) currentViews?.delete(view);
+    if (currentViews !== undefined && currentViews.size > 0) {
+      return view === undefined ? { closed: false, reason: "cancelled" } : { closed: true };
+    }
+    release(document);
+    return { closed: true };
+  };
+
   return {
     document: {
       edited(event) {
@@ -249,28 +298,28 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       }
       return results;
     },
-    async close(document) {
-      const snapshot = document.getSnapshot();
-      if (documents.get(document.identity.key) === document && (snapshot.dirty || snapshot.conflict !== null)) {
-        const path = document.identity.path;
-        const answer = await dialogs.ask({
-          message: `Save the changes to ${path} before closing it?`,
-          detail: "If you close it without saving, the changes are lost.",
-          choices: [
-            { id: "save", label: "Save" },
-            { id: "discard", label: "Don't save" },
-            { id: "cancel", label: "Cancel" },
-          ],
-          cancel: "cancel",
-        });
-        if (answer === "cancel") return { closed: false, reason: "cancelled" };
-        if (answer === "save") {
-          const saved = await document.save();
-          if (!saved.ok) return { closed: false, reason: "save-failed", failure: saved.failure };
-        }
+    close: closeDocument,
+    attachView(document) {
+      if (documents.get(document.identity.key) !== document) throw new Error("Cannot attach a view to a document outside this workspace.");
+      let attached = views.get(document);
+      if (attached === undefined) {
+        attached = new Set();
+        views.set(document, attached);
       }
-      release(document);
-      return { closed: true };
+      const leases = attached;
+      let closing: Promise<CloseResult> | undefined;
+      const lease: DocumentViewLease = {
+        close: () => closing ??= closeDocument(document, lease).then((result) => {
+          if (!result.closed) closing = undefined;
+          return result;
+        }),
+        dispose: () => {
+          leases.delete(lease);
+          if (leases.size === 0 && views.get(document) === leases) views.delete(document);
+        },
+      };
+      leases.add(lease);
+      return lease;
     },
     release,
     async revert(document) {
@@ -328,6 +377,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         });
         if (answer === "cancel") return { ok: false, reason: "cancelled" };
       }
+      const copied = document.getSnapshot();
       const written = await document.saveAs(fs, identity);
       if (!written.ok) return failed(resolved.path, written.failure.message);
       const reopened = await open(resolved.path);
@@ -335,8 +385,12 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         const reason = reopened.error.kind === "case-conflict" ? reopened.error.message : `${reopened.error.document}: ${reopened.error.error.message}`;
         return failed(resolved.path, `${resolved.path} was written but could not be opened: ${reason}`);
       }
-      // The edits now live in the new document; the source's file is unchanged and it is closed, never re-keyed (D1.3).
-      release(document);
+      const current = document.getSnapshot();
+      if (current !== copied) {
+        return failed(resolved.path, `${resolved.path} was written, but ${source} changed during Save As and remains open with its work.`);
+      }
+      // Other views still own the source. Otherwise this view replaces it with the newly opened copy (D1.3).
+      if ((views.get(document)?.size ?? 0) <= 1) release(document);
       return { ok: true, document: reopened.document };
     },
     dispose() {
@@ -344,6 +398,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       void watch?.then((handle) => handle?.dispose());
       documents.clear();
       histories.clear();
+      views.clear();
     },
   };
 }
