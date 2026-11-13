@@ -1,0 +1,47 @@
+{
+  "bundle": "codemirror-shadow",
+  "policyName": "web-host",
+  "policy": "default-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; frame-ancestors 'none'",
+  "nonce": null,
+  "afterCreate": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "render": {
+    "lineNumbers": {
+      "count": 21,
+      "distinctTops": 21
+    },
+    "viewLines": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "keywordColour": "rgb(119, 0, 136)",
+    "identifierColour": "rgb(0, 0, 0)",
+    "activeLine": true,
+    "shadowRoot": true,
+    "styleElements": 0,
+    "adoptedStyleSheets": 1,
+    "tokensColoured": true,
+    "linesPositioned": true
+  },
+  "typed": true,
+  "suggest": {
+    "visible": false
+  },
+  "undone": true,
+  "find": {
+    "visible": true
+  },
+  "afterUse": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "workerRequests": [],
+  "console": [
+    "The Content Security Policy directive 'frame-ancestors' is ignored when delivered via a <meta> element."
+  ],
+  "pageErrors": []
+}

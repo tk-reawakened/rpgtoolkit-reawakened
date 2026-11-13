@@ -1,0 +1,60 @@
+{
+  "variant": "proposed+fetch-blob-worker",
+  "bundle": "monaco-core-nonce-fetchblob",
+  "frameUrl": "http://0usu4krggndan3vsm0nl4vbp7d0r68m6m2uinnpt1cl3m5f87mg3.localhost:3197/static/build/out/vs/workbench/contrib/webview/browser/pre/fake.html?id=…",
+  "policy": "default-src 'none'; img-src http://localhost:3197/static/devextensions/ 'self' https://*.vscode-cdn.net; script-src 'nonce-67461a0ef1144d1d2a186c9d617334101e3a'; style-src 'self' http://localhost:3197/static/devextensions/ 'self' https://*.vscode-cdn.net 'nonce-67461a0ef1144d1d2a186c9d617334101e3a'; font-src http://localhost:3197/static/devextensions/ 'self' https://*.vscode-cdn.net; style-src-attr 'unsafe-inline'; connect-src http://localhost:3197/static/devextensions/ 'self' https://*.vscode-cdn.net; worker-src blob:;",
+  "vscode": [
+    "1.146.0 (vscode-web-stable-69047191fc427f2f92828279aae1d90d8eeda7ab)"
+  ],
+  "afterCreate": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "render": {
+    "lineNumbers": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "viewLines": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "keywordColour": "rgb(170, 0, 170)",
+    "identifierColour": "rgb(0, 0, 0)",
+    "currentLineWidth": 62,
+    "styleElements": 4,
+    "adoptedStyleSheets": 0,
+    "tokensColoured": true,
+    "linesPositioned": true
+  },
+  "typed": true,
+  "suggest": {
+    "visible": true,
+    "rows": 1,
+    "labels": [
+      "counter"
+    ]
+  },
+  "undone": true,
+  "find": {
+    "visible": true,
+    "codiconFont": "loaded"
+  },
+  "worker": {
+    "created": [
+      {
+        "url": "blob:http://0usu4krggndan3vsm0nl4vbp7d0r68m6m2uinnpt1cl3m5f87mg3.localhost:3197/",
+        "type": "classic"
+      }
+    ],
+    "messages": 17,
+    "errors": []
+  },
+  "afterUse": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "consoleErrors": []
+}

@@ -1,0 +1,58 @@
+{
+  "variant": "proposed+resource-origin-worker",
+  "bundle": "monaco-core-nonce",
+  "frameUrl": "http://1k73mln7gc9qiovtrkf6dj6555jg0ki8ee6k5ioh4mhb6002p89h.localhost:3197/static/build/out/vs/workbench/contrib/webview/browser/pre/fake.html?id=…",
+  "policy": "default-src 'none'; img-src http://localhost:3197/static/devextensions/ 'self' https://*.vscode-cdn.net; script-src 'nonce-150d25f6edc935d3c5897f16c8f7c529e9d2'; style-src 'self' http://localhost:3197/static/devextensions/ 'self' https://*.vscode-cdn.net 'nonce-150d25f6edc935d3c5897f16c8f7c529e9d2'; font-src http://localhost:3197/static/devextensions/ 'self' https://*.vscode-cdn.net; style-src-attr 'unsafe-inline'; worker-src http://localhost:3197/static/devextensions/ 'self' https://*.vscode-cdn.net;",
+  "vscode": [
+    "1.146.0 (vscode-web-stable-69047191fc427f2f92828279aae1d90d8eeda7ab)"
+  ],
+  "afterCreate": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "render": {
+    "lineNumbers": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "viewLines": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "keywordColour": "rgb(170, 0, 170)",
+    "identifierColour": "rgb(0, 0, 0)",
+    "currentLineWidth": 62,
+    "styleElements": 4,
+    "adoptedStyleSheets": 0,
+    "tokensColoured": true,
+    "linesPositioned": true
+  },
+  "typed": true,
+  "suggest": {
+    "visible": true,
+    "rows": 1,
+    "labels": [
+      "counter"
+    ]
+  },
+  "undone": true,
+  "find": {
+    "visible": true,
+    "codiconFont": "loaded"
+  },
+  "worker": {
+    "created": [],
+    "messages": 0,
+    "errors": []
+  },
+  "afterUse": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "consoleErrors": [
+    "warning: Could not create web worker(s). Falling back to loading web worker code in main thread, which might cause UI freezes. Please see https://github.com/microsoft/monaco-editor#faq",
+    "warning: Failed to construct 'Worker': Script at 'http://localhost:3197/static/devextensions/media/editor.worker.js' cannot be accessed from origin 'http://1k73mln7gc9qiovtrkf6dj6555jg0ki8ee6k5ioh4mhb6002p89h.localhost:3197'."
+  ]
+}

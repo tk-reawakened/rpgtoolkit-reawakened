@@ -95,6 +95,8 @@ At start-up the engine reads the last 12 bytes of its own file. If they begin wi
 
 The editor's **"Make package"** (T-70) **writes a distribution package** — a `.tpk`-compatible ZIP, the project folder at the archive root exactly as for a `.tpk`, that differs from a legacy pak in two ways: the main file is kept at its [README.md](README.md#paths-inside-files) path `Main/<game>.gam` rather than the legacy root `main.gam`, and the archive also holds a **`manifest.json`** at the root, next to the game files. <!-- OWNER: chose to keep our main file at its §1.5 path `Main/<game>.gam` (and name it in the manifest) rather than the legacy pak's root `main.gam`, because a legacy pak's embedded main is found by the engine and our package names it in `manifest.json`; a reader that accepts both forms ignores the difference. -->
 
+**History-store exclusion (future Reawakened output only).** When history storage is implemented, the Reawakened distribution-package writer must omit its reserved folder and the exporter inventory check must assert that exclusion (ADR 0022 D12.7). The folder's path/name is not set here. This does not change the legacy `.tpk` PAK input contract above.
+
 The manifest is UTF-8 JSON with **exactly three fields**:
 
 | Field | Meaning |

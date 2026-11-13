@@ -1,0 +1,63 @@
+{
+  "bundle": "monaco-core-classic",
+  "policyName": "web-host+font+attr+elem-unsafe",
+  "policy": "default-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; frame-ancestors 'none'; font-src 'self'; style-src-attr 'unsafe-inline'; style-src-elem 'self' 'unsafe-inline'",
+  "nonce": null,
+  "afterCreate": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "render": {
+    "lineNumbers": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "viewLines": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "keywordColour": "rgb(170, 0, 170)",
+    "identifierColour": "rgb(0, 0, 0)",
+    "currentLineWidth": 62,
+    "styleElements": 3,
+    "adoptedStyleSheets": 0,
+    "tokensColoured": true,
+    "linesPositioned": true
+  },
+  "typed": true,
+  "suggest": {
+    "visible": true,
+    "rows": 1,
+    "labels": [
+      "counter"
+    ]
+  },
+  "undone": true,
+  "find": {
+    "visible": true,
+    "codiconFont": "loaded"
+  },
+  "worker": {
+    "created": [
+      {
+        "url": "./editor.worker.js",
+        "type": "classic"
+      }
+    ],
+    "messages": 17,
+    "errors": []
+  },
+  "afterUse": {
+    "total": 0,
+    "byDirective": {},
+    "samples": []
+  },
+  "workerRequests": [
+    "/b/editor.worker.js"
+  ],
+  "console": [
+    "The Content Security Policy directive 'frame-ancestors' is ignored when delivered via a <meta> element."
+  ],
+  "pageErrors": []
+}

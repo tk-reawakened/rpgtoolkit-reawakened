@@ -1,0 +1,154 @@
+{
+  "bundle": "dock-golden",
+  "lib": "golden-layout",
+  "policy": "default-src 'none'; img-src http://127.0.0.1:4199; script-src 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg'; style-src 'self' http://127.0.0.1:4199 'nonce-c3Bpa2Utbm9uY2UtMjAyNi0xMS0xMg';",
+  "features": {
+    "tabs": true,
+    "split": true,
+    "float": "popout window only",
+    "popout": true,
+    "persist": true
+  },
+  "afterLoad": {
+    "total": 4,
+    "byDirective": {
+      "img-src": 4
+    },
+    "samples": [
+      {
+        "directive": "img-src",
+        "blockedURI": "data",
+        "sample": "",
+        "source": "dock-golden.js"
+      }
+    ]
+  },
+  "panelsRendered": 1,
+  "aria": {
+    "roles": {},
+    "tabs": 4,
+    "tabsWithRoleTab": 0,
+    "tabsWithAriaSelected": 0,
+    "tabsFocusable": 0,
+    "tabsProgrammaticallyFocusable": 0,
+    "tabsWithAriaControls": 0,
+    "sashes": 2,
+    "sashesWithRoleSeparator": 0,
+    "sashesFocusable": 0
+  },
+  "keyboard": {
+    "tabSequence": [
+      "button:Main/example.gam",
+      "button:Boards/start.brd",
+      "button:Prg/start.prg",
+      "input:",
+      "button:Paint",
+      "button:Undo",
+      "body",
+      "button:Main/example.gam",
+      "button:Boards/start.brd",
+      "button:Prg/start.prg",
+      "input:",
+      "button:Paint",
+      "button:Undo",
+      "body",
+      "button:Main/example.gam",
+      "button:Boards/start.brd",
+      "button:Prg/start.prg",
+      "input:",
+      "button:Paint",
+      "button:Undo"
+    ],
+    "tabReachable": false,
+    "tabTakesFocus": false,
+    "sashKeyboardResize": "not focusable"
+  },
+  "lifecycle": {
+    "boardViewsAfterSplit": 2,
+    "docViewsAfterSplit": 2,
+    "bothViewsShowEdit": [
+      "Start board: 1 painted, revision 1, unsaved",
+      "Start board: 1 painted, revision 1, unsaved"
+    ],
+    "afterCloseView1": {
+      "doc": {
+        "identity": "Boards/start.brd",
+        "title": "Start board",
+        "painted": 1,
+        "revision": 1,
+        "savedRevision": 0
+      },
+      "docViews": 1,
+      "undoDepth": 1
+    },
+    "afterReopen": [
+      "Start board: 1 painted, revision 1, unsaved"
+    ],
+    "undoFromOtherView": 0,
+    "savedBytes": 2036,
+    "restoredPanels": 5,
+    "afterRestore": {
+      "panels": [
+        "files",
+        "view-1",
+        "view-2",
+        "properties",
+        "outline"
+      ],
+      "doc": {
+        "identity": "Boards/start.brd",
+        "title": "Start board",
+        "painted": 1,
+        "revision": 3,
+        "savedRevision": 0
+      },
+      "views": [
+        "Start board: 1 painted, revision 3, unsaved",
+        "Start board: 1 painted, revision 3, unsaved"
+      ]
+    },
+    "unknownKind": {
+      "threw": true,
+      "message": "Error: Component type not registered and BindComponentEvent handler not assigned: {\"type\":\"component\",\"content\":[],\"size\":1,\"sizeUnit\":\"fr\",\"minSizeUnit\":\"px\",\"id\":\"files\",\"maximised\":false,\"isClosable\":true,\"reorderEnabled\":true,\"title\":\"Files\",\"componentType\":\"removed-plugin-panel\",\"componentState\":{}}",
+      "placeholderAfterRender": null,
+      "panelsAfterRender": []
+    },
+    "viewLog": {
+      "mounts": 11,
+      "disposes": 11
+    }
+  },
+  "afterOperations": {
+    "total": 4,
+    "byDirective": {
+      "img-src": 4
+    },
+    "samples": [
+      {
+        "directive": "img-src",
+        "blockedURI": "data",
+        "sample": "",
+        "source": "dock-golden.js"
+      }
+    ]
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Loading the image 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAkAAAAJCAYAAADgkQYQAAAAKUlEQVR4nGNgYGD4z4Af/Mdg4FKASwCnDf8JKSBoAtEmEXQTQd8RDCcA6+4Q8OvIgasAAAAASUVORK5CYII=' violates the following Content Security Policy directive: \"img-src http://127.0.0.1:4199\". The action has been blocked."
+    },
+    {
+      "type": "error",
+      "text": "Loading the image 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAkAAAAJCAYAAADgkQYQAAAANUlEQVR4nI2QMQoAMAwCz5L/f9mOzZIaN0E9UDyZhaaQz6atgBHgambEJ5wBKoS0WaIvfT+6K2MIECN19MAAAAAASUVORK5CYII=' violates the following Content Security Policy directive: \"img-src http://127.0.0.1:4199\". The action has bee"
+    },
+    {
+      "type": "error",
+      "text": "Loading the image 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAkAAAAJCAYAAADgkQYQAAAAIklEQVR4nGNkYGD4z0AAMBFSAAOETPpPlEmDUREjAxHhBABPvAQLFv3qngAAAABJRU5ErkJggg==' violates the following Content Security Policy directive: \"img-src http://127.0.0.1:4199\". The action has been blocked."
+    },
+    {
+      "type": "error",
+      "text": "Loading the image 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAkAAAAJCAYAAADgkQYQAAAAKUlEQVR4nGNgYGD4z4Af/Mdg4FKASwCnDf8JKSBoAtEmEXQTQd8RDCcA6+4Q8OvIgasAAAAASUVORK5CYII=' violates the following Content Security Policy directive: \"img-src http://127.0.0.1:4199\". The action has been blocked."
+    }
+  ],
+  "pageErrors": []
+}

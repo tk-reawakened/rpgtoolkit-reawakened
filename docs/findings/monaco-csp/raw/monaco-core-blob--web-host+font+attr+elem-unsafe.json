@@ -1,0 +1,84 @@
+{
+  "bundle": "monaco-core-blob",
+  "policyName": "web-host+font+attr+elem-unsafe",
+  "policy": "default-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; frame-ancestors 'none'; font-src 'self'; style-src-attr 'unsafe-inline'; style-src-elem 'self' 'unsafe-inline'",
+  "nonce": null,
+  "afterCreate": {
+    "total": 1,
+    "byDirective": {
+      "worker-src": 1
+    },
+    "samples": [
+      {
+        "directive": "worker-src",
+        "blockedURI": "blob",
+        "sample": "",
+        "source": "monaco-core-blob.js"
+      }
+    ]
+  },
+  "render": {
+    "lineNumbers": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "viewLines": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "keywordColour": "rgb(170, 0, 170)",
+    "identifierColour": "rgb(0, 0, 0)",
+    "currentLineWidth": 62,
+    "styleElements": 3,
+    "adoptedStyleSheets": 0,
+    "tokensColoured": true,
+    "linesPositioned": true
+  },
+  "typed": true,
+  "suggest": {
+    "visible": true,
+    "rows": 0,
+    "labels": []
+  },
+  "undone": true,
+  "find": {
+    "visible": true,
+    "codiconFont": "loaded"
+  },
+  "worker": {
+    "created": [
+      {
+        "url": "blob:http://127.0.0.1:4199/c889dbf7-f2cd-4d89-92e1-01cc81c97855",
+        "type": "module"
+      }
+    ],
+    "messages": 0,
+    "errors": [
+      "error"
+    ]
+  },
+  "afterUse": {
+    "total": 1,
+    "byDirective": {
+      "worker-src": 1
+    },
+    "samples": [
+      {
+        "directive": "worker-src",
+        "blockedURI": "blob",
+        "sample": "",
+        "source": "monaco-core-blob.js"
+      }
+    ]
+  },
+  "workerRequests": [],
+  "console": [
+    "The Content Security Policy directive 'frame-ancestors' is ignored when delivered via a <meta> element.",
+    "Creating a worker from 'blob:http://127.0.0.1:4199/c889dbf7-f2cd-4d89-92e1-01cc81c97855' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'worker-src' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+  ],
+  "pageErrors": [
+    "Event",
+    "Event",
+    "Event"
+  ]
+}

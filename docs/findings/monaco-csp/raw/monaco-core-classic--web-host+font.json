@@ -1,0 +1,106 @@
+{
+  "bundle": "monaco-core-classic",
+  "policyName": "web-host+font",
+  "policy": "default-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; frame-ancestors 'none'; font-src 'self'",
+  "nonce": null,
+  "afterCreate": {
+    "total": 109,
+    "byDirective": {
+      "style-src-elem": 5,
+      "style-src-attr": 104
+    },
+    "samples": [
+      {
+        "directive": "style-src-elem",
+        "blockedURI": "inline",
+        "sample": "",
+        "source": "monaco-core-classic.js"
+      },
+      {
+        "directive": "style-src-attr",
+        "blockedURI": "inline",
+        "sample": "",
+        "source": "monaco-core-classic.js"
+      }
+    ]
+  },
+  "render": {
+    "lineNumbers": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "viewLines": {
+      "count": 20,
+      "distinctTops": 20
+    },
+    "keywordColour": "rgb(0, 0, 0)",
+    "identifierColour": "rgb(0, 0, 0)",
+    "currentLineWidth": 0,
+    "styleElements": 3,
+    "adoptedStyleSheets": 0,
+    "tokensColoured": false,
+    "linesPositioned": true
+  },
+  "typed": true,
+  "suggest": {
+    "visible": true,
+    "rows": 1,
+    "labels": [
+      "counter"
+    ]
+  },
+  "undone": true,
+  "find": {
+    "visible": true,
+    "codiconFont": "unloaded"
+  },
+  "worker": {
+    "created": [
+      {
+        "url": "./editor.worker.js",
+        "type": "classic"
+      }
+    ],
+    "messages": 17,
+    "errors": []
+  },
+  "afterUse": {
+    "total": 131,
+    "byDirective": {
+      "style-src-elem": 6,
+      "style-src-attr": 125
+    },
+    "samples": [
+      {
+        "directive": "style-src-elem",
+        "blockedURI": "inline",
+        "sample": "",
+        "source": "monaco-core-classic.js"
+      },
+      {
+        "directive": "style-src-attr",
+        "blockedURI": "inline",
+        "sample": "",
+        "source": "monaco-core-classic.js"
+      }
+    ]
+  },
+  "workerRequests": [
+    "/b/editor.worker.js"
+  ],
+  "console": [
+    "The Content Security Policy directive 'frame-ancestors' is ignored when delivered via a <meta> element.",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-C/fJci4WJh2utSRLUIGUSDbEvc3FGlMr6x6M4QgrWmM='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked.",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-APcRYN2J+fYUkfwdFhRANnQjK+3H87MG4emv5c/OWsI='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked.",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked.",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-zKwf1cNyULpCjnPoi9NWeUEcmVb8rkJAIM1buIqwxy8='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked.",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-ZLWkky/ffgfOvh7p3RgjBCVTVGllWxvO0X0DNDPsGvY='), or a nonce ('nonce-...') is required to enable inline execution. Note that hashes do not apply to eve",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-9jTC7TPhnl8bcKVdZ+9EZqDOUIsWnlwHBb9TWKfp3aI='), or a nonce ('nonce-...') is required to enable inline execution. Note that hashes do not apply to eve",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-U69TOEWuuz9BXScoxosKXXlsb5yPlcHKkLj1crvJaYI='), or a nonce ('nonce-...') is required to enable inline execution. Note that hashes do not apply to eve",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-isOCHUq/sPTX5hPrwrxE5egp8TyCr5szP/3/gpUSmpo='), or a nonce ('nonce-...') is required to enable inline execution. Note that hashes do not apply to eve",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-WPRsCM1WiCyvetRzl7R/X2Nsu/NkVeIB0a/YZ8QDsK8='), or a nonce ('nonce-...') is required to enable inline execution. Note that hashes do not apply to eve",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-IDWa8iTU2ej1g3/QR+h+Y9TKBpgRIcI7pCfm6+cagoU='), or a nonce ('nonce-...') is required to enable inline execution. Note that hashes do not apply to eve",
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-S+2eBZO5Bt5d0UVaPMmwu/HZoZsm6XgM2/bTzyZmmUA='), or a nonce ('nonce-...') is required to enable inline execution. Note that hashes do not apply to eve"
+  ],
+  "pageErrors": []
+}

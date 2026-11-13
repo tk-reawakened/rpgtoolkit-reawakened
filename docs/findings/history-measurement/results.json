@@ -1,0 +1,243 @@
+{
+  "method": {
+    "windows": "fixed-window arithmetic over synthetic evenly spaced saves (window-model.mjs)",
+    "saveRates": "scenario inputs extrapolated over 24 hours; not observed usage",
+    "scope": "measured board-size corpus and single-board scenarios only; no timestamped editing-hour trace or project-wide model",
+    "megabyte": "1 MB = 1,000,000 bytes",
+    "corpusSource": "docs/findings/native-data-boundaries/data/assets.jsonl",
+    "corpusNote": "sizes from the inventory; no content dedup assumed",
+    "scenarioNote": "each storage row applies one board size; it is not a project estimate or upper bound"
+  },
+  "roundTrip": {
+    "files": 14,
+    "outcomes": {
+      "identical": 12,
+      "read-failed": 2
+    },
+    "details": [
+      {
+        "path": "docs/spec/examples/game/Game/Example/Boards/village.brd",
+        "outcome": "identical",
+        "bytes": 986,
+        "outputBytes": 986
+      },
+      {
+        "path": "docs/spec/examples/versions/board/board_minor2.brd",
+        "outcome": "read-failed",
+        "reason": "unsupported board minor version 2: it stores the [pre-vector layout](../../../../../../docs/spec/formats/legacy/older-binary-versions.md#board-minor-2-and-3-pre-vector) (tile-coordinate objects and per-tile collision), which this reader does not convert — see ticket 2.8"
+      },
+      {
+        "path": "docs/spec/examples/versions/board/board_minor3.brd",
+        "outcome": "read-failed",
+        "reason": "unsupported board minor version 3: it stores the [pre-vector layout](../../../../../../docs/spec/formats/legacy/older-binary-versions.md#board-minor-2-and-3-pre-vector) (tile-coordinate objects and per-tile collision), which this reader does not convert — see ticket 2.8"
+      },
+      {
+        "path": "docs/spec/examples/versions/board/board_minor4.brd",
+        "outcome": "identical",
+        "bytes": 351,
+        "outputBytes": 351
+      },
+      {
+        "path": "packages/core/test/fixtures/authored/iso-oracle-rotated.brd",
+        "outcome": "identical",
+        "bytes": 233,
+        "outputBytes": 233
+      },
+      {
+        "path": "packages/core/test/fixtures/authored/iso-oracle-stacked.brd",
+        "outcome": "identical",
+        "bytes": 223,
+        "outputBytes": 223
+      },
+      {
+        "path": "packages/core/test/fixtures/authored/light-oracle-boundary.brd",
+        "outcome": "identical",
+        "bytes": 254,
+        "outputBytes": 254
+      },
+      {
+        "path": "packages/core/test/fixtures/authored/light-oracle-clipped.brd",
+        "outcome": "identical",
+        "bytes": 278,
+        "outputBytes": 278
+      },
+      {
+        "path": "packages/core/test/fixtures/authored/light-oracle-ellipse.brd",
+        "outcome": "identical",
+        "bytes": 254,
+        "outputBytes": 254
+      },
+      {
+        "path": "packages/core/test/fixtures/authored/light-oracle-gradient.brd",
+        "outcome": "identical",
+        "bytes": 246,
+        "outputBytes": 246
+      },
+      {
+        "path": "packages/core/test/fixtures/authored/light-oracle-night.brd",
+        "outcome": "identical",
+        "bytes": 254,
+        "outputBytes": 254
+      },
+      {
+        "path": "packages/core/test/fixtures/authored/light-oracle-overlap.brd",
+        "outcome": "identical",
+        "bytes": 342,
+        "outputBytes": 342
+      },
+      {
+        "path": "packages/core/test/fixtures/saveload/game/Boards/start.brd",
+        "outcome": "identical",
+        "bytes": 112,
+        "outputBytes": 112
+      },
+      {
+        "path": "packages/dap/test/fixtures/probe/Boards/probe.brd",
+        "outcome": "identical",
+        "bytes": 81,
+        "outputBytes": 81
+      }
+    ]
+  },
+  "corpusBoards": {
+    "count": 1689,
+    "bytes": {
+      "count": 1689,
+      "min": 0,
+      "median": 36547,
+      "p90": 149373,
+      "max": 482379,
+      "sum": 81488614
+    }
+  },
+  "syntheticSequence": {
+    "kind": "synthetic-single-board-save-sequence",
+    "board": "docs/spec/examples/game/Game/Example/Boards/village.brd",
+    "cells": 384,
+    "saves": 500,
+    "timestamped": false,
+    "elapsedTimeMeasured": false,
+    "baselineMatchesFile": true,
+    "distinctDigests": 473,
+    "repeatedSaveCount": 27,
+    "bytes": {
+      "count": 500,
+      "min": 986,
+      "median": 1590,
+      "p90": 1594,
+      "max": 1594,
+      "sum": 750998,
+      "mean": 1501.996
+    }
+  },
+  "storage": [
+    {
+      "windowSeconds": 10,
+      "savesPerHour": 60,
+      "entriesPerHour": 60,
+      "entriesPerDay": 1440,
+      "mbPerDay": {
+        "corpusMedian": 52.62768,
+        "corpusP90": 215.09712,
+        "corpusMax": 694.62576,
+        "syntheticSequenceMean": 2.1628742400000003
+      }
+    },
+    {
+      "windowSeconds": 10,
+      "savesPerHour": 360,
+      "entriesPerHour": 360,
+      "entriesPerDay": 8640,
+      "mbPerDay": {
+        "corpusMedian": 315.76608,
+        "corpusP90": 1290.58272,
+        "corpusMax": 4167.75456,
+        "syntheticSequenceMean": 12.97724544
+      }
+    },
+    {
+      "windowSeconds": 10,
+      "savesPerHour": 3600,
+      "entriesPerHour": 360,
+      "entriesPerDay": 8640,
+      "mbPerDay": {
+        "corpusMedian": 315.76608,
+        "corpusP90": 1290.58272,
+        "corpusMax": 4167.75456,
+        "syntheticSequenceMean": 12.97724544
+      }
+    },
+    {
+      "windowSeconds": 60,
+      "savesPerHour": 60,
+      "entriesPerHour": 60,
+      "entriesPerDay": 1440,
+      "mbPerDay": {
+        "corpusMedian": 52.62768,
+        "corpusP90": 215.09712,
+        "corpusMax": 694.62576,
+        "syntheticSequenceMean": 2.1628742400000003
+      }
+    },
+    {
+      "windowSeconds": 60,
+      "savesPerHour": 360,
+      "entriesPerHour": 60,
+      "entriesPerDay": 1440,
+      "mbPerDay": {
+        "corpusMedian": 52.62768,
+        "corpusP90": 215.09712,
+        "corpusMax": 694.62576,
+        "syntheticSequenceMean": 2.1628742400000003
+      }
+    },
+    {
+      "windowSeconds": 60,
+      "savesPerHour": 3600,
+      "entriesPerHour": 60,
+      "entriesPerDay": 1440,
+      "mbPerDay": {
+        "corpusMedian": 52.62768,
+        "corpusP90": 215.09712,
+        "corpusMax": 694.62576,
+        "syntheticSequenceMean": 2.1628742400000003
+      }
+    },
+    {
+      "windowSeconds": 300,
+      "savesPerHour": 60,
+      "entriesPerHour": 12,
+      "entriesPerDay": 288,
+      "mbPerDay": {
+        "corpusMedian": 10.525536,
+        "corpusP90": 43.019424,
+        "corpusMax": 138.925152,
+        "syntheticSequenceMean": 0.432574848
+      }
+    },
+    {
+      "windowSeconds": 300,
+      "savesPerHour": 360,
+      "entriesPerHour": 12,
+      "entriesPerDay": 288,
+      "mbPerDay": {
+        "corpusMedian": 10.525536,
+        "corpusP90": 43.019424,
+        "corpusMax": 138.925152,
+        "syntheticSequenceMean": 0.432574848
+      }
+    },
+    {
+      "windowSeconds": 300,
+      "savesPerHour": 3600,
+      "entriesPerHour": 12,
+      "entriesPerDay": 288,
+      "mbPerDay": {
+        "corpusMedian": 10.525536,
+        "corpusP90": 43.019424,
+        "corpusMax": 138.925152,
+        "syntheticSequenceMean": 0.432574848
+      }
+    }
+  ]
+}

@@ -19,6 +19,6 @@ Both hosts navigate one project from Game and Files, open one document from two 
 
 ## Decisions and prerequisites
 
-11.1 chooses dock integration; contextual tileset browser and animated-tile board brush are provided by 12.2, not a duplicate browser.
+Dock integration is proposed in [ADR 0028](../../../docs/adr/0028-docking-library-selection.md), pending owner ruling and ADR 0022 D7.3's packaged-host gate. Contextual tileset browser and animated-tile board brush are provided by 12.2, not a duplicate browser.
 
 Prerequisites: 11.3.
