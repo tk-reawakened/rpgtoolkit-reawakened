@@ -1,0 +1,420 @@
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+SCRIPT = Path(__file__).resolve().parents[1] / "resolve_issue.py"
+REPO_ROOT = Path(__file__).resolve().parents[5]  # .agents/skills/<skill>/scripts/tests -> repository root
+REPO = "owner/name"
+INIT = "initiative-x"
+
+
+def md(**keys):
+    lines = ["---", *(f"{k}: {v}" for k, v in keys.items()), "---", "", "# body", ""]
+    return "\n".join(lines)
+
+
+def toml_entries(*entries):
+    """entries are (id, tracker_id or None, type, title)."""
+    out = ["next_id = 20", ""]
+    for n, tracker, kind, title in entries:
+        out += ["[[entry]]", f"id = {n}"]
+        if tracker is not None:
+            out.append(f'tracker_id = "{tracker}"')
+        out += [f'type = "{kind}"', f'title = "{title}"', ""]
+    return "\n".join(out)
+
+
+class Fixture:
+    """A ticket store in a temp directory; `project=True` also installs the BMad files stock tickets.py needs."""
+
+    def __init__(self, case: unittest.TestCase, project: bool = False):
+        self.root = Path(tempfile.mkdtemp())
+        case.addCleanup(shutil.rmtree, self.root, True)
+        self.store = self.root / "_bmad-output"
+        self.store.mkdir()
+        self.project = project
+        if project:
+            for rel in ("_bmad/scripts/config_utils.py", "_bmad/method/scripts/tickets.py"):
+                dest = self.root / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(REPO_ROOT / rel, dest)
+            self.write_at(
+                "_bmad/config.toml",
+                '[core]\noutput_folder = "{project-root}/_bmad-output"\n'
+                f'active_initiative = "{INIT}"\n',
+            )
+            self.write_at("_bmad/custom/ticketing-store-config.toml", f'[tickets]\nrepo = "{REPO}"\n')
+
+    def write_at(self, rel: str, text: str) -> Path:
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def write(self, rel: str, text: str) -> Path:
+        return self.write_at(f"_bmad-output/{rel}", text)
+
+    def layout(self) -> "Fixture":
+        """An initiative with two epics. epic-a (id 2) holds entry 3 (#101, story) and 4 (#102, bug); epic-b (id 3)
+        holds entry 1 (#201)."""
+        self.write(f"{INIT}/{INIT}.md", md(type="initiative", title='"X"', tracker_id='"#1"'))
+        self.write(
+            f"{INIT}/tickets.toml",
+            "\n".join(
+                [
+                    "[[epic]]",
+                    "id = 2",
+                    'tracker_id = "#10"',
+                    'slug = "epic-a"',
+                    'title = "Epic A"',
+                    "",
+                    "[[epic]]",
+                    "id = 3",
+                    'tracker_id = "#11"',
+                    'slug = "epic-b"',
+                    'title = "Epic B"',
+                    "",
+                ]
+            ),
+        )
+        self.write(f"{INIT}/epic-a/epic-a.md", md(type="epic", title='"Epic A"', tracker_id='"#10"'))
+        self.write(
+            f"{INIT}/epic-a/tickets.toml",
+            toml_entries((3, "#101", "story", "Add widget"), (4, "#102", "bug", "Fix gadget")),
+        )
+        self.write(f"{INIT}/epic-b/epic-b.md", md(type="epic", title='"Epic B"', tracker_id='"#11"'))
+        self.write(f"{INIT}/epic-b/tickets.toml", toml_entries((1, "#201", "story", "Other thing")))
+        return self
+
+    def run(self, ref: str, *extra: str):
+        args = [sys.executable, str(SCRIPT), ref]
+        args += ["--project-root", str(self.root)] if self.project else ["--store", str(self.store), "--repo", REPO]
+        proc = subprocess.run([*args, *extra], capture_output=True, text=True, check=False)
+        return proc.returncode, json.loads(proc.stdout), proc.stderr
+
+    def snapshot(self) -> dict:
+        return {str(p): p.read_bytes() for p in sorted(self.root.rglob("*")) if p.is_file()}
+
+
+class HappyPathTests(unittest.TestCase):
+    def test_entry_resolves_to_a_canonical_key_a_stock_ref_and_the_expected_plan_path(self):
+        fx = Fixture(self).layout()
+        code, out, _ = fx.run("#101")
+        self.assertEqual(code, 0)
+        self.assertEqual((out["layer"], out["kind"], out["buildable"]), ("leaf", "story", True))
+        self.assertEqual((out["key"], out["epic"], out["epic_id"], out["entry_id"]), ("epic-a/3", "epic-a", 2, 3))
+        self.assertEqual(out["stock"]["ref"], "2.3")
+        self.assertEqual(Path(out["stock"]["dir"]).name, INIT)
+        self.assertIsNone(out["leaf_file"])
+        self.assertFalse(out["plan"]["exists"])
+        self.assertEqual(Path(out["plan"]["path"]).name, "story-add-widget-plan.md")
+        self.assertEqual(Path(out["plan"]["path"]).parent.name, "epic-a")
+        self.assertEqual(out["handoff"]["bmad_build_input"], "2.3")
+
+    def test_number_url_and_hash_forms_name_the_same_ticket(self):
+        fx = Fixture(self).layout()
+        answers = [fx.run(ref)[1]["key"] for ref in ("#101", "101", f"https://github.com/{REPO}/issues/101")]
+        self.assertEqual(answers, ["epic-a/3"] * 3)
+
+    def test_second_entry_in_the_same_epic_is_not_confused_with_the_first(self):
+        _, out, _ = Fixture(self).layout().run("#102")
+        self.assertEqual((out["key"], out["kind"], out["stock"]["ref"]), ("epic-a/4", "bug", "2.4"))
+
+    def test_pulled_leaf_and_its_entry_are_one_ticket_and_the_file_names_the_plan(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-add-widget-v2.md", md(id=3, type="story", title='"Add widget"', tracker_id='"#101"'))
+        code, out, _ = fx.run("#101")
+        self.assertEqual(code, 0)
+        self.assertEqual(sorted(c["form"] for c in out["carriers"]), ["entry", "leaf-file"])
+        self.assertTrue(out["leaf_file"].endswith("story-add-widget-v2.md"))
+        self.assertEqual(Path(out["plan"]["path"]).name, "story-add-widget-v2-plan.md")
+
+    def test_a_tracker_id_only_on_the_leaf_file_still_resolves(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/tickets.toml", toml_entries((3, None, "story", "Add widget")))
+        fx.write(f"{INIT}/epic-a/story-add-widget.md", md(id=3, type="story", tracker_id="'#150'"))
+        code, out, _ = fx.run("150")
+        self.assertEqual((code, out["key"]), (0, "epic-a/3"))
+        self.assertEqual(sorted(c["form"] for c in out["carriers"]), ["entry", "leaf-file"])
+        self.assertEqual(out["stock"]["ref"], "2.3")
+
+    def test_existing_plan_with_a_historical_type_joins_by_entry_id(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-add-widget-plan.md", md(type="feature", ticket="'3'", status="in-progress"))
+        _, out, _ = fx.run("#101")
+        self.assertTrue(out["plan"]["exists"])
+        self.assertEqual(out["plan"]["status"], "in-progress")
+        self.assertTrue(out["plan"]["path"].endswith("epic-a/story-add-widget-plan.md"))
+
+    def test_a_plan_mistyped_as_a_story_is_a_plan_and_not_a_second_leaf(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-add-widget-plan.md", md(type="story", ticket="3", status="done"))
+        code, out, _ = fx.run("#101")
+        self.assertEqual(code, 0)
+        self.assertIsNone(out["leaf_file"])
+        self.assertTrue(out["plan"]["exists"])
+
+    def test_leaf_file_not_in_the_breakdown_resolves_by_its_id(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-late-addition.md", md(id=7, type="story", title='"Late"', tracker_id='"#103"'))
+        _, out, _ = fx.run("#103")
+        self.assertEqual((out["key"], out["stock"]["ref"]), ("epic-a/7", "2.7"))
+        self.assertEqual(Path(out["plan"]["path"]).name, "story-late-addition-plan.md")
+
+    def test_backlog_leaf_resolves_by_file_name_and_a_stem_plan(self):
+        fx = Fixture(self).layout()
+        fx.write("backlog/bug-flaky.md", md(type="bug", title='"Flaky"', tracker_id='"#300"'))
+        fx.write("backlog/bug-flaky-plan.md", md(type="bugfix", ticket="bug-flaky", status="built"))
+        _, out, _ = fx.run("#300")
+        self.assertEqual((out["layer"], out["key"], out["stock"]["ref"]), ("leaf", "backlog/bug-flaky.md", "bug-flaky.md"))
+        self.assertEqual(Path(out["stock"]["dir"]).name, "backlog")
+        self.assertIsNone(out["epic_id"])
+        self.assertEqual((out["plan"]["exists"], out["plan"]["status"]), (True, "built"))
+
+    def test_plan_outside_the_ticket_folder_joins_only_by_the_issue_number(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/plan-gh-101-widget.md", md(type="feature", ticket="'#101'", status="draft"))
+        _, out, _ = fx.run("#101")
+        self.assertTrue(out["plan"]["exists"])
+        self.assertTrue(out["plan"]["path"].endswith(f"{INIT}/plan-gh-101-widget.md"))
+        self.assertEqual(out["plan"]["joined_by"], "ticket: #101")
+
+    def test_a_plan_naming_a_ticket_in_another_epic_is_not_this_tickets_plan(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-b/story-other-thing-plan.md", md(type="feature", ticket="1", status="done"))
+        _, out, _ = fx.run("#101")
+        self.assertFalse(out["plan"]["exists"])
+
+    def test_epic_with_rows_and_file_resolves_as_a_container_with_children(self):
+        _, out, _ = Fixture(self).layout().run("#10")
+        self.assertEqual((out["layer"], out["buildable"], out["epic_id"]), ("epic", False, 2))
+        self.assertIsNone(out["stock"])
+        self.assertEqual(sorted(c["tracker_id"] for c in out["children"]), [101, 102])
+        self.assertEqual(sorted(c["form"] for c in out["carriers"]), ["epic-file", "epic-row"])
+
+    def test_envelope_epic_with_no_breakdown_and_no_row_resolves(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-c/epic-c.md", md(type="epic", title='"Envelope"', tracker_id='"#12"'))
+        code, out, _ = fx.run("#12")
+        self.assertEqual((code, out["layer"], out["children"]), (0, "epic", []))
+
+    def test_epic_row_without_a_folder_resolves(self):
+        fx = Fixture(self).layout()
+        fx.write(
+            f"{INIT}/tickets.toml",
+            (fx.store / INIT / "tickets.toml").read_text()
+            + '\n[[epic]]\nid = 9\ntracker_id = "#13"\nslug = "epic-future"\ntitle = "Future"\n',
+        )
+        code, out, _ = fx.run("#13")
+        self.assertEqual((code, out["layer"], out["epic"], out["epic_id"]), (0, "epic", "epic-future", 9))
+
+    def test_initiative_resolves_and_lists_its_epics(self):
+        _, out, _ = Fixture(self).layout().run("#1")
+        self.assertEqual((out["layer"], out["buildable"]), ("initiative", False))
+        self.assertEqual(sorted(c["tracker_id"] for c in out["children"]), [10, 11])
+
+    def test_preflight_leaves_every_file_untouched(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-add-widget-plan.md", md(type="feature", ticket="3"))
+        before = fx.snapshot()
+        for ref in ("#101", "#10", "#999"):
+            fx.run(ref)
+        self.assertEqual(fx.snapshot(), before)
+
+    def test_plan_note_that_joins_nothing_is_a_warning_not_a_plan(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/plan-gh-101.md", md(type="feature", ticket="''", tracker_id="'#101'"))
+        code, out, _ = fx.run("#101")
+        self.assertEqual(code, 0)
+        self.assertFalse(out["plan"]["exists"])
+        self.assertEqual(len(out["warnings"]), 1)
+        self.assertIn("plan-gh-101.md", out["warnings"][0])
+
+
+class FailClosedTests(unittest.TestCase):
+    def assertFails(self, fx, ref, code, *extra):
+        status, out, err = fx.run(ref, *extra)
+        self.assertEqual(status, 1, out)
+        self.assertEqual((out["ok"], out["code"]), (False, code), out)
+        self.assertTrue(err.startswith(f"{code}:"), err)
+        return out
+
+    def test_missing_number_fails_and_lists_plans_that_mention_it(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/plan-gh-999-orphan.md", md(type="feature", ticket="'#999'", status="done"))
+        out = self.assertFails(fx, "#999", "not_found")
+        self.assertEqual(out["mentions"], [f"{INIT}/plan-gh-999-orphan.md"])
+        self.assertIn("do not create", out["error"])
+
+    def test_missing_number_with_no_mentions(self):
+        out = self.assertFails(Fixture(self).layout(), "#4040", "not_found")
+        self.assertEqual(out["mentions"], [])
+
+    def test_the_same_number_on_two_entries_in_different_epics_is_a_duplicate(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-b/tickets.toml", toml_entries((1, "#101", "story", "Other thing")))
+        out = self.assertFails(fx, "#101", "duplicate_tracker_id")
+        self.assertEqual(len(out["tickets"]), 2)
+
+    def test_an_entry_and_an_id_less_leaf_file_in_one_folder_are_two_tickets(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-stray.md", md(type="story", title='"Stray"', tracker_id='"#101"'))
+        self.assertFails(fx, "#101", "duplicate_tracker_id")
+
+    def test_an_epic_number_reused_by_a_story_is_a_duplicate(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-b/tickets.toml", toml_entries((1, "#10", "story", "Other thing")))
+        self.assertFails(fx, "10", "duplicate_tracker_id")
+
+    def test_the_same_number_in_two_initiatives_is_a_duplicate(self):
+        fx = Fixture(self).layout()
+        fx.write("initiative-y/epic-z/tickets.toml", toml_entries((1, "#101", "story", "Again")))
+        fx.write("initiative-y/epic-z/epic-z.md", md(type="epic", title='"Z"'))
+        self.assertFails(fx, "#101", "duplicate_tracker_id")
+
+    def test_entry_and_leaf_file_with_different_numbers_conflict_from_either_side(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-add-widget.md", md(id=3, type="story", tracker_id='"#999"'))
+        self.assertFails(fx, "#101", "tracker_id_conflict")
+        self.assertFails(fx, "#999", "tracker_id_conflict")
+
+    def test_epic_row_and_epic_file_with_different_numbers_conflict(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/epic-a.md", md(type="epic", title='"Epic A"', tracker_id='"#77"'))
+        self.assertFails(fx, "#10", "tracker_id_conflict")
+
+    def test_remote_naming_a_different_issue_conflicts(self):
+        fx = Fixture(self).layout()
+        fx.write(
+            f"{INIT}/epic-a/story-add-widget.md",
+            md(id=3, type="story", tracker_id='"#101"', remote=f'"https://github.com/{REPO}/issues/555"'),
+        )
+        self.assertFails(fx, "#101", "tracker_id_conflict")
+
+    def test_two_plans_for_one_ticket_are_ambiguous(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-add-widget-plan.md", md(type="feature", ticket="3"))
+        fx.write(f"{INIT}/epic-a/story-add-widget-again-plan.md", md(type="feature", ticket="'3'"))
+        out = self.assertFails(fx, "#101", "multiple_plans")
+        self.assertEqual(len(out["plans"]), 2)
+
+    def test_an_id_plan_and_an_issue_number_plan_for_one_ticket_are_ambiguous(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-add-widget-plan.md", md(type="feature", ticket="3"))
+        fx.write(f"{INIT}/plan-gh-101.md", md(type="feature", ticket="'#101'"))
+        self.assertFails(fx, "#101", "multiple_plans")
+
+    def test_a_file_at_the_expected_plan_path_that_names_no_ticket_is_a_collision(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-add-widget-plan.md", md(type="feature", ticket="99"))
+        self.assertFails(fx, "#101", "plan_path_collision")
+
+    def test_plan_that_carries_the_number_but_joins_another_ticket_is_a_conflict(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/plan-misfiled.md", md(type="feature", ticket="4", tracker_id="'#101'"))
+        self.assertFails(fx, "#101", "plan_identity_conflict")
+
+    def test_malformed_breakdown_fails_every_lookup_even_an_unrelated_one(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-b/tickets.toml", "[[entry]\nid = 1\n")
+        self.assertFails(fx, "#101", "malformed_store")
+
+    def test_unclosed_leaf_frontmatter_fails(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-broken.md", '---\nid: 5\ntype: story\ntracker_id: "#500"\n\n# never closed\n')
+        self.assertFails(fx, "#101", "malformed_store")
+
+    def test_a_tracker_id_that_is_not_an_issue_number_fails(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-b/tickets.toml", toml_entries((1, "JIRA-5", "story", "Other thing")))
+        self.assertFails(fx, "#101", "malformed_store")
+
+    def test_entry_with_an_unknown_type_fails(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-b/tickets.toml", toml_entries((1, "#201", "chore", "Other thing")))
+        self.assertFails(fx, "#101", "malformed_store")
+
+    def test_two_entries_with_one_id_fail(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-b/tickets.toml", toml_entries((1, "#201", "story", "A"), (1, "#202", "story", "B")))
+        self.assertFails(fx, "#101", "malformed_store")
+
+    def test_two_leaf_files_with_one_id_fail(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-one.md", md(id=8, type="story"))
+        fx.write(f"{INIT}/epic-a/story-two.md", md(id=8, type="story"))
+        self.assertFails(fx, "#101", "malformed_store")
+
+    def test_references_that_are_not_issues_fail(self):
+        fx = Fixture(self).layout()
+        for ref in ("abc", "#0", "0", "", "#12x"):
+            self.assertFails(fx, ref, "bad_reference")
+        self.assertFails(fx, f"https://github.com/{REPO}/pull/101", "bad_reference")
+
+    def test_issue_url_from_another_repository_fails(self):
+        self.assertFails(Fixture(self).layout(), "https://github.com/someone/else/issues/101", "wrong_repository")
+
+    def test_missing_store_fails(self):
+        fx = Fixture(self)
+        shutil.rmtree(fx.store)
+        self.assertFails(fx, "#101", "bad_config")
+
+
+class StockHandoffTests(unittest.TestCase):
+    def project(self):
+        return Fixture(self, project=True).layout()
+
+    def test_stock_find_agrees_for_a_planned_and_an_unplanned_ticket(self):
+        fx = self.project()
+        fx.write(f"{INIT}/epic-a/story-add-widget-plan.md", md(type="feature", ticket="3", status="in-progress"))
+        planned = fx.run("#101", "--check-stock")
+        unplanned = fx.run("#102", "--check-stock")
+        self.assertEqual(planned[0], 0, planned[1])
+        self.assertEqual(unplanned[0], 0, unplanned[1])
+        self.assertEqual(planned[1]["stock_check"], {"agrees": True, "ref": "2.3", "dir": str((fx.store / INIT).resolve())})
+        self.assertTrue(planned[1]["plan"]["exists"])
+        self.assertFalse(unplanned[1]["plan"]["exists"])
+
+    def test_project_config_supplies_the_store_the_repo_and_the_active_initiative(self):
+        fx = self.project()
+        code, out, _ = fx.run(f"https://github.com/{REPO}/issues/101")
+        self.assertEqual(code, 0)
+        self.assertEqual(out["handoff"]["active_initiative"], INIT)
+        self.assertTrue(out["handoff"]["in_active_initiative"])
+
+    def test_a_ticket_outside_the_active_initiative_is_flagged_for_the_handoff(self):
+        fx = self.project()
+        fx.write("initiative-y/initiative-y.md", md(type="initiative", title='"Y"'))
+        fx.write("initiative-y/tickets.toml", '[[epic]]\nid = 1\ntracker_id = "#20"\nslug = "epic-z"\ntitle = "Z"\n')
+        fx.write("initiative-y/epic-z/epic-z.md", md(type="epic", title='"Z"', tracker_id='"#20"'))
+        fx.write("initiative-y/epic-z/tickets.toml", toml_entries((1, "#401", "story", "Elsewhere")))
+        code, out, _ = fx.run("#401", "--check-stock")
+        self.assertEqual(code, 0, out)
+        self.assertFalse(out["handoff"]["in_active_initiative"])
+        self.assertIn("initiative-y", out["handoff"]["stock_find"])
+
+    def test_stock_that_cannot_see_the_plan_the_preflight_found_is_a_disagreement(self):
+        fx = self.project()
+        fx.write(f"{INIT}/plan-gh-101.md", md(type="feature", ticket="'#101'", status="draft"))
+        self.assertEqual(fx.run("#101")[0], 0)
+        code, out, _ = fx.run("#101", "--check-stock")
+        self.assertEqual((code, out["code"]), (1, "stock_disagrees"), out)
+
+    def test_a_defect_only_stock_reads_fails_with_check_stock_and_passes_without(self):
+        fx = self.project()
+        fx.write(f"{INIT}/epic-a/story-add-widget.md", md(id=3, type="story", status="nonsense", tracker_id='"#101"'))
+        self.assertEqual(fx.run("#101")[0], 0)
+        code, out, _ = fx.run("#101", "--check-stock")
+        self.assertEqual((code, out["code"]), (1, "stock_unreadable"), out)
+
+    def test_check_stock_has_nothing_to_compare_for_an_epic(self):
+        code, out, _ = self.project().run("#10", "--check-stock")
+        self.assertEqual((code, out["code"]), (1, "not_buildable"), out)
+
+
+if __name__ == "__main__":
+    unittest.main()
