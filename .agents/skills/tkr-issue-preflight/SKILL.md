@@ -17,16 +17,16 @@ It reads the whole ticket store under `{output_folder}` and never writes. `--che
 
 ## Read the result
 
-`ok: true` with `buildable: true` (a story, spike or bug): report `key`, `title`, `kind`, and the plan: `plan.exists` with its `status` means the build resumes that plan; `false` means the build will start one at `plan.path`. Hand the work to `bmad-build` or `bmad-ticket` with `handoff.bmad_build_input` (for example `7.1`), never the bare `#NNN`: stock BMad documents refs, file names and title phrases, not issue numbers. When `handoff.in_active_initiative` is `false`, stock looks only in the active initiative and `backlog/`; give the user `handoff.stock_find`, which names the folder, instead of changing the active initiative for them. Relay every `warnings` entry beside the answer.
+`ok: true` with `buildable: true` (a story, spike or bug): report `key`, `title`, `kind`, and the plan: `plan.exists` with its `status` means the build resumes that plan; `false` means the build will start one at `plan.path`. Hand the work to `bmad-build` or `bmad-ticket` with `handoff.bmad_build_input` (for example `7.1`) only when it is set: it is set when stock's bare lookup, which searches the active initiative and then `backlog/`, provably reaches this ticket. Never hand over the bare `#NNN`; stock documents refs, file names and title phrases, not issue numbers. When it is `null` (no active initiative set, or the ticket lives in another one), give the user `handoff.scoped` (folder and ref) and `handoff.stock_find`, a shell-quoted command that names the project root, and relay `handoff.note`; do not change the active initiative for them. Relay every `warnings` entry beside the answer.
 
-`buildable: false` (an epic or initiative): it holds tickets and is not built itself. List `children` with their tracker ids and ask which to preflight.
+`buildable: false` (an epic or initiative): it holds tickets and is not built itself; `--check-stock` returns `stock_check.checked: false` for it and still exits 0. List `children` with their tracker ids (a pulled leaf's id counts; `tracker_id_conflict` on a child means its entry and file disagree) and ask which to preflight.
 
 `ok: false`: report `code` and `error` verbatim and stop. Each is a store defect for the owner to fix, not something to work around:
 
 - `not_found`: no ticket carries the number. `mentions` lists plans that name it. Do not create an issue or a ticket to make it resolve; the ticket may be unpublished, or the number mistyped.
-- `duplicate_tracker_id`, `tracker_id_conflict`: two tickets share the number, or one ticket's carriers (entry, file, `remote`) disagree. Show the paths and let the user choose which is wrong.
+- `duplicate_tracker_id`, `tracker_id_conflict`: two tickets share the number, or one ticket's carriers (entry, file, `remote` issue number) disagree. Show the paths and let the user choose which is wrong.
 - `multiple_plans`, `plan_path_collision`, `plan_identity_conflict`: the plan is ambiguous. Do not pick one.
-- `malformed_store`, `stock_unreadable`, `stock_disagrees`, `bad_config`, `bad_reference`, `wrong_repository`: the store, the stock reader or the input is wrong.
+- `malformed_store` (including a folder that cannot be listed), `bad_remote`, `wrong_repository` (an issue URL, or a ticket's `remote`, in another repository), `stock_unreadable`, `stock_disagrees`, `bad_config`, `bad_reference`: the store, the stock reader or the input is wrong.
 
 A malformed ticket file anywhere in the store fails every lookup, by design: an unreadable file could hold the duplicate.
 

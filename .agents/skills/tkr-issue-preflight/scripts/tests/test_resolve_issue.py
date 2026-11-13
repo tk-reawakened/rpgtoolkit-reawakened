@@ -1,4 +1,6 @@
 import json
+import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -35,9 +37,11 @@ def toml_entries(*entries):
 class Fixture:
     """A ticket store in a temp directory; `project=True` also installs the BMad files stock tickets.py needs."""
 
-    def __init__(self, case: unittest.TestCase, project: bool = False):
-        self.root = Path(tempfile.mkdtemp())
-        case.addCleanup(shutil.rmtree, self.root, True)
+    def __init__(self, case: unittest.TestCase, project: bool = False, active: str | None = INIT, subdir: str = ""):
+        top = Path(tempfile.mkdtemp())
+        case.addCleanup(shutil.rmtree, top, True)
+        self.root = top / subdir if subdir else top  # a project root may hold spaces and shell characters
+        self.root.mkdir(exist_ok=True)
         self.store = self.root / "_bmad-output"
         self.store.mkdir()
         self.project = project
@@ -49,7 +53,7 @@ class Fixture:
             self.write_at(
                 "_bmad/config.toml",
                 '[core]\noutput_folder = "{project-root}/_bmad-output"\n'
-                f'active_initiative = "{INIT}"\n',
+                + (f'active_initiative = "{active}"\n' if active else ""),
             )
             self.write_at("_bmad/custom/ticketing-store-config.toml", f'[tickets]\nrepo = "{REPO}"\n')
 
@@ -117,7 +121,6 @@ class HappyPathTests(unittest.TestCase):
         self.assertFalse(out["plan"]["exists"])
         self.assertEqual(Path(out["plan"]["path"]).name, "story-add-widget-plan.md")
         self.assertEqual(Path(out["plan"]["path"]).parent.name, "epic-a")
-        self.assertEqual(out["handoff"]["bmad_build_input"], "2.3")
 
     def test_number_url_and_hash_forms_name_the_same_ticket(self):
         fx = Fixture(self).layout()
@@ -220,6 +223,48 @@ class HappyPathTests(unittest.TestCase):
         _, out, _ = Fixture(self).layout().run("#1")
         self.assertEqual((out["layer"], out["buildable"]), ("initiative", False))
         self.assertEqual(sorted(c["tracker_id"] for c in out["children"]), [10, 11])
+
+    def test_a_remote_in_the_right_repository_and_case_passes(self):
+        fx = Fixture(self).layout()
+        fx.write(
+            f"{INIT}/epic-a/story-add-widget.md",
+            md(id=3, type="story", tracker_id='"#101"', remote=f'"https://github.com/{REPO.upper()}/issues/101"'),
+        )
+        self.assertEqual(fx.run("#101")[0], 0)
+
+    def test_epic_children_take_the_tracker_id_a_pulled_leaf_carries(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/tickets.toml", toml_entries((3, None, "story", "Add widget"), (4, "#102", "bug", "Fix gadget")))
+        fx.write(f"{INIT}/epic-a/story-add-widget.md", md(id=3, type="story", title='"Add widget"', tracker_id='"#150"'))
+        _, out, _ = fx.run("#10")
+        children = {c["entry_id"]: c for c in out["children"]}
+        self.assertEqual(children[3]["tracker_id"], 150)
+        self.assertEqual(children[3]["file"], "story-add-widget.md")
+        self.assertEqual(children[4]["tracker_id"], 102)
+        self.assertIsNone(children[4]["file"])
+        self.assertEqual(len(out["children"]), 2)  # the pulled file is not listed a second time
+
+    def test_epic_children_never_guess_between_disagreeing_trackers(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-add-widget.md", md(id=3, type="story", tracker_id='"#999"'))
+        _, out, _ = fx.run("#10")
+        child = next(c for c in out["children"] if c["entry_id"] == 3)
+        self.assertIsNone(child["tracker_id"])
+        self.assertEqual(child["tracker_id_conflict"], [101, 999])
+
+    def test_initiative_children_merge_epic_files_and_list_epics_without_a_row(self):
+        fx = Fixture(self).layout()
+        fx.write(
+            f"{INIT}/tickets.toml",
+            "[[epic]]\nid = 2\nslug = \"epic-a\"\ntitle = \"Epic A\"\n\n[[epic]]\nid = 3\ntracker_id = \"#11\"\nslug = \"epic-b\"\n",
+        )
+        fx.write(f"{INIT}/epic-c/epic-c.md", md(type="epic", title='"Envelope"', tracker_id='"#12"'))
+        _, out, _ = fx.run("#1")
+        by_epic = {c["epic"]: c for c in out["children"]}
+        self.assertEqual(by_epic["epic-a"]["tracker_id"], 10)  # only the epic file writes it
+        self.assertEqual(by_epic["epic-b"]["tracker_id"], 11)
+        self.assertEqual(by_epic["epic-c"]["tracker_id"], 12)
+        self.assertIsNone(by_epic["epic-c"]["epic_id"])
 
     def test_preflight_leaves_every_file_untouched(self):
         fx = Fixture(self).layout()
@@ -362,6 +407,41 @@ class FailClosedTests(unittest.TestCase):
     def test_issue_url_from_another_repository_fails(self):
         self.assertFails(Fixture(self).layout(), "https://github.com/someone/else/issues/101", "wrong_repository")
 
+    def test_an_unreadable_folder_fails_every_lookup(self):
+        fx = Fixture(self).layout()
+        hidden = fx.store / INIT / "epic-b"
+        hidden.chmod(0)
+        self.addCleanup(hidden.chmod, 0o755)  # runs before the temp tree is removed
+        if os.access(hidden, os.R_OK):
+            self.skipTest("folder permissions are not enforced for this user")
+        out = self.assertFails(fx, "#101", "malformed_store")
+        self.assertIn("epic-b", out["error"])
+
+    def test_remote_in_another_repository_fails(self):
+        fx = Fixture(self).layout()
+        fx.write(
+            f"{INIT}/epic-a/story-add-widget.md",
+            md(id=3, type="story", tracker_id='"#101"', remote='"https://github.com/someone/else/issues/101"'),
+        )
+        out = self.assertFails(fx, "#101", "wrong_repository")
+        self.assertIn(REPO, out["error"])
+
+    def test_remote_that_is_not_an_issue_url_fails(self):
+        for remote in ("not a url", f"https://github.com/{REPO}/pull/101", f"https://example.com/{REPO}/issues/101"):
+            fx = Fixture(self).layout()
+            fx.write(f"{INIT}/epic-a/story-add-widget.md", md(id=3, type="story", tracker_id='"#101"', remote=f'"{remote}"'))
+            self.assertFails(fx, "#101", "bad_remote")
+
+    def test_a_remote_written_on_an_epic_row_or_entry_is_checked_too(self):
+        fx = Fixture(self).layout()
+        fx.write(
+            f"{INIT}/epic-a/tickets.toml",
+            toml_entries((3, "#101", "story", "Add widget")).replace(
+                'title = "Add widget"', 'title = "Add widget"\nremote = "https://github.com/someone/else/issues/101"'
+            ),
+        )
+        self.assertFails(fx, "#101", "wrong_repository")
+
     def test_missing_store_fails(self):
         fx = Fixture(self)
         shutil.rmtree(fx.store)
@@ -382,7 +462,15 @@ class StockHandoffTests(unittest.TestCase):
         # An entry that was never pulled has no tracker id in stock's answer; empty is not a conflict.
         self.assertEqual(
             planned[1]["stock_check"],
-            {"agrees": True, "ref": "2.3", "dir": str((fx.store / INIT).resolve()), "stock_tracker_id": None},
+            {
+                "checked": True,
+                "agrees": True,
+                "ref": "2.3",
+                "dir": str((fx.store / INIT).resolve()),
+                "stock_tracker_id": None,
+                "plan_joined": "story-add-widget-plan.md",
+                "plan_status": "in-progress",
+            },
         )
         self.assertTrue(planned[1]["plan"]["exists"])
         self.assertFalse(unplanned[1]["plan"]["exists"])
@@ -393,6 +481,8 @@ class StockHandoffTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(out["handoff"]["active_initiative"], INIT)
         self.assertTrue(out["handoff"]["in_active_initiative"])
+        self.assertEqual(out["handoff"]["bmad_build_input"], "2.3")  # the one case a bare reference is safe
+        self.assertNotIn("note", out["handoff"])
 
     def test_a_ticket_outside_the_active_initiative_is_flagged_for_the_handoff(self):
         fx = self.project()
@@ -403,7 +493,67 @@ class StockHandoffTests(unittest.TestCase):
         code, out, _ = fx.run("#401", "--check-stock")
         self.assertEqual(code, 0, out)
         self.assertFalse(out["handoff"]["in_active_initiative"])
+        self.assertIsNone(out["handoff"]["bmad_build_input"])
+        self.assertEqual(out["handoff"]["scoped"], {"dir": str((fx.store / "initiative-y").resolve()), "ref": "1.1"})
         self.assertIn("initiative-y", out["handoff"]["stock_find"])
+        self.assertIn("active initiative", out["handoff"]["note"])
+
+    def test_without_an_active_initiative_the_handoff_is_folder_scoped_never_bare(self):
+        fx = Fixture(self, project=True, active=None).layout()
+        code, out, _ = fx.run("#101", "--check-stock")
+        self.assertEqual(code, 0, out)
+        handoff = out["handoff"]
+        self.assertIsNone(handoff["bmad_build_input"])
+        self.assertIsNone(handoff["in_active_initiative"])
+        self.assertEqual(handoff["scoped"], {"dir": str((fx.store / INIT).resolve()), "ref": "2.3"})
+        self.assertIn("no active initiative", handoff["note"])
+        # The scoped command works as printed: stock finds the same ticket with the folder and no active initiative.
+        argv = shlex.split(handoff["stock_find"])
+        proc = subprocess.run([sys.executable, *argv[2:]], capture_output=True, text=True, check=False)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["epic"], "epic-a")
+        bare = subprocess.run(
+            [sys.executable, str(fx.root / "_bmad/method/scripts/tickets.py"), "--project-root", str(fx.root), "find", "2.3"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(bare.returncode, 0)  # what a bare reference would have done
+
+    def test_a_backlog_leaf_gets_a_bare_reference_only_when_no_initiative_file_shares_its_name(self):
+        fx = self.project()
+        fx.write("backlog/bug-flaky.md", md(type="bug", title='"Flaky"', tracker_id='"#300"'))
+        self.assertEqual(fx.run("#300")[1]["handoff"]["bmad_build_input"], "bug-flaky.md")
+        fx.write(f"{INIT}/epic-a/bug-flaky.md", md(id=9, type="bug", title='"Same name"'))
+        out = fx.run("#300")[1]["handoff"]
+        self.assertIsNone(out["bmad_build_input"])
+        self.assertEqual(out["scoped"]["ref"], "bug-flaky.md")
+
+    def test_generated_commands_are_shell_quoted_with_the_project_root(self):
+        fx = Fixture(self, project=True, subdir="my proj (x) $HOME 'q'").layout()
+        code, out, _ = fx.run("#101")
+        self.assertEqual(code, 0, out)
+        argv = shlex.split(out["handoff"]["stock_find"])
+        self.assertEqual(
+            argv,
+            [
+                "uv",
+                "run",
+                str(fx.root / "_bmad/method/scripts/tickets.py"),
+                "--project-root",
+                str(fx.root),
+                "find",
+                str((fx.store / INIT).resolve()),
+                "2.3",
+            ],
+        )
+
+    def test_a_store_passed_by_hand_names_no_project_root_in_the_command(self):
+        code, out, _ = Fixture(self).layout().run("#101")
+        self.assertEqual(code, 0)
+        self.assertNotIn("stock_find", out["handoff"])
+        self.assertIsNone(out["handoff"]["bmad_build_input"])
+        self.assertEqual(out["handoff"]["scoped"]["ref"], "2.3")
 
     def test_stock_that_cannot_see_the_plan_the_preflight_found_is_a_disagreement(self):
         fx = self.project()
@@ -539,9 +689,24 @@ class StockHandoffTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertFalse(out["plan"]["exists"])
 
-    def test_check_stock_has_nothing_to_compare_for_an_epic(self):
-        code, out, _ = self.project().run("#10", "--check-stock")
-        self.assertEqual((code, out["code"]), (1, "not_buildable"), out)
+    def test_check_stock_on_containers_succeeds_with_non_buildable_metadata(self):
+        fx = self.project()
+        for ref, layer in (("#10", "epic"), ("#1", "initiative")):
+            code, out, _ = fx.run(ref, "--check-stock")
+            self.assertEqual(code, 0, out)
+            self.assertEqual((out["ok"], out["layer"], out["buildable"]), (True, layer, False))
+            self.assertFalse(out["stock_check"]["checked"])
+            self.assertIn("container", out["stock_check"]["reason"])
+            self.assertNotIn("code", out)
+
+    def test_stock_tracker_ids_in_any_numeric_form_agree_and_others_do_not(self):
+        fx = self.project()
+        for form in (101, "101", "#101", " #101 "):
+            self.assertEqual(self.stock_answer(fx, tracker_id=form)["stock_tracker_id"], "#101", form)
+        for form in (102, "#102", "abc", True, "#0"):
+            with self.assertRaises(resolve_issue.Fail, msg=form) as caught:
+                self.stock_answer(fx, tracker_id=form)
+            self.assertEqual(caught.exception.code, "stock_disagrees", form)
 
 
 if __name__ == "__main__":

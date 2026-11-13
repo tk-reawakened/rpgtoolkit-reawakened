@@ -21,6 +21,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -35,7 +36,7 @@ BREAKDOWN = "tickets.toml"
 ID_RE = re.compile(r"^[0-9A-Za-z]+$")
 NUMBER_RE = re.compile(r"^#?([0-9]+)$")
 ISSUE_URL_RE = re.compile(r"^https://github\.com/([^/\s]+/[^/\s]+)/(issues|pull)/([0-9]+)/?$", re.I)
-REMOTE_RE = re.compile(r"/issues/([0-9]+)/?$")
+REMOTE_RE = re.compile(r"^https://github\.com/([^/\s]+/[^/\s]+)/issues/([0-9]+)/?$", re.I)
 FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.S)
 KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):[ \t]*(.*)$")
 QUOTED_RE = re.compile(r"""^(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)')\s*(?:\s#.*)?$""")
@@ -121,6 +122,11 @@ def title_slug(title: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:60].rstrip("-") or "untitled"
 
 
+def walk_error(error: OSError) -> None:
+    """A folder that cannot be listed could hold the duplicate, so a failed walk fails the lookup."""
+    raise Fail("malformed_store", f"cannot read {error.filename}: {error.strerror or error}") from error
+
+
 class Store:
     """Everything the ticket store says about tickets, plans and tracker ids."""
 
@@ -143,7 +149,7 @@ class Store:
             return str(path)
 
     def _scan(self) -> None:
-        for base, dirnames, filenames in os.walk(self.root):
+        for base, dirnames, filenames in os.walk(self.root, onerror=walk_error):
             dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d not in SKIP_DIRS)
             d = Path(base)
             if BREAKDOWN in filenames:
@@ -189,7 +195,15 @@ class Store:
                     if kind not in LEAF_TYPES:
                         raise Fail("malformed_store", f"{where}: entry {rid} type {kind!r} is not one of {', '.join(LEAF_TYPES)}")
                     info["entries"].append(
-                        {"id": rid, "type": kind, "title": str(row.get("title", "")), "number": number, "order": order, "path": path}
+                        {
+                            "id": rid,
+                            "type": kind,
+                            "title": str(row.get("title", "")),
+                            "number": number,
+                            "order": order,
+                            "path": path,
+                            "remote": str(row.get("remote", "") or ""),
+                        }
                     )
                 else:
                     slug = row.get("slug")
@@ -198,7 +212,14 @@ class Store:
                     if any(r["slug"] == slug for r in info["epic_rows"]):
                         raise Fail("malformed_store", f"{where}: two epic tables with slug {slug}")
                     info["epic_rows"].append(
-                        {"id": rid, "slug": slug, "title": str(row.get("title", "")), "number": number, "path": path}
+                        {
+                            "id": rid,
+                            "slug": slug,
+                            "title": str(row.get("title", "")),
+                            "number": number,
+                            "path": path,
+                            "remote": str(row.get("remote", "") or ""),
+                        }
                     )
 
     def _read_markdown(self, d: Path, path: Path) -> None:
@@ -256,12 +277,12 @@ class Store:
         entry and its file are one ticket; a file with no id is its own), an epic is `epic:<folder>`."""
         for d, info in self.dirs.items():
             for e in info["entries"]:
-                self._carrier(e["number"], "entry", e["path"], ("leaf", d, e["id"]))
+                self._carrier(e["number"], "entry", e["path"], ("leaf", d, e["id"]), e["remote"])
             for leaf in info["leaves"]:
                 ident = leaf["id"] if leaf["id"] is not None else leaf["path"].name
                 self._carrier(leaf["number"], "leaf-file", leaf["path"], ("leaf", d, ident), leaf["remote"])
             for row in info["epic_rows"]:
-                self._carrier(row["number"], "epic-row", row["path"], ("epic", d / row["slug"], None))
+                self._carrier(row["number"], "epic-row", row["path"], ("epic", d / row["slug"], None), row["remote"])
             c = info["container"]
             if c:
                 form = "initiative-file" if c["type"] == "initiative" else "epic-file"
@@ -359,25 +380,31 @@ def leaf_stem(store: Store, d: Path, entry: dict | None, leaf: dict | None) -> s
     return f"{stem}-{entry['id']}" if stem in taken else stem
 
 
-def check_holder(number: int, key, carriers: list[dict], store: Store) -> None:
-    """One ticket's carriers must agree on the number and on the issue their `remote` names."""
+def check_holder(number: int, carriers: list[dict], store: Store, repo: str | None) -> None:
+    """One ticket's carriers must agree on the number, and each `remote` must be the issue URL of that number in
+    the project's repository."""
     for c in carriers:
+        where = store.rel(c["path"])
         if c["number"] is not None and c["number"] != number:
             raise Fail(
                 "tracker_id_conflict",
                 f"#{number} is on {store.rel(next(x for x in carriers if x['number'] == number)['path'])} but the same "
-                f"ticket's {c['form']} {store.rel(c['path'])} says #{c['number']}",
+                f"ticket's {c['form']} {where} says #{c['number']}",
                 carriers=[{"form": x["form"], "path": store.rel(x["path"]), "tracker_id": x["number"]} for x in carriers],
             )
-        m = REMOTE_RE.search(c["remote"] or "")
-        if m and int(m.group(1)) != number:
-            raise Fail(
-                "tracker_id_conflict",
-                f"{store.rel(c['path'])} carries #{number} but its remote names issue {m.group(1)}",
-            )
+        remote = (c["remote"] or "").strip()
+        if not remote:
+            continue
+        m = REMOTE_RE.match(remote)
+        if not m:
+            raise Fail("bad_remote", f"{where}: remote {remote!r} is not a GitHub issue URL like https://github.com/owner/name/issues/123")
+        if int(m.group(2)) != number:
+            raise Fail("tracker_id_conflict", f"{where} carries #{number} but its remote names issue {m.group(2)}")
+        if repo and m.group(1).lower() != repo.lower():
+            raise Fail("wrong_repository", f"{where} carries #{number} but its remote is in {m.group(1)}, not {repo}")
 
 
-def resolve(store: Store, number: int) -> dict:
+def resolve(store: Store, number: int, repo: str | None = None) -> dict:
     holders = store.holders(number)
     if not holders:
         raise Fail(
@@ -395,7 +422,7 @@ def resolve(store: Store, number: int) -> dict:
             ],
         )
     (key, carriers), = holders.items()
-    check_holder(number, key, carriers, store)
+    check_holder(number, carriers, store, repo)
     layer, folder, ident = key
     out = {
         "ok": True,
@@ -495,6 +522,15 @@ def resolve_leaf(store: Store, number: int, d: Path, ident) -> dict:
     }
 
 
+def merged_tracker(numbers: list) -> dict:
+    """A child's tracker id from every place that writes one: the one number they agree on, else none, with the
+    disagreeing numbers named so the child is not shown with a guess."""
+    seen = sorted({n for n in numbers if n is not None})
+    if len(seen) > 1:
+        return {"tracker_id": None, "tracker_id_conflict": seen}
+    return {"tracker_id": seen[0] if seen else None}
+
+
 def resolve_container(store: Store, layer: str, d: Path) -> dict:
     info = store.dirs.get(d, {})
     c = info.get("container")
@@ -502,18 +538,52 @@ def resolve_container(store: Store, layer: str, d: Path) -> dict:
         parent = store.dirs.get(d.parent, {})
         row = next((r for r in parent.get("epic_rows", []) if r["slug"] == d.name), None)
         children = []
+        leaves = {lf["id"]: lf for lf in info.get("leaves", []) if lf["id"] is not None}
         for e in info.get("entries", []):
-            children.append({"entry_id": e["id"], "type": e["type"], "title": e["title"], "tracker_id": e["number"]})
+            leaf = leaves.get(e["id"])
+            children.append(
+                {
+                    "entry_id": e["id"],
+                    "file": leaf["path"].name if leaf else None,
+                    "type": leaf["type"] if leaf else e["type"],
+                    "title": (leaf["title"] if leaf and leaf["title"] else e["title"]),
+                    **merged_tracker([e["number"], leaf["number"] if leaf else None]),
+                }
+            )
         listed = {e["id"] for e in info.get("entries", [])}
         for lf in info.get("leaves", []):
             if lf["id"] is None or lf["id"] not in listed:
                 children.append(
-                    {"entry_id": lf["id"], "file": lf["path"].name, "type": lf["type"], "title": lf["title"], "tracker_id": lf["number"]}
+                    {
+                        "entry_id": lf["id"],
+                        "file": lf["path"].name,
+                        "type": lf["type"],
+                        "title": lf["title"],
+                        **merged_tracker([lf["number"]]),
+                    }
                 )
         title = (c or {}).get("title") or (row or {}).get("title") or ""
         extra = {"epic": d.name, "epic_id": row["id"] if row else None}
     else:
-        children = [{"epic": r["slug"], "epic_id": r["id"], "title": r["title"], "tracker_id": r["number"]} for r in info.get("epic_rows", [])]
+        children = []
+        rows = info.get("epic_rows", [])
+        for r in rows:
+            container = store.dirs.get(d / r["slug"], {}).get("container")
+            children.append(
+                {
+                    "epic": r["slug"],
+                    "epic_id": r["id"],
+                    "title": (container["title"] if container and container["title"] else r["title"]),
+                    **merged_tracker([r["number"], container["number"] if container else None]),
+                }
+            )
+        slugs = {r["slug"] for r in rows}
+        for folder, other in sorted(store.dirs.items()):
+            box = other.get("container")
+            if folder.parent == d and folder.name not in slugs and box and box["type"] == "epic":
+                children.append(
+                    {"epic": folder.name, "epic_id": None, "title": box["title"], **merged_tracker([box["number"]])}
+                )
         title = (c or {}).get("title") or ""
         extra = {"initiative": d.name}
     return {
@@ -611,7 +681,12 @@ def check_stock(root: Path, result: dict) -> dict:
         raise Fail("stock_unreadable", f"stock `tickets.py find` printed no JSON: {e}") from e
     # Stock reads a tracker id only from a pulled leaf file, so an entry-only ticket legitimately comes back with
     # none. Empty is "stock does not know"; a non-empty id that differs is a conflict.
-    stock_tracker = str(found.get("tracker_id") or "").strip()
+    stock_tracker = ""
+    if found.get("tracker_id") not in (None, ""):
+        try:
+            stock_tracker = f"#{tracker_number(found['tracker_id'], 'stock tracker_id')}"  # 101, "101" and "#101" agree
+        except Fail:
+            stock_tracker = str(found["tracker_id"])
     if stock_tracker and stock_tracker != result["issue"]:
         raise Fail(
             "stock_disagrees",
@@ -654,6 +729,7 @@ def check_stock(root: Path, result: dict) -> dict:
             preflight=ours,
         )
     return {
+        "checked": True,
         "agrees": True,
         "ref": stock["ref"],
         "dir": stock["dir"],
@@ -663,18 +739,47 @@ def check_stock(root: Path, result: dict) -> dict:
     }
 
 
-def handoff(result: dict, active: str | None) -> dict:
+def handoff(result: dict, active: str | None, store_dir: Path, store: Store, root: Path | None) -> dict:
+    """How to pass the ticket on. Stock's bare `find <ref>` looks only in the active initiative and then `backlog/`,
+    so a bare reference is offered only when that lookup provably lands on this ticket; otherwise the folder and
+    reference travel together."""
     stock = result["stock"]
     if stock is None:
         return {}
-    home_initiative = Path(result["folder"]).parent.name if result.get("epic_id") is not None else None
-    in_active = None if active is None or home_initiative is None else home_initiative == active
-    return {
-        "bmad_build_input": stock["ref"],
-        "stock_find": f"uv run _bmad/method/scripts/tickets.py --project-root . find {stock['dir']} {stock['ref']}",
+    home = Path(result["folder"])
+    if result.get("epic_id") is not None:
+        in_active = None if active is None else (home.parent.name == active and home.parent.parent == store_dir)
+        bare_safe = bool(in_active)
+    else:
+        in_active = None
+        # A backlog file name is found by stock only after the active initiative has had its turn, and an initiative
+        # file of the same name would win.
+        clash = active is None or any(
+            lf["path"].name == stock["ref"]
+            for folder, info in store.dirs.items()
+            if folder == store_dir / active or (store_dir / active) in folder.parents
+            for lf in info["leaves"]
+        )
+        bare_safe = home == store_dir / "backlog" and not clash and stock["ref"].endswith(".md")
+    out = {
+        "bmad_build_input": stock["ref"] if bare_safe else None,
+        "scoped": {"dir": stock["dir"], "ref": stock["ref"]},
         "active_initiative": active,
         "in_active_initiative": in_active,
     }
+    if root is not None:
+        script = root / "_bmad" / "method" / "scripts" / "tickets.py"
+        out["stock_find"] = shlex.join(
+            ["uv", "run", str(script), "--project-root", str(root), "find", stock["dir"], stock["ref"]]
+        )
+    if not bare_safe:
+        out["note"] = (
+            "a bare reference would not reliably reach this ticket: stock searches only the active initiative and "
+            "backlog/. Use the scoped dir and ref, or set the active initiative"
+            if active
+            else "no active initiative is set, so stock cannot resolve a bare reference. Use the scoped dir and ref"
+        )
+    return out
 
 
 def main(argv: list[str]) -> int:
@@ -705,12 +810,18 @@ def main(argv: list[str]) -> int:
         if not store_dir.is_dir():
             raise Fail("bad_config", f"the ticket store is not a folder: {store_dir}")
         number = parse_reference(args.issue, repo)
-        result = resolve(Store(store_dir), number)
-        result["handoff"] = handoff(result, active)
+        store = Store(store_dir)
+        result = resolve(store, number, repo)
+        # A root only inferred from the working directory says nothing about a store passed by hand.
+        result["handoff"] = handoff(result, active, store_dir, store, root if args.project_root or not args.store else None)
         if args.check_stock:
-            if not result["buildable"]:
-                raise Fail("not_buildable", f"#{number} is an {result['kind']}, not a leaf; --check-stock has nothing to compare")
-            result["stock_check"] = check_stock(root, result)
+            if result["buildable"]:
+                result["stock_check"] = check_stock(root, result)
+            else:
+                result["stock_check"] = {
+                    "checked": False,
+                    "reason": f"this {result['kind']} is a container; stock `find` resolves leaf tickets only",
+                }
     except Fail as e:
         print(json.dumps({"ok": False, "code": e.code, "error": e.message, **e.data}, indent=2, ensure_ascii=False))
         print(f"{e.code}: {e.message}", file=sys.stderr)
