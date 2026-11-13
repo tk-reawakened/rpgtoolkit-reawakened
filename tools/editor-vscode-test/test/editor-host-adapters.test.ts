@@ -152,7 +152,7 @@ test("web and VS Code adapters persist identical edited bytes through the workbe
   deepEqual(webBackupBytes, vscodeBackupBytes);
 });
 
-test("VS Code backup recovery restores serialized edits as dirty and saves them to the original file", async () => {
+test("VS Code backup recovery requires an explicit choice before saving", async () => {
   const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
   const identity = createDocumentIdentity("file:///project", gamePath);
   const source = await openMainDocument({ readProject: async () => ({ ok: true, value: original }), writeProject: async () => ({ ok: true, value: undefined }) }, identity);
@@ -181,9 +181,138 @@ test("VS Code backup recovery restores serialized edits as dirty and saves them 
   ok(recovered.ok);
   equal(recovered.document.getSnapshot().gameTitle, title);
   equal(recovered.document.getSnapshot().dirty, true);
+  const refused = await recovered.document.save();
+  ok(!refused.ok);
+  equal(refused.failure.kind, "conflict");
+  deepEqual(files.get("/project/Main/example.gam"), original);
+  ok(recovered.document.resolveConflict("keep-local").ok);
   const saved = await recovered.document.save();
   ok(saved.ok);
   deepEqual(files.get("/project/Main/example.gam"), backup);
+});
+
+test("hot-exit recovery preserves both versions when the title changed while VS Code was closed", async () => {
+  const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
+  const identity = createDocumentIdentity("file:///project", gamePath);
+  let disk = original.slice();
+  let writes = 0;
+  const storage = {
+    readProject: async () => ({ ok: true as const, value: disk.slice() }),
+    writeProject: async (_project: string, _path: string, bytes: Uint8Array) => {
+      writes += 1;
+      disk = bytes.slice();
+      return { ok: true as const, value: undefined };
+    },
+  };
+  const local = await openMainDocument(storage, identity);
+  ok(local.ok);
+  ok(local.document.apply({ type: "set-game-title", title: "Unsaved before exit" }).ok);
+  const backup = local.document.serialize();
+  const external = await openMainDocument(storage, identity);
+  ok(external.ok);
+  ok(external.document.apply({ type: "set-game-title", title: "Changed while closed" }).ok);
+  disk = external.document.serialize();
+  const externalBytes = disk.slice();
+
+  const recovered = await recoverMainDocument(storage, identity, backup);
+  ok(recovered.ok);
+  equal(recovered.document.getSnapshot().gameTitle, "Unsaved before exit");
+  equal(recovered.document.getSnapshot().conflict?.externalTitle, "Changed while closed");
+  deepEqual(recovered.document.serialize(), backup);
+  const refused = await recovered.document.save();
+  ok(!refused.ok);
+  equal(refused.failure.kind, "conflict");
+  equal(writes, 0);
+  deepEqual(disk, externalBytes);
+  deepEqual(recovered.document.serialize(), backup);
+  equal(recovered.document.getSnapshot().dirty, true);
+  const recoveredAgain = await recoverMainDocument(storage, identity, recovered.document.serialize());
+  ok(recoveredAgain.ok);
+  equal(recoveredAgain.document.getSnapshot().gameTitle, "Unsaved before exit");
+  equal(recoveredAgain.document.getSnapshot().conflict?.externalTitle, "Changed while closed");
+  const refusedAgain = await recoveredAgain.document.save();
+  ok(!refusedAgain.ok);
+  equal(refusedAgain.failure.kind, "conflict");
+  equal(writes, 0);
+  deepEqual(disk, externalBytes);
+  ok(recovered.document.resolveConflict("reload").ok);
+  equal(recovered.document.getSnapshot().gameTitle, "Changed while closed");
+  deepEqual(disk, externalBytes);
+});
+
+test("a later disk change still prevents saving after choosing the recovered version", async () => {
+  const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
+  const identity = createDocumentIdentity("file:///project", gamePath);
+  let disk = original.slice();
+  let writes = 0;
+  const storage = {
+    readProject: async () => ({ ok: true as const, value: disk.slice() }),
+    writeProject: async (_project: string, _path: string, bytes: Uint8Array) => {
+      writes += 1;
+      disk = bytes.slice();
+      return { ok: true as const, value: undefined };
+    },
+  };
+  const source = await openMainDocument(storage, identity);
+  ok(source.ok);
+  ok(source.document.apply({ type: "set-game-title", title: "Recovered" }).ok);
+  const recovered = await recoverMainDocument(storage, identity, source.document.serialize());
+  ok(recovered.ok);
+  ok(recovered.document.resolveConflict("keep-local").ok);
+  ok(source.document.apply({ type: "set-game-title", title: "Changed again" }).ok);
+  disk = source.document.serialize();
+  const newer = disk.slice();
+  const saved = await recovered.document.save();
+  ok(!saved.ok);
+  equal(saved.failure.kind, "conflict");
+  equal(writes, 0);
+  deepEqual(disk, newer);
+  equal(recovered.document.getSnapshot().gameTitle, "Recovered");
+});
+
+test("even identical disk and backup bytes need a recovery decision before save", async () => {
+  const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
+  const identity = createDocumentIdentity("file:///project", gamePath);
+  let writes = 0;
+  const storage = {
+    readProject: async () => ({ ok: true as const, value: original.slice() }),
+    writeProject: async () => { writes += 1; return { ok: true as const, value: undefined }; },
+  };
+  const recovered = await recoverMainDocument(storage, identity, original);
+  ok(recovered.ok);
+  equal(recovered.document.getSnapshot().conflict?.externalTitle, recovered.document.getSnapshot().gameTitle);
+  const refused = await recovered.document.save();
+  ok(!refused.ok);
+  equal(refused.failure.kind, "conflict");
+  equal(writes, 0);
+  ok(recovered.document.resolveConflict("keep-local").ok);
+  ok((await recovered.document.save()).ok);
+});
+
+test("an unreadable disk version keeps recovery pending and cannot be accepted blindly", async () => {
+  const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
+  const identity = createDocumentIdentity("file:///project", gamePath);
+  let readable = false;
+  let writes = 0;
+  const storage = {
+    readProject: async () => readable
+      ? { ok: true as const, value: original.slice() }
+      : { ok: false as const, error: { code: "io-error" as const, message: "unavailable" } },
+    writeProject: async () => { writes += 1; return { ok: true as const, value: undefined }; },
+  };
+  const recovered = await recoverMainDocument(storage, identity, original);
+  ok(recovered.ok);
+  equal(recovered.document.getSnapshot().dirty, true);
+  equal(recovered.document.undo().ok, false);
+  equal(recovered.document.resolveConflict("keep-local").ok, false);
+  const refused = await recovered.document.save();
+  ok(!refused.ok);
+  equal(refused.failure.kind, "conflict");
+  equal(writes, 0);
+  deepEqual(recovered.document.serialize(), original);
+  readable = true;
+  equal(await recovered.document.checkExternal(), "conflict");
+  ok(recovered.document.resolveConflict("keep-local").ok);
 });
 
 async function assertFailedMountedSave(doc: ViewDocument, element: HTMLElement): Promise<void> {

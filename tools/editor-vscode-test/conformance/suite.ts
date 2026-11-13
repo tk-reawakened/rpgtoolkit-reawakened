@@ -270,7 +270,6 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
     name: "a backup is offered back only by a host that declares one",
     async run(host) {
       const editor = await host.open(GAME);
-      const opened = editor.title();
       await editor.type("Only in the backup");
       const recovered = await host.restartFromBackup(GAME);
       if (!host.capabilities.has("backup")) {
@@ -281,10 +280,8 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
       check(recovered !== null, `${host.name} declares backup, so the unsaved work comes back`);
       same(recovered.title(), "Only in the backup", "the recovered view shows the unsaved title");
       check(recovered.model.getSnapshot().dirty && recovered.hostDirty(), "recovered work is unsaved");
-      await recovered.undo();
-      same(recovered.title(), opened, "undoing the recovery shows the file as it is");
-      await recovered.redo();
-      await recovered.save();
+      check(recovered.conflictShown(), "the unknown backup baseline needs an explicit choice");
+      await recovered.choose("Save my version");
       same(await titleOnDisk(host, GAME), "Only in the backup", "and the recovered work saves to the original file");
     },
   },

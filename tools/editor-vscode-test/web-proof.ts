@@ -135,7 +135,8 @@ export async function runVscodeWebProof(
 
   await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
   await expect.poll(() => frameCspViolations(page, recoveredEditor, consoleViolations)).toEqual([]);
-  await recoveredEditor.getByRole("button", { name: "Save" }).click();
+  await expect(recoveredEditor.getByRole("group", { name: "Changed on disk" })).toBeVisible();
+  await recoveredEditor.getByRole("button", { name: "Save my version" }).click();
   await expect(recoveredEditor.getByRole("status")).toHaveText("All changes saved");
   const recovered = await readWorkspaceBytes(page, expect);
   expect(recovered).toEqual(recoveredBytes);
