@@ -1,6 +1,6 @@
 [workflow]
 activation_steps_append = [
-  "When the requested build names a GitHub issue number or issue URL, invoke the project tkr-issue-preflight skill with --check-stock before ticket resolution. Use only its verified folder-scoped handoff. On an error, stop; never treat the issue as freeform intent or create a duplicate ticket."
+  "Before ticket resolution, run the project tkr-issue-preflight skill with --validate-store. On an error, stop. When the requested build names a GitHub issue number or issue URL, also invoke that skill with --check-stock and use only its verified folder-scoped handoff; never treat the issue as freeform intent or create a duplicate ticket."
 ]
 
 persistent_facts = [
