@@ -51,10 +51,23 @@ export interface ConformanceEditor {
   show(): Promise<void>;
 }
 
+/** The next write the host starts, held at the point where its bytes would reach the file. */
+export interface HeldWrite {
+  /** Settles when that write has started and is waiting. */
+  readonly started: Promise<void>;
+  /** Let the held write finish; before it starts, stop holding it. */
+  release(): void;
+}
+
 export interface ConformanceHost {
   readonly name: string;
   /** What the host declares to `editor-ui` (AD-20). */
   readonly capabilities: Capabilities;
+  /**
+   * How many writes one save makes while edits keep arriving during them: one where a later edit simply stays dirty,
+   * more where the host writes it in the same save (ADR 0022 D14.6).
+   */
+  readonly saveWrites: number;
   /** Open a tab on `path` (or another tab on an open document). Rejects when the host refuses to open it. */
   open(path: string): Promise<ConformanceEditor>;
   /** Save All; per path, whether that document saved. */
@@ -65,8 +78,8 @@ export interface ConformanceHost {
   writeOutside(path: string, bytes: Uint8Array | null): Promise<void>;
   /** Make the host refuse every write, or accept them again. */
   refuseWrites(refuse: boolean): void;
-  /** Hold every later write until the returned function is called. */
-  holdWrites(): () => void;
+  /** Hold the next write the host starts (only that one) until it is released. */
+  holdNextWrite(): HeldWrite;
   /** Let pending messages, events and writes run. */
   settle(): Promise<void>;
   /** Restart from the host's backups and reopen `path`; `null` when the host keeps no backup. */
@@ -113,6 +126,17 @@ async function titleOnDisk(host: ConformanceHost, path: string): Promise<string 
   return opened.ok ? opened.document.getSnapshot().gameTitle : null;
 }
 
+/** `true` once `held` has started, `false` when `operation` finishes first (nothing reached the held write). */
+function heldOrDone(held: HeldWrite, operation: Promise<unknown>): Promise<boolean> {
+  return Promise.race([held.started.then(() => true), operation.then(() => false)]);
+}
+
+/** Wait until `held` has started; fail, rather than hang, when `operation` finishes without reaching it. */
+async function heldWriteStarted(host: ConformanceHost, held: HeldWrite, operation: Promise<unknown>): Promise<void> {
+  check(await heldOrDone(held, operation), `${host.name} finished before the held write started`);
+  await host.settle();
+}
+
 const UNSAVED = "Unsaved changes";
 const SAVED = "All changes saved";
 
@@ -144,27 +168,92 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
     },
   },
   {
-    name: "a save marks clean only what the host reports written; an edit made during the write stays dirty",
+    // Hosts complete a save differently (see `GameDocument.save` in host-vscode): the browser workspace marks clean only
+    // the revision it wrote, so the later edit stays dirty; VS Code marks every edit it has heard of saved when the
+    // provider resolves, so its provider writes the later edit too before resolving. In both drivers the edit is kept,
+    // no failure is reported, and the host's dirty marker agrees with the model. The VS Code driver does not model an
+    // edit or undo landing while the workbench records the save (ADR 0022 D14.6, #2225).
+    name: "a save never claims an edit made during its write: it stays dirty or is written too, and no failure is reported",
     async run(host, fixture) {
       const editor = await host.open(GAME);
       await editor.type("Written");
-      const release = host.holdWrites();
+      const held = host.holdNextWrite();
       const saving = editor.save();
-      await host.settle();
+      await heldWriteStarted(host, held, saving);
       same(editor.status(), "Saving…", "the view says it is saving while the write is held");
       same(editor.model.getSnapshot().dirty, true, "not clean before the host reports the write");
       sameBytes(await host.disk(GAME), fixture, "the held write has not reached the file");
       await editor.type("Later");
-      release();
+      held.release();
       await saving;
       await host.settle();
-      same(await titleOnDisk(host, GAME), "Written", "the revision captured when Save was pressed is the one written");
       same(editor.title(), "Later", "the later edit is kept");
-      check(editor.model.getSnapshot().dirty && editor.hostDirty(), "the later edit stays dirty in the model and the host");
-      await editor.save();
-      same(await titleOnDisk(host, GAME), "Later", "the next save writes it");
+      same(JSON.stringify(editor.alerts()), "[]", "a save whose captured revision was written is not reported as failed");
+      const dirty = editor.model.getSnapshot().dirty;
+      same(editor.hostDirty(), dirty, "the host's dirty marker agrees with the model");
+      same(await titleOnDisk(host, GAME), dirty ? "Written" : "Later", "the file holds the captured revision while the later edit is dirty, or the later edit once clean");
+      if (dirty) await editor.save();
+      same(await titleOnDisk(host, GAME), "Later", "the latest edit reaches the file");
       check(!editor.model.getSnapshot().dirty && !editor.hostDirty(), "and then the document is clean");
       same(editor.status(), SAVED, "the view says it is saved");
+    },
+  },
+  {
+    name: "edits that keep outrunning a save stay unsaved and visible; a host that writes again gives up visibly",
+    async run(host) {
+      const editor = await host.open(GAME);
+      await editor.type("Edit 0");
+      let held = host.holdNextWrite();
+      const saving = editor.save();
+      let writes = 0;
+      // Each write the save starts is held while one more edit arrives. The loop stops after one write more than any
+      // host declares, so a host that kept writing fails the bound below instead of hanging.
+      while (writes <= host.saveWrites && await heldOrDone(held, saving)) {
+        writes += 1;
+        await host.settle();
+        await editor.type(`Edit ${writes}`);
+        const next = host.holdNextWrite();
+        held.release();
+        held = next;
+      }
+      held.release();
+      await saving;
+      await host.settle();
+      same(writes, host.saveWrites, `${host.name} writes exactly as many times as it declares before it stops (ADR 0022 D14.6)`);
+      same(editor.title(), `Edit ${writes}`, "the latest edit is shown");
+      check(editor.model.getSnapshot().dirty && editor.hostDirty(), "the latest edit is still unsaved in the model and the host");
+      same(editor.status(), UNSAVED, "the view says so");
+      same(await titleOnDisk(host, GAME), `Edit ${writes - 1}`, "the last write holds the revision it captured");
+      same(
+        editor.alerts().some((alert) => alert.includes(GAME)),
+        host.saveWrites > 1,
+        "a host that writes again for edits made during a save names the document when it gives up; a host that writes once reports nothing",
+      );
+      await editor.save();
+      same(await titleOnDisk(host, GAME), `Edit ${writes}`, "the kept edit saves once the edits stop");
+      check(!editor.model.getSnapshot().dirty && !editor.hostDirty(), "and then the document is clean");
+    },
+  },
+  {
+    name: "close with save never drops an edit made while the write is held",
+    async run(host) {
+      const editor = await host.open(GAME);
+      await editor.type("Written on close");
+      const held = host.holdNextWrite();
+      const closing = editor.close("save");
+      await heldWriteStarted(host, held, closing);
+      same(editor.status(), "Saving…", "the close's save has reached the held write");
+      await editor.type("Edited while closing");
+      held.release();
+      if (await closing) {
+        same(await titleOnDisk(host, GAME), "Edited while closing", "a host that closes the tab wrote the newer edit first");
+        same(host.modelsOpen(), 0, "and then released the model");
+        return;
+      }
+      same(await titleOnDisk(host, GAME), "Written on close", "the held write captured the revision present when Save was answered");
+      same(editor.title(), "Edited while closing", "the newer edit remains accessible in the source tab");
+      same(editor.status(), UNSAVED, "the source still reports unsaved work");
+      check(editor.model.getSnapshot().dirty && editor.hostDirty(), "the newer revision stays dirty in the model and host");
     },
   },
   {
@@ -201,6 +290,66 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
       check(!copy.model.getSnapshot().dirty && !copy.hostDirty(), "the copy is clean");
       same(await titleOnDisk(host, "Main/copy.gam"), "Saved elsewhere", "the copy's file holds the edit");
       sameBytes(await host.disk(GAME), fixture, "the source file is unchanged");
+    },
+  },
+  {
+    name: "Save As during a held write copies its captured revision and keeps newer source edits",
+    async run(host, fixture) {
+      const editor = await host.open(GAME);
+      await editor.type("Captured by Save As");
+      const captured = retitled(fixture, "Captured by Save As");
+      const destination = "Main/save-as-race.gam";
+      const held = host.holdNextWrite();
+      const saving = editor.saveAs(destination);
+      await heldWriteStarted(host, held, saving);
+      same(await titleOnDisk(host, destination), null, "the destination is not yet a complete file while the write is held");
+      await editor.type("Edited during Save As");
+      held.release();
+      const copy = await saving;
+      sameBytes(await host.disk(destination), captured, "the destination contains exactly the earlier captured revision");
+      sameBytes(await host.disk(GAME), fixture, "Save As leaves the original source file unchanged");
+      same(editor.title(), "Edited during Save As", "the newer source edit remains accessible");
+      same(editor.status(), UNSAVED, "the source still reports unsaved work");
+      check(editor.model.getSnapshot().dirty && editor.hostDirty(), "the source remains dirty in the model and host");
+      same(copy, null, "the host reports partial completion rather than replacing the source with an older copy");
+    },
+  },
+  {
+    name: "Save As succeeds when a save of the same revision finishes during its write",
+    async run(host) {
+      const editor = await host.open(GAME);
+      await editor.type("Copied and saved");
+      const destination = "Main/save-as-saved.gam";
+      const held = host.holdNextWrite();
+      const saving = editor.saveAs(destination);
+      await heldWriteStarted(host, held, saving);
+      await editor.save();
+      same(await titleOnDisk(host, GAME), "Copied and saved", "the plain save finished while Save As was writing");
+      held.release();
+      const copy = await saving;
+      check(copy !== null, "finishing a save of the same revision is not a change that fails Save As");
+      same(copy.title(), "Copied and saved", "the copy shows the revision written");
+      same(await titleOnDisk(host, destination), "Copied and saved", "and its file holds it");
+    },
+  },
+  {
+    name: "Save As keeps the source when an undo and a new edit during its write leave the same number of edits",
+    async run(host, fixture) {
+      const editor = await host.open(GAME);
+      await editor.type("Copied first");
+      const destination = "Main/save-as-undo.gam";
+      const held = host.holdNextWrite();
+      const saving = editor.saveAs(destination);
+      await heldWriteStarted(host, held, saving);
+      await editor.undo();
+      await editor.type("Replaced during Save As");
+      same(editor.model.getSnapshot().edits.length, 1, "as many edits in force as when the copy was taken, but a different latest one");
+      held.release();
+      same(await saving, null, "the copy lacks the edit now in force, so Save As does not replace the source");
+      same(await titleOnDisk(host, destination), "Copied first", "the destination holds the revision it captured");
+      sameBytes(await host.disk(GAME), fixture, "the source file is unchanged");
+      same(editor.title(), "Replaced during Save As", "the source keeps the new edit");
+      check(editor.model.getSnapshot().dirty && editor.hostDirty(), "and it is unsaved in the model and the host");
     },
   },
   {
@@ -373,6 +522,55 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
       const twin = await host.open(SECOND).catch((error: unknown) => (error instanceof Error ? error.message : String(error)));
       check(typeof twin === "string" && twin.includes("Main/SECOND.gam") && twin.includes("Main/second.gam"), `files that differ only in case are refused, naming both: ${String(twin)}`);
       same(host.modelsOpen(), 1, "and the refused file opens no model");
+    },
+  },
+  {
+    name: "closing one of two views preserves the shared model and prompts when the last closes",
+    async run(host) {
+      const first = await host.open(GAME);
+      const second = await host.open(GAME);
+      const original = first.title();
+      await first.type("Shared unsaved work");
+      same(await first.close("cancel"), true, "closing one view needs no loss confirmation");
+      same(host.modelsOpen(), 1, "the remaining view still owns the model");
+      const reopened = await host.open(GAME);
+      check(reopened.model === second.model, "reopening reuses the model with the unsaved edit");
+      same(reopened.title(), "Shared unsaved work", "the edit is visible in the reopened view");
+      await second.undo();
+      same(reopened.title(), original, "the shared undo history survives closing a view");
+      await second.redo();
+      same(reopened.title(), "Shared unsaved work", "the shared redo history survives too");
+      same(await reopened.close("cancel"), true, "another non-final view closes");
+      same(await second.close("cancel"), false, "the last dirty view asks and honours cancel");
+      check(second.model.getSnapshot().dirty && second.hostDirty(), "the work remains dirty");
+      same(await second.close("save"), true, "the last view can save and close");
+      same(await titleOnDisk(host, GAME), "Shared unsaved work", "the work reached the file");
+      same(host.modelsOpen(), 0, "the last close releases the model");
+    },
+  },
+  {
+    name: "a hidden second tab keeps the shared model and history after its sibling closes",
+    async run(host) {
+      const hidden = await host.open(GAME);
+      const closing = await host.open(GAME);
+      const original = hidden.title();
+      check(hidden.model === closing.model, "both tabs share the same model before hiding");
+      await hidden.type("Shared hidden edit");
+      await hidden.hide();
+      same(await closing.close("cancel"), true, "closing the other view needs no save prompt");
+      same(host.modelsOpen(), 1, "the hidden view still owns the shared model");
+      await hidden.show();
+      check(hidden.model === closing.model, "showing the hidden view reuses the shared model");
+      same(hidden.title(), "Shared hidden edit", "the hidden view shows the edit made in its sibling");
+      await hidden.undo();
+      same(hidden.title(), original, "the shared undo history survives hiding and closing its sibling");
+      await hidden.redo();
+      same(hidden.title(), "Shared hidden edit", "the shared redo history survives too");
+      same(await hidden.close("cancel"), false, "the final dirty view prompts and honours cancel");
+      check(hidden.model.getSnapshot().dirty && hidden.hostDirty(), "the last close leaves the edit dirty");
+      same(await hidden.close("save"), true, "the final view can save and close");
+      same(await titleOnDisk(host, GAME), "Shared hidden edit", "the final close saves the shared work");
+      same(host.modelsOpen(), 0, "the last close releases the model");
     },
   },
   {
