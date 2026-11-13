@@ -1,10 +1,12 @@
 {
   "method": {
-    "windows": "fixed window opened at the first save; saves inside it merge (window-model.mjs)",
-    "saveRates": "constant saves per hour, sustained for 24 hours: an upper bound, not a usage estimate",
+    "windows": "fixed-window arithmetic over synthetic evenly spaced saves (window-model.mjs)",
+    "saveRates": "scenario inputs extrapolated over 24 hours; not observed usage",
+    "scope": "measured board-size corpus and single-board scenarios only; no timestamped editing-hour trace or project-wide model",
     "megabyte": "1 MB = 1,000,000 bytes",
     "corpusSource": "docs/findings/native-data-boundaries/data/assets.jsonl",
-    "corpusNote": "sizes from the inventory; no content dedup assumed"
+    "corpusNote": "sizes from the inventory; no content dedup assumed",
+    "scenarioNote": "each storage row applies one board size; it is not a project estimate or upper bound"
   },
   "roundTrip": {
     "files": 14,
@@ -108,12 +110,16 @@
       "sum": 81488614
     }
   },
-  "session": {
+  "syntheticSequence": {
+    "kind": "synthetic-single-board-save-sequence",
     "board": "docs/spec/examples/game/Game/Example/Boards/village.brd",
     "cells": 384,
-    "edits": 500,
+    "saves": 500,
+    "timestamped": false,
+    "elapsedTimeMeasured": false,
     "baselineMatchesFile": true,
     "distinctDigests": 473,
+    "repeatedSaveCount": 27,
     "bytes": {
       "count": 500,
       "min": 986,
@@ -134,7 +140,7 @@
         "corpusMedian": 52.62768,
         "corpusP90": 215.09712,
         "corpusMax": 694.62576,
-        "sessionMean": 2.1628742400000003
+        "syntheticSequenceMean": 2.1628742400000003
       }
     },
     {
@@ -146,7 +152,7 @@
         "corpusMedian": 315.76608,
         "corpusP90": 1290.58272,
         "corpusMax": 4167.75456,
-        "sessionMean": 12.97724544
+        "syntheticSequenceMean": 12.97724544
       }
     },
     {
@@ -158,7 +164,7 @@
         "corpusMedian": 315.76608,
         "corpusP90": 1290.58272,
         "corpusMax": 4167.75456,
-        "sessionMean": 12.97724544
+        "syntheticSequenceMean": 12.97724544
       }
     },
     {
@@ -170,7 +176,7 @@
         "corpusMedian": 52.62768,
         "corpusP90": 215.09712,
         "corpusMax": 694.62576,
-        "sessionMean": 2.1628742400000003
+        "syntheticSequenceMean": 2.1628742400000003
       }
     },
     {
@@ -182,7 +188,7 @@
         "corpusMedian": 52.62768,
         "corpusP90": 215.09712,
         "corpusMax": 694.62576,
-        "sessionMean": 2.1628742400000003
+        "syntheticSequenceMean": 2.1628742400000003
       }
     },
     {
@@ -194,7 +200,7 @@
         "corpusMedian": 52.62768,
         "corpusP90": 215.09712,
         "corpusMax": 694.62576,
-        "sessionMean": 2.1628742400000003
+        "syntheticSequenceMean": 2.1628742400000003
       }
     },
     {
@@ -206,7 +212,7 @@
         "corpusMedian": 10.525536,
         "corpusP90": 43.019424,
         "corpusMax": 138.925152,
-        "sessionMean": 0.432574848
+        "syntheticSequenceMean": 0.432574848
       }
     },
     {
@@ -218,7 +224,7 @@
         "corpusMedian": 10.525536,
         "corpusP90": 43.019424,
         "corpusMax": 138.925152,
-        "sessionMean": 0.432574848
+        "syntheticSequenceMean": 0.432574848
       }
     },
     {
@@ -230,7 +236,7 @@
         "corpusMedian": 10.525536,
         "corpusP90": 43.019424,
         "corpusMax": 138.925152,
-        "sessionMean": 0.432574848
+        "syntheticSequenceMean": 0.432574848
       }
     }
   ]
