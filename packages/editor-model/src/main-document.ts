@@ -75,8 +75,8 @@ export type ConflictResult =
 
 /**
  * What `checkExternal` found: the file is as the document last read or wrote it; it changed and the clean document now
- * shows the new version; it changed under unsaved work (or cannot be loaded) and is now a conflict; or the document
- * cannot tell, because its last write failed or the file could not be read.
+ * shows the new version; it changed under unsaved work (or cannot be loaded) and is now a conflict; or the file could
+ * not be read.
  */
 export type ExternalCheck = "unchanged" | "reloaded" | "conflict" | "unknown";
 
@@ -270,14 +270,13 @@ class MainDocumentImpl implements MainDocument {
   #applied = 0;
   /** How many commands were in force when the file was last written, or `null` when that state can no longer be reached. */
   #savedAt: number | null = 0;
+  /** Changes to the model or history, including edits that are subsequently undone. */
+  #generation = 0;
   /** Never reset, so an edit id is never reused, even after a reload: a host still holding an old id gets `stale-edit`. */
   #nextId = 1;
   #model: MainFile;
-  /**
-   * What the file holds as far as this document knows: the bytes it last read or wrote, `null` when the file is known to
-   * be gone, `undefined` when a write failed and the file may hold anything (`fs.write`, platform-services fs.ts).
-   */
-  #disk: Uint8Array | null | undefined;
+  /** The comparison baseline: the bytes last read or successfully written, or `null` when known absent. */
+  #disk: Uint8Array | null;
   /** A change on disk waiting for the user's choice, with the bytes found (`null`: the file is gone). */
   #external: { readonly bytes: Uint8Array | null; readonly change: ExternalChange } | null = null;
   /** Saves asked for and not yet finished. */
@@ -326,6 +325,7 @@ class MainDocumentImpl implements MainDocument {
     this.#stack = [...this.#stack.slice(0, this.#applied), record];
     if (this.#savedAt !== null && this.#savedAt > this.#applied) this.#savedAt = null;
     this.#applied += 1;
+    this.#generation += 1;
     this.#model = next;
     this.#publish();
     return { ok: true, editId: record.editId };
@@ -337,6 +337,7 @@ class MainDocumentImpl implements MainDocument {
     if (latest === undefined) return { ok: false, reason: "nothing-to-undo" };
     if (editId !== undefined && editId !== latest.editId) return { ok: false, reason: "stale-edit" };
     this.#applied -= 1;
+    this.#generation += 1;
     this.#model = this.#replay();
     this.#publish();
     return { ok: true, editId: latest.editId };
@@ -348,6 +349,7 @@ class MainDocumentImpl implements MainDocument {
     if (next === undefined) return { ok: false, reason: "nothing-to-redo" };
     if (editId !== undefined && editId !== next.editId) return { ok: false, reason: "stale-edit" };
     this.#applied += 1;
+    this.#generation += 1;
     this.#model = this.#replay();
     this.#publish();
     return { ok: true, editId: next.editId };
@@ -415,7 +417,9 @@ class MainDocumentImpl implements MainDocument {
   }
 
   revert(expectedHead?: string | null): Promise<RevertResult> {
-    const run = this.#queue.then(() => this.#revert(expectedHead));
+    const head = expectedHead === undefined ? (this.#stack[this.#applied - 1]?.editId ?? null) : expectedHead;
+    const generation = this.#generation;
+    const run = this.#queue.then(() => this.#revert(head, generation));
     this.#queue = run;
     return run;
   }
@@ -455,28 +459,25 @@ class MainDocumentImpl implements MainDocument {
       if (this.#savedAt === revision && this.#isRevision(revision, head)) return { ok: true };
       // A change already waiting for the user's choice is never written over (D3.5).
       if (this.#external !== null) return this.#fail(this.#conflictFailure(this.#external.change));
-      // Compare the file with what this document last read or wrote before replacing it (D11.3). After a failed write
-      // the file may hold anything, the document's own half-write included, so there is nothing to compare with.
-      if (this.#disk !== undefined) {
-        const onDisk = await this.#readDisk();
-        if (!onDisk.ok) {
-          return this.#fail({
-            document: path,
-            kind: "write",
-            code: onDisk.error.code,
-            message: `Could not save ${path}: the file on disk could not be checked first: ${onDisk.error.message}`,
-          });
+      // A failed write may have changed the file, but the last known baseline remains the comparison point.
+      const onDisk = await this.#readDisk();
+      if (!onDisk.ok) {
+        return this.#fail({
+          document: path,
+          kind: "write",
+          code: onDisk.error.code,
+          message: `Could not save ${path}: the file on disk could not be checked first: ${onDisk.error.message}`,
+        });
+      }
+      if (!sameContent(onDisk.bytes, this.#disk)) {
+        if (onDisk.bytes !== null && sameBytes(onDisk.bytes, bytes)) {
+          // The file already holds exactly this revision (another editor saved the same thing): nothing to write.
+          this.#disk = onDisk.bytes;
+          this.#savedAt = this.#isRevision(revision, head) ? revision : null;
+          return { ok: true };
         }
-        if (!sameContent(onDisk.bytes, this.#disk)) {
-          if (onDisk.bytes !== null && sameBytes(onDisk.bytes, bytes)) {
-            // The file already holds exactly this revision (another editor saved the same thing): nothing to write.
-            this.#disk = onDisk.bytes;
-            this.#savedAt = this.#isRevision(revision, head) ? revision : null;
-            return { ok: true };
-          }
-          const change = this.#raise(onDisk.bytes);
-          return this.#fail(this.#conflictFailure(change));
-        }
+        const change = this.#raise(onDisk.bytes);
+        return this.#fail(this.#conflictFailure(change));
       }
       let written: PlatformResult<void>;
       try {
@@ -498,7 +499,6 @@ class MainDocumentImpl implements MainDocument {
   }
 
   async #check(): Promise<ExternalCheck> {
-    if (this.#disk === undefined) return "unknown";
     const onDisk = await this.#readDisk();
     if (!onDisk.ok) return "unknown";
     if (sameContent(onDisk.bytes, this.#disk)) {
@@ -529,26 +529,33 @@ class MainDocumentImpl implements MainDocument {
     return "conflict";
   }
 
-  async #revert(expectedHead?: string | null): Promise<RevertResult> {
+  async #revert(expectedHead: string | null, generation: number): Promise<RevertResult> {
     const path = this.identity.path;
-    if (expectedHead !== undefined && (this.#stack[this.#applied - 1]?.editId ?? null) !== expectedHead) {
+    if (this.#generation !== generation || (this.#stack[this.#applied - 1]?.editId ?? null) !== expectedHead) {
       return {
         ok: false,
         failure: { document: path, kind: "changed", code: null, message: `Could not revert ${path}: it was edited after the revert was chosen, so nothing was reverted.` },
       };
     }
     const onDisk = await this.#readDisk();
+    if (this.#generation !== generation || (this.#stack[this.#applied - 1]?.editId ?? null) !== expectedHead) {
+      return {
+        ok: false,
+        failure: { document: path, kind: "changed", code: null, message: `Could not revert ${path}: it was edited after the revert was chosen, so nothing was reverted.` },
+      };
+    }
     if (!onDisk.ok) {
       return { ok: false, failure: { document: path, kind: "read", code: onDisk.error.code, message: `Could not revert ${path}: ${onDisk.error.message}` } };
     }
     if (onDisk.bytes === null) {
       return { ok: false, failure: { document: path, kind: "read", code: "not-found", message: `Could not revert ${path}: the file is no longer on disk.` } };
     }
-    if (this.#disk !== undefined && this.#savedAt !== null && sameContent(onDisk.bytes, this.#disk)) {
+    if (this.#savedAt !== null && sameContent(onDisk.bytes, this.#disk)) {
       // The saved revision is still the file: return to it, keep the history before it and drop what came after, as a
       // host's own revert does.
       this.#stack = this.#stack.slice(0, this.#savedAt);
       this.#applied = this.#savedAt;
+      this.#generation += 1;
       this.#model = this.#replay();
       this.#external = null;
       this.#saveError = null;
@@ -569,6 +576,7 @@ class MainDocumentImpl implements MainDocument {
   #load(bytes: Uint8Array): boolean {
     const read = readMainFile(new BinaryReader(bytes, this.identity.path));
     if (!read.ok) return false;
+    this.#generation += 1;
     this.#base = read.value;
     this.#model = read.value;
     this.#opened = bytes.slice();
@@ -616,13 +624,11 @@ class MainDocumentImpl implements MainDocument {
   }
 
   /**
-   * A write the host did not complete. `fs.write` may leave the file in any state when it fails (platform-services
-   * fs.ts), so no revision is known to be on disk any more: the document is dirty until a save succeeds, even if undo
-   * brings the commands back to the last state that was saved.
+   * A failed write may leave the file in any state. Keep the last comparison baseline, but mark the saved revision
+   * unknown so the document stays dirty even if undo returns to the previous saved state.
    */
   #failWrite(path: string, code: PlatformError["code"] | null, reason: string): SaveResult {
     this.#savedAt = null;
-    this.#disk = undefined;
     return this.#fail({ document: path, kind: "write", code, message: `Could not save ${path}: ${reason}` });
   }
 

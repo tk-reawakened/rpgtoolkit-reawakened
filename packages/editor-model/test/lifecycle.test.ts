@@ -96,15 +96,15 @@ test("revert returns to the saved revision and keeps the history before it, or r
   equal(doc.getSnapshot().dirty, false, "the file on disk is what the document holds");
 });
 
-test("checkExternal reports unknown after a failed write, and a file already holding this revision is not a conflict", async () => {
+test("checkExternal compares the last known baseline after a failed write, and an identical revision is not a conflict", async () => {
   const original = exampleMain(9);
   const { host, doc } = await open(original);
   doc.apply({ type: "set-game-title", title: "Written" });
   host.failWrites({ code: "io-error", message: "the disk went away" });
   ok(!(await doc.save()).ok);
-  equal(await doc.checkExternal(), "unknown", "the failed write may have left anything");
+  equal(await doc.checkExternal(), "unchanged", "the disk still matches the baseline");
   host.failWrites(null);
-  ok((await doc.save()).ok, "a save after a failed one writes without a compare");
+  ok((await doc.save()).ok, "a save after a failed one compares before retrying");
 
   const second = await open(original);
   second.doc.apply({ type: "set-game-title", title: "Same" });
@@ -179,4 +179,134 @@ test("revert refuses rather than discarding an edit accepted after the user chos
   const reverting = await doc.revert(doc.getSnapshot().edits.at(-1)?.editId ?? null);
   ok(reverting.ok, "with the current edit named, the revert goes ahead");
   equal(doc.getSnapshot().gameTitle, "Saved");
+});
+
+test("a failed save followed by an external edit conflicts on retry without overwriting either version", async () => {
+  const original = exampleMain(9);
+  const { host, doc } = await open(original);
+  ok(doc.apply({ type: "set-game-title", title: "Mine" }).ok);
+  host.failWrites({ code: "io-error", message: "write failed" });
+  const failed = await doc.save();
+  ok(!failed.ok);
+  equal(failed.failure.kind, "write");
+  const external = withTitle(original, "Theirs");
+  host.seed(PATH, external);
+  host.failWrites(null);
+
+  const retry = await doc.save();
+  ok(!retry.ok);
+  equal(retry.failure.kind, "conflict");
+  equal(doc.getSnapshot().conflict?.externalTitle, "Theirs");
+  equal(doc.getSnapshot().gameTitle, "Mine");
+  equal(doc.getSnapshot().dirty, true);
+  deepEqual(host.bytesOf(PATH), external);
+  ok(doc.resolveConflict("keep-local").ok);
+  ok((await doc.save()).ok);
+  equal(titleOf(host.bytesOf(PATH)!), "Mine");
+});
+
+test("a retry cannot write if its disk comparison cannot be read", async () => {
+  const original = exampleMain(9);
+  const host = createMemoryPlatformServices({ files: { [PATH]: original } });
+  let failRead = false;
+  let writes = 0;
+  const opened = await openMainDocument({
+    readProject: (projectId, path) => failRead
+      ? Promise.resolve({ ok: false, error: { code: "io-error", message: "read failed" } })
+      : host.fs.readProject(projectId, path),
+    writeProject: (projectId, path, bytes) => {
+      writes += 1;
+      return host.fs.writeProject(projectId, path, bytes);
+    },
+  }, identity);
+  ok(opened.ok);
+  const doc = opened.document;
+  ok(doc.apply({ type: "set-game-title", title: "Mine" }).ok);
+  host.failWrites({ code: "io-error", message: "write failed" });
+  ok(!(await doc.save()).ok);
+  host.failWrites(null);
+  failRead = true;
+  const retry = await doc.save();
+  ok(!retry.ok);
+  equal(retry.failure.kind, "write");
+  equal(writes, 1);
+  equal(doc.getSnapshot().dirty, true);
+  deepEqual(host.bytesOf(PATH), original);
+});
+
+test("revert refuses edits accepted during its disk read, even when the file changed", async () => {
+  for (const changedDisk of [false, true]) {
+    const original = exampleMain(9);
+    const host = createMemoryPlatformServices({ files: { [PATH]: original } });
+    let release!: () => void;
+    let started!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const reading = new Promise<void>((resolve) => { started = resolve; });
+    let hold = false;
+    const storage = {
+      readProject: async (projectId: string, path: string) => {
+        if (hold) {
+          started();
+          await held;
+        }
+        return host.fs.readProject(projectId, path);
+      },
+      writeProject: host.fs.writeProject.bind(host.fs),
+    };
+    const opened = await openMainDocument(storage, identity);
+    ok(opened.ok);
+    const doc = opened.document;
+    ok(doc.apply({ type: "set-game-title", title: "Before" }).ok);
+    const head = doc.getSnapshot().edits.at(-1)!.editId;
+    if (changedDisk) host.seed(PATH, withTitle(original, "Outside"));
+    hold = true;
+    const reverting = doc.revert(head);
+    await reading;
+    ok(doc.apply({ type: "set-game-title", title: "During read" }).ok);
+    release();
+    const result = await reverting;
+    ok(!result.ok);
+    equal(result.failure.kind, "changed");
+    equal(doc.getSnapshot().gameTitle, "During read");
+    equal(doc.getSnapshot().dirty, true);
+    equal(doc.getSnapshot().edits.length, 2);
+    ok(doc.undo().ok);
+    equal(doc.getSnapshot().gameTitle, "Before");
+  }
+});
+
+test("revert refuses an edit made and undone during its disk read", async () => {
+  const original = exampleMain(9);
+  const host = createMemoryPlatformServices({ files: { [PATH]: original } });
+  let release!: () => void;
+  let started!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const reading = new Promise<void>((resolve) => { started = resolve; });
+  let hold = false;
+  const opened = await openMainDocument({
+    readProject: async (projectId, path) => {
+      if (hold) {
+        started();
+        await held;
+      }
+      return host.fs.readProject(projectId, path);
+    },
+    writeProject: host.fs.writeProject.bind(host.fs),
+  }, identity);
+  ok(opened.ok);
+  const doc = opened.document;
+  ok(doc.apply({ type: "set-game-title", title: "Before" }).ok);
+  hold = true;
+  const reverting = doc.revert();
+  await reading;
+  ok(doc.apply({ type: "set-game-title", title: "Later" }).ok);
+  ok(doc.undo().ok);
+  release();
+  const result = await reverting;
+  ok(!result.ok);
+  equal(result.failure.kind, "changed");
+  equal(doc.getSnapshot().gameTitle, "Before");
+  equal(doc.getSnapshot().canRedo, true);
+  ok(doc.redo().ok);
+  equal(doc.getSnapshot().gameTitle, "Later");
 });
