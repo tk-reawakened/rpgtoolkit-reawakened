@@ -194,7 +194,7 @@ test("VS Code backup recovery requires an explicit choice before saving", async 
 test("hot-exit recovery preserves both versions when the title changed while VS Code was closed", async () => {
   const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
   const identity = createDocumentIdentity("file:///project", gamePath);
-  let disk = original.slice();
+  let disk: Uint8Array = original.slice();
   let writes = 0;
   const storage = {
     readProject: async () => ({ ok: true as const, value: disk.slice() }),
@@ -243,7 +243,7 @@ test("hot-exit recovery preserves both versions when the title changed while VS 
 test("a later disk change still prevents saving after choosing the recovered version", async () => {
   const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
   const identity = createDocumentIdentity("file:///project", gamePath);
-  let disk = original.slice();
+  let disk: Uint8Array = original.slice();
   let writes = 0;
   const storage = {
     readProject: async () => ({ ok: true as const, value: disk.slice() }),
@@ -318,7 +318,7 @@ test("an unreadable disk version keeps recovery pending and cannot be accepted b
 test("watcher checks cannot discard recovery after another writer matches a recovered edit", async () => {
   const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
   const identity = createDocumentIdentity("file:///project", gamePath);
-  let disk = original.slice();
+  let disk: Uint8Array = original.slice();
   const storage = {
     readProject: async () => ({ ok: true as const, value: disk.slice() }),
     writeProject: async () => ({ ok: true as const, value: undefined }),
