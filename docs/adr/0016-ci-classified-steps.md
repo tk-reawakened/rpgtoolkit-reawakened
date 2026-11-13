@@ -84,11 +84,10 @@ Only these paths are inert, because they are read by people and not by any lane:
 | `docs/guardrails.md` | The rules as prose; the checks that enforce them live in code |
 | `docs/adr/**/*.md` | Decision records |
 | `docs/**/*.md` except `docs/spec/**` | Human-facing documentation; no CI lane reads it (provenance skips `docs/`) |
-| `_bmad-output/**/*.md`, except direct Markdown files in `initiative-rpgtoolkit-reawakened/epic-*/` | Plans and tickets outside the Epic 9 status test's ticket-tree input |
-| `_bmad/**`, except `_bmad/method/scripts/**`, `_bmad/scripts/config_utils.py` and `_bmad/custom/ticketing-store-config.toml` | Installed BMad framework, except the ticket resolver, config loader and ticket store config that `checks` uses through `pnpm bmad:tickets:test`; changes to those inputs run everything |
+| `_bmad/**`, except `_bmad/method/scripts/**`, `_bmad/scripts/config_utils.py`, `_bmad/config.toml`, `_bmad/custom/config.toml` and `_bmad/custom/ticketing-store-config.toml` | Installed BMad framework, except the resolver and config inputs that `checks` uses through `pnpm bmad:tickets:test` |
 | `.github/ISSUE_TEMPLATE/**/*.{md,yml,yaml}` | Issue forms; GitHub reads them, CI does not |
 
-It deliberately **excludes**: all of `packages/`, `tools/`, `stock/` and `golden/` (even Markdown there; fixtures and generators are inputs); `docs/spec/` (the normative spec, and `docs/spec/examples` is dump-checked by `golden`); `.github/workflows/` and `.github/pull_request_template.md`; non-Markdown files under `_bmad-output/`; non-Markdown files under `docs/`; the lockfile, `package.json`, and every root file that is not Markdown; and any path nobody has classified. The `checks` job still runs provenance over every inert change.
+It deliberately **excludes**: all of `packages/`, `tools/`, `stock/`, `golden/` and `_bmad-output/` (fixtures, generators and the ticket store are inputs); `docs/spec/` (the normative spec, and `docs/spec/examples` is dump-checked by `golden`); `.github/workflows/` and `.github/pull_request_template.md`; non-Markdown files under `docs/`; the lockfile, `package.json`, and every root file that is not Markdown; and any path nobody has classified. The `checks` job still runs provenance over every inert change.
 
 ### Which steps defer for an inert pull request
 

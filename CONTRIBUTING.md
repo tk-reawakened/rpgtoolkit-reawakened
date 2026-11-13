@@ -470,16 +470,15 @@ The verdict is "defer" only when **every** changed path is one of these, each of
 
 - a Markdown file in the repository root (`README.md`, `CONTRIBUTING.md`, ...);
 - any Markdown file under `docs/` except `docs/spec/` (the normative spec, which `golden` dump-checks);
-- the `_bmad/` tree except `_bmad/method/scripts/`, `_bmad/scripts/config_utils.py` and `_bmad/custom/ticketing-store-config.toml` (the ticket tests use those inputs, so changing them runs everything);
-- Markdown under `_bmad-output/`, except direct Markdown files in `initiative-rpgtoolkit-reawakened/epic-*/` (the ticket status test reads those records);
+- the `_bmad/` tree except `_bmad/method/scripts/`, `_bmad/scripts/config_utils.py`, `_bmad/config.toml`, `_bmad/custom/config.toml` and `_bmad/custom/ticketing-store-config.toml` (the ticket tests use those inputs);
 - issue forms under `.github/ISSUE_TEMPLATE/` (`.md`, `.yml`, `.yaml`).
 
-Anything else runs everything, including all of `packages/`, `tools/`, `stock/` and `golden/` (even a README there), all of `docs/spec/`, `.github/workflows/` and the pull request template, non-Markdown files under `docs/` or `_bmad-output/`, `package.json` and the lockfile, an empty diff, a path nobody has classified, and every push to `main`. The list is positive on purpose: a new kind of file runs everything until someone decides it is inert. A rename counts both its old and its new path.
+Anything else runs everything, including all of `packages/`, `tools/`, `stock/`, `golden/` and `_bmad-output/`, all of `docs/spec/`, `.github/workflows/` and the pull request template, non-Markdown files under `docs/`, `package.json` and the lockfile, an empty diff, a path nobody has classified, and every push to `main`. The list is positive on purpose: a new kind of file runs everything until someone decides it is inert. A rename counts both its old and its new path.
 
 Open the job log to see which way it went. A job that defers prints one line, and its later steps show as skipped:
 
 ```text
-CI classifier [golden]: DEFER - nothing this job guards could have changed; inert: _bmad-output/example/plan.md
+CI classifier [golden]: DEFER - nothing this job guards could have changed; inert: docs/guide.md
 ```
 
 A job that runs prints the path that forced it:
