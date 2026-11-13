@@ -1,61 +1,90 @@
-"""The ticket-resolver behaviour this project relies on, run against the installed stock `_bmad/method/scripts/tickets.py`.
+"""The ticket-store contract this project relies on: the stock resolver as installed, plus the project's issue preflight.
 
-These tests moved out of `_bmad/method/scripts/tests/`, a folder `bmad setup` owns and rewrites. The resolver there is the
-stock `bmad-ticket` script (module `method` 6.13.0-next); the project no longer patches it. They were written against the
-patched resolver and assert four things stock 6.13.0-next does not do, so they stay red against stock until the project
-supplies the behaviour itself (a preflight that normalises the plan files, a migration of the plan types, and a place for
-`chore` and `tracker_id`) or the tests are rewritten to the supported contract:
+The resolver is the stock `bmad-ticket` script that `bmad setup` writes to `_bmad/method/scripts/tickets.py`. The project does not
+patch it, so what it cannot do is covered by the preflight (`.agents/skills/tkr-issue-preflight`), and these tests check both
+sides of that line:
 
-* `chore` as an entry type (stock allows story, spike and bug only);
-* a `-plan.md` file whose `type` is `story`, `spike` or `bug` joining its entry as a plan (stock reads it as a leaf);
-* an entry's `tracker_id` reaching the row, and duplicate `tracker_id`s failing (stock blanks the entry's `tracker_id`);
-* the unknown-type error naming `chore`.
+* Stock reads entries of type story, spike and bug only. `chore` is not an entry type; a chore is a story or a bug whose plan
+  says so. A plan is a file with a `ticket` key whose `type` is not story, spike or bug (feature, bugfix, chore, ...); a plan
+  typed as a leaf is read as a leaf and joins nothing, which is why such plans were retyped.
+* Stock never carries the `tracker_id` of a `tickets.toml` entry onto its rows, so it cannot see two tickets sharing one there.
+  The preflight reads every carrier and fails closed on duplicates, on an unknown number and on a malformed store.
 
-Do not mark them as expected failures or delete them to get a green run: each one names a gap that is still open.
+Tests that pin a limit of stock say so; if stock grows the behaviour, they fail and the preflight's matching guard is the thing
+to revisit, not the test to delete.
 """
 
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / "_bmad" / "method" / "scripts" / "tickets.py"
+PREFLIGHT = ROOT / ".agents" / "skills" / "tkr-issue-preflight" / "scripts" / "resolve_issue.py"
 
-SCRIPT = Path(__file__).resolve().parents[2] / "_bmad" / "method" / "scripts" / "tickets.py"
+LEAF_PLAN_NAME = "story-ci-change-classifier-plan.md"
+LEAF_NAME = "story-ci-change-classifier.md"
 
 
-class ChoreTicketTests(unittest.TestCase):
+class StoreCase(unittest.TestCase):
+    """A one-epic ticket store in a temporary folder, and the stock resolver pointed at it."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.epic = Path(self.tmp.name) / "epic-packaging"
-        self.epic.mkdir()
+        self.base = Path(self.tmp.name)
+        self.store = self.base / "store"
+        self.epic = self.store / "epic-packaging"
+        self.epic.mkdir(parents=True)
         (self.epic / "epic-packaging.md").write_text("---\ntype: epic\n---\n# Packaging\n", encoding="utf-8")
-        self.write_entry("chore")
+        self.write_entry("story")
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def write_entry(self, kind):
+    def write_entry(self, kind, tracker_id=None):
+        tracker = f'tracker_id = "{tracker_id}"\n' if tracker_id else ""
         (self.epic / "tickets.toml").write_text(
-            f'[[entry]]\nid = 23\ntype = "{kind}"\ntitle = "CI change classifier"\n', encoding="utf-8"
+            f'[[entry]]\nid = 23\ntype = "{kind}"\ntitle = "CI change classifier"\n{tracker}', encoding="utf-8"
         )
 
-    def run_ticket(self, *args):
-        return subprocess.run(
-            [sys.executable, str(SCRIPT), *args],
-            check=False,
-            capture_output=True,
+    def write_leaf(self, tracker_id=None, name=LEAF_NAME, ticket_id=23, kind="story", title="CI change classifier"):
+        tracker = f"tracker_id: '{tracker_id}'\n" if tracker_id else ""
+        path = self.epic / name
+        path.write_text(f"---\nid: {ticket_id}\ntype: {kind}\ntitle: {title}\n{tracker}---\n# {title}\n", encoding="utf-8")
+        return path
+
+    def write_plan(self, plan_type, name=LEAF_PLAN_NAME, status="in-progress"):
+        path = self.epic / name
+        path.write_text(
+            f"---\ntitle: 'CI classifier plan'\ntype: '{plan_type}'\nticket: 23\ncreated: '2026-10-29'\nstatus: '{status}'\n---\n# Plan\n",
             encoding="utf-8",
         )
+        return path
 
-    def assert_chore_in_status_and_next(self, expected_state):
+    def run_ticket(self, *args):
+        return subprocess.run([sys.executable, str(SCRIPT), *args], check=False, capture_output=True, encoding="utf-8")
+
+    def find(self, ref="23"):
+        found = self.run_ticket("find", str(self.epic), ref)
+        self.assertEqual(found.returncode, 0, found.stderr)
+        return json.loads(found.stdout)
+
+    def status_rows(self):
         status = self.run_ticket("status", str(self.epic))
         self.assertEqual(status.returncode, 0, status.stderr)
-        status_rows = [row for row in json.loads(status.stdout)["tickets"] if row["ref"] == "23"]
-        self.assertEqual(len(status_rows), 1)
-        self.assertEqual(status_rows[0]["type"], "chore")
-        self.assertEqual(status_rows[0]["state"], expected_state)
+        return json.loads(status.stdout)["tickets"]
+
+
+class StockResolverContractTests(StoreCase):
+    def assert_story_in_status_and_next(self, expected_state):
+        rows = [row for row in self.status_rows() if row["ref"] == "23"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["type"], "story")
+        self.assertEqual(rows[0]["state"], expected_state)
 
         next_result = self.run_ticket("next", str(self.epic))
         self.assertEqual(next_result.returncode, 0, next_result.stderr)
@@ -67,114 +96,194 @@ class ChoreTicketTests(unittest.TestCase):
             if row["ref"] == "23"
         ]
         self.assertEqual(len(next_rows), 1)
-        self.assertEqual(next_rows[0]["type"], "chore")
+        self.assertEqual(next_rows[0]["type"], "story")
         self.assertEqual(next_rows[0]["state"], expected_state)
 
-    def test_find_pull_and_plan_join_for_chore_entry(self):
-        found = self.run_ticket("find", str(self.epic), "23")
-        self.assertEqual(found.returncode, 0, found.stderr)
-        row = json.loads(found.stdout)
-        self.assertEqual(row["type"], "chore")
+    def test_find_pull_and_plan_join_for_story_entry(self):
+        row = self.find()
+        self.assertEqual(row["type"], "story")
         self.assertIsNone(row["story_file"])
-        self.assertEqual(Path(row["plan"]).name, "chore-ci-change-classifier-plan.md")
-        self.assert_chore_in_status_and_next("planned")
+        self.assertEqual(Path(row["plan"]).name, LEAF_PLAN_NAME)
+        self.assert_story_in_status_and_next("planned")
 
         pulled = self.run_ticket("pull", str(self.epic), "23")
         self.assertEqual(pulled.returncode, 0, pulled.stderr)
-        leaf = self.epic / "chore-ci-change-classifier.md"
+        leaf = self.epic / LEAF_NAME
         self.assertTrue(leaf.is_file())
-        found = self.run_ticket("find", str(self.epic), "23")
-        self.assertEqual(found.returncode, 0, found.stderr)
-        self.assertEqual(Path(json.loads(found.stdout)["story_file"]).resolve(), leaf.resolve())
+        self.assertEqual(Path(self.find()["story_file"]).resolve(), leaf.resolve())
 
-        plan = self.epic / "chore-ci-change-classifier-plan.md"
-        plan.write_text(
-            "---\ntitle: 'CI classifier plan'\ntype: 'chore'\nticket: 23\n"
-            "created: '2026-10-29'\nstatus: 'in-progress'\n---\n# Plan\n",
-            encoding="utf-8",
-        )
-        found = self.run_ticket("find", str(self.epic), "23")
-        self.assertEqual(found.returncode, 0, found.stderr)
-        row = json.loads(found.stdout)
+        plan = self.write_plan("feature")
+        row = self.find()
         self.assertEqual(Path(row["plan"]).resolve(), plan.resolve())
         self.assertEqual(row["status"], "in-progress")
-        self.assert_chore_in_status_and_next("in-progress")
+        self.assert_story_in_status_and_next("in-progress")
+
+    def test_plans_with_a_non_leaf_type_join_their_entry(self):
+        """The historical plan types join, so a former chore plan (type chore) is still a plan, not a row of its own."""
+        for plan_type in ("feature", "bugfix", "chore"):
+            with self.subTest(plan_type=plan_type):
+                plan = self.write_plan(plan_type, status="blocked")
+                row = self.find()
+                self.assertEqual(Path(row["plan"]).resolve(), plan.resolve())
+                self.assertEqual(row["status"], "blocked")
+                rows = self.status_rows()
+                self.assertEqual([r["ref"] for r in rows], ["23"])
+                self.assertEqual(rows[0]["state"], "in-progress")
+
+    def test_leaf_typed_plan_does_not_join_its_entry(self):
+        """Limit of stock: a plan typed story, spike or bug is read as a leaf file. It joins nothing, the entry stays
+        planned and the plan becomes a row of its own. Plans must use a non-leaf type (see the test above)."""
+        self.write_entry("bug")
+        plan = self.write_plan("bug", name="bug-ci-change-classifier-plan.md", status="blocked")
+        rows = self.status_rows()
+        entry_rows = [r for r in rows if r["ref"] == "23"]
+        self.assertEqual(len(entry_rows), 1)
+        self.assertEqual(entry_rows[0]["state"], "planned")
+        self.assertIn(plan.name, [r["file"] for r in rows])
 
     def test_legacy_story_leaf_with_ticket_field_remains_a_leaf(self):
-        self.write_entry("story")
-        leaf = self.epic / "story-ci-change-classifier.md"
+        leaf = self.epic / LEAF_NAME
         leaf.write_text(
-            "---\nid: 23\ntype: story\nticket: 'legacy metadata'\n"
-            "title: 'CI change classifier'\n---\n# Story\n",
+            "---\nid: 23\ntype: story\nticket: 'legacy metadata'\ntitle: 'CI change classifier'\n---\n# Story\n",
             encoding="utf-8",
         )
-        result = self.run_ticket("find", str(self.epic), "23")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        row = json.loads(result.stdout)
+        row = self.find()
         self.assertEqual(row["type"], "story")
         self.assertEqual(Path(row["story_file"]).resolve(), leaf.resolve())
 
-    def test_leaf_typed_plan_with_tracker_id_joins_entry(self):
-        self.write_entry("bug")
-        plan = self.epic / "bug-ci-change-classifier-plan.md"
-        plan.write_text(
-            "---\ntitle: CI change classifier\ntype: bug\nticket: '23'\n"
-            "status: blocked\ntracker_id: '#1045'\n---\n# Plan\n", encoding="utf-8"
-        )
-        (self.epic / "tickets.toml").write_text(
-            '[[entry]]\nid = 23\ntype = "bug"\ntitle = "CI change classifier"\ntracker_id = "#1045"\n',
-            encoding="utf-8",
-        )
-        result = self.run_ticket("find", str(self.epic), "23")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        row = json.loads(result.stdout)
-        self.assertEqual(Path(row["plan"]).resolve(), plan.resolve())
-        self.assertIsNone(row["story_file"])
-        self.assertEqual(row["status"], "blocked")
-
-    def test_story_typed_plan_with_ticket_joins_entry(self):
-        self.write_entry("story")
-        plan = self.epic / "story-ci-change-classifier-plan.md"
-        plan.write_text(
-            "---\ntitle: CI change classifier\ntype: story\nticket: '23'\n"
-            "status: in-progress\n---\n# Plan\n", encoding="utf-8"
-        )
-        found = self.run_ticket("find", str(self.epic), "23")
-        self.assertEqual(found.returncode, 0, found.stderr)
-        row = json.loads(found.stdout)
-        self.assertEqual(Path(row["plan"]).resolve(), plan.resolve())
-        self.assertIsNone(row["story_file"])
-        self.assertEqual(row["status"], "in-progress")
-
-        status = self.run_ticket("status", str(self.epic))
-        self.assertEqual(status.returncode, 0, status.stderr)
-        tickets = json.loads(status.stdout)["tickets"]
-        self.assertTrue(all(ticket["id"] is not None for ticket in tickets), tickets)
-        rows = [ticket for ticket in tickets if ticket["ref"] == "23"]
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["type"], "story")
+    def test_story_leaf_and_non_leaf_plan_share_one_row(self):
+        self.write_leaf()
+        plan = self.write_plan("feature")
+        rows = self.status_rows()
+        self.assertEqual([r["ref"] for r in rows], ["23"])
         self.assertEqual(rows[0]["state"], "in-progress")
+        self.assertEqual(Path(self.find()["plan"]).resolve(), plan.resolve())
 
-    def test_duplicate_tracker_ids_still_fail(self):
+    def test_duplicate_tracker_ids_on_leaf_files_still_fail(self):
         (self.epic / "tickets.toml").write_text(
-            '[[entry]]\nid = 23\ntype = "bug"\ntitle = "First"\ntracker_id = "#1045"\n'
-            '[[entry]]\nid = 24\ntype = "story"\ntitle = "Second"\n',
+            '[[entry]]\nid = 23\ntype = "story"\ntitle = "First"\n[[entry]]\nid = 24\ntype = "story"\ntitle = "Second"\n',
             encoding="utf-8",
         )
-        (self.epic / "story-second.md").write_text(
-            "---\nid: 24\ntype: story\nticket: 'legacy metadata'\n"
-            "title: Second\ntracker_id: '#1045'\n---\n# Second\n", encoding="utf-8",
-        )
+        self.write_leaf(tracker_id="#1045", name="story-first.md", ticket_id=23, title="First")
+        self.write_leaf(tracker_id="#1045", name="story-second.md", ticket_id=24, title="Second")
         result = self.run_ticket("status", str(self.epic))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("tracker_id", result.stderr)
+        self.assertIn("more than one ticket", result.stderr)
 
-    def test_unknown_entry_types_remain_rejected(self):
-        self.write_entry("task")
-        result = self.run_ticket("find", str(self.epic), "23")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("is not one of story, spike, bug, chore", result.stderr)
+    def test_unknown_entry_types_are_rejected_and_chore_is_not_an_entry_type(self):
+        for kind in ("task", "chore"):
+            with self.subTest(kind=kind):
+                self.write_entry(kind)
+                result = self.run_ticket("find", str(self.epic), "23")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"type {kind!r} is not one of story, spike, bug", result.stderr)
+
+
+class PreflightContractTests(StoreCase):
+    """The project's `tkr-issue-preflight`, run as the skill runs it, with the stock resolver cross-check."""
+
+    def setUp(self):
+        super().setUp()
+        self.project = self.base / "project"
+        scripts = self.project / "_bmad" / "method" / "scripts"
+        scripts.mkdir(parents=True)
+        shutil.copy(SCRIPT, scripts / "tickets.py")
+
+    def preflight(self, issue="#1045", check_stock=True):
+        args = [sys.executable, str(PREFLIGHT), issue, "--project-root", str(self.project), "--store", str(self.store)]
+        if check_stock:
+            args.append("--check-stock")
+        run = subprocess.run(args, check=False, capture_output=True, encoding="utf-8")
+        try:
+            payload = json.loads(run.stdout)
+        except ValueError:
+            self.fail(f"preflight printed no JSON (exit {run.returncode}): {run.stdout!r} {run.stderr!r}")
+        return run.returncode, payload
+
+    def carried_story(self):
+        """Entry, leaf file and plan all say #1045: the shape both the preflight and stock can read."""
+        self.write_entry("story", tracker_id="#1045")
+        return self.write_leaf(tracker_id="#1045")
+
+    def test_resolves_the_issue_to_its_ticket_and_plan_and_stock_agrees(self):
+        self.carried_story()
+        plan = self.write_plan("feature")
+        code, result = self.preflight()
+        self.assertEqual(code, 0, result)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["key"], "epic-packaging/23")
+        self.assertEqual(result["kind"], "story")
+        self.assertTrue(result["buildable"])
+        self.assertTrue(result["plan"]["exists"])
+        self.assertEqual(result["plan"]["status"], "in-progress")
+        self.assertEqual(Path(result["plan"]["path"]).resolve(), plan.resolve())
+        self.assertTrue(result["stock_check"]["agrees"])
+        self.assertEqual(result["handoff"]["bmad_build_input"], "23")
+
+    def test_a_ticket_with_no_plan_names_the_path_where_one_starts(self):
+        self.carried_story()
+        code, result = self.preflight()
+        self.assertEqual(code, 0, result)
+        self.assertFalse(result["plan"]["exists"])
+        self.assertEqual(Path(result["plan"]["path"]).name, LEAF_PLAN_NAME)
+        self.assertTrue(result["stock_check"]["agrees"])
+
+    def test_former_chore_plan_types_still_join(self):
+        self.carried_story()
+        for plan_type in ("feature", "bugfix", "chore"):
+            with self.subTest(plan_type=plan_type):
+                plan = self.write_plan(plan_type)
+                code, result = self.preflight()
+                self.assertEqual(code, 0, result)
+                self.assertTrue(result["plan"]["exists"])
+                self.assertEqual(Path(result["plan"]["path"]).resolve(), plan.resolve())
+
+    def test_duplicate_tracker_id_across_entry_and_leaf_fails_closed(self):
+        """The shape the retired patch used to catch: one number on an entry and on another ticket's leaf file."""
+        (self.epic / "tickets.toml").write_text(
+            '[[entry]]\nid = 23\ntype = "story"\ntitle = "First"\ntracker_id = "#1045"\n'
+            '[[entry]]\nid = 24\ntype = "story"\ntitle = "Second"\n',
+            encoding="utf-8",
+        )
+        self.write_leaf(tracker_id="#1045", name="story-second.md", ticket_id=24, title="Second")
+
+        code, result = self.preflight(check_stock=False)
+        self.assertEqual(code, 1, result)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["code"], "duplicate_tracker_id")
+
+        # Limit of stock, pinned: it does not read the entry's tracker_id, so it accepts this store. Only the preflight
+        # stands between a duplicate like this and a build under the wrong ticket.
+        self.assertEqual(self.run_ticket("status", str(self.epic)).returncode, 0)
+
+    def test_entry_tracker_id_without_a_leaf_file_is_invisible_to_stock(self):
+        self.write_entry("story", tracker_id="#1045")
+        code, result = self.preflight(check_stock=False)
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result["key"], "epic-packaging/23")
+
+        code, result = self.preflight(check_stock=True)
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["code"], "stock_disagrees")
+        self.assertEqual(result["stock"]["tracker_id"], "")
+        self.assertEqual(result["preflight"]["tracker_id"], "#1045")
+
+    def test_an_issue_no_ticket_carries_is_not_found(self):
+        self.carried_story()
+        code, result = self.preflight("#999")
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["code"], "not_found")
+
+    def test_unknown_entry_types_are_malformed_and_chore_is_not_an_entry_type(self):
+        for kind in ("task", "chore"):
+            with self.subTest(kind=kind):
+                self.write_entry(kind, tracker_id="#1045")
+                code, result = self.preflight(check_stock=False)
+                self.assertEqual(code, 1, result)
+                self.assertEqual(result["code"], "malformed_store")
+                self.assertIn(f"type {kind!r} is not one of story, spike, bug", result["error"])
+
 
 if __name__ == "__main__":
     unittest.main()
-
