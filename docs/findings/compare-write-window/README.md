@@ -23,7 +23,7 @@ read#2 -> Example Game
 external write -> External Title
 host write -> Local Title
 {"saved":{"ok":true},"onDisk":"Local Title","conflict":null,"dirty":false}
-{"saved":{"ok":true},"events":["changed:Main/example.gam","changed:Main/example.gam"],"postWriteReads":["Local Title","Local Title","Local Title"],"onDisk":"Local Title","conflictsSeen":[],"dirty":false}
+{"saved":{"ok":true},"events":["external:changed:Main/example.gam"],"postWriteReads":["Local Title","Local Title"],"onDisk":"Local Title","conflictsSeen":[],"dirty":false}
 {"ok":true,"questions":0,"onDisk":"Example Game"}
 {"ok":true,"questions":1,"onDisk":"Example Game"}
 ℹ tests 4
@@ -33,7 +33,7 @@ host write -> Local Title
 
 To reproduce, run `pnpm build`, put the source below at `packages/editor-model/test/repro-2207.test.ts`, and run `node --test packages/editor-model/test/repro-2207.test.ts`. The test asserts today's behaviour, so it passes while the defect exists. It is evidence and is not committed as a test. The test that ships with a fix asserts the outcome the owner rules on.
 
-**Control.** Moving the other program's write one step earlier, to just *before* the save's pre-write read, makes today's check catch it. The save fails with `kind: "conflict"`, writes nothing, keeps "External Title" on disk, and leaves the document dirty with the conflict waiting. The first test's assertions then fail. This shows that the harness injects the write where it claims to, and that the gap is exactly between the comparison and the host write. As a second control, dropping watcher callback delivery leaves only the explicit barrier read; the watcher test fails its post-save read-count assertion ([#2240](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2240)).
+**Control.** Moving the other program's write one step earlier, to just *before* the save's pre-write read, makes today's check catch it. The save fails with `kind: "conflict"`, writes nothing, keeps "External Title" on disk, and leaves the document dirty with the conflict waiting. The first test's assertions then fail. This shows that the harness injects the write where it claims to, and that the gap is exactly between the comparison and the host write. The test suppresses delivery of the editor’s own write event, so only the injected external event can queue a watcher check. As a second control, dropping that external callback delivery leaves only the explicit barrier read; the watcher test fails its post-save read-count assertion ([#2240](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2240)).
 
 ```ts
 import { test } from "node:test";
@@ -98,11 +98,14 @@ test("#2207 fileWatch host: the watcher's event for the external write arrives, 
   const events: string[] = [];
   const postWriteReads: string[] = [];
   let hostWriteFinished = false;
+  let injectingExternal = false;
   const fs = {
     ...host.fs,
     watch: (path: string, onChange: Parameters<MemoryPlatformServices["fs"]["watch"]>[1]) => host.fs.watch(path, (change) => {
-      events.push(`${change.kind}:${change.path}`);
-      onChange(change);
+      if (injectingExternal) {
+        events.push(`external:${change.kind}:${change.path}`);
+        onChange(change);
+      } // Suppress the editor’s own write event: only the injected event can queue a watcher check.
     }),
     async writeProject(projectId: string, path: string, bytes: Uint8Array) {
       const result = await host.fs.writeProject(projectId, path, bytes);
@@ -112,7 +115,11 @@ test("#2207 fileWatch host: the watcher's event for the external write arrives, 
     async readProject(projectId: string, path: string) {
       reads += 1;
       const read = await host.fs.readProject(projectId, path);
-      if (reads === 2) await host.fs.write(path, external); // emits a "changed" watch event, like a real watcher
+      if (reads === 2) {
+        injectingExternal = true;
+        await host.fs.write(path, external);
+        injectingExternal = false;
+      }
       if (hostWriteFinished && read.ok) postWriteReads.push(titleOf(read.value));
       return read;
     },
@@ -128,7 +135,7 @@ test("#2207 fileWatch host: the watcher's event for the external write arrives, 
   unsubscribe();
   console.log(JSON.stringify({ saved, events, postWriteReads, onDisk: titleOf(host.bytesOf(PATH)!), conflictsSeen: checks, dirty: doc.getSnapshot().dirty }));
   equal(saved.ok, true);
-  ok(events.includes(`changed:${PATH}`), "the watcher delivered a changed event");
+  ok(events.includes(`external:changed:${PATH}`), "the watcher delivered the injected external event");
   ok(postWriteReads.length >= 2, "the queued watcher check and the explicit barrier both read after the host write");
   ok(postWriteReads.every((title) => title === "Local Title"));
   deepEqual(checks, []);
