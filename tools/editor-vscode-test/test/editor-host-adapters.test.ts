@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { createDocumentIdentity, openMainDocument, type MainDocumentSnapshot } from "@tk-reawakened/editor-model";
-import { createVscodeFileSystemWithPort, handleEditorHostRequest, recoverMainDocument, RemoteDocument, vscodeCapabilities, type VscodeApi, type VscodeFileSystemPort } from "@tk-reawakened/host-vscode/testing";
+import { createVscodeFileSystemWithPort, handleEditorHostRequest, recoverMainDocument, resolveRecoveryConflict, RemoteDocument, vscodeCapabilities, type VscodeApi, type VscodeFileSystemPort } from "@tk-reawakened/host-vscode/testing";
 import type { ViewDocument } from "@tk-reawakened/editor-ui";
 
 let mount: typeof import("@tk-reawakened/editor-ui").mount;
@@ -185,7 +185,7 @@ test("VS Code backup recovery requires an explicit choice before saving", async 
   ok(!refused.ok);
   equal(refused.failure.kind, "conflict");
   deepEqual(files.get("/project/Main/example.gam"), original);
-  ok(recovered.document.resolveConflict("keep-local").ok);
+  ok((await resolveRecoveryConflict(recovered.document, "keep-local")).ok);
   const saved = await recovered.document.save();
   ok(saved.ok);
   deepEqual(files.get("/project/Main/example.gam"), backup);
@@ -235,7 +235,7 @@ test("hot-exit recovery preserves both versions when the title changed while VS 
   equal(refusedAgain.failure.kind, "conflict");
   equal(writes, 0);
   deepEqual(disk, externalBytes);
-  ok(recovered.document.resolveConflict("reload").ok);
+  ok((await resolveRecoveryConflict(recovered.document, "reload")).ok);
   equal(recovered.document.getSnapshot().gameTitle, "Changed while closed");
   deepEqual(disk, externalBytes);
 });
@@ -258,7 +258,7 @@ test("a later disk change still prevents saving after choosing the recovered ver
   ok(source.document.apply({ type: "set-game-title", title: "Recovered" }).ok);
   const recovered = await recoverMainDocument(storage, identity, source.document.serialize());
   ok(recovered.ok);
-  ok(recovered.document.resolveConflict("keep-local").ok);
+  ok((await resolveRecoveryConflict(recovered.document, "keep-local")).ok);
   ok(source.document.apply({ type: "set-game-title", title: "Changed again" }).ok);
   disk = source.document.serialize();
   const newer = disk.slice();
@@ -285,7 +285,7 @@ test("even identical disk and backup bytes need a recovery decision before save"
   ok(!refused.ok);
   equal(refused.failure.kind, "conflict");
   equal(writes, 0);
-  ok(recovered.document.resolveConflict("keep-local").ok);
+  ok((await resolveRecoveryConflict(recovered.document, "keep-local")).ok);
   ok((await recovered.document.save()).ok);
 });
 
@@ -304,15 +304,16 @@ test("an unreadable disk version keeps recovery pending and cannot be accepted b
   ok(recovered.ok);
   equal(recovered.document.getSnapshot().dirty, true);
   equal(recovered.document.undo().ok, false);
-  equal(recovered.document.resolveConflict("keep-local").ok, false);
+  equal((await resolveRecoveryConflict(recovered.document, "keep-local")).ok, false);
   const refused = await recovered.document.save();
   ok(!refused.ok);
   equal(refused.failure.kind, "conflict");
   equal(writes, 0);
   deepEqual(recovered.document.serialize(), original);
   readable = true;
-  equal(await recovered.document.checkExternal(), "conflict");
-  ok(recovered.document.resolveConflict("keep-local").ok);
+  equal((await resolveRecoveryConflict(recovered.document, "keep-local")).ok, false);
+  equal(recovered.document.getSnapshot().conflict?.externalTitle, recovered.document.getSnapshot().gameTitle);
+  ok((await resolveRecoveryConflict(recovered.document, "keep-local")).ok);
 });
 
 test("watcher checks cannot discard recovery after another writer matches a recovered edit", async () => {
@@ -335,6 +336,40 @@ test("watcher checks cannot discard recovery after another writer matches a reco
   equal(await recovered.document.checkExternal(), "conflict");
   equal(recovered.document.getSnapshot().gameTitle, "Same as disk");
   equal(recovered.document.getSnapshot().conflict?.externalTitle, "Changed again");
+});
+
+test("recovered Save As to the same identity cannot bypass the conflict, while a copy can be saved", async () => {
+  const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
+  const identity = createDocumentIdentity("file:///project", gamePath);
+  const writes: string[] = [];
+  const storage = {
+    readProject: async () => ({ ok: true as const, value: original.slice() }),
+    writeProject: async (_project: string, path: string) => { writes.push(path); return { ok: true as const, value: undefined }; },
+  };
+  const recovered = await recoverMainDocument(storage, identity, original);
+  ok(recovered.ok);
+  const same = await recovered.document.saveAs(storage, createDocumentIdentity("file:///project", "main/EXAMPLE.gam"));
+  ok(!same.ok);
+  equal(same.failure.kind, "conflict");
+  deepEqual(writes, []);
+  ok((await recovered.document.saveAs(storage, createDocumentIdentity("file:///project", "Main/copy.gam"))).ok);
+  deepEqual(writes, ["Main/copy.gam"]);
+});
+
+test("recovery can load identical disk bytes and discard later edits", async () => {
+  const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
+  const identity = createDocumentIdentity("file:///project", gamePath);
+  const storage = {
+    readProject: async () => ({ ok: true as const, value: original.slice() }),
+    writeProject: async () => { throw new Error("reload must not write"); },
+  };
+  const recovered = await recoverMainDocument(storage, identity, original);
+  ok(recovered.ok);
+  ok(recovered.document.apply({ type: "set-game-title", title: "Later edit" }).ok);
+  ok((await resolveRecoveryConflict(recovered.document, "reload")).ok);
+  deepEqual(recovered.document.serialize(), original);
+  equal(recovered.document.getSnapshot().dirty, false);
+  equal(recovered.document.getSnapshot().conflict, null);
 });
 
 async function assertFailedMountedSave(doc: ViewDocument, element: HTMLElement): Promise<void> {

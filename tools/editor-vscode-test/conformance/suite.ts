@@ -69,8 +69,10 @@ export interface ConformanceHost {
   holdWrites(): () => void;
   /** Let pending messages, events and writes run. */
   settle(): Promise<void>;
-  /** Restart from the host's backups and reopen `path`; `null` when the host keeps no backup. */
+  /** Restart from the host's backup, if one is available. */
   restartFromBackup(path: string): Promise<ConformanceEditor | null>;
+  /** Restart after capturing a hot-exit backup, changing the file while closed, then opening the backed-up document. */
+  restartFromBackupAfterDiskChange?(path: string, bytes: Uint8Array): Promise<ConformanceEditor | null>;
   /** How many document models the host holds. */
   modelsOpen(): number;
 }
@@ -392,6 +394,65 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
       same(editor.title() === "Seen live?", host.capabilities.has("fileWatch"), "fileWatch is declared exactly when an outside change reaches the view without a save");
       await editor.type("Unsaved before a restart");
       same((await host.restartFromBackup(GAME)) !== null, host.capabilities.has("backup"), "backup is declared exactly when a restart can offer unsaved work back");
+    },
+  },
+  {
+    name: "a recovered backup never overwrites a different title written while VS Code was closed",
+    async run(host) {
+      if (!host.capabilities.has("backup") || host.restartFromBackupAfterDiskChange === undefined) return;
+      const external = retitled((await host.disk(GAME))!, "External while closed");
+      const recovered = await host.restartFromBackupAfterDiskChange(GAME, external);
+      check(recovered !== null, "the workbench reopens its backed-up document");
+      same(recovered.title(), "Local backup", "the recovered editor shows the backed-up title");
+      check(recovered.conflictShown(), "the unknown backup baseline requires a choice");
+      check(recovered.text().includes("Local backup") && recovered.text().includes("External while closed"), "the view shows both versions");
+      sameBytes(await host.disk(GAME), external, "the external bytes remain untouched before resolution");
+
+      const saveResults = await host.saveAll();
+      same(saveResults.get(GAME), false, "workbench Save All refuses before a recovery choice");
+      same(recovered.title(), "Local backup", "a failed keep-local save retains the recovery");
+      check(recovered.model.getSnapshot().dirty && recovered.hostDirty(), "a failed save retains dirty work");
+      check(recovered.conflictShown(), "a failed save keeps the conflict unresolved");
+      sameBytes(await host.disk(GAME), external, "a failed save does not overwrite external bytes");
+
+
+      await recovered.choose("Save my version");
+      same(await titleOnDisk(host, GAME), "Local backup", "an explicit successful keep-local choice writes the backup");
+      check(!recovered.model.getSnapshot().dirty && !recovered.hostDirty(), "the resolved local version is clean");
+    },
+  },
+  {
+    name: "a recovered backup can explicitly reload the title written while VS Code was closed",
+    async run(host) {
+      if (!host.capabilities.has("backup") || host.restartFromBackupAfterDiskChange === undefined) return;
+      const external = retitled((await host.disk(GAME))!, "External while closed");
+      const recovered = await host.restartFromBackupAfterDiskChange(GAME, external);
+      check(recovered !== null, "the workbench reopens its backed-up document");
+      same(recovered.title(), "Local backup", "the recovered editor starts with the backed-up title");
+      check(recovered.conflictShown(), "the unknown backup baseline requires a choice");
+      sameBytes(await host.disk(GAME), external, "the external bytes remain untouched before resolution");
+      await recovered.choose("Use the version on disk");
+      same(recovered.title(), "External while closed", "reload shows the external title");
+      check(!recovered.model.getSnapshot().dirty && !recovered.hostDirty() && !recovered.conflictShown(), "the reloaded version is clean and resolved");
+      sameBytes(await host.disk(GAME), external, "reloading leaves the external bytes unchanged");
+    },
+  },
+  {
+    name: "workbench undo and redo retain user edits after the watcher has matched disk",
+    async run(host, fixture) {
+      if (!host.capabilities.has("fileWatch") || host.restartFromBackupAfterDiskChange === undefined) return;
+      const editor = await host.restartFromBackupAfterDiskChange(GAME, fixture);
+      check(editor !== null, "the workbench restores the backup");
+      await editor.type("User edit after recovery");
+      await host.writeOutside(GAME, retitled(fixture, "User edit after recovery"));
+      await host.settle();
+      await host.writeOutside(GAME, retitled(fixture, "User edit after recovery"));
+      await host.settle();
+      await editor.undo();
+      same(editor.title(), "Local backup", "workbench undo returns to the recovered title");
+      await editor.redo();
+      same(editor.title(), "User edit after recovery", "workbench redo restores the user edit");
+      sameBytes(await host.disk(GAME), retitled(fixture, "User edit after recovery"), "undo and redo do not write to disk");
     },
   },
 ];

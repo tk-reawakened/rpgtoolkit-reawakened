@@ -513,6 +513,23 @@ class VscodeHost implements ConformanceHost {
     this.#workbench = new Workbench(this, [...this.capabilities]);
     return this.#workbench.open(path, backups.get(posix.normalize(`${ROOT.path}/${path}`)));
   }
+  /** Capture a real provider backup, close the workbench, change disk with no watcher running, then recover it. */
+  async restartFromBackupAfterDiskChange(path: string, bytes: Uint8Array): Promise<ConformanceEditor | null> {
+    const editor = await this.open(path);
+    await editor.type("Local backup");
+    const key = posix.normalize(`${ROOT.path}/${path}`);
+    const copy = this.#workbench.copies.get(key);
+    if (copy === undefined || !copy.dirty) throw new Error(`no dirty workbench document for ${path}`);
+    const backup = await this.#workbench.provider.backupCustomDocument(copy.custom, { path: "/backups/recovery-conflict" });
+    for (const tab of copy.tabs) tab.webview.hide();
+    this.drive.watchers.clear();
+
+    // This write happens after the old workbench and its watchers have been stopped, before recovery opens.
+    this.drive.files.set(key, bytes.slice());
+    this.#workbench = new Workbench(this, [...this.capabilities]);
+    return this.#workbench.open(path, backup.id);
+  }
+
 
   modelsOpen(): number {
     return this.#workbench.copies.size;

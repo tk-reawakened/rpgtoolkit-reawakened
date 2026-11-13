@@ -1,6 +1,6 @@
 import { createDocumentIdentity, createDocumentWorkspace, resolveDocumentPath, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type MainDocument, type SaveResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, FileSystemService } from "@tk-reawakened/platform-services";
-import { recoverMainDocument } from "./document-backup.ts";
+import { recoverMainDocument, resolveRecoveryConflict } from "./document-backup.ts";
 import { handleEditorHostRequest, isEditorHostRequest, type BridgedDocument, type BridgeMessage } from "./document-bridge.ts";
 
 /**
@@ -121,7 +121,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * file it just loaded and changes nothing).
    */
   async resolveConflict(choice: ConflictChoice): Promise<ConflictResult> {
-    const resolved = this.model.resolveConflict(choice);
+    const resolved = await resolveRecoveryConflict(this.model, choice);
     if (resolved.ok && choice === "reload") await this.#port.executeCommand("workbench.action.files.revert");
     return resolved;
   }
