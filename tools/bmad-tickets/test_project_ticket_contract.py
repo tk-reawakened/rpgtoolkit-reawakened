@@ -219,7 +219,9 @@ class PreflightContractTests(StoreCase):
         self.assertEqual(result["plan"]["status"], "in-progress")
         self.assertEqual(Path(result["plan"]["path"]).resolve(), plan.resolve())
         self.assertTrue(result["stock_check"]["agrees"])
-        self.assertEqual(result["handoff"]["bmad_build_input"], "23")
+        self.assertIsNone(result["handoff"]["bmad_build_input"])
+        self.assertEqual(result["handoff"]["scoped"]["ref"], "23")
+        self.assertEqual(Path(result["handoff"]["scoped"]["dir"]).resolve(), self.epic.resolve())
 
     def test_a_ticket_with_no_plan_names_the_path_where_one_starts(self):
         self.carried_story()
@@ -264,10 +266,9 @@ class PreflightContractTests(StoreCase):
         self.assertEqual(result["key"], "epic-packaging/23")
 
         code, result = self.preflight(check_stock=True)
-        self.assertEqual(code, 1, result)
-        self.assertEqual(result["code"], "stock_disagrees")
-        self.assertEqual(result["stock"]["tracker_id"], "")
-        self.assertEqual(result["preflight"]["tracker_id"], "#1045")
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result["issue"], "#1045")
+        self.assertIsNone(result["stock_check"]["stock_tracker_id"])
 
     def test_an_issue_no_ticket_carries_is_not_found(self):
         self.carried_story()

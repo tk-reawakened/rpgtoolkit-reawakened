@@ -539,9 +539,9 @@ class StockHandoffTests(unittest.TestCase):
             [
                 "uv",
                 "run",
-                str(fx.root / "_bmad/method/scripts/tickets.py"),
+                str((fx.root / "_bmad/method/scripts/tickets.py").resolve()),
                 "--project-root",
-                str(fx.root),
+                str(fx.root.resolve()),
                 "find",
                 str((fx.store / INIT).resolve()),
                 "2.3",

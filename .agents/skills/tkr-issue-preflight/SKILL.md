@@ -13,7 +13,7 @@ Issues are the project's front door and tickets are BMad's. Before any build, pl
 uv run {skill-root}/scripts/resolve_issue.py "<#NNN | NNN | issue URL>" --project-root {project-root} --check-stock
 ```
 
-It reads the whole ticket store under `{output_folder}` and never writes. `--check-stock` also asks the project's stock `tickets.py find` about the same ticket and fails unless it names the same tracker id and plan; leave it off only to inspect a store you know stock cannot read. It never calls GitHub.
+It reads the whole ticket store under `{output_folder}` and never writes. `--check-stock` also asks the project's stock ticket reader about the same ticket and checks its identity and joined plan. An empty stock tracker ID is expected for TOML-only mappings; a different nonempty ID is a conflict. Leave the check off only to inspect a store you know stock cannot read. It never calls GitHub.
 
 ## Read the result
 
