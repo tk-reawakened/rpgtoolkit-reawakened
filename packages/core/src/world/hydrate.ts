@@ -39,7 +39,7 @@ function formatError(error: { readonly path?: string; readonly offset: number; r
 }
 
 /** Decode vector, pre-vector binary, and Toolkit 2 text boards into one Board model. */
-function readHydratableBoard(key: AssetKey, bytes: Uint8Array): { readonly value: Board | null; readonly error: HydrationError | null } {
+export function readHydratableBoard(key: AssetKey, bytes: Uint8Array): { readonly value: Board | null; readonly error: HydrationError | null } {
   const vector = readBoard(new BinaryReader(bytes, key));
   if (vector.ok) return { value: vector.value, error: null };
   const minor = bytes.length >= 19 && bytes[14] === 0

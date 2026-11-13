@@ -9,7 +9,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { newProjectMainFile, utf8Encode, writeMainFile } from "@tk-reawakened/core";
-import { encodeBase64, isProgramPath, projectRootUri, type ProjectSnapshot } from "../src/protocol.ts";
+import { encodeBase64, isHookAssetPath, isProgramPath, projectRootUri, type ProjectSnapshot } from "../src/protocol.ts";
 
 /**
  * A main file that selects `dialect`: a 3.1 binary main file (minor 9), or a
@@ -57,10 +57,11 @@ export function memoryProject(
     uri,
     snapshot: (revision = 1) => ({
       revision,
+      hookInventoryComplete: true,
       main: { uri: mainUri, bytes: encodeBase64(bytesOf(files[main]!)) },
       rootUri,
       files: Object.entries(files)
-        .filter(([path]) => isProgramPath(path))
+        .filter(([path]) => isProgramPath(path) || isHookAssetPath(path))
         .map(([path, value]) => ({ path, uri: uri(path), bytes: encodeBase64(bytesOf(value)) })),
       lintConfig: options.lintConfig === undefined ? null : { uri: uri("tkr-lint.json"), text: options.lintConfig },
     }),
@@ -85,7 +86,7 @@ export function folderSnapshot(mainPath: string, revision = 1): ProjectSnapshot 
   const rootDirectory = decodeURIComponent(rootPath.pathname);
   const files = walk(rootDirectory)
     .map((path) => ({ path: relative(rootDirectory, path).split(sep).join("/"), absolute: path }))
-    .filter((file) => isProgramPath(file.path));
+    .filter((file) => isProgramPath(file.path) || isHookAssetPath(file.path));
   let lintConfig: ProjectSnapshot["lintConfig"] = null;
   try {
     lintConfig = { uri: new URL("tkr-lint.json", rootUri).href, text: readFileSync(join(rootDirectory, "tkr-lint.json"), "utf8") };
@@ -94,6 +95,7 @@ export function folderSnapshot(mainPath: string, revision = 1): ProjectSnapshot 
   }
   return {
     revision,
+    hookInventoryComplete: true,
     main: { uri: mainUri, bytes: encodeBase64(readFileSync(mainPath)) },
     rootUri,
     files: files.map((file) => ({ path: file.path, uri: pathToFileURL(file.absolute).href, bytes: encodeBase64(readFileSync(file.absolute)) })),

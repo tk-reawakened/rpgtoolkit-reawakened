@@ -218,6 +218,8 @@ export type LintOptions = {
    * game tree passes false).
    */
   readonly resolveIncludes?: boolean;
+  /** Report index findings only for each indexed program's own source unit. */
+  readonly ownUnitsOnly?: boolean;
   /**
    * The source dialect, when the caller knows it (a `--dialect` argument or the
    * project). A program reference's own `dialect` wins. Without either, the rules
@@ -339,7 +341,7 @@ function ruleOf(id: RuleId): RuleDefinition {
   return rule;
 }
 
-function rulesFor(program: IndexProgram, catalogue: Catalogue, resolveIncludes: boolean, boundSites: ReadonlySet<string>): Diagnostic[] {
+function rulesFor(program: IndexProgram, catalogue: Catalogue, options: LintOptions, boundSites: ReadonlySet<string>): Diagnostic[] {
   const found: Diagnostic[] = [];
   const unknown = ruleOf("lint/unknown-command");
   const arity = ruleOf("lint/command-arity");
@@ -361,6 +363,7 @@ function rulesFor(program: IndexProgram, catalogue: Catalogue, resolveIncludes: 
   }
 
   for (const call of program.calls) {
+    if (options.ownUnitsOnly && call.pos.file !== program.key) continue;
     if (call.file !== null) continue;
     const name = foldAscii(call.name);
     if (declared.has(name) || catalogue.byName.has(name) || callableVariables.has(name) ||
@@ -371,6 +374,7 @@ function rulesFor(program: IndexProgram, catalogue: Catalogue, resolveIncludes: 
   }
 
   for (const call of program.calls) {
+    if (options.ownUnitsOnly && call.pos.file !== program.key) continue;
     if (call.file !== null) continue;
     // A name that is also a host method (`context.inventory.replace`) may be that method rather than the command of
     // the same name, so its arity is not the catalogue's to state.
@@ -386,12 +390,14 @@ function rulesFor(program: IndexProgram, catalogue: Catalogue, resolveIncludes: 
   }
 
   for (const fn of program.functions) {
+    if (options.ownUnitsOnly && fn.file !== program.key) continue;
     const entry = catalogue.byName.get(foldAscii(fn.name));
     if (entry === undefined) continue;
     found.push(diagnostic(shadowed, shadowed.defaultSeverity, { file: fn.file, line: fn.line, ...(fn.col === undefined ? {} : { col: fn.col }), ...(fn.endCol === undefined ? {} : { endCol: fn.endCol }) }, `\`${fn.name}\` shadows the registered command \`${entry.canonicalName}\`; calls bind to the command (R-35)`));
   }
 
-  if (resolveIncludes) for (const include of program.includes) {
+  if (options.resolveIncludes) for (const include of program.includes) {
+    if (options.ownUnitsOnly && include.file !== program.key) continue;
     if (include.key !== undefined) continue;
     found.push(diagnostic(unresolved, unresolved.defaultSeverity, { file: include.file, line: include.line, ...(include.col === undefined ? {} : { col: include.col }), ...(include.endCol === undefined ? {} : { endCol: include.endCol }) }, `nothing serves \`${include.path}\`, so its definitions are missing`));
   }
@@ -627,6 +633,9 @@ function styleFindings(source: string, sink: Sink): Diagnostic[] {
 }
 
 /** Every name any program of a closed project mentions, or why the project cannot be read whole. */
+const DYNAMIC_PROJECT_CALLS = new Set(["include", "thread", "tellthread", "mainfile", "redirect", "killredirect", "killallredirects"]);
+const PROGRAM_CALLS = new Set(["run", "executeprogram", "replaceprogram", "change", "prg"]);
+
 function projectFacts(document: IndexDocument, dialect: "tk3" | "tk2" | undefined, entryPoints: readonly string[]): { readonly mentions: Set<string> } | { readonly reason: UnassessedReason } {
   const mentions = new Set<string>(entryPoints.map((name) => foldAscii(name)));
   for (const program of document.programs) {
@@ -637,10 +646,16 @@ function projectFacts(document: IndexDocument, dialect: "tk3" | "tk2" | undefine
     for (const unit of parsed!.units) {
       for (const scope of scopesOf(unit)) {
         if (hasDynamicReference(scope.body)) return { reason: "dynamic-reference" };
-        for (const name of mentionsIn(scope.body, { readsOnly: false })) mentions.add(name);
+        let dynamicProgram = false;
         forEachExpression(scope.body, (expr) => {
-          if (expr.kind === "call" && expr.file !== undefined) mentions.add(foldAscii(expr.name));
+          if (expr.kind !== "call" || expr.file !== undefined) return;
+          const name = foldAscii(expr.name);
+          if (DYNAMIC_PROJECT_CALLS.has(name)) dynamicProgram = true;
+          const file = expr.args[0];
+          if (PROGRAM_CALLS.has(name) && (file?.kind !== "literal" || typeof file.value !== "string")) dynamicProgram = true;
         }, false);
+        if (dynamicProgram) return { reason: "dynamic-reference" };
+        for (const name of mentionsIn(scope.body, { readsOnly: false })) mentions.add(name);
       }
     }
     for (const reference of program.references) if (reference.name !== null) mentions.add(foldAscii(reference.name));
@@ -699,7 +714,7 @@ export function lint(document: IndexDocument, options: LintOptions): LintResult 
   for (const program of document.programs) {
     const parsed = parsedOf(program);
     const bound = parsed === undefined ? { sites: new Set<string>(), assigned: new Set<string>() } : boundCallSites(parsed.units, FOLDED_HOST_METHODS);
-    for (const found of rulesFor(program, catalogue, options.resolveIncludes === true, bound.sites)) emit(found, program.name);
+    for (const found of rulesFor(program, catalogue, options, bound.sites)) emit(found, program.name);
     const source = options.sources?.[program.name];
     if (source !== undefined) for (const found of dialectDiagnostics(source)) emit(found, program.name);
 

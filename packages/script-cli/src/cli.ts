@@ -65,7 +65,7 @@ function run(): Outcome {
 
   switch (args.subcommand) {
     case "check":
-      return runCheck(args.paths, args.json, args.dialectGiven ? args.dialect : undefined);
+      return runCheck(args.paths, args.json, args.dialectGiven ? args.dialect : undefined, args.project ?? undefined);
     case "fmt":
       return runFmt(args.paths, args.dialect, args.check, args.json);
     case "test":

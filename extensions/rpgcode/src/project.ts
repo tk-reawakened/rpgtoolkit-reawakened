@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { encodeBase64, isProgramPath, projectRootUri, PROJECT_NOTIFICATION, type ProjectSnapshot, type ProjectSnapshotFile } from "@tk-reawakened/lsp/protocol";
+import { encodeBase64, isHookAssetPath, isProgramPath, projectRootUri, PROJECT_NOTIFICATION, type ProjectSnapshot, type ProjectSnapshotFile } from "@tk-reawakened/lsp/protocol";
 
 /**
  * The running project, on the client side (docs/spec/engine/rpgcode-tooling.md#tool-1-project).
@@ -65,8 +65,8 @@ async function inventory(root: vscode.Uri, prefix: string, files: ProjectSnapsho
       if (!SKIPPED_FOLDERS.has(name)) await inventory(child, path, files);
       continue;
     }
-    if ((type & vscode.FileType.File) === 0 || !isProgramPath(name)) continue;
-    if (files.length >= MAX_FILES) throw new Error(`the project root holds more than ${MAX_FILES} programs`);
+    if ((type & vscode.FileType.File) === 0 || (!isProgramPath(name) && !isHookAssetPath(path))) continue;
+    if (files.length >= MAX_FILES) throw new Error(`the project root holds more than ${MAX_FILES} program and script-hook files`);
     files.push({ path, uri: child.toString(), bytes: encodeBase64(await vscode.workspace.fs.readFile(child)) });
   }
 }
@@ -88,7 +88,7 @@ export async function readSnapshot(revision: number): Promise<ProjectSnapshot> {
     } catch (error) {
       if (!isFileNotFound(error)) throw error;
     }
-    return { revision, main: { uri: main.toString(), bytes: encodeBase64(mainBytes) }, rootUri, files, lintConfig };
+    return { revision, main: { uri: main.toString(), bytes: encodeBase64(mainBytes) }, rootUri, files, lintConfig, hookInventoryComplete: true };
   } catch (error) {
     return { revision, main: null, problem: `${main.toString()}: ${message(error)}` };
   }
@@ -146,7 +146,7 @@ export function registerRunningProject(context: vscode.ExtensionContext, client:
     watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, "**/*"));
     const relevant = (uri: vscode.Uri): boolean => {
       const name = uri.path.slice(uri.path.lastIndexOf("/") + 1).toLowerCase();
-      return isProgramPath(name) || name.endsWith(".gam") || name === "tkr-lint.json";
+      return isProgramPath(name) || isHookAssetPath(uri.path.slice(root.path.replace(/\/?$/, "/").length)) || name.endsWith(".gam") || name === "tkr-lint.json";
     };
     const changed = (uri: vscode.Uri): void => {
       if (relevant(uri)) send();

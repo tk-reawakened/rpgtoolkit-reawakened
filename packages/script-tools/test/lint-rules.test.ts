@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { commandDocumentation, foldAscii, FIRST_PARTY_PLUGINS, type ResolvedPlugin } from "@tk-reawakened/core";
-import { applyEdits, buildIndex, formatSource, lint, sliceRange, type IndexDocument, type LintOptions } from "../src/index.ts";
+import { commandDocumentation, createAssetIndex, foldAscii, FIRST_PARTY_PLUGINS, newProjectMainFile, PACKAGE_ROOT, utf8Encode, type ResolvedPlugin } from "@tk-reawakened/core";
+import { applyEdits, buildIndex, formatSource, indexLintProject, lint, sliceRange, type IndexDocument, type LintOptions } from "../src/index.ts";
 
 /**
  * The rule families of docs/spec/engine/rpgcode-tooling.md#tool-3-rules and the
@@ -203,6 +203,25 @@ test("unused functions are unassessed unless the project is declared closed", ()
   deepEqual(result.summary.unassessed.filter((entry) => entry.rule === "lint/unused-function").map((entry) => entry.reason), ["incomplete-project"]);
 });
 
+test("a selected package's startup exports are entry points and absent packages keep closure unassessed", () => {
+  const main = { ...newProjectMainFile(), startupPrg: "start.prg", initBoard: "", menuPlugin: "", fightPlugin: "", packagePlugins: ["fixture"] };
+  const source = utf8Encode("function entry() { return 1 }\nfunction spare() { return 2 }\n");
+  const loader = { root: PACKAGE_ROOT, index: createAssetIndex(["Prg/start.prg"]), dialect: "tk3" as const, read: () => source };
+  const definition = { id: "fixture", version: "1", commands: [] };
+  const resolved: ResolvedPlugin = {
+    definition,
+    package: { name: "fixture", version: "1", namespace: "fixture", requests: [] },
+    startup: { kind: "inline", text: "function entry() { return 3 }\n", ir: "1", dialect: "tk3" },
+  };
+  const missing = indexLintProject(main, loader, [], true);
+  equal(missing.project, undefined);
+  const available = indexLintProject(main, loader, [resolved], true);
+  deepEqual(available.project?.entryPoints, ["entry"]);
+  const result = lint(available.document, { plugins, dialect: "tk3", ...(available.project === undefined ? {} : { project: available.project }) });
+  const findings = result.diagnostics.filter((item) => item.code === "lint/unused-function");
+  deepEqual(findings.map((item) => item.range.start.line), [2]);
+});
+
 test("in a closed project a function with no static use is a hint; a call, read, string or entry point is a use", () => {
   const project = { closed: true as const, entryPoints: ["onload"] };
   const text = 'function spare() { return 1 }\nfunction called() { return 1 }\nfunction held() { return 1 }\nfunction named() { return 1 }\nfunction onLoad() { return 1 }\ncalled()\nh = held\non("tick", "named")\n';
@@ -222,6 +241,9 @@ test("a closed project with a missing include, dynamic code or a broken program 
     lint(document, { plugins, dialect: "tk3", project }).summary.unassessed.filter((entry) => entry.rule === "lint/unused-function").map((entry) => entry.reason);
   deepEqual(reasonsFor(indexOf('#include "missing.prg"\nfunction spare() { return 1 }\n')), ["incomplete-project"]);
   deepEqual(reasonsFor(indexOf('function spare() { return 1 }\nrpgcode("spare()")\n')), ["dynamic-reference"]);
+  deepEqual(reasonsFor(indexOf("function spare() { return 1 }\ninclude(path)\n")), ["dynamic-reference"]);
+  deepEqual(reasonsFor(indexOf("function spare() { return 1 }\nthread(path, 0)\n")), ["dynamic-reference"]);
+  deepEqual(reasonsFor(indexOf('function spare() { return 1 }\nthread("spare()", 0)\n')), ["dynamic-reference"]);
   const broken = buildIndex([
     { name: "main.prg", ref: { kind: "inline", text: "function spare() { return 1 }\n", ir: "1" } },
     { name: "bad.prg", ref: { kind: "inline", text: "if (\n", ir: "1" } },

@@ -26,6 +26,8 @@ export type ProjectSnapshot = {
   /** The project root ({@link projectRootUri}). */
   readonly rootUri?: string;
   readonly files?: readonly ProjectSnapshotFile[];
+  /** The host also enumerated assets that may contain script hooks. */
+  readonly hookInventoryComplete?: boolean;
   /** `tkr-lint.json` at the root, or `null` when it is absent. */
   readonly lintConfig?: { readonly uri: string; readonly text: string } | null;
   /** Why the client could not read the complete project; every document is then unassessed. */
@@ -36,6 +38,15 @@ export type ProjectSnapshot = {
 export function isProgramPath(path: string): boolean {
   const lower = path.toLowerCase();
   return lower.endsWith(".prg") || lower.endsWith(".rnc");
+}
+
+/** Project-relative asset paths that may hold embedded RPGCode. */
+export function isHookAssetPath(path: string): boolean {
+  const folders = ["boards", "item", "chrs", "enemy", "spcmove", "statuse"];
+  const parts = path.replace(/\\/g, "/").toLowerCase().split("/");
+  if (parts.length < 2) return false;
+  if (parts[0] !== "game") return folders.includes(parts[0]!);
+  return parts.slice(2, -1).some((part) => folders.includes(part));
 }
 
 /**
