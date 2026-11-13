@@ -226,7 +226,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       // folder, and Save As never moves a document into another one; the refusal comes before any state is made for that
       // folder, so the other project gets no workspace, no read and no write (ADR 0022 D14.7, #2206).
       if (folder.key !== document.model.identity.projectId) {
-        throw new Error(`${nameOf(destination)} is in another workspace folder (${nameOf(folder.uri)}); Save As saves inside the project of ${document.model.identity.path}. Nothing was written.`);
+        throw new Error(`${nameOf(destination)} is in another workspace folder (${nameOf(folder.uri) || folder.uri.path}); Save As saves inside the project of ${document.model.identity.path}. Nothing was written.`);
       }
       const project = projectIn(folder, destination);
       const resolved = await resolveDocumentPath(project.fs, project.path);

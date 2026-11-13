@@ -25,11 +25,11 @@ const fixture = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples
 const ALPHA: WorkspaceFolderLike<Uri> = { uri: { path: "/alpha" }, key: "file:///alpha" };
 const BETA: WorkspaceFolderLike<Uri> = { uri: { path: "/beta" }, key: "file:///beta" };
 
-/** Two workspace folders, each holding `Main/example.gam`, and every call the provider makes into either of them. */
-function workspace() {
+/** Two workspace folders, `/alpha` and `other`, each holding `Main/example.gam`, and every call the provider makes into either of them. */
+function workspace(other: WorkspaceFolderLike<Uri> = BETA) {
   const files = new Map<string, Uint8Array>([
     [`/alpha/${GAME}`, retitled(fixture, "Alpha game")],
-    [`/beta/${GAME}`, retitled(fixture, "Beta game")],
+    [`${other.uri.path.replace(/\/$/, "")}/${GAME}`, retitled(fixture, "Beta game")],
   ]);
   /** Absolute paths the provider read, checked or wrote, in order. */
   const touched: string[] = [];
@@ -85,7 +85,7 @@ function workspace() {
   const provider: GameEditorProvider<Uri> = createGameEditorProvider<Uri>({
     capabilities: vscodeCapabilities(false),
     // VS Code's `getWorkspaceFolder`: the folder containing the URI, or none.
-    folderOf: (uri) => [ALPHA, BETA].find((folder) => uri.path.startsWith(`${folder.uri.path}/`)),
+    folderOf: (uri) => [ALPHA, other].find((folder) => uri.path.startsWith(`${folder.uri.path.replace(/\/$/, "")}/`)),
     fileSystem: (folder) => {
       projects.push(folder.key);
       return createVscodeFileSystemWithPort(folder.uri, port, folder.key);
@@ -192,4 +192,20 @@ test("Save As over a document open in a second workspace folder is refused and l
   equal(other.model.getSnapshot().dirty, false);
   equal(source.model.getSnapshot().dirty, true, "the source keeps its unsaved work");
   equal(source.model.getSnapshot().gameTitle, "Not over beta");
+});
+
+test("the refusal names a root workspace folder by its path, not by an empty name", async () => {
+  const ROOT: WorkspaceFolderLike<Uri> = { uri: { path: "/" }, key: "file:///" };
+  const { files, projects, provider, openEdited } = workspace(ROOT);
+  const source = await openEdited(`/alpha/${GAME}`, "Not into the root folder");
+  const before = snapshot(files);
+
+  await rejects(provider.saveCustomDocumentAs(source, { path: "/Main/copy.gam" }), (error: Error) => {
+    match(error.message, /copy\.gam is in another workspace folder \(\/\); /);
+    return true;
+  });
+
+  deepEqual(files, before, "nothing was written");
+  deepEqual(projects, [ALPHA.key, ALPHA.key], "no project workspace was made for the root folder");
+  equal(source.model.getSnapshot().dirty, true, "the source keeps its unsaved work");
 });
