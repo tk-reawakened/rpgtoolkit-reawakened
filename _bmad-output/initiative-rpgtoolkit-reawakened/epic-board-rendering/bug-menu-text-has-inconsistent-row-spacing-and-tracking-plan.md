@@ -1,6 +1,6 @@
 ---
 title: 'Menu text has inconsistent row spacing and tracking'
-type: 'feature'
+type: 'bugfix'
 ticket: '39'
 status: 'in-review'
 tracker_id: '#1046'
