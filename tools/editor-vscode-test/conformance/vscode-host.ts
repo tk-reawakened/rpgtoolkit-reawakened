@@ -267,6 +267,16 @@ class Webview {
     return new MountedView(this.#page.element, this.#act);
   }
 
+  /** Send a hidden reload request as an old or compromised webview, through the real bridge. */
+  async forgedReload(): Promise<void> {
+    const remote = this.#page?.remote;
+    if (remote === null || remote === undefined) throw new Error("the webview is not initialized");
+    const result = await remote.resolveConflict("reload");
+    if (result.ok || result.reason !== "cannot-reload") {
+      throw new Error(`forged reload must be rejected with cannot-reload, got ${JSON.stringify(result)}`);
+    }
+  }
+
   /** Load the page: what `webview.tsx` does on load, with this page's own `acquireVsCodeApi()`. */
   show(): void {
     const element = document.createElement("div");
@@ -487,8 +497,8 @@ class VscodeEditor implements ConformanceEditor {
   async choose(button: "Save my version" | "Use the version on disk" | "Cancel"): Promise<void> {
     const view = this.webview.view;
     if (button === "Use the version on disk" && !this.#workbench.host.capabilities.has("conflictReload")) {
-      // Model an untrusted/old webview sending the hidden reload request directly to the provider.
-      await this.copy.custom.resolveConflict("reload");
+      // Model an untrusted/old webview sending the hidden reload request through the bridge.
+      await this.webview.forgedReload();
       await settle(this.#act);
       return;
     }

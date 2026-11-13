@@ -1,4 +1,4 @@
-import { createMainDocument, type ApplyResult, type ConflictChoice, type ConflictResult, type DocumentIdentity, type DocumentStorage, type ExternalChange, type ExternalCheck, type HistoryResult, type MainCommand, type MainDocument, type MainDocumentSnapshot, type OpenError, type RevertResult, type SaveFailure, type SaveResult } from "@tk-reawakened/editor-model";
+import { createMainDocument, markRecoveredDocumentDirty, type ApplyResult, type ConflictChoice, type ConflictResult, type DocumentIdentity, type DocumentStorage, type ExternalChange, type ExternalCheck, type HistoryResult, type MainCommand, type MainDocument, type MainDocumentSnapshot, type OpenError, type RevertResult, type SaveFailure, type SaveResult } from "@tk-reawakened/editor-model";
 import type { PlatformResult } from "@tk-reawakened/platform-services";
 
 export type BackupRecoveryResult =
@@ -125,6 +125,7 @@ class RecoveryDocument implements MainDocument {
         const result = this.#document.resolveConflict("keep-local");
         if (!result.ok) return result;
       }
+      markRecoveredDocumentDirty(this.#document);
     }
     this.#pending = false;
     this.#saveError = null;

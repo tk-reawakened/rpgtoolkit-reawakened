@@ -3,6 +3,7 @@
 export { createDocumentIdentity, type DocumentIdentity } from "./identity.ts";
 export {
   createMainDocument,
+  markRecoveredDocumentDirty,
   openMainDocument,
   type ApplyResult,
   type ConflictChoice,
