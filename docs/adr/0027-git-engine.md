@@ -33,13 +33,16 @@ ADR 0022 says the editor must show which game files changed, preview the change,
 
 The reproducible fixture pins the direct dependencies in `tools/licences/fixtures/git-engine/package.json`; `package-lock.json` resolves the complete npm dependency closure. `tools/licences/inventory-git-engine.mjs` checks manifest/lock agreement and installed package versions and SPDX metadata, then records each exact package ID, version, resolved tarball URL, integrity hash, SPDX expression, Blue Oak rating, G6 decision, and the relative path and SHA-256 of each discovered root licence file. G6 results use the repository's `loadBlueOakList`, `loadConfig` and `evaluateLicense` functions with Blue Oak list version 16.
 
-Reproduce from the repository root with:
+Reproduce from the repository root with the pinned fixture lockfile:
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund --prefix tools/licences/fixtures/git-engine
-node tools/licences/inventory-git-engine.mjs --write
 node tools/licences/inventory-git-engine.mjs --check
 ```
+
+`--check` compares the generated inventory with the committed result without
+rewriting it. Run `node tools/licences/inventory-git-engine.mjs --write`
+separately only when intentionally regenerating the committed inventory.
 
 The committed result is [`inventory.json`](../findings/git-engine-g6-inventory/inventory.json). It records 53 locked package entries and 0 G6 failures. The declared SPDX expressions are MIT (43 packages), Apache-2.0 (4), ISC (3), BSD-3-Clause (1), `(MIT AND Zlib)` (1), and `(MIT AND BSD-3-Clause)` (1). Three entries have no discovered root licence file (`clean-git-ref@2.0.1`, `diff3@0.0.3`, and `minimisted@2.0.1`); their package metadata SPDX expressions are recorded, and the inventory does not claim a licence file exists for them.
 
@@ -63,7 +66,7 @@ Direct-package evidence:
 - If accepted, browser and desktop would share one code path and the desktop would not need a `git` binary.
 - An accepted implementation would still provide only a subset of Git; repositories that depend on unsupported features would not work.
 - Performance on large binary game repositories is unmeasured. The spike must verify the D13.4 binary-preview behavior and measure relevant repository performance before acceptance.
-- If accepted, the production tree gains 53 packages. Each version bump must pass the G6 gate in CI.
+- Fixture closure: 53 packages. The actual production dependency delta is deferred to the implementation lockfile; every version bump must pass the G6 gate in CI.
 
 ## Owed before acceptance
 
