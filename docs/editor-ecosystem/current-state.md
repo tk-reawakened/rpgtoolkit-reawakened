@@ -12,12 +12,12 @@ Very little editor exists as running code: one document (the main game file) wit
 
 | Package | What it holds today | Evidence |
 |---|---|---|
-| `platform-services` | The host door: `capabilities` (five flags), `fs`, `project`, `settings`, `document.edited`, and an in-memory double for tests. `run`, `export`, `dialogs`, `clipboard`, `language` and `shell` are named by AD-20 and not declared yet; each waits for its first caller. | `packages/platform-services/src/services.ts` |
+| `platform-services` | The host door: `capabilities` (six flags), `fs`, `project`, `settings`, `document.edited`, `dialogs` (added by 11.3), and an in-memory double for tests that scripts both dialogs. `run`, `export`, `clipboard`, `language` and `shell` are named by AD-20 and not declared yet; each waits for its first caller. | `packages/platform-services/src/services.ts` |
 | `editor-model` | Document identity (ADR 0022 D1) and **one** document type, `MainDocument`, for the main game file. Its command set is one command, `SetGameTitleCommand`. It keeps bytes plus an edit stack and saves through the same-version writer. | `packages/editor-model/src/main-document.ts` |
 | `editor-ui` | `mount(el, ctx) -> { dispose }`, a settings view in Preact and TSX, and a hook that binds a view to a document. | `packages/editor-ui/src/` |
 | `native-data` and its tools | The native-document checker, the extension registry (one row, `.tkranm`), the animation clip reader and writer, rename, and an importer from the legacy clip. | `packages/native-data*/src/` |
 | `lsp`, `script-tools`, `script-spec`, `script-cli` | RPGCode language services and the creator-test framework. | `packages/` |
-| Hosts | **None.** There is no `host-web`, `host-vscode` or `host-desktop` package yet. Story 11.18 ([#1833](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1833)) carries the settings tracer into the first two. | `packages/` listing |
+| Hosts | `host-web` and `host-vscode` exist (stories 11.18 and 11.3); there is no `host-desktop` package yet. | `packages/` listing |
 
 At the 2026-11-11 snapshot date, the count of working editors, in the sense of "open a file, change it, save it, in a real host", was zero. The follow-on implementation below records the first host slice.
 
@@ -29,6 +29,21 @@ Since the snapshot above, story 11.18 adds the first real host slice: the shared
 - **VS Code:** run `pnpm --dir extensions/editor build`, then launch the development extension with `code --extensionDevelopmentPath="$PWD/extensions/editor" "$PWD/docs/spec/examples/game"`. Open a `.gam` and choose the RPG Toolkit Game Settings custom editor if it is not the default. The extension-host model remains authoritative and a failed workspace write remains a named, dirty save error.
 
 The real vscode.dev proof exercises the mounted VS Code editor under CSP, edits and saves the `.gam`, then reopens it and verifies persisted bytes. A separate shared-adapter integration test compares bytes saved through the web and VS Code adapters. These checks complement, rather than replace, the host-adapter failure and fetched-corpus tests.
+
+## Follow-on implementation: the document lifecycle (story 11.3)
+
+Story 11.3 adds the promises of ADR 0022 D3 to the shared code and proves them in both hosts:
+
+- **`editor-model`** now carries the lifecycle: a save compares the file with what the document last read or wrote, so
+  another program's change is never saved over and waits for an explicit choice; a clean document follows the file where
+  the host watches; revert returns to the saved revision or reloads a changed file; Save As writes a new identity without
+  re-keying the source; and `createDocumentWorkspace` is the host-neutral workbench (one model per identity, undo and redo
+  by `editId`, save all, close and revert that ask first). The browser and desktop hosts use it as their workbench; VS
+  Code keeps its own workbench and its provider answers it.
+- **One conformance suite** runs the same cases against the browser host and VS Code (desktop and browser builds):
+  `tools/editor-vscode-test/test/host-conformance.test.ts`, with the cases in `tools/editor-vscode-test/conformance/`.
+- **In real hosts**, `tools/browser/tests/editor-lifecycle.spec.ts` drives the browser page's controls, and the vscode.dev
+  proof adds a hidden webview, a cancelled close, and the ADR 0022 D11.6 measurement of `files.autoSave`.
 
 ## What is decided
 

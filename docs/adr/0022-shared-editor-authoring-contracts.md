@@ -182,6 +182,16 @@ No cross-document atomic undo or save; no backup beyond what a host really provi
 4. **Binary game files.** Diffs of `.gam`, `.brd` and other binary documents are shown through the editor's preview (D12.6), not as raw bytes, and merge conflicts in a binary document are never auto-resolved; the editor shows both versions and lets the user choose one. It never writes conflict markers into a binary file.
 5. **Git and history do not depend on each other.** History is the safety net for the last hours and days and for group restore; Git is the shared, durable record. Neither is required for the other to work.
 
+### D14 — What 11.3 settled
+
+*Added by story 11.3 ([#1701](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1701)), 2026-11-12, recording the measurement D11.6 owed and four rules the implementation had to fix.*
+
+1. **The D11.6 measurement, taken.** VS Code's `files.autoSave: afterDelay` **does** drive a custom document's save. With the setting on in the workspace, an accepted edit in the game-settings custom editor reached the file with no Save pressed, and the bytes were identical to the same document saved through the browser host. The proof lives in the vscode.dev lane (`tools/editor-vscode-test/web-proof.ts`, run by the `browser` job): it turns the setting on, edits, waits for the file, and turns it off again. **Consequence:** D11.6 step 3 (the editor's own scheduled save) is not needed for either VS Code build, and autosave for these documents follows the user's `files.autoSave` exactly as VS Code means it. Step 1's language-scoped default still applies to the `.prg` text language; step 2's one-time question for binary custom editors is **not built** and is tracked by [#2191](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2191) with 11.5, because the answer needs the `editor.autosave` catalogue entry.
+2. **D3.5's resolution set, for the first release: two answers, not four.** The editor offers **save my version** (the next save replaces the file, by the user's choice) and **use the version on disk** (the document reloads). "Compare" is the two game titles shown side by side inside that choice, and "manual merge" is not offered. A save whose pre-write comparison finds another program's version writes nothing and reports `kind: "conflict"`, which the view shows beside the local title.
+3. **Loading the version on disk starts a new undo history.** It is new content, not an edit: the command stack starts over and an `editId` from before it is stale (AD-19). Rendered as accepted: VS Code keeps its own undo entries below the save point after such a reload and can offer an undo the model refuses. That is a VS Code API limit (a custom document cannot reset the workbench's edit stack), recorded rather than worked around.
+4. **A queued revert refuses rather than discarding newer work.** Whichever host asks the D3.6 question, the caller names the edit in force when the user answered; if the document changed since, the revert fails with `changed` and the newer edit stands ([#2189](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2189)).
+5. **VS Code's own Revert File is not a confirmation.** The workbench calls `revertCustomDocument` without asking and offers the provider no way to refuse, so in VS Code the user's command *is* the confirmation while the browser host asks. Recorded as a defect against D3.6 in [#2190](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2190); it needs a workbench-behaviour decision, not a code change.
+
 ## Provider gaps this ADR finds (not fixed here)
 
 | Gap | Owner entry |
@@ -238,7 +248,7 @@ Jensen answered all ten questions with **"yes all of that sounds great"**, adopt
 
 ### What remains open inside the accepted rules
 
-* **7 — the autosave proof.** Whether `files.autoSave` drives a `CustomEditorProvider` save, and whether a language-scoped default applies to a contributed language, are unmeasured. 11.3 owes the 30-minute proof; if it fails, D11.6 step 3 replaces the promise.
+* **7 — the autosave proof: measured and closed.** `files.autoSave` drives a `CustomEditorProvider` save (D14.1), so D11.6's step 3 does not apply to these documents. What is still open is step 2's one-time question for binary custom editors, tracked by [#2191](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2191) with 11.5.
 * **8 — the retention numbers.** 11.14 owes one measured editing hour, then fixes the merge window and the floors.
 * **The 10.8 "F-A" ruling.** An open dependency of D9/TOOL-5, not a decision of this ADR.
 * **11.1 itself.** This ADR is accepted; the ticket closes when the owner has read this approved text.
