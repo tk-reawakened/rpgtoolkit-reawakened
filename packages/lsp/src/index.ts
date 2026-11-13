@@ -196,7 +196,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
       }];
     }
     const program = indexOf(document, context.project.pathOfUri.get(document.uri) ?? document.uri);
-    if (program === null || program.diagnostics.length > 0) return [];
+    if (program === null) return [];
     const result = documentLint(program, document.getText(), context.dialect, plugins, config.config);
     const diagnostics = result.diagnostics.map(toLspDiagnostic);
     const { unassessed } = result.summary;

@@ -121,6 +121,17 @@ test("a buffer that does not compile publishes its parse error and no lint", () 
   deepEqual(codes(server.open(project.uri("Prg/main.prg"), "nope()\nx = )\n")), ["syntax.error"]);
 });
 
+test("a broken include leaves the including document's parsed lint rules unassessed", () => {
+  const text = '#include "lib.prg"\nMWIN("hi")\n';
+  const project = modern({ "Prg/main.prg": text, "Prg/lib.prg": "x = )\n" });
+  const server = client();
+  server.project(project);
+  const found = server.open(project.uri("Prg/main.prg"), text);
+  deepEqual(codes(found), [LINT_UNASSESSED_CODE]);
+  match(found[0]!.message, /style\/format \(invalid-program\)/);
+  deepEqual(codes(server.open(project.uri("Prg/lib.prg"), "x = )\n")), ["syntax.error"]);
+});
+
 test("tkr-lint.json sets a rule's severity or turns it off, as in tkr script check", () => {
   const warn = modern(undefined, JSON.stringify({ severity: { "lint/unknown-command": "warning" } }));
   const server = client();

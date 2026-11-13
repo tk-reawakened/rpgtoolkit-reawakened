@@ -84,7 +84,7 @@ export function documentLint(
     plugins,
     config,
     dialect,
-    ...(dialect === "tk3" ? { sources: { [program.name]: source } } : {}),
+    ...(dialect === "tk3" && program.diagnostics.length === 0 ? { sources: { [program.name]: source } } : {}),
     resolveIncludes: true,
   });
   const units = siteUnits(program);
