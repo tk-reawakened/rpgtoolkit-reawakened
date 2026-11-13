@@ -124,6 +124,9 @@ export type { ProjectModel } from "./project.ts";
 /** The code of the diagnostic that marks a document the running project does not cover. */
 export const UNASSESSED_CODE = "project.unassessed";
 
+/** The code of the diagnostic that lists lint rules the server could not assess. */
+export const LINT_UNASSESSED_CODE = "lint.unassessed";
+
 /** TOOL-3 ranges are 1-based with an inclusive end; LSP positions are 0-based with an exclusive end. */
 function lspRange(line: number, col: number | undefined, endCol: number | undefined): Range {
   const start = { line: line - 1, character: (col ?? 1) - 1 };
@@ -193,8 +196,21 @@ export function createServer(connection: ServerConnection, options: ServerOption
       }];
     }
     const program = indexOf(document, context.project.pathOfUri.get(document.uri) ?? document.uri);
-    if (program === null || program.diagnostics.length > 0) return [];
-    return documentLint(program, document.getText(), context.dialect, plugins, config.config).map(toLspDiagnostic);
+    if (program === null) return [];
+    const result = documentLint(program, document.getText(), context.dialect, plugins, config.config);
+    const diagnostics = result.diagnostics.map(toLspDiagnostic);
+    const { unassessed } = result.summary;
+    if (unassessed.length > 0) {
+      diagnostics.push({
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+        severity: DiagnosticSeverity.Information,
+        code: LINT_UNASSESSED_CODE,
+        source: "rpgcode",
+        message: `Lint rules that could not be fully checked: ${unassessed.map(({ rule, reason }) => `${rule} (${reason})`).join(", ")}.`,
+        data: unassessed,
+      });
+    }
+    return diagnostics;
   };
 
   connection.onNotification(PROJECT_NOTIFICATION, (params) => {
