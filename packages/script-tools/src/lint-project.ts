@@ -27,6 +27,7 @@ import {
   type ResolvedPlugin,
 } from "@tk-reawakened/core";
 import { buildIndex, type IndexDocument, type IndexProgramInput, type IndexStartup } from "./index-document.ts";
+import type { LintOptions } from "./lint.ts";
 
 /** The file references the engine can start directly (main-file layout and E-02). */
 function entryFiles(main: MainFile): string[] {
@@ -125,7 +126,7 @@ type ProjectIndex = {
   readonly document: IndexDocument;
   readonly sources: Readonly<Record<string, string>>;
   readonly gameFiles: readonly string[];
-  readonly project?: { readonly closed: true; readonly entryPoints: readonly string[] };
+  readonly project?: NonNullable<LintOptions["project"]>;
 };
 
 /** Index the selected project's sources with the same loader that serves their includes. */
@@ -164,10 +165,11 @@ export function indexLintProject(
       },
     });
   }
-  complete &&= entryFiles(main).every((name) => {
+  const hasProgram = (name: string): boolean => {
     const key = resolveProgram(loader, name);
     return key !== undefined && seen.has(key) && loader.read(key) !== undefined;
-  });
+  };
+  complete &&= entryFiles(main).every(hasProgram);
   const gameFiles = programs.map((program) => program.name);
 
   // A host can provide resolved package startups. Legacy DLLs without a mapping
@@ -200,5 +202,5 @@ export function indexLintProject(
     if (startup.diagnostics.length > 0) complete = false;
     for (const fn of startup.functions) if (fn.className === null) entryPoints.add(fn.name);
   }
-  return { document, sources, gameFiles, ...(complete ? { project: { closed: true, entryPoints: [...entryPoints] } } : {}) };
+  return { document, sources, gameFiles, ...(complete ? { project: { closed: true, entryPoints: [...entryPoints], hasProgram } } : {}) };
 }

@@ -233,7 +233,12 @@ export type LintOptions = {
    * `lint/unused-function` run. The caller derives this from the selected project
    * file, never from a list of paths.
    */
-  readonly project?: { readonly closed: true; readonly entryPoints: readonly string[] };
+  readonly project?: {
+    readonly closed: true;
+    readonly entryPoints: readonly string[];
+    /** Check a literal program reference against the same inventory as the compiler. */
+    readonly hasProgram?: (path: string) => boolean;
+  };
 };
 
 const SEVERITIES = new Set<string>(["error", "warning", "info", "hint", "off"]);
@@ -636,8 +641,8 @@ function styleFindings(source: string, sink: Sink): Diagnostic[] {
 const DYNAMIC_PROJECT_CALLS = new Set(["include", "thread", "tellthread", "mainfile", "redirect", "killredirect", "killallredirects"]);
 const PROGRAM_CALLS = new Set(["run", "executeprogram", "replaceprogram", "change", "prg"]);
 
-function projectFacts(document: IndexDocument, dialect: "tk3" | "tk2" | undefined, entryPoints: readonly string[]): { readonly mentions: Set<string> } | { readonly reason: UnassessedReason } {
-  const mentions = new Set<string>(entryPoints.map((name) => foldAscii(name)));
+function projectFacts(document: IndexDocument, dialect: "tk3" | "tk2" | undefined, project: NonNullable<LintOptions["project"]>): { readonly mentions: Set<string> } | { readonly reason: UnassessedReason } {
+  const mentions = new Set<string>(project.entryPoints.map((name) => foldAscii(name)));
   for (const program of document.programs) {
     const parsed = parsedOf(program);
     const readiness = parsedReadiness(program, parsed, dialect);
@@ -646,15 +651,18 @@ function projectFacts(document: IndexDocument, dialect: "tk3" | "tk2" | undefine
     for (const unit of parsed!.units) {
       for (const scope of scopesOf(unit)) {
         if (hasDynamicReference(scope.body)) return { reason: "dynamic-reference" };
-        let dynamicProgram = false;
+        let problem: UnassessedReason | null = null;
         forEachExpression(scope.body, (expr) => {
-          if (expr.kind !== "call" || expr.file !== undefined) return;
+          if (problem !== null || expr.kind !== "call" || expr.file !== undefined) return;
           const name = foldAscii(expr.name);
-          if (DYNAMIC_PROJECT_CALLS.has(name)) dynamicProgram = true;
           const file = expr.args[0];
-          if (PROGRAM_CALLS.has(name) && (file?.kind !== "literal" || typeof file.value !== "string")) dynamicProgram = true;
+          if (DYNAMIC_PROJECT_CALLS.has(name)) problem = "dynamic-reference";
+          else if (PROGRAM_CALLS.has(name)) {
+            if (file?.kind !== "literal" || typeof file.value !== "string") problem = "dynamic-reference";
+            else if (file.value !== "" && project.hasProgram?.(file.value) === false) problem = "incomplete-project";
+          }
         }, false);
-        if (dynamicProgram) return { reason: "dynamic-reference" };
+        if (problem !== null) return { reason: problem };
         for (const name of mentionsIn(scope.body, { readsOnly: false })) mentions.add(name);
       }
     }
@@ -706,7 +714,7 @@ export function lint(document: IndexDocument, options: LintOptions): LintResult 
   };
 
   const project = options.project;
-  const facts = project === undefined ? null : projectFacts(document, options.dialect, project.entryPoints);
+  const facts = project === undefined ? null : projectFacts(document, options.dialect, project);
   const projectMentions = facts !== null && "mentions" in facts ? facts.mentions : null;
   const reportedFunctions = new Set<string>();
   const programKeys = new Set(document.programs.map((program) => program.key));

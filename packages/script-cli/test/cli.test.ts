@@ -90,6 +90,22 @@ void test("check --project uses the selected main file, project root, includes a
     const cli = spawnSync(process.execPath, [fileURLToPath(new URL("../dist/cli.js", import.meta.url)), "script", "check", "--project", mainPath, "--json"], { encoding: "utf8" });
     strictEqual(cli.status, 0, cli.stderr);
     deepEqual(JSON.parse(cli.stdout), result);
+
+    writeFileSync(start, 'run("missing.prg")\n');
+    const missingRun = checked();
+    deepEqual(unused(missingRun.result), []);
+    ok(missingRun.human.includes("lint/unused-function (incomplete-project)"));
+
+    const bad = join(programs, "bad.prg");
+    writeFileSync(bad, "\n\n\nx = )\n");
+    writeFileSync(start, '#include "bad.prg"\n');
+    const invalidInclude = checked().result.diagnostics;
+    deepEqual(invalidInclude.filter((item) => item.severity === "error").map((item) => [item.file, item.code, item.range.start.line]), [
+      ["Game/Quest/Prg/bad.prg", "syntax.error", 4],
+      ["Game/Quest/Prg/start.prg", "tkr.project-compile", 1],
+    ]);
+    rmSync(bad);
+
     writeFileSync(start, '#include "missing.prg"\n');
     const missingInclude = checked();
     deepEqual(unused(missingInclude.result), []);

@@ -52,6 +52,16 @@ export function runCheck(paths: readonly string[], json: boolean, dialect?: "tk3
       const own = source === undefined || program.diagnostics.length === 0
         ? []
         : analyse(source, { file: program.name, dialect: project.dialect }).diagnostics;
+      if (source !== undefined && own.length === 0 && program.diagnostics.length > 0) {
+        const message = program.diagnostics[0]!.message;
+        return [{
+          code: "tkr.project-compile",
+          severity: "error" as const,
+          file: program.name,
+          range: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } },
+          message: `Cannot compile this program with its includes. ${message}`,
+        }];
+      }
       const found = own.length > 0 ? own : program.diagnostics;
       return found.map((item) => withFile(item, program.name));
     });
