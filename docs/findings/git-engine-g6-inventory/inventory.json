@@ -1,0 +1,1016 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "node tools/licences/inventory-git-engine.mjs",
+  "fixtureManifest": "tools/licences/fixtures/git-engine/package.json",
+  "fixtureLock": "tools/licences/fixtures/git-engine/package-lock.json",
+  "policy": {
+    "minimumRating": "Bronze",
+    "blocked": [
+      "MS-PL"
+    ],
+    "blueOakVersion": "16"
+  },
+  "directDependencies": {
+    "@isomorphic-git/lightning-fs": "4.10.5",
+    "diff": "8.0.2",
+    "isomorphic-git": "1.44.13"
+  },
+  "packageCount": 53,
+  "gateFailures": [],
+  "packages": [
+    {
+      "name": "@isomorphic-git/idb-keyval",
+      "version": "3.3.2",
+      "packagePath": "node_modules/@isomorphic-git/idb-keyval",
+      "resolved": "https://registry.npmjs.org/@isomorphic-git/idb-keyval/-/idb-keyval-3.3.2.tgz",
+      "integrity": "sha512-r8/AdpiS0/WJCNR/t/gsgL+M8NMVj/ek7s60uz3LmpCaTF2mEVlZJlB01ZzalgYzRLXwSPC92o+pdzjM7PN/pA==",
+      "spdx": "Apache-2.0",
+      "blueOakRatings": {
+        "Apache-2.0": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/@isomorphic-git/idb-keyval/LICENCE",
+          "sha256": "20c27d6339619eeb3113cb865d4e98a3f559e52964fc75caea9cb5fa72674565"
+        }
+      ]
+    },
+    {
+      "name": "@isomorphic-git/lightning-fs",
+      "version": "4.10.5",
+      "packagePath": "node_modules/@isomorphic-git/lightning-fs",
+      "resolved": "https://registry.npmjs.org/@isomorphic-git/lightning-fs/-/lightning-fs-4.10.5.tgz",
+      "integrity": "sha512-QwhW+F8DvcE6gkWOucH1eCMweKcBvHqNx1wDk9qJ5n1JJTP3SGxR8llAvd2ujcXVJzqglhTOpfbsAowmLbuJCw==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/@isomorphic-git/lightning-fs/LICENSE",
+          "sha256": "df563bf6740c35bef4afefe212b1227499bddd83c39283bbe8a07b4d89c17cf1"
+        }
+      ]
+    },
+    {
+      "name": "async-lock",
+      "version": "1.5.0",
+      "packagePath": "node_modules/async-lock",
+      "resolved": "https://registry.npmjs.org/async-lock/-/async-lock-1.5.0.tgz",
+      "integrity": "sha512-JgULma1mWaHlyJ67lvicyel5Cq+k55bXafE0gyvJBdHkH0vdE/IGGDF1glNyRInisNS6pZL2oho96S6Hw68kfQ==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/async-lock/LICENSE",
+          "sha256": "11e9f9acdfdfce6caa7b304c6ebb1a3269a61bb03d74bfcce629cc1462c06ddc"
+        }
+      ]
+    },
+    {
+      "name": "available-typed-arrays",
+      "version": "1.0.7",
+      "packagePath": "node_modules/available-typed-arrays",
+      "resolved": "https://registry.npmjs.org/available-typed-arrays/-/available-typed-arrays-1.0.7.tgz",
+      "integrity": "sha512-wvUjBtSGN7+7SjNpq/9M2Tg350UZD3q62IFZLbRAR1bSMlCo1ZaeW+BJ+D090e4hIIZLBcTDWe4Mh4jvUDajzQ==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/available-typed-arrays/LICENSE",
+          "sha256": "6d0917530cf3b3dca12c1ab7798e4d38ad0a6798ecc1bd27849a3048ba91d265"
+        }
+      ]
+    },
+    {
+      "name": "call-bind",
+      "version": "1.0.9",
+      "packagePath": "node_modules/call-bind",
+      "resolved": "https://registry.npmjs.org/call-bind/-/call-bind-1.0.9.tgz",
+      "integrity": "sha512-a/hy+pNsFUTR+Iz8TCJvXudKVLAnz/DyeSUo10I5yvFDQJBFU2s9uqQpoSrJlroHUKoKqzg+epxyP9lqFdzfBQ==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/call-bind/LICENSE",
+          "sha256": "39c5ec504cf6bd5cd782a7c695828e09189df79f5d94840e4f08feb97b9fd416"
+        }
+      ]
+    },
+    {
+      "name": "call-bind-apply-helpers",
+      "version": "1.0.2",
+      "packagePath": "node_modules/call-bind-apply-helpers",
+      "resolved": "https://registry.npmjs.org/call-bind-apply-helpers/-/call-bind-apply-helpers-1.0.2.tgz",
+      "integrity": "sha512-Sp1ablJ0ivDkSzjcaJdxEunN5/XvksFJ2sMBFfq6x0ryhQV/2b/KwFe21cMpmHtPOSij8K99/wSfoEuTObmuMQ==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/call-bind-apply-helpers/LICENSE",
+          "sha256": "5e325595b4ea8cfec3802f545b1def5d7b73e4a5b8e9ba63e32a320f67732292"
+        }
+      ]
+    },
+    {
+      "name": "call-bound",
+      "version": "1.0.4",
+      "packagePath": "node_modules/call-bound",
+      "resolved": "https://registry.npmjs.org/call-bound/-/call-bound-1.0.4.tgz",
+      "integrity": "sha512-+ys997U96po4Kx/ABpBCqhA9EuxJaQWDQg7295H4hBphv3IZg0boBKuwYpt4YXp6MZ5AmZQnU/tyMTlRpaSejg==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/call-bound/LICENSE",
+          "sha256": "5e325595b4ea8cfec3802f545b1def5d7b73e4a5b8e9ba63e32a320f67732292"
+        }
+      ]
+    },
+    {
+      "name": "clean-git-ref",
+      "version": "2.0.1",
+      "packagePath": "node_modules/clean-git-ref",
+      "resolved": "https://registry.npmjs.org/clean-git-ref/-/clean-git-ref-2.0.1.tgz",
+      "integrity": "sha512-bLSptAy2P0s6hU4PzuIMKmMJJSE6gLXGH1cntDu7bWJUksvuM+7ReOK61mozULErYvP6a15rnYl0zFDef+pyPw==",
+      "spdx": "Apache-2.0",
+      "blueOakRatings": {
+        "Apache-2.0": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": []
+    },
+    {
+      "name": "crc-32",
+      "version": "1.2.2",
+      "packagePath": "node_modules/crc-32",
+      "resolved": "https://registry.npmjs.org/crc-32/-/crc-32-1.2.2.tgz",
+      "integrity": "sha512-ROmzCKrTnOwybPcJApAA6WBWij23HVfGVNKqqrZpuyZOHqK2CwHSvpGuyt/UNNvaIjEd8X5IFGp4Mh+Ie1IHJQ==",
+      "spdx": "Apache-2.0",
+      "blueOakRatings": {
+        "Apache-2.0": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/crc-32/LICENSE",
+          "sha256": "c542ba7851b5d39a5face477e47a27cb7c00a9759e321b66824e79718bffe1ac"
+        }
+      ]
+    },
+    {
+      "name": "decompress-response",
+      "version": "6.0.0",
+      "packagePath": "node_modules/decompress-response",
+      "resolved": "https://registry.npmjs.org/decompress-response/-/decompress-response-6.0.0.tgz",
+      "integrity": "sha512-aW35yZM6Bb/4oJlZncMH2LCoZtJXTRxES17vE3hoRiowU2kWHaJKFkSBDnDR+cm9J+9QhXmREyIfv0pji9ejCQ==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/decompress-response/license",
+          "sha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3"
+        }
+      ]
+    },
+    {
+      "name": "define-data-property",
+      "version": "1.1.4",
+      "packagePath": "node_modules/define-data-property",
+      "resolved": "https://registry.npmjs.org/define-data-property/-/define-data-property-1.1.4.tgz",
+      "integrity": "sha512-rBMvIzlpA8v6E+SJZoo++HAYqsLrkg7MSfIinMPFhmkorw7X+dOXVJQs+QT69zGkzMyfDnIMN2Wid1+NbL3T+A==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/define-data-property/LICENSE",
+          "sha256": "b41d08bc3624d8c436fc80237d73ebb361985a67f4504bbcd703e5ca2b27254c"
+        }
+      ]
+    },
+    {
+      "name": "diff",
+      "version": "8.0.2",
+      "packagePath": "node_modules/diff",
+      "resolved": "https://registry.npmjs.org/diff/-/diff-8.0.2.tgz",
+      "integrity": "sha512-sSuxWU5j5SR9QQji/o2qMvqRNYRDOcBTgsJ/DeCf4iSN4gW+gNMXM7wFIP+fdXZxoNiAnHUTGjCr+TSWXdRDKg==",
+      "spdx": "BSD-3-Clause",
+      "blueOakRatings": {
+        "BSD-3-Clause": "Bronze"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/diff/LICENSE",
+          "sha256": "eda81a415869e67809f6a9f3fd6056062cb83a462118e07eec5e92b2e0c40ce9"
+        }
+      ]
+    },
+    {
+      "name": "diff3",
+      "version": "0.0.3",
+      "packagePath": "node_modules/diff3",
+      "resolved": "https://registry.npmjs.org/diff3/-/diff3-0.0.3.tgz",
+      "integrity": "sha512-iSq8ngPOt0K53A6eVr4d5Kn6GNrM2nQZtC740pzIriHtn4pOQ2lyzEXQMBeVcWERN0ye7fhBsk9PbLLQOnUx/g==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": []
+    },
+    {
+      "name": "dunder-proto",
+      "version": "1.0.1",
+      "packagePath": "node_modules/dunder-proto",
+      "resolved": "https://registry.npmjs.org/dunder-proto/-/dunder-proto-1.0.1.tgz",
+      "integrity": "sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/dunder-proto/LICENSE",
+          "sha256": "2b770a704c15de238c3f622b01b0044ddd60b49ee30608ea6991ebf19db7a7a1"
+        }
+      ]
+    },
+    {
+      "name": "es-define-property",
+      "version": "1.0.1",
+      "packagePath": "node_modules/es-define-property",
+      "resolved": "https://registry.npmjs.org/es-define-property/-/es-define-property-1.0.1.tgz",
+      "integrity": "sha512-e3nRfgfUZ4rNGL232gUgX06QNyyez04KdjFrF+LTRoOXmrOgFKDg4BCdsjW8EnT69eqdYGmRpJwiPVYNrCaW3g==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/es-define-property/LICENSE",
+          "sha256": "5e325595b4ea8cfec3802f545b1def5d7b73e4a5b8e9ba63e32a320f67732292"
+        }
+      ]
+    },
+    {
+      "name": "es-errors",
+      "version": "1.3.0",
+      "packagePath": "node_modules/es-errors",
+      "resolved": "https://registry.npmjs.org/es-errors/-/es-errors-1.3.0.tgz",
+      "integrity": "sha512-Zf5H2Kxt2xjTvbJvP2ZWLEICxA6j+hAmMzIlypy4xcBg1vKVnx89Wy0GbS+kf5cwCVFFzdCFh2XSCFNULS6csw==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/es-errors/LICENSE",
+          "sha256": "5e325595b4ea8cfec3802f545b1def5d7b73e4a5b8e9ba63e32a320f67732292"
+        }
+      ]
+    },
+    {
+      "name": "es-object-atoms",
+      "version": "1.1.2",
+      "packagePath": "node_modules/es-object-atoms",
+      "resolved": "https://registry.npmjs.org/es-object-atoms/-/es-object-atoms-1.1.2.tgz",
+      "integrity": "sha512-HWcBoN6NileqtSydK2FqHbS/LoDd2pqrnQHLyJzBj4kOp/ky2MWMN694xOfkK8/SnUsW2DH7EfyVlydKCsm1Zw==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/es-object-atoms/LICENSE",
+          "sha256": "5e325595b4ea8cfec3802f545b1def5d7b73e4a5b8e9ba63e32a320f67732292"
+        }
+      ]
+    },
+    {
+      "name": "fast-text-encoding",
+      "version": "1.0.6",
+      "packagePath": "node_modules/fast-text-encoding",
+      "resolved": "https://registry.npmjs.org/fast-text-encoding/-/fast-text-encoding-1.0.6.tgz",
+      "integrity": "sha512-VhXlQgj9ioXCqGstD37E/HBeqEGV/qOD/kmbVG8h5xKBYvM1L3lR1Zn4555cQ8GkYbJa8aJSipLPndE1k6zK2w==",
+      "spdx": "Apache-2.0",
+      "blueOakRatings": {
+        "Apache-2.0": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/fast-text-encoding/LICENSE",
+          "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1"
+        }
+      ]
+    },
+    {
+      "name": "for-each",
+      "version": "0.3.5",
+      "packagePath": "node_modules/for-each",
+      "resolved": "https://registry.npmjs.org/for-each/-/for-each-0.3.5.tgz",
+      "integrity": "sha512-dKx12eRCVIzqCxFGplyFKJMPvLEWgmNtUrpTiJIR5u97zEhRG8ySrtboPHZXx7daLxQVrl643cTzbab2tkQjxg==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/for-each/LICENSE",
+          "sha256": "d07913d776eef217a95d7ee3ee83577fc3c365b9c870f5a3411f785b81090614"
+        }
+      ]
+    },
+    {
+      "name": "function-bind",
+      "version": "1.1.2",
+      "packagePath": "node_modules/function-bind",
+      "resolved": "https://registry.npmjs.org/function-bind/-/function-bind-1.1.2.tgz",
+      "integrity": "sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/function-bind/LICENSE",
+          "sha256": "773e131a7684726005a7e4688a80b4620033bc08499bc1404dd1a1eb3bca725e"
+        }
+      ]
+    },
+    {
+      "name": "get-intrinsic",
+      "version": "1.3.0",
+      "packagePath": "node_modules/get-intrinsic",
+      "resolved": "https://registry.npmjs.org/get-intrinsic/-/get-intrinsic-1.3.0.tgz",
+      "integrity": "sha512-9fSjSaos/fRIVIp+xSJlE6lfwhES7LNtKaCBIamHsjr2na1BiABJPo0mOjjz8GJDURarmCPGqaiVg5mfjb98CQ==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/get-intrinsic/LICENSE",
+          "sha256": "39c5ec504cf6bd5cd782a7c695828e09189df79f5d94840e4f08feb97b9fd416"
+        }
+      ]
+    },
+    {
+      "name": "get-proto",
+      "version": "1.0.1",
+      "packagePath": "node_modules/get-proto",
+      "resolved": "https://registry.npmjs.org/get-proto/-/get-proto-1.0.1.tgz",
+      "integrity": "sha512-sTSfBjoXBp89JvIKIefqw7U2CCebsc74kiY6awiGogKtoSGbgjYE/G/+l9sF3MWFPNc9IcoOC4ODfKHfxFmp0g==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/get-proto/LICENSE",
+          "sha256": "be46ce1e3b0479af9ce82d22b465a6d7d2ff084fca0aaf3d54172da2b5eb5781"
+        }
+      ]
+    },
+    {
+      "name": "gopd",
+      "version": "1.2.0",
+      "packagePath": "node_modules/gopd",
+      "resolved": "https://registry.npmjs.org/gopd/-/gopd-1.2.0.tgz",
+      "integrity": "sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/gopd/LICENSE",
+          "sha256": "d90bf0a089da4cf43d644ed240a0b3825dcdb705e64e38371d56995a4cc9e4c5"
+        }
+      ]
+    },
+    {
+      "name": "has-property-descriptors",
+      "version": "1.0.2",
+      "packagePath": "node_modules/has-property-descriptors",
+      "resolved": "https://registry.npmjs.org/has-property-descriptors/-/has-property-descriptors-1.0.2.tgz",
+      "integrity": "sha512-55JNKuIW+vq4Ke1BjOTjM2YctQIvCT7GFzHwmfZPGo5wnrgkid0YQtnAleFSqumZm4az3n2BS+erby5ipJdgrg==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/has-property-descriptors/LICENSE",
+          "sha256": "0f0ca96f50793990031ebc488a38f7292ff70bce8ab6a8e5eeda674abc32ccdf"
+        }
+      ]
+    },
+    {
+      "name": "has-symbols",
+      "version": "1.1.0",
+      "packagePath": "node_modules/has-symbols",
+      "resolved": "https://registry.npmjs.org/has-symbols/-/has-symbols-1.1.0.tgz",
+      "integrity": "sha512-1cDNdwJ2Jaohmb3sg4OmKaMBwuC48sYni5HUw2DvsC8LjGTLK9h+eb1X6RyuOHe4hT0ULCW68iomhjUoKUqlPQ==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/has-symbols/LICENSE",
+          "sha256": "206c1adcf206dc0031b11232f5b054ec5f1662407ab1ca415247921cab2068ab"
+        }
+      ]
+    },
+    {
+      "name": "has-tostringtag",
+      "version": "1.0.2",
+      "packagePath": "node_modules/has-tostringtag",
+      "resolved": "https://registry.npmjs.org/has-tostringtag/-/has-tostringtag-1.0.2.tgz",
+      "integrity": "sha512-NqADB8VjPFLM2V0VvHUewwwsw0ZWBaIdgo+ieHtK3hasLz4qeCRjYcqfB6AQrBggRKppKF8L52/VqdVsO47Dlw==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/has-tostringtag/LICENSE",
+          "sha256": "e2560e002e13281578c75c850061d9255c33d16d732939e8c2db64c2506642fa"
+        }
+      ]
+    },
+    {
+      "name": "hasown",
+      "version": "2.0.4",
+      "packagePath": "node_modules/hasown",
+      "resolved": "https://registry.npmjs.org/hasown/-/hasown-2.0.4.tgz",
+      "integrity": "sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/hasown/LICENSE",
+          "sha256": "bf9b0d665be2a689851eea667ca9f42066ea1d903b38349c51e6a44b2577680a"
+        }
+      ]
+    },
+    {
+      "name": "ignore",
+      "version": "5.3.2",
+      "packagePath": "node_modules/ignore",
+      "resolved": "https://registry.npmjs.org/ignore/-/ignore-5.3.2.tgz",
+      "integrity": "sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/ignore/LICENSE-MIT",
+          "sha256": "9c94db23dc4b1e9aaee5d195668b916afc71efed54af226b66cf0ccc4389c1c0"
+        }
+      ]
+    },
+    {
+      "name": "inherits",
+      "version": "2.0.4",
+      "packagePath": "node_modules/inherits",
+      "resolved": "https://registry.npmjs.org/inherits/-/inherits-2.0.4.tgz",
+      "integrity": "sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==",
+      "spdx": "ISC",
+      "blueOakRatings": {
+        "ISC": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/inherits/LICENSE",
+          "sha256": "5ffe28e7ade7d8f10d85d5337a73fd793dac5c462fb9a28fbf8c5046c7fbca3b"
+        }
+      ]
+    },
+    {
+      "name": "is-callable",
+      "version": "1.2.7",
+      "packagePath": "node_modules/is-callable",
+      "resolved": "https://registry.npmjs.org/is-callable/-/is-callable-1.2.7.tgz",
+      "integrity": "sha512-1BC0BVFhS/p0qtw6enp8e+8OD0UrK0oFLztSjNzhcKA3WDuJxxAPXzPuPtKkjEY9UUoEWlX/8fgKeu2S8i9JTA==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/is-callable/LICENSE",
+          "sha256": "c61652db3d2808f667b48af0a358f0d85fd07ad4a0d0b1a50882dec3b764c522"
+        }
+      ]
+    },
+    {
+      "name": "is-typed-array",
+      "version": "1.1.15",
+      "packagePath": "node_modules/is-typed-array",
+      "resolved": "https://registry.npmjs.org/is-typed-array/-/is-typed-array-1.1.15.tgz",
+      "integrity": "sha512-p3EcsicXjit7SaskXHs1hA91QxgTw46Fv6EFKKGS5DRFLD8yKnohjF3hxoju94b/OcMZoQukzpPpBE9uLVKzgQ==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/is-typed-array/LICENSE",
+          "sha256": "c61652db3d2808f667b48af0a358f0d85fd07ad4a0d0b1a50882dec3b764c522"
+        }
+      ]
+    },
+    {
+      "name": "isarray",
+      "version": "2.0.5",
+      "packagePath": "node_modules/isarray",
+      "resolved": "https://registry.npmjs.org/isarray/-/isarray-2.0.5.tgz",
+      "integrity": "sha512-xHjhDr3cNBK0BzdUJSPXZntQUx/mwMS5Rw4A7lPJ90XGAO6ISP/ePDNuo0vhqOZU+UD5JoodwCAAoZQd3FeAKw==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/isarray/LICENSE",
+          "sha256": "68f12f6e2c33688699249c01d8f9623c534da20aa71989c57b061b7bc1676d14"
+        }
+      ]
+    },
+    {
+      "name": "isomorphic-git",
+      "version": "1.44.13",
+      "packagePath": "node_modules/isomorphic-git",
+      "resolved": "https://registry.npmjs.org/isomorphic-git/-/isomorphic-git-1.44.13.tgz",
+      "integrity": "sha512-qOupuYkgO8yalspNGU925T/61rzawetC+2LoJ1VQzs8Wt04K4Io0fAZJu560H0LSVR2QEQhNfw72841CopKs3g==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/isomorphic-git/LICENSE.md",
+          "sha256": "b916888fb16893c3a1df138543f994b96bb6892d74b6777c3a080d9cd2520c48"
+        }
+      ]
+    },
+    {
+      "name": "isomorphic-textencoder",
+      "version": "1.0.1",
+      "packagePath": "node_modules/isomorphic-textencoder",
+      "resolved": "https://registry.npmjs.org/isomorphic-textencoder/-/isomorphic-textencoder-1.0.1.tgz",
+      "integrity": "sha512-676hESgHullDdHDsj469hr+7t3i/neBKU9J7q1T4RHaWwLAsaQnywC0D1dIUId0YZ+JtVrShzuBk1soo0+GVcQ==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/isomorphic-textencoder/LICENSE",
+          "sha256": "a393a41b594ea3c00c7ab42345b7b5aa323ba42287dc6dba7fa8fdaf9953710e"
+        }
+      ]
+    },
+    {
+      "name": "just-debounce-it",
+      "version": "3.2.0",
+      "packagePath": "node_modules/just-debounce-it",
+      "resolved": "https://registry.npmjs.org/just-debounce-it/-/just-debounce-it-3.2.0.tgz",
+      "integrity": "sha512-WXzwLL0745uNuedrCsCs3rpmfD6DBaf7uuVwaq98/8dafURfgQaBsSpjiPp5+CW6Vjltwy9cOGI6qE71b3T8iQ==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/just-debounce-it/LICENSE",
+          "sha256": "ebb30d70f7ebd918f223ce6ed7621fa4cef3ec2d59d6707c23868b01def28ce2"
+        }
+      ]
+    },
+    {
+      "name": "just-once",
+      "version": "2.2.0",
+      "packagePath": "node_modules/just-once",
+      "resolved": "https://registry.npmjs.org/just-once/-/just-once-2.2.0.tgz",
+      "integrity": "sha512-Wo547FgUOUZ98jbrZ1KX8nRezdEdtgIlC2NK1u1RvR1oZ/WoU++FjprP8J8hRbaox776MHyeMZZED4DvhhHVjg==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/just-once/LICENSE",
+          "sha256": "ebb30d70f7ebd918f223ce6ed7621fa4cef3ec2d59d6707c23868b01def28ce2"
+        }
+      ]
+    },
+    {
+      "name": "math-intrinsics",
+      "version": "1.1.0",
+      "packagePath": "node_modules/math-intrinsics",
+      "resolved": "https://registry.npmjs.org/math-intrinsics/-/math-intrinsics-1.1.0.tgz",
+      "integrity": "sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/math-intrinsics/LICENSE",
+          "sha256": "2b770a704c15de238c3f622b01b0044ddd60b49ee30608ea6991ebf19db7a7a1"
+        }
+      ]
+    },
+    {
+      "name": "mimic-response",
+      "version": "3.1.0",
+      "packagePath": "node_modules/mimic-response",
+      "resolved": "https://registry.npmjs.org/mimic-response/-/mimic-response-3.1.0.tgz",
+      "integrity": "sha512-z0yWI+4FDrrweS8Zmt4Ej5HdJmky15+L2e6Wgn3+iK5fWzb6T3fhNFq2+MeTRb064c6Wr4N/wv0DzQTjNzHNGQ==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/mimic-response/license",
+          "sha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3"
+        }
+      ]
+    },
+    {
+      "name": "minimist",
+      "version": "1.2.8",
+      "packagePath": "node_modules/minimist",
+      "resolved": "https://registry.npmjs.org/minimist/-/minimist-1.2.8.tgz",
+      "integrity": "sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/minimist/LICENSE",
+          "sha256": "435a6722c786b0a56fbe7387028f1d9d3f3a2d0fb615bb8fee118727c3f59b7b"
+        }
+      ]
+    },
+    {
+      "name": "minimisted",
+      "version": "2.0.1",
+      "packagePath": "node_modules/minimisted",
+      "resolved": "https://registry.npmjs.org/minimisted/-/minimisted-2.0.1.tgz",
+      "integrity": "sha512-1oPjfuLQa2caorJUM8HV8lGgWCc0qqAO1MNv/k05G4qslmsndV/5WdNZrqCiyqiz3wohia2Ij2B7w2Dr7/IyrA==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": []
+    },
+    {
+      "name": "once",
+      "version": "1.4.0",
+      "packagePath": "node_modules/once",
+      "resolved": "https://registry.npmjs.org/once/-/once-1.4.0.tgz",
+      "integrity": "sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w==",
+      "spdx": "ISC",
+      "blueOakRatings": {
+        "ISC": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/once/LICENSE",
+          "sha256": "4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b"
+        }
+      ]
+    },
+    {
+      "name": "pako",
+      "version": "1.0.11",
+      "packagePath": "node_modules/pako",
+      "resolved": "https://registry.npmjs.org/pako/-/pako-1.0.11.tgz",
+      "integrity": "sha512-4hLB8Py4zZce5s4yd9XzopqwVv/yGNhV1Bl8NTmCq1763HeK2+EwVTv+leGeL13Dnh2wfbqowVPXCIO0z4taYw==",
+      "spdx": "(MIT AND Zlib)",
+      "blueOakRatings": {
+        "MIT": "Silver",
+        "Zlib": "Bronze"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/pako/LICENSE",
+          "sha256": "a04665b3b2de56c66730c1f720f528175739e4104f79073614aa611da1e85539"
+        }
+      ]
+    },
+    {
+      "name": "pify",
+      "version": "4.0.1",
+      "packagePath": "node_modules/pify",
+      "resolved": "https://registry.npmjs.org/pify/-/pify-4.0.1.tgz",
+      "integrity": "sha512-uB80kBFb/tfd68bVleG9T5GGsGPjJrLAUpR5PZIrhBnIaRTQRjqdJSsIKkOP6OAIFbj7GOrcudc5pNjZ+geV2g==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/pify/license",
+          "sha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0"
+        }
+      ]
+    },
+    {
+      "name": "possible-typed-array-names",
+      "version": "1.1.0",
+      "packagePath": "node_modules/possible-typed-array-names",
+      "resolved": "https://registry.npmjs.org/possible-typed-array-names/-/possible-typed-array-names-1.1.0.tgz",
+      "integrity": "sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/possible-typed-array-names/LICENSE",
+          "sha256": "5e325595b4ea8cfec3802f545b1def5d7b73e4a5b8e9ba63e32a320f67732292"
+        }
+      ]
+    },
+    {
+      "name": "safe-buffer",
+      "version": "5.2.1",
+      "packagePath": "node_modules/safe-buffer",
+      "resolved": "https://registry.npmjs.org/safe-buffer/-/safe-buffer-5.2.1.tgz",
+      "integrity": "sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/safe-buffer/LICENSE",
+          "sha256": "c7cc929b57080f4b9d0c6cf57669f0463fc5b39906344dfc8d3bc43426b30eac"
+        }
+      ]
+    },
+    {
+      "name": "set-function-length",
+      "version": "1.2.2",
+      "packagePath": "node_modules/set-function-length",
+      "resolved": "https://registry.npmjs.org/set-function-length/-/set-function-length-1.2.2.tgz",
+      "integrity": "sha512-pgRc4hJ4/sNjWCSS9AmnS40x3bNMDTknHgL5UaMBTMyJnU90EgWh1Rz+MC9eFu4BuN/UwZjKQuY/1v3rM7HMfg==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/set-function-length/LICENSE",
+          "sha256": "bf9b0d665be2a689851eea667ca9f42066ea1d903b38349c51e6a44b2577680a"
+        }
+      ]
+    },
+    {
+      "name": "sha.js",
+      "version": "2.4.12",
+      "packagePath": "node_modules/sha.js",
+      "resolved": "https://registry.npmjs.org/sha.js/-/sha.js-2.4.12.tgz",
+      "integrity": "sha512-8LzC5+bvI45BjpfXU8V5fdU2mfeKiQe1D1gIMn7XUlF3OTUrpdJpPPH4EMAnF0DsHHdSZqCdSss5qCmJKuiO3w==",
+      "spdx": "(MIT AND BSD-3-Clause)",
+      "blueOakRatings": {
+        "BSD-3-Clause": "Bronze",
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/sha.js/LICENSE",
+          "sha256": "58dcf38be1438f739412b87eb70d64bf00e9976d529bb119f700d8b3167924f0"
+        }
+      ]
+    },
+    {
+      "name": "simple-concat",
+      "version": "1.0.1",
+      "packagePath": "node_modules/simple-concat",
+      "resolved": "https://registry.npmjs.org/simple-concat/-/simple-concat-1.0.1.tgz",
+      "integrity": "sha512-cSFtAPtRhljv69IK0hTVZQ+OfE9nePi/rtJmw5UjHeVyVroEqJXP1sFztKUy1qU+xvz3u/sfYJLa947b7nAN2Q==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/simple-concat/LICENSE",
+          "sha256": "d4c2065e2b936e62a4eb400efb4576edec9ca1388a9f78aa288e147275e7bc8b"
+        }
+      ]
+    },
+    {
+      "name": "simple-get",
+      "version": "4.0.1",
+      "packagePath": "node_modules/simple-get",
+      "resolved": "https://registry.npmjs.org/simple-get/-/simple-get-4.0.1.tgz",
+      "integrity": "sha512-brv7p5WgH0jmQJr1ZDDfKDOSeWWg+OVypG99A/5vYGPqJ6pxiaHLy8nxtFjBA7oMa01ebA9gfh1uMCFqOuXxvA==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/simple-get/LICENSE",
+          "sha256": "d4c2065e2b936e62a4eb400efb4576edec9ca1388a9f78aa288e147275e7bc8b"
+        }
+      ]
+    },
+    {
+      "name": "to-buffer",
+      "version": "1.2.2",
+      "packagePath": "node_modules/to-buffer",
+      "resolved": "https://registry.npmjs.org/to-buffer/-/to-buffer-1.2.2.tgz",
+      "integrity": "sha512-db0E3UJjcFhpDhAF4tLo03oli3pwl3dbnzXOUIlRKrp+ldk/VUxzpWYZENsw2SZiuBjHAk7DfB0VU7NKdpb6sw==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/to-buffer/LICENSE",
+          "sha256": "6a134e51aa31496c15a741592fc5d782b2dbf8d8b6b8524e15c8520ae0cd6374"
+        }
+      ]
+    },
+    {
+      "name": "typed-array-buffer",
+      "version": "1.0.3",
+      "packagePath": "node_modules/typed-array-buffer",
+      "resolved": "https://registry.npmjs.org/typed-array-buffer/-/typed-array-buffer-1.0.3.tgz",
+      "integrity": "sha512-nAYYwfY3qnzX30IkA6AQZjVbtK6duGontcQm1WSG1MD94YLqK0515GNApXkoxKOWMusVssAHWLh9SeaoefYFGw==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/typed-array-buffer/LICENSE",
+          "sha256": "b41d08bc3624d8c436fc80237d73ebb361985a67f4504bbcd703e5ca2b27254c"
+        }
+      ]
+    },
+    {
+      "name": "which-typed-array",
+      "version": "1.1.24",
+      "packagePath": "node_modules/which-typed-array",
+      "resolved": "https://registry.npmjs.org/which-typed-array/-/which-typed-array-1.1.24.tgz",
+      "integrity": "sha512-wk4Mf4pR5mRP7eYuuTBCIQ9d0ud2Fv2jRLQpfgnRjbOxAFHmjKFValgTpitVKzJJS8ajnYQV2Du1SZ8j6b/EUQ==",
+      "spdx": "MIT",
+      "blueOakRatings": {
+        "MIT": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/which-typed-array/LICENSE",
+          "sha256": "c61652db3d2808f667b48af0a358f0d85fd07ad4a0d0b1a50882dec3b764c522"
+        }
+      ]
+    },
+    {
+      "name": "wrappy",
+      "version": "1.0.2",
+      "packagePath": "node_modules/wrappy",
+      "resolved": "https://registry.npmjs.org/wrappy/-/wrappy-1.0.2.tgz",
+      "integrity": "sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==",
+      "spdx": "ISC",
+      "blueOakRatings": {
+        "ISC": "Silver"
+      },
+      "g6": "pass",
+      "reason": null,
+      "licenseFiles": [
+        {
+          "path": "node_modules/wrappy/LICENSE",
+          "sha256": "4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b"
+        }
+      ]
+    }
+  ]
+}
