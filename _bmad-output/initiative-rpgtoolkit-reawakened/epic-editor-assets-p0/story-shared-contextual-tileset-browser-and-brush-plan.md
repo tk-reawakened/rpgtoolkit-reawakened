@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Shared contextual tileset browser and brush"
 ticket: 2
 status: draft

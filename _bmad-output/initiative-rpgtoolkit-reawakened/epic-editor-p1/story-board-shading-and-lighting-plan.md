@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Board shading and lighting"
 ticket: 12
 status: draft

@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Connect contextual help and program quick reference"
 ticket: 11
 status: draft

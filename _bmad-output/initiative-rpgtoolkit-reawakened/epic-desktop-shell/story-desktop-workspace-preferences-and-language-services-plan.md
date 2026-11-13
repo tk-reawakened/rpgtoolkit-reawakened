@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Desktop workspace preferences and language services"
 status: draft
 risk: medium

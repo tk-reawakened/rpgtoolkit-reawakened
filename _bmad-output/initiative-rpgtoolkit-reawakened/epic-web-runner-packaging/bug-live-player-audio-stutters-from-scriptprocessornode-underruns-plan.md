@@ -1,6 +1,6 @@
 ---
 title: 'Live player audio stutters from ScriptProcessorNode underruns'
-type: 'bug'
+type: 'bugfix'
 ticket: '17'
 status: 'in-review'
 tracker_id: '#1043'

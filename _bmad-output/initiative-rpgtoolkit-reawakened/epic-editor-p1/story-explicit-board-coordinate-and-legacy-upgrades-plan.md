@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Explicit board coordinate and legacy upgrades"
 ticket: 15
 status: draft

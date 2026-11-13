@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Trace a real game settings document through both hosts"
 ticket: 2
 status: draft

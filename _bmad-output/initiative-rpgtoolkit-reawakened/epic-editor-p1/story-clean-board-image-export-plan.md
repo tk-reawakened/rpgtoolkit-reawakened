@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Clean board image export"
 ticket: 14
 status: draft

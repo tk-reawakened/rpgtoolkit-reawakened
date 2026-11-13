@@ -32,7 +32,7 @@ test("only allowlisted prose and planning paths are inert, and the reason names 
     "docs/architecture-options.md",
     "docs/adr/0001-example.md",
     "docs/playing-the-desktop-player.md",
-    "_bmad-output/initiative/ticket.md",
+    "_bmad/scripts/setup.py",
     ".github/ISSUE_TEMPLATE/bug_report.yml",
     ".github/ISSUE_TEMPLATE/feature.md",
   ]) deepEqual(defers([path]), { runExpensive: false, reason: `inert: ${path}` });
@@ -58,6 +58,14 @@ test("unknown, executable, normative, fixture and workflow paths run everything"
   for (const path of [
     "unknown.md/nested.md",
     "_bmad-output/config.yaml",
+    "_bmad/method/scripts/tickets.py",
+    "_bmad/scripts/config_utils.py",
+    "_bmad/config.toml",
+    "_bmad/custom/config.toml",
+    "_bmad-output/initiative/ticket.md",
+    "_bmad/custom/ticketing-store-config.toml",
+    "_bmad-output/initiative-rpgtoolkit-reawakened/epic-web-runner-packaging/chore-refactor-sweep-land-the-cleanups-the-twelve-plans-deferred-plan.md",
+    "_bmad-output/initiative-rpgtoolkit-reawakened/epic-battle/epic-battle.md",
     ".github/ISSUE_TEMPLATE/execute.sh",
     ".github/pull_request_template.md",
     "packages/core/README.md",
@@ -170,12 +178,12 @@ function runCli(input, event = "pull_request") {
 }
 
 test("CLI: an inert diff defers, prints the paths examined and writes the verdict", () => {
-  const result = runCli("_bmad-output/x/plan.md\0README.md\0");
+  const result = runCli("docs/guide.md\0README.md\0");
   equal(result.status, 0);
-  equal(result.output, "full=false\nreason=inert: _bmad-output/x/plan.md, README.md\n");
+  equal(result.output, "full=false\nreason=inert: docs/guide.md, README.md\n");
   match(result.stdout, /changed paths examined \(2\):/u);
-  match(result.stdout, /"_bmad-output\/x\/plan\.md"/u);
-  match(result.stdout, /verdict: DEFER - inert: _bmad-output\/x\/plan\.md, README\.md/u);
+  match(result.stdout, /"docs\/guide\.md"/u);
+  match(result.stdout, /verdict: DEFER - inert: docs\/guide\.md, README\.md/u);
 });
 
 test("CLI: a non-inert diff runs and names the path that forced it", () => {

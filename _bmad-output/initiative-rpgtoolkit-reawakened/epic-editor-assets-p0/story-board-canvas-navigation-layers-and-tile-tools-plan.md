@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Board canvas navigation layers and tile tools"
 ticket: 10
 status: draft

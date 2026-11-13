@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Complete document lifecycle and host conformance"
 ticket: 3
 status: built

@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Rule shared authoring and creator test contracts"
 ticket: 1
 status: done

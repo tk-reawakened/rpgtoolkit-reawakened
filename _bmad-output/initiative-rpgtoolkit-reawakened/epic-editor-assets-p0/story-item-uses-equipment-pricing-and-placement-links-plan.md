@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Item uses equipment pricing and placement links"
 ticket: 6
 status: draft

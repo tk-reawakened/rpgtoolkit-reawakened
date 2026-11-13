@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Enemy definition editor"
 ticket: 9
 status: draft

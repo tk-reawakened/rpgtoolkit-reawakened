@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Special move and status effect editors"
 ticket: 10
 status: draft

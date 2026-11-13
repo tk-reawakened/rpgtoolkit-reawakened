@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Offer a shared Git surface in browser and desktop hosts"
 ticket: 15
 status: draft

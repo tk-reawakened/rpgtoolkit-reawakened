@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Author visual fixtures and player action lists"
 ticket: 7
 status: draft

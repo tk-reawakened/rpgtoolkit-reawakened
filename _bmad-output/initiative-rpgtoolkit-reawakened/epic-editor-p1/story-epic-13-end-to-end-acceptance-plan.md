@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Epic 13 end to end acceptance"
 ticket: 19
 status: draft

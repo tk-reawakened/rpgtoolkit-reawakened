@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Teach a first board in both hosts"
 ticket: 8
 status: draft

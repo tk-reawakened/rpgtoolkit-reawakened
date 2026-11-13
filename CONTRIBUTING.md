@@ -192,7 +192,7 @@ Only some commands need more:
 |---|---|
 | Bun 1.4.2 (the version CI pins) | `pnpm golden:bun`, which replays the golden and closing suites under Bun against the committed output (Node is covered by `pnpm golden` and `pnpm closing`) |
 | Python 3 with Pillow | `pnpm oracle:check`, which compares against the independent reference renderer; use the virtual environment below |
-| uv | the BMad ticket scripts under `_bmad/scripts/` and the `bmad-ticket` tool (see "Pick and claim a ticket") |
+| uv | the BMad scripts that `bmad setup` installs under `_bmad/` (the ticket resolver is `_bmad/method/scripts/tickets.py`) and the `bmad-ticket` tool (see "Pick and claim a ticket") |
 | GitHub CLI (`gh`) | optional: opening and checking pull requests from a terminal |
 
 ### First run on a clean clone
@@ -292,6 +292,16 @@ If no existing issue covers what you want to build or fix, open a new issue usin
 Project maintainers plan large epics, architecture spikes, and initiative roadmaps using BMAD in `_bmad-output/initiative-rpgtoolkit-reawakened/`. Those epics and stories are exported into GitHub Issues and mapped to the Project Board.
 
 Contributors never need to install or run BMAD tooling—all task acceptance criteria and spec references are included directly in the GitHub Issue. If you are a maintainer or working on the initiative planning spine directly, see [initiative-rpgtoolkit-reawakened.md](_bmad-output/initiative-rpgtoolkit-reawakened/initiative-rpgtoolkit-reawakened.md) and `_bmad-output/`.
+
+The scripts under `_bmad/scripts/` and `_bmad/<module>/scripts/` are the stock BMad distribution, written by `bmad setup` from the installed skills and never edited by hand; a hand edit is overwritten by the next setup. Project-specific tests and tools live outside `_bmad/` (for example `tools/bmad-tickets/`), because setup also removes anything it does not own from those folders. To refresh them run `uv run --no-cache <skills>/bmad/scripts/setup.py --project-root . --skill <skills>/bmad --root <skills> --status`, then the same command without `--status`.
+
+For a GitHub issue, use the project-owned `tkr-issue-preflight` skill before handing work to BMad. Stock BMad does not read issue IDs stored only in `tickets.toml`; the preflight resolves the ID and checks the ticket and plan against stock without changing either:
+
+```sh
+uv run .agents/skills/tkr-issue-preflight/scripts/resolve_issue.py "#942" --project-root . --check-stock
+```
+
+Follow its scoped handoff if there is no active initiative. An issue with no local ticket is reported as not found; the preflight does not create one.
 
 To publish a planned epic, make `_bmad-output/initiative-rpgtoolkit-reawakened/tickets.toml` and the epic folder's `tickets.toml` authoritative first, then run:
 
@@ -460,16 +470,15 @@ The verdict is "defer" only when **every** changed path is one of these, each of
 
 - a Markdown file in the repository root (`README.md`, `CONTRIBUTING.md`, ...);
 - any Markdown file under `docs/` except `docs/spec/` (the normative spec, which `golden` dump-checks);
-- the whole `_bmad/` tree (installed BMAD framework; consumed only by manual ticket tooling);
-- Markdown under `_bmad-output/` (plans and tickets);
+- the `_bmad/` tree except `_bmad/method/scripts/`, `_bmad/scripts/config_utils.py`, `_bmad/config.toml`, `_bmad/custom/config.toml` and `_bmad/custom/ticketing-store-config.toml` (the ticket tests use those inputs);
 - issue forms under `.github/ISSUE_TEMPLATE/` (`.md`, `.yml`, `.yaml`).
 
-Anything else runs everything, including all of `packages/`, `tools/`, `stock/` and `golden/` (even a README there), all of `docs/spec/`, `.github/workflows/` and the pull request template, non-Markdown files under `docs/` or `_bmad-output/`, `package.json` and the lockfile, an empty diff, a path nobody has classified, and every push to `main`. The list is positive on purpose: a new kind of file runs everything until someone decides it is inert. A rename counts both its old and its new path.
+Anything else runs everything, including all of `packages/`, `tools/`, `stock/`, `golden/` and `_bmad-output/`, all of `docs/spec/`, `.github/workflows/` and the pull request template, non-Markdown files under `docs/`, `package.json` and the lockfile, an empty diff, a path nobody has classified, and every push to `main`. The list is positive on purpose: a new kind of file runs everything until someone decides it is inert. A rename counts both its old and its new path.
 
 Open the job log to see which way it went. A job that defers prints one line, and its later steps show as skipped:
 
 ```text
-CI classifier [golden]: DEFER - nothing this job guards could have changed; inert: _bmad-output/example/plan.md
+CI classifier [golden]: DEFER - nothing this job guards could have changed; inert: docs/guide.md
 ```
 
 A job that runs prints the path that forced it:

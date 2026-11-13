@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Secure desktop process and service boundary"
 status: draft
 risk: high

@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Expose distinct game board and program launch services"
 ticket: 8
 status: draft

@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Board edit save and render tracer"
 ticket: 1
 status: draft

@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Tile edit tracer and P1 integration seam"
 ticket: 1
 status: draft

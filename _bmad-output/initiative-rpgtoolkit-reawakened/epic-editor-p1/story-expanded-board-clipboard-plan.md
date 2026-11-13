@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Expanded board clipboard"
 ticket: 13
 status: draft

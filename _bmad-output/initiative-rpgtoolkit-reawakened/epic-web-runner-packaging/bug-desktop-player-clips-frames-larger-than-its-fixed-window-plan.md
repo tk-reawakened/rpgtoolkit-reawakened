@@ -1,6 +1,6 @@
 ---
 title: 'Desktop player clips frames larger than its fixed window'
-type: 'bug'
+type: 'bugfix'
 ticket: '20'
 status: done
 tracker_id: '#1050'

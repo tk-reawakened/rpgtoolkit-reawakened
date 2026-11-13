@@ -104,12 +104,40 @@ def epic_status(markdown: str, slug: str, view: dict) -> str:
     return "in-progress"
 
 
-def story_status(tracker: str, fallback: str, tickets: dict[str, dict]) -> str | None:
+ENTRY_ID = re.compile(r"[0-9A-Za-z]+")
+
+
+def canonical_id(value: object) -> int | str | None:
+    """An entry id as the stock resolver compares it, else None.
+
+    The store reads `1`, `"1"` and `"01"` as the one id 1 (`_id` in _bmad/method/scripts/tickets.py): an integer, or
+    digits-only text read as the integer; letters and digits stay text (`"6a"`). Matching on the raw TOML value would
+    miss the row of an entry written `id = "01"` and then write the breakdown's own status over the store's."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and ENTRY_ID.fullmatch(value) and value not in ("true", "false"):
+        return int(value) if value.isdecimal() and value.isascii() else value
+    return None
+
+
+def rows_by_entry_id(view: dict, slug: str) -> dict[int | str, dict]:
+    """The store's rows for one epic's entries, keyed by canonical entry id. Rows with no usable id are left out."""
+    rows: dict[int | str, dict] = {}
+    for ticket in view.get("tickets", []):
+        key = canonical_id(ticket.get("id"))
+        if ticket.get("epic") == slug and key is not None:
+            rows[key] = ticket
+    return rows
+
+
+def story_status(story_id: object, fallback: str, tickets: dict[int | str, dict]) -> str | None:
     """The story's Project status, or None when the store cannot say and nothing should be written.
 
     Writing the breakdown's own status would reset every planned story to draft, because a
     breakdown entry carries no status; an empty leaf frontmatter must not erase a real one."""
-    ticket = tickets.get(tracker)
+    ticket = tickets.get(canonical_id(story_id))
     if ticket:
         if ticket.get("status") in STATUS_OPTION_IDS:
             return ticket["status"]
@@ -247,7 +275,8 @@ def main() -> None:
         for story in stories if story.get("tracker_id")
     ]
     missing = [story["id"] for story in stories if not story.get("tracker_id")]
-    tickets = {ticket["tracker_id"]: ticket for ticket in view.get("tickets", []) if ticket.get("tracker_id")}
+    # Keyed by the entry id, not `tracker_id`: the stock resolver does not carry an entry's `tracker_id` onto its rows.
+    tickets = rows_by_entry_id(view, args.slug)
 
     if args.dry_run:
         print(f"Would sync parent issue: {title}")
@@ -342,7 +371,7 @@ def main() -> None:
             child_item = next((entry for entry in child_items if entry.get("project", {}).get("id") == PROJECT_ID), None)
             if child_item is None:
                 raise RuntimeError(f"Story issue #{child_number} could not be added to Project 3")
-        status = story_status(tracker, fallback_status, tickets)
+        status = story_status(story_id, fallback_status, tickets)
         if status is None:
             print(f"Story {epic_id}.{story_id} (#{child_number}): the store reports no status; left as is")
         elif project_item_status(child_item) != status:

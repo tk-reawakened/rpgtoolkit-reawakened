@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Board vectors programs sprites and image objects"
 ticket: 11
 status: draft

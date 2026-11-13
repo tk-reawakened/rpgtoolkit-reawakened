@@ -82,7 +82,14 @@ function isInertPath(path) {
   if (
     /^(?:packages|tools|stock|golden)\//u.test(path) ||
     path.startsWith("docs/spec/") ||
-    path.startsWith(".github/workflows/")
+    path.startsWith(".github/workflows/") ||
+    // The ticket tests execute the resolver and validate the repository's ticket store and config.
+    path.startsWith("_bmad/method/scripts/") ||
+    path === "_bmad/scripts/config_utils.py" ||
+    path === "_bmad/config.toml" ||
+    path === "_bmad/custom/config.toml" ||
+    path === "_bmad/custom/ticketing-store-config.toml" ||
+    path.startsWith("_bmad-output/")
   ) {
     return false;
   }
@@ -94,8 +101,7 @@ function isInertPath(path) {
     return true;
   }
 
-  // The installed BMAD framework lives under `_bmad/` and is consumed only by manual ticket
-  // tooling (never by a CI lane); provenance skips it too. Treat the whole tree as inert.
+  // The remaining installed BMAD framework is consumed only by manual ticket tooling.
   if (path.startsWith("_bmad/")) {
     return true;
   }
@@ -104,7 +110,6 @@ function isInertPath(path) {
     (!path.includes("/") && path.endsWith(".md")) ||
     path === "docs/guardrails.md" ||
     (path.startsWith("docs/adr/") && path.endsWith(".md")) ||
-    (path.startsWith("_bmad-output/") && path.endsWith(".md")) ||
     /^\.github\/ISSUE_TEMPLATE\/.+\.(?:md|yml|yaml)$/u.test(path)
   );
 }

@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Create new projects with explicit starter contents"
 ticket: 10
 status: draft

@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Set up the Preact and TSX toolchain for editor-ui"
 ticket: 16
 status: draft

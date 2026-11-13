@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Rule media import contracts and tool licensing"
 ticket: 11
 status: draft

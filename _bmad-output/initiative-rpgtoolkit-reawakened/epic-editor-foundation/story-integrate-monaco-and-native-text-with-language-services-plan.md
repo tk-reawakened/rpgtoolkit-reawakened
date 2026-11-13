@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Integrate Monaco and native text with language services"
 ticket: 7
 status: draft

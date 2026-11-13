@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Desktop project entry and file association"
 status: draft
 risk: high

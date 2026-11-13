@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "The run-time key, its program and the general activation key work as the project sets them"
 ticket: 35
 status: draft

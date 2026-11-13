@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Close the foundation with cross-host authoring acceptance"
 ticket: 13
 status: draft

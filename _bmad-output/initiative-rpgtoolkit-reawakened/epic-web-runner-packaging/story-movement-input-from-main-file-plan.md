@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Movement keys, mouse and diagonal gating, and joystick come from the main file"
 ticket: 33
 status: draft

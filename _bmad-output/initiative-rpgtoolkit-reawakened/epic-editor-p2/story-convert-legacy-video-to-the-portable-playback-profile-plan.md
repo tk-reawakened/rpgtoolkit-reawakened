@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Convert legacy video to the portable playback profile"
 ticket: 13
 status: draft

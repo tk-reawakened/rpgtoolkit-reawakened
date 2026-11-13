@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Set collision and walk-behind on tiles and assets, and place packs that stay packs"
 ticket: 17
 status: draft

@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Animated tile authoring"
 ticket: 6
 status: draft

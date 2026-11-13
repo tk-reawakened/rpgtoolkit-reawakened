@@ -1,5 +1,5 @@
 ---
-type: story
+type: feature
 title: "Convert imported audio without breaking references"
 ticket: 12
 status: draft
