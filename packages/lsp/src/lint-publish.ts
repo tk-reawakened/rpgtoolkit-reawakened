@@ -78,20 +78,35 @@ export function documentLint(
   dialect: ScriptDialect,
   plugins: readonly ResolvedPlugin[],
   config: LintConfig,
+  project?: LintResult,
 ): Pick<LintResult, "diagnostics" | "summary"> {
   const document: IndexDocument = { schema: "tkr-index/1.0", programs: [program], diagnostics: [] };
-  const result = lint(document, {
+  const local = lint(document, {
     plugins,
     config,
     dialect,
     ...(dialect === "tk3" && program.diagnostics.length === 0 ? { sources: { [program.name]: source } } : {}),
     resolveIncludes: true,
   });
+  return ownLint(program, local, project ?? local);
+}
+
+function ownLint(program: IndexProgram, local: LintResult, project: LintResult): Pick<LintResult, "diagnostics" | "summary"> {
+  const projectWide = (code: string): boolean => code === "lint/unused-function" || code === "lint/unused-label";
   const units = siteUnits(program);
-  const diagnostics = result.diagnostics.filter((found) => {
+  const diagnostics = local.diagnostics.filter((found) => {
+    if (local !== project && projectWide(found.code)) return false;
     if (!INDEX_RULES.has(found.code)) return true;
     const at = units.get(siteKey(found.range.start.line, found.range.start.column));
     return at?.size === 1 && at.has(program.key);
   });
-  return { diagnostics, summary: result.summary };
+  if (local === project) return { diagnostics, summary: local.summary };
+  for (const [index, finding] of project.diagnostics.entries()) {
+    if (project.programs[index] === program.name && projectWide(finding.code)) diagnostics.push(finding);
+  }
+  const unassessed = [
+    ...local.summary.unassessed.filter((entry) => !projectWide(entry.rule)),
+    ...project.summary.unassessed.filter((entry) => entry.file === program.name && projectWide(entry.rule)),
+  ];
+  return { diagnostics, summary: { ...local.summary, unassessed } };
 }

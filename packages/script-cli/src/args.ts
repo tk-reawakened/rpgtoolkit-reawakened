@@ -14,6 +14,7 @@ export type ParsedArgs = {
   readonly dialect: "tk3" | "tk2";
   /** Whether `--dialect` was given; `check` treats an unstated dialect as unknown (TOOL-3 assessment). */
   readonly dialectGiven: boolean;
+  readonly project: string | null;
   readonly strict: boolean;
   readonly name: string;
   readonly reporter: "spec" | "junit" | "json";
@@ -61,6 +62,7 @@ export function parseArgs(argv: readonly string[]): { readonly ok: true; readonl
   let out: string | null = null;
   let dialect: "tk3" | "tk2" = "tk3";
   let dialectGiven = false;
+  let project: string | null = null;
   let strict = true;
   let name = "";
   let reporter: "spec" | "junit" | "json" = "spec";
@@ -81,6 +83,12 @@ export function parseArgs(argv: readonly string[]): { readonly ok: true; readonl
       index += 1;
     } else if (arg.startsWith("--out=")) {
       out = arg.slice("--out=".length);
+    } else if (arg === "--project" || arg.startsWith("--project=")) {
+      const value = arg === "--project" ? args[++index] : arg.slice("--project=".length);
+      if (subcommand !== "check" || project !== null || value === undefined || !/\.gam$/i.test(value) || value.startsWith("-")) {
+        return { ok: false, message: "--project requires one .gam path for check", subcommand, attemptedSubcommand: subcommand };
+      }
+      project = value;
     } else if (arg === "--dialect") {
       const value = args[index + 1];
       if (value !== "tk3" && value !== "tk2") return { ok: false, message: "--dialect must be tk3 or tk2", subcommand, attemptedSubcommand: subcommand };
@@ -124,7 +132,10 @@ export function parseArgs(argv: readonly string[]): { readonly ok: true; readonl
     paths.push(".");
   }
 
-  if (paths.length === 0 && subcommand !== "test" && subcommand !== "docs") {
+  if (project !== null && (paths.length > 0 || dialectGiven)) {
+    return { ok: false, message: "--project cannot be combined with source paths or --dialect", subcommand, attemptedSubcommand: subcommand };
+  }
+  if (paths.length === 0 && project === null && subcommand !== "test" && subcommand !== "docs") {
     return { ok: false, message: `tkr script ${subcommand}: at least one path is required`, subcommand, attemptedSubcommand: subcommand };
   }
 
@@ -138,6 +149,7 @@ export function parseArgs(argv: readonly string[]): { readonly ok: true; readonl
       out,
       dialect,
       dialectGiven,
+      project,
       strict,
       name,
       reporter,
