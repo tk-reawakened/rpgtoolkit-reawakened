@@ -136,7 +136,23 @@ export async function runVscodeWebProof(
   await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
   await expect.poll(() => frameCspViolations(page, recoveredEditor, consoleViolations)).toEqual([]);
   await expect(recoveredEditor.getByRole("group", { name: "Changed on disk" })).toBeVisible();
-  await recoveredEditor.getByRole("button", { name: "Save my version" }).click();
+  await expect(recoveredEditor.getByRole("button", { name: "Use the version on disk" })).toHaveCount(0);
+  await expect(recoveredEditor.getByText(/cannot safely reload/i)).toBeVisible();
+  await expect(recoveredEditor.getByRole("button", { name: "Keep my version" })).toBeVisible();
+  // vscode-test-web's server-backed provider keeps writes in memory, so reloading its extension host reinitializes the
+  // mounted file from the original fixture. Compare against that actual post-restart version, not the earlier save.
+  const externalAfterRestart = await readWorkspaceBytes(page, expect);
+  expect(externalAfterRestart).toEqual(before);
+  await recoveredEditor.getByRole("button", { name: "Cancel" }).click();
+  await expect(recoveredEditor.getByRole("button", { name: "Review conflict" })).toBeVisible();
+  await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
+  expect(await readWorkspaceBytes(page, expect)).toEqual(externalAfterRestart);
+  await recoveredEditor.getByRole("button", { name: "Review conflict" }).click();
+  await expect(recoveredEditor.getByRole("button", { name: "Keep my version" })).toBeVisible();
+  await recoveredEditor.getByRole("button", { name: "Keep my version" }).click();
+  await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
+  expect(await readWorkspaceBytes(page, expect)).toEqual(externalAfterRestart);
+  await recoveredEditor.getByRole("button", { name: "Save" }).click();
   await expect(recoveredEditor.getByRole("status")).toHaveText("All changes saved");
   const recovered = await readWorkspaceBytes(page, expect);
   expect(recovered).toEqual(recoveredBytes);

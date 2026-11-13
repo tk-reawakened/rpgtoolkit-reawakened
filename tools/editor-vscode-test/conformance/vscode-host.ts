@@ -407,6 +407,7 @@ class VscodeEditor implements ConformanceEditor {
   alerts(): readonly string[] { return this.webview.view.alerts(); }
   text(): string { return this.webview.view.text(); }
   conflictShown(): boolean { return this.webview.view.conflictShown(); }
+  hasButton(label: string): boolean { return this.webview.view.hasButton(label); }
   hostDirty(): boolean { return this.copy.dirty; }
 
   async type(title: string): Promise<void> {
@@ -483,11 +484,26 @@ class VscodeEditor implements ConformanceEditor {
     return copy;
   }
 
-  async choose(button: "Save my version" | "Use the version on disk"): Promise<void> {
+  async choose(button: "Save my version" | "Use the version on disk" | "Cancel"): Promise<void> {
+    const view = this.webview.view;
+    if (button === "Use the version on disk" && !this.#workbench.host.capabilities.has("conflictReload")) {
+      // Model an untrusted/old webview sending the hidden reload request directly to the provider.
+      await this.copy.custom.resolveConflict("reload");
+      await settle(this.#act);
+      return;
+    }
+    const action = button === "Save my version" && !this.#workbench.host.capabilities.has("conflictAutoSave")
+      ? "Keep my version"
+      : button;
+    if (action !== "Cancel" && !view.hasButton(action) && view.hasButton("Review conflict")) {
+      await view.click("Review conflict");
+      await settle(this.#act);
+    }
     this.#workbench.active = this;
-    await this.webview.view.click(button);
+    await view.click(action);
     await untilSaved(this.webview.view, this.model, this.#act);
   }
+
 
   async hide(): Promise<void> {
     this.webview.hide();
@@ -508,6 +524,7 @@ class VscodeHost implements ConformanceHost {
   readonly saveWrites = 3;
   readonly drive = new Disk();
   readonly backups = new Map<string, Uint8Array>();
+  readonly #backupIdsByDocument = new Map<string, string>();
   revertCommands = 0;
   readonly act: Act;
   #workbench: Workbench;
@@ -578,6 +595,11 @@ class VscodeHost implements ConformanceHost {
   workbenchRevertCommandCount(): number {
     return this.revertCommands;
   }
+  recoveryBackupBytes(path: string): Uint8Array | null {
+    const backupId = this.#backupIdsByDocument.get(posix.normalize(`${ROOT.path}/${path}`));
+    return backupId === undefined ? null : this.backups.get(backupId)?.slice() ?? null;
+  }
+
 
   settle(): Promise<void> {
     return settle(this.act);
@@ -592,6 +614,7 @@ class VscodeHost implements ConformanceHost {
       next += 1;
       const backup = await this.#workbench.provider.backupCustomDocument(copy.custom, { path: `/backups/${next}` });
       backups.set(copy.uri.path, backup.id);
+      this.#backupIdsByDocument.set(copy.uri.path, backup.id);
     }
     for (const copy of this.#workbench.copies.values()) for (const tab of copy.tabs) tab.webview.hide();
     this.drive.watchers.clear();
@@ -606,6 +629,7 @@ class VscodeHost implements ConformanceHost {
     const copy = this.#workbench.copies.get(key);
     if (copy === undefined || !copy.dirty) throw new Error(`no dirty workbench document for ${path}`);
     const backup = await this.#workbench.provider.backupCustomDocument(copy.custom, { path: "/backups/recovery-conflict" });
+    this.#backupIdsByDocument.set(key, backup.id);
     for (const tab of copy.tabs) tab.webview.hide();
     this.drive.watchers.clear();
 

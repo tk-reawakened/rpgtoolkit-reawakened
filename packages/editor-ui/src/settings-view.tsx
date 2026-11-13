@@ -28,6 +28,10 @@ export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps)
   const [refusal, setRefusal] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
+  const [conflictChoicesDismissed, setConflictChoicesDismissed] = useState(false);
+  useEffect(() => {
+    if (snapshot.conflict === null) setConflictChoicesDismissed(false);
+  }, [snapshot.conflict]);
   // `useId` numbers a component by its place in its own render tree, so two mounted views would both be `P0-0`: their
   // labels and descriptions would point into each other. The view takes its prefix once, when it is first made.
   const [ids] = useState(() => {
@@ -120,8 +124,8 @@ export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps)
   };
   latestCommit.current = commit;
 
-  // "Save my version" is the user's choice to replace the file on disk, so it saves through the host straight away;
-  // "Use the version on disk" replaces the local content. Either way nothing was overwritten before the choice.
+  // A host may save the chosen local version immediately only when it can target this document. Otherwise keep it
+  // dirty for an explicit host save. Reload is offered only where the host can safely reset the intended document.
   const resolve = (choice: ConflictChoice): void => {
     setResolving(true);
     setResolveError(null);
@@ -132,7 +136,7 @@ export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps)
           setResolveError(result.message);
           return;
         }
-        if (choice === "keep-local") await doc.save().catch(() => undefined);
+        if (choice === "keep-local" && capabilities.has("conflictAutoSave")) await doc.save().catch(() => undefined);
       })
       .catch((error: unknown) => setResolveError(error instanceof Error ? error.message : String(error)))
       .finally(() => setResolving(false));
@@ -167,13 +171,29 @@ export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps)
               <dd>{conflict.externalTitle}</dd>
             </dl>
           )}
-          <button type="button" class="tkr-settings-keep" disabled={resolving || readOnly} onClick={() => resolve("keep-local")}>
-            Save my version
-          </button>
-          {conflict.externalTitle === null ? null : (
-            <button type="button" class="tkr-settings-reload" disabled={resolving} onClick={() => resolve("reload")}>
-              Use the version on disk
+          {conflictChoicesDismissed ? (
+            <button type="button" class="tkr-settings-review" onClick={() => setConflictChoicesDismissed(false)}>
+              Review conflict
             </button>
+          ) : (
+            <>
+              <button type="button" class="tkr-settings-keep" disabled={resolving || readOnly} onClick={() => resolve("keep-local")}>
+                {capabilities.has("conflictAutoSave") ? "Save my version" : "Keep my version"}
+              </button>
+              {capabilities.has("conflictReload") && conflict.externalTitle !== null ? (
+                <button type="button" class="tkr-settings-reload" disabled={resolving} onClick={() => resolve("reload")}>
+                  Use the version on disk
+                </button>
+              ) : null}
+              {!capabilities.has("conflictReload") ? (
+                <p class="tkr-settings-host-note" role="note">
+                  This host cannot safely reload the file in place. Both versions remain unchanged.
+                </p>
+              ) : null}
+              <button type="button" class="tkr-settings-cancel" disabled={resolving} onClick={() => setConflictChoicesDismissed(true)}>
+                Cancel
+              </button>
+            </>
           )}
           {resolveError === null ? null : <p class="tkr-settings-error">{resolveError}</p>}
         </div>

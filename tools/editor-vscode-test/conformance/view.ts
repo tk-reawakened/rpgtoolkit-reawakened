@@ -53,6 +53,11 @@ export class MountedView {
     return this.element.querySelector(".tkr-settings-conflict") !== null;
   }
 
+  /** Whether a visible action with this label exists. */
+  hasButton(label: string): boolean {
+    return [...this.element.querySelectorAll<HTMLButtonElement>("button")].some((candidate) => candidate.textContent?.trim() === label);
+  }
+
   /** Type `title` and press Enter: the view commits it as one command. */
   async type(title: string): Promise<void> {
     const field = this.#field();

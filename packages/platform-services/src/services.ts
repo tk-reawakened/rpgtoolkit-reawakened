@@ -19,6 +19,10 @@ export type Capability =
    * it the editor never offers or implies recovery (ADR 0022 D3.6).
    */
   | "backup"
+  /** The host can safely reload the intended document and reset its dirty state after a conflict. */
+  | "conflictReload"
+  /** The host can save the active conflicted document after the user chooses to keep its version. */
+  | "conflictAutoSave"
   /** The host has source control to show (ADR 0022 D13.1). */
   | "scm";
 

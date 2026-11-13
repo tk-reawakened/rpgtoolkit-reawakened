@@ -51,7 +51,7 @@ export interface MemoryPlatformOptions {
 }
 
 const DEFAULT_PROJECT: ProjectHandle = { id: "memory-project", name: "Memory project" };
-const DEFAULT_CAPABILITIES: readonly Capability[] = ["folderWrite", "fileWatch", "stableProjectHandle"];
+const DEFAULT_CAPABILITIES: readonly Capability[] = ["folderWrite", "fileWatch", "stableProjectHandle", "conflictReload", "conflictAutoSave"];
 
 interface Entry {
   /** The path as first written: case is kept for listings and events. */
