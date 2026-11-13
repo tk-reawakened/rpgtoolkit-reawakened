@@ -255,6 +255,7 @@ run("nextChapter.prg")                                         // legacy Toolkit
 | `threadsleepremaining` | `double threadsleepremaining(thread id, [double &ret])` | Check how much sleep remains for a thread. |  |
 
 <a id="board-tiles-vectors-and-screen-effects"></a>
+<a id="reawakened-camera-built-ins"></a>
 ## Board, tiles, vectors & screen effects (33)
 
 | Command | Signature | Purpose | Notes |
@@ -269,7 +270,6 @@ run("nextChapter.prg")                                         // legacy Toolkit
 | `mainfile` | `void mainfile(string gam)` | Load a new main file. | Requests the board-rendering lifecycle to switch the project; the call does not wait. |
 | `scan` | `void scan(int x, int y, int pos)` | Save the tile specified to a buffer identified by pos. There is no particular number to pick for pos; any will do. | deprecated, still works |
 | `mem` | `void mem(int x, int y, int pos)` | Lay a scanned tile on the screen at the specified position. | deprecated, still works |
-<a id="reawakened-camera-built-ins"></a>
 | `zoom` | `zoom(int percent)` | Zoom into the centre of the board by the specified percent. | LOW confidence: `percent` is the shrink amount, not a scale; each call blocks for a bounded 30 ticks. |
 | `earthquake` | `earthquake(int intensity)` | Make the screen jump more strongly as intensity rises, from 1 (barely noticeable) to 10 (strongest). The command waits until the shaking ends. | **Technical (OWNER):** clamp `intensity` to 1..10, then run `i` consecutive `shake(amplitudeForIntensity(p), 4)` calls for `p = 1..i`; each pass is four ticks, so the command blocks for `4*i` ticks. `amplitudeForIntensity(p) = p * PX_PER_INTENSITY`, with `PX_PER_INTENSITY = 1` logical pixel. Pass/corner facts are owner-relayed legacy facts logged by entry 2, never source-derived here. |
 | `getcorner` | `void getcorner(int &topX, int &topY)` | Get the corner of the currently shown portion of the board. |  |
