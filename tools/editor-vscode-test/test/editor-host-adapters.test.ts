@@ -240,6 +240,56 @@ test("hot-exit recovery preserves both versions when the title changed while VS 
   deepEqual(disk, externalBytes);
 });
 
+test("two rejected recovery choices never discard local work when disk first matches it", async () => {
+  const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
+  const identity = createDocumentIdentity("file:///project", gamePath);
+  let disk: Uint8Array = original.slice();
+  let writes = 0;
+  const storage = {
+    readProject: async () => ({ ok: true as const, value: disk.slice() }),
+    writeProject: async () => { writes += 1; return { ok: true as const, value: undefined }; },
+  };
+  const source = await openMainDocument(storage, identity);
+  ok(source.ok);
+  ok(source.document.apply({ type: "set-game-title", title: "External B" }).ok);
+  disk = source.document.serialize();
+  const recovered = await recoverMainDocument(storage, identity, original); // Observes B.
+  ok(recovered.ok);
+  ok(recovered.document.apply({ type: "set-game-title", title: "Recovered C" }).ok);
+  const backup = recovered.document.serialize();
+  const outcomes: boolean[] = [];
+  const bridge = {
+    model: recovered.document,
+    capabilities: vscodeCapabilities(false),
+    didEdit: () => undefined,
+    saveThroughWorkbench: () => recovered.document.save(),
+    resolveConflict: (choice: "keep-local" | "reload") => resolveRecoveryConflict(recovered.document, choice),
+  };
+  const choose = async () => handleEditorHostRequest(bridge, { type: "resolve-conflict", choice: "keep-local", requestId: "choice" }, (reply) => {
+    if (reply.type === "conflict-result") {
+      outcomes.push(reply.result.ok);
+      equal(reply.snapshot.gameTitle, "Recovered C");
+      equal(reply.snapshot.dirty, true);
+    }
+  });
+  disk = backup.slice(); // C equals local but differs from observed B and the opened backup.
+  await choose();
+  deepEqual(outcomes, [false]);
+  deepEqual(recovered.document.serialize(), backup);
+  equal(recovered.document.getSnapshot().conflict?.externalTitle, "Recovered C");
+  ok(source.document.apply({ type: "set-game-title", title: "External D" }).ok);
+  disk = source.document.serialize();
+  const external = disk.slice();
+  await choose();
+  deepEqual(outcomes, [false, false]);
+  equal(recovered.document.getSnapshot().gameTitle, "Recovered C");
+  equal(recovered.document.getSnapshot().conflict?.externalTitle, "External D");
+  equal(recovered.document.getSnapshot().dirty, true);
+  deepEqual(recovered.document.serialize(), backup);
+  deepEqual(disk, external);
+  equal(writes, 0);
+});
+
 test("a later disk change still prevents saving after choosing the recovered version", async () => {
   const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
   const identity = createDocumentIdentity("file:///project", gamePath);

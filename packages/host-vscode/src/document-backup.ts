@@ -8,9 +8,15 @@ export type BackupRecoveryResult =
 /** A legacy hot-exit backup has no original disk baseline. Preserve it and require an explicit choice. */
 export async function recoverMainDocument(storage: DocumentStorage, identity: DocumentIdentity, backup: Uint8Array): Promise<BackupRecoveryResult> {
   let lastRead: PlatformResult<Uint8Array> | undefined;
+  let expected: Uint8Array | null | undefined;
   const recordingStorage: DocumentStorage = {
     async readProject(project, path) {
       lastRead = await storage.readProject(project, path);
+      const actual = lastRead.ok ? lastRead.value : lastRead.error.code === "not-found" ? null : undefined;
+      // A rejected choice must not pass different bytes into the model's check: it can reload a clean model.
+      if (expected !== undefined && actual !== undefined && !sameContent(expected, actual)) {
+        return { ok: false, error: { code: "io-error", message: "The disk version changed before the recovery choice was applied." } };
+      }
       return lastRead;
     },
     writeProject: (project, path, bytes) => storage.writeProject(project, path, bytes),
@@ -19,7 +25,7 @@ export async function recoverMainDocument(storage: DocumentStorage, identity: Do
   if (!recovered.ok) return recovered;
   const edit = recovered.document.apply({ type: "set-game-title", title: recovered.document.getSnapshot().gameTitle });
   if (!edit.ok) throw new Error(`Could not restore backup for ${identity.path}: ${edit.rejection.message}`);
-  const guarded = new RecoveryDocument(recovered.document, storage, () => lastRead);
+  const guarded = new RecoveryDocument(recovered.document, storage, () => lastRead, (bytes) => { expected = bytes; });
   await guarded.checkExternal();
   return { ok: true, document: guarded };
 }
@@ -35,16 +41,19 @@ class RecoveryDocument implements MainDocument {
   readonly #storage: DocumentStorage;
   readonly #lastRead: () => PlatformResult<Uint8Array> | undefined;
   readonly #listeners = new Set<() => void>();
+  readonly #expectRead: (bytes: Uint8Array | null | undefined) => void;
   #pending = true;
   #observed: Uint8Array | null | undefined;
   #change: ExternalChange;
   #saveError: SaveFailure | null = null;
   #snapshot: MainDocumentSnapshot;
+  #resolution: Promise<unknown> = Promise.resolve();
 
-  constructor(document: MainDocument, storage: DocumentStorage, lastRead: () => PlatformResult<Uint8Array> | undefined) {
+  constructor(document: MainDocument, storage: DocumentStorage, lastRead: () => PlatformResult<Uint8Array> | undefined, expectRead: (bytes: Uint8Array | null | undefined) => void) {
     this.#document = document;
     this.#storage = storage;
     this.#lastRead = lastRead;
+    this.#expectRead = expectRead;
     this.identity = document.identity;
     this.#change = this.#describe(undefined);
     this.#snapshot = this.#makeSnapshot();
@@ -82,7 +91,12 @@ class RecoveryDocument implements MainDocument {
     if (!this.#pending) return this.#document.resolveConflict(choice);
     return { ok: false, reason: "cannot-reload", message: "Recovery requires a fresh disk check; use the editor's conflict controls." };
   }
-  async resolveRecovery(choice: ConflictChoice): Promise<ConflictResult> {
+  resolveRecovery(choice: ConflictChoice): Promise<ConflictResult> {
+    const result = this.#resolution.then(() => this.#resolveRecovery(choice));
+    this.#resolution = result.catch(() => undefined);
+    return result;
+  }
+  async #resolveRecovery(choice: ConflictChoice): Promise<ConflictResult> {
     if (!this.#pending) return this.#document.resolveConflict(choice);
     if (this.#observed === undefined) {
       await this.checkExternal();
@@ -94,7 +108,13 @@ class RecoveryDocument implements MainDocument {
     } else {
       // Compare the exact bytes the model read with the version the user saw before accepting its conflict.
       const observed = this.#observed;
-      const checked = await this.#document.checkExternal();
+      this.#expectRead(observed);
+      let checked: ExternalCheck;
+      try {
+        checked = await this.#document.checkExternal();
+      } finally {
+        this.#expectRead(undefined);
+      }
       const read = this.#lastRead();
       const actual = read?.ok ? read.value : read?.error.code === "not-found" ? null : undefined;
       if (checked === "unknown" || actual === undefined || !sameContent(observed, actual)) {
