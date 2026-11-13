@@ -470,7 +470,7 @@ The verdict is "defer" only when **every** changed path is one of these, each of
 
 - a Markdown file in the repository root (`README.md`, `CONTRIBUTING.md`, ...);
 - any Markdown file under `docs/` except `docs/spec/` (the normative spec, which `golden` dump-checks);
-- the `_bmad/` tree except `_bmad/method/scripts/` and `_bmad/scripts/config_utils.py` (the ticket resolver and preflight config loader are run by `pnpm bmad:tickets:test`, so changing them runs everything);
+- the `_bmad/` tree except `_bmad/method/scripts/`, `_bmad/scripts/config_utils.py` and `_bmad/custom/ticketing-store-config.toml` (the ticket tests use those inputs, so changing them runs everything);
 - Markdown under `_bmad-output/`, except direct Markdown files in `initiative-rpgtoolkit-reawakened/epic-*/` (the ticket status test reads those records);
 - issue forms under `.github/ISSUE_TEMPLATE/` (`.md`, `.yml`, `.yaml`).
 

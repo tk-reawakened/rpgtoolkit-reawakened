@@ -86,6 +86,7 @@ function isInertPath(path) {
     // The ticket resolver and preflight config loader are executed by `pnpm bmad:tickets:test`.
     path.startsWith("_bmad/method/scripts/") ||
     path === "_bmad/scripts/config_utils.py" ||
+    path === "_bmad/custom/ticketing-store-config.toml" ||
     // The Epic 9 status regression loads every epic's direct Markdown records in the initiative.
     /^_bmad-output\/initiative-rpgtoolkit-reawakened\/epic-[^/]+\/[^/]+\.md$/u.test(path)
   ) {

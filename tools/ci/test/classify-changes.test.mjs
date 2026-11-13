@@ -62,6 +62,7 @@ test("unknown, executable, normative, fixture and workflow paths run everything"
     "_bmad-output/config.yaml",
     "_bmad/method/scripts/tickets.py",
     "_bmad/scripts/config_utils.py",
+    "_bmad/custom/ticketing-store-config.toml",
     "_bmad-output/initiative-rpgtoolkit-reawakened/epic-web-runner-packaging/chore-refactor-sweep-land-the-cleanups-the-twelve-plans-deferred-plan.md",
     "_bmad-output/initiative-rpgtoolkit-reawakened/epic-battle/epic-battle.md",
     ".github/ISSUE_TEMPLATE/execute.sh",
