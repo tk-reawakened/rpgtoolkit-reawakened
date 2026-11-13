@@ -468,6 +468,8 @@ class VscodeEditor implements ConformanceEditor {
 class VscodeHost implements ConformanceHost {
   readonly name: string;
   readonly capabilities: ReadonlySet<Capability>;
+  /** The provider's bound, as ADR 0022 D14.6 states it (written here, not imported, so the test checks the provider). */
+  readonly saveWrites = 3;
   readonly drive = new Disk();
   readonly backups = new Map<string, Uint8Array>();
   readonly act: Act;

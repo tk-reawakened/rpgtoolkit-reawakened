@@ -63,6 +63,11 @@ export interface ConformanceHost {
   readonly name: string;
   /** What the host declares to `editor-ui` (AD-20). */
   readonly capabilities: Capabilities;
+  /**
+   * How many writes one save makes while edits keep arriving during them: one where a later edit simply stays dirty,
+   * more where the host writes it in the same save (ADR 0022 D14.6).
+   */
+  readonly saveWrites: number;
   /** Open a tab on `path` (or another tab on an open document). Rejects when the host refuses to open it. */
   open(path: string): Promise<ConformanceEditor>;
   /** Save All; per path, whether that document saved. */
@@ -165,8 +170,9 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
   {
     // Hosts complete a save differently (see `GameDocument.save` in host-vscode): the browser workspace marks clean only
     // the revision it wrote, so the later edit stays dirty; VS Code marks every edit it has heard of saved when the
-    // provider resolves, so its provider writes the later edit too before resolving. Either way nothing is lost, nothing
-    // is reported as failed, and the host's dirty marker agrees with the model.
+    // provider resolves, so its provider writes the later edit too before resolving. In both drivers the edit is kept,
+    // no failure is reported, and the host's dirty marker agrees with the model. The VS Code driver does not model an
+    // edit or undo landing while the workbench records the save (ADR 0022 D14.6, #2225).
     name: "a save never claims an edit made during its write: it stays dirty or is written too, and no failure is reported",
     async run(host, fixture) {
       const editor = await host.open(GAME);
@@ -200,8 +206,9 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
       let held = host.holdNextWrite();
       const saving = editor.save();
       let writes = 0;
-      // Each write the save starts is held while one more edit arrives. Five rounds is more than any host may take.
-      while (writes < 5 && await heldOrDone(held, saving)) {
+      // Each write the save starts is held while one more edit arrives. The loop stops after one write more than any
+      // host declares, so a host that kept writing fails the bound below instead of hanging.
+      while (writes <= host.saveWrites && await heldOrDone(held, saving)) {
         writes += 1;
         await host.settle();
         await editor.type(`Edit ${writes}`);
@@ -212,14 +219,14 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
       held.release();
       await saving;
       await host.settle();
-      check(writes >= 1 && writes < 5, `${host.name} stops writing after a bounded number of writes (${writes})`);
+      same(writes, host.saveWrites, `${host.name} writes exactly as many times as it declares before it stops (ADR 0022 D14.6)`);
       same(editor.title(), `Edit ${writes}`, "the latest edit is shown");
       check(editor.model.getSnapshot().dirty && editor.hostDirty(), "the latest edit is still unsaved in the model and the host");
       same(editor.status(), UNSAVED, "the view says so");
       same(await titleOnDisk(host, GAME), `Edit ${writes - 1}`, "the last write holds the revision it captured");
       same(
         editor.alerts().some((alert) => alert.includes(GAME)),
-        writes > 1,
+        host.saveWrites > 1,
         "a host that writes again for edits made during a save names the document when it gives up; a host that writes once reports nothing",
       );
       await editor.save();
@@ -323,6 +330,26 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
       check(copy !== null, "finishing a save of the same revision is not a change that fails Save As");
       same(copy.title(), "Copied and saved", "the copy shows the revision written");
       same(await titleOnDisk(host, destination), "Copied and saved", "and its file holds it");
+    },
+  },
+  {
+    name: "Save As keeps the source when an undo and a new edit during its write leave the same number of edits",
+    async run(host, fixture) {
+      const editor = await host.open(GAME);
+      await editor.type("Copied first");
+      const destination = "Main/save-as-undo.gam";
+      const held = host.holdNextWrite();
+      const saving = editor.saveAs(destination);
+      await heldWriteStarted(host, held, saving);
+      await editor.undo();
+      await editor.type("Replaced during Save As");
+      same(editor.model.getSnapshot().edits.length, 1, "as many edits in force as when the copy was taken, but a different latest one");
+      held.release();
+      same(await saving, null, "the copy lacks the edit now in force, so Save As does not replace the source");
+      same(await titleOnDisk(host, destination), "Copied first", "the destination holds the revision it captured");
+      sameBytes(await host.disk(GAME), fixture, "the source file is unchanged");
+      same(editor.title(), "Replaced during Save As", "the source keeps the new edit");
+      check(editor.model.getSnapshot().dirty && editor.hostDirty(), "and it is unsaved in the model and the host");
     },
   },
   {

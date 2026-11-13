@@ -102,9 +102,10 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * wrote, so an edit made during the write stays dirty (ADR 0022 D3.3). VS Code moves its save point to the latest edit
    * it has heard of when `saveCustomDocument` resolves, and its close dialog closes the tab unless the working copy is
    * still dirty right after that. Resolving after writing only an earlier revision would therefore show the later edit as
-   * saved and let close drop it. So an edit that outruns the write is written by another round before the save resolves;
-   * after `SAVE_ROUNDS` writes that each found newer work, the save fails visibly and the edits stay dirty in the model
-   * and in VS Code (#2200, #2220).
+   * saved and let close drop it. So an edit that reached this model during the write is written by another round before
+   * the save resolves; after `SAVE_ROUNDS` writes that each found newer work, the save fails visibly and the edits stay
+   * dirty in the model and in VS Code (#2200, #2220). An edit or undo the workbench applies after this resolves but
+   * before it records the save is outside the provider's reach (ADR 0022 D14.6, #2225).
    */
   async save(): Promise<SaveResult> {
     let result = await this.model.save();

@@ -1,6 +1,6 @@
 // The lifecycle edges the host conformance suite (tools/editor-vscode-test/test/host-conformance.test.ts) does not reach
 // through a host's own actions: the model's change-on-disk rules, path resolution, and the workspace's guards.
-import { deepEqual, equal, ok } from "node:assert/strict";
+import { deepEqual, equal, notEqual, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { createDocumentIdentity, createDocumentWorkspace, createMainDocument, openMainDocument } from "../src/index.ts";
@@ -319,6 +319,43 @@ test("Save As succeeds when a save of the same revision finishes during its writ
   ok(result.ok, "finishing a save is not an edit, so Save As still succeeds");
   equal(result.document.getSnapshot().gameTitle, "Copied and saved");
   equal(titleOf(host.bytesOf("Main/copy.gam")!), "Copied and saved");
+});
+
+test("Save As keeps the source when an external change becomes a conflict during its write (#2222)", HELD, async () => {
+  const { host, workspace, doc, writing, release } = await workspaceWithHeldWrite();
+  ok(doc.apply({ type: "set-game-title", title: "Mine" }).ok);
+  host.answerSavePaths("Main/copy.gam");
+  const saving = workspace.saveAs(doc);
+  await writing;
+  host.seed(PATH, withTitle(exampleMain(9), "Theirs"));
+  equal(await doc.checkExternal(), "conflict", "the change on disk now waits for the user's choice");
+  equal(doc.getSnapshot().edits.length, 1, "the edits in force did not change");
+  release();
+  const result = await saving;
+  ok(!result.ok, "a change that now waits for a choice is a different revision, so Save As does not close the source");
+  equal(result.reason, "failed");
+  deepEqual(workspace.documents(), [doc]);
+  notEqual(doc.getSnapshot().conflict, null, "the waiting choice stays with the source");
+  equal(titleOf(host.bytesOf("Main/copy.gam")!), "Mine", "the copy holds the revision it captured");
+});
+
+test("Save As keeps the source when an undo and a new edit during its write leave the same number of edits (#2222)", HELD, async () => {
+  const { host, workspace, doc, writing, release } = await workspaceWithHeldWrite();
+  ok(doc.apply({ type: "set-game-title", title: "Copied" }).ok);
+  host.answerSavePaths("Main/copy.gam");
+  const saving = workspace.saveAs(doc);
+  await writing;
+  ok(doc.undo().ok);
+  ok(doc.apply({ type: "set-game-title", title: "Replaced" }).ok);
+  equal(doc.getSnapshot().edits.length, 1, "as many edits in force as when the copy was taken, but a different latest one");
+  release();
+  const result = await saving;
+  ok(!result.ok, "the copy does not hold the edit now in force");
+  equal(result.reason, "failed");
+  deepEqual(workspace.documents(), [doc]);
+  equal(doc.getSnapshot().gameTitle, "Replaced");
+  equal(doc.getSnapshot().dirty, true);
+  equal(titleOf(host.bytesOf("Main/copy.gam")!), "Copied");
 });
 
 test("a view attached while the last view's close is saving keeps the document open (D3.7)", HELD, async () => {

@@ -155,6 +155,7 @@ export function createWebConformanceHost(fixture: Uint8Array, act: Act): Conform
   return {
     name: "browser host",
     capabilities: project.services.capabilities,
+    saveWrites: 1,
     async open(path) {
       const element = document.createElement("div");
       document.body.append(element);
