@@ -83,8 +83,11 @@ function isInertPath(path) {
     /^(?:packages|tools|stock|golden)\//u.test(path) ||
     path.startsWith("docs/spec/") ||
     path.startsWith(".github/workflows/") ||
-    // The managed ticket resolver is executed by `pnpm bmad:tickets:test` in the `checks` job.
-    path.startsWith("_bmad/method/scripts/")
+    // The ticket resolver and preflight config loader are executed by `pnpm bmad:tickets:test`.
+    path.startsWith("_bmad/method/scripts/") ||
+    path === "_bmad/scripts/config_utils.py" ||
+    // The Epic 9 status regression loads every epic's direct Markdown records in the initiative.
+    /^_bmad-output\/initiative-rpgtoolkit-reawakened\/epic-[^/]+\/[^/]+\.md$/u.test(path)
   ) {
     return false;
   }
@@ -96,9 +99,7 @@ function isInertPath(path) {
     return true;
   }
 
-  // The rest of the installed BMAD framework lives under `_bmad/` and is consumed only by manual ticket
-  // tooling (never by a CI lane); provenance skips it too. Treat it as inert, except the managed
-  // resolver excluded above.
+  // The remaining installed BMAD framework is consumed only by manual ticket tooling.
   if (path.startsWith("_bmad/")) {
     return true;
   }
