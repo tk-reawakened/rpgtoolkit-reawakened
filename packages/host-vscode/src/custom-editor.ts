@@ -142,8 +142,8 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   }
 
   /**
-   * Settle a change made on disk (ADR 0022 D3.5). VS Code exposes Revert File only for the active editor, so a reload
-   * cannot safely update this document's workbench state across asynchronous command dispatch.
+   * Settle a change made on disk (ADR 0022 D14.2). Revert File only targets the active editor and cannot safely
+   * reload this document after a focus change. Reject even a forged reload request and keep both versions intact.
    */
   async resolveConflict(choice: ConflictChoice): Promise<ConflictResult> {
     if (choice === "reload") {
@@ -170,25 +170,23 @@ export interface GameEditorProvider<Uri extends UriLike> {
 /** Make the provider. `fire` is `onDidChangeCustomDocument`'s emitter. */
 export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void): GameEditorProvider<Uri> {
   const workspaces = new Map<string, { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace }>();
-
-  const projectOf = (uri: Uri): { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly folder: WorkspaceFolderLike<Uri>; readonly path: string } | undefined => {
-    const folder = port.folderOf(uri);
-    if (folder === undefined) return undefined;
+  type Project = { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly path: string };
+  const projectIn = (folder: WorkspaceFolderLike<Uri>, uri: Uri): Project => {
     let project = workspaces.get(folder.key);
     if (project === undefined) {
       const fs = port.fileSystem(folder);
       project = { fs, workspace: createDocumentWorkspace({ projectId: folder.key, services: { fs, dialogs: port.dialogs(folder), capabilities: new Set(port.capabilities) } }) };
       workspaces.set(folder.key, project);
     }
-    return { ...project, folder, path: uri.path.slice(folder.uri.path.replace(/\/$/, "").length + 1) };
+    return { ...project, path: uri.path.slice(folder.uri.path.replace(/\/$/, "").length + 1) };
   };
   const nameOf = (uri: Uri): string => uri.path.split("/").at(-1) ?? uri.path;
 
   return {
     async openCustomDocument(uri, backupId) {
-      const project = projectOf(uri);
-      if (project === undefined) throw new Error(`${nameOf(uri)} is outside the open workspace`);
-      const { workspace, fs, folder, path } = project;
+      const folder = port.folderOf(uri);
+      if (folder === undefined) throw new Error(`${nameOf(uri)} is outside the open workspace`);
+      const { workspace, fs, path } = projectIn(folder, uri);
       if (backupId !== undefined) {
         const resolved = await resolveDocumentPath(fs, path);
         if (!resolved.ok) throw new Error(resolved.kind === "case-conflict" ? resolved.message : `${nameOf(uri)}: ${resolved.error.message}`);
@@ -216,11 +214,18 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     },
     async saveCustomDocumentAs(document, destination) {
       // VS Code's save dialog has already chosen the destination and confirmed replacing an existing file (D3.4).
-      const project = projectOf(destination);
-      if (project === undefined) throw new Error(`${nameOf(destination)} is outside the open workspace folders; Save As saves inside a project. Nothing was written.`);
+      const folder = port.folderOf(destination);
+      if (folder === undefined) throw new Error(`${nameOf(destination)} is outside the open workspace folders; Save As saves inside a project. Nothing was written.`);
+      // The source's project is the project of its whole lifecycle (D1.1). A multi-root workspace has one project per
+      // folder, and Save As never moves a document into another one; the refusal comes before any state is made for that
+      // folder, so the other project gets no workspace, no read and no write (ADR 0022 D14.7, #2206).
+      if (folder.key !== document.model.identity.projectId) {
+        throw new Error(`${nameOf(destination)} is in another workspace folder (${nameOf(folder.uri) || folder.uri.path}); Save As saves inside the project of ${document.model.identity.path}. Nothing was written.`);
+      }
+      const project = projectIn(folder, destination);
       const resolved = await resolveDocumentPath(project.fs, project.path);
       if (!resolved.ok) throw new Error(resolved.kind === "case-conflict" ? resolved.message : `Could not check ${project.path}: ${resolved.error.message}`);
-      const identity = createDocumentIdentity(project.folder.key, resolved.path);
+      const identity = createDocumentIdentity(folder.key, resolved.path);
       if (project.workspace.documents().some((open) => open.identity.key === identity.key && open !== document.model)) {
         throw new Error(`${resolved.path} is open in another editor; close it before saving another document over it. Nothing was written.`);
       }
