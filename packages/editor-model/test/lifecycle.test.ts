@@ -301,6 +301,53 @@ test("revert to a failed write's bytes cannot certify that revision as durable",
   equal(doc.getSnapshot().dirty, false);
 });
 
+for (const choice of ["keep-local", "reload", "revert"] as const) {
+  for (const checkFirst of [false, true]) {
+    test(`an old failed write cannot bypass ${checkFirst ? "external check" : "save"} after ${choice} accepts a new baseline`, async () => {
+      const original = exampleMain(9);
+      const host = createMemoryPlatformServices({ files: { [PATH]: original } });
+      let writes = 0;
+      const opened = await openMainDocument({
+        readProject: (projectId, path) => host.fs.readProject(projectId, path),
+        writeProject: async (projectId, path, bytes) => {
+          writes += 1;
+          const written = await host.fs.writeProject(projectId, path, bytes);
+          if (writes === 1 && written.ok) return { ok: false, error: { code: "io-error", message: "fsync failed" } };
+          return written;
+        },
+      }, identity);
+      ok(opened.ok);
+      const doc = opened.document;
+      ok(doc.apply({ type: "set-game-title", title: "A" }).ok);
+      const oldFailedBytes = doc.serialize();
+      ok(!(await doc.save()).ok);
+      deepEqual(host.bytesOf(PATH), oldFailedBytes);
+
+      host.seed(PATH, withTitle(original, "B"));
+      equal(await doc.checkExternal(), "conflict");
+      if (choice === "revert") {
+        ok((await doc.revert()).ok);
+      } else {
+        ok(doc.resolveConflict(choice).ok);
+      }
+      ok(doc.apply({ type: "set-game-title", title: "C" }).ok);
+      host.seed(PATH, oldFailedBytes);
+
+      if (checkFirst) {
+        equal(await doc.checkExternal(), "conflict", "the old failed bytes are a new external change");
+        equal(doc.getSnapshot().conflict?.externalTitle, "A");
+      }
+      const retry = await doc.save();
+      ok(!retry.ok);
+      equal(retry.failure.kind, "conflict");
+      equal(writes, 1, "the host is never asked to replace the external bytes");
+      deepEqual(host.bytesOf(PATH), oldFailedBytes);
+      equal(doc.getSnapshot().gameTitle, "C");
+      equal(doc.getSnapshot().dirty, true);
+    });
+  }
+}
+
 test("revert refuses edits accepted during its disk read, even when the file changed", async () => {
   for (const changedDisk of [false, true]) {
     const original = exampleMain(9);
