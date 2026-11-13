@@ -10,9 +10,9 @@ import { SAVE_RATES_PER_HOUR, WINDOWS_SECONDS, distribution, entriesPerHour } fr
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const ASSET_INVENTORY = "docs/findings/native-data-boundaries/data/assets.jsonl";
-const SESSION_BOARD = "docs/spec/examples/game/Game/Example/Boards/village.brd";
+const SYNTHETIC_BOARD = "docs/spec/examples/game/Game/Example/Boards/village.brd";
 const RESULTS = "docs/findings/history-measurement/results.json";
-const SESSION_EDITS = 500;
+const SYNTHETIC_SAVES = 500;
 // Multiplier coprime with the cell count, so consecutive edits visit different cells.
 const CELL_STRIDE = 7919;
 const MB = 1_000_000;
@@ -80,12 +80,12 @@ function corpusBoardSizes() {
     .map((record) => record.bytes);
 }
 
-// Each session edit changes one cell and saves the whole board, so every save is a
-// new full-content history entry. The matrix is re-read after each save to prove the
-// bytes written are the board intended.
-function runSession() {
-  const fileBytes = new Uint8Array(readFileSync(join(root, SESSION_BOARD)));
-  const base = decode(fileBytes, SESSION_BOARD);
+// Generate one synthetic save sequence. It has no clock or timestamps and is not
+// an observation of an editing session. Each save changes one cell, then verifies
+// the written bytes by reading the board back.
+function runSyntheticSequence() {
+  const fileBytes = new Uint8Array(readFileSync(join(root, SYNTHETIC_BOARD)));
+  const base = decode(fileBytes, SYNTHETIC_BOARD);
   const cells = base.tileMatrix.length;
   const lutIndices = base.lut.length - 1;
   const matrix = [...base.tileMatrix];
@@ -94,23 +94,27 @@ function runSession() {
 
   const sizes = [];
   const digests = new Set();
-  for (let edit = 0; edit < SESSION_EDITS; edit++) {
-    matrix[(edit * CELL_STRIDE) % cells] = 1 + (edit % lutIndices);
+  for (let save = 0; save < SYNTHETIC_SAVES; save++) {
+    matrix[(save * CELL_STRIDE) % cells] = 1 + (save % lutIndices);
     const bytes = encode({ ...base, tileMatrix: matrix, tileRuns: encodeRuns(matrix) });
-    const back = decode(bytes, `session edit ${edit}`);
+    const back = decode(bytes, `synthetic save ${save}`);
     if (!sameArray(back.tileMatrix, matrix)) {
-      throw new Error(`session edit ${edit} did not re-read to the matrix it wrote`);
+      throw new Error(`synthetic save ${save} did not re-read to the matrix it wrote`);
     }
     sizes.push(bytes.length);
     digests.add(sha256(bytes));
   }
   const bytes = distribution(sizes);
   return {
-    board: SESSION_BOARD,
+    kind: "synthetic-single-board-save-sequence",
+    board: SYNTHETIC_BOARD,
     cells,
-    edits: SESSION_EDITS,
+    saves: SYNTHETIC_SAVES,
+    timestamped: false,
+    elapsedTimeMeasured: false,
     baselineMatchesFile,
     distinctDigests: digests.size,
+    repeatedSaveCount: SYNTHETIC_SAVES - digests.size,
     bytes: { ...bytes, mean: bytes.sum / bytes.count },
   };
 }
@@ -136,25 +140,27 @@ export function measure() {
   for (const row of roundTrip) outcomes[row.outcome] = (outcomes[row.outcome] ?? 0) + 1;
 
   const corpus = distribution(corpusBoardSizes());
-  const session = runSession();
+  const syntheticSequence = runSyntheticSequence();
   const boardSizes = {
     corpusMedian: corpus.median,
     corpusP90: corpus.p90,
     corpusMax: corpus.max,
-    sessionMean: session.bytes.mean,
+    syntheticSequenceMean: syntheticSequence.bytes.mean,
   };
 
   return {
     method: {
-      windows: "fixed window opened at the first save; saves inside it merge (window-model.mjs)",
-      saveRates: "constant saves per hour, sustained for 24 hours: an upper bound, not a usage estimate",
+      windows: "fixed-window arithmetic over synthetic evenly spaced saves (window-model.mjs)",
+      saveRates: "scenario inputs extrapolated over 24 hours; not observed usage",
+      scope: "measured board-size corpus and single-board scenarios only; no timestamped editing-hour trace or project-wide model",
       megabyte: "1 MB = 1,000,000 bytes",
       corpusSource: ASSET_INVENTORY,
       corpusNote: "sizes from the inventory; no content dedup assumed",
+      scenarioNote: "each storage row applies one board size; it is not a project estimate or upper bound",
     },
     roundTrip: { files: roundTrip.length, outcomes, details: roundTrip },
     corpusBoards: { count: corpus.count, bytes: corpus },
-    session,
+    syntheticSequence,
     storage: storageRows(boardSizes),
   };
 }
@@ -166,9 +172,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   writeFileSync(out, `${JSON.stringify(results, null, 2)}\n`);
   console.log(`round trip: ${JSON.stringify(results.roundTrip.outcomes)}`);
   console.log(`corpus boards: ${results.corpusBoards.count}, median ${results.corpusBoards.bytes.median}, p90 ${results.corpusBoards.bytes.p90}, max ${results.corpusBoards.bytes.max}`);
-  console.log(`session: baseline matches file ${results.session.baselineMatchesFile}, distinct digests ${results.session.distinctDigests}/${results.session.edits}, mean ${results.session.bytes.mean.toFixed(1)} bytes`);
+  console.log(`synthetic sequence: baseline matches file ${results.syntheticSequence.baselineMatchesFile}, distinct digests ${results.syntheticSequence.distinctDigests}/${results.syntheticSequence.saves}, repeated saves ${results.syntheticSequence.repeatedSaveCount}, mean ${results.syntheticSequence.bytes.mean.toFixed(1)} bytes`);
   for (const row of results.storage) {
-    console.log(`window ${row.windowSeconds}s, ${row.savesPerHour}/h: ${row.entriesPerHour} entries/h, ${row.mbPerDay.corpusP90.toFixed(1)} MB/day at corpus p90`);
+    console.log(`window ${row.windowSeconds}s, ${row.savesPerHour}/h: ${row.entriesPerHour} entries/h, ${row.mbPerDay.corpusP90.toFixed(1)} MB/day at one p90-size board scenario`);
   }
   console.log(`wrote ${RESULTS}`);
 }

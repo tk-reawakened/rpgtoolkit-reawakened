@@ -6,9 +6,9 @@ export const SAVE_RATES_PER_HOUR = [60, 360, 3600];
 
 const HOUR_MS = 3_600_000;
 
-// Autosave saves arrive at a constant rate for one hour. A merge window opens at
-// its first save and absorbs every save made within `windowSeconds` after it; the
-// next save after that opens a new entry. Returns how many entries the hour creates.
+// Scenario math only: place saves evenly across a modeled hour, then apply the
+// fixed-window rule. These are constructed inputs, not timestamps from a trace.
+// Returns the number of entries in this synthetic one-hour scenario.
 export function entriesPerHour(savesPerHour, windowSeconds) {
   if (!Number.isInteger(savesPerHour) || savesPerHour < 1) {
     throw new RangeError(`savesPerHour must be a positive integer, got ${savesPerHour}`);
