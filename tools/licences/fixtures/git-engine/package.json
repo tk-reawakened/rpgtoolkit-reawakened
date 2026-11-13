@@ -1,0 +1,11 @@
+{
+  "name": "git-engine-g6-inventory",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reproducible licence inventory fixture; not a workspace or production dependency.",
+  "dependencies": {
+    "@isomorphic-git/lightning-fs": "4.10.5",
+    "diff": "8.0.2",
+    "isomorphic-git": "1.44.13"
+  }
+}
