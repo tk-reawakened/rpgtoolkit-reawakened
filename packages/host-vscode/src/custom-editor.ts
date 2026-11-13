@@ -116,14 +116,18 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   }
 
   /**
-   * Settle a change made on disk (ADR 0022 D3.5). Loading the disk's version starts a new history; VS Code is then told
-   * to revert, which drops its own edits after the save point so its dirty marker agrees (the model's revert finds the
-   * file it just loaded and changes nothing).
+   * Settle a change made on disk (ADR 0022 D3.5). VS Code exposes Revert File only for the active editor, so a reload
+   * cannot safely update this document's workbench state across asynchronous command dispatch.
    */
   async resolveConflict(choice: ConflictChoice): Promise<ConflictResult> {
-    const resolved = await resolveRecoveryConflict(this.model, choice);
-    if (resolved.ok && choice === "reload") await this.#port.executeCommand("workbench.action.files.revert");
-    return resolved;
+    if (choice === "reload") {
+      return {
+        ok: false,
+        reason: "cannot-reload",
+        message: `Cannot safely reload ${this.model.identity.path}: VS Code's Revert File command only targets the active editor, which may change before command dispatch. Your changes and conflict were kept.`,
+      };
+    }
+    return resolveRecoveryConflict(this.model, choice);
   }
 }
 
@@ -140,6 +144,7 @@ export interface GameEditorProvider<Uri extends UriLike> {
 /** Make the provider. `fire` is `onDidChangeCustomDocument`'s emitter. */
 export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void): GameEditorProvider<Uri> {
   const workspaces = new Map<string, { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace }>();
+
   const projectOf = (uri: Uri): { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly folder: WorkspaceFolderLike<Uri>; readonly path: string } | undefined => {
     const folder = port.folderOf(uri);
     if (folder === undefined) return undefined;

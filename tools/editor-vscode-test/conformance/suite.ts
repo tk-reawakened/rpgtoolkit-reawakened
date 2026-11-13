@@ -51,6 +51,14 @@ export interface ConformanceEditor {
   show(): Promise<void>;
 }
 
+export interface DeferredRead {
+  /** Resolves as soon as the held read reaches the filesystem adapter. */
+  readonly whenStarted: Promise<void>;
+  wasStarted(): boolean;
+  release(): void;
+  dispose(): void;
+}
+
 export interface ConformanceHost {
   readonly name: string;
   /** What the host declares to `editor-ui` (AD-20). */
@@ -67,6 +75,10 @@ export interface ConformanceHost {
   refuseWrites(refuse: boolean): void;
   /** Hold every later write until the returned function is called. */
   holdWrites(): () => void;
+  /** Hold the next file read for a path, for deterministic editor-switch race proofs. */
+  deferNextRead?(path: string): DeferredRead;
+  /** Number of active-editor Revert File command dispatches observed by this host. */
+  workbenchRevertCommandCount?(): number;
   /** Let pending messages, events and writes run. */
   settle(): Promise<void>;
   /** Restart from the host's backup, if one is available. */
@@ -435,6 +447,46 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
       same(recovered.title(), "External while closed", "reload shows the external title");
       check(!recovered.model.getSnapshot().dirty && !recovered.hostDirty() && !recovered.conflictShown(), "the reloaded version is clean and resolved");
       sameBytes(await host.disk(GAME), external, "reloading leaves the external bytes unchanged");
+    },
+  },
+  {
+    name: "a recovered reload fails closed without reading or reverting another dirty editor",
+    async run(host) {
+      const deferNextRead = host.deferNextRead;
+      const getRevertCommandCount = host.workbenchRevertCommandCount;
+      if (
+        !host.capabilities.has("backup")
+        || host.restartFromBackupAfterDiskChange === undefined
+        || deferNextRead === undefined
+        || getRevertCommandCount === undefined
+      ) return;
+      const external = retitled((await host.disk(GAME))!, "External while closed");
+      const recovered = await host.restartFromBackupAfterDiskChange(GAME, external);
+      check(recovered !== null, "the workbench reopens its backed-up document");
+      const unrelated = await host.open(SECOND);
+      await unrelated.type("Unrelated unsaved title");
+      const read = deferNextRead.call(host, GAME);
+      const revertCommands = getRevertCommandCount.call(host);
+      const reloading = recovered.choose("Use the version on disk");
+      try {
+        await host.settle();
+        if (read.wasStarted()) await read.whenStarted;
+        await unrelated.type("Unrelated editor stays dirty");
+        read.release();
+        await reloading;
+
+        check(!read.wasStarted(), "the unsupported reload is refused before reading disk");
+        same(getRevertCommandCount.call(host), revertCommands, "the active-editor Revert File command was not dispatched");
+        same(recovered.title(), "Local backup", "the recovered copy is retained");
+        check(recovered.model.getSnapshot().dirty && recovered.hostDirty() && recovered.conflictShown(), "its model, workbench dirty marker and conflict stay coherent");
+        same(unrelated.title(), "Unrelated editor stays dirty", "the other editor's content is untouched");
+        check(unrelated.model.getSnapshot().dirty && unrelated.hostDirty(), "the other editor remains dirty in both model and workbench");
+        same(unrelated.status(), UNSAVED, "the other editor keeps its unsaved status");
+        sameBytes(await host.disk(GAME), external, "the external file remains unchanged");
+      } finally {
+        read.release();
+        read.dispose();
+      }
     },
   },
   {

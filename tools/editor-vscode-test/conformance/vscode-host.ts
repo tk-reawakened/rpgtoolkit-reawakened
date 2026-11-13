@@ -28,7 +28,7 @@ import {
   type GameEditorProvider,
   type VscodeFileSystemPort,
 } from "@tk-reawakened/host-vscode/testing";
-import { GAME, SECOND, retitled, type CloseAnswer, type ConformanceEditor, type ConformanceHost } from "./suite.ts";
+import { GAME, SECOND, retitled, type CloseAnswer, type ConformanceEditor, type ConformanceHost, type DeferredRead } from "./suite.ts";
 import { MountedView, settle, type Act } from "./view.ts";
 
 interface Uri { readonly path: string }
@@ -36,12 +36,39 @@ interface Uri { readonly path: string }
 const ROOT: Uri = { path: "/project" };
 const FOLDER = { uri: ROOT, key: "file:///project" };
 
+interface DeferredReadGate {
+  readonly wait: Promise<void>;
+  start(): void;
+}
+
 /** The files on disk, by absolute path, case-sensitive, with the desktop watcher's listeners. */
 class Disk {
   readonly files = new Map<string, Uint8Array>();
   readonly watchers = new Set<{ readonly root: string; readonly onChange: (change: FileChange) => void }>();
   refuse = false;
   hold: Promise<void> | null = null;
+  readonly deferredReads = new Map<string, DeferredReadGate>();
+
+  deferNextRead(path: string): DeferredRead {
+    if (this.deferredReads.has(path)) throw new Error(`a read is already deferred for ${path}`);
+    let release!: () => void;
+    let markStarted!: () => void;
+    let started = false;
+    const whenStarted = new Promise<void>((resolve) => { markStarted = resolve; });
+    const gate: DeferredReadGate = {
+      wait: new Promise<void>((resolve) => { release = resolve; }),
+      start: () => { started = true; markStarted(); },
+    };
+    this.deferredReads.set(path, gate);
+    return {
+      whenStarted,
+      wasStarted: () => started,
+      release,
+      dispose: () => {
+        if (this.deferredReads.get(path) === gate) this.deferredReads.delete(path);
+      },
+    };
+  }
 
   notify(path: string, kind: FileChange["kind"]): void {
     for (const watcher of [...this.watchers]) {
@@ -70,6 +97,12 @@ function fileSystemPort(disk: Disk): VscodeFileSystemPort<Uri> {
       return [...entries];
     },
     async readFile(uri) {
+      const deferred = disk.deferredReads.get(uri.path);
+      if (deferred !== undefined) {
+        disk.deferredReads.delete(uri.path);
+        deferred.start();
+        await deferred.wait;
+      }
       const bytes = disk.files.get(uri.path);
       if (bytes === undefined) throw missing(uri);
       return bytes.slice();
@@ -283,7 +316,10 @@ class Workbench {
         const target = this.active?.copy;
         if (target === undefined) return;
         if (command === "workbench.action.files.save") await target.save();
-        else await target.revert();
+        else {
+          this.host.revertCommands += 1;
+          await target.revert();
+        }
       },
     }, (event) => {
       for (const copy of this.copies.values()) if (copy.custom === event.document) copy.record(event);
@@ -437,6 +473,7 @@ class VscodeHost implements ConformanceHost {
   readonly capabilities: ReadonlySet<Capability>;
   readonly drive = new Disk();
   readonly backups = new Map<string, Uint8Array>();
+  revertCommands = 0;
   readonly act: Act;
   #workbench: Workbench;
 
@@ -492,6 +529,13 @@ class VscodeHost implements ConformanceHost {
       this.drive.hold = null;
       release();
     };
+  }
+  deferNextRead(path: string): DeferredRead {
+    return this.drive.deferNextRead(posix.normalize(`${ROOT.path}/${path}`));
+  }
+
+  workbenchRevertCommandCount(): number {
+    return this.revertCommands;
   }
 
   settle(): Promise<void> {
