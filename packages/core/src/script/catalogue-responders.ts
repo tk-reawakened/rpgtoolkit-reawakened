@@ -243,10 +243,45 @@ const UI_NATIVE_SUMMARIES: Readonly<Record<string, string>> = {
   statictext: "obsolete.",
 };
 
+/** Retirement metadata for catalogue-owned definitions (R-36 and the command rows). */
+const NO_REPLACEMENT = { kind: "syntax", text: "No direct replacement is documented." } as const;
+const SKIPPED_IN_TK3 = "Toolkit 3.1 raises a catchable obsolete-command error and skips the statement.";
+const WARNING_IN_TK3 = "Toolkit 3.1 still runs the command and reports a warning when warnings are enabled.";
+const FLOW_GROUP = ["program-flow-errors-debugging-25"];
+const TILE_GROUP = ["board-tiles-vectors-screen-effects-33"];
+const PLAYER_GROUP = ["players-party-sprite-movement-31"];
+const ITEM_GROUP = ["items-inventory-shop-gold-28"];
+const BATTLE_GROUP = ["battle-stats-menus-33"];
+
+function retired(
+  summary: string,
+  groups: readonly string[],
+  tag: "obsolete" | "deprecated",
+  reason: string,
+  replacedBy: NonNullable<BuiltinDoc["replacedBy"]> = NO_REPLACEMENT,
+): BuiltinDoc {
+  return { summary, groups, tags: [tag], reason, replacedBy, behaviour: reason };
+}
+
+const RETIRED_DOCS: Readonly<Record<string, BuiltinDoc>> = {
+  autocommand: retired("Obsolete.", FLOW_GROUP, "obsolete", WARNING_IN_TK3),
+  scan: retired("Save the tile specified to a buffer identified by pos. There is no particular number to pick for pos; any will do.", TILE_GROUP, "deprecated", "This command is part of the legacy tile-buffer pair. The position argument identifies the saved tile for mem."),
+  mem: retired("Lay a scanned tile on the screen at the specified position.", TILE_GROUP, "deprecated", "This command is part of the legacy tile-buffer pair. The position argument identifies the tile saved by scan."),
+  smartstep: retired("Legacy smart-stepping toggle.", TILE_GROUP, "obsolete", SKIPPED_IN_TK3),
+  walkspeed: retired("Obsolete.", PLAYER_GROUP, "obsolete", SKIPPED_IN_TK3),
+  posture: retired('Show a custom player animation named "Custom" + str(id) (e.g. "Custom1") This command is obsolete - use playerStance() instead.', PLAYER_GROUP, "deprecated", "This command uses the legacy Custom animation name formed from the numeric ID.", { kind: "syntax", text: "Use playerStance() with the corresponding named animation." }),
+  stance: retired("Show a player stance.", PLAYER_GROUP, "obsolete", WARNING_IN_TK3),
+  characterspeed: retired("Obsolete.", PLAYER_GROUP, "obsolete", "Toolkit 3.1 shows a message and forwards the call to gamespeed.", { kind: "command", name: "gamespeed" }),
+  itemwalkspeed: retired("Obsolete.", ITEM_GROUP, "obsolete", SKIPPED_IN_TK3),
+  shopcolors: retired("Set shop colors.", ITEM_GROUP, "obsolete", WARNING_IN_TK3),
+  fightstyle: retired("Obsolete.", BATTLE_GROUP, "obsolete", SKIPPED_IN_TK3),
+  battlespeed: retired("Obsolete.", BATTLE_GROUP, "obsolete", SKIPPED_IN_TK3),
+};
+
 function documentCommands(commands: readonly BuiltinSpec[]): readonly BuiltinSpec[] {
   const uiDocs = new Map(UI_COMMANDS.flatMap((command) => command.doc === undefined ? [] : [[command.name, command.doc] as const]));
   return commands.map((command) => {
-    const source = TICKET_4_29_DOCS[command.name] ?? uiDocs.get(command.name);
+    const source = RETIRED_DOCS[command.name] ?? TICKET_4_29_DOCS[command.name] ?? uiDocs.get(command.name);
     if (source === undefined) return command;
     const summary = UI_NATIVE_SUMMARIES[command.name] ?? source.summary;
     const obsolete = command.name === "mwinsize" || command.name === "statictext";

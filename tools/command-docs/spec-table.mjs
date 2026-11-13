@@ -61,6 +61,7 @@ export function parseSpecTable(markdown) {
       ...(section === undefined ? {} : { section }),
       ...(aliasOf(notes) === undefined ? {} : { aliasOf: aliasOf(notes) }),
       ...(/\bobsolete\b/i.test(notes) || /^obsolete\.?$/i.test(purpose) ? { obsolete: true } : {}),
+      ...(/^deprecated\b/i.test(notes) ? { deprecated: true } : {}),
     });
   }
   if (rows.length === 0) throw new Error("no native command tables found");
