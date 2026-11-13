@@ -1,7 +1,7 @@
 import { foldPath, toSlashes } from "@tk-reawakened/core";
 import type { Disposable, DocumentService, FileSystemService, PlatformError, PlatformServices } from "@tk-reawakened/platform-services";
 import { createDocumentIdentity } from "./identity.ts";
-import { openMainDocument, type HistoryResult, type MainDocument, type OpenError, type RevertFailure, type SaveFailure, type SaveResult } from "./main-document.ts";
+import { openMainDocument, type HistoryResult, type MainDocument, type MainDocumentSnapshot, type OpenError, type RevertFailure, type SaveFailure, type SaveResult } from "./main-document.ts";
 
 /**
  * The documents a host has open in one project, and the lifecycle around them that ADR 0022 D3 promises in every host:
@@ -11,6 +11,15 @@ import { openMainDocument, type HistoryResult, type MainDocument, type OpenError
  * desktop host use it as their workbench; VS Code has its own workbench and uses only the parts its custom editor
  * provider needs (`open`, `release` and the watch).
  */
+
+/**
+ * Whether two snapshots of one document show the same revision: the same edits in force (an `editId` is never reused)
+ * and the same waiting external change. Save progress (`saving`, `saveError`, `dirty`) is not part of a revision, so a
+ * save of the same revision finishing in between does not count as a change.
+ */
+export function sameRevision(a: MainDocumentSnapshot, b: MainDocumentSnapshot): boolean {
+  return a.edits.length === b.edits.length && a.edits.at(-1)?.editId === b.edits.at(-1)?.editId && a.conflict === b.conflict;
+}
 
 /** Where a project-relative path leads, spelled as the project stores it (ADR 0022 D1.2). */
 export type PathResolution =
@@ -390,15 +399,13 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         const copied = document.getSnapshot();
         const written = await document.saveAs(fs, identity);
         if (!written.ok) return failed(resolved.path, written.failure.message);
-        if (document.getSnapshot() !== copied) {
-          return failed(resolved.path, `${resolved.path} was written, but ${source} changed during Save As and remains open with its work.`);
-        }
         // Read the copy without registering it. A failed Save As must not strand an invisible open destination.
         const reopened = await openMainDocument(fs, identity);
         if (!reopened.ok) {
           return failed(resolved.path, `${resolved.path} was written but could not be opened: ${reopened.error.document}: ${reopened.error.error.message}`);
         }
-        if (document.getSnapshot() !== copied) {
+        // A source edit made during the write or the read is not in the copy: keep the source open with its work.
+        if (!sameRevision(document.getSnapshot(), copied)) {
           return failed(resolved.path, `${resolved.path} was written, but ${source} changed during Save As and remains open with its work.`);
         }
         if (disposed || documents.has(identity.key) || opening.has(identity.key)) {

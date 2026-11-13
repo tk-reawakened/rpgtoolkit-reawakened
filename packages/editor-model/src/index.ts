@@ -28,6 +28,7 @@ export {
 export {
   createDocumentWorkspace,
   resolveDocumentPath,
+  sameRevision,
   type CloseResult,
   type DocumentViewLease,
   type DocumentWorkspace,

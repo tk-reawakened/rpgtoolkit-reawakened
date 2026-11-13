@@ -51,6 +51,14 @@ export interface ConformanceEditor {
   show(): Promise<void>;
 }
 
+/** The next write the host starts, held at the point where its bytes would reach the file. */
+export interface HeldWrite {
+  /** Settles when that write has started and is waiting. */
+  readonly started: Promise<void>;
+  /** Let the held write finish; before it starts, stop holding it. */
+  release(): void;
+}
+
 export interface ConformanceHost {
   readonly name: string;
   /** What the host declares to `editor-ui` (AD-20). */
@@ -65,10 +73,8 @@ export interface ConformanceHost {
   writeOutside(path: string, bytes: Uint8Array | null): Promise<void>;
   /** Make the host refuse every write, or accept them again. */
   refuseWrites(refuse: boolean): void;
-  /** Hold every later write until the returned function is called. */
-  holdWrites(): () => void;
-  /** Wait for a held write to reach the host's write boundary, when the host can expose it. */
-  waitForHeldWrite?(): Promise<void>;
+  /** Hold the next write the host starts (only that one) until it is released. */
+  holdNextWrite(): HeldWrite;
   /** Let pending messages, events and writes run. */
   settle(): Promise<void>;
   /** Restart from the host's backups and reopen `path`; `null` when the host keeps no backup. */
@@ -115,20 +121,15 @@ async function titleOnDisk(host: ConformanceHost, path: string): Promise<string 
   return opened.ok ? opened.document.getSnapshot().gameTitle : null;
 }
 
-async function waitForHeldWrite(host: ConformanceHost, path: string, operation: Promise<unknown>): Promise<void> {
-  if (host.waitForHeldWrite !== undefined) {
-    await Promise.race([
-      host.waitForHeldWrite(),
-      operation.then(() => { throw new Error(`${host.name} finished before the held write started`); }),
-    ]);
-    return;
-  }
-  // The browser test directory creates the destination handle before its held write closes it.
-  for (let round = 0; round < 100; round += 1) {
-    if (await host.disk(path) !== null) return;
-    await host.settle();
-  }
-  throw new Error(`${host.name} did not reach the held write for ${path}`);
+/** `true` once `held` has started, `false` when `operation` finishes first (nothing reached the held write). */
+function heldOrDone(held: HeldWrite, operation: Promise<unknown>): Promise<boolean> {
+  return Promise.race([held.started.then(() => true), operation.then(() => false)]);
+}
+
+/** Wait until `held` has started; fail, rather than hang, when `operation` finishes without reaching it. */
+async function heldWriteStarted(host: ConformanceHost, held: HeldWrite, operation: Promise<unknown>): Promise<void> {
+  check(await heldOrDone(held, operation), `${host.name} finished before the held write started`);
+  await host.settle();
 }
 
 const UNSAVED = "Unsaved changes";
@@ -162,41 +163,86 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
     },
   },
   {
-    name: "a save marks clean only what the host reports written; an edit made during the write stays dirty",
+    // Hosts complete a save differently (see `GameDocument.save` in host-vscode): the browser workspace marks clean only
+    // the revision it wrote, so the later edit stays dirty; VS Code marks every edit it has heard of saved when the
+    // provider resolves, so its provider writes the later edit too before resolving. Either way nothing is lost, nothing
+    // is reported as failed, and the host's dirty marker agrees with the model.
+    name: "a save never claims an edit made during its write: it stays dirty or is written too, and no failure is reported",
     async run(host, fixture) {
       const editor = await host.open(GAME);
       await editor.type("Written");
-      const release = host.holdWrites();
+      const held = host.holdNextWrite();
       const saving = editor.save();
-      await host.settle();
+      await heldWriteStarted(host, held, saving);
       same(editor.status(), "Saving…", "the view says it is saving while the write is held");
       same(editor.model.getSnapshot().dirty, true, "not clean before the host reports the write");
       sameBytes(await host.disk(GAME), fixture, "the held write has not reached the file");
       await editor.type("Later");
-      release();
+      held.release();
       await saving;
       await host.settle();
-      same(await titleOnDisk(host, GAME), "Written", "the revision captured when Save was pressed is the one written");
       same(editor.title(), "Later", "the later edit is kept");
-      check(editor.model.getSnapshot().dirty && editor.hostDirty(), "the later edit stays dirty in the model and the host");
-      await editor.save();
-      same(await titleOnDisk(host, GAME), "Later", "the next save writes it");
+      same(JSON.stringify(editor.alerts()), "[]", "a save whose captured revision was written is not reported as failed");
+      const dirty = editor.model.getSnapshot().dirty;
+      same(editor.hostDirty(), dirty, "the host's dirty marker agrees with the model");
+      same(await titleOnDisk(host, GAME), dirty ? "Written" : "Later", "the file holds the captured revision while the later edit is dirty, or the later edit once clean");
+      if (dirty) await editor.save();
+      same(await titleOnDisk(host, GAME), "Later", "the latest edit reaches the file");
       check(!editor.model.getSnapshot().dirty && !editor.hostDirty(), "and then the document is clean");
       same(editor.status(), SAVED, "the view says it is saved");
     },
   },
   {
-    name: "close with save keeps an edit made while the write is held",
+    name: "edits that keep outrunning a save stay unsaved and visible; a host that writes again gives up visibly",
+    async run(host) {
+      const editor = await host.open(GAME);
+      await editor.type("Edit 0");
+      let held = host.holdNextWrite();
+      const saving = editor.save();
+      let writes = 0;
+      // Each write the save starts is held while one more edit arrives. Five rounds is more than any host may take.
+      while (writes < 5 && await heldOrDone(held, saving)) {
+        writes += 1;
+        await host.settle();
+        await editor.type(`Edit ${writes}`);
+        const next = host.holdNextWrite();
+        held.release();
+        held = next;
+      }
+      held.release();
+      await saving;
+      await host.settle();
+      check(writes >= 1 && writes < 5, `${host.name} stops writing after a bounded number of writes (${writes})`);
+      same(editor.title(), `Edit ${writes}`, "the latest edit is shown");
+      check(editor.model.getSnapshot().dirty && editor.hostDirty(), "the latest edit is still unsaved in the model and the host");
+      same(editor.status(), UNSAVED, "the view says so");
+      same(await titleOnDisk(host, GAME), `Edit ${writes - 1}`, "the last write holds the revision it captured");
+      same(
+        editor.alerts().some((alert) => alert.includes(GAME)),
+        writes > 1,
+        "a host that writes again for edits made during a save names the document when it gives up; a host that writes once reports nothing",
+      );
+      await editor.save();
+      same(await titleOnDisk(host, GAME), `Edit ${writes}`, "the kept edit saves once the edits stop");
+      check(!editor.model.getSnapshot().dirty && !editor.hostDirty(), "and then the document is clean");
+    },
+  },
+  {
+    name: "close with save never drops an edit made while the write is held",
     async run(host) {
       const editor = await host.open(GAME);
       await editor.type("Written on close");
-      const release = host.holdWrites();
+      const held = host.holdNextWrite();
       const closing = editor.close("save");
-      await host.settle();
+      await heldWriteStarted(host, held, closing);
       same(editor.status(), "Saving…", "the close's save has reached the held write");
       await editor.type("Edited while closing");
-      release();
-      same(await closing, false, "the tab stays open rather than dropping the newer edit");
+      held.release();
+      if (await closing) {
+        same(await titleOnDisk(host, GAME), "Edited while closing", "a host that closes the tab wrote the newer edit first");
+        same(host.modelsOpen(), 0, "and then released the model");
+        return;
+      }
       same(await titleOnDisk(host, GAME), "Written on close", "the held write captured the revision present when Save was answered");
       same(editor.title(), "Edited while closing", "the newer edit remains accessible in the source tab");
       same(editor.status(), UNSAVED, "the source still reports unsaved work");
@@ -246,12 +292,12 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
       await editor.type("Captured by Save As");
       const captured = retitled(fixture, "Captured by Save As");
       const destination = "Main/save-as-race.gam";
-      const release = host.holdWrites();
+      const held = host.holdNextWrite();
       const saving = editor.saveAs(destination);
-      await waitForHeldWrite(host, destination, saving);
+      await heldWriteStarted(host, held, saving);
       same(await titleOnDisk(host, destination), null, "the destination is not yet a complete file while the write is held");
       await editor.type("Edited during Save As");
-      release();
+      held.release();
       const copy = await saving;
       sameBytes(await host.disk(destination), captured, "the destination contains exactly the earlier captured revision");
       sameBytes(await host.disk(GAME), fixture, "Save As leaves the original source file unchanged");
@@ -259,6 +305,24 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
       same(editor.status(), UNSAVED, "the source still reports unsaved work");
       check(editor.model.getSnapshot().dirty && editor.hostDirty(), "the source remains dirty in the model and host");
       same(copy, null, "the host reports partial completion rather than replacing the source with an older copy");
+    },
+  },
+  {
+    name: "Save As succeeds when a save of the same revision finishes during its write",
+    async run(host) {
+      const editor = await host.open(GAME);
+      await editor.type("Copied and saved");
+      const destination = "Main/save-as-saved.gam";
+      const held = host.holdNextWrite();
+      const saving = editor.saveAs(destination);
+      await heldWriteStarted(host, held, saving);
+      await editor.save();
+      same(await titleOnDisk(host, GAME), "Copied and saved", "the plain save finished while Save As was writing");
+      held.release();
+      const copy = await saving;
+      check(copy !== null, "finishing a save of the same revision is not a change that fails Save As");
+      same(copy.title(), "Copied and saved", "the copy shows the revision written");
+      same(await titleOnDisk(host, destination), "Copied and saved", "and its file holds it");
     },
   },
   {

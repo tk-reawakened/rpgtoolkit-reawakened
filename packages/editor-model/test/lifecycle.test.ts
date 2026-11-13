@@ -181,17 +181,25 @@ test("revert refuses rather than discarding an edit accepted after the user chos
   equal(doc.getSnapshot().gameTitle, "Saved");
 });
 
+/** A held-write test fails, rather than hangs, if a regression makes it wait on a write that is never released. */
+const HELD = { timeout: 1_000 };
+
+/** A workspace whose first write waits for `release`; later writes go straight through. */
 async function workspaceWithHeldWrite() {
   const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) }, capabilities: [] });
   let started!: () => void;
   let release!: () => void;
   const writing = new Promise<void>((resolve) => { started = resolve; });
   const gate = new Promise<void>((resolve) => { release = resolve; });
+  let held = true;
   const fs = {
     ...host.fs,
     async writeProject(projectId: string, path: string, bytes: Uint8Array) {
-      started();
-      await gate;
+      if (held) {
+        held = false;
+        started();
+        await gate;
+      }
       return host.fs.writeProject(projectId, path, bytes);
     },
   };
@@ -201,7 +209,7 @@ async function workspaceWithHeldWrite() {
   return { host, workspace, doc: opened.document, writing, release };
 }
 
-test("save then close keeps edits accepted during the write open and dirty (D3.3, D3.6)", async () => {
+test("save then close keeps edits accepted during the write open and dirty (D3.3, D3.6)", HELD, async () => {
   const { host, workspace, doc, writing, release } = await workspaceWithHeldWrite();
   ok(doc.apply({ type: "set-game-title", title: "Saved revision" }).ok);
   host.answerQuestions("save");
@@ -219,7 +227,7 @@ test("save then close keeps edits accepted during the write open and dirty (D3.3
   equal(reopened.document, doc);
 });
 
-test("Save As retains the source when its write misses a later edit (D3.4)", async () => {
+test("Save As retains the source when its write misses a later edit (D3.4)", HELD, async () => {
   const { host, workspace, doc, writing, release } = await workspaceWithHeldWrite();
   ok(doc.apply({ type: "set-game-title", title: "Copied revision" }).ok);
   host.answerSavePaths("Main/copy.gam");
@@ -245,7 +253,7 @@ test("Save As retains the source when its write misses a later edit (D3.4)", asy
   equal(titleOf(host.bytesOf("Main/copy.gam")!), "Later edit");
 });
 
-test("an edit while opening a written Save As copy does not register a hidden destination", async () => {
+test("an edit while opening a written Save As copy does not register a hidden destination", HELD, async () => {
   const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) }, capabilities: [] });
   let started!: () => void;
   let release!: () => void;
@@ -276,27 +284,86 @@ test("an edit while opening a written Save As copy does not register a hidden de
   equal(titleOf(host.bytesOf("Main/copy.gam")!), "Written");
 });
 
-test("a Save As destination is reserved against competing saves and opens until its write finishes", async () => {
+test("a Save As destination is reserved against competing saves and opens until its write finishes", HELD, async () => {
   const { host, workspace, doc, writing, release } = await workspaceWithHeldWrite();
   ok(doc.apply({ type: "set-game-title", title: "Copy" }).ok);
   host.answerSavePaths("Main/copy.gam", "Main/copy.gam");
   const first = workspace.saveAs(doc);
   await writing;
+  // Only the first write is held, so a competing Save As that got past the reservation would finish here and succeed.
   const second = await workspace.saveAs(doc);
-  ok(!second.ok);
+  ok(!second.ok, "a second Save As to the reserved destination is refused");
   equal(second.reason, "failed");
+  // An open that did not wait for the reservation would read the destination before the held write made it.
   const opening = workspace.open("Main/copy.gam");
   release();
   const saved = await first;
   ok(saved.ok);
   const opened = await opening;
-  ok(opened.ok);
+  ok(opened.ok, "an open during the reservation waits for the copy");
   equal(opened.document, saved.document);
   equal(opened.document.getSnapshot().gameTitle, "Copy");
   equal(titleOf(host.bytesOf("Main/copy.gam")!), "Copy");
 });
 
-test("concurrent view closes cannot both bypass the last dirty view's confirmation (D3.7)", async () => {
+test("Save As succeeds when a save of the same revision finishes during its write (#2222)", HELD, async () => {
+  const { host, workspace, doc, writing, release } = await workspaceWithHeldWrite();
+  ok(doc.apply({ type: "set-game-title", title: "Copied and saved" }).ok);
+  host.answerSavePaths("Main/copy.gam");
+  const saving = workspace.saveAs(doc);
+  await writing;
+  ok((await doc.save()).ok, "the plain save of the same revision finishes while Save As is writing");
+  equal(doc.getSnapshot().dirty, false);
+  release();
+  const result = await saving;
+  ok(result.ok, "finishing a save is not an edit, so Save As still succeeds");
+  equal(result.document.getSnapshot().gameTitle, "Copied and saved");
+  equal(titleOf(host.bytesOf("Main/copy.gam")!), "Copied and saved");
+});
+
+test("a view attached while the last view's close is saving keeps the document open (D3.7)", HELD, async () => {
+  const { host, workspace, doc, writing, release } = await workspaceWithHeldWrite();
+  const closing = workspace.attachView(doc);
+  ok(doc.apply({ type: "set-game-title", title: "Saved on close" }).ok);
+  host.answerQuestions("save");
+  const result = closing.close();
+  await writing;
+  const added = workspace.attachView(doc);
+  release();
+  deepEqual(await result, { closed: true }, "the closing view closes once its save is written");
+  equal(titleOf(host.bytesOf(PATH)!), "Saved on close");
+  deepEqual(workspace.documents(), [doc], "the view attached meanwhile still owns the document");
+  ok(doc.apply({ type: "set-game-title", title: "Edited in the new view" }).ok);
+  host.answerQuestions("cancel");
+  deepEqual(await added.close(), { closed: false, reason: "cancelled" }, "its close is now the last one, so it asks");
+  equal(doc.getSnapshot().gameTitle, "Edited in the new view");
+  closing.dispose();
+  added.dispose();
+});
+
+test("Save As from one of two views opens the copy and keeps the source for the other view (D1.3, D3.7)", HELD, async () => {
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) }, capabilities: [] });
+  const workspace = createDocumentWorkspace({ projectId: identity.projectId, services: host });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  const doc = opened.document;
+  const saving = workspace.attachView(doc);
+  const other = workspace.attachView(doc);
+  ok(doc.apply({ type: "set-game-title", title: "Shared then copied" }).ok);
+  host.answerSavePaths("Main/copy.gam");
+  const result = await workspace.saveAs(doc);
+  ok(result.ok);
+  equal(result.document.getSnapshot().gameTitle, "Shared then copied");
+  deepEqual(workspace.documents(), [doc, result.document], "the other view's source stays open beside the copy");
+  saving.dispose();
+  equal(doc.getSnapshot().dirty, true, "the source keeps its unsaved edit (D1.3)");
+  host.answerQuestions("cancel");
+  deepEqual(await other.close(), { closed: false, reason: "cancelled" }, "the remaining view's close still asks before losing it");
+  deepEqual(workspace.documents(), [doc, result.document]);
+  other.dispose();
+});
+
+test("concurrent view closes cannot both bypass the last dirty view's confirmation (D3.7)", HELD, async () => {
   const { host, workspace, doc } = await workspaceWithHeldWrite();
   const first = workspace.attachView(doc);
   const second = workspace.attachView(doc);

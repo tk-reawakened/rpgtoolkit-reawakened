@@ -1,4 +1,4 @@
-import { createDocumentIdentity, createDocumentWorkspace, resolveDocumentPath, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type MainDocument, type SaveResult } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, createDocumentWorkspace, resolveDocumentPath, sameRevision, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type MainDocument, type SaveResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, FileSystemService } from "@tk-reawakened/platform-services";
 import { recoverMainDocument } from "./document-backup.ts";
 import { handleEditorHostRequest, isEditorHostRequest, type BridgedDocument, type BridgeMessage } from "./document-bridge.ts";
@@ -9,6 +9,9 @@ import { handleEditorHostRequest, isEditorHostRequest, type BridgedDocument, typ
  * workbench (undo stack, dirty marker, Save As and close dialogs, hot exit); this provider keeps one `editor-model`
  * document per file in the extension host and answers the workbench's calls (ADR 0022 D2, AD-19).
  */
+
+/** The most writes one VS Code save makes while edits keep arriving during them (see `GameDocument.save`). */
+const SAVE_ROUNDS = 3;
 
 export interface UriLike {
   readonly path: string;
@@ -92,9 +95,29 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     this.#workspace.release(this.model);
   }
 
-  /** Save through the model; the provider's `saveCustomDocument` is the only caller. */
+  /**
+   * Save through the model; the provider's `saveCustomDocument` is the only caller.
+   *
+   * The browser host and VS Code complete a save differently. The browser workspace marks clean only the revision it
+   * wrote, so an edit made during the write stays dirty (ADR 0022 D3.3). VS Code moves its save point to the latest edit
+   * it has heard of when `saveCustomDocument` resolves, and its close dialog closes the tab unless the working copy is
+   * still dirty right after that. Resolving after writing only an earlier revision would therefore show the later edit as
+   * saved and let close drop it. So an edit that outruns the write is written by another round before the save resolves;
+   * after `SAVE_ROUNDS` writes that each found newer work, the save fails visibly and the edits stay dirty in the model
+   * and in VS Code (#2200, #2220).
+   */
   async save(): Promise<SaveResult> {
-    const result = await this.model.save();
+    let result = await this.model.save();
+    for (let round = 1; result.ok && this.model.getSnapshot().dirty && round < SAVE_ROUNDS; round += 1) {
+      result = await this.model.save();
+    }
+    if (result.ok && this.model.getSnapshot().dirty) {
+      const path = this.model.identity.path;
+      result = {
+        ok: false,
+        failure: { document: path, kind: "write", code: null, message: `Could not save ${path}: it was edited during each of ${SAVE_ROUNDS} writes. The latest edits are kept unsaved; save again.` },
+      };
+    }
     this.#saves += 1;
     this.#lastSave = result;
     return result;
@@ -102,8 +125,8 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
 
   /**
    * A Save from the view goes through VS Code's own save, so its working copy is marked clean only by
-   * `saveCustomDocument` (#2092). If newer work remains dirty, the provider refuses completion so VS Code cannot close
-   * the working copy as saved; a workbench that never called the provider is also reported as not saving.
+   * `saveCustomDocument` (#2092). The result is that call's, so an edit made during the write is written by the same
+   * save (see `save`), and a workbench that never called it is reported as not saving.
    */
   async saveThroughWorkbench(): Promise<SaveResult> {
     const path = this.model.identity.path;
@@ -111,6 +134,8 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     try {
       await this.#port.executeCommand("workbench.action.files.save");
     } catch (error) {
+      // The provider's own failure when it ran (a refused write, or edits that kept outrunning it); otherwise VS Code's.
+      if (this.#saves !== before && !this.#lastSave.ok) return this.#lastSave;
       const saveError = this.model.getSnapshot().saveError;
       return { ok: false, failure: saveError ?? {
         document: path,
@@ -192,9 +217,6 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     async saveCustomDocument(document) {
       const result = await document.save();
       if (!result.ok) throw new Error(result.failure.message);
-      if (document.model.getSnapshot().dirty || document.model.getSnapshot().conflict !== null) {
-        throw new Error(`${document.model.identity.path} changed during save and remains open with unsaved work.`);
-      }
     },
     async saveCustomDocumentAs(document, destination) {
       // VS Code's save dialog has already chosen the destination and confirmed replacing an existing file (D3.4).
@@ -206,10 +228,12 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       if (project.workspace.documents().some((open) => open.identity.key === identity.key && open !== document.model)) {
         throw new Error(`${resolved.path} is open in another editor; close it before saving another document over it. Nothing was written.`);
       }
+      // VS Code replaces the source tab with the destination once this resolves, so a source edit made during the write
+      // (which the copy does not hold) fails the Save As and keeps the source open with its work (#2201).
       const copied = document.model.getSnapshot();
       const result = await document.model.saveAs(project.fs, identity);
       if (!result.ok) throw new Error(result.failure.message);
-      if (document.model.getSnapshot() !== copied) {
+      if (!sameRevision(document.model.getSnapshot(), copied)) {
         throw new Error(`${resolved.path} was written, but ${document.model.identity.path} changed during Save As and remains open with its work.`);
       }
     },

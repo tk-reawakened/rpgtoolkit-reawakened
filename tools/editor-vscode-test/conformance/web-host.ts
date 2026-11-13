@@ -179,12 +179,19 @@ export function createWebConformanceHost(fixture: Uint8Array, act: Act): Conform
     refuseWrites(refuse) {
       control.refuse = refuse;
     },
-    holdWrites() {
-      let release!: () => void;
-      control.hold = new Promise<void>((resolve) => { release = resolve; });
-      return () => {
-        control.hold = null;
-        release();
+    holdNextWrite() {
+      // The test project's lib floor is ES2022, so `Promise.withResolvers` is not available.
+      let start!: () => void;
+      let finish!: () => void;
+      const started = new Promise<void>((resolve) => { start = resolve; });
+      const hold = { wait: new Promise<void>((resolve) => { finish = resolve; }), start };
+      control.hold = hold;
+      return {
+        started,
+        release: () => {
+          if (control.hold === hold) control.hold = null;
+          finish();
+        },
       };
     },
     settle: () => settle(act),
