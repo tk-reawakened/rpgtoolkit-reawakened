@@ -445,12 +445,14 @@ class StockHandoffTests(unittest.TestCase):
         code, out, _ = fx.run("#101", "--check-stock")
         self.assertEqual((code, out["code"]), (1, "duplicate_tracker_id"), out)
 
-    def stock_answer(self, fx, **override):
-        """check_stock with stock's JSON faked, so a non-empty conflicting tracker id can be shown."""
+    def stock_answer(self, fx, joined=None, **override):
+        """check_stock with stock's answers faked, so a conflicting non-empty tracker id, status or join can be shown."""
         result = fx.run("#101")[1]
         found = {"tracker_id": "", "ref": "2.3", "epic": "epic-a", "id": 3, "plan": result["plan"]["path"], **override}
         fake = SimpleNamespace(returncode=0, stdout=json.dumps(found), stderr="")
-        with mock.patch.object(resolve_issue.subprocess, "run", return_value=fake):
+        with mock.patch.object(resolve_issue.subprocess, "run", return_value=fake), mock.patch.object(
+            resolve_issue, "stock_join", return_value=joined
+        ):
             return resolve_issue.check_stock(fx.root, result)
 
     def test_empty_stock_tracker_id_is_accepted_and_a_conflicting_one_is_not(self):
@@ -460,7 +462,7 @@ class StockHandoffTests(unittest.TestCase):
         with self.assertRaises(resolve_issue.Fail) as caught:
             self.stock_answer(fx, tracker_id="#999")
         self.assertEqual(caught.exception.code, "stock_disagrees")
-        self.assertEqual(caught.exception.data["stock"], {"tracker_id": "#999"})
+        self.assertEqual(caught.exception.data["stock"]["tracker_id"], "#999")
 
     def test_a_different_stock_reference_epic_id_or_plan_is_a_disagreement(self):
         fx = self.project()
@@ -468,6 +470,74 @@ class StockHandoffTests(unittest.TestCase):
             with self.assertRaises(resolve_issue.Fail, msg=override) as caught:
                 self.stock_answer(fx, **override)
             self.assertEqual(caught.exception.code, "stock_disagrees", override)
+
+    def test_stock_status_or_join_that_differs_from_an_existing_plan_is_a_disagreement(self):
+        fx = self.project()
+        fx.write(f"{INIT}/epic-a/story-add-widget-plan.md", md(type="feature", ticket="3", status="in-progress"))
+        joined = "story-add-widget-plan.md"
+        self.assertEqual(self.stock_answer(fx, joined=joined, status="in-progress")["plan_status"], "in-progress")
+        for kwargs in (
+            {"joined": joined, "status": ""},  # stock joined it but read no status
+            {"joined": joined, "status": "done"},
+            {"joined": None, "status": "in-progress"},  # stock did not join it at all
+            {"joined": "story-other-plan.md", "status": "in-progress"},
+        ):
+            with self.assertRaises(resolve_issue.Fail, msg=kwargs) as caught:
+                self.stock_answer(fx, **kwargs)
+            self.assertEqual(caught.exception.code, "stock_disagrees", kwargs)
+
+    def test_stock_that_joined_a_plan_the_preflight_did_not_find_is_a_disagreement(self):
+        fx = self.project()  # no plan on disk
+        with self.assertRaises(resolve_issue.Fail) as caught:
+            self.stock_answer(fx, joined="story-add-widget-plan.md")
+        self.assertEqual(caught.exception.code, "stock_disagrees")
+
+    def test_a_leaf_typed_plan_is_accepted_only_if_stock_really_joins_it(self):
+        # The preflight treats a `-plan.md` with a `ticket` key as a plan whatever its type. The integrated stock reads
+        # `type: story` as a leaf file, never joins the plan and reports no status; the check must then fail, not
+        # trust the matching plan path. Which side stock is on is asked of stock itself, so the test holds for either.
+        fx = self.project()
+        fx.write(f"{INIT}/epic-a/story-add-widget-plan.md", md(type="story", ticket="3", status="in-progress"))
+        plain = fx.run("#101")
+        self.assertEqual((plain[0], plain[1]["plan"]["exists"], plain[1]["plan"]["status"]), (0, True, "in-progress"))
+        script = fx.root / "_bmad" / "method" / "scripts" / "tickets.py"
+        stock_joined = resolve_issue.stock_join(script, str(fx.store.resolve() / INIT), "2.3")
+        code, out, _ = fx.run("#101", "--check-stock")
+        if stock_joined is None:
+            self.assertEqual((code, out["code"]), (1, "stock_disagrees"), out)
+            self.assertTrue(out["preflight"]["plan_exists"])
+            self.assertEqual(out["preflight"]["plan_joined"], "story-add-widget-plan.md")
+            self.assertEqual(out["preflight"]["status"], "in-progress")
+            self.assertIsNone(out["stock"]["plan_joined"])
+            self.assertEqual(out["stock"]["status"], "")
+        else:
+            self.assertEqual((code, out["stock_check"]["plan_joined"]), (0, "story-add-widget-plan.md"), out)
+
+    def test_a_correctly_typed_plan_with_no_status_key_agrees_and_reads_as_absent_not_missing(self):
+        fx = self.project()
+        fx.write(f"{INIT}/epic-a/story-add-widget-plan.md", md(type="feature", ticket="3"))
+        code, out, _ = fx.run("#101", "--check-stock")
+        self.assertEqual(code, 0, out)
+        self.assertTrue(out["plan"]["exists"])
+        self.assertIsNone(out["plan"]["status"])
+        self.assertEqual(out["stock_check"]["plan_joined"], "story-add-widget-plan.md")
+        self.assertEqual(out["stock_check"]["plan_status"], "")
+
+    def test_no_plan_agrees_with_stock_joining_nothing(self):
+        fx = self.project()
+        code, out, _ = fx.run("#102", "--check-stock")
+        self.assertEqual(code, 0, out)
+        self.assertFalse(out["plan"]["exists"])
+        self.assertIsNone(out["stock_check"]["plan_joined"])
+        self.assertIsNone(out["stock_check"]["plan_status"])
+
+    def test_a_pulled_leafs_own_status_does_not_count_against_a_missing_plan(self):
+        # With no plan stock reports the leaf file's own status; the preflight has no plan status to compare.
+        fx = self.project()
+        fx.write(f"{INIT}/epic-a/story-add-widget.md", md(id=3, type="story", status="ready-for-dev", tracker_id='"#101"'))
+        code, out, _ = fx.run("#101", "--check-stock")
+        self.assertEqual(code, 0, out)
+        self.assertFalse(out["plan"]["exists"])
 
     def test_check_stock_has_nothing_to_compare_for_an_epic(self):
         code, out, _ = self.project().run("#10", "--check-stock")

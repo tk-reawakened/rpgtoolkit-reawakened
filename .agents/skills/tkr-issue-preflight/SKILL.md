@@ -35,4 +35,4 @@ A malformed ticket file anywhere in the store fails every lookup, by design: an 
 - The number is a name, not proof the issue is open or exists on GitHub; a ticket can carry a stale id.
 - It reads these layouts: entries in an epic's `tickets.toml`, pulled leaf files, leaf files the breakdown does not list, `backlog/` leaves, epic rows in an initiative's `tickets.toml`, epic and initiative files, and any plan in the ticket's own folder joined by `ticket:` id or leaf file stem. A plan elsewhere joins only by `ticket: "#NNN"`.
 - A plan is any markdown with a `ticket` key whose `type` is not story, spike or bug, or whose name ends `-plan.md`; historical plan types (feature, bugfix, chore) are fine.
-- `--check-stock` compares leaves only, and only as far as tracker id and plan path.
+- `--check-stock` compares leaves only: reference, epic, id, plan path, whether the plan exists, which plan stock's own reader joined, and the plan's status. A plan stock does not join (for example one typed `story`) fails it with `stock_disagrees` even when the path matches. A tracker id stock leaves empty is not a conflict; a different one is.

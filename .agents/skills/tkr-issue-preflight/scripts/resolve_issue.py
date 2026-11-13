@@ -571,6 +571,19 @@ def load_project(root: Path) -> tuple[Path, str | None, str | None]:
     return store, repo, active if isinstance(active, str) and active.strip() else None
 
 
+def stock_join(script: Path, folder: str, ref: str) -> str | None:
+    """The file name of the plan stock's own reader joins to the ticket `ref` names, else None. `find` cannot say:
+    it prints the path a plan would have whether or not one was joined."""
+    spec = importlib.util.spec_from_file_location("bmad_stock_tickets", script)
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+        row = module.resolve_ticket(module.load_tree(Path(folder)), ref)
+    except (module.TicketError, OSError, ValueError, AttributeError) as e:
+        raise Fail("stock_unreadable", f"stock reader could not join the plan of {ref}: {e}") from e
+    return row.get("plan")
+
+
 def check_stock(root: Path, result: dict) -> dict:
     """Ask the project's stock `tickets.py find` for the same ticket and compare. A leaf only."""
     script = root / "_bmad" / "method" / "scripts" / "tickets.py"
@@ -606,21 +619,32 @@ def check_stock(root: Path, result: dict) -> dict:
             stock={"tracker_id": stock_tracker},
             preflight={"tracker_id": result["issue"]},
         )
+    plan = result["plan"]
     ours = {
         "ref": stock["ref"],
         "epic": result["epic"],
         "id": result["entry_id"],
-        "plan": str(Path(result["plan"]["path"]).resolve()),
+        "plan": str(Path(plan["path"]).resolve()),
+        "plan_exists": plan["exists"],
+        # The plan file stock must have joined to the ticket, or None when there is no plan.
+        "plan_joined": Path(plan["path"]).name if plan["exists"] else None,
     }
-    if result["entry_id"] is None:  # a file the breakdown does not number is named by its file name
-        ours["file"] = Path(result["leaf_file"]).name
     theirs = {
         "ref": found.get("ref"),
         "epic": found.get("epic"),
         "id": found.get("id"),
         "plan": str(Path(found["plan"]).resolve()) if found.get("plan") else None,
+        # `find` names a plan path even when no plan is joined, so the file on disk and the plan stock
+        # actually joined are read separately.
+        "plan_exists": bool(found.get("plan")) and Path(found["plan"]).is_file(),
+        "plan_joined": stock_join(script, stock["dir"], stock["ref"]),
     }
-    if "file" in ours:
+    if plan["exists"]:
+        # With a plan, stock's status is the plan's; an absent status key reads as empty on both sides.
+        ours["status"] = plan["status"] or ""
+        theirs["status"] = str(found.get("status") or "")
+    if result["entry_id"] is None:  # a file the breakdown does not number is named by its file name
+        ours["file"] = Path(result["leaf_file"]).name
         theirs["file"] = found.get("file")
     if ours != theirs:
         raise Fail(
@@ -634,6 +658,8 @@ def check_stock(root: Path, result: dict) -> dict:
         "ref": stock["ref"],
         "dir": stock["dir"],
         "stock_tracker_id": stock_tracker or None,
+        "plan_joined": theirs["plan_joined"],
+        "plan_status": theirs.get("status"),
     }
 
 
