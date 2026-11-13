@@ -33,6 +33,8 @@ test("only allowlisted prose and planning paths are inert, and the reason names 
     "docs/adr/0001-example.md",
     "docs/playing-the-desktop-player.md",
     "_bmad-output/initiative/ticket.md",
+    "_bmad/config.toml",
+    "_bmad/scripts/setup.py",
     ".github/ISSUE_TEMPLATE/bug_report.yml",
     ".github/ISSUE_TEMPLATE/feature.md",
   ]) deepEqual(defers([path]), { runExpensive: false, reason: `inert: ${path}` });
@@ -58,6 +60,7 @@ test("unknown, executable, normative, fixture and workflow paths run everything"
   for (const path of [
     "unknown.md/nested.md",
     "_bmad-output/config.yaml",
+    "_bmad/method/scripts/tickets.py",
     ".github/ISSUE_TEMPLATE/execute.sh",
     ".github/pull_request_template.md",
     "packages/core/README.md",

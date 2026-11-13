@@ -1,3 +1,19 @@
+"""The ticket-resolver behaviour this project relies on, run against the installed stock `_bmad/method/scripts/tickets.py`.
+
+These tests moved out of `_bmad/method/scripts/tests/`, a folder `bmad setup` owns and rewrites. The resolver there is the
+stock `bmad-ticket` script (module `method` 6.13.0-next); the project no longer patches it. They were written against the
+patched resolver and assert four things stock 6.13.0-next does not do, so they stay red against stock until the project
+supplies the behaviour itself (a preflight that normalises the plan files, a migration of the plan types, and a place for
+`chore` and `tracker_id`) or the tests are rewritten to the supported contract:
+
+* `chore` as an entry type (stock allows story, spike and bug only);
+* a `-plan.md` file whose `type` is `story`, `spike` or `bug` joining its entry as a plan (stock reads it as a leaf);
+* an entry's `tracker_id` reaching the row, and duplicate `tracker_id`s failing (stock blanks the entry's `tracker_id`);
+* the unknown-type error naming `chore`.
+
+Do not mark them as expected failures or delete them to get a green run: each one names a gap that is still open.
+"""
+
 import json
 import subprocess
 import sys
@@ -6,7 +22,7 @@ import unittest
 from pathlib import Path
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "tickets.py"
+SCRIPT = Path(__file__).resolve().parents[2] / "_bmad" / "method" / "scripts" / "tickets.py"
 
 
 class ChoreTicketTests(unittest.TestCase):

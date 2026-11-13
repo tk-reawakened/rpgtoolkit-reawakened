@@ -85,7 +85,7 @@ Only these paths are inert, because they are read by people and not by any lane:
 | `docs/adr/**/*.md` | Decision records |
 | `docs/**/*.md` except `docs/spec/**` | Human-facing documentation; no CI lane reads it (provenance skips `docs/`) |
 | `_bmad-output/**/*.md` | Plans and tickets; not read by any lane |
-| `_bmad/**` | Installed BMAD framework; consumed only by manual ticket tooling, never by a CI lane |
+| `_bmad/**`, except `_bmad/method/scripts/**` | Installed BMAD framework; consumed only by manual ticket tooling, never by a CI lane. The managed ticket resolver under `_bmad/method/scripts/` is the exception: `checks` runs it through `pnpm bmad:tickets:test`, so a change to it runs everything |
 | `.github/ISSUE_TEMPLATE/**/*.{md,yml,yaml}` | Issue forms; GitHub reads them, CI does not |
 
 It deliberately **excludes**: all of `packages/`, `tools/`, `stock/` and `golden/` (even Markdown there; fixtures and generators are inputs); `docs/spec/` (the normative spec, and `docs/spec/examples` is dump-checked by `golden`); `.github/workflows/` and `.github/pull_request_template.md`; non-Markdown files under `_bmad-output/`; non-Markdown files under `docs/`; the lockfile, `package.json`, and every root file that is not Markdown; and any path nobody has classified. The `checks` job still runs provenance over every inert change.

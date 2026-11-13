@@ -82,7 +82,9 @@ function isInertPath(path) {
   if (
     /^(?:packages|tools|stock|golden)\//u.test(path) ||
     path.startsWith("docs/spec/") ||
-    path.startsWith(".github/workflows/")
+    path.startsWith(".github/workflows/") ||
+    // The managed ticket resolver is executed by `pnpm bmad:tickets:test` in the `checks` job.
+    path.startsWith("_bmad/method/scripts/")
   ) {
     return false;
   }
@@ -94,8 +96,9 @@ function isInertPath(path) {
     return true;
   }
 
-  // The installed BMAD framework lives under `_bmad/` and is consumed only by manual ticket
-  // tooling (never by a CI lane); provenance skips it too. Treat the whole tree as inert.
+  // The rest of the installed BMAD framework lives under `_bmad/` and is consumed only by manual ticket
+  // tooling (never by a CI lane); provenance skips it too. Treat it as inert, except the managed
+  // resolver excluded above.
   if (path.startsWith("_bmad/")) {
     return true;
   }

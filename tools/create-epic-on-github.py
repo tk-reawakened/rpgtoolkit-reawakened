@@ -104,12 +104,12 @@ def epic_status(markdown: str, slug: str, view: dict) -> str:
     return "in-progress"
 
 
-def story_status(tracker: str, fallback: str, tickets: dict[str, dict]) -> str | None:
+def story_status(story_id: str, fallback: str, tickets: dict[str, dict]) -> str | None:
     """The story's Project status, or None when the store cannot say and nothing should be written.
 
     Writing the breakdown's own status would reset every planned story to draft, because a
     breakdown entry carries no status; an empty leaf frontmatter must not erase a real one."""
-    ticket = tickets.get(tracker)
+    ticket = tickets.get(story_id)
     if ticket:
         if ticket.get("status") in STATUS_OPTION_IDS:
             return ticket["status"]
@@ -247,7 +247,12 @@ def main() -> None:
         for story in stories if story.get("tracker_id")
     ]
     missing = [story["id"] for story in stories if not story.get("tracker_id")]
-    tickets = {ticket["tracker_id"]: ticket for ticket in view.get("tickets", []) if ticket.get("tracker_id")}
+    # Keyed by the entry id, not `tracker_id`: the stock resolver does not carry an entry's `tracker_id` onto its rows.
+    tickets = {
+        str(ticket["id"]): ticket
+        for ticket in view.get("tickets", [])
+        if ticket.get("epic") == args.slug and ticket.get("id") is not None
+    }
 
     if args.dry_run:
         print(f"Would sync parent issue: {title}")
@@ -342,7 +347,7 @@ def main() -> None:
             child_item = next((entry for entry in child_items if entry.get("project", {}).get("id") == PROJECT_ID), None)
             if child_item is None:
                 raise RuntimeError(f"Story issue #{child_number} could not be added to Project 3")
-        status = story_status(tracker, fallback_status, tickets)
+        status = story_status(str(story_id), fallback_status, tickets)
         if status is None:
             print(f"Story {epic_id}.{story_id} (#{child_number}): the store reports no status; left as is")
         elif project_item_status(child_item) != status:

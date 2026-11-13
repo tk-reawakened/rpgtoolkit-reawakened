@@ -192,7 +192,7 @@ Only some commands need more:
 |---|---|
 | Bun 1.4.2 (the version CI pins) | `pnpm golden:bun`, which replays the golden and closing suites under Bun against the committed output (Node is covered by `pnpm golden` and `pnpm closing`) |
 | Python 3 with Pillow | `pnpm oracle:check`, which compares against the independent reference renderer; use the virtual environment below |
-| uv | the BMad ticket scripts under `_bmad/scripts/` and the `bmad-ticket` tool (see "Pick and claim a ticket") |
+| uv | the BMad scripts that `bmad setup` installs under `_bmad/` (the ticket resolver is `_bmad/method/scripts/tickets.py`) and the `bmad-ticket` tool (see "Pick and claim a ticket") |
 | GitHub CLI (`gh`) | optional: opening and checking pull requests from a terminal |
 
 ### First run on a clean clone
@@ -292,6 +292,8 @@ If no existing issue covers what you want to build or fix, open a new issue usin
 Project maintainers plan large epics, architecture spikes, and initiative roadmaps using BMAD in `_bmad-output/initiative-rpgtoolkit-reawakened/`. Those epics and stories are exported into GitHub Issues and mapped to the Project Board.
 
 Contributors never need to install or run BMAD tooling—all task acceptance criteria and spec references are included directly in the GitHub Issue. If you are a maintainer or working on the initiative planning spine directly, see [initiative-rpgtoolkit-reawakened.md](_bmad-output/initiative-rpgtoolkit-reawakened/initiative-rpgtoolkit-reawakened.md) and `_bmad-output/`.
+
+The scripts under `_bmad/scripts/` and `_bmad/<module>/scripts/` are the stock BMad distribution, written by `bmad setup` from the installed skills and never edited by hand; a hand edit is overwritten by the next setup. Project-specific tests and tools live outside `_bmad/` (for example `tools/bmad-tickets/`), because setup also removes anything it does not own from those folders. To refresh them run `uv run --no-cache <skills>/bmad/scripts/setup.py --project-root . --skill <skills>/bmad --root <skills> --status`, then the same command without `--status`.
 
 To publish a planned epic, make `_bmad-output/initiative-rpgtoolkit-reawakened/tickets.toml` and the epic folder's `tickets.toml` authoritative first, then run:
 
@@ -460,7 +462,7 @@ The verdict is "defer" only when **every** changed path is one of these, each of
 
 - a Markdown file in the repository root (`README.md`, `CONTRIBUTING.md`, ...);
 - any Markdown file under `docs/` except `docs/spec/` (the normative spec, which `golden` dump-checks);
-- the whole `_bmad/` tree (installed BMAD framework; consumed only by manual ticket tooling);
+- the `_bmad/` tree except `_bmad/method/scripts/` (installed BMAD framework; consumed only by manual ticket tooling; the managed ticket resolver in that folder is run by `pnpm bmad:tickets:test`, so changing it runs everything);
 - Markdown under `_bmad-output/` (plans and tickets);
 - issue forms under `.github/ISSUE_TEMPLATE/` (`.md`, `.yml`, `.yaml`).
 
