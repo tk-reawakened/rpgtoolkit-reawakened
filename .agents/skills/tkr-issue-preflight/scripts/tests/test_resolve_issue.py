@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 SCRIPT = Path(__file__).resolve().parents[1] / "resolve_issue.py"
+SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 sys.path.insert(0, str(SCRIPT.parent))
 import resolve_issue  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parents[5]  # .agents/skills/<skill>/scripts/tests -> repository root
@@ -103,6 +104,13 @@ class Fixture:
         args += ["--project-root", str(self.root)] if self.project else ["--store", str(self.store), "--repo", REPO]
         proc = subprocess.run([*args, *extra], capture_output=True, text=True, check=False)
         return proc.returncode, json.loads(proc.stdout), proc.stderr
+
+    def validate(self, *extra: str):
+        """The standalone whole-store check: (exit code, JSON or None, stderr)."""
+        args = [sys.executable, str(SCRIPT), "--validate-store"]
+        args += ["--project-root", str(self.root)] if self.project else ["--store", str(self.store), "--repo", REPO]
+        proc = subprocess.run([*args, *extra], capture_output=True, text=True, check=False)
+        return proc.returncode, (json.loads(proc.stdout) if proc.stdout.strip() else None), proc.stderr
 
     def snapshot(self) -> dict:
         return {str(p): p.read_bytes() for p in sorted(self.root.rglob("*")) if p.is_file()}
@@ -448,6 +456,161 @@ class FailClosedTests(unittest.TestCase):
         self.assertFails(fx, "#101", "bad_config")
 
 
+class PlanIdentityTests(unittest.TestCase):
+    def conflicting(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-add-widget-plan.md", md(type="feature", ticket="3", tracker_id="'#102'", status="draft"))
+        return fx
+
+    def test_a_joined_plan_naming_another_issue_is_rejected_whichever_issue_is_asked_for(self):
+        fx = self.conflicting()
+        for ref in ("#101", "#102"):  # the ticket's own number, and the number the plan claims
+            code, out, _ = fx.run(ref)
+            self.assertEqual((code, out["code"]), (1, "plan_identity_conflict"), (ref, out))
+        out = fx.run("#101")[1]
+        self.assertEqual((out["ticket_tracker_ids"], out["plan_tracker_id"]), ([101], 102))
+
+    def test_a_plan_whose_tracker_matches_its_ticket_or_is_empty_passes(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-add-widget-plan.md", md(type="feature", ticket="3", tracker_id="'#101'"))
+        fx.write(f"{INIT}/epic-a/bug-fix-gadget-plan.md", md(type="feature", ticket="4", tracker_id="''"))
+        self.assertEqual(fx.run("#101")[0], 0)
+        self.assertEqual(fx.run("#102")[0], 0)
+
+    def test_a_plan_joined_by_issue_number_must_carry_that_same_number(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/plan-gh-101.md", md(type="feature", ticket="'#101'", tracker_id="'#102'"))
+        self.assertEqual(fx.run("#101")[1]["code"], "plan_identity_conflict")
+
+    def test_check_stock_does_not_mask_a_conflicting_plan(self):
+        fx = Fixture(self, project=True).layout()
+        fx.write(f"{INIT}/epic-a/story-add-widget-plan.md", md(type="feature", ticket="3", tracker_id="'#102'"))
+        code, out, _ = fx.run("#101", "--check-stock")
+        self.assertEqual((code, out["code"]), (1, "plan_identity_conflict"), out)
+
+
+class ValidateStoreTests(unittest.TestCase):
+    def assertProblem(self, fx, code, *extra):
+        status, out, err = fx.validate(*extra)
+        self.assertEqual(status, 1, out)
+        self.assertEqual((out["ok"], out["code"]), (False, code), out)
+        self.assertTrue(err.startswith(f"{code}:"), err)
+        self.assertIn(code, [p["code"] for p in out["problems"]])
+        return out
+
+    def test_a_sound_store_passes_without_an_issue_and_reports_counts(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-add-widget-plan.md", md(type="feature", ticket="3", tracker_id="'#101'"))
+        code, out, _ = fx.validate()
+        self.assertEqual(code, 0, out)
+        self.assertEqual((out["ok"], out["mode"], out["tracker_ids"], out["plans"]), (True, "validate-store", 6, 1))
+        self.assertEqual(out["repo_checked"], REPO)
+
+    def test_it_uses_the_project_config_when_given_a_project_root(self):
+        code, out, _ = Fixture(self, project=True).layout().validate()
+        self.assertEqual((code, out["repo_checked"]), (0, REPO), out)
+
+    def test_it_needs_exactly_one_of_an_issue_or_the_flag(self):
+        fx = Fixture(self).layout()
+        base = [sys.executable, str(SCRIPT), "--store", str(fx.store)]
+        for extra in ([], ["#101", "--validate-store"]):
+            proc = subprocess.run([*base, *extra], capture_output=True, text=True, check=False)
+            self.assertEqual(proc.returncode, 2, proc.stderr)
+
+    def test_duplicate_numbers_fail_with_no_issue_given(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-b/tickets.toml", toml_entries((1, "#101", "story", "Other thing")))
+        out = self.assertProblem(fx, "duplicate_tracker_id")
+        self.assertEqual(len(out["problems"][0]["tickets"]), 2)
+
+    def test_a_duplicate_hidden_in_an_entry_that_stock_no_longer_reads_is_still_found(self):
+        fx = Fixture(self, project=True).layout()
+        fx.write(f"{INIT}/epic-a/tickets.toml", toml_entries((3, "#101", "story", "A"), (4, "#101", "bug", "B")))
+        self.assertProblem(fx, "duplicate_tracker_id")
+
+    def test_disagreeing_carriers_and_remotes_fail(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-add-widget.md", md(id=3, type="story", tracker_id='"#999"'))
+        self.assertProblem(fx, "tracker_id_conflict")
+        other = Fixture(self).layout()
+        other.write(
+            f"{INIT}/epic-a/story-add-widget.md",
+            md(id=3, type="story", tracker_id='"#101"', remote='"https://github.com/someone/else/issues/101"'),
+        )
+        self.assertProblem(other, "wrong_repository")
+
+    def test_a_plan_naming_another_issue_fails_without_asking_for_either_issue(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-a/story-add-widget-plan.md", md(type="feature", ticket="3", tracker_id="'#102'"))
+        self.assertProblem(fx, "plan_identity_conflict")
+
+    def test_every_problem_is_listed_not_just_the_first(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/epic-b/tickets.toml", toml_entries((1, "#101", "story", "Other thing")))
+        fx.write(f"{INIT}/epic-a/story-add-widget-plan.md", md(type="feature", ticket="3", tracker_id="'#102'"))
+        out = self.assertProblem(fx, "duplicate_tracker_id")
+        self.assertEqual(sorted({p["code"] for p in out["problems"]}), ["duplicate_tracker_id", "plan_identity_conflict"])
+
+    def test_unreadable_and_malformed_stores_fail_closed(self):
+        broken = Fixture(self).layout()
+        broken.write(f"{INIT}/epic-b/tickets.toml", "[[entry]\nid = 1\n")
+        status, out, _ = broken.validate()
+        self.assertEqual((status, out["code"]), (1, "malformed_store"))
+        locked = Fixture(self).layout()
+        hidden = locked.store / INIT / "epic-b"
+        hidden.chmod(0)
+        self.addCleanup(hidden.chmod, 0o755)
+        if os.access(hidden, os.R_OK):
+            self.skipTest("folder permissions are not enforced for this user")
+        status, out, _ = locked.validate()
+        self.assertEqual((status, out["code"]), (1, "malformed_store"))
+
+
+class SymlinkTests(unittest.TestCase):
+    def linked(self):
+        fx = Fixture(self).layout()
+        try:
+            os.symlink(fx.store / INIT / "epic-a", fx.store / INIT / "epic-link", target_is_directory=True)
+        except OSError:
+            self.skipTest("symlinks are not available")
+        return fx
+
+    def test_a_symlinked_ticket_folder_fails_every_lookup_and_the_store_check(self):
+        fx = self.linked()
+        for status, out, _ in (fx.run("#201"), fx.validate()):
+            self.assertEqual((status, out["code"]), (1, "malformed_store"), out)
+            self.assertIn("epic-link", out["error"])
+            self.assertIn("symlink", out["error"])
+
+    def test_stock_follows_the_link_which_is_why_it_is_rejected(self):
+        fx = self.linked()
+        fx.write_at("_bmad/config.toml", '[core]\noutput_folder = "{project-root}/_bmad-output"\n')
+        for rel in ("_bmad/scripts/config_utils.py", "_bmad/method/scripts/tickets.py"):
+            dest = fx.root / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(REPO_ROOT / rel, dest)
+        proc = subprocess.run(
+            [sys.executable, str(fx.root / "_bmad/method/scripts/tickets.py"), "--project-root", str(fx.root), "status", str(fx.store / INIT)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertIn("epic-link", proc.stdout + proc.stderr)  # stock reads the linked epic; the scan would not have
+
+
+class SkillInvocationTests(unittest.TestCase):
+    def test_the_documented_commands_quote_the_skill_root_and_the_project_root(self):
+        lines = [ln for ln in SKILL_MD.read_text().splitlines() if ln.startswith("uv run ")]
+        self.assertGreaterEqual(len(lines), 2)
+        for line in lines:
+            self.assertIn('"{skill-root}/scripts/resolve_issue.py"', line)
+            self.assertIn('--project-root "{project-root}"', line)
+            self.assertEqual(line.count("{skill-root}"), 1)
+            self.assertEqual(line.count("{project-root}"), 1)
+        self.assertEqual(shlex.split(lines[1])[2], "{skill-root}/scripts/resolve_issue.py")
+        self.assertEqual(shlex.split(lines[1])[-1], "{project-root}")
+
+
 class StockHandoffTests(unittest.TestCase):
     def project(self):
         return Fixture(self, project=True).layout()
@@ -520,14 +683,43 @@ class StockHandoffTests(unittest.TestCase):
         )
         self.assertNotEqual(bare.returncode, 0)  # what a bare reference would have done
 
-    def test_a_backlog_leaf_gets_a_bare_reference_only_when_no_initiative_file_shares_its_name(self):
+    def test_a_file_name_reference_is_never_offered_bare(self):
         fx = self.project()
         fx.write("backlog/bug-flaky.md", md(type="bug", title='"Flaky"', tracker_id='"#300"'))
-        self.assertEqual(fx.run("#300")[1]["handoff"]["bmad_build_input"], "bug-flaky.md")
-        fx.write(f"{INIT}/epic-a/bug-flaky.md", md(id=9, type="bug", title='"Same name"'))
-        out = fx.run("#300")[1]["handoff"]
+        out = fx.run("#300", "--check-stock")[1]["handoff"]
         self.assertIsNone(out["bmad_build_input"])
         self.assertEqual(out["scoped"]["ref"], "bug-flaky.md")
+        self.assertIn("file name", out["note"])
+
+    def test_an_id_less_leaf_whose_name_exists_in_two_epics_is_scoped_and_stock_confirms_the_bare_lookup_is_ambiguous(self):
+        fx = self.project()
+        fx.write(f"{INIT}/epic-a/bug-same.md", md(type="bug", title='"Same"', tracker_id='"#500"'))
+        fx.write(f"{INIT}/epic-b/bug-same.md", md(type="bug", title='"Same"'))
+        code, out, _ = fx.run("#500", "--check-stock")
+        self.assertEqual(code, 0, out)
+        self.assertIsNone(out["handoff"]["bmad_build_input"])
+        self.assertEqual(out["handoff"]["scoped"], {"dir": str((fx.store / INIT / "epic-a").resolve()), "ref": "bug-same.md"})
+        bare = subprocess.run(
+            [sys.executable, str(fx.root / "_bmad/method/scripts/tickets.py"), "--project-root", str(fx.root), "find", "bug-same.md"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(bare.returncode, 0, bare.stdout)  # a bare lookup would not have named one ticket
+
+    def test_a_bare_entry_reference_is_offered_only_when_stock_returns_this_ticket(self):
+        fx = self.project()
+        verified = fx.run("#101")[1]["handoff"]
+        self.assertEqual(verified["bmad_build_input"], "2.3")
+        result = fx.run("#101")[1]
+        other_ticket = {"epic": "epic-b", "id": 1}
+        for row in (other_ticket, {"epic": "epic-a", "id": 4}):
+            with mock.patch.object(resolve_issue, "stock_row", return_value=row):
+                handoff = resolve_issue.handoff(result, INIT, fx.store.resolve(), fx.root)
+            self.assertIsNone(handoff["bmad_build_input"], row)
+            self.assertIn("could not be verified", handoff["note"])
+        with mock.patch.object(resolve_issue, "stock_row", side_effect=resolve_issue.Fail("stock_unreadable", "x")):
+            self.assertIsNone(resolve_issue.handoff(result, INIT, fx.store.resolve(), fx.root)["bmad_build_input"])
 
     def test_generated_commands_are_shell_quoted_with_the_project_root(self):
         fx = Fixture(self, project=True, subdir="my proj (x) $HOME 'q'").layout()

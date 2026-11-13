@@ -150,8 +150,16 @@ class Store:
 
     def _scan(self) -> None:
         for base, dirnames, filenames in os.walk(self.root, onerror=walk_error):
-            dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d not in SKIP_DIRS)
+            dirnames[:] = sorted(n for n in dirnames if not n.startswith(".") and n not in SKIP_DIRS)
             d = Path(base)
+            for name in dirnames:
+                if (d / name).is_symlink():
+                    # os.walk does not enter a linked folder but stock's epic_folders() does, so tickets in it would be
+                    # read by stock and missed here.
+                    raise Fail(
+                        "malformed_store",
+                        f"{self.rel(d / name)} is a symlink to a folder; ticket folders must be real directories",
+                    )
             if BREAKDOWN in filenames:
                 self._read_breakdown(d, d / BREAKDOWN)
             for name in sorted(filenames):
@@ -404,6 +412,79 @@ def check_holder(number: int, carriers: list[dict], store: Store, repo: str | No
             raise Fail("wrong_repository", f"{where} carries #{number} but its remote is in {m.group(1)}, not {repo}")
 
 
+def duplicate_failure(store: Store, number: int, holders: dict) -> Fail:
+    return Fail(
+        "duplicate_tracker_id",
+        f"tracker_id \"#{number}\" is on {len(holders)} different tickets",
+        tickets=[
+            [{"form": c["form"], "path": store.rel(c["path"])} for c in cs if c["number"] == number]
+            for cs in holders.values()
+        ],
+    )
+
+
+def plan_tracker_conflict(store: Store, plan: dict) -> Fail | None:
+    """A plan joined to a ticket must not carry a different issue number than the ticket does."""
+    if plan["number"] is None:
+        return None
+    key = store.plan_join(plan)
+    if key is None:
+        return None
+    numbers = sorted({c["number"] for c in store.carriers if c["key"] == key and c["number"] is not None})
+    if numbers and plan["number"] not in numbers:
+        return Fail(
+            "plan_identity_conflict",
+            f"{store.rel(plan['path'])} is the plan of the ticket carrying {', '.join(f'#{n}' for n in numbers)} "
+            f"but its tracker_id is #{plan['number']}",
+            plan=store.rel(plan["path"]),
+            ticket_tracker_ids=numbers,
+            plan_tracker_id=plan["number"],
+        )
+    return None
+
+
+def validate_store(store: Store, repo: str | None) -> dict:
+    """Every identity rule at once, for the whole store and with no issue in mind: no number on two tickets, each
+    ticket's carriers (entry, file, remote) agree, and no joined plan names another issue. A store that cannot even be
+    read has already failed in `Store`."""
+    problems: list[dict] = []
+    seen: set[str] = set()
+
+    def add(fail: Fail) -> None:
+        if fail.message not in seen:
+            seen.add(fail.message)
+            problems.append({"code": fail.code, "error": fail.message, **fail.data})
+
+    numbers = sorted({c["number"] for c in store.carriers if c["number"] is not None})
+    for number in numbers:
+        holders = store.holders(number)
+        if len(holders) > 1:
+            add(duplicate_failure(store, number, holders))
+        for carriers in holders.values():
+            try:
+                check_holder(number, carriers, store, repo)
+            except Fail as e:
+                add(e)
+    for plan in store.plans:
+        conflict = plan_tracker_conflict(store, plan)
+        if conflict:
+            add(conflict)
+    if problems:
+        raise Fail(
+            problems[0]["code"],
+            f"{len(problems)} identity problem(s); first: {problems[0]['error']}",
+            problems=problems,
+        )
+    return {
+        "ok": True,
+        "mode": "validate-store",
+        "tracker_ids": len(numbers),
+        "plans": len(store.plans),
+        "folders": len(store.dirs),
+        "repo_checked": repo,
+    }
+
+
 def resolve(store: Store, number: int, repo: str | None = None) -> dict:
     holders = store.holders(number)
     if not holders:
@@ -413,14 +494,7 @@ def resolve(store: Store, number: int, repo: str | None = None) -> dict:
             mentions=store.mentions(number),
         )
     if len(holders) > 1:
-        raise Fail(
-            "duplicate_tracker_id",
-            f"tracker_id \"#{number}\" is on {len(holders)} different tickets",
-            tickets=[
-                [{"form": c["form"], "path": store.rel(c["path"])} for c in cs if c["number"] == number]
-                for cs in holders.values()
-            ],
-        )
+        raise duplicate_failure(store, number, holders)
     (key, carriers), = holders.items()
     check_holder(number, carriers, store, repo)
     layer, folder, ident = key
@@ -463,6 +537,10 @@ def resolve_leaf(store: Store, number: int, d: Path, ident) -> dict:
         for p in store.plans
         if p["dir"] != d and store.plan_join(p) == ticket_key and re.fullmatch(r"#[0-9]+", p["ticket"].strip())
     ]
+    for p in joined:
+        conflict = plan_tracker_conflict(store, p)
+        if conflict:
+            raise conflict
     for p in store.plans:
         if p["number"] == number and p not in joined:
             other = store.plan_join(p)
@@ -641,17 +719,22 @@ def load_project(root: Path) -> tuple[Path, str | None, str | None]:
     return store, repo, active if isinstance(active, str) and active.strip() else None
 
 
-def stock_join(script: Path, folder: str, ref: str) -> str | None:
-    """The file name of the plan stock's own reader joins to the ticket `ref` names, else None. `find` cannot say:
-    it prints the path a plan would have whether or not one was joined."""
+def stock_row(script: Path, folder: str, ref: str) -> dict:
+    """The ticket row stock's own reader resolves `ref` to in `folder`, as `find` does before it prints."""
     spec = importlib.util.spec_from_file_location("bmad_stock_tickets", script)
     module = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(module)
         row = module.resolve_ticket(module.load_tree(Path(folder)), ref)
     except (module.TicketError, OSError, ValueError, AttributeError) as e:
-        raise Fail("stock_unreadable", f"stock reader could not join the plan of {ref}: {e}") from e
-    return row.get("plan")
+        raise Fail("stock_unreadable", f"stock reader could not resolve {ref} in {folder}: {e}") from e
+    return row
+
+
+def stock_join(script: Path, folder: str, ref: str) -> str | None:
+    """The file name of the plan stock's own reader joins to the ticket `ref` names, else None. `find` cannot say:
+    it prints the path a plan would have whether or not one was joined."""
+    return stock_row(script, folder, ref).get("plan")
 
 
 def check_stock(root: Path, result: dict) -> dict:
@@ -739,52 +822,63 @@ def check_stock(root: Path, result: dict) -> dict:
     }
 
 
-def handoff(result: dict, active: str | None, store_dir: Path, store: Store, root: Path | None) -> dict:
-    """How to pass the ticket on. Stock's bare `find <ref>` looks only in the active initiative and then `backlog/`,
-    so a bare reference is offered only when that lookup provably lands on this ticket; otherwise the folder and
-    reference travel together."""
+def handoff(result: dict, active: str | None, store_dir: Path, root: Path | None) -> dict:
+    """How to pass the ticket on. A bare reference is offered only when stock's own reader, asked for it in the
+    active initiative the way a bare `find` is, returns this very ticket. A file name is never offered bare: stock
+    matches it against every epic and then against titles before backlog, so the scoped folder always travels."""
     stock = result["stock"]
     if stock is None:
         return {}
     home = Path(result["folder"])
+    by_name = stock["ref"].endswith(".md") or result["entry_id"] is None
     if result.get("epic_id") is not None:
         in_active = None if active is None else (home.parent.name == active and home.parent.parent == store_dir)
-        bare_safe = bool(in_active)
     else:
         in_active = None
-        # A backlog file name is found by stock only after the active initiative has had its turn, and an initiative
-        # file of the same name would win.
-        clash = active is None or any(
-            lf["path"].name == stock["ref"]
-            for folder, info in store.dirs.items()
-            if folder == store_dir / active or (store_dir / active) in folder.parents
-            for lf in info["leaves"]
-        )
-        bare_safe = home == store_dir / "backlog" and not clash and stock["ref"].endswith(".md")
+    script = root / "_bmad" / "method" / "scripts" / "tickets.py" if root is not None else None
+    verified = False
+    if in_active and not by_name and script is not None and script.is_file():
+        try:
+            row = stock_row(script, str(store_dir / active), stock["ref"])
+            verified = row.get("epic") == result["epic"] and row.get("id") == result["entry_id"]
+        except Fail:
+            verified = False
     out = {
-        "bmad_build_input": stock["ref"] if bare_safe else None,
+        "bmad_build_input": stock["ref"] if verified else None,
         "scoped": {"dir": stock["dir"], "ref": stock["ref"]},
         "active_initiative": active,
         "in_active_initiative": in_active,
     }
     if root is not None:
-        script = root / "_bmad" / "method" / "scripts" / "tickets.py"
         out["stock_find"] = shlex.join(
             ["uv", "run", str(script), "--project-root", str(root), "find", stock["dir"], stock["ref"]]
         )
-    if not bare_safe:
-        out["note"] = (
-            "a bare reference would not reliably reach this ticket: stock searches only the active initiative and "
-            "backlog/. Use the scoped dir and ref, or set the active initiative"
-            if active
-            else "no active initiative is set, so stock cannot resolve a bare reference. Use the scoped dir and ref"
-        )
+    if not verified:
+        if by_name:
+            out["note"] = (
+                "a file name is not offered as a bare reference: stock matches it across every epic and against titles. "
+                "Use the scoped dir and ref"
+            )
+        elif active is None:
+            out["note"] = "no active initiative is set, so stock cannot resolve a bare reference. Use the scoped dir and ref"
+        elif not in_active:
+            out["note"] = (
+                "a bare reference would not reach this ticket: stock searches only the active initiative and backlog/. "
+                "Use the scoped dir and ref, or set the active initiative"
+            )
+        else:
+            out["note"] = "stock's bare lookup could not be verified to return this ticket. Use the scoped dir and ref"
     return out
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("issue", help="#123, 123, or a GitHub issue URL")
+    parser.add_argument("issue", nargs="?", help="#123, 123, or a GitHub issue URL")
+    parser.add_argument(
+        "--validate-store",
+        action="store_true",
+        help="check the whole store's identities (duplicate numbers, disagreeing carriers and remotes, plans naming another issue) with no issue given",
+    )
     parser.add_argument("--project-root", help="the project holding _bmad/; default: the nearest one at or above the working directory")
     parser.add_argument("--store", help="the ticket store folder to read, instead of the project's output_folder")
     parser.add_argument("--repo", help="owner/name the issue URL must belong to; default: the store config's repo")
@@ -794,6 +888,8 @@ def main(argv: list[str]) -> int:
         help="also run the project's stock `tickets.py find` on the stock reference and fail unless it names the same tracker id and plan",
     )
     args = parser.parse_args(argv)
+    if args.validate_store == (args.issue is not None):
+        parser.error("give an issue reference, or --validate-store alone")
 
     try:
         root = Path(args.project_root).resolve() if args.project_root else find_project_root(Path.cwd())
@@ -809,11 +905,14 @@ def main(argv: list[str]) -> int:
             raise Fail("bad_config", "--check-stock needs the project root: pass --project-root")
         if not store_dir.is_dir():
             raise Fail("bad_config", f"the ticket store is not a folder: {store_dir}")
-        number = parse_reference(args.issue, repo)
         store = Store(store_dir)
+        if args.validate_store:
+            print(json.dumps(validate_store(store, repo), indent=2, ensure_ascii=False))
+            return 0
+        number = parse_reference(args.issue, repo)
         result = resolve(store, number, repo)
         # A root only inferred from the working directory says nothing about a store passed by hand.
-        result["handoff"] = handoff(result, active, store_dir, store, root if args.project_root or not args.store else None)
+        result["handoff"] = handoff(result, active, store_dir, root if args.project_root or not args.store else None)
         if args.check_stock:
             if result["buildable"]:
                 result["stock_check"] = check_stock(root, result)
