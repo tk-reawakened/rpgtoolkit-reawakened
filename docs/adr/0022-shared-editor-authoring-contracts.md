@@ -211,6 +211,7 @@ No cross-document atomic undo or save; no backup beyond what a host really provi
 | Git surface (`scm`), its engine choice and the VS Code Git API hand-off: unspecified | 11.15 ([#1829](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1829), allocated 2026-11-09); not on epic 11's closing path, and the engine needs its own G6 decision first |
 | Native VS Code text/visual synchronisation has been read from documentation, not prototyped | 11.7 |
 | VS Code counts an edit or undo as saved if it lands while a custom-document save is finishing (D14.6); read from workbench source, not reproduced | [#2225](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2225) |
+| A save's pre-write comparison (D11.3) and its host write are two host calls, so another program's change that lands between them is replaced without a conflict; Save As can likewise replace a destination created after its collision check (D3.4). No host offers a compare-and-write; reproduced, not fixed | Proposed [ADR 0030](0030-save-check-and-write-are-two-steps.md); [#2207](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2207), [#2238](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2238) |
 
 ## Alternatives considered
 
