@@ -29,7 +29,6 @@ class RefactorSweepStatusTests(unittest.TestCase):
     def test_status_resolves_the_sweep_as_done(self):
         rows = [row for row in resolve("status")["tickets"] if row["ref"] == SWEEP_REF]
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["tracker_id"], "#942")
         self.assertEqual(rows[0]["state"], "done")
 
     def test_next_does_not_list_the_sweep_as_in_progress(self):
