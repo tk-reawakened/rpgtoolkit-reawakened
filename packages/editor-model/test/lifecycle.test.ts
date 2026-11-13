@@ -234,6 +234,73 @@ test("a retry cannot write if its disk comparison cannot be read", async () => {
   deepEqual(host.bytesOf(PATH), original);
 });
 
+for (const checkBeforeRetry of [false, true]) {
+  test(`a fully written but non-durable revision remains dirty${checkBeforeRetry ? " after checkExternal" : " on direct retry"}`, async () => {
+    const original = exampleMain(9);
+    const host = createMemoryPlatformServices({ files: { [PATH]: original } });
+    let writes = 0;
+    const opened = await openMainDocument({
+      readProject: (projectId, path) => host.fs.readProject(projectId, path),
+      writeProject: async (projectId, path, bytes) => {
+        writes += 1;
+        const written = await host.fs.writeProject(projectId, path, bytes);
+        if (!written.ok) return written;
+        if (writes <= 2) return { ok: false, error: { code: "io-error", message: "fsync failed" } };
+        return written;
+      },
+    }, identity);
+    ok(opened.ok);
+    const doc = opened.document;
+    ok(doc.apply({ type: "set-game-title", title: "Mine" }).ok);
+    const first = await doc.save();
+    ok(!first.ok);
+    equal(first.failure.kind, "write");
+    deepEqual(host.bytesOf(PATH), doc.serialize(), "the failed host write nevertheless stored the entire revision");
+    equal(doc.getSnapshot().dirty, true);
+
+    if (checkBeforeRetry) {
+      equal(await doc.checkExternal(), "unknown");
+      equal(doc.getSnapshot().dirty, true, "reading the bytes does not prove durability");
+      equal(doc.getSnapshot().conflict, null);
+    }
+    const retry = await doc.save();
+    ok(!retry.ok, "an identical file cannot make a failed host write succeed");
+    equal(retry.failure.kind, "write");
+    equal(writes, 2, "retry actually writes");
+    equal(doc.getSnapshot().dirty, true);
+
+    ok((await doc.save()).ok, "only a successful host write report marks the revision saved");
+    equal(writes, 3);
+    equal(doc.getSnapshot().dirty, false);
+    equal(doc.getSnapshot().saveError, null);
+  });
+}
+
+test("revert to a failed write's bytes cannot certify that revision as durable", async () => {
+  const original = exampleMain(9);
+  const host = createMemoryPlatformServices({ files: { [PATH]: original } });
+  let writes = 0;
+  const opened = await openMainDocument({
+    readProject: (projectId, path) => host.fs.readProject(projectId, path),
+    writeProject: async (projectId, path, bytes) => {
+      writes += 1;
+      const written = await host.fs.writeProject(projectId, path, bytes);
+      if (writes === 1 && written.ok) return { ok: false, error: { code: "io-error", message: "close failed" } };
+      return written;
+    },
+  }, identity);
+  ok(opened.ok);
+  const doc = opened.document;
+  ok(doc.apply({ type: "set-game-title", title: "Mine" }).ok);
+  ok(!(await doc.save()).ok);
+  ok((await doc.revert()).ok);
+  equal(doc.getSnapshot().gameTitle, "Mine");
+  equal(doc.getSnapshot().dirty, true, "reloading bytes does not prove the failed write was durable");
+  ok((await doc.save()).ok);
+  equal(writes, 2);
+  equal(doc.getSnapshot().dirty, false);
+});
+
 test("revert refuses edits accepted during its disk read, even when the file changed", async () => {
   for (const changedDisk of [false, true]) {
     const original = exampleMain(9);

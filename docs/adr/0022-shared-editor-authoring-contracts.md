@@ -67,7 +67,7 @@ These are the promises every host passes in the shared conformance suite (11.3):
 
 1. **Edit.** A command is accepted or rejected whole. A rejected command leaves the document unchanged and returns a reason.
 2. **Dirty.** Derived by the host from accepted edits. Selection, scroll, zoom, preview and browsing are not edits.
-3. **Save** captures a revision, writes it through the host, and marks the document clean **only when the host reports that revision durably written**. Edits made after the revision stay dirty. A failed save leaves all pending work visible and names the document.
+3. **Save** captures a revision, writes it through the host, and marks the document clean **only when the host reports that revision durably written**. Edits made after the revision stay dirty. A failed save leaves all pending work visible and names the document. Reading back the attempted bytes after a failed write does not prove durability; the revision stays dirty until a host write succeeds.
 4. **Save As** resolves destination, collision and reference consequences **before** writing. Cancellation and partial failure are never reported as success.
 5. **External change.** Detected where the host can detect it. Local dirty work is preserved and the external version is kept; the user chooses compare, keep local, reload or manual merge. Neither side is overwritten silently. Where the host cannot watch, the editor says live change detection is unavailable.
 6. **Revert and close** confirm possible loss. Recovery is offered **only** where the host actually holds a backup; the editor never implies one.
