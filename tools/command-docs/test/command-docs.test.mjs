@@ -19,6 +19,11 @@ test("spec parser rejects malformed command rows", () => {
   throws(() => parseSpecTable("## Fixtures\n| Command | Signature | Purpose | Notes |\n|---|---|---|---|\n| not backticked | void x() | Purpose |  |"), /malformed command name/);
 });
 
+test("a standalone anchor does not hide later rows of a command table", () => {
+  const rows = parseSpecTable("## Fixtures\n| Command | Signature | Purpose | Notes |\n|---|---|---|---|\n| `first` | void first() | First. | |\n<a id=\"second\"></a>\n| `second` | void second() | Second. | obsolete: warning |");
+  deepEqual(rows.map((row) => [row.name, row.obsolete]), [["first", undefined], ["second", true]]);
+});
+
 test("a deprecated spec row requires the status, reason and replacement in every catalogue layer", () => {
   const rows = parseSpecTable("## Fixtures\n| Command | Signature | Purpose | Notes |\n|---|---|---|---|\n| `old` | void old() | Retired. | deprecated, still works |");
   const maintained = { name: "old", pluginId: "maintained", tags: ["deprecated"], reason: "Legacy API.", replacedBy: { kind: "command", name: "new" } };

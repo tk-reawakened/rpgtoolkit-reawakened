@@ -44,6 +44,7 @@ export function parseSpecTable(markdown) {
       continue;
     }
     if (!line.startsWith("|")) {
+      if (inCommandTable && /^<a id="[^"]+"><\/a>$/.test(line)) continue;
       if (inCommandTable && line.length > 0) inCommandTable = false;
       continue;
     }

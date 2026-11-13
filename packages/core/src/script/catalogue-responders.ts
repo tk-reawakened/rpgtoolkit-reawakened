@@ -21,6 +21,7 @@ import { effectCommand } from "./packs/common.ts";
 import { UI_COMMANDS } from "./packs/ui.ts";
 import { GRAPHICS_COMMANDS } from "./packs/graphics.ts";
 import { RENDER_PLUGIN } from "./packs/render.ts";
+import { WORLD_PLUGIN } from "./packs/world.ts";
 import { toNumberValue, toStringValue } from "./values.ts";
 import { INVENTORY_COMMANDS, INVENTORY_COMMAND_NAMES } from "./packs/inventory.ts";
 import { BATTLE_COMMAND_NAMES } from "./packs/battle.ts";
@@ -267,7 +268,7 @@ const RETIRED_DOCS: Readonly<Record<string, BuiltinDoc>> = {
   autocommand: retired("Obsolete.", FLOW_GROUP, "obsolete", WARNING_IN_TK3),
   scan: retired("Save the tile specified to a buffer identified by pos. There is no particular number to pick for pos; any will do.", TILE_GROUP, "deprecated", "This command is part of the legacy tile-buffer pair. The position argument identifies the saved tile for mem."),
   mem: retired("Lay a scanned tile on the screen at the specified position.", TILE_GROUP, "deprecated", "This command is part of the legacy tile-buffer pair. The position argument identifies the tile saved by scan."),
-  smartstep: retired("Legacy smart-stepping toggle.", TILE_GROUP, "obsolete", SKIPPED_IN_TK3),
+  smartstep: retired('Toggle "smart" stepping.', TILE_GROUP, "obsolete", SKIPPED_IN_TK3),
   walkspeed: retired("Obsolete.", PLAYER_GROUP, "obsolete", SKIPPED_IN_TK3),
   posture: retired('Show a custom player animation named "Custom" + str(id) (e.g. "Custom1") This command is obsolete - use playerStance() instead.', PLAYER_GROUP, "deprecated", "This command uses the legacy Custom animation name formed from the numeric ID.", { kind: "syntax", text: "Use playerStance() with the corresponding named animation." }),
   stance: retired("Show a player stance.", PLAYER_GROUP, "obsolete", WARNING_IN_TK3),
@@ -500,8 +501,9 @@ export const CATALOGUE_RESPONDERS_PLUGIN: PluginDefinition = {
 
 function fallbackDocumentation(command: BuiltinSpec): BuiltinSpec {
   const { doc: _doc, ...withoutDoc } = command;
-  if (command.name === "camerapanto" || command.name === "camerafollow" || command.name === "camerareset" || command.name === "camerashake") {
-    return { ...withoutDoc, doc: { summary: `${command.name} applies a deterministic camera effect.`, behaviour: "Records the camera effect immediately and does not wait.", groups: [] } };
+  const cameraDoc = WORLD_PLUGIN.commands.find((candidate) => candidate.name === command.name)?.doc;
+  if (command.name.startsWith("camera") && cameraDoc !== undefined) {
+    return { ...withoutDoc, doc: cameraDoc };
   }
   if (command.name === "text") {
     return { ...withoutDoc, doc: { summary: "Displays text on the screen.", behaviour: "Draws text using the fixed logical cell size and does not wait.", groups: ["message-window-text-fonts-30"] } };
