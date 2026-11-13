@@ -315,6 +315,28 @@ test("an unreadable disk version keeps recovery pending and cannot be accepted b
   ok(recovered.document.resolveConflict("keep-local").ok);
 });
 
+test("watcher checks cannot discard recovery after another writer matches a recovered edit", async () => {
+  const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
+  const identity = createDocumentIdentity("file:///project", gamePath);
+  let disk = original.slice();
+  const storage = {
+    readProject: async () => ({ ok: true as const, value: disk.slice() }),
+    writeProject: async () => ({ ok: true as const, value: undefined }),
+  };
+  const recovered = await recoverMainDocument(storage, identity, original);
+  ok(recovered.ok);
+  ok(recovered.document.apply({ type: "set-game-title", title: "Same as disk" }).ok);
+  disk = recovered.document.serialize();
+  equal(await recovered.document.checkExternal(), "conflict");
+  const external = await openMainDocument(storage, identity);
+  ok(external.ok);
+  ok(external.document.apply({ type: "set-game-title", title: "Changed again" }).ok);
+  disk = external.document.serialize();
+  equal(await recovered.document.checkExternal(), "conflict");
+  equal(recovered.document.getSnapshot().gameTitle, "Same as disk");
+  equal(recovered.document.getSnapshot().conflict?.externalTitle, "Changed again");
+});
+
 async function assertFailedMountedSave(doc: ViewDocument, element: HTMLElement): Promise<void> {
   const edited = await doc.apply({ type: "set-game-title", title: "Rejected save title" });
   ok(edited.ok);

@@ -27,6 +27,7 @@ class RecoveryDocument implements MainDocument {
   readonly #backupTitle: string;
   readonly #listeners = new Set<() => void>();
   #pending = true;
+  #matchingTitle: string;
   #checked: ExternalCheck = "unknown";
   #saveError: SaveFailure | null = null;
   #snapshot: MainDocumentSnapshot;
@@ -35,6 +36,7 @@ class RecoveryDocument implements MainDocument {
     this.#document = document;
     this.identity = document.identity;
     this.#backupTitle = document.getSnapshot().gameTitle;
+    this.#matchingTitle = this.#backupTitle;
     this.#snapshot = this.#makeSnapshot();
     document.subscribe(() => this.#publish());
   }
@@ -63,7 +65,15 @@ class RecoveryDocument implements MainDocument {
 
   async checkExternal(): Promise<ExternalCheck> {
     if (!this.#pending) return this.#document.checkExternal();
+    // A previous check may have noticed that another writer produced the exact recovered revision and marked the
+    // underlying model clean. Never let a subsequent watcher check reload that model while the choice is pending.
+    if (!this.#document.getSnapshot().dirty) {
+      this.#document.apply({ type: "set-game-title", title: this.#document.getSnapshot().gameTitle });
+    }
     this.#checked = await this.#document.checkExternal();
+    if (this.#checked === "unchanged" && !this.#document.getSnapshot().dirty) {
+      this.#matchingTitle = this.#document.getSnapshot().gameTitle;
+    }
     this.#publish();
     return this.#checked === "unknown" ? "unknown" : "conflict";
   }
@@ -76,9 +86,8 @@ class RecoveryDocument implements MainDocument {
     if (this.#document.getSnapshot().conflict !== null) {
       const result = this.#document.resolveConflict(choice);
       if (!result.ok) return result;
-    } else if (choice === "reload") {
-      // The checked disk bytes matched the backup. Discard edits made since recovery, too.
-      while (this.#document.getSnapshot().canUndo) this.#document.undo();
+    } else if (choice === "reload" && this.#document.getSnapshot().dirty) {
+      return { ok: false, reason: "cannot-reload", message: `Use Revert File to discard the recovered changes and reload ${this.identity.path} from disk.` };
     }
     this.#pending = false;
     this.#saveError = null;
@@ -102,7 +111,7 @@ class RecoveryDocument implements MainDocument {
     return {
       document: this.identity.path,
       kind: external?.kind ?? "changed",
-      externalTitle: external?.externalTitle ?? (this.#checked === "unchanged" ? this.#backupTitle : null),
+      externalTitle: external?.externalTitle ?? (this.#checked === "unchanged" ? this.#matchingTitle : null),
       message: `${this.identity.path} was recovered from a backup without its original disk baseline. Your recovered version and the version on disk are kept until you choose.`,
     };
   }
