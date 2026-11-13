@@ -39,7 +39,7 @@ Story 11.3 adds the promises of ADR 0022 D3 to the shared code and proves them i
   lands between the comparison and the write is still replaced unseen: [#2207](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2207),
   [proposed ADR 0030](../adr/0030-save-check-and-write-are-two-steps.md)); a clean document follows the file where
   the host watches; revert returns to the saved revision or reloads a changed file; Save As writes a new identity without
-  re-keying the source; and `createDocumentWorkspace` is the host-neutral workbench (one model per identity, undo and redo
+  re-keying the source, but can replace an externally created or changed destination ([#2238](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2238)); and `createDocumentWorkspace` is the host-neutral workbench (one model per identity, undo and redo
   by `editId`, save all, close and revert that ask first). The browser and desktop hosts use it as their workbench; VS
   Code keeps its own workbench and its provider answers it.
 - **One conformance suite** runs the same cases against the browser host and VS Code (desktop and browser builds):
