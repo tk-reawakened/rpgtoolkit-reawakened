@@ -62,7 +62,16 @@ function docs(summary: string, behaviour: string, tags: BuiltinDoc["tags"] = ["l
   return { summary, behaviour, groups: ["board-tiles-vectors-screen-effects-33"], tags, waits: { kind: "never", summary: "The command completes in the current script turn." } };
 }
 function noArgs(name: string, params: BuiltinSpec["params"] = []): BuiltinSpec {
-  return { name, aliases: [], params, doc: docs(`Obsolete ${name} command.`, "Raises a catchable obsolete-command error and skips the statement.", ["legacy", "obsolete"]), call: () => { throw new ScriptError("builtin.obsolete", `"${name}" is obsolete: the statement is skipped`); } };
+  const behaviour = "Raises a catchable obsolete-command error and skips the statement.";
+  return {
+    name, aliases: [], params,
+    doc: {
+      ...docs(`Obsolete ${name} command.`, behaviour, ["legacy", "obsolete"]),
+      replacedBy: { kind: "syntax", text: "No direct replacement is documented." },
+      reason: behaviour,
+    },
+    call: () => { throw new ScriptError("builtin.obsolete", `"${name}" is obsolete: the statement is skipped`); },
+  };
 }
 
 const GET_NAME: BuiltinSpec = {

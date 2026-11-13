@@ -1,4 +1,4 @@
-import { createDocumentWorkspace, type DocumentWorkspace, type MainDocument, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import { createDocumentWorkspace, type DocumentViewLease, type DocumentWorkspace, type MainDocument, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PlatformServices, ProjectHandle, SettingValue, SettingsLayer } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { mount, type ViewHandle } from "@tk-reawakened/editor-ui";
@@ -158,14 +158,20 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
   return { services, project, sessionCopy: true, workspace, deactivate: () => { active = false; workspace.dispose(); } };
 }
 
+/** One editor tab owns a lease even while its mounted view is hidden. */
+export interface GameSettingsView extends ViewHandle, DocumentViewLease {
+  hide(): void;
+  show(element: HTMLElement): void;
+}
+
 /** A mounted settings view over a workspace document, or why the document did not open. */
 export type GameSettingsOpenResult =
   | Exclude<WorkspaceOpenResult, { readonly ok: true }>
-  | { readonly ok: true; readonly document: MainDocument; readonly view: ViewHandle };
+  | { readonly ok: true; readonly document: MainDocument; readonly view: GameSettingsView };
 
 /**
- * Open `path` in the project's workspace (one model per document, D1.2) and mount the shared view over it. The caller
- * owns the returned view handle; disposing it never closes the document (D3.7), `project.workspace.close` does.
+ * Open `path` in the project's workspace (one model per document, D1.2). Hide destroys only the mounted UI; closing
+ * the tab goes through its lease, and disposing an abandoned tab releases its ownership (D3.7).
  */
 export async function openGameSettings(project: WebProject, path: string, element: HTMLElement): Promise<GameSettingsOpenResult> {
   const opened = await project.workspace.open(path);
@@ -173,16 +179,30 @@ export async function openGameSettings(project: WebProject, path: string, elemen
   return { ok: true, document: opened.document, view: mountGameSettings(project, opened.document, element) };
 }
 
-/** Mount a view over a document the project already has open: a second view, or a view recreated after a hidden one. */
-export function mountGameSettings(project: WebProject, document: MainDocument, element: HTMLElement): ViewHandle {
-  const mounted = mount(element, { document, services: project.services });
-  const notice = project.sessionCopy ? element.ownerDocument.createElement("p") : null;
-  if (notice) {
-    notice.setAttribute("role", "status");
-    notice.textContent = `${project.project.name} is a session copy. Changes stay in this browser session and are not saved to the original file.`;
-    element.append(notice);
-  }
-  return { dispose: () => { mounted.dispose(); notice?.remove(); } };
+/** Make a view owner over a document the project already has open. */
+export function mountGameSettings(project: WebProject, document: MainDocument, element: HTMLElement): GameSettingsView {
+  const lease = project.workspace.attachView(document);
+  let mounted: ViewHandle | null = null;
+  let notice: HTMLElement | null = null;
+  let disposed = false;
+  const hide = (): void => {
+    mounted?.dispose();
+    mounted = null;
+    notice?.remove();
+    notice = null;
+  };
+  const show = (container: HTMLElement): void => {
+    if (disposed || mounted !== null) throw new Error("Cannot show a disposed or already mounted editor view.");
+    mounted = mount(container, { document, services: project.services });
+    notice = project.sessionCopy ? container.ownerDocument.createElement("p") : null;
+    if (notice) {
+      notice.setAttribute("role", "status");
+      notice.textContent = `${project.project.name} is a session copy. Changes stay in this browser session and are not saved to the original file.`;
+      container.append(notice);
+    }
+  };
+  show(element);
+  return { close: () => lease.close(), hide, show, dispose: () => { hide(); lease.dispose(); disposed = true; } };
 }
 
 export { createPageDialogs } from "./dialogs.ts";

@@ -3,9 +3,12 @@
 // follow VS Code's custom-editor contract (https://code.visualstudio.com/api/extension-guides/custom-editors):
 //
 // * the workbench keeps the undo stack of fired edit events, a save point and the dirty marker; Undo and Redo call an
-//   edit's own `undo`/`redo`; Save calls `saveCustomDocument` and moves the save point to the edit current when it
-//   started; Revert calls `revertCustomDocument` and drops the edits after the save point; closing a dirty tab asks
-//   Save / Don't Save / Cancel; Save As calls `saveCustomDocumentAs`, then opens the destination in place of the source;
+//   edit's own `undo`/`redo`; Save calls `saveCustomDocument` and, once it resolves, moves the save point to the latest
+//   edit (a newer Save supersedes an older one, which then fails as cancelled); Revert calls `revertCustomDocument` and
+//   drops the edits after the save point; closing a dirty tab asks Save / Don't Save / Cancel and, after Save, keeps the
+//   tab only if it is still dirty; Save As calls `saveCustomDocumentAs`, then moves the source's save point to the latest
+//   edit and replaces the source tab with the destination. This is `MainThreadCustomEditorModel.saveCustomEditor`,
+//   `saveCustomEditorAs` and `EditorGroupView`'s close confirmation in VS Code's source;
 // * a webview is a separate page that talks to the extension host only through asynchronous, structured-cloned
 //   messages, and with `retainContextWhenHidden: false` a hidden tab's page is destroyed and loaded again when shown;
 // * the desktop watcher reports every change below the folder, including the extension's own writes.
@@ -28,7 +31,7 @@ import {
   type GameEditorProvider,
   type VscodeFileSystemPort,
 } from "@tk-reawakened/host-vscode/testing";
-import { GAME, SECOND, retitled, type CloseAnswer, type ConformanceEditor, type ConformanceHost, type DeferredRead } from "./suite.ts";
+import { GAME, SECOND, retitled, type CloseAnswer, type ConformanceEditor, type ConformanceHost, type DeferredRead, type HeldWrite } from "./suite.ts";
 import { MountedView, settle, type Act } from "./view.ts";
 
 interface Uri { readonly path: string }
@@ -41,12 +44,18 @@ interface DeferredReadGate {
   start(): void;
 }
 
+/** The next write to hold: it calls `start` when it begins, then waits for `wait`. */
+interface WriteHold {
+  readonly wait: Promise<void>;
+  start(): void;
+}
+
 /** The files on disk, by absolute path, case-sensitive, with the desktop watcher's listeners. */
 class Disk {
   readonly files = new Map<string, Uint8Array>();
   readonly watchers = new Set<{ readonly root: string; readonly onChange: (change: FileChange) => void }>();
   refuse = false;
-  hold: Promise<void> | null = null;
+  hold: WriteHold | null = null;
   readonly deferredReads = new Map<string, DeferredReadGate>();
 
   deferNextRead(path: string): DeferredRead {
@@ -110,7 +119,12 @@ function fileSystemPort(disk: Disk): VscodeFileSystemPort<Uri> {
     async createDirectory() {},
     async writeFile(uri, bytes) {
       if (disk.refuse) throw Object.assign(new Error("the workspace refuses writes"), { code: "NoPermissions" });
-      if (disk.hold !== null) await disk.hold;
+      const held = disk.hold;
+      if (held !== null) {
+        disk.hold = null;
+        held.start();
+        await held.wait;
+      }
       const kind = disk.files.has(uri.path) ? "changed" : "created";
       disk.files.set(uri.path, bytes.slice());
       disk.notify(uri.path, kind);
@@ -144,6 +158,8 @@ class WorkingCopy {
   #edits: GameEditEvent<Uri>[] = [];
   #index = -1;
   #savePoint = -1;
+  /** The save whose completion may still move the save point; a newer Save cancels the older one. */
+  #ongoingSave: { cancel(): void } | null = null;
   fromBackup = false;
 
   constructor(uri: Uri, custom: GameDocument<Uri>, provider: GameEditorProvider<Uri>) {
@@ -176,12 +192,24 @@ class WorkingCopy {
     edit.redo();
   }
 
-  /** Save; rejects when the provider's save throws, as the workbench's save command does. */
+  /**
+   * Save; rejects when the provider's save throws, as the workbench's save command does. When the provider resolves,
+   * every edit heard of by then counts as saved, as in VS Code.
+   */
   async save(): Promise<void> {
-    const saving = this.#index;
-    await this.#provider.saveCustomDocument(this.custom);
-    this.#savePoint = saving;
-    this.fromBackup = false;
+    this.#ongoingSave?.cancel();
+    const ongoing = { cancel: () => {} };
+    const cancelled = new Promise<never>((_, reject) => { ongoing.cancel = () => reject(new Error("Canceled")); });
+    this.#ongoingSave = ongoing;
+    try {
+      await Promise.race([this.#provider.saveCustomDocument(this.custom), cancelled]);
+      if (this.#ongoingSave === ongoing) {
+        this.#savePoint = this.#index;
+        this.fromBackup = false;
+      }
+    } finally {
+      if (this.#ongoingSave === ongoing) this.#ongoingSave = null;
+    }
   }
 
   async revert(): Promise<void> {
@@ -192,7 +220,7 @@ class WorkingCopy {
     this.fromBackup = false;
   }
 
-  /** After Save As the workbench treats the source as saved: its content now lives at the destination. */
+  /** After Save As the workbench treats the source as saved at its latest edit: its content now lives at the destination. */
   markSavedAs(): void {
     this.#savePoint = this.#index;
     this.fromBackup = false;
@@ -416,6 +444,11 @@ class VscodeEditor implements ConformanceEditor {
           await settle(this.#act);
           return false;
         }
+        // VS Code vetoes the close if the document is still dirty after the save.
+        if (this.copy.dirty) {
+          await settle(this.#act);
+          return false;
+        }
       }
     }
     this.#workbench.closeTab(this);
@@ -471,6 +504,8 @@ class VscodeEditor implements ConformanceEditor {
 class VscodeHost implements ConformanceHost {
   readonly name: string;
   readonly capabilities: ReadonlySet<Capability>;
+  /** The provider's bound, as ADR 0022 D14.6 states it (written here, not imported, so the test checks the provider). */
+  readonly saveWrites = 3;
   readonly drive = new Disk();
   readonly backups = new Map<string, Uint8Array>();
   revertCommands = 0;
@@ -522,12 +557,18 @@ class VscodeHost implements ConformanceHost {
     this.drive.refuse = refuse;
   }
 
-  holdWrites(): () => void {
-    let release!: () => void;
-    this.drive.hold = new Promise<void>((resolve) => { release = resolve; });
-    return () => {
-      this.drive.hold = null;
-      release();
+  holdNextWrite(): HeldWrite {
+    let start!: () => void;
+    let finish!: () => void;
+    const started = new Promise<void>((resolve) => { start = resolve; });
+    const hold: WriteHold = { wait: new Promise<void>((resolve) => { finish = resolve; }), start };
+    this.drive.hold = hold;
+    return {
+      started,
+      release: () => {
+        if (this.drive.hold === hold) this.drive.hold = null;
+        finish();
+      },
     };
   }
   deferNextRead(path: string): DeferredRead {

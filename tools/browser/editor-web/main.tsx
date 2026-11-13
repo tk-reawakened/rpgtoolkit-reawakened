@@ -1,7 +1,6 @@
-import { createSessionCopy, listRecentWebProjects, mountGameSettings, openGameSettings, openWebProject, reopenWebProject, type GameSettingsOpenResult, type WebProject } from "@tk-reawakened/host-web";
+import { createSessionCopy, listRecentWebProjects, mountGameSettings, openGameSettings, openWebProject, reopenWebProject, type GameSettingsOpenResult, type GameSettingsView, type WebProject } from "@tk-reawakened/host-web";
 import type { MainDocument } from "@tk-reawakened/editor-model";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
-import type { ViewHandle } from "@tk-reawakened/editor-ui";
 
 const status = document.querySelector<HTMLElement>("#host-status")!;
 const settings = document.querySelector<HTMLElement>("#settings")!;
@@ -18,7 +17,7 @@ const actions = document.querySelector<HTMLElement>("#document-actions")!;
 interface Shown {
   readonly project: WebProject;
   readonly document: MainDocument;
-  readonly view: ViewHandle;
+  readonly view: GameSettingsView;
   readonly element: HTMLElement;
 }
 let shown: Shown | null = null;
@@ -172,7 +171,7 @@ async function show(project: WebProject, path: string, request: number): Promise
 
   const previous = shown;
   if (previous !== null && previous.document !== result.document) {
-    const closed = await previous.project.workspace.close(previous.document);
+    const closed = await previous.view.close();
     if (!closed.closed) {
       result.view.dispose();
       candidateElement.remove();
@@ -244,7 +243,7 @@ onShown("#revert", async ({ project, document }) => {
   return reverted.reason === "cancelled" ? null : reverted.failure.message;
 });
 onShown("#close", async (current) => {
-  const closed = await current.project.workspace.close(current.document);
+  const closed = await current.view.close();
   if (!closed.closed) return closed.reason === "cancelled" ? null : `${current.document.identity.path} is still open: ${closed.failure.message}`;
   if (shown === current) replaceShown(null);
   return "No game open.";

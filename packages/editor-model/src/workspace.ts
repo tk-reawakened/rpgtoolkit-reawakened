@@ -1,7 +1,7 @@
 import { foldPath, toSlashes } from "@tk-reawakened/core";
 import type { Disposable, DocumentService, FileSystemService, PlatformError, PlatformServices } from "@tk-reawakened/platform-services";
 import { createDocumentIdentity } from "./identity.ts";
-import { openMainDocument, type HistoryResult, type MainDocument, type OpenError, type RevertFailure, type SaveFailure, type SaveResult } from "./main-document.ts";
+import { openMainDocument, type HistoryResult, type MainDocument, type MainDocumentSnapshot, type OpenError, type RevertFailure, type SaveFailure, type SaveResult } from "./main-document.ts";
 
 /**
  * The documents a host has open in one project, and the lifecycle around them that ADR 0022 D3 promises in every host:
@@ -11,6 +11,15 @@ import { openMainDocument, type HistoryResult, type MainDocument, type OpenError
  * desktop host use it as their workbench; VS Code has its own workbench and uses only the parts its custom editor
  * provider needs (`open`, `release` and the watch).
  */
+
+/**
+ * Whether two snapshots of one document show the same revision: the same edits in force (an `editId` is never reused)
+ * and the same waiting external change. Save progress (`saving`, `saveError`, `dirty`) is not part of a revision, so a
+ * save of the same revision finishing in between does not count as a change.
+ */
+export function sameRevision(a: MainDocumentSnapshot, b: MainDocumentSnapshot): boolean {
+  return a.edits.length === b.edits.length && a.edits.at(-1)?.editId === b.edits.at(-1)?.editId && a.conflict === b.conflict;
+}
 
 /** Where a project-relative path leads, spelled as the project stores it (ADR 0022 D1.2). */
 export type PathResolution =
@@ -72,6 +81,12 @@ export type CloseResult =
   /** The user chose to save and the save failed: the document stays open with its work (D3.3). */
   | { readonly closed: false; readonly reason: "save-failed"; readonly failure: SaveFailure };
 
+/** A view's ownership of a workspace document. Disposing a view alone never closes its document. */
+export interface DocumentViewLease {
+  close(): Promise<CloseResult>;
+  dispose(): void;
+}
+
 export type RevertOutcome =
   | { readonly ok: true }
   | { readonly ok: false; readonly reason: "cancelled" }
@@ -107,8 +122,10 @@ export interface DocumentWorkspace {
   redo(document: MainDocument): HistoryResult;
   /** Save every dirty document, one after another, and report each (D4.1: there is no all-or-nothing save). */
   saveAll(): Promise<readonly SaveAllEntry[]>;
-  /** Close a document, asking first when closing would lose unsaved work or a waiting change (D3.6). */
+  /** Close a document with no attached views, asking before losing work; attached views close through their leases. */
   close(document: MainDocument): Promise<CloseResult>;
+  /** Track a mounted view; close its lease to close that view without releasing models used by other views. */
+  attachView(document: MainDocument): DocumentViewLease;
   /** Forget a document without asking: the host has already asked (VS Code's workbench), or nothing can be lost. */
   release(document: MainDocument): void;
   /** Go back to the file on disk, asking first when that discards unsaved work (D3.6). */
@@ -136,7 +153,9 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
   const { fs, dialogs } = services;
   const documents = new Map<string, MainDocument>();
   const opening = new Map<string, Promise<WorkspaceOpenResult>>();
+  const savingAs = new Map<string, Promise<void>>();
   const histories = new Map<string, HostHistory>();
+  const views = new Map<MainDocument, Set<DocumentViewLease>>();
   let watch: Promise<Disposable | null> | null = null;
   let disposed = false;
 
@@ -176,6 +195,11 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       return { ok: false, error: { kind: "read", document: path, error: resolved.error } };
     }
     const identity = createDocumentIdentity(projectId, resolved.path);
+    const copyInProgress = savingAs.get(identity.key);
+    if (copyInProgress !== undefined) {
+      await copyInProgress;
+      return open(path);
+    }
     const existing = documents.get(identity.key);
     if (existing !== undefined) return { ok: true, document: existing };
     // Two opens of one document at once share one read and one model.
@@ -197,6 +221,46 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     if (documents.get(key) !== document) return;
     documents.delete(key);
     histories.delete(key);
+  };
+
+  const closeDocument = async (document: MainDocument, view?: DocumentViewLease): Promise<CloseResult> => {
+    const attached = views.get(document);
+    if (view !== undefined && !attached?.has(view)) return { closed: true };
+    if (view !== undefined && attached !== undefined && attached.size > 1) {
+      attached.delete(view);
+      return { closed: true };
+    }
+    // A document-level close cannot invalidate a model still owned by views.
+    if (view === undefined && attached !== undefined && attached.size > 0) return { closed: false, reason: "cancelled" };
+    const snapshot = document.getSnapshot();
+    if (documents.get(document.identity.key) === document && (snapshot.dirty || snapshot.conflict !== null)) {
+      const path = document.identity.path;
+      const answer = await dialogs.ask({
+        message: `Save the changes to ${path} before closing it?`,
+        detail: "If you close it without saving, the changes are lost.",
+        choices: [
+          { id: "save", label: "Save" },
+          { id: "discard", label: "Don't save" },
+          { id: "cancel", label: "Cancel" },
+        ],
+        cancel: "cancel",
+      });
+      if (answer === "cancel") return { closed: false, reason: "cancelled" };
+      if (answer === "save") {
+        const saved = await document.save();
+        if (!saved.ok) return { closed: false, reason: "save-failed", failure: saved.failure };
+        const current = document.getSnapshot();
+        if (current.dirty || current.conflict !== null) return { closed: false, reason: "cancelled" };
+      }
+    }
+    // Another view may have opened while a dialog or save was pending.
+    const currentViews = views.get(document);
+    if (view !== undefined) currentViews?.delete(view);
+    if (currentViews !== undefined && currentViews.size > 0) {
+      return view === undefined ? { closed: false, reason: "cancelled" } : { closed: true };
+    }
+    release(document);
+    return { closed: true };
   };
 
   return {
@@ -249,28 +313,28 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       }
       return results;
     },
-    async close(document) {
-      const snapshot = document.getSnapshot();
-      if (documents.get(document.identity.key) === document && (snapshot.dirty || snapshot.conflict !== null)) {
-        const path = document.identity.path;
-        const answer = await dialogs.ask({
-          message: `Save the changes to ${path} before closing it?`,
-          detail: "If you close it without saving, the changes are lost.",
-          choices: [
-            { id: "save", label: "Save" },
-            { id: "discard", label: "Don't save" },
-            { id: "cancel", label: "Cancel" },
-          ],
-          cancel: "cancel",
-        });
-        if (answer === "cancel") return { closed: false, reason: "cancelled" };
-        if (answer === "save") {
-          const saved = await document.save();
-          if (!saved.ok) return { closed: false, reason: "save-failed", failure: saved.failure };
-        }
+    close: closeDocument,
+    attachView(document) {
+      if (documents.get(document.identity.key) !== document) throw new Error("Cannot attach a view to a document outside this workspace.");
+      let attached = views.get(document);
+      if (attached === undefined) {
+        attached = new Set();
+        views.set(document, attached);
       }
-      release(document);
-      return { closed: true };
+      const leases = attached;
+      let closing: Promise<CloseResult> | undefined;
+      const lease: DocumentViewLease = {
+        close: () => closing ??= closeDocument(document, lease).then((result) => {
+          if (!result.closed) closing = undefined;
+          return result;
+        }),
+        dispose: () => {
+          leases.delete(lease);
+          if (leases.size === 0 && views.get(document) === leases) views.delete(document);
+        },
+      };
+      leases.add(lease);
+      return lease;
     },
     release,
     async revert(document) {
@@ -309,41 +373,60 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         const saved = await document.save();
         return saved.ok ? { ok: true, document } : failed(source, saved.failure.message);
       }
-      if (documents.has(identity.key)) {
-        return failed(resolved.path, `${resolved.path} is open in the editor; close it before saving another document over it.`);
+      if (documents.has(identity.key) || opening.has(identity.key) || savingAs.has(identity.key)) {
+        return failed(resolved.path, `${resolved.path} is open, opening, or being saved; choose another destination.`);
       }
-      // The destination and any collision are settled before anything is written (D3.4). A main file is not named by
-      // any other document, so Save As has no references to update.
-      if (resolved.exists) {
-        const stat = await fs.stat(resolved.path);
-        if (stat.ok && stat.value.kind === "directory") return failed(resolved.path, `${resolved.path} is a folder.`);
-        const answer = await dialogs.ask({
-          message: `${resolved.path} already exists. Replace it?`,
-          detail: `Its content is replaced by ${source}'s.`,
-          choices: [
-            { id: "replace", label: "Replace" },
-            { id: "cancel", label: "Cancel" },
-          ],
-          cancel: "cancel",
-        });
-        if (answer === "cancel") return { ok: false, reason: "cancelled" };
+      let finishCopy!: () => void;
+      const copying = new Promise<void>((resolve) => { finishCopy = resolve; });
+      savingAs.set(identity.key, copying);
+      try {
+        // The destination and any collision are settled before anything is written (D3.4). A main file is not named by
+        // any other document, so Save As has no references to update.
+        if (resolved.exists) {
+          const stat = await fs.stat(resolved.path);
+          if (stat.ok && stat.value.kind === "directory") return failed(resolved.path, `${resolved.path} is a folder.`);
+          const answer = await dialogs.ask({
+            message: `${resolved.path} already exists. Replace it?`,
+            detail: `Its content is replaced by ${source}'s.`,
+            choices: [
+              { id: "replace", label: "Replace" },
+              { id: "cancel", label: "Cancel" },
+            ],
+            cancel: "cancel",
+          });
+          if (answer === "cancel") return { ok: false, reason: "cancelled" };
+        }
+        const copied = document.getSnapshot();
+        const written = await document.saveAs(fs, identity);
+        if (!written.ok) return failed(resolved.path, written.failure.message);
+        // Read the copy without registering it. A failed Save As must not strand an invisible open destination.
+        const reopened = await openMainDocument(fs, identity);
+        if (!reopened.ok) {
+          return failed(resolved.path, `${resolved.path} was written but could not be opened: ${reopened.error.document}: ${reopened.error.error.message}`);
+        }
+        // A source edit made during the write or the read is not in the copy: keep the source open with its work.
+        if (!sameRevision(document.getSnapshot(), copied)) {
+          return failed(resolved.path, `${resolved.path} was written, but ${source} changed during Save As and remains open with its work.`);
+        }
+        if (disposed || documents.has(identity.key) || opening.has(identity.key)) {
+          return failed(resolved.path, `${resolved.path} was written but is already open or opening; ${source} remains open.`);
+        }
+        documents.set(identity.key, reopened.document);
+        startWatching();
+        // Other views still own the source. Otherwise this view replaces it with the newly opened copy (D1.3).
+        if ((views.get(document)?.size ?? 0) <= 1) release(document);
+        return { ok: true, document: reopened.document };
+      } finally {
+        savingAs.delete(identity.key);
+        finishCopy();
       }
-      const written = await document.saveAs(fs, identity);
-      if (!written.ok) return failed(resolved.path, written.failure.message);
-      const reopened = await open(resolved.path);
-      if (!reopened.ok) {
-        const reason = reopened.error.kind === "case-conflict" ? reopened.error.message : `${reopened.error.document}: ${reopened.error.error.message}`;
-        return failed(resolved.path, `${resolved.path} was written but could not be opened: ${reason}`);
-      }
-      // The edits now live in the new document; the source's file is unchanged and it is closed, never re-keyed (D1.3).
-      release(document);
-      return { ok: true, document: reopened.document };
     },
     dispose() {
       disposed = true;
       void watch?.then((handle) => handle?.dispose());
       documents.clear();
       histories.clear();
+      views.clear();
     },
   };
 }

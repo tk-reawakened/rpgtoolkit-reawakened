@@ -10,7 +10,8 @@ interface StoredFile {
 
 export interface WriteControl {
   refuse: boolean;
-  hold: Promise<void> | null;
+  /** The next write to hold: it calls `start` when it reaches its close, then waits for `wait`. */
+  hold: { readonly wait: Promise<void>; start(): void } | null;
   tick: number;
 }
 
@@ -55,7 +56,12 @@ export class MemoryDirectory {
         return {
           write: async (data: ArrayBuffer) => { pending = new Uint8Array(data.slice(0)); },
           close: async () => {
-            if (control.hold !== null) await control.hold;
+            const held = control.hold;
+            if (held !== null) {
+              control.hold = null;
+              held.start();
+              await held.wait;
+            }
             stored.bytes = pending;
             stored.modified = (control.tick += 1);
           },

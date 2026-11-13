@@ -123,7 +123,18 @@ const FILE_COMMANDS: BuiltinSpec[] = [
     },
   },
   { name: "openfileinput", aliases: [], params: OPEN_PARAMS, call: (view, args) => openInput(view, args, "input") },
-  { name: "openfilebinary", aliases: [], params: OPEN_PARAMS, call: (view, args) => openInput(view, args, "binary") },
+  {
+    name: "openfilebinary", aliases: [], params: OPEN_PARAMS,
+    doc: {
+      summary: "Obsolete.",
+      behaviour: "Opens a file for byte-oriented input through the game's sandboxed file service and waits for it to be available.",
+      groups: ["files-saves-os-15"],
+      tags: ["obsolete"],
+      replacedBy: { kind: "syntax", text: "Use openfileinput for line-oriented input. Keep openfilebinary for byte-oriented input." },
+      reason: "Toolkit 3.1 marked this command obsolete and forwarded it to openfileinput. Reawakened provides byte-oriented input.",
+    },
+    call: (view, args) => openInput(view, args, "binary"),
+  },
   {
     name: "openfileoutput", aliases: [], params: OPEN_PARAMS,
     call: (view, args) => { const info = fileInfo(view, args); return openRequest(info, "output", "saveBlob", `${INTERNAL}open_write`); },
