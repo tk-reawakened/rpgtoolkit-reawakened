@@ -16,6 +16,8 @@ export async function runVscodeWebProof(
   expectedBytes: Uint8Array,
   recoveredTitle: string,
   recoveredBytes: Uint8Array,
+  autosaveTitle: string,
+  autosaveBytes: Uint8Array,
 ): Promise<void> {
   const consoleViolations: CspConsoleViolation[] = [];
   const backupTrackerLogs: string[] = [];
@@ -145,6 +147,81 @@ export async function runVscodeWebProof(
   await expectValueWithFrameDiagnostics(page, finalEditor.getByLabel("Game title"), recoveredTitle, expect);
   expect(await readWorkspaceBytes(page, expect)).toEqual(recovered);
   await expect.poll(() => frameCspViolations(page, finalEditor, consoleViolations)).toEqual([]);
+
+  // Story 11.3: the document lifecycle in real VS Code, and the ADR 0022 D11.6 measurement.
+  await runLifecycleScenarios(page, expect, autosaveTitle, autosaveBytes);
+}
+
+/**
+ * The lifecycle cases that only the real workbench can prove (story 11.3; ADR 0022 D3.7, D3.6, D11.6):
+ *
+ * * a hidden webview loses nothing — VS Code destroys it (`retainContextWhenHidden: false`), the model stays in the
+ *   extension host, and the page loaded again shows the unsaved title, the dirty state and the same document;
+ * * a cancelled close keeps the editor and its work — the workbench asks, and Cancel is an answer;
+ * * `files.autoSave: afterDelay` drives `saveCustomDocument`: the file reaches the edited bytes with no Save pressed,
+ *   which is the proof the ADR left unverified. Whatever the outcome, autosave is turned off again.
+ */
+async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: string, autosaveBytes: Uint8Array): Promise<void> {
+  const hiddenTitle = "Still here after hiding";
+  let editor = await waitForEditorFrame(page, "lifecycle settings editor");
+  const field = editor.getByLabel("Game title");
+  await field.fill(hiddenTitle);
+  await field.press("Enter");
+  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+
+  // An untitled editor takes the tab's place, which hides the custom editor (retainContextWhenHidden: false).
+  await editor.evaluate(() => { (window as ProofWindow & { __tkrAliveMarker?: string }).__tkrAliveMarker = "before-hiding"; });
+  await runCommandMatching(page, expect, "New Untitled", "a new untitled editor");
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: /Untitled/ })).toBeVisible();
+  await closeActiveEditor(page, expect);
+  editor = await waitForEditorFrame(page, "settings editor shown again");
+  const alive = await editor.evaluate(() => (window as ProofWindow & { __tkrAliveMarker?: string }).__tkrAliveMarker);
+  if (alive !== undefined) throw new Error("VS Code kept the hidden webview's page alive, so this proof cannot show a re-created view");
+  await expectValueWithFrameDiagnostics(page, editor.getByLabel("Game title"), hiddenTitle, expect);
+  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+
+  await runCommand(page, expect, "View: Close Editor");
+  const dialog = page.locator(".monaco-dialog-box");
+  await expect(dialog).toBeVisible({ timeout: 20_000 });
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  editor = await waitForEditorFrame(page, "settings editor after a cancelled close");
+  await expectValueWithFrameDiagnostics(page, editor.getByLabel("Game title"), hiddenTitle, expect);
+  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+
+  await runCommand(page, expect, "Test: Turn Autosave On");
+  const autosaveField = editor.getByLabel("Game title");
+  await autosaveField.fill(autosaveTitle);
+  await autosaveField.press("Enter");
+  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  try {
+    await expect.poll(async () => bytesEqual(await readWorkspaceBytes(page, expect), autosaveBytes), {
+      timeout: 30_000,
+      intervals: [3_000],
+      message: "VS Code's files.autoSave did not save this custom document (ADR 0022 D11.6)",
+    }).toBe(true);
+  } finally {
+    await runCommand(page, expect, "Test: Turn Autosave Off");
+  }
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  return left.length === right.length && left.every((byte, index) => byte === right[index]);
+}
+
+/** Run a command from the palette and wait for its quick-pick row. */
+async function runCommand(page: Page, expect: Expect, title: string): Promise<void> {
+  await runCommandMatching(page, expect, title, title);
+}
+
+/** Run the first command the palette offers for `search`; `label` names it in a failure. */
+async function runCommandMatching(page: Page, expect: Expect, search: string, label: string): Promise<void> {
+  const commandInput = await commandPalette(page, expect);
+  await commandInput.fill(`>${search}`);
+  const command = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: search }).first();
+  await expect(command, `VS Code offers ${label}`).toBeVisible();
+  await command.click();
+  await expect(page.locator(".quick-input-widget")).toBeHidden();
 }
 async function enableWorkbenchTraceLogging(page: Page, expect: Expect): Promise<void> {
   // Use VS Code's built-in logger controls so working-copy and backup-tracker trace events are captured.
@@ -364,7 +441,7 @@ async function closeActiveEditor(page: Page, expect: Expect): Promise<void> {
   const closeCommand = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "View: Close Editor" }).first();
   await expect(closeCommand).toBeVisible();
   await closeCommand.click();
-  await expect(page.locator("iframe.webview")).toHaveCount(0);
+  await expect(page.locator(".quick-input-widget")).toBeHidden();
 }
 
 async function commandPalette(page: Page, expect: Expect): Promise<import("@playwright/test").Locator> {

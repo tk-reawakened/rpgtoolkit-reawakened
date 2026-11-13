@@ -36,13 +36,63 @@ export interface ReadOnlyReason {
 export interface SaveFailure {
   /** The document's project-relative path. */
   readonly document: string;
-  /** `write`: the host refused the bytes; `format`: the model could not be encoded; `read-only`: no writer exists. */
-  readonly kind: "write" | "format" | "read-only";
+  /**
+   * `write`: the host refused the bytes, or the file could not be checked before writing; `format`: the model could not
+   * be encoded; `read-only`: no writer exists; `conflict`: another program changed the file since the editor last read or
+   * wrote it, so nothing was written (ADR 0022 D3.5, D11.3).
+   */
+  readonly kind: "write" | "format" | "read-only" | "conflict";
   /** The host's error code when `kind` is `write`; `null` when the host gave none (it threw or rejected instead of answering). */
   readonly code: PlatformError["code"] | null;
   /** One sentence naming the document and the cause, safe to show. */
   readonly message: string;
 }
+
+/**
+ * A change on disk the editor did not make (ADR 0022 D3.5). The local version and the version on disk are both kept,
+ * and nothing is written, until the user chooses between them.
+ */
+export interface ExternalChange {
+  /** The document's project-relative path. */
+  readonly document: string;
+  /** `changed`: the file now holds other bytes; `deleted`: the file is gone. */
+  readonly kind: "changed" | "deleted";
+  /**
+   * The game title of the version on disk, to compare with the local one; `null` when the file is gone or is not a
+   * main file this editor reads, in which case it cannot be loaded either.
+   */
+  readonly externalTitle: string | null;
+  /** One sentence naming the document and what happened, safe to show. */
+  readonly message: string;
+}
+
+/** How the user settles an external change: keep the local version (the next save replaces the file) or load the file's. */
+export type ConflictChoice = "keep-local" | "reload";
+
+export type ConflictResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: "no-conflict" | "cannot-reload"; readonly message: string };
+
+/**
+ * What `checkExternal` found: the file is as the document last read or wrote it; it changed and the clean document now
+ * shows the new version; it changed under unsaved work (or cannot be loaded) and is now a conflict; or the document
+ * cannot tell, because its last write failed or the file could not be read.
+ */
+export type ExternalCheck = "unchanged" | "reloaded" | "conflict" | "unknown";
+
+/** Why a revert did not happen. The document is left as it was. */
+export interface RevertFailure {
+  readonly document: string;
+  /**
+   * `read`: the file could not be read (or is gone); `format`: it is not a main file this editor reads; `changed`: an
+   * edit was accepted after the revert was asked for, so reverting would discard work the user had not been told about.
+   */
+  readonly kind: "read" | "format" | "changed";
+  readonly code: PlatformError["code"] | null;
+  readonly message: string;
+}
+
+export type RevertResult = { readonly ok: true } | { readonly ok: false; readonly failure: RevertFailure };
 
 /** An immutable view of the document at one moment. A new object is made for every change; an unchanged document returns the same object. */
 export interface MainDocumentSnapshot {
@@ -62,6 +112,8 @@ export interface MainDocumentSnapshot {
   readonly saving: boolean;
   /** The last save's failure, kept until a later save starts; the edits it could not write stay in the model (D3.3). */
   readonly saveError: SaveFailure | null;
+  /** A change on disk that waits for the user's choice (D3.5); while it waits, no save writes the file. */
+  readonly conflict: ExternalChange | null;
 }
 
 /** Why a command was refused. A refused command changes nothing (ADR 0022 D3.1). */
@@ -98,8 +150,31 @@ export interface MainDocument {
    * Write the current model through the host and mark the document clean only when the host reports the bytes written
    * (ADR 0022 D3.3). Edits made while the write is in flight stay dirty. Saves run one after another. The promise never
    * rejects: a refused, thrown or rejected write is a `SaveFailure` value, and one failed save does not stop the next.
+   *
+   * Before writing, the file is read and compared with the bytes the document last read or wrote. If another program
+   * changed it, nothing is written: the save fails with `conflict` and the change waits in `conflict` (D3.5, D11.3).
    */
   save(): Promise<SaveResult>;
+  /**
+   * Read the file and compare it with what the document last read or wrote, after any save in flight. A clean document
+   * follows the file (nothing local can be lost); a dirty one keeps its work and the change waits for `resolveConflict`.
+   * Hosts that watch files call this on every change they see (D3.5).
+   */
+  checkExternal(): Promise<ExternalCheck>;
+  /** Settle a waiting external change. `keep-local` makes the next save replace the file; `reload` shows the file's version. */
+  resolveConflict(choice: ConflictChoice): ConflictResult;
+  /**
+   * Go back to the file on disk. If it still holds the last saved revision, the edits after that revision are dropped and
+   * the history before it is kept; otherwise the document is reloaded from the file with an empty history. Confirming
+   * the loss is the caller's job (D3.6), which is why a caller that asked the user first passes the `editId` in force
+   * when it asked: an edit accepted since then makes the revert refuse (`changed`) instead of discarding it.
+   */
+  revert(expectedHead?: string | null): Promise<RevertResult>;
+  /**
+   * Write the current content to `target` (Save As, D3.4). This document is not changed: it keeps its identity, its
+   * history and its dirty state (D1.3). The caller checks the destination for collisions first.
+   */
+  saveAs(storage: DocumentStorage, target: DocumentIdentity): Promise<SaveResult>;
 }
 
 /** Project-identified filesystem operations used by a document (ADR 0022 D1.1). */
@@ -134,7 +209,7 @@ export function createMainDocument(storage: DocumentStorage, identity: DocumentI
   const reader = new BinaryReader(opened, identity.path);
   const read = readMainFile(reader);
   if (!read.ok) return { ok: false, error: { kind: "format", document: identity.path, error: read.error } };
-  return { ok: true, document: new MainDocumentImpl(storage, identity, read.value, readOnlyReason(read.value, opened)) };
+  return { ok: true, document: new MainDocumentImpl(storage, identity, read.value, opened) };
 }
 
 /**
@@ -184,28 +259,41 @@ function labelOf(command: MainCommand): string {
 class MainDocumentImpl implements MainDocument {
   readonly identity: DocumentIdentity;
   readonly #storage: DocumentStorage;
-  readonly #base: MainFile;
-  readonly #readOnly: ReadOnlyReason | null;
+  /** The model the file held when it was opened or last reloaded; the applied commands are replayed over it. */
+  #base: MainFile;
+  /** The bytes `#base` was read from: a read-only document's content, which Save As copies unchanged. */
+  #opened: Uint8Array;
+  #readOnly: ReadOnlyReason | null;
   readonly #listeners = new Set<() => void>();
   /** Every command ever accepted and not discarded: `#applied` of them are in force, the rest can be redone. */
   #stack: EditRecord[] = [];
   #applied = 0;
   /** How many commands were in force when the file was last written, or `null` when that state can no longer be reached. */
   #savedAt: number | null = 0;
+  /** Never reset, so an edit id is never reused, even after a reload: a host still holding an old id gets `stale-edit`. */
   #nextId = 1;
   #model: MainFile;
+  /**
+   * What the file holds as far as this document knows: the bytes it last read or wrote, `null` when the file is known to
+   * be gone, `undefined` when a write failed and the file may hold anything (`fs.write`, platform-services fs.ts).
+   */
+  #disk: Uint8Array | null | undefined;
+  /** A change on disk waiting for the user's choice, with the bytes found (`null`: the file is gone). */
+  #external: { readonly bytes: Uint8Array | null; readonly change: ExternalChange } | null = null;
   /** Saves asked for and not yet finished. */
   #pending = 0;
   #saveError: SaveFailure | null = null;
   #queue: Promise<unknown> = Promise.resolve();
   #snapshot: MainDocumentSnapshot;
 
-  constructor(storage: DocumentStorage, identity: DocumentIdentity, model: MainFile, readOnly: ReadOnlyReason | null) {
+  constructor(storage: DocumentStorage, identity: DocumentIdentity, model: MainFile, bytes: Uint8Array) {
     this.identity = Object.freeze({ ...identity });
     this.#storage = storage;
     this.#base = model;
     this.#model = model;
-    this.#readOnly = readOnly;
+    this.#opened = bytes;
+    this.#disk = bytes;
+    this.#readOnly = readOnlyReason(model, bytes);
     this.#snapshot = this.#makeSnapshot();
   }
 
@@ -293,10 +381,103 @@ class MainDocumentImpl implements MainDocument {
     return run;
   }
 
+  checkExternal(): Promise<ExternalCheck> {
+    // Behind any save in flight: the file it is writing is this document's own change, not another program's.
+    const run = this.#queue.then(() => this.#check());
+    this.#queue = run;
+    return run;
+  }
+
+  resolveConflict(choice: ConflictChoice): ConflictResult {
+    const path = this.identity.path;
+    const external = this.#external;
+    if (external === null) return { ok: false, reason: "no-conflict", message: `${path} has no change on disk waiting for a choice.` };
+    if (choice === "keep-local") {
+      // The file now holds the other version: the next save replaces it, by the user's choice. Until then no revision of
+      // this document is on disk, so it is dirty even if undo comes back to what was saved before.
+      this.#disk = external.bytes;
+      this.#external = null;
+      if (this.#readOnly === null) this.#savedAt = null;
+      this.#publish();
+      return { ok: true };
+    }
+    if (external.bytes === null || !this.#load(external.bytes)) {
+      return {
+        ok: false,
+        reason: "cannot-reload",
+        message: external.bytes === null
+          ? `${path} is no longer on disk, so there is no version to load; keep yours or close the document.`
+          : `The version of ${path} on disk is not a main file this editor reads, so it cannot be loaded; keep yours or close the document.`,
+      };
+    }
+    this.#publish();
+    return { ok: true };
+  }
+
+  revert(expectedHead?: string | null): Promise<RevertResult> {
+    const run = this.#queue.then(() => this.#revert(expectedHead));
+    this.#queue = run;
+    return run;
+  }
+
+  async saveAs(storage: DocumentStorage, target: DocumentIdentity): Promise<SaveResult> {
+    const destination = target.path;
+    let bytes: Uint8Array;
+    if (this.#readOnly !== null) {
+      // A read-only document has no edits: a copy of the file is the file, never a conversion (D2.1).
+      bytes = this.#opened.slice();
+    } else {
+      const encoded = writeMainFile(this.#model);
+      if (!encoded.ok) {
+        return { ok: false, failure: { document: destination, kind: "format", code: null, message: `Could not save ${destination}: ${encoded.error.message}` } };
+      }
+      bytes = encoded.value;
+    }
+    let written: PlatformResult<void>;
+    try {
+      written = await storage.writeProject(target.projectId, destination, bytes);
+    } catch (thrown) {
+      const reason = thrown instanceof Error ? thrown.message : String(thrown);
+      return { ok: false, failure: { document: destination, kind: "write", code: null, message: `Could not save ${destination}: ${reason}` } };
+    }
+    if (!written.ok) {
+      return {
+        ok: false,
+        failure: { document: destination, kind: "write", code: written.error.code, message: `Could not save ${destination}: ${written.error.message}` },
+      };
+    }
+    return { ok: true };
+  }
+
   async #write(path: string, bytes: Uint8Array, revision: number, head: string | null): Promise<SaveResult> {
     try {
       this.#saveError = null;
       if (this.#savedAt === revision && this.#isRevision(revision, head)) return { ok: true };
+      // A change already waiting for the user's choice is never written over (D3.5).
+      if (this.#external !== null) return this.#fail(this.#conflictFailure(this.#external.change));
+      // Compare the file with what this document last read or wrote before replacing it (D11.3). After a failed write
+      // the file may hold anything, the document's own half-write included, so there is nothing to compare with.
+      if (this.#disk !== undefined) {
+        const onDisk = await this.#readDisk();
+        if (!onDisk.ok) {
+          return this.#fail({
+            document: path,
+            kind: "write",
+            code: onDisk.error.code,
+            message: `Could not save ${path}: the file on disk could not be checked first: ${onDisk.error.message}`,
+          });
+        }
+        if (!sameContent(onDisk.bytes, this.#disk)) {
+          if (onDisk.bytes !== null && sameBytes(onDisk.bytes, bytes)) {
+            // The file already holds exactly this revision (another editor saved the same thing): nothing to write.
+            this.#disk = onDisk.bytes;
+            this.#savedAt = this.#isRevision(revision, head) ? revision : null;
+            return { ok: true };
+          }
+          const change = this.#raise(onDisk.bytes);
+          return this.#fail(this.#conflictFailure(change));
+        }
+      }
       let written: PlatformResult<void>;
       try {
         written = await this.#storage.writeProject(this.identity.projectId, path, bytes);
@@ -305,6 +486,7 @@ class MainDocumentImpl implements MainDocument {
         return this.#failWrite(path, null, thrown instanceof Error ? thrown.message : String(thrown));
       }
       if (!written.ok) return this.#failWrite(path, written.error.code, written.error.message);
+      this.#disk = bytes;
       // Clean only if that revision is still part of the history: an edit made during the write stays dirty, and an
       // undo followed by a different edit during the write means the written state is gone from the history.
       this.#savedAt = this.#isRevision(revision, head) ? revision : null;
@@ -315,6 +497,124 @@ class MainDocumentImpl implements MainDocument {
     }
   }
 
+  async #check(): Promise<ExternalCheck> {
+    if (this.#disk === undefined) return "unknown";
+    const onDisk = await this.#readDisk();
+    if (!onDisk.ok) return "unknown";
+    if (sameContent(onDisk.bytes, this.#disk)) {
+      // The file is back to what this document knows: a change that was waiting is no longer a change.
+      if (this.#external !== null) {
+        this.#external = null;
+        this.#publish();
+      }
+      return "unchanged";
+    }
+    const clean = this.#savedAt === this.#applied && this.#external === null;
+    // A clean document has nothing of its own to lose, so it follows the file, as a text editor does.
+    if (clean && onDisk.bytes !== null && this.#load(onDisk.bytes)) {
+      this.#publish();
+      return "reloaded";
+    }
+    const current = this.#readOnly === null ? writeMainFile(this.#model) : null;
+    if (onDisk.bytes !== null && current?.ok === true && sameBytes(onDisk.bytes, current.value)) {
+      // Another editor wrote exactly what this document holds: it is saved, and there is no conflict.
+      this.#disk = onDisk.bytes;
+      this.#savedAt = this.#applied;
+      this.#external = null;
+      this.#publish();
+      return "unchanged";
+    }
+    this.#raise(onDisk.bytes);
+    this.#publish();
+    return "conflict";
+  }
+
+  async #revert(expectedHead?: string | null): Promise<RevertResult> {
+    const path = this.identity.path;
+    if (expectedHead !== undefined && (this.#stack[this.#applied - 1]?.editId ?? null) !== expectedHead) {
+      return {
+        ok: false,
+        failure: { document: path, kind: "changed", code: null, message: `Could not revert ${path}: it was edited after the revert was chosen, so nothing was reverted.` },
+      };
+    }
+    const onDisk = await this.#readDisk();
+    if (!onDisk.ok) {
+      return { ok: false, failure: { document: path, kind: "read", code: onDisk.error.code, message: `Could not revert ${path}: ${onDisk.error.message}` } };
+    }
+    if (onDisk.bytes === null) {
+      return { ok: false, failure: { document: path, kind: "read", code: "not-found", message: `Could not revert ${path}: the file is no longer on disk.` } };
+    }
+    if (this.#disk !== undefined && this.#savedAt !== null && sameContent(onDisk.bytes, this.#disk)) {
+      // The saved revision is still the file: return to it, keep the history before it and drop what came after, as a
+      // host's own revert does.
+      this.#stack = this.#stack.slice(0, this.#savedAt);
+      this.#applied = this.#savedAt;
+      this.#model = this.#replay();
+      this.#external = null;
+      this.#saveError = null;
+      this.#publish();
+      return { ok: true };
+    }
+    if (!this.#load(onDisk.bytes)) {
+      return {
+        ok: false,
+        failure: { document: path, kind: "format", code: null, message: `Could not revert ${path}: the file on disk is not a main file this editor reads.` },
+      };
+    }
+    this.#publish();
+    return { ok: true };
+  }
+
+  /** Replace the document's content with `bytes` and start a new history over it; `false` (and nothing changed) if they are not a main file. */
+  #load(bytes: Uint8Array): boolean {
+    const read = readMainFile(new BinaryReader(bytes, this.identity.path));
+    if (!read.ok) return false;
+    this.#base = read.value;
+    this.#model = read.value;
+    this.#opened = bytes.slice();
+    this.#readOnly = readOnlyReason(read.value, this.#opened);
+    this.#stack = [];
+    this.#applied = 0;
+    this.#savedAt = 0;
+    this.#disk = this.#opened;
+    this.#external = null;
+    this.#saveError = null;
+    return true;
+  }
+
+  /** Read the file: its bytes, `null` when it does not exist, or the host's error. A throwing host is an error too. */
+  async #readDisk(): Promise<{ readonly ok: true; readonly bytes: Uint8Array | null } | { readonly ok: false; readonly error: PlatformError }> {
+    let read: PlatformResult<Uint8Array>;
+    try {
+      read = await this.#storage.readProject(this.identity.projectId, this.identity.path);
+    } catch (thrown) {
+      return { ok: false, error: { code: "io-error", message: thrown instanceof Error ? thrown.message : String(thrown) } };
+    }
+    if (read.ok) return { ok: true, bytes: read.value };
+    if (read.error.code === "not-found") return { ok: true, bytes: null };
+    return { ok: false, error: read.error };
+  }
+
+  /** Keep the version found on disk beside the local one until the user chooses (D3.5). */
+  #raise(bytes: Uint8Array | null): ExternalChange {
+    const path = this.identity.path;
+    const read = bytes === null ? null : readMainFile(new BinaryReader(bytes, path));
+    const change: ExternalChange = bytes === null
+      ? { document: path, kind: "deleted", externalTitle: null, message: `${path} was deleted on disk by another program. Your version is kept; keep it to save it again, or close the document.` }
+      : {
+          document: path,
+          kind: "changed",
+          externalTitle: read?.ok === true ? read.value.gameTitle : null,
+          message: `${path} was changed on disk by another program. Your version and the one on disk are both kept until you choose.`,
+        };
+    this.#external = { bytes: bytes === null ? null : bytes.slice(), change };
+    return change;
+  }
+
+  #conflictFailure(change: ExternalChange): SaveFailure {
+    return { document: change.document, kind: "conflict", code: null, message: `${change.message} Nothing was saved.` };
+  }
+
   /**
    * A write the host did not complete. `fs.write` may leave the file in any state when it fails (platform-services
    * fs.ts), so no revision is known to be on disk any more: the document is dirty until a save succeeds, even if undo
@@ -322,6 +622,7 @@ class MainDocumentImpl implements MainDocument {
    */
   #failWrite(path: string, code: PlatformError["code"] | null, reason: string): SaveResult {
     this.#savedAt = null;
+    this.#disk = undefined;
     return this.#fail({ document: path, kind: "write", code, message: `Could not save ${path}: ${reason}` });
   }
 
@@ -364,6 +665,7 @@ class MainDocumentImpl implements MainDocument {
       edits: this.#stack.slice(0, this.#applied),
       saving: this.#pending > 0,
       saveError: this.#saveError,
+      conflict: this.#external?.change ?? null,
     };
   }
 
@@ -378,6 +680,15 @@ class MainDocumentImpl implements MainDocument {
       }
     }
   }
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  return firstDifference(a, b) === null;
+}
+
+/** Equal file states: the same bytes, or both absent. */
+function sameContent(a: Uint8Array | null, b: Uint8Array | null): boolean {
+  return a === null || b === null ? a === b : sameBytes(a, b);
 }
 
 /**

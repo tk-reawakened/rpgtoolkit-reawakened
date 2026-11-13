@@ -14,6 +14,11 @@ export type Capability =
   | "fileWatch"
   /** The host gives a project handle that survives a restart; without it the project is a session copy (ADR 0022 D1.4). */
   | "stableProjectHandle"
+  /**
+   * The host keeps a backup of unsaved edits and offers it back after a reload or a crash (VS Code's hot exit). Without
+   * it the editor never offers or implies recovery (ADR 0022 D3.6).
+   */
+  | "backup"
   /** The host has source control to show (ADR 0022 D13.1). */
   | "scm";
 
@@ -63,13 +68,51 @@ export interface DocumentService {
   edited(event: DocumentEdited): void;
 }
 
+/** One answer a `dialogs.ask` question offers. */
+export interface DialogChoice<Id extends string> {
+  readonly id: Id;
+  /** The button's words. */
+  readonly label: string;
+}
+
+/** A question with a fixed set of answers, such as "save before closing?" (ADR 0022 D3.6). */
+export interface DialogQuestion<Id extends string> {
+  /** One sentence that names the document and what is about to happen, safe to show. */
+  readonly message: string;
+  /** A second sentence: what each answer does. */
+  readonly detail: string;
+  readonly choices: readonly DialogChoice<Id>[];
+  /** The answer a dismissed dialog gives (Escape, the close box); one of the choices' ids. */
+  readonly cancel: Id;
+}
+
+/** What `dialogs.pickSavePath` is asked. */
+export interface SavePathRequest {
+  /** The project-relative path of the document being saved under a new name. */
+  readonly document: string;
+  /** The path the dialog starts with. */
+  readonly suggested: string;
+}
+
 /**
- * The part of AD-20 that story 11.17 needs: `capabilities`, `fs`, `project`, `settings` and `document`.
+ * The `dialogs` surface of AD-20. Every host shows its own native or page dialog; `editor-model` and `editor-ui` only
+ * ask. A dialog never decides on its own: dismissing it answers the question's `cancel`.
+ */
+export interface DialogService {
+  /** Ask the user to choose one of `question.choices` and resolve with its id. */
+  ask<Id extends string>(question: DialogQuestion<Id>): Promise<Id>;
+  /** Ask for the project-relative path to save a copy to (Save As, ADR 0022 D3.4); `null` when the user cancels. */
+  pickSavePath(request: SavePathRequest): Promise<string | null>;
+}
+
+/**
+ * The part of AD-20 that stories 11.17 and 11.3 need: `capabilities`, `fs`, `project`, `settings`, `document` and
+ * `dialogs`.
  *
- * AD-20 also lists `run`, `export`, `dialogs`, `clipboard`, `language.connect()` and `shell.openExternal`. They are not
- * declared yet: AD-20 names their methods but not their parameters, and the entries that first use them (11.3 dialogs,
- * 11.9 run, 11.14 export, the program editor's language client) fix those shapes against a real caller. A host that
- * implements this interface is not asked for them until then.
+ * AD-20 also lists `run`, `export`, `clipboard`, `language.connect()` and `shell.openExternal`. They are not declared
+ * yet: AD-20 names their methods but not their parameters, and the entries that first use them (11.9 run, 11.14 export,
+ * the program editor's language client) fix those shapes against a real caller. A host that implements this interface
+ * is not asked for them until then.
  */
 export interface PlatformServices {
   readonly capabilities: Capabilities;
@@ -77,4 +120,5 @@ export interface PlatformServices {
   readonly project: ProjectService;
   readonly settings: SettingsService;
   readonly document: DocumentService;
+  readonly dialogs: DialogService;
 }

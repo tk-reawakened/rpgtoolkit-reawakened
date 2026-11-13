@@ -1,5 +1,5 @@
-import type { ApplyResult, MainCommand, SaveFailure } from "@tk-reawakened/editor-model";
-import type { DocumentEdited } from "@tk-reawakened/platform-services";
+import type { ApplyResult, ConflictChoice, MainCommand, SaveFailure } from "@tk-reawakened/editor-model";
+import type { Capabilities, DocumentEdited } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useDocumentSnapshot } from "./use-document.ts";
 import type { ViewDocument } from "./mount.ts";
@@ -9,6 +9,8 @@ let viewsMade = 0;
 
 export interface SettingsViewProps {
   readonly doc: ViewDocument;
+  /** What the host can do; the view says what it cannot, and never implies it can (ADR 0022 D3.5, D3.6). */
+  readonly capabilities: Capabilities;
   /** A command result is acknowledged only after the document adapter has accepted it. */
   readonly onEdited: (event: DocumentEdited) => void;
 }
@@ -16,13 +18,16 @@ export interface SettingsViewProps {
  * The game settings view; its one field is the game title (`docs/spec/formats/main-file.md#layout`, `gameTitle`).
  * The field edits a draft; leaving the field or pressing Enter commits it as one command. The text shown is the
  * document's, so an edit stays visible after a failed save, and what the document refuses is reported beside the field.
+ * A change another program made on disk is shown beside the local title with the two ways to settle it (ADR 0022 D3.5).
  * Only classes and ARIA attributes are used, never a `style` attribute (ADR 0025 decision 6).
  */
-export function SettingsView({ doc, onEdited }: SettingsViewProps) {
+export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps) {
   const snapshot = useDocumentSnapshot(doc);
   const [draft, setDraft] = useState<string | null>(null);
   const [savePending, setSavePending] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
   // `useId` numbers a component by its place in its own render tree, so two mounted views would both be `P0-0`: their
   // labels and descriptions would point into each other. The view takes its prefix once, when it is first made.
   const [ids] = useState(() => {
@@ -44,14 +49,19 @@ export function SettingsView({ doc, onEdited }: SettingsViewProps) {
   const errorId = `${ids}-error`;
   const readOnly = snapshot.readOnly !== null;
 
-  // A title the document changed under the draft (an undo) replaces what was being typed. A matching
-  // in-flight commit is different: preserve any draft typed after that command was submitted.
+  // A title the document changed under the draft (an undo, a revert, a version loaded from disk) replaces what was being
+  // typed. A matching in-flight commit is different: preserve any draft typed after that command was submitted. Either
+  // way the marker is finished once the title it named is in force, so a later document change is never ignored (a
+  // revert after a commit used to leave its stale draft on screen).
   useEffect(() => {
     const committing = titleCommit.current;
     if (committing !== null) {
-      if (snapshot.gameTitle !== committing.title) return;
       titleCommit.current = null;
-      if (draftRevision.current !== committing.revision) return;
+      if (snapshot.gameTitle !== committing.title) {
+        if (draftRevision.current > committing.revision) return;
+      } else if (draftRevision.current !== committing.revision) {
+        return;
+      }
     }
     setDraft(null);
     setRefusal(null);
@@ -110,9 +120,27 @@ export function SettingsView({ doc, onEdited }: SettingsViewProps) {
   };
   latestCommit.current = commit;
 
+  // "Save my version" is the user's choice to replace the file on disk, so it saves through the host straight away;
+  // "Use the version on disk" replaces the local content. Either way nothing was overwritten before the choice.
+  const resolve = (choice: ConflictChoice): void => {
+    setResolving(true);
+    setResolveError(null);
+    void Promise.resolve()
+      .then(() => doc.resolveConflict(choice))
+      .then(async (result) => {
+        if (!result.ok) {
+          setResolveError(result.message);
+          return;
+        }
+        if (choice === "keep-local") await doc.save().catch(() => undefined);
+      })
+      .catch((error: unknown) => setResolveError(error instanceof Error ? error.message : String(error)))
+      .finally(() => setResolving(false));
+  };
 
   const failure = snapshot.saveError;
   if (failure !== failureShown.current.failure) failureShown.current = { failure, key: failureShown.current.key + 1 };
+  const conflict = snapshot.conflict;
 
   return (
     <section class="tkr-settings" aria-label="Game settings">
@@ -121,6 +149,34 @@ export function SettingsView({ doc, onEdited }: SettingsViewProps) {
         <p class="tkr-settings-readonly" role="note">
           Read only: {snapshot.readOnly.message}
         </p>
+      )}
+      {capabilities.has("fileWatch") ? null : (
+        <p class="tkr-settings-host-note">
+          This host cannot watch files, so a change another program makes to this file is found when you save, and is
+          never saved over.
+        </p>
+      )}
+      {conflict === null ? null : (
+        <div class="tkr-settings-conflict" role="group" aria-label="Changed on disk">
+          <p role="alert">{conflict.message}</p>
+          {conflict.externalTitle === null ? null : (
+            <dl class="tkr-settings-compare">
+              <dt>Your title</dt>
+              <dd>{snapshot.gameTitle}</dd>
+              <dt>Title on disk</dt>
+              <dd>{conflict.externalTitle}</dd>
+            </dl>
+          )}
+          <button type="button" class="tkr-settings-keep" disabled={resolving || readOnly} onClick={() => resolve("keep-local")}>
+            Save my version
+          </button>
+          {conflict.externalTitle === null ? null : (
+            <button type="button" class="tkr-settings-reload" disabled={resolving} onClick={() => resolve("reload")}>
+              Use the version on disk
+            </button>
+          )}
+          {resolveError === null ? null : <p class="tkr-settings-error">{resolveError}</p>}
+        </div>
       )}
       <div class="tkr-settings-row">
         <label for={titleId}>Game title</label>
@@ -152,7 +208,7 @@ export function SettingsView({ doc, onEdited }: SettingsViewProps) {
       <button
         type="button"
         class="tkr-settings-save"
-        disabled={readOnly || savePending || snapshot.saving || (!snapshot.dirty && draft === null)}
+        disabled={readOnly || savePending || snapshot.saving || conflict !== null || (!snapshot.dirty && draft === null)}
         onClick={() => {
           saveErrorAtStart.current = snapshot.saveError;
           setSavePending(true);
@@ -167,7 +223,7 @@ export function SettingsView({ doc, onEdited }: SettingsViewProps) {
       >
         Save
       </button>
-      {failure === null ? null : (
+      {failure === null || (failure.kind === "conflict" && conflict !== null) ? null : (
         <p key={failureShown.current.key} class="tkr-settings-error" role="alert">
           {failure.message}
         </p>

@@ -8,6 +8,6 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node"]
   },
-  "include": ["test", "web-proof.ts"],
+  "include": ["test", "conformance", "web-proof.ts"],
   "references": []
 }

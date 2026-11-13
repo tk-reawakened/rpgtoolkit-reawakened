@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { createDocumentIdentity, openMainDocument, type MainDocumentSnapshot } from "@tk-reawakened/editor-model";
-import { createVscodeFileSystemWithPort, handleEditorHostRequest, recoverMainDocument, RemoteDocument, type VscodeApi, type VscodeFileSystemPort } from "@tk-reawakened/host-vscode/testing";
+import { createVscodeFileSystemWithPort, handleEditorHostRequest, recoverMainDocument, RemoteDocument, vscodeCapabilities, type VscodeApi, type VscodeFileSystemPort } from "@tk-reawakened/host-vscode/testing";
 import type { ViewDocument } from "@tk-reawakened/editor-ui";
 
 let mount: typeof import("@tk-reawakened/editor-ui").mount;
@@ -52,8 +52,10 @@ test("real web and VS Code adapters keep mounted title edits dirty and named aft
   ok(vscodeOpened.ok);
   const hostDocument = {
     model: vscodeOpened.document,
+    capabilities: vscodeCapabilities(true),
     didEdit: (_editId: string) => undefined,
     saveThroughWorkbench: () => vscodeOpened.document.save(),
+    resolveConflict: async (choice: "keep-local" | "reload") => vscodeOpened.document.resolveConflict(choice),
   };
   let remote!: RemoteDocument;
   const api: VscodeApi = {
@@ -125,11 +127,13 @@ test("web and VS Code adapters persist identical edited bytes through the workbe
   const savedSnapshots: MainDocumentSnapshot[] = [];
   const hostDocument = {
     model: vscodeOpened.document,
+    capabilities: vscodeCapabilities(true),
     didEdit: () => undefined,
     saveThroughWorkbench: async () => {
       workbenchSaveCalls += 1;
       return vscodeOpened.document.save();
     },
+    resolveConflict: async (choice: "keep-local" | "reload") => vscodeOpened.document.resolveConflict(choice),
   };
   await handleEditorHostRequest(hostDocument, { type: "save", requestId: "save-1" }, (reply) => {
     if (reply.type !== "save-result") return;
@@ -173,7 +177,7 @@ test("VS Code backup recovery restores serialized edits as dirty and saves them 
     async watch() { return { dispose() {} }; },
     errorCode(error) { return typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined; },
   };
-  const recovered = recoverMainDocument(createVscodeFileSystemWithPort(root, port, "file:///project"), identity, backup);
+  const recovered = await recoverMainDocument(createVscodeFileSystemWithPort(root, port, "file:///project"), identity, backup);
   ok(recovered.ok);
   equal(recovered.document.getSnapshot().gameTitle, title);
   equal(recovered.document.getSnapshot().dirty, true);
@@ -187,7 +191,7 @@ async function assertFailedMountedSave(doc: ViewDocument, element: HTMLElement):
   ok(edited.ok);
   equal(doc.getSnapshot().dirty, true);
   let view: ReturnType<typeof mount> | undefined;
-  await act(() => { view = mount(element, { document: doc, services: { document: { edited: () => undefined } } }); });
+  await act(() => { view = mount(element, { document: doc, services: { document: { edited: () => undefined }, capabilities: new Set(["folderWrite"]) } }); });
   const field = element.querySelector("input");
   const save = element.querySelector("button");
   ok(field && save);

@@ -570,6 +570,9 @@ importers:
       '@tk-reawakened/host-web':
         specifier: workspace:*
         version: link:../../packages/host-web
+      '@tk-reawakened/platform-services':
+        specifier: workspace:*
+        version: link:../../packages/platform-services
       '@tk-reawakened/runner-harness':
         specifier: workspace:*
         version: link:../../packages/runner-harness
@@ -2136,11 +2139,6 @@ packages:
 
   playwright-core@1.64.0:
     resolution: {integrity: sha512-T9r+MZkTECl2+oUcZ26YgZzTrYidTsIhYYkJix+6iDOymOb1FB2RLLSOxRGnZGv5DStt+aduIVbt+E8WygXYpg==}
-    engines: {node: '>=20'}
-    hasBin: true
-
-  playwright-core@1.65.0:
-    resolution: {integrity: sha512-vNSKgH6YqtN7cdT/L334zo0a+YwkrpicyrHJlWWPIm/Q+Nn2SWInil01oT0mbu96U4GgoRtCYQD9CzJQgju+lA==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -4262,8 +4260,6 @@ snapshots:
   picomatch@4.0.7: {}
 
   playwright-core@1.64.0: {}
-
-  playwright-core@1.65.0: {}
 
   playwright@1.64.0:
     dependencies:

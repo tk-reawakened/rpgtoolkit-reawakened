@@ -3,10 +3,34 @@
   "displayName": "TK Reawakened editor web proof probe",
   "publisher": "tk-reawakened-test",
   "version": "0.0.0",
-  "engines": { "vscode": "^1.91.0" },
+  "engines": {
+    "vscode": "^1.91.0"
+  },
   "browser": "extension.js",
-  "activationEvents": ["onCommand:tkr.editorWebProof.copyMainFileBytes"],
-  "contributes": { "commands": [
-    { "command": "tkr.editorWebProof.copyMainFileBytes", "title": "Test: Copy Main File Bytes" }
-  ] }
+  "activationEvents": [
+    "onCommand:tkr.editorWebProof.copyMainFileBytes",
+    "onCommand:tkr.editorWebProof.writeGameBytes",
+    "onCommand:tkr.editorWebProof.enableAutosave",
+    "onCommand:tkr.editorWebProof.disableAutosave"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "tkr.editorWebProof.copyMainFileBytes",
+        "title": "Test: Copy Main File Bytes"
+      },
+      {
+        "command": "tkr.editorWebProof.writeGameBytes",
+        "title": "Test: Write Main File Bytes"
+      },
+      {
+        "command": "tkr.editorWebProof.enableAutosave",
+        "title": "Test: Turn Autosave On"
+      },
+      {
+        "command": "tkr.editorWebProof.disableAutosave",
+        "title": "Test: Turn Autosave Off"
+      }
+    ]
+  }
 }
