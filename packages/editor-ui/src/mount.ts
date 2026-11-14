@@ -69,7 +69,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
     isBoardView(document)
       ? createElement(BoardView, { doc: document, capabilities, onEdited })
       : isSpriteView(document)
-        ? createElement(SpriteView, { doc: document, fs: fs!, onEdited })
+        ? createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited })
         : createElement(SettingsView, { doc: document, capabilities, onEdited }),
     el,
   );

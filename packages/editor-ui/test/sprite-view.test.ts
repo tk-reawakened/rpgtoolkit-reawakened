@@ -1,7 +1,7 @@
 import { after, before, test } from "node:test";
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { createDocumentIdentity, openSpriteDocument, type SpriteActorKind, type SpriteDocument } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, openSpriteDocument, type ApplyResult, type SpriteActorKind, type SpriteCommand, type SpriteDocument } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import type { ViewContext, ViewHandle } from "../src/mount.ts";
 import { exampleCharacter, exampleItem } from "./fixtures.ts";
@@ -36,6 +36,11 @@ async function setup(kind: SpriteActorKind, path: string, bytes: Uint8Array): Pr
   const el = document.createElement("div");
   document.body.append(el);
   return { host, doc: opened.document, el };
+}
+function replaceApply(doc: SpriteDocument, apply: (command: SpriteCommand) => Promise<ApplyResult>): void {
+  // Inject delayed host behavior while preserving the production model's synchronous apply contract.
+  const delayedDocument = doc as unknown as { apply: (command: SpriteCommand) => Promise<ApplyResult> };
+  delayedDocument.apply = apply;
 }
 
 async function show(s: Setup): Promise<ViewHandle> {
@@ -113,4 +118,120 @@ test("characters and items share accessible stance, filename assignment and nume
     handle.dispose();
     s.el.remove();
   }
+});
+test("custom stance drafts stay with their stance across acknowledgement and deletion", async () => {
+  const s = await setup("character", "Chrs/drafts.tem", exampleCharacter());
+  ok((await s.doc.apply({ type: "add-custom-stance", name: "First", file: "" })).ok);
+  ok((await s.doc.apply({ type: "add-custom-stance", name: "Second", file: "" })).ok);
+  const handle = await show(s);
+  const rows = () => [...s.el.querySelectorAll<HTMLElement>(".tkr-sprite-custom")];
+  const animation = rows()[2]?.querySelectorAll<HTMLInputElement>("input")[1];
+  const name = rows()[1]?.querySelector<HTMLInputElement>("input");
+  if (animation === undefined || name === null || name === undefined) throw new Error("custom stance inputs are missing");
+  await act(() => {
+    animation.value = "second-unsaved.anm";
+    animation.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(() => {
+    name.value = "First renamed";
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(() => { name.focus(); animation.focus(); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  equal(s.doc.getSnapshot().customStances[1]?.handle, "First renamed");
+  equal(rows()[2]?.querySelectorAll<HTMLInputElement>("input")[1]?.value, "second-unsaved.anm", "acknowledging one stance does not clear another stance's typed draft");
+  await act(async () => {
+    rows()[1]?.querySelector<HTMLButtonElement>("button")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  equal(s.doc.getSnapshot().customStances.length, 2);
+  equal(rows()[1]?.querySelectorAll<HTMLInputElement>("input")[1]?.value, "second-unsaved.anm", "deleting a row does not shift its neighbor's draft");
+  handle.dispose();
+  s.el.remove();
+});
+
+test("sprite save waits for queued polygon edits and writes their acknowledged bytes", async () => {
+  const s = await setup("character", "Chrs/queued-save.tem", exampleCharacter());
+  ok((await s.doc.apply({ type: "set-sprite-timing", speed: 1.25, idleTime: 0.25 })).ok);
+  const apply = s.doc.apply.bind(s.doc);
+  const save = s.doc.save.bind(s.doc);
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const firstApply = new Promise<void>((resolve) => { started = resolve; });
+  const order: string[] = [];
+  replaceApply(s.doc, async (command) => {
+    if (command.type === "set-sprite-bases") {
+      order.push("base-start");
+      started();
+      await gate;
+      order.push("base-finished");
+    }
+    return apply(command);
+  });
+  s.doc.save = async () => { order.push("save"); return save(); };
+  const handle = await show(s);
+  const xLabel = [...s.el.querySelectorAll("label")].find((label) => label.textContent === "Point 1 X");
+  ok(xLabel !== undefined);
+  const x = s.el.querySelector<HTMLInputElement>(`#${xLabel.htmlFor}`);
+  ok(x !== null);
+  await act(() => { x.value = "-13"; x.dispatchEvent(new Event("change", { bubbles: true })); });
+  await firstApply;
+  await act(async () => {
+    const saveButton = [...s.el.querySelectorAll("button")].find((button) => button.textContent === "Save sprite");
+    ok(saveButton !== undefined);
+    saveButton.click();
+    await Promise.resolve();
+  });
+  deepEqual(order, ["base-start"], "Save waits rather than overtaking the pending polygon operation");
+  release();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  deepEqual(order, ["base-start", "base-finished", "save"]);
+  equal(s.doc.getSnapshot().dirty, false);
+  deepEqual(s.host.bytesOf("Chrs/queued-save.tem"), s.doc.serialize());
+  handle.dispose();
+  s.el.remove();
+});
+
+test("a rejected polygon edit is removed before a later queued edit is applied", async () => {
+  const s = await setup("character", "Chrs/rejected-queue.tem", exampleCharacter());
+  const original = s.doc.getSnapshot().vectorBases?.[1]?.points[0];
+  ok(original !== undefined);
+  const apply = s.doc.apply.bind(s.doc);
+  const rejection = s.doc.apply({ type: "set-sprite-bases", bases: [] });
+  ok(!rejection.ok);
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const firstApply = new Promise<void>((resolve) => { started = resolve; });
+  let rejectFirst = true;
+  replaceApply(s.doc, async (command) => {
+    if (command.type === "set-sprite-bases" && rejectFirst) {
+      rejectFirst = false;
+      started();
+      await gate;
+      return rejection;
+    }
+    return apply(command);
+  });
+  const handle = await show(s);
+  await act(() => s.el.querySelector<HTMLButtonElement>('button[aria-pressed="false"]')?.click());
+  const xLabel = [...s.el.querySelectorAll("label")].find((label) => label.textContent === "Point 1 X");
+  const yLabel = [...s.el.querySelectorAll("label")].find((label) => label.textContent === "Point 1 Y");
+  ok(xLabel !== undefined && yLabel !== undefined);
+  const x = s.el.querySelector<HTMLInputElement>(`#${xLabel.htmlFor}`);
+  const y = s.el.querySelector<HTMLInputElement>(`#${yLabel.htmlFor}`);
+  ok(x !== null && y !== null);
+  await act(() => {
+    x.value = "-12";
+    x.dispatchEvent(new Event("change", { bubbles: true }));
+    y.value = "7";
+    y.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await firstApply;
+  release();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  deepEqual(s.doc.getSnapshot().vectorBases?.[1]?.points[0], { x: original.x, y: 7 }, "the second edit rebases on confirmed state instead of inheriting rejected X");
+  handle.dispose();
+  s.el.remove();
 });

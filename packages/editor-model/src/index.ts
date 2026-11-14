@@ -26,6 +26,8 @@ export {
   spriteAnimationPreview,
   spriteAnimationCanvasPreview,
   spriteGifPreview,
+  spriteTileAnimationFirstFrame,
+  spriteProjectAssetPath,
   type SpriteGifPreview,
   spriteBasesFromFile,
   spritePicturePreview,

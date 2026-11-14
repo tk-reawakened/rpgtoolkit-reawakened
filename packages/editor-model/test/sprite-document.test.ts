@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { createDocumentIdentity, openSpriteDocument, spriteAnimationCanvasPreview, spriteAnimationPreview, spriteGifPreview, spritePicturePreview, spriteTileBitmapPreview, spriteTileBitmapReferences, spriteTilePreview, type SpriteActorKind, type SpriteDocument } from "../src/index.ts";
+import { createDocumentIdentity, openSpriteDocument, spriteAnimationCanvasPreview, spriteAnimationPreview, spriteGifPreview, spritePicturePreview, spriteProjectAssetPath, spriteTileAnimationFirstFrame, spriteTileBitmapPreview, spriteTileBitmapReferences, spriteTilePreview, type SpriteActorKind, type SpriteDocument } from "../src/index.ts";
 import { exampleAnimation, exampleCharacter, exampleItem, examplePicture } from "./fixtures.ts";
 
 const COLLISION = { points: [{ x: -18, y: -16 }, { x: 18, y: -16 }, { x: 18, y: 0 }, { x: -18, y: 0 }] };
@@ -110,10 +110,20 @@ test("sprite previews preserve ANM canvases and frame keys, decode tile referenc
   deepEqual(animation.frames[0]?.transparent, { r: 255, g: 255, b: 255 });
   equal(animation.delay, 0.15);
 
-  const keyed = spriteAnimationCanvasPreview({ width: 2, height: 1, rgba: new Uint8Array([10, 20, 30, 255, 255, 255, 255, 255]) }, 3, 2, { r: 255, g: 255, b: 255 });
+  const source = { width: 2, height: 1, rgba: new Uint8Array([10, 20, 30, 255, 255, 255, 255, 255]) };
+  const scaledPicture = spriteAnimationCanvasPreview(source, 4, 1, { r: 255, g: 255, b: 255 }, true);
+  deepEqual(Array.from(scaledPicture.rgba), [10, 20, 30, 255, 10, 20, 30, 255, 255, 255, 255, 0, 255, 255, 255, 0]);
+  const nativeTile = spriteAnimationCanvasPreview(source, 4, 1);
+  deepEqual(Array.from(nativeTile.rgba), [10, 20, 30, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0], "direct tile previews keep native pixels and do not apply the ANM picture key");
+  const keyed = spriteAnimationCanvasPreview(source, 3, 2, { r: 255, g: 255, b: 255 });
   equal(keyed.width, 3);
   equal(keyed.height, 2);
   deepEqual(Array.from(keyed.rgba), [10, 20, 30, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+  const tanPath = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "docs", "spec", "examples", "versions", "tile-animation", "water.tan");
+  const tan = spriteTileAnimationFirstFrame(new Uint8Array(readFileSync(tanPath)), "Tiles/water.tan");
+  equal(tan, "village.tst2", "tile bitmaps use the first frame of a nested TAN reference");
+  equal(spriteProjectAssetPath("Tiles", "village/ground.tst"), "Tiles/village/ground.tst", "nested tile references remain under the Tiles root");
 
   const tilePath = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "docs", "spec", "examples", "versions", "tileset", "tileset_detail1.tst");
   const tiles = new Uint8Array(readFileSync(tilePath));

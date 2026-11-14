@@ -6,10 +6,11 @@ import {
   decodeTexture,
   decodeTileTexture,
   readAnimation,
-  readTileBitmap,
-  tileBitmapCell,
   readCharacter,
   readItem,
+  readTileAnimation,
+  readTileBitmap,
+  tileBitmapCell,
   writeCharacter,
   writeItem,
   type ActorBase,
@@ -33,7 +34,6 @@ import {
   type Rejection,
 } from "./binary-document.ts";
 import type { DocumentIdentity } from "./identity.ts";
-
 /** The two actor asset kinds that use the shared T-52 graphics editor. */
 export type SpriteActor = Character | Item;
 export type SpriteActorKind = "character" | "item";
@@ -302,15 +302,32 @@ export function spriteAnimationPreview(bytes: Uint8Array, path: string): SpriteA
   };
 }
 
-/** Copy an animation source at the canvas origin, clipping without scaling and applying that frame's COLORREF key. */
-export function spriteAnimationCanvasPreview(source: SpritePreviewFrame, width: number, height: number, transparent: { readonly r: number; readonly g: number; readonly b: number }): SpritePreviewFrame {
+export function spriteProjectAssetPath(folder: string, reference: string): string {
+  const normal = reference.replaceAll("\\", "/");
+  return normal.split("/", 1)[0]?.toLowerCase() === folder.toLowerCase() ? normal : `${folder}/${normal}`;
+}
+
+export function spriteTileAnimationFirstFrame(bytes: Uint8Array, path: string): string | null {
+  const animation = readTileAnimation(new BinaryReader(bytes, path));
+  return animation.ok ? animation.value.frames[0] ?? null : null;
+}
+
+/** Draw a picture on the ANM canvas; direct tile frames retain their native size and transparency. */
+export function spriteAnimationCanvasPreview(
+  source: SpritePreviewFrame,
+  width: number,
+  height: number,
+  transparent?: { readonly r: number; readonly g: number; readonly b: number },
+  scaleToCanvas = false,
+): SpritePreviewFrame {
   const rgba = new Uint8Array(width * height * 4);
-  const keyR = transparent.r;
-  const keyG = transparent.g;
-  const keyB = transparent.b;
-  for (let y = 0; y < Math.min(height, source.height); y += 1) {
-    for (let x = 0; x < Math.min(width, source.width); x += 1) {
-      const from = (y * source.width + x) * 4;
+  for (let y = 0; y < height; y += 1) {
+    const sourceY = scaleToCanvas ? Math.min(source.height - 1, Math.floor(y * source.height / height)) : y;
+    if (sourceY < 0 || sourceY >= source.height) continue;
+    for (let x = 0; x < width; x += 1) {
+      const sourceX = scaleToCanvas ? Math.min(source.width - 1, Math.floor(x * source.width / width)) : x;
+      if (sourceX < 0 || sourceX >= source.width) continue;
+      const from = (sourceY * source.width + sourceX) * 4;
       const to = (y * width + x) * 4;
       const r = source.rgba[from] ?? 0;
       const g = source.rgba[from + 1] ?? 0;
@@ -318,7 +335,8 @@ export function spriteAnimationCanvasPreview(source: SpritePreviewFrame, width: 
       rgba[to] = r;
       rgba[to + 1] = g;
       rgba[to + 2] = b;
-      rgba[to + 3] = r === keyR && g === keyG && b === keyB ? 0 : source.rgba[from + 3] ?? 0;
+      const isKey = transparent !== undefined && r === transparent.r && g === transparent.g && b === transparent.b;
+      rgba[to + 3] = isKey ? 0 : source.rgba[from + 3] ?? 0;
     }
   }
   return { width, height, rgba };
