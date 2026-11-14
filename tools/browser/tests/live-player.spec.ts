@@ -897,13 +897,22 @@ test("live standard gamepad input drives the title action and gameplay movement"
   });
 
   for (let index = 0; index < 3; index += 1) {
-    const tickBefore = await page.evaluate(() => window.__live?.tick ?? 0);
-    await page.evaluate(() => (window as Window & { __setGamepad?: (axisX: number, buttonA: boolean) => void }).__setGamepad?.(0, true));
-    await page.waitForFunction((tick) =>
-      (window as Window & { __gamepadConsumed?: readonly { tick: number; event: { buttons?: number } }[] }).__gamepadConsumed?.some((input) => input.tick >= tick && input.event.buttons === 1) === true,
-    tickBefore, { timeout: 15_000 });
-    await page.evaluate(() => (window as Window & { __setGamepad?: (axisX: number, buttonA: boolean) => void }).__setGamepad?.(0, false));
-    await page.waitForFunction((tick) => (window.__live?.tick ?? 0) > tick + 1, tickBefore, { timeout: 15_000 });
+    for (const pressed of [true, false]) {
+      const offset = await page.evaluate((buttonA) => {
+        const target = window as Window & {
+          __gamepadConsumed?: readonly unknown[];
+          __setGamepad?: (axisX: number, buttonA: boolean) => void;
+        };
+        if (target.__setGamepad === undefined) throw new Error("gamepad test control is unavailable");
+        const consumed = target.__gamepadConsumed?.length ?? 0;
+        target.__setGamepad(0, buttonA);
+        return consumed;
+      }, pressed);
+      await page.waitForFunction(({ offset, buttons }) =>
+        (window as Window & { __gamepadConsumed?: readonly { event: { buttons?: number } }[] })
+          .__gamepadConsumed?.slice(offset).some((input) => input.event.buttons === buttons) === true,
+      { offset, buttons: pressed ? 1 : 0 }, { timeout: 15_000 });
+    }
   }
   await page.waitForFunction(() => window.__live?.board !== null && window.__live?.board !== undefined, undefined, { timeout: 45_000 });
   const initial = await page.evaluate(() => window.__live as LiveReport);
