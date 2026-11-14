@@ -197,6 +197,26 @@ test("text and pixelText with a canvas draw into that canvas, not the screen tex
   ok(cell > 3, "text(1,5) lands in the fifth cell row of the canvas");
   equal(game.state().ui.draws.length, 0, "the screen text layer got nothing");
 });
+test("screen clear removes earlier text but canvas clear leaves it alone", () => {
+  const game = boot([
+    "fontsize(8)",
+    "rendernow(1)",
+    "c = cnvrendernow",
+    'text(1,1,"old")',
+    'pixeltext(2,16,"old pixel")',
+    'text(1,1,"canvas",c)',
+    "clear(c)",
+    "wait()",
+    "clear()",
+    'text(1,1,"new")',
+    "wait()",
+  ].join("\n"));
+  const text = (): string[] => game.engine.drawList().commands
+    .flatMap((command) => command.kind === "text" ? [command.text] : []);
+  deepEqual(text(), ["old", "old pixel"], "clearing a canvas leaves screen text");
+  game.advance(2, ["ENTER"]);
+  deepEqual(text(), ["new"], "screen clear removes both earlier text forms but not later text");
+});
 
 test("canvas cell text keeps a fractional cell coordinate and truncates the scaled origin (E-56)", () => {
   const game = boot('fontsize(8)\nrendernow(1)\nc = cnvrendernow\ncolorrgb(255,255,255)\ntext(1.5,5.9,"A",c)\nend()\n');
