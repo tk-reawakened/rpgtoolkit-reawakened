@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Each desktop input probe now uses its own Electron profile, so overlapping runs do not share the single-instance lock (#2003). Temporary-profile cleanup retries Windows file locks without masking the probe result (#2344).
 - The VS Code web recovery proof accepts the focused Reload Window command with Enter, using the same keyboard interaction as its other command-palette actions instead of racing a moving mouse target. Bootstrap-stop, persisted-byte and offline-recovery checks remain unchanged (#2365).
 - Browser document-switch cleanup now scopes pending acquisitions to workspace instances, releases stale candidate views immediately, and defers workspace-level document closure until same-identity opens mount or fail. A rejected cleanup remains queued for retry, and workspace closure preserves documents still owned by active views. Consumer regressions check shared-document ownership, failed-open cleanup, workspace inventory and preservation of the shown document's unsaved edit (#2224; [ADR 0022](docs/adr/0022-shared-editor-authoring-contracts.md) D1.2, D3.6–D3.7).
 - Owner ruling accepted the Monaco CSP posture for standalone editor pages that host Monaco: inline styles and self fonts are allowed while scripts stay strict; VS Code keeps native text editing and strict styles. Worker/offline behavior and Monaco/codicon G6 licensing remain 11.7 gates ([ADR 0029](docs/adr/0029-monaco-csp-style-src.md); [#1705](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1705)).
