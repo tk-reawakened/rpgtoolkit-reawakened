@@ -2,7 +2,7 @@ import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { asMainDocument, createDocumentIdentity, openMainDocument, type MainDocumentSnapshot } from "@tk-reawakened/editor-model";
+import { DEFAULT_EDITOR_PREFERENCES, asMainDocument, createDocumentIdentity, openMainDocument, type MainDocumentSnapshot } from "@tk-reawakened/editor-model";
 import { createVscodeFileSystemWithPort, handleEditorHostRequest, recoverMainDocument, resolveRecoveryConflict, RemoteDocument, vscodeCapabilities, type VscodeApi, type VscodeFileSystemPort } from "@tk-reawakened/host-vscode/testing";
 import { createBrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
@@ -61,6 +61,7 @@ test("real web and VS Code adapters keep mounted title edits dirty and named aft
     browserRead: (path: string) => vscodeFs.read(path),
     didEdit: (_editId: string) => undefined,
     preview: async () => ({ ok: false as const, message: "A main file has no picture." }),
+    boardPreferences: () => DEFAULT_EDITOR_PREFERENCES,
     visit: async () => ({ ok: false as const, message: "not used" }),
     returnFromVisit: async () => ({ ok: false as const, message: "not used" }),
     pickAsset: async () => ({ chosen: false as const }),
@@ -143,6 +144,7 @@ test("web and VS Code adapters persist identical edited bytes through the workbe
     browserRead: (path: string) => vscodeFs.read(path),
     didEdit: () => undefined,
     preview: async () => ({ ok: false as const, message: "A main file has no picture." }),
+    boardPreferences: () => DEFAULT_EDITOR_PREFERENCES,
     visit: async () => ({ ok: false as const, message: "not used" }),
     returnFromVisit: async () => ({ ok: false as const, message: "not used" }),
     pickAsset: async () => ({ chosen: false as const }),
@@ -342,6 +344,7 @@ test("two rejected recovery choices never discard local work when disk first mat
     browserRead: (path: string) => browserFs.read(path),
     didEdit: () => undefined,
     preview: async () => ({ ok: false as const, message: "A main file has no picture." }),
+    boardPreferences: () => DEFAULT_EDITOR_PREFERENCES,
     visit: async () => ({ ok: false as const, message: "not used" }),
     returnFromVisit: async () => ({ ok: false as const, message: "not used" }),
     pickAsset: async () => ({ chosen: false as const }),
