@@ -2,6 +2,10 @@
 
 **Research and product/UX proposal — 2026-11-13. Not an approved specification, library selection or change to Epic 13.** Related: [13.2 / #1726](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1726).
 
+**Owner decision, 2026-11-13:** build our own integrated art editor with selective reuse of suitable permissively licensed code, libraries and forks. “Our own” means owning the experience and integration, not writing every primitive from scratch. [ADR 0031](../../adr/0031-owned-art-editor-with-permissive-reuse.md) records the accepted direction; candidate selection, detailed UX and expanded feature scope remain open. The investigation below remains the rationale and evidence record.
+
+**Editor-wide platform direction:** let browser capabilities drive the experience. Our own editor need not own or reproduce every layout, control, focus, accessibility, input, canvas or scheduling behavior. Reuse browser facilities and suitable libraries, while keeping the existing document/save and host-service contracts; identical platform behavior across hosts is not the goal. This clarification is recorded in ADR 0031 and is not a runtime-engine change.
+
 ## Recommendation in plain terms
 
 Build a shared place to **make artwork, turn it into reusable game assets, and see it where it will be used**. Do not build a miniature Aseprite clone, force everyone into an embedded application, or limit the experience to a separate 32×32 editor for every tile.
@@ -254,7 +258,7 @@ A reusable foundation must let us control **pixels, edit boundaries, keyboard fo
 
 The earlier November 8 shortlist proposed **miniPaint** and **PixelCraft**. Keep the source-checked prior study as a lead, not a selected engine: it explicitly did not verify host/document integration, and it identified pixel-at-a-time undo and sheet-size concerns in PixelCraft's documentation. Neither candidate received a fresh runtime evaluation here. [R11]
 
-**Recommendation:** evaluate a Dotting adaptation against matching-version JollyPixel primitives and a small host-owned drawing control. Prefer the candidate that needs the least special machinery to obey our existing contract, not the one with the longest demo toolbar. This is a fit hypothesis based on APIs/source, not a measured weighted winner. Requiring a React compatibility ADR or a large extraction fork is a real cost; so is taking on a new primitive library and its dependencies. [R4]
+**Chosen direction:** build our own integrated editor, selectively reusing suitable components and code under [ADR 0031](../../adr/0031-owned-art-editor-with-permissive-reuse.md). A Dotting adaptation, matching-version JollyPixel primitives and a small host-owned drawing control remain useful comparisons for the foundation, not competing whole-product directions. Prefer the component that needs the least special machinery to obey our existing contract. No component has won: a React compatibility ADR, extraction fork or new dependency tree each has a real cost, and the required integration evidence remains outstanding. [R4]
 
 Permissive root licensing is the beginning: exact copied files, notices, codecs, fonts, icons, palettes and transitive dependencies still need review. Aseprite's main EULA code and LibreSprite's GPL code are not code donors. This research copied no application implementation and installed no art dependency. [L6], [L7]
 

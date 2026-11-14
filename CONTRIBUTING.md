@@ -16,6 +16,12 @@ TK Reawakened is its own product. It is not RPG Toolkit v3.x and not v4, and its
 
 Toolkit 3.1 behaviour is a compatibility layer, not the model ([ADR 0009](docs/adr/0009-compatibility-layer-not-the-model.md)): the core is built on objects and forward design, and the legacy 3.1 names, commands and data shapes are aliases and adapters onto it. Reason: a design that copies the old limits would keep them. Do not describe the project as a Toolkit version in code, docs or pull requests.
 
+### Build on the browser in the editor
+
+**The editor is not the deterministic game runtime.** Let browser capabilities and suitable libraries drive its experience: use DOM/CSS, native controls, focus/accessibility facilities, pointer and pen input, canvas drawing and browser scheduling rather than recreating a platform to control them all. We own the product and its integration, not every mechanism underneath it. Host-appropriate behavior is welcome; consistent editing and save semantics matter more than identical UI behavior.
+
+[ADR 0031](docs/adr/0031-owned-art-editor-with-permissive-reuse.md) records this owner direction and permission for suitable permissively licensed code, libraries and selective forks. It changes no licence/provenance, CSP, framework or host-I/O boundary; a preview claiming actual game output still uses the engine's composition rules. No component is selected by this direction.
+
 ## Ways to help
 
 - **Report a bug or ask a question.** Open an issue at <https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues>. Say what you did, what you expected, what happened, and the exact commands and versions (`node -v`, `pnpm -v`). Never paste credentials or legacy source code.
