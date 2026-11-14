@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { createEmptyBoard, writeBoard } from "@tk-reawakened/core";
-import { runVscodeWebProof } from "./web-proof.ts";
+import { requestNativeReload, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -126,7 +126,11 @@ for (const choice of ["cancel", "keep"]) {
     const recordBrowserDiagnostic = (message) => { if (browserDiagnostics.length < 100) browserDiagnostics.push(message.replaceAll(persistentFs.token, "[redacted]")); };
     const newPage = async () => {
       const page = await browser.newPage();
-      page.on("console", (message) => { if (message.type() === "error") recordBrowserDiagnostic(`[console] ${message.text()}`); });
+      page.on("console", (message) => {
+        if (message.type() === "error" || /CommandService#executeCommand workbench\.action\.reloadWindow|\[vscode-web-proof-probe\] requesting native reload/.test(message.text())) {
+          recordBrowserDiagnostic(`[console] ${message.text()}`);
+        }
+      });
       page.on("pageerror", (error) => recordBrowserDiagnostic(`[pageerror] ${error.stack ?? error.message}`));
       page.on("requestfailed", (request) => recordBrowserDiagnostic(`[requestfailed] ${request.url()}: ${request.failure()?.errorText ?? "unknown failure"}`));
       return page;
@@ -151,30 +155,7 @@ for (const choice of ["cancel", "keep"]) {
       };
       await currentPage.route(script, holdBootstrap);
       try {
-        const widget = currentPage.locator(".quick-input-widget");
-        let input;
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          try {
-            await currentPage.locator(".monaco-workbench").click({ position: { x: 5, y: 5 } });
-            await currentPage.keyboard.press("ControlOrMeta+Shift+P");
-            input = currentPage.locator(".quick-input-widget input").last();
-            await expect(input).toBeVisible();
-            await input.fill(">Developer: Reload Window");
-            // Prove recovery from the palette disappearing before the command is dispatched.
-            if (attempt === 0) {
-              await input.press("Escape");
-              await expect(widget).toBeHidden();
-            }
-            const command = currentPage.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: "Developer: Reload Window" }).first();
-            await expect(command).toBeVisible({ timeout: 3_000 });
-            break;
-          } catch (error) {
-            if (attempt === 2 || await widget.isVisible()) throw error;
-            input = undefined;
-          }
-        }
-        if (input === undefined) throw new Error("VS Code did not select Reload Window");
-        await input.press("Enter");
+        await requestNativeReload(currentPage, expect);
         const timeout = Promise.withResolvers();
         const timer = setTimeout(() => timeout.reject(new Error("Workbench bootstrap did not pause")), 30_000);
         try { await Promise.race([paused.promise, timeout.promise]); } finally { clearTimeout(timer); }

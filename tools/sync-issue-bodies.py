@@ -50,6 +50,7 @@ EPIC_AREA_MAP = {
     "epic-web-runner-packaging": "core",
     "epic-editor-foundation": "editor",
     "epic-editor-assets-p0": "editor",
+    "epic-editor-p1": "editor",
     "epic-headless-sessions": "tooling",
 }
 

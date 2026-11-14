@@ -25,6 +25,7 @@ import {
   enqueueDirectionMove,
   IR_VERSION,
   BATTLE_BACKGROUND_MAGIC,
+  SINGLE_TILE_MAGIC,
   BinaryReader,
   readBoard,
   readMainFile,
@@ -43,6 +44,7 @@ import {
   writeBattleBackground,
   writeBoard,
   writeMainFile,
+  writeSingleTile,
   promoteRecovery,
   writeCharacter,
   selectRecovery,
@@ -88,13 +90,13 @@ type GameSpec = {
   readonly boards: Readonly<Record<string, BoardSpec>>;
   readonly programs: Readonly<Record<string, string>>;
   readonly fonts?: Readonly<Record<string, Uint8Array>>;
+  readonly assets?: Readonly<Record<string, Uint8Array>>;
   readonly plugins?: readonly string[];
   /** The TKR package names of the main file's package-list extension, in order. */
   readonly packages?: readonly string[];
   readonly audioSettings?: MainFileAudioSettings | null;
   readonly pixelMovement?: number;
   readonly soundFonts?: readonly string[];
-  /** Battle background files by filename; they are added under `Bkrounds/`. */
   readonly battleBackgrounds?: Readonly<Record<string, { readonly music: string; readonly menuMoveSound: string; readonly menuChooseSound: string; readonly readySound: string; readonly cantDoSound: string }>>;
   /** Menu cursor sounds by filename. */
   readonly cursorSounds?: { readonly move?: string; readonly select?: string; readonly cancel?: string };
@@ -204,6 +206,7 @@ function authorGame(spec: GameSpec): AuthoredGame {
   }
   for (const [name, text] of Object.entries(spec.programs)) add(`Prg/${name}`, encoder.encode(text));
   for (const [name, bytes] of Object.entries(spec.fonts ?? {})) add(`Font/${name}`, bytes);
+  for (const [path, bytes] of Object.entries(spec.assets ?? {})) add(path, bytes);
   if (spec.initChar !== undefined && spec.initChar !== "") add(`Chrs/${spec.initChar}`, unwrap(writeCharacter({ ...createEmptyCharacter(), minor: 5, name: "Hero", movementAnimations: Array(8).fill(""), battleStances: Array(6).fill("") })));
   for (const name of [spec.cursorSounds?.move, spec.cursorSounds?.select, spec.cursorSounds?.cancel]) {
     if (name !== undefined && name !== "") add(`Media/${name}`, new Uint8Array([0]));
@@ -3665,6 +3668,90 @@ test("pre-manifest checkpoints are refused without changing normal save bytes", 
   const recovered = restoreRecoveryCandidate(new TextDecoder().decode(candidate.bytes), state.audio);
   equal(recovered.recoveryAssets.version, 1);
   ok(recovered.recoveryAssets.board.key === "boards/start.brd");
+});
+
+test("recovery fingerprints and verifies tile assets reachable only through saved scan buffers", () => {
+  const missing = recoveryFixture();
+  const board = missing.state.world.board;
+  if (board?.runtime === undefined) throw new Error("recovery fixture has no runtime board");
+  board.runtime.tileBuffers["7"] = {
+    asset: assetKey("tiles/missing.gph"), tile: 1, nativeWidth: 32, nativeHeight: 32, width: 32, height: 32,
+  };
+  startRecoveryProgram(missing.state, "checkpoint()\nend()");
+  missing.engine.advance(1, []);
+  equal(missing.engine.recoveryCandidate(), null, "an uncacheable scan-buffer tile refuses checkpoint capture");
+
+  const { game, candidate } = recoveryCandidateWithDurableState();
+  const root = JSON.parse(new TextDecoder().decode(candidate)) as {
+    world: { board: { runtime: { tileBuffers: Record<string, unknown> } } };
+  };
+  root.world.board.runtime.tileBuffers["7"] = {
+    asset: "tiles/missing.gph", tile: 1, nativeWidth: 32, nativeHeight: 32, width: 32, height: 32,
+  };
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles, undefined, undefined, encoder.encode(JSON.stringify(root)));
+  const result = run(engine, game.files, 30);
+  equal(engine.recoveryStatus(), "failed");
+  ok(result.diagnostics.some(({ code }) => code === "recovery.asset-missing"));
+});
+
+test("recovery fingerprints scan-buffer tiles and nested animation frames", () => {
+  const paths = ["tiles/buffer.gph", "tiles/frame.gph", "tiles/nested.gph", "tiles/nested-frame.gph"];
+  const bytes = encoder.encode(writeSingleTile({
+    magic: SINGLE_TILE_MAGIC, major: 2, minor: 0, detail: 1, compression: 0,
+    width: 32, height: 32, pixels: Array<number>(32 * 32).fill(0),
+  }));
+  const assets = Object.fromEntries(paths.map((path) => [path, bytes]));
+  const setup = recoveryFixture([], { ...PAUSED_RECOVERY_GAME, assets });
+  const board = setup.state.world.board;
+  if (board?.runtime === undefined) throw new Error("recovery fixture has no runtime board");
+
+  for (let index = 0; index < paths.length; index += 1) {
+    board.layers[0]!.tiles[index] = {
+      asset: assetKey(paths[index]!), tile: 0, nativeWidth: 32, nativeHeight: 32, width: 32, height: 32,
+    };
+  }
+  deepEqual(run(setup.engine, setup.game.files, 1).diagnostics, []);
+  for (let index = 0; index < paths.length; index += 1) board.layers[0]!.tiles[index] = null;
+
+  const tileValue = (asset: string) => ({
+    asset: assetKey(asset), tile: 0, nativeWidth: 32, nativeHeight: 32, width: 32, height: 32,
+  });
+  const savedBuffer = {
+    ...tileValue(paths[0]!),
+    animation: {
+      ticksPerFrame: 1,
+      frames: [
+        tileValue(paths[1]!),
+        {
+          ...tileValue(paths[2]!),
+          animation: { ticksPerFrame: 1, frames: [tileValue(paths[3]!)] },
+        },
+      ],
+    },
+  };
+  board.runtime.tileBuffers["7"] = savedBuffer;
+  startRecoveryProgram(setup.state, "checkpoint()\nend()");
+  setup.engine.advance(1, []);
+  const candidate = setup.engine.recoveryCandidate();
+  ok(candidate !== null, "cached buffer-only tile assets allow checkpoint capture");
+  const parsed = restoreRecoveryCandidate(new TextDecoder().decode(candidate.bytes), setup.state.audio);
+  ok(parsed.recoveryAssets.board.key === "boards/start.brd");
+  const dependencies = parsed.recoveryAssets.boardDependencies.map(({ key }) => key);
+  for (const path of paths) ok(dependencies.includes(assetKey(path)), `fingerprint includes ${path}`);
+
+  const unchangedDoubles = makeDoubles();
+  const unchanged = bootEngine(setup.game, unchangedDoubles, undefined, undefined, candidate.bytes);
+  deepEqual(run(unchanged, setup.game.files, 30).diagnostics, []);
+  equal(unchanged.recoveryStatus(), "paused");
+  deepEqual(unchangedDoubles.state().world.board?.runtime?.tileBuffers["7"], savedBuffer);
+  const changedBytes = new Uint8Array(bytes);
+  changedBytes[changedBytes.length - 1] = changedBytes[changedBytes.length - 1]! ^ 1;
+  setup.game.files.set(assetKey(paths[3]!), changedBytes);
+  const recovered = bootEngine(setup.game, makeDoubles(), undefined, undefined, candidate.bytes);
+  const result = run(recovered, setup.game.files, 30);
+  equal(recovered.recoveryStatus(), "failed");
+  ok(result.diagnostics.some(({ code, message }) => code === "recovery.asset-changed" && message.includes(assetKey(paths[3]!))));
 });
 
 test("a pre-battle candidate ignores transient program-scope tile assets", () => {
