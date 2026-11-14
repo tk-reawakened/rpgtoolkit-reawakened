@@ -546,8 +546,9 @@ test("a save waits for every submitted character edit, including ones queued beh
       held.push(() => { void Promise.resolve(originalApply(command)).then(gate.resolve); });
       return gate.promise;
     };
+    equal(setupView.doc.getSnapshot().character?.name === "Ada Lovelace", false, "the fixture is named Ada, so this name is a real edit");
     equal(pendingEdits.busy(), false, "nothing is pending before an edit");
-    await editInput(setupView.el, "Character name", "Ada");
+    await editInput(setupView.el, "Character name", "Ada Lovelace");
     await editInput(setupView.el, "Health (HP)", "123");
     await settle();
     // A is with the document, awaiting its acknowledgement; B is queued behind it and has not been given to the document.
@@ -572,7 +573,7 @@ test("a save waits for every submitted character edit, including ones queued beh
     await waiting;
     equal(settled, true);
     equal(pendingEdits.busy(), false);
-    equal(setupView.doc.getSnapshot().character?.name, "Ada");
+    equal(setupView.doc.getSnapshot().character?.name, "Ada Lovelace");
     equal(setupView.doc.getSnapshot().character?.stats.hp, 123);
   } finally {
     setupView.unmount();
@@ -585,7 +586,7 @@ test("a rejected character edit is no longer pending and does not hold a save", 
   const setupView = await setup(exampleCharacter(), { pendingEdits });
   try {
     setupView.doc.apply = (): ApplyResult => ({ ok: false, rejection: { reason: "invalid", message: "No." } });
-    await editInput(setupView.el, "Character name", "Ada");
+    await editInput(setupView.el, "Character name", "Ada Lovelace");
     await settle();
     await pendingEdits.settle();
     equal(pendingEdits.busy(), false);

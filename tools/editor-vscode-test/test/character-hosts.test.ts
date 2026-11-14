@@ -80,10 +80,10 @@ function saved(bytes: Uint8Array | null): { readonly name: string; readonly hp: 
 
 const same = (left: Uint8Array | null, right: Uint8Array): boolean => left !== null && left.length === right.length && left.every((byte, index) => byte === right[index]);
 
-/** A is with the document and its acknowledgement is held; B was accepted after it and waits in the view. */
+/** The fixture's character is already named Ada, so the name edit uses another name and is a real edit. A is with the document and its acknowledgement is held; B was accepted after it and waits in the view. */
 async function holdTwoEdits(tab: CharacterProofTab): Promise<{ release(): void }> {
   const hold = tab.holdEditAcknowledgements();
-  await edit(tab, "Character name", "Ada");
+  await edit(tab, "Character name", "Ada Lovelace");
   await edit(tab, "Health (HP)", "123");
   await settle(act);
   return hold;
@@ -112,14 +112,14 @@ for (const name of ["browser host", "VS Code desktop", "VS Code for the Web"]) {
       equal(await saving, true);
       await settle(act);
       const written = saved(await proof.disk(PATH));
-      equal(written.name, "Ada");
+      equal(written.name, "Ada Lovelace");
       equal(written.hp, 123);
       equal(tab.workbenchDirty(), false, "the host marks saved only after both edits were written");
       equal(await tab.close("cancel"), true, "a saved document closes without asking");
       await settle(act);
 
       const reopened = await openReady(proof);
-      equal(input(reopened, "Character name").value, "Ada");
+      equal(input(reopened, "Character name").value, "Ada Lovelace");
       equal(input(reopened, "Health (HP)").value, "123");
       equal(reopened.workbenchDirty(), false);
       await reopened.close("discard");
@@ -138,11 +138,11 @@ for (const name of ["browser host", "VS Code desktop", "VS Code for the Web"]) {
       equal(await closing, true);
       await settle(act);
       const written = saved(await proof.disk(PATH));
-      equal(written.name, "Ada");
+      equal(written.name, "Ada Lovelace");
       equal(written.hp, 123);
 
       const reopened = await openReady(proof);
-      equal(input(reopened, "Character name").value, "Ada");
+      equal(input(reopened, "Character name").value, "Ada Lovelace");
       equal(input(reopened, "Health (HP)").value, "123");
       await reopened.close("discard");
     });
@@ -187,7 +187,7 @@ for (const name of ["VS Code desktop", "VS Code for the Web"]) {
       await settle(act);
       hold.release();
       const backup = saved(await backing);
-      equal(backup.name, "Ada");
+      equal(backup.name, "Ada Lovelace");
       equal(backup.hp, 123);
       await tab.close("discard");
     });
@@ -211,7 +211,7 @@ for (const name of ["VS Code desktop", "VS Code for the Web"]) {
       equal(await tab.saveFromWorkbench(), true);
       await settle(act);
       const written = saved(await proof.disk(PATH));
-      equal(written.name, "Ada");
+      equal(written.name, "Ada Lovelace");
       equal(written.hp, 123);
       equal(tab.workbenchDirty(), false);
       await tab.close("discard");
