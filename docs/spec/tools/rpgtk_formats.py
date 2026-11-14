@@ -124,8 +124,8 @@ def parse_gam(r):
             r.s16(f'movementKey[{d}]')
     # TKR extension order: package list, audio settings, input settings. The
     # input block is shown field-by-field; unrelated trailing bytes stay opaque.
-    if r.d[r.p:r.p + 7] == b'TKRPLUG\0':
-        r.raw(7, 'TKR package-list marker', 'TKRPLUG\\0')
+    if r.d[r.p:r.p + 8] == b'TKRPLUG\0':
+        r.raw(8, 'TKR package-list marker', 'TKRPLUG\\0')
         n = r.u16('TKR package count')
         for i in range(n): r.string(f'TKR package[{i}]')
     if r.d[r.p:r.p + 7] == b'TRKAUD\0':
@@ -508,7 +508,11 @@ def parse_gph(text):
 # ================================================================ write mode
 class _ZeroProbe:
     """Stands in for file data during encoding: legacy-probe bytes read as 0 (binary)."""
-    def __getitem__(self, i): return 0
+    def __getitem__(self, i):
+        if isinstance(i, slice):
+            start, stop, step = i.indices(len(self))
+            return bytes(len(range(start, stop, step)))
+        return 0
     def __len__(self): return 1 << 30
 
 class Encoder:
@@ -516,6 +520,8 @@ class Encoder:
     for its value and writes it. The layout is therefore exactly the reader's."""
     def __init__(self, value):
         self.value, self.b, self.trace, self.d = value, bytearray(), [], _ZeroProbe()
+    @property
+    def p(self): return len(self.b)
     def _put(self, fmt, f, kind):
         v = self.value(f, kind); self.b += struct.pack('<' + fmt, v); return v
     def i8(self, f):  return self._put('b', f, 'int')
