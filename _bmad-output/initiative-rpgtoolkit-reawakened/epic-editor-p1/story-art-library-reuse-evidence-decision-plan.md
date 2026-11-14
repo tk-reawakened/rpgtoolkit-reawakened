@@ -2,7 +2,7 @@
 type: feature
 title: "Art library reuse evidence decision"
 ticket: 2
-status: in-progress
+status: in-review
 risk: high
 created: 2026-11-14
 baseline_revision: e379d86a8d6794030b78f619ffbb827a73f92477
@@ -10,6 +10,10 @@ route: full
 route_source: auto
 review: thorough
 review_source: auto
+review_loop_iteration: 1
+lenses_ran: ["model-boundary", "interaction-host"]
+review_base_revision: 750b5eadf61dc85aabd4208965c5d4325f13a39c
+review_head_revision: a46ef9e9c6d42bd4fd7fad0abac65eb7b5008d03
 ---
 
 <frozen-after-approval reason="existing owner-approved direction and story admission gate; not approval of the implementation below">
@@ -58,9 +62,9 @@ Fresh isolated evaluation is recorded in [story-13.2-candidate-evidence.md](../.
 - [x] Produce pinned candidate/provenance evidence and the complete T-36 coverage/ownership matrix without installing a product dependency.
 - [x] Implement the reversible regular-TST model/view experiment and real host registration on the existing shared document.
 - [x] Reconcile concurrent work at `597d7c3e4f0939229b19775538c2efa13de59c20`; preserve the canonical browser workbench, sprite editors and board tools.
-- [ ] Verify the final integrated revision through focused type checks, model/component regressions and both actual host surfaces; close reachable checklist gaps rather than merely restating them.
-- [ ] Independently review the model/boundary and interaction/host slices, track every defect, fix and reverify; publish exact findings and remaining ownership/coverage limits.
-- [ ] Obtain person review of reproducible evidence and explicit approval of the specific implementation before admission/closure. This is not delegated to an automated reviewer.
+- [x] Verify the integrated revision through configured type checks, model/component regressions and both actual host surfaces. The findings distinguish exercised behavior from the remaining checklist, not a claim to complete T-36 or all of 13.1/13.3.
+- [x] Independently review the model/boundary and interaction/host slices, track defects, fix and reverify; publish exact findings and remaining ownership/coverage limits.
+- [ ] Obtain person review of the fresh art-host findings before story closure, as published. The owner merged the package-evidence docs in PR #2347; ordinary reversible internal modules require no new product-direction vote.
 
 **Acceptance Criteria:**
 
@@ -74,8 +78,10 @@ Fresh isolated evaluation is recorded in [story-13.2-candidate-evidence.md](../.
 
 - 2026-11-14: checkpoint `d5ecff7428756201df26cea095d8f28919edcc6b` preserves the owned experiment on the pushed `feat/1726-art-host-prototype` branch. This is experimental source, not production admission.
 - 2026-11-14: fresh main added sprite editors, a real browser workbench and board tools. Merge `cca45b2571190d1df267ddf254b5bc9328b38b85` preserves those foundations rather than keeping a competing single-document browser demo. Actual-host checks must now cover that integrated revision.
-- Earlier focused checks passed five model cases and one component fault-injection case, all individually below one second; two real-browser artwork scenarios and eight prerequisite cases passed before the fresh-main integration. Native art checks reached genuine permission refusal and external-conflict handling; the final integrated native reload/CSP proof is not yet claimed green.
+- Final integrated source at `a46ef9e9c6d42bd4fd7fad0abac65eb7b5008d03` passed the production build and configured model/UI/browser/native-harness type checks; 27 focused model/conformance/component cases; all 12 actual-browser settings/sprite/lifecycle/art cases; and both complete packaged VS Code cancel/keep proof paths, including settings, sprite, board, actual artwork, real failure/conflict, orderly recovery and CSP guards. Every ordinary case reported below one second. Actual browser artwork cases reported 2.8 s and 2.2 s; the complete native run reported 115.26 s.
 - Perturbations established that removing row/column conversion fails the asymmetric pixel oracle and hiding a save error after conflict clearance fails the visible-error assertion. Both changes were restored and the focused cases passed.
+- Source and fix reviews found no demonstrated remaining defects at the pinned revision. The model reviewer confirmed the conformance case, deliberate native recovery choice and stable source selection. The interaction reviewer confirmed the updated preview-commit, mirror ownership and command-routing slice. The two original perturbations and the observed red release-byte assertion independently guard against conversion/error-visibility/unpreviewed-release regressions.
+- Native and browser captures show the actual owned pixel view. No prototype dependency, native layered-art schema, borrowed GPL code or third-party art asset was introduced. Cold offline bootstrap and a disconnected VS Code transport are not inferred from already-loaded offline editing; remaining published coverage/ownership is for the story's person review.
 
 ## Plan Change Log
 
