@@ -111,12 +111,17 @@ test("project thread programs run during cooperative waits but pause during bloc
     writeProjectFile(root, "thread.spec.prg", [
       'it("runs project programs as threads", () => {',
       "  ticked = 0",
-      '  thread("worker.prg", 0)',
+      "  inlineRan = 0",
+      '  workerId = thread("worker.prg", 0)',
+      '  inlineId = thread("inlineRan = 1", 0)',
       "  specTicks(3)",
       "  running = ticked",
       "  sleep(3)",
       "  expect(running).toBeTruthy()",
       "  expect(ticked).toBe(running)",
+      "  expect(inlineRan).toBe(1)",
+      "  killThread(workerId)",
+      "  killThread(inlineId)",
       "})",
     ].join("\n"));
 
