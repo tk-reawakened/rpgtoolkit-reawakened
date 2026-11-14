@@ -97,6 +97,11 @@ createServer((request, response) => {
   const size = statSync(full).size;
   const header = request.headers.range;
   const extraHeaders = {};
+  if (relative.toLowerCase() === "tools/browser/editor-web/index.html") {
+    // `frame-ancestors` is ignored in meta-delivered CSP; keep this page's framing restriction in a response header.
+    extraHeaders["content-security-policy"] = "frame-ancestors 'none'";
+    extraHeaders["x-frame-options"] = "DENY";
+  }
   if (relative === "apps/service-worker.js") {
     // Keep the registered script URL stable so existing PWA installs can update to this build.
     extraHeaders["service-worker-allowed"] = "/packages/runner-web/app/";
