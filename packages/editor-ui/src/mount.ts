@@ -17,6 +17,7 @@ import { Shell, type ShellProps } from "./shell.tsx";
 import { BoardView } from "./board-view.tsx";
 import { PreferencesView, type PreferencesViewProps } from "./preferences-view.tsx";
 import { SettingsView } from "./settings-view.tsx";
+import type { TilesetBrowserContext } from "./tileset-browser.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
 export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCommand> {
@@ -46,6 +47,8 @@ export interface ViewContext {
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
    */
   readonly services: Pick<PlatformServices, "document" | "capabilities">;
+  /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
+  readonly browser?: TilesetBrowserContext;
 }
 
 /** The handle a host keeps to a mounted view. */
@@ -65,7 +68,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   const document = ctx.document;
   render(
     isBoardView(document)
-      ? createElement(BoardView, { doc: document, capabilities, onEdited })
+      ? createElement(BoardView, { doc: document, capabilities, onEdited, ...(ctx.browser === undefined ? {} : { browser: ctx.browser }) })
       : createElement(SettingsView, { doc: document, capabilities, onEdited }),
     el,
   );

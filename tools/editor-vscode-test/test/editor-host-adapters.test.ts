@@ -4,6 +4,8 @@ import { after, before, test } from "node:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { asMainDocument, createDocumentIdentity, openMainDocument, type MainDocumentSnapshot } from "@tk-reawakened/editor-model";
 import { createVscodeFileSystemWithPort, handleEditorHostRequest, recoverMainDocument, resolveRecoveryConflict, RemoteDocument, vscodeCapabilities, type VscodeApi, type VscodeFileSystemPort } from "@tk-reawakened/host-vscode/testing";
+import { createBrowserSession } from "@tk-reawakened/editor-ui/browser-session";
+import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import type { ViewDocument } from "@tk-reawakened/editor-ui";
 
 let mount: typeof import("@tk-reawakened/editor-ui").mount;
@@ -50,9 +52,13 @@ test("real web and VS Code adapters keep mounted title edits dirty and named aft
   const vscodeFs = createVscodeFileSystemWithPort(root, vscodePort, "file:///project");
   const vscodeOpened = await openMainDocument(vscodeFs, createDocumentIdentity("file:///project", gamePath));
   ok(vscodeOpened.ok);
+  const browserSession = createBrowserSession();
   const hostDocument = {
     model: vscodeOpened.document,
     capabilities: vscodeCapabilities(true),
+    browserSession,
+    browserList: (path: string) => vscodeFs.list(path),
+    browserRead: (path: string) => vscodeFs.read(path),
     didEdit: (_editId: string) => undefined,
     preview: async () => ({ ok: false as const, message: "A main file has no picture." }),
     visit: async () => ({ ok: false as const, message: "not used" }),
@@ -67,7 +73,7 @@ test("real web and VS Code adapters keep mounted title edits dirty and named aft
     getState: () => undefined,
     setState: () => undefined,
   };
-  remote = new RemoteDocument("main", vscodeOpened.document.getSnapshot(), api);
+  remote = new RemoteDocument("main", vscodeOpened.document.getSnapshot(), browserSession.getSnapshot(), api);
   const vscodeElement = document.createElement("div");
   document.body.append(vscodeElement);
   await assertFailedMountedSave(remote as unknown as ViewDocument, vscodeElement);
@@ -132,6 +138,9 @@ test("web and VS Code adapters persist identical edited bytes through the workbe
   const hostDocument = {
     model: vscodeOpened.document,
     capabilities: vscodeCapabilities(true),
+    browserSession: createBrowserSession(),
+    browserList: (path: string) => vscodeFs.list(path),
+    browserRead: (path: string) => vscodeFs.read(path),
     didEdit: () => undefined,
     preview: async () => ({ ok: false as const, message: "A main file has no picture." }),
     visit: async () => ({ ok: false as const, message: "not used" }),
@@ -315,6 +324,7 @@ test("two rejected recovery choices never discard local work when disk first mat
     readProject: async () => ({ ok: true as const, value: disk.slice() }),
     writeProject: async () => { writes += 1; return { ok: true as const, value: undefined }; },
   };
+  const browserFs = createMemoryPlatformServices().fs;
   const source = await openMainDocument(storage, identity);
   ok(source.ok);
   ok(source.document.apply({ type: "set-game-title", title: "External B" }).ok);
@@ -327,6 +337,9 @@ test("two rejected recovery choices never discard local work when disk first mat
   const bridge = {
     model: recovered.document,
     capabilities: vscodeCapabilities(false),
+    browserSession: createBrowserSession(),
+    browserList: (path: string) => browserFs.list(path),
+    browserRead: (path: string) => browserFs.read(path),
     didEdit: () => undefined,
     preview: async () => ({ ok: false as const, message: "A main file has no picture." }),
     visit: async () => ({ ok: false as const, message: "not used" }),
