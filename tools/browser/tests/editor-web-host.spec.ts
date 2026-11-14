@@ -23,6 +23,7 @@ test("browser host mounts the shared settings view and keeps CSP quiet while edi
   await expect(page.getByText(/session copy; changes stay in memory/)).toBeVisible();
   const nextTitle = `Browser host proof ${Date.now()}`;
   await title.fill(nextTitle);
+  await page.getByRole("button", { name: "Apply changes" }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(title).toHaveValue(nextTitle);
   await expect(page.getByRole("status").filter({ hasText: "All changes saved" })).toBeVisible();
@@ -39,6 +40,7 @@ test("browser folder handle and identity survive reload and re-selection", async
   await expect(page.getByLabel("Recent project")).toBeVisible();
   const identity = await page.locator("#recent-project").inputValue();
   await title.fill("Stable browser project");
+  await page.getByRole("button", { name: "Apply changes" }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "All changes saved" })).toBeVisible();
   await page.reload();

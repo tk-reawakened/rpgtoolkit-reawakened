@@ -36,6 +36,7 @@ const FILES = projectFiles();
 
 /** One representative change in every category, as the view stages them below. */
 const CHANGES: MainSettingsChanges = {
+  gameTitle: "Forest Quest",
   useJoystick: false,
   movementScanCodes: [0x20, 0, 0xd0, 0, 0xcb, 0, 0xc8, 0],
   defaultSoundFont: "media/gm.sf2",
@@ -142,12 +143,15 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       await settle(act);
 
       // Cancel leaves the document and the file as they were.
+      await type(first, "Game title", "Cancelled title");
       await type(first, "Start program", "other.prg");
       await press(first, "Cancel changes");
+      equal(control(first, "Game title").value, "Example Game");
       equal(control(first, "Start program").value, "start.prg");
       equal(first.workbenchDirty(), false, "Cancel makes no edit");
 
       // T-10 project, T-11 startup, T-12 fighting, T-13 graphics, T-14 plugins.
+      await type(first, "Game title", "Forest Quest");
       await choose(first, "Legacy joystick input", false);
       await act(() => { control(first, "East").dispatchEvent(new KeyboardEvent("keydown", { code: "KeyD", key: "d", bubbles: true })); });
       await type(first, "Default SoundFont", "media/gm.sf2");
@@ -178,6 +182,7 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       await settle(act);
       const second = await host.open(GAME);
       await settle(act);
+      equal(control(second, "Game title").value, "Forest Quest");
       equal(control(second, "Legacy joystick input").checked, false);
       equal(control(second, "East").value, "KeyD");
       equal(control(second, "Default SoundFont").value, "media/gm.sf2");

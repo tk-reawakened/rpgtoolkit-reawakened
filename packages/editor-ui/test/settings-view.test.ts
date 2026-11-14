@@ -74,16 +74,20 @@ const button = (el: HTMLElement): HTMLButtonElement => {
 const alerts = (el: HTMLElement): string[] => [...el.querySelectorAll('[role="alert"]')].map((node) => node.textContent ?? "");
 const status = (el: HTMLElement): string => el.querySelector('[role="status"]')?.textContent ?? "";
 
-/** Type `text` into the title field and leave it, as a person does. */
+/** Type a title and explicitly apply it as one staged edit. */
 async function type(el: HTMLElement, text: string): Promise<void> {
   const field = input(el);
   await act(() => {
     field.value = text;
     field.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  await act(() => {
-    field.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  const apply = el.querySelector<HTMLButtonElement>(".tkr-settings-apply");
+  if (apply !== null && !apply.disabled) {
+    await act(async () => {
+      apply.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
 }
 
 test("the view shows the title, a labelled field, a clean state and a disabled Save", async () => {
@@ -111,7 +115,7 @@ test("typing a title edits the document, marks it unsaved and tells the host abo
   equal(rest.length, 0, "one command, one document.edited message");
   equal(event?.document, identity.key);
   equal(event?.editId, "edit-1");
-  match(event?.label ?? "", /Renamed Quest/);
+  equal(event?.label, "Change game title");
   equal(input(s.el).value, "Renamed Quest");
 });
 
@@ -166,9 +170,8 @@ test("a title the file cannot hold is refused whole and the reason is shown besi
   equal(s.doc.getSnapshot().gameTitle, "Example Game", "the document did not change");
   equal(s.doc.getSnapshot().dirty, false);
   equal(s.host.editedEvents.length, 0, "no document.edited for a refused command");
-  const shown = alerts(s.el);
-  equal(shown.length, 1);
-  match(shown[0] ?? "", /The title was not changed/);
+  match(s.el.textContent ?? "", /Game title: character U\+65E5/);
+  equal(s.el.querySelector<HTMLButtonElement>(".tkr-settings-apply")?.disabled, true);
   equal(input(s.el).getAttribute("aria-invalid"), "true");
 });
 
@@ -186,7 +189,7 @@ test("an undo from the host replaces the field's text with the document's", asyn
 test("a read-only document shows its reason and offers no editing and no Save", async () => {
   const s = await setup(exampleTextMain());
   show(s);
-  equal(input(s.el).readOnly, true);
+  equal(input(s.el).disabled, true);
   equal(button(s.el).disabled, true);
   const note = s.el.querySelector('[role="note"]');
   match(note?.textContent ?? "", /Read only/);
@@ -335,40 +338,41 @@ test("two mounted views have distinct ids, and each label and description points
   }
 });
 
-test("Save commits the text still in the field and saves it, without a change event", async () => {
+test("Save persists only applied title edits, and Cancel leaves the document and file unchanged", async () => {
   const s = await setup();
   show(s);
   await act(() => {
-    const field = input(s.el);
-    field.value = "Typed, never left";
-    field.dispatchEvent(new Event("input", { bubbles: true }));
+    input(s.el).value = "Typed, never applied";
+    input(s.el).dispatchEvent(new Event("input", { bubbles: true }));
   });
-  equal(s.doc.getSnapshot().gameTitle, "Example Game", "nothing is committed yet");
-  equal(button(s.el).disabled, false, "Save is on offer for a draft");
-  await save(s);
-  equal(titleOf(s.host.bytesOf(PATH) ?? new Uint8Array(0)), "Typed, never left");
-  equal(s.host.editedEvents.length, 1, "committed once, then saved");
+  equal(s.doc.getSnapshot().gameTitle, "Example Game");
+  equal(button(s.el).disabled, true, "a draft alone cannot be saved");
+  await act(() => s.el.querySelector<HTMLButtonElement>(".tkr-settings-discard")!.click());
+  equal(input(s.el).value, "Example Game");
+  equal(s.host.editedEvents.length, 0);
+  deepEqual(s.host.bytesOf(PATH), exampleMain(9));
 });
 
-test("Enter in the field commits the title as one edit", async () => {
+test("Enter and blur do not apply the title; Apply creates the edit", async () => {
   const s = await setup();
   show(s);
   await act(() => {
-    const field = input(s.el);
-    field.value = "Entered";
-    field.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  await act(() => {
+    input(s.el).value = "Entered";
+    input(s.el).dispatchEvent(new Event("input", { bubbles: true }));
     input(s.el).dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    input(s.el).dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  equal(s.doc.getSnapshot().gameTitle, "Example Game");
+  equal(s.host.editedEvents.length, 0);
+  await act(async () => {
+    s.el.querySelector<HTMLButtonElement>(".tkr-settings-apply")!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
   equal(s.doc.getSnapshot().gameTitle, "Entered");
   equal(s.host.editedEvents.length, 1);
-  await act(() => {
-    input(s.el).dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true }));
-  });
-  equal(s.host.editedEvents.length, 1, "another key commits nothing");
 });
-test("a newer title draft survives an earlier asynchronous apply", async () => {
+
+test("a pending asynchronous Apply locks the title and Cancel, and reports exactly one accepted edit", async () => {
   const s = await setup();
   let releaseApply: () => void = () => undefined;
   const delayed: ViewDocument = {
@@ -376,143 +380,25 @@ test("a newer title draft survives an earlier asynchronous apply", async () => {
     kind: s.doc.kind,
     getSnapshot: () => s.doc.getSnapshot(),
     subscribe: (listener) => s.doc.subscribe(listener),
-    apply: (command) =>
-      new Promise<ApplyResult>((resolve) => {
-        releaseApply = () => resolve(s.doc.apply(command));
-      }),
+    apply: (command) => new Promise<ApplyResult>((resolve) => { releaseApply = () => resolve(s.doc.apply(command)); }),
     save: () => s.doc.save(),
     resolveConflict: (choice) => s.doc.resolveConflict(choice),
   };
-  await act(() => {
-    mount(s.el, { document: delayed, services: s.host });
-  });
-
+  await act(() => { mount(s.el, { document: delayed, services: s.host }); });
   await type(s.el, "First title");
-  await type(s.el, "Newer draft");
-  equal(s.doc.getSnapshot().gameTitle, "Example Game", "the deferred apply has not settled");
-  await act(async () => {
-    releaseApply();
-    await Promise.resolve();
-  });
-
+  equal(s.doc.getSnapshot().gameTitle, "Example Game");
+  equal(input(s.el).disabled, true);
+  equal(s.el.querySelector<HTMLButtonElement>(".tkr-settings-discard")!.disabled, true);
+  equal(button(s.el).disabled, true, "Save cannot race the pending edit");
+  await act(async () => { releaseApply(); await new Promise((resolve) => setTimeout(resolve, 0)); });
   equal(s.doc.getSnapshot().gameTitle, "First title");
-  equal(input(s.el).value, "Newer draft", "the draft typed during apply remains visible");
-});
-
-
-test("Enter commits a newer title draft after an earlier asynchronous apply", async () => {
-  const s = await setup();
-  let releaseApply: () => void = () => undefined;
-  let firstApply = true;
-  const delayed: ViewDocument = {
-    identity: s.doc.identity,
-    kind: s.doc.kind,
-    getSnapshot: () => s.doc.getSnapshot(),
-    subscribe: (listener) => s.doc.subscribe(listener),
-    apply: (command) => {
-      if (!firstApply) return s.doc.apply(command);
-      firstApply = false;
-      return new Promise<ApplyResult>((resolve) => {
-        releaseApply = () => resolve(s.doc.apply(command));
-      });
-    },
-    save: () => s.doc.save(),
-    resolveConflict: (choice) => s.doc.resolveConflict(choice),
-  };
-  await act(() => {
-    mount(s.el, { document: delayed, services: s.host });
-  });
-  await type(s.el, "First title");
-
-  const field = input(s.el);
-  await act(() => {
-    field.value = "Newer draft";
-    field.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  await act(() => {
-    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-  });
-  equal(status(s.el), "Unsaved changes");
-
-  let stop: () => void = () => undefined;
-  const newerTitleApplied = new Promise<void>((resolve) => {
-    stop = s.doc.subscribe(() => {
-      if (s.doc.getSnapshot().gameTitle === "Newer draft") {
-        stop();
-        resolve();
-      }
-    });
-  });
-  await act(async () => {
-    releaseApply();
-    await newerTitleApplied;
-  });
-  equal(s.doc.getSnapshot().gameTitle, "Newer draft");
-  equal(s.doc.getSnapshot().edits.length, 2);
-});
-
-test("Save commits a newer title draft after an earlier asynchronous apply", async () => {
-  const s = await setup();
-  let releaseApply: () => void = () => undefined;
-  let firstApply = true;
-  let finishSave: () => void = () => undefined;
-  const saveFinished = new Promise<void>((resolve) => {
-    finishSave = resolve;
-  });
-  const delayed: ViewDocument = {
-    identity: s.doc.identity,
-    kind: s.doc.kind,
-    getSnapshot: () => s.doc.getSnapshot(),
-    subscribe: (listener) => s.doc.subscribe(listener),
-    apply: (command) => {
-      if (!firstApply) return s.doc.apply(command);
-      firstApply = false;
-      return new Promise<ApplyResult>((resolve) => {
-        releaseApply = () => resolve(s.doc.apply(command));
-      });
-    },
-    save: () =>
-      s.doc.save().then((result) => {
-        finishSave();
-        return result;
-      }),
-    resolveConflict: (choice) => s.doc.resolveConflict(choice),
-  };
-  await act(() => {
-    mount(s.el, { document: delayed, services: s.host });
-  });
-  await type(s.el, "First title");
-
-  const field = input(s.el);
-  await act(() => {
-    field.value = "Newer draft";
-    field.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  await act(() => {
-    button(s.el).click();
-  });
-  equal(status(s.el), "Saving…");
-  const savedState = new Promise<void>((resolve) => {
-    const observer = new MutationObserver(() => {
-      if (status(s.el) === "All changes saved") {
-        observer.disconnect();
-        resolve();
-      }
-    });
-    observer.observe(s.el, { childList: true, characterData: true, subtree: true });
-  });
-  await act(async () => {
-    releaseApply();
-    await saveFinished;
-  });
-  await savedState;
-
-  equal(s.doc.getSnapshot().gameTitle, "Newer draft");
-  equal(s.doc.getSnapshot().dirty, false);
-  const savedBytes = s.host.bytesOf(PATH);
-  ok(savedBytes !== undefined);
-  equal(titleOf(savedBytes), "Newer draft");
-  equal(status(s.el), "All changes saved");
+  equal(s.host.editedEvents.length, 1);
+  equal(input(s.el).disabled, false);
+  await type(s.el, "Second title");
+  equal(s.doc.getSnapshot().gameTitle, "First title", "a second Apply is awaiting its acknowledgement");
+  await act(async () => { releaseApply(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+  equal(s.doc.getSnapshot().gameTitle, "Second title");
+  equal(s.host.editedEvents.length, 2);
 });
 test("Save is disabled and the state says Saving while a save is in flight", async () => {
   const s = await setup();
@@ -550,17 +436,15 @@ test("Save is disabled and the state says Saving while a save is in flight", asy
   equal(button(s.el).disabled, true, "clean again");
 });
 
-test("a refusal sets aria-describedby to the error's id, and the id is on the error", async () => {
+test("a staged validation error is named by the title field's aria-describedby", async () => {
   const s = await setup();
   show(s);
   await type(s.el, "日本語");
   const field = input(s.el);
-  const error = s.el.querySelector(".tkr-settings-error");
-  ok(error !== null);
-  ok(error.id.length > 0, "the error has an id");
-  ok((field.getAttribute("aria-describedby") ?? "").split(" ").includes(error.id), "the field is described by it");
-  const stateId = s.el.querySelector('[role="status"]')?.id ?? "";
-  ok((field.getAttribute("aria-describedby") ?? "").split(" ").includes(stateId), "and still by the state line");
+  const ids = (field.getAttribute("aria-describedby") ?? "").split(" ");
+  const descriptions = ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
+  match(descriptions, /Game title: character U\+65E5/);
+  equal(field.getAttribute("aria-invalid"), "true");
 });
 
 test("typing the title the document already has is not an edit", async () => {
@@ -573,15 +457,14 @@ test("typing the title the document already has is not an edit", async () => {
   equal(input(s.el).value, "Example Game");
 });
 
-test("a refusal goes away when the document's title changes under it", async () => {
+test("an external title change does not erase an invalid staged draft; Cancel reveals the new title", async () => {
   const s = await setup();
   show(s);
   await type(s.el, "日本語");
-  equal(alerts(s.el).length, 1);
-  await act(() => {
-    s.doc.apply({ type: "set-game-title", title: "From elsewhere" });
-  });
-  deepEqual(alerts(s.el), [], "the refusal belonged to the old title");
+  equal(input(s.el).getAttribute("aria-invalid"), "true");
+  await act(() => { s.doc.apply({ type: "set-game-title", title: "From elsewhere" }); });
+  equal(input(s.el).value, "日本語");
+  await act(() => { s.el.querySelector<HTMLButtonElement>(".tkr-settings-discard")!.click(); });
   equal(input(s.el).getAttribute("aria-invalid"), null);
   equal(input(s.el).value, "From elsewhere");
 });

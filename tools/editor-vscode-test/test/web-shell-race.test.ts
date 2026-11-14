@@ -63,7 +63,10 @@ export async function openGameSettings(project, path, element) {
     const title = document.querySelector<HTMLInputElement>("#settings input")!;
     title.value = "Still writable";
     title.dispatchEvent(new Event("input", { bubbles: true }));
-    title.dispatchEvent(new Event("change", { bubbles: true }));
+    const apply = document.querySelector<HTMLButtonElement>("#settings .tkr-settings-apply")!;
+    await until(() => !apply.disabled);
+    apply.click();
+    await until(() => document.querySelector("#settings .tkr-settings-state")?.textContent === "Unsaved changes");
     const button = [...document.querySelectorAll<HTMLButtonElement>("#settings button")].find((item) => item.textContent === "Save")!;
     button.click();
     await until(() => byId("settings").textContent?.includes("All changes saved") === true);
