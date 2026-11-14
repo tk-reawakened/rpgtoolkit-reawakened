@@ -72,3 +72,7 @@ This ADR amends [guardrails.md](../guardrails.md) G6 rules 1 and 2 and its Enfor
 * [guardrails.md](../guardrails.md): G6.
 * [ADR 0002](0002-core-pixels-and-deterministic-maths.md): Decision 3 (dev-only tools).
 * Font-library spike evidence: [discovery/font-library-spike.md](../../_bmad-output/initiative-rpgtoolkit-reawakened/epic-board-rendering/discovery/font-library-spike.md).
+
+## Subsequent amendment
+
+The owner accepted [ADR 0034](0034-tiered-dependency-licence-policy.md) on 2026-11-14. It amends this ADR's whole-production-tree Bronze-or-better rule: the rating threshold now applies to direct production dependencies, while known transitive dependencies and content bundled inside a selected dependency may use licences outside Blue Oak if they permit the project's actual use and redistribution and are not copyleft or otherwise restricted. Copyleft, restricted, unknown and unlicensed terms remain blocked at every tier. This ADR remains authoritative for the retained direct-dependency standard, dev-tool process, notices and standalone-asset rules, except where ADR 0034 expressly changes them.
