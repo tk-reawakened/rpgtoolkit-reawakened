@@ -427,6 +427,8 @@ export async function runVscodeWebProof(
   const savePath = page.getByRole("textbox", { name: "Folder path" });
   await expect(savePath).toHaveValue(`/.tkr-exports/${packageName}`);
   await page.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "The folder .tkr-exports does not exist. Would you like to create it?" })).toBeVisible();
+  await page.getByRole("button", { name: "OK", exact: true }).click();
   await expect(page.getByText(/Package saved to .* and install descriptor saved to/).first()).toBeVisible({ timeout: 15_000 });
   const packageBytes = await host.readBacking(`.tkr-exports/${packageName}`);
   const descriptorBytes = await host.readBacking(`.tkr-exports/${packageName}.json`);
