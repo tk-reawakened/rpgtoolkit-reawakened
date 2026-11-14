@@ -103,7 +103,17 @@ test("VS Code bridge accepts pre-battle character snapshots", async () => {
   }, "file:///project"), createDocumentIdentity("file:///project", path));
   ok(opened.ok);
   equal(opened.document.getSnapshot().battleAnimations.length, 0);
-  ok(isSpriteSnapshot(opened.document.getSnapshot(), "character"));
+  const snapshot = opened.document.getSnapshot();
+  ok(isSpriteSnapshot(snapshot, "character"));
+  ok(snapshot.character);
+  // The bridge accepts any snapshot a webview could send, so the variants are built without the excess-property check of a literal.
+  const variant = (changes: Record<string, unknown>): Parameters<typeof isSpriteSnapshot>[0] => ({ ...snapshot, ...changes });
+  equal(isSpriteSnapshot(variant({ character: null }), "character"), false);
+  equal(isSpriteSnapshot(variant({ character: { ...snapshot.character, stats: {} } }), "character"), false);
+  equal(isSpriteSnapshot(variant({ character: { ...snapshot.character, specialMoves: [] } }), "character"), false);
+  equal(isSpriteSnapshot(variant({ character: { ...snapshot.character, variableNames: [123] } }), "character"), false);
+  ok(isSpriteSnapshot(variant({ actorType: "item", battleAnimations: [""], character: null }), "item"));
+  equal(isSpriteSnapshot(variant({ actorType: "item", battleAnimations: [""], character: snapshot.character }), "item"), false);
 });
 test("the VS Code sprite bridge previews project GIFs and saves edits that survive reopening", async () => {
   const actorPath = "Chrs/hero.tem";

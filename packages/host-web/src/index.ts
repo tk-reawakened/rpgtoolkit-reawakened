@@ -263,6 +263,7 @@ export function mountDocumentView(
   element: HTMLElement,
   projectLayout: ProjectLayout = { projectFolder: "" },
   openSource?: (path: string) => Promise<string | null>,
+  navigation?: ViewContext["navigation"],
 ): DocumentView {
   const viewDocument = viewDocumentFor(project, document);
   let mounted: ViewHandle | null = null;
@@ -281,6 +282,9 @@ export function mountDocumentView(
       services: project.services,
       browser: { session: project.browserSession, fs: project.services.fs, layout: projectLayout, ...(openSource === undefined ? {} : { openSource }) },
       boardPreferences: boardPreferencesFor(project),
+      // The workspace waits for these edits before Save All, close, revert and Save As read the document (#2613).
+      pendingEdits: project.workspace.pendingEdits(document),
+      ...(navigation === undefined ? {} : { navigation }),
     });
     notice = project.sessionCopy ? container.ownerDocument.createElement("p") : null;
     if (notice) {

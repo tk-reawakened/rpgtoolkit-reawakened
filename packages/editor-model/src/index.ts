@@ -137,6 +137,7 @@ export {
   type SpriteGroup,
   type SpritePreviewFrame,
   type SpriteOpenResult,
+  type CharacterAuthoringFields,
 } from "./sprite-document.ts";
 export {
   colourOfShade,
@@ -192,6 +193,7 @@ export {
   type SaveResult,
   type SetGameTitleCommand,
 } from "./main-document.ts";
+export { createEditTracker, createPendingEdits, type EditTracker, type PendingEditWork, type PendingEdits } from "./pending-edits.ts";
 export {
   createDocumentWorkspace,
   resolveDocumentPath,

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { createDocumentIdentity, openSpriteDocument, spriteAnimationCanvasPreview, spriteAnimationPreview, spriteGifPreview, spritePicturePreview, spriteProjectAssetPath, spriteTileAnimationFirstFrame, spriteTileBitmapPreview, spriteTileBitmapPreviewFromAssets, spriteTileBitmapReferences, spriteTilePreview, type SpriteActorKind, type SpriteDocument } from "../src/index.ts";
-import { BinaryReader, readTileBitmap, writeTileBitmap } from "@tk-reawakened/core";
+import { actorInputFromCharacter, BinaryReader, createActorRecord, readCharacter, readTileBitmap, writeCharacter, writeTileBitmap } from "@tk-reawakened/core";
 import { exampleAnimation, exampleCharacter, exampleItem, examplePicture } from "./fixtures.ts";
 
 const COLLISION = { points: [{ x: -18, y: -16 }, { x: 18, y: -16 }, { x: 18, y: 0 }, { x: -18, y: 0 }] };
@@ -101,6 +101,146 @@ test("older actor formats stay at their original minor and refuse fields not sto
     deepEqual(doc.serialize(), entry.bytes);
   }
 });
+
+test("character authoring fields apply independently, undo and round-trip without changing bindings on rename", async () => {
+  const path = "Chrs/hero.tem";
+  const original = Uint8Array.from([...exampleCharacter(), 0xa5, 0x5a]);
+  const { host, identity, doc } = await open("character", path, original);
+  const initial = doc.getSnapshot().character;
+  ok(initial !== null);
+  const names = [...initial.variableNames];
+  apply(doc, { type: "set-character-text", field: "name", value: "Renamed hero" });
+  deepEqual(doc.getSnapshot().character?.variableNames, names);
+  apply(doc, { type: "set-character-variable", index: 0, value: "hero_exp!" });
+  apply(doc, { type: "set-character-stat", field: "maxHp", value: 321 });
+  apply(doc, { type: "set-character-text", field: "profilePicture", value: "Bitmap/hero.png" });
+  apply(doc, { type: "set-character-move", index: 200, value: { condValue: "done", condVar: "quest!", minLevel: 3, minExp: 42, file: "SpcMove/flare.spc" } });
+  apply(doc, { type: "set-character-text", field: "specialMoveCategory", value: "Arts" });
+  apply(doc, { type: "set-character-moves-enabled", value: 1 });
+  apply(doc, { type: "set-character-accessory", index: 10, value: "Charm" });
+  apply(doc, { type: "set-character-body-slot", index: 6, value: 1 });
+  apply(doc, { type: "set-character-growth", field: "firstLevelExp", value: 120 });
+  apply(doc, { type: "set-character-growth", field: "experienceIncrease", value: 110 });
+  apply(doc, { type: "set-character-growth", field: "maxLevel", value: 60 });
+  apply(doc, { type: "set-character-increase", index: 3, value: 7 });
+  apply(doc, { type: "set-character-growth", field: "levelUpProgram", value: "Prg/levelup.prg" });
+  apply(doc, { type: "set-character-growth", field: "levelUpType", value: 1 });
+  apply(doc, { type: "set-character-growth", field: "levelUpType", value: 0 });
+  apply(doc, { type: "set-character-growth", field: "levelUpType", value: 1 });
+  const invalidLevelUpType = doc.apply({ type: "set-character-growth", field: "levelUpType", value: 2 });
+  ok(!invalidLevelUpType.ok);
+  equal(doc.getSnapshot().character?.levelUpType, 1);
+  const invalid = doc.apply({ type: "set-character-variable", index: 9, value: "outside!" });
+  ok(!invalid.ok);
+  const unchanged = doc.getSnapshot().character;
+  apply(doc, { type: "set-character-stat", field: "hp", value: 77 });
+  ok(doc.undo().ok);
+  equal(doc.getSnapshot().character?.stats.hp, unchanged?.stats.hp);
+  ok(doc.redo().ok);
+  equal(doc.getSnapshot().character?.stats.hp, 77);
+  ok((await doc.save()).ok);
+  const reopened = await openSpriteDocument("character", host.fs, identity);
+  ok(reopened.ok);
+  const saved = reopened.document.getSnapshot().character;
+  ok(saved !== null);
+  equal(saved.name, "Renamed hero");
+  equal(saved.variableNames[0], "hero_exp!");
+  equal(saved.stats.maxHp, 321);
+  equal(saved.profilePicture, "Bitmap/hero.png");
+  deepEqual(saved.specialMoves[200], { file: "SpcMove/flare.spc", minExp: 42, minLevel: 3, condVar: "quest!", condValue: "done" });
+  equal(saved.specialMoveCategory, "Arts");
+  equal(saved.hasSpecialMoves, 1);
+  equal(saved.accessorySlots[10], "Charm");
+  equal(saved.bodySlots[6], 1);
+  equal(saved.firstLevelExp, 120);
+  equal(saved.experienceIncrease, 110);
+  equal(saved.maxLevel, 60);
+  equal(saved.levelIncreases[3], 7);
+  equal(saved.levelUpProgram, "Prg/levelup.prg");
+  equal(saved.levelUpType, 1);
+  const runtimeCharacter = readCharacter(new BinaryReader(reopened.document.serialize()));
+  ok(runtimeCharacter.ok);
+  const runtimeActor = actorInputFromCharacter(path, "party", runtimeCharacter.value);
+  const actorRecord = createActorRecord(1, runtimeActor);
+  ok(runtimeActor.stats);
+  ok(runtimeActor.progression);
+  equal(actorRecord.stats.maxHp, saved.stats.maxHp);
+  equal(runtimeActor.stats.experience, saved.stats.experience);
+  equal(runtimeActor.progression.levelType, saved.firstLevelExp);
+  deepEqual(reopened.document.serialize(), host.bytesOf(path));
+  deepEqual(reopened.document.serialize().slice(-2), Uint8Array.of(0xa5, 0x5a), "untouched residue survives edits");
+});
+
+test("rejects runtime-invalid negative edits but preserves untouched legacy stats", async () => {
+  const { doc } = await open("character", "Chrs/negative-edits.tem", exampleCharacter());
+  const negativeEdits = [
+    { type: "set-character-stat", field: "experience", value: -1 },
+    { type: "set-character-stat", field: "level", value: -1 },
+    { type: "set-character-stat", field: "maxHp", value: -1 },
+    { type: "set-character-stat", field: "maxSmp", value: -1 },
+    { type: "set-character-growth", field: "firstLevelExp", value: -1 },
+    { type: "set-character-growth", field: "experienceIncrease", value: -1 },
+    { type: "set-character-growth", field: "maxLevel", value: -1 },
+    { type: "set-character-increase", index: 0, value: -1 },
+  ] as const;
+  for (const command of negativeEdits) {
+    const result = doc.apply(command);
+    ok(!result.ok, `${command.type} ${"field" in command ? command.field : ""} rejects a negative runtime value`);
+    equal(doc.getSnapshot().dirty, false);
+  }
+  apply(doc, { type: "set-character-stat", field: "hp", value: -1 });
+  apply(doc, { type: "set-character-stat", field: "dp", value: -2 });
+  apply(doc, { type: "set-character-stat", field: "fp", value: -3 });
+  apply(doc, { type: "set-character-stat", field: "smp", value: -4 });
+  const validNegativeStats = readCharacter(new BinaryReader(doc.serialize()));
+  ok(validNegativeStats.ok);
+  equal(createActorRecord(1, actorInputFromCharacter("Chrs/negative-edits.tem", "party", validNegativeStats.value)).stats.hp, -1);
+
+  const parsed = readCharacter(new BinaryReader(exampleCharacter()));
+  ok(parsed.ok);
+  const legacy = writeCharacter({ ...parsed.value, stats: { ...parsed.value.stats, experience: -5 } });
+  ok(legacy.ok);
+  const reopened = await open("character", "Chrs/legacy-negative.tem", legacy.value);
+  const invalidRepair = reopened.doc.apply({ type: "set-character-stat", field: "experience", value: -6 });
+  ok(!invalidRepair.ok);
+  apply(reopened.doc, { type: "set-character-text", field: "name", value: "Keep legacy value" });
+  ok((await reopened.doc.save()).ok);
+  const persisted = readCharacter(new BinaryReader(reopened.doc.serialize()));
+  ok(persisted.ok);
+  equal(persisted.value.stats.experience, -5);
+});
+
+test("character minor 3 bounds first-level experience to a byte and items expose no character contract", async () => {
+  const char = await open("character", "Chrs/old.tem", exampleCharacter(3));
+  const belowByteMaximum = char.doc.apply({ type: "set-character-growth", field: "firstLevelExp", value: 127 });
+  ok(belowByteMaximum.ok);
+  equal(char.doc.getSnapshot().character?.firstLevelExp, 127);
+  const tooLarge = char.doc.apply({ type: "set-character-growth", field: "firstLevelExp", value: 128 });
+  ok(!tooLarge.ok);
+  equal(char.doc.getSnapshot().character?.firstLevelExp, 127, "the rejected byte value leaves the prior model intact");
+  const item = await open("item", "Item/chest.itm", exampleItem());
+  equal(item.doc.getSnapshot().character, null);
+  const notACharacter = item.doc.apply({ type: "set-character-stat", field: "hp", value: 2 });
+  ok(!notACharacter.ok);
+});
+test("a concurrent character save conflicts instead of overwriting another document's authoring fields", async () => {
+  const path = "Chrs/hero.tem";
+  const { host, identity, doc } = await open("character", path, exampleCharacter());
+  const originalName = doc.getSnapshot().character?.name;
+  apply(doc, { type: "set-character-text", field: "name", value: "Local edit" });
+  const concurrent = await openSpriteDocument("character", host.fs, identity);
+  ok(concurrent.ok);
+  apply(concurrent.document, { type: "set-character-stat", field: "hp", value: 19 });
+  ok((await concurrent.document.save()).ok);
+  const staleSave = await doc.save();
+  ok(!staleSave.ok);
+  equal(staleSave.failure.kind, "conflict");
+  const current = await openSpriteDocument("character", host.fs, identity);
+  ok(current.ok);
+  equal(current.document.getSnapshot().character?.name, originalName);
+  equal(current.document.getSnapshot().character?.stats.hp, 19);
+});
+
 
 test("sprite previews preserve ANM canvases and frame keys, resolve TAN tiles inside TBM pictures, and compose tile bitmaps", async () => {
   const animation = spriteAnimationPreview(exampleAnimation(), "Misc/animation_minor3.anm");

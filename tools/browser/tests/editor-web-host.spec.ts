@@ -56,11 +56,26 @@ test("browser workbench opens, edits, saves, and reopens character and item spri
   await expect(page.getByRole("tab", { name: characterPath, exact: true })).toBeVisible();
   const characterAnimation = page.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file");
   await characterAnimation.fill("Misc/ada_walk_s.anm");
+  const authoring = page.getByRole("region", { name: "Character authoring" });
+  await expect(authoring).toBeVisible();
+  await authoring.getByLabel("Character name", { exact: true }).fill("Ada");
+  await authoring.getByLabel("Experience variable").fill("ada_exp!");
+  await authoring.getByLabel("Health (HP)", { exact: true }).fill("123");
+  await authoring.getByLabel("Maximum level (0 disables progression)").fill("42");
+  await authoring.getByLabel("Maximum level (0 disables progression)").blur();
+  await expect(authoring.getByLabel("Character edit status")).toHaveText("Character change recorded. Save the document to keep it.");
+  // #2609: no .prg or .spc editor exists, so the view says so instead of offering links that fail.
+  await expect(authoring.getByLabel("Linked authoring availability")).toContainText("not available");
+  await expect(authoring.getByRole("button", { name: /^Open (level-up program|special-move file)$/ })).toHaveCount(0);
   await page.getByRole("button", { name: "Save all", exact: true }).click();
   await expect(page.locator("#host-status")).toContainText(`Saved ${characterPath}.`);
   await page.locator("#close").click();
   await character.dblclick();
   await expect(page.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file")).toHaveValue("Misc/ada_walk_s.anm");
+  await expect(page.getByRole("region", { name: "Character authoring" }).getByLabel("Character name", { exact: true })).toHaveValue("Ada");
+  await expect(page.getByRole("region", { name: "Character authoring" }).getByLabel("Experience variable")).toHaveValue("ada_exp!");
+  await expect(page.getByRole("region", { name: "Character authoring" }).getByLabel("Health (HP)", { exact: true })).toHaveValue("123");
+  await expect(page.getByRole("region", { name: "Character authoring" }).getByLabel("Maximum level (0 disables progression)")).toHaveValue("42");
 
   await page.getByRole("treeitem", { name: "Item, folder, closed", exact: true }).press("ArrowRight");
   const item = page.getByRole("treeitem", { name: /chest\.itm, item editor/ });

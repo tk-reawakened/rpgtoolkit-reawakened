@@ -106,6 +106,30 @@ export interface ConformanceHost {
   modelsOpen(): number;
 }
 
+/** One open character tab as a person sees it, with the host's own save, backup and close acting on it (#2613). */
+export interface CharacterProofTab {
+  readonly element: HTMLElement;
+  /** The host's own dirty marker: VS Code's working copy, or the browser workspace's document. */
+  workbenchDirty(): boolean;
+  /** Hold the acknowledgement of every edit the view sends from now on; the edits themselves reach the extension host. */
+  holdEditAcknowledgements(): { release(): void };
+  /** The host's own save, not the view's button: VS Code's Ctrl+S or autosave calling the provider's `saveCustomDocument`, or the browser workspace's Save All. Resolves with whether it saved. */
+  saveFromWorkbench(): Promise<boolean>;
+  /** VS Code's hot-exit backup of the document, as the provider makes it; the browser host keeps none, so it gives the model's bytes. */
+  backupBytes(): Promise<Uint8Array>;
+  /** Close the tab, answering the host's Save / Don't Save / Cancel question; true when the tab closed. */
+  close(answer: CloseAnswer): Promise<boolean>;
+}
+
+export interface CharacterProofHost {
+  readonly name: string;
+  open(path: string): Promise<CharacterProofTab>;
+  disk(path: string): Promise<Uint8Array | null>;
+  settle(): Promise<void>;
+  /** VS Code hosts started with `controlSettleTimers`: end every wait the provider has started on a webview, as the bound running out would. */
+  expireSettleTimers?(): void;
+}
+
 export interface ConformanceCase {
   readonly name: string;
   run(host: ConformanceHost, fixture: Uint8Array): Promise<void>;

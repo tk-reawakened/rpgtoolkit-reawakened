@@ -14,6 +14,14 @@ import { handleEditorHostRequest, isEditorHostRequest, type AssetPickRequest, ty
 /** The most writes one VS Code save makes while edits keep arriving during them (see `GameDocument.save`). */
 const SAVE_ROUNDS = 3;
 
+/** How long a save waits for a webview to hand over edits it has accepted before it refuses to save (see `GameDocument.settleViews`). */
+const DEFAULT_SETTLE_TIMEOUT_MS = 10_000;
+
+function defaultSettleTimer(onExpire: () => void): { cancel(): void } {
+  const timer = setTimeout(onExpire, DEFAULT_SETTLE_TIMEOUT_MS);
+  return { cancel: () => clearTimeout(timer) };
+}
+
 export interface UriLike {
   readonly path: string;
 }
@@ -50,6 +58,12 @@ export interface GameEditorPort<Uri extends UriLike> {
   boardPreferences?(folder: WorkspaceFolderLike<Uri>): EditorPreferences;
   /** Call `listener` when the settings that make `boardPreferences` change; the returned handle stops it. */
   watchBoardPreferences?(folder: WorkspaceFolderLike<Uri>, listener: () => void): { dispose(): void };
+  /**
+   * Start the bound on a save's wait for a webview to hand over the edits it has accepted (#2613): `onExpire` is called
+   * when the wait has lasted too long, and `cancel` stops it. A ten-second timer when the port gives none; a test
+   * supplies a timer it expires by hand, so no proof depends on elapsed time.
+   */
+  startSettleTimer?(onExpire: () => void): { cancel(): void };
   /** Show a pick list and resolve with the chosen item's id, or `undefined` when the user dismisses it. */
   quickPick(items: readonly { readonly id: string; readonly label: string; readonly description?: string }[], placeholder: string): Promise<string | undefined>;
 }
@@ -80,6 +94,9 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   readonly #navigation: DocumentNavigation<Uri>;
   readonly #port: GameEditorPort<Uri>;
   readonly #fire: (event: GameEditEvent<Uri>) => void;
+  /** The webviews showing this document: each can be asked to hand over the edits it has accepted (#2613). */
+  readonly #views = new Set<SettleTarget>();
+  #nextSettle = 0;
   /** How many `saveCustomDocument` calls have finished, and the last one's result. */
   #saves = 0;
   #lastSave: SaveResult = { ok: true };
@@ -105,6 +122,50 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   /** VS Code disposes a custom document when its last editor closes; the workbench has already asked about unsaved work. */
   dispose(): void {
     this.#workspace.release(this.model);
+  }
+
+  /** Track a webview of this document; the returned function forgets it (its panel was disposed). */
+  attachWebview(post: (requestId: string) => PromiseLike<boolean>): () => void {
+    const target: SettleTarget = { post, waiting: new Map() };
+    this.#views.add(target);
+    return () => {
+      this.#views.delete(target);
+      // A disposed webview can no longer answer; waiting for it would hang the save for nothing.
+      for (const answer of [...target.waiting.values()]) answer(true);
+    };
+  }
+
+  /** A webview answered a `settle` request: every edit it had accepted has reached this model. */
+  viewSettled(requestId: string): void {
+    for (const view of this.#views) view.waiting.get(requestId)?.(true);
+  }
+
+  /**
+   * Ask every webview of this document to hand over the edits it has accepted but not yet sent (a character edit queued
+   * behind an unacknowledged one), and wait until each has. A webview answers after all of them, and its messages arrive
+   * in the order it sent them, so every edit is in the model when this resolves. `null` when they all answered; the
+   * reason when one did not in time (`startSettleTimer`), in which case a save must not go ahead, since it would leave that
+   * edit out while VS Code marks the document saved (#2613).
+   *
+   * What this cannot reach: an edit still in transit from a webview that VS Code has not delivered when the workbench
+   * asks this document to save, back up or close. VS Code gives no ordering between its own commands and a webview's
+   * messages, so that window is not closed here (it is a known gap in ADR 0022, #2613).
+   */
+  async settleViews(): Promise<string | null> {
+    const startTimer = this.#port.startSettleTimer ?? defaultSettleTimer;
+    const answers = [...this.#views].map((view) => new Promise<boolean>((resolve) => {
+      const requestId = `settle-${++this.#nextSettle}`;
+      const timer = startTimer(() => answer(false));
+      const answer = (settled: boolean): void => {
+        timer.cancel();
+        view.waiting.delete(requestId);
+        resolve(settled);
+      };
+      view.waiting.set(requestId, answer);
+      void view.post(requestId).then((delivered) => { if (!delivered) answer(true); }, () => answer(true));
+    }));
+    if ((await Promise.all(answers)).every((settled) => settled)) return null;
+    return "the editor did not hand over the edits it had accepted in time";
   }
 
   /** The board-editor preferences the webview reads (T-33). */
@@ -162,6 +223,14 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * before it records the save is outside the provider's reach (ADR 0022 D14.6, #2225).
    */
   async save(): Promise<SaveResult> {
+    const unsettled = await this.settleViews();
+    if (unsettled !== null) {
+      const path = this.model.identity.path;
+      const failed: SaveResult = { ok: false, failure: { document: path, kind: "write", code: null, message: `Could not save ${path}: ${unsettled}. Nothing was written and the edits it holds stay unsaved; save again.` } };
+      this.#saves += 1;
+      this.#lastSave = failed;
+      return failed;
+    }
     let result = await this.model.save();
     for (let round = 1; result.ok && this.model.getSnapshot().dirty && round < SAVE_ROUNDS; round += 1) {
       result = await this.model.save();
@@ -221,6 +290,12 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     }
     return resolveRecoveryConflict(this.model, choice);
   }
+}
+
+/** One webview of a document, and the `settle` requests it has not yet answered. */
+interface SettleTarget {
+  post(requestId: string): PromiseLike<boolean>;
+  readonly waiting: Map<string, (settled: boolean) => void>;
 }
 
 /** What a document can ask of the provider for navigation: the project-wide parts of story 11.4. */
@@ -362,6 +437,9 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     },
     async saveCustomDocumentAs(document, destination) {
       // VS Code's save dialog has already chosen the destination and confirmed replacing an existing file (D3.4).
+      // Edits the webview accepted but has not sent are part of the copy (#2613).
+      const unsettled = await document.settleViews();
+      if (unsettled !== null) throw new Error(`Could not save ${nameOf(destination)}: ${unsettled}. Nothing was written.`);
       const folder = port.folderOf(destination);
       if (folder === undefined) throw new Error(`${nameOf(destination)} is outside the open workspace folders; Save As saves inside a project. Nothing was written.`);
       // The source's project is the project of its whole lifecycle (D1.1). A multi-root workspace has one project per
@@ -388,11 +466,15 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     },
     async revertCustomDocument(document) {
       // VS Code's Revert File is itself the user's choice to discard; the workbench asks nothing more and drops its own
-      // edits after the save point, which `revert` mirrors (D3.6).
+      // edits after the save point, which `revert` mirrors (D3.6). Edits the webview still holds are in the model first,
+      // so the revert discards them with the rest instead of letting them re-dirty the document afterwards (#2613).
+      await document.settleViews();
       const result = await document.model.revert();
       if (!result.ok) throw new Error(result.failure.message);
     },
     async backupCustomDocument(document, destination) {
+      // A backup that cannot reach a silent webview still backs up what the model holds: hot exit must not fail for it.
+      await document.settleViews();
       const id = await port.writeBackup(destination, document.model.serialize());
       return { id, delete: () => port.deleteBackup(destination) };
     },
@@ -406,12 +488,14 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const preferenceWatch = folder === undefined ? undefined : port.watchBoardPreferences?.(folder, () => {
         void webview.postMessage({ type: "board-preferences", preferences: document.boardPreferences() });
       });
+      const detach = document.attachWebview((requestId) => webview.postMessage({ type: "settle", requestId }));
       const messages = webview.onDidReceiveMessage(async (message: unknown) => {
         if (!isEditorHostRequest(message)) return;
         await handleEditorHostRequest(document, message, (reply) => webview.postMessage(reply));
       });
       const disposal = webview.onDidDispose(() => {
         subscription();
+        detach();
         browserSubscription();
         preferenceWatch?.dispose();
         messages.dispose();

@@ -58,6 +58,14 @@ export async function runVscodeSpriteWebProof(
   const north = view.getByRole("group", { name: "Directional walk animations" }).getByLabel("North animation file");
   await north.fill("Misc/vscode-web-proof.gif");
   await north.press("Tab");
+  // #2609: no host has a .prg or .spc editor, so the view says so rather than offering links that fail.
+  const authoring = editor.getByRole("region", { name: "Character authoring" });
+  await expect(authoring.getByLabel("Linked authoring availability")).toContainText("not available");
+  await expect(authoring.getByRole("button", { name: /^Open (level-up program|special-move file)$/ })).toHaveCount(0);
+  // #2613: the last edit is submitted by leaving its field; the view's Save, like VS Code's, includes it.
+  await authoring.getByLabel("Character name", { exact: true }).fill("Vscode proof");
+  await authoring.getByLabel("Health (HP)", { exact: true }).fill("77");
+  await authoring.getByLabel("Health (HP)", { exact: true }).press("Tab");
   const previewStylesheet = editor.locator('link[rel="stylesheet"][href$="tileset-browser.css"]');
   await expect(previewStylesheet).toHaveCount(1);
   expect(await previewStylesheet.evaluate((link) => (link as HTMLLinkElement).sheet !== null)).toBe(true);
@@ -110,6 +118,9 @@ export async function runVscodeSpriteWebProof(
   const reopenedWalk = reopened.getByRole("group", { name: "Directional walk animations" });
   await expect(reopenedWalk.getByLabel("South animation file")).toHaveValue("Misc/vscode-web-proof.anm");
   await expect(reopenedWalk.getByLabel("North animation file")).toHaveValue("Misc/vscode-web-proof.gif");
+  const reopenedAuthoring = editor.getByRole("region", { name: "Character authoring" });
+  await expect(reopenedAuthoring.getByLabel("Character name", { exact: true })).toHaveValue("Vscode proof");
+  await expect(reopenedAuthoring.getByLabel("Health (HP)", { exact: true })).toHaveValue("77");
   await expect(reopened.getByText("All sprite changes saved.", { exact: true })).toBeVisible();
   expect(await host.readBacking(spritePath)).toEqual(savedBytes);
 }

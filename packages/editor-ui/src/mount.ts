@@ -1,23 +1,25 @@
-import type {
-  ApplyResult,
-  BoardCommand,
-  BoardDocumentSnapshot,
-  BoardPicture,
-  BoardPreviewRequest,
-  ConflictChoice,
-  ConflictResult,
-  EditorPreferences,
-  HistoryResult,
-  MainCommand,
-  MainDocument,
-  MainDocumentSnapshot,
-  SaveResult,
-  TileBitmapCommand,
-  TileBitmapDocumentSnapshot,
-  TileBitmapPicture,
+import {
+  createPendingEdits,
+  type ApplyResult,
+  type BoardCommand,
+  type BoardDocumentSnapshot,
+  type BoardPicture,
+  type BoardPreviewRequest,
+  type ConflictChoice,
+  type ConflictResult,
+  type EditorPreferences,
+  type HistoryResult,
+  type MainCommand,
+  type MainDocument,
+  type MainDocumentSnapshot,
+  type SaveResult,
+  type TileBitmapCommand,
+  type TileBitmapDocumentSnapshot,
+  type TileBitmapPicture,
+  type PendingEdits,
 } from "@tk-reawakened/editor-model";
 import type { PlatformServices } from "@tk-reawakened/platform-services";
-import { createElement, render } from "preact";
+import { createElement, Fragment, render } from "preact";
 import { AssetPickerView, type AssetPickerViewProps } from "./asset-picker-view.tsx";
 import { Shell, type ShellProps } from "./shell.tsx";
 import { BoardView } from "./board-view.tsx";
@@ -26,6 +28,7 @@ import { PreferencesView, type PreferencesViewProps } from "./preferences-view.t
 import { SettingsView } from "./settings-view.tsx";
 import { TileBitmapView } from "./tile-bitmap-view.tsx";
 import { SpriteView, type SpriteViewDocument } from "./sprite-view.tsx";
+import { CharacterAuthoringView, type CharacterAuthoringViewProps } from "./character-authoring-view.tsx";
 import type { TilesetBrowserContext } from "./tileset-browser.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
@@ -79,6 +82,13 @@ export interface ViewContext {
   readonly services: Pick<PlatformServices, "document" | "capabilities"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject"> };
   /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
   readonly browser?: TilesetBrowserContext;
+  /** Workbench asset picking is available in full hosts, but not in standalone document mounts. */
+  readonly navigation?: Pick<CharacterAuthoringViewProps, "pickAsset">;
+  /**
+   * Where views report edits they have accepted but not yet handed to the document, so the host's save, close and revert
+   * wait for them (#2613). A mount with no host makes its own, which only the views sharing it wait for.
+   */
+  readonly pendingEdits?: PendingEdits;
   /** The board-editor preferences (flood behaviour); the defaults of the catalogue when the host gives none. */
   readonly boardPreferences?: BoardPreferencesSource;
 }
@@ -108,6 +118,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   const fs = ctx.services.fs;
   if (isSpriteView(document) && fs === undefined) throw new Error("A sprite view requires project-file read access.");
   const browser = ctx.browser === undefined ? {} : { browser: ctx.browser };
+  const pendingEdits = ctx.pendingEdits ?? createPendingEdits();
   render(
     isBoardView(document)
       ? createElement(BoardView, {
@@ -120,7 +131,9 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       : isTileBitmapView(document)
         ? createElement(TileBitmapView, { doc: document, capabilities, onEdited, ...browser })
         : isSpriteView(document)
-          ? createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited })
+          ? createElement(Fragment, null,
+            createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited, pendingEdits }),
+            document.kind === "character" ? createElement(CharacterAuthoringView, { doc: document, fs: fs!, capabilities, onEdited, pendingEdits, ...ctx.navigation }) : null)
           : createElement(SettingsView, { doc: document, capabilities, onEdited }),
     el,
   );

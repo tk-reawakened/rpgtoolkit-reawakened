@@ -17,7 +17,14 @@ window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
     if (event.data.kind === "character" || event.data.kind === "item") {
       const doc = spriteViewDocument(remote);
       if (doc === null) throw new Error(`The ${event.data.kind} editor received an invalid sprite snapshot.`);
-      mount(documentRoot(), { document: doc, services });
+      mount(documentRoot(), {
+        document: doc,
+        services,
+        // The extension host's `settle` request waits for the edits these views have accepted but not yet sent (#2613).
+        pendingEdits: remote.pendingEdits,
+        // No `.prg` or `.spc` editor exists in this host, so a linked visit is not offered for them (#2609).
+        navigation: { pickAsset: (request) => remote.pickAsset(request) },
+      });
     } else {
       mount(documentRoot(), {
         // The remote document has the surface of its kind's view document; the kind says which fields its snapshot has.
@@ -34,6 +41,7 @@ window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
           },
         },
         boardPreferences: remote.boardPreferences,
+        pendingEdits: remote.pendingEdits,
       });
     }
     return;
