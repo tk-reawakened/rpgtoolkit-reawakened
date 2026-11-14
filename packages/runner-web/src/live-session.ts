@@ -139,7 +139,7 @@ export type LiveSessionOptions = LiveSessionBase & { readonly debug?: LiveSessio
   /** An interactive session over a validated package source: assets arrive on demand through the tiered source. */
   | { readonly interactive: true; readonly source: PackageSource }
   /** An interactive session over a fully populated file map (the desktop and mobile players). */
-  | { readonly interactive: true; readonly files: ClosingFiles; readonly mainFile: string; readonly gameIdentity: string; readonly assetRoot?: AssetRoot; readonly seed?: number }
+  | { readonly interactive: true; readonly files: ClosingFiles; readonly mainFile: string; readonly gameIdentity: string; readonly assetRoot?: AssetRoot; readonly seed?: number; readonly scene?: { readonly board: string; readonly program: string } }
   | { readonly interactive?: false; readonly files: ClosingFiles; readonly planText: string; readonly gameName: string }
   /**
    * The closing-plan recipe over a package source: the plan supplies the seed, size and tick cap, the package supplies
@@ -216,6 +216,9 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   if (mainBytes === undefined) throw new Error(`runner-web: main file ${mainFile} is absent`);
   if (source !== null && !synthesised) files.set(assetKey(mainFile), mainBytes);
   const mainInput = readMainFile(new BinaryReader(mainBytes, assetKey(mainFile)));
+  if ("scene" in options && options.scene !== undefined && (!mainInput.ok || projectScriptDialect(mainInput.value) !== "tk3")) {
+    throw new Error("The isolated fixture runner currently requires a readable Toolkit 3 main file; Toolkit 2 fixture setup is not supported.");
+  }
   const interactiveInput = interactiveMenuBinding(mainInput.ok ? mainInput.value.menuKey : 0);
   const gameId = deriveGameId(mainBytes, gameIdentity);
   if (source !== null && gameId !== source.gameId) throw new Error(`runner-web: the package source's GameId ${source.gameId} is not the session's ${gameId}`);
@@ -287,12 +290,17 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     seed: "seed" in options ? options.seed ?? 0 : plan?.seed ?? 0,
     assetIndex: index,
     assetRoot,
-    mainFile,
-    gameIdentity,
-    startup: {
-      presence: { hasPlayer: () => spriteRuntime === undefined ? hasPlayer : spriteRuntime.hasPlayer() },
-      savedGame: { load: () => ({ kind: "missing" }), restored: () => false },
-    },
+    ...("scene" in options && options.scene !== undefined ? {
+      initialBoard: options.scene.board,
+      program: options.scene.program,
+    } : {
+      mainFile,
+      gameIdentity,
+      startup: {
+        presence: { hasPlayer: () => spriteRuntime === undefined ? hasPlayer : spriteRuntime.hasPlayer() },
+        savedGame: { load: () => ({ kind: "missing" as const }), restored: () => false },
+      },
+    }),
     width: viewport.width,
     height: viewport.height,
     features: initialFeatures,

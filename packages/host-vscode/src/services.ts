@@ -4,13 +4,17 @@ import { platformOk } from "@tk-reawakened/platform-services";
 import { vscodeCapabilities } from "./capabilities.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
+import { createVscodeRunService } from "./player.ts";
 
 /** Build the host service surface around the chosen workspace folder. */
-export function createVscodeServices(root: vscode.Uri): PlatformServices {
+export function createVscodeServices(root: vscode.Uri, context: vscode.ExtensionContext, generation: () => number): PlatformServices {
   const folder = vscode.workspace.getWorkspaceFolder(root);
   const project: ProjectHandle = { id: root.toString(), name: folder?.name ?? root.path.split("/").at(-1) ?? "Workspace" };
+  const run = createVscodeRunService(context, root, generation);
+  const desktop = vscode.env.uiKind === vscode.UIKind.Desktop;
+  const capabilities = [...vscodeCapabilities(desktop), "runGame", "runProgram"] as const;
   return {
-    capabilities: new Set(vscodeCapabilities(vscode.env.uiKind === vscode.UIKind.Desktop)),
+    capabilities: new Set(capabilities),
     fs: createVscodeFileSystem(root),
     project: {
       open: async () => platformOk(project),
@@ -30,5 +34,6 @@ export function createVscodeServices(root: vscode.Uri): PlatformServices {
     },
     document: { edited: () => undefined },
     dialogs: createVscodeDialogs(root),
+    run,
   };
 }

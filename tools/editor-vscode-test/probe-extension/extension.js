@@ -5,13 +5,36 @@ let autosaveOffGate;
 let releaseAutosaveOff;
 function activate(context) {
   console.info("[vscode-web-proof-probe] activated");
-  context.subscriptions.push(vscode.workspace.registerFileSystemProvider("tkr-testfs", new PersistentFileSystem(), { isCaseSensitive: true }));
+  const filesystem = new PersistentFileSystem();
+  context.subscriptions.push(vscode.workspace.registerFileSystemProvider("tkr-testfs", filesystem, { isCaseSensitive: true }));
+  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
+  context.subscriptions.push(status);
+  const report = (text) => { status.text = text; status.show(); };
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.failSaves", () => { filesystem.failSaves = true; }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.allowSaves", () => { filesystem.failSaves = false; }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.pauseProgramRead", () => {
+    filesystem.pauseProgramRead = () => report("Fixture read paused");
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.resumeProgramRead", () => filesystem.resumeProgramRead?.()));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.runExampleGame", async () => {
     const workspace = vscode.workspace.workspaceFolders?.[0];
     if (workspace === undefined) throw new Error("The proof workspace is not open");
     await vscode.commands.executeCommand("tkr.runGame",
       vscode.Uri.joinPath(workspace.uri, "Main", "example.gam"),
       vscode.Uri.joinPath(workspace.uri, "Game", "Example"));
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.runExampleProgram", async () => {
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    report("Program launch pending");
+    const result = await vscode.commands.executeCommand("tkr.testProgram", workspace.uri, {
+      kind: "program", main: "Main/example.gam", projectFolder: "Game/Example",
+      program: "Game/Example/Prg/start.prg",
+      fixture: { id: "VS Code proof", font: "Liberation Sans", fontSize: 18, windowGraphic: "Game/Example/Bitmap/window.png",
+        party: ["Game/Example/Chrs/ada.tem"],
+        start: { board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1 } },
+    });
+    report(result?.ok ? "Program launch accepted" : `Program launch refused: ${result?.error?.message ?? "unknown error"}`);
   }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.copyMainFileBytes", async () => {
     console.info("[vscode-web-proof-probe] copy command invoked");
@@ -114,10 +137,17 @@ class PersistentFileSystem {
   stat(uri) { return this.request(uri, "stat"); }
   readDirectory(uri) { return this.request(uri, "readDirectory"); }
   async readFile(uri) {
+    if (this.pauseProgramRead && uri.path.endsWith("/Game/Example/Prg/start.prg")) {
+      const notify = this.pauseProgramRead;
+      this.pauseProgramRead = undefined;
+      await new Promise((resolve) => { this.resumeProgramRead = resolve; notify(); });
+      this.resumeProgramRead = undefined;
+    }
     const encoded = await this.request(uri, "readFile");
     return Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
   }
   async writeFile(uri, content, options) {
+    if (this.failSaves && uri.path.endsWith("/Main/example.gam")) throw vscode.FileSystemError.NoPermissions("Proof: injected save failure");
     let binary = "";
     for (let offset = 0; offset < content.length; offset += 0x8000) binary += String.fromCharCode(...content.subarray(offset, offset + 0x8000));
     const { created } = await this.request(uri, "writeFile", { data: btoa(binary), ...options });

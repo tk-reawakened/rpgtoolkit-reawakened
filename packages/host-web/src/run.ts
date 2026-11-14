@@ -1,4 +1,4 @@
-import { createRunHandle, launchUnavailable, platformError, platformOk, prepareRun, type FileSystemService, type RunDiagnostic, type RunHandle, type RunService, type RunStatus } from "@tk-reawakened/platform-services";
+import { createRunHandle, launchUnavailable, platformError, platformOk, prepareRun, prepareSceneLaunch, type FileSystemService, type Launch, type RunDiagnostic, type RunHandle, type RunService, type RunStartGuard, type RunStatus } from "@tk-reawakened/platform-services";
 
 function isDiagnostic(value: unknown): value is RunDiagnostic {
   return typeof value === "object" && value !== null
@@ -10,16 +10,12 @@ function isDiagnostic(value: unknown): value is RunDiagnostic {
 
 /** Launch saved project bytes in the same-origin live player. The frame is host chrome; it owns no editor state. */
 export function createWebRunService(fs: FileSystemService, projectId: string, playerUrl: string): RunService {
-  const unavailable = {
-    board: "the live player cannot yet start a board with an explicit position and party.",
-    program: "the live player cannot yet apply a program fixture.",
-  } as const;
-  return {
-    unavailable,
-    async startGame(launch, guard) {
-      if (launch.kind !== "game") return launchUnavailable("board", unavailable.board);
+  const start = async (launch: Launch, guard?: RunStartGuard) => {
+      if (launch.kind === "board") return launchUnavailable("board", "the fresh-state board runner is not yet connected.");
       const prepared = await prepareRun(fs, launch, { projectId, runner: "runner-web" });
       if (!prepared.ok) return prepared;
+      const scene = launch.kind === "game" ? null : prepareSceneLaunch(launch, prepared.value.files);
+      if (scene !== null && !scene.ok) return scene;
       const url = new URL(playerUrl, window.location.href);
       if (url.origin !== window.location.origin) return platformError("unavailable", "The game player must be hosted on the editor's origin.");
       url.searchParams.set("editor", "1");
@@ -57,7 +53,7 @@ export function createWebRunService(fs: FileSystemService, projectId: string, pl
           return;
         }
         frame.contentWindow?.postMessage("tkr-editor-connect", url.origin, [channel.port2]);
-        channel.port1.postMessage({ main: launch.main, project: projectId, projectFolder: launch.projectFolder, seed: launch.seed ?? 0, files: prepared.value.files });
+        channel.port1.postMessage({ main: launch.main, project: projectId, projectFolder: launch.projectFolder, seed: launch.seed ?? 0, files: prepared.value.files, ...(scene === null ? {} : { scene: scene.value }) });
       };
       channel.port1.onmessage = (event: MessageEvent<unknown>) => {
         const value = event.data;
@@ -68,6 +64,7 @@ export function createWebRunService(fs: FileSystemService, projectId: string, pl
           state,
           ...("tick" in value && typeof value.tick === "number" ? { tick: value.tick } : {}),
           ...("board" in value && (typeof value.board === "string" || value.board === null) ? { board: value.board } : {}),
+          ...("stateHash" in value && typeof value.stateHash === "string" ? { stateHash: value.stateHash } : {}),
           ...("stalledOn" in value && (typeof value.stalledOn === "string" || value.stalledOn === null) ? { stalledOn: value.stalledOn } : {}),
           ...("message" in value && (typeof value.message === "string" || value.message === null) ? { message: value.message } : {}),
           ...("diagnostics" in value && Array.isArray(value.diagnostics) ? { diagnostics: value.diagnostics.filter(isDiagnostic) } : {}),
@@ -81,7 +78,10 @@ export function createWebRunService(fs: FileSystemService, projectId: string, pl
       window.addEventListener("message", onReady);
       document.body.append(frame);
       return platformOk<RunHandle>(handle);
-    },
-    startProgram: async () => launchUnavailable("program", unavailable.program),
+    };
+  return {
+    unavailable: { board: "the fresh-state board runner is not yet connected." },
+    startGame: start,
+    startProgram: start,
   };
 }
