@@ -2,7 +2,7 @@
 type: feature
 title: "Board edit save and render tracer"
 ticket: 1
-status: draft
+status: done
 ---
 
 # Board edit save and render tracer
@@ -18,6 +18,8 @@ Use the 11.2/11.3 shared model, one document per URI, host-owned save and undo, 
 A host-conformance proof observes the changed tile after save and reopen in each host and compares its compositor output with the matching engine view.
 
 Use the shared document lifecycle and preserve same-version unknown data; exercise relevant failure/cancel, keyboard access and save/reopen paths rather than relying on preview alone. Follow `discovery/inception-proposal.md`, `docs/editor-features.md` and G2/G7; do not claim checks passed without executing them.
+
+Completion: #1712 closed by merged PR #2286. At `4dce26b4`, `tools/editor-vscode-test/test/board-hosts.test.ts` passed for the browser, VS Code desktop and VS Code for the Web, asserting the saved and reopened tile and comparing its picture with the engine view.
 
 ## Dependencies and decision gate
 

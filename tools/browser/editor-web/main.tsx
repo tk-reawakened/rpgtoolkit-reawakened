@@ -1,5 +1,5 @@
 import { createSessionCopy, createWorkbench, listRecentWebProjects, openWebProject, reopenWebProject, type WebProject, type Workbench } from "@tk-reawakened/host-web";
-import type { AnyDocument } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, type AnyDocument } from "@tk-reawakened/editor-model";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
 
 const status = document.querySelector<HTMLElement>("#host-status")!;
@@ -24,6 +24,13 @@ interface Shown {
 let shown: Shown | null = null;
 let projectWithChoices: WebProject | null = null;
 let openRequest = 0;
+interface PendingDocumentOpen {
+  count: number;
+  closing: Promise<void> | undefined;
+  readonly abandonedDocuments: AnyDocument[];
+}
+/** Opens are scoped to a workspace instance, not just its stable project id. */
+const pendingDocumentOpens = new WeakMap<WebProject["workspace"], Map<string, PendingDocumentOpen>>();
 
 folderButton.addEventListener("click", () => {
   const request = ++openRequest;
@@ -144,17 +151,39 @@ function hideProjectChoices(): void {
   gameSelect.replaceChildren();
 }
 
+let showQueue: Promise<void> = Promise.resolve();
 async function show(project: WebProject, path: string, request: number): Promise<void> {
+  const previous = showQueue;
+  let release!: () => void;
+  showQueue = new Promise<void>((resolve) => { release = resolve; });
+  await previous;
+  try {
+    if (request === openRequest) await showProject(project, path, request);
+  } finally {
+    release();
+  }
+}
+
+async function showProject(project: WebProject, path: string, request: number): Promise<void> {
+  const identityKey = createDocumentIdentity(project.project.id, path).key;
   const previous = shown;
+  const workspace = previous !== null && previous.project.project.id === project.project.id
+    ? previous.project.workspace
+    : project.workspace;
+  beginDocumentOpen(workspace, identityKey);
   if (previous !== null && previous.project.project.id === project.project.id) {
     if (previous.project !== project) project.deactivate();
-    await previous.workbench.openPath(path);
-    if (request !== openRequest) return;
-    if (!previous.workbench.tabs.getSnapshot().tabs.some((tab) => tab.path === path)) {
-      throw new Error(`Could not open ${path} as a registered Toolkit document.`);
+    try {
+      await previous.workbench.openPath(path);
+      if (request !== openRequest) return;
+      if (!previous.workbench.tabs.getSnapshot().tabs.some((tab) => tab.key === identityKey)) {
+        throw new Error(`Could not open ${path} as a registered Toolkit document.`);
+      }
+      status.textContent = projectStatus(previous.project, path);
+      return;
+    } finally {
+      await finishDocumentOpen(previous.project.workspace, identityKey);
     }
-    status.textContent = projectStatus(previous.project, path);
-    return;
   }
 
   const element = document.createElement("section");
@@ -164,48 +193,140 @@ async function show(project: WebProject, path: string, request: number): Promise
   let candidate!: Shown;
   const unsubscribeTabs = workbench.tabs.subscribe(() => updateActions(candidate));
   candidate = { project, workbench, element, unsubscribeTabs };
+  let openedDocument: AnyDocument | undefined;
   try {
     await workbench.openPath(path);
-    if (!workbench.tabs.getSnapshot().tabs.some((tab) => tab.path === path)) {
+    openedDocument = project.workspace.documents().find((item) => item.identity.key === identityKey);
+    if (!workbench.tabs.getSnapshot().tabs.some((tab) => tab.key === identityKey)) {
       throw new Error(`Could not open ${path} as a registered Toolkit document.`);
     }
   } catch (error) {
     candidate.unsubscribeTabs();
     workbench.dispose();
     element.remove();
+    if (openedDocument !== undefined) abandonCandidate(project, openedDocument, identityKey);
+    await finishDocumentOpen(project.workspace, identityKey);
+    project.deactivate();
     throw error;
   }
   if (request !== openRequest) {
     candidate.unsubscribeTabs();
     workbench.dispose();
     element.remove();
+    if (openedDocument !== undefined) abandonCandidate(project, openedDocument, identityKey);
+    await finishDocumentOpen(project.workspace, identityKey);
     project.deactivate();
     return;
   }
 
   if (previous !== null) {
+    const closedPaths: string[] = [];
     for (const tab of [...previous.workbench.tabs.getSnapshot().tabs]) {
       const closed = await previous.workbench.tabs.close(tab.key);
-      if (!closed.closed) {
+      if (!closed.closed || request !== openRequest) {
+        await restoreClosedTabs(previous, closedPaths);
         candidate.unsubscribeTabs();
         workbench.dispose();
         element.remove();
+        if (openedDocument !== undefined) abandonCandidate(project, openedDocument, identityKey);
+        await finishDocumentOpen(project.workspace, identityKey);
         project.deactivate();
-        const previousPath = previous.workbench.tabs.getSnapshot().tabs[0]?.path ?? tab.path;
-        status.textContent = closed.reason === "cancelled"
-          ? `${previousPath} is still open; ${path} was not opened.`
-          : `${previousPath} is still open: ${closed.failure.message}`;
+        if (request === openRequest && !closed.closed) {
+          const previousPath = previous.workbench.tabs.getSnapshot().tabs[0]?.path ?? tab.path;
+          status.textContent = closed.reason === "cancelled"
+            ? `${previousPath} is still open; ${path} was not opened.`
+            : `${previousPath} is still open: ${closed.failure.message}`;
+        }
         return;
       }
+      closedPaths.push(tab.path);
+    }
+    if (request !== openRequest) {
+      await restoreClosedTabs(previous, closedPaths);
+      candidate.unsubscribeTabs();
+      workbench.dispose();
+      element.remove();
+      if (openedDocument !== undefined) abandonCandidate(project, openedDocument, identityKey);
+      await finishDocumentOpen(project.workspace, identityKey);
+      project.deactivate();
+      return;
     }
   }
   replaceShown(candidate);
   status.textContent = projectStatus(project, path);
+  await finishDocumentOpen(project.workspace, identityKey);
 }
 
 function projectStatus(project: WebProject, path: string): string {
   return `${project.project.name}: ${path}${project.sessionCopy ? " (session copy; changes stay in memory)" : " (project folder; changes write to disk)"}`;
 }
+
+function beginDocumentOpen(workspace: WebProject["workspace"], identityKey: string): void {
+  let opens = pendingDocumentOpens.get(workspace);
+  if (opens === undefined) {
+    opens = new Map();
+    pendingDocumentOpens.set(workspace, opens);
+  }
+  let pending = opens.get(identityKey);
+  if (pending === undefined) {
+    pending = { count: 0, closing: undefined, abandonedDocuments: [] };
+    opens.set(identityKey, pending);
+  }
+  pending.count += 1;
+}
+
+function shownOwnsDocument(workspace: WebProject["workspace"], identityKey: string): boolean {
+  return shown?.project.workspace === workspace
+    && shown.workbench.tabs.getSnapshot().tabs.some((tab) => tab.key === identityKey);
+}
+
+/** Close stale documents only after same-workspace opens have finished mounting or failing. */
+async function finishDocumentOpen(workspace: WebProject["workspace"], identityKey: string): Promise<void> {
+  const opens = pendingDocumentOpens.get(workspace);
+  const pending = opens?.get(identityKey);
+  if (opens === undefined || pending === undefined) return;
+  pending.count -= 1;
+  if (pending.count > 0) return;
+  while (pending.abandonedDocuments.length > 0) {
+    const abandoned = pending.abandonedDocuments.pop()!;
+    if (shownOwnsDocument(workspace, identityKey)) continue;
+    const closing = workspace.close(abandoned).then((result) => {
+      if (!result.closed) throw new Error(`Could not close abandoned document ${abandoned.identity.path}.`);
+    });
+    pending.closing = closing;
+    try {
+      await closing;
+    } catch {
+      pending.abandonedDocuments.push(abandoned);
+      return;
+    } finally {
+      pending.closing = undefined;
+    }
+    if (pending.count > 0) return;
+  }
+  opens.delete(identityKey);
+  if (opens.size === 0) pendingDocumentOpens.delete(workspace);
+}
+
+/** Queue an abandoned document after its hidden workbench has released its tab lease. */
+function abandonCandidate(
+  project: WebProject,
+  document: AnyDocument,
+  identityKey: string,
+): void {
+  const pending = pendingDocumentOpens.get(project.workspace)?.get(identityKey);
+  if (pending !== undefined && !pending.abandonedDocuments.includes(document)) {
+    pending.abandonedDocuments.push(document);
+  }
+}
+
+async function restoreClosedTabs(previous: Shown, paths: readonly string[]): Promise<void> {
+  for (const path of paths) {
+    await previous.workbench.openPath(path);
+  }
+}
+
+
 
 function replaceShown(next: Shown | null): void {
   const previous = shown;

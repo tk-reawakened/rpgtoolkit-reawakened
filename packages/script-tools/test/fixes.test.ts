@@ -1,7 +1,7 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import test from "node:test";
 import { advanceScriptTick, compileInline, createGameState, createScriptServices, startProgram, UI_PLUGIN, type ScriptDialect } from "@tk-reawakened/core";
-import { applyEdits, legacyFixes, sameLowering } from "../src/index.ts";
+import { applyEdits, legacyFixes, sameLowering, tk2ConversionRefusal } from "../src/index.ts";
 
 function migrate(source: string): string {
   const actions = legacyFixes(source, "tk2");
@@ -33,6 +33,82 @@ test("migration preserves the values seen by real UI commands", () => {
   };
   deepEqual(effects(source, "tk2"), ["Ada", "9", "Hello there!"]);
   deepEqual(effects(fixed, "tk3"), ["Ada", "9", "Hello there!"]);
+});
+
+test("migration preserves quoted equality and embedded hash dialogue at runtime", () => {
+  const source = '#a$ = "p=q"\n#If (a$ = "p=q") {\nHi #there\n}\n#If (a$ = "p==q") {\nWrong branch\n}';
+  const fixed = migrate(source);
+  deepEqual(mwinText(source, "tk2"), ["Hi #there"]);
+  deepEqual(mwinText(fixed, "tk3"), ["Hi #there"]);
+});
+
+test("migration keeps literal backslashes, inline prefixes and equals dialogue", () => {
+  const source = '#a$ = "x\\"\n#If (a$ = "x\\") { #matched$ = "yes" }\n#If (a$ = "y\\") { #matched$ = "no" }\nHi #there = friend\n#Mwin(a$)\n#Mwin(matched$)';
+  const fixed = migrate(source);
+  const expected = ["Hi #there = friend", "x\\", "yes"];
+  deepEqual(mwinText(source, "tk2"), expected);
+  deepEqual(mwinText(fixed, "tk3"), expected);
+  equal(sameLowering(source, fixed.replace('a == "x\\"', 'a = "x\\"')), false);
+  equal(sameLowering(source, fixed.replace("Hi #there = friend", "Hi there = friend")), false);
+});
+
+test("migration preserves sigilled assignments, non-lvalue text and literal backslashes", () => {
+  const source = '#index = 2\nvalues[index!]$ = 11\nvalues[3]! = 12\n1 + 1 = 2\nA+B = friendship\nHi #there = C:\\temp\n#Mwin(values[2])\n#Mwin(values[3])';
+  const fixed = migrate(source);
+  const expected = ["1 + 1 = 2", "A+B = friendship", "Hi #there = C:\\temp", "11", "12"];
+  deepEqual(mwinText(source, "tk2"), expected);
+  deepEqual(mwinText(fixed, "tk3"), expected);
+});
+
+test("conversion explains its refusal of literal quotes without suppressing executable code", () => {
+  const source = 'Hi #there = "friend"';
+  deepEqual(mwinText(source, "tk2"), ['Hi #there = "friend"']);
+  deepEqual(legacyFixes(source, "tk2"), []);
+  ok(tk2ConversionRefusal(source)?.includes("double quote"));
+  equal(tk2ConversionRefusal('#Mwin("friend")'), null);
+});
+
+test("migration preserves unprefixed calls and angle dialogue execution", () => {
+  const source = '#Method foo(n) {\n#result = n\n}\n#friend$ = "Ada"\nfoo(x = 1)\nMwin("x=y")\nHi #there = <friend>\n#Mwin(result!)';
+  const fixed = migrate(source);
+  const expected = ["x=y", "Hi #there = Ada", "1"];
+  deepEqual(mwinText(source, "tk2"), expected);
+  deepEqual(mwinText(fixed, "tk3"), expected);
+});
+
+test("migration keeps digit-leading and multiple calls and refuses qualified dependencies", () => {
+  const source = '#Method 1foo(n) {\n#first = n\n}\n#Method bar(n) {\n#second = n\n}\n1foo(x = 1); bar(y = 2)\n#Mwin(first!)\n#Mwin(second!)';
+  const fixed = migrate(source);
+  deepEqual(mwinText(source, "tk2"), ["1", "2"]);
+  deepEqual(mwinText(fixed, "tk3"), ["1", "2"]);
+  deepEqual(legacyFixes("system.foo(x = 1)", "tk2"), []);
+});
+
+test("migration preserves expression call effects and then-angle dialogue", () => {
+  const source = '#Method foo(n) {\n#calls = calls + 1\n#ReturnMethod(n)\n}\n#friend$ = "Ada"\nfoo(x = 1) + 2\nfoo(y = 2)[2]\n!foo(z = 3)\nHi then <friend>\n#Mwin(calls!)\n#Mwin(x!)\n#Mwin(y!)\n#Mwin(z!)';
+  const fixed = migrate(source);
+  const expected = ["Hi then Ada", "3", "1", "2", "3"];
+  deepEqual(mwinText(source, "tk2"), expected);
+  deepEqual(mwinText(fixed, "tk3"), expected);
+});
+
+test("migration preserves assignment-like dialogue and explains quoted refusal", () => {
+  const source = '#index = 2\nvalues[index!]$ = 7\nScore = 5 points\nHi = my friend\n#Mwin(values[2])';
+  const fixed = migrate(source);
+  const expected = ["Score = 5 points", "Hi = my friend", "7"];
+  deepEqual(mwinText(source, "tk2"), expected);
+  deepEqual(mwinText(fixed, "tk3"), expected);
+  const quoted = 'Hello = "friend" is here';
+  deepEqual(mwinText(quoted, "tk2"), [quoted]);
+  deepEqual(legacyFixes(quoted, "tk2"), []);
+  ok(tk2ConversionRefusal(quoted)?.includes("double quote"));
+});
+
+test("migration preserves inline prefixed commands after assignment", () => {
+  const source = 'x = 1; #Mwin(hi); #Mwin("a #there")\n#Mwin(x!)';
+  const fixed = migrate(source);
+  deepEqual(mwinText(source, "tk2"), ["hi", "a #there", "1"]);
+  deepEqual(mwinText(fixed, "tk3"), ["hi", "a #there", "1"]);
 });
 
 test("mixed legacy forms are converted together and retain comments and CRLF", () => {
@@ -90,6 +166,45 @@ test("a bare TK2 index stays a variable index and is flagged for review (#2050)"
   ].join("\n"));
   equal(sameLowering("#m[key] = 1", 'm["key"] = 1'), false, "quoting the index would change the program");
 });
+test("many bare indices retain review order and line endings without repeated whole-file scans", () => {
+  const body = ["#m[first][second] = 1", ...Array.from({ length: 512 }, (_, index) => `#m[key${index}] = 1`)];
+  const source = body.join("\r\n");
+  const originalSplit = String.prototype.split;
+  let fullFileLineSplits = 0;
+  Object.defineProperty(String.prototype, "split", {
+    configurable: true,
+    writable: true,
+    value: function (this: string, separator?: string | RegExp, limit?: number): string[] {
+      if (separator === "\n" && this.includes("m[first][second]") && this.includes("m[key511]")) fullFileLineSplits++;
+      return Reflect.apply(originalSplit, this, [separator, limit]) as string[];
+    },
+  });
+
+  const actions = (() => {
+    try {
+      return legacyFixes(source, "tk2");
+    } finally {
+      Object.defineProperty(String.prototype, "split", { configurable: true, writable: true, value: originalSplit });
+    }
+  })();
+
+  ok(fullFileLineSplits <= 8, `full-file line splitting should be bounded independently of index count; got ${fullFileLineSplits}`);
+  equal(actions.length, 1);
+  const fix = actions[0]!;
+  equal(fix.reviews?.length, 514);
+  deepEqual(fix.reviews?.slice(0, 3).map(({ line, index }) => [line, index]), [
+    [1, "first"],
+    [1, "second"],
+    [2, "key0"],
+  ]);
+  deepEqual(fix.reviews?.slice(-1).map(({ line, index }) => [line, index]), [[513, "key511"]]);
+  const converted = applyEdits(source, fix.edits);
+  equal(converted.split("\r\n").length, body.length);
+  equal(converted.includes("\n"), true);
+  equal(converted.replaceAll("\r\n", "").includes("\n"), false, "CRLF endings are preserved");
+  equal(converted.split("\r\n")[0], `m[first][second] = 1 // TKR review: ${REVIEW("first")}; ${REVIEW("second")}`);
+});
+
 
 test("a variable whose value differs from its spelling indexes by value in both dialects", () => {
   const source = '#key$ = "other"\n#m[key$]$ = "by value"\n#m["key"]$ = "literal"\n#Mwin(m["other"])\n#Mwin(m["key"])\n#Mwin(m[key$])';
@@ -184,7 +299,7 @@ test("3.1 sigil fixes do not alter possible Toolkit 2 dialogue", () => {
 });
 
 test("uncompilable or unsupported input never gets an edit", () => {
-  for (const source of ["x = )\n#Dos", "< unsupported >"]) {
+  for (const source of ["#x = )\n#Dos", "< unsupported >"]) {
     deepEqual(legacyFixes(source, "tk2"), []);
   }
 });
