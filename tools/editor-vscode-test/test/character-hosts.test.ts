@@ -88,10 +88,20 @@ async function holdTwoEdits(tab: CharacterProofTab): Promise<{ release(): void }
   return hold;
 }
 
-async function applyMove(tab: CharacterProofTab): Promise<void> {
+async function chooseMoveSlot(tab: CharacterProofTab, slot: number): Promise<void> {
+  const select = tab.element.querySelector<HTMLSelectElement>('select[aria-label="Special-move slot"]');
+  ok(select !== null, "the special-move slot selector is available");
+  await act(() => {
+    select.value = String(slot);
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await settle(act);
+}
+
+async function applyMove(tab: CharacterProofTab, slot: number): Promise<void> {
   const button = [...tab.element.querySelectorAll<HTMLButtonElement>("button")]
-    .find((candidate) => candidate.getAttribute("aria-label") === "Apply special-move slot 1");
-  ok(button !== undefined, "the first special-move slot has an apply action");
+    .find((candidate) => candidate.getAttribute("aria-label") === `Apply special-move slot ${slot}`);
+  ok(button !== undefined, `special-move slot ${slot} has an apply action`);
   await act(() => { button.click(); });
   await settle(act);
 }
@@ -100,6 +110,7 @@ async function moveField(tab: CharacterProofTab, field: "condVar" | "minLevel"):
   const label = field === "condVar" ? "Condition variable" : "Minimum level";
   return input(tab, label).value;
 }
+
 
 for (const name of ["browser host", "VS Code desktop", "VS Code for the Web"]) {
   describe(`character edits through the host's own save and close: ${name}`, () => {
@@ -216,14 +227,17 @@ for (const name of ["VS Code desktop", "VS Code for the Web"]) {
       const proof = host();
       const first = await openReady(proof);
       const sibling = await openReady(proof);
+      const slot = 17;
       const acknowledgements = first.holdEditAcknowledgements();
       try {
+        await chooseMoveSlot(first, slot);
+        await chooseMoveSlot(sibling, slot);
         await edit(first, "Special-move file", "SpcMove/flare.spc");
-        await applyMove(first);
+        await applyMove(first, slot);
         await edit(sibling, "Condition variable", "quest_flag");
-        await applyMove(sibling);
+        await applyMove(sibling, slot);
         await edit(first, "Minimum level", "9");
-        await applyMove(first);
+        await applyMove(first, slot);
 
         equal(await moveField(sibling, "condVar"), "quest_flag");
         equal(await moveField(sibling, "minLevel"), "9");
@@ -234,8 +248,9 @@ for (const name of ["VS Code desktop", "VS Code for the Web"]) {
         ok(written !== null, "the edited character was written");
         const decoded = readCharacter(new BinaryReader(written));
         ok(decoded.ok, "the written file is a character");
-        equal(decoded.value.specialMoves[0]?.condVar, "quest_flag");
-        equal(decoded.value.specialMoves[0]?.minLevel, 9);
+        equal(decoded.value.specialMoves[slot]?.file, "SpcMove/flare.spc");
+        equal(decoded.value.specialMoves[slot]?.condVar, "quest_flag");
+        equal(decoded.value.specialMoves[slot]?.minLevel, 9);
         await first.close("cancel");
         await sibling.close("cancel");
       } finally {
