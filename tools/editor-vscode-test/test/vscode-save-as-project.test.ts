@@ -98,6 +98,9 @@ function workspace(other: WorkspaceFolderLike<Uri> = BETA) {
     readBackup: () => Promise.reject(new Error("not used")),
     writeBackup: () => Promise.reject(new Error("not used")),
     deleteBackup: () => Promise.reject(new Error("not used")),
+    uriFor: () => { throw new Error("not used"); },
+    openEditor: () => Promise.reject(new Error("not used")),
+    quickPick: () => Promise.reject(new Error("not used")),
     executeCommand: () => Promise.reject(new Error("not used")),
   }, (event) => { edits.push(event); });
 
