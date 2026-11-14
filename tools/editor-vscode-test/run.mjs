@@ -145,9 +145,9 @@ for (const choice of ["cancel", "keep"]) {
         const input = currentPage.locator(".quick-input-widget input").last();
         await expect(input).toBeVisible();
         await input.fill(">Developer: Reload Window");
-        const command = currentPage.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Developer: Reload Window" }).first();
+        const command = currentPage.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: "Developer: Reload Window" }).first();
         await expect(command).toBeVisible();
-        await command.click();
+        await input.press("Enter");
         const timeout = Promise.withResolvers();
         const timer = setTimeout(() => timeout.reject(new Error("Workbench bootstrap did not pause")), 30_000);
         try { await Promise.race([paused.promise, timeout.promise]); } finally { clearTimeout(timer); }
