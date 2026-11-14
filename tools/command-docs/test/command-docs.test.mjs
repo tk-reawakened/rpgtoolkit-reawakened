@@ -1,7 +1,7 @@
 import { deepEqual, equal, match, throws } from "node:assert/strict";
 import { test } from "node:test";
 import { parseSpecTable } from "../spec-table.mjs";
-import { check, retirementDiagnostics } from "../check.mjs";
+import { check, firstPartyRetirementDiagnostics, retirementDiagnostics } from "../check.mjs";
 
 const command = (name, doc) => ({ name, aliases: [], params: [], call: () => ({ value: null }), ...(doc === undefined ? {} : { doc }) });
 const plugin = (id, commands) => ({ definition: { id, version: "1.0.0", commands } });
@@ -113,4 +113,9 @@ test("the default gate documents and checks the script-spec package's twelve com
       "speccalled", "specinput", "specticks", "specrng", "spyon",
     ],
   );
+});
+
+test("retirement metadata keeps first-party scan and mem covered after moving to world", () => {
+  const diagnostics = firstPartyRetirementDiagnostics();
+  deepEqual(diagnostics.filter((item) => item.name === "scan" || item.name === "mem"), []);
 });

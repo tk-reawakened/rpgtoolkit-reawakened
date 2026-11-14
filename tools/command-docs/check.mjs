@@ -97,6 +97,11 @@ export function retirementDiagnostics(documentation, rows) {
   });
 }
 
+export function firstPartyRetirementDiagnostics(rows = parseSpecTable(readFileSync(specPath, "utf8"))) {
+  const documentation = commandDocumentation(FIRST_PARTY_PLUGINS.map((definition) => ({ definition })));
+  return retirementDiagnostics(documentation, rows);
+}
+
 export function check({ plugins = defaultPlugins(), rows = parseSpecTable(readFileSync(specPath, "utf8")), allowlist = readAllowlist() } = {}) {
   const documentation = commandDocumentation(plugins);
   const diagnostics = [...validateCommandDocumentation(plugins, rows, allowlist), ...specLinkDiagnostics(documentation), ...battleRowDiagnostics(documentation, rows)];
@@ -107,8 +112,7 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(
   try {
     const rows = parseSpecTable(readFileSync(specPath, "utf8"));
     const result = check({ rows });
-    const catalogue = commandDocumentation(FIRST_PARTY_PLUGINS.map((definition) => ({ definition })));
-    const diagnostics = [...result.diagnostics, ...retirementDiagnostics(catalogue, rows)];
+    const diagnostics = [...result.diagnostics, ...firstPartyRetirementDiagnostics(rows)];
     if (diagnostics.length > 0) {
       for (const diagnostic of diagnostics) {
         const location = diagnostic.pluginId === undefined ? "allowlist" : `${diagnostic.pluginId}/${diagnostic.name}`;

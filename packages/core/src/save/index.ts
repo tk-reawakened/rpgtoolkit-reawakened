@@ -39,6 +39,7 @@ export {
   GameLedgerError,
   hashGameLedger,
   hashGameLedgerV3,
+  hashGameLedgerV4,
   projectGameLedger,
   LEDGER_BOARD,
   LEDGER_IDENTITY,

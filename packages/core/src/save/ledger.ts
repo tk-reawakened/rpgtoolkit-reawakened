@@ -40,6 +40,7 @@
  */
 
 import { hashState } from "../canon/index.ts";
+import { COORD_ISO_ROTATED } from "../formats/board/model.ts";
 import type { ActorsSection } from "../actors/model.ts";
 import type { InventorySection, PartySection } from "../menu/model.ts";
 import type { AssertPlainData } from "../ports/plain-data.ts";
@@ -48,6 +49,7 @@ import type { TriggersSection } from "../triggers/model.ts";
 import type { RngState } from "../rng/xoshiro.ts";
 import type { GameState } from "./state.ts";
 import type { WorldSection } from "./sections.ts";
+import { worldBoardGrid, type WorldBoard } from "../world/model.ts";
 import {
   failLedger,
   ledgerFlag,
@@ -90,8 +92,8 @@ export type {
 /** The ledger's hash domain: hashes are comparable only within it (and this version). */
 export const GAME_LEDGER_DOMAIN = "tkr.game-ledger";
 
-/** The ledger projection version; it is independent of every section schema version. */
-export const GAME_LEDGER_VERSION = 4;
+/** The ledger's hash domain: hashes are comparable only within it (and this version). */
+export const GAME_LEDGER_VERSION = 5;
 
 /** Party roster, selection, steps and the sub-tile movement remainder. */
 export type LedgerParty = {
@@ -266,10 +268,11 @@ export type LedgerTileEdit = {
   readonly owner: number | null;
 };
 
-/** Durable runtime board state: board-scope tile edits and the tile types. */
+/** Durable runtime board state: board-scope tile edits, scan buffers and tile types. */
 export type LedgerBoardRuntime = {
   readonly tileEdits: LedgerTileEdit[];
   readonly tileTypes: string[];
+  readonly tileBuffers: Record<string, LedgerTile | null>;
 };
 
 /** The current board's durable values; authored layers and images are rebuilt from its asset. */
@@ -429,14 +432,73 @@ export function hashGameLedger(ledger: GameLedgerV1): string {
   return hashState(envelope);
 }
 
-/**
- * Hash the pre-movement v3 ledger envelope for validating already-promoted
- * recovery checkpoints. New checkpoints must use `hashGameLedger`.
- */
-export function hashGameLedgerV3(ledger: GameLedgerV1): string {
-  const legacyLedger = { ...ledger, world: { board: ledger.world.board } };
+type TileEditBoardGeometry = Pick<WorldBoard, "coordType" | "sizeX" | "sizeY" | "gridWidth" | "gridHeight">;
+
+/** Recreate v2's logical-area layer stride from the migrated stored-grid stride. */
+function ledgerWithPreMigrationTileEditIndices(ledger: GameLedgerV1, board: TileEditBoardGeometry | null): GameLedgerV1 {
+  if (board === null || (board.coordType & COORD_ISO_ROTATED) === 0) return ledger;
+  const logicalArea = board.sizeX * board.sizeY;
+  const { width, height } = worldBoardGrid(board);
+  const storedArea = width * height;
+  const savedBoard = ledger.world.board;
+  if (
+    !Number.isSafeInteger(logicalArea) || logicalArea <= 0
+    || !Number.isSafeInteger(storedArea) || storedArea <= 0
+    || savedBoard.state !== "present" || savedBoard.value.runtime.state !== "present"
+  ) return ledger;
+  const runtime = savedBoard.value.runtime.value;
+  const tileEdits = runtime.tileEdits.map((edit) => {
+    const layer = Math.floor(edit.index / storedArea);
+    const withinLayerIndex = edit.index % storedArea;
+    const legacyIndex = layer * logicalArea + withinLayerIndex;
+    return Number.isSafeInteger(legacyIndex) ? { ...edit, index: legacyIndex } : edit;
+  });
+  return {
+    ...ledger,
+    world: {
+      ...ledger.world,
+      board: {
+        ...savedBoard,
+        value: { ...savedBoard.value, runtime: { state: "present", value: { ...runtime, tileEdits } } },
+      },
+    },
+  };
+}
+
+/** Hash the previous v4 projection for promoted checkpoints, using saved board geometry for old indices. */
+export function hashGameLedgerV4(ledger: GameLedgerV1, board: TileEditBoardGeometry | null): string {
+  const legacyLedger = ledgerWithoutTileBuffers(ledgerWithPreMigrationTileEditIndices(ledger, board));
+  return hashState({ domain: GAME_LEDGER_DOMAIN, version: 4, ledger: legacyLedger } as never);
+}
+
+type LedgerBoardRuntimeV4 = Omit<LedgerBoardRuntime, "tileBuffers">;
+type LedgerBoardV4 = Omit<LedgerBoard, "runtime"> & { readonly runtime: LedgerPresence<LedgerBoardRuntimeV4> };
+type GameLedgerV4 = Omit<GameLedgerV1, "world"> & {
+  readonly world: Omit<LedgerWorld, "board"> & { readonly board: LedgerPresence<LedgerBoardV4> };
+};
+
+function ledgerWithoutTileBuffers(ledger: GameLedgerV1): GameLedgerV4 {
+  const board = ledger.world.board;
+  if (board.state !== "present" || board.value.runtime.state !== "present") return ledger;
+  const { tileBuffers: _tileBuffers, ...runtime } = board.value.runtime.value;
+  return {
+    ...ledger,
+    world: {
+      ...ledger.world,
+      board: {
+        ...board,
+        value: { ...board.value, runtime: { state: "present", value: runtime } },
+      },
+    },
+  };
+}
+/** Hash the pre-movement v3 projection for promoted checkpoints, using saved board geometry for old indices. */
+export function hashGameLedgerV3(ledger: GameLedgerV1, board: TileEditBoardGeometry | null): string {
+  const previous = ledgerWithoutTileBuffers(ledgerWithPreMigrationTileEditIndices(ledger, board));
+  const legacyLedger = { ...previous, world: { board: previous.world.board } };
   return hashState({ domain: GAME_LEDGER_DOMAIN, version: 3, ledger: legacyLedger } as never);
 }
+
 
 function projectActors(section: ActorsSection): LedgerActors {
   const record = ledgerRecord(section, "actors");
@@ -751,11 +813,21 @@ function projectBoardRuntime(value: unknown, path: string): LedgerBoardRuntime {
       owner: edit.owner === undefined ? null : ledgerInteger(edit.owner, `${editPath}.owner`, 1),
     });
   });
+  const tileBuffers = runtime.tileBuffers === undefined
+    ? {}
+    : ledgerRecord(runtime.tileBuffers, `${path}.tileBuffers`);
   return {
     tileEdits,
     tileTypes: ledgerList(runtime.tileTypes, `${path}.tileTypes`)
       .map((entry, index) => ledgerText(entry, `${path}.tileTypes[${index}]`)),
+    tileBuffers: Object.fromEntries(
+      Object.entries(tileBuffers).map(([position, tile]) => [
+        position,
+        projectTile(tile, `${path}.tileBuffers[${position}]`),
+      ]),
+    ),
   };
+
 }
 
 function projectTint(value: unknown, path: string): LedgerTint {
