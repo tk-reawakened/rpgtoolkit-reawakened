@@ -20,7 +20,7 @@ function port(overrides: Partial<PackageSavePort<string>> = {}) {
     fileName: (path) => path.slice(path.lastIndexOf("/") + 1),
     sibling: (path, name) => `${path.slice(0, path.lastIndexOf("/") + 1)}${name}`,
     describe: (path) => path,
-    exists: async () => false,
+    inspect: async () => "missing",
     confirmReplace: async (paths) => { replaced = paths; return false; },
     write: async (path, bytes) => { writes.push([path, bytes]); },
     ...overrides,
@@ -31,7 +31,7 @@ function port(overrides: Partial<PackageSavePort<string>> = {}) {
 test("package Save As confirms both existing siblings before replacing and writes descriptor naming chosen archive", async () => {
   let confirms = 0;
   const fs = port({
-    exists: async (path) => path === "out/game.tpk" || path === "out/game.tpk.json",
+    inspect: async () => "file",
     confirmReplace: async (paths) => { confirms += 1; deepEqual(paths, ["out/game.tpk", "out/game.tpk.json"]); return true; },
   });
   const result = await savePackageWithSaveAs(fs.value, prepared());
@@ -43,11 +43,26 @@ test("package Save As confirms both existing siblings before replacing and write
 });
 
 test("package Save As cancellation leaves existing files untouched", async () => {
-  const fs = port({ exists: async () => true, confirmReplace: async () => false });
+  const fs = port({ inspect: async () => "file", confirmReplace: async () => false });
   const result = await savePackageWithSaveAs(fs.value, prepared());
   equal(result.ok, false);
   if (!result.ok) equal(result.cancelled, true);
   equal(fs.writes.length, 0);
+});
+
+test("package Save As refuses symbolic links at either output before writing", async () => {
+  for (const link of ["out/game.tpk", "out/game.tpk.json"]) {
+    let confirmations = 0;
+    const fs = port({
+      inspect: async (path) => path === link ? "link" : "missing",
+      confirmReplace: async () => { confirmations += 1; return true; },
+    });
+    const result = await savePackageWithSaveAs(fs.value, prepared());
+    equal(result.ok, false);
+    if (!result.ok) ok(result.message.includes("symbolic link"));
+    equal(confirmations, 0);
+    equal(fs.writes.length, 0);
+  }
 });
 
 test("package Save As reports an incomplete pair when descriptor write fails", async () => {

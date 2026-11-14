@@ -1,11 +1,13 @@
 import { packageDescriptorFor, type PreparedGamePackage } from "@tk-reawakened/editor-model";
 
+export type PackageDestinationKind = "missing" | "file" | "directory" | "link" | "other";
+
 export interface PackageSavePort<Destination> {
   chooseDestination(suggestedFileName: string): Promise<Destination | undefined>;
   fileName(destination: Destination): string;
   sibling(destination: Destination, fileName: string): Destination;
   describe(destination: Destination): string;
-  exists(destination: Destination): Promise<boolean>;
+  inspect(destination: Destination): Promise<PackageDestinationKind>;
   confirmReplace(existing: readonly Destination[]): Promise<boolean>;
   write(destination: Destination, bytes: Uint8Array): Promise<void>;
 }
@@ -27,8 +29,12 @@ export async function savePackageWithSaveAs<Destination>(port: PackageSavePort<D
   const descriptorDestination = port.sibling(chosen, `${packageName}.json`);
   const existing: Destination[] = [];
   for (const destination of [chosen, descriptorDestination]) {
-    try { if (await port.exists(destination)) existing.push(destination); }
+    let kind: PackageDestinationKind;
+    try { kind = await port.inspect(destination); }
     catch (error) { return failed(`Could not check ${port.describe(destination)}: ${reason(error)}. Nothing was written.`); }
+    if (kind === "link") return failed(`Refusing to save through symbolic link ${port.describe(destination)}. Nothing was written.`);
+    if (kind !== "missing" && kind !== "file") return failed(`Cannot save package output to ${port.describe(destination)} because it is not a regular file. Nothing was written.`);
+    if (kind === "file") existing.push(destination);
   }
   if (existing.length > 0 && !(await port.confirmReplace(existing))) {
     return { ok: false, cancelled: true, message: "Package export was cancelled; existing files were left unchanged." };

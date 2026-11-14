@@ -82,6 +82,30 @@ test("file-only suffix exclusions do not discard folders whose names use editor-
   workspace.dispose();
 });
 
+test("preflight excludes prior package exports saved in the project", async () => {
+  const { workspace, services } = packageHost({
+    ...authoredFiles(),
+    "Releases/previous.tpk": utf8Encode("prior package"),
+    "Releases/previous.tpk.json": utf8Encode("prior descriptor"),
+  });
+  const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "2" });
+  ok(outcome.ok, outcome.ok ? "" : outcome.message);
+  ok(!outcome.value.includedFiles.includes("Releases/previous.tpk"));
+  ok(!outcome.value.includedFiles.includes("Releases/previous.tpk.json"));
+  ok(outcome.value.excludedFiles.includes("Releases/previous.tpk"));
+  ok(outcome.value.excludedFiles.includes("Releases/previous.tpk.json"));
+  workspace.dispose();
+});
+
+test("preflight accepts an empty optional startup program without a program asset", async () => {
+  const files = Object.fromEntries(Object.entries(authoredFiles("", "start.brd")).filter(([path]) => path !== "Prg/start.prg"));
+  const { workspace, services } = packageHost(files);
+  const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
+  ok(outcome.ok, outcome.ok ? "" : outcome.message);
+  ok(!outcome.value.includedFiles.some((path) => path.startsWith("Prg/")));
+  workspace.dispose();
+});
+
 test("preflight refuses a missing startup program or initial board", async () => {
   for (const [files, missingLabel] of [
     [authoredFiles("missing.prg"), "startup program"],

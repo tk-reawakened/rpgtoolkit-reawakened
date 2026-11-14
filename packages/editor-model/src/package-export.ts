@@ -62,7 +62,7 @@ function isExcluded(path: string, mainPath: string, kind: "file" | "directory"):
   if (segments[0] === "main" && segments.length > 1 && folded !== foldPath(mainPath)) return true;
   if (kind === "directory") return false;
   const basename = segments.at(-1) ?? "";
-  if (basename.endsWith(".spec.prg")) return true;
+  if (basename.endsWith(".spec.prg") || basename.endsWith(".tpk") || basename.endsWith(".tpk.json")) return true;
   const dot = basename.lastIndexOf(".");
   return dot >= 0 && EDITOR_ONLY_EXTENSIONS.has(basename.slice(dot));
 }
@@ -164,12 +164,11 @@ export async function prepareGamePackage(options: PrepareGamePackageOptions): Pr
   if (!mainResult.ok) return failure(`Could not read ${options.mainPath}: ${mainResult.error.message}`);
   const main = mainResult.value;
   if (main.gameTitle.trim().length === 0) return failure("Set a game title in the main file before packaging.");
-  if (main.startupPrg.trim().length === 0) return failure("Set a startup program in the main file before packaging.");
   if (main.initBoard.trim().length === 0) return failure("Set an initial board in the main file before packaging.");
 
   const available = new Set(collected.files.map(({ path }) => foldPath(path)));
   const requiredAssets: readonly (readonly [string, "Prg" | "Boards" | "Chrs", string])[] = [
-    ["startup program", "Prg", main.startupPrg],
+    ...(main.startupPrg === "" ? [] : [["startup program", "Prg", main.startupPrg] as const]),
     ["initial board", "Boards", main.initBoard],
     ...(main.initChar.trim().length === 0 ? [] : [["initial character", "Chrs", main.initChar] as const]),
   ];

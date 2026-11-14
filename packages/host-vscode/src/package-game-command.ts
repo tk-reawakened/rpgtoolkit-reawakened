@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { createDocumentWorkspace, prepareGamePackage } from "@tk-reawakened/editor-model";
-import { savePackageWithSaveAs, type PackageSavePort } from "./package-save.ts";
+import { savePackageWithSaveAs, type PackageDestinationKind, type PackageSavePort } from "./package-save.ts";
 import { createVscodeServices } from "./services.ts";
 
 const SAVE_LABEL = "Choose where to save…";
@@ -17,12 +17,15 @@ function vscodeSavePort(projectRoot: vscode.Uri): PackageSavePort<vscode.Uri> {
     fileName,
     sibling: (uri, name) => uri.with({ path: `${uri.path.slice(0, uri.path.lastIndexOf("/") + 1)}${name}` }),
     describe: (uri) => vscode.workspace.asRelativePath(uri, false),
-    exists: async (uri) => {
+    inspect: async (uri): Promise<PackageDestinationKind> => {
       try {
-        await vscode.workspace.fs.stat(uri);
-        return true;
+        const stat = await vscode.workspace.fs.stat(uri);
+        if ((stat.type & vscode.FileType.SymbolicLink) !== 0) return "link";
+        if ((stat.type & vscode.FileType.Directory) !== 0) return "directory";
+        if ((stat.type & vscode.FileType.File) !== 0) return "file";
+        return "other";
       } catch (error) {
-        if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") return false;
+        if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") return "missing";
         throw error;
       }
     },
