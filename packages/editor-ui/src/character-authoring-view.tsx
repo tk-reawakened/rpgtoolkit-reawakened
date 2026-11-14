@@ -58,6 +58,8 @@ type Cleanup = readonly (readonly [string, string])[];
 type Drafts = Readonly<Record<string, string>>;
 type AssetPickRequest = { readonly kind: AssetKind; readonly extensions: readonly string[]; readonly field: string };
 type VisitOutcome = { readonly ok: true; readonly path: string } | { readonly ok: false; readonly message: string };
+type PendingDraft = { readonly generation: number; readonly count: number };
+
 
 function paintFrame(canvas: HTMLCanvasElement | null, frame: SpritePreviewFrame | null): void {
   if (canvas === null || frame === null) return;
@@ -137,17 +139,51 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
   const [pendingCount, setPendingCount] = useState(0);
   const queue = useRef<Promise<void>>(Promise.resolve());
   const draftVersions = useRef(new Map<string, number>());
-  const pendingDraftKeys = useRef(new Map<string, number>());
+  const mutationGeneration = useRef(0);
+  const observedSnapshot = useRef(snapshot);
+  const pendingDraftKeys = useRef(new Map<string, PendingDraft>());
   const disabled = snapshot.readOnly !== null || snapshot.conflict !== null || snapshot.saving;
   const projectId = doc.identity.projectId;
-  const isDraftPending = (key: string): boolean => (pendingDraftKeys.current.get(key) ?? 0) > 0;
-  const hasPendingPrefix = (prefix: string): boolean => [...pendingDraftKeys.current.keys()].some((key) => key.startsWith(prefix));
+  const isDraftPending = (key: string): boolean => {
+    const pending = pendingDraftKeys.current.get(key);
+    return pending?.generation === mutationGeneration.current && pending.count > 0;
+  };
+  const hasPendingPrefix = (prefix: string): boolean => [...pendingDraftKeys.current].some(([key, pending]) =>
+    key.startsWith(prefix) && pending.generation === mutationGeneration.current && pending.count > 0);
+
+  useEffect(() => {
+    observedSnapshot.current = doc.getSnapshot();
+    return doc.subscribe(() => {
+      const previous = observedSnapshot.current;
+      const next = doc.getSnapshot();
+      observedSnapshot.current = next;
+      if (previous.conflict !== null && next.conflict === null && !next.dirty && next.edits.length === 0) {
+        mutationGeneration.current += 1;
+        pendingDraftKeys.current.clear();
+        draftVersions.current.clear();
+        setDrafts({});
+        setFeedback("Character fields were reloaded from disk.");
+      }
+    });
+  }, [doc]);
 
   const submit = (commandInput: CommandInput, clear: Cleanup = []): void => {
-    for (const [key] of clear) pendingDraftKeys.current.set(key, (pendingDraftKeys.current.get(key) ?? 0) + 1);
+    const generation = mutationGeneration.current;
+    for (const [key] of clear) {
+      const pending = pendingDraftKeys.current.get(key);
+      pendingDraftKeys.current.set(key, {
+        generation,
+        count: pending?.generation === generation ? pending.count + 1 : 1,
+      });
+    }
     setPendingCount((count) => count + 1);
     const apply = async (): Promise<void> => {
       try {
+        if (generation !== mutationGeneration.current) return;
+        if (doc.getSnapshot().conflict !== null) {
+          setFeedback("Resolve the external-change conflict before applying character edits.");
+          return;
+        }
         let command: Command;
         if (typeof commandInput === "function") {
           const latest = doc.getSnapshot().character;
@@ -160,6 +196,7 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
           command = commandInput;
         }
         const result = await doc.apply(command);
+        if (generation !== mutationGeneration.current) return;
         if (!result.ok) {
           setFeedback(result.rejection.message);
           return;
@@ -174,12 +211,13 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
           });
         }
       } catch (error) {
-        setFeedback(error instanceof Error ? error.message : "The character change could not be applied.");
+        if (generation === mutationGeneration.current) setFeedback(error instanceof Error ? error.message : "The character change could not be applied.");
       } finally {
         for (const [key] of clear) {
-          const count = pendingDraftKeys.current.get(key) ?? 0;
-          if (count <= 1) pendingDraftKeys.current.delete(key);
-          else pendingDraftKeys.current.set(key, count - 1);
+          const pending = pendingDraftKeys.current.get(key);
+          if (pending?.generation !== generation) continue;
+          if (pending.count <= 1) pendingDraftKeys.current.delete(key);
+          else pendingDraftKeys.current.set(key, { generation, count: pending.count - 1 });
         }
         setPendingCount((count) => Math.max(0, count - 1));
       }
@@ -198,9 +236,11 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
   const requestAsset = async (key: string, request: AssetPickRequest): Promise<string | null> => {
     if (pickAsset === undefined) return null;
     const version = draftVersions.current.get(key) ?? 0;
+    const generation = mutationGeneration.current;
     try {
       const outcome = await pickAsset(request);
       if (!outcome.chosen) return null;
+      if (generation !== mutationGeneration.current) return null;
       if ((draftVersions.current.get(key) ?? 0) !== version) {
         setFeedback("A newer reference edit was kept; the picker selection was not applied.");
         return null;
@@ -246,6 +286,11 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
     }
     submit(command(value), [[key, raw]]);
   };
+  const commitDiscrete = (key: string, value: number, command: Command): void => {
+    const encoded = String(value);
+    editText(key, encoded);
+    submit(command, [[key, encoded]]);
+  };
   const textInput = (label: string, key: string, value: string, field: TextField): JSX.Element => (
     <label>{label}<input aria-label={label} value={text(key, value)} disabled={disabled} onInput={(event) => editText(key, event.currentTarget.value)} onBlur={(event) => commitText(field, key, event.currentTarget.value)} /></label>
   );
@@ -276,10 +321,11 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
       {STATS.map(([field, label]) => {
         const key = `stat:${field}`;
         const current = character.stats[field];
-        return <label key={field}>{label}<input aria-label={label} type="number" step="1" min={INT32_MIN} max={INT32_MAX} value={text(key, String(current))} onInput={(event) => editText(key, event.currentTarget.value)} onBlur={(event) => {
+        const minimum = field === "experience" || field === "level" ? 0 : INT32_MIN;
+        return <label key={field}>{label}<input aria-label={label} type="number" step="1" min={minimum} max={INT32_MAX} value={text(key, String(current))} onInput={(event) => editText(key, event.currentTarget.value)} onBlur={(event) => {
           const raw = event.currentTarget.value;
-          const parsed = integerValue(raw, INT32_MIN, INT32_MAX);
-          if (parsed === null) { setFeedback(`Enter a whole number from ${INT32_MIN} to ${INT32_MAX}.`); return; }
+          const parsed = integerValue(raw, minimum, INT32_MAX);
+          if (parsed === null) { setFeedback(`Enter a whole number from ${minimum} to ${INT32_MAX}.`); return; }
           if (parsed !== current || isDraftPending(key)) submit({ type: "set-character-stat", field, value: parsed }, [[key, raw]]);
           else setDrafts((draft) => without(draft, key));
         }} /></label>;
@@ -301,9 +347,10 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
       <legend>Special moves</legend>
       {textInput("Special-move category", "specialMoveCategory", character.specialMoveCategory, "specialMoveCategory")}
       <label>Character has special moves
-        <select aria-label="Character has special moves" value={String(character.hasSpecialMoves)} onChange={(event) => {
+        <select aria-label="Character has special moves" value={text("movesEnabled", String(character.hasSpecialMoves))} onChange={(event) => {
           const value = Number(event.currentTarget.value);
-          if (value !== character.hasSpecialMoves) submit({ type: "set-character-moves-enabled", value });
+          const current = Number(text("movesEnabled", String(character.hasSpecialMoves)));
+          if (value !== current) commitDiscrete("movesEnabled", value, { type: "set-character-moves-enabled", value });
         }}>
           <option value="0">Yes</option><option value="1">No</option>
         </select>
@@ -328,19 +375,20 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
       {BODY_SLOTS.map((label, slot) => {
         const index = slot + 1;
         const value = character.bodySlots[index] ?? 0;
-        return <label key={index}><input type="checkbox" aria-label={`${label} body slot used`} checked={value !== 0} onChange={(event) => {
+        return <label key={index}><input type="checkbox" aria-label={`${label} body slot used`} checked={Number(text(`body:${index}`, String(value))) !== 0} onChange={(event) => {
           const next = event.currentTarget.checked ? 1 : 0;
-          if (next !== value) submit({ type: "set-character-body-slot", index, value: next });
+          const current = Number(text(`body:${index}`, String(value)));
+          if (next !== current) commitDiscrete(`body:${index}`, next, { type: "set-character-body-slot", index, value: next });
         }} />{`${label} body slot used`}</label>;
       })}
     </fieldset>
 
     <fieldset disabled={disabled}>
       <legend>Level progression</legend>
-      {numericInput("Experience for first level-up", "growth:firstLevelExp", character.firstLevelExp, snapshot.minor === 3 ? INT8_MIN : INT32_MIN, snapshot.minor === 3 ? INT8_MAX : INT32_MAX, (value) => ({ type: "set-character-growth", field: "firstLevelExp", value }))}
-      {numericInput("Experience increase per level", "growth:experienceIncrease", character.experienceIncrease, INT16_MIN, INT16_MAX, (value) => ({ type: "set-character-growth", field: "experienceIncrease", value }))}
-      {numericInput("Maximum level (0 disables progression)", "growth:maxLevel", character.maxLevel, INT32_MIN, INT32_MAX, (value) => ({ type: "set-character-growth", field: "maxLevel", value }))}
-      {INCREASES.map(([index, label]) => numericInput(`${label} increase per level`, `increase:${index}`, character.levelIncreases[index] ?? 0, INT16_MIN, INT16_MAX, (value) => ({ type: "set-character-increase", index, value })))}
+      {numericInput("Experience for first level-up", "growth:firstLevelExp", character.firstLevelExp, 0, snapshot.minor === 3 ? INT8_MAX : INT32_MAX, (value) => ({ type: "set-character-growth", field: "firstLevelExp", value }))}
+      {numericInput("Experience increase per level", "growth:experienceIncrease", character.experienceIncrease, 0, INT16_MAX, (value) => ({ type: "set-character-growth", field: "experienceIncrease", value }))}
+      {numericInput("Maximum level (0 disables progression)", "growth:maxLevel", character.maxLevel, 0, INT32_MAX, (value) => ({ type: "set-character-growth", field: "maxLevel", value }))}
+      {INCREASES.map(([index, label]) => numericInput(`${label} increase per level`, `increase:${index}`, character.levelIncreases[index] ?? 0, 0, INT16_MAX, (value) => ({ type: "set-character-increase", index, value })))}
       {textInput("Level-up program", "levelUpProgram", character.levelUpProgram, "levelUpProgram")}
       <button type="button" aria-label="Choose level-up program" disabled={disabled || pickAsset === undefined} onClick={() => { void pickLevelUpProgram(); }}>Choose level-up program…</button>
       {visit !== undefined && <button type="button" aria-label="Open level-up program" disabled={disabled || character.levelUpProgram.trim() === ""} onClick={() => {
@@ -349,16 +397,17 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
       {visit === undefined && <p>Linked authoring is unavailable here.</p>}
       {pickAsset === undefined && <p>Asset picker unavailable here; enter the project program reference above.</p>}
       <label>Level-up type
-        <select aria-label="Level-up type" value={String(character.levelUpType)} onChange={(event) => {
+        <select aria-label="Level-up type" value={text("growth:levelUpType", String(character.levelUpType))} onChange={(event) => {
           const value = Number(event.currentTarget.value);
-          if (value !== character.levelUpType) submit({ type: "set-character-growth", field: "levelUpType", value });
+          const current = Number(text("growth:levelUpType", String(character.levelUpType)));
+          if (value !== current) commitDiscrete("growth:levelUpType", value, { type: "set-character-growth", field: "levelUpType", value });
         }}>
           <option value="0">Percent increase</option><option value="1">Fixed-point increase</option>
         </select>
       </label>
     </fieldset>
 
-    <p role="status" aria-live="polite">{feedback || (pendingCount > 0 ? "Applying character changes…" : "")}</p>
+    <p role="status" aria-live="polite" aria-label="Character edit status">{feedback || (pendingCount > 0 ? "Applying character changes…" : "")}</p>
   </section>;
 }
 
