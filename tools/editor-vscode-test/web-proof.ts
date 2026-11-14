@@ -276,7 +276,7 @@ export async function runVscodeSpriteWebProof(
   await editor.evaluate(() => { (window as ProofWindow & { __tkrCharacterAlive?: string }).__tkrCharacterAlive = "before-hiding"; });
   await runCommandMatching(page, expect, "New Untitled", "a new untitled editor", true);
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: /Untitled/ })).toBeVisible();
-  await runCommand(page, expect, "File: Save All");
+  await runCommand(page, expect, "Test: Save All Workbench Editors");
   await expect.poll(() => host.readBacking(spritePath), { timeout: 30_000 }).not.toEqual(originalBytes);
   await closeActiveEditor(page, expect);
   editor = await waitForEditorFrame(page, "character editor shown again after Save All");
@@ -971,7 +971,7 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   await editor.evaluate(() => { (window as ProofWindow & { __tkrAliveMarker?: string }).__tkrAliveMarker = "before-hiding"; });
   await runCommandMatching(page, expect, "New Untitled", "a new untitled editor", true);
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: /Untitled/ })).toBeVisible();
-  await runCommand(page, expect, "File: Save All");
+  await runCommand(page, expect, "Test: Save All Workbench Editors");
   await expect.poll(() => host.readBacking(gamePath), { timeout: 30_000 }).not.toEqual(beforeHiddenSave);
   await closeActiveEditor(page, expect);
   editor = await waitForEditorFrame(page, "settings editor shown again");
