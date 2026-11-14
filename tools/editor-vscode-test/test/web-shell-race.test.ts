@@ -31,7 +31,8 @@ describe("browser shell lifecycle races", { concurrency: false }, () => {
   const shellPath = shellModulePath(dir);
   GlobalRegistrator.register();
   try {
-    document.body.innerHTML = `<button id="open-project"></button><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="run"></section><section id="settings"></section>`;
+    document.body.innerHTML = `<button id="open-project"></button><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="settings"></section>`;
+    document.body.insertAdjacentHTML("beforeend", '<button id="mirror-view"></button><section id="mirror"></section><section id="run"></section>');
     const hostUrl = pathToFileURL(resolve("packages/host-web/dist/index.js")).href;
     const fixtureUrl = pathToFileURL(resolve("docs/spec/examples/game/Main/example.gam")).href;
     await writeFile(join(dir, "host.mjs"), `
@@ -45,6 +46,7 @@ export const openWebProject = async () => A;
 export const reopenWebProject = real.reopenWebProject;
 export const listRecentWebProjects = async () => [];
 export const createSessionCopy = real.createSessionCopy;
+export const mountDocumentView = real.mountDocumentView;
 const workbenches = [];
 globalThis.workbenches = workbenches;
 let count = 0;
@@ -132,7 +134,8 @@ test("failed and later opens clean stale documents only after same-workspace acq
   const shellPath = shellModulePath(dir);
   GlobalRegistrator.register();
   try {
-    document.body.innerHTML = `<button id="open-project"></button><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="run"></section><section id="settings"></section>`;
+    document.body.innerHTML = `<button id="open-project"></button><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="settings"></section>`;
+    document.body.insertAdjacentHTML("beforeend", '<button id="mirror-view"></button><section id="mirror"></section><section id="run"></section>');
     const hostUrl = pathToFileURL(resolve("packages/host-web/dist/index.js")).href;
     const fixtureUrl = pathToFileURL(resolve("docs/spec/examples/game/Main/example.gam")).href;
     await writeFile(join(dir, "host.mjs"), `
@@ -155,6 +158,7 @@ export const openWebProject = async () => {
 export const reopenWebProject = real.reopenWebProject;
 export const listRecentWebProjects = async () => [];
 export const createSessionCopy = real.createSessionCopy;
+export const mountDocumentView = real.mountDocumentView;
 const workbenches = [];
 globalThis.workbenches = workbenches;
 let count = 0;
@@ -313,7 +317,8 @@ test("a stale same-project candidate cannot activate after the newer open fails"
   const shellPath = shellModulePath(dir);
   GlobalRegistrator.register();
   try {
-    document.body.innerHTML = `<button id="open-project"></button><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="run"></section><section id="settings"></section>`;
+    document.body.innerHTML = `<button id="open-project"></button><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="settings"></section>`;
+    document.body.insertAdjacentHTML("beforeend", '<button id="mirror-view"></button><section id="mirror"></section><section id="run"></section>');
     const hostUrl = pathToFileURL(resolve("packages/host-web/dist/index.js")).href;
     const fixtureUrl = pathToFileURL(resolve("docs/spec/examples/game/Main/example.gam")).href;
     await writeFile(join(dir, "host.mjs"), `
@@ -333,6 +338,7 @@ export const openWebProject = async () => A;
 export const reopenWebProject = real.reopenWebProject;
 export const listRecentWebProjects = async () => [];
 export const createSessionCopy = real.createSessionCopy;
+export const mountDocumentView = real.mountDocumentView;
 export function createWorkbench(project, element) {
   const workbench = real.createWorkbench(project, element);
   workbenches.push(workbench);
@@ -406,6 +412,7 @@ test("same stable project id in separate workspaces does not share pending-open 
   GlobalRegistrator.register();
   try {
     document.body.innerHTML = `<button id="open-project"></button><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="settings"></section>`;
+    document.body.insertAdjacentHTML("beforeend", '<button id="mirror-view"></button><section id="mirror"></section>');
     const hostUrl = pathToFileURL(resolve("packages/host-web/dist/index.js")).href;
     const platformUrl = pathToFileURL(resolve("packages/platform-services/dist/index.js")).href;
     const modelUrl = pathToFileURL(resolve("packages/editor-model/dist/index.js")).href;
@@ -446,6 +453,7 @@ export const openWebProject = async () => ++projectCount === 1 ? A : B;
 export const reopenWebProject = real.reopenWebProject;
 export const listRecentWebProjects = async () => [];
 export const createSessionCopy = real.createSessionCopy;
+export const mountDocumentView = real.mountDocumentView;
 const workbenches = [];
 globalThis.workbenches = workbenches;
 export function createWorkbench(project, element) {

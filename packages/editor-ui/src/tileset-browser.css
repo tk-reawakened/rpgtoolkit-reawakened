@@ -1,3 +1,5 @@
+@import "./tileset-art.css";
+
 .tkr-tileset-browser-list {
   max-height: min(40vh, 24rem);
   overflow-y: auto;

@@ -23,6 +23,19 @@ export {
   type TileGesture,
 } from "./board-document.ts";
 export {
+  createTilesetArtDocument,
+  openTilesetArtDocument,
+  tilesetArtCodec,
+  type PaintTilesetPixelsCommand,
+  type TilesetArtCommand,
+  type TilesetArtDocument,
+  type TilesetArtFields,
+  type TilesetArtOpenResult,
+  type TilesetArtSnapshot,
+  type TilesetArtTile,
+  type TilesetPixelChange,
+} from "./tileset-art-document.ts";
+export {
   BOARD_COORD_SYSTEMS,
   DEFAULT_NEW_BOARD,
   NEW_BOARD_MAX_LAYERS,

@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { TILE_BITMAP_MAGIC, writeTileBitmap } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { createDocumentIdentity, DOCUMENT_KINDS, kindForPath, type AnyCommand, type AnyDocument } from "../src/index.ts";
-import { exampleBoard, exampleCharacter, exampleItem, exampleMain } from "./fixtures.ts";
+import { exampleBoard, exampleCharacter, exampleItem, exampleMain, exampleTileset } from "./fixtures.ts";
 
 interface KindCase {
   readonly kind: string;
@@ -69,6 +69,13 @@ const CASES: readonly KindCase[] = [
     bytes: exampleItem(),
     accepted: { type: "set-sprite-animation", group: "idle", index: 7, file: "Misc/chest_idle_se.anm" },
     rejected: { type: "set-sprite-animation", group: "battle", index: 0, file: "Misc/chest_battle.anm" },
+  },
+  {
+    kind: "tileset",
+    path: "Tiles/art.tst",
+    bytes: exampleTileset(1),
+    accepted: { type: "paint-tileset-pixels", tile: 0, changes: [{ x: 0, y: 0, rgba: [230, 17, 99, 255] }] },
+    rejected: { type: "paint-tileset-pixels", tile: 0, changes: [{ x: 0, y: 0, rgba: [230, 17, 99, 127] }] },
   },
 ];
 

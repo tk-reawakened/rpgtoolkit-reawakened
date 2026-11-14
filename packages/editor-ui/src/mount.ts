@@ -15,6 +15,8 @@ import type {
   TileBitmapCommand,
   TileBitmapDocumentSnapshot,
   TileBitmapPicture,
+  TilesetArtCommand,
+  TilesetArtSnapshot,
 } from "@tk-reawakened/editor-model";
 import type { PlatformServices } from "@tk-reawakened/platform-services";
 import { createElement, render } from "preact";
@@ -28,6 +30,7 @@ import { SettingsView } from "./settings-view.tsx";
 import { TileBitmapView } from "./tile-bitmap-view.tsx";
 import { SpriteView, type SpriteViewDocument } from "./sprite-view.tsx";
 import type { TilesetBrowserContext } from "./tileset-browser.tsx";
+import { TilesetArtView } from "./tileset-art-view.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
 export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCommand> {
@@ -63,6 +66,9 @@ export interface BoardPreferencesSource {
   subscribe(listener: () => void): () => void;
 }
 
+/** The legacy tileset's pixel-editing surface, with history owned by its document. */
+export type TilesetArtViewDocument = ViewDocument<TilesetArtSnapshot, TilesetArtCommand>;
+
 /** What a tile bitmap view needs beyond the shared surface: a picture of the cells as the engine composes them, from the project's tiles. */
 export interface TileBitmapViewDocument extends ViewDocument<TileBitmapDocumentSnapshot, TileBitmapCommand> {
   /** Compose the bitmap as it is now, saved or not. The promise never rejects: failure is a value with a reason. */
@@ -72,7 +78,7 @@ export interface TileBitmapViewDocument extends ViewDocument<TileBitmapDocumentS
 /** What a host gives a view when it mounts it (ADR 0025 decision 4). */
 export interface ViewContext {
   /** The document the view shows and edits. The view never owns it. */
-  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | SpriteViewDocument;
+  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | SpriteViewDocument | TilesetArtViewDocument;
   /**
    * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
@@ -93,6 +99,10 @@ function isBoardView(document: ViewContext["document"]): document is BoardViewDo
   return document.kind === "board";
 }
 
+function isTilesetArtView(document: ViewContext["document"]): document is TilesetArtViewDocument {
+  return document.kind === "tileset";
+}
+
 function isTileBitmapView(document: ViewContext["document"]): document is TileBitmapViewDocument {
   return document.kind === "tile-bitmap";
 }
@@ -106,25 +116,34 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   const onEdited = (event: Parameters<PlatformServices["document"]["edited"]>[0]): void => ctx.services.document.edited(event);
   const capabilities = ctx.services.capabilities;
   const document = ctx.document;
-  const fs = ctx.services.fs;
-  if (isSpriteView(document) && fs === undefined) throw new Error("A sprite view requires project-file read access.");
-  const browser = ctx.browser === undefined ? {} : { browser: ctx.browser };
-  render(
-    isBoardView(document)
-      ? createElement(BoardView, {
-        doc: document,
-        capabilities,
-        onEdited,
-        ...browser,
-        ...(ctx.boardPreferences === undefined ? {} : { preferences: ctx.boardPreferences }),
-      })
-      : isTileBitmapView(document)
-        ? createElement(TileBitmapView, { doc: document, capabilities, onEdited, ...browser })
-        : isSpriteView(document)
-          ? createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited })
-          : createElement(SettingsView, { doc: document, capabilities, onEdited }),
-    el,
-  );
+  let view: Parameters<typeof render>[0];
+  if (isBoardView(document)) {
+    view = createElement(BoardView, {
+      doc: document,
+      capabilities,
+      onEdited,
+      ...(ctx.browser === undefined ? {} : { browser: ctx.browser }),
+      ...(ctx.boardPreferences === undefined ? {} : { preferences: ctx.boardPreferences }),
+    });
+  } else if (isTilesetArtView(document)) {
+    view = createElement(TilesetArtView, { doc: document, capabilities, onEdited });
+  } else if (isTileBitmapView(document)) {
+    view = createElement(TileBitmapView, {
+      doc: document,
+      capabilities,
+      onEdited,
+      ...(ctx.browser === undefined ? {} : { browser: ctx.browser }),
+    });
+  } else if (isSpriteView(document)) {
+    const fs = ctx.services.fs;
+    if (fs === undefined) throw new Error("A sprite view requires project-file read access.");
+    view = createElement(SpriteView, { doc: document, fs, capabilities, onEdited });
+  } else if (document.kind === "main") {
+    view = createElement(SettingsView, { doc: document, capabilities, onEdited });
+  } else {
+    throw new Error(`No editor view is registered for document kind "${document.kind}".`);
+  }
+  render(view, el);
   let disposed = false;
   return {
     dispose() {

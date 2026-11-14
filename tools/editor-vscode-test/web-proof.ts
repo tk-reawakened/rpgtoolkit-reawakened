@@ -2,6 +2,7 @@ import { BinaryReader, readBoard } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors, decodePersistedBytes } from "./lifecycle.ts";
+import { runVscodeArtProof } from "./art-proof.ts";
 
 const copyBytesCommand = "Test: Copy Main File Bytes";
 
@@ -58,6 +59,10 @@ type ProofHost = {
   choice: "cancel" | "keep";
   boardPath: string;
   otherBoardPath: string;
+  artPath: string;
+  otherArtPath: string;
+  writeBacking(path: string, bytes: Uint8Array): Promise<void>;
+  withBackingWriteRefused(path: string, check: () => Promise<void>): Promise<void>;
   /** A fully drawn 2 × 2 tile bitmap over `Tiles/village.tst`: tile 1 everywhere except a shaded (10, -20, 30) tile 2 at column 2, row 1. */
   bitmapPath: string;
   /** A 3 × 1 tile bitmap of shaded tile 2, which the browser's Edit tile bitmap action must open. */
@@ -502,6 +507,7 @@ export async function runVscodeWebProof(
   }
   await expect(recoveredEditor.getByRole("button", { name: "Keep my version" })).toBeVisible();
   await recoveredEditor.getByRole("button", { name: "Keep my version" }).click();
+  await runCommand(page, expect, "Notifications: Clear All Notifications");
   await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
   expect(await readWorkspaceBytes(page, expect)).toEqual(externalAfterRestart);
   expect(await host.readBacking()).toEqual(externalAfterRestart);
@@ -542,6 +548,15 @@ export async function runVscodeWebProof(
   await runLifecycleScenarios(page, expect, autosaveTitle, autosaveBytes, host);
   // The packaged custom editor runs in the actual VS Code webview and persists boards through its working-copy provider.
   await runBoardBrowserScenario(page, expect, host);
+  const artFrame = await runVscodeArtProof(page, expect, host, {
+    focusWorkbench: () => focusWorkbench(page),
+    command: (title) => runCommand(page, expect, title),
+    closeEditor: () => closeActiveEditor(page, expect),
+    backupStored: (bytes) => backupIsStored(page, bytes),
+    instrument: (frame) => instrumentCspFrame(frame),
+  });
+  await expect.poll(() => frameCspViolations(page, artFrame, consoleViolations)).toEqual([]);
+  await assertCspListenerCountsBlockedAction(artFrame, expect, consoleViolations);
   // The same packaged extension edits a tile bitmap through the shared browser and persists it through the same provider.
   await runBitmapBrowserScenario(page, expect, host);
   await runBitmapSelectionRetentionScenario(page, expect, host);
@@ -568,6 +583,7 @@ async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHos
     const state = frame.locator(".tkr-board-state");
     const tile2 = frame.locator('.tkr-board-cell[aria-label$=": village.tst2"]');
     await expect(state).toHaveText("All changes saved");
+    await frame.getByLabel("Source", { exact: true }).selectOption({ label: "village.tst (tst)" });
     const rock = frame.locator('[data-browser-reference="village.tst2"] .tkr-tileset-browser-source');
     await rock.click();
     await expect(rock).toHaveAttribute("aria-pressed", "true");
@@ -746,6 +762,7 @@ async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHo
   const first = await openProjectBoard(page, firstPath, expect);
   await expect(first.getByRole("grid")).toBeVisible();
   await expect(first.getByRole("button", { name: "Column 1, row 1: village.tst1" })).toBeVisible();
+  await first.getByRole("combobox", { name: "Source", exact: true }).selectOption({ label: "village.tst (tst)" });
   const tile = first.locator('[data-browser-reference="village.tst2"]');
   await expect(tile).toBeVisible();
   const source = tile.locator(".tkr-tileset-browser-source");
@@ -817,6 +834,7 @@ async function runBitmapBrowserScenario(page: Page, expect: Expect, host: ProofH
   expect(Math.abs(bottomLeft.x - topLeft.x)).toBeLessThan(2);
   expect(bottomLeft.y).toBeGreaterThanOrEqual(topLeft.y + topLeft.height);
   // Choosing a tile in the shared browser edits nothing; Draw puts it on the clicked cell.
+  await first.getByRole("combobox", { name: "Source", exact: true }).selectOption({ label: "village.tst (tst)" });
   const tile = first.locator('[data-browser-reference="village.tst1"] .tkr-tileset-browser-source');
   await expect(tile).toBeVisible();
   await tile.click();
@@ -991,6 +1009,9 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
     let acknowledgementFailed = false;
     try {
       await runCommand(page, expect, "Test: Pause Autosave Off");
+      await expect.poll(() => readMarker("armed"), {
+        message: "VS Code armed the autosave-off completion barrier before Off is dispatched",
+      }).toBe("off");
       await runCommand(page, expect, "Test: Turn Autosave Off");
       let autosaveAcknowledged = false;
       acknowledgement = expectAutosave("off").then(
@@ -1047,8 +1068,20 @@ async function runCommandMatching(page: Page, expect: Expect, search: string, la
         await commandInput.press("Escape");
         await expect(widget).toBeHidden();
       }
-      const command = page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
-      await expect(command, `VS Code selects ${label}`).toBeVisible();
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const exact = page.getByRole("option", { name: new RegExp(`^${escaped}(?:,|$)`) });
+      if (search === label) {
+        await expect(exact, `VS Code offers exactly one ${label}`).toHaveCount(1);
+        const choices = await page.getByRole("option").count();
+        for (let index = 0; index < choices; index += 1) {
+          if (await exact.evaluate((element) => element.classList.contains("focused"))) break;
+          await commandInput.press("ArrowDown");
+        }
+        await expect(exact).toHaveClass(/(?:^|\s)focused(?:\s|$)/);
+      } else {
+        const command = page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
+        await expect(command, `VS Code selects ${label}`).toBeVisible();
+      }
       break;
     } catch (error) {
       if (attempt === 2 || await widget.isVisible()) throw error;
@@ -1216,7 +1249,12 @@ async function openPersistedBytesPanel(page: Page, expect: Expect): Promise<{ ta
   const panelTabs = page.getByRole("tab").filter({ hasText: /Persisted Main File Bytes #[0-9a-f-]+/i });
   const existingCount = await panelTabs.count();
   await runCommand(page, expect, copyBytesCommand);
-  await expect.poll(() => panelTabs.count()).toBeGreaterThan(existingCount);
+  try {
+    await expect.poll(() => panelTabs.count()).toBeGreaterThan(existingCount);
+  } catch (cause) {
+    const tabs = await page.getByRole("tab").allTextContents();
+    throw new Error(`The byte probe did not open a new tab; current tabs: ${JSON.stringify(tabs)}`, { cause });
+  }
   const panelTab = panelTabs.nth(existingCount);
   await expect(panelTab).toBeVisible({ timeout: 15_000 });
   const panelId = /Persisted Main File Bytes #([0-9a-f-]+)/i.exec(await panelTab.innerText())?.[1];
@@ -1284,18 +1322,14 @@ async function openGame(page: Page, gamePath: string, expect: Expect): Promise<v
 }
 
 async function closeActiveEditor(page: Page, expect: Expect): Promise<void> {
-  const commandInput = await commandPalette(page, expect);
-  await commandInput.fill(">View: Close Editor");
-  const closeCommand = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "View: Close Editor" }).first();
-  await expect(closeCommand).toBeVisible();
-  await closeCommand.click();
-  await expect(page.locator(".quick-input-widget")).toBeHidden();
+  await runCommand(page, expect, "View: Close Editor");
 }
 
-async function commandPalette(page: Page, expect: Expect): Promise<import("@playwright/test").Locator> {
+async function commandPalette(page: Page, expect: Expect): Promise<Locator> {
   await focusWorkbench(page);
   await page.keyboard.press("ControlOrMeta+Shift+P");
-  const input = page.locator(".quick-input-widget input").last();
+  const input = page.locator(".quick-input-widget input:visible");
+  await expect(input).toHaveCount(1);
   await expect(input).toBeVisible();
   return input;
 }

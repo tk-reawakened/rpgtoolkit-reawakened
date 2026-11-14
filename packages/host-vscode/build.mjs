@@ -15,3 +15,4 @@ await Promise.all([
   build({ entryPoints: [resolve(root, "../runner-web/src/decode-worker.ts")], outfile: resolve(out, "decode-worker.js"), bundle: true, platform: "browser", format: "iife", target: "es2022" }),
 ]);
 await cp(resolve(root, "../editor-ui/src/tileset-browser.css"), resolve(out, "tileset-browser.css"));
+await cp(resolve(root, "../editor-ui/src/tileset-art.css"), resolve(out, "tileset-art.css"));

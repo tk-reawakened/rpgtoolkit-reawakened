@@ -6,7 +6,11 @@
     "noEmit": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node"],
-    "rootDir": "../.."
+    "rootDir": "../..",
+    "paths": {
+      "@tk-reawakened/host-web": ["../../packages/host-web/dist/index.d.ts"],
+      "@tk-reawakened/platform-services": ["../../packages/platform-services/dist/index.d.ts"]
+    }
   },
-  "include": ["tests/editor-web-host.spec.ts", "tests/editor-lifecycle.spec.ts", "tests/editor-board-canvas.spec.ts", "tests/closing.spec.ts"]
+  "include": ["tests/editor-web-host.spec.ts", "tests/editor-lifecycle.spec.ts", "tests/editor-artwork.spec.ts", "tests/editor-board-canvas.spec.ts", "tests/closing.spec.ts", "editor-web/main.tsx"]
 }

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { access, copyFile, cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -68,8 +68,11 @@ for (const choice of launchProof || boardProof || programProof || guardProof ? [
   await copyFile(spritePreviewGifFile, resolve(proofWorkspace, "Misc/vscode-web-proof.gif"));
   const boardPath = "Boards/village.brd";
   const otherBoardPath = "Boards/other.brd";
+  const artPath = "Tiles/art.tst";
+  const otherArtPath = "Tiles/other.tst";
   const bitmapPath = "Bitmap/house.tbm";
   const otherBitmapPath = "Bitmap/other.tbm";
+ 
   const boardBytes = createBoardBytes();
   await mkdir(resolve(proofWorkspace, "Boards"), { recursive: true });
   await mkdir(resolve(proofWorkspace, "Bitmap"), { recursive: true });
@@ -83,15 +86,18 @@ for (const choice of launchProof || boardProof || programProof || guardProof ? [
     }),
     writeFile(resolve(proofWorkspace, boardPath), boardBytes),
     writeFile(resolve(proofWorkspace, otherBoardPath), boardBytes),
+    copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, artPath)),
+    copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, otherArtPath)),
+    copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, "Tiles/village.tst")),
     writeFile(resolve(proofWorkspace, bitmapPath), createBitmapBytes(false)),
     writeFile(resolve(proofWorkspace, otherBitmapPath), createOtherBitmapBytes()),
-    copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, "Tiles/village.tst")),
   ]);
   let persistentFs;
   let browser;
   let trackedProcess;
   let failure;
   let cleanupErrors = [];
+  const routeErrors = [];
   const browserDiagnostics = [];
   const probeDiagnostics = [];
   try {
@@ -110,6 +116,7 @@ for (const choice of launchProof || boardProof || programProof || guardProof ? [
         "--host=localhost", "--browser=none",
         `--extensionDevelopmentPath=${extension}`, `--extensionPath=${resolve(harness, "probe-extension")}`,
         `--port=${port}`, `--folder-uri=tkr-testfs://${persistentFs.authority}/`,
+        `--testRunnerDataDir=${process.env.TKR_VSCODE_TEST_DATA_DIR ?? resolve(root, ".vscode-test-web")}`,
       ], {
         cwd: root,
         stdio: "inherit",
@@ -123,15 +130,21 @@ for (const choice of launchProof || boardProof || programProof || guardProof ? [
     };
     await startWorkbench();
     browser = await chromium.launchPersistentContext(browserProfile, { headless: true });
-    // Observe the actual built host adapter at its dispatch boundary without adding a production test hook.
     // A changed build shape fails closed rather than silently losing this safety assertion.
-    await browser.route("**/static/extensions/0/extension.js", async (route) => {
+    const captureRouteErrors = (handler) => async (route) => {
+      try {
+        await handler(route);
+      } catch (error) {
+        routeErrors.push(error);
+      }
+    };
+    const providerRoute = captureRouteErrors(async (route) => {
       const response = await route.fetch();
       const source = await response.text();
       if (source.split("__TKR_PROOF_SECRET__").length !== 2) throw new Error("Proof provider no longer matches the credential injection");
       await route.fulfill({ response, body: source.replace("__TKR_PROOF_SECRET__", persistentFs.token) });
     });
-    await browser.route("**/static/devextensions/dist/extension.browser.js", async (route) => {
+    const browserExtensionRoute = captureRouteErrors(async (route) => {
       const response = await route.fetch();
       let source = await response.text();
       const [, bridgePort] = persistentFs.authority.split(".");
@@ -160,6 +173,11 @@ for (const choice of launchProof || boardProof || programProof || guardProof ? [
       }
       await route.fulfill({ response, body: source });
     });
+    const registerContextRoutes = async () => {
+      await browser.route("**/static/extensions/0/extension.js", providerRoute);
+      await browser.route("**/static/devextensions/dist/extension.browser.js", browserExtensionRoute);
+    };
+    await registerContextRoutes();
     const recordBrowserDiagnostic = (message) => { if (browserDiagnostics.length < 100) browserDiagnostics.push(message.replaceAll(persistentFs.token, "[redacted]")); };
     const newPage = async () => {
       const page = await browser.newPage();
@@ -201,12 +219,14 @@ for (const choice of launchProof || boardProof || programProof || guardProof ? [
         const timer = setTimeout(() => timeout.reject(new Error("Workbench bootstrap did not pause")), 30_000);
         try { await Promise.race([paused.promise, timeout.promise]); } finally { clearTimeout(timer); }
         if (!extensionFrame.isDetached()) throw new Error("The previous extension host did not stop before offline mutation");
+        await browser.unrouteAll({ behavior: "wait" });
         trackedProcess.child.kill("SIGTERM");
         const code = await trackedProcess.closed;
         if (code !== 0 || trackedProcess.errors.length) throw new Error(`VS Code web workbench did not stop cleanly: ${code}`);
         trackedProcess = undefined;
         if (offlineBytes !== undefined) await writeFile(resolve(proofWorkspace, game), offlineBytes);
         await startWorkbench();
+        await registerContextRoutes();
         release.resolve();
         const routeError = await continued.promise;
         if (routeError) throw routeError;
@@ -217,6 +237,18 @@ for (const choice of launchProof || boardProof || programProof || guardProof ? [
       }
     };
     const readBacking = async (path = game) => new Uint8Array(await readFile(resolve(proofWorkspace, path)));
+    const writeBacking = async (path, bytes) => { await writeFile(resolve(proofWorkspace, path), bytes); };
+    const withBackingWriteRefused = async (path, check) => {
+      const target = resolve(proofWorkspace, path);
+      const mode = (await stat(target)).mode & 0o777;
+      await chmod(target, mode & ~0o222);
+      let failure;
+      const cleanupErrors = [];
+      try { await check(); } catch (error) { failure = error; }
+      try { await chmod(target, mode); } catch (error) { cleanupErrors.push(error); }
+      const combined = combineProofErrors(failure, cleanupErrors);
+      if (combined !== undefined) throw combined;
+    };
     if (guardProof) {
       await runVscodeGuardProof(page, expect, workbenchUrl, game, readBacking,
         new Uint8Array(await readFile(gameFiles[0])), await createWebAdapterBytes(gameFiles[0], game, "Race saved"));
@@ -236,14 +268,23 @@ for (const choice of launchProof || boardProof || programProof || guardProof ? [
         await runVscodeSpriteWebProof(page, expect, workbenchUrl, spritePath, spriteBytes, { readBacking });
         console.log("vscode.dev sprite save/reopen proof passed");
       }
-      await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath, bitmapPath, otherBitmapPath, bitmapSaved: createBitmapBytes(true), bitmapPicture: (edited) => expectedBitmapPicture(createBitmapBytes(edited)), canvasBoards: canvasBoards.map(({ path, label, coordType }) => ({ path, label, coordType })) });
-      console.log(`vscode.dev settings and board proof passed (${choice})`);
+      await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, {
+        restart, readBacking, writeBacking, withBackingWriteRefused, readHostEvents: persistentFs.events,
+        pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave, externalBytes, sentinelTitle, sentinelBytes,
+        choice, boardPath, otherBoardPath, artPath, otherArtPath, bitmapPath, otherBitmapPath,
+        bitmapSaved: createBitmapBytes(true), bitmapPicture: (edited) => expectedBitmapPicture(createBitmapBytes(edited)),
+        canvasBoards: canvasBoards.map(({ path, label, coordType }) => ({ path, label, coordType })),
+      });
+      console.log(`vscode.dev settings, board, art and bitmap proof passed (${choice})`);
     }
-
   } catch (error) {
     failure = error;
   } finally {
+    if (browser !== undefined) {
+      try { await browser.unrouteAll({ behavior: "wait" }); } catch (error) { cleanupErrors.push(error); }
+    }
     cleanupErrors.push(...await cleanupTestRun(browser, trackedProcess, proofWorkspace));
+    cleanupErrors.push(...routeErrors);
     if (persistentFs !== undefined) {
       try { await persistentFs.close(); } catch (error) { cleanupErrors.push(error); }
     }

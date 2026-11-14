@@ -1,4 +1,4 @@
-import { createSessionCopy, createWorkbench, listRecentWebProjects, openWebProject, reopenWebProject, type WebProject, type Workbench } from "@tk-reawakened/host-web";
+import { createSessionCopy, createWorkbench, listRecentWebProjects, mountDocumentView, openWebProject, reopenWebProject, type DocumentView, type WebProject, type Workbench } from "@tk-reawakened/host-web";
 import { createDocumentIdentity, type AnyDocument, projectLayoutOfMain } from "@tk-reawakened/editor-model";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
 
@@ -15,7 +15,8 @@ const recentLabel = document.querySelector<HTMLLabelElement>("#recent-project-la
 const recentSelect = document.querySelector<HTMLSelectElement>("#recent-project")!;
 const reopenButton = document.querySelector<HTMLButtonElement>("#reopen-project")!;
 const actions = document.querySelector<HTMLElement>("#document-actions")!;
-
+const mirrorElement = document.querySelector<HTMLElement>("#mirror")!;
+const mirrorButton = document.querySelector<HTMLButtonElement>("#mirror-view")!;
 /** The one project this page shows: its workspace, tabs and mounted workbench. */
 interface Shown {
   readonly project: WebProject;
@@ -24,6 +25,12 @@ interface Shown {
   readonly unsubscribeTabs: () => void;
 }
 let shown: Shown | null = null;
+let mirrorView: DocumentView | null = null;
+let mirroredDocument: AnyDocument | null = null;
+let mirroredProject: WebProject | null = null;
+let mirrorRequested = false;
+
+
 let projectWithChoices: WebProject | null = null;
 let openRequest = 0;
 interface PendingDocumentOpen {
@@ -478,6 +485,8 @@ function disposeShown(current: Shown): void {
 function replaceShown(next: Shown | null): void {
   const previous = shown;
   shown = next;
+  syncMirror();
+
   if (next !== null) next.element.hidden = false;
   actions.hidden = activeDocument(next) === null;
   if (previous !== null && previous !== next) {
@@ -500,27 +509,80 @@ function activeDocument(current: Shown | null): AnyDocument | null {
 }
 
 function updateActions(current: Shown): void {
-  if (shown === current) actions.hidden = activeDocument(current) === null;
+  if (shown !== current) return;
+  actions.hidden = activeDocument(current) === null;
+  syncMirror();
 }
 
-function onActive(button: string, action: (current: Shown, document: AnyDocument) => Promise<string | null> | string | null): void {
-  document.querySelector<HTMLButtonElement>(button)!.addEventListener("click", () => {
+function syncMirror(): void {
+  const active = activeDocument(shown);
+  const project = shown?.project ?? null;
+  const visible = active !== null && project !== null && mirrorRequested;
+  mirrorElement.hidden = !visible;
+  mirrorButton.setAttribute("aria-pressed", String(mirrorRequested));
+  if (visible && mirrorView !== null && mirroredDocument === active && mirroredProject === project) return;
+  mirrorView?.dispose();
+  mirrorView = null;
+  mirroredDocument = null;
+  mirroredProject = null;
+  mirrorElement.replaceChildren();
+  if (visible && active !== null && project !== null) {
+    mirrorView = mountDocumentView(project, active, mirrorElement);
+    mirroredDocument = active;
+    mirroredProject = project;
+  }
+}
+
+mirrorButton.addEventListener("click", () => {
+  mirrorRequested = !mirrorRequested;
+  syncMirror();
+});
+
+function activeCommand(action: (current: Shown, document: AnyDocument) => Promise<string | null> | string | null): () => void {
+  return () => {
     const current = shown;
     const active = activeDocument(current);
     if (current === null || active === null) return;
     void Promise.resolve(action(current, active))
       .then((message) => { if (message !== null && shown === current) status.textContent = message; })
       .catch((error: unknown) => { if (shown === current) showFailure(error); });
-  });
+  };
 }
 
-onActive("#undo", ({ project }, active) => {
+function onActive(button: string, action: (current: Shown, document: AnyDocument) => Promise<string | null> | string | null): () => void {
+  const run = activeCommand(action);
+  document.querySelector<HTMLButtonElement>(button)!.addEventListener("click", run);
+  return run;
+}
+
+const undoActive = onActive("#undo", ({ project }, active) => {
   const undone = project.workspace.undo(active);
   return undone.ok ? null : "Nothing to undo.";
 });
-onActive("#redo", ({ project }, active) => {
+const redoActive = onActive("#redo", ({ project }, active) => {
   const redone = project.workspace.redo(active);
   return redone.ok ? null : "Nothing to redo.";
+});
+const saveActive = activeCommand(async (_current, active) => {
+  const saved = await active.save();
+  return saved.ok ? null : saved.failure.message;
+});
+
+window.addEventListener("keydown", (event) => {
+  if (event.defaultPrevented || event.isComposing || event.altKey || !(event.ctrlKey || event.metaKey)) return;
+  const key = event.key.toLowerCase();
+  const save = key === "s" && !event.shiftKey;
+  const undo = key === "z" && !event.shiftKey;
+  const redo = key === "z" && event.shiftKey || key === "y" && !event.shiftKey;
+  if (!save && !undo && !redo) return;
+  const target = event.target;
+  if (!save && target instanceof HTMLElement
+    && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable)) return;
+  if (activeDocument(shown) === null) return;
+  event.preventDefault();
+  if (save) saveActive();
+  else if (undo) undoActive();
+  else redoActive();
 });
 onActive("#save-as", async (current, active) => {
   const saved = await current.project.workspace.saveAs(active);
