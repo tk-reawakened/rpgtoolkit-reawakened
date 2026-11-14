@@ -1,4 +1,4 @@
-import { kindForPath, classifyImageReference, spriteAnimationCanvasPreview, spriteAnimationPreview, spriteBasesFromFile, spriteGifPreview, spritePicturePreview, spriteProjectAssetPath, spriteTileBitmapPreviewFromAssets, spriteTileFrameFromReference, type ActorBase, type ActorPoint, type ApplyResult, type SaveResult, type SpriteCommand, type SpriteDocumentSnapshot, type SpritePreviewFrame } from "@tk-reawakened/editor-model";
+import { createEditTracker, kindForPath, classifyImageReference, spriteAnimationCanvasPreview, spriteAnimationPreview, spriteBasesFromFile, spriteGifPreview, spritePicturePreview, spriteProjectAssetPath, spriteTileBitmapPreviewFromAssets, spriteTileFrameFromReference, type ActorBase, type ActorPoint, type ApplyResult, type PendingEdits, type SaveResult, type SpriteCommand, type SpriteDocumentSnapshot, type SpritePreviewFrame } from "@tk-reawakened/editor-model";
 import type { Capabilities, DocumentEdited, FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useDocumentSnapshot } from "./use-document.ts";
@@ -23,6 +23,8 @@ export interface SpriteViewProps {
   readonly fs: Pick<FileSystemService, "readProject">;
   readonly capabilities: Capabilities;
   readonly onEdited: (event: DocumentEdited) => void;
+  /** Where this view reports edits it has accepted but not yet handed to the document, so the host's save, close and revert wait for them (#2613). */
+  readonly pendingEdits?: PendingEdits;
 }
 
 type BaseEdit = (bases: readonly ActorBase[]) => readonly ActorBase[];
@@ -183,8 +185,11 @@ function AnimationPreview({ file, fs, projectId, id }: { readonly file: string; 
 }
 
 
-export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps) {
+export function SpriteView({ doc, fs, capabilities, onEdited, pendingEdits }: SpriteViewProps) {
   const snapshot = useDocumentSnapshot(doc);
+  // Counts every edit from the moment it is accepted until the document answers, queued ones included (#2613).
+  const submitted = useRef(createEditTracker());
+  useEffect(() => pendingEdits?.register(submitted.current), [pendingEdits]);
   const [formId] = useState(() => { viewsMade += 1; return `sprite-${viewsMade}`; });
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [template, setTemplate] = useState("");
@@ -324,6 +329,7 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
   const selected = bases[selectedBase] ?? { points: [] };
   const selectedPoints = selected.points.map((point, index) => dragPreview?.index === index ? dragPreview.point : point);
   const submit = async (command: SpriteCommand): Promise<boolean> => {
+    const finishSubmission = submitted.current.begin();
     try {
       const result = await doc.apply(command);
       if (!result.ok) {
@@ -336,6 +342,8 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "The graphics edit could not be applied.");
       return false;
+    } finally {
+      finishSubmission();
     }
   };
   const rebaseBaseDraft = (): void => {
@@ -343,6 +351,7 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
     baseDraft.current = queuedBaseEdits.current.reduce((current, next) => next(current), committed);
   };
   const enqueueBaseWork = (work: () => Promise<void>, structural = false, removal = false): void => {
+    const finishSubmission = submitted.current.begin();
     pendingBaseCommands.current += 1;
     setPendingBaseWorkCount((count) => count + 1);
     if (structural) {
@@ -354,6 +363,7 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
       setPendingBaseRemovalCount((count) => count + 1);
     }
     const finished = (): void => {
+      finishSubmission();
       pendingBaseCommands.current -= 1;
       setPendingBaseWorkCount((count) => Math.max(0, count - 1));
       if (structural) {
@@ -420,7 +430,9 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
     setDrafts((current) => ({ ...current }));
   };
   const saveSprite = async (): Promise<void> => {
-    while (pendingBaseCommands.current > 0) await baseQueue.current;
+    // Every edit this document's views have accepted, this view's and its sibling's, reaches the document before it is written.
+    if (pendingEdits !== undefined) await pendingEdits.settle();
+    else await submitted.current.idle();
     const result = await doc.save();
     setFeedback(result.ok ? "Sprite saved." : result.failure.message);
   };

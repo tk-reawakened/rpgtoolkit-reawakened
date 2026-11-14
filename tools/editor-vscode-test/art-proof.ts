@@ -255,12 +255,16 @@ async function artFrames(page: Page, expect: Expect, count: number): Promise<Fra
   let found: Frame[] = [];
   await expect.poll(async () => {
     found = [];
-    for (const frame of page.frames()) {
-      if (frame.isDetached()) continue;
-      try {
-        if (await frame.locator(".tkr-tileset-art").count() === 1) found.push(frame);
-      } catch (error) {
-        if (!frame.isDetached()) throw error;
+    for (const outer of await page.locator("iframe.webview:visible").elementHandles()) {
+      const outerFrame = await outer.contentFrame();
+      if (outerFrame === null) continue;
+      for (const frame of outerFrame.childFrames()) {
+        if (frame.isDetached()) continue;
+        try {
+          if (await frame.locator(".tkr-tileset-art").count() === 1) found.push(frame);
+        } catch (error) {
+          if (!frame.isDetached()) throw error;
+        }
       }
     }
     return found.length;

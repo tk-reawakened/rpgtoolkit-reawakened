@@ -78,10 +78,10 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
       panel.webview.html = html(panel.webview, context);
     },
   };
-  // A hidden webview is destroyed (`retainContextWhenHidden: false`); the document lives here in the extension host, and
-  // the re-created view asks for it again (ADR 0022 D3.7).
+  // Keep custom-editor pages alive while their tabs are hidden. Accepted view-side edits can still be queued behind
+  // an acknowledgement; the extension host's Save All, backup and revert requests must reach that live queue.
   for (const viewType of VIEW_TYPES) {
-    context.subscriptions.push(vscode.window.registerCustomEditorProvider(viewType, provider, { webviewOptions: { retainContextWhenHidden: false }, supportsMultipleEditorsPerDocument: true }));
+    context.subscriptions.push(vscode.window.registerCustomEditorProvider(viewType, provider, { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: true }));
   }
   return () => generation;
 }

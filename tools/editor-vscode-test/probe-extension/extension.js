@@ -33,6 +33,10 @@ function activate(context) {
     lastStopHash = lastRunHandle?.snapshot.stateHash ?? null;
     lastRunHandle?.stop();
   }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.saveAll", async () => {
+    console.info("[vscode-web-proof-probe] invoking VS Code's native Save All command");
+    await vscode.commands.executeCommand("workbench.action.files.saveAll");
+  }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.failSaves", () => { filesystem.failSaves = true; }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.allowSaves", () => { filesystem.failSaves = false; }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.pauseProgramRead", () => {
