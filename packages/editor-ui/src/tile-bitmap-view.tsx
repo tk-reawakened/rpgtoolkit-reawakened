@@ -103,12 +103,12 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
   const typeInto = (field: CellField, text: string): void => {
     setTyped((previous) => ({ cell: cellKey, text: { ...(previous.cell === cellKey ? previous.text : {}), [field]: text } }));
   };
-  /** Forget typed text once the document holds it; text typed since (different from what was sent) is kept. `sent` null clears unconditionally. */
-  const accepted = (fields: readonly CellField[], sent: Readonly<Partial<Record<CellField, string>>> | null): void => {
+  /** Forget typed text once the document holds it: only a field still showing exactly what was sent is cleared, so text typed since is kept. */
+  const accepted = (fields: readonly CellField[], sent: Readonly<Partial<Record<CellField, string>>>): void => {
     setTyped((previous) => {
       if (previous.cell !== cellKey) return previous;
       const text = { ...previous.text };
-      for (const field of fields) if (sent === null || text[field] === sent[field]) delete text[field];
+      for (const field of fields) if (text[field] === sent[field]) delete text[field];
       return { cell: previous.cell, text };
     });
   };
@@ -191,25 +191,39 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
     }
   };
 
-  // The shade the next shade edit starts from: the latest one sent for this cell while an earlier edit is still waiting
-  // for the host's answer (so a second channel's edit never undoes the first), otherwise what the document shows.
-  const sent = useRef<{ x: number; y: number; shade: TileShade; waiting: number } | null>(null);
-  const baseShade = (): TileShade => (sent.current !== null && sent.current.x === x && sent.current.y === y ? sent.current.shade : shade);
-  const commitShade = (next: TileShade, fields: readonly CellField[], text: Readonly<Partial<Record<CellField, string>>> | null): void => {
+  // Shade edits still waiting for the host's answer, one record per cell. The shade the next edit of a cell starts from is
+  // the latest one sent for it (so a second channel's edit never undoes the first, whichever cell was selected in
+  // between), otherwise what the document shows. Every edit raises its cell's count and its own answer lowers it.
+  const sent = useRef(new Map<string, { shade: TileShade; waiting: number }>());
+  const baseShade = (): TileShade => sent.current.get(cellKey)?.shade ?? shade;
+  /** What the shade fields hold now, so an answer clears only what was typed when the edit was sent. */
+  const typedShadeFields = (): Readonly<Partial<Record<CellField, string>>> => {
+    const snapshot: Partial<Record<CellField, string>> = {};
+    for (const field of SHADE_FIELDS) {
+      const text = typedHere[field];
+      if (text !== undefined) snapshot[field] = text;
+    }
+    return snapshot;
+  };
+  const commitShade = (next: TileShade, fields: readonly CellField[], text: Readonly<Partial<Record<CellField, string>>>): void => {
     const base = baseShade();
     if (current === null) return;
     if (next.r === base.r && next.g === base.g && next.b === base.b) {
       accepted(fields, text);
       return;
     }
-    const waiting = sent.current !== null && sent.current.x === x && sent.current.y === y ? sent.current.waiting + 1 : 1;
-    sent.current = { x, y, shade: next, waiting };
-    const mine = sent.current;
+    const key = cellKey;
+    const pending = sent.current.get(key) ?? { shade: base, waiting: 0 };
+    const before = pending.shade;
+    pending.shade = next;
+    pending.waiting += 1;
+    sent.current.set(key, pending);
     void run({ type: "set-bitmap-shade", x, y, r: next.r, g: next.g, b: next.b }).then((done) => {
       if (done) accepted(fields, text);
+      else if (pending.shade === next) pending.shade = before;
     }).finally(() => {
-      mine.waiting -= 1;
-      if (mine.waiting <= 0 && sent.current === mine) sent.current = null;
+      pending.waiting -= 1;
+      if (pending.waiting <= 0 && sent.current.get(key) === pending) sent.current.delete(key);
     });
   };
   /** Send the edit of one channel from its field's text, leaving the other two channels as they are. */
@@ -453,7 +467,7 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
             onInput={(event) => typeInto("hue", event.currentTarget.value)}
             onChange={(event) => {
               const picked = shadeOfColour(event.currentTarget.value);
-              if (picked !== null) commitShade(picked, SHADE_FIELDS, null);
+              if (picked !== null) commitShade(picked, SHADE_FIELDS, typedShadeFields());
             }}
           />
         </span>
@@ -468,10 +482,10 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
             step={1}
             value={fieldText("lightness")}
             onInput={(event) => typeInto("lightness", event.currentTarget.value)}
-            onChange={(event) => commitShade(shadeWithLightness(baseShade(), Number(event.currentTarget.value)), SHADE_FIELDS, null)}
+            onChange={(event) => commitShade(shadeWithLightness(baseShade(), Number(event.currentTarget.value)), SHADE_FIELDS, typedShadeFields())}
           />
         </span>
-        <button type="button" class="tkr-bitmap-shade-reset" disabled={shade.r === 0 && shade.g === 0 && shade.b === 0} onClick={() => commitShade({ r: 0, g: 0, b: 0 }, SHADE_FIELDS, null)}>
+        <button type="button" class="tkr-bitmap-shade-reset" disabled={shade.r === 0 && shade.g === 0 && shade.b === 0} onClick={() => commitShade({ r: 0, g: 0, b: 0 }, SHADE_FIELDS, typedShadeFields())}>
           Remove shade
         </button>
       </fieldset>

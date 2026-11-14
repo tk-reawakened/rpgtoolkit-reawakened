@@ -432,3 +432,93 @@ test("a late answer to one shade field's edit never wipes what is typed in anoth
   await act(() => { s.doc.undo(edit.editId); });
   equal(control<HTMLInputElement>(s.el, ".tkr-bitmap-shade-b").value, "7", "the untouched Blue field follows the undo back to the file's own 7");
 });
+
+test("after overlapping held edits are answered and one is undone, the next edit starts from the document, not the undone value", async () => {
+  const s = await setup();
+  await show(s);
+  s.gate.holding = true;
+  await type(control(s.el, ".tkr-bitmap-shade-r"), "-255");
+  await type(control(s.el, ".tkr-bitmap-shade-g"), "77");
+  equal(s.gate.queue.length, 2, "both edits are outstanding at once");
+  const queued = s.gate.queue.splice(0);
+  await act(() => { for (const apply of queued) apply(); });
+  await settle(2);
+  equal(cell(s.el, 1, 1).getAttribute("aria-label"), "Column 1, row 1: village.tst1, shade -255, 77, 7");
+
+  s.gate.holding = false;
+  const green = s.doc.getSnapshot().edits.at(-1);
+  ok(green !== undefined);
+  await act(() => { s.doc.undo(green.editId); });
+  equal(cell(s.el, 1, 1).getAttribute("aria-label"), "Column 1, row 1: village.tst1, shade -255, 6, 7", "the green edit is undone");
+
+  await type(control(s.el, ".tkr-bitmap-shade-b"), "9");
+  equal(cell(s.el, 1, 1).getAttribute("aria-label"), "Column 1, row 1: village.tst1, shade -255, 6, 9", "a different channel's edit does not bring the undone green back");
+  await act(() => control<HTMLButtonElement>(s.el, ".tkr-bitmap-save").click());
+  await settle();
+  deepEqual(
+    s.host.bytesOf(PATH),
+    bytesOf(bitmap(2, 2, (x, y) => (x === 0 && y === 0 ? { tile: "village.tst1", r: -255, g: 6, b: 9 } : EMPTY), PAD)),
+    "the saved cell is the document's, not the undone value",
+  );
+});
+
+test("a shade edit still waiting on one cell is not lost when another cell is edited and the first is selected again", async () => {
+  const s = await setup();
+  await show(s);
+  s.gate.holding = true;
+  await type(control(s.el, ".tkr-bitmap-shade-r"), "-255");
+  await act(() => cell(s.el, 2, 1).click());
+  await type(control(s.el, ".tkr-bitmap-shade-b"), "9");
+  await act(() => cell(s.el, 1, 1).click());
+  await type(control(s.el, ".tkr-bitmap-shade-g"), "77");
+  equal(s.gate.queue.length, 3);
+  const queued = s.gate.queue.splice(0);
+  s.gate.holding = false;
+  await act(() => { for (const apply of queued) apply(); });
+  await settle(2);
+  equal(cell(s.el, 1, 1).getAttribute("aria-label"), "Column 1, row 1: village.tst1, shade -255, 77, 7", "the later Green edit kept the earlier, still-waiting Red");
+  equal(cell(s.el, 2, 1).getAttribute("aria-label"), "Column 2, row 1: empty, shade 0, 0, 9");
+});
+
+test("a shortcut's answer clears only what was typed when it was sent, never a newer draft", async () => {
+  const s = await setup();
+  await show(s);
+  s.gate.holding = true;
+  await type(control(s.el, ".tkr-bitmap-hue"), "#ff8000");
+  await act(() => {
+    const green = control<HTMLInputElement>(s.el, ".tkr-bitmap-shade-g");
+    green.value = "55";
+    green.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const queued = s.gate.queue.splice(0);
+  s.gate.holding = false;
+  await act(() => { for (const apply of queued) apply(); });
+  await settle(2);
+  equal(cell(s.el, 1, 1).getAttribute("aria-label"), "Column 1, row 1: village.tst1, shade 254, 0, -255");
+  equal(control<HTMLInputElement>(s.el, ".tkr-bitmap-shade-g").value, "55", "Green typed after the shortcut was sent is still being typed");
+});
+
+test("a tile bitmap with no cells is no stamp but keeps its edit action, and choosing nothing changes nothing", async () => {
+  const empty = bytesOf({ magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: -1, height: -1, cells: [], residue: new Uint8Array() });
+  const s = await setup(bytesOf(START), { "Bitmap/empty.tbm": empty });
+  const opened: string[] = [];
+  const browser: TilesetBrowserContext = { ...s.browser, openSource: async (path) => { opened.push(path); return null; } };
+  await show(s, browser);
+  const source = control<HTMLSelectElement>(s.el, ".tkr-tileset-browser select");
+  await act(async () => {
+    source.value = "Bitmap/empty.tbm";
+    source.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+  });
+  await until(() => /no cells/.test(s.el.querySelector(".tkr-tileset-browser-message")?.textContent ?? ""));
+  equal(control<HTMLButtonElement>(s.el, ".tkr-tileset-browser-select-brush").disabled, true);
+  await act(() => control<HTMLButtonElement>(s.el, ".tkr-tileset-browser-item button:last-of-type").click());
+  const menu = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-tileset-browser-menu button")];
+  equal(menu.find((button) => button.textContent === "Select as stamp brush")?.disabled, true);
+  const edit = menu.find((button) => button.textContent === "Edit tile bitmap");
+  ok(edit !== undefined && !edit.disabled);
+  await act(() => edit.click());
+  await settle(2);
+  deepEqual(opened, ["Bitmap/empty.tbm"]);
+  equal(s.session.getSnapshot().selection, null);
+});

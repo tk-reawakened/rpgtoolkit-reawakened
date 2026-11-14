@@ -240,6 +240,29 @@ export async function runVscodeWebProof(
   await runBoardBrowserScenario(page, expect, host);
   // The same packaged extension edits a tile bitmap through the shared browser and persists it through the same provider.
   await runBitmapBrowserScenario(page, expect, host);
+  await runBitmapSelectionRetentionScenario(page, expect, host);
+}
+
+/**
+ * #2501 in the packaged VS Code web UI: a brush chosen in the shared browser is retained when the tab that chose it is
+ * closed straight after the choice (no waiting between the click and the close), and the next bitmap opened shows it.
+ * The first cycle chooses a whole stamp, the second a single tile, so a stale or lost selection cannot pass for either.
+ * This observes the real workbench at the speed of a scripted user. VS Code does not guarantee delivery of a webview
+ * message still in flight when its panel is disposed, so no faster close is promised.
+ */
+async function runBitmapSelectionRetentionScenario(page: Page, expect: Expect, host: ProofHost): Promise<void> {
+  const house = await openProjectFile(page, host.bitmapPath, expect, ".tkr-bitmap");
+  await house.locator(".tkr-tileset-browser select").selectOption({ value: host.bitmapPath });
+  await house.getByRole("button", { name: "Select stamp brush" }).click();
+  await closeActiveEditor(page, expect);
+  const other = await openProjectFile(page, host.otherBitmapPath, expect, ".tkr-bitmap");
+  await expect(other.locator(".tkr-bitmap-brush")).toContainText("A whole stamp (2 × 2 tiles) is chosen");
+  await other.locator(".tkr-tileset-browser select").selectOption({ value: "Tiles/village.tst" });
+  await other.locator('[data-browser-reference="village.tst2"] .tkr-tileset-browser-source').click();
+  await closeActiveEditor(page, expect);
+  const again = await openProjectFile(page, host.bitmapPath, expect, ".tkr-bitmap");
+  await expect(again.locator(".tkr-bitmap-brush")).toContainText("Brush: village.tst tile 2");
+  await closeActiveEditor(page, expect);
 }
 
 async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHost): Promise<void> {

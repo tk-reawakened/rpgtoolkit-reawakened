@@ -166,7 +166,8 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
         reference,
         label: source.name,
         boardTile: source.boardTile,
-        stamp: rendered.value.kind === "bitmap" ? rendered.value.size : null,
+        // A bitmap that draws no cells is not a stamp; it stays a source that can be opened and repaired.
+        stamp: rendered.value.kind === "bitmap" && rendered.value.size.width > 0 && rendered.value.size.height > 0 ? rendered.value.size : null,
       };
       const preview = rendered.value.preview;
       if (rendered.value.kind === "animation") {
@@ -174,7 +175,9 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
       } else if (rendered.value.kind === "bitmap") {
         const { size, missing } = rendered.value;
         setMessage(
-          `Tile bitmap, ${size.width} × ${size.height} tiles. Select it as a whole stamp brush, or open it in the tile bitmap editor.` +
+          (selection.stamp === null
+            ? "Tile bitmap with no cells, so it cannot be a stamp brush. Open it in the tile bitmap editor to give it a size."
+            : `Tile bitmap, ${size.width} × ${size.height} tiles. Select it as a whole stamp brush, or open it in the tile bitmap editor.`) +
             (missing.length === 0 ? "" : ` ${missing.length === 1 ? "A tile it names is" : `${missing.length} tiles it names are`} missing from the project (${missing.join(", ")}), so those cells are drawn empty; open it to repair them.`),
         );
       }
@@ -277,17 +280,17 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
               <span>{item.label}</span>
             </button>
             <button type="button" class="tkr-tileset-browser-select-brush" disabled={item.boardTile === null && item.stamp === null} onClick={() => choose(item)}>
-              {item.stamp === null ? "Select brush" : "Select stamp brush"}
+              {item.kind === "bitmaps" ? "Select stamp brush" : "Select brush"}
             </button>
             <button type="button" onClick={(event) => openMenu(item, event.currentTarget)}>More actions</button>
             {menu === item ? (
               <div ref={menuRef} class="tkr-tileset-browser-menu" role="group" aria-label={`${item.label} actions`} onKeyDown={menuKeys}>
-                {item.stamp === null ? (
+                {item.kind !== "bitmaps" ? (
                   <button type="button" disabled={item.boardTile === null} onClick={() => choose(item)}>Select as board brush</button>
                 ) : (
-                  <button type="button" onClick={() => choose(item)}>Select as stamp brush</button>
+                  <button type="button" disabled={item.stamp === null} onClick={() => choose(item)}>Select as stamp brush</button>
                 )}
-                {item.stamp === null || context.openSource === undefined ? (
+                {item.kind !== "bitmaps" || context.openSource === undefined ? (
                   <button type="button" disabled aria-describedby={`${ids}-source-edit-unavailable`}>Edit source unavailable (P1)</button>
                 ) : (
                   <button type="button" onClick={() => editSource(item)}>Edit tile bitmap</button>

@@ -17,6 +17,7 @@ const tileset = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples
 
 const PATH = "Bitmap/house.tbm";
 const OTHER_PATH = "Bitmap/other.tbm";
+const EMPTY_PATH = "Bitmap/empty.tbm";
 
 const cellOf = (tile: string, r = 0, g = 0, b = 0): TileBitmapCell => ({ tile, r, g, b });
 
@@ -35,12 +36,16 @@ const bytesOf = (model: TileBitmap): Uint8Array => {
 
 /** A 2 × 1 stamp, fully drawn so the engine's canvas and the editor's picture cover the same pixels: tile 1 plain, tile 2 shaded. */
 const ORIGINAL = bytesOf(bitmap(2, 1, (x) => (x === 0 ? cellOf("village.tst1") : cellOf("village.tst2", 10, -20, 30))));
-const FILES = { [PATH]: ORIGINAL, [OTHER_PATH]: ORIGINAL, "Tiles/village.tst": tileset };
+/** A valid tile bitmap that stores no cells at all (both bounds -1): it has no size, so it is no stamp. */
+const NO_CELLS = bytesOf({ magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: -1, height: -1, cells: [], residue: new Uint8Array() });
+const FILES = { [PATH]: ORIGINAL, [OTHER_PATH]: ORIGINAL, [EMPTY_PATH]: NO_CELLS, "Tiles/village.tst": tileset };
 
 interface Tab {
   readonly element: HTMLElement;
   workbenchDirty(): boolean;
   picture(): Promise<TileBitmapPicture>;
+  /** VS Code hosts: resolves once everything the webview sent has reached the extension host. */
+  delivered?(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -195,6 +200,9 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       await until(() => /A whole stamp \(2 × 1 tiles\) is chosen/.test(first.element.querySelector(".tkr-bitmap-brush")?.textContent ?? ""));
       equal(first.workbenchDirty(), false, "choosing a stamp edits nothing");
       deepEqual(await host.disk(PATH), ORIGINAL, "and leaves its file as it was");
+      // The webview reports the choice in a message that is still on its way when a tab closes; a closed panel loses it, so a
+      // person closing the tab after the choice is modelled by waiting for the message to arrive, never by a guessed delay.
+      await first.delivered?.();
 
       await act(() => { control<HTMLButtonElement>(first, ".tkr-bitmap-tool-draw").click(); });
       await act(() => { cell(first, 1, 1).click(); });
@@ -231,6 +239,35 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       deepEqual(host.openPaths(), [PATH, OTHER_PATH], "the host opened the chosen file, not the one that was open");
       equal(first.workbenchDirty(), false);
       await first.close();
+    });
+
+    test("a bitmap with no cells is no stamp but can still be opened to give it a size, and it leaves the chosen brush alone", async () => {
+      document.body.replaceChildren();
+      const host = hosts.find((candidate) => candidate.name === entry)!.make();
+      const first = await openReady(host, PATH);
+      await act(() => { control<HTMLButtonElement>(first, '[data-browser-reference="village.tst1"] .tkr-tileset-browser-source').click(); });
+      const source = control<HTMLSelectElement>(first, ".tkr-tileset-browser select");
+      await act(() => {
+        source.value = EMPTY_PATH;
+        source.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await until(() => /no cells/.test(first.element.querySelector(".tkr-tileset-browser-message")?.textContent ?? ""));
+      equal(control<HTMLButtonElement>(first, ".tkr-tileset-browser-select-brush").disabled, true, "no cells, no stamp");
+      await act(() => { control<HTMLButtonElement>(first, ".tkr-tileset-browser-select-brush").click(); });
+      match(first.element.querySelector(".tkr-bitmap-brush")?.textContent ?? "", /Brush: village\.tst tile 1/, "the chosen tile is still the brush");
+      if (host.openPaths !== undefined) {
+        await act(() => { control<HTMLButtonElement>(first, ".tkr-tileset-browser-item button:last-of-type").click(); });
+        const edit = [...first.element.querySelectorAll<HTMLButtonElement>(".tkr-tileset-browser-menu button")].find((button) => button.textContent === "Edit tile bitmap");
+        ok(edit !== undefined && !edit.disabled, "it can still be opened to be repaired");
+        await act(() => { edit.click(); });
+        await until(() => host.openPaths!().includes(EMPTY_PATH));
+      }
+      await first.delivered?.();
+      await first.close();
+      await settle(act);
+      const other = await openReady(host, OTHER_PATH);
+      await until(() => /Brush: village\.tst tile 1/.test(other.element.querySelector(".tkr-bitmap-brush")?.textContent ?? ""));
+      await other.close();
     });
   });
 }
