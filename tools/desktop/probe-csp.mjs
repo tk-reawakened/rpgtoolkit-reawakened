@@ -19,7 +19,14 @@ export async function probeDesktopCsp(page, evaluate, root, sleep) {
       }
       await sleep(100);
     }
-    throw new Error(`desktop CSP probe timed out: ${expression}`);
+    let observed;
+    try {
+      observed = await evaluate(`({ tick: window.__live?.tick ?? null, error: window.__live?.error ?? null,
+        status: document.querySelector('#live-status')?.textContent ?? null })`);
+    } catch (error) {
+      observed = { unavailable: String(error) };
+    }
+    throw new Error(`desktop CSP probe timed out: ${expression}; last observed ${JSON.stringify(observed)}`);
   };
   try {
     // Run in the loaded app:// player, not an HTTP stand-in or a DevTools-injected script (which bypasses CSP).
@@ -115,6 +122,10 @@ export async function probeDesktopCsp(page, evaluate, root, sleep) {
     }` });
     await page.send("Page.reload");
     await waitFor("!!window.__probeControl");
+    // The failure is displayed on a game tick; do not start its timeout before the reloaded game can advance.
+    await waitFor("window.__live?.tick > 0 || !!window.__live?.error");
+    const reloaded = await evaluate("window.__live");
+    if (reloaded.error !== undefined) throw new Error(`desktop failed to start before worklet failure probe: ${JSON.stringify(reloaded)}`);
     await evaluate(`fetch('/packages/synth/test/fixtures/test-minimal.sf3').then(r => r.arrayBuffer()).then(bytes => {
       window.__probeProcessor.port.postMessage({kind:'message', message:{kind:'setBank', bankKind:'soundfont', bank:{source:'bundled',id:'test',sha256:null}, bankBytes:new Uint8Array(bytes), bankSha:'test'}});
       window.__probeContext.resume();

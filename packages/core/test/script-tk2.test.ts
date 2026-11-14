@@ -3,6 +3,96 @@ import { test } from "node:test";
 import { advanceScriptTick, compileTk2, createGameState, normaliseTk2, parseTk2, startProgram, UI_PLUGIN } from "../src/index.ts";
 import { createScriptServices } from "./script-test-services.ts";
 
+test("TK2 continued unprefixed assignments execute as one statement", () => {
+  const program = compileTk2("total = 1 + _\n#2\n", "continued.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.total, 3);
+});
+
+test("TK2 quoted dialogue reaches a redirected message command", () => {
+  const source = '#Method capture(value) { captured = value }\n#Redirect(mwin, capture)\nHello "friend"';
+  const program = compileTk2(source, "redirect-dialogue.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.captured, 'Hello "friend"');
+});
+
+test("TK2 quoted dialogue inside a lambda retains its text", () => {
+  const source = '#show = () => {\nHello "friend"\n}\n#show()';
+  const program = compileTk2(source, "lambda-dialogue.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ['Hello "friend"']);
+});
+
+test("TK2 class methods retain the this receiver", () => {
+  const source = '#class Box { public: method value() { return 42 } method read() { return this.value() } }\n#result = Box()->read()';
+  const program = compileTk2(source, "method-receiver.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.result, 42);
+});
+
+test("TK2 multiline class methods and top-level methods execute together (#2397)", () => {
+  const source = [
+    "#class Box {",
+    "#public:",
+    "#method value() {",
+    "#returnMethod(42)",
+    "}",
+    "}",
+    "#Method add(x) {",
+    "#returnMethod(x + 1)",
+    "}",
+    "#result = add(Box()->value())",
+  ].join("\n");
+  const program = compileTk2(source, "multiline-class.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.result, 43);
+});
+
+test("TK2 dialogue and comments ending in underscore do not consume the next statement", () => {
+  const source = 'Hello _\n#x = 1\n* comment _\n#y = 2\n#Mwin(hi) * _\nAfter star\n#z = 3 // note _\nAfter slash\n#z = 4 ** note _\nAfter double star\nHello /*\n#v = 5\n#*/\nHello (\n#w = 6\n)';
+  const program = compileTk2(source, "dialogue-underscore.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.x, 1);
+  equal(state.vm.globals.y, 2);
+  equal(state.vm.globals.v, 5);
+  equal(state.vm.globals.w, 6);
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Hello _", "hi", "After star", "After slash", "After double star", "Hello /*", "Hello (", ")"]);
+});
+
+test("TK2 continued code keeps later token lines and accepts a trailing comment", () => {
+  const ast = parseTk2('total = 1 + _ // note\n#missing()');
+  const statement = ast.statements[0];
+  if (statement?.kind !== "expr" || statement.expr.kind !== "assign" || statement.expr.value.kind !== "binary" || statement.expr.value.right.kind !== "call") throw new Error("expected continued assignment");
+  equal(statement.expr.value.right.line, 2);
+  const program = compileTk2('total = 1 /*\n# // */ + _ // note\n#2\nother = ( // parentheses also continue\n#1 + 2)', "continued-comment.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.total, 3);
+  equal(state.vm.globals.other, 3);
+});
+
+test("TK2 object calls inside lambdas retain their receiver", () => {
+  const source = '#class Box { public: method value() { return 42 } }\n#box = Box()\n#read = () => box->value()\n#result = read()';
+  const program = compileTk2(source, "lambda-object.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.result, 42);
+});
+
 test("TK2 prefixes, sigils, equality and loose dialogue lower through the shared AST", () => {
   const source = "#score! = 1\n#If (score = 1) {\n#Mwin(Hello there)\n}\nLoose dialogue\n@";
   const ast = parseTk2(source);
@@ -17,6 +107,129 @@ test("TK2 prefixes, sigils, equality and loose dialogue lower through the shared
   if (dialogueArg === undefined || dialogueArg.kind !== "literal") throw new Error("expected dialogue literal");
   equal(dialogueArg.value, "Loose dialogue");
   equal(normaliseTk2(source).includes("score!"), false);
+});
+
+test("TK2 conditions compare quoted equals and dialogue retains embedded hashes", () => {
+  const source = '#a$ = "p=q"\n#If (a$ = "p=q") {\nHi #there\n}\n#If (a$ = "p==q") {\nWrong branch\n}';
+  const program = compileTk2(source, "text.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Hi #there"]);
+});
+
+test("TK2 normalization keeps quoted operators, hash text and comments distinct", () => {
+  equal(normaliseTk2('#If (a$ = "p=q" & b != "x=y" & c <= 2 & d >= 1) {'), 'If (a == "p=q" & b != "x=y" & c <= 2 & d >= 1) {');
+  equal(normaliseTk2('#While (a$ = "p=q") {\n#Mwin("if(a=b) #there") * #ignored = text\n}'), 'While (a == "p=q") {\nMwin("if(a=b) #there")\n}');
+  equal(normaliseTk2('* #ignored = text\nHi #there'), '\nmwin("Hi #there")');
+});
+
+test("TK2 backslashes do not escape quotes and inline prefixes remain executable", () => {
+  const source = '#a$ = "x\\"\n#If (a$ = "x\\") { #matched$ = "yes" }\n#If (a$ = "y\\") { #wrong = 1 }\n#Mwin(a$)';
+  const state = createGameState({ seed: 0 });
+  const program = compileTk2(source, "backslash.prg");
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.a, "x\\");
+  equal(state.vm.globals.matched, "yes");
+  equal(state.vm.globals.wrong, undefined);
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["x\\"]);
+});
+
+test("TK2 loose dialogue can contain equals without changing unprefixed assignments", () => {
+  const source = 'value = 7\nHi #there = friend\n#Mwin(value!)';
+  const state = createGameState({ seed: 0 });
+  const program = compileTk2(source, "dialogue-equals.prg");
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.value, 7);
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Hi #there = friend", "7"]);
+});
+
+test("TK2 assignment targets and literal dialogue keep their distinct meanings", () => {
+  const source = '#index = 2\nvalues[index!]$ = 11\nvalues[3]! = 12\n1 + 1 = 2\nA+B = friendship\nHi #there = "friend"\nHi #there = C:\\temp\n#Mwin(values[2])\n#Mwin(values[3])';
+  const program = compileTk2(source, "literal-dialogue.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), [
+    "1 + 1 = 2", "A+B = friendship", 'Hi #there = "friend"', "Hi #there = C:\\temp", "11", "12",
+  ]);
+});
+
+test("quoted loose dialogue remains literal inside TK2 blocks and methods", () => {
+  const source = '#Method Show() {\nHello "method"\n}\n#If (1 = 1) {\nHello "block"\n}\n#Show()';
+  const program = compileTk2(source, "nested-dialogue.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ['Hello "block"', 'Hello "method"']);
+});
+
+test("unprefixed calls with equals execute and angle dialogue splices", () => {
+  const source = '#Method foo(n) {\n#result = n\n}\n#friend$ = "Ada"\nfoo(x = 1)\nMwin("x=y")\nHi #there = <friend>';
+  const state = createGameState({ seed: 0 });
+  const program = compileTk2(source, "calls-dialogue.prg");
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.x, 1);
+  equal(state.vm.globals.result, 1);
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["x=y", "Hi #there = Ada"]);
+  throws(() => compileTk2("#If (x) then < #Mwin(hello) >"), /Toolkit 1\.x/);
+});
+
+test("digit-leading and multiple unprefixed calls run their assignment arguments", () => {
+  const source = '#Method 1foo(n) {\n#first = n\n}\n#Method bar(n) {\n#second = n\n}\n1foo(x = 1); bar(y = 2)';
+  const state = createGameState({ seed: 0 });
+  const program = compileTk2(source, "multi-call.prg");
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state));
+  equal(state.vm.globals.x, 1);
+  equal(state.vm.globals.y, 2);
+  equal(state.vm.globals.first, 1);
+  equal(state.vm.globals.second, 2);
+  const ast = parseTk2("system.foo(x = 1)");
+  const stmt = ast.statements[0];
+  if (stmt?.kind !== "expr" || stmt.expr.kind !== "call") throw new Error("expected qualified call");
+  equal(stmt.expr.file, "system");
+});
+
+test("compact TK1 blocks and standalone closing delimiters remain unsupported", () => {
+  for (const source of ["<#Mwin(hello)>", ">"]) {
+    throws(() => compileTk2(source), /Toolkit 1\.x/);
+  }
+});
+
+test("TK2 expression statements run nested calls and dialogue then substitution", () => {
+  const source = '#Method foo(n) {\n#calls = calls + 1\n#ReturnMethod(n)\n}\n#friend$ = "Ada"\nfoo(x = 1) + 2\nfoo(y = 2)[2]\n!foo(z = 3)\nHi then <friend>';
+  const state = createGameState({ seed: 0 });
+  const program = compileTk2(source, "expressions-dialogue.prg");
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.x, 1);
+  equal(state.vm.globals.y, 2);
+  equal(state.vm.globals.z, 3);
+  equal(state.vm.globals.calls, 3);
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Hi then Ada"]);
+  throws(() => compileTk2("#If (x) then < #Mwin(hello) >"), /Toolkit 1\.x/);
+});
+
+test("incomplete assignment-like text is dialogue, but sigilled assignments execute", () => {
+  const source = '#index = 2\nvalues[index!]$ = 7\nScore = 5 points\nHi = my friend\nHello = "friend" is here\n#Mwin(values[2])';
+  const state = createGameState({ seed: 0 });
+  const program = compileTk2(source, "assignment-dialogue.prg");
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["Score = 5 points", "Hi = my friend", 'Hello = "friend" is here', "7"]);
+});
+
+test("inline prefixes after unprefixed assignments execute without changing quoted hashes", () => {
+  const program = compileTk2('x = 1; #Mwin(hi); #Mwin("a #there")', "inline-prefix.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.x, 1);
+  deepEqual(state.vm.effects.filter((effect) => effect.name === "mwin").map((effect) => effect.args[0]), ["hi", "a #there"]);
 });
 
 test("TK2 methods, labels, namespace calls and fbranch preserve shared shapes", () => {

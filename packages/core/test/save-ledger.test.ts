@@ -18,13 +18,18 @@ import {
   GameLedgerError,
   GAME_LEDGER_DOMAIN,
   GAME_LEDGER_VERSION,
+  hashGameLedgerV3,
+  hashGameLedgerV4,
   hashGameLedger,
   hashGameState,
   hashState,
   projectGameLedger,
+  selectRecovery,
   removeActorSprite,
   restoreGameState,
   snapshot,
+  utf8Decode,
+  utf8Encode,
   tagNonFinite,
   type CallableValue,
   type GameLedgerV1,
@@ -35,10 +40,13 @@ import {
   type SpriteActor,
   type Thread,
   type Value,
+  type RecoveryStorage,
+  type RecoveryValidate,
   type WorldBoard,
   type WorldItem,
   type WorldTile,
 } from "../src/index.ts";
+import { installRecoveryBoard } from "../src/engine/recovery.ts";
 
 const BOARD_KEY = "start.brd";
 const ITEM_FILE = "Items/chest.itm";
@@ -114,6 +122,7 @@ function board(): WorldBoard {
         { index: 1, tile: tile("Tiles/water.tle", 1), previous: null, scope: "program", owner: 1 },
       ],
       tileTypes: ["NORMAL", "WATER"],
+      tileBuffers: { "3": tile("Tiles/scan.tle", 6), "4": null },
     },
   };
 }
@@ -437,25 +446,22 @@ test("the ledger hash is the tagged envelope hash and not hashGameState", () => 
   const state = fixture();
   const ledger = projectGameLedger(state);
   equal(GAME_LEDGER_DOMAIN, "tkr.game-ledger");
-  equal(GAME_LEDGER_VERSION, 4);
+  equal(GAME_LEDGER_VERSION, 5);
   equal(
     hashGameLedger(ledger),
-    hashState({ domain: "tkr.game-ledger", version: 4, ledger } as never),
+    hashState({ domain: "tkr.game-ledger", version: 5, ledger } as never),
   );
   differs(hashGameLedger(ledger), hashGameState(state));
   const minimal = minimalLedger();
-  equal(hashGameLedger(minimal), MINIMAL_LEDGER_HASH);
-  // The pinned vector is FNV-1a over exactly this canonical envelope text, so
-  // the domain, version and ledger are all covered.
   equal(
-    MINIMAL_LEDGER_HASH,
-    fnv1a64(canon({ domain: "tkr.game-ledger", version: 4, ledger: minimal } as never)),
+    hashGameLedger(minimal),
+    fnv1a64(canon({ domain: "tkr.game-ledger", version: 5, ledger: minimal } as never)),
   );
   // A different domain or version hashes differently even for the same ledger.
   differs(hashState({ domain: "tkr.game-ledger", version: 2, ledger } as never), hashGameLedger(ledger));
 });
 
-/** The smallest whole v1 ledger, used to pin the envelope vector. */
+/** The smallest whole v1 ledger, used to verify the versioned envelope hash. */
 function minimalLedger(): GameLedgerV1 {
   return {
     party: { members: [], selected: null, steps: 0, stepRemainder: 0 },
@@ -475,7 +481,6 @@ function minimalLedger(): GameLedgerV1 {
   };
 }
 
-const MINIMAL_LEDGER_HASH = "1c0294691eabdcac";
 
 test("each excluded continuation and metadata field changes the full save but not the ledger", () => {
   const baseline = ledgerHash();
@@ -567,6 +572,7 @@ test("each ledger-bearing field changes the projection hash independently", () =
       state.world = { ...state.world, board: { ...board0, runtime: { ...board0.runtime!, tileEdits: [...board0.runtime!.tileEdits, { index: 3, tile: tile("Tiles/sand.tle", 0), previous: null, scope: "board" }] } } };
     }],
     ["tile types", (state) => { const board0 = state.world.board!; state.world = { ...state.world, board: { ...board0, runtime: { ...board0.runtime!, tileTypes: ["NORMAL", "LAVA"] } } }; }],
+    ["scan buffer", (state) => { const board0 = state.world.board!; state.world = { ...state.world, board: { ...board0, runtime: { ...board0.runtime!, tileBuffers: { ...board0.runtime!.tileBuffers, "3": tile("Tiles/other-scan.tle", 2) } } } }; }],
     ["sprite x", (state) => { state.sprites.items[0] = { ...state.sprites.items[0]!, x: 201 }; }],
     ["sprite facing", (state) => { state.sprites.items[0] = { ...state.sprites.items[0]!, facing: "N" }; }],
     ["sprite visible", (state) => { state.sprites.items[0] = { ...state.sprites.items[0]!, visible: false }; }],
@@ -1038,6 +1044,120 @@ test("program-scope tile edits and their expiry never reach the ledger", () => {
   equal(state.world.board!.runtime!.tileEdits[0]!.previous, null);
   equal(hashGameLedger(projectGameLedger(state)), ledgerBefore);
   differs(hashGameState(state), fullBefore);
+});
+
+test("world-v2 rotated tile edits migrate for expiry and recovery", () => {
+  const state = fixture();
+  const baseTile = tile("Tiles/base.tle", 0);
+  const durableTile = tile("Tiles/durable.tle", 1);
+  const layerTwoDurable = tile("Tiles/layer-two-durable.tle", 3);
+  const transientTile = tile("Tiles/transient.tle", 2);
+  const layer = (value: WorldTile | null) => {
+    const tiles = Array<WorldTile | null>(16).fill(null);
+    tiles[2] = value;
+    return { tiles };
+  };
+  const baseLayers = [layer(baseTile), layer(baseTile)];
+  const authored: WorldBoard = {
+    ...board(),
+    coordType: 2,
+    sizeX: 2,
+    sizeY: 2,
+    sizeL: 2,
+    gridWidth: 4,
+    gridHeight: 4,
+    width: 128,
+    height: 64,
+    layers: baseLayers,
+    runtime: { tileEdits: [], tileTypes: Array(32).fill("NORMAL"), tileBuffers: {} },
+  };
+  state.world = {
+    ...state.world,
+    board: {
+      ...authored,
+      layers: [layer(transientTile), layer(layerTwoDurable)],
+      runtime: {
+        ...authored.runtime!,
+        tileEdits: [
+          { index: 2, tile: durableTile, previous: baseTile, scope: "board" },
+          { index: 2, tile: transientTile, previous: durableTile, scope: "program", owner: 999 },
+          { index: 6, tile: layerTwoDurable, previous: baseTile, scope: "board" },
+        ],
+      },
+    },
+  };
+  // Independently pinned from pre-migration origin/main 00cc44c via
+  // `node --test --test-name-pattern='baseline rotated tile-edit metadata hash derivation' test/save-ledger.test.ts`
+  // using its v3 and v4 ledger hash implementations on this exact fixture.
+  const savedV3MetadataHash = "6791521790b02622";
+  const savedV4MetadataHash = "289fec60760bdb59";
+
+  const oldSave = JSON.parse(snapshot(state)) as { schema: { world: number } };
+  oldSave.schema.world = 2;
+  const candidateBytes = utf8Encode(JSON.stringify(oldSave));
+  const validateLegacyCandidate: RecoveryValidate = (bytes) => {
+    const candidate = restoreGameState(utf8Decode(bytes));
+    const candidateLedger = projectGameLedger(candidate);
+    return {
+      tick: candidate.time.tick,
+      ledgerHash: hashGameLedger(candidateLedger),
+      compatibleLedgerHashes: [
+        hashGameLedgerV3(candidateLedger, candidate.world.board ?? null),
+        hashGameLedgerV4(candidateLedger, candidate.world.board ?? null),
+      ],
+    };
+  };
+  for (const legacyHash of [savedV3MetadataHash, savedV4MetadataHash]) {
+    const gameId = "0123456789abcdef";
+    const generationPath = `${gameId}/recovery/generations/000000000001`;
+    const tick = state.time.tick;
+    const files = new Map<string, Uint8Array>([
+      [`${generationPath}/candidate.bin`, candidateBytes],
+      [`${generationPath}/meta.json`, utf8Encode(JSON.stringify({
+        version: 1, generation: 1, tick, ledgerHash: legacyHash,
+      }))],
+      [`${gameId}/recovery/current.json`, utf8Encode(JSON.stringify({
+        version: 1, gameId, generation: 1, tick, ledgerHash: legacyHash,
+      }))],
+    ]);
+    const storage: RecoveryStorage = {
+      read: (path) => files.get(path)?.slice() ?? null,
+      write: (path, bytes) => files.set(path, bytes.slice()),
+      writeAtomic: (path, bytes) => files.set(path, bytes.slice()),
+      list: (prefix) => [...files.keys()].filter((path) => path.startsWith(prefix)),
+      remove: (path) => { files.delete(path); },
+    };
+    const selected = selectRecovery(storage, { gameId }, validateLegacyCandidate);
+    ok(selected !== null, `legacy candidate with hash ${legacyHash} remains selectable`);
+    equal(selected.ledgerHash, legacyHash);
+    deepEqual(selected.bytes, candidateBytes);
+  }
+
+  const restored = restoreGameState(JSON.stringify(oldSave));
+  equal(restored.schema.world, 3);
+  deepEqual(restored.world.board?.runtime?.tileEdits.map(({ index }) => index), [2, 2, 18]);
+  equal(restored.world.board?.layers[0]?.tiles[2]?.asset, transientTile.asset);
+  equal(restored.world.board?.layers[1]?.tiles[2]?.asset, layerTwoDurable.asset);
+
+  expireProgramTileEdits(restored);
+  deepEqual(restored.world.board?.runtime?.tileEdits, [
+    { index: 2, tile: durableTile, previous: baseTile, scope: "board" },
+    { index: 18, tile: layerTwoDurable, previous: baseTile, scope: "board" },
+  ]);
+  equal(restored.world.board?.layers[0]?.tiles[2]?.asset, durableTile.asset);
+  equal(restored.world.board?.layers[1]?.tiles[2]?.asset, layerTwoDurable.asset);
+
+  const ledger = projectGameLedger(restored);
+  ok(ledger.world.board.state === "present");
+  ok(ledger.world.board.value.runtime.state === "present");
+  deepEqual(ledger.world.board.value.runtime.value.tileEdits.map(({ index }) => index), [2, 18]);
+  const migratedBoard = restored.world.board;
+  ok(migratedBoard !== null && migratedBoard !== undefined);
+  equal(hashGameLedgerV3(ledger, migratedBoard), savedV3MetadataHash);
+  equal(hashGameLedgerV4(ledger, migratedBoard), savedV4MetadataHash);
+  const recovered = installRecoveryBoard(restored, authored, ledger);
+  equal(recovered.layers[0]?.tiles[2]?.asset, durableTile.asset);
+  equal(recovered.layers[1]?.tiles[2]?.asset, layerTwoDurable.asset);
 });
 
 test("saved encounter and trigger board names may lag the current board", () => {

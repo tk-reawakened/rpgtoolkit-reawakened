@@ -830,7 +830,7 @@ export function parse(tokens: readonly Token[], context: ParseContext = { redire
       if (isIdent(token, "protected")) {
         throw new ScriptError("syntax.unsupported", "`protected` is not a language access level", atPos(token));
       }
-      if (isIdent(token, "method")) {
+      if (isIdent(token, "method") || isIdent(token, "function")) {
         methods.push(parseMethod(nameToken.name, access, true));
         skipEnds();
         continue;

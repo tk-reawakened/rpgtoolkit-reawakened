@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
-import { access, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
-import { runVscodeWebProof } from "./web-proof.ts";
+import { createEmptyBoard, writeBoard } from "@tk-reawakened/core";
+import { requestNativeReload, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -47,8 +48,18 @@ const [expectedBytes, recoveredBytes, autosaveBytes, externalBytes, sentinelByte
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
 for (const choice of ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game);
-  let browser;
+  const boardPath = "Boards/village.brd";
+  const otherBoardPath = "Boards/other.brd";
+  const boardBytes = createBoardBytes();
+  await mkdir(resolve(proofWorkspace, "Boards"), { recursive: true });
+  await mkdir(resolve(proofWorkspace, "Tiles"), { recursive: true });
+  await Promise.all([
+    writeFile(resolve(proofWorkspace, boardPath), boardBytes),
+    writeFile(resolve(proofWorkspace, otherBoardPath), boardBytes),
+    copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, "Tiles/village.tst")),
+  ]);
   let persistentFs;
+  let browser;
   let trackedProcess;
   let failure;
   let cleanupErrors = [];
@@ -115,7 +126,11 @@ for (const choice of ["cancel", "keep"]) {
     const recordBrowserDiagnostic = (message) => { if (browserDiagnostics.length < 100) browserDiagnostics.push(message.replaceAll(persistentFs.token, "[redacted]")); };
     const newPage = async () => {
       const page = await browser.newPage();
-      page.on("console", (message) => { if (message.type() === "error") recordBrowserDiagnostic(`[console] ${message.text()}`); });
+      page.on("console", (message) => {
+        if (message.type() === "error" || /CommandService#executeCommand workbench\.action\.reloadWindow|\[vscode-web-proof-probe\] requesting native reload/.test(message.text())) {
+          recordBrowserDiagnostic(`[console] ${message.text()}`);
+        }
+      });
       page.on("pageerror", (error) => recordBrowserDiagnostic(`[pageerror] ${error.stack ?? error.message}`));
       page.on("requestfailed", (request) => recordBrowserDiagnostic(`[requestfailed] ${request.url()}: ${request.failure()?.errorText ?? "unknown failure"}`));
       return page;
@@ -140,14 +155,7 @@ for (const choice of ["cancel", "keep"]) {
       };
       await currentPage.route(script, holdBootstrap);
       try {
-        await currentPage.locator(".monaco-workbench").click({ position: { x: 5, y: 5 } });
-        await currentPage.keyboard.press("ControlOrMeta+Shift+P");
-        const input = currentPage.locator(".quick-input-widget input").last();
-        await expect(input).toBeVisible();
-        await input.fill(">Developer: Reload Window");
-        const command = currentPage.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Developer: Reload Window" }).first();
-        await expect(command).toBeVisible();
-        await command.click();
+        await requestNativeReload(currentPage, expect);
         const timeout = Promise.withResolvers();
         const timer = setTimeout(() => timeout.reject(new Error("Workbench bootstrap did not pause")), 30_000);
         try { await Promise.race([paused.promise, timeout.promise]); } finally { clearTimeout(timer); }
@@ -168,8 +176,8 @@ for (const choice of ["cancel", "keep"]) {
       }
     };
     const readBacking = async (path = game) => new Uint8Array(await readFile(resolve(proofWorkspace, path)));
-    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice });
-    console.log(`vscode.dev settings proof passed (${choice})`);
+    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath });
+    console.log(`vscode.dev settings and board proof passed (${choice})`);
   } catch (error) {
     failure = error;
   } finally {
@@ -216,6 +224,27 @@ async function findGameFiles(directory) {
     else if (entry.isFile() && entry.name.toLowerCase().endsWith(".gam")) files.push(path);
   }
   return files;
+}
+function createBoardBytes() {
+  const empty = createEmptyBoard();
+  const board = {
+    ...empty,
+    sizeX: 2,
+    sizeY: 2,
+    sizeL: 1,
+    layerTitles: ["", ""],
+    lut: ["", "village.tst1", "village.tst2"],
+    tileMatrix: [1, 2, 2, 1],
+    tileRuns: [
+      { lutIndex: 1, count: 1, marker: false },
+      { lutIndex: 2, count: 1, marker: true },
+      { lutIndex: 2, count: 1, marker: false },
+      { lutIndex: 1, count: 1, marker: false },
+    ],
+  };
+  const written = writeBoard(board);
+  if (!written.ok) throw new Error(`Could not create authored board proof fixture: ${written.error.message}`);
+  return written.value;
 }
 
 

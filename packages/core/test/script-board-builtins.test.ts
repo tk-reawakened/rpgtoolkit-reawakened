@@ -17,7 +17,7 @@ function board(): BoardFixture {
     vectors: [{ points: [{ x: 1, y: 2 }], attributes: 3, closed: 0, layer: 1, type: 2, handle: "v" }],
     programs: [{ program: "a.prg", graphic: "", initialVar: "", initialValue: "", finalVar: "", finalValue: "", activate: 1, activationType: 2, repeatDistance: 3, layer: 1, points: [{ x: 1, y: 2 }], closed: 0, handle: "p" }],
     layerTitles: ["", "Ground"], constants: ["zero", "one"],
-    runtime: { tileEdits: [], tileTypes: ["NORMAL", "NORMAL"] },
+    runtime: { tileEdits: [], tileTypes: ["NORMAL", "NORMAL"], tileBuffers: {} },
   };
 }
 
@@ -60,6 +60,77 @@ test("board built-ins report board reads and synchronous world effects", () => {
   equal(state.world.board?.layers[0]?.tiles[0]?.asset, "tiles/new.tst");
   const vector = services.commands.get("boardgetvector")?.spec?.call(services.view, [{ value: 0, ref: null }, { value: 0, ref: null }], () => ({ value: null }));
   deepEqual(vector?.out, [[1, 2], [2, 1], [3, 1], [4, 0], [5, 3]]);
+});
+test("scan and mem keep independent whole-tile buffers and restore the visible board tiles", () => {
+  const state = stateWithBoard();
+  const initial = state.world.board!.layers[0]!.tiles;
+  const firstTile = { asset: assetKey("tiles/first.tst"), tile: 3, width: 20, height: 18, tint: { r: 9, g: 8, b: 7 } };
+  const secondTile = { asset: assetKey("tiles/second.tst"), tile: 5, animation: { ticksPerFrame: 4, frames: [{ asset: assetKey("tiles/frame.tst"), tile: 1 }] } };
+  state.world = { ...state.world, board: { ...state.world.board!, layers: [{ tiles: [firstTile, secondTile] }] } };
+  const services = createScriptServices(state, [{ definition: WORLD_PLUGIN }]);
+  const call = (name: "scan" | "mem", x: number, pos: number) => {
+    const spec = services.commands.get(name)?.spec;
+    if (spec === undefined) throw new Error(`missing command ${name}`);
+    const result = spec.call(services.view, [x, 1, pos].map((value) => ({ value, ref: null })), () => ({ value: null }));
+    const commandEffect = result.effects?.[0];
+    if (commandEffect === undefined) throw new Error(`${name} did not emit its world effect`);
+    applyWorldEffect(state, { name, args: commandEffect.args ?? [], kind: "state-write" } as never);
+  };
+  call("scan", 1, 7);
+  call("scan", 2, 8);
+  const thread = programThread(state);
+  putTile(state, thread, 1, 1, "tiles/changed.tst");
+  putTile(state, thread, 2, 1, "tiles/changed-too.tst");
+  call("mem", 1, 7);
+  call("mem", 2, 8);
+  deepEqual(state.world.board?.layers[0]?.tiles[0], firstTile);
+  deepEqual(state.world.board?.layers[0]?.tiles[1], secondTile);
+  deepEqual(Object.keys(state.world.board?.runtime?.tileBuffers ?? {}).sort(), ["7", "8"]);
+  deepEqual(state.world.board?.runtime?.tileBuffers, { "7": firstTile, "8": secondTile });
+  equal(initial[0]?.asset, "tiles/a.tst");
+});
+
+test("scan and mem address the effective square grid of a rotated board", () => {
+  const state = stateWithBoard();
+  const original = { asset: assetKey("tiles/rotated.tst"), tile: 4, width: 32, height: 32 };
+  state.world = {
+    ...state.world,
+    board: {
+      ...board(),
+      coordType: 2,
+      gridWidth: 3,
+      gridHeight: 3,
+      layers: [{ tiles: [...Array<null>(8).fill(null), original] }],
+      runtime: { tileEdits: [], tileTypes: Array(9).fill("NORMAL"), tileBuffers: {} },
+    },
+  };
+  const apply = (name: "scan" | "mem", x: number, y: number, position: number): void => {
+    applyWorldEffect(state, { name, args: [x, y, position], kind: "state-write" } as never);
+  };
+  apply("scan", 3, 3, 7);
+  const thread = programThread(state);
+  const services = createScriptServices(state, [{ definition: WORLD_PLUGIN }]);
+  const readTile = (name: "boardgettile" | "getboardtile"): unknown => services.commands.get(name)?.spec?.call(
+    services.view,
+    [3, 3, 1].map((value) => ({ value, ref: null })),
+    () => ({ value: null }),
+  ).value;
+  putTile(state, thread, 3, 3, "tiles/changed.tst");
+  putTile(state, thread, 4, 3, "tiles/out-of-bounds.tst");
+  equal(readTile("boardgettile"), "tiles/changed.tst");
+  equal(readTile("getboardtile"), "tiles/changed.tst");
+  apply("mem", 3, 3, 7);
+  equal(readTile("boardgettile"), "tiles/rotated.tst");
+
+  deepEqual(state.world.board?.layers[0]?.tiles[8], original);
+  equal(state.world.board?.layers[0]?.tiles.length, 9);
+  deepEqual(state.world.board?.runtime?.tileEdits.map(({ index }) => index), [8, 8]);
+  deepEqual(state.world.board?.runtime?.tileBuffers["7"], original);
+
+  finishThread(state, thread);
+  expireProgramTileEdits(state);
+  deepEqual(state.world.board?.layers[0]?.tiles[8], original);
+  deepEqual(state.world.board?.runtime?.tileEdits, []);
 });
 
 test("lifecycle built-ins emit reset, main-file, trigger, game-over and one shared quit effect", () => {
