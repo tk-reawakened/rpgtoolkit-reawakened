@@ -41,6 +41,12 @@ test("mixed legacy forms are converted together and retain comments and CRLF", (
   equal(fixed, '* keep this comment\r\nIf (x == 5) {\r\n  y = 1\r\n}\r\nmwin("Hello there")\r\nthreadSleep(1, 2) // keep this too\r\n');
 });
 
+test("TK2 dialogue trims surrounding whitespace and preserves mixed-code lowering (#2147)", () => {
+  const source = "  Hello there   \n#score! = 1\n  Farewell, friend!  ";
+  const fixed = migrate(source);
+  equal(fixed, '  mwin("Hello there")\nscore = 1\n  mwin("Farewell, friend!")');
+});
+
 test("a quoted star stays in dialogue and a trailing comment survives", () => {
   equal(migrate('  #Mwin("a * b") * KEEP\r\n'), '  Mwin("a * b") // KEEP\r\n');
 });

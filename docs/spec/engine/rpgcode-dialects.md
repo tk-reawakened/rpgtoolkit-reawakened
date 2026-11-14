@@ -50,7 +50,7 @@ This is the dialect most surviving games use.
 * **Unquoted string arguments** (`#Mwin(Hello there)`, `#SetImage(title.gif, …)`) are read as strings, and a variable name
   may be passed where a value is wanted.
 * **Type sigils on variables.** A trailing `!` (numeric) or `$` (string) is ignored when it follows a variable name, including immediately before an array subscript's closing `]`. For an array element, the sigil may also follow the closing `]` of the subscript, and is ignored there too: `#values[index!]$ = 1` assigns to `values[index]`. The array name and each index expression retain their ordinary Toolkit 2.x meaning.
-* **Loose text lines** with no `#`, `*`, `:` or brace are shown as dialogue exactly as written; trailing punctuation such as `!` is not a type sigil.
+* **Loose text lines** with no `#`, `*`, `:` or brace are shown as dialogue; trailing punctuation such as `!` is not a type sigil. **Reawakened rule:** its Toolkit 2 frontend trims leading and trailing whitespace from that dialogue. The original Toolkit 2 whitespace behavior is not established here.
 
 **STX-7.** Loose text lines and `#Mwin` unquoted arguments exist only in legacy files; accepting them is the frontends' and the converter's job, not the 3.1 parser's.
 
@@ -69,7 +69,7 @@ Toolkit 1.x (RPGCode v1) is not in the first release.
 | `if (x = 5)` (`=` as comparison inside a condition) | `if (x == 5)` |
 | bare index `m[key]` | `m[key]`: `key` is a variable index, as in 3.1; see [bare index](#tk2-bare-index) |
 | `x! = 1`, `name$ = "a"` | sigils ignored (`x = 1`, `name = "a"`) |
-| loose text lines (no `#`) shown as dialogue | `mwin("…")` |
+| loose text lines (no `#`) shown as dialogue | `mwin("…")` with leading/trailing whitespace removed from the dialogue text |
 | `#Method` | `function` — the same keyword; neither is legacy |
 | `#ReturnMethod(x)` | `return x` (pre-3.1 spelling; 3.1 has no `returnMethod`) |
 | `* comment` lines | comments |
@@ -87,7 +87,7 @@ Toolkit 1.x (RPGCode v1) is not in the first release.
 | `=` inside a `#If` or `#While` condition | Rewritten to `==`. |
 | bare index `m[key]` | Kept as the variable index `m[key]`; a sigil is dropped (`m[key!]` → `m[key]`). The converter never adds quotes here, because no context proves a literal-key reading under the [bare-index rule](#tk2-bare-index). Each bare index is flagged for review: a trailing comment `// TKR review: …` is added to the line and the conversion lists it, so the author can write `m["key"]` if a literal key was meant. An index expression such as `m[a + 1]` or `m[1]` is not flagged. |
 | sigils `x!`, `name$` | Removed everywhere, including inside expressions (`a! + 1` → `a + 1`). |
-| loose text lines | Rewritten to `mwin("…")` with the text exactly as written, including any `//`, `/*` or `*/` in it. |
+| loose text lines | Rewritten to `mwin("…")` with the dialogue text after leading and trailing whitespace is trimmed, including any `//`, `/*` or `*/` in it. |
 | `#Method`, `#ReturnMethod(x)` | `function`, `return x`. |
 | `* comment` | A whole-line star comment is kept unchanged; 3.1 also reads it as a comment. A trailing star comment after a command becomes `// …` with the same text. |
 | obsolete engine controls | Kept by name (`#Dos` → `Dos`); never deleted. |
