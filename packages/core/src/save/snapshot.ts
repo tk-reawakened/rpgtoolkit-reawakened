@@ -241,10 +241,8 @@ function migrateRotatedTileEditIndices(world: Record<string, unknown>): void {
   for (const edit of board.runtime.tileEdits) {
     if (!isRecord(edit) || typeof edit.index !== "number" || !Number.isSafeInteger(edit.index) || edit.index < 0) continue;
     const layer = Math.floor(edit.index / oldLayerArea);
-    const oldCell = edit.index % oldLayerArea;
-    const x = oldCell % sizeX;
-    const y = Math.floor(oldCell / sizeX);
-    const migrated = layer * newLayerArea + y * grid.width + x;
+    const withinLayerIndex = edit.index % oldLayerArea;
+    const migrated = layer * newLayerArea + withinLayerIndex;
     if (!Number.isSafeInteger(migrated)) shapeError("the snapshot's world.board.runtime.tileEdits index cannot be migrated safely");
     edit.index = migrated;
   }

@@ -18,6 +18,8 @@ import {
   GameLedgerError,
   GAME_LEDGER_DOMAIN,
   GAME_LEDGER_VERSION,
+  hashGameLedgerV3,
+  hashGameLedgerV4,
   hashGameLedger,
   hashGameState,
   hashState,
@@ -1043,58 +1045,73 @@ test("world-v2 rotated tile edits migrate for expiry and recovery", () => {
   const state = fixture();
   const baseTile = tile("Tiles/base.tle", 0);
   const durableTile = tile("Tiles/durable.tle", 1);
+  const layerTwoDurable = tile("Tiles/layer-two-durable.tle", 3);
   const transientTile = tile("Tiles/transient.tle", 2);
-  const baseLayers = [
-    { tiles: Array<WorldTile | null>(9).fill(null) },
-    { tiles: [baseTile, ...Array<WorldTile | null>(8).fill(null)] },
-  ];
+  const layer = (value: WorldTile | null) => {
+    const tiles = Array<WorldTile | null>(16).fill(null);
+    tiles[2] = value;
+    return { tiles };
+  };
+  const baseLayers = [layer(baseTile), layer(baseTile)];
   const authored: WorldBoard = {
     ...board(),
     coordType: 2,
     sizeX: 2,
-    sizeY: 1,
+    sizeY: 2,
     sizeL: 2,
-    gridWidth: 3,
-    gridHeight: 3,
-    width: 96,
-    height: 32,
+    gridWidth: 4,
+    gridHeight: 4,
+    width: 128,
+    height: 64,
     layers: baseLayers,
-    runtime: { tileEdits: [], tileTypes: Array(18).fill("NORMAL"), tileBuffers: {} },
+    runtime: { tileEdits: [], tileTypes: Array(32).fill("NORMAL"), tileBuffers: {} },
   };
   state.world = {
     ...state.world,
     board: {
       ...authored,
-      layers: [baseLayers[0]!, { tiles: [transientTile, ...Array<WorldTile | null>(8).fill(null)] }],
+      layers: [layer(transientTile), layer(layerTwoDurable)],
       runtime: {
         ...authored.runtime!,
         tileEdits: [
           { index: 2, tile: durableTile, previous: baseTile, scope: "board" },
           { index: 2, tile: transientTile, previous: durableTile, scope: "program", owner: 999 },
+          { index: 6, tile: layerTwoDurable, previous: baseTile, scope: "board" },
         ],
       },
     },
   };
+  const preMigrationLedger = projectGameLedger(state);
+  const savedV3MetadataHash = hashGameLedgerV3(preMigrationLedger, null);
+  const savedV4MetadataHash = hashGameLedgerV4(preMigrationLedger, null);
 
   const oldSave = JSON.parse(snapshot(state)) as { schema: { world: number } };
   oldSave.schema.world = 2;
   const restored = restoreGameState(JSON.stringify(oldSave));
   equal(restored.schema.world, 3);
-  deepEqual(restored.world.board?.runtime?.tileEdits.map(({ index }) => index), [9, 9]);
-  equal(restored.world.board?.layers[1]?.tiles[0]?.asset, transientTile.asset);
+  deepEqual(restored.world.board?.runtime?.tileEdits.map(({ index }) => index), [2, 2, 18]);
+  equal(restored.world.board?.layers[0]?.tiles[2]?.asset, transientTile.asset);
+  equal(restored.world.board?.layers[1]?.tiles[2]?.asset, layerTwoDurable.asset);
 
   expireProgramTileEdits(restored);
   deepEqual(restored.world.board?.runtime?.tileEdits, [
-    { index: 9, tile: durableTile, previous: baseTile, scope: "board" },
+    { index: 2, tile: durableTile, previous: baseTile, scope: "board" },
+    { index: 18, tile: layerTwoDurable, previous: baseTile, scope: "board" },
   ]);
-  equal(restored.world.board?.layers[1]?.tiles[0]?.asset, durableTile.asset);
+  equal(restored.world.board?.layers[0]?.tiles[2]?.asset, durableTile.asset);
+  equal(restored.world.board?.layers[1]?.tiles[2]?.asset, layerTwoDurable.asset);
 
   const ledger = projectGameLedger(restored);
   ok(ledger.world.board.state === "present");
   ok(ledger.world.board.value.runtime.state === "present");
-  deepEqual(ledger.world.board.value.runtime.value.tileEdits.map(({ index }) => index), [9]);
+  deepEqual(ledger.world.board.value.runtime.value.tileEdits.map(({ index }) => index), [2, 18]);
+  const migratedBoard = restored.world.board;
+  ok(migratedBoard !== null && migratedBoard !== undefined);
+  equal(hashGameLedgerV3(ledger, migratedBoard), savedV3MetadataHash);
+  equal(hashGameLedgerV4(ledger, migratedBoard), savedV4MetadataHash);
   const recovered = installRecoveryBoard(restored, authored, ledger);
-  equal(recovered.layers[1]?.tiles[0]?.asset, durableTile.asset);
+  equal(recovered.layers[0]?.tiles[2]?.asset, durableTile.asset);
+  equal(recovered.layers[1]?.tiles[2]?.asset, layerTwoDurable.asset);
 });
 
 test("saved encounter and trigger board names may lag the current board", () => {

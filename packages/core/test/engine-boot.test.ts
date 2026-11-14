@@ -3717,7 +3717,7 @@ test("recovery fingerprints scan-buffer tiles and nested animation frames", () =
   const tileValue = (asset: string) => ({
     asset: assetKey(asset), tile: 0, nativeWidth: 32, nativeHeight: 32, width: 32, height: 32,
   });
-  board.runtime.tileBuffers["7"] = {
+  const savedBuffer = {
     ...tileValue(paths[0]!),
     animation: {
       ticksPerFrame: 1,
@@ -3730,6 +3730,7 @@ test("recovery fingerprints scan-buffer tiles and nested animation frames", () =
       ],
     },
   };
+  board.runtime.tileBuffers["7"] = savedBuffer;
   startRecoveryProgram(setup.state, "checkpoint()\nend()");
   setup.engine.advance(1, []);
   const candidate = setup.engine.recoveryCandidate();
@@ -3739,6 +3740,11 @@ test("recovery fingerprints scan-buffer tiles and nested animation frames", () =
   const dependencies = parsed.recoveryAssets.boardDependencies.map(({ key }) => key);
   for (const path of paths) ok(dependencies.includes(assetKey(path)), `fingerprint includes ${path}`);
 
+  const unchangedDoubles = makeDoubles();
+  const unchanged = bootEngine(setup.game, unchangedDoubles, undefined, undefined, candidate.bytes);
+  deepEqual(run(unchanged, setup.game.files, 30).diagnostics, []);
+  equal(unchanged.recoveryStatus(), "paused");
+  deepEqual(unchangedDoubles.state().world.board?.runtime?.tileBuffers["7"], savedBuffer);
   const changedBytes = new Uint8Array(bytes);
   changedBytes[changedBytes.length - 1] = changedBytes[changedBytes.length - 1]! ^ 1;
   setup.game.files.set(assetKey(paths[3]!), changedBytes);

@@ -40,6 +40,7 @@
  */
 
 import { hashState } from "../canon/index.ts";
+import { COORD_ISO_ROTATED } from "../formats/board/model.ts";
 import type { ActorsSection } from "../actors/model.ts";
 import type { InventorySection, PartySection } from "../menu/model.ts";
 import type { AssertPlainData } from "../ports/plain-data.ts";
@@ -48,6 +49,7 @@ import type { TriggersSection } from "../triggers/model.ts";
 import type { RngState } from "../rng/xoshiro.ts";
 import type { GameState } from "./state.ts";
 import type { WorldSection } from "./sections.ts";
+import { worldBoardGrid, type WorldBoard } from "../world/model.ts";
 import {
   failLedger,
   ledgerFlag,
@@ -430,9 +432,42 @@ export function hashGameLedger(ledger: GameLedgerV1): string {
   return hashState(envelope);
 }
 
-/** Hash the previous v4 projection for already-promoted recovery checkpoints. */
-export function hashGameLedgerV4(ledger: GameLedgerV1): string {
-  const legacyLedger = ledgerWithoutTileBuffers(ledger);
+type TileEditBoardGeometry = Pick<WorldBoard, "coordType" | "sizeX" | "sizeY" | "gridWidth" | "gridHeight">;
+
+/** Recreate v2's logical-area layer stride from the migrated stored-grid stride. */
+function ledgerWithPreMigrationTileEditIndices(ledger: GameLedgerV1, board: TileEditBoardGeometry | null): GameLedgerV1 {
+  if (board === null || (board.coordType & COORD_ISO_ROTATED) === 0) return ledger;
+  const logicalArea = board.sizeX * board.sizeY;
+  const { width, height } = worldBoardGrid(board);
+  const storedArea = width * height;
+  const savedBoard = ledger.world.board;
+  if (
+    !Number.isSafeInteger(logicalArea) || logicalArea <= 0
+    || !Number.isSafeInteger(storedArea) || storedArea <= 0
+    || savedBoard.state !== "present" || savedBoard.value.runtime.state !== "present"
+  ) return ledger;
+  const runtime = savedBoard.value.runtime.value;
+  const tileEdits = runtime.tileEdits.map((edit) => {
+    const layer = Math.floor(edit.index / storedArea);
+    const withinLayerIndex = edit.index % storedArea;
+    const legacyIndex = layer * logicalArea + withinLayerIndex;
+    return Number.isSafeInteger(legacyIndex) ? { ...edit, index: legacyIndex } : edit;
+  });
+  return {
+    ...ledger,
+    world: {
+      ...ledger.world,
+      board: {
+        ...savedBoard,
+        value: { ...savedBoard.value, runtime: { state: "present", value: { ...runtime, tileEdits } } },
+      },
+    },
+  };
+}
+
+/** Hash the previous v4 projection for promoted checkpoints, using saved board geometry for old indices. */
+export function hashGameLedgerV4(ledger: GameLedgerV1, board: TileEditBoardGeometry | null): string {
+  const legacyLedger = ledgerWithoutTileBuffers(ledgerWithPreMigrationTileEditIndices(ledger, board));
   return hashState({ domain: GAME_LEDGER_DOMAIN, version: 4, ledger: legacyLedger } as never);
 }
 
@@ -457,12 +492,13 @@ function ledgerWithoutTileBuffers(ledger: GameLedgerV1): GameLedgerV4 {
     },
   };
 }
-/** Hash the pre-movement v3 projection for already-promoted recovery checkpoints. */
-export function hashGameLedgerV3(ledger: GameLedgerV1): string {
-  const previous = ledgerWithoutTileBuffers(ledger);
+/** Hash the pre-movement v3 projection for promoted checkpoints, using saved board geometry for old indices. */
+export function hashGameLedgerV3(ledger: GameLedgerV1, board: TileEditBoardGeometry | null): string {
+  const previous = ledgerWithoutTileBuffers(ledgerWithPreMigrationTileEditIndices(ledger, board));
   const legacyLedger = { ...previous, world: { board: previous.world.board } };
   return hashState({ domain: GAME_LEDGER_DOMAIN, version: 3, ledger: legacyLedger } as never);
 }
+
 
 function projectActors(section: ActorsSection): LedgerActors {
   const record = ledgerRecord(section, "actors");
