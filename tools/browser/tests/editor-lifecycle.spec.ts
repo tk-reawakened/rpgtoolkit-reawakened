@@ -9,12 +9,12 @@ import type { Page } from "@playwright/test";
 
 const validMain = Array.from(readFileSync(new URL("../../../docs/spec/examples/game/Main/example.gam", import.meta.url)));
 
-/** Type a title and press Enter, as a person does: real keystrokes, so the view commits one command. */
+/** Type and apply a title as one document edit. */
 async function commitTitle(page: Page, title: ReturnType<Page["getByLabel"]>, text: string): Promise<void> {
   await title.click();
   await title.press("ControlOrMeta+a");
   await page.keyboard.type(text);
-  await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: "Apply changes" }).click();
 }
 
 test("the browser host undoes by editId, saves all, cancels a close, reverts, and never saves over a change on disk", async ({ page }) => {
@@ -42,7 +42,7 @@ test("the browser host undoes by editId, saves all, cancels a close, reverts, an
   await expect(title).toBeVisible();
   const opened = await title.inputValue();
 
-  // Leaving the field commits the title as one command, as pressing Enter does.
+  // Apply commits the staged title as one command.
   // Undo and redo by editId through the host's toolbar.
   await commitTitle(page, title, "First");
   await commitTitle(page, title, "Second");

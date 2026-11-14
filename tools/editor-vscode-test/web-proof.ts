@@ -2,12 +2,51 @@ import { BinaryReader, readBoard } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors, decodePersistedBytes } from "./lifecycle.ts";
+import { runVscodeArtProof } from "./art-proof.ts";
 
 const copyBytesCommand = "Test: Copy Main File Bytes";
 
 type Expect = typeof playwrightExpect;
 type ProofWindow = Window & { __tkrCspViolations?: string[]; __tkrCspPositiveControlRan?: boolean };
 type CspConsoleViolation = { text: string; url: string; lineNumber: number; columnNumber: number };
+type ProofRunSnapshot = { readonly stateHash: string | null };
+
+async function verifyHostRunHash(page: Page, frame: Frame, expect: Expect): Promise<void> {
+  let handleFrame: Frame | undefined;
+  await expect.poll(async () => {
+    for (const candidate of page.frames()) {
+      if (await candidate.locator("#tkr-run-handle-snapshot").count() > 0) { handleFrame = candidate; return true; }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  if (handleFrame === undefined) throw new Error("Run-handle proof panel was not found");
+  let lastObserved: { liveHash: string | undefined; liveTick: number | undefined; snapshotHash: string | null; status: unknown } =
+    { liveHash: undefined, liveTick: undefined, snapshotHash: null, status: null };
+  await expect.poll(async () => {
+    const player = await frame.evaluate(() => {
+      const live = Reflect.get(window, "__live") as { stateHash?: string; tick?: number } | undefined;
+      const history = Reflect.get(window, "__liveHistory") as { tick: number; stateHash: string }[] | undefined;
+      return { live, history };
+    });
+    const snapshot = JSON.parse(await handleFrame!.locator("#tkr-run-handle-snapshot").textContent() ?? "null") as ProofRunSnapshot;
+    const status = JSON.parse(await handleFrame!.locator("#tkr-run-handle-status").textContent() ?? "null") as { stateHash?: string; tick?: number };
+    lastObserved = { liveHash: player.live?.stateHash, liveTick: player.live?.tick, snapshotHash: snapshot.stateHash, status };
+    return typeof snapshot.stateHash === "string" && /^[a-f0-9]{16}$/.test(snapshot.stateHash)
+      && player.history?.some((entry) => entry.stateHash === snapshot.stateHash) === true;
+  }, { timeout: 30_000 }).toBe(true).catch((error: unknown) => {
+    throw new Error(`RunHandle hash never matched a player live hash: ${JSON.stringify(lastObserved)}`, { cause: error });
+  });
+  await handleFrame.locator("#tkr-stop-run-handle").click();
+  await expect.poll(async () => {
+    const snapshot = JSON.parse(await handleFrame!.locator("#tkr-run-handle-snapshot").textContent() ?? "null") as ProofRunSnapshot;
+    const status = JSON.parse(await handleFrame!.locator("#tkr-run-handle-status").textContent() ?? "null") as { state?: string };
+    return { state: status.state, stateHash: snapshot.stateHash };
+  }, { timeout: 30_000 }).toMatchObject({ state: "ended" });
+  const retained = JSON.parse(await handleFrame.locator("#tkr-run-handle-snapshot").textContent() ?? "null") as ProofRunSnapshot;
+  const stoppedHash = JSON.parse(await handleFrame.locator("#tkr-run-handle-stopped-hash").textContent() ?? "null") as string | null;
+  expect(stoppedHash).toMatch(/^[a-f0-9]{16}$/);
+  expect(retained.stateHash).toBe(stoppedHash);
+}
 type ProofHost = {
   restart(page: Page, offlineBytes?: Uint8Array): Promise<Page>;
   readBacking(path?: string): Promise<Uint8Array>;
@@ -20,6 +59,10 @@ type ProofHost = {
   choice: "cancel" | "keep";
   boardPath: string;
   otherBoardPath: string;
+  artPath: string;
+  otherArtPath: string;
+  writeBacking(path: string, bytes: Uint8Array): Promise<void>;
+  withBackingWriteRefused(path: string, check: () => Promise<void>): Promise<void>;
   /** A fully drawn 2 × 2 tile bitmap over `Tiles/village.tst`: tile 1 everywhere except a shaded (10, -20, 30) tile 2 at column 2, row 1. */
   bitmapPath: string;
   /** A 3 × 1 tile bitmap of shaded tile 2, which the browser's Edit tile bitmap action must open. */
@@ -31,6 +74,169 @@ type ProofHost = {
   /** Boards of each coordinate layout (`coordType` 0, 1, 2), each 8 × 8 with two layers, for the canvas scenario. */
   canvasBoards: { path: string; label: string; coordType: number }[];
 };
+
+/** Launch the real saved example through the VS Code web extension, not a mocked adapter. */
+export async function runVscodeLaunchProof(
+  page: Page, expect: Expect, workbenchUrl: string, gamePath: string,
+  readBacking: () => Promise<Uint8Array>, expectedBytes: Uint8Array,
+): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await page.getByRole("treeitem", { name: "Main", exact: true }).click();
+  await openGame(page, gamePath, expect);
+  const editor = await waitForEditorFrame(page, "VS Code launch editor");
+  const title = editor.getByLabel("Game title");
+  await expect(title).toBeVisible();
+  await title.fill("VS Code launch proof");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
+  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await runCommand(page, expect, "Test: Run Example Game");
+  await expect.poll(readBacking, { timeout: 30_000 }).toEqual(expectedBytes);
+  let player: Frame | undefined;
+  await expect.poll(async () => {
+    for (const frame of page.frames()) {
+      if (await frame.locator("#screen").count() > 0) { player = frame; return true; }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  const playerFrame = player as Frame | undefined;
+  if (playerFrame === undefined) throw new Error("Player frame was not found");
+  const live = async () => await playerFrame.evaluate(() => Reflect.get(window, "__live") as {
+    tick: number; board: string | null; player: unknown; stateHash: string;
+  } | undefined);
+  await expect.poll(async () => (await live())?.tick ?? 0, { timeout: 30_000 }).toBeGreaterThan(30);
+  await playerFrame.locator("#screen").press("Enter");
+  await expect.poll(async () => (await live())?.board, { timeout: 30_000 }).toContain("village.brd");
+  const playing = await live();
+  expect(playing?.player).not.toBeNull();
+  expect(playing?.stateHash).toBeTruthy();
+}
+
+/** Exercise a saved program and fixture through the real VS Code web extension and packaged player. */
+export async function runVscodeProgramProof(page: Page, expect: Expect, workbenchUrl: string): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await runCommand(page, expect, "Test: Run Example Program");
+  let player: Frame | undefined;
+  await expect.poll(async () => {
+    for (const frame of page.frames()) {
+      if (await frame.locator("#screen").count() > 0) { player = frame; return true; }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  const frame = player as Frame | undefined;
+  if (frame === undefined) throw new Error("Program player frame was not found");
+  const scene = async () => await frame.evaluate(() => {
+    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string; font?: { size: number }; source?: { asset?: string } }> } } } | undefined;
+    const live = Reflect.get(window, "__live") as { board: string | null; stateHash: string; player: unknown } | undefined;
+    const all = session?.engine.drawList().commands ?? [];
+    const commands = all.filter((command) => command.kind === "text");
+    return { live, text: commands.map((command) => command.text), sizes: commands.map((command) => command.font?.size),
+      assets: all.filter((command) => command.kind === "blit").map((command) => command.source?.asset) };
+  });
+  await expect.poll(async () => (await scene()).text?.join(" ") ?? "", { timeout: 30_000 }).toContain("VS CODE FIXTURE PROOF");
+  const result = await scene();
+  expect(result.live?.board).toContain("village.brd");
+  expect(result.live?.player).toEqual({ x: 48, y: 63 });
+  expect(result.live?.stateHash).toBeTruthy();
+  expect(result.sizes).toContain(18);
+  expect(result.assets).toContain("game/example/bitmap/window.png");
+  const snapshot = JSON.parse(await frame.locator("#run-snapshot pre").textContent() ?? "null") as {
+    kind: string; fixtureSettings: { font: string; fontSize: number; windowGraphic: string; party: string[] };
+    targets: Array<{ path: string; sha256: string }>;
+  };
+  expect(snapshot.kind).toBe("program");
+  expect(snapshot.fixtureSettings).toMatchObject({
+    font: "Liberation Sans", fontSize: 18, windowGraphic: "Game/Example/Bitmap/window.png",
+    party: ["Game/Example/Chrs/ada.tem"],
+  });
+  expect(snapshot.targets.find((target) => target.path === "Game/Example/Prg/start.prg")?.sha256).toMatch(/^[a-f0-9]{64}$/);
+  await verifyHostRunHash(page, frame, expect);
+}
+
+/** Exercise a fresh board launch through the real VS Code web extension and packaged player. */
+export async function runVscodeBoardProof(page: Page, expect: Expect, workbenchUrl: string): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await runCommand(page, expect, "Test: Run Example Board");
+  let player: Frame | undefined;
+  await expect.poll(async () => {
+    for (const frame of page.frames()) {
+      if (await frame.locator("#screen").count() > 0) { player = frame; return true; }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  const frame = player as Frame | undefined;
+  if (frame === undefined) throw new Error("Board player frame was not found");
+  const scene = async () => await frame.evaluate(() => {
+    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string }> } } } | undefined;
+    const live = Reflect.get(window, "__live") as { board: string | null; stateHash: string; player: unknown } | undefined;
+    return { live, text: (session?.engine.drawList().commands ?? []).filter((command) => command.kind === "text").map((command) => command.text) };
+  });
+  await expect.poll(async () => (await scene()).live?.board ?? "", { timeout: 30_000 }).toContain("village.brd");
+  const snapshotDetails = frame.locator("#run-snapshot");
+  await snapshotDetails.locator("summary").click();
+  await expect(snapshotDetails).toHaveAttribute("open", "");
+  await expect(snapshotDetails.locator("pre")).toContainText(/"stateHash":\s*"[^"]+"/);
+  const result = await frame.evaluate(() => {
+    const live = Reflect.get(window, "__live") as { stateHash: string } | undefined;
+    const snapshotText = document.querySelector("#run-snapshot pre")?.textContent ?? "null";
+    const snapshot = JSON.parse(snapshotText) as {
+      kind: string; stateHash: string | null;
+      start: { board: string; x: number; y: number; layer: number };
+      party: string[]; seed: number;
+    };
+    return {
+      liveStateHash: live?.stateHash,
+      snapshot,
+      stateHashMatches: snapshot.stateHash === live?.stateHash,
+    };
+  });
+  const sceneResult = await scene();
+  expect(sceneResult.live?.player).toEqual({ x: 48, y: 63 });
+  expect(result.liveStateHash).toBeTruthy();
+  expect(result.stateHashMatches).toBe(true);
+  expect(sceneResult.text.join(" ")).not.toContain("VS CODE FIXTURE PROOF");
+  expect(result.snapshot.kind).toBe("board");
+  expect(result.snapshot.start).toEqual({ board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1 });
+  expect(result.snapshot.party).toEqual(["Game/Example/Chrs/ada.tem"]);
+  expect(result.snapshot.seed).toBe(23);
+  await verifyHostRunHash(page, frame, expect);
+}
+
+/** Refused saves and edits during snapshot preparation must prevent launching a player. */
+export async function runVscodeGuardProof(
+  page: Page, expect: Expect, workbenchUrl: string, gamePath: string,
+  readBacking: () => Promise<Uint8Array>, original: Uint8Array, raced: Uint8Array,
+): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await page.getByRole("treeitem", { name: "Main", exact: true }).click();
+  await openGame(page, gamePath, expect);
+  const editor = await waitForEditorFrame(page, "VS Code guard editor");
+  const title = editor.getByLabel("Game title");
+  await title.fill("Save must fail");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
+  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await runCommand(page, expect, "Test: Fail Saves");
+  await runCommand(page, expect, "Test: Run Example Program");
+  await expect(page.getByText(/Program launch refused:.*save/i)).toBeVisible({ timeout: 30_000 });
+  expect(await readBacking()).toEqual(original);
+  expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
+  await runCommand(page, expect, "Test: Allow Saves");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor.getByRole("status")).toHaveText("All changes saved");
+  await runCommand(page, expect, "Test: Pause Program Read");
+  await runCommand(page, expect, "Test: Run Example Program");
+  await expect(page.getByText("Fixture read paused")).toBeVisible({ timeout: 30_000 });
+  await title.fill("Race saved");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(readBacking, { timeout: 30_000 }).toEqual(raced);
+  await runCommand(page, expect, "Test: Resume Program Read");
+  await expect(page.getByText(/Program launch refused:.*changed/i)).toBeVisible({ timeout: 30_000 });
+  expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
+}
 
 /** Exercise the shipped VS Code custom editor with real sprite bytes through the workspace bridge. */
 export async function runVscodeSpriteWebProof(
@@ -181,7 +387,7 @@ export async function runVscodeWebProof(
   await assertCspListenerCountsBlockedAction(editor, expect, consoleViolations);
   const before = await readWorkspaceBytes(page, expect);
   await titleField.fill(title);
-  await titleField.press("Enter");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
   const savedTab = page.getByRole("tab").filter({ hasText: gamePath.split("/").at(-1)! }).first();
   await expect(savedTab).toHaveClass(/dirty/);
   await editor.getByRole("button", { name: "Save" }).click();
@@ -217,8 +423,8 @@ export async function runVscodeWebProof(
   const sentinelField = sentinelEditor.getByLabel("Game title");
   await sentinelField.click();
   await sentinelField.fill(host.sentinelTitle);
-  await sentinelField.press("Enter");
-  await expect(sentinelEditor.getByRole("status")).toHaveText("Unsaved changes");
+  await sentinelEditor.getByRole("button", { name: "Apply changes" }).click();
+  await expect(sentinelEditor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
   const sentinelTab = page.getByRole("tab").filter({ hasText: sentinelPath }).first();
   await expect(sentinelTab).toHaveClass(/dirty/);
   await expect.poll(() => backupIsStored(page, host.sentinelBytes), { timeout: 15_000 }).toBe(true);
@@ -228,9 +434,9 @@ export async function runVscodeWebProof(
   const recoveredTitleField = reopenedEditor.getByLabel("Game title");
   await recoveredTitleField.click();
   await recoveredTitleField.fill(recoveredTitle);
-  await recoveredTitleField.press("Enter");
+  await reopenedEditor.getByRole("button", { name: "Apply changes" }).click();
   await expectValueWithFrameDiagnostics(page, recoveredTitleField, recoveredTitle, expect);
-  await expect(reopenedEditor.getByRole("status")).toHaveText("Unsaved changes");
+  await expect(reopenedEditor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
   const dirtyEditorTab = page.getByRole("tab").filter({ hasText: gamePath.split("/").at(-1)! }).first();
   await expect(dirtyEditorTab).toHaveClass(/dirty/);
   // The CI workspace sets files.autoSave=off so autosave cannot mask this hot-exit test.
@@ -241,7 +447,7 @@ export async function runVscodeWebProof(
       { timeout: 15_000, message: "VS Code backup tracker did not start creating a backup after the final edit" },
     ).toBe(true);
   } catch (error) {
-    const status = await reopenedEditor.getByRole("status").innerText().catch((readError) => `<unavailable: ${String(readError)}>`);
+    const status = await reopenedEditor.locator(".tkr-settings-state").innerText().catch((readError) => `<unavailable: ${String(readError)}>`);
     const tabClass = await dirtyEditorTab.getAttribute("class").catch((readError) => `<unavailable: ${String(readError)}>`);
     const details = await backupDiagnostics(page, expect, backupTrackerLogs);
     await logFrameDiagnostics(page, "backup tracker did not begin creating the final dirty document's backup");
@@ -278,7 +484,7 @@ export async function runVscodeWebProof(
   await enableWorkbenchTraceLogging(page, expect);
 
 
-  await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
+  await expect(recoveredEditor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
   await expect.poll(() => frameCspViolations(page, recoveredEditor, consoleViolations)).toEqual([]);
   await expect(recoveredEditor.getByRole("group", { name: "Changed on disk" })).toBeVisible();
   await expect(recoveredEditor.getByRole("button", { name: "Use the version on disk" })).toHaveCount(0);
@@ -291,7 +497,7 @@ export async function runVscodeWebProof(
     await expect(sentinelTab).toHaveClass(/dirty/);
     await sentinelTab.click();
     sentinelEditor = await waitForTitledEditor(page, host.sentinelTitle, expect);
-    await expect(sentinelEditor.getByRole("status")).toHaveText("Unsaved changes");
+    await expect(sentinelEditor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
     expect(await host.readBacking(sentinelPath)).toEqual(sentinelBacking);
     await page.getByRole("tab").filter({ hasText: gamePath.split("/").at(-1)! }).first().click();
     recoveredEditor = await waitForTitledEditor(page, recoveredTitle, expect);
@@ -301,9 +507,9 @@ export async function runVscodeWebProof(
   const choiceTraceStart = backupTrackerLogs.length;
   const hostEventsStart = host.readHostEvents().length;
   if (host.choice === "cancel") {
-    await recoveredEditor.getByRole("button", { name: "Cancel" }).click();
+    await recoveredEditor.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(recoveredEditor.getByRole("button", { name: "Review conflict" })).toBeVisible();
-    await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
+    await expect(recoveredEditor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
     expect(await readWorkspaceBytes(page, expect)).toEqual(externalAfterRestart);
     expect(await host.readBacking()).toEqual(externalAfterRestart);
     await verifySentinel();
@@ -312,7 +518,8 @@ export async function runVscodeWebProof(
   }
   await expect(recoveredEditor.getByRole("button", { name: "Keep my version" })).toBeVisible();
   await recoveredEditor.getByRole("button", { name: "Keep my version" }).click();
-  await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
+  await runCommand(page, expect, "Notifications: Clear All Notifications");
+  await expect(recoveredEditor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
   expect(await readWorkspaceBytes(page, expect)).toEqual(externalAfterRestart);
   expect(await host.readBacking()).toEqual(externalAfterRestart);
   await verifySentinel();
@@ -335,7 +542,7 @@ export async function runVscodeWebProof(
   // Keep the other editor active until the original document's bytes really reach disk.
   await expect.poll(async () => Array.from(await host.readBacking()), { timeout: 30_000 }).toEqual(Array.from(recoveredBytes));
   await verifySentinel();
-  await expect(recoveredEditor.getByRole("status")).toHaveText("All changes saved");
+  await expect(recoveredEditor.locator(".tkr-settings-state")).toHaveText("All changes saved");
   const recovered = await readWorkspaceBytes(page, expect);
   expect(recovered).toEqual(recoveredBytes);
   expect(await host.readBacking()).toEqual(recoveredBytes);
@@ -352,6 +559,15 @@ export async function runVscodeWebProof(
   await runLifecycleScenarios(page, expect, autosaveTitle, autosaveBytes, host);
   // The packaged custom editor runs in the actual VS Code webview and persists boards through its working-copy provider.
   await runBoardBrowserScenario(page, expect, host);
+  const artFrame = await runVscodeArtProof(page, expect, host, {
+    focusWorkbench: () => focusWorkbench(page),
+    command: (title) => runCommand(page, expect, title),
+    closeEditor: () => closeActiveEditor(page, expect),
+    backupStored: (bytes) => backupIsStored(page, bytes),
+    instrument: (frame) => instrumentCspFrame(frame),
+  });
+  await expect.poll(() => frameCspViolations(page, artFrame, consoleViolations)).toEqual([]);
+  await assertCspListenerCountsBlockedAction(artFrame, expect, consoleViolations);
   // The same packaged extension edits a tile bitmap through the shared browser and persists it through the same provider.
   await runBitmapBrowserScenario(page, expect, host);
   await runBitmapSelectionRetentionScenario(page, expect, host);
@@ -378,6 +594,7 @@ async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHos
     const state = frame.locator(".tkr-board-state");
     const tile2 = frame.locator('.tkr-board-cell[aria-label$=": village.tst2"]');
     await expect(state).toHaveText("All changes saved");
+    await frame.getByLabel("Source", { exact: true }).selectOption({ label: "village.tst (tst)" });
     const rock = frame.locator('[data-browser-reference="village.tst2"] .tkr-tileset-browser-source');
     await rock.click();
     await expect(rock).toHaveAttribute("aria-pressed", "true");
@@ -556,6 +773,7 @@ async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHo
   const first = await openProjectBoard(page, firstPath, expect);
   await expect(first.getByRole("grid")).toBeVisible();
   await expect(first.getByRole("button", { name: "Column 1, row 1: village.tst1" })).toBeVisible();
+  await first.getByRole("combobox", { name: "Source", exact: true }).selectOption({ label: "village.tst (tst)" });
   const tile = first.locator('[data-browser-reference="village.tst2"]');
   await expect(tile).toBeVisible();
   const source = tile.locator(".tkr-tileset-browser-source");
@@ -627,6 +845,7 @@ async function runBitmapBrowserScenario(page: Page, expect: Expect, host: ProofH
   expect(Math.abs(bottomLeft.x - topLeft.x)).toBeLessThan(2);
   expect(bottomLeft.y).toBeGreaterThanOrEqual(topLeft.y + topLeft.height);
   // Choosing a tile in the shared browser edits nothing; Draw puts it on the clicked cell.
+  await first.getByRole("combobox", { name: "Source", exact: true }).selectOption({ label: "village.tst (tst)" });
   const tile = first.locator('[data-browser-reference="village.tst1"] .tkr-tileset-browser-source');
   await expect(tile).toBeVisible();
   await tile.click();
@@ -734,8 +953,8 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   let editor = await waitForEditorFrame(page, "lifecycle settings editor");
   const field = editor.getByLabel("Game title");
   await field.fill(hiddenTitle);
-  await field.press("Enter");
-  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
 
   // An untitled editor takes the tab's place, which hides the custom editor (retainContextWhenHidden: false).
   await editor.evaluate(() => { (window as ProofWindow & { __tkrAliveMarker?: string }).__tkrAliveMarker = "before-hiding"; });
@@ -747,7 +966,7 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   const alive = await editor.evaluate(() => (window as ProofWindow & { __tkrAliveMarker?: string }).__tkrAliveMarker);
   if (alive !== undefined) throw new Error("VS Code kept the hidden webview's page alive, so this proof cannot show a re-created view");
   await expectValueWithFrameDiagnostics(page, editor.getByLabel("Game title"), hiddenTitle, expect);
-  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
 
   await runCommand(page, expect, "View: Close Editor");
   const dialog = page.locator(".monaco-dialog-box");
@@ -756,12 +975,12 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   await expect(dialog).toBeHidden();
   editor = await waitForEditorFrame(page, "settings editor after a cancelled close");
   await expectValueWithFrameDiagnostics(page, editor.getByLabel("Game title"), hiddenTitle, expect);
-  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
 
   const autosaveField = editor.getByLabel("Game title");
   await autosaveField.fill(autosaveTitle);
-  await autosaveField.press("Enter");
-  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
   const readMarker = async (name: string): Promise<string | undefined> => {
     try {
       return new TextDecoder().decode(await host.readBacking(`.vscode/tkr-autosave-command-${name}`));
@@ -801,6 +1020,9 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
     let acknowledgementFailed = false;
     try {
       await runCommand(page, expect, "Test: Pause Autosave Off");
+      await expect.poll(() => readMarker("armed"), {
+        message: "VS Code armed the autosave-off completion barrier before Off is dispatched",
+      }).toBe("off");
       await runCommand(page, expect, "Test: Turn Autosave Off");
       let autosaveAcknowledged = false;
       acknowledgement = expectAutosave("off").then(
@@ -857,8 +1079,20 @@ async function runCommandMatching(page: Page, expect: Expect, search: string, la
         await commandInput.press("Escape");
         await expect(widget).toBeHidden();
       }
-      const command = page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
-      await expect(command, `VS Code selects ${label}`).toBeVisible();
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const exact = page.getByRole("option", { name: new RegExp(`^${escaped}(?:,|$)`) });
+      if (search === label) {
+        await expect(exact, `VS Code offers exactly one ${label}`).toHaveCount(1);
+        const choices = await page.getByRole("option").count();
+        for (let index = 0; index < choices; index += 1) {
+          if (await exact.evaluate((element) => element.classList.contains("focused"))) break;
+          await commandInput.press("ArrowDown");
+        }
+        await expect(exact).toHaveClass(/(?:^|\s)focused(?:\s|$)/);
+      } else {
+        const command = page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
+        await expect(command, `VS Code selects ${label}`).toBeVisible();
+      }
       break;
     } catch (error) {
       if (attempt === 2 || await widget.isVisible()) throw error;
@@ -1026,7 +1260,12 @@ async function openPersistedBytesPanel(page: Page, expect: Expect): Promise<{ ta
   const panelTabs = page.getByRole("tab").filter({ hasText: /Persisted Main File Bytes #[0-9a-f-]+/i });
   const existingCount = await panelTabs.count();
   await runCommand(page, expect, copyBytesCommand);
-  await expect.poll(() => panelTabs.count()).toBeGreaterThan(existingCount);
+  try {
+    await expect.poll(() => panelTabs.count()).toBeGreaterThan(existingCount);
+  } catch (cause) {
+    const tabs = await page.getByRole("tab").allTextContents();
+    throw new Error(`The byte probe did not open a new tab; current tabs: ${JSON.stringify(tabs)}`, { cause });
+  }
   const panelTab = panelTabs.nth(existingCount);
   await expect(panelTab).toBeVisible({ timeout: 15_000 });
   const panelId = /Persisted Main File Bytes #([0-9a-f-]+)/i.exec(await panelTab.innerText())?.[1];
@@ -1080,26 +1319,28 @@ async function findBytesPanelFrame(page: Page, selector: string): Promise<Frame 
 
 async function openGame(page: Page, gamePath: string, expect: Expect): Promise<void> {
   await focusWorkbench(page);
-  const gameFile = page.getByRole("treeitem", { name: gamePath.split("/").at(-1)!, exact: true });
+  const segments = gamePath.split("/");
+  for (const folder of segments.slice(0, -1)) {
+    const folderItem = page.getByRole("treeitem", { name: folder, exact: true });
+    await expect(folderItem).toBeVisible();
+    if (await folderItem.getAttribute("aria-expanded") !== "true") await folderItem.click();
+  }
+  const gameFile = page.getByRole("treeitem", { name: segments.at(-1)!, exact: true });
   await expect(gameFile).toBeVisible();
   await gameFile.dblclick();
-  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: gamePath.split("/").at(-1)! }).first()).toBeVisible();
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: segments.at(-1)! }).first()).toBeVisible();
   await expect(page.locator("iframe.webview")).toBeVisible({ timeout: 30_000 });
 }
 
 async function closeActiveEditor(page: Page, expect: Expect): Promise<void> {
-  const commandInput = await commandPalette(page, expect);
-  await commandInput.fill(">View: Close Editor");
-  const closeCommand = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "View: Close Editor" }).first();
-  await expect(closeCommand).toBeVisible();
-  await closeCommand.click();
-  await expect(page.locator(".quick-input-widget")).toBeHidden();
+  await runCommand(page, expect, "View: Close Editor");
 }
 
-async function commandPalette(page: Page, expect: Expect): Promise<import("@playwright/test").Locator> {
+async function commandPalette(page: Page, expect: Expect): Promise<Locator> {
   await focusWorkbench(page);
   await page.keyboard.press("ControlOrMeta+Shift+P");
-  const input = page.locator(".quick-input-widget input").last();
+  const input = page.locator(".quick-input-widget input:visible");
+  await expect(input).toHaveCount(1);
   await expect(input).toBeVisible();
   return input;
 }

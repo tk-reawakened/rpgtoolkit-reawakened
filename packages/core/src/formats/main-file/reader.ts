@@ -33,6 +33,11 @@ import {
   MAIN_AUDIO_MAX_VOICE_CAP,
   MAIN_AUDIO_MIN_TRACKS,
   MAIN_AUDIO_MIN_VOICE_CAP,
+  MAIN_INPUT_EXTENSION_TAG,
+  MAIN_INPUT_MAX_ACTIONS,
+  MAIN_INPUT_MAX_ACTION_NAME_BYTES,
+  MAIN_INPUT_MAX_CONTROL_ID_BYTES,
+  MAIN_INPUT_MAX_CONTROLS,
   MAIN_PACKAGE_EXTENSION_TAG,
   MAIN_PACKAGE_MAX_BYTES,
   MAIN_PACKAGE_MAX_COUNT,
@@ -42,6 +47,7 @@ import {
   type MainFileAudioTrack,
   type MainFileEnemy,
   type MainFileExtKey,
+  type MainFileInputSettings,
   type MainFilePlugin,
   type MainFileReservedRuns,
 } from "./model.ts";
@@ -184,6 +190,75 @@ function parseAudioExtension(
     residue: residue.value,
   });
 }
+/** Parse the optional, ordered TKR input block; non-matching bytes remain residue. */
+function parseInputExtension(
+  bytes: Uint8Array,
+  path: string | undefined,
+  baseOffset: number,
+): Result<{ readonly inputSettings: MainFileInputSettings | null; readonly residue: Uint8Array }> {
+  const anchor = "docs/spec/formats/main-file.md#tkr-input-extension";
+  const tag = MAIN_INPUT_EXTENSION_TAG;
+  if (bytes.length < tag.length || tag.some((value, index) => bytes[index] !== value)) {
+    return ok({ inputSettings: null, residue: bytes });
+  }
+  const input = new BinaryReader(bytes, path);
+  const located = <T>(result: Result<T>): Result<T> => result.ok
+    ? result
+    : err({ ...result.error, offset: result.error.offset + baseOffset, section: anchor, message: `${result.error.message} (${anchor})` });
+  const readText = (maxBytes: number, field: string): Result<string> => {
+    const start = input.offset;
+    const limit = Math.min(input.bytes.length, start + maxBytes + 1);
+    let nul = start;
+    while (nul < limit && input.bytes[nul] !== 0) nul += 1;
+    if (nul === limit && limit - start > maxBytes) return fail(input, baseOffset + start, `${field} exceeds ${maxBytes} bytes (${anchor})`);
+    const result = located(input.str());
+    if (!result.ok) return result;
+    if (result.value.length === 0 || result.value.length > maxBytes || /[^\x00-\x7f]/.test(result.value)) {
+      return fail(input, baseOffset + start, `${field} must be 1–${maxBytes} ASCII bytes (${anchor})`);
+    }
+    return result;
+  };
+  input.readBytes(tag.length);
+  const schema = located(input.u8());
+  if (!schema.ok) return schema;
+  if (schema.value !== 1) return fail(input, baseOffset + tag.length, `unknown TKR input schema ${schema.value} (${anchor})`);
+  const enabled = located(input.u8());
+  if (!enabled.ok) return enabled;
+  if (enabled.value > 1) return fail(input, baseOffset + input.offset - 1, `TKR controller-enabled flag ${enabled.value} must be 0 or 1 (${anchor})`);
+  const count = located(input.u16());
+  if (!count.ok) return count;
+  if (count.value > MAIN_INPUT_MAX_ACTIONS) return fail(input, baseOffset + input.offset - 2, `TKR input action count ${count.value} exceeds ${MAIN_INPUT_MAX_ACTIONS} (${anchor})`);
+  const actions: Record<string, { controls: string[]; locked: boolean }> = {};
+  const actionPattern = /^(?:up|down|left|right|confirm|cancel|menu|game\.(?:[a-z][a-z0-9]*)(?:\.[a-z][a-z0-9]*)*)$/;
+  for (let index = 0; index < count.value; index += 1) {
+    const name = readText(MAIN_INPUT_MAX_ACTION_NAME_BYTES, "TKR action name");
+    if (!name.ok) return name;
+    if (!actionPattern.test(name.value)) return fail(input, baseOffset + input.offset, `invalid TKR action name "${name.value}" (${anchor})`);
+    if (Object.hasOwn(actions, name.value)) return fail(input, baseOffset + input.offset, `duplicate TKR action "${name.value}" (${anchor})`);
+    const flags = located(input.u8());
+    if (!flags.ok) return flags;
+    if (flags.value & 0xfe) return fail(input, baseOffset + input.offset - 1, `reserved TKR action flags are non-zero (${anchor})`);
+    const controlCount = located(input.u16());
+    if (!controlCount.ok) return controlCount;
+    if (controlCount.value > MAIN_INPUT_MAX_CONTROLS) return fail(input, baseOffset + input.offset - 2, `TKR action control count ${controlCount.value} exceeds ${MAIN_INPUT_MAX_CONTROLS} (${anchor})`);
+    const controls: string[] = [];
+    const seen = new Set<string>();
+    for (let controlIndex = 0; controlIndex < controlCount.value; controlIndex += 1) {
+      const control = readText(MAIN_INPUT_MAX_CONTROL_ID_BYTES, "TKR control id");
+      if (!control.ok) return control;
+      if (!/^(?:key:[A-Za-z][A-Za-z0-9]*|pad:(?:[0-9]|1[0-6])|pad:axis[01][+-])$/.test(control.value)) {
+        return fail(input, baseOffset + input.offset, `invalid TKR control id "${control.value}" (${anchor})`);
+      }
+      if (seen.has(control.value)) return fail(input, baseOffset + input.offset, `duplicate TKR control id "${control.value}" in action "${name.value}" (${anchor})`);
+      seen.add(control.value);
+      controls.push(control.value);
+    }
+    actions[name.value] = { controls, locked: (flags.value & 1) !== 0 };
+  }
+  const residue = located(input.readBytes(input.remaining));
+  if (!residue.ok) return residue;
+  return ok({ inputSettings: { controllerEnabled: enabled.value === 1, actions }, residue: residue.value });
+}
 
 /** An empty placeholder main file for zero-byte files (Z-1). */
 export function createEmptyMainFile(): MainFile {
@@ -221,6 +296,7 @@ export function createEmptyMainFile(): MainFile {
     skinWindow: "",
     plugins: [],
     audioSettings: null,
+    inputSettings: null,
     useDayNight: 0,
     dayNightType: 0,
     dayLengthMinutes: 0,
@@ -476,6 +552,7 @@ export function readTextMainFile(bytes: Uint8Array, path?: string): Result<MainF
     skinButton: skinButton.value,
     skinWindow: skinWindow.value,
     plugins,
+    inputSettings: null,
     useDayNight,
     dayNightType,
     dayLengthMinutes,
@@ -953,10 +1030,13 @@ export function readMainFile(reader: BinaryReader): Result<MainFile> {
   const audioStart = trailingStart + trailing.value.length - extension.value.residue.length;
   const audio = parseAudioExtension(extension.value.residue, reader.path, audioStart);
   if (!audio.ok) return audio;
+  const inputStart = audioStart + extension.value.residue.length - audio.value.residue.length;
+  const input = parseInputExtension(audio.value.residue, reader.path, inputStart);
+  if (!input.ok) return input;
   const warnings: string[] = [];
-  if (audio.value.residue.length > 0) {
+  if (input.value.residue.length > 0) {
     warnings.push(
-      `${audio.value.residue.length} trailing byte(s) after the main file were kept as residue (docs/spec/formats/README.md#bytes-after-the-last-documented-field)`,
+      `${input.value.residue.length} trailing byte(s) after the main file were kept as residue (docs/spec/formats/README.md#bytes-after-the-last-documented-field)`,
     );
   }
 
@@ -1007,6 +1087,7 @@ export function readMainFile(reader: BinaryReader): Result<MainFile> {
     colorDepth,
     gameSpeed,
     pixelMovement,
+    inputSettings: input.value.inputSettings,
     cursorEnabled,
     mouseCursor,
     hotSpotX,
@@ -1021,6 +1102,6 @@ export function readMainFile(reader: BinaryReader): Result<MainFile> {
     movementControls,
     movementScanCodes,
     reservedRuns,
-    residue: audio.value.residue,
+    residue: input.value.residue,
   }, warnings);
 }

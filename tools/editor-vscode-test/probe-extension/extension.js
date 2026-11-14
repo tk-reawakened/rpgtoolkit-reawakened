@@ -2,10 +2,82 @@ const vscode = require("vscode");
 const proofSecret = "__TKR_PROOF_SECRET__";
 let autosaveOffGate;
 let releaseAutosaveOff;
+let lastRunHandle;
+let runHandlePanel;
+let lastStopHash = null;
 
 function activate(context) {
   console.info("[vscode-web-proof-probe] activated");
-  context.subscriptions.push(vscode.workspace.registerFileSystemProvider("tkr-testfs", new PersistentFileSystem(), { isCaseSensitive: true }));
+  const filesystem = new PersistentFileSystem();
+  context.subscriptions.push(vscode.workspace.registerFileSystemProvider("tkr-testfs", filesystem, { isCaseSensitive: true }));
+  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
+  context.subscriptions.push(status);
+  const report = (text) => { status.text = text; status.show(); };
+  const publishRunHandle = (handle) => {
+    lastRunHandle = handle;
+    if (runHandlePanel === undefined) {
+      const nonce = crypto.randomUUID().replace(/-/g, "");
+      runHandlePanel = vscode.window.createWebviewPanel("tkr.editorWebProof.runHandle", "Run Handle Proof",
+        vscode.ViewColumn.Beside, { enableScripts: true, enableCommandUris: ["tkr.editorWebProof.stopRunHandle"] });
+      runHandlePanel.onDidDispose(() => { runHandlePanel = undefined; });
+      runHandlePanel.webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}';"></head><body><pre id="tkr-run-handle-snapshot"></pre><pre id="tkr-run-handle-status"></pre><pre id="tkr-run-handle-stopped-hash"></pre><a id="tkr-stop-run-handle" href="command:tkr.editorWebProof.stopRunHandle">Stop run</a><script nonce="${nonce}">window.addEventListener("message", event => { document.querySelector("#tkr-run-handle-snapshot").textContent = JSON.stringify(event.data.snapshot); document.querySelector("#tkr-run-handle-status").textContent = JSON.stringify(event.data.status); document.querySelector("#tkr-run-handle-stopped-hash").textContent = JSON.stringify(event.data.stoppedHash); });</script></body></html>`;
+      context.subscriptions.push(runHandlePanel);
+    }
+    renderRunHandle();
+  };
+  const renderRunHandle = () => {
+    if (runHandlePanel === undefined || lastRunHandle === undefined) return;
+    void runHandlePanel.webview.postMessage({ snapshot: lastRunHandle.snapshot, status: lastRunHandle.status(), stoppedHash: lastStopHash });
+  };
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.stopRunHandle", () => {
+    lastStopHash = lastRunHandle?.snapshot.stateHash ?? null;
+    lastRunHandle?.stop();
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.failSaves", () => { filesystem.failSaves = true; }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.allowSaves", () => { filesystem.failSaves = false; }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.pauseProgramRead", () => {
+    filesystem.pauseProgramRead = () => report("Fixture read paused");
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.resumeProgramRead", () => filesystem.resumeProgramRead?.()));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.runExampleGame", async () => {
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    await vscode.commands.executeCommand("tkr.runGame",
+      vscode.Uri.joinPath(workspace.uri, "Main", "example.gam"),
+      vscode.Uri.joinPath(workspace.uri, "Game", "Example"));
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.runExampleProgram", async () => {
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    report("Program launch pending");
+    const result = await vscode.commands.executeCommand("tkr.testProgram", workspace.uri, {
+      kind: "program", main: "Main/example.gam", projectFolder: "Game/Example",
+      program: "Game/Example/Prg/start.prg",
+      fixture: { id: "VS Code proof", font: "Liberation Sans", fontSize: 18, windowGraphic: "Game/Example/Bitmap/window.png",
+        party: ["Game/Example/Chrs/ada.tem"],
+        start: { board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1 } },
+    });
+    if (result?.ok) {
+      publishRunHandle(result.value);
+      result.value.onStatus(renderRunHandle);
+      report("Program launch accepted");
+    } else report(`Program launch refused: ${result?.error?.message ?? "unknown error"}`);
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.runExampleBoard", async () => {
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    report("Board launch pending");
+    const result = await vscode.commands.executeCommand("tkr.startBoard", workspace.uri, {
+      kind: "board", main: "Main/example.gam", projectFolder: "Game/Example", seed: 23,
+      party: ["Game/Example/Chrs/ada.tem"],
+      start: { board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1 },
+    });
+    if (result?.ok) {
+      publishRunHandle(result.value);
+      result.value.onStatus(renderRunHandle);
+      report("Board launch accepted");
+    } else report(`Board launch refused: ${result?.error?.message ?? "unknown error"}`);
+  }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.copyMainFileBytes", async () => {
     console.info("[vscode-web-proof-probe] copy command invoked");
     const workspace = vscode.workspace.workspaceFolders?.[0];
@@ -80,8 +152,14 @@ function activate(context) {
   };
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.enableAutosave", setAutosave("afterDelay")));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.disableAutosave", setAutosave("off")));
-  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.pauseAutosaveOff", () => {
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.pauseAutosaveOff", async () => {
     if (autosaveOffGate === undefined) autosaveOffGate = new Promise((resolve) => { releaseAutosaveOff = resolve; });
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.joinPath(workspace.uri, ".vscode", "tkr-autosave-command-armed"),
+      new TextEncoder().encode("off"),
+    );
   }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.releaseAutosaveOff", async () => {
     releaseAutosaveOff?.();
@@ -124,10 +202,17 @@ class PersistentFileSystem {
   stat(uri) { return this.request(uri, "stat"); }
   readDirectory(uri) { return this.request(uri, "readDirectory"); }
   async readFile(uri) {
+    if (this.pauseProgramRead && uri.path.endsWith("/Game/Example/Prg/start.prg")) {
+      const notify = this.pauseProgramRead;
+      this.pauseProgramRead = undefined;
+      await new Promise((resolve) => { this.resumeProgramRead = resolve; notify(); });
+      this.resumeProgramRead = undefined;
+    }
     const encoded = await this.request(uri, "readFile");
     return Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
   }
   async writeFile(uri, content, options) {
+    if (this.failSaves && uri.path.endsWith("/Main/example.gam")) throw vscode.FileSystemError.NoPermissions("Proof: injected save failure");
     let binary = "";
     for (let offset = 0; offset < content.length; offset += 0x8000) binary += String.fromCharCode(...content.subarray(offset, offset + 0x8000));
     const { created } = await this.request(uri, "writeFile", { data: btoa(binary), ...options });

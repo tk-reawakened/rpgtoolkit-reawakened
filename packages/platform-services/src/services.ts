@@ -1,5 +1,6 @@
 import type { FileSystemService } from "./fs.ts";
 import type { PlatformResult } from "./result.ts";
+import type { RunService } from "./run.ts";
 
 /**
  * What a host can and cannot do (AD-20: "Each host declares a `capabilities` set"). `editor-ui` degrades by capability
@@ -28,7 +29,13 @@ export type Capability =
   /** `shell.openExternal` works: the host can hand a project file to the operating system's default application (T-03). */
   | "openExternal"
   /** `dialogs.pickFile` works: the host can let the user choose a file from outside the project (T-05). */
-  | "pickFile";
+  | "pickFile"
+  /** `run.startGame` can run the game from its main file's start-up (T-07, ADR 0022 D8.1 "normal game"). */
+  | "runGame"
+  /** `run.startGame` can start a board test at an explicit board, position and party (D8.1 "board test"). */
+  | "runBoard"
+  /** `run.startProgram` can run one program under a fixture (T-41, D8.1 "program test"). */
+  | "runProgram";
 
 /** The set of capabilities a host declares. */
 export type Capabilities = ReadonlySet<Capability>;
@@ -142,13 +149,12 @@ export interface ShellService {
 }
 
 /**
- * The part of AD-20 that stories 11.17 and 11.3 need: `capabilities`, `fs`, `project`, `settings`, `document` and
- * `dialogs`.
+ * The part of AD-20 that stories 11.17, 11.3, 11.4 and 11.8 need: `capabilities`, `fs`, `project`, `settings`,
+ * `document`, `dialogs`, `shell` and `run`.
  *
- * AD-20 also lists `run`, `export`, `clipboard` and `language.connect()` (`shell.openExternal` is declared, for 11.4). They are not declared
- * yet: AD-20 names their methods but not their parameters, and the entries that first use them (11.9 run, 11.14 export,
- * the program editor's language client) fix those shapes against a real caller. A host that implements this interface
- * is not asked for them until then.
+ * AD-20 also lists `export`, `clipboard` and `language.connect()`. They are not declared yet: AD-20 names their methods
+ * but not their parameters, and the entries that first use them (11.14 export, the program editor's language client) fix
+ * those shapes against a real caller. A host that implements this interface is not asked for them until then.
  */
 export interface PlatformServices {
   readonly capabilities: Capabilities;
@@ -159,4 +165,6 @@ export interface PlatformServices {
   readonly dialogs: DialogService;
   /** Present when the host declares `openExternal`. */
   readonly shell?: ShellService;
+  /** Present when the host declares at least one of `runGame`, `runBoard` and `runProgram` (ADR 0022 D8). */
+  readonly run?: RunService;
 }

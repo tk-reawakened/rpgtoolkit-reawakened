@@ -4,31 +4,42 @@ import { platformOk } from "@tk-reawakened/platform-services";
 import { vscodeCapabilities } from "./capabilities.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
+import { createVscodeRunService } from "./player.ts";
+
+/** Project-scoped editor preferences, also used by commands that do not launch a player. */
+export function createVscodeSettings(root: vscode.Uri): PlatformServices["settings"] {
+  const folder = vscode.workspace.getWorkspaceFolder(root);
+  return {
+    get: async (layer, id) => {
+      const target = vscode.workspace.getConfiguration("rpgToolkit", folder?.uri).inspect<SettingValue>(id);
+      const value = layer === "user" ? target?.globalValue : target?.workspaceValue;
+      return platformOk(value === undefined ? null : value);
+    },
+    set: async (layer: SettingsLayer, id, value) => {
+      const target = vscode.workspace.getConfiguration("rpgToolkit", folder?.uri);
+      await target.update(id, value, layer === "user" ? vscode.ConfigurationTarget.Global : vscode.ConfigurationTarget.Workspace);
+      return platformOk(undefined);
+    },
+  };
+}
 
 /** Build the host service surface around the chosen workspace folder. */
-export function createVscodeServices(root: vscode.Uri): PlatformServices {
+export function createVscodeServices(root: vscode.Uri, context: vscode.ExtensionContext, generation: () => number): PlatformServices {
   const folder = vscode.workspace.getWorkspaceFolder(root);
   const project: ProjectHandle = { id: root.toString(), name: folder?.name ?? root.path.split("/").at(-1) ?? "Workspace" };
+  const run = createVscodeRunService(context, root, generation);
+  const desktop = vscode.env.uiKind === vscode.UIKind.Desktop;
+  const capabilities = [...vscodeCapabilities(desktop), "runGame", "runBoard", "runProgram"] as const;
   return {
-    capabilities: new Set(vscodeCapabilities(vscode.env.uiKind === vscode.UIKind.Desktop)),
+    capabilities: new Set(capabilities),
     fs: createVscodeFileSystem(root),
     project: {
       open: async () => platformOk(project),
       recent: async () => platformOk((vscode.workspace.workspaceFolders ?? []).map((item) => ({ id: item.uri.toString(), name: item.name }))),
     },
-    settings: {
-      get: async (layer, id) => {
-        const target = vscode.workspace.getConfiguration("rpgToolkit", folder?.uri).inspect<SettingValue>(id);
-        const value = layer === "user" ? target?.globalValue : target?.workspaceValue;
-        return platformOk(value === undefined ? null : value);
-      },
-      set: async (layer: SettingsLayer, id, value) => {
-        const target = vscode.workspace.getConfiguration("rpgToolkit", folder?.uri);
-        await target.update(id, value, layer === "user" ? vscode.ConfigurationTarget.Global : vscode.ConfigurationTarget.Workspace);
-        return platformOk(undefined);
-      },
-    },
+    settings: createVscodeSettings(root),
     document: { edited: () => undefined },
     dialogs: createVscodeDialogs(root),
+    run,
   };
 }

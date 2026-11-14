@@ -125,6 +125,9 @@ jobs:
           cache: pnpm
       # ADR numbering uses only Node built-ins, so keep the docs-only gate independent of dependency installation.
       - run: node --test tools/adr-numbering.test.mjs && node tools/adr-numbering.mjs
+      # Keep the independent spec reader's writer and extension parsing covered by the
+      # docs-only gate, without installing Python dependencies.
+      - run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s docs/spec/tools -p 'test_*.py' -v
       - run: pnpm install --frozen-lockfile
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm build:outputs:test && pnpm build:outputs:check
@@ -641,7 +644,15 @@ jobs:
           cp docs/spec/examples/game/Main/example.gam "$workspace/example.gam"
           mkdir -p "$workspace/.vscode"
           printf '{\n  "files.autoSave": "off"\n}\n' > "$workspace/.vscode/settings.json"
-          xvfb-run -a pnpm --dir tools/editor-vscode-test proof -- \
+          # Downloading replaces the cache directory; keep its parent writable without root DAC bypass.
+          export TKR_VSCODE_TEST_DATA_DIR="$workspace/vscode-builds"
+          # Root's DAC override defeats the chmod-based physical write-refusal proof (#2659).
+          # Drop only those capabilities for this proof, retaining the same workspace and real filesystem.
+          set --
+          if [ "$(id -u)" -eq 0 ]; then
+            set -- setpriv --bounding-set=-dac_override,-dac_read_search
+          fi
+          "$@" xvfb-run -a pnpm --dir tools/editor-vscode-test proof -- \
             --extension extensions/editor \
             --workspace "$workspace" \
             --game example.gam

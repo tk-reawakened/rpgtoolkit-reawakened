@@ -31,7 +31,7 @@ export interface ConformanceEditor {
   conflictShown(): boolean;
   /** The host's own dirty marker: VS Code's working copy, or the browser workspace's document. */
   hostDirty(): boolean;
-  /** Type a title in the view and press Enter: one accepted command. */
+  /** Type a title in the view and Apply: one accepted command. */
   type(title: string): Promise<void>;
   /** Press the view's Save and wait until the save settles. */
   save(): Promise<void>;

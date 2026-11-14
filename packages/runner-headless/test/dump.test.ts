@@ -114,6 +114,7 @@ const MAIN_FILE: MainFile = {
   major: 2,
   minor: 0,
   audioSettings: null,
+  inputSettings: null,
   registrationFlag: 1,
   registrationCode: "NOCODE",
   projectPath: "demo",

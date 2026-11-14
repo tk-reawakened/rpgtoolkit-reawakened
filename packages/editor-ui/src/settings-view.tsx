@@ -1,6 +1,7 @@
-import type { ApplyResult, ConflictChoice, MainCommand, SaveFailure } from "@tk-reawakened/editor-model";
+import type { ConflictChoice, SaveFailure } from "@tk-reawakened/editor-model";
 import type { Capabilities, DocumentEdited } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { GameSettingsForm } from "./game-settings-form.tsx";
 import { useDocumentSnapshot } from "./use-document.ts";
 import type { ViewDocument } from "./mount.ts";
 
@@ -15,17 +16,12 @@ export interface SettingsViewProps {
   readonly onEdited: (event: DocumentEdited) => void;
 }
 /**
- * The game settings view; its one field is the game title (`docs/spec/formats/main-file.md#layout`, `gameTitle`).
- * The field edits a draft; leaving the field or pressing Enter commits it as one command. The text shown is the
- * document's, so an edit stays visible after a failed save, and what the document refuses is reported beside the field.
- * A change another program made on disk is shown beside the local title with the two ways to settle it (ADR 0022 D3.5).
- * Only classes and ARIA attributes are used, never a `style` attribute (ADR 0025 decision 6).
+ * Game settings stage in one form; Apply creates a document edit, while Save persists applied changes.
+ * A disk conflict offers the host's supported resolution choices (ADR 0022 D3.5).
  */
 export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps) {
   const snapshot = useDocumentSnapshot(doc);
-  const [draft, setDraft] = useState<string | null>(null);
   const [savePending, setSavePending] = useState(false);
-  const [refusal, setRefusal] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [conflictChoicesDismissed, setConflictChoicesDismissed] = useState(false);
@@ -38,94 +34,11 @@ export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps)
     viewsMade += 1;
     return `tkr-settings-${viewsMade}`;
   });
-  // A newer keystroke belongs to the user, not to the command currently being applied.
-  const draftRevision = useRef(0);
-  const titleCommit = useRef<{ readonly title: string; readonly revision: number } | null>(null);
-  const previousTitle = useRef(snapshot.gameTitle);
-  // A live region announces an inserted element, not an unchanged one: a failure that arrives as a new value is rendered
-  // under a new key, so the same words twice are announced twice.
-  const commitFlight = useRef<Promise<boolean> | null>(null);
-  const commitFlightRevision = useRef<number | null>(null);
-  const latestCommit = useRef<() => Promise<boolean>>(() => Promise.resolve(false));
   const saveErrorAtStart = useRef<SaveFailure | null>(null);
   const failureShown = useRef<{ failure: SaveFailure | null; key: number }>({ failure: null, key: 0 });
-  const titleId = `${ids}-title`;
   const stateId = `${ids}-state`;
-  const errorId = `${ids}-error`;
   const readOnly = snapshot.readOnly !== null;
 
-  // A title the document changed under the draft (an undo, a revert, a version loaded from disk) replaces what was being
-  // typed. A matching in-flight commit is different: preserve any draft typed after that command was submitted. Either
-  // way the marker is finished once the title it named is in force, so a later document change is never ignored (a
-  // revert after a commit used to leave its stale draft on screen).
-  useEffect(() => {
-    if (previousTitle.current === snapshot.gameTitle) return;
-    previousTitle.current = snapshot.gameTitle;
-    const committing = titleCommit.current;
-    if (committing !== null) {
-      titleCommit.current = null;
-      if (snapshot.gameTitle !== committing.title) {
-        if (draftRevision.current > committing.revision) return;
-      } else if (draftRevision.current !== committing.revision) {
-        return;
-      }
-    }
-    setDraft(null);
-    setRefusal(null);
-  }, [snapshot.gameTitle]);
-
-  const commit = (): Promise<boolean> => {
-    const flight = commitFlight.current;
-    if (flight !== null) {
-      if (commitFlightRevision.current !== null && draftRevision.current > commitFlightRevision.current) {
-        return flight.then(() => latestCommit.current());
-      }
-      return flight;
-    }
-    if (draft === null || draft === snapshot.gameTitle) {
-      setDraft(null);
-      return Promise.resolve(true);
-    }
-    const command: MainCommand = { type: "set-game-title", title: draft };
-    const revision = draftRevision.current;
-    const submitted = { title: draft, revision };
-    titleCommit.current = submitted;
-    const finish = (accepted: ApplyResult): boolean => {
-      if (!accepted.ok) {
-        if (titleCommit.current === submitted) titleCommit.current = null;
-        setRefusal(accepted.rejection.message);
-        return false;
-      }
-      if (draftRevision.current === revision) setDraft(null);
-      setRefusal(null);
-      const edit = doc.getSnapshot().edits.find((entry) => entry.editId === accepted.editId);
-      onEdited({ document: doc.identity.key, editId: accepted.editId, label: edit?.label ?? "Set game title" });
-      return true;
-    };
-    let result: ApplyResult | Promise<ApplyResult>;
-    try {
-      result = doc.apply(command);
-    } catch (error) {
-      if (titleCommit.current === submitted) titleCommit.current = null;
-      setRefusal(error instanceof Error ? error.message : String(error));
-      return Promise.resolve(false);
-    }
-    if (typeof (result as Promise<ApplyResult>).then !== "function") return Promise.resolve(finish(result as ApplyResult));
-    const pending = Promise.resolve(result).then(finish).catch((error: unknown) => {
-      if (titleCommit.current === submitted) titleCommit.current = null;
-      setRefusal(error instanceof Error ? error.message : String(error));
-      return false;
-    }).finally(() => {
-      if (commitFlight.current === pending) {
-        commitFlight.current = null;
-        commitFlightRevision.current = null;
-      }
-    });
-    commitFlight.current = pending;
-    commitFlightRevision.current = revision;
-    return pending;
-  };
-  latestCommit.current = commit;
 
   // A host may save the chosen local version immediately only when it can target this document. Otherwise keep it
   // dirty for an explicit host save. Reload is offered only where the host can safely reset the intended document.
@@ -201,47 +114,17 @@ export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps)
           {resolveError === null ? null : <p class="tkr-settings-error">{resolveError}</p>}
         </div>
       )}
-      <div class="tkr-settings-row">
-        <label for={titleId}>Game title</label>
-        <input
-          id={titleId}
-          type="text"
-          value={draft ?? snapshot.gameTitle}
-          readOnly={readOnly}
-          aria-describedby={`${stateId}${refusal === null ? "" : ` ${errorId}`}`}
-          aria-invalid={refusal === null ? undefined : true}
-          onInput={(event) => {
-            draftRevision.current += 1;
-            setDraft(event.currentTarget.value);
-          }}
-          onChange={commit}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") commit();
-          }}
-        />
-      </div>
-      {refusal === null ? null : (
-        <p id={errorId} class="tkr-settings-error" role="alert">
-          The title was not changed: {refusal}
-        </p>
-      )}
       <p id={stateId} class="tkr-settings-state" role="status">
-        {snapshot.saving || (savePending && snapshot.saveError === saveErrorAtStart.current) ? "Saving…" : snapshot.dirty || draft !== null ? "Unsaved changes" : "All changes saved"}
+        {snapshot.saving || (savePending && snapshot.saveError === saveErrorAtStart.current) ? "Saving…" : snapshot.dirty ? "Unsaved changes" : "All changes saved"}
       </p>
       <button
         type="button"
         class="tkr-settings-save"
-        disabled={readOnly || savePending || snapshot.saving || conflict !== null || (!snapshot.dirty && draft === null)}
+        disabled={readOnly || savePending || snapshot.saving || conflict !== null || !snapshot.dirty}
         onClick={() => {
           saveErrorAtStart.current = snapshot.saveError;
           setSavePending(true);
-          void commit()
-            .then((committed) => {
-              if (!committed) return;
-              // Save failures are reported as values and shown from the document snapshot.
-              return doc.save().catch(() => undefined);
-            })
-            .finally(() => setSavePending(false));
+          void doc.save().catch(() => undefined).finally(() => setSavePending(false));
         }}
       >
         Save
@@ -251,6 +134,7 @@ export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps)
           {failure.message}
         </p>
       )}
+      <GameSettingsForm doc={doc} snapshot={snapshot} ids={ids} readOnly={readOnly} onEdited={onEdited} />
     </section>
   );
 }

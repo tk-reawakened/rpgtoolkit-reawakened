@@ -2,6 +2,7 @@ import {
   asksBeforeCreating,
   createAssetPicker,
   createBoardFile,
+  createLauncher,
   type AssetKind,
   createLayoutModel,
   createPreferences,
@@ -91,6 +92,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   const layout = createLayoutModel([
     { id: "files", title: "Files", side: "left", visible: true, size: 240, minSize: 128, maxSize: 480 },
     { id: "game", title: "Game", side: "left", visible: false, size: 240, minSize: 128, maxSize: 480 },
+    { id: "run", title: "Run", side: "bottom", visible: false, size: 240, minSize: 128, maxSize: 480 },
   ]);
   let slot: HTMLElement | null = null;
   const views = new Map<string, { readonly document: AnyDocument; readonly view: DocumentView; shownIn: HTMLElement | null }>();
@@ -233,12 +235,14 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     });
   };
 
+  const launcher = createLauncher({ services, workspace });
   const shell: ViewHandle = mountShell(element, {
     layout,
     tabs,
     tree,
     projectLayout,
     fs: services.fs,
+    launcher,
     version,
     onOpened: (result) => {
       if (result.via === "document") show(result.document);
@@ -336,6 +340,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       openPrefs?.();
       openNewBoard?.();
       disposed = true;
+      launcher.dispose();
       unsubscribeTabs();
       unsubscribeLayout();
       for (const entry of views.values()) entry.view.dispose();
