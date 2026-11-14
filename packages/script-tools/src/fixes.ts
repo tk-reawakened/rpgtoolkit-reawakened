@@ -84,6 +84,18 @@ export function sameLowering(original: string, fixed: string): boolean {
   return sameBehavior(original, fixed, "tk2");
 }
 
+/** Explain the loose-quote case where 3.1 cannot preserve a TK2 literal. */
+export function tk2ConversionRefusal(source: string): string | null {
+  try {
+    normaliseTk2(source);
+    return null;
+  } catch (error) {
+    if (error instanceof ScriptError && error.message.startsWith("Cannot convert loose dialogue containing a double quote:")) return error.message;
+    if (error instanceof ScriptError) return null;
+    throw error;
+  }
+}
+
 /** Return a TK2 trailing star comment after a standalone command, if present. */
 function trailingComment(line: string): string | null {
   const match = /^\s*#(?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*\s*\(/.exec(line);
