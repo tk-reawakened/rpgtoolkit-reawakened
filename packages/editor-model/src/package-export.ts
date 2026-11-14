@@ -86,20 +86,20 @@ async function collectFiles(fs: FileSystemService, mainPath: string): Promise<Fi
     const folder = pending.pop()!;
     const before = await fs.stat(folder.path);
     if (!before.ok) return failure(`Could not check ${folder.path || "the project root"} before listing it: ${before.error.message}`);
-    if (before.value.kind === "link") return failure(`The project contains a symbolic link at ${folder.path || "the project root"}; loose-folder links are refused (L23).`);
+    if (before.value.kind === "link") return failure(`The project contains a symbolic link at ${folder.path || "the project root"}. This host cannot follow symbolic links safely, so the game was not packaged (L23).`);
     if (before.value.kind !== "directory") return failure(folderKindFailure(folder.path));
     const listing = await fs.list(folder.path);
     if (!listing.ok) return failure(`Could not inventory ${folder.path || "the project root"}: ${listing.error.message}`);
     const after = await fs.stat(folder.path);
     if (!after.ok) return failure(`Could not check ${folder.path || "the project root"} after listing it: ${after.error.message}`);
-    if (after.value.kind === "link") return failure(`The project contains a symbolic link at ${folder.path || "the project root"}; loose-folder links are refused (L23).`);
+    if (after.value.kind === "link") return failure(`The project contains a symbolic link at ${folder.path || "the project root"}. This host cannot follow symbolic links safely, so the game was not packaged (L23).`);
     if (after.value.kind !== "directory") return failure(folderKindFailure(folder.path));
     for (const entry of listing.value) {
       entriesSeen += 1;
       if (entriesSeen > PACKAGE_LIMITS.maxEntries) return failure(`The project exceeds the package entry limit (${PACKAGE_LIMITS.maxEntries}, L2).`);
       if (!safeEntryName(entry.name)) return failure(`The project contains an unsafe path entry in ${folder.path || "the project root"}.`);
       const path = folder.path === "" ? entry.name : `${folder.path}/${entry.name}`;
-      if (entry.kind === "link") return failure(`The project contains a symbolic link at ${path}; loose-folder links are refused (L23).`);
+      if (entry.kind === "link") return failure(`The project contains a symbolic link at ${path}. This host cannot follow symbolic links safely, so the game was not packaged (L23).`);
       const excluded = folder.excluded || isExcluded(path, mainPath, entry.kind);
       if (entry.kind === "directory") {
         pending.push({ path, excluded });
@@ -108,7 +108,7 @@ async function collectFiles(fs: FileSystemService, mainPath: string): Promise<Fi
       } else {
         const stat = await fs.stat(path);
         if (!stat.ok) return failure(`Could not check ${path} before reading it: ${stat.error.message}`);
-        if (stat.value.kind === "link") return failure(`The project contains a symbolic link at ${path}; loose-folder links are refused (L23).`);
+        if (stat.value.kind === "link") return failure(`The project contains a symbolic link at ${path}. This host cannot follow symbolic links safely, so the game was not packaged (L23).`);
         if (stat.value.kind !== "file") return failure(`${path} changed from a file while the package inventory was being read.`);
         if (!Number.isSafeInteger(stat.value.size) || stat.value.size < 0) return failure(`The host returned an invalid size for ${path}.`);
         if (stat.value.size > PACKAGE_LIMITS.maxEntryUncompressedBytes) return failure(`${path} exceeds the per-file package limit (${PACKAGE_LIMITS.maxEntryUncompressedBytes} bytes, L3).`);

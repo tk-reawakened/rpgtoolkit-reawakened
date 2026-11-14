@@ -128,7 +128,7 @@ test("preflight refuses symbolic links before reading through them", async () =>
     version: "1",
   });
   equal(result.ok, false);
-  if (!result.ok) match(result.message, /symbolic link.*L23/);
+  if (!result.ok) match(result.message, /symbolic link.*cannot follow symbolic links safely.*not packaged.*L23/);
   deepEqual(reads, []);
   workspace.dispose();
 });
@@ -163,7 +163,7 @@ test("preflight refuses a directory replaced by a symbolic link during listing b
     version: "1",
   });
   equal(result.ok, false);
-  if (!result.ok) match(result.message, /symbolic link.*Data.*L23/);
+  if (!result.ok) match(result.message, /symbolic link.*Data.*cannot follow symbolic links safely.*not packaged.*L23/);
   deepEqual(reads, []);
   workspace.dispose();
 });
