@@ -3551,9 +3551,30 @@ function dispatchResolved(
       if (action === "thread") {
         const file = effect.args?.[1] as string;
         const loader = services.loader;
-        const ref = loader !== undefined && resolveProgram(loader, file) !== undefined
-          ? fileProgramRef(loader, file, vm.redirects)
-          : { kind: "inline" as const, text: file, ir: IR_VERSION };
+        const indexed = loader !== undefined && resolveProgram(loader, file) !== undefined;
+        let ref: ProgramRef;
+        try {
+          ref = indexed && loader !== undefined
+            ? fileProgramRef(loader, file, vm.redirects)
+            : { kind: "inline", text: file, ir: IR_VERSION };
+          services.programs.get(ref);
+        } catch (error) {
+          if (!(error instanceof ScriptError) || failureClass(error.code) !== null) throw error;
+          services.diagnostics.push({
+            code: error.code,
+            file: error.pos?.file || (indexed ? file : "<inline>"),
+            line: error.pos?.line ?? 0,
+            message: error.message,
+          });
+          result = {
+            ...result,
+            value: 0,
+            ...(result.out === undefined ? {} : {
+              out: result.out.map(([index, value]) => [index, index === 2 ? 0 : value] as const),
+            }),
+          };
+          continue;
+        }
         startThread(vm, {
           ref,
           kind: effect.args?.[2] === true ? "persistent" : "board",

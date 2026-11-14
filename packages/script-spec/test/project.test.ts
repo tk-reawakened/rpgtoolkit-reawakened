@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { deepEqual, equal } from "node:assert/strict";
+import { deepEqual, equal, ok } from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -128,6 +128,44 @@ test("project thread programs run during cooperative waits but pause during bloc
     const report = runSpecProject(root);
     equal(report.files[0]?.cases[0]?.ok, true);
     deepEqual(report.failures, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("project thread load failures report, continue the caller, and register no thread", () => {
+  const root = mkdtempSync(join(tmpdir(), "script-spec-project-thread-load-"));
+  try {
+    const programDirectory = join(root, "Prg");
+    mkdirSync(programDirectory, { recursive: true });
+    writeFileSync(join(programDirectory, "compiled.prg"), Buffer.from([0]));
+    writeProjectFile(root, "Prg/malformed.prg", "if (\n");
+    writeProjectFile(root, "thread-load.spec.prg", [
+      'it("continues after load failures", () => {',
+      "  compiledId = 99",
+      '  compiledResult = thread("compiled.prg", 0, compiledId)',
+      "  compiledContinued = 1",
+      "  expect(compiledContinued).toBe(1)",
+      "  expect(compiledResult).toBe(0)",
+      "  expect(compiledId).toBe(0)",
+      "  expect(() => killThread(compiledResult)).toThrow()",
+      "  malformedId = 99",
+      '  malformedResult = thread("malformed.prg", 0, malformedId)',
+      "  malformedContinued = 1",
+      "  expect(malformedContinued).toBe(1)",
+      "  expect(malformedResult).toBe(0)",
+      "  expect(malformedId).toBe(0)",
+      "  expect(() => killThread(malformedResult)).toThrow()",
+      "})",
+    ].join("\n"));
+
+    const report = runSpecProject(root);
+    const result = report.files[0]?.cases[0];
+    ok(result);
+    equal(result.outcomes.filter((outcome) => outcome.kind === "pass").length, 8);
+    equal(result.outcomes.some((outcome) => outcome.actual.startsWith("program.compiled:")), true);
+    equal(result.outcomes.some((outcome) => outcome.actual.startsWith("syntax.error:")), true);
+    equal(result.outcomes.some((outcome) => outcome.actual.startsWith("spec.timeout:")), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
