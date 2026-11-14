@@ -2,9 +2,9 @@ import { createHash } from "node:crypto";
 import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { exampleBoard } from "./fixtures.ts";
-import { createDocumentWorkspace, prepareGamePackage, publishGamePackage } from "../src/index.ts";
+import { createDocumentWorkspace, packageDescriptorFor, prepareGamePackage } from "../src/index.ts";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { platformError, platformOk } from "@tk-reawakened/platform-services";
+import { platformOk } from "@tk-reawakened/platform-services";
 import { PACKAGE_LIMITS, loadPackage, newProjectMainFile, readDistributionManifest, utf8Decode, utf8Encode, writeMainFile } from "@tk-reawakened/core";
 
 function authoredMain(startupPrg = "start.prg", initBoard = "start.brd", initChar = ""): Uint8Array {
@@ -216,135 +216,33 @@ test("preflight checks listed file sizes before reading and rechecks the bytes r
   second.workspace.dispose();
 });
 
-test("project publication writes a sibling descriptor without replacing existing outputs", async () => {
-  const { host, workspace, services } = packageHost(authoredFiles());
-  const prepared = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
+test("a package saved under an author-chosen name gets a descriptor that names that file and nothing else changes", async () => {
+  const { workspace, services } = packageHost(authoredFiles());
+  const prepared = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "2.0" });
   ok(prepared.ok, prepared.ok ? "" : prepared.message);
-  host.answerSavePaths("Build/renamed-game.tpk");
-  const published = await publishGamePackage(services, "Main/demo.gam", prepared.value);
-  ok(published.ok, published.ok ? "" : published.message);
-  equal(published.path, "Build/renamed-game.tpk");
-  const archive = host.bytesOf("Build/renamed-game.tpk");
-  const sidecar = host.bytesOf("Build/renamed-game.tpk.json");
-  ok(archive !== undefined);
-  ok(sidecar !== undefined);
-  const descriptor = JSON.parse(utf8Decode(sidecar)) as Record<string, unknown>;
+  const renamed = packageDescriptorFor(prepared.value, "renamed-game.tpk");
+  ok(renamed.ok, renamed.ok ? "" : renamed.message);
+  const original = JSON.parse(utf8Decode(prepared.value.descriptor.bytes)) as Record<string, unknown>;
+  const descriptor = JSON.parse(utf8Decode(renamed.bytes)) as Record<string, unknown>;
+  deepEqual(Object.keys(descriptor), ["schema", "file", "sha256", "size", "gameId", "title", "version"]);
   equal(descriptor["file"], "renamed-game.tpk");
+  for (const field of ["schema", "sha256", "size", "gameId", "title", "version"]) deepEqual(descriptor[field], original[field]);
+  equal(descriptor["sha256"], createHash("sha256").update(prepared.value.package.bytes).digest("hex"));
 
-  host.answerSavePaths("Build/renamed-game.tpk");
-  const collision = await publishGamePackage(services, "Main/demo.gam", prepared.value);
-  equal(collision.ok, false);
-  equal(host.bytesOf("Build/renamed-game.tpk")?.byteLength, archive.byteLength);
-  host.answerSavePaths(null);
-  const cancelled = await publishGamePackage(services, "Main/demo.gam", prepared.value);
-  equal(cancelled.ok, false);
-  equal(host.bytesOf("Build/renamed-game.tpk")?.byteLength, archive.byteLength);
-  workspace.dispose();
-});
-test("concurrent exports to the same destination serialize and never replace the first package", async () => {
-  const { host, workspace, services } = packageHost(authoredFiles());
-  const prepared = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
-  ok(prepared.ok, prepared.ok ? "" : prepared.message);
-  host.answerSavePaths("Build/concurrent.tpk", "Build/concurrent.tpk");
-  const outcomes = await Promise.all([
-    publishGamePackage(services, "Main/demo.gam", prepared.value),
-    publishGamePackage(services, "Main/demo.gam", prepared.value),
-  ]);
-  equal(outcomes.filter((outcome) => outcome.ok).length, 1);
-  equal(outcomes.filter((outcome) => !outcome.ok && outcome.message.includes("already exists")).length, 1);
-  ok(host.bytesOf("Build/concurrent.tpk") !== undefined);
-  ok(host.bytesOf("Build/concurrent.tpk.json") !== undefined);
+  const sameName = packageDescriptorFor(prepared.value, prepared.value.package.fileName);
+  ok(sameName.ok, sameName.ok ? "" : sameName.message);
+  deepEqual(sameName.bytes, prepared.value.descriptor.bytes);
   workspace.dispose();
 });
 
-test("descriptor publication failure never deletes a package path replaced by another writer", async () => {
-  const { host, workspace, services } = packageHost(authoredFiles());
+test("a descriptor is refused for a name that is not a plain .tpk file name", async () => {
+  const { workspace, services } = packageHost(authoredFiles());
   const prepared = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
   ok(prepared.ok, prepared.ok ? "" : prepared.message);
-  const selected = "Build/raced.tpk";
-  const competitorBytes = utf8Encode("other writer's file");
-  const fs = {
-    ...host.fs,
-    async rename(from: string, to: string) {
-      if (to === selected) {
-        const published = await host.fs.rename(from, to);
-        if (published.ok) {
-          const replaced = await host.fs.write(to, competitorBytes);
-          ok(replaced.ok);
-        }
-        return published;
-      }
-      if (to === `${selected}.json`) return platformError("io-error", "simulated descriptor publication failure");
-      return host.fs.rename(from, to);
-    },
-  };
-  host.answerSavePaths(selected);
-  const result = await publishGamePackage({ ...services, fs }, "Main/demo.gam", prepared.value);
-  equal(result.ok, false);
-  if (!result.ok) match(result.message, /package was published.*left in place/);
-  deepEqual(host.bytesOf(selected), competitorBytes);
-  workspace.dispose();
-});
-
-test("failed temporary writes clean every attempted file and report cleanup failures", async () => {
-  for (const failedWrite of ["package", "descriptor"] as const) {
-    const { host, workspace, services } = packageHost(authoredFiles());
-    const prepared = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
-    ok(prepared.ok, prepared.ok ? "" : prepared.message);
-    const writes: string[] = [];
-    const deletes: string[] = [];
-    const fs = {
-      ...host.fs,
-      async write(path: string, bytes: Uint8Array) {
-        writes.push(path);
-        const shouldFail = failedWrite === "package"
-          ? writes.length === 1
-          : path.includes(".json.") && path.endsWith(".tkr-package-tmp");
-        if (shouldFail) {
-          const partial = await host.fs.write(path, bytes.subarray(0, Math.min(1, bytes.byteLength)));
-          ok(partial.ok);
-          return platformError("io-error", `simulated partial ${failedWrite} write`);
-        }
-        return host.fs.write(path, bytes);
-      },
-      async delete(path: string) {
-        deletes.push(path);
-        return host.fs.delete(path);
-      },
-    };
-    host.answerSavePaths(`Build/${failedWrite}.tpk`);
-    const failed = await publishGamePackage({ ...services, fs }, "Main/demo.gam", prepared.value);
-    equal(failed.ok, false);
-    equal(deletes.length, 2);
-    for (const path of writes) {
-      const read = await host.fs.read(path);
-      ok(!read.ok, `partial temporary file ${path} was removed`);
-    }
-    workspace.dispose();
-  }
-
-  const { host, workspace, services } = packageHost(authoredFiles());
-  const prepared = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
-  ok(prepared.ok, prepared.ok ? "" : prepared.message);
-  let partialPath = "";
-  const failingFs = {
-    ...host.fs,
-    async write(path: string, bytes: Uint8Array) {
-      partialPath = path;
-      const partial = await host.fs.write(path, bytes.subarray(0, 1));
-      ok(partial.ok);
-      return platformError("io-error", "simulated partial package write");
-    },
-    async delete(path: string) {
-      return path === partialPath ? platformError("permission-denied", "cleanup denied") : host.fs.delete(path);
-    },
-  };
-  host.answerSavePaths("Build/left-behind.tpk");
-  const failed = await publishGamePackage({ ...services, fs: failingFs }, "Main/demo.gam", prepared.value);
-  equal(failed.ok, false);
-  if (!failed.ok) {
-    match(failed.message, /Cleanup failed/);
-    match(failed.message, new RegExp(partialPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  for (const name of ["game.zip", ".tpk", "Build/game.tpk", "Build\\game.tpk", ""]) {
+    const refused = packageDescriptorFor(prepared.value, name);
+    equal(refused.ok, false, `${JSON.stringify(name)} should be refused`);
+    if (!refused.ok) match(refused.message, /\.tpk/);
   }
   workspace.dispose();
 });

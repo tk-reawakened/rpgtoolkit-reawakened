@@ -1,8 +1,5 @@
-import { deepEqual, equal, match, ok } from "node:assert/strict";
+import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
-import { publishGamePackage } from "@tk-reawakened/editor-model";
-import { platformError } from "@tk-reawakened/platform-services";
-import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { createWebFileSystem } from "../src/filesystem.ts";
 
 type FakeFile = { bytes: Uint8Array; denyWrite?: boolean };
@@ -94,76 +91,4 @@ test("web filesystem reports a refused durable write and preserves the prior byt
   ok(!result.ok);
   equal(result.error.code, "permission-denied");
   deepEqual([...file.bytes], [1, 2, 3]);
-});
-
-test("web filesystem refuses package publication when it cannot reserve output files without rename", async () => {
-  const { root, fs } = fixture();
-  const host = createMemoryPlatformServices();
-  const prepared = {
-    package: { fileName: "game.tpk", bytes: new Uint8Array([1, 2, 3]) },
-    descriptor: {
-      fileName: "game.tpk.json",
-      bytes: new TextEncoder().encode(JSON.stringify({
-        schema: 1,
-        file: "game.tpk",
-        sha256: "0".repeat(64),
-        size: 3,
-        gameId: "game-id",
-        title: "Game",
-        version: "1.0.0",
-      })),
-    },
-    includedFiles: [],
-    excludedFiles: [],
-  };
-  host.answerSavePaths("Build/game.tpk");
-  const refused = await publishGamePackage({ fs, dialogs: host.dialogs }, "Main/game.gam", prepared);
-  equal(refused.ok, false);
-  if (!refused.ok) match(refused.message, /cannot safely publish/i);
-  ok(!root.children.has("Build"), "unsafe direct publication creates no output");
-});
-
-test("an independent writer racing the no-rename probe keeps its package and descriptor untouched", async () => {
-  const { root, fs } = fixture();
-  const host = createMemoryPlatformServices();
-  const prepared = {
-    package: { fileName: "game.tpk", bytes: new Uint8Array([1, 2, 3]) },
-    descriptor: {
-      fileName: "game.tpk.json",
-      bytes: new TextEncoder().encode(JSON.stringify({
-        schema: 1,
-        file: "game.tpk",
-        sha256: "0".repeat(64),
-        size: 3,
-        gameId: "game-id",
-        title: "Game",
-        version: "1.0.0",
-      })),
-    },
-    includedFiles: [],
-    excludedFiles: [],
-  };
-  const externalPackage = new Uint8Array([8, 8, 8]);
-  const externalDescriptor = new Uint8Array([7, 7]);
-  let raced = false;
-  const racingFs = {
-    ...fs,
-    async rename() {
-      raced = true;
-      ok((await fs.write("Build/game.tpk", externalPackage)).ok);
-      ok((await fs.write("Build/game.tpk.json", externalDescriptor)).ok);
-      return platformError("unavailable", "Atomic rename is unavailable.");
-    },
-  };
-  host.answerSavePaths("Build/game.tpk");
-  const refused = await publishGamePackage({ fs: racingFs, dialogs: host.dialogs }, "Main/game.gam", prepared);
-  equal(refused.ok, false);
-  equal(raced, true);
-  const archive = await fs.read("Build/game.tpk");
-  const descriptor = await fs.read("Build/game.tpk.json");
-  ok(archive.ok);
-  ok(descriptor.ok);
-  deepEqual(archive.value, externalPackage);
-  deepEqual(descriptor.value, externalDescriptor);
-  ok(root.children.has("Build"));
 });

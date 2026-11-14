@@ -688,6 +688,16 @@ test("an explicitly effective directional control walks while an unbound arrow r
   }
 });
 
+test("a remapped movement key leaves the old arrow available to Get", () => {
+  const state = withMovementPolicy(5, [0x26, 0, 0xd0, 0, 0xcb, 0, 0xc8, 0]);
+  const thread = startProgram(state.vm, { kind: "inline", ir: "1", text: "answer = Get()" });
+  tick(state, 0, [key("ArrowRight", true)]);
+  runThreadsPhase(state.vm, createScriptServices(state), 100);
+  equal(thread.status, "finished");
+  equal(state.vm.globals.answer, "RIGHT");
+  equal(state.sprites.players[0]!.movement.active, null);
+});
+
 test("a collision reports each binding and dispatches all actions in ACT-4 order", () => {
   const state = withMovementPolicy(1, [0x39, 0, 0x39, 0, 0, 0, 0, 0]);
   for (const name of ["game.z", "game.a"]) {
@@ -696,10 +706,36 @@ test("a collision reports each binding and dispatches all actions in ACT-4 order
   deepEqual(movementBindingCollisions(state.input), [
     { code: "Space", actions: ["right", "down", "confirm", "game.z", "game.a"] },
   ]);
-  tick(state, 0, [{ kind: "key", code: "Space", name: " ", char: " ", down: true }]);
+  const transitions: string[] = [];
+  const event = { kind: "key", code: "Space", name: " ", char: " " } as const;
+  applyInputEvent(state.input, { ...event, down: true }, undefined, (action, down) => transitions.push(`${action}:${down}`));
+  tick(state, 0);
   equal(state.input.keys.length, 1);
   deepEqual(state.input.keys[0]!.resolvedActions, ["down", "right", "confirm", "game.z", "game.a"]);
   equal(state.sprites.players[0]!.movement.active?.facing, "E");
+  applyInputEvent(state.input, { ...event, down: false }, undefined, (action, down) => transitions.push(`${action}:${down}`));
+  deepEqual(transitions, [
+    "down:true", "right:true", "confirm:true", "game.z:true", "game.a:true",
+    "down:false", "right:false", "confirm:false", "game.z:false", "game.a:false",
+  ]);
+  equal(state.input.keys.length, 1, "release does not append another raw key");
+});
+
+test("a movement key shared with the menu and game actions emits all ordered edges", () => {
+  const state = withMovementPolicy(1, [0x1c, 0, 0x1c, 0, 0, 0, 0, 0]);
+  ok(registerGameAction(state.input, { name: "game.spell", label: "Spell", controls: ["key:Enter"], icon: null, group: null, locked: false, hidden: false }));
+  const transitions: string[] = [];
+  const event = { kind: "key", code: "Enter", name: "ENTER", char: null } as const;
+  for (const down of [true, false]) {
+    applyInputEvent(state.input, { ...event, down }, undefined, (action, pressed) => transitions.push(`${action}:${pressed}`));
+  }
+  deepEqual(state.input.keys.map(({ name, resolvedActions }) => ({ name, resolvedActions })), [{
+    name: "ENTER", resolvedActions: ["down", "right", "confirm", "menu", "game.spell"],
+  }]);
+  deepEqual(transitions, [
+    "down:true", "right:true", "confirm:true", "menu:true", "game.spell:true",
+    "down:false", "right:false", "confirm:false", "menu:false", "game.spell:false",
+  ]);
 });
 
 test("a disabled pad contributes no movement, actions or active device state", () => {

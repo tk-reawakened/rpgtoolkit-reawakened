@@ -8,19 +8,16 @@ let viewsMade = 0;
 export type PackageActionOutcome =
   | { readonly ok: true; readonly prepared: PreparedGamePackage }
   | { readonly ok: false; readonly message: string };
-export type PackagePublishOutcome =
-  | { readonly ok: true; readonly destination: string }
-  | { readonly ok: false; readonly message: string };
 
 export interface FilesViewProps {
   readonly tree: ProjectTree;
   readonly fs: Pick<FileSystemService, "list">;
-  readonly canWriteFolder: boolean;
   readonly onPackage: (mainPath: string, version: string) => Promise<PackageActionOutcome>;
-  readonly onPublish: (mainPath: string, version: string, prepared: PreparedGamePackage) => Promise<PackagePublishOutcome>;
   readonly onDownload: (artifact: PackageArtifact) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
   /** Called after a file opens, so the host can show its editor (a Toolkit document) in a tab. */
   readonly onOpened?: (result: Extract<TreeOpenResult, { readonly ok: true }>, row: TreeRow) => void;
+  /** Ask the host for the new-board questions (T-20); the button is shown only when the host can answer. */
+  readonly onNewBoard?: () => void;
 }
 
 /** What opening a file does, in words for a person choosing: the row's own label and the toolbar's. */
@@ -37,7 +34,7 @@ function routeNote(row: TreeRow): string {
  * so nothing needs a pointer or a context menu. A refusal or a host failure is shown in a live region; nothing is
  * renamed or deleted without the tree's own checks and, for delete, the user's confirmation.
  */
-export function FilesView({ tree, fs, onOpened, onPackage, onPublish, onDownload, canWriteFolder }: FilesViewProps) {
+export function FilesView({ tree, fs, onOpened, onNewBoard, onPackage, onDownload }: FilesViewProps) {
   const snapshot = useDocumentSnapshot(tree);
   const [ids] = useState(() => {
     viewsMade += 1;
@@ -54,7 +51,6 @@ export function FilesView({ tree, fs, onOpened, onPackage, onPublish, onDownload
   const [packageBusy, setPackageBusy] = useState(false);
   const [packageMessage, setPackageMessage] = useState("");
   const [prepared, setPrepared] = useState<PreparedGamePackage | null>(null);
-  const [packageDestination, setPackageDestination] = useState<string | null>(null);
   const [inventoryReviewed, setInventoryReviewed] = useState(false);
   const focusRow = useRef(false);
   const list = useRef<HTMLDivElement>(null);
@@ -83,7 +79,6 @@ export function FilesView({ tree, fs, onOpened, onPackage, onPublish, onDownload
   const openPackage = (): void => {
     setPackageOpen(true);
     setPrepared(null);
-    setPackageDestination(null);
     setPackageMessage("Loading main files…");
     void fs.list("Main").then((listing) => {
       if (!listing.ok) {
@@ -107,7 +102,6 @@ export function FilesView({ tree, fs, onOpened, onPackage, onPublish, onDownload
     }
     setPackageBusy(true);
     setPrepared(null);
-    setPackageDestination(null);
     setInventoryReviewed(false);
     setPackageMessage("Saving open documents and checking the package…");
     void onPackage(mainPath, packageVersion).then((outcome) => {
@@ -116,22 +110,8 @@ export function FilesView({ tree, fs, onOpened, onPackage, onPublish, onDownload
         return;
       }
       setPrepared(outcome.prepared);
-      setPackageMessage("Preflight passed. Review the inventory below, then choose how to publish the package.");
+      setPackageMessage("Preflight passed. Review the inventory below, then download the package and its install descriptor.");
     }).catch(() => setPackageMessage("Package export failed before completion. No successful export was reported."))
-      .finally(() => setPackageBusy(false));
-  };
-  const publish = (): void => {
-    if (prepared === null) return;
-    setPackageBusy(true);
-    setPackageMessage("Publishing the reviewed package and descriptor…");
-    void onPublish(mainPath, packageVersion, prepared).then((outcome) => {
-      if (!outcome.ok) {
-        setPackageMessage(outcome.message);
-        return;
-      }
-      setPackageDestination(outcome.destination);
-      setPackageMessage(`Package and install descriptor saved to ${outcome.destination}.`);
-    }).catch(() => setPackageMessage("Package publication failed before completion. No successful export was reported."))
       .finally(() => setPackageBusy(false));
   };
   const download = (artifact: PackageArtifact): void => {
@@ -202,6 +182,7 @@ export function FilesView({ tree, fs, onOpened, onPackage, onPublish, onDownload
     <section class="tkr-files" aria-label="Files">
       <h2 class="tkr-files-heading">Files</h2>
       <div class="tkr-files-toolbar" role="toolbar" aria-label="File actions">
+        {onNewBoard === undefined ? null : <button type="button" class="tkr-files-new-board" disabled={busy} onClick={onNewBoard}>New board…</button>}
         <button type="button" class="tkr-files-refresh" disabled={busy} onClick={() => run(() => tree.refresh())}>Refresh</button>
         <button type="button" class="tkr-files-collapse" onClick={() => tree.collapseAll()}>Collapse all</button>
         <button type="button" class="tkr-files-open" disabled={busy || current === null} onClick={() => current !== null && open(current)}>
@@ -223,7 +204,6 @@ export function FilesView({ tree, fs, onOpened, onPackage, onPublish, onDownload
               const next = event.currentTarget.value;
               setMainPath(next);
               setPrepared(null);
-              setPackageDestination(null);
               setInventoryReviewed(false);
               if (prepared !== null) setPackageMessage("Main file changed. Prepare and review the package again.");
             }}
@@ -241,7 +221,6 @@ export function FilesView({ tree, fs, onOpened, onPackage, onPublish, onDownload
             onInput={(event) => {
               setPackageVersion(event.currentTarget.value);
               setPrepared(null);
-              setPackageDestination(null);
               setInventoryReviewed(false);
               if (prepared !== null) setPackageMessage("Release version changed. Prepare and review the package again.");
             }}
@@ -258,37 +237,30 @@ export function FilesView({ tree, fs, onOpened, onPackage, onPublish, onDownload
             <div class="tkr-files-package-result">
               <p>{prepared.includedFiles.length} files included; {prepared.excludedFiles.length} excluded.</p>
               <p>Package output: <code>{prepared.package.fileName}</code>; install descriptor: <code>{prepared.descriptor.fileName}</code>.</p>
-              <p>This preflight uses the saved project files from the time it completed.</p>
-              {packageDestination === null ? (
-                <>
-                  <details>
-                    <summary>Included and excluded file inventory</summary>
-                    <h4>Included</h4>
-                    <ul>{prepared.includedFiles.map((path) => <li key={`in-${path}`}>{path}</li>)}</ul>
-                    <h4>Excluded</h4>
-                    {prepared.excludedFiles.length === 0
-                      ? <p>No excluded files were found.</p>
-                      : <ul>{prepared.excludedFiles.map((path) => <li key={`out-${path}`}>{path}</li>)}</ul>}
-                  </details>
-                  <label for={`${ids}-reviewed`}>
-                    <input
-                      id={`${ids}-reviewed`}
-                      type="checkbox"
-                      checked={inventoryReviewed}
-                      disabled={packageBusy}
-                      onChange={(event) => setInventoryReviewed(event.currentTarget.checked)}
-                    />
-                    I reviewed the included and excluded files.
-                  </label>
-                  {canWriteFolder ? (
-                    <button type="button" disabled={packageBusy || !inventoryReviewed} onClick={publish}>Save package and descriptor…</button>
-                  ) : null}
-                  <div class="tkr-files-package-downloads">
-                    <button type="button" disabled={packageBusy || !inventoryReviewed} onClick={() => download(prepared.package)}>Download {prepared.package.fileName}</button>
-                    <button type="button" disabled={packageBusy || !inventoryReviewed} onClick={() => download(prepared.descriptor)}>Download {prepared.descriptor.fileName}</button>
-                  </div>
-                </>
-              ) : null}
+              <p>This preflight uses the saved project files from the time it completed. The files are offered as ordinary downloads; this page does not write into the project folder, so nothing in the project is replaced. Keep both downloaded files together and unrenamed: the descriptor names the package file.</p>
+              <details>
+                <summary>Included and excluded file inventory</summary>
+                <h4>Included</h4>
+                <ul>{prepared.includedFiles.map((path) => <li key={`in-${path}`}>{path}</li>)}</ul>
+                <h4>Excluded</h4>
+                {prepared.excludedFiles.length === 0
+                  ? <p>No excluded files were found.</p>
+                  : <ul>{prepared.excludedFiles.map((path) => <li key={`out-${path}`}>{path}</li>)}</ul>}
+              </details>
+              <label for={`${ids}-reviewed`}>
+                <input
+                  id={`${ids}-reviewed`}
+                  type="checkbox"
+                  checked={inventoryReviewed}
+                  disabled={packageBusy}
+                  onChange={(event) => setInventoryReviewed(event.currentTarget.checked)}
+                />
+                I reviewed the included and excluded files.
+              </label>
+              <div class="tkr-files-package-downloads">
+                <button type="button" disabled={packageBusy || !inventoryReviewed} onClick={() => download(prepared.package)}>Download {prepared.package.fileName}</button>
+                <button type="button" disabled={packageBusy || !inventoryReviewed} onClick={() => download(prepared.descriptor)}>Download {prepared.descriptor.fileName}</button>
+              </div>
             </div>
           )}
         </div>

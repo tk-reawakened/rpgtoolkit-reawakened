@@ -99,6 +99,30 @@ test("the view shows the title, a labelled field, a clean state and a disabled S
   deepEqual(alerts(s.el), []);
 });
 
+test("typing immediately after mount is not discarded by the initial title effect", async () => {
+  const s = await setup();
+  const view = mount(s.el, { document: s.doc, services: s.host });
+  const field = input(s.el);
+  field.value = "First draft";
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  await act(() => {});
+  equal(field.value, "First draft");
+  equal(status(s.el), "Unsaved changes");
+  equal(button(s.el).disabled, false);
+  const saved = new Promise<void>((resolve) => {
+    const stop = s.doc.subscribe(() => {
+      const snapshot = s.doc.getSnapshot();
+      if (snapshot.gameTitle === "First draft" && !snapshot.dirty && !snapshot.saving) {
+        stop();
+        resolve();
+      }
+    });
+  });
+  await act(async () => { button(s.el).click(); await saved; });
+  equal(titleOf(s.host.bytesOf(PATH) ?? new Uint8Array(0)), "First draft", "the preserved draft can be saved");
+  view.dispose();
+});
+
 test("typing a title edits the document, marks it unsaved and tells the host about the edit", async () => {
   const s = await setup();
   show(s);

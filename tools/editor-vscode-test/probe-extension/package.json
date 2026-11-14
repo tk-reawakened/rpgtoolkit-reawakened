@@ -34,6 +34,14 @@
         "title": "Test: Turn Autosave Off"
       },
       {
+        "command": "tkr.editorWebProof.pauseAutosaveOff",
+        "title": "Test: Pause Autosave Off"
+      },
+      {
+        "command": "tkr.editorWebProof.releaseAutosaveOff",
+        "title": "Test: Release Autosave Off"
+      },
+      {
         "command": "tkr.editorWebProof.invokePackageCommand",
         "title": "Test: Execute Package Game"
       }

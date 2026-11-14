@@ -1,6 +1,44 @@
 import * as vscode from "vscode";
-import { createDocumentWorkspace, prepareGamePackage, publishGamePackage } from "@tk-reawakened/editor-model";
+import { createDocumentWorkspace, prepareGamePackage } from "@tk-reawakened/editor-model";
+import { savePackageWithSaveAs, type PackageSavePort } from "./package-save.ts";
 import { createVscodeServices } from "./services.ts";
+
+const SAVE_LABEL = "Choose where to save…";
+
+/** The Save As port over VS Code's own dialogs and workspace filesystem. */
+function vscodeSavePort(projectRoot: vscode.Uri): PackageSavePort<vscode.Uri> {
+  const fileName = (uri: vscode.Uri): string => uri.path.slice(uri.path.lastIndexOf("/") + 1);
+  return {
+    chooseDestination: async (suggested) => await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.joinPath(projectRoot, suggested),
+      saveLabel: "Save package",
+      title: "Save RPG Toolkit package",
+      filters: { "RPG Toolkit package": ["tpk"] },
+    }),
+    fileName,
+    sibling: (uri, name) => uri.with({ path: `${uri.path.slice(0, uri.path.lastIndexOf("/") + 1)}${name}` }),
+    describe: (uri) => vscode.workspace.asRelativePath(uri, false),
+    exists: async (uri) => {
+      try {
+        await vscode.workspace.fs.stat(uri);
+        return true;
+      } catch (error) {
+        if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") return false;
+        throw error;
+      }
+    },
+    confirmReplace: async (existing) => {
+      const names = existing.map(fileName).join(", ");
+      const answer = await vscode.window.showWarningMessage(
+        `${names} already exists in the chosen folder. Replace ${existing.length === 1 ? "it" : "them"}?`,
+        { modal: true, detail: "Nothing is replaced unless you choose Replace." },
+        "Replace",
+      );
+      return answer === "Replace";
+    },
+    write: async (uri, bytes) => { await vscode.workspace.fs.writeFile(uri, bytes); },
+  };
+}
 
 /** Register the Explorer/command-palette entry that packages the selected project's main game. */
 export function registerPackageGameCommand(context: vscode.ExtensionContext): void {
@@ -48,30 +86,16 @@ export function registerPackageGameCommand(context: vscode.ExtensionContext): vo
         `Excluded (${prepared.value.excludedFiles.length}):`,
         ...(prepared.value.excludedFiles.length === 0 ? ["  (none)"] : prepared.value.excludedFiles.map((path) => `  - ${path}`)),
       ].join("\n");
-      const publish = await vscode.window.showInformationMessage(
-        `Preflight passed: ${prepared.value.includedFiles.length} files will be packaged. Review the inventory before publishing.`,
-        { modal: true, detail: inventory },
-        "Publish package…",
+      const choice = await vscode.window.showInformationMessage(
+        `Preflight passed: ${prepared.value.includedFiles.length} files will be packaged. Review the inventory, then choose where to save the package and its install descriptor.`,
+        { modal: true, detail: `${inventory}\n\nThe package and descriptor are saved where you choose, through Save As. Files that already exist are replaced only if you confirm.` },
+        SAVE_LABEL,
       );
-      if (publish !== "Publish package…") return;
+      if (choice !== SAVE_LABEL) return;
 
-      if (services.capabilities.has("folderWrite")) {
-        const result = await publishGamePackage(services, mainPath, prepared.value);
-        if (!result.ok) {
-          void vscode.window.showErrorMessage(result.message);
-          return;
-        }
-        void vscode.window.showInformationMessage(`Package and install descriptor saved to ${result.path}.`);
-        return;
-      }
-      for (const artifact of [prepared.value.package, prepared.value.descriptor]) {
-        const result = await services.packageExport?.downloadFile(artifact.fileName, artifact.bytes);
-        if (result === undefined || !result.ok) {
-          void vscode.window.showErrorMessage(result === undefined ? "This host does not provide package downloads." : result.error.message);
-          return;
-        }
-      }
-      void vscode.window.showInformationMessage("Package and install descriptor downloads started.");
+      const saved = await savePackageWithSaveAs(vscodeSavePort(folder.uri), prepared.value);
+      if (saved.ok) void vscode.window.showInformationMessage(saved.message);
+      else if (!saved.cancelled) void vscode.window.showErrorMessage(saved.message);
     } catch {
       void vscode.window.showErrorMessage("Package export failed before completion. No successful export was reported.");
     } finally {

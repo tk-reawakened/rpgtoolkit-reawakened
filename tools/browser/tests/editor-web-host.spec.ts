@@ -24,6 +24,11 @@ function sampleProjectFiles(): PickerInput[] {
   walk(new URL("../../../docs/spec/examples/game/Game/Example/", import.meta.url), "");
   return files;
 }
+const validCharacter = Array.from(readFileSync(new URL("../../../docs/spec/examples/versions/character/character_minor8.tem", import.meta.url)));
+const validItem = Array.from(readFileSync(new URL("../../../docs/spec/examples/versions/item/item_minor7.itm", import.meta.url)));
+
+// Keep the action timeline when this intermittently stalls in CI (#2550).
+test.use({ trace: "retain-on-failure" });
 
 test("browser host mounts the shared settings view and keeps CSP quiet while editing a session copy", async ({ page }) => {
   await page.addInitScript(() => {
@@ -44,6 +49,54 @@ test("browser host mounts the shared settings view and keeps CSP quiet while edi
   await expect(title).toHaveValue(nextTitle);
   await expect(page.getByRole("status").filter({ hasText: "All changes saved" })).toBeVisible();
   await expect.poll(() => page.evaluate(() => (window as ProofWindow).__tkrCspViolations ?? [])).toEqual([]);
+});
+test("browser workbench opens, edits, saves, and reopens character and item sprite documents", async ({ page }) => {
+  const characterPath = "Chrs/ada.tem";
+  const itemPath = "Item/chest.itm";
+  await installFolderPicker(page, [
+    { path: "Main/example.gam", bytes: validMain },
+    { path: characterPath, bytes: validCharacter },
+    { path: itemPath, bytes: validItem },
+  ]);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await page.waitForFunction(() => (window as ProofWindow).__tkrTestFolder !== undefined);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+
+  await page.getByRole("treeitem", { name: "Chrs, folder, closed", exact: true }).press("ArrowRight");
+  const character = page.getByRole("treeitem", { name: /ada\.tem, character editor/ });
+  await character.dblclick();
+  await expect(page.getByRole("tab", { name: characterPath, exact: true })).toBeVisible();
+  const characterAnimation = page.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file");
+  await characterAnimation.fill("Misc/ada_walk_s.anm");
+  await page.getByRole("button", { name: "Save all", exact: true }).click();
+  await expect(page.locator("#host-status")).toContainText(`Saved ${characterPath}.`);
+  await page.locator("#close").click();
+  await character.dblclick();
+  await expect(page.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file")).toHaveValue("Misc/ada_walk_s.anm");
+
+  await page.getByRole("treeitem", { name: "Item, folder, closed", exact: true }).press("ArrowRight");
+  const item = page.getByRole("treeitem", { name: /chest\.itm, item editor/ });
+  await item.dblclick();
+  await expect(page.getByRole("tab", { name: itemPath, exact: true })).toBeVisible();
+  const itemAnimation = page.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file");
+  await itemAnimation.fill("Misc/chest_walk_s.anm");
+  await page.getByRole("button", { name: "Save all", exact: true }).click();
+  await expect(page.locator("#host-status")).toContainText(`Saved ${itemPath}.`);
+  await page.locator("#close").click();
+  await item.dblclick();
+  await expect(page.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file")).toHaveValue("Misc/chest_walk_s.anm");
+});
+test("a newer browser open wins over a slow folder document read", async ({ page }) => {
+  await installFolderPicker(page, [{ path: "Only.gam", bytes: validMain }], true, false, true);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await page.waitForFunction(() => (window as ProofWindow).__tkrTestFolder !== undefined);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await page.waitForFunction(() => (window as ProofWindow).__tkrSlowReadStarted === true);
+  await page.getByLabel("Open .gam session copy").setInputFiles("docs/spec/examples/versions/main/main_minor4.gam");
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  await expect(page.locator("#host-status")).toContainText("main_minor4.gam");
+  await expect(page.locator("#settings > section")).toHaveCount(1);
 });
 
 test("browser workbench opens registered assets and packages a project through the reviewed UI", async ({ page }) => {
@@ -72,54 +125,10 @@ test("browser workbench opens registered assets and packages a project through t
   const inventory = page.locator(".tkr-files-package-result");
   await expect(inventory).toContainText("Main/example.gam");
   await expect(inventory).toContainText("Chrs/ada.tem");
-  await page.evaluate(async () => {
-    const root = (window as ProofWindow).__tkrTestFolder;
-    if (!root) throw new Error("The browser folder test handle is missing.");
-    const prg = await root.getDirectoryHandle("Prg");
-    const file = await prg.getFileHandle("open_chest.prg");
-    const bytes = new Uint8Array(await (await file.getFile()).arrayBuffer());
-    bytes[0] = (bytes[0] ?? 0) ^ 1;
-    const writable = await file.createWritable();
-    await writable.write(bytes);
-    await writable.close();
-  });
-  await page.getByLabel("I reviewed the included and excluded files.").check();
-  await page.getByRole("button", { name: "Save package and descriptor…", exact: true }).click();
-  await expect(packageStatus).toContainText("Project files or release version changed since preflight");
-  const buildAfterStaleReview = await page.evaluate(async () => {
-    const root = (window as ProofWindow).__tkrTestFolder;
-    if (!root) throw new Error("The browser folder test handle is missing.");
-    try {
-      await root.getDirectoryHandle("Build");
-      return true;
-    } catch {
-      return false;
-    }
-  });
-  expect(buildAfterStaleReview).toBe(false);
-  await page.getByRole("button", { name: "Prepare package", exact: true }).click();
-  await expect(packageStatus).toContainText("Preflight passed");
-  await page.getByLabel("I reviewed the included and excluded files.").check();
-  await page.getByRole("button", { name: "Save package and descriptor…", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Save package and descriptor…" })).toHaveCount(0);
   const packageName = "Example-Game.tpk";
-  const saveDialog = page.getByRole("dialog", { name: "Save Main/example.gam as" });
-  await expect(saveDialog.getByLabel("Save Main/example.gam as")).toHaveValue(packageName);
-  await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(packageStatus).toContainText("Cannot safely publish");
-  const outputWasCreated = await page.evaluate(async () => {
-    const root = (window as ProofWindow).__tkrTestFolder;
-    if (!root) throw new Error("The browser folder test handle is missing.");
-    for (const name of ["Example-Game.tpk", "Example-Game.tpk.json"]) {
-      try {
-        await root.getFileHandle(name);
-        return true;
-      } catch {
-        // A missing output is the required result when the host cannot publish atomically.
-      }
-    }
-    return false;
-  });
-  expect(outputWasCreated).toBe(false);
+  await expect(page.getByRole("button", { name: `Download ${packageName}`, exact: true })).toBeDisabled();
+  await page.getByLabel("I reviewed the included and excluded files.").check();
   const archiveDownloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: `Download ${packageName}`, exact: true }).click();
   const archiveDownload = await archiveDownloadPromise;
@@ -130,6 +139,7 @@ test("browser workbench opens registered assets and packages a project through t
   const descriptor = JSON.parse(readFileSync(await descriptorDownload.path(), "utf8")) as {
     file: string; size: number; sha256: string; title: string; version: string;
   };
+  expect(archiveDownload.suggestedFilename()).toBe(packageName);
   expect(descriptorDownload.suggestedFilename()).toBe(`${packageName}.json`);
   expect(descriptor).toMatchObject({
     file: packageName,
@@ -138,6 +148,21 @@ test("browser workbench opens registered assets and packages a project through t
     title: "Example Game",
     version: "1.0.0",
   });
+  // Export is a normal download: the page never writes the package or descriptor into the project folder.
+  const outputWasCreated = await page.evaluate(async () => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The browser folder test handle is missing.");
+    for (const name of ["Example-Game.tpk", "Example-Game.tpk.json"]) {
+      try {
+        await root.getFileHandle(name);
+        return true;
+      } catch {
+        // A missing file is the required result: nothing is written into the project.
+      }
+    }
+    return false;
+  });
+  expect(outputWasCreated).toBe(false);
 });
 
 test("browser folder handle and identity survive reload and re-selection", async ({ page }) => {
@@ -363,6 +388,7 @@ async function installFolderPicker(
       await writable.close();
     }
     armed = true;
+
     if (!canPersist) {
       Object.defineProperty(indexedDB, "open", { configurable: true, value: () => { throw new DOMException("Storage blocked", "SecurityError"); } });
     }

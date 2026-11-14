@@ -3,18 +3,35 @@
 // authored fixture for its kind and no engine (the owner's test-speed rule).
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
+import { TILE_BITMAP_MAGIC, writeTileBitmap } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { createDocumentIdentity, DOCUMENT_KINDS, kindForPath, type AnyDocument } from "../src/index.ts";
-import { exampleBoard, exampleMain } from "./fixtures.ts";
+import { createDocumentIdentity, DOCUMENT_KINDS, kindForPath, type AnyCommand, type AnyDocument } from "../src/index.ts";
+import { exampleBoard, exampleCharacter, exampleItem, exampleMain } from "./fixtures.ts";
 
 interface KindCase {
   readonly kind: string;
   readonly path: string;
   readonly bytes: Uint8Array;
   /** A command the kind accepts and that changes the document. */
-  readonly accepted: unknown;
+  readonly accepted: AnyCommand;
   /** A command the kind rejects whole. */
   readonly rejected: unknown;
+}
+
+/** A 2 × 1 tile bitmap with its stored extra column and row: (2 + 1) × (1 + 1) cells, x outer. */
+function exampleTileBitmap(): Uint8Array {
+  const cell = (tile: string) => ({ tile, r: 0, g: 0, b: 0 });
+  const written = writeTileBitmap({
+    magic: TILE_BITMAP_MAGIC,
+    major: 3,
+    minor: 0,
+    width: 2,
+    height: 1,
+    cells: [cell("village.tst1"), cell(""), cell(""), cell(""), cell(""), cell("")],
+    residue: new Uint8Array(),
+  });
+  if (!written.ok) throw new Error(written.error.message);
+  return written.value;
 }
 
 const CASES: readonly KindCase[] = [
@@ -31,6 +48,27 @@ const CASES: readonly KindCase[] = [
     bytes: exampleBoard(4),
     accepted: { type: "set-tile", layer: 0, x: 1, y: 1, tile: "village.tst8" },
     rejected: { type: "set-tile", layer: 0, x: 9, y: 9, tile: "village.tst8" },
+  },
+  {
+    kind: "tile-bitmap",
+    path: "Bitmap/house.tbm",
+    bytes: exampleTileBitmap(),
+    accepted: { type: "set-bitmap-cell", x: 1, y: 0, tile: "village.tst2" },
+    rejected: { type: "set-bitmap-cell", x: 2, y: 0, tile: "village.tst2" },
+  },
+  {
+    kind: "character",
+    path: "Chrs/hero.tem",
+    bytes: exampleCharacter(),
+    accepted: { type: "set-sprite-animation", group: "walk", index: 7, file: "Misc/hero_walk_se.anm" },
+    rejected: { type: "set-sprite-animation", group: "walk", index: 8, file: "Misc/hero_walk_invalid.anm" },
+  },
+  {
+    kind: "item",
+    path: "Item/chest.itm",
+    bytes: exampleItem(),
+    accepted: { type: "set-sprite-animation", group: "idle", index: 7, file: "Misc/chest_idle_se.anm" },
+    rejected: { type: "set-sprite-animation", group: "battle", index: 0, file: "Misc/chest_battle.anm" },
   },
 ];
 
@@ -60,7 +98,7 @@ for (const entry of CASES) {
   test(`${entry.kind}: a rejected command leaves the snapshot unchanged and names its reason (ADR 0022 D3.1)`, async () => {
     const { doc } = await open(entry);
     const before = doc.getSnapshot();
-    const result = doc.apply(entry.rejected);
+    const result = doc.apply(entry.rejected as AnyCommand);
     ok(!result.ok);
     equal(result.rejection.reason, "invalid");
     ok(result.rejection.message.length > 0);

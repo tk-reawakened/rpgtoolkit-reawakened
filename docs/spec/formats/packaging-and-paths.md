@@ -104,7 +104,17 @@ The editor's **"Make package"** (T-70) **writes a distribution package** — a `
 
 The editor reserves `.tkr-history/` for project-local history; it is not a game asset or a second history system. The exporter inventory check verifies each exclusion against the files it actually collected, rather than assuming a name filter worked. This rule applies to the distribution package this project writes and does not change the legacy `.tpk` PAK input contract. The `.tkr-history/` choice is a Reawakened reserved path; it does not alter what legacy packages may contain.
 
-The export workflow first saves open documents, inventories through the host's project filesystem, and refuses unreadable paths, folded duplicates, missing main/startup files, or any input the distribution writer rejects under L1–L19. It presents the inventory and exclusions before output. A host that can write the selected output folder writes the `.tpk` and its sibling descriptor there, using temporary names and rename where supported. A host without project-folder write access offers downloads of both sibling files and says they are downloads; cancellation writes neither. A partial two-file write is reported with the status of each file and is never reported as a complete export.
+The export workflow first saves open documents, inventories through the host's project filesystem, and refuses unreadable paths, folded duplicates, symbolic links, missing main/startup files, or any input the distribution writer rejects under L1–L19. It presents the inventory and exclusions before output, and writes nothing until the author confirms.
+
+**Where the outputs go (owner ruling on #1719).** The editor does not publish into the project folder: no host gives it a no-replace, directory-contained write that is safe against another window or process creating the destination, or swapping a directory for a link, between the check and the write. Where a host cannot guarantee that, the export uses the host's own save path instead, and never replaces an existing file without the author's explicit say-so:
+
+* a browser offers ordinary downloads of the `.tpk` and the descriptor, each started by its own click after the author has reviewed the inventory, and says they are downloads; nothing is written into the project folder;
+* VS Code opens its Save As dialog for the `.tpk`, writes the descriptor beside it as `<package file name>.json` with `file` naming the name the author chose, and asks before replacing either file if it already exists;
+* a host with neither says that package export is unavailable there, and writes nothing.
+
+Cancelling writes neither file. A failure after the first file is written is reported with exactly what was saved and is never reported as a complete export.
+
+A known limit: the inventory walk reads through the host's project filesystem, which cannot make a directory-by-directory read immune to a directory being replaced by a link while the walk runs. The exporter refuses every link it sees (L23), checks each directory before and after listing it, and checks each file's size before and after reading it; a swap in the instant between those checks is not detectable at this layer (tracked in #2498).
 
 **The descriptor version** is entered by the author during export. The current `.gam` format has no game-version field, so the exporter does not invent one or edit the game file to store it.
 

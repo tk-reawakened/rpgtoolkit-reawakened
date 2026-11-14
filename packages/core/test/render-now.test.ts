@@ -26,9 +26,13 @@ import {
   writeTileBitmap,
   writeSingleTile,
   writeTileset,
+  rasterizePresentation,
   type Engine,
   type GameState,
+  type RasterSurfaces,
+  type SurfaceId,
 } from "../src/index.ts";
+import { decodeTileTexture } from "../src/render/tile-texture.ts";
 import { encodePng } from "./battle-ui-rig.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -51,14 +55,14 @@ type Game = {
 };
 
 /** A tiny game whose start program is `program`; `extra` are more authored files by path. */
-function boot(program: string, extra: Readonly<Record<string, Uint8Array>> = {}, eager = false): Game {
+function boot(program: string, extra: Readonly<Record<string, Uint8Array>> = {}, eager = false, enterProgram = false): Game {
   const empty = createEmptyBoard();
   const files = new Map<string, Uint8Array>();
   const paths = ["main.gam", "Boards/start.brd", "Chrs/hero.tem", "Prg/start.prg", ...Object.keys(extra)];
-  files.set(assetKey("main.gam"), unwrap(writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, startupPrg: "start.prg", initBoard: "start.brd", initChar: "hero.tem" })));
+  files.set(assetKey("main.gam"), unwrap(writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, startupPrg: enterProgram ? "" : "start.prg", initBoard: "start.brd", initChar: "hero.tem" })));
   files.set(assetKey("boards/start.brd"), unwrap(writeBoard({
     ...empty, sizeX: 40, sizeY: 30, sizeL: 1, tileMatrix: Array.from({ length: 1200 }, () => 0), tileRuns: [{ lutIndex: 0, count: 1200, marker: true }],
-    layerTitles: ["", ""], properties: { ...empty.properties, start: { x: 64, y: 64, layer: 1 } },
+    layerTitles: ["", ""], properties: { ...empty.properties, start: { x: 64, y: 64, layer: 1 }, ...(enterProgram ? { enterPrg: "start.prg" } : {}) },
   })));
   files.set(assetKey("chrs/hero.tem"), unwrap(writeCharacter({ ...createEmptyCharacter(), minor: 5, name: "Hero", movementAnimations: Array(8).fill(""), battleStances: ["", "", "", "", "", ""] })));
   files.set(assetKey("prg/start.prg"), encoder.encode(program));
@@ -192,6 +196,26 @@ test("text and pixelText with a canvas draw into that canvas, not the screen tex
   for (let y = 32; y < 40; y += 1) for (let x = 0; x < 8; x += 1) if (canvasPixel(game, handle, x, y)[3] === 255) cell += 1;
   ok(cell > 3, "text(1,5) lands in the fifth cell row of the canvas");
   equal(game.state().ui.draws.length, 0, "the screen text layer got nothing");
+});
+test("screen clear removes earlier text but canvas clear leaves it alone", () => {
+  const game = boot([
+    "fontsize(8)",
+    "rendernow(1)",
+    "c = cnvrendernow",
+    'text(1,1,"old")',
+    'pixeltext(2,16,"old pixel")',
+    'text(1,1,"canvas",c)',
+    "clear(c)",
+    "wait()",
+    "clear()",
+    'text(1,1,"new")',
+    "wait()",
+  ].join("\n"));
+  const text = (): string[] => game.engine.drawList().commands
+    .flatMap((command) => command.kind === "text" ? [command.text] : []);
+  deepEqual(text(), ["old", "old pixel"], "clearing a canvas leaves screen text");
+  game.advance(2, ["ENTER"]);
+  deepEqual(text(), ["new"], "screen clear removes both earlier text forms but not later text");
 });
 
 test("canvas cell text keeps a fractional cell coordinate and truncates the scaled origin (E-56)", () => {
@@ -398,6 +422,7 @@ test("a sized script animation samples a composed tile bitmap at its own size (#
 });
 
 test("tile-bitmap animation waits for every picture dependency before its clock starts (#1321)", () => {
+
   const game = boot('id = animation("wide.anm", 0, 0, 1)\nthreadSleep(getThreadId(), 120)\nend()\n', wideFiles("multi.tbm"));
   const first = game.requests.find((entry) => entry.key === "tiles/two.tst");
   const second = game.requests.find((entry) => entry.key === "tiles/one.gph");
@@ -407,6 +432,53 @@ test("tile-bitmap animation waits for every picture dependency before its clock 
   ok(animation !== undefined && animation.loaded);
   ok(animation.originTick >= second.tick, "the animation starts after both picture dependencies are available");
   deepEqual(pixel(game.frame(), 56, 8), [220, 30, 30, 255]);
+});
+test("scan and mem restore the captured tile through the real board renderer", () => {
+  const tile = (r: number, g: number, b: number): Uint8Array => encoder.encode(writeSingleTile({
+    magic: SINGLE_TILE_MAGIC, major: 2, minor: 0, detail: 1, compression: 0,
+    width: 32, height: 32, pixels: Array<number>(32 * 32).fill(r + g * 256 + b * 65536),
+  }));
+  const hasColor = (rgba: Uint8Array, r: number, g: number, b: number): boolean => {
+    for (let offset = 0; offset < rgba.length; offset += 4) {
+      if (rgba[offset] === r && rgba[offset + 1] === g && rgba[offset + 2] === b && rgba[offset + 3] === 255) return true;
+    }
+    return false;
+  };
+  const redBytes = tile(255, 0, 0);
+  const greenBytes = tile(0, 255, 0);
+  const game = boot(
+    'put(3,3,"tiles/red.gph")\nscan(3,3,7)\nput(3,3,"tiles/green.gph")\nphase=1\nwait()\nmem(3,3,7)\nphase=2\nwait()\n',
+    { "Tiles/red.gph": redBytes, "Tiles/green.gph": greenBytes },
+    false,
+    true,
+  );
+  game.advance(30);
+  equal(game.state().vm.globals.phase, 1);
+  equal(game.state().world.board?.layers[0]?.tiles[82]?.asset, "tiles/green.gph");
+  const renderPixels = (): Uint8Array => {
+    const drawList = game.engine.drawList(0, { shading: true, images: true, sprites: true });
+    const red = decodeTileTexture(assetKey("tiles/red.gph"), redBytes);
+    const green = decodeTileTexture(assetKey("tiles/green.gph"), greenBytes);
+    if (!red.ok || !green.ok) throw new Error("test tiles did not decode");
+    const assets = new Map([[assetKey("tiles/red.gph"), red.texture], [assetKey("tiles/green.gph"), green.texture]]);
+    const surfaces = new Map() as RasterSurfaces;
+    surfaces.get = (surface: SurfaceId, revision: number = 0) => game.engine.surfacePixels(surface, revision) ?? undefined;
+    const rendered = rasterizePresentation(drawList, game.engine.hostDisplayGeometry(), assets, surfaces);
+    if (rendered.error !== null) throw new Error(rendered.error);
+    return rendered.rgba;
+  };
+  const greenPixels = renderPixels();
+  ok(hasColor(greenPixels, 0, 255, 0), "the visible cell renders the replacement tile's expected pixels");
+  equal(hasColor(greenPixels, 255, 0, 0), false);
+
+  game.advance(1, ["SPACE"]);
+
+  equal(game.state().vm.globals.phase, 2);
+  equal(game.state().world.board?.layers[0]?.tiles[82]?.asset, "tiles/red.gph");
+  const restoredPixels = renderPixels();
+  ok(hasColor(restoredPixels, 255, 0, 0), "mem restores the captured tile's expected pixels");
+  equal(hasColor(restoredPixels, 0, 255, 0), false);
+  deepEqual(game.state().world.board?.runtime?.tileBuffers["7"]?.asset, "tiles/red.gph");
 });
 
 test("a pinned animation with one picture keeps its original animation-phase start tick", () => {

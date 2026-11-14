@@ -50,18 +50,22 @@ interface Setup {
   readonly editorSlot: () => HTMLElement | null;
   readonly openPaths: string[];
   readonly packageCalls: string[];
-  readonly publishCalls: string[];
+  readonly downloadCalls: string[];
 }
 
-async function setup(capabilities: readonly ("folderWrite" | "fileWatch" | "openExternal")[] = ["folderWrite", "openExternal"]): Promise<Setup> {
+async function setup(
+  capabilities: readonly ("folderWrite" | "fileWatch" | "openExternal")[] = ["folderWrite", "openExternal"],
+  files: Readonly<Record<string, Uint8Array>> = FILES,
+): Promise<Setup> {
   document.body.replaceChildren();
-  const host = createMemoryPlatformServices({ files: FILES, capabilities });
+  const host = createMemoryPlatformServices({ files, capabilities });
   const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
   const tree = createProjectTree({ services: host, workspace });
   const tabs = createTabs(workspace);
   const layout = createLayoutModel([
     { id: "files", title: "Files", side: "left", visible: true, size: 240, minSize: 120, maxSize: 480 },
     { id: "game", title: "Game", side: "left", visible: false, size: 240, minSize: 120, maxSize: 480 },
+    { id: "tileset", title: "Tileset", side: "right", visible: true, size: 240, minSize: 120, maxSize: 480 },
   ]);
   const el = document.createElement("div");
   document.body.append(el);
@@ -69,7 +73,7 @@ async function setup(capabilities: readonly ("folderWrite" | "fileWatch" | "open
   const openPaths: string[] = [];
   let slot: HTMLElement | null = null;
   const packageCalls: string[] = [];
-  const publishCalls: string[] = [];
+  const downloadCalls: string[] = [];
   await act(() => {
     mountShell(el, {
       layout,
@@ -77,7 +81,6 @@ async function setup(capabilities: readonly ("folderWrite" | "fileWatch" | "open
       tree,
       projectLayout: { projectFolder: "" },
       fs: host.fs,
-      canWriteFolder: capabilities.includes("folderWrite"),
       onOpened: (result) => {
         if (result.via === "document") {
           opened.push(result.document);
@@ -102,16 +105,15 @@ async function setup(capabilities: readonly ("folderWrite" | "fileWatch" | "open
           },
         };
       },
-      onPublish: async (mainPath) => {
-        publishCalls.push(mainPath);
-        return { ok: true, destination: "Build/game.tpk" };
+      onDownload: async (artifact) => {
+        downloadCalls.push(artifact.fileName);
+        return { ok: true };
       },
-      onDownload: async () => ({ ok: true }),
       onEditorElement: (element) => { slot = element; },
     });
   });
   await settle();
-  return { host, el, opened, layout, tabs, tree, workspace, editorSlot: () => slot, openPaths, packageCalls, publishCalls };
+  return { host, el, opened, layout, tabs, tree, workspace, editorSlot: () => slot, openPaths, packageCalls, downloadCalls };
 }
 
 const key = async (target: Element, name: string, init: KeyboardEventInit = {}): Promise<void> => {
@@ -304,7 +306,7 @@ test("panels show, hide and resize from buttons and the keyboard, and hiding kee
   ok(files() !== null);
   ok(s.editorSlot() !== null, "the editor slot is offered to the host");
 });
-test("package preflight displays its inventory and requires review before publishing", async () => {
+test("package preflight displays its inventory and requires review before any download, and never writes into the project", async () => {
   const s = await setup();
   await click(button(s.el, "Package game…"));
   await settle();
@@ -314,9 +316,16 @@ test("package preflight displays its inventory and requires review before publis
   await click(button(s.el, "Prepare package"));
   await settle();
   deepEqual(s.packageCalls, ["Main/example.gam@1.2.3"]);
-  deepEqual(s.publishCalls, []);
-  const save = button(s.el, "Save package and descriptor…");
-  equal(save.disabled, true, "publication waits for explicit inventory review");
+  deepEqual(s.downloadCalls, []);
+  equal(
+    [...s.el.querySelectorAll("button")].some((candidate) => /Save package and descriptor/.test(candidate.textContent ?? "")),
+    false,
+    "the page never offers to write the package into the project folder",
+  );
+  const downloadPackage = button(s.el, "Download game.tpk");
+  const downloadDescriptor = button(s.el, "Download game.tpk.json");
+  equal(downloadPackage.disabled, true, "downloads wait for explicit inventory review");
+  equal(downloadDescriptor.disabled, true, "downloads wait for explicit inventory review");
   const details = s.el.querySelector("details");
   match(s.el.textContent ?? "", /Package output: game\.tpk; install descriptor: game\.tpk\.json/);
   match(s.el.textContent ?? "", /saved project files from the time it completed/);
@@ -327,9 +336,12 @@ test("package preflight displays its inventory and requires review before publis
   const reviewed = s.el.querySelector<HTMLInputElement>('input[type="checkbox"]');
   ok(reviewed);
   await act(() => { reviewed.checked = true; reviewed.dispatchEvent(new Event("change", { bubbles: true })); });
-  await click(save);
-  deepEqual(s.publishCalls, ["Main/example.gam"]);
-  match(s.el.querySelector('[role="status"]')?.textContent ?? "", /saved to Build\/game\.tpk/);
+  await click(downloadPackage);
+  deepEqual(s.downloadCalls, ["game.tpk"]);
+  match(s.el.querySelector('[role="status"]')?.textContent ?? "", /Download started for game\.tpk/);
+  await click(downloadDescriptor);
+  deepEqual(s.downloadCalls, ["game.tpk", "game.tpk.json"]);
+  match(s.el.querySelector('[role="status"]')?.textContent ?? "", /Download started for game\.tpk\.json/);
 });
 test("changing the release version invalidates the prepared inventory and its confirmation", async () => {
   const s = await setup();
@@ -355,6 +367,7 @@ test("package release version remains visible and actionable after closing and r
   equal(reopened.value, "2.3.4");
   equal(button(s.el, "Prepare package").disabled, false);
 });
+
 
 
 test("the shell writes no style attribute and no inline handler attribute (strict CSP, ADR 0025 decision 6)", async () => {

@@ -123,6 +123,8 @@ jobs:
         with:
           node-version: 24.21.0
           cache: pnpm
+      # ADR numbering uses only Node built-ins, so keep the docs-only gate independent of dependency installation.
+      - run: node --test tools/adr-numbering.test.mjs && node tools/adr-numbering.mjs
       - run: pnpm install --frozen-lockfile
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm build:outputs:test && pnpm build:outputs:check
@@ -497,6 +499,12 @@ jobs:
       - name: Probe live desktop fitting and input under Xvfb
         if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && runner.os == 'Linux'
         run: xvfb-run -a pnpm desktop:input
+      - name: Prove authored village pixels in Electron
+        if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && runner.os != 'Linux'
+        run: pnpm desktop:authored
+      - name: Prove authored village pixels in Electron under Xvfb
+        if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && runner.os == 'Linux'
+        run: xvfb-run -a pnpm desktop:authored
       # Inventory must run after measurement so the Electron binary has been downloaded and extracted.
       - run: pnpm desktop:inventory
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'

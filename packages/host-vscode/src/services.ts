@@ -30,11 +30,12 @@ export function createVscodeServices(root: vscode.Uri): PlatformServices {
     },
     document: { edited: () => undefined },
     dialogs: createVscodeDialogs(root),
-    packageExport: vscodePackageExport(root),
+    packageExport: vscodePackageExport(),
   };
 }
 
-function vscodePackageExport(root: vscode.Uri): PackageExportService {
+/** The digest the install descriptor needs. Saving is done by the package command's Save As flow, not by this service. */
+function vscodePackageExport(): PackageExportService {
   return {
     async sha256(bytes) {
       try {
@@ -44,19 +45,6 @@ function vscodePackageExport(root: vscode.Uri): PackageExportService {
         return platformOk([...digest].map((byte) => byte.toString(16).padStart(2, "0")).join(""));
       } catch {
         return platformError("io-error", "Could not calculate the package SHA-256 digest.");
-      }
-    },
-    async downloadFile(fileName, bytes) {
-      const destination = await vscode.window.showSaveDialog({
-        defaultUri: vscode.Uri.joinPath(root, fileName),
-        saveLabel: `Save ${fileName}`,
-      });
-      if (destination === undefined) return platformError("unavailable", "Package download was cancelled.");
-      try {
-        await vscode.workspace.fs.writeFile(destination, bytes);
-        return platformOk(undefined);
-      } catch {
-        return platformError("io-error", `Could not save ${fileName}.`);
       }
     },
   };

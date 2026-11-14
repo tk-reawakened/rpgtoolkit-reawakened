@@ -3,7 +3,7 @@ title: "Package game and install descriptor"
 type: feature
 ticket: 9
 created: 2026-11-13
-status: implemented-verified
+status: built
 baseline_revision: 4dce26b4b57dad789c23248ef0533e66b08c4e7a
 route: full
 route_source: auto
@@ -24,7 +24,7 @@ context:
 
 ## Scope
 
-Provide one export workflow on the shared editor model for a saved game. It inventories the selected project through its existing filesystem provider, checks that the main file and required startup targets exist, writes the existing deterministic distribution ZIP plus the exact sibling install descriptor, and presents a preflight inventory, output names and explicit user confirmation before publication. Export must be host-capability-aware, keep editor/test material out, and not claim to build an EXE, setup installer, or signing.
+Provide one export workflow on the shared editor model for a saved game. It inventories the selected project through its existing filesystem provider, checks that the main file and required startup targets exist, writes the existing deterministic distribution ZIP plus the exact sibling install descriptor, and presents a preflight inventory, output names and explicit user confirmation before anything is saved. Export must be host-capability-aware, keep editor/test material out, and not claim to build an EXE, setup installer, or signing. Per the owner's ruling on #1719, the editor never publishes into the project folder itself: where a host cannot guarantee a no-overwrite, contained write, it offers an ordinary download or the host's Save As, and otherwise says export is unavailable.
 
 **Always:** Save open documents before reading the project; preserve authored bytes and read-only formats; use `writeDistributionPackage` and the canonical package reader; follow G2/G7. Package paths, limits, duplicates, manifest, and output hashes must be validated before output. Package and descriptor are related outputs and failures must be reported without claiming success.
 
@@ -36,10 +36,10 @@ Provide one export workflow on the shared editor model for a saved game. It inve
 - `docs/editor-features.md` T-70/T-71/T-74 defines package/export scope. ADR 0019 decision 6 excludes `.tkrscn`, `.tkrtile`, `.tkrpack`; ADR 0022 D5 governs destination and folder-write fallback; D12.7 requires exporter inventory verification.
 - `packages/core/src/formats/package/write.ts`, `manifest.ts`, `package.ts`, `zip.ts` provide deterministic ZIP writing, validation, package loading and manifest verification. Reuse; do not create another writer or alter the wire contract.
 - `packages/core/src/save/game-id.ts` provides `derivePackageIdentity`; `packages/core/src/formats/main/` provides main-file decoding and startup references. The main format has no release-version field, so the author supplies it in the export form.
-- `packages/editor-model/src/workspace.ts` owns save-all and project-bound document identity; `reserved-folders.ts` establishes project-root conventions. `package-export.ts` owns recursive inventory/preflight and `package-export-write.ts` owns paired output.
-- `packages/platform-services/src/services.ts` defines the minimal host export seam for hashing and download; browser and VS Code providers implement it.
-- `packages/editor-ui/src/files-view.tsx` owns the shared package preflight, inventory and output controls; `packages/host-web/src/` and `packages/host-vscode/src/` mount the common editor and supply platform services.
-- Focused model tests verify exclusion proof, missing-target refusal, archive loading, descriptor integrity and collision-safe sibling output.
+- `packages/editor-model/src/workspace.ts` owns save-all and project-bound document identity; `reserved-folders.ts` establishes project-root conventions. `package-export.ts` owns recursive inventory/preflight; `package-export-write.ts` builds the descriptor for the file name the author actually saves the package under.
+- `packages/platform-services/src/services.ts` defines the minimal host export seam: `sha256` for the descriptor and an optional `downloadFile` for hosts with ordinary downloads.
+- `packages/editor-ui/src/files-view.tsx` owns the shared package preflight, inventory and download controls for the browser; `packages/host-web/src/` supplies the browser download and digest. `packages/host-vscode/src/package-game-command.ts` is the VS Code command and `package-save.ts` its host-free Save As sequence (choose destination, descriptor beside it, confirm before replacing).
+- Focused model tests verify exclusion proof, missing-target refusal, archive loading, descriptor integrity and descriptor naming; `tools/editor-vscode-test/test/vscode-package-save.test.ts` verifies the Save As sequence.
 
 ## Tasks & Acceptance
 
@@ -47,35 +47,37 @@ Provide one export workflow on the shared editor model for a saved game. It inve
 - [x] Update packaging spec (docs first): name `.tkr-history/`, exclude it, case-insensitive `*.spec.prg`, and ADR 0019 editor extensions; specify safety/preflight and paired output behavior.
 - [x] Add DOM-free package export model using workspace save-all and recursive filesystem provider; inventory deterministically, apply explicit exclusions, reject unsafe/missing-main or missing startup inputs, and enforce writer limits.
 - [x] Generate the exact seven-field descriptor from decoded game metadata, author-entered release version and package bytes (SHA-256); validate generated bytes with the canonical package reader before offering output.
-- [x] Add minimal host export provider; write both chosen sibling files safely when folder access exists, and provide separate downloads otherwise. Surface cancellation, partial-write, and provider failures.
+- [x] Add minimal host export provider: the digest for the descriptor and, in the browser, a normal download of each file. Never write into the project folder from the shared editor (owner ruling on #1719). Surface cancellation, partial-write and provider failures.
 - [x] Add accessible shared preflight/output UI and host wiring without moving editor behavior into either host.
-- [x] Add a VS Code Explorer/command-palette action that saves, preflights, presents the exact inventory, and publishes only after explicit confirmation.
+- [x] Add a VS Code Explorer/command-palette action that saves, preflights, presents the exact inventory, and saves the package and its descriptor through Save As only after explicit confirmation, asking before it replaces either file.
 - [x] Prove package output boots through the real web runner and check the contributed VS Code web command in the browser workbench.
-- [x] Add focused tests for exclusions, missing startup targets, descriptor integrity, archive loading and collision-safe publication.
+- [x] Add focused tests for exclusions, missing startup targets, descriptor integrity, descriptor naming, archive loading, the Save As sequence and download-only browser output.
 
 **Acceptance Criteria:**
 - Given a saved authored game, when export completes, then the `.tpk` contains its project-root files and valid manifest and the sibling JSON has exactly the specified descriptor fields and matching name, size, SHA-256, title, version and game identity.
 - Given test specs, `.tkrscn`, `.tkrtile`, `.tkrpack` or `.tkr-history/` in the project, when export completes, then none appears in the archive and the inventory proof confirms each exclusion.
 - Given unsafe paths, folded duplicates, malformed/incomplete main data, missing startup files, read failures or package limits exceeded, when preflight runs, then export is refused with the offending path/reason and no output is reported as successful.
-- Given a host with folder writes but no atomic rename, when export is requested, then the host warns that publication is non-atomic and requires confirmation before writing the package and descriptor directly; cancellation leaves both outputs untouched. Hosts without folder writes use their supported download path.
-- Given a successful preflight, when the author reviews the included/excluded inventory and output names and confirms, then the package and descriptor are published; without confirmation neither is written or downloaded.
+- Given a host that cannot guarantee a no-overwrite, directory-contained write into the project folder (the browser's File System Access folder and VS Code's workspace filesystem), when export is requested, then the editor does not write into the project folder: the browser offers ordinary downloads and VS Code opens Save As; a host with neither says export is unavailable. An existing file is replaced only after the author confirms, and cancellation leaves everything untouched.
+- Given a successful preflight, when the author reviews the included/excluded inventory and output names and confirms, then the package and descriptor are saved or downloaded under the names the author sees, with the descriptor's `file` naming the saved package; without confirmation neither is written or downloaded.
 Given the produced archive without access to the source folder, when loaded through the canonical distribution-package reader used by the web runner, then it exposes the packaged main file and indexed game assets.
 
 ## Implementation Notes
 
 Owner authorization: select a reserved editor-history path and a complete cross-host export behavior without an intermediate checkpoint. D12.7 does not name the folder; `.tkr-history/` is the chosen explicit reserved path. The descriptor remains a sibling artifact, and the archive manifest keeps its existing contract. The release version is explicitly entered by the author because the main format carries no such field.
 
-The exporter refuses symbolic links at both enumeration and stat boundaries so recursive inventory cannot escape the selected project. It checks file size before reading and rechecks returned byte lengths, uses randomized temporary paths with collision checks, serializes concurrent publication to the same destination, and reports cleanup failures for attempted temporary writes. Web File System Access providers that cannot rename publish directly after an explicit warning and confirmation. The preflight proposal is invalidated after main-file/version edits and compared against a fresh inventory immediately before publication; a declared initial character is required to exist.
+Owner ruling on #1719 (supersedes the earlier folder-publication design): when a host cannot safely publish a package into a chosen project folder without overwrite or path-traversal risk, offer a normal download or Save As if supported; otherwise explain that the destination is unavailable. Never silently overwrite an existing file or weaken a path-safety check. The earlier temporary-file-and-rename publication was removed rather than gated, because neither current host can promise it: the browser folder provider has no rename, and VS Code's rename checks for an existing destination separately from the move, so another window can create the destination in between (#2496). The editor itself therefore no longer performs a check-then-publish into the project folder; Save As writes only to the file the author chose, after the author has confirmed any replacement.
+
+The exporter refuses symbolic links at both enumeration and stat boundaries so recursive inventory cannot escape the selected project, checks file size before reading and rechecks returned byte lengths, and requires a declared initial character to exist. A browser download carries exactly the bytes the author reviewed; the page says it writes nothing into the project. VS Code writes the package where Save As points, derives the descriptor name from it, and reports a partial two-file result as incomplete. Residual, not fixed: a directory swapped for a link in the instant between the exporter's checks during the inventory walk cannot be detected through the host filesystem (#2498 stays open).
 
 ## Verification
 
-**Commands:**
-- `pnpm exec tsc -b packages/platform-services packages/editor-model packages/editor-ui packages/host-web packages/host-vscode && pnpm exec tsc -p packages/editor-model/tsconfig.test.json && pnpm exec tsc -p packages/editor-ui/tsconfig.test.json && pnpm exec tsc -p packages/host-web/tsconfig.test.json && pnpm exec tsc -p tools/browser/tsconfig.tests.json && pnpm exec tsc -p tools/editor-vscode-test/tsconfig.test.json` — passed.
-- `node --test packages/editor-model/test/package-export.test.ts packages/editor-ui/test/shell.test.ts packages/host-web/test/filesystem.test.ts tools/editor-vscode-test/test/vscode-adapter.test.ts` — 25 passed.
-- `node --test tools/editor-vscode-test/proof-directories.test.mjs` — 4 passed.
-- `pnpm run browser:build` and `pnpm exec playwright test tools/browser/tests/editor-web-host.spec.ts tools/browser/tests/package-export-boot.spec.ts --workers=1` — build passed; 9 browser tests passed, including browser output publication and standalone runner boot.
-- `pnpm --dir extensions/editor build` — passed.
-- `node tools/editor-vscode-test/run.mjs --extension "$PWD/extensions/editor" --workspace "$workspace" --game Main/example.gam` — passed both real vscode-test-web lifecycle choices and proved the contributed package command runs preflight and displays inventory in the workbench.
+Status `built`: the implementation was merged with current `origin/main` and edited without running builds, linters or tests in this pass, so nothing below is a claim of a passing result. Earlier results recorded for the superseded folder-publication design no longer describe this code.
 
-**Manual checks:**
-- The browser proof reads the emitted `.tpk` and sibling descriptor from the actual browser filesystem; model tests verify archive readability, matching size/SHA-256, descriptor fields, and exclusion inventory.
+**Commands to run:**
+- `pnpm exec tsc -b packages/platform-services packages/editor-model packages/editor-ui packages/host-web packages/host-vscode && pnpm exec tsc -p packages/editor-model/tsconfig.test.json && pnpm exec tsc -p packages/editor-ui/tsconfig.test.json && pnpm exec tsc -p packages/host-web/tsconfig.test.json && pnpm exec tsc -p tools/browser/tsconfig.tests.json && pnpm exec tsc -p tools/editor-vscode-test/tsconfig.test.json`
+- `node --test packages/editor-model/test/package-export.test.ts packages/editor-ui/test/shell.test.ts packages/host-web/test/filesystem.test.ts tools/editor-vscode-test/test/vscode-package-save.test.ts tools/editor-vscode-test/test/vscode-adapter.test.ts`
+- `node --test tools/editor-vscode-test/proof-directories.test.mjs`
+- `pnpm run browser:build` and `pnpm exec playwright test tools/browser/tests/editor-web-host.spec.ts tools/browser/tests/package-export-boot.spec.ts --workers=1`
+- `pnpm --dir extensions/editor build`, then `node tools/editor-vscode-test/run.mjs --extension "$PWD/extensions/editor" --workspace "$workspace" --game Main/example.gam` with the workspace prepared as in `.github/workflows/ci.yml` (the proof now drives the package command's Save As dialog and reads the saved `.tpk` and descriptor back).
+
+**Acceptance against supported destinations:** browser = ordinary download of both files (proof reads the downloaded bytes and checks nothing is written into the folder); VS Code (desktop and web) = Save As (proof in the VS Code web workbench); any other host = export unavailable with a stated reason.

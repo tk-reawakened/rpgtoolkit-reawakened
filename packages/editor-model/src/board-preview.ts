@@ -13,7 +13,9 @@ import {
   type DrawList,
   BinaryReader,
   readBoard,
+  type WorldBoard,
 } from "@tk-reawakened/core";
+import { boardExtent } from "./board-geometry.ts";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 
 /**
@@ -25,7 +27,18 @@ import type { FileSystemService } from "@tk-reawakened/platform-services";
 /** The project files a preview reads: the folder listing and a project-bound read, both from platform-services. */
 export type PreviewStorage = Pick<FileSystemService, "list" | "readProject">;
 
-export interface BoardPreviewOptions {
+/**
+ * What a view asks the picture to show. It is plain JSON so it can cross a webview bridge. Hiding changes only the picture:
+ * a hidden layer's tiles and images are left out, and the board file is never touched.
+ */
+export interface BoardPreviewRequest {
+  /** The layers drawn, counted from 0; every layer when absent. */
+  readonly visibleLayers?: readonly number[];
+  /** Whether the board's background image is drawn; it is when absent. */
+  readonly showBackground?: boolean;
+}
+
+export interface BoardPreviewOptions extends BoardPreviewRequest {
   /** Where tile and picture references resolve; the package layout by default. */
   readonly root?: AssetRoot;
   /** The engine tick the picture is composed at; animated tiles show the frame for this tick. */
@@ -52,12 +65,22 @@ export type BoardPreview =
     })
   | Extract<BoardPicture, { readonly ok: false }>;
 
-/** The cell size of the top-down compositor (`docs/spec/formats/tiles.md`). */
-const TILE_PIXELS = 32;
-/** The most pixels a preview draws (about 62×62 tiles), so one picture stays a few megabytes. */
+/** The most pixels a preview draws (about 62×62 top-down tiles), so one picture stays a few megabytes. */
 const MAX_PREVIEW_PIXELS = 4_000_000;
 /** The most files a project listing walk reads, so a preview over a huge project stays bounded. */
 const MAX_FILES = 20000;
+
+/** The hydrated board with the layers and background the request hides taken out of the picture only. */
+function visibleBoard(board: WorldBoard, request: BoardPreviewRequest): WorldBoard {
+  if (request.visibleLayers === undefined && request.showBackground !== false) return board;
+  const visible = request.visibleLayers === undefined ? null : new Set(request.visibleLayers);
+  return {
+    ...board,
+    ...(request.showBackground === false ? { backgroundImage: "" } : {}),
+    layers: visible === null ? board.layers : board.layers.map((layer, index) => (visible.has(index) ? layer : { ...layer, tiles: [] })),
+    ...(visible === null || board.images === undefined ? {} : { images: board.images.filter((image) => visible.has(image.layer - 1)) }),
+  };
+}
 
 async function projectPaths(storage: PreviewStorage): Promise<string[] | string> {
   const paths: string[] = [];
@@ -81,7 +104,7 @@ async function projectPaths(storage: PreviewStorage): Promise<string[] | string>
 
 /**
  * Compose the board in `boardBytes` (`document.serialize()`: what the document holds now, saved or not) over the assets of the project `projectId`.
- * Only a top-down board (`coordType` 0) is composed here; the isometric views are a later story.
+ * Every layout is composed by the one compositor: top-down, iso-stacked and iso-rotated boards alike.
  */
 export async function previewBoard(
   storage: PreviewStorage,
@@ -92,10 +115,8 @@ export async function previewBoard(
   const read = readBoard(new BinaryReader(boardBytes, "preview.brd"));
   if (!read.ok) return { ok: false, message: `The board cannot be previewed: ${read.error.message}` };
   const board = read.value;
-  if (board.coordType !== 0) {
-    return { ok: false, message: "The preview shows top-down boards only; this board uses an isometric coordinate system." };
-  }
-  if (board.sizeX * board.sizeY * TILE_PIXELS * TILE_PIXELS > MAX_PREVIEW_PIXELS) {
+  const extent = boardExtent(board);
+  if (extent.width * extent.height > MAX_PREVIEW_PIXELS) {
     return { ok: false, message: `This board is larger than the ${MAX_PREVIEW_PIXELS / 1_000_000} million pixels the preview draws; edit it in the grid.` };
   }
   const paths = await projectPaths(storage);
@@ -136,11 +157,11 @@ export async function previewBoard(
       if (picture.ok) textures.set(dependency, picture.value);
       else warnings.push(`${dependency}: ${picture.error.message}`);
     }
-    const width = Math.max(1, board.sizeX * TILE_PIXELS);
-    const height = Math.max(1, board.sizeY * TILE_PIXELS);
+    const width = Math.max(1, extent.width);
+    const height = Math.max(1, extent.height);
     // The flags of the engine's `viewbrd` preview: shading and pictures on, sprites off.
     const drawList = composeBoard({
-      board: hydrated.value.board,
+      board: visibleBoard(hydrated.value.board, options),
       tick: options.tick ?? 0,
       camera: { x: 0, y: 0 },
       viewport: { width, height },

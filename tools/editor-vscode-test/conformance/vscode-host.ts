@@ -240,6 +240,8 @@ class Webview {
   readonly #listeners = new Set<(message: unknown) => unknown>();
   readonly #disposeListeners = new Set<() => void>();
   #page: Page | null = null;
+  /** Messages the page has sent that the provider has not yet received, in sending order. */
+  readonly #undelivered: EditorHostRequest[] = [];
 
   constructor(act: Act) {
     this.#act = act;
@@ -308,22 +310,58 @@ class Webview {
   }
 
   dispose(): void {
+    // A message still on its way when the panel is disposed is lost: VS Code gives no delivery guarantee for it, so this
+    // harness does not either (see `delivered`).
+    this.#undelivered.length = 0;
     this.hide();
     for (const listener of [...this.#disposeListeners]) listener();
   }
 
   #send(request: EditorHostRequest): void {
     const copy = structuredClone(request);
-    setTimeout(() => { for (const listener of [...this.#listeners]) void listener(copy); }, 0);
+    this.#undelivered.push(copy);
+    setTimeout(() => this.#deliver(copy), 0);
+  }
+
+  /** Hand one sent message to the provider, once; a message already delivered by a flush is not delivered again. */
+  #deliver(copy: EditorHostRequest): void {
+    const at = this.#undelivered.indexOf(copy);
+    if (at === -1) return;
+    this.#undelivered.splice(at, 1);
+    for (const listener of [...this.#listeners]) void listener(copy);
+  }
+
+  /**
+   * Resolves once every message the page has sent has reached the provider. A proof that closes a tab right after a
+   * choice waits for this, which is what a person's reaction time provides in practice; it is observed, not slept.
+   */
+  async delivered(): Promise<void> {
+    while (this.#undelivered.length > 0) await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
 
   #receive(page: Page, message: BridgeMessage): void {
     if (this.#page !== page) return;
     if (message.type === "initialize") {
-      page.remote = new RemoteDocument(message.kind, message.snapshot, { postMessage: (request) => this.#send(request), getState: () => undefined, setState: () => undefined });
+      const remote = new RemoteDocument(message.kind, message.snapshot, message.browserState, {
+        postMessage: (request) => this.#send(request),
+        getState: () => undefined,
+        setState: () => undefined,
+      }, message.boardPreferences);
+      page.remote = remote;
       page.handle = mount(page.element, {
-        document: page.remote as unknown as ViewContext["document"],
+        document: remote as unknown as ViewContext["document"],
         services: { document: { edited: () => undefined }, capabilities: new Set(message.capabilities) },
+        browser: {
+          session: remote.browserSession,
+          fs: { list: (path) => remote.browserList(path), read: (path) => remote.browserRead(path) },
+          layout: { projectFolder: "" },
+          // As `webview.tsx` supplies it: a linked visit through the extension host.
+          openSource: async (path) => {
+            const outcome = await remote.visit(path);
+            return outcome.ok ? null : outcome.message;
+          },
+        },
+        boardPreferences: remote.boardPreferences,
       });
       return;
     }
@@ -385,14 +423,11 @@ class Workbench {
         script.pickLists.push({ placeholder, labels: items.map((item) => item.label) });
         return script.picks.shift();
       },
-      executeCommand: async (command) => {
-        const target = this.active?.copy;
-        if (target === undefined) return;
-        if (command === "workbench.action.files.save") await target.save();
-        else {
-          this.host.revertCommands += 1;
-          await target.revert();
-        }
+      saveEditor: async (uri) => {
+        const target = this.copies.get(uri.path);
+        if (target === undefined) return undefined;
+        await target.save();
+        return uri;
       },
     }, (event) => {
       for (const copy of this.copies.values()) if (copy.custom === event.document) copy.record(event);
@@ -739,12 +774,16 @@ export interface BoardProofTab {
   workbenchDirty(): boolean;
   /** The picture the view asked the extension host for. */
   picture(): Promise<BoardPicture>;
+  /** Resolves once every message the webview has sent has reached the extension host. */
+  delivered(): Promise<void>;
   close(): Promise<void>;
 }
 
 export interface BoardProofHost {
   readonly name: string;
   open(path: string): Promise<BoardProofTab>;
+  /** The project-relative paths of the documents the workbench has open, in the order they were opened. */
+  openPaths(): readonly string[];
   disk(path: string): Promise<Uint8Array | null>;
   settle(): Promise<void>;
 }
@@ -760,9 +799,11 @@ export function createVscodeBoardProofHost(desktop: boolean, gam: Uint8Array, fi
         get element() { return editor.webview.view.element; },
         workbenchDirty: () => editor.copy.dirty,
         picture: () => editor.webview.picture(),
+        delivered: () => editor.webview.delivered(),
         close: async () => { await editor.close("discard"); },
       };
     },
+    openPaths: () => host.openPaths(),
     disk: (path) => host.disk(path),
     settle: () => host.settle(),
   };

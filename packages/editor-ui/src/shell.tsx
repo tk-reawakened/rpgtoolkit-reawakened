@@ -1,8 +1,8 @@
-import type { LayoutModel, PackageArtifact, PreparedGamePackage, ProjectLayout, ProjectTree, Tabs, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
+import type { LayoutModel, PackageArtifact, ProjectLayout, ProjectTree, Tabs, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useRef } from "preact/hooks";
 import { useDocumentSnapshot } from "./use-document.ts";
-import { FilesView, type PackageActionOutcome, type PackagePublishOutcome } from "./files-view.tsx";
+import { FilesView, type PackageActionOutcome } from "./files-view.tsx";
 import { GameView } from "./game-view.tsx";
 import { TabStrip } from "./tab-strip.tsx";
 import { Workbench } from "./workbench.tsx";
@@ -12,20 +12,19 @@ export interface ShellProps {
   readonly tabs: Tabs;
   readonly tree: ProjectTree;
   readonly projectLayout: ProjectLayout;
-  readonly fs: Pick<FileSystemService, "list">;
-  readonly canWriteFolder: boolean;
+  readonly fs: Pick<FileSystemService, "list" | "read">;
   /** A file was opened from the Files panel (a document, or the OS took it). */
   readonly onOpened: (result: Extract<TreeOpenResult, { readonly ok: true }>, row: TreeRow) => void;
   /** The Game panel asks for a file to be opened; the host opens it through the tree, as Files does. */
   readonly onOpenPath: (path: string) => void;
-  /** The Files panel preflights and constructs an immutable package proposal without publishing it. */
+  /** The Files panel preflights and constructs an immutable package proposal; nothing is written. */
   readonly onPackage: (mainPath: string, version: string) => Promise<PackageActionOutcome>;
-  /** Publishes only after the author has reviewed the complete preflight inventory. */
-  readonly onPublish: (mainPath: string, version: string, prepared: PreparedGamePackage) => Promise<PackagePublishOutcome>;
-  /** Downloads an already prepared artifact following an explicit user click. */
+  /** Downloads an already prepared artifact through the host's normal download path after an explicit user click. */
   readonly onDownload: (artifact: PackageArtifact) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
   /** Called once with the element the active editor is mounted into, and with `null` when the shell goes away. */
   readonly onEditorElement: (element: HTMLElement | null) => void;
+  /** Ask the host for the new-board questions (T-20); no button is shown without it. */
+  readonly onNewBoard?: () => void;
   /** Changes when the project's files may have, so the Game panel reads them again. */
   readonly version?: unknown;
 }
@@ -41,7 +40,7 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 }
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
-export function Shell({ layout, tabs, tree, projectLayout, fs, canWriteFolder, onOpened, onOpenPath, onPackage, onPublish, onDownload, onEditorElement, version }: ShellProps) {
+export function Shell({ layout, tabs, tree, projectLayout, fs, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, version }: ShellProps) {
   // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
   const tabsSnapshot = useDocumentSnapshot(tabs);
   return (
@@ -49,7 +48,7 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, canWriteFolder, o
       layout={layout}
       tabs={<TabStrip tabs={tabs} />}
       panels={{
-        files: <FilesView tree={tree} fs={fs} canWriteFolder={canWriteFolder} onOpened={onOpened} onPackage={onPackage} onPublish={onPublish} onDownload={onDownload} />,
+        files: <FilesView tree={tree} fs={fs} onOpened={onOpened} onPackage={onPackage} onDownload={onDownload} {...(onNewBoard === undefined ? {} : { onNewBoard })} />,
         game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
       }}
     >
