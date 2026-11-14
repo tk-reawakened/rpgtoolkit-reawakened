@@ -1,5 +1,5 @@
 import type { expect as playwrightExpect, Frame, Locator, Page } from "@playwright/test";
-import { autosaveSetting, combineProofErrors } from "./lifecycle.ts";
+import { autosaveSetting, combineProofErrors, decodePersistedBytes } from "./lifecycle.ts";
 
 const copyBytesCommand = "Test: Copy Main File Bytes";
 
@@ -641,7 +641,7 @@ export async function requestNativeReload(page: Page, expect: Expect): Promise<v
 async function readWorkspaceBytes(page: Page, expect: Expect): Promise<Uint8Array> {
   const { tab: panelTab, frame: panelFrame, id: panelId } = await openPersistedBytesPanel(page, expect);
   const encoded = (await panelFrame.locator(`#tkr-proof-persisted-bytes-${panelId}`).innerText()).trim();
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new Error(`Probe panel ${panelId} did not contain a valid Base64 persisted-byte payload`);
+  const bytes = decodePersistedBytes(encoded, panelId);
 
   await panelTab.hover();
   const closeButton = panelTab.getByRole("button", { name: /^Close/ });
@@ -650,7 +650,7 @@ async function readWorkspaceBytes(page: Page, expect: Expect): Promise<Uint8Arra
   await expect(panelTab).toBeHidden({ timeout: 15_000 });
   const settingsFrame = await waitForEditorFrame(page, "settings editor restored after byte probe");
   await expectVisibleWithFrameDiagnostics(page, settingsFrame.getByLabel("Game title"), expect, "settings editor after byte probe");
-  return Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+  return bytes;
 }
 
 async function waitForBytesPanelFrame(page: Page, panelId: string): Promise<Frame> {
