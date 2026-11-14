@@ -2,7 +2,7 @@
 type: feature
 title: "The player applies the project's debug overlays, and runner diagnostics stay off unless asked"
 ticket: 32
-status: draft
+status: done
 ---
 
 # The player applies the project's debug overlays, and runner diagnostics stay off unless asked

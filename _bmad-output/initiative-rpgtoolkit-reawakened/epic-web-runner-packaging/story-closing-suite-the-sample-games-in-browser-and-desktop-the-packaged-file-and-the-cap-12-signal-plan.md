@@ -3,7 +3,7 @@ title: 'Closing suite: the sample games in browser and desktop, the packaged fil
 type: feature
 ticket: 14
 created: '2026-11-11'
-status: in-progress
+status: done
 tracker_id: "#944"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/944"
 baseline_revision: '23d7c590'

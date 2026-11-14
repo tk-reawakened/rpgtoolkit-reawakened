@@ -10,7 +10,7 @@
 
 export { analyse } from "./analyse.ts";
 export type { Analysis, AnalyseOptions } from "./analyse.ts";
-export { applyEdits, legacyFixes, sameLowering } from "./fixes.ts";
+export { applyEdits, legacyFixes, sameLowering, tk2ConversionRefusal } from "./fixes.ts";
 export type { LegacyFix, LegacyReview } from "./fixes.ts";
 export { canonicalNames, formatChanged, formatCheck, formatSource } from "./format.ts";
 export type { FormatCheck, FormatDialect, FormatFile, FormatOptions, FormatResult, FormatSkipReason } from "./format.ts";
