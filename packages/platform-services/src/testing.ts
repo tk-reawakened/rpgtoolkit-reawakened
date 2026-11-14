@@ -7,6 +7,8 @@ import { platformError, platformOk, type Disposable, type PlatformError, type Pl
 import type {
   Capability,
   DialogQuestion,
+  FilePickRequest,
+  OutsideFile,
   DocumentEdited,
   PlatformServices,
   ProjectHandle,
@@ -34,6 +36,12 @@ export interface MemoryPlatformServices extends PlatformServices {
   answerQuestions(...ids: readonly string[]): void;
   /** Answer later `dialogs.pickSavePath` requests in turn; `null` cancels, and with none left a request is cancelled. */
   answerSavePaths(...paths: readonly (string | null)[]): void;
+  /** Answer later `dialogs.pickFile` requests in turn; `null` cancels, and with none left a request is cancelled. */
+  answerFilePicks(...files: readonly (OutsideFile | null)[]): void;
+  /** Every `dialogs.pickFile` request, in order. */
+  readonly filePickRequests: readonly FilePickRequest[];
+  /** The project paths `shell.openExternal` was asked to open, in order. */
+  readonly openedExternally: readonly string[];
   /** Every question `dialogs.ask` was asked, in order. */
   readonly questions: readonly DialogQuestion<string>[];
   /** Every `dialogs.pickSavePath` request, in order. */
@@ -96,6 +104,9 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
   const pathAnswers: (string | null)[] = [];
   const questions: DialogQuestion<string>[] = [];
   const savePathRequests: SavePathRequest[] = [];
+  const fileAnswers: (OutsideFile | null)[] = [];
+  const filePickRequests: FilePickRequest[] = [];
+  const openedExternally: string[] = [];
 
   const touch = (): number => {
     tick += 1;
@@ -276,6 +287,20 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
         savePathRequests.push(request);
         return Promise.resolve(pathAnswers.length === 0 ? null : pathAnswers.shift() ?? null);
       },
+      pickFile: (request) => {
+        filePickRequests.push(request);
+        const answer = fileAnswers.shift() ?? null;
+        return Promise.resolve(answer === null ? null : { name: answer.name, bytes: answer.bytes.slice() });
+      },
+    },
+    shell: {
+      openExternal: (path) => {
+        const invalid = invalidPath(path, false);
+        if (invalid !== undefined) return Promise.resolve(platformError("invalid-path", invalid));
+        if (!files.has(fold(path))) return Promise.resolve(platformError("not-found", `File not found: ${path}`));
+        openedExternally.push(path);
+        return Promise.resolve(platformOk(undefined));
+      },
     },
     seed: (path, bytes) => {
       put(path, bytes);
@@ -292,6 +317,11 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
     answerSavePaths: (...paths) => {
       pathAnswers.push(...paths);
     },
+    answerFilePicks: (...picks) => {
+      fileAnswers.push(...picks);
+    },
+    filePickRequests,
+    openedExternally,
     questions,
     savePathRequests,
   };

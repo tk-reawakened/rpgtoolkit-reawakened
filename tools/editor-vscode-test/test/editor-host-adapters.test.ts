@@ -55,6 +55,9 @@ test("real web and VS Code adapters keep mounted title edits dirty and named aft
     capabilities: vscodeCapabilities(true),
     didEdit: (_editId: string) => undefined,
     preview: async () => ({ ok: false as const, message: "A main file has no picture." }),
+    visit: async () => ({ ok: false as const, message: "not used" }),
+    returnFromVisit: async () => ({ ok: false as const, message: "not used" }),
+    pickAsset: async () => ({ chosen: false as const }),
     saveThroughWorkbench: () => vscodeOpened.document.save(),
     resolveConflict: async (choice: "keep-local" | "reload") => vscodeOpened.document.resolveConflict(choice),
   };
@@ -131,6 +134,9 @@ test("web and VS Code adapters persist identical edited bytes through the workbe
     capabilities: vscodeCapabilities(true),
     didEdit: () => undefined,
     preview: async () => ({ ok: false as const, message: "A main file has no picture." }),
+    visit: async () => ({ ok: false as const, message: "not used" }),
+    returnFromVisit: async () => ({ ok: false as const, message: "not used" }),
+    pickAsset: async () => ({ chosen: false as const }),
     saveThroughWorkbench: async () => {
       workbenchSaveCalls += 1;
       return vscodeOpened.document.save();
@@ -323,6 +329,9 @@ test("two rejected recovery choices never discard local work when disk first mat
     capabilities: vscodeCapabilities(false),
     didEdit: () => undefined,
     preview: async () => ({ ok: false as const, message: "A main file has no picture." }),
+    visit: async () => ({ ok: false as const, message: "not used" }),
+    returnFromVisit: async () => ({ ok: false as const, message: "not used" }),
+    pickAsset: async () => ({ chosen: false as const }),
     saveThroughWorkbench: () => recovered.document.save(),
     resolveConflict: (choice: "keep-local" | "reload") => resolveRecoveryConflict(recovered.document, choice),
   };

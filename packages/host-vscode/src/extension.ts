@@ -3,6 +3,7 @@ import { vscodeCapabilities } from "./capabilities.ts";
 import { createGameEditorProvider, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
+import { registerGameView } from "./game-view.ts";
 
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
 const VIEW_TYPES = ["tkr.gameSettings", "tkr.board"] as const;
@@ -14,6 +15,7 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext): string
 }
 
 export function registerGameSettings(context: vscode.ExtensionContext): void {
+  registerGameView(context);
   const changes = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<GameDocument<vscode.Uri>>>();
   context.subscriptions.push(changes);
   const port: GameEditorPort<vscode.Uri> = {
@@ -31,6 +33,10 @@ export function registerGameSettings(context: vscode.ExtensionContext): void {
     },
     deleteBackup: async (destination) => { await vscode.workspace.fs.delete(destination); },
     executeCommand: async (command) => await vscode.commands.executeCommand(command),
+    uriFor: (folder, path) => vscode.Uri.joinPath(folder.uri, ...path.split("/")),
+    // `vscode.open` opens the file in the editor registered for it (a board opens in the board editor, by default).
+    openEditor: async (uri) => { await vscode.commands.executeCommand("vscode.open", uri); },
+    quickPick: async (items, placeholder) => (await vscode.window.showQuickPick(items.map((item) => ({ label: item.label, id: item.id, ...(item.description === undefined ? {} : { description: item.description }) })), { placeHolder: placeholder, ignoreFocusOut: true }))?.id,
   };
   const core = createGameEditorProvider(port, (event: GameEditEvent<vscode.Uri>) => changes.fire(event));
   const provider: vscode.CustomEditorProvider<GameDocument<vscode.Uri>> = {
