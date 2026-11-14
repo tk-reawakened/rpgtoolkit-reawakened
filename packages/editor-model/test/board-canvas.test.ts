@@ -356,7 +356,7 @@ test("draw with no brush says so and edits nothing; a brush that is not a tile c
   await click(s, s.centre);
   equal(s.editor.getState().message?.text, "Choose a tile in the tileset browser first.");
   equal(edits(s), 0);
-  s.brush = { kind: "stamp", stamp: { name: "house.tbm", width: 1, height: 1, cells: [GRASS] } };
+  s.brush = { kind: "stamp", stamp: { name: "house.tbm", width: 1, height: 1, cells: [GRASS], tints: [{ r: 0, g: 0, b: 0 }] } };
   s.editor.setTool("flood");
   await click(s, s.centre);
   match(s.editor.getState().message?.text ?? "", /needs a single tile/);

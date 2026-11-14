@@ -373,13 +373,15 @@ async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHos
     box = (await canvas.boundingBox())!;
     const cornerA = onPage(viewport, near(-3, -2));
     const cornerB = onPage(viewport, near(3, 2));
+    // The grid shows the current layer (the second, since the layer was changed above), which holds no tiles yet.
+    const base = await tile2.count();
     await page.mouse.move(cornerA.x, cornerA.y);
     await page.mouse.down();
     await page.mouse.move(cornerB.x, cornerB.y, { steps: 6 });
     await page.mouse.up();
     await expect(state).toHaveText("Unsaved changes");
     const edge = await tile2.count();
-    expect(edge, `${entry.label}: the rectangle added cells`).toBeGreaterThan(drawn);
+    expect(edge, `${entry.label}: the rectangle added cells`).toBeGreaterThan(base);
     await page.mouse.move(cornerA.x, cornerA.y);
     await page.keyboard.down("Control");
     await page.mouse.down();
@@ -390,7 +392,7 @@ async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHos
     await page.keyboard.press("ControlOrMeta+z");
     await expect.poll(() => tile2.count()).toBe(edge);
     await page.keyboard.press("ControlOrMeta+z");
-    await expect.poll(() => tile2.count()).toBe(drawn);
+    await expect.poll(() => tile2.count()).toBe(base);
     await expect(state).toHaveText("All changes saved");
     await closeActiveEditor(page, expect);
     const reopened = await openProjectBoard(page, entry.path, expect);

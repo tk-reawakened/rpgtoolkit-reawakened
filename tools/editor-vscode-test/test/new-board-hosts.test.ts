@@ -19,6 +19,7 @@ let createFolderProject: typeof import("@tk-reawakened/host-web/testing").create
 let createWorkbench: typeof import("@tk-reawakened/host-web/testing").createWorkbench;
 let runNewBoard: typeof import("@tk-reawakened/host-vscode/testing").runNewBoard;
 let isEditorHostRequest: typeof import("@tk-reawakened/host-vscode/testing").isEditorHostRequest;
+let RemoteDocument: typeof import("@tk-reawakened/host-vscode/testing").RemoteDocument;
 
 before(async () => {
   GlobalRegistrator.register();
@@ -30,7 +31,7 @@ before(async () => {
     return run;
   };
   ({ createFolderProject, createWorkbench } = await import("@tk-reawakened/host-web/testing"));
-  ({ runNewBoard, isEditorHostRequest } = await import("@tk-reawakened/host-vscode/testing"));
+  ({ runNewBoard, isEditorHostRequest, RemoteDocument } = await import("@tk-reawakened/host-vscode/testing"));
 });
 
 after(() => GlobalRegistrator.unregister());
@@ -184,14 +185,21 @@ test("VS Code asks the questions one at a time and makes the same board; a dismi
   const intact = await host.fs.read("Boards/cave.brd");
   ok(intact.ok);
   deepEqual(intact.value, bytes.value);
-  const templated = scripted(["glade", "Boards/cave.brd", "iso-rotated", "tiles", "6", "6", "2", ""]);
+  const templated = scripted(["glade", "Boards/cave.brd", "iso-rotated", "tiles", "6", "6", "2", "sky.png"]);
   const second = await runNewBoard({ fs: host.fs, layout, settings: host.settings, ui: templated.ui });
   ok(second.ok, second.ok ? "" : second.message);
   const copy = await host.fs.read("Boards/glade.brd");
   ok(copy.ok);
   const copied = readBoard(new BinaryReader(copy.value));
   ok(copied.ok);
-  equal(copied.value.properties.backgroundImage, "sky.png", "the template's background is copied");
+  equal(copied.value.properties.backgroundImage, "sky.png", "the template's background, which the question offered, is kept");
+  const cleared = scripted(["clearing", "Boards/cave.brd", "iso-rotated", "tiles", "6", "6", "2", ""]);
+  ok((await runNewBoard({ fs: host.fs, layout, settings: host.settings, ui: cleared.ui })).ok);
+  const emptied = await host.fs.read("Boards/clearing.brd");
+  ok(emptied.ok);
+  const reread = readBoard(new BinaryReader(emptied.value));
+  ok(reread.ok);
+  equal(reread.value.properties.backgroundImage, "", "an author who clears the offered background gets none");
 });
 
 test("the bridge refuses a picture request that is not layer numbers and a background flag", () => {
@@ -201,4 +209,20 @@ test("the bridge refuses a picture request that is not layer numbers and a backg
   ok(!isEditorHostRequest({ type: "preview", requestId: "a", request: { visibleLayers: "all" } }));
   ok(!isEditorHostRequest({ type: "preview", requestId: "a", request: { showBackground: "no" } }));
   ok(!isEditorHostRequest({ type: "preview", requestId: "a", request: null }));
+});
+
+test("a board preference the extension host sends reaches the webview's document at once and is read when the next gesture happens", () => {
+  const host = createMemoryPlatformServices({});
+  const snapshot = { identity: { key: "k", projectId: "p", path: "Boards/a.brd" } } as never;
+  const remote = new RemoteDocument("board", snapshot, { selection: null, path: null, scrollTop: 0 }, { postMessage: () => undefined, getState: () => undefined, setState: () => undefined }, { revertToDrawAfterFlood: true, recursiveFlood: false });
+  deepEqual(remote.boardPreferences.get(), { revertToDrawAfterFlood: true, recursiveFlood: false });
+  let heard = 0;
+  const stop = remote.boardPreferences.subscribe(() => { heard += 1; });
+  remote.receive({ type: "board-preferences", preferences: { revertToDrawAfterFlood: false, recursiveFlood: true } });
+  deepEqual(remote.boardPreferences.get(), { revertToDrawAfterFlood: false, recursiveFlood: true });
+  equal(heard, 1);
+  stop();
+  remote.receive({ type: "board-preferences", preferences: { revertToDrawAfterFlood: true, recursiveFlood: true } });
+  equal(heard, 1, "a stopped listener hears nothing");
+  ok(host !== undefined);
 });

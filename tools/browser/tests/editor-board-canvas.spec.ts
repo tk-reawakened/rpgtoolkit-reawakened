@@ -228,13 +228,15 @@ for (const system of SYSTEMS) {
     box = (await canvas.boundingBox())!;
     const cornerA = onPage(box, viewport, shape, near(-3, -2));
     const cornerB = onPage(box, viewport, shape, near(3, 2));
+    // The grid shows the current layer (the second, changed above), which holds no tiles yet.
+    const base = await tileButtons(page, "village.tst2").count();
     await page.mouse.move(cornerA.x, cornerA.y);
     await page.mouse.down();
     await page.mouse.move(cornerB.x, cornerB.y, { steps: 6 });
     await page.mouse.up();
     await expect(state(page)).toHaveText("Unsaved changes");
     const edge = await tileButtons(page, "village.tst2").count();
-    expect(edge).toBeGreaterThan(drawn);
+    expect(edge).toBeGreaterThan(base);
     await page.mouse.move(cornerA.x, cornerA.y);
     await page.keyboard.down("Control");
     await page.mouse.down();
@@ -244,6 +246,9 @@ for (const system of SYSTEMS) {
     await expect.poll(() => tileButtons(page, "village.tst2").count()).toBeGreaterThan(edge);
     await page.keyboard.press("Control+z");
     await expect.poll(() => tileButtons(page, "village.tst2").count()).toBe(edge);
+    await page.keyboard.press("Control+z");
+    await expect.poll(() => tileButtons(page, "village.tst2").count()).toBe(base);
+    await expect(state(page)).toHaveText("All changes saved");
     expect(await page.evaluate(() => (window as ProofWindow).__tkrCspViolations ?? [])).toEqual([]);
   });
 }
