@@ -13,6 +13,7 @@
     "onCustomEditor:tkr.board",
     "onCustomEditor:tkr.tileset",
     "onCustomEditor:tkr.tileBitmap",
+    "onCustomEditor:tkr.animation",
     "onView:tkr.game",
     "onCommand:tkr.runGame",
     "onCommand:tkr.startProgram",
@@ -95,6 +96,16 @@
         "selector": [
           {
             "filenamePattern": "*.tbm"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tkr.animation",
+        "displayName": "RPG Toolkit Animation Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.anm"
           }
         ],
         "priority": "default"

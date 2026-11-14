@@ -53,7 +53,8 @@ export type BridgeMessage =
   | { readonly type: "return-result"; readonly requestId: string; readonly outcome: ReturnOutcome }
   | { readonly type: "pick-result"; readonly requestId: string; readonly outcome: PickOutcome }
   | { readonly type: "browser-list-result"; readonly requestId: string; readonly result: PlatformResult<readonly DirectoryEntry[]> }
-  | { readonly type: "browser-read-result"; readonly requestId: string; readonly result: PlatformResult<Uint8Array> };
+  | { readonly type: "browser-read-result"; readonly requestId: string; readonly result: PlatformResult<Uint8Array> }
+  | { readonly type: "create-animation-bitmap-result"; readonly requestId: string; readonly result: PlatformResult<void> };
 
 export type EditorHostRequest =
   | { readonly type: "ready" }
@@ -67,7 +68,8 @@ export type EditorHostRequest =
   | { readonly type: "pick-asset"; readonly requestId: string; readonly request: AssetPickRequest }
   | { readonly type: "browser-context"; readonly changes: BrowserStatePatch }
   | { readonly type: "browser-list"; readonly requestId: string; readonly path: string }
-  | { readonly type: "browser-read"; readonly requestId: string; readonly path: string };
+  | { readonly type: "browser-read"; readonly requestId: string; readonly path: string }
+  | { readonly type: "create-animation-bitmap"; readonly requestId: string; readonly path: string; readonly bytes: Uint8Array };
 
 export type VscodeApi = { postMessage(message: EditorHostRequest): void; getState(): unknown; setState(state: unknown): void };
 
@@ -78,6 +80,7 @@ export interface BridgedDocument {
   readonly browserSession: BrowserSession;
   browserList(path: string): Promise<PlatformResult<readonly DirectoryEntry[]>>;
   browserRead(path: string): Promise<PlatformResult<Uint8Array>>;
+  readProject?(path: string): Promise<PlatformResult<Uint8Array>>;
   didEdit(editId: string): void;
   saveThroughWorkbench(): Promise<SaveResult>;
   resolveConflict(choice: ConflictChoice): Promise<ConflictResult>;
@@ -88,7 +91,7 @@ export interface BridgedDocument {
   visit(path: string): Promise<VisitOutcome>;
   returnFromVisit(): Promise<ReturnOutcome>;
   pickAsset(request: AssetPickRequest): Promise<PickOutcome>;
-  readProject(path: string): Promise<PlatformResult<Uint8Array>>;
+  createAnimationBitmap?(path: string, bytes: Uint8Array): Promise<PlatformResult<void>>;
 }
 
 /** Extension-host document actions are authoritative; UI saves enter VS Code's custom-editor lifecycle. */
@@ -123,7 +126,15 @@ export async function handleEditorHostRequest(
     const result = await document.saveThroughWorkbench();
     await postMessage({ type: "save-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
   } else if (request.type === "read-project") {
-    await postMessage({ type: "read-project-result", requestId: request.requestId, result: await document.readProject(request.path) });
+    const result = document.readProject === undefined
+      ? platformError("unavailable", "This host cannot read project assets for the animation editor.")
+      : await document.readProject(request.path);
+    await postMessage({ type: "read-project-result", requestId: request.requestId, result });
+  } else if (request.type === "create-animation-bitmap") {
+    const result = document.createAnimationBitmap === undefined
+      ? platformError("unavailable", "This host cannot create a tile bitmap from the animation editor.")
+      : await document.createAnimationBitmap(request.path, request.bytes);
+    await postMessage({ type: "create-animation-bitmap-result", requestId: request.requestId, result });
   } else if (request.type === "preview") {
     await postMessage({ type: "preview-result", requestId: request.requestId, picture: await document.preview(request.request) });
   } else if (request.type === "visit") {
@@ -206,13 +217,13 @@ export function isEditorHostRequest(value: unknown): value is EditorHostRequest 
   if (value.type === "ready") return true;
   if (value.type === "browser-context") return "changes" in value && isBrowserStatePatch(value.changes);
   if (!("requestId" in value) || typeof value.requestId !== "string") return false;
-  if (value.type === "browser-list" || value.type === "browser-read") return "path" in value && isProjectPath(value.path);
+  if (value.type === "browser-list" || value.type === "browser-read" || value.type === "read-project") return "path" in value && isProjectPath(value.path);
   if (value.type === "save" || value.type === "return-visit") return true;
   if (value.type === "preview") return !("request" in value) || value.request === undefined || isPreviewRequest(value.request);
   if (value.type === "visit") return "path" in value && typeof value.path === "string" && value.path !== "";
   if (value.type === "pick-asset") return "request" in value && isAssetPickRequest(value.request);
   if (value.type === "resolve-conflict") return "choice" in value && (value.choice === "keep-local" || value.choice === "reload");
-  if (value.type === "read-project") return "path" in value && typeof value.path === "string" && value.path !== "";
+  if (value.type === "create-animation-bitmap") return "path" in value && isProjectPath(value.path) && "bytes" in value && value.bytes instanceof Uint8Array;
   return value.type === "edit" && "command" in value && typeof value.command === "object" && value.command !== null;
 }
 
@@ -233,6 +244,7 @@ export class RemoteDocument {
   private readonly pendingPicks = new Map<string, (outcome: PickOutcome) => void>();
   private readonly pendingBrowserLists = new Map<string, (result: PlatformResult<readonly DirectoryEntry[]>) => void>();
   private readonly pendingBrowserReads = new Map<string, (result: PlatformResult<Uint8Array>) => void>();
+  private readonly pendingBitmapCreates = new Map<string, (result: PlatformResult<void>) => void>();
   private nextRequest = 0;
   private readonly vscode: VscodeApi;
   private applyingBrowserState = false;
@@ -274,6 +286,14 @@ export class RemoteDocument {
     return new Promise((resolve) => {
       this.pendingProjectReads.set(requestId, resolve);
       this.vscode.postMessage({ type: "read-project", requestId, path });
+    });
+  }
+  createAnimationBitmap(path: string, bytes: Uint8Array): Promise<PlatformResult<void>> {
+    if (this.kind !== "animation") return Promise.resolve(platformError("invalid-request", "Only the animation editor can create a tile-bitmap source."));
+    const requestId = `create-animation-bitmap-${++this.nextRequest}`;
+    return new Promise((resolve) => {
+      this.pendingBitmapCreates.set(requestId, resolve);
+      this.vscode.postMessage({ type: "create-animation-bitmap", requestId, path, bytes });
     });
   }
 
@@ -371,6 +391,10 @@ export class RemoteDocument {
     }
     if (message.type === "read-project-result") {
       this.settle(this.pendingProjectReads, message.requestId, message.result);
+      return;
+    }
+    if (message.type === "create-animation-bitmap-result") {
+      this.settle(this.pendingBitmapCreates, message.requestId, message.result);
       return;
     }
     if (message.type === "preview-result") {

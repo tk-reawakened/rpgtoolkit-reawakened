@@ -4,6 +4,7 @@ export { mount, mountAssetPicker, mountNewBoard, mountPreferences, mountRun, mou
 export type { AssetPickerViewProps } from "./asset-picker-view.tsx";
 export type { NewBoardViewProps } from "./new-board-view.tsx";
 export { SpriteView, type SpriteViewDocument, type SpriteViewProps } from "./sprite-view.tsx";
+export { AnimationView, type AnimationViewDocument, type AnimationViewProps } from "./animation-view.tsx";
 export type { PreferencesViewProps } from "./preferences-view.tsx";
 export type { RunViewProps } from "./run-view.tsx";
 export { createBrowserSession, type BrowserSession, type BrowserState, type BrowserSelection, type BrowserStamp } from "./brush.ts";

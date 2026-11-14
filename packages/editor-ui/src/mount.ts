@@ -18,7 +18,7 @@ import type {
   TilesetArtCommand,
   TilesetArtSnapshot,
 } from "@tk-reawakened/editor-model";
-import type { PlatformServices } from "@tk-reawakened/platform-services";
+import type { PlatformResult, PlatformServices } from "@tk-reawakened/platform-services";
 import { createElement, render } from "preact";
 import { AssetPickerView, type AssetPickerViewProps } from "./asset-picker-view.tsx";
 import { Shell, type ShellProps } from "./shell.tsx";
@@ -31,6 +31,7 @@ import { TileBitmapView } from "./tile-bitmap-view.tsx";
 import { SpriteView, type SpriteViewDocument } from "./sprite-view.tsx";
 import type { TilesetBrowserContext } from "./tileset-browser.tsx";
 import { TilesetArtView } from "./tileset-art-view.tsx";
+import { AnimationView, type AnimationViewDocument } from "./animation-view.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
 export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCommand> {
@@ -78,12 +79,14 @@ export interface TileBitmapViewDocument extends ViewDocument<TileBitmapDocumentS
 /** What a host gives a view when it mounts it (ADR 0025 decision 4). */
 export interface ViewContext {
   /** The document the view shows and edits. The view never owns it. */
-  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | SpriteViewDocument | TilesetArtViewDocument;
+  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | SpriteViewDocument | TilesetArtViewDocument | AnimationViewDocument;
   /**
    * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
    */
   readonly services: Pick<PlatformServices, "document" | "capabilities"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject"> };
+  /** A host-authorized, create-only path for the staged 4×4 TBM wizard. */
+  readonly createBitmapAsset?: (path: string, bytes: Uint8Array) => Promise<PlatformResult<void>>;
   /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
   readonly browser?: TilesetBrowserContext;
   /** The board-editor preferences (flood behaviour); the defaults of the catalogue when the host gives none. */
@@ -109,6 +112,10 @@ function isTileBitmapView(document: ViewContext["document"]): document is TileBi
 
 function isSpriteView(document: ViewContext["document"]): document is SpriteViewDocument {
   return document.kind === "character" || document.kind === "item";
+}
+
+function isAnimationView(document: ViewContext["document"]): document is AnimationViewDocument {
+  return document.kind === "animation";
 }
 
 /** Render the view of the document's kind into `el` (ADR 0026 decision 2: views are registered here, models in `editor-model`). */
@@ -138,6 +145,16 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
     const fs = ctx.services.fs;
     if (fs === undefined) throw new Error("A sprite view requires project-file read access.");
     view = createElement(SpriteView, { doc: document, fs, capabilities, onEdited });
+  } else if (isAnimationView(document)) {
+    const fs = ctx.services.fs;
+    if (fs === undefined) throw new Error("An animation view requires project-file read access.");
+    view = createElement(AnimationView, {
+      doc: document,
+      fs,
+      onEdited,
+      ...(ctx.createBitmapAsset === undefined ? {} : { writeBitmapAsset: ctx.createBitmapAsset }),
+      ...(ctx.browser === undefined ? {} : { browser: ctx.browser }),
+    });
   } else if (document.kind === "main") {
     view = createElement(SettingsView, { doc: document, capabilities, onEdited });
   } else {

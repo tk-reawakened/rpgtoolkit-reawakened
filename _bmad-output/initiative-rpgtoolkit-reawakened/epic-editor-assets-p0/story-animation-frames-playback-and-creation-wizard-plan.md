@@ -2,7 +2,7 @@
 type: feature
 title: "Animation frames playback and creation wizard"
 ticket: 7
-status: draft
+status: blocked
 ---
 
 # Animation frames playback and creation wizard
@@ -41,3 +41,9 @@ Implement story 12.7 / #1718 as a shared `.anm` authoring document and editor, i
 ## Dependencies and decision gate
 
 Prerequisites #1713 (12.2 shared browser), #1717 (12.8 tile bitmap document/editor) and #1699 (11.1 wizard recovery) are reported closed; consume their merged contracts, not duplicate providers. Follow `docs/adr/0022-shared-editor-authoring-contracts.md` D2/D4/D12 and `discovery/inception-proposal.md` composition lane. **Owner review of this plan is complete; proceed with binary minor-3 authoring and D2 read-only handling for text minor 0.** Keep multi-file cancellation/failure behavior honest to D4: no cross-document atomicity or rollback claim.
+
+## Actual provider gate and preserved work
+
+ADR 0022 D4.1 and D12.3 require a real checkpoint group before a wizard writes several documents. The accepted rule exists, but its shared store/restore provider does not: #1828 (11.14) remains open. This is ordinary creator recovery, not a hostile-local-filesystem race, and the owner's trusted-folder ruling does not remove it.
+
+The branch preserves a partial shared binary-animation document/view and both-host registration. It is not ready to merge as this story: checkpoint-group recovery is absent; the tile wizard currently handles one named frame, not the planned staged multi-frame batch with retry-remaining results; and explicit creation of a new `.anm` is absent. The full acceptance above remains unchanged. Resume against the actual 11.14 provider rather than shipping a host-specific recovery substitute or claiming completion.

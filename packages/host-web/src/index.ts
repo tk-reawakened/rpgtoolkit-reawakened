@@ -1,7 +1,8 @@
-import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
-import type { Capability, DialogService, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
+import { BinaryReader, readTileBitmap } from "@tk-reawakened/core";
+import { asAnimationDocument, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, previewTileBitmap, reservedFolder, type AnyDocument, type AnimationCommand, type AnimationDocument, type DocumentViewLease, type DocumentWorkspace, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import type { Capability, DialogService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { createBrowserSession, mount, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type SpriteViewDocument, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type SpriteViewDocument, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { createWebSettings, type UserSettingsStorage } from "./settings.ts";
@@ -213,6 +214,19 @@ function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContex
   if (document.kind === "main") return document as unknown as ViewDocument;
   if (document.kind === "tileset") return document as unknown as TilesetArtViewDocument;
   if (document.kind === "character" || document.kind === "item") return document as unknown as SpriteViewDocument;
+  if (document.kind === "animation") {
+    const animation = asAnimationDocument(document);
+    const view: AnimationViewDocument = {
+      kind: animation.kind,
+      identity: animation.identity,
+      getSnapshot: () => animation.getSnapshot(),
+      subscribe: (listener) => animation.subscribe(listener),
+      apply: (command: AnimationCommand) => animation.apply(command),
+      save: () => animation.save(),
+      resolveConflict: (choice) => animation.resolveConflict(choice),
+    };
+    return view;
+  }
   if (document.kind === "tile-bitmap") {
     const bitmap = document as unknown as Omit<TileBitmapViewDocument, "preview">;
     const view: TileBitmapViewDocument = {
@@ -247,6 +261,23 @@ function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContex
     redo: () => board.redo(),
   };
   return view;
+}
+async function createBitmapAsset(project: WebProject, layout: ProjectLayout, path: string, bytes: Uint8Array): Promise<PlatformResult<void>> {
+  const folder = reservedFolder(layout, "bitmaps");
+  const prefix = `${folder}/`;
+  const name = path.startsWith(prefix) ? path.slice(prefix.length) : "";
+  if (name === "" || name.includes("/") || name.includes("\\") || name === "." || name === ".." || !/\.tbm$/i.test(name)) {
+    return platformError("invalid-path", "A wizard can create only a named tile bitmap directly inside Bitmap.");
+  }
+  if (bytes.length > 1_000_000) return platformError("invalid-request", "The generated tile bitmap is too large.");
+  const parsed = readTileBitmap(new BinaryReader(bytes, path));
+  if (!parsed.ok || parsed.value.width !== 4 || parsed.value.height !== 4) {
+    return platformError("invalid-request", "The animation wizard accepts only a valid 4×4 tile bitmap.");
+  }
+  const stat = await project.services.fs.stat(path);
+  if (stat.ok) return platformError("already-exists", `${path} already exists; choose another name.`);
+  if (stat.error.code !== "not-found") return stat;
+  return project.services.fs.writeProject(project.project.id, path, bytes);
 }
 
 const boardPreferenceSources = new WeakMap<WebProject, BoardPreferencesSource>();
@@ -293,6 +324,7 @@ export function mountDocumentView(
       services: project.services,
       browser: { session: project.browserSession, fs: project.services.fs, layout: projectLayout, ...(openSource === undefined ? {} : { openSource }) },
       boardPreferences: boardPreferencesFor(project),
+      createBitmapAsset: (path, bytes) => createBitmapAsset(project, projectLayout, path, bytes),
     });
     notice = project.sessionCopy ? container.ownerDocument.createElement("p") : null;
     if (notice) {

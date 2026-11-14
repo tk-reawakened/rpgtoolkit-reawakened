@@ -152,6 +152,19 @@ export {
   type SpriteOpenResult,
 } from "./sprite-document.ts";
 export {
+  ANIMATION_FRAME_LIMIT,
+  animationCodec,
+  createAnimationDocument,
+  createNewAnimationDocument,
+  newAnimationBytes,
+  openAnimationDocument,
+  type AnimationCommand,
+  type AnimationDocument,
+  type AnimationDocumentFields,
+  type AnimationDocumentSnapshot,
+  type AnimationOpenResult,
+} from "./animation-document.ts";
+export {
   colourOfShade,
   createTileBitmapDocument,
   lightnessOfShade,
@@ -176,7 +189,7 @@ export {
 } from "./tile-bitmap-document.ts";
 export { previewTileBitmap, type TileBitmapPicture } from "./tile-bitmap-preview.ts";
 export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePreview, type TileSourcePreviewResult } from "./tile-source-preview.ts";
-export { asBoardDocument, asMainDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
+export { asAnimationDocument, asBoardDocument, asMainDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export { createDocumentIdentity, type DocumentIdentity } from "./identity.ts";
 export {
   applyMainSettings,

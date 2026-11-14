@@ -23,6 +23,7 @@ window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
         // The remote document has the surface of its kind's view document; the kind says which fields its snapshot has.
         document: remote as unknown as ViewContext["document"],
         services,
+        createBitmapAsset: (path, bytes) => remote.createAnimationBitmap(path, bytes),
         browser: {
           session: remote.browserSession,
           fs: { list: (path) => remote.browserList(path), read: (path) => remote.browserRead(path) },
