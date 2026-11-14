@@ -101,7 +101,7 @@ The editor's **"Make package"** (T-70) **writes a distribution package** — a `
 * every file whose extension is `.tkrscn`, `.tkrtile` or `.tkrpack`, compared with the package path's ASCII-folded extension (ADR 0019 decision 6);
 * every `*.spec.prg` creator test, matched case-insensitively (ADR 0022 D9 and TOOL-5);
 * the project-root reserved editor-history directory `.tkr-history/`, including all descendants (ADR 0022 D12.7);
-* a previous export only when its sibling `.tpk.json` file is a valid install descriptor and its `file`, size, SHA-256 and `gameId` match the sibling `.tpk` archive and the identity derived from its contents. Unpaired or invalid `.tpk` and `.tpk.json` files remain ordinary project assets.
+* a previous export only when its sibling `.tpk.json` file is a valid install descriptor and its `file`, size, SHA-256 and `gameId` match the sibling `.tpk` archive and the identity derived from that archive's contents; that `gameId` must also match the selected game's identity derived from the current project with only that candidate pair omitted. Unpaired or mismatched `.tpk` and `.tpk.json` files remain ordinary project assets.
 
 The editor reserves `.tkr-history/` for project-local history; it is not a game asset or a second history system. The exporter inventory check verifies each exclusion against the files it actually collected, rather than assuming a name filter worked. This rule applies to the distribution package this project writes and does not change the legacy `.tpk` PAK input contract. The `.tkr-history/` choice is a Reawakened reserved path; it does not alter what legacy packages may contain.
 
