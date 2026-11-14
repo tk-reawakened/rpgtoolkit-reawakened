@@ -7,7 +7,15 @@ import { access, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "../lifecycle.ts";
+import { autosaveSetting, cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "../lifecycle.ts";
+
+test("autosave observations tolerate an incomplete write without accepting invalid settings", () => {
+  const bytes = (value: string) => new TextEncoder().encode(value);
+  assert.match(String(autosaveSetting(bytes('{"files.autoSave":'))), /^invalid settings JSON:/);
+  assert.equal(autosaveSetting(bytes('{"files.autoSave":"afterDelay"}')), "afterDelay");
+  assert.equal(autosaveSetting(bytes("null")), "invalid settings JSON: expected an object");
+  assert.notEqual(autosaveSetting(bytes('{"files.autoSave":"off"}')), "afterDelay");
+});
 
 test("the process tracker captures asynchronous spawn errors and observes close", async () => {
   const missingExecutable = join(tmpdir(), `missing-vscode-test-${randomUUID()}`);

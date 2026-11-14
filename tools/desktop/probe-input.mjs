@@ -311,8 +311,18 @@ const KEY = {
   ArrowUp: { key: "ArrowUp", code: "ArrowUp", windowsVirtualKeyCode: 38, nativeVirtualKeyCode: 38, text: "", unmodifiedText: "" },
 };
 
+function removeTemporaryDirectory(directory) {
+  if (directory === null) return;
+  try {
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch (error) {
+    console.error(`probe-input: left ${directory} behind (${error instanceof Error ? error.message : String(error)})`);
+  }
+}
+
 async function main() {
   const pkg = packagePath();
+  const userDataDirectory = mkdtempSync(join(tmpdir(), "tkr-desktop-input-"));
   const port = await freePort();
   let inspectorPort = await freePort();
   if (inspectorPort === port) inspectorPort = await freePort();
@@ -323,6 +333,7 @@ async function main() {
       `--inspect=127.0.0.1:${inspectorPort}`,
       ...(process.platform === "linux" ? ["--enable-unsafe-swiftshader"] : []),
       dist,
+      "--user-data-dir", userDataDirectory,
       "--serve", root,
       "--game", pkg,
       "--page", "packages/runner-desktop/app/player.html",
@@ -338,6 +349,7 @@ async function main() {
     },
   );
   const log = [];
+  const stopped = new Promise((resolve) => child.once("exit", resolve));
   child.stdout.on("data", (chunk) => log.push(String(chunk)));
   child.stderr.on("data", (chunk) => log.push(String(chunk)));
 
@@ -352,6 +364,9 @@ async function main() {
     page?.close();
     mainDebugger?.close();
     child.kill();
+    await stopped;
+    removeTemporaryDirectory(userDataDirectory);
+    removeTemporaryDirectory(temporaryPackageDirectory);
     throw new Error(`${String(error)}\n${log.join("")}`);
   }
   const evaluate = async (expression) => {
@@ -612,8 +627,10 @@ async function main() {
     mainDebugger.close();
     page.close();
     child.kill();
+    await stopped;
+    removeTemporaryDirectory(userDataDirectory);
     if (temporaryPackageDirectory !== null) {
-      rmSync(temporaryPackageDirectory, { recursive: true, force: true });
+      removeTemporaryDirectory(temporaryPackageDirectory);
       temporaryPackageDirectory = null;
     }
   }

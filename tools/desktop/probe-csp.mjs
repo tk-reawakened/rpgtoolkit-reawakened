@@ -1,17 +1,17 @@
 // This probe runs in the real Electron page; it is slower than a unit test because it reloads a live game.
 import { build } from "esbuild";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 export async function probeDesktopCsp(page, evaluate, root, sleep) {
-  const filename = `desktop-csp-probe-${process.pid}.js`;
+  const id = randomUUID();
+  const filename = `desktop-csp-probe-${id}.js`;
   const output = join(root, "apps", "desktop", filename);
-  const workletFilename = `desktop-worklet-probe-${process.pid}.js`;
+  const workletFilename = `desktop-worklet-probe-${id}.js`;
   const workletOutput = join(root, "apps", "desktop", workletFilename);
-  const runnerFilename = `desktop-worklet-runner-${process.pid}.js`;
+  const runnerFilename = `desktop-worklet-runner-${id}.js`;
   const runnerOutput = join(root, "apps", "desktop", runnerFilename);
-  const liveWorklet = join(root, "apps", "desktop", "audio-worklet.js");
-  const originalWorklet = readFileSync(liveWorklet);
   const waitFor = async (expression) => {
     for (let n = 0; n < 150; n += 1) {
       try { if (await evaluate(expression)) return; } catch (error) {
@@ -91,9 +91,15 @@ export async function probeDesktopCsp(page, evaluate, root, sleep) {
     }
 
     // Exercise the actual desktop graph and status display with the decoder rejected in its own realm.
-    writeFileSync(liveWorklet, readFileSync(workletOutput));
     await page.send("Page.enable");
     const injection = await page.send("Page.addScriptToEvaluateOnNewDocument", { source: `{
+      const addModule = AudioWorklet.prototype.addModule;
+      AudioWorklet.prototype.addModule = function(url, options) {
+        if (new URL(url, location.href).pathname === '/apps/desktop/audio-worklet.js') {
+          return addModule.call(this, new URL('/apps/desktop/${workletFilename}', location.href).href, options);
+        }
+        return addModule.call(this, url, options);
+      };
       const Original = window.AudioWorkletNode;
       window.AudioWorkletNode = class extends Original {
         constructor(context, name, options) {
@@ -117,7 +123,6 @@ export async function probeDesktopCsp(page, evaluate, root, sleep) {
     })`);
     await waitFor("document.querySelector('#live-status')?.textContent.includes('worklet-decoder-probe-failure')");
     await page.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: injection.identifier });
-    writeFileSync(liveWorklet, originalWorklet);
     await evaluate("delete window.__probeControl; delete window.__live; true");
     await page.send("Page.reload");
     await waitFor("window.__live?.tick > 0 || !!window.__live?.error");
@@ -157,7 +162,6 @@ export async function probeDesktopCsp(page, evaluate, root, sleep) {
     if (!String(failure).includes("decoder-probe-failure")) throw new Error(`decoder failure was not reported: ${failure}`);
     return { inline, energy: sound.energy, evalBlocked: sound.evalBlocked, readinessWaited: true, failureReported: true, workletRace: race, workletFailureVisible: true };
   } finally {
-    writeFileSync(liveWorklet, originalWorklet);
     rmSync(output, { force: true });
     rmSync(workletOutput, { force: true });
     rmSync(runnerOutput, { force: true });

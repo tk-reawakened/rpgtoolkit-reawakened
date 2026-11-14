@@ -19,6 +19,6 @@ In both hosts a .prg edits and saves with live coloring, symbols and comments na
 
 ## Decisions and prerequisites
 
-ADR 0021 selects Monaco, not its integration version; [ADR 0029](../../../docs/adr/0029-monaco-csp-style-src.md) proposes its CSP posture for owner ruling. 22.9 may add grammar later and is not a prerequisite.
+ADR 0021 selects Monaco, not its integration version. The CSP posture is accepted in [ADR 0029](../../../docs/adr/0029-monaco-csp-style-src.md): standalone Monaco pages allow inline styles and self fonts while scripts remain strict; VS Code keeps its native text editors and strict style policy. 11.7 still must complete the worker/offline, production asset, and G6 licensing proofs. 22.9 may add grammar later and is not a prerequisite.
 
 Prerequisites: 11.3, 11.5, 10.1, 10.5.
