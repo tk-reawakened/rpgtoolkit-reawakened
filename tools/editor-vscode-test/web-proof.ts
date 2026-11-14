@@ -1345,7 +1345,7 @@ async function openGame(page: Page, gamePath: string, expect: Expect): Promise<v
   await expect(gameFile).toBeVisible();
   await gameFile.dblclick();
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: segments.at(-1)! }).first()).toBeVisible();
-  await expect(page.locator("iframe.webview")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("iframe.webview:visible")).toBeVisible({ timeout: 30_000 });
 }
 
 async function closeActiveEditor(page: Page, expect: Expect): Promise<void> {
