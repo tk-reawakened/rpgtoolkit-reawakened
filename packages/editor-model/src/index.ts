@@ -92,6 +92,7 @@ export {
 export {
   DEFAULT_EDITOR_PREFERENCES,
   createBoardEditor,
+  editorPreferencesFrom,
   pendingCells,
   type Brush,
   type BoardEditor,

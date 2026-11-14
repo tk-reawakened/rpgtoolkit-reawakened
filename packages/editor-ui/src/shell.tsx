@@ -19,6 +19,8 @@ export interface ShellProps {
   readonly onOpenPath: (path: string) => void;
   /** Called once with the element the active editor is mounted into, and with `null` when the shell goes away. */
   readonly onEditorElement: (element: HTMLElement | null) => void;
+  /** Ask the host for the new-board questions (T-20); no button is shown without it. */
+  readonly onNewBoard?: () => void;
   /** Changes when the project's files may have, so the Game panel reads them again. */
   readonly version?: unknown;
 }
@@ -34,7 +36,7 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 }
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
-export function Shell({ layout, tabs, tree, projectLayout, fs, onOpened, onOpenPath, onEditorElement, version }: ShellProps) {
+export function Shell({ layout, tabs, tree, projectLayout, fs, onOpened, onOpenPath, onEditorElement, onNewBoard, version }: ShellProps) {
   // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
   const tabsSnapshot = useDocumentSnapshot(tabs);
   return (
@@ -42,7 +44,7 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, onOpened, onOpenP
       layout={layout}
       tabs={<TabStrip tabs={tabs} />}
       panels={{
-        files: <FilesView tree={tree} onOpened={onOpened} />,
+        files: <FilesView tree={tree} onOpened={onOpened} {...(onNewBoard === undefined ? {} : { onNewBoard })} />,
         game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
       }}
     >

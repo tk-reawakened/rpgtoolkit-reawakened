@@ -323,7 +323,7 @@ class Webview {
         postMessage: (request) => this.#send(request),
         getState: () => undefined,
         setState: () => undefined,
-      });
+      }, message.boardPreferences);
       page.remote = remote;
       page.handle = mount(page.element, {
         document: remote as unknown as ViewContext["document"],
@@ -333,6 +333,7 @@ class Webview {
           fs: { list: (path) => remote.browserList(path), read: (path) => remote.browserRead(path) },
           layout: { projectFolder: "" },
         },
+        boardPreferences: remote.boardPreferences,
       });
       return;
     }

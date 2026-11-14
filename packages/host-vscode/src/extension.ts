@@ -4,6 +4,9 @@ import { createGameEditorProvider, type GameDocument, type GameEditEvent, type G
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
 import { registerGameView } from "./game-view.ts";
+import { runNewBoard, type NewBoardUi } from "./new-board.ts";
+import { createVscodeServices } from "./services.ts";
+import { DEFAULT_EDITOR_PREFERENCES } from "@tk-reawakened/editor-model";
 
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
 const VIEW_TYPES = ["tkr.gameSettings", "tkr.board"] as const;
@@ -37,6 +40,16 @@ export function registerGameSettings(context: vscode.ExtensionContext): void {
     uriFor: (folder, path) => vscode.Uri.joinPath(folder.uri, ...path.split("/")),
     // `vscode.open` opens the file in the editor registered for it (a board opens in the board editor, by default).
     openEditor: async (uri) => { await vscode.commands.executeCommand("vscode.open", uri); },
+    boardPreferences: (folder) => {
+      const settings = vscode.workspace.getConfiguration("rpgToolkit", folder.uri);
+      return {
+        revertToDrawAfterFlood: settings.get<boolean>("board.revertToDrawAfterFlood", DEFAULT_EDITOR_PREFERENCES.revertToDrawAfterFlood),
+        recursiveFlood: settings.get<boolean>("board.recursiveFlood", DEFAULT_EDITOR_PREFERENCES.recursiveFlood),
+      };
+    },
+    watchBoardPreferences: (folder, listener) => vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration("rpgToolkit.board", folder.uri)) listener();
+    }),
     quickPick: async (items, placeholder) => (await vscode.window.showQuickPick(items.map((item) => ({ label: item.label, id: item.id, ...(item.description === undefined ? {} : { description: item.description }) })), { placeHolder: placeholder, ignoreFocusOut: true }))?.id,
   };
   const core = createGameEditorProvider(port, (event: GameEditEvent<vscode.Uri>) => changes.fire(event));
@@ -62,4 +75,44 @@ export function registerGameSettings(context: vscode.ExtensionContext): void {
   for (const viewType of VIEW_TYPES) {
     context.subscriptions.push(vscode.window.registerCustomEditorProvider(viewType, provider, { webviewOptions: { retainContextWhenHidden: false }, supportsMultipleEditorsPerDocument: true }));
   }
+}
+
+/** The new-board command (T-20): the questions are VS Code's own input boxes and pick lists, one after another. */
+export function registerNewBoard(context: vscode.ExtensionContext): void {
+  const ui: NewBoardUi = {
+    input: (question) => Promise.resolve(vscode.window.showInputBox({
+      title: question.title,
+      prompt: question.prompt,
+      value: question.value,
+      ignoreFocusOut: true,
+      validateInput: (value) => question.validate(value) ?? undefined,
+    })),
+    pick: async (question) => (await vscode.window.showQuickPick(
+      question.items.map((item) => ({ label: item.label, id: item.id, ...(item.description === undefined ? {} : { description: item.description }) })),
+      { title: question.title, ignoreFocusOut: true },
+    ))?.id,
+  };
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.newBoard", async () => {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    if (folders.length === 0) {
+      await vscode.window.showErrorMessage("Open a project folder first: a new board is made in the project's Boards folder.");
+      return;
+    }
+    // One workspace folder is one project (ADR 0022 D1.1); a multi-root workspace asks which.
+    const folder = folders.length === 1 ? folders[0]! : await pickFolder(folders);
+    if (folder === undefined) return;
+    const services = createVscodeServices(folder.uri);
+    const outcome = await runNewBoard({ fs: services.fs, layout: { projectFolder: "" }, settings: services.settings, ui });
+    if (!outcome.ok) {
+      if (outcome.reason === "refused") await vscode.window.showErrorMessage(outcome.message);
+      return;
+    }
+    if (outcome.warning !== null) void vscode.window.showWarningMessage(outcome.warning);
+    await vscode.commands.executeCommand("vscode.open", vscode.Uri.joinPath(folder.uri, ...outcome.path.split("/")));
+  }));
+}
+
+async function pickFolder(folders: readonly vscode.WorkspaceFolder[]): Promise<vscode.WorkspaceFolder | undefined> {
+  const chosen = await vscode.window.showQuickPick(folders.map((folder) => ({ label: folder.name, folder })), { title: "New board: project", ignoreFocusOut: true });
+  return chosen?.folder;
 }

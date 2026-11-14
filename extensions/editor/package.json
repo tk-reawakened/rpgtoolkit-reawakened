@@ -32,6 +32,10 @@
       {
         "command": "tkr.refreshGame",
         "title": "RPG Toolkit: Refresh the Game view"
+      },
+      {
+        "command": "tkr.newBoard",
+        "title": "RPG Toolkit: New board"
       }
     ],
     "customEditors": [

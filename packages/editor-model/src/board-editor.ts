@@ -1,4 +1,5 @@
 import type { ApplyResult } from "./binary-document.ts";
+import type { PreferencesSnapshot } from "./preferences.ts";
 import type { BoardCommand, TileGesture } from "./board-document.ts";
 import { boardTileAt } from "./board-document.ts";
 import {
@@ -62,6 +63,18 @@ export interface EditorPreferences {
 }
 
 export const DEFAULT_EDITOR_PREFERENCES: EditorPreferences = { revertToDrawAfterFlood: true, recursiveFlood: false };
+
+/** The board-editor preferences in force in a preferences snapshot (T-33); a value the catalogue does not have is the default. */
+export function editorPreferencesFrom(snapshot: PreferencesSnapshot): EditorPreferences {
+  const value = (id: string, fallback: boolean): boolean => {
+    const effective = snapshot.rows.find((row) => row.entry.id === id)?.effective;
+    return typeof effective === "boolean" ? effective : fallback;
+  };
+  return {
+    revertToDrawAfterFlood: value("board.revertToDrawAfterFlood", DEFAULT_EDITOR_PREFERENCES.revertToDrawAfterFlood),
+    recursiveFlood: value("board.recursiveFlood", DEFAULT_EDITOR_PREFERENCES.recursiveFlood),
+  };
+}
 
 export interface BoardEditorOptions {
   /** The board as it is now. */
