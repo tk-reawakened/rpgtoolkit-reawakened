@@ -26,6 +26,10 @@ interface TilePreview {
   readonly height: number;
   readonly pixels: Uint8Array;
 }
+interface DecodedSourcePreview {
+  readonly preview: TilePreview;
+  readonly tileCount: number | null;
+}
 
 
 function sourceReference(source: Source): string {
@@ -133,6 +137,7 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
     setMessage(null);
     session.update({ path: source.path, scrollTop: session.getSnapshot().scrollTop });
     const isCurrent = (): boolean => currentRequest === request.current;
+    const decodedCache = new Map<string, Promise<DecodedSourcePreview | null>>();
     try {
       const result = await fs.read(source.path);
       if (!isCurrent()) return;
@@ -186,7 +191,7 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
         const animation = readTileAnimation(new BinaryReader(result.value, source.path));
         if (!animation.ok) throw new Error(animation.error.message);
         const frame = animation.value.frames.find((entry) => entry !== "");
-        if (frame !== undefined) preview = await previewReference(frame, available);
+        if (frame !== undefined) preview = await previewReference(frame, available, decodedCache);
         if (!isCurrent()) return;
         setMessage(`Animated tile: ${animation.value.frames.length} frames at ${1000 / animation.value.speed} ms per frame. Select the animation as a board brush.`);
       } else {
@@ -194,9 +199,8 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
         if (!bitmap.ok) throw new Error(bitmap.error.message);
         const tiles = new Map<string, { w: number; h: number; rgba: Uint8Array }>();
         for (const cell of bitmap.value.cells) {
-          if (cell.tile === "") continue;
-          if (tiles.has(cell.tile)) continue;
-          const tile = await previewReference(cell.tile, available);
+          if (cell.tile === "" || tiles.has(cell.tile)) continue;
+          const tile = await previewReference(cell.tile, available, decodedCache);
           if (tile !== undefined) tiles.set(cell.tile, { w: tile.width, h: tile.height, rgba: tile.pixels });
         }
         if (!isCurrent()) return;
@@ -219,33 +223,53 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
   }
   }
 
-  async function previewReference(reference: string, available: readonly Source[]): Promise<TilePreview | undefined> {
+  async function previewReference(
+    reference: string,
+    available: readonly Source[],
+    decodedCache: Map<string, Promise<DecodedSourcePreview | null>>,
+  ): Promise<TilePreview | undefined> {
     const normalized = reference.replaceAll("/", "\\");
     const single = /\.gph$/i.test(normalized);
     const match = single ? null : /^(.*\.(?:tst|iso))(\d+)$/i.exec(normalized);
     if (!single && match === null) return undefined;
-    const wantedSource = single ? normalized.toLowerCase() : match![1]!.toLowerCase();
-    const source = available.find((candidate) => sourceReference(candidate).toLowerCase() === wantedSource);
+    const wantedSourceKey = assetKey(single ? normalized : match![1]!);
+    const source = available.find((candidate) => assetKey(sourceReference(candidate)) === wantedSourceKey);
     if (source === undefined) return undefined;
-    const bytes = await fs.read(source.path);
-    if (!bytes.ok) return undefined;
-    const decoded = decodeTileTexture(assetKey(source.reference), bytes.value);
-    if (!decoded.ok) return undefined;
-    if (single) return { width: decoded.texture.w, height: decoded.texture.h, pixels: decoded.texture.rgba };
-
-    const parsed = readTileset(bytes.value, source.path);
-    if (!parsed.ok) return undefined;
+    const key = assetKey(sourceReference(source));
+    let decoded = decodedCache.get(key);
+    if (decoded === undefined) {
+      decoded = (async (): Promise<DecodedSourcePreview | null> => {
+        const bytes = await fs.read(source.path);
+        if (!bytes.ok) return null;
+        const texture = decodeTileTexture(assetKey(source.reference), bytes.value);
+        if (!texture.ok) return null;
+        const ext = suffix(source.path);
+        if (ext !== ".tst" && ext !== ".iso") {
+          return { preview: { width: texture.texture.w, height: texture.texture.h, pixels: texture.texture.rgba }, tileCount: null };
+        }
+        const parsed = readTileset(bytes.value, source.path);
+        if (!parsed.ok) return null;
+        return {
+          preview: { width: texture.texture.w, height: texture.texture.h, pixels: texture.texture.rgba },
+          tileCount: parsed.value.tiles.length,
+        };
+      })();
+      decodedCache.set(key, decoded);
+    }
+    const data = await decoded;
+    if (data === null) return undefined;
+    if (single) return data.preview;
     const index = Number(match![2]) - 1;
-    if (!Number.isInteger(index) || index < 0 || index >= parsed.value.tiles.length) return undefined;
-    const width = decoded.texture.w / parsed.value.tiles.length;
+    if (data.tileCount === null || !Number.isInteger(index) || index < 0 || index >= data.tileCount) return undefined;
+    const width = data.preview.width / data.tileCount;
     if (!Number.isInteger(width)) return undefined;
-    const height = decoded.texture.h;
+    const height = data.preview.height;
     const pixels = new Uint8Array(width * height * 4);
     const offsetX = index * width;
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
-        const sourceOffset = (y * decoded.texture.w + offsetX + x) * 4;
-        pixels.set(decoded.texture.rgba.subarray(sourceOffset, sourceOffset + 4), (y * width + x) * 4);
+        const sourceOffset = (y * data.preview.width + offsetX + x) * 4;
+        pixels.set(data.preview.pixels.subarray(sourceOffset, sourceOffset + 4), (y * width + x) * 4);
       }
     }
     return { width, height, pixels };
@@ -273,7 +297,10 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
     if (event.shiftKey && event.key === "F10" && item !== undefined) {
       const control = event.target instanceof Element ? event.target.closest<HTMLButtonElement>("button") : null;
       const invoker = control !== null && row?.contains(control) ? control : row?.querySelector<HTMLButtonElement>("button") ?? row;
-      if (invoker !== null) openMenu(item, invoker);
+      if (invoker !== null) {
+        event.preventDefault();
+        openMenu(item, invoker);
+      }
     }
   };
 

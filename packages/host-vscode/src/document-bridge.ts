@@ -1,6 +1,6 @@
 import { ASSET_FOLDERS, kindById, type AnyDocument, type AssetKind, type ApplyResult, type BoardPicture, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type PickOutcome, type SaveResult } from "@tk-reawakened/editor-model";
 import type { Capability, DirectoryEntry, PlatformResult } from "@tk-reawakened/platform-services";
-import { createBrowserSession, type BrowserSession, type BrowserState } from "@tk-reawakened/editor-ui/browser-session";
+import { createBrowserSession, type BrowserSession, type BrowserState, type BrowserStatePatch } from "@tk-reawakened/editor-ui/browser-session";
 
 /** What a view asks to choose: an asset of `kind` for a field, accepting `extensions` (lower-case with the dot; empty accepts any). */
 export interface AssetPickRequest {
@@ -21,7 +21,7 @@ export type BridgedSnapshot = DocumentSnapshot<unknown>;
 export type BridgeMessage =
   | { readonly type: "initialize"; readonly kind: string; readonly snapshot: BridgedSnapshot; readonly capabilities: readonly Capability[]; readonly browserState: BrowserState }
   | { readonly type: "snapshot"; readonly snapshot: BridgedSnapshot }
-  | { readonly type: "browser-state"; readonly state: BrowserState }
+  | { readonly type: "browser-state"; readonly changes: BrowserStatePatch }
   | { readonly type: "edit-result"; readonly requestId: string; readonly result: ApplyResult; readonly snapshot: BridgedSnapshot }
   | { readonly type: "save-result"; readonly requestId: string; readonly result: SaveResult; readonly snapshot: BridgedSnapshot }
   | { readonly type: "conflict-result"; readonly requestId: string; readonly result: ConflictResult; readonly snapshot: BridgedSnapshot }
@@ -41,7 +41,7 @@ export type EditorHostRequest =
   | { readonly type: "visit"; readonly requestId: string; readonly path: string }
   | { readonly type: "return-visit"; readonly requestId: string }
   | { readonly type: "pick-asset"; readonly requestId: string; readonly request: AssetPickRequest }
-  | { readonly type: "browser-context"; readonly state: BrowserState }
+  | { readonly type: "browser-context"; readonly changes: BrowserStatePatch }
   | { readonly type: "browser-list"; readonly requestId: string; readonly path: string }
   | { readonly type: "browser-read"; readonly requestId: string; readonly path: string };
 
@@ -79,7 +79,7 @@ export async function handleEditorHostRequest(
       browserState: document.browserSession.getSnapshot(),
     });
   } else if (request.type === "browser-context") {
-    document.browserSession.update(request.state);
+    applyBrowserStatePatch(document.browserSession, request.changes);
   } else if (request.type === "browser-list") {
     await postMessage({ type: "browser-list-result", requestId: request.requestId, result: await document.browserList(request.path) });
   } else if (request.type === "browser-read") {
@@ -123,12 +123,9 @@ function isProjectPath(value: unknown): value is string {
   ));
 }
 
-function isBrowserState(value: unknown): value is BrowserState {
-  if (typeof value !== "object" || value === null || !("selection" in value) || !("path" in value) || !("scrollTop" in value)) return false;
-  if (!(value.path === null || isProjectPath(value.path)) || typeof value.scrollTop !== "number" || !Number.isFinite(value.scrollTop) || value.scrollTop < 0) return false;
-  if (value.selection === null) return true;
-  if (typeof value.selection !== "object" || value.selection === null) return false;
-  const selection = value.selection;
+function isBrowserSelection(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const selection = value;
   return "kind" in selection && (selection.kind === "tiles" || selection.kind === "bitmaps")
     && "path" in selection && isProjectPath(selection.path)
     && "reference" in selection && typeof selection.reference === "string" && selection.reference !== ""
@@ -136,10 +133,31 @@ function isBrowserState(value: unknown): value is BrowserState {
     && "boardTile" in selection && (selection.boardTile === null || typeof selection.boardTile === "string");
 }
 
+
+function isBrowserStatePatch(value: unknown): value is BrowserStatePatch {
+  if (!Array.isArray(value)) return false;
+  return value.every((change) => {
+    if (typeof change !== "object" || change === null || !("field" in change) || !("value" in change)) return false;
+    if (change.field === "selection") return change.value === null || isBrowserSelection(change.value);
+    if (change.field === "path") return change.value === null || isProjectPath(change.value);
+    return change.field === "scrollTop" && typeof change.value === "number" && Number.isFinite(change.value) && change.value >= 0;
+  });
+}
+
+function applyBrowserStatePatch(session: BrowserSession, changes: BrowserStatePatch): void {
+  const update: { -readonly [Key in keyof BrowserState]?: BrowserState[Key] } = {};
+  for (const change of changes) {
+    if (change.field === "selection") update.selection = change.value;
+    else if (change.field === "path") update.path = change.value;
+    else update.scrollTop = change.value;
+  }
+  session.update(update);
+}
+
 export function isEditorHostRequest(value: unknown): value is EditorHostRequest {
   if (typeof value !== "object" || value === null || !("type" in value)) return false;
   if (value.type === "ready") return true;
-  if (value.type === "browser-context") return "state" in value && isBrowserState(value.state);
+  if (value.type === "browser-context") return "changes" in value && isBrowserStatePatch(value.changes);
   if (!("requestId" in value) || typeof value.requestId !== "string") return false;
   if (value.type === "browser-list" || value.type === "browser-read") return "path" in value && isProjectPath(value.path);
   if (value.type === "save" || value.type === "preview" || value.type === "return-visit") return true;
@@ -176,8 +194,8 @@ export class RemoteDocument {
     this.identity = snapshot.identity;
     this.vscode = vscode;
     this.browserSession = createBrowserSession(browserState);
-    this.browserSession.subscribe(() => {
-      if (!this.applyingBrowserState) this.vscode.postMessage({ type: "browser-context", state: this.browserSession.getSnapshot() });
+    this.browserSession.subscribe((changes) => {
+      if (!this.applyingBrowserState) this.vscode.postMessage({ type: "browser-context", changes });
     });
   }
 
@@ -264,8 +282,11 @@ export class RemoteDocument {
   receive(message: BridgeMessage): void {
     if (message.type === "browser-state") {
       this.applyingBrowserState = true;
-      this.browserSession.update(message.state);
-      this.applyingBrowserState = false;
+      try {
+        applyBrowserStatePatch(this.browserSession, message.changes);
+      } finally {
+        this.applyingBrowserState = false;
+      }
       return;
     }
     if (message.type === "browser-list-result") {

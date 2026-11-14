@@ -450,7 +450,9 @@ test("Shift+F10 opens the bitmap actions, gives them focus, and Escape restores 
   for (let turn = 0; turn < 100 && s.el.querySelector(".tkr-tileset-browser-item")?.textContent?.includes("portrait") !== true; turn += 1) await new Promise<void>((resolve) => setImmediate(resolve));
   const invoke = s.el.querySelector<HTMLButtonElement>(".tkr-tileset-browser-source");
   ok(invoke !== null);
-  await act(() => { invoke.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true })); });
+  const shortcut = new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true });
+  await act(() => { invoke.dispatchEvent(shortcut); });
+  equal(shortcut.defaultPrevented, true, "Shift+F10 suppresses the browser-native context menu so the menu can return focus to its invoker");
   const close = s.el.querySelector<HTMLButtonElement>(".tkr-tileset-browser-menu button:last-child");
   ok(close !== null && close.textContent === "Close actions");
   equal(document.activeElement, close, "the bitmap menu has an enabled focused action");
@@ -471,10 +473,12 @@ test("bitmap previews resolve .gph and scale 16px tiles to their documented pixe
     magic: TILE_BITMAP_MAGIC,
     major: 3,
     minor: 0,
-    width: 2,
+    width: 3,
     height: 1,
     cells: [
       { tile: "tileset_detail2.tst1", r: 0, g: 0, b: 0 },
+      { tile: "", r: 0, g: 0, b: 0 },
+      { tile: "tileset_detail2.tst2", r: 0, g: 0, b: 0 },
       { tile: "", r: 0, g: 0, b: 0 },
       { tile: "flower.gph", r: 0, g: 0, b: 0 },
       { tile: "", r: 0, g: 0, b: 0 },
@@ -493,15 +497,18 @@ test("bitmap previews resolve .gph and scale 16px tiles to their documented pixe
   const tileWidth = decoded.texture.w / tileSet.value.tiles.length;
   equal(tileWidth, 32, "16px detail tiles are expanded to the board's 32px tile size");
   const firstTile = new Uint8Array(tileWidth * decoded.texture.h * 4);
+  const secondTile = new Uint8Array(tileWidth * decoded.texture.h * 4);
   for (let y = 0; y < decoded.texture.h; y += 1) {
     firstTile.set(decoded.texture.rgba.subarray(y * decoded.texture.w * 4, (y * decoded.texture.w + tileWidth) * 4), y * tileWidth * 4);
+    secondTile.set(decoded.texture.rgba.subarray((y * decoded.texture.w + tileWidth) * 4, (y * decoded.texture.w + tileWidth * 2) * 4), y * tileWidth * 4);
   }
   const expected = compositeTileBitmap(parsedBitmap.value, new Map([
     ["tileset_detail2.tst1", { w: tileWidth, h: decoded.texture.h, rgba: firstTile }],
+    ["tileset_detail2.tst2", { w: tileWidth, h: decoded.texture.h, rgba: secondTile }],
     ["flower.gph", { w: flower.texture.w, h: flower.texture.h, rgba: flower.texture.rgba }],
   ]));
   ok(expected.ok);
-  equal(expected.value.w, 64);
+  equal(expected.value.w, 96);
   equal(expected.value.h, 32);
   const s = await setup(exampleBoard(), createBrowserSession(), {
     "Tiles/tileset_detail2.tst": tiny,
@@ -526,8 +533,19 @@ test("bitmap previews resolve .gph and scale 16px tiles to their documented pixe
     },
   });
   let handle: ViewHandle | undefined;
+  let atlasReads = 0;
+  const browser: TilesetBrowserContext = {
+    ...s.browser,
+    fs: {
+      list: (path) => s.host.fs.list(path),
+      read: (path) => {
+        if (path === "Tiles/tileset_detail2.tst") atlasReads += 1;
+        return s.host.fs.read(path);
+      },
+    },
+  };
   try {
-    handle = await show(s);
+    handle = await show(s, browser);
     const source = s.el.querySelector<HTMLSelectElement>(".tkr-tileset-browser select");
     ok(source !== null);
     await act(async () => {
@@ -545,10 +563,69 @@ test("bitmap previews resolve .gph and scale 16px tiles to their documented pixe
     const context = preview.getContext("2d");
     ok(context !== null);
     deepEqual([...context.getImageData(0, 0, preview.width, preview.height).data], [...expected.value.rgba], "the drawn bitmap preview matches the canonical compositor pixel-for-pixel");
+    equal(atlasReads, 1, "distinct indices reuse one decoded atlas during the bitmap load");
   } finally {
     handle?.dispose();
     if (canvasDescriptor !== undefined) Object.defineProperty(HTMLCanvasElement.prototype, "getContext", canvasDescriptor);
   }
+});
+test("tile-reference matching folds ASCII path characters without conflating Unicode case", async () => {
+  const single = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/files/flower.gph", import.meta.url)));
+  const bitmapFor = (reference: string): Uint8Array => {
+    const written = writeTileBitmap({
+      magic: TILE_BITMAP_MAGIC,
+      major: 3,
+      minor: 0,
+      width: 1,
+      height: 1,
+      cells: [
+        { tile: reference, r: 0, g: 0, b: 0 },
+        { tile: "", r: 0, g: 0, b: 0 },
+        { tile: "", r: 0, g: 0, b: 0 },
+        { tile: "", r: 0, g: 0, b: 0 },
+      ],
+      residue: new Uint8Array(),
+    });
+    ok(written.ok);
+    return written.value;
+  };
+  const s = await setup(exampleBoard(), createBrowserSession({ selection: null, path: "Bitmap/unicode.tbm", scrollTop: 0 }), {
+    "Tiles/Ä.gph": single,
+    "Tiles/FLOWER.GPH": single,
+    "Bitmap/unicode.tbm": bitmapFor("ä.gph"),
+    "Bitmap/ascii.tbm": bitmapFor("flower.gph"),
+  });
+  const readPaths: string[] = [];
+  const browser: TilesetBrowserContext = {
+    ...s.browser,
+    fs: {
+      list: (path) => s.host.fs.list(path),
+      read: (path) => {
+        readPaths.push(path);
+        return s.host.fs.read(path);
+      },
+    },
+  };
+  const handle = await show(s, browser);
+  const source = s.el.querySelector<HTMLSelectElement>(".tkr-tileset-browser select");
+  ok(source !== null);
+  await act(async () => {
+    for (let turn = 0; turn < 100 && s.el.querySelector(".tkr-tileset-browser-message") === null; turn += 1) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  });
+  equal(readPaths.includes("Tiles/Ä.gph"), false, "a lower-case Unicode reference does not resolve to an upper-case Unicode path");
+
+  await act(async () => {
+    source.value = "Bitmap/ascii.tbm";
+    source.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+  });
+  for (let turn = 0; turn < 100 && s.el.querySelector('[data-browser-reference="Bitmap/ascii.tbm"]') === null; turn += 1) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  ok(readPaths.includes("Tiles/FLOWER.GPH"), "ASCII case folding still finds the same source across extension hosts");
+  handle.dispose();
 });
 
 test("the native context menu can explicitly choose a tile brush without painting", async () => {

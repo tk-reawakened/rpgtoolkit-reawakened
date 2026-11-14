@@ -16,16 +16,23 @@ export interface BrowserState {
   readonly scrollTop: number;
 }
 
+export type BrowserStateChange =
+  | { readonly field: "selection"; readonly value: BrowserSelection | null }
+  | { readonly field: "path"; readonly value: string | null }
+  | { readonly field: "scrollTop"; readonly value: number };
+
+export type BrowserStatePatch = readonly BrowserStateChange[];
+
 export interface BrowserSession {
   getSnapshot(): BrowserState;
-  subscribe(listener: () => void): () => void;
+  subscribe(listener: (patch: BrowserStatePatch) => void): () => void;
   update(update: Partial<BrowserState>): void;
 }
 
 /** A host-owned session is shared only by views in the same project/workspace. */
 export function createBrowserSession(initial: BrowserState = { selection: null, path: null, scrollTop: 0 }): BrowserSession {
   let snapshot = initial;
-  const listeners = new Set<() => void>();
+  const listeners = new Set<(patch: BrowserStatePatch) => void>();
   return {
     getSnapshot: () => snapshot,
     subscribe(listener) {
@@ -34,7 +41,12 @@ export function createBrowserSession(initial: BrowserState = { selection: null, 
     },
     update(update) {
       snapshot = { ...snapshot, ...update };
-      for (const listener of listeners) listener();
+      const patch: BrowserStateChange[] = [];
+      if (update.selection !== undefined) patch.push({ field: "selection", value: update.selection });
+      if (update.path !== undefined) patch.push({ field: "path", value: update.path });
+      if (update.scrollTop !== undefined) patch.push({ field: "scrollTop", value: update.scrollTop });
+      for (const listener of listeners) listener(patch);
     },
   };
 }
+

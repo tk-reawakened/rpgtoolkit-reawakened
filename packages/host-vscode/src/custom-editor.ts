@@ -382,8 +382,8 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     resolveCustomEditor(document, webview) {
       const publish = () => { void webview.postMessage({ type: "snapshot", snapshot: document.model.getSnapshot() }); };
       const subscription = document.model.subscribe(publish);
-      const browserSubscription = document.browserSession.subscribe(() => {
-        void webview.postMessage({ type: "browser-state", state: document.browserSession.getSnapshot() });
+      const browserSubscription = document.browserSession.subscribe((changes) => {
+        void webview.postMessage({ type: "browser-state", changes });
       });
       const messages = webview.onDidReceiveMessage(async (message: unknown) => {
         if (!isEditorHostRequest(message)) return;
