@@ -1,4 +1,4 @@
-import type { DialogChoice, DialogQuestion, DialogService, SavePathRequest } from "@tk-reawakened/platform-services";
+import type { DialogChoice, DialogQuestion, DialogService, FilePickRequest, OutsideFile, SavePathRequest } from "@tk-reawakened/platform-services";
 
 let dialogsMade = 0;
 
@@ -89,4 +89,36 @@ export function createPageDialogs(page: Document): DialogService {
       });
     },
   };
+}
+
+/** The part of the File System Access API a file choice needs. */
+type OpenFilePickerWindow = Window & {
+  showOpenFilePicker?: (options: {
+    readonly multiple: false;
+    readonly types?: readonly { readonly description: string; readonly accept: Record<string, readonly string[]> }[];
+  }) => Promise<readonly { getFile(): Promise<File> }[]>;
+};
+
+/** Whether this page can let the user choose a file from outside the project (T-05). */
+export function canPickFile(page: Window): boolean {
+  return typeof (page as OpenFilePickerWindow).showOpenFilePicker === "function";
+}
+
+/**
+ * Let the user choose one file with the browser's own picker and read it. A cancelled picker (an `AbortError`) is `null`;
+ * any other failure is thrown so the caller says what went wrong instead of treating it as a cancel.
+ */
+export async function pickOutsideFile(page: Window, request: FilePickRequest): Promise<OutsideFile | null> {
+  const picker = (page as OpenFilePickerWindow).showOpenFilePicker;
+  if (typeof picker !== "function") throw new Error("This browser cannot choose a file from outside the project.");
+  try {
+    const types = request.extensions.length === 0 ? undefined : [{ description: request.title, accept: { "application/octet-stream": request.extensions } }];
+    const [handle] = await picker.call(page, { multiple: false, ...(types === undefined ? {} : { types }) });
+    if (handle === undefined) return null;
+    const file = await handle.getFile();
+    return { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return null;
+    throw error;
+  }
 }

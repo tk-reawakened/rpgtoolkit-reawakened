@@ -2,7 +2,7 @@ import { createDocumentWorkspace, previewBoard, type AnyDocument, type DocumentV
 import type { Capability, DialogService, PlatformServices, ProjectHandle, SettingValue, SettingsLayer } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { mount, type BoardViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
-import { createPageDialogs } from "./dialogs.ts";
+import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
 
@@ -67,6 +67,8 @@ function pageDialogs(): DialogService {
   return {
     ask: (question) => (made ??= createPageDialogs(document)).ask(question),
     pickSavePath: (request) => (made ??= createPageDialogs(document)).pickSavePath(request),
+    // Present only where the browser has a file picker, so the `pickFile` capability is honest (T-05).
+    ...(typeof window !== "undefined" && canPickFile(window) ? { pickFile: (request: Parameters<NonNullable<DialogService["pickFile"]>>[0]) => pickOutsideFile(window, request) } : {}),
   };
 }
 
@@ -77,6 +79,9 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
   const capabilities = new Set(FOLDER_CAPABILITIES);
   const fs = bindProjectFileSystem(project.id, createWebFileSystem(root, project.id), () => active);
   const dialogs = options.dialogs ?? pageDialogs();
+  // The browser cannot hand a file to the operating system's default application, so `openExternal` is not declared: the
+  // file tree says so instead of pretending (T-03).
+  if (dialogs.pickFile !== undefined) capabilities.add("pickFile");
   const workspace = createDocumentWorkspace({ projectId: project.id, services: { fs, dialogs, capabilities } });
   const services: PlatformServices = {
     capabilities,
@@ -213,9 +218,14 @@ function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContex
   return view;
 }
 
-/** Make a view owner over a document the project already has open. */
-export function mountEditor(project: WebProject, document: AnyDocument, element: HTMLElement): EditorView {
-  const lease = project.workspace.attachView(document);
+/** A mounted view with no ownership of its document: whoever mounted it holds the document's lease. */
+export interface DocumentView extends ViewHandle {
+  hide(): void;
+  show(element: HTMLElement): void;
+}
+
+/** Mount the view of `document`'s kind into `element`. It holds no lease: the caller (a tab, or `mountEditor`) does. */
+export function mountDocumentView(project: WebProject, document: AnyDocument, element: HTMLElement): DocumentView {
   const viewDocument = viewDocumentFor(project, document);
   let mounted: ViewHandle | null = null;
   let notice: HTMLElement | null = null;
@@ -237,11 +247,19 @@ export function mountEditor(project: WebProject, document: AnyDocument, element:
     }
   };
   show(element);
-  return { close: () => lease.close(), hide, show, dispose: () => { hide(); lease.dispose(); disposed = true; } };
+  return { hide, show, dispose: () => { hide(); disposed = true; } };
+}
+
+/** Make a view owner over a document the project already has open. */
+export function mountEditor(project: WebProject, document: AnyDocument, element: HTMLElement): EditorView {
+  const lease = project.workspace.attachView(document);
+  const view = mountDocumentView(project, document, element);
+  return { close: () => lease.close(), hide: view.hide, show: view.show, dispose: () => { view.dispose(); lease.dispose(); } };
 }
 
 /** @deprecated The name of the first editor; it mounts a document of any registered kind. */
 export const mountGameSettings = mountEditor;
 
 export { createPageDialogs } from "./dialogs.ts";
+export { createWorkbench, type Workbench, type WorkbenchOptions } from "./workbench.ts";
 export { createWebFileSystem } from "./filesystem.ts";

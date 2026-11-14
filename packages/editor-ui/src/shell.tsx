@@ -1,6 +1,7 @@
 import type { LayoutModel, ProjectLayout, ProjectTree, Tabs, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
-import { useRef, useEffect } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
+import { useDocumentSnapshot } from "./use-document.ts";
 import { FilesView } from "./files-view.tsx";
 import { GameView } from "./game-view.tsx";
 import { TabStrip } from "./tab-strip.tsx";
@@ -34,13 +35,15 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
 export function Shell({ layout, tabs, tree, projectLayout, fs, onOpened, onOpenPath, onEditorElement, version }: ShellProps) {
+  // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
+  const tabsSnapshot = useDocumentSnapshot(tabs);
   return (
     <Workbench
       layout={layout}
       tabs={<TabStrip tabs={tabs} />}
       panels={{
         files: <FilesView tree={tree} onOpened={onOpened} />,
-        game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={version} />,
+        game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
       }}
     >
       <EditorSlot onElement={onEditorElement} />
