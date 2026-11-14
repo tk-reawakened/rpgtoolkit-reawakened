@@ -1132,41 +1132,33 @@ async function runCommand(page: Page, expect: Expect, title: string): Promise<vo
   await runCommandMatching(page, expect, title, title);
 }
 
-/** Accept the focused command with Enter, without waiting for a moving quick-pick row to become mouse-stable. */
+/** Dispatch the matching row itself; keyboard focus can change while the palette filters asynchronously. */
 async function runCommandMatching(page: Page, expect: Expect, search: string, label: string, dismissFirstAttempt = false): Promise<void> {
   const widget = page.locator(".quick-input-widget");
-  let commandInput: Locator | undefined;
+  let command: Locator | undefined;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      commandInput = await commandPalette(page, expect);
+      const commandInput = await commandPalette(page, expect);
       await commandInput.fill(`>${search}`);
       if (dismissFirstAttempt && attempt === 0) {
         await commandInput.press("Escape");
         await expect(widget).toBeHidden();
       }
       const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const exact = page.getByRole("option", { name: new RegExp(`^${escaped}(?:,|$)`) });
-      if (search === label) {
-        await expect(exact, `VS Code offers exactly one ${label}`).toHaveCount(1);
-        const choices = await page.getByRole("option").count();
-        for (let index = 0; index < choices; index += 1) {
-          if (await exact.evaluate((element) => element.classList.contains("focused"))) break;
-          await commandInput.press("ArrowDown");
-        }
-        await expect(exact).toHaveClass(/(?:^|\s)focused(?:\s|$)/);
-      } else {
-        const command = page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
-        await expect(command, `VS Code selects ${label}`).toBeVisible();
-      }
+      command = search === label
+        ? page.getByRole("option", { name: new RegExp(`^${escaped}(?:,|$)`) })
+        : page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
+      if (search === label) await expect(command, `VS Code offers exactly one ${label}`).toHaveCount(1);
+      await expect(command, `VS Code selects ${label}`).toBeVisible();
       break;
     } catch (error) {
       if (attempt === 2 || await widget.isVisible()) throw error;
-      commandInput = undefined;
+      command = undefined;
     }
   }
-  if (commandInput === undefined) throw new Error(`VS Code did not select ${label}`);
-  // Retry only before dispatch; once Enter is pressed, never execute the command again.
-  await commandInput.press("Enter");
+  if (command === undefined) throw new Error(`VS Code did not select ${label}`);
+  // Retry only before dispatch; never execute the command again after its row is clicked.
+  await command.click();
   await expect(widget).toBeHidden();
 }
 async function enableWorkbenchTraceLogging(page: Page, expect: Expect): Promise<void> {
