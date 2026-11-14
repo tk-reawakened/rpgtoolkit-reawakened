@@ -18,12 +18,13 @@ import { exampleBoard, exampleMain } from "./fixtures.ts";
 type Index = typeof import("../src/index.ts");
 let mountShell: Index["mountShell"];
 let mountAssetPicker: Index["mountAssetPicker"];
+let mountEmptyExplorer: Index["mountEmptyExplorer"];
 let act: (callback: () => void | Promise<void>) => Promise<void> | void;
 
 before(async () => {
   GlobalRegistrator.register();
   ({ act } = await import("preact/test-utils"));
-  ({ mountShell, mountAssetPicker } = await import("@tk-reawakened/editor-ui"));
+  ({ mountShell, mountAssetPicker, mountEmptyExplorer } = await import("@tk-reawakened/editor-ui"));
 });
 
 after(() => GlobalRegistrator.unregister());
@@ -435,4 +436,59 @@ test("the picker copies a file in from outside after agreement, or explains why 
   equal(outside.disabled, true);
   match(closed.el.querySelector(".tkr-picker-host-note")?.textContent ?? "", /cannot choose a file from outside the project/);
   equal(outside.getAttribute("aria-describedby"), closed.el.querySelector(".tkr-picker-host-note")?.id, "the button points at the explanation");
+});
+
+test("the application menu, command palette, collapsible Game accordion, and EmptyExplorerView work via keyboard and pointer", async () => {
+  const s = await setup();
+
+  // Application Menu opens, navigates categories, and toggles Game accordion
+  const appMenuBtn = button(s.el, "Application menu");
+  equal(appMenuBtn.getAttribute("aria-expanded"), "false");
+  await click(appMenuBtn);
+  equal(appMenuBtn.getAttribute("aria-expanded"), "true");
+  const viewCat = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-category")].find((node) => node.textContent?.includes("View"))!;
+  await click(viewCat);
+  const toggleGameItem = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-item")].find((node) => node.textContent?.includes("Toggle Game Accordion"))!;
+  await click(toggleGameItem);
+  ok(s.el.querySelector("#tkr-panel-game") !== null, "Application Menu -> View -> Toggle Game Accordion opens the Game panel");
+
+  // Collapsible Game accordion sections toggle data-collapsed
+  const boardsGroup = s.el.querySelector<HTMLElement>('#tkr-panel-game [role="group"][aria-label="Boards"]')!;
+  const boardsHeading = boardsGroup.querySelector<HTMLElement>("h3")!;
+  equal(boardsGroup.getAttribute("data-collapsed"), "false");
+  await click(boardsHeading);
+  equal(boardsGroup.getAttribute("data-collapsed"), "true");
+  await click(boardsHeading);
+  equal(boardsGroup.getAttribute("data-collapsed"), "false");
+
+  // Command palette opens, filters project files, and opens village.brd on Enter
+  const paletteBtn = button(s.el, "Command palette");
+  await click(paletteBtn);
+  const searchInput = s.el.querySelector<HTMLInputElement>(".tkr-command-palette-input")!;
+  ok(searchInput !== null);
+  await act(() => {
+    searchInput.value = "village.brd";
+    searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await settle();
+  const dialog = s.el.querySelector<HTMLElement>('[role="dialog"][aria-label="Command palette"]')!;
+  await key(dialog, "Enter");
+  ok(s.openPaths.includes("Boards/village.brd"), "Command palette opens matching project file on Enter");
+
+  // EmptyExplorerView renders "No Game Opened" state and invokes open/reopen callbacks
+  const emptyEl = document.createElement("div");
+  document.body.append(emptyEl);
+  let openedFolder = 0;
+  let reopenedId = "";
+  const handle = mountEmptyExplorer(emptyEl, {
+    onOpenProject: () => { openedFolder += 1; },
+    recentProjects: [{ id: "proj-1", name: "Demo Game" }],
+    onReopenProject: (id) => { reopenedId = id; },
+  });
+  await settle();
+  await click(button(emptyEl, "Open project folder"));
+  equal(openedFolder, 1);
+  await click(button(emptyEl, "Reopen project"));
+  equal(reopenedId, "proj-1");
+  handle.dispose();
 });

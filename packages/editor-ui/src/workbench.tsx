@@ -12,6 +12,8 @@ export interface WorkbenchProps {
   readonly panels: Readonly<Record<string, ComponentChildren>>;
   /** The tab strip, shown above the editor area. */
   readonly tabs: ComponentChildren;
+  /** Optional IDE application menu and command palette bar rendered in the workbench header strip. */
+  readonly headerBar?: ComponentChildren;
   /** The active editor. */
   readonly children: ComponentChildren;
 }
@@ -35,9 +37,10 @@ function Sized({ panel, children }: { readonly panel: PanelState; readonly child
  * hides. The keyboard does everything the pointer can. Panels hold views; hiding a panel removes its view and nothing
  * else (ADR 0022 D7.1): the layout holds no document.
  */
-export function Workbench({ layout, panels, tabs, children }: WorkbenchProps) {
+export function Workbench({ layout, panels, tabs, headerBar, children }: WorkbenchProps) {
   const states = useDocumentSnapshot({ getSnapshot: () => layout.getPanels(), subscribe: (listener) => layout.subscribe(listener) });
-  const shown = (side: PanelState["side"]): PanelState[] => states.filter((panel) => panel.side === side && panel.visible && panels[panel.id] !== undefined);
+  const shown = (side: PanelState["side"]): PanelState[] => states.filter((panel) => panel.side === side && panel.visible && panels[panel.id] !== undefined && panels[panel.id] !== null);
+  const tilesetHidden = states.some((panel) => panel.id === "tileset" && !panel.visible);
   const separator = (panel: PanelState) => {
     const vertical = panel.side === "bottom";
     // The arrow that moves the edge away from the panel grows it: a left panel's edge is on its right, a right panel's on
@@ -78,20 +81,23 @@ export function Workbench({ layout, panels, tabs, children }: WorkbenchProps) {
   });
 
   return (
-    <div class="tkr-workbench">
+    <div class="tkr-workbench" data-tileset-hidden={tilesetHidden ? "true" : undefined}>
       <div class="tkr-panel-toggles" role="toolbar" aria-label="Panels">
-        {states.filter((panel) => panels[panel.id] !== undefined).map((panel) => (
-          <button
-            key={panel.id}
-            type="button"
-            class="tkr-panel-toggle"
-            aria-pressed={panel.visible}
-            aria-controls={`tkr-panel-${panel.id}`}
-            onClick={() => layout.toggle(panel.id)}
-          >
-            {panel.title}
-          </button>
-        ))}
+        {headerBar}
+        <div class="tkr-panel-toggle-group">
+          {states.filter((panel) => panels[panel.id] !== undefined).map((panel) => (
+            <button
+              key={panel.id}
+              type="button"
+              class="tkr-panel-toggle"
+              aria-pressed={panel.visible}
+              aria-controls={`tkr-panel-${panel.id}`}
+              onClick={() => layout.toggle(panel.id)}
+            >
+              {panel.title}
+            </button>
+          ))}
+        </div>
       </div>
       <div class="tkr-workbench-body">
         <div class="tkr-dock tkr-dock-left">{dock("left")}</div>

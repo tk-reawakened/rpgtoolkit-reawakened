@@ -4,7 +4,17 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { platformError } from "@tk-reawakened/platform-services";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { createDocumentWorkspace, createLayoutModel, createProjectTree, createTabs, createVisits, listGame } from "../src/index.ts";
+import {
+  createCommandRegistry,
+  createDocumentWorkspace,
+  createLayoutModel,
+  createProjectTree,
+  createTabs,
+  createVisits,
+  createWorkbenchCommands,
+  DEFAULT_WORKBENCH_PANELS,
+  listGame,
+} from "../src/index.ts";
 import { exampleBoard, exampleCharacter, exampleMain } from "./fixtures.ts";
 
 const FILES = {
@@ -281,4 +291,56 @@ test("a visit opens the linked document and returns to its origin; a closed orig
   const missing = await visits.visit(reopened.document, "Boards/nowhere.brd");
   ok(!missing.ok);
   equal(visits.getSnapshot().stack.length, 0, "a visit that did not open is not recorded");
+});
+
+test("the command registry registers, filters, and executes workbench commands and openable project files", async () => {
+  const { tree, workspace } = setup();
+  await tree.refresh();
+  const opened = await tree.open("Boards/village.brd");
+  ok(opened.ok && opened.via === "document");
+  const tabs = createTabs(workspace);
+  tabs.open(opened.document);
+
+  const layout = createLayoutModel(DEFAULT_WORKBENCH_PANELS);
+  const openedPaths: string[] = [];
+  let newBoardCalled = 0;
+  const registry = createCommandRegistry(
+    createWorkbenchCommands({
+      layout,
+      tabs,
+      workspace,
+      onNewBoard: () => { newBoardCalled += 1; },
+    }),
+  );
+
+  ok(registry.byCategory("File").some((cmd) => cmd.id === "file.newBoard"));
+  ok(registry.byCategory("View").some((cmd) => cmd.id === "view.toggle.tileset"));
+  equal(registry.execute("file.newBoard"), true);
+  equal(newBoardCalled, 1);
+
+  const unregister = registry.register({
+    id: "help.custom",
+    category: "Help",
+    label: "Custom Diagnostic Action",
+    shortcut: "Alt+D",
+    run: () => {},
+  });
+  ok(registry.byCategory("Help").some((cmd) => cmd.id === "help.custom"));
+
+  const files = [
+    { path: "Boards/village.brd", groupLabel: "Boards", openable: true },
+    { path: "Misc/readme.txt", groupLabel: "Animations", openable: false },
+  ];
+  const fileMatches = registry.filter("village", files, (path) => { openedPaths.push(path); });
+  equal(fileMatches.length, 1);
+  equal(fileMatches[0]?.id, "open:Boards/village.brd");
+  await fileMatches[0]!.run();
+  deepEqual(openedPaths, ["Boards/village.brd"]);
+
+  const commandOnlyMatches = registry.filter("> village", files, (path) => { openedPaths.push(path); });
+  equal(commandOnlyMatches.length, 0, "prefixing with > filters commands only and excludes project files");
+
+  unregister();
+  equal(registry.byCategory("Help").some((cmd) => cmd.id === "help.custom"), false);
+  tabs.dispose();
 });

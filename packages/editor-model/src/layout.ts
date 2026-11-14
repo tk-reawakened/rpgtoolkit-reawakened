@@ -30,6 +30,19 @@ export interface PanelDefinition {
 /** The unit every panel size is a multiple of, in pixels. */
 export const PANEL_SIZE_STEP = 16;
 
+/**
+ * Default panel definitions for the shared IDE workbench (#2703):
+ * - Left dock: stacked `Files` explorer and `Game` accordion
+ * - Right dock: `Tileset` inspector browser
+ * - Bottom dock: `Run` & diagnostics panel
+ */
+export const DEFAULT_WORKBENCH_PANELS: readonly PanelDefinition[] = [
+  { id: "files", title: "Files", side: "left", visible: true, size: 240, minSize: 128, maxSize: 480 },
+  { id: "game", title: "Game", side: "left", visible: false, size: 240, minSize: 128, maxSize: 480 },
+  { id: "tileset", title: "Tileset", side: "right", visible: true, size: 288, minSize: 192, maxSize: 480 },
+  { id: "run", title: "Run", side: "bottom", visible: false, size: 240, minSize: 128, maxSize: 480 },
+];
+
 export interface PanelState {
   readonly id: string;
   readonly title: string;

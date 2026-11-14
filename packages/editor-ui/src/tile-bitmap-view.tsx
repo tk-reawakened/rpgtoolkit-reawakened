@@ -298,10 +298,14 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
 
   return (
     <section class="tkr-bitmap" aria-label="Tile bitmap">
-      <h2 class="tkr-bitmap-heading">Tile bitmap</h2>
-      <p class="tkr-bitmap-summary">
-        {width} × {height} tiles, {width * CELL_PIXELS} × {height * CELL_PIXELS} pixels
-      </p>
+      <div class="tkr-bitmap-workspace">
+      <div class="tkr-bitmap-main">
+      <div class="tkr-bitmap-header-bar">
+        <h2 class="tkr-bitmap-heading">Tile bitmap</h2>
+        <p class="tkr-bitmap-summary">
+          {width} × {height} tiles, {width * CELL_PIXELS} × {height * CELL_PIXELS} pixels
+        </p>
+      </div>
       {snapshot.readOnly === null ? null : <p class="tkr-bitmap-readonly" role="note">Read only: {snapshot.readOnly.message}</p>}
       {capabilities.has("fileWatch") ? null : (
         <p class="tkr-bitmap-host-note">
@@ -331,8 +335,6 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
         </div>
       )}
 
-      <div class="tkr-bitmap-workspace">
-      <div class="tkr-bitmap-main">
       <div class="tkr-bitmap-row tkr-bitmap-size-row">
         <label for={`${ids}-width`}>Width in tiles</label>
         <input

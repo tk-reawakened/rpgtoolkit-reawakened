@@ -20,8 +20,18 @@ export function GameView({ fs, layout, onOpen, version }: GameViewProps) {
   const [groups, setGroups] = useState<readonly GameGroup[] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [active, setActive] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const focus = useRef(false);
   const root = useRef<HTMLDivElement>(null);
+
+  const toggleGroup = (kind: string): void => {
+    setCollapsed((previous) => {
+      const next = new Set(previous);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      return next;
+    });
+  };
 
   useEffect(() => {
     let current = true;
@@ -56,8 +66,17 @@ export function GameView({ fs, layout, onOpen, version }: GameViewProps) {
       {problem === null ? null : <p class="tkr-game-problem" role="alert">{problem}</p>}
       <div ref={root} class="tkr-game-groups">
         {(groups ?? []).map((group) => (
-          <div key={group.kind} class="tkr-game-group" role="group" aria-label={group.label}>
-            <h3>{group.label}</h3>
+          <div
+            key={group.kind}
+            class="tkr-game-group"
+            role="group"
+            aria-label={group.label}
+            data-collapsed={collapsed.has(group.kind) ? "true" : "false"}
+          >
+            <h3 onClick={() => toggleGroup(group.kind)}>
+              <span class="tkr-game-group-label">{group.label}</span>
+              <span class="tkr-game-group-count">{group.files.length}</span>
+            </h3>
             <ul>
               {group.files.map((file) => {
                 const index = files.indexOf(file);

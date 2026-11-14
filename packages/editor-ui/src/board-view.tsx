@@ -309,11 +309,15 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
 
   return (
     <section class="tkr-board" aria-label="Board" onKeyDown={onShortcut}>
-      <h2 class="tkr-board-heading">Board</h2>
-      <p class="tkr-board-summary">
-        {size.width} × {size.height} cells, {layers} {layers === 1 ? "layer" : "layers"}
-        {snapshot.coordType & 2 ? ", isometric (rotated)" : snapshot.coordType & 1 ? ", isometric (stacked)" : ""}
-      </p>
+      <div class="tkr-board-workspace">
+      <div class="tkr-board-main">
+      <div class="tkr-board-header-bar">
+        <h2 class="tkr-board-heading">Board</h2>
+        <p class="tkr-board-summary">
+          {size.width} × {size.height} cells, {layers} {layers === 1 ? "layer" : "layers"}
+          {snapshot.coordType & 2 ? ", isometric (rotated)" : snapshot.coordType & 1 ? ", isometric (stacked)" : ""}
+        </p>
+      </div>
       {snapshot.readOnly === null ? null : <p class="tkr-board-readonly" role="note">Read only: {snapshot.readOnly.message}</p>}
       {capabilities.has("fileWatch") ? null : (
         <p class="tkr-board-host-note">
@@ -342,8 +346,6 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
           {resolveError === null ? null : <p class="tkr-board-error">{resolveError}</p>}
         </div>
       )}
-      <div class="tkr-board-workspace">
-      <div class="tkr-board-main">
       <div class="tkr-board-toolbar tkr-board-toolbar-tools" role="toolbar" aria-label="Board tools">
         {BOARD_TOOLS.map((tool) => (
           <button
