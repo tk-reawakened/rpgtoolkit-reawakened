@@ -26,6 +26,8 @@ context:
 
 Provide one export workflow on the shared editor model for a saved game. Inventory the selected project, validate declared startup targets, and build the deterministic distribution ZIP and exact sibling install descriptor. Present the inventory and request explicit confirmation before output. The browser offers ordinary downloads; VS Code offers Save As, checks both destinations, refuses detected links and confirms existing-file replacement. Neither host builds an EXE, setup installer or signing output.
 
+Project-root `.tkr-exports/` is reserved for generated outputs and excluded before traversal. VS Code defaults there and also permits destinations outside the project; other in-project output paths are refused with a corrective explanation. This prevents recursive exports after game edits without guessing whether arbitrary `.tpk` or `.tpk.json` assets elsewhere are generated files.
+
 **Always:** Save open documents before reading the project; preserve authored bytes and read-only formats; use `writeDistributionPackage` and the canonical package reader; follow G2/G7. Package paths, limits, duplicates, manifest, and output hashes must be validated before output. Package and descriptor are related outputs and failures must be reported without claiming success.
 
 **Never:** Read legacy source; edit authored data to make it packageable; silently select a different main file; package test specs or ADR 0019 editor documents; include `.tkr-history/`; route UI around `platform-services`; write an EXE or installer.

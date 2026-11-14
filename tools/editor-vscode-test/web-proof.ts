@@ -425,11 +425,11 @@ export async function runVscodeWebProof(
   const packageBase = title.trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "game";
   const packageName = `${packageBase}.tpk`;
   const savePath = page.getByRole("textbox", { name: "Folder path" });
-  await expect(savePath).toHaveValue(`/${packageName}`);
+  await expect(savePath).toHaveValue(`/.tkr-exports/${packageName}`);
   await page.getByRole("button", { name: "OK", exact: true }).click();
   await expect(page.getByText(/Package saved to .* and install descriptor saved to/).first()).toBeVisible({ timeout: 15_000 });
-  const packageBytes = await host.readBacking(packageName);
-  const descriptorBytes = await host.readBacking(`${packageName}.json`);
+  const packageBytes = await host.readBacking(`.tkr-exports/${packageName}`);
+  const descriptorBytes = await host.readBacking(`.tkr-exports/${packageName}.json`);
   const descriptor = JSON.parse(new TextDecoder().decode(descriptorBytes)) as {
     file: string;
     sha256: string;

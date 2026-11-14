@@ -8,6 +8,7 @@ export interface PackageSavePort<Destination> {
   sibling(destination: Destination, fileName: string): Destination;
   describe(destination: Destination): string;
   validateDestination(destination: Destination): Promise<string | undefined>;
+  inspect(destination: Destination): Promise<PackageDestinationKind>;
   confirmReplace(existing: readonly Destination[]): Promise<boolean>;
   write(destination: Destination, bytes: Uint8Array): Promise<void>;
 }
