@@ -1,7 +1,7 @@
 ---
 title: 'Render animated GIF sprite frames'
 type: 'bugfix'
-ticket: ''
+ticket: 1254
 created: '2026-11-05'
 status: 'built'
 baseline_revision: '568618127a43c82484c2ea138b0bc53ca46aa60a'

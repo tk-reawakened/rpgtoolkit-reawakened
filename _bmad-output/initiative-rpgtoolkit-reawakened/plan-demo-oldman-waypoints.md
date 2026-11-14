@@ -1,7 +1,7 @@
 ---
 title: 'Correct demo old man waypoint movement'
 type: 'bugfix'
-ticket: ''
+ticket: 1605
 created: '2026-11-05'
 status: 'in-progress'
 baseline_revision: 'daccf697825f1629b64f42990bc3cbfd85cded47'
