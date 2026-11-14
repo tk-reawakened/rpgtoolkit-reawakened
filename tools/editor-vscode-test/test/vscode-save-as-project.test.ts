@@ -134,7 +134,7 @@ test("browser context is retained per project and cannot leak across workspace f
 });
 
 test("save, revert and backup refuse when a webview cannot confirm its accepted edits", async () => {
-  const { provider } = workspace();
+  const { files, provider } = workspace();
   const document = await provider.openCustomDocument({ path: `/alpha/${GAME}` }, undefined);
   const detach = document.attachWebview(() => Promise.resolve(false));
 
@@ -143,6 +143,8 @@ test("save, revert and backup refuse when a webview cannot confirm its accepted 
   if (!save.ok) match(save.failure.message, /could not confirm that it handed over its accepted edits/);
   await rejects(provider.revertCustomDocument(document), /Could not revert .*could not confirm.*Nothing was reverted/);
   await rejects(provider.backupCustomDocument(document, { path: "/backup" }), /Could not back up .*could not confirm.*No backup was written/);
+  await rejects(provider.saveCustomDocumentAs(document, { path: "/alpha/copy.gam" }), /Could not save copy\.gam: .*could not confirm.*Nothing was written/);
+  equal(files.has("/alpha/copy.gam"), false);
 
   detach();
 });
