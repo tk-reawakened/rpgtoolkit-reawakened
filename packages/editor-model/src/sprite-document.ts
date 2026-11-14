@@ -57,12 +57,15 @@ export type SpriteCommand =
   | { readonly type: "set-character-text"; readonly field: "name" | "profilePicture" | "specialMoveCategory" | "levelUpProgram"; readonly value: string }
   | { readonly type: "set-character-variable"; readonly index: number; readonly value: string }
   | { readonly type: "set-character-stat"; readonly field: keyof Character["stats"]; readonly value: number }
-  | { readonly type: "set-character-move"; readonly index: number; readonly value: Character["specialMoves"][number] }
+  | { readonly type: "set-character-move-fields"; readonly index: number; readonly changes: readonly SpriteMoveFieldChange[] }
   | { readonly type: "set-character-accessory"; readonly index: number; readonly value: string }
   | { readonly type: "set-character-body-slot"; readonly index: number; readonly value: number }
   | { readonly type: "set-character-growth"; readonly field: "firstLevelExp" | "experienceIncrease" | "maxLevel" | "levelUpProgram" | "levelUpType"; readonly value: number | string }
   | { readonly type: "set-character-increase"; readonly index: number; readonly value: number }
   | { readonly type: "set-character-moves-enabled"; readonly value: number };
+type SpriteMoveFieldChange =
+  | { readonly field: "file" | "condVar" | "condValue"; readonly value: string }
+  | { readonly field: "minExp" | "minLevel"; readonly value: number };
 
 export interface SpriteDocumentFields {
   readonly actorType: SpriteActorKind;
@@ -154,9 +157,21 @@ function applyCharacter(model: Character, command: SpriteCommand): Character {
     }
     case "set-character-stat":
       return { ...model, stats: { ...model.stats, [command.field]: command.value } };
-    case "set-character-move": {
+    case "set-character-move-fields": {
       const specialMoves = [...model.specialMoves];
-      specialMoves[command.index] = { ...command.value };
+      const current = specialMoves[command.index];
+      if (current === undefined) return model;
+      const move = { ...current };
+      for (const change of command.changes) {
+        switch (change.field) {
+          case "file": move.file = change.value; break;
+          case "minExp": move.minExp = change.value; break;
+          case "minLevel": move.minLevel = change.value; break;
+          case "condVar": move.condVar = change.value; break;
+          case "condValue": move.condValue = change.value; break;
+        }
+      }
+      specialMoves[command.index] = move;
       return { ...model, specialMoves };
     }
     case "set-character-accessory": {
@@ -257,11 +272,21 @@ function isCommand(value: unknown): value is SpriteCommand {
   if (record.type === "set-character-text") return ["name", "profilePicture", "specialMoveCategory", "levelUpProgram"].includes(String(record.field)) && typeof record.value === "string";
   if (record.type === "set-character-variable" || record.type === "set-character-accessory") return typeof record.index === "number" && Number.isInteger(record.index) && record.index >= 0 && typeof record.value === "string";
   if (record.type === "set-character-stat") return ["experience", "hp", "maxHp", "dp", "fp", "smp", "maxSmp", "level"].includes(String(record.field)) && typeof record.value === "number" && Number.isInteger(record.value);
-  if (record.type === "set-character-move") {
-    const move = record.value as Record<string, unknown> | null;
-    return typeof record.index === "number" && Number.isInteger(record.index) && record.index >= 0 && typeof move === "object" && move !== null
-      && typeof move.file === "string" && typeof move.minExp === "number" && Number.isInteger(move.minExp) && typeof move.minLevel === "number" && Number.isInteger(move.minLevel)
-      && typeof move.condVar === "string" && typeof move.condValue === "string";
+  if (record.type === "set-character-move-fields") {
+    if (typeof record.index !== "number" || !Number.isInteger(record.index) || record.index < 0
+      || !Array.isArray(record.changes) || record.changes.length === 0 || record.changes.length > 5) return false;
+    const seen = new Set<string>();
+    for (const change of record.changes) {
+      if (typeof change !== "object" || change === null || !("field" in change) || !("value" in change)) return false;
+      if (typeof change.field !== "string" || seen.has(change.field)) return false;
+      if (["file", "condVar", "condValue"].includes(change.field)) {
+        if (typeof change.value !== "string") return false;
+      } else if (["minExp", "minLevel"].includes(change.field)) {
+        if (typeof change.value !== "number" || !Number.isInteger(change.value)) return false;
+      } else return false;
+      seen.add(change.field);
+    }
+    return true;
   }
   if (record.type === "set-character-body-slot") return typeof record.index === "number" && Number.isInteger(record.index) && record.index >= 0 && typeof record.value === "number" && Number.isInteger(record.value);
   if (record.type === "set-character-growth") return ["firstLevelExp", "experienceIncrease", "maxLevel", "levelUpProgram", "levelUpType"].includes(String(record.field))
@@ -276,10 +301,13 @@ function invalidValue(model: SpriteActor, command: SpriteCommand): string | null
   if (command.type === "set-character-text" || command.type === "set-character-variable" || command.type === "set-character-accessory" || command.type === "set-character-growth" && command.field === "levelUpProgram") {
     if (typeof command.value !== "string" || command.value.includes("\0")) return "Text fields cannot contain a null character.";
   }
+  if (command.type === "set-character-move-fields" && command.changes.some((change) => typeof change.value === "string" && change.value.includes("\0"))) {
+    return "Special-move text fields cannot contain a null character.";
+  }
   if (command.type === "set-character-variable" && command.index >= 9) return "Choose one of the nine RPGCode stat bindings.";
   if (command.type === "set-character-accessory" && command.index >= 11) return "Choose one of the eleven accessory slots.";
   if (command.type === "set-character-body-slot" && (command.index >= 7 || command.value < 0 || command.value > 1)) return "Body slot flags are 0 or 1 in one of seven stored slots.";
-  if (command.type === "set-character-move" && command.index >= 201) return "Choose one of the 201 stored special-move slots.";
+  if (command.type === "set-character-move-fields" && command.index >= 201) return "Choose one of the 201 stored special-move slots.";
   if (command.type === "set-character-increase" && command.index >= 4) return "Choose one of the four level-increase fields.";
   if (command.type === "set-character-moves-enabled" && command.value !== 0 && command.value !== 1) return "Special-move flag must be 0 or 1.";
   if (command.type === "set-character-stat" && (command.field === "experience" || command.field === "level" || command.field === "maxHp" || command.field === "maxSmp") && command.value < 0) {
@@ -339,15 +367,9 @@ function commandSurvivedWriteback(actual: SpriteActor, next: SpriteActor, comman
     if (command.type === "set-character-text") return actual[command.field] === next[command.field];
     if (command.type === "set-character-variable") return actual.variableNames[command.index] === next.variableNames[command.index];
     if (command.type === "set-character-stat") return actual.stats[command.field] === next.stats[command.field];
-    if (command.type === "set-character-move") {
+    if (command.type === "set-character-move-fields") {
       const actualMove = actual.specialMoves[command.index];
-      const nextMove = next.specialMoves[command.index];
-      return actualMove !== undefined && nextMove !== undefined
-        && actualMove.file === nextMove.file
-        && actualMove.minExp === nextMove.minExp
-        && actualMove.minLevel === nextMove.minLevel
-        && actualMove.condVar === nextMove.condVar
-        && actualMove.condValue === nextMove.condValue;
+      return actualMove !== undefined && command.changes.every((change) => actualMove[change.field] === change.value);
     }
     if (command.type === "set-character-accessory") return actual.accessorySlots[command.index] === next.accessorySlots[command.index];
     if (command.type === "set-character-body-slot") return actual.bodySlots[command.index] === next.bodySlots[command.index];

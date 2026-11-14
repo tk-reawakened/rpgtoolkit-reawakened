@@ -88,6 +88,19 @@ async function holdTwoEdits(tab: CharacterProofTab): Promise<{ release(): void }
   return hold;
 }
 
+async function applyMove(tab: CharacterProofTab): Promise<void> {
+  const button = [...tab.element.querySelectorAll<HTMLButtonElement>("button")]
+    .find((candidate) => candidate.getAttribute("aria-label") === "Apply special-move slot 1");
+  ok(button !== undefined, "the first special-move slot has an apply action");
+  await act(() => { button.click(); });
+  await settle(act);
+}
+
+async function moveField(tab: CharacterProofTab, field: "condVar" | "minLevel"): Promise<string> {
+  const label = field === "condVar" ? "Condition variable" : "Minimum level";
+  return input(tab, label).value;
+}
+
 for (const name of ["browser host", "VS Code desktop", "VS Code for the Web"]) {
   describe(`character edits through the host's own save and close: ${name}`, () => {
     const host = (controlSettleTimers?: boolean): CharacterProofHost => {
@@ -194,6 +207,36 @@ for (const name of ["VS Code desktop", "VS Code for the Web"]) {
         const written = saved(await proof.disk(PATH));
         equal(written.name, "Ada Lovelace");
         equal(written.hp, 123);
+        await sibling.close("cancel");
+      } finally {
+        acknowledgements.release();
+      }
+    });
+    test("independent move-field edits from two views preserve each other's values (#2687)", async () => {
+      const proof = host();
+      const first = await openReady(proof);
+      const sibling = await openReady(proof);
+      const acknowledgements = first.holdEditAcknowledgements();
+      try {
+        await edit(first, "Special-move file", "SpcMove/flare.spc");
+        await applyMove(first);
+        await edit(sibling, "Condition variable", "quest_flag");
+        await applyMove(sibling);
+        await edit(first, "Minimum level", "9");
+        await applyMove(first);
+
+        equal(await moveField(sibling, "condVar"), "quest_flag");
+        equal(await moveField(sibling, "minLevel"), "9");
+        acknowledgements.release();
+        await settle(act);
+        equal(await sibling.saveFromWorkbench(), true);
+        const written = await proof.disk(PATH);
+        ok(written !== null, "the edited character was written");
+        const decoded = readCharacter(new BinaryReader(written));
+        ok(decoded.ok, "the written file is a character");
+        equal(decoded.value.specialMoves[0]?.condVar, "quest_flag");
+        equal(decoded.value.specialMoves[0]?.minLevel, 9);
+        await first.close("cancel");
         await sibling.close("cancel");
       } finally {
         acknowledgements.release();

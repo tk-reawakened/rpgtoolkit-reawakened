@@ -162,7 +162,7 @@ test("character authoring edits bindings, starting stats, picture, move conditio
     equal(edited.bodySlots[1], 1);
     equal(edited.maxLevel, 80);
     equal(edited.levelIncreases[0], 7);
-    ok(setupView.doc.getSnapshot().edits.some((edit) => edit.command.type === "set-character-move"));
+    ok(setupView.doc.getSnapshot().edits.some((edit) => edit.command.type === "set-character-move-fields"));
   } finally {
     setupView.unmount();
     setupView.el.remove();
@@ -435,22 +435,20 @@ test("conflict reload clears character drafts and invalidates in-flight characte
     };
     await act(saveMove);
     await settle();
-    equal(acknowledgements.length, 1);
     await editInput(setupView.el, "Condition variable", "stale-condition");
     await act(saveMove);
 
+    equal(setupView.doc.getSnapshot().character?.specialMoves[12]?.file, "stale.spc");
+    equal(setupView.doc.getSnapshot().character?.specialMoves[12]?.condVar, "stale-condition");
     equal(await setupView.writeExternalAndCheck(externalBytes), "conflict");
     await act(async () => {
       const result = await setupView.doc.resolveConflict("reload");
       ok(result.ok);
     });
     await settle();
-    const acknowledge = acknowledgements.shift();
-    if (acknowledge === undefined) throw new Error("the in-flight command was not waiting for acknowledgement");
-    await act(() => acknowledge());
+    const pendingAcknowledgements = acknowledgements.splice(0);
+    for (const acknowledge of pendingAcknowledgements) await act(() => acknowledge());
     await settle();
-
-    equal(acknowledgements.length, 0);
     equal(setupView.doc.getSnapshot().character?.name, "Disk version");
     deepEqual(setupView.doc.getSnapshot().character?.specialMoves[12], initialMove);
     equal(setupView.el.querySelector<HTMLInputElement>('input[aria-label="Special-move file"]')?.value, initialMove.file);

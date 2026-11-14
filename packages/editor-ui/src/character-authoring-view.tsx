@@ -60,9 +60,9 @@ export interface CharacterAuthoringViewProps {
 type TextField = "name" | "profilePicture" | "specialMoveCategory" | "levelUpProgram";
 type Command = SpriteCommand;
 type Move = CharacterAuthoringFields["specialMoves"][number];
-type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
 type MoveField = (typeof MOVE_FIELDS)[number][0];
-type CommandInput = Command | ((latest: CharacterAuthoringFields) => Command);
+type CommandInput = Command;
+type MoveFieldChange = Extract<Command, { readonly type: "set-character-move-fields" }>["changes"][number];
 type Cleanup = readonly (readonly [string, string])[];
 type Drafts = Readonly<Record<string, string>>;
 type AssetPickRequest = { readonly kind: AssetKind; readonly extensions: readonly string[]; readonly field: string };
@@ -145,10 +145,7 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
   const [drafts, setDrafts] = useState<Drafts>({});
   const [feedback, setFeedback] = useState("");
   const [pendingCount, setPendingCount] = useState(0);
-  // Move commands are composed synchronously at acceptance, then posted immediately so the extension host owns them
-  // before this view can be closed. Keep pending move values only while their acknowledgements are outstanding.
-  const optimisticMoves = useRef(new Map<number, Move>());
-  const pendingMoveSubmissions = useRef(0);
+  // Hand each accepted command directly to the shared document; no later edit waits in this page for an earlier acknowledgement.
   const submitted = useRef(createEditTracker());
   const draftVersions = useRef(new Map<string, number>());
   const mutationGeneration = useRef(0);
@@ -170,9 +167,9 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
     return doc.subscribe(() => {
       const previous = observedSnapshot.current;
       const next = doc.getSnapshot();
+      observedSnapshot.current = next;
       if (previous.conflict !== null && next.conflict === null && !next.dirty && next.edits.length === 0) {
         mutationGeneration.current += 1;
-        optimisticMoves.current.clear();
         pendingDraftKeys.current.clear();
         draftVersions.current.clear();
         setDrafts({});
@@ -181,7 +178,7 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
     });
   }, [doc]);
 
-  const submit = (commandInput: CommandInput, clear: Cleanup = []): void => {
+  const submit = (command: CommandInput, clear: Cleanup = []): void => {
     const generation = mutationGeneration.current;
     const finishSubmission = submitted.current.begin();
     for (const [key] of clear) {
@@ -193,34 +190,13 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
     }
     setPendingCount((count) => count + 1);
     const apply = async (): Promise<void> => {
-      let moveSubmission = false;
       try {
         if (generation !== mutationGeneration.current) return;
         if (doc.getSnapshot().conflict !== null) {
           setFeedback("Resolve the external-change conflict before applying character edits.");
           return;
         }
-        let command: Command;
-        if (typeof commandInput === "function") {
-          const latest = doc.getSnapshot().character;
-          if (latest === null) {
-            setFeedback("The character fields are no longer available.");
-            return;
-          }
-          const withPendingMoves: CharacterAuthoringFields = optimisticMoves.current.size === 0
-            ? latest
-            : { ...latest, specialMoves: latest.specialMoves.map((move, index) => optimisticMoves.current.get(index) ?? move) };
-          command = commandInput(withPendingMoves);
-        } else {
-          command = commandInput;
-        }
-        if (command.type === "set-character-move") {
-          optimisticMoves.current.set(command.index, command.value);
-          pendingMoveSubmissions.current += 1;
-          moveSubmission = true;
-        }
-        // Submit now, rather than keeping accepted edits in a page-local queue behind an earlier acknowledgement.
-        // If this tab closes while that acknowledgement is outstanding, the document already owns every command.
+        // Submit at acceptance so the shared document owns this command if this view closes before its result arrives.
         const result = await doc.apply(command);
         if (generation !== mutationGeneration.current) return;
         if (!result.ok) {
@@ -239,10 +215,6 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
       } catch (error) {
         if (generation === mutationGeneration.current) setFeedback(error instanceof Error ? error.message : "The character change could not be applied.");
       } finally {
-        if (moveSubmission) {
-          pendingMoveSubmissions.current -= 1;
-          if (pendingMoveSubmissions.current === 0) optimisticMoves.current.clear();
-        }
         for (const [key] of clear) {
           const pending = pendingDraftKeys.current.get(key);
           if (pending?.generation !== generation) continue;
@@ -458,40 +430,33 @@ function MoveEditor({
   const slotKey = (field: MoveField): string => `move:${slot}:${field}`;
   const save = (): void => {
     const clear: Array<readonly [string, string]> = [];
-    const patch: Partial<Mutable<Move>> = {};
+    const changes: MoveFieldChange[] = [];
     for (const [field] of MOVE_FIELDS) {
       const key = slotKey(field);
       const raw = drafts[key];
       if (raw === undefined) continue;
       clear.push([key, raw]);
-      if (field === "file") patch.file = raw;
-      else if (field === "condVar") patch.condVar = raw;
-      else if (field === "condValue") patch.condValue = raw;
-      else {
+      if (field === "file" || field === "condVar" || field === "condValue") {
+        if (raw.includes("\0")) {
+          feedback("Special-move text fields cannot contain NUL.");
+          return;
+        }
+        changes.push({ field, value: raw });
+      } else {
         const value = integerValue(raw, INT32_MIN, INT32_MAX);
         if (value === null) {
           feedback(`Special-move experience and level must be whole numbers from ${INT32_MIN} to ${INT32_MAX}.`);
           return;
         }
-        if (field === "minExp") patch.minExp = value;
-        else patch.minLevel = value;
+        changes.push({ field, value });
       }
     }
     if (clear.length === 0) return;
-    const pendingValue = { ...current, ...patch };
-    if ([pendingValue.file, pendingValue.condVar, pendingValue.condValue].some((part) => part.includes("\0"))) {
-      feedback("Special-move text fields cannot contain NUL.");
-      return;
-    }
-    if (sameMove(pendingValue, current) && !hasPendingPrefix(`move:${slot}:`)) {
+    if (changes.every((change) => current[change.field] === change.value) && !hasPendingPrefix(`move:${slot}:`)) {
       clearDrafts(clear.map(([key]) => key));
       return;
     }
-    submit((latest) => ({
-      type: "set-character-move",
-      index: slot,
-      value: { ...(latest.specialMoves[slot] ?? EMPTY_MOVE), ...patch },
-    }), clear);
+    submit({ type: "set-character-move-fields", index: slot, changes }, clear);
   };
   return <div class="tkr-character-move-editor">
     <label>Special-move slot (1–200)
@@ -517,9 +482,6 @@ function MoveEditor({
 
 const EMPTY_MOVE: Move = { file: "", minExp: 0, minLevel: 0, condVar: "", condValue: "" };
 
-function sameMove(left: Move, right: Move): boolean {
-  return left.file === right.file && left.minExp === right.minExp && left.minLevel === right.minLevel && left.condVar === right.condVar && left.condValue === right.condValue;
-}
 function without(drafts: Drafts, key: string): Drafts {
   if (!(key in drafts)) return drafts;
   const next = { ...drafts };

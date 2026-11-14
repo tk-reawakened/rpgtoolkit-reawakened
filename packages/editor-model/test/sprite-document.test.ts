@@ -114,7 +114,10 @@ test("character authoring fields apply independently, undo and round-trip withou
   apply(doc, { type: "set-character-variable", index: 0, value: "hero_exp!" });
   apply(doc, { type: "set-character-stat", field: "maxHp", value: 321 });
   apply(doc, { type: "set-character-text", field: "profilePicture", value: "Bitmap/hero.png" });
-  apply(doc, { type: "set-character-move", index: 200, value: { condValue: "done", condVar: "quest!", minLevel: 3, minExp: 42, file: "SpcMove/flare.spc" } });
+  apply(doc, { type: "set-character-move-fields", index: 200, changes: [
+    { field: "condValue", value: "done" }, { field: "condVar", value: "quest!" }, { field: "minLevel", value: 3 },
+    { field: "minExp", value: 42 }, { field: "file", value: "SpcMove/flare.spc" },
+  ] });
   apply(doc, { type: "set-character-text", field: "specialMoveCategory", value: "Arts" });
   apply(doc, { type: "set-character-moves-enabled", value: 1 });
   apply(doc, { type: "set-character-accessory", index: 10, value: "Charm" });
