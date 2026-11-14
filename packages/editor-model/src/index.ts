@@ -35,6 +35,7 @@ export {
   createBoardFile,
   newBoardSettingsFrom,
   newBoardSummary,
+  readBoardTemplate,
   rememberNewBoard,
   uniqueBoardName,
   validateNewBoard,
@@ -91,6 +92,7 @@ export {
 export {
   DEFAULT_EDITOR_PREFERENCES,
   createBoardEditor,
+  pendingCells,
   type Brush,
   type BoardEditor,
   type BoardEditorOptions,

@@ -540,3 +540,46 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
   };
   return editor;
 }
+
+/**
+ * The cells a gesture in progress would touch, for the canvas to outline before anything is committed: the cells a drag
+ * has crossed, the corners' rectangle (hollow for Rectangle unless Ctrl fills it), the selection moved by the drag, or the
+ * footprint of a stamp. Only cells on the board are named.
+ */
+export function pendingCells(board: ToolBoard, state: BoardEditorState, stamp: Stamp | null): Cell[] {
+  const pending = state.pending;
+  if (pending === null) return [];
+  const onBoard = (cells: readonly Cell[]): Cell[] => cells.filter((cell) => cellOnBoard(board, cell.x, cell.y));
+  switch (pending.kind) {
+    case "stroke":
+      return onBoard(pending.cells);
+    case "point":
+      return onBoard([pending.cell]);
+    case "pan":
+      return [];
+    case "stamp": {
+      if (stamp === null) return onBoard([pending.at]);
+      const cells: Cell[] = [];
+      for (let y = 0; y < stamp.height; y += 1) for (let x = 0; x < stamp.width; x += 1) cells.push({ x: pending.at.x + x, y: pending.at.y + y });
+      return onBoard(cells);
+    }
+    case "corner": {
+      const rect = cellRect(pending.anchor, pending.current);
+      const cells: Cell[] = [];
+      const hollow = state.tool === "rectangle" && !pending.filled;
+      for (let y = rect.y0; y <= rect.y1; y += 1) {
+        for (let x = rect.x0; x <= rect.x1; x += 1) if (!hollow || x === rect.x0 || x === rect.x1 || y === rect.y0 || y === rect.y1) cells.push({ x, y });
+      }
+      return onBoard(cells);
+    }
+    case "move": {
+      const selection = state.selection;
+      if (selection === null) return [];
+      const dx = pending.current.x - pending.anchor.x;
+      const dy = pending.current.y - pending.anchor.y;
+      const cells: Cell[] = [];
+      for (let y = selection.rect.y0; y <= selection.rect.y1; y += 1) for (let x = selection.rect.x0; x <= selection.rect.x1; x += 1) cells.push({ x: x + dx, y: y + dy });
+      return onBoard(cells);
+    }
+  }
+}

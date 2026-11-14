@@ -224,6 +224,29 @@ export async function createBoardFile(fs: NewBoardStorage, layout: ProjectLayout
   return { ok: true, path };
 }
 
+/** What choosing a template fills the dialog's fields with: the template's own layout, size, layer count and background. */
+export async function readBoardTemplate(
+  fs: Pick<FileSystemService, "read">,
+  path: string,
+): Promise<{ readonly ok: true; readonly settings: Pick<NewBoardSettings, "coordSystem" | "pixelCoordinates" | "width" | "height" | "layers" | "backgroundImage"> } | { readonly ok: false; readonly message: string }> {
+  const read = await fs.read(path);
+  if (!read.ok) return { ok: false, message: `Could not read the template ${path}: ${read.error.message}` };
+  const parsed = readBoard(new BinaryReader(read.value, path));
+  if (!parsed.ok) return { ok: false, message: `${path} is not a board this editor reads: ${parsed.error.message}` };
+  const board = parsed.value;
+  return {
+    ok: true,
+    settings: {
+      coordSystem: coordSystemOf(board.coordType),
+      pixelCoordinates: (board.coordType & 4) !== 0,
+      width: board.sizeX,
+      height: board.sizeY,
+      layers: board.sizeL,
+      backgroundImage: board.properties.backgroundImage,
+    },
+  };
+}
+
 /** The new-board preferences (T-20 "remembers last settings"; T-33 "show the new-board dialog"). */
 export const NEW_BOARD_PREFERENCE_IDS = {
   coordSystem: "board.new.coordSystem",
