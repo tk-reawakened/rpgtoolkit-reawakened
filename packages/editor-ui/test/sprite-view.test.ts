@@ -247,11 +247,12 @@ test("undo restores a deleted stance identity at its original row after delayed 
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const deleteStarted = new Promise<void>((resolve) => { started = resolve; });
   replaceApply(s.doc, async (command) => {
+    const result = await apply(command);
     if (command.type === "delete-custom-stance" && command.index === 1) {
       started();
       await gate;
     }
-    return apply(command);
+    return result;
   });
   const handle = await show(s);
   const rows = () => [...s.el.querySelectorAll<HTMLElement>(".tkr-sprite-custom")];
@@ -262,13 +263,37 @@ test("undo restores a deleted stance identity at its original row after delayed 
     secondAnimation.dispatchEvent(new Event("input", { bubbles: true }));
   });
   await act(() => rows()[1]?.querySelector<HTMLButtonElement>("button")?.click());
-  await deleteStarted;
+  await act(async () => { await deleteStarted; await new Promise((resolve) => setTimeout(resolve, 0)); });
+  equal(rows()[1]?.querySelectorAll<HTMLInputElement>("input")[1]?.value, "following-row-draft.anm", "snapshot-before-result removes the deleted key immediately so the draft stays with its row");
   release();
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
   equal(s.doc.getSnapshot().customStances.at(-1)?.handle, "Second");
   await act(() => { ok(s.doc.undo().ok, "the acknowledged stance deletion can be undone"); });
   deepEqual(s.doc.getSnapshot().customStances.slice(-2).map((stance) => stance.handle), ["First", "Second"]);
   equal(rows()[2]?.querySelectorAll<HTMLInputElement>("input")[1]?.value, "following-row-draft.anm", "undo reinserts the deleted row key before the following stance without moving its draft");
+  handle.dispose();
+  s.el.remove();
+});
+
+test("duplicate stance deletes undo against their exact history identities", async () => {
+  const s = await setup("character", "Chrs/duplicate-stance-undo.tem", exampleCharacter());
+  ok((await s.doc.apply({ type: "add-custom-stance", name: "X", file: "" })).ok);
+  ok((await s.doc.apply({ type: "add-custom-stance", name: "X", file: "" })).ok);
+  const handle = await show(s);
+  const rows = () => [...s.el.querySelectorAll<HTMLElement>(".tkr-sprite-custom")];
+  await act(() => rows()[1]?.querySelector<HTMLButtonElement>("button")?.click());
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  await act(() => rows()[1]?.querySelector<HTMLButtonElement>("button")?.click());
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  await act(() => { ok(s.doc.undo().ok, "undo restores the second duplicate stance"); });
+  const restoredSecond = rows()[1]?.querySelectorAll<HTMLInputElement>("input")[1];
+  ok(restoredSecond !== undefined);
+  await act(() => {
+    restoredSecond.value = "x2-after-undo.anm";
+    restoredSecond.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(() => { ok(s.doc.undo().ok, "undo restores the first duplicate stance ahead of the second"); });
+  equal(rows()[2]?.querySelectorAll<HTMLInputElement>("input")[1]?.value, "x2-after-undo.anm", "the X2 draft remains with X2 after both history records are undone");
   handle.dispose();
   s.el.remove();
 });
@@ -308,6 +333,59 @@ test("Remove point rebases on the acknowledged coordinate edit", async () => {
   const points = s.doc.getSnapshot().vectorBases![1]!.points;
   deepEqual(points[0], { x: -12, y: original[0]!.y }, "removing a different point preserves the coordinate edit acknowledged before it");
   deepEqual(points.slice(1), original.slice(2), "the queued remove deletes point two from the acknowledged polygon");
+  handle.dispose();
+  s.el.remove();
+});
+
+test("deferred double removal waits for fresh point indices", async () => {
+  const s = await setup("character", "Chrs/deferred-double-remove.tem", exampleCharacter());
+  const bases = s.doc.getSnapshot().vectorBases!.map((base) => ({ points: base.points.map((point) => ({ ...point })) }));
+  const points = [{ x: 1, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 3 }, { x: 4, y: 4 }, { x: 5, y: 5 }];
+  bases[1] = { points };
+  ok((await s.doc.apply({ type: "set-sprite-bases", bases })).ok);
+  const apply = s.doc.apply.bind(s.doc);
+  let releaseFirst!: () => void;
+  let startFirst!: () => void;
+  let releaseSecond!: () => void;
+  let startSecond!: () => void;
+  const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  const secondGate = new Promise<void>((resolve) => { releaseSecond = resolve; });
+  const firstStarted = new Promise<void>((resolve) => { startFirst = resolve; });
+  const secondStarted = new Promise<void>((resolve) => { startSecond = resolve; });
+  let applications = 0;
+  replaceApply(s.doc, async (command) => {
+    if (command.type === "set-sprite-bases" && applications === 0) {
+      applications += 1;
+      startFirst();
+      await firstGate;
+    } else if (command.type === "set-sprite-bases" && applications === 1) {
+      applications += 1;
+      startSecond();
+      await secondGate;
+    }
+    return apply(command);
+  });
+  const handle = await show(s);
+  await act(() => s.el.querySelector<HTMLButtonElement>('button[aria-pressed="false"]')?.click());
+  const removePoint1 = [...s.el.querySelectorAll("button")].find((button) => button.textContent === "Remove point 1");
+  ok(removePoint1 !== undefined);
+  await act(() => removePoint1.click());
+  await act(async () => { await firstStarted; await new Promise((resolve) => setTimeout(resolve, 0)); });
+  const staleRemovePoint3 = [...s.el.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Remove point 3");
+  ok(staleRemovePoint3 !== undefined);
+  equal(staleRemovePoint3.disabled, true, "structural point removal is disabled until the preceding edit is acknowledged");
+  await act(() => staleRemovePoint3.click());
+  equal(applications, 1, "a second removal using stale row indices is not queued");
+
+  releaseFirst();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  const refreshedRemovePoint2 = [...s.el.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Remove point 2");
+  ok(refreshedRemovePoint2 !== undefined);
+  await act(() => refreshedRemovePoint2.click());
+  await secondStarted;
+  releaseSecond();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  deepEqual(s.doc.getSnapshot().vectorBases![1]!.points, [points[1], points[3], points[4]], "the two user removals target A then C despite the index shift");
   handle.dispose();
   s.el.remove();
 });

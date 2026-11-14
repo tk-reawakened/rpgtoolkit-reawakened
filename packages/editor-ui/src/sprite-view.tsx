@@ -29,6 +29,7 @@ type BaseEdit = (bases: readonly ActorBase[]) => readonly ActorBase[];
 interface DeletedCustomStance {
   readonly key: string;
   index: number;
+  readonly editId: string;
   readonly handle: string;
   readonly animation: string;
 }
@@ -189,27 +190,48 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
   const newCustomStanceKey = (): string => `${formId}-custom-${++customStancesMade}`;
   const customStanceKeys = useRef<string[] | null>(null);
   const deletedCustomStances = useRef<DeletedCustomStance[]>([]);
+  const pendingCustomStanceDeletes = useRef<Array<Omit<DeletedCustomStance, "editId">>>([]);
   const pendingCustomStanceOperations = useRef(0);
+  const observedEditIds = useRef(new Set(snapshot.edits.map((edit) => edit.editId)));
   if (customStanceKeys.current === null) {
     customStanceKeys.current = snapshot.customStances.map(() => newCustomStanceKey());
-  } else if (snapshot.customStances.length > customStanceKeys.current.length) {
-    while (customStanceKeys.current.length < snapshot.customStances.length) {
-      const restoredIndex = deletedCustomStances.current.findIndex((deleted) => {
-        const stance = snapshot.customStances[deleted.index];
-        return stance !== undefined && stance.handle === deleted.handle && stance.animation === deleted.animation && deleted.index <= customStanceKeys.current!.length;
-      });
-      if (restoredIndex < 0) {
-        customStanceKeys.current.push(newCustomStanceKey());
-        continue;
+  } else {
+    const currentEditIds = new Set(snapshot.edits.map((edit) => edit.editId));
+    if (snapshot.customStances.length < customStanceKeys.current.length) {
+      const deletion = snapshot.edits.find((edit) => !observedEditIds.current.has(edit.editId) && edit.command.type === "delete-custom-stance");
+      if (deletion?.command.type === "delete-custom-stance") {
+        const deletedIndex = deletion.command.index;
+        const pendingIndex = pendingCustomStanceDeletes.current.findIndex((pending) => pending.index === deletedIndex);
+        const pending = pendingIndex < 0 ? undefined : pendingCustomStanceDeletes.current.splice(pendingIndex, 1)[0];
+        const index = deletion.command.index;
+        for (const deleted of deletedCustomStances.current) if (deleted.index > index) deleted.index -= 1;
+        const key = customStanceKeys.current.splice(index, 1)[0];
+        if (pending !== undefined && key !== undefined) {
+          deletedCustomStances.current.push({ ...pending, key, index, editId: deletion.editId });
+        }
       }
-      const [restored] = deletedCustomStances.current.splice(restoredIndex, 1);
-      const index = Math.min(restored!.index, customStanceKeys.current.length);
-      customStanceKeys.current.splice(index, 0, restored!.key);
-      for (const deleted of deletedCustomStances.current) if (deleted.index >= index) deleted.index += 1;
+    } else if (snapshot.customStances.length > customStanceKeys.current.length) {
+      let restoredIndex = -1;
+      for (let index = deletedCustomStances.current.length - 1; index >= 0; index -= 1) {
+        const deleted = deletedCustomStances.current[index]!;
+        if (observedEditIds.current.has(deleted.editId) && !currentEditIds.has(deleted.editId)) {
+          restoredIndex = index;
+          break;
+        }
+      }
+      if (restoredIndex >= 0) {
+        const [restored] = deletedCustomStances.current.splice(restoredIndex, 1);
+        const index = Math.min(restored!.index, customStanceKeys.current.length);
+        customStanceKeys.current.splice(index, 0, restored!.key);
+      } else {
+        customStanceKeys.current.push(newCustomStanceKey());
+      }
+    } else if (pendingCustomStanceOperations.current === 0 && customStanceKeys.current.length !== snapshot.customStances.length) {
+      customStanceKeys.current = snapshot.customStances.map(() => newCustomStanceKey());
+      deletedCustomStances.current = [];
+      pendingCustomStanceDeletes.current = [];
     }
-  } else if (pendingCustomStanceOperations.current === 0 && customStanceKeys.current.length !== snapshot.customStances.length) {
-    customStanceKeys.current = snapshot.customStances.map(() => newCustomStanceKey());
-    deletedCustomStances.current = [];
+    observedEditIds.current = currentEditIds;
   }
   const stanceKeySignature = customStanceKeys.current.join(",");
   const liveCustomDrafts = new Set(customStanceKeys.current.flatMap((id) => [`custom-name:${id}`, `custom-animation:${id}`]));
@@ -217,12 +239,15 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
     setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([key]) =>
       (!key.startsWith("custom-name:") && !key.startsWith("custom-animation:")) || liveCustomDrafts.has(key))));
   }, [stanceKeySignature]);
+  const [pendingBaseWorkCount, setPendingBaseWorkCount] = useState(0);
+  const [pendingBaseStructureCount, setPendingBaseStructureCount] = useState(0);
   const pendingBaseCommands = useRef(0);
   const queuedBaseEdits = useRef<BaseEdit[]>([]);
   const baseQueue = useRef<Promise<void>>(Promise.resolve());
   const readOnly = snapshot.readOnly !== null;
   const disabled = readOnly || snapshot.conflict !== null || snapshot.saving;
   const bases = snapshot.vectorBases ?? [];
+  const baseStructureDisabled = disabled || snapshot.graphicsUnavailable !== null || pendingBaseStructureCount > 0;
   const baseDraft = useRef(copiedBases(bases));
   if (pendingBaseCommands.current === 0) baseDraft.current = copiedBases(bases);
   const selected = bases[selectedBase] ?? { points: [] };
@@ -246,22 +271,28 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
     const committed = copiedBases(doc.getSnapshot().vectorBases ?? []);
     baseDraft.current = queuedBaseEdits.current.reduce((current, next) => next(current), committed);
   };
-  const enqueueBaseWork = (work: () => Promise<void>): void => {
+  const enqueueBaseWork = (work: () => Promise<void>, structural = false): void => {
     if (pendingBaseCommands.current === 0) baseQueue.current = Promise.resolve();
     pendingBaseCommands.current += 1;
+    setPendingBaseWorkCount((count) => count + 1);
+    if (structural) setPendingBaseStructureCount((count) => count + 1);
+    const finished = (): void => {
+      pendingBaseCommands.current -= 1;
+      setPendingBaseWorkCount((count) => Math.max(0, count - 1));
+      if (structural) setPendingBaseStructureCount((count) => Math.max(0, count - 1));
+    };
     baseQueue.current = baseQueue.current.then(work).then(
       () => {
-        pendingBaseCommands.current -= 1;
+        finished();
         rebaseBaseDraft();
       },
       (error: unknown) => {
-        pendingBaseCommands.current -= 1;
-        rebaseBaseDraft();
+        finished();
         setFeedback(error instanceof Error ? error.message : "A polygon edit could not be applied.");
       },
     );
   };
-  const submitBases = (edit: BaseEdit): void => {
+  const submitBases = (edit: BaseEdit, structural = false): void => {
     queuedBaseEdits.current.push(edit);
     baseDraft.current = edit(baseDraft.current);
     enqueueBaseWork(async () => {
@@ -269,7 +300,7 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
       if (operation === undefined) return;
       const committed = copiedBases(doc.getSnapshot().vectorBases ?? []);
       await submit({ type: "set-sprite-bases", bases: copiedBases(operation(committed)) });
-    });
+    }, structural);
   };
   const clearDraft = (key: string, submitted: string): void => setDrafts((current) => {
     if (current[key] !== submitted) return current;
@@ -289,13 +320,15 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
   const deleteCustomStance = async (index: number): Promise<void> => {
     const stance = doc.getSnapshot().customStances[index];
     const key = customStanceKeys.current![index];
+    if (stance === undefined || key === undefined) return;
+    const pending = { key, index, handle: stance.handle, animation: stance.animation };
+    pendingCustomStanceDeletes.current.push(pending);
     pendingCustomStanceOperations.current += 1;
     const success = await submit({ type: "delete-custom-stance", index });
     pendingCustomStanceOperations.current -= 1;
-    if (success) {
-      for (const deleted of deletedCustomStances.current) if (deleted.index > index) deleted.index -= 1;
-      if (stance !== undefined && key !== undefined) deletedCustomStances.current.push({ key, index, handle: stance.handle, animation: stance.animation });
-      customStanceKeys.current!.splice(index, 1);
+    if (!success) {
+      const pendingIndex = pendingCustomStanceDeletes.current.indexOf(pending);
+      if (pendingIndex >= 0) pendingCustomStanceDeletes.current.splice(pendingIndex, 1);
     }
     setDrafts((current) => ({ ...current }));
   };
@@ -350,27 +383,27 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
       const next = [...copiedBases(current)];
       next[index] = { points: points.map((point) => ({ ...point })) };
       return next;
-    });
+    }, true);
   };
   const appendBasePoint = (index: number, point: ActorPoint): void => {
-    if (disabled || snapshot.graphicsUnavailable !== null) return;
+    if (baseStructureDisabled) return;
     submitBases((current) => {
       const next = [...copiedBases(current)];
       const base = next[index];
       if (base === undefined) return current;
       next[index] = { points: [...base.points, { ...point }] };
       return next;
-    });
+    }, true);
   };
   const removeBasePoint = (index: number, pointIndex: number): void => {
-    if (disabled || snapshot.graphicsUnavailable !== null) return;
+    if (baseStructureDisabled) return;
     submitBases((current) => {
       const next = [...copiedBases(current)];
       const base = next[index];
       if (base === undefined || base.points.length <= 3 || base.points[pointIndex] === undefined) return current;
       next[index] = { points: base.points.filter((_point, candidate) => candidate !== pointIndex) };
       return next;
-    });
+    }, true);
   };
   const assignWalk = async (): Promise<void> => {
     if (template.split("*").length !== 2) {
@@ -409,7 +442,7 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
         return;
       }
       await submit({ type: "set-sprite-bases", bases: copiedBases(imported.bases) });
-    });
+    }, true);
   };
 
   return <section class="tkr-sprite-graphics" aria-label={`${snapshot.actorType} sprite graphics`}>
@@ -474,7 +507,7 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
           <button type="button" aria-pressed={selectedBase === 0} onClick={() => setSelectedBase(0)}>Collision polygon</button>
           <button type="button" aria-pressed={selectedBase === 1} onClick={() => setSelectedBase(1)}>Activation polygon</button>
         </div>
-        <button type="button" onClick={() => appendBasePoint(selectedBase, { x: 0, y: 0 })} disabled={disabled || snapshot.graphicsUnavailable !== null}>Add polygon point at origin</button>
+        <button type="button" onClick={() => appendBasePoint(selectedBase, { x: 0, y: 0 })} disabled={baseStructureDisabled}>Add polygon point at origin</button>
         <svg class="tkr-sprite-base-canvas" viewBox="-40 -40 80 60" role="img" aria-label={`Sprite origin and ${selectedBase === 0 ? "collision" : "activation"} polygon. Click to add a point; drag a point to move it.`} onClick={(event) => {
           if (suppressClick.current) {
             suppressClick.current = false;
@@ -483,6 +516,7 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
           const point = spritePoint(event.currentTarget, event.clientX, event.clientY);
           if (point !== null) appendBasePoint(selectedBase, point);
         }} onPointerDown={(event) => {
+          if (baseStructureDisabled) return;
           const indexValue = (event.target as Element).getAttribute("data-point-index");
           if (indexValue === null) return;
           const index = Number(indexValue);
@@ -522,7 +556,7 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
           <tbody>{selected.points.map((point, index) => <tr key={index}><th scope="row">{index + 1}</th>
             <td><label class="tkr-sr-only" for={`${formId}-x-${index}`}>Point {index + 1} X</label><input id={`${formId}-x-${index}`} type="number" min="-2147483648" max="2147483647" step="1" value={point.x} onChange={(event) => setPoint(index, "x", Number(event.currentTarget.value))} /></td>
             <td><label class="tkr-sr-only" for={`${formId}-y-${index}`}>Point {index + 1} Y</label><input id={`${formId}-y-${index}`} type="number" min="-2147483648" max="2147483647" step="1" value={point.y} onChange={(event) => setPoint(index, "y", Number(event.currentTarget.value))} /></td>
-            <td><button type="button" onClick={() => removeBasePoint(selectedBase, index)} disabled={selected.points.length <= 3}>Remove point {index + 1}</button></td>
+            <td><button type="button" onClick={() => removeBasePoint(selectedBase, index)} disabled={baseStructureDisabled || selected.points.length <= 3}>Remove point {index + 1}</button></td>
           </tr>)}</tbody></table>
         <div role="group" aria-label="Polygon shape presets">
           <button type="button" onClick={() => replaceBase(selectedBase, selectedBase === 0 ? DEFAULT_SMALL : DEFAULT_SMALL_ACTIVATION)}>Small rectangle</button>
