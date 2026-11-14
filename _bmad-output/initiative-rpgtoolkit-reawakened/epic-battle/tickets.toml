@@ -107,6 +107,7 @@ verify = "Apply, re-apply, remove and expire behave as ruled; each status acts e
 covers = ["CAP-9"]
 after = [4, 5, "20.6"]
 hitl = false
+risk = "high"
 references = [
   "spec - docs/spec/engine/battle.md as ruled by 7.1 (BAT-6)",
   "spec - docs/spec/engine/plugins-and-battle.md#e-75",

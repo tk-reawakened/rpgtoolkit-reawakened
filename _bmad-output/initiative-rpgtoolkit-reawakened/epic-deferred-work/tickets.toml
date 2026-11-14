@@ -183,6 +183,7 @@ type = "story"
 title = "Pin the format and event evidence the audits found unproven"
 description = "Several criteria are met in code but not pinned by a test that would fail on regression: enemy critical fields, sample() coverage, an engine-level mid-dispatch save/load, the still-boots assertion, tileset and battle fixtures, the main-file conditional rows and focus pause."
 verify = "Each listed assertion fails when the behaviour it pins is removed, and fixture-dependent items skip with a reason when the fixtures are absent."
+covers = ["CAP-1"]
 after = ["2.6", "2.7"]
 hitl = false
 risk = "low"
