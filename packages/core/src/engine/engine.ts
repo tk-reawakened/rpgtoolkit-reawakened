@@ -448,6 +448,7 @@ export function createEngine(init: EngineInit): Engine {
   let recoveryInitialized = false;
   let recoveryResumed = false;
   const diagnostics: Diagnostic[] = [];
+  const observationState: GameState | null = init.tickObserver === undefined ? null : { ...state };
   let observingTick = false;
   let activeMovement: { file: AssetKey; revision: number; settings: MainFileMovementSettings } | null = null;
   const reportedMovementCollisions = new Set<string>();
@@ -2190,13 +2191,9 @@ export function createEngine(init: EngineInit): Engine {
   function programFrameHeld(): boolean {
     return holdProgramFrame || (state.world.board === null && !blockingAlive() && frameHash !== null);
   }
-  function syncEngineState(): void {
-    if (cacheKeysDirty) {
-      cacheKeysSnapshot = Array.from(cache.keys()).sort();
-      cacheKeysDirty = false;
-    }
-    const next: EngineSection = {
-      cacheKeys: cacheKeysSnapshot,
+  function engineStateProjection(): EngineSection {
+    return {
+      cacheKeys: cacheKeysDirty ? Array.from(cache.keys()).sort() : cacheKeysSnapshot,
       nextRequestId,
       ...(state.engine.nextBattleId === undefined ? {} : { nextBattleId: state.engine.nextBattleId }),
       pending: Array.from(pending.values(), (entry) => ({ reqId: entry.reqId, key: entry.key, kind: entry.kind })),
@@ -2204,23 +2201,35 @@ export function createEngine(init: EngineInit): Engine {
       claims: state.engine.claims ?? [],
       ...(state.engine.phase === undefined ? {} : { phase: state.engine.phase }),
       ...(state.engine.video === undefined ? {} : { video: state.engine.video }),
+      ...(state.engine.openTick === undefined ? {} : { openTick: state.engine.openTick }),
+      ...(state.engine.pendingEffects === undefined ? {} : { pendingEffects: state.engine.pendingEffects }),
+      ...(state.engine.effectDropped === undefined ? {} : { effectDropped: state.engine.effectDropped }),
+      ...(state.engine.effectDiagnostics === undefined ? {} : { effectDiagnostics: state.engine.effectDiagnostics }),
+      ...(state.engine.boot === undefined ? {} : { boot: state.engine.boot }),
+      ...(state.engine.transition === undefined ? {} : { transition: state.engine.transition }),
+      ...(state.engine.pendingEnterThread === undefined ? {} : { pendingEnterThread: state.engine.pendingEnterThread }),
     };
-    if (state.engine.openTick !== undefined) next.openTick = state.engine.openTick;
-    if (state.engine.pendingEffects !== undefined) next.pendingEffects = state.engine.pendingEffects;
-    if (state.engine.effectDropped !== undefined) next.effectDropped = state.engine.effectDropped;
-    if (state.engine.effectDiagnostics !== undefined) next.effectDiagnostics = state.engine.effectDiagnostics;
-    if (state.engine.boot !== undefined) next.boot = state.engine.boot;
-    if (state.engine.transition !== undefined) next.transition = state.engine.transition;
-    if (state.engine.pendingEnterThread !== undefined) next.pendingEnterThread = state.engine.pendingEnterThread;
-    state.engine = next;
   }
-  /** Sample after drive and state synchronization without committing the deferred presented frame. */
+  function syncEngineState(): void {
+    if (cacheKeysDirty) {
+      cacheKeysSnapshot = Array.from(cache.keys()).sort();
+      cacheKeysDirty = false;
+    }
+    state.engine = engineStateProjection();
+  }
+  function hashSynchronizedGameState(): string {
+    const projection = observationState;
+    if (projection === null) return hashGameState(state);
+    Object.assign(projection, state);
+    projection.engine = engineStateProjection();
+    return hashGameState(projection);
+  }
+  /** Sample after drive and synchronized-state projection without exposing synchronization between batched ticks. */
   function observeCompletedTick(): void {
     const observer = init.tickObserver;
     if (observer === undefined) return;
-    syncEngineState();
     settlePostQuitWriteFailures();
-    syncEngineState();
+    const stateHash = hashSynchronizedGameState();
     let drawHash: string;
     observingTick = true;
     try {
@@ -2228,7 +2237,7 @@ export function createEngine(init: EngineInit): Engine {
     } finally {
       observingTick = false;
     }
-    observer({ tick: state.time.tick, stateHash: hashGameState(state), drawHash });
+    observer({ tick: state.time.tick, stateHash, drawHash });
   }
   function finalizeBlobRequests(): void {
     for (const entry of pendingBlobs.values()) {
