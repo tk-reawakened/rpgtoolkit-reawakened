@@ -1,13 +1,13 @@
 import { spawn } from "node:child_process";
-import { access, copyFile, mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { access, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
-import { dirname, join, resolve } from "node:path";
-import { tmpdir } from "node:os";
-import { setTimeout as delay } from "node:timers/promises";
+import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
+import { startPersistentFs } from "./persistent-fs.mjs";
+import { createProofDirectories } from "./proof-directories.mjs";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const harness = resolve(root, "tools/editor-vscode-test");
@@ -19,6 +19,7 @@ const configuredPort = process.env.TKR_VSCODE_TEST_PORT;
 const port = configuredPort === undefined ? await freePort() : Number(configuredPort);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("TKR_VSCODE_TEST_PORT must be a valid TCP port");
 if (game.startsWith("/") || game.split("/").includes("..") || !game.toLowerCase().endsWith(".gam")) throw new Error("--game must be a workspace-relative .gam path");
+if (game.split("/").at(-1).toLowerCase() === "__tkr_sentinel.gam") throw new Error("--game cannot use the reserved proof sentinel name");
 await access(resolve(extension, "package.json"));
 const manifest = JSON.parse(await readFile(resolve(extension, "package.json"), "utf8"));
 if (`${manifest.publisher}.${manifest.name}` !== "tk-reawakened.editor") throw new Error("The built extension must have the id tk-reawakened.editor");
@@ -34,67 +35,151 @@ await access(gameFiles[0]);
 const title = `VS Code web proof ${Date.now()}`;
 const recoveredTitle = `${title} recovered`;
 const autosaveTitle = `${title} autosaved`;
-const [expectedBytes, recoveredBytes, autosaveBytes] = await Promise.all([
+const externalTitle = `${title} external`;
+const sentinelTitle = `${title} unrelated dirty editor`;
+const [expectedBytes, recoveredBytes, autosaveBytes, externalBytes, sentinelBytes] = await Promise.all([
   createWebAdapterBytes(gameFiles[0], game, title),
   createWebAdapterBytes(gameFiles[0], game, recoveredTitle),
   createWebAdapterBytes(gameFiles[0], game, autosaveTitle),
+  createWebAdapterBytes(gameFiles[0], game, externalTitle),
+  createWebAdapterBytes(gameFiles[0], "__tkr_sentinel.gam", sentinelTitle),
 ]);
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
-const cdpPort = await freePort();
-const proofWorkspace = await createProofWorkspace(gameFiles[0], game);
-let browser;
-let trackedProcess;
-let failure;
-let cleanupErrors = [];
-const browserDiagnostics = [];
-try {
-  const child = spawn(resolve(harness, "node_modules/.bin/vscode-test-web"), [
-    "--host=localhost", "--browserType=chromium", `--browserOption=--remote-debugging-port=${cdpPort}`,
-    `--extensionDevelopmentPath=${extension}`, `--extensionPath=${resolve(harness, "probe-extension")}`,
-    `--port=${port}`, proofWorkspace,
-  ], {
-    cwd: root,
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      NODE_OPTIONS: [process.env.NODE_OPTIONS, "--dns-result-order=ipv4first"].filter(Boolean).join(" "),
-    },
-  });
-  trackedProcess = trackProcess(child);
-  const workbenchUrl = `http://localhost:${port}/`;
-  const readinessUrl = `http://127.0.0.1:${port}/`;
-  await Promise.race([waitForHttpServer(child, readinessUrl), trackedProcess.error]);
-  browser = await connectBrowser(child, cdpPort);
-  const { page } = await waitForBrowserPage(browser, child);
-  const recordBrowserDiagnostic = (message) => { if (browserDiagnostics.length < 100) browserDiagnostics.push(message); };
-  page.on("console", (message) => { if (message.type() === "error") recordBrowserDiagnostic(`[console] ${message.text()}`); });
-  page.on("pageerror", (error) => recordBrowserDiagnostic(`[pageerror] ${error.stack ?? error.message}`));
-  page.on("requestfailed", (request) => recordBrowserDiagnostic(`[requestfailed] ${request.url()}: ${request.failure()?.errorText ?? "unknown failure"}`));
-  await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes);
-  console.log("vscode.dev settings proof passed");
-} catch (error) {
-  failure = error;
-} finally {
-  cleanupErrors = await cleanupTestRun(browser, trackedProcess, proofWorkspace);
-}
-const proofFailure = combineProofErrors(failure, cleanupErrors);
-if (proofFailure !== undefined) {
-  if (browserDiagnostics.length > 0) console.error(`[vscode-web:failure-diagnostics]\n${browserDiagnostics.join("\n")}`);
-  throw proofFailure;
-}
-async function createProofWorkspace(gameFile, gamePath) {
-  const directory = await mkdtemp(join(tmpdir(), "tkr-editor-vscode-proof-"));
+for (const choice of ["cancel", "keep"]) {
+  const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game);
+  let browser;
+  let persistentFs;
+  let trackedProcess;
+  let failure;
+  let cleanupErrors = [];
+  const browserDiagnostics = [];
   try {
-    const gameCopy = resolve(directory, gamePath);
-    await mkdir(dirname(gameCopy), { recursive: true });
-    await copyFile(gameFile, gameCopy);
-    const settingsDirectory = resolve(directory, ".vscode");
-    await mkdir(settingsDirectory, { recursive: true });
-    await writeFile(resolve(settingsDirectory, "settings.json"), `${JSON.stringify({ "files.autoSave": "off" }, null, 2)}\n`);
-    return directory;
+    persistentFs = await startPersistentFs(proofWorkspace, `http://localhost:${port}`);
+    const workbenchUrl = `http://localhost:${port}/`;
+    const readinessUrl = `http://127.0.0.1:${port}/`;
+    const startWorkbench = async () => {
+      const child = spawn(resolve(harness, "node_modules/.bin/vscode-test-web"), [
+        "--host=localhost", "--browser=none",
+        `--extensionDevelopmentPath=${extension}`, `--extensionPath=${resolve(harness, "probe-extension")}`,
+        `--port=${port}`, `--folder-uri=tkr-testfs://${persistentFs.authority}/`,
+      ], {
+        cwd: root,
+        stdio: "inherit",
+        env: {
+          ...process.env,
+          NODE_OPTIONS: [process.env.NODE_OPTIONS, "--dns-result-order=ipv4first"].filter(Boolean).join(" "),
+        },
+      });
+      trackedProcess = trackProcess(child);
+      await Promise.race([waitForHttpServer(child, readinessUrl), trackedProcess.error]);
+    };
+    await startWorkbench();
+    browser = await chromium.launchPersistentContext(browserProfile, { headless: true });
+    // Observe the actual built host adapter at its dispatch boundary without adding a production test hook.
+    // A changed build shape fails closed rather than silently losing this safety assertion.
+    await browser.route("**/static/extensions/0/extension.js", async (route) => {
+      const response = await route.fetch();
+      const source = await response.text();
+      if (source.split("__TKR_PROOF_SECRET__").length !== 2) throw new Error("Proof provider no longer matches the credential injection");
+      await route.fulfill({ response, body: source.replace("__TKR_PROOF_SECRET__", persistentFs.token) });
+    });
+    await browser.route("**/static/devextensions/dist/extension.browser.js", async (route) => {
+      const response = await route.fetch();
+      let source = await response.text();
+      const [, bridgePort] = persistentFs.authority.split(".");
+      const token = persistentFs.token;
+      const trace = `async (kind, value) => { const response = await fetch("http://127.0.0.1:${bridgePort}/${token}", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "trace", kind, value }) }); if (!response.ok) throw new Error("Proof trace failed"); }`;
+      const probes = [
+        [
+          "executeCommand: async (command2) => await vscode3.commands.executeCommand(command2)",
+          `executeCommand: async (command2) => { await (${trace})("command", command2); return await vscode3.commands.executeCommand(command2); }`,
+        ],
+        [
+          "saveCustomDocument: (document2) => core.saveCustomDocument(document2)",
+          `saveCustomDocument: async (document2) => { await (${trace})("save", document2.uri.path); return core.saveCustomDocument(document2); }`,
+        ],
+        [
+          "revertCustomDocument: (document2) => core.revertCustomDocument(document2)",
+          `revertCustomDocument: async (document2) => { await (${trace})("revert", document2.uri.path); return core.revertCustomDocument(document2); }`,
+        ],
+      ];
+      for (const [before, after] of probes) {
+        if (source.split(before).length !== 2) throw new Error("Built VS Code adapter no longer matches the proof instrumentation");
+        source = source.replace(before, after);
+      }
+      await route.fulfill({ response, body: source });
+    });
+    const recordBrowserDiagnostic = (message) => { if (browserDiagnostics.length < 100) browserDiagnostics.push(message.replaceAll(persistentFs.token, "[redacted]")); };
+    const newPage = async () => {
+      const page = await browser.newPage();
+      page.on("console", (message) => { if (message.type() === "error") recordBrowserDiagnostic(`[console] ${message.text()}`); });
+      page.on("pageerror", (error) => recordBrowserDiagnostic(`[pageerror] ${error.stack ?? error.message}`));
+      page.on("requestfailed", (request) => recordBrowserDiagnostic(`[requestfailed] ${request.url()}: ${request.failure()?.errorText ?? "unknown failure"}`));
+      return page;
+    };
+    const page = await newPage();
+    const restart = async (currentPage, offlineBytes) => {
+      const extensionFrame = currentPage.frames().find((frame) => frame.url().includes("webWorkerExtensionHostIframe.html"));
+      if (extensionFrame === undefined) throw new Error("The web extension host was not running before restart");
+      const paused = Promise.withResolvers();
+      const release = Promise.withResolvers();
+      const continued = Promise.withResolvers();
+      const script = "**/workbench.web.main.internal.js";
+      const holdBootstrap = async (route) => {
+        paused.resolve();
+        await release.promise;
+        try {
+          await route.continue();
+          continued.resolve();
+        } catch (error) {
+          continued.resolve(error);
+        }
+      };
+      await currentPage.route(script, holdBootstrap);
+      try {
+        await currentPage.locator(".monaco-workbench").click({ position: { x: 5, y: 5 } });
+        await currentPage.keyboard.press("ControlOrMeta+Shift+P");
+        const input = currentPage.locator(".quick-input-widget input").last();
+        await expect(input).toBeVisible();
+        await input.fill(">Developer: Reload Window");
+        const command = currentPage.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Developer: Reload Window" }).first();
+        await expect(command).toBeVisible();
+        await command.click();
+        const timeout = Promise.withResolvers();
+        const timer = setTimeout(() => timeout.reject(new Error("Workbench bootstrap did not pause")), 30_000);
+        try { await Promise.race([paused.promise, timeout.promise]); } finally { clearTimeout(timer); }
+        if (!extensionFrame.isDetached()) throw new Error("The previous extension host did not stop before offline mutation");
+        trackedProcess.child.kill("SIGTERM");
+        const code = await trackedProcess.closed;
+        if (code !== 0 || trackedProcess.errors.length) throw new Error(`VS Code web workbench did not stop cleanly: ${code}`);
+        trackedProcess = undefined;
+        if (offlineBytes !== undefined) await writeFile(resolve(proofWorkspace, game), offlineBytes);
+        await startWorkbench();
+        release.resolve();
+        const routeError = await continued.promise;
+        if (routeError) throw routeError;
+        await currentPage.unroute(script, holdBootstrap);
+        return currentPage;
+      } finally {
+        release.resolve();
+      }
+    };
+    const readBacking = async (path = game) => new Uint8Array(await readFile(resolve(proofWorkspace, path)));
+    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice });
+    console.log(`vscode.dev settings proof passed (${choice})`);
   } catch (error) {
-    await rm(directory, { recursive: true, force: true });
-    throw error;
+    failure = error;
+  } finally {
+    cleanupErrors.push(...await cleanupTestRun(browser, trackedProcess, proofWorkspace));
+    if (persistentFs !== undefined) {
+      try { await persistentFs.close(); } catch (error) { cleanupErrors.push(error); }
+    }
+    try { await rm(browserProfile, { recursive: true, force: true }); } catch (error) { cleanupErrors.push(error); }
+  }
+  const proofFailure = combineProofErrors(failure, cleanupErrors);
+  if (proofFailure !== undefined) {
+    if (browserDiagnostics.length > 0) console.error(`[vscode-web:failure-diagnostics]\n${browserDiagnostics.join("\n")}`);
+    throw proofFailure;
   }
 }
 
@@ -154,36 +239,6 @@ async function freePort() {
   return address.port;
 }
 
-async function connectBrowser(child, debugPort) {
-  const deadline = Date.now() + 30_000;
-  let pause = 100;
-  let lastError;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`vscode-test-web exited early (${child.exitCode})`);
-    try { return await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`); }
-    catch (error) { lastError = error; }
-    await delay(pause);
-    pause = Math.min(pause * 2, 1_000);
-  }
-  throw new Error(`Timed out attaching to vscode-test-web Chromium: ${String(lastError)}`);
-}
 
-async function waitForBrowserPage(browser, child) {
-  const deadline = Date.now() + 30_000;
-  let pause = 100;
-  let observedContexts = 0;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`vscode-test-web exited before opening a browser page (${child.exitCode})`);
-    const contexts = browser.contexts();
-    observedContexts = contexts.length;
-    for (const context of contexts) {
-      const page = context.pages()[0];
-      if (page) return { context, page };
-    }
-    await delay(pause);
-    pause = Math.min(pause * 2, 1_000);
-  }
-  throw new Error(`Timed out waiting for vscode-test-web to create its initial page (${observedContexts} browser context(s) observed)`);
-}
 
 
