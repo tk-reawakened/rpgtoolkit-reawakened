@@ -4,6 +4,7 @@ import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, scr
 import type { expect as playwrightExpect, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors, decodePersistedBytes } from "./lifecycle.ts";
 import { runVscodeArtProof } from "./art-proof.ts";
+import { openNativeQuickOpenFile } from "./native-quick-open.ts";
 
 const copyBytesCommand = "Test: Copy Main File Bytes";
 
@@ -951,18 +952,10 @@ async function openProjectBoard(page: Page, path: string, expect: Expect): Promi
   return openProjectFile(page, path, expect, ".tkr-board");
 }
 
-/** Open the project file at `path` from the Explorer and return the custom editor frame whose content contains `selector`. */
+/** Open the exact workspace-relative file through VS Code's native Quick Open. */
 async function openProjectFile(page: Page, path: string, expect: Expect, selector: string): Promise<Frame> {
   await focusWorkbench(page);
-  const explorer = page.getByRole("tree", { name: "Files Explorer" });
-  await explorer.focus();
-  await explorer.press("Home");
-  const folder = page.getByRole("treeitem", { name: path.split("/")[0]!, exact: true });
-  await expect(folder).toBeVisible();
-  if (await folder.getAttribute("aria-expanded") !== "true") await folder.click();
-  const item = page.getByRole("treeitem", { name: path.split("/").at(-1)!, exact: true });
-  await expect(item).toBeVisible();
-  await item.dblclick();
+  await openNativeQuickOpenFile(page, expect, path);
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).toBeVisible();
   return await waitForCustomEditorFrame(page, path, selector);
 }
