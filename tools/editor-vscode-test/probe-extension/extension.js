@@ -21,14 +21,31 @@ function activate(context) {
     const encoded = btoa(binary);
     const id = crypto.randomUUID();
     console.info(`[vscode-web-proof-probe] displaying ${encoded.length} base64 characters in a temporary read-only webview`);
+    const reloadCommand = `tkr.editorWebProof.reloadWindow.${id}`;
     const panel = vscode.window.createWebviewPanel(
       "tkr.editorWebProof.persistedBytes",
       `Persisted Main File Bytes #${id}`,
       vscode.ViewColumn.Beside,
-      { enableScripts: false },
+      { enableScripts: false, enableCommandUris: [reloadCommand] },
     );
-    context.subscriptions.push(panel);
-    panel.webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none';"></head><body><pre id="tkr-proof-persisted-bytes-${id}">${encoded}</pre></body></html>`;
+    const reloadRegistration = vscode.commands.registerCommand(reloadCommand, async () => {
+      console.info("[vscode-web-proof-probe] requesting native reload");
+      let ownedTab;
+      for (const group of vscode.window.tabGroups.all) {
+        for (const tab of group.tabs) {
+          if (!(tab.input instanceof vscode.TabInputWebview) || tab.label !== panel.title) continue;
+          if (ownedTab !== undefined) throw new Error("The reload control matched more than one probe tab");
+          ownedTab = tab;
+        }
+      }
+      if (ownedTab === undefined || !await vscode.window.tabGroups.close(ownedTab)) {
+        throw new Error("The owned reload control tab did not close");
+      }
+      return vscode.commands.executeCommand("workbench.action.reloadWindow");
+    });
+    panel.onDidDispose(() => reloadRegistration.dispose());
+    context.subscriptions.push(panel, reloadRegistration);
+    panel.webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none';"></head><body><pre id="tkr-proof-persisted-bytes-${id}">${encoded}</pre><a href="command:${reloadCommand}">Reload workbench</a></body></html>`;
     console.info(`[vscode-web-proof-probe] persisted bytes published in read-only webview #${id}`);
   }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.writeGameBytes", async (encoded) => {

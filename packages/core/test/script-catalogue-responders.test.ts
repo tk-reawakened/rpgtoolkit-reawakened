@@ -65,7 +65,7 @@ const pluginWaitPoll = createWaitPoll([
 ]);
 
 test("all non-core catalogue responders have a lower-case command and a recorded response", () => {
-  equal(COMMANDS.length, 94);
+  equal(COMMANDS.length, 92);
   equal(new Set(COMMANDS.map((spec) => spec.name)).size, COMMANDS.length);
   for (const spec of COMMANDS) {
     equal(spec.name, spec.name.toLowerCase());
