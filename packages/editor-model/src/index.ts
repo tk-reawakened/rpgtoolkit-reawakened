@@ -64,3 +64,23 @@ export {
   type WorkspaceOpenResult,
   type WorkspaceOptions,
 } from "./workspace.ts";
+export {
+  createAssetPicker,
+  type AssetPicker,
+  type AssetPickerOptions,
+  type AssetPickerSnapshot,
+  type PickOutcome,
+} from "./asset-picker.ts";
+export {
+  copyIntoReservedFolder,
+  linkFor,
+  listCandidates,
+  referencePath,
+  reservedFolder,
+  unusableName,
+  type AssetCandidate,
+  type CopyInResult,
+  type LinkOutcome,
+  type ListFailure,
+  type ProjectLayout,
+} from "./reserved-folders.ts";
