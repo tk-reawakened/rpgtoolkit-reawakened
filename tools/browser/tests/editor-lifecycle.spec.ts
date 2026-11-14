@@ -77,7 +77,7 @@ test("the browser host undoes by editId, saves all, cancels a close, reverts, an
   await expect(title).toHaveValue("Close me");
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Don't save" }).click();
-  await expect(page.getByRole("toolbar")).toBeHidden();
+  await expect(page.getByRole("toolbar", { name: "Document" })).toBeHidden();
 
   // Another program changes the file; the editor finds it when saving and never writes over it.
   await page.getByRole("button", { name: "Open project folder" }).click();

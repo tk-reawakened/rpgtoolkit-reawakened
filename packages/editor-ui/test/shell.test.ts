@@ -51,15 +51,19 @@ interface Setup {
   readonly openPaths: string[];
 }
 
-async function setup(capabilities: readonly ("folderWrite" | "fileWatch" | "openExternal")[] = ["folderWrite", "openExternal"]): Promise<Setup> {
+async function setup(
+  capabilities: readonly ("folderWrite" | "fileWatch" | "openExternal")[] = ["folderWrite", "openExternal"],
+  files: Readonly<Record<string, Uint8Array>> = FILES,
+): Promise<Setup> {
   document.body.replaceChildren();
-  const host = createMemoryPlatformServices({ files: FILES, capabilities });
+  const host = createMemoryPlatformServices({ files, capabilities });
   const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
   const tree = createProjectTree({ services: host, workspace });
   const tabs = createTabs(workspace);
   const layout = createLayoutModel([
     { id: "files", title: "Files", side: "left", visible: true, size: 240, minSize: 120, maxSize: 480 },
     { id: "game", title: "Game", side: "left", visible: false, size: 240, minSize: 120, maxSize: 480 },
+    { id: "tileset", title: "Tileset", side: "right", visible: true, size: 240, minSize: 120, maxSize: 480 },
   ]);
   const el = document.createElement("div");
   document.body.append(el);
@@ -282,6 +286,7 @@ test("panels show, hide and resize from buttons and the keyboard, and hiding kee
   ok(files() !== null);
   ok(s.editorSlot() !== null, "the editor slot is offered to the host");
 });
+
 
 test("the shell writes no style attribute and no inline handler attribute (strict CSP, ADR 0025 decision 6)", async () => {
   const s = await setup();

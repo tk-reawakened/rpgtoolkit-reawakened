@@ -13,6 +13,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 RESOLVER = ROOT / "_bmad" / "method" / "scripts" / "tickets.py"
@@ -112,6 +113,52 @@ class StoryStatusTests(unittest.TestCase):
     def test_another_epics_row_with_the_same_id_is_not_used(self):
         rows = mirror.rows_by_entry_id({"tickets": [row(1, epic="epic-other")]}, SLUG)
         self.assertEqual(mirror.story_status("01", "draft", rows), "draft")
+
+
+class ParentStatusSyncTests(unittest.TestCase):
+    def test_parent_status_is_written_only_when_the_visible_status_changes(self):
+        for epic_status, current, expected in [
+            ("in-progress", "in-progress", []),
+            ("in-progress", "draft", [mirror.STATUS_OPTION_IDS["in-progress"]]),
+            ("backlog", "draft", []),
+            ("backlog", "done", [mirror.STATUS_OPTION_IDS["draft"]]),
+        ]:
+            with self.subTest(epic_status=epic_status, current=current), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                initiative = root / "_bmad-output" / "initiative-rpgtoolkit-reawakened"
+                epic_dir = initiative / SLUG
+                epic_dir.mkdir(parents=True)
+                (initiative / "tickets.toml").write_text(
+                    f'[[epic]]\nid = 1\nslug = "{SLUG}"\ntitle = "Example"\ntracker_id = "#5"\n',
+                    encoding="utf-8",
+                )
+                status_line = "" if epic_status == "backlog" else f"status: {epic_status}\n"
+                (epic_dir / f"{SLUG}.md").write_text(f"---\ntitle: Example\n{status_line}---\nBody\n", encoding="utf-8")
+                (epic_dir / "tickets.toml").write_text("", encoding="utf-8")
+                status_writes = []
+
+                def graphql(query, variables):
+                    if "updateProjectV2ItemFieldValue" in query:
+                        status_writes.append(variables["option"])
+                    if "projectItems" in query:
+                        return {"data": {"node": {"projectItems": {"nodes": [{
+                            "id": "item", "project": {"id": mirror.PROJECT_ID},
+                            "fieldValues": {"nodes": [{"name": current, "field": {"id": mirror.STATUS_FIELD_ID}}]},
+                        }]}}}}
+                    if "subIssues" in query:
+                        return {"data": {"node": {"subIssues": {"nodes": []}}}}
+                    return {}
+
+                parent = {"title": "[Epic 1] Example", "body": "Body", "node_id": "parent"}
+                with (
+                    patch.object(mirror, "__file__", str(root / "tools" / "create-epic-on-github.py")),
+                    patch.object(mirror, "store_view", return_value={"tickets": []}),
+                    patch.object(mirror, "gh_api", return_value=parent),
+                    patch.object(mirror, "graphql", side_effect=graphql),
+                    patch.object(sys, "argv", ["create-epic-on-github.py", SLUG]),
+                ):
+                    mirror.main()
+                self.assertEqual(status_writes, expected)
 
 
 if __name__ == "__main__":

@@ -93,6 +93,18 @@ function restoreShapeRefusal(json: string, change: (vm: Record<string, unknown>)
   throw new Error("expected the restore to throw");
 }
 
+test("function and method both declare class members (FUN-4)", () => {
+  const state = runOnce(`
+class Box {
+  public:
+  function value() { return 42 }
+  method read() { return this->value() + 1 }
+}
+result = Box()->read()
+`);
+  equal(state.vm.globals.result, 43);
+});
+
 // --- One record shape ---------------------------------------------------------------------
 
 const HIERARCHY = `

@@ -2,5 +2,5 @@
   "extends": "../../tsconfig.editor-ui.json",
   "compilerOptions": { "rootDir": "src", "outDir": "dist" },
   "include": ["src"],
-  "references": [{ "path": "../editor-model" }, { "path": "../platform-services" }]
+  "references": [{ "path": "../core" }, { "path": "../editor-model" }, { "path": "../platform-services" }]
 }

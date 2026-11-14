@@ -1,6 +1,6 @@
 /** Board reads and edits (E-14; docs/spec/engine/rpgcode-functions.md#e-14). */
 import type { Value } from "../../ports/value.ts";
-import type { WorldBoard, WorldProgram, WorldVector } from "../../world/model.ts";
+import { worldBoardGrid, type WorldBoard, type WorldProgram, type WorldVector } from "../../world/model.ts";
 import { ScriptError } from "../errors.ts";
 import type { Arg, BuiltinDoc, BuiltinSpec } from "../builtins.ts";
 import type { CommandEffect, CommandResult, PluginDefinition } from "../plugin.ts";
@@ -31,8 +31,9 @@ function location(current: WorldBoard, args: readonly Arg[], layerIndex: number)
   const y = numberArg(args, 1) - 1;
   const layer = layerIndex < 0 ? numberArg(args, 2, 1) : layerIndex;
   const layerOffset = layer - 1;
-  if (x < 0 || y < 0 || x >= current.sizeX || y >= current.sizeY || layerOffset < 0 || layerOffset >= current.layers.length) return null;
-  return { index: y * current.sizeX + x, layer: layerOffset };
+  const { width, height } = worldBoardGrid(current);
+  if (x < 0 || y < 0 || x >= width || y >= height || layerOffset < 0 || layerOffset >= current.layers.length) return null;
+  return { index: y * width + x, layer: layerOffset };
 }
 function tileName(current: WorldBoard, args: readonly Arg[]): string {
   const found = location(current, args, -1);
@@ -83,6 +84,37 @@ const PUT: BuiltinSpec = {
   name: "put", aliases: [], params: [{ name: "args", optional: true, byRef: false, variadic: true }],
   doc: docs("Put a tile on the board until the program ends.", "Record a board tile replacement for the current turn; arguments are x, y, optional one-based layer, and tile asset key. The effect is applied before the next statement and does not wait."),
   call: (view, args) => { board(view); if (args.length !== 3 && args.length !== 4) throw new ScriptError("builtin.bad-arg", '"put" expects x,y,tile or x,y,layer,tile'); return effect(args); },
+};
+const SCAN_MEM_PARAMS = [
+  { name: "x", optional: false, byRef: false, variadic: false },
+  { name: "y", optional: false, byRef: false, variadic: false },
+  { name: "pos", optional: false, byRef: false, variadic: false },
+] as const;
+const SCAN: BuiltinSpec = {
+  name: "scan", aliases: [], params: SCAN_MEM_PARAMS,
+  doc: {
+    ...docs(
+      "Save a board tile in a scan buffer.",
+      "Copy the visible layer-one tile at one-based board coordinates x,y into the independent buffer identified by pos. The call does not wait.",
+      ["legacy", "deprecated"],
+    ),
+    replacedBy: { kind: "syntax", text: "No direct replacement is documented." },
+    reason: "This command is part of the legacy tile-buffer pair. The position argument identifies the saved tile for mem.",
+  },
+  call: (view, args) => { board(view); if (args.length !== 3) throw new ScriptError("builtin.bad-arg", '"scan" expects x,y,pos'); return effect(args); },
+};
+const MEM: BuiltinSpec = {
+  name: "mem", aliases: [], params: SCAN_MEM_PARAMS,
+  doc: {
+    ...docs(
+      "Restore a scanned board tile.",
+      "Replace the visible layer-one tile at one-based board coordinates x,y with the saved value in buffer pos; an empty tile is restored as empty, and an unset buffer does nothing. The call does not wait.",
+      ["legacy", "deprecated"],
+    ),
+    replacedBy: { kind: "syntax", text: "No direct replacement is documented." },
+    reason: "This command is part of the legacy tile-buffer pair. The position argument identifies the tile saved by scan.",
+  },
+  call: (view, args) => { board(view); if (args.length !== 3) throw new ScriptError("builtin.bad-arg", '"mem" expects x,y,pos'); return effect(args); },
 };
 const LAYER_PUT: BuiltinSpec = {
   name: "layerput", aliases: [], params: [{ name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, { name: "layer", optional: false, byRef: false, variadic: false }, { name: "tile", optional: false, byRef: false, variadic: false }],
@@ -281,7 +313,7 @@ const PIXEL_MOVEMENT: BuiltinSpec = {
 
 
 const WORLD_COMMANDS: readonly BuiltinSpec[] = [
-  GET_NAME, PUT, LAYER_PUT, tileGetter("getboardtile", "boardgettile"), TILE_TYPE_GET, TILE_TYPE, PIXEL_MOVEMENT,
+  GET_NAME, PUT, LAYER_PUT, SCAN, MEM, tileGetter("getboardtile", "boardgettile"), TILE_TYPE_GET, TILE_TYPE, PIXEL_MOVEMENT,
   noArgs("animatedtiles", [{ name: "list", optional: true, byRef: true, variadic: false }]),
   noArgs("parallax", [{ name: "setting", optional: false, byRef: false, variadic: false }]), AMBIENT, FORCE_REDRAW,
   GET_VECTOR, SET_VECTOR, GET_VECTOR_POINT, SET_VECTOR_POINT, GET_PROGRAM, SET_PROGRAM, GET_PROGRAM_POINT, SET_PROGRAM_POINT, PRG,

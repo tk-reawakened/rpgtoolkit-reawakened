@@ -159,7 +159,7 @@ function params(names: readonly string[], optionalFrom = names.length): ParamSpe
   return names.map((name, index) => ({ name, optional: index >= optionalFrom, byRef: false, variadic: false }));
 }
 const NATIVE_SUMMARY_BY_NAME: Record<string, string> = {
-  clear: "Clear a surface. clear() blanks the screen.",
+  clear: "Clear a surface. `clear()` blanks the screen's script drawing, including earlier screen text.",
   setpixel: "Set a pixel in the current colour.",
   drawline: "Draw a line.",
   drawrect: "Draw a rectangle.",
@@ -199,7 +199,7 @@ function command(name: string, aliases: readonly string[], commandParams: ParamS
   return { name, aliases, params: commandParams, doc: { ...doc, summary, groups }, call };
 }
 
-const CLEAR = command("clear", [], [{ name: "canvas", optional: true, byRef: false, variadic: false }], docs("Clear a screen or canvas.", "Blanks every pixel of the selected surface to transparent black immediately; without a canvas argument it clears the screen surface."), (view, args) => {
+const CLEAR = command("clear", [], [{ name: "canvas", optional: true, byRef: false, variadic: false }], docs("Clear a screen or canvas.", "Blanks every pixel of the selected surface to transparent black immediately; without a canvas argument it also removes earlier screen text."), (view, args) => {
   const current = state(view);
   const surfaces = current.surfaces;
   const canvas = canvasArg(args, 0);
@@ -208,7 +208,10 @@ const CLEAR = command("clear", [], [{ name: "canvas", optional: true, byRef: fal
   const bounds = size === null ? undefined : { first: 0, last: size.w * size.h - 1 };
   const ok = editSurfaceWithBounds(surfaces, target, (rgba) => rgba.fill(0), bounds);
   if (!ok) throw new ScriptError("surface.unknown", `clear: no canvas ${String(target)}`);
-  if (canvas === SCREEN) clearAuthorMarginCommands(current);
+  if (canvas === SCREEN) {
+    clearAuthorMarginCommands(current);
+    current.ui.draws = [];
+  }
   return { value: null, effects: effects(args) };
 });
 

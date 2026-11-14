@@ -27,7 +27,7 @@ function lookupCommand(lookup: Tk2CommandLookup | undefined, name: string): Buil
 }
 
 function quoted(value: string): string {
-  return JSON.stringify(value);
+  return value.includes('"') ? JSON.stringify(value) : `"${value}"`;
 }
 
 function matchingClose(text: string, open: number): number {
@@ -35,7 +35,7 @@ function matchingClose(text: string, open: number): number {
   let quote = false;
   for (let i = open; i < text.length; i += 1) {
     const ch = text[i]!;
-    if (ch === '"' && text[i - 1] !== "\\") quote = !quote;
+    if (ch === '"') quote = !quote;
     if (quote) continue;
     if (ch === "(") depth += 1;
     if (ch === ")") {
@@ -53,7 +53,7 @@ function splitArgs(text: string): string[] {
   let quote = false;
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i]!;
-    if (ch === '"' && text[i - 1] !== "\\") quote = !quote;
+    if (ch === '"') quote = !quote;
     if (quote) continue;
     if (ch === "(" || ch === "[") depth += 1;
     else if (ch === ")" || ch === "]") depth -= 1;
@@ -136,38 +136,77 @@ function bindRawArguments(line: string, lookup: Tk2CommandLookup | undefined): s
 
 function stripSigils(text: string): string {
   return text.replace(
-    /"(?:\\.|[^"\\])*"|([A-Za-z_][A-Za-z0-9_]*|\])([$!])(?=\s*(?:=|[)\],;~]|$))/g,
+    /"[^"]*"|([A-Za-z_][A-Za-z0-9_]*|\])([$!])(?=\s*(?:=|[)\],;~]|$))/g,
     (match, name: string | undefined) => name === undefined ? match : match.slice(0, -1),
   );
 }
 
 function equalityInCondition(text: string): string {
-  return text.replace(/\b(if|while)\s*\(([^\n]*)\)/gi, (_whole, keyword: string, body: string) => {
-    const fixed = body.replace(/(^|[^<>=!~])=([^=]|$)/g, "$1==$2");
-    return `${keyword} (${fixed})`;
-  });
+  const masked = text.replace(/"[^"]*"/g, (value) => " ".repeat(value.length));
+  const condition = /\b(if|while)\s*\(/gi;
+  let cursor = 0;
+  let result = "";
+  for (let found = condition.exec(masked); found !== null; found = condition.exec(masked)) {
+    const open = masked.indexOf("(", found.index);
+    const close = matchingClose(text, open);
+    if (close < 0) break;
+    const body = text.slice(open + 1, close);
+    const fixed = body.replace(/"[^"]*"|(?<![<>=!~])=(?!=)/g, (match) => match === "=" ? "==" : match);
+    result += text.slice(cursor, found.index) + found[1] + " (" + fixed + ")";
+    cursor = close + 1;
+    condition.lastIndex = cursor;
+  }
+  return result + text.slice(cursor);
 }
 
-function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined): string {
+function stripInlinePrefixes(line: string): string {
+  return line.replace(/"[^"]*"|(^|[{\s;])#(?=[A-Za-z_@])/g, (match, prefix: string | undefined) => prefix === undefined ? match : prefix);
+}
+
+
+/** Preserve valid unprefixed expression statements accepted by the shared frontend. */
+function isExpressionWithEquals(line: string, lookup: Tk2CommandLookup | undefined): boolean {
+  if (!line.includes("=")) return false;
+  try {
+    const tokens = tokenizeObjects(stripSigils(bindRawArguments(stripInlinePrefixes(line), lookup)));
+    if (!tokens.some((token) => (token.kind === "op" && token.text.includes("=")) || (token.kind === "string" && token.value.includes("=")))) return false;
+    const ast = parse(tokens);
+    const stmt = ast.statements[0];
+    if (stmt?.kind !== "expr") return false;
+    lower(ast);
+    return true;
+  } catch (error) {
+    if (error instanceof ScriptError) return false;
+    throw error;
+  }
+}
+
+/** A star following a complete parenthesized command begins a TK2 comment. */
+function removeTrailingStarComment(line: string): string {
+  const call = /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\s*\(/.exec(line);
+  if (call === null) return line;
+  const close = matchingClose(line, call[0].length - 1);
+  return close >= 0 && /^[ \t]+\*/.test(line.slice(close + 1)) ? line.slice(0, close + 1) : line;
+}
+
+function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined, literal: (value: string) => void, continuedCode = false): string {
   let line = raw.replace(/\r$/, "").trim();
   if (line.length === 0 || line.startsWith("*")) return "";
   if (line === "@") return 'mwin("")';
   if (line.startsWith("#")) {
     line = line.slice(1).trimStart();
-    // The star after a complete parenthesized command starts a comment. Use the balanced close
-    // so a star in an argument, nested call or quoted string still reaches the expression parser.
-    const call = /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\s*\(/.exec(line);
-    if (call !== null) {
-      const close = matchingClose(line, call[0].length - 1);
-      if (close >= 0 && /^[ \t]+\*/.test(line.slice(close + 1))) line = line.slice(0, close + 1);
-    }
+    line = removeTrailingStarComment(line);
   }
-  line = line.replace(/(^|[{\s;])#(?=[A-Za-z_@])/g, "$1");
   line = line.replace(/^returnmethod\b/i, "return").replace(/^method\b/i, "function");
   if (line.length === 0) return "";
-  if (!raw.trimStart().startsWith("#") && !/^(if|while|until|for|switch|case|default|else|function|return|[:{}])(?:\b|$)/i.test(line) && !line.includes("=") && !line.endsWith("{")) {
+  if (!continuedCode && !raw.trimStart().startsWith("#") && !/^(if|while|until|for|switch|case|default|else|function|return|[:{}])(?:\b|$)/i.test(line) && !line.endsWith("{") && !isExpressionWithEquals(line, lookup)) {
+    if (line.includes('"')) {
+      literal(line);
+      return 'mwin("")';
+    }
     return `mwin(${quoted(line)})`;
   }
+  line = stripInlinePrefixes(line);
   // Bind raw text while variable sigils still distinguish names from literals.
   line = bindRawArguments(line, lookup);
   line = stripSigils(line);
@@ -175,51 +214,182 @@ function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined): strin
 }
 
 
-/** Convert TK2 source into an equivalent TK3 source string for the shared parser. */
-export function normaliseTk2(text: string, lookup?: Tk2CommandLookup): string {
+/** Classify complete continued statements while keeping physical lines for the lexer. */
+function continuedCodeRows(lines: readonly string[], lookup: Tk2CommandLookup | undefined): Set<number> {
+  const rows = new Set<number>();
+  const continuation = /[ \t]+_[ \t]*(?:\/\/[^\r]*)?\r?$/;
+  for (let first = 0; first < lines.length; first += 1) {
+    if (lines[first]!.trimStart().startsWith("*")) continue;
+    let candidate = lines[first]!;
+    let last = first;
+    while (last + 1 < lines.length) {
+      const code = removeTrailingStarComment(candidate.replace(/^\s*#\s*/, ""));
+      const marker = continuation.exec(code);
+      let quoted = false;
+      let commented = false;
+      let blockComment = false;
+      let nesting = 0;
+      for (let index = 0; index < (marker?.index ?? code.length); index += 1) {
+        if (blockComment) {
+          if (code[index] === "*" && code[index + 1] === "/") {
+            blockComment = false;
+            index += 1;
+          }
+          continue;
+        }
+        if (!quoted && code[index] === "/" && code[index + 1] === "*") {
+          blockComment = true;
+          index += 1;
+          continue;
+        }
+        if (code[index] === '"') quoted = !quoted;
+        if (!quoted && ((code[index] === "/" && code[index + 1] === "/") || (code[index] === "*" && code[index + 1] === "*"))) {
+          const newline = code.indexOf("\n", index);
+          if (newline === -1) {
+            commented = true;
+            break;
+          }
+          index = newline;
+          continue;
+        }
+        if (!quoted && (code[index] === "(" || code[index] === "[")) nesting += 1;
+        if (!quoted && (code[index] === ")" || code[index] === "]")) nesting -= 1;
+      }
+      if (blockComment || (nesting > 0 && (marker === null || commented))) {
+        candidate += "\n" + lines[last + 1]!.replace(/^\s*#\s*/, "");
+        last += 1;
+        continue;
+      }
+      if (marker === null || quoted || commented) break;
+      candidate = candidate.replace(continuation, " ") + lines[last + 1]!.replace(/^\s*#\s*/, "");
+      last += 1;
+    }
+    if (last === first) continue;
+    const startsCode = lines[first]!.trimStart().startsWith("#")
+      || (lines[first]!.includes("=") && isExpressionWithEquals(candidate, lookup));
+    if (startsCode) {
+      for (let row = first; row <= last; row += 1) rows.add(row);
+      first = last;
+    }
+  }
+  return rows;
+}
+
+/** Lower inline ReturnMethod at statement boundaries without touching literals or comments. */
+function lowerInlineReturns(text: string): string {
+  if (!/\breturnmethod\b/i.test(text)) return text;
+  let result = "";
+  let copied = 0;
+  let statement = false;
+  for (let i = 0; i < text.length;) {
+    const char = text[i]!;
+    if (char === '"') {
+      i += 1;
+      while (i < text.length && text[i] !== '"' && text[i] !== "\n") i += 1;
+      if (text[i] === '"') i += 1;
+      statement = false;
+    } else if ((char === "/" && text[i + 1] === "/") || (char === "*" && text[i + 1] === "*")) {
+      while (i < text.length && text[i] !== "\n") i += 1;
+    } else if (char === "/" && text[i + 1] === "*") {
+      i += 2;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i += 1;
+      if (i < text.length) i += 2;
+    } else if (char === "\n") {
+      statement = false;
+      i += 1;
+    } else if (/\s/.test(char)) {
+      i += 1;
+    } else if (char === "{" || char === ";") {
+      statement = true;
+      i += 1;
+    } else if (/[A-Za-z_]/.test(char)) {
+      const start = i;
+      i += 1;
+      while (i < text.length && /[A-Za-z0-9_]/.test(text[i]!)) i += 1;
+      if (statement && text.slice(start, i).toLowerCase() === "returnmethod") {
+        let next = i;
+        while (next < text.length && (text[next] === " " || text[next] === "\t")) next += 1;
+        if (text[next] === "(") {
+          result += text.slice(copied, start) + "return";
+          copied = i;
+        }
+      }
+      statement = false;
+    } else {
+      statement = false;
+      i += 1;
+    }
+  }
+  return copied === 0 ? text : result + text.slice(copied);
+}
+
+function normaliseTk2Internal(text: string, lookup: Tk2CommandLookup | undefined, literals: Map<number, string> | null): string {
   const codeWithoutStrings = text.replace(/"[^"\n]*"/g, "");
-  if (/(?:^|\bthen\s*)<|^\s*</m.test(codeWithoutStrings) || />\s*$/m.test(codeWithoutStrings)) {
+  if (/^\s*#?\s*if\b[^\n]*\bthen\s*<|^\s*<(?=[#\s]|$)|^\s*>\s*$/im.test(codeWithoutStrings)) {
     throw new ScriptError("syntax.unsupported", "Toolkit 1.x `< >` blocks are outside the MVP (docs/spec/engine/rpgcode-dialects.md#toolkit-1x)", { file: "", line: 1 });
   }
-  return text.split("\n").map((line) => normaliseLine(line, lookup)).join("\n");
+  const lines = text.split("\n");
+  const continued = continuedCodeRows(lines, lookup);
+  return lowerInlineReturns(lines.map((line, index) => normaliseLine(line, lookup, (value) => {
+    if (literals === null) {
+      throw new ScriptError("syntax.unsupported", "Cannot convert loose dialogue containing a double quote: 3.1 has no unshadowable quote literal encoding (LEX-8).", { file: "", line: index + 1 });
+    }
+    literals.set(index + 1, value);
+  }, continued.has(index))).join("\n"));
 }
 
-function rewriteNamespaces(expr: Expr): Expr {
-  if (expr.kind === "call" && expr.file === "system") {
-    return { ...expr, args: expr.args.map(rewriteNamespaces) };
-  }
-  if (expr.kind === "methodCall" && expr.receiver.kind === "variable") {
-    return { kind: "call", name: `${expr.receiver.name}.${expr.name}`, args: expr.args.map(rewriteNamespaces), line: expr.line };
-  }
-  if (expr.kind === "binary") return { ...expr, left: rewriteNamespaces(expr.left), right: rewriteNamespaces(expr.right) };
-  if (expr.kind === "unary" || expr.kind === "postfix") return { ...expr, operand: rewriteNamespaces(expr.operand) };
-  if (expr.kind === "assign") return { ...expr, target: rewriteNamespaces(expr.target), value: rewriteNamespaces(expr.value) };
-  if (expr.kind === "index") return { ...expr, base: rewriteNamespaces(expr.base), index: rewriteNamespaces(expr.index) };
-  if (expr.kind === "ternary") return { ...expr, cond: rewriteNamespaces(expr.cond), then: rewriteNamespaces(expr.then), else: rewriteNamespaces(expr.else) };
-  return expr;
+/** Convert TK2 source into equivalent 3.1 source, or report an unrepresentable literal. */
+export function normaliseTk2(text: string, lookup?: Tk2CommandLookup): string {
+  return normaliseTk2Internal(text, lookup, null);
 }
 
-function rewriteAst(ast: Ast): Ast {
+function rewriteAst(ast: Ast, literals: ReadonlyMap<number, string>): Ast {
+  const rewriteExpression = (expr: Expr): Expr => {
+    if (expr.kind === "methodCall") {
+      return { ...expr, receiver: rewriteExpression(expr.receiver), args: expr.args.map(rewriteExpression) };
+    }
+    if (expr.kind === "call") return { ...expr, args: expr.args.map(rewriteExpression) };
+    if (expr.kind === "callIndirect") return { ...expr, callee: rewriteExpression(expr.callee), args: expr.args.map(rewriteExpression) };
+    if (expr.kind === "member") return { ...expr, receiver: rewriteExpression(expr.receiver) };
+    if (expr.kind === "binary") return { ...expr, left: rewriteExpression(expr.left), right: rewriteExpression(expr.right) };
+    if (expr.kind === "unary" || expr.kind === "postfix") return { ...expr, operand: rewriteExpression(expr.operand) };
+    if (expr.kind === "assign") return { ...expr, target: rewriteExpression(expr.target), value: rewriteExpression(expr.value) };
+    if (expr.kind === "index") return { ...expr, base: rewriteExpression(expr.base), index: rewriteExpression(expr.index) };
+    if (expr.kind === "ternary") return { ...expr, cond: rewriteExpression(expr.cond), then: rewriteExpression(expr.then), else: rewriteExpression(expr.else) };
+    if (expr.kind === "lambda") return { ...expr, body: expr.body.map(rewriteStatement) };
+    if (expr.kind === "object") return { ...expr, entries: expr.entries.map((entry) => ({ ...entry, value: rewriteExpression(entry.value) })) };
+    return expr;
+  };
   const rewriteStatement = (statement: Ast["statements"][number]): Ast["statements"][number] => {
-    if (statement.kind === "expr") return { ...statement, expr: rewriteNamespaces(statement.expr) };
-    if (statement.kind === "if") return { ...statement, branches: statement.branches.map((branch) => ({ ...branch, cond: rewriteNamespaces(branch.cond), body: branch.body.map(rewriteStatement) })), elseBody: statement.elseBody?.map(rewriteStatement) ?? null };
-    if (statement.kind === "while" || statement.kind === "until") return { ...statement, cond: rewriteNamespaces(statement.cond), body: statement.body.map(rewriteStatement) };
-    if (statement.kind === "for") return { ...statement, init: statement.init ? rewriteNamespaces(statement.init) : null, cond: statement.cond ? rewriteNamespaces(statement.cond) : null, step: statement.step ? rewriteNamespaces(statement.step) : null, body: statement.body.map(rewriteStatement) };
-    if (statement.kind === "switch") return { ...statement, value: rewriteNamespaces(statement.value), cases: statement.cases.map((item) => ({ ...item, value: rewriteNamespaces(item.value), body: item.body.map(rewriteStatement) })), defaultBody: statement.defaultBody?.map(rewriteStatement) ?? null };
-    if (statement.kind === "return") return { ...statement, value: statement.value ? rewriteNamespaces(statement.value) : null };
+    if (statement.kind === "expr") {
+      const literal = literals.get(statement.line);
+      if (literal !== undefined && statement.expr.kind === "call") {
+        const arg = statement.expr.args[0];
+        if (arg === undefined || arg.kind !== "literal") throw new Error("invalid TK2 dialogue placeholder");
+        return { ...statement, expr: { ...statement.expr, args: [{ ...arg, value: literal }, ...statement.expr.args.slice(1).map(rewriteExpression)] } };
+      }
+      return { ...statement, expr: rewriteExpression(statement.expr) };
+    }
+    if (statement.kind === "if") return { ...statement, branches: statement.branches.map((branch) => ({ ...branch, cond: rewriteExpression(branch.cond), body: branch.body.map(rewriteStatement) })), elseBody: statement.elseBody?.map(rewriteStatement) ?? null };
+    if (statement.kind === "while" || statement.kind === "until") return { ...statement, cond: rewriteExpression(statement.cond), body: statement.body.map(rewriteStatement) };
+    if (statement.kind === "for") return { ...statement, init: statement.init ? rewriteExpression(statement.init) : null, cond: statement.cond ? rewriteExpression(statement.cond) : null, step: statement.step ? rewriteExpression(statement.step) : null, body: statement.body.map(rewriteStatement) };
+    if (statement.kind === "switch") return { ...statement, value: rewriteExpression(statement.value), cases: statement.cases.map((item) => ({ ...item, value: rewriteExpression(item.value), body: item.body.map(rewriteStatement) })), defaultBody: statement.defaultBody?.map(rewriteStatement) ?? null };
+    if (statement.kind === "return") return { ...statement, value: statement.value ? rewriteExpression(statement.value) : null };
     return statement;
   };
   return {
     statements: ast.statements.map(rewriteStatement),
     functions: ast.functions.map((fn) => ({ ...fn, body: fn.body.map(rewriteStatement) })),
-    classes: ast.classes,
+    classes: ast.classes.map((cls) => ({ ...cls, methods: cls.methods.map((method) => ({ ...method, body: method.body?.map(rewriteStatement) ?? null })) })),
     includes: ast.includes,
   };
 }
 
 /** Parse TK2 into the same Unified AST used by the TK3 frontend. */
 export function parseTk2(text: string, lookup?: Tk2CommandLookup): Ast {
-  return rewriteAst(parse(tokenizeObjects(normaliseTk2(text, lookup)), { redirects: new Map(), preserveSystemNamespace: true }));
+  const literals = new Map<number, string>();
+  const normalised = normaliseTk2Internal(text, lookup, literals);
+  return rewriteAst(parse(tokenizeObjects(normalised), { redirects: new Map(), preserveSystemNamespace: true }), literals);
 }
 
 /** Compile TK2 source into the shared flat Step IR without modifying its input. */

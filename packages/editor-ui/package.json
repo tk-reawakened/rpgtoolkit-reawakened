@@ -11,9 +11,15 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./browser-session": {
+      "types": "./dist/brush.d.ts",
+      "default": "./dist/brush.js"
+    },
+    "./tileset-browser.css": "./src/tileset-browser.css"
   },
   "dependencies": {
+    "@tk-reawakened/core": "workspace:*",
     "@tk-reawakened/editor-model": "workspace:*",
     "@tk-reawakened/platform-services": "workspace:*",
     "preact": "11.2.0"

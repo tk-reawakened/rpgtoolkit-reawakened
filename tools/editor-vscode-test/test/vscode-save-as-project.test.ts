@@ -101,7 +101,7 @@ function workspace(other: WorkspaceFolderLike<Uri> = BETA) {
     uriFor: () => { throw new Error("not used"); },
     openEditor: () => Promise.reject(new Error("not used")),
     quickPick: () => Promise.reject(new Error("not used")),
-    executeCommand: () => Promise.reject(new Error("not used")),
+    saveEditor: () => Promise.reject(new Error("not used")),
   }, (event) => { edits.push(event); });
 
   /** Open `path` and edit its title, as a user typing in the view would: the model accepts it and the workbench records it. */
@@ -119,6 +119,19 @@ function workspace(other: WorkspaceFolderLike<Uri> = BETA) {
 function snapshot(files: ReadonlyMap<string, Uint8Array>): Map<string, Uint8Array> {
   return new Map([...files].map(([path, bytes]) => [path, bytes.slice()]));
 }
+
+test("browser context is retained per project and cannot leak across workspace folders", async () => {
+  const { provider } = workspace();
+  const alpha = await provider.openCustomDocument({ path: `/alpha/${GAME}` }, undefined);
+  const beta = await provider.openCustomDocument({ path: `/beta/${GAME}` }, undefined);
+  ok(alpha.browserSession !== beta.browserSession, "each project has its own browser session");
+  alpha.browserSession.update({
+    selection: { kind: "tiles", path: "Tiles/village.tst", reference: "Tiles\\village.tst1", label: "village.tst tile 1", boardTile: "Tiles\\village.tst1" },
+    path: "Tiles/village.tst",
+  });
+  equal(alpha.browserSession.getSnapshot().selection?.reference, "Tiles\\village.tst1");
+  equal(beta.browserSession.getSnapshot().selection, null, "alpha's brush is not inherited by beta");
+});
 
 test("Save As to a destination inside the source's own workspace folder writes the copy and leaves the source file", async () => {
   const { files, provider, openEdited } = workspace();

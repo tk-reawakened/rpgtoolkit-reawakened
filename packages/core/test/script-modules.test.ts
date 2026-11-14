@@ -157,6 +157,15 @@ test("a file-qualified call queues its file, reaches that file's own definition 
   equal(run.state.vm.globals.r3, 5);
 });
 
+test("a TK2 unprefixed system-qualified call executes its assignment argument", () => {
+  const loader = { ...loaderOf({ "main.prg": "system.foo(x = 1)", "system.prg": "#Method foo(n) { #seen = n }" }), dialect: "tk2" as const };
+  const ref = fileProgramRef(loader, "main.prg");
+  const run = setup(loader, ref);
+  deepEqual(tick(run), []);
+  equal(run.state.vm.globals.x, 1);
+  equal(run.state.vm.globals.seen, 1);
+});
+
 test("two files defining the same name and arity: the last added wins and warns with a location", () => {
   const run = runMain({
     "main.prg": '#include "one.prg"\n#include "two.prg"\nr = popit()\ns = one.popit()\n',

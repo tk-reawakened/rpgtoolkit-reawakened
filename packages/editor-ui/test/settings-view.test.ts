@@ -103,6 +103,45 @@ test("the view shows the title, a labelled field, a clean state and a disabled S
   deepEqual(alerts(s.el), []);
 });
 
+test("typing immediately after mount stays staged, can be applied, and then saved", async () => {
+  const s = await setup();
+  const view = mount(s.el, { document: s.doc, services: s.host });
+  const field = input(s.el);
+  field.value = "First draft";
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  await act(() => {});
+  equal(field.value, "First draft", "a draft typed before effects flush is kept");
+  equal(s.doc.getSnapshot().gameTitle, "Example Game", "typing only stages the draft");
+  equal(status(s.el), "All changes saved");
+  equal(button(s.el).disabled, true, "a draft alone cannot be saved");
+  const apply = s.el.querySelector<HTMLButtonElement>(".tkr-settings-apply")!;
+  equal(apply.disabled, false, "the staged draft can be applied");
+  await act(async () => {
+    apply.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  equal(s.doc.getSnapshot().gameTitle, "First draft");
+  // The mount happened outside `act`, so the view's own subscription is made when Preact next flushes effects; wait for
+  // that flush (bounded) rather than assuming it has run.
+  for (let round = 0; round < 50 && status(s.el) !== "Unsaved changes"; round += 1) {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+  }
+  equal(status(s.el), "Unsaved changes");
+  equal(button(s.el).disabled, false);
+  const saved = new Promise<void>((resolve) => {
+    const stop = s.doc.subscribe(() => {
+      const snapshot = s.doc.getSnapshot();
+      if (snapshot.gameTitle === "First draft" && !snapshot.dirty && !snapshot.saving) {
+        stop();
+        resolve();
+      }
+    });
+  });
+  await act(async () => { button(s.el).click(); await saved; });
+  equal(titleOf(s.host.bytesOf(PATH) ?? new Uint8Array(0)), "First draft", "the preserved draft can be saved");
+  view.dispose();
+});
+
 test("typing a title edits the document, marks it unsaved and tells the host about the edit", async () => {
   const s = await setup();
   show(s);
