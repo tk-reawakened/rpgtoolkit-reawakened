@@ -595,6 +595,7 @@ async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHo
   const first = await openProjectBoard(page, firstPath, expect);
   await expect(first.getByRole("grid")).toBeVisible();
   await expect(first.getByRole("button", { name: "Column 1, row 1: village.tst1" })).toBeVisible();
+  await first.locator(".tkr-tileset-browser select").selectOption({ value: "Tiles/village.tst" });
   const tile = first.locator('[data-browser-reference="village.tst2"]');
   await expect(tile).toBeVisible();
   const source = tile.locator(".tkr-tileset-browser-source");
