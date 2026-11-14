@@ -121,7 +121,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
             pickAsset: (request) => workbench.pickAsset(request),
             visit: async (path) => {
               const result = await workbench.visit(document, path);
-              return result.ok ? { ok: true, path } : { ok: false, message: result.error.kind === "read" ? result.error.error.message : result.error.message };
+              return result.ok ? { ok: true, path } : { ok: false, message: "error" in result.error ? result.error.error.message : result.error.message };
             },
           }), shownIn: container };
           views.set(tab.key, entry);

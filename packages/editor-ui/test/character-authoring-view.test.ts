@@ -52,7 +52,7 @@ async function editInput(el: HTMLElement, label: string, value: string): Promise
     input.value = value;
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  await act(() => input.dispatchEvent(new Event("blur", { bubbles: true })));
+  await act(() => { input.dispatchEvent(new Event("blur", { bubbles: true })); });
 }
 
 async function clickButton(el: HTMLElement, label: string): Promise<void> {

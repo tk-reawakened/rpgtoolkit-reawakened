@@ -51,6 +51,7 @@ export interface CharacterAuthoringViewProps {
 
 type TextField = "name" | "profilePicture" | "specialMoveCategory" | "levelUpProgram";
 type Command = SpriteCommand;
+type Move = CharacterAuthoringFields["specialMoves"][number];
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
 type MoveField = (typeof MOVE_FIELDS)[number][0];
 type CommandInput = Command | ((latest: CharacterAuthoringFields) => Command);
