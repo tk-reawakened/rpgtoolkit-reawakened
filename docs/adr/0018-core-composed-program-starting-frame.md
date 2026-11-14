@@ -5,7 +5,7 @@
 * **Amends:** [docs/spec/engine/main-loop-and-startup.md](../spec/engine/main-loop-and-startup.md#reawakened-starting-frame-capture) (replaces the deferred host-capture rule with the core-composed one); reuses the surface-hash projection ruling in [docs/spec/formats/save-game.md](../spec/formats/save-game.md#state-hash-surface-projection) (2026-11-02)
 * **Context documents:** [docs/spec/engine/runners.md](../spec/engine/runners.md#surface-read-and-state-hash), [docs/spec/formats/save-game.md](../spec/formats/save-game.md#state-hash-request-projection), AD-1 (engine API), AD-3 (draw commands), AD-5 (host requests), AD-14 (input events), AD-27 (`engine.surfacePixels`)
 * **Tickets:** [#1067](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1067) (this design)
-* **Supersedes:** the `captureFrame` / `frame.captured` host request-and-reply design recorded on branch `design/1067-program-starting-frame-capture` in PR [#1162](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/1162) as "ADR 0017 — Program starting-frame capture seam". That number belongs to [ADR 0017](0017-input-actions-devices-and-accessibility.md) (input actions), which is already accepted; nothing here reuses it.
+* **Supersedes:** the `captureFrame` / `frame.captured` host request-and-reply design recorded on branch `design/1067-program-starting-frame-capture` in PR [#1162](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/1162) as "ADR 0032 — Program starting-frame capture seam". It was renumbered because its original number, 0017, is also used by [ADR 0017](0017-input-actions-devices-and-accessibility.md) (input actions), which is heavily cited and remains unchanged.
 
 ## Summary
 
