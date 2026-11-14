@@ -2,7 +2,7 @@
 title: 'Package script functions do not join ordinary or namespaced lookup'
 type: 'bugfix'
 ticket: '21'
-status: 'ready-for-dev'
+status: 'done'
 tracker_id: '#1051'
 risk: 'high'
 ---
