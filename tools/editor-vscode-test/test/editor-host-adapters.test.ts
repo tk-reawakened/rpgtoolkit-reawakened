@@ -153,6 +153,7 @@ test("the VS Code sprite bridge previews project GIFs and saves edits that survi
     resolveConflict: async (choice: "keep-local" | "reload") => model.resolveConflict(choice),
     preview: async () => ({ ok: false as const, message: "A sprite document has no board picture." }),
     visit: async () => ({ ok: false as const, message: "not used" }),
+    boardPreferences: () => DEFAULT_EDITOR_PREFERENCES,
     returnFromVisit: async () => ({ ok: false as const, message: "not used" }),
     pickAsset: async () => ({ chosen: false as const }),
     readProject: (path: string) => fs.readProject(identity.projectId, path),
