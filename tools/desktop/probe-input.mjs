@@ -111,13 +111,23 @@ function authoredGrassTerrainColors() {
   if (tileSet.readUInt16LE(0) !== 20 || tileSet.readUInt16LE(2) < 1 || tileSet.readUInt16LE(4) !== 1) {
     throw new Error("the authored village grass tile no longer uses a detail-1 .tst tileset");
   }
+  // The board shades layer-1 cell (0,0) by (-60,-60,-40) via its layer-2 shade record.
+  // Its layer-1 gradient adds (80,70,0) there, so the net tint is (20,10,-40).
+  // Cell center (16,16) lies before gradient node (320,64) and receives its first endpoint.
+  // See docs/spec/examples/listings/board.brd.txt and docs/spec/formats/tiles.md#shading.
   const colors = new Map();
   for (let x = 4; x < 28; x += 1) {
     for (let y = 4; y < 28; y += 1) {
       const offset = headerBytes + x * 32 * 3 + y * 3;
-      const color = [tileSet[offset], tileSet[offset + 1], tileSet[offset + 2]];
+      const sourceColor = [tileSet[offset], tileSet[offset + 1], tileSet[offset + 2]];
+      if (sourceColor.join(",") === "0,1,2") continue;
+      const color = [
+        Math.max(0, Math.min(255, sourceColor[0] + 20)),
+        Math.max(0, Math.min(255, sourceColor[1] + 10)),
+        Math.max(0, Math.min(255, sourceColor[2] - 40)),
+      ];
       const key = color.join(",");
-      if (key !== "0,1,2") colors.set(key, color);
+      colors.set(key, color);
     }
   }
   if (colors.size < 8) throw new Error("the authored village grass tile no longer contains its expected varied terrain pixels");
@@ -745,34 +755,37 @@ async function main() {
     // (core movement contract), which is why a tap held briefly still lands exactly one tile.
     let moved = null;
     const attempts = [];
-    let cursor = before.player;
-    for (const name of ["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"]) {
-      await keyDown(name);
-      await sleep(100);
-      await keyUp(name);
-      const tapped = await settled();
-      if (tapped === null || tapped.player === null || tapped.player === undefined) throw new Error("the player vanished or never settled during the tap phase");
-      await keyDown(name);
-      await sleep(1200);
-      await keyUp(name);
-      const held = await settled();
-      if (held === null || held.player === null || held.player === undefined) throw new Error("the player vanished or never settled during the hold phase");
-      const verdict = judgeMovement(name, cursor, tapped.player, held.player);
-      attempts.push({
-        key: name,
-        before: cursor,
-        afterTap: tapped.player,
-        afterHold: held.player,
-        tap: verdict.tap,
-        hold: verdict.hold,
-        tapOk: verdict.tapOk,
-        holdOk: verdict.holdOk,
-      });
-      if (verdict.tapOk && verdict.holdOk) {
-        moved = { key: name, tap: verdict.tap, hold: verdict.hold };
-        break;
+    // Keyboard movement remains the separate desktop:input proof; this mode targets only authored pixel presentation.
+    if (authoredBoardProof === null) {
+      let cursor = before.player;
+      for (const name of ["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"]) {
+        await keyDown(name);
+        await sleep(100);
+        await keyUp(name);
+        const tapped = await settled();
+        if (tapped === null || tapped.player === null || tapped.player === undefined) throw new Error("the player vanished or never settled during the tap phase");
+        await keyDown(name);
+        await sleep(1200);
+        await keyUp(name);
+        const held = await settled();
+        if (held === null || held.player === null || held.player === undefined) throw new Error("the player vanished or never settled during the hold phase");
+        const verdict = judgeMovement(name, cursor, tapped.player, held.player);
+        attempts.push({
+          key: name,
+          before: cursor,
+          afterTap: tapped.player,
+          afterHold: held.player,
+          tap: verdict.tap,
+          hold: verdict.hold,
+          tapOk: verdict.tapOk,
+          holdOk: verdict.holdOk,
+        });
+        if (verdict.tapOk && verdict.holdOk) {
+          moved = { key: name, tap: verdict.tap, hold: verdict.hold };
+          break;
+        }
+        cursor = held.player;
       }
-      cursor = held.player;
     }
     const finalTick = (await status()).tick;
 
@@ -783,7 +796,7 @@ async function main() {
 
     const report = {
       package: pkg,
-      error: moved === null
+      error: authoredBoardProof === null && moved === null
         ? "no direction proved a one-tile tap (exactly 32 px on the tapped axis, no perpendicular drift) plus a continued hold (>= 64 px on that axis, perpendicular delta < 16 px)"
         : null,
       tick: finalTick,

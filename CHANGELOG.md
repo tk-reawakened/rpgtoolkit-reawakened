@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- The authored Electron board proof stages the example assets at package root, verifies multiple grass-tile RGB values from the framebuffer, and now captures at a measured sub-1× viewport using the host game rectangle for pixel mapping (#2412, #2428, #2429, #2442, #2443).
+- The authored Electron board proof stages the example assets at package root, samples actual framebuffer colors for its grass tile after the fixture's authored shading, and exercises the mapping at a measured sub-1× viewport; the demo movement proof remains separate (#2412, #2428, #2429, #2442, #2443).
 - Desktop CSP probes no longer overwrite the shared audio worklet while testing decoder failures, so concurrent probes keep their own generated assets (#2345).
 - Each desktop input probe now uses its own Electron profile, so overlapping runs do not share the single-instance lock (#2003). Temporary-profile cleanup retries Windows file locks without masking the probe result (#2344).
 - Browser document-switch cleanup now scopes pending acquisitions to workspace instances, releases stale candidate views immediately, and defers workspace-level document closure until same-identity opens mount or fail. A rejected cleanup remains queued for retry, and workspace closure preserves documents still owned by active views. Consumer regressions check shared-document ownership, failed-open cleanup, workspace inventory and preservation of the shown document's unsaved edit (#2224; [ADR 0022](docs/adr/0022-shared-editor-authoring-contracts.md) D1.2, D3.6–D3.7).
