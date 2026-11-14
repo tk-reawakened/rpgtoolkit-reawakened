@@ -95,6 +95,40 @@ export async function runVscodeProgramProof(page: Page, expect: Expect, workbenc
   expect(snapshot.targets.find((target) => target.path === "Game/Example/Prg/start.prg")?.sha256).toMatch(/^[a-f0-9]{64}$/);
 }
 
+/** Refused saves and edits during snapshot preparation must prevent launching a player. */
+export async function runVscodeGuardProof(
+  page: Page, expect: Expect, workbenchUrl: string, gamePath: string,
+  readBacking: () => Promise<Uint8Array>, original: Uint8Array, raced: Uint8Array,
+): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await page.getByRole("treeitem", { name: "Main", exact: true }).click();
+  await openGame(page, gamePath, expect);
+  const editor = await waitForEditorFrame(page, "VS Code guard editor");
+  const title = editor.getByLabel("Game title");
+  await title.fill("Save must fail");
+  await title.press("Enter");
+  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await runCommand(page, expect, "Test: Fail Saves");
+  await runCommand(page, expect, "Test: Run Example Program");
+  await expect(page.getByText(/Program launch refused:.*save/i)).toBeVisible({ timeout: 30_000 });
+  expect(await readBacking()).toEqual(original);
+  expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
+  await runCommand(page, expect, "Test: Allow Saves");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor.getByRole("status")).toHaveText("All changes saved");
+  await runCommand(page, expect, "Test: Pause Program Read");
+  await runCommand(page, expect, "Test: Run Example Program");
+  await expect(page.getByText("Fixture read paused")).toBeVisible({ timeout: 30_000 });
+  await title.fill("Race saved");
+  await title.press("Enter");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(readBacking, { timeout: 30_000 }).toEqual(raced);
+  await runCommand(page, expect, "Test: Resume Program Read");
+  await expect(page.getByText(/Program launch refused:.*changed/i)).toBeVisible({ timeout: 30_000 });
+  expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
+}
+
 /** Run against vscode-test-web's actual browser workbench, not an extension-host mock. */
 export async function runVscodeWebProof(
   page: Page,

@@ -4,7 +4,7 @@ import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
-import { runVscodeLaunchProof, runVscodeProgramProof, runVscodeWebProof } from "./web-proof.ts";
+import { runVscodeGuardProof, runVscodeLaunchProof, runVscodeProgramProof, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -47,8 +47,9 @@ const [expectedBytes, recoveredBytes, autosaveBytes, externalBytes, sentinelByte
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
 const launchProof = process.env.TKR_VSCODE_LAUNCH_PROOF === "1";
 const programProof = process.env.TKR_VSCODE_PROGRAM_PROOF === "1";
-if ((launchProof || programProof) && game !== "Main/example.gam") throw new Error("The launch proof requires docs/spec/examples/game and --game Main/example.gam");
-for (const choice of launchProof || programProof ? ["cancel"] : ["cancel", "keep"]) {
+const guardProof = process.env.TKR_VSCODE_GUARD_PROOF === "1";
+if ((launchProof || programProof || guardProof) && game !== "Main/example.gam") throw new Error("The launch proof requires docs/spec/examples/game and --game Main/example.gam");
+for (const choice of launchProof || programProof || guardProof ? ["cancel"] : ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game);
   let browser;
   let persistentFs;
@@ -57,10 +58,10 @@ for (const choice of launchProof || programProof ? ["cancel"] : ["cancel", "keep
   let cleanupErrors = [];
   const browserDiagnostics = [];
   try {
-    if (launchProof || programProof) {
+    if (launchProof || programProof || guardProof) {
       await cp(resolve(workspace, "Game"), resolve(proofWorkspace, "Game"), { recursive: true });
-      if (programProof) await cp(resolve(root, "media/cursors/tkr-arrow.png"), resolve(proofWorkspace, "Game/Example/Bitmap/window.png"));
-      await writeFile(resolve(proofWorkspace, "Game/Example/Prg/start.prg"), programProof
+      if (programProof || guardProof) await cp(resolve(root, "media/cursors/tkr-arrow.png"), resolve(proofWorkspace, "Game/Example/Bitmap/window.png"));
+      await writeFile(resolve(proofWorkspace, "Game/Example/Prg/start.prg"), programProof || guardProof
         ? 'mwin("VS CODE FIXTURE PROOF")\nwait()\n'
         : 'mwin("Ready")\nwait()\nmwincls()\nsend("village.brd",2,2,1)\nwait()\n');
     }
@@ -178,6 +179,11 @@ for (const choice of launchProof || programProof ? ["cancel"] : ["cancel", "keep
       }
     };
     const readBacking = async (path = game) => new Uint8Array(await readFile(resolve(proofWorkspace, path)));
+    if (guardProof) {
+      await runVscodeGuardProof(page, expect, workbenchUrl, game, readBacking,
+        new Uint8Array(await readFile(gameFiles[0])), await createWebAdapterBytes(gameFiles[0], game, "Race saved"));
+      console.log("vscode.dev save and concurrent-edit guard proof passed");
+    } else
     if (programProof) {
       await runVscodeProgramProof(page, expect, workbenchUrl);
       console.log("vscode.dev fixture program proof passed");

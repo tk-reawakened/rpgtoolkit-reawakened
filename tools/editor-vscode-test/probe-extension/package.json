@@ -11,6 +11,10 @@
     "onFileSystem:tkr-testfs",
     "onCommand:tkr.editorWebProof.runExampleGame",
     "onCommand:tkr.editorWebProof.runExampleProgram",
+    "onCommand:tkr.editorWebProof.failSaves",
+    "onCommand:tkr.editorWebProof.allowSaves",
+    "onCommand:tkr.editorWebProof.pauseProgramRead",
+    "onCommand:tkr.editorWebProof.resumeProgramRead",
     "onCommand:tkr.editorWebProof.copyMainFileBytes",
     "onCommand:tkr.editorWebProof.writeGameBytes",
     "onCommand:tkr.editorWebProof.enableAutosave",
@@ -26,6 +30,10 @@
         "command": "tkr.editorWebProof.runExampleProgram",
         "title": "Test: Run Example Program"
       },
+      { "command": "tkr.editorWebProof.failSaves", "title": "Test: Fail Saves" },
+      { "command": "tkr.editorWebProof.allowSaves", "title": "Test: Allow Saves" },
+      { "command": "tkr.editorWebProof.pauseProgramRead", "title": "Test: Pause Program Read" },
+      { "command": "tkr.editorWebProof.resumeProgramRead", "title": "Test: Resume Program Read" },
       {
         "command": "tkr.editorWebProof.copyMainFileBytes",
         "title": "Test: Copy Main File Bytes"
