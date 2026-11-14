@@ -1,5 +1,5 @@
-import { createSessionCopy, listRecentWebProjects, mountGameSettings, openGameSettings, openWebProject, reopenWebProject, type GameSettingsOpenResult, type GameSettingsView, type WebProject } from "@tk-reawakened/host-web";
-import { createDocumentIdentity, type AnyDocument, type MainDocument } from "@tk-reawakened/editor-model";
+import { createSessionCopy, listRecentWebProjects, mountDocumentView, mountEditor, openEditor, openWebProject, reopenWebProject, type DocumentView, type EditorOpenResult, type EditorView, type WebProject } from "@tk-reawakened/host-web";
+import { createDocumentIdentity, type AnyDocument } from "@tk-reawakened/editor-model";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
 
 const status = document.querySelector<HTMLElement>("#host-status")!;
@@ -13,14 +13,19 @@ const recentLabel = document.querySelector<HTMLLabelElement>("#recent-project-la
 const recentSelect = document.querySelector<HTMLSelectElement>("#recent-project")!;
 const reopenButton = document.querySelector<HTMLButtonElement>("#reopen-project")!;
 const actions = document.querySelector<HTMLElement>("#document-actions")!;
+const projectFile = document.querySelector<HTMLInputElement>("#project-file")!;
+const mirrorElement = document.querySelector<HTMLElement>("#mirror")!;
+const mirrorButton = document.querySelector<HTMLButtonElement>("#mirror-view")!;
 /** The one document this page shows: its project, its model and the view mounted over it. */
 interface Shown {
   readonly project: WebProject;
-  readonly document: MainDocument;
-  readonly view: GameSettingsView;
+  readonly document: AnyDocument;
+  readonly view: EditorView;
   readonly element: HTMLElement;
 }
 let shown: Shown | null = null;
+let mirrorView: DocumentView | null = null;
+let mirrorRequested = false;
 let openedProject: WebProject | null = null;
 let projectWithChoices: WebProject | null = null;
 let openRequest = 0;
@@ -171,7 +176,7 @@ async function show(project: WebProject, path: string, request: number): Promise
   const candidateElement = document.createElement("div");
   candidateElement.hidden = true;
   settings.append(candidateElement);
-  let result: GameSettingsOpenResult;
+  let result: EditorOpenResult;
   try {
     // A failed close leaves the document queued for a later attempt, but must not block this acquisition.
     if (pending.closing !== undefined) {
@@ -186,7 +191,7 @@ async function show(project: WebProject, path: string, request: number): Promise
       await finishDocumentOpen(project.workspace, identityKey);
       return;
     }
-    result = await openGameSettings(project, path, candidateElement);
+    result = await openEditor(project, path, candidateElement);
   } catch (error) {
     candidateElement.remove();
     await finishDocumentOpen(project.workspace, identityKey);
@@ -212,7 +217,8 @@ async function show(project: WebProject, path: string, request: number): Promise
   }
   if (!result.ok) {
     candidateElement.remove();
-    throw new Error(result.error.kind === "case-conflict" ? result.error.message : `${result.error.document}: ${result.error.error.message}`);
+    await finishDocumentOpen(project.workspace, identityKey);
+    throw new Error(result.error.kind === "case-conflict" || result.error.kind === "unsupported" ? result.error.message : `${result.error.document}: ${result.error.error.message}`);
   }
 
   const previous = shown;
@@ -268,7 +274,7 @@ async function finishDocumentOpen(workspace: WebProject["workspace"], identityKe
 async function abandonCandidate(
   project: WebProject,
   document: AnyDocument,
-  view: GameSettingsView,
+  view: EditorView,
   identityKey: string,
 ): Promise<void> {
   view.dispose();
@@ -285,10 +291,22 @@ async function abandonCandidate(
 function replaceShown(next: Shown | null): void {
   const previous = shown;
   shown = next;
+  syncMirror();
+  projectFile.value = next?.document.identity.path ?? "";
   if (next !== null) next.element.hidden = false;
   previous?.view.dispose();
   previous?.element.remove();
   actions.hidden = next === null;
+}
+
+/** A second surface shares the shown tab's lease; it never owns or copies a document. */
+function syncMirror(): void {
+  mirrorView?.dispose();
+  mirrorView = null;
+  mirrorElement.replaceChildren();
+  mirrorElement.hidden = shown === null || !mirrorRequested;
+  mirrorButton.setAttribute("aria-pressed", String(mirrorRequested));
+  if (shown !== null && mirrorRequested) mirrorView = mountDocumentView(shown.project, shown.document, mirrorElement);
 }
 
 /** Run a document action on the shown document; a newer open makes its outcome stale. */
@@ -301,6 +319,35 @@ function onShown(button: string, action: (current: Shown) => Promise<string | nu
       .catch((error: unknown) => { if (shown === current) showFailure(error); });
   });
 }
+
+onShown("#open-file", async ({ project }) => {
+  await show(project, projectFile.value, ++openRequest);
+  return null;
+});
+onShown("#mirror-view", () => {
+  mirrorRequested = !mirrorRequested;
+  syncMirror();
+  return null;
+});
+onShown("#save-current", async ({ document }) => {
+  const saved = await document.save();
+  return saved.ok ? `Saved ${document.identity.path}.` : saved.failure.message;
+});
+
+// Text controls keep their native editing shortcuts; a drawing surface uses its host's document actions.
+document.addEventListener("keydown", (event) => {
+  if (shown === null || event.defaultPrevented || event.altKey || !(event.ctrlKey || event.metaKey)) return;
+  const target = event.target;
+  if (target instanceof Element && target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])") !== null) return;
+  const key = event.key.toLowerCase();
+  const action = key === "z" ? (event.shiftKey ? "#redo" : "#undo")
+    : key === "y" && !event.shiftKey ? "#redo"
+    : key === "s" ? (event.shiftKey ? "#save-as" : "#save-current")
+    : null;
+  if (action === null) return;
+  event.preventDefault();
+  document.querySelector<HTMLButtonElement>(action)!.click();
+});
 
 onShown("#undo", ({ project, document }) => {
   const undone = project.workspace.undo(document);
@@ -317,7 +364,7 @@ onShown("#save-as", async (current) => {
   // The copy is a new document (ADR 0022 D1.3): it replaces the source, which the workspace has closed.
   const element = document.createElement("div");
   settings.append(element);
-  replaceShown({ project: current.project, document: saved.document, view: mountGameSettings(current.project, saved.document, element), element });
+  replaceShown({ project: current.project, document: saved.document, view: mountEditor(current.project, saved.document, element), element });
   return `${current.project.project.name}: ${saved.document.identity.path} (saved as a copy of ${current.document.identity.path})`;
 });
 onShown("#save-all", async ({ project }) => {

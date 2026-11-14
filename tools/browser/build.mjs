@@ -47,6 +47,7 @@ for (const entry of entries) {
 const editorWebOut = join(here, "editor-web", "dist", "editor-web.js");
 mkdirSync(dirname(editorWebOut), { recursive: true });
 copyFileSync(join(root, "packages/editor-ui/src/tileset-browser.css"), join(dirname(editorWebOut), "tileset-browser.css"));
+copyFileSync(join(root, "packages/editor-ui/src/tileset-art.css"), join(dirname(editorWebOut), "tileset-art.css"));
 await build({
   entryPoints: [join(here, "editor-web", "main.tsx")],
   outfile: editorWebOut,

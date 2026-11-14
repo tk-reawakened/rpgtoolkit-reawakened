@@ -9,6 +9,8 @@ import type {
   MainDocument,
   MainDocumentSnapshot,
   SaveResult,
+  TilesetArtCommand,
+  TilesetArtSnapshot,
 } from "@tk-reawakened/editor-model";
 import type { PlatformServices } from "@tk-reawakened/platform-services";
 import { createElement, render } from "preact";
@@ -18,6 +20,7 @@ import { BoardView } from "./board-view.tsx";
 import { PreferencesView, type PreferencesViewProps } from "./preferences-view.tsx";
 import { SettingsView } from "./settings-view.tsx";
 import type { TilesetBrowserContext } from "./tileset-browser.tsx";
+import { TilesetArtView } from "./tileset-art-view.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
 export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCommand> {
@@ -38,10 +41,13 @@ export interface BoardViewDocument extends ViewDocument<BoardDocumentSnapshot, B
   preview(): Promise<BoardPicture>;
 }
 
+/** The legacy tileset's pixel-editing surface, with history owned by its document. */
+export type TilesetArtViewDocument = ViewDocument<TilesetArtSnapshot, TilesetArtCommand>;
+
 /** What a host gives a view when it mounts it (ADR 0025 decision 4). */
 export interface ViewContext {
   /** The document the view shows and edits. The view never owns it. */
-  readonly document: ViewDocument | BoardViewDocument;
+  readonly document: ViewDocument | BoardViewDocument | TilesetArtViewDocument;
   /**
    * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
@@ -61,17 +67,26 @@ function isBoardView(document: ViewContext["document"]): document is BoardViewDo
   return document.kind === "board";
 }
 
+function isTilesetArtView(document: ViewContext["document"]): document is TilesetArtViewDocument {
+  return document.kind === "tileset";
+}
+
 /** Render the view of the document's kind into `el` (ADR 0026 decision 2: views are registered here, models in `editor-model`). */
 export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   const onEdited = (event: Parameters<PlatformServices["document"]["edited"]>[0]): void => ctx.services.document.edited(event);
   const capabilities = ctx.services.capabilities;
   const document = ctx.document;
-  render(
-    isBoardView(document)
-      ? createElement(BoardView, { doc: document, capabilities, onEdited, ...(ctx.browser === undefined ? {} : { browser: ctx.browser }) })
-      : createElement(SettingsView, { doc: document, capabilities, onEdited }),
-    el,
-  );
+  let view: Parameters<typeof render>[0];
+  if (isBoardView(document)) {
+    view = createElement(BoardView, { doc: document, capabilities, onEdited, ...(ctx.browser === undefined ? {} : { browser: ctx.browser }) });
+  } else if (isTilesetArtView(document)) {
+    view = createElement(TilesetArtView, { doc: document, capabilities, onEdited });
+  } else if (document.kind === "main") {
+    view = createElement(SettingsView, { doc: document, capabilities, onEdited });
+  } else {
+    throw new Error(`No editor view is registered for document kind "${document.kind}".`);
+  }
+  render(view, el);
   let disposed = false;
   return {
     dispose() {

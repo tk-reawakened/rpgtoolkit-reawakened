@@ -21,6 +21,11 @@
       <select id="project-game" hidden></select>
       <button id="open-selected-game" type="button" hidden>Open selected game</button>
       <div id="document-actions" role="toolbar" aria-label="Document" hidden>
+        <label for="project-file">Project file</label>
+        <input id="project-file" type="text">
+        <button id="open-file" type="button">Open project file</button>
+        <button id="mirror-view" type="button" aria-pressed="false">Second view</button>
+        <button id="save-current" type="button">Save current</button>
         <button id="undo" type="button">Undo</button>
         <button id="redo" type="button">Redo</button>
         <button id="save-as" type="button">Save as…</button>
@@ -30,6 +35,7 @@
       </div>
       <p id="host-status" role="status" aria-live="polite">No game open.</p>
       <section id="settings" aria-label="Settings editor"></section>
+      <section id="mirror" aria-label="Second document view" hidden></section>
     </main>
     <script src="./dist/editor-web.js"></script>
   </body>

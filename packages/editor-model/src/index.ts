@@ -18,6 +18,19 @@ export {
   type BoardOpenResult,
   type SetTileCommand,
 } from "./board-document.ts";
+export {
+  createTilesetArtDocument,
+  openTilesetArtDocument,
+  tilesetArtCodec,
+  type PaintTilesetPixelsCommand,
+  type TilesetArtCommand,
+  type TilesetArtDocument,
+  type TilesetArtFields,
+  type TilesetArtOpenResult,
+  type TilesetArtSnapshot,
+  type TilesetArtTile,
+  type TilesetPixelChange,
+} from "./tileset-art-document.ts";
 export { previewBoard, type BoardPicture, type BoardPreview, type BoardPreviewOptions, type PreviewStorage } from "./board-preview.ts";
 export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePreview, type TileSourcePreviewResult } from "./tile-source-preview.ts";
 export { asBoardDocument, asMainDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";

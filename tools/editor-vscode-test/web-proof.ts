@@ -1,5 +1,6 @@
 import type { expect as playwrightExpect, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors } from "./lifecycle.ts";
+import { runVscodeArtProof } from "./art-proof.ts";
 
 const copyBytesCommand = "Test: Copy Main File Bytes";
 
@@ -16,6 +17,10 @@ type ProofHost = {
   choice: "cancel" | "keep";
   boardPath: string;
   otherBoardPath: string;
+  artPath: string;
+  otherArtPath: string;
+  writeBacking(path: string, bytes: Uint8Array): Promise<void>;
+  withBackingWriteRefused(path: string, check: () => Promise<void>): Promise<void>;
 };
 
 /** Run against vscode-test-web's actual browser workbench, not an extension-host mock. */
@@ -233,6 +238,15 @@ export async function runVscodeWebProof(
   await runLifecycleScenarios(page, expect, autosaveTitle, autosaveBytes, host);
   // The packaged custom editor runs in the actual VS Code webview and persists boards through its working-copy provider.
   await runBoardBrowserScenario(page, expect, host);
+  const artFrame = await runVscodeArtProof(page, expect, host, {
+    focusWorkbench: () => focusWorkbench(page),
+    command: (title) => runCommand(page, expect, title),
+    closeEditor: () => closeActiveEditor(page, expect),
+    backupStored: (bytes) => backupIsStored(page, bytes),
+    instrument: (frame) => instrumentCspFrame(frame),
+  });
+  await expect.poll(() => frameCspViolations(page, artFrame, consoleViolations)).toEqual([]);
+  await assertCspListenerCountsBlockedAction(artFrame, expect, consoleViolations);
 }
 
 async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHost): Promise<void> {
@@ -243,6 +257,7 @@ async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHo
   const first = await openProjectBoard(page, firstPath, expect);
   await expect(first.getByRole("grid")).toBeVisible();
   await expect(first.getByRole("button", { name: "Column 1, row 1: village.tst1" })).toBeVisible();
+  await first.getByRole("combobox", { name: "Source", exact: true }).selectOption({ label: "village.tst (tst)" });
   const tile = first.locator('[data-browser-reference="village.tst2"]');
   await expect(tile).toBeVisible();
   const source = tile.locator(".tkr-tileset-browser-source");
@@ -336,7 +351,7 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
 
   // An untitled editor takes the tab's place, which hides the custom editor (retainContextWhenHidden: false).
   await editor.evaluate(() => { (window as ProofWindow & { __tkrAliveMarker?: string }).__tkrAliveMarker = "before-hiding"; });
-  await runCommandMatching(page, expect, "New Untitled", "a new untitled editor");
+  await runCommand(page, expect, "File: New Untitled Text File");
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: /Untitled/ })).toBeVisible();
   await closeActiveEditor(page, expect);
   editor = await waitForEditorFrame(page, "settings editor shown again");
@@ -393,15 +408,18 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
 
 /** Run a command from the palette and wait for its quick-pick row. */
 async function runCommand(page: Page, expect: Expect, title: string): Promise<void> {
-  await runCommandMatching(page, expect, title, title);
-}
-
-/** Accept the focused command with Enter, without waiting for a moving quick-pick row to become mouse-stable. */
-async function runCommandMatching(page: Page, expect: Expect, search: string, label: string): Promise<void> {
   const commandInput = await commandPalette(page, expect);
-  await commandInput.fill(`>${search}`);
-  const command = page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
-  await expect(command, `VS Code selects ${label}`).toBeVisible();
+  await commandInput.fill(`>${title}`);
+  const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const command = page.getByRole("option", { name: new RegExp(`^${escaped}(?:,|$)`) });
+  await expect(command, `VS Code offers ${title}`).toBeVisible();
+  // Search ranking need not focus the requested command. Use native keys, not mouse stability or a fuzzy first result.
+  const choices = await page.getByRole("option").count();
+  for (let index = 0; index < choices; index += 1) {
+    if (await command.evaluate((element) => element.classList.contains("focused"))) break;
+    await commandInput.press("ArrowDown");
+  }
+  await expect(command).toHaveClass(/(?:^|\s)focused(?:\s|$)/);
   await commandInput.press("Enter");
   await expect(page.locator(".quick-input-widget")).toBeHidden();
 }
@@ -623,18 +641,14 @@ async function openGame(page: Page, gamePath: string, expect: Expect): Promise<v
 }
 
 async function closeActiveEditor(page: Page, expect: Expect): Promise<void> {
-  const commandInput = await commandPalette(page, expect);
-  await commandInput.fill(">View: Close Editor");
-  const closeCommand = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "View: Close Editor" }).first();
-  await expect(closeCommand).toBeVisible();
-  await closeCommand.click();
-  await expect(page.locator(".quick-input-widget")).toBeHidden();
+  await runCommand(page, expect, "View: Close Editor");
 }
 
-async function commandPalette(page: Page, expect: Expect): Promise<import("@playwright/test").Locator> {
+async function commandPalette(page: Page, expect: Expect): Promise<Locator> {
   await focusWorkbench(page);
   await page.keyboard.press("ControlOrMeta+Shift+P");
-  const input = page.locator(".quick-input-widget input").last();
+  const input = page.locator(".quick-input-widget input:visible");
+  await expect(input).toHaveCount(1);
   await expect(input).toBeVisible();
   return input;
 }

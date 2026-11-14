@@ -1,7 +1,7 @@
 import { createDocumentWorkspace, previewBoard, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { createBrowserSession, mount, type BoardViewDocument, type BrowserSession, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createBrowserSession, mount, type BoardViewDocument, type BrowserSession, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { createWebSettings, type UserSettingsStorage } from "./settings.ts";
@@ -201,7 +201,9 @@ export const openGameSettings = openEditor;
  * kind is what says which command and snapshot types it has.
  */
 function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContext["document"] {
-  if (document.kind !== "board") return document as unknown as ViewDocument;
+  if (document.kind === "main") return document as unknown as ViewDocument;
+  if (document.kind === "tileset") return document as unknown as TilesetArtViewDocument;
+  if (document.kind !== "board") throw new Error(`No browser view is registered for document kind "${document.kind}".`);
   const board = document as unknown as Omit<BoardViewDocument, "preview">;
   // Explicit forwarding: a document's methods read its private fields, so they are called on the document itself.
   const view: BoardViewDocument = {

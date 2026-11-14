@@ -12,3 +12,4 @@ await Promise.all([
   build({ entryPoints: [resolve(root, "src/webview.tsx")], outfile: resolve(out, "webview.js"), bundle: true, platform: "browser", format: "iife", target: "es2022", sourcemap: true, jsx: "automatic", jsxImportSource: "preact" }),
 ]);
 await cp(resolve(root, "../editor-ui/src/tileset-browser.css"), resolve(out, "tileset-browser.css"));
+await cp(resolve(root, "../editor-ui/src/tileset-art.css"), resolve(out, "tileset-art.css"));

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -50,13 +50,16 @@ for (const choice of ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game);
   const boardPath = "Boards/village.brd";
   const otherBoardPath = "Boards/other.brd";
+  const artPath = "Tiles/village.tst";
+  const otherArtPath = "Tiles/other.tst";
   const boardBytes = createBoardBytes();
   await mkdir(resolve(proofWorkspace, "Boards"), { recursive: true });
   await mkdir(resolve(proofWorkspace, "Tiles"), { recursive: true });
   await Promise.all([
     writeFile(resolve(proofWorkspace, boardPath), boardBytes),
     writeFile(resolve(proofWorkspace, otherBoardPath), boardBytes),
-    copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, "Tiles/village.tst")),
+    copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, artPath)),
+    copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, otherArtPath)),
   ]);
   let persistentFs;
   let browser;
@@ -176,8 +179,20 @@ for (const choice of ["cancel", "keep"]) {
       }
     };
     const readBacking = async (path = game) => new Uint8Array(await readFile(resolve(proofWorkspace, path)));
-    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath });
-    console.log(`vscode.dev settings and board proof passed (${choice})`);
+    const writeBacking = async (path, bytes) => { await writeFile(resolve(proofWorkspace, path), bytes); };
+    const withBackingWriteRefused = async (path, check) => {
+      const target = resolve(proofWorkspace, path);
+      const mode = (await stat(target)).mode & 0o777;
+      await chmod(target, mode & ~0o222);
+      let failure;
+      const cleanupErrors = [];
+      try { await check(); } catch (error) { failure = error; }
+      try { await chmod(target, mode); } catch (error) { cleanupErrors.push(error); }
+      const combined = combineProofErrors(failure, cleanupErrors);
+      if (combined !== undefined) throw combined;
+    };
+    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, writeBacking, withBackingWriteRefused, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath, artPath, otherArtPath });
+    console.log(`vscode.dev settings, board and art proof passed (${choice})`);
   } catch (error) {
     failure = error;
   } finally {
