@@ -1,8 +1,8 @@
-import type { LayoutModel, ProjectLayout, ProjectTree, Tabs, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
+import type { LayoutModel, PackageArtifact, ProjectLayout, ProjectTree, Tabs, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useRef } from "preact/hooks";
 import { useDocumentSnapshot } from "./use-document.ts";
-import { FilesView } from "./files-view.tsx";
+import { FilesView, type PackageActionOutcome } from "./files-view.tsx";
 import { GameView } from "./game-view.tsx";
 import { TabStrip } from "./tab-strip.tsx";
 import { Workbench } from "./workbench.tsx";
@@ -17,6 +17,10 @@ export interface ShellProps {
   readonly onOpened: (result: Extract<TreeOpenResult, { readonly ok: true }>, row: TreeRow) => void;
   /** The Game panel asks for a file to be opened; the host opens it through the tree, as Files does. */
   readonly onOpenPath: (path: string) => void;
+  /** The Files panel prepares and, where supported, publishes a distribution package. */
+  readonly onPackage: (mainPath: string, version: string) => Promise<PackageActionOutcome>;
+  /** Downloads an already prepared artifact following an explicit user click. */
+  readonly onDownload: (artifact: PackageArtifact) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
   /** Called once with the element the active editor is mounted into, and with `null` when the shell goes away. */
   readonly onEditorElement: (element: HTMLElement | null) => void;
   /** Changes when the project's files may have, so the Game panel reads them again. */
@@ -34,7 +38,7 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 }
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
-export function Shell({ layout, tabs, tree, projectLayout, fs, onOpened, onOpenPath, onEditorElement, version }: ShellProps) {
+export function Shell({ layout, tabs, tree, projectLayout, fs, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, version }: ShellProps) {
   // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
   const tabsSnapshot = useDocumentSnapshot(tabs);
   return (
@@ -42,7 +46,7 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, onOpened, onOpenP
       layout={layout}
       tabs={<TabStrip tabs={tabs} />}
       panels={{
-        files: <FilesView tree={tree} onOpened={onOpened} />,
+        files: <FilesView tree={tree} fs={fs} onOpened={onOpened} onPackage={onPackage} onDownload={onDownload} />,
         game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
       }}
     >

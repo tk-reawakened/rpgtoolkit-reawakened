@@ -1,24 +1,75 @@
 ---
-type: feature
 title: "Package game and install descriptor"
+type: feature
 ticket: 9
-status: draft
+created: 2026-11-13
+status: implemented-verified
+baseline_revision: 4dce26b4b57dad789c23248ef0533e66b08c4e7a
+route: full
+route_source: auto
+risk: high
+review: ""
+review_source: ""
+lenses_ran: []
+review_loop_iteration: 0
+context:
+  - docs/guardrails.md
+  - docs/spec/formats/packaging-and-paths.md
+  - docs/editor-features.md
+  - docs/adr/0019-tkr-authoring-formats.md
+  - docs/adr/0022-shared-editor-authoring-contracts.md
 ---
 
 # Package game and install descriptor
 
 ## Scope
 
-Provide a host-capability-aware packaging workflow over the existing distribution writer that outputs a playable TPK and sibling install descriptor with explicit preflight and exclusions.
+Provide one export workflow on the shared editor model for a saved game. It inventories the selected project through its existing filesystem provider, checks that the main file and required startup targets exist, writes the existing deterministic distribution ZIP plus the exact sibling install descriptor, and gives the author a preflight summary and destination choice. Export must be host-capability-aware, keep editor/test material out, and not claim to build an EXE, setup installer, or signing.
 
-Reuse canonical writer and package reader with manifest schema/main/index and sibling descriptor; expose preflight, file list, revision and destination, enforce existing untrusted-input limits and explicit test-only exclusion, surface host capability and failures; never write an EXE or claim setup/signing.
+**Always:** Save open documents before reading the project; preserve authored bytes and read-only formats; use `writeDistributionPackage` and the canonical package reader; follow G2/G7. Package paths, limits, duplicates, manifest, and output hashes must be validated before output. Package and descriptor are related outputs and failures must be reported without claiming success.
 
-## Acceptance and verification
+**Never:** Read legacy source; edit authored data to make it packageable; silently select a different main file; package test specs or ADR 0019 editor documents; include `.tkr-history/`; route UI around `platform-services`; write an EXE or installer.
 
-A freshly authored saved project produces a valid package and descriptor, rejects unsafe or incomplete inputs, excludes test-only material, and boots the produced archive in the web runner without folder access.
+## Code Map
 
-Use the shared document lifecycle and preserve same-version unknown data; exercise relevant failure/cancel, keyboard access and save/reopen paths rather than relying on preview alone. Follow `discovery/inception-proposal.md`, `docs/editor-features.md` and G2/G7; do not claim checks passed without executing them.
+- `docs/spec/formats/packaging-and-paths.md` defines distribution archive layout, exact manifest, sibling descriptor fields, and L1–L26 safety limits. It now names `.tkr-history/` and specifies test/editor/history exclusions.
+- `docs/editor-features.md` T-70/T-71/T-74 defines package/export scope. ADR 0019 decision 6 excludes `.tkrscn`, `.tkrtile`, `.tkrpack`; ADR 0022 D5 governs destination and folder-write fallback; D12.7 requires exporter inventory verification.
+- `packages/core/src/formats/package/write.ts`, `manifest.ts`, `package.ts`, `zip.ts` provide deterministic ZIP writing, validation, package loading and manifest verification. Reuse; do not create another writer or alter the wire contract.
+- `packages/core/src/save/game-id.ts` provides `derivePackageIdentity`; `packages/core/src/formats/main/` provides main-file decoding and startup references. The main format has no release-version field, so the author supplies it in the export form.
+- `packages/editor-model/src/workspace.ts` owns save-all and project-bound document identity; `reserved-folders.ts` establishes project-root conventions. `package-export.ts` owns recursive inventory/preflight and `package-export-write.ts` owns paired output.
+- `packages/platform-services/src/services.ts` defines the minimal host export seam for hashing and download; browser and VS Code providers implement it.
+- `packages/editor-ui/src/files-view.tsx` owns the shared package preflight, inventory and output controls; `packages/host-web/src/` and `packages/host-vscode/src/` mount the common editor and supply platform services.
+- Focused model tests verify exclusion proof, missing-target refusal, archive loading, descriptor integrity and collision-safe sibling output.
 
-## Dependencies and decision gate
+## Tasks & Acceptance
 
-Prerequisites: 11.1, 11.3, 11.4, 9.7. Follow the 11.1 contract where applicable; inspect actual supported formats and correct documented provider gaps within scope under G7.
+**Execution:**
+- [x] Update packaging spec (docs first): name `.tkr-history/`, exclude it, case-insensitive `*.spec.prg`, and ADR 0019 editor extensions; specify safety/preflight and paired output behavior.
+- [x] Add DOM-free package export model using workspace save-all and recursive filesystem provider; inventory deterministically, apply explicit exclusions, reject unsafe/missing-main or missing startup inputs, and enforce writer limits.
+- [x] Generate the exact seven-field descriptor from decoded game metadata, author-entered release version and package bytes (SHA-256); validate generated bytes with the canonical package reader before offering output.
+- [x] Add minimal host export provider; write both chosen sibling files safely when folder access exists, and provide separate downloads otherwise. Surface cancellation, partial-write, and provider failures.
+- [x] Add accessible shared preflight/output UI and host wiring without moving editor behavior into either host.
+- [x] Add focused tests for exclusions, missing startup targets, descriptor integrity, archive loading and collision-safe publication.
+
+**Acceptance Criteria:**
+- Given a saved authored game, when export completes, then the `.tpk` contains its project-root files and valid manifest and the sibling JSON has exactly the specified descriptor fields and matching name, size, SHA-256, title, version and game identity.
+- Given test specs, `.tkrscn`, `.tkrtile`, `.tkrpack` or `.tkr-history/` in the project, when export completes, then none appears in the archive and the inventory proof confirms each exclusion.
+- Given unsafe paths, folded duplicates, malformed/incomplete main data, missing startup files, read failures or package limits exceeded, when preflight runs, then export is refused with the offending path/reason and no output is reported as successful.
+- Given a host without project-folder writes or a user cancellation, when export is requested, then the host offers its supported download path or leaves both project and existing outputs untouched and reports the outcome.
+Given the produced archive without access to the source folder, when loaded through the canonical distribution-package reader used by the web runner, then it exposes the packaged main file and indexed game assets.
+
+## Implementation Notes
+
+Owner authorization: select a reserved editor-history path and a complete cross-host export behavior without an intermediate checkpoint. D12.7 does not name the folder; `.tkr-history/` is the chosen explicit reserved path. The descriptor remains a sibling artifact, and the archive manifest keeps its existing contract. The release version is explicitly entered by the author because the main format carries no such field.
+
+## Verification
+
+**Commands:**
+- `pnpm exec tsc -b packages/editor-model packages/editor-ui packages/host-web packages/host-vscode`
+- `pnpm exec tsc -p packages/editor-model/tsconfig.test.json`
+- `pnpm exec tsc -p packages/editor-ui/tsconfig.test.json`
+- `pnpm exec tsc -p packages/host-web/tsconfig.test.json`
+- `node --test packages/editor-model/test/package-export.test.ts packages/editor-ui/test/shell.test.ts` — 12 passed, 0 failed.
+
+**Manual checks:**
+- Generated bytes load through the package reader; the descriptor matches actual package length and SHA-256; excluded game/project material is listed. See the focused test for the exact inventory and output checks.

@@ -106,6 +106,14 @@ export {
   type SavedLayout,
 } from "./layout.ts";
 export { createTabs, type TabsSnapshot, type TabState, type Tabs } from "./tabs.ts";
+export {
+  prepareGamePackage,
+  type PackageArtifact,
+  type PackageExportOutcome,
+  type PrepareGamePackageOptions,
+  type PreparedGamePackage,
+} from "./package-export.ts";
+export { publishGamePackage, type PublishPackageOutcome } from "./package-export-write.ts";
 export { ASSET_FOLDERS, type AssetKind } from "@tk-reawakened/core";
 export {
   createPreferences,

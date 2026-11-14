@@ -6,6 +6,8 @@ import {
   createProjectTree,
   createTabs,
   createVisits,
+  prepareGamePackage,
+  publishGamePackage,
   type AnyDocument,
   type LayoutModel,
   type PickOutcome,
@@ -156,6 +158,20 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       if (result.via === "document") show(result.document);
     },
     onOpenPath: (path) => { void openPath(path); },
+    onPackage: async (mainPath, releaseVersion) => {
+      const prepared = await prepareGamePackage({ workspace, services, mainPath, version: releaseVersion });
+      if (!prepared.ok) return prepared;
+      if (!services.capabilities.has("folderWrite")) return { ok: true, prepared: prepared.value, destination: null };
+      const published = await publishGamePackage(services, mainPath, prepared.value);
+      return published.ok
+        ? { ok: true, prepared: prepared.value, destination: published.path }
+        : published;
+    },
+    onDownload: async (artifact) => {
+      const result = await services.packageExport?.downloadFile(artifact.fileName, artifact.bytes);
+      return result === undefined ? { ok: false, message: "This host does not provide downloads." }
+        : result.ok ? { ok: true } : { ok: false, message: result.error.message };
+    },
     onEditorElement: (editorElement) => {
       slot = editorElement;
       sync();

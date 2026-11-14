@@ -142,13 +142,16 @@ export interface ShellService {
 }
 
 /**
- * The part of AD-20 that stories 11.17 and 11.3 need: `capabilities`, `fs`, `project`, `settings`, `document` and
- * `dialogs`.
- *
- * AD-20 also lists `run`, `export`, `clipboard` and `language.connect()` (`shell.openExternal` is declared, for 11.4). They are not declared
- * yet: AD-20 names their methods but not their parameters, and the entries that first use them (11.9 run, 11.14 export,
- * the program editor's language client) fix those shapes against a real caller. A host that implements this interface
- * is not asked for them until then.
+ * Package export host operations (AD-20 `export`, shaped by story 12.9). `sha256` supplies the descriptor's archive
+ * digest. `downloadFile` is used only when `folderWrite` is absent and is invoked by a direct user action.
+ */
+export interface PackageExportService {
+  sha256(bytes: Uint8Array): Promise<PlatformResult<string>>;
+  downloadFile(fileName: string, bytes: Uint8Array): Promise<PlatformResult<void>>;
+}
+
+/**
+ * The AD-20 platform surface used by the editor, including package export operations shaped by story 12.9.
  */
 export interface PlatformServices {
   readonly capabilities: Capabilities;
@@ -159,4 +162,6 @@ export interface PlatformServices {
   readonly dialogs: DialogService;
   /** Present when the host declares `openExternal`. */
   readonly shell?: ShellService;
+  /** Descriptor digest and download operations used by package export. */
+  readonly packageExport?: PackageExportService;
 }

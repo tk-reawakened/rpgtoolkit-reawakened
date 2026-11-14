@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import type { PlatformServices, ProjectHandle, SettingValue, SettingsLayer } from "@tk-reawakened/platform-services";
-import { platformOk } from "@tk-reawakened/platform-services";
+import type { PackageExportService, PlatformServices, ProjectHandle, SettingValue, SettingsLayer } from "@tk-reawakened/platform-services";
+import { platformError, platformOk } from "@tk-reawakened/platform-services";
 import { vscodeCapabilities } from "./capabilities.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
@@ -30,5 +30,34 @@ export function createVscodeServices(root: vscode.Uri): PlatformServices {
     },
     document: { edited: () => undefined },
     dialogs: createVscodeDialogs(root),
+    packageExport: vscodePackageExport(root),
+  };
+}
+
+function vscodePackageExport(root: vscode.Uri): PackageExportService {
+  return {
+    async sha256(bytes) {
+      try {
+        const crypto = globalThis.crypto;
+        if (crypto?.subtle === undefined) return platformError("unavailable", "Web Crypto is unavailable for the package digest.");
+        const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes.slice().buffer as ArrayBuffer));
+        return platformOk([...digest].map((byte) => byte.toString(16).padStart(2, "0")).join(""));
+      } catch {
+        return platformError("io-error", "Could not calculate the package SHA-256 digest.");
+      }
+    },
+    async downloadFile(fileName, bytes) {
+      const destination = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.joinPath(root, fileName),
+        saveLabel: `Save ${fileName}`,
+      });
+      if (destination === undefined) return platformError("unavailable", "Package download was cancelled.");
+      try {
+        await vscode.workspace.fs.writeFile(destination, bytes);
+        return platformOk(undefined);
+      } catch {
+        return platformError("io-error", `Could not save ${fileName}.`);
+      }
+    },
   };
 }

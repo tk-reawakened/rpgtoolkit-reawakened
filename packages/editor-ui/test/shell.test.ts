@@ -85,6 +85,8 @@ async function setup(capabilities: readonly ("folderWrite" | "fileWatch" | "open
           if (result.ok && result.via === "document") tabs.open(result.document);
         });
       },
+      onPackage: async () => ({ ok: false, message: "Package export is not configured in this test." }),
+      onDownload: async () => ({ ok: true }),
       onEditorElement: (element) => { slot = element; },
     });
   });

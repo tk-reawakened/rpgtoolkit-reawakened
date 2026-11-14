@@ -1,5 +1,5 @@
 import { createDocumentWorkspace, previewBoard, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
-import type { Capability, DialogService, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
+import type { Capability, DialogService, PackageExportService, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { mount, type BoardViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
@@ -75,6 +75,44 @@ function pageDialogs(): DialogService {
   };
 }
 
+function webPackageExport(doc: Document | null): PackageExportService {
+  return {
+    async sha256(bytes) {
+      try {
+        const crypto = doc?.defaultView?.crypto;
+        if (crypto === undefined || crypto.subtle === undefined) return platformError("unavailable", "Web Crypto is unavailable for the package digest.");
+        const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes.slice().buffer as ArrayBuffer));
+        const hex = [...hash].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+        return platformOk(hex);
+      } catch {
+        return platformError("io-error", "Could not calculate the package SHA-256 digest.");
+      }
+    },
+    async downloadFile(fileName, bytes) {
+      if (fileName.includes("/") || fileName.includes(String.fromCharCode(92))) return platformError("invalid-path", "The download name must be a file name.");
+      if (doc === null) return platformError("unavailable", "Browser downloads are unavailable in this document.");
+      const view = doc.defaultView;
+      if (view === null) return platformError("unavailable", "Browser downloads are unavailable in this document.");
+      let url: string | null = null;
+      try {
+        url = view.URL.createObjectURL(new view.Blob([bytes.slice().buffer as ArrayBuffer], { type: "application/octet-stream" }));
+        const anchor = doc.createElement("a");
+        anchor.href = url;
+        anchor.download = fileName;
+        anchor.hidden = true;
+        doc.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+        view.setTimeout(() => { if (url !== null) view.URL.revokeObjectURL(url); }, 0);
+        return platformOk(undefined);
+      } catch {
+        if (url !== null) view.URL.revokeObjectURL(url);
+        return platformError("io-error", `Could not start the download for ${fileName}.`);
+      }
+    },
+  };
+}
+
 function webUserStorage(options: WebProjectOptions): UserSettingsStorage | null {
   if (options.userSettings !== undefined) return options.userSettings;
   return typeof localStorage === "undefined" ? null : localStorage;
@@ -103,6 +141,7 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
     settings: createWebSettings(fs, webUserStorage(options), capabilities.has("folderWrite")),
     document: workspace.document,
     dialogs,
+    packageExport: webPackageExport(typeof document === "undefined" ? null : document),
   };
   return { services, project, sessionCopy: false, workspace, deactivate: () => { active = false; workspace.dispose(); } };
 }
@@ -159,6 +198,7 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
     settings: createWebSettings(fs, webUserStorage(options), false),
     document: workspace.document,
     dialogs,
+    packageExport: webPackageExport(typeof document === "undefined" ? null : document),
   };
   return { services, project, sessionCopy: true, workspace, deactivate: () => { active = false; workspace.dispose(); } };
 }
