@@ -231,13 +231,15 @@ async function findGameFiles(directory) {
   }
   return files;
 }
-/** The 2 × 1 proof bitmap: tile 1 plain and tile 2 shaded; `edited` is what the proof's two edits must leave in the file. */
+/** The 2 × 2 proof bitmap: tile 1 plain except a shaded tile 2 at column 2, row 1; `edited` is what the proof's two edits must leave in the file. */
 function createBitmapBytes(edited) {
   const cell = (tile, r = 0, g = 0, b = 0) => ({ tile, r, g, b });
-  const drawn = edited ? [cell("village.tst1", -255, 0, 0), cell("village.tst1", 10, -20, 30)] : [cell("village.tst1"), cell("village.tst2", 10, -20, 30)];
+  const pad = cell("pad.gph", 1, 2, 3);
+  const first = edited ? cell("village.tst1", -255, 0, 0) : cell("village.tst1");
+  const second = edited ? cell("village.tst1", 10, -20, 30) : cell("village.tst2", 10, -20, 30);
   // x outer, y inner, with the stored extra column and row after the drawn cells (docs/spec/formats/tiles.md#tile-bitmap-tbm).
-  const cells = [drawn[0], cell("pad.gph", 1, 2, 3), drawn[1], cell("pad.gph", 1, 2, 3), cell("pad.gph", 1, 2, 3), cell("pad.gph", 1, 2, 3)];
-  const written = writeTileBitmap({ magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 2, height: 1, cells, residue: Uint8Array.from([7, 7, 7]) });
+  const cells = [first, cell("village.tst1"), pad, second, cell("village.tst1"), pad, pad, pad, pad];
+  const written = writeTileBitmap({ magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 2, height: 2, cells, residue: Uint8Array.from([7, 7, 7]) });
   if (!written.ok) throw new Error(`Could not create authored tile bitmap proof fixture: ${written.error.message}`);
   return written.value;
 }

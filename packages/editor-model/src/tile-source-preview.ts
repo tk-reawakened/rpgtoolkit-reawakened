@@ -21,7 +21,15 @@ export type TileSourcePreview =
   | { readonly kind: "tileset"; readonly tiles: readonly TilePreviewPixels[] }
   | { readonly kind: "single"; readonly preview: TilePreviewPixels }
   | { readonly kind: "animation"; readonly frameCount: number; readonly speed: number; readonly preview: TilePreviewPixels | null }
-  | { readonly kind: "bitmap"; readonly preview: TilePreviewPixels; readonly size: { readonly width: number; readonly height: number } };
+  | {
+      readonly kind: "bitmap";
+      /** The composed picture; `null` when it cannot be composed (a bitmap that draws no cells). The source stays usable without it. */
+      readonly preview: TilePreviewPixels | null;
+      /** The drawn size in tiles, from the file itself, so a missing tile never hides the source's actions. */
+      readonly size: { readonly width: number; readonly height: number };
+      /** Tile references the project does not hold or cannot decode; their cells are drawn empty. */
+      readonly missing: readonly string[];
+    };
 
 export type TileSourcePreviewResult =
   | { readonly ok: true; readonly value: TileSourcePreview }
@@ -158,19 +166,26 @@ export function createTileSourcePreviewer(
     const bitmap = readTileBitmap(new BinaryReader(bytes, source.path));
     if (!bitmap.ok) return failure(bitmap.error.message);
     const tiles = new Map<string, { w: number; h: number; rgba: Uint8Array }>();
+    const missing: string[] = [];
     for (const cell of bitmap.value.cells) {
       if (cell.tile === "" || tiles.has(cell.tile)) continue;
       const preview = await previewReference(cell.tile);
-      if (preview !== undefined) tiles.set(cell.tile, { w: preview.width, h: preview.height, rgba: preview.pixels });
+      if (preview === undefined) {
+        // A fully transparent pixel in its place: the other cells still draw and the source stays usable (T-62).
+        tiles.set(cell.tile, { w: 1, h: 1, rgba: new Uint8Array(4) });
+        missing.push(cell.tile);
+      } else {
+        tiles.set(cell.tile, { w: preview.width, h: preview.height, rgba: preview.pixels });
+      }
     }
     const composed = compositeTileBitmap(bitmap.value, tiles);
-    if (!composed.ok) return failure(composed.error.message);
     return {
       ok: true,
       value: {
         kind: "bitmap",
-        preview: { width: composed.value.w, height: composed.value.h, pixels: composed.value.rgba },
-        size: { width: bitmap.value.width, height: bitmap.value.height },
+        preview: composed.ok ? { width: composed.value.w, height: composed.value.h, pixels: composed.value.rgba } : null,
+        size: { width: Math.max(0, bitmap.value.width), height: Math.max(0, bitmap.value.height) },
+        missing,
       },
     };
   }

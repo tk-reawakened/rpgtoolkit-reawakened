@@ -239,6 +239,8 @@ class Webview {
   readonly #listeners = new Set<(message: unknown) => unknown>();
   readonly #disposeListeners = new Set<() => void>();
   #page: Page | null = null;
+  /** Messages the page has sent that the provider has not yet received, in sending order. */
+  readonly #undelivered: EditorHostRequest[] = [];
 
   constructor(act: Act) {
     this.#act = act;
@@ -307,13 +309,29 @@ class Webview {
   }
 
   dispose(): void {
+    // VS Code relays a webview's messages and its disposal to the extension host over one ordered channel, so every
+    // message the page sent before it closed is delivered before the provider hears that the panel is gone.
+    this.#flush();
     this.hide();
     for (const listener of [...this.#disposeListeners]) listener();
   }
 
   #send(request: EditorHostRequest): void {
     const copy = structuredClone(request);
-    setTimeout(() => { for (const listener of [...this.#listeners]) void listener(copy); }, 0);
+    this.#undelivered.push(copy);
+    setTimeout(() => this.#deliver(copy), 0);
+  }
+
+  /** Hand one sent message to the provider, once; a message already delivered by a flush is not delivered again. */
+  #deliver(copy: EditorHostRequest): void {
+    const at = this.#undelivered.indexOf(copy);
+    if (at === -1) return;
+    this.#undelivered.splice(at, 1);
+    for (const listener of [...this.#listeners]) void listener(copy);
+  }
+
+  #flush(): void {
+    for (const copy of [...this.#undelivered]) this.#deliver(copy);
   }
 
   #receive(page: Page, message: BridgeMessage): void {

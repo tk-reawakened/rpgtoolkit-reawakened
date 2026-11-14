@@ -172,7 +172,11 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
       if (rendered.value.kind === "animation") {
         setMessage(`Animated tile: ${rendered.value.frameCount} frames at ${1000 / rendered.value.speed} ms per frame. Select the animation as a board brush.`);
       } else if (rendered.value.kind === "bitmap") {
-        setMessage(`Tile bitmap, ${rendered.value.size.width} × ${rendered.value.size.height} tiles. Select it as a whole stamp brush, or open it in the tile bitmap editor.`);
+        const { size, missing } = rendered.value;
+        setMessage(
+          `Tile bitmap, ${size.width} × ${size.height} tiles. Select it as a whole stamp brush, or open it in the tile bitmap editor.` +
+            (missing.length === 0 ? "" : ` ${missing.length === 1 ? "A tile it names is" : `${missing.length} tiles it names are`} missing from the project (${missing.join(", ")}), so those cells are drawn empty; open it to repair them.`),
+        );
       }
       setItems([selection]);
       setPreviews(preview === null ? new Map() : new Map([[selection.reference, preview]]));

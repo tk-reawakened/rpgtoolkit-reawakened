@@ -17,7 +17,7 @@ type ProofHost = {
   choice: "cancel" | "keep";
   boardPath: string;
   otherBoardPath: string;
-  /** A fully drawn 2 × 1 tile bitmap over `Tiles/village.tst`: tile 1 plain, tile 2 shaded (10, -20, 30). */
+  /** A fully drawn 2 × 2 tile bitmap over `Tiles/village.tst`: tile 1 everywhere except a shaded (10, -20, 30) tile 2 at column 2, row 1. */
   bitmapPath: string;
   /** What the file must hold after the proof's two edits and Save, written by hand from the stored layout. */
   bitmapSaved: Uint8Array;
@@ -297,9 +297,22 @@ async function runBitmapBrowserScenario(page: Page, expect: Expect, host: ProofH
   const before = await host.readBacking(path);
   const first = await openProjectFile(page, path, expect, ".tkr-bitmap");
   await expect(first.getByRole("heading", { name: "Tile bitmap" })).toBeVisible();
-  await expect(first.locator(".tkr-bitmap-summary")).toContainText("2 × 1 tiles, 64 × 32 pixels");
+  await expect(first.locator(".tkr-bitmap-summary")).toContainText("2 × 2 tiles, 64 × 64 pixels");
   await expect(first.locator("canvas.tkr-bitmap-canvas")).toBeVisible();
   await expect(first.getByRole("button", { name: "Column 2, row 1: village.tst2, shade 10, -20, 30" })).toBeVisible();
+  // The grid is laid out as a grid: the second column is to the right on the same line, the second row below.
+  const box = async (name: string | RegExp) => {
+    const found = await first.getByRole("button", { name }).boundingBox();
+    if (found === null) throw new Error(`${name} has no layout box`);
+    return found;
+  };
+  const topLeft = await box(/^Column 1, row 1:/);
+  const topRight = await box(/^Column 2, row 1:/);
+  const bottomLeft = await box(/^Column 1, row 2:/);
+  expect(Math.abs(topRight.y - topLeft.y)).toBeLessThan(2);
+  expect(topRight.x).toBeGreaterThanOrEqual(topLeft.x + topLeft.width);
+  expect(Math.abs(bottomLeft.x - topLeft.x)).toBeLessThan(2);
+  expect(bottomLeft.y).toBeGreaterThanOrEqual(topLeft.y + topLeft.height);
   // Choosing a tile in the shared browser edits nothing; Draw puts it on the clicked cell.
   const tile = first.locator('[data-browser-reference="village.tst1"] .tkr-tileset-browser-source');
   await expect(tile).toBeVisible();
@@ -321,13 +334,13 @@ async function runBitmapBrowserScenario(page: Page, expect: Expect, host: ProofH
   await closeActiveEditor(page, expect);
 
   const reopened = await openProjectFile(page, path, expect, ".tkr-bitmap");
-  await expect(reopened.locator(".tkr-bitmap-summary")).toContainText("2 × 1 tiles");
+  await expect(reopened.locator(".tkr-bitmap-summary")).toContainText("2 × 2 tiles");
   await expect(reopened.getByRole("button", { name: "Column 1, row 1: village.tst1, shade -255, 0, 0" })).toBeVisible();
   await expect(reopened.getByRole("button", { name: "Column 2, row 1: village.tst1, shade 10, -20, 30" })).toBeVisible();
   // The whole bitmap is a stamp brush: choosing it carries its size and changes nothing.
   await reopened.locator(".tkr-tileset-browser select").selectOption({ value: path });
   await reopened.getByRole("button", { name: "Select stamp brush" }).click();
-  await expect(reopened.locator(".tkr-bitmap-brush")).toContainText("A whole stamp (2 × 1 tiles) is chosen");
+  await expect(reopened.locator(".tkr-bitmap-brush")).toContainText("A whole stamp (2 × 2 tiles) is chosen");
   await expect(reopened.locator(".tkr-bitmap-state")).toHaveText("All changes saved");
   expect(await host.readBacking(path)).toEqual(host.bitmapSaved);
   await closeActiveEditor(page, expect);

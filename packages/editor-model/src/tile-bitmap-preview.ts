@@ -1,4 +1,4 @@
-import { BinaryReader, compositeTileBitmap, readTileBitmap, type TileBitmapTile } from "@tk-reawakened/core";
+import { BinaryReader, readTileBitmap } from "@tk-reawakened/core";
 import type { BoardPicture, PreviewStorage } from "./board-preview.ts";
 import { listCandidates } from "./reserved-folders.ts";
 import { createTileSourcePreviewer } from "./tile-source-preview.ts";
@@ -16,9 +16,6 @@ const TILE_EXTENSIONS = [".tst", ".iso", ".tan", ".gph"];
 
 /** The most pixels a preview draws: the editor's largest bitmap (40 × 40 tiles) is under 1.7 million. */
 const MAX_PREVIEW_PIXELS = 4_000_000;
-
-/** A fully transparent pixel, drawn in place of a tile the project does not hold, so the other cells still show. */
-const MISSING_TILE: TileBitmapTile = { w: 1, h: 1, rgba: new Uint8Array(4) };
 
 /**
  * Compose the tile bitmap in `bytes` (`document.serialize()`: what the document holds now, saved or not) over the tiles
@@ -38,22 +35,13 @@ export async function previewTileBitmap(storage: PreviewStorage, projectId: stri
     const file = await storage.readProject(projectId, path);
     return file.ok ? file.value : null;
   });
-  const tiles = new Map<string, TileBitmapTile>();
-  const warnings: string[] = listed.failures.map(({ path, error }) => `${path}: ${error.message}`);
-  for (let x = 0; x < bitmap.width; x += 1) {
-    for (let y = 0; y < bitmap.height; y += 1) {
-      const tile = bitmap.cells[x * (bitmap.height + 1) + y]?.tile ?? "";
-      if (tile === "" || tiles.has(tile)) continue;
-      const found = await previewer.previewTile(tile);
-      if (found === undefined) {
-        warnings.push(`${tile}: the project holds no such tile, so its cells are drawn empty.`);
-        tiles.set(tile, MISSING_TILE);
-      } else {
-        tiles.set(tile, { w: found.width, h: found.height, rgba: found.pixels });
-      }
-    }
-  }
-  const composed = compositeTileBitmap(bitmap, tiles);
-  if (!composed.ok) return { ok: false, message: composed.error.message };
-  return { ok: true, width: composed.value.w, height: composed.value.h, rgba: composed.value.rgba, warnings };
+  const rendered = await previewer.previewSource({ reference: "preview.tbm", path: "preview.tbm", name: "preview.tbm" }, bytes);
+  if (!rendered.ok) return { ok: false, message: `The tile bitmap cannot be previewed: ${rendered.message}` };
+  if (rendered.value.kind !== "bitmap" || rendered.value.preview === null) return { ok: false, message: "This tile bitmap has no drawn cells, so there is no picture." };
+  const { width, height, pixels } = rendered.value.preview;
+  const warnings = [
+    ...listed.failures.map(({ path, error }) => `${path}: ${error.message}`),
+    ...rendered.value.missing.map((tile) => `${tile}: the project holds no such tile, so its cells are drawn empty.`),
+  ];
+  return { ok: true, width, height, rgba: pixels, warnings };
 }

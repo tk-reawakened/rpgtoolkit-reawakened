@@ -140,7 +140,8 @@ function resize(model: TileBitmap, width: number, height: number): TileBitmap {
 
 function apply(model: TileBitmap, command: TileBitmapCommand): TileBitmap {
   if (command.type === "set-bitmap-size") {
-    return Number.isInteger(command.width) && Number.isInteger(command.height) ? resize(model, command.width, command.height) : model;
+    // `apply` runs before `refuse`, so a size outside the editor's limit must not allocate a grid for the refusal to discard.
+    return isTiles(command.width) && isTiles(command.height) ? resize(model, command.width, command.height) : model;
   }
   const index = modelCellIndex(model, command.x, command.y);
   const cell = index === null ? undefined : model.cells[index];

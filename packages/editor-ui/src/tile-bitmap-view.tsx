@@ -86,9 +86,21 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
 
   // The fields follow the selected cell, and a change the document made under them (undo, a reload) replaces a draft.
   // A refusal stays until the next action: it is cleared where a person moves or acts, not here.
+  // Each field is replaced on its own, and only when it is not mid-edit: a field that still shows what it last showed
+  // follows the document (an acknowledged edit, undo, a reload), and a field the person has typed into keeps its text.
+  // A field is never replaced because a *different* field's edit was acknowledged. Moving to another cell replaces all.
+  const shown = useRef({ x: -1, y: -1, tile: "", r: 0, g: 0, b: 0 });
   useEffect(() => {
-    setTileDraft(current?.tile ?? "");
-    setShadeDraft({ r: String(current?.r ?? 0), g: String(current?.g ?? 0), b: String(current?.b ?? 0) });
+    const last = shown.current;
+    const next = { x, y, tile: current?.tile ?? "", r: current?.r ?? 0, g: current?.g ?? 0, b: current?.b ?? 0 };
+    const moved = last.x !== x || last.y !== y;
+    shown.current = next;
+    setTileDraft((draft) => (moved || draft === last.tile ? next.tile : draft));
+    setShadeDraft((draft) => ({
+      r: moved || draft.r === String(last.r) ? String(next.r) : draft.r,
+      g: moved || draft.g === String(last.g) ? String(next.g) : draft.g,
+      b: moved || draft.b === String(last.b) ? String(next.b) : draft.b,
+    }));
   }, [x, y, current?.tile, current?.r, current?.g, current?.b]);
   useEffect(() => setSizeDraft({ width: String(width), height: String(height) }), [width, height]);
 
@@ -170,16 +182,30 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
     }
   };
 
-  const commitShade = (shade: TileShade): void => {
-    if (current === null || (shade.r === current.r && shade.g === current.g && shade.b === current.b)) return;
-    void run({ type: "set-bitmap-shade", x, y, r: shade.r, g: shade.g, b: shade.b });
+  // The shade the next shade edit starts from: the latest one sent for this cell while an earlier edit is still waiting
+  // for the host's answer (so a second channel's edit never undoes the first), otherwise what the document shows.
+  const sent = useRef<{ x: number; y: number; shade: TileShade; waiting: number } | null>(null);
+  const baseShade = (): TileShade => (sent.current !== null && sent.current.x === x && sent.current.y === y ? sent.current.shade : shade);
+  const commitShade = (next: TileShade): void => {
+    const base = baseShade();
+    if (current === null || (next.r === base.r && next.g === base.g && next.b === base.b)) return;
+    const waiting = sent.current !== null && sent.current.x === x && sent.current.y === y ? sent.current.waiting + 1 : 1;
+    sent.current = { x, y, shade: next, waiting };
+    const mine = sent.current;
+    void run({ type: "set-bitmap-shade", x, y, r: next.r, g: next.g, b: next.b }).finally(() => {
+      mine.waiting -= 1;
+      if (mine.waiting <= 0 && sent.current === mine) sent.current = null;
+    });
   };
-  const draftedShade = (): TileShade | null => {
-    const channel = (text: string): number => (text.trim() === "" ? Number.NaN : Number(text));
-    const shade = { r: channel(shadeDraft.r), g: channel(shadeDraft.g), b: channel(shadeDraft.b) };
-    if ([shade.r, shade.g, shade.b].every(Number.isFinite)) return shade;
-    setRefusal(`Each shade is a number from ${TILE_SHADE_MIN} to ${TILE_SHADE_MAX}.`);
-    return null;
+  /** Send the edit of one channel from its field's text, leaving the other two channels as they are. */
+  const commitChannel = (channel: "r" | "g" | "b"): void => {
+    const text = shadeDraft[channel];
+    const value = text.trim() === "" ? Number.NaN : Number(text);
+    if (!Number.isFinite(value)) {
+      setRefusal(`Each shade is a number from ${TILE_SHADE_MIN} to ${TILE_SHADE_MAX}.`);
+      return;
+    }
+    commitShade({ ...baseShade(), [channel]: value });
   };
   const commitSize = (): void => {
     const next = { width: Number(sizeDraft.width), height: Number(sizeDraft.height) };
@@ -379,16 +405,12 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
               max={TILE_SHADE_MAX}
               step={1}
               value={shadeDraft[channel]}
-              onInput={(event) => setShadeDraft({ ...shadeDraft, [channel]: event.currentTarget.value })}
-              onChange={() => {
-                const drafted = draftedShade();
-                if (drafted !== null) commitShade(drafted);
+              onInput={(event) => {
+                const text = event.currentTarget.value;
+                setShadeDraft((draft) => ({ ...draft, [channel]: text }));
               }}
-              onKeyDown={(event) => {
-                if (event.key !== "Enter") return;
-                const drafted = draftedShade();
-                if (drafted !== null) commitShade(drafted);
-              }}
+              onChange={() => commitChannel(channel)}
+              onKeyDown={(event) => { if (event.key === "Enter") commitChannel(channel); }}
             />
           </span>
         ))}
@@ -415,7 +437,7 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
             max={TILE_SHADE_MAX}
             step={1}
             value={lightnessOfShade(shade)}
-            onChange={(event) => commitShade(shadeWithLightness(shade, Number(event.currentTarget.value)))}
+            onChange={(event) => commitShade(shadeWithLightness(baseShade(), Number(event.currentTarget.value)))}
           />
         </span>
         <button type="button" class="tkr-bitmap-shade-reset" disabled={shade.r === 0 && shade.g === 0 && shade.b === 0} onClick={() => commitShade({ r: 0, g: 0, b: 0 })}>

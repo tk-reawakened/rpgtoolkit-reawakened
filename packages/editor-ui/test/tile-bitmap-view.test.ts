@@ -57,6 +57,8 @@ interface Setup {
   readonly browser: TilesetBrowserContext;
   readonly session: BrowserSession;
   readonly el: HTMLElement;
+  /** While `holding`, edits wait here and reach the document only when released, as a host's slow answer does. */
+  readonly gate: { holding: boolean; readonly queue: (() => void)[] };
 }
 
 async function setup(bytes: Uint8Array = bytesOf(START), extra: Readonly<Record<string, Uint8Array>> = {}): Promise<Setup> {
@@ -64,12 +66,16 @@ async function setup(bytes: Uint8Array = bytesOf(START), extra: Readonly<Record<
   const opened = await openTileBitmapDocument(host.fs, identity);
   if (!opened.ok) throw new Error(`open failed: ${JSON.stringify(opened.error)}`);
   const doc = opened.document;
+  const gate: Setup["gate"] = { holding: false, queue: [] };
   const view: TileBitmapViewDocument = {
     kind: doc.kind,
     identity: doc.identity,
     getSnapshot: () => doc.getSnapshot(),
     subscribe: (listener) => doc.subscribe(listener),
-    apply: (command) => doc.apply(command),
+    apply: (command) => {
+      if (!gate.holding) return doc.apply(command);
+      return new Promise((resolve) => { gate.queue.push(() => resolve(doc.apply(command))); });
+    },
     save: () => doc.save(),
     resolveConflict: (choice) => doc.resolveConflict(choice),
     preview: () => previewTileBitmap(host.fs, "memory-project", doc.serialize()),
@@ -77,7 +83,7 @@ async function setup(bytes: Uint8Array = bytesOf(START), extra: Readonly<Record<
   const session = createBrowserSession();
   const el = document.createElement("div");
   document.body.append(el);
-  return { host, doc, view, session, browser: { session, fs: host.fs, layout: { projectFolder: "" } }, el };
+  return { host, doc, view, session, browser: { session, fs: host.fs, layout: { projectFolder: "" } }, el, gate };
 }
 
 async function show(s: Setup, browser: TilesetBrowserContext | undefined = s.browser): Promise<ViewHandle> {
@@ -354,4 +360,75 @@ test("undo through the host restores the cell and the saved state", async () => 
   await act(() => { s.doc.undo(edit.editId); });
   equal(cell(s.el, 2, 2).getAttribute("aria-label"), "Column 2, row 2: empty");
   equal(state(s.el), "All changes saved");
+});
+
+test("a tile bitmap naming a tile the project lacks is still a stamp brush with its edit action, so it can be repaired", async () => {
+  const broken = bytesOf(bitmap(2, 1, (x) => (x === 0 ? { tile: "gone.tst1", r: 0, g: 0, b: 0 } : { tile: "village.tst1", r: 0, g: 0, b: 0 })));
+  const s = await setup(bytesOf(START), { "Bitmap/broken.tbm": broken });
+  const opened: string[] = [];
+  const browser: TilesetBrowserContext = { ...s.browser, openSource: async (path) => { opened.push(path); return null; } };
+  await show(s, browser);
+  const source = control<HTMLSelectElement>(s.el, ".tkr-tileset-browser select");
+  await act(async () => {
+    source.value = "Bitmap/broken.tbm";
+    source.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+  });
+  await until(() => s.el.querySelector(".tkr-tileset-browser-select-brush")?.textContent === "Select stamp brush");
+  const brush = control<HTMLButtonElement>(s.el, ".tkr-tileset-browser-select-brush");
+  equal(brush.disabled, false, "a missing tile does not take the source's actions away");
+  match(s.el.querySelector(".tkr-tileset-browser-message")?.textContent ?? "", /2 × 1 tiles.*A tile it names is missing from the project \(gone\.tst1\).*open it to repair/);
+  await act(() => brush.click());
+  deepEqual(s.session.getSnapshot().selection?.stamp, { width: 2, height: 1 });
+  await act(() => control<HTMLButtonElement>(s.el, ".tkr-tileset-browser-item button:last-of-type").click());
+  const edit = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-tileset-browser-menu button")].find((button) => button.textContent === "Edit tile bitmap");
+  ok(edit !== undefined && !edit.disabled);
+  await act(() => edit.click());
+  await settle(2);
+  deepEqual(opened, ["Bitmap/broken.tbm"]);
+});
+
+test("a late answer to one shade field's edit never wipes what is typed in another, and edits sent meanwhile all land", async () => {
+  const s = await setup();
+  await show(s);
+  const release = async (): Promise<void> => {
+    const queued = s.gate.queue.splice(0);
+    await act(() => { for (const apply of queued) apply(); });
+    await settle(2);
+  };
+  s.gate.holding = true;
+  await type(control(s.el, ".tkr-bitmap-shade-r"), "-255");
+  equal(s.doc.getSnapshot().dirty, false, "the first edit is still waiting for the host");
+  // Start typing in Green (not yet committed) while Red's answer is outstanding, then let Red's answer arrive.
+  await act(() => {
+    const green = control<HTMLInputElement>(s.el, ".tkr-bitmap-shade-g");
+    green.value = "77";
+    green.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await release();
+  equal(cell(s.el, 1, 1).getAttribute("aria-label"), "Column 1, row 1: village.tst1, shade -255, 6, 7", "Red landed");
+  equal(control<HTMLInputElement>(s.el, ".tkr-bitmap-shade-g").value, "77", "Red's answer did not replace Green's unsent text");
+  equal(control<HTMLInputElement>(s.el, ".tkr-bitmap-shade-r").value, "-255");
+
+  // Commit Green and Blue while both answers are held: neither undoes the other or Red.
+  await act(() => { control<HTMLInputElement>(s.el, ".tkr-bitmap-shade-g").dispatchEvent(new Event("change", { bubbles: true })); });
+  await type(control(s.el, ".tkr-bitmap-shade-b"), "-9");
+  equal(s.gate.queue.length, 2);
+  await release();
+  equal(cell(s.el, 1, 1).getAttribute("aria-label"), "Column 1, row 1: village.tst1, shade -255, 77, -9");
+
+  s.gate.holding = false;
+  await act(() => control<HTMLButtonElement>(s.el, ".tkr-bitmap-save").click());
+  await settle();
+  deepEqual(
+    s.host.bytesOf(PATH),
+    bytesOf(bitmap(2, 2, (x, y) => (x === 0 && y === 0 ? { tile: "village.tst1", r: -255, g: 77, b: -9 } : EMPTY), PAD)),
+    "the saved cell holds all three edits",
+  );
+
+  // Undo changes the document under the fields: an untouched field follows it.
+  const edit = s.doc.getSnapshot().edits.at(-1);
+  ok(edit !== undefined);
+  await act(() => { s.doc.undo(edit.editId); });
+  equal(control<HTMLInputElement>(s.el, ".tkr-bitmap-shade-b").value, "7", "the untouched Blue field follows the undo back to the file's own 7");
 });

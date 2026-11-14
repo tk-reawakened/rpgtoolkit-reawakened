@@ -205,6 +205,19 @@ test("a command that names a cell outside the drawn grid, an out-of-range value,
   equal(doc.getSnapshot().dirty, false);
 });
 
+test("an absurd size is refused at once and never allocates a grid", async () => {
+  const { doc } = await open();
+  const before = doc.getSnapshot();
+  const started = performance.now();
+  for (const [width, height] of [[2 ** 30, 2 ** 30], [32767, 32767], [41, 1], [1, 41], [Number.MAX_SAFE_INTEGER, 2]] as const) {
+    const result = doc.apply({ type: "set-bitmap-size", width, height });
+    ok(!result.ok, `${width} × ${height}`);
+    match(result.rejection.message, /1 to 40/);
+  }
+  ok(performance.now() - started < 200, "refusing needs no allocation proportional to the size");
+  equal(doc.getSnapshot(), before);
+});
+
 test("a webview command is only applied when it has the shape of a tile bitmap command", () => {
   const kind = kindForPath(PATH)!;
   ok(kind.isCommand({ type: "set-bitmap-cell", x: 0, y: 0, tile: "a.tst1" }));
