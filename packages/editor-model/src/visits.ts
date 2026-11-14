@@ -42,6 +42,13 @@ export interface Visits {
   visit(origin: AnyDocument, targetPath: string): Promise<VisitResult>;
   /** Go back to the origin of the latest visit. */
   returnFromVisit(): Promise<ReturnResult>;
+  /**
+   * Record a visit without opening anything, for a host that opens documents itself (VS Code's workbench opens its own
+   * editors). The same rules as `visit` apply to repeats; a visit to the origin itself is not recorded.
+   */
+  begin(originPath: string, targetPath: string): void;
+  /** Take the latest visit off the stack and give it, without opening anything; `null` when there is none. */
+  end(): VisitEntry | null;
 }
 
 export function createVisits(workspace: DocumentWorkspace): Visits {
@@ -61,6 +68,13 @@ export function createVisits(workspace: DocumentWorkspace): Visits {
     }
   };
 
+  const record = (entry: VisitEntry): void => {
+    const last = stack.at(-1);
+    const same = foldPath(entry.originPath) === foldPath(entry.targetPath)
+      || (last !== undefined && foldPath(last.originPath) === foldPath(entry.originPath) && foldPath(last.targetPath) === foldPath(entry.targetPath));
+    if (!same) publish([...stack, entry]);
+  };
+
   return {
     getSnapshot: () => snapshot,
     subscribe(listener) {
@@ -70,12 +84,17 @@ export function createVisits(workspace: DocumentWorkspace): Visits {
     async visit(origin, targetPath) {
       const opened = await workspace.open(targetPath);
       if (!opened.ok) return opened;
-      const entry: VisitEntry = { originPath: origin.identity.path, targetPath: opened.document.identity.path };
-      const last = stack.at(-1);
-      const same = foldPath(entry.originPath) === foldPath(entry.targetPath)
-        || (last !== undefined && foldPath(last.originPath) === foldPath(entry.originPath) && foldPath(last.targetPath) === foldPath(entry.targetPath));
-      if (!same) publish([...stack, entry]);
+      record({ originPath: origin.identity.path, targetPath: opened.document.identity.path });
       return { ok: true, document: opened.document };
+    },
+    begin(originPath, targetPath) {
+      record({ originPath, targetPath });
+    },
+    end() {
+      const entry = stack.at(-1);
+      if (entry === undefined) return null;
+      publish(stack.slice(0, -1));
+      return entry;
     },
     async returnFromVisit() {
       const entry = stack.at(-1);

@@ -6,10 +6,15 @@
   "publisher": "tk-reawakened",
   "license": "MIT",
   "engines": { "vscode": "^1.90.0" },
-  "activationEvents": ["onCustomEditor:tkr.gameSettings", "onCustomEditor:tkr.board"],
+  "activationEvents": ["onCustomEditor:tkr.gameSettings", "onCustomEditor:tkr.board", "onView:tkr.game"],
   "main": "./dist/extension.js",
   "browser": "./dist/extension.browser.js",
   "contributes": {
+    "views": { "explorer": [{ "id": "tkr.game", "name": "Game" }] },
+    "commands": [
+      { "command": "tkr.openGameFile", "title": "RPG Toolkit: Open game file" },
+      { "command": "tkr.refreshGame", "title": "RPG Toolkit: Refresh the Game view" }
+    ],
     "customEditors": [{
       "viewType": "tkr.gameSettings",
       "displayName": "RPG Toolkit Game Settings",

@@ -106,3 +106,4 @@ export {
   type SavedLayout,
 } from "./layout.ts";
 export { createTabs, type TabsSnapshot, type TabState, type Tabs } from "./tabs.ts";
+export { ASSET_FOLDERS, type AssetKind } from "@tk-reawakened/core";

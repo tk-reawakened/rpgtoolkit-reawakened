@@ -23,5 +23,12 @@ export function createVscodeDialogs(root: vscode.Uri): DialogService {
       }
       return chosen.path.slice(prefix.length);
     },
+    async pickFile(request) {
+      const filters = request.extensions.length === 0 ? undefined : { [request.title]: request.extensions.map((extension) => extension.replace(/^\./, "")) };
+      const [chosen] = (await vscode.window.showOpenDialog({ canSelectMany: false, canSelectFiles: true, canSelectFolders: false, openLabel: "Choose", title: request.title, ...(filters === undefined ? {} : { filters }) })) ?? [];
+      if (chosen === undefined) return null;
+      const name = chosen.path.slice(chosen.path.lastIndexOf("/") + 1);
+      return { name, bytes: await vscode.workspace.fs.readFile(chosen) };
+    },
   };
 }
