@@ -38,6 +38,26 @@ test("TK2 class methods retain the this receiver", () => {
   equal(state.vm.globals.result, 42);
 });
 
+test("TK2 multiline class methods and top-level methods execute together (#2397)", () => {
+  const source = [
+    "#class Box {",
+    "#public:",
+    "#method value() {",
+    "#returnMethod(42)",
+    "}",
+    "}",
+    "#Method add(x) {",
+    "#returnMethod(x + 1)",
+    "}",
+    "#result = add(Box()->value())",
+  ].join("\n");
+  const program = compileTk2(source, "multiline-class.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.result, 43);
+});
+
 test("TK2 dialogue and comments ending in underscore do not consume the next statement", () => {
   const source = 'Hello _\n#x = 1\n* comment _\n#y = 2\n#Mwin(hi) * _\nAfter star\n#z = 3 // note _\nAfter slash\n#z = 4 ** note _\nAfter double star\nHello /*\n#v = 5\n#*/\nHello (\n#w = 6\n)';
   const program = compileTk2(source, "dialogue-underscore.prg");

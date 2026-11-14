@@ -8,7 +8,7 @@ risk: high
 
 ## Intent
 
-Compare maintained pixel-editor libraries and a native implementation against all T-36 operations, G6 licensing including transitive dependencies, host embedding, keyboard access, offline operation and AD-19 document integration before any art dependency is installed.
+Choose reusable components for our owned editor using the published research, not a new whole-application selection. Verify pinned licence/provenance and transitives, full T-36 coverage, browser-led interaction, keyboard access, offline hosts and shared document/history integration before admission.
 
 ## Scope and acceptance
 
@@ -16,7 +16,7 @@ Document evidence and rejected alternatives; no component is selected in advance
 
 ## Verification
 
-A person reviews reproducible candidate, version, license and transitive evidence, working host integration findings, coverage and limitations, and approves either a qualifying choice or the in-house route.
+A person reviews reproducible component/adaptation evidence, working host integration, coverage gaps and ownership boundaries, and approves admitted components or specific in-house implementations. No qualifying component is assumed selected; do not reopen the owned-editor decision.
 
 ## Dependencies and decisions
 

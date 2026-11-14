@@ -1008,6 +1008,7 @@ export function createEngine(init: EngineInit): Engine {
     const board = state.world.board;
     if (board === null || board === undefined || loader === null) return null;
     const ledger = projectGameLedger(state);
+    const savedBoard = ledger.world.board;
     const boardBytes = cache.get(board.key);
     if (boardBytes === undefined) return null;
     const hydrated = hydrateBoard(board.key, boardBytes, index, root, cache, state.time.tick);
@@ -1032,11 +1033,13 @@ export function createEngine(init: EngineInit): Engine {
       }
       return true;
     };
-    const savedBoard = ledger.world.board;
     if (savedBoard.state !== "present") return null;
-    const edits = savedBoard.value.runtime.state === "present" ? savedBoard.value.runtime.value.tileEdits : [];
-    for (const edit of edits) {
+    const runtime = savedBoard.value.runtime.state === "present" ? savedBoard.value.runtime.value : null;
+    for (const edit of runtime?.tileEdits ?? []) {
       if (edit.tile !== null && !fingerprintTile(edit.tile)) return null;
+    }
+    for (const tile of Object.values(runtime?.tileBuffers ?? {})) {
+      if (tile !== null && !fingerprintTile(tile)) return null;
     }
     const programs = new Map<string, RecoveryAssetManifest["programs"][number]>();
     const fingerprintAsset = (key: AssetKey): boolean => {
@@ -3369,8 +3372,12 @@ export function createEngine(init: EngineInit): Engine {
       return true;
     };
     if (savedBoard.value.runtime.state === "present") {
-      for (const edit of savedBoard.value.runtime.value.tileEdits) {
+      const runtime = savedBoard.value.runtime.value;
+      for (const edit of runtime.tileEdits) {
         if (edit.tile !== null && !collectTile(edit.tile)) return false;
+      }
+      for (const tile of Object.values(runtime.tileBuffers)) {
+        if (tile !== null && !collectTile(tile)) return false;
       }
     }
     const expected = new Map<string, string>();
@@ -4883,7 +4890,7 @@ export function createEngine(init: EngineInit): Engine {
         }
       };
       if ((flags & 1) !== 0) for (const vector of board?.vectors ?? []) linePoints(vector.points, colour, vector.closed !== 0);
-      if ((flags & 2) !== 0) for (const sprite of spriteInput) if (sprite.collisionBase !== undefined) linePoints(sprite.collisionBase, { r: 255, g: 128, b: 0 }, true);
+      if ((flags & 2) !== 0) for (const sprite of spriteInput) if (sprite.collisionBase !== undefined) linePoints(sprite.collisionBase, init.debug?.pathColor ?? { r: 255, g: 128, b: 0 }, true);
       // Bits 4/8 are the player's queued path and destination; 16/32 are the selected player's. Core has one selected
       // player and one movement owner, so the pairs name the same route and draw once (main-file row 58).
       const route = ((flags & 12) !== 0 || (flags & 48) !== 0) ? queuedRoute() : null;
