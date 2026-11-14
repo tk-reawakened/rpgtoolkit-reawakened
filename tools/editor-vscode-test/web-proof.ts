@@ -217,7 +217,7 @@ export async function runVscodeGuardProof(
   const title = editor.getByLabel("Game title");
   await title.fill("Save must fail");
   await editor.getByRole("button", { name: "Apply changes" }).click();
-  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
   await runCommand(page, expect, "Test: Fail Saves");
   await runCommand(page, expect, "Test: Run Example Program");
   await expect(page.getByText(/Program launch refused:.*save/i)).toBeVisible({ timeout: 30_000 });
@@ -225,7 +225,7 @@ export async function runVscodeGuardProof(
   expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
   await runCommand(page, expect, "Test: Allow Saves");
   await editor.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(editor.getByRole("status")).toHaveText("All changes saved");
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("All changes saved");
   await runCommand(page, expect, "Test: Pause Program Read");
   await runCommand(page, expect, "Test: Run Example Program");
   await expect(page.getByText("Fixture read paused")).toBeVisible({ timeout: 30_000 });
