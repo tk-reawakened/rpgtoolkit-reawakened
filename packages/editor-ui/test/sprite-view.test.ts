@@ -236,6 +236,156 @@ test("Add point queued behind a rejected coordinate rebases on acknowledged geom
   handle.dispose();
   s.el.remove();
 });
+
+test("undo restores a deleted stance identity at its original row after delayed acknowledgement", async () => {
+  const s = await setup("character", "Chrs/undo-stance.tem", exampleCharacter());
+  ok((await s.doc.apply({ type: "add-custom-stance", name: "First", file: "" })).ok);
+  ok((await s.doc.apply({ type: "add-custom-stance", name: "Second", file: "" })).ok);
+  const apply = s.doc.apply.bind(s.doc);
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const deleteStarted = new Promise<void>((resolve) => { started = resolve; });
+  replaceApply(s.doc, async (command) => {
+    if (command.type === "delete-custom-stance" && command.index === 1) {
+      started();
+      await gate;
+    }
+    return apply(command);
+  });
+  const handle = await show(s);
+  const rows = () => [...s.el.querySelectorAll<HTMLElement>(".tkr-sprite-custom")];
+  const secondAnimation = rows()[2]?.querySelectorAll<HTMLInputElement>("input")[1];
+  if (secondAnimation == null) throw new Error("second custom stance animation input is missing");
+  await act(() => {
+    secondAnimation.value = "following-row-draft.anm";
+    secondAnimation.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(() => rows()[1]?.querySelector<HTMLButtonElement>("button")?.click());
+  await deleteStarted;
+  release();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  equal(s.doc.getSnapshot().customStances.at(-1)?.handle, "Second");
+  await act(() => { ok(s.doc.undo().ok, "the acknowledged stance deletion can be undone"); });
+  deepEqual(s.doc.getSnapshot().customStances.slice(-2).map((stance) => stance.handle), ["First", "Second"]);
+  equal(rows()[2]?.querySelectorAll<HTMLInputElement>("input")[1]?.value, "following-row-draft.anm", "undo reinserts the deleted row key before the following stance without moving its draft");
+  handle.dispose();
+  s.el.remove();
+});
+
+test("Remove point rebases on the acknowledged coordinate edit", async () => {
+  const s = await setup("character", "Chrs/queued-remove-point.tem", exampleCharacter());
+  const original = s.doc.getSnapshot().vectorBases![1]!.points.map((point) => ({ ...point }));
+  const apply = s.doc.apply.bind(s.doc);
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const firstStarted = new Promise<void>((resolve) => { started = resolve; });
+  let delayFirst = true;
+  replaceApply(s.doc, async (command) => {
+    if (command.type === "set-sprite-bases" && delayFirst) {
+      delayFirst = false;
+      started();
+      await gate;
+    }
+    return apply(command);
+  });
+  const handle = await show(s);
+  await act(() => s.el.querySelector<HTMLButtonElement>('button[aria-pressed="false"]')?.click());
+  const xLabel = [...s.el.querySelectorAll("label")].find((label) => label.textContent === "Point 1 X");
+  if (xLabel === undefined) throw new Error("activation point X input is missing");
+  const x = s.el.querySelector<HTMLInputElement>(`#${xLabel.htmlFor}`);
+  if (x === null) throw new Error("activation point X input is missing");
+  await act(() => { x.value = "-12"; x.dispatchEvent(new Event("change", { bubbles: true })); });
+  await firstStarted;
+  await act(() => {
+    const remove = [...s.el.querySelectorAll("button")].find((button) => button.textContent === "Remove point 2");
+    ok(remove !== undefined);
+    remove.click();
+  });
+  release();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  const points = s.doc.getSnapshot().vectorBases![1]!.points;
+  deepEqual(points[0], { x: -12, y: original[0]!.y }, "removing a different point preserves the coordinate edit acknowledged before it");
+  deepEqual(points.slice(1), original.slice(2), "the queued remove deletes point two from the acknowledged polygon");
+  handle.dispose();
+  s.el.remove();
+});
+
+test("base import shares the polygon queue and blocks save until queued edits finish", async () => {
+  const path = "Chrs/import-queue.tem";
+  const sourcePath = "Chrs/import-source.tem";
+  const s = await setup("character", path, exampleCharacter());
+  ok((await s.host.fs.writeProject("memory-project", sourcePath, exampleCharacter())).ok);
+  const source = await openSpriteDocument("character", s.host.fs, createDocumentIdentity("memory-project", sourcePath));
+  if (!source.ok) throw new Error("could not open the base import fixture");
+  const importedBases = source.document.getSnapshot().vectorBases!.map((base, index) => ({
+    points: base.points.map((point, pointIndex) => index === 1 && pointIndex === 0 ? { x: 12, y: 13 } : { ...point }),
+  }));
+  ok(source.document.apply({ type: "set-sprite-bases", bases: importedBases }).ok);
+  ok((await s.host.fs.writeProject("memory-project", sourcePath, source.document.serialize())).ok);
+  ok((await s.doc.apply({ type: "set-sprite-timing", speed: 1.25, idleTime: 0.25 })).ok);
+
+  const order: string[] = [];
+  const apply = s.doc.apply.bind(s.doc);
+  let baseApplications = 0;
+  replaceApply(s.doc, async (command) => {
+    if (command.type === "set-sprite-bases") order.push(baseApplications++ === 0 ? "import" : "coordinate");
+    return apply(command);
+  });
+  const save = s.doc.save.bind(s.doc);
+  let finishSave!: () => void;
+  const saved = new Promise<void>((resolve) => { finishSave = resolve; });
+  s.doc.save = async () => {
+    order.push("save");
+    const result = await save();
+    finishSave();
+    return result;
+  };
+
+  let releaseRead!: () => void;
+  let startRead!: () => void;
+  const readGate = new Promise<void>((resolve) => { releaseRead = resolve; });
+  const readStarted = new Promise<void>((resolve) => { startRead = resolve; });
+  const readProject = s.host.fs.readProject.bind(s.host.fs);
+  const delayedFs = s.host.fs as unknown as { readProject: typeof s.host.fs.readProject };
+  delayedFs.readProject = async (projectId, assetPath) => {
+    if (assetPath === sourcePath) {
+      startRead();
+      await readGate;
+    }
+    return readProject(projectId, assetPath);
+  };
+
+  const handle = await show(s);
+  await input(s.el, 'input[placeholder="Chrs/hero.tem or Item/key.itm"]', sourcePath);
+  await act(() => {
+    const importButton = [...s.el.querySelectorAll("button")].find((button) => button.textContent === "Import both bases");
+    ok(importButton !== undefined);
+    importButton.click();
+  });
+  await readStarted;
+  await act(() => s.el.querySelector<HTMLButtonElement>('button[aria-pressed="false"]')?.click());
+  const xLabel = [...s.el.querySelectorAll("label")].find((label) => label.textContent === "Point 1 X");
+  if (xLabel === undefined) throw new Error("activation point X input is missing");
+  const x = s.el.querySelector<HTMLInputElement>(`#${xLabel.htmlFor}`);
+  if (x === null) throw new Error("activation point X input is missing");
+  await act(() => { x.value = "99"; x.dispatchEvent(new Event("change", { bubbles: true })); });
+  await act(() => {
+    const saveButton = [...s.el.querySelectorAll("button")].find((button) => button.textContent === "Save sprite");
+    ok(saveButton !== undefined);
+    saveButton.click();
+  });
+  deepEqual(order, [], "the unresolved import fences geometry writes and save");
+  releaseRead();
+  await act(async () => { await saved; });
+  deepEqual(order, ["import", "coordinate", "save"], "import, queued geometry edit, and save keep invocation order");
+  const finalActivation = s.doc.getSnapshot().vectorBases![1]!.points;
+  deepEqual(finalActivation[0], { x: 99, y: 13 }, "the queued coordinate applies to imported geometry instead of being overwritten by it");
+  deepEqual(s.host.bytesOf(path), s.doc.serialize(), "save writes the result after all queued geometry operations");
+  handle.dispose();
+  s.el.remove();
+});
 test("conflict reload discards filename drafts and a later blur cannot restore them", async () => {
   const path = "Chrs/conflict-reload.tem";
   const s = await setup("character", path, exampleCharacter());
