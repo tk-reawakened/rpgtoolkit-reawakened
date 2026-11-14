@@ -23,6 +23,7 @@
   ],
   "contributes": {
     "commands": [
+      { "command": "tkr.editorWebProof.openProjectFile", "title": "Test: Open Proof Project File" },
       {
         "command": "tkr.editorWebProof.runExampleGame",
         "title": "Test: Run Example Game"

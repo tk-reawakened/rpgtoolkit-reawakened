@@ -33,6 +33,13 @@ function activate(context) {
     lastStopHash = lastRunHandle?.snapshot.stateHash ?? null;
     lastRunHandle?.stop();
   }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.openProjectFile", async () => {
+    const path = await vscode.window.showInputBox({ prompt: "Workspace-relative proof file path" });
+    if (path === undefined) return;
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    await vscode.commands.executeCommand("vscode.open", vscode.Uri.joinPath(workspace.uri, ...path.split("/")), { preview: false });
+  }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.failSaves", () => { filesystem.failSaves = true; }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.allowSaves", () => { filesystem.failSaves = false; }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.pauseProgramRead", () => {
