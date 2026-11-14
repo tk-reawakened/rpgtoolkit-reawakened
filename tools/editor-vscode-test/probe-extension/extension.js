@@ -1,7 +1,9 @@
 const vscode = require("vscode");
+const proofSecret = "__TKR_PROOF_SECRET__";
 
 function activate(context) {
   console.info("[vscode-web-proof-probe] activated");
+  context.subscriptions.push(vscode.workspace.registerFileSystemProvider("tkr-testfs", new PersistentFileSystem(), { isCaseSensitive: true }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.copyMainFileBytes", async () => {
     console.info("[vscode-web-proof-probe] copy command invoked");
     const workspace = vscode.workspace.workspaceFolders?.[0];
@@ -58,9 +60,62 @@ async function findGameFiles(directory) {
   for (const [name, type] of await vscode.workspace.fs.readDirectory(directory)) {
     const child = vscode.Uri.joinPath(directory, name);
     if (type === vscode.FileType.Directory) found.push(...await findGameFiles(child));
-    else if (type === vscode.FileType.File && name.toLowerCase().endsWith(".gam")) found.push(child);
+    else if (type === vscode.FileType.File && name.toLowerCase().endsWith(".gam") && name !== "__tkr_sentinel.gam") found.push(child);
   }
   return found;
 }
 
 module.exports = { activate };
+class PersistentFileSystem {
+  constructor() {
+    this.emitter = new vscode.EventEmitter();
+    this.onDidChangeFile = this.emitter.event;
+  }
+
+  watch() { return new vscode.Disposable(() => {}); }
+  stat(uri) { return this.request(uri, "stat"); }
+  readDirectory(uri) { return this.request(uri, "readDirectory"); }
+  async readFile(uri) {
+    const encoded = await this.request(uri, "readFile");
+    return Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+  }
+  async writeFile(uri, content, options) {
+    let binary = "";
+    for (let offset = 0; offset < content.length; offset += 0x8000) binary += String.fromCharCode(...content.subarray(offset, offset + 0x8000));
+    const { created } = await this.request(uri, "writeFile", { data: btoa(binary), ...options });
+    this.emitter.fire([{ type: created ? vscode.FileChangeType.Created : vscode.FileChangeType.Changed, uri }]);
+  }
+  async createDirectory(uri) {
+    await this.request(uri, "createDirectory");
+    this.emitter.fire([{ type: vscode.FileChangeType.Created, uri }]);
+  }
+  async delete(uri, options) {
+    await this.request(uri, "delete", options);
+    this.emitter.fire([{ type: vscode.FileChangeType.Deleted, uri }]);
+  }
+  async rename(oldUri, newUri, options) {
+    if (oldUri.authority !== newUri.authority) throw vscode.FileSystemError.NoPermissions("Cross-workspace rename is not permitted");
+    await this.request(oldUri, "rename", { destination: newUri.path, ...options });
+    this.emitter.fire([{ type: vscode.FileChangeType.Deleted, uri: oldUri }, { type: vscode.FileChangeType.Created, uri: newUri }]);
+  }
+  async request(uri, op, extra = {}) {
+    const match = /^[0-9a-f]{32}\.(\d{1,5})$/.exec(uri.authority);
+    if (!match || !/^[0-9a-f]{64}$/.test(proofSecret)) throw vscode.FileSystemError.NoPermissions("Invalid test filesystem credentials");
+    const response = await fetch(`http://127.0.0.1:${match[1]}/${proofSecret}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ op, path: uri.path, ...extra }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      const error = payload.error;
+      if (error === "ENOENT") throw vscode.FileSystemError.FileNotFound(uri);
+      if (error === "EEXIST") throw vscode.FileSystemError.FileExists(uri);
+      if (error === "ENOTDIR") throw vscode.FileSystemError.FileNotADirectory(uri);
+      if (error === "EISDIR") throw vscode.FileSystemError.FileIsADirectory(uri);
+      if (error === "EACCES" || error === "EPERM") throw vscode.FileSystemError.NoPermissions(uri);
+      throw vscode.FileSystemError.Unavailable(payload.message);
+    }
+    return payload.result;
+  }
+}

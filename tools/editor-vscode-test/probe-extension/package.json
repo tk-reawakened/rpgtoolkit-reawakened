@@ -8,6 +8,7 @@
   },
   "browser": "extension.js",
   "activationEvents": [
+    "onFileSystem:tkr-testfs",
     "onCommand:tkr.editorWebProof.copyMainFileBytes",
     "onCommand:tkr.editorWebProof.writeGameBytes",
     "onCommand:tkr.editorWebProof.enableAutosave",

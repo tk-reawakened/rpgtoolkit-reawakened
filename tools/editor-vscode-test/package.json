@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "proof": "node run.mjs",
+    "proof": "node --test persistent-fs.test.mjs proof-directories.test.mjs && node run.mjs",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "devDependencies": {
