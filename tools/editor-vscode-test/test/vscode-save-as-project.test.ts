@@ -6,6 +6,7 @@
 import { deepEqual, equal, match, ok, rejects } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { asMainDocument } from "@tk-reawakened/editor-model";
 import type { DialogService } from "@tk-reawakened/platform-services";
 import {
   createGameEditorProvider,
@@ -129,7 +130,7 @@ test("Save As to a destination inside the source's own workspace folder writes t
   // The workbench now opens the destination, as a document of the same project.
   const copy = await provider.openCustomDocument({ path: "/alpha/Main/copy.gam" }, undefined);
   equal(copy.model.identity.projectId, ALPHA.key);
-  equal(copy.model.getSnapshot().gameTitle, "Copied within alpha");
+  equal(asMainDocument(copy.model).getSnapshot().gameTitle, "Copied within alpha");
   equal(copy.model.getSnapshot().dirty, false, "the copy opens clean");
 });
 
@@ -142,7 +143,7 @@ test("Save As to a destination outside every workspace folder is refused without
 
   deepEqual(files, before, "nothing was written anywhere");
   equal(source.model.getSnapshot().dirty, true, "the source keeps its unsaved work");
-  equal(source.model.getSnapshot().gameTitle, "Kept after refusal");
+  equal(asMainDocument(source.model).getSnapshot().gameTitle, "Kept after refusal");
   equal(edits.length, 1, "the workbench's edit stack is untouched");
 });
 
@@ -167,7 +168,7 @@ test("Save As into a second workspace folder's project is refused before that pr
   deepEqual(projects, [ALPHA.key, ALPHA.key], "no project workspace was made for the destination's folder");
   equal(source.model.identity.projectId, ALPHA.key, "the source stays bound to its own project");
   equal(source.model.getSnapshot().dirty, true, "the refused Save As leaves the source dirty");
-  equal(source.model.getSnapshot().gameTitle, "Stays in alpha");
+  equal(asMainDocument(source.model).getSnapshot().gameTitle, "Stays in alpha");
   equal(edits.length, 1, "the workbench's edit stack is untouched");
 
   // The source's own save still works after the refusal, and only then is it clean.
@@ -188,10 +189,10 @@ test("Save As over a document open in a second workspace folder is refused and l
 
   deepEqual(files, before, "beta's file keeps its bytes");
   deepEqual(projects, madeBefore, "no further project state was made");
-  equal(other.model.getSnapshot().gameTitle, "Beta game", "beta's open document is unchanged");
+  equal(asMainDocument(other.model).getSnapshot().gameTitle, "Beta game", "beta's open document is unchanged");
   equal(other.model.getSnapshot().dirty, false);
   equal(source.model.getSnapshot().dirty, true, "the source keeps its unsaved work");
-  equal(source.model.getSnapshot().gameTitle, "Not over beta");
+  equal(asMainDocument(source.model).getSnapshot().gameTitle, "Not over beta");
 });
 
 test("the refusal names a root workspace folder by its path, not by an empty name", async () => {

@@ -1,10 +1,10 @@
-import { createDocumentIdentity, createDocumentWorkspace, resolveDocumentPath, sameRevision, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type MainDocument, type SaveResult } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, createDocumentWorkspace, kindForPath, previewBoard, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type SaveResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, FileSystemService } from "@tk-reawakened/platform-services";
-import { recoverMainDocument, resolveRecoveryConflict } from "./document-backup.ts";
+import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
 import { handleEditorHostRequest, isEditorHostRequest, type BridgedDocument, type BridgeMessage } from "./document-bridge.ts";
 
 /**
- * The game-settings custom editor without the `vscode` module: the provider methods VS Code's workbench calls, written
+ * The custom editor of every registered document kind (ADR 0026) without the `vscode` module: the provider methods VS Code's workbench calls, written
  * against a small port so the same code runs in the extension and in the host conformance suite. VS Code owns the
  * workbench (undo stack, dirty marker, Save As and close dialogs, hot exit); this provider keeps one `editor-model`
  * document per file in the extension host and answers the workbench's calls (ADR 0022 D2, AD-19).
@@ -54,35 +54,45 @@ export interface WebviewPort {
   onDidDispose(listener: () => void): { dispose(): void };
 }
 
-/** VS Code's `CustomDocument` for one `.gam` file: the extension host's model and the bridge to its webviews. */
+/** VS Code's `CustomDocument` for one document of a registered kind (a `.gam`, a `.brd`): the extension host's model and the bridge to its webviews. */
 export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   readonly uri: Uri;
-  readonly model: MainDocument;
+  readonly model: AnyDocument;
   readonly capabilities: readonly Capability[];
   readonly #workspace: DocumentWorkspace;
+  readonly #fs: FileSystemService;
   readonly #port: GameEditorPort<Uri>;
   readonly #fire: (event: GameEditEvent<Uri>) => void;
   /** How many `saveCustomDocument` calls have finished, and the last one's result. */
   #saves = 0;
   #lastSave: SaveResult = { ok: true };
 
-  constructor(uri: Uri, model: MainDocument, workspace: DocumentWorkspace, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void) {
+  constructor(uri: Uri, model: AnyDocument, workspace: DocumentWorkspace, fs: FileSystemService, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void) {
     this.uri = uri;
     this.model = model;
     this.capabilities = port.capabilities;
     this.#workspace = workspace;
+    this.#fs = fs;
     this.#port = port;
     this.#fire = fire;
   }
 
   /** Hand an accepted edit to VS Code's undo stack; VS Code undoes it by its `editId` (AD-19). */
   didEdit(editId: string): void {
-    this.#fire({ document: this, label: "Edit game title", undo: () => { this.model.undo(editId); }, redo: () => { this.model.redo(editId); } });
+    const label = this.model.getSnapshot().edits.find((edit) => edit.editId === editId)?.label ?? "Edit";
+    this.#fire({ document: this, label, undo: () => { this.model.undo(editId); }, redo: () => { this.model.redo(editId); } });
   }
 
   /** VS Code disposes a custom document when its last editor closes; the workbench has already asked about unsaved work. */
   dispose(): void {
     this.#workspace.release(this.model);
+  }
+
+  /** The picture of a board, composed here from the project's files by the one board compositor (AD-29); a webview reads no files. */
+  async preview(): Promise<BoardPicture> {
+    if (this.model.kind !== "board") return { ok: false, message: `A ${this.model.kind} document has no picture.` };
+    const preview = await previewBoard(this.#fs, this.model.identity.projectId, this.model.serialize());
+    return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings } : preview;
   }
 
   /**
@@ -191,22 +201,24 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         const resolved = await resolveDocumentPath(fs, path);
         if (!resolved.ok) throw new Error(resolved.kind === "case-conflict" ? resolved.message : `${nameOf(uri)}: ${resolved.error.message}`);
         const identity = createDocumentIdentity(folder.key, resolved.path);
-        const recovered = await recoverMainDocument(fs, identity, await port.readBackup(backupId));
+        const kind = kindForPath(resolved.path);
+        if (kind === null) throw new Error(`${nameOf(uri)} is not a file type the editor opens.`);
+        const recovered = await recoverDocument(kind, fs, identity, await port.readBackup(backupId));
         if (!recovered.ok) throw new Error(`${nameOf(uri)}: ${recovered.error.error.message}`);
         if (!workspace.adopt(recovered.document)) throw new Error(`${path} is already open in another editor under another spelling.`);
-        return new GameDocument(uri, recovered.document, workspace, port, fire);
+        return new GameDocument(uri, recovered.document, workspace, fs, port, fire);
       }
       const known = new Set(workspace.documents());
       const opened = await workspace.open(path);
       if (!opened.ok) {
-        throw new Error(opened.error.kind === "case-conflict" ? opened.error.message : `${nameOf(uri)}: ${opened.error.error.message}`);
+        throw new Error(opened.error.kind === "case-conflict" || opened.error.kind === "unsupported" ? opened.error.message : `${nameOf(uri)}: ${opened.error.error.message}`);
       }
       // VS Code opens one custom document per URI. A second URI that folds to an open document (another spelling of its
       // path) would be a second working copy of one model, so it is refused rather than opened twice (D1.2).
       if (known.has(opened.document)) {
         throw new Error(`${path} is already open as ${opened.document.identity.path}; one file is opened once.`);
       }
-      return new GameDocument(uri, opened.document, workspace, port, fire);
+      return new GameDocument(uri, opened.document, workspace, fs, port, fire);
     },
     async saveCustomDocument(document) {
       const result = await document.save();

@@ -16,8 +16,8 @@
 // The real-workbench proof (`web-proof.ts`, run in CI against `@vscode/test-web`) checks the same behaviours in VS Code
 // itself; this driver lets every conformance case run in under a second.
 import { posix } from "node:path";
-import type { MainDocument } from "@tk-reawakened/editor-model";
-import { mount, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { asMainDocument, type MainDocument } from "@tk-reawakened/editor-model";
+import { mount, type ViewContext, type ViewHandle } from "@tk-reawakened/editor-ui";
 import type { Capability, DialogService, FileChange } from "@tk-reawakened/platform-services";
 import {
   createGameEditorProvider,
@@ -305,9 +305,9 @@ class Webview {
   #receive(page: Page, message: BridgeMessage): void {
     if (this.#page !== page) return;
     if (message.type === "initialize") {
-      page.remote = new RemoteDocument(message.snapshot, { postMessage: (request) => this.#send(request), getState: () => undefined, setState: () => undefined });
+      page.remote = new RemoteDocument(message.kind, message.snapshot, { postMessage: (request) => this.#send(request), getState: () => undefined, setState: () => undefined });
       page.handle = mount(page.element, {
-        document: page.remote,
+        document: page.remote as unknown as ViewContext["document"],
         services: { document: { edited: () => undefined }, capabilities: new Set(message.capabilities) },
       });
       return;
@@ -406,7 +406,7 @@ class VscodeEditor implements ConformanceEditor {
     this.#workbench = workbench;
     this.copy = copy;
     this.webview = webview;
-    this.model = copy.custom.model;
+    this.model = asMainDocument(copy.custom.model);
     this.path = copy.custom.model.identity.path;
   }
 

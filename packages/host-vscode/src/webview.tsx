@@ -1,4 +1,4 @@
-import { mount } from "@tk-reawakened/editor-ui";
+import { mount, type ViewContext } from "@tk-reawakened/editor-ui";
 import { RemoteDocument, type BridgeMessage, type VscodeApi } from "./document-bridge.js";
 
 declare function acquireVsCodeApi(): VscodeApi;
@@ -9,9 +9,10 @@ const api = acquireVsCodeApi();
 let remoteDocument: RemoteDocument | undefined;
 window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
   if (event.data.type === "initialize") {
-    remoteDocument = new RemoteDocument(event.data.snapshot, api);
+    remoteDocument = new RemoteDocument(event.data.kind, event.data.snapshot, api);
     mount(documentRoot(), {
-      document: remoteDocument,
+      // The remote document has the surface of its kind's view document; the kind says which fields its snapshot has.
+      document: remoteDocument as unknown as ViewContext["document"],
       services: { document: { edited: () => undefined }, capabilities: new Set(event.data.capabilities) },
     });
     return;

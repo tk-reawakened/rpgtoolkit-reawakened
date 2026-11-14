@@ -2,7 +2,7 @@
 // case-sensitive in-memory folder in place of File System Access. The browser host is its own workbench, so every user
 // action is the call its page makes (`openGameSettings`, `workspace.undo`, `workspace.close`, ...), and every question it
 // asks goes through its `dialogs` service, answered here as the user would.
-import type { MainDocument } from "@tk-reawakened/editor-model";
+import { asMainDocument, type MainDocument } from "@tk-reawakened/editor-model";
 import type { DialogQuestion, DialogService } from "@tk-reawakened/platform-services";
 import { createFolderProject, mountGameSettings, openGameSettings, type GameSettingsOpenResult, type GameSettingsView, type WebProject } from "@tk-reawakened/host-web/testing";
 import { GAME, SECOND, retitled, type CloseAnswer, type ConformanceEditor, type ConformanceHost } from "./suite.ts";
@@ -114,7 +114,7 @@ class WebEditor implements ConformanceEditor {
     let handle!: GameSettingsView;
     await this.#act(() => { handle = mountGameSettings(this.#project, saved.document, element); });
     await settle(this.#act);
-    return new WebEditor(this.#project, this.#dialogs, this.#act, saved.document, new MountedView(element, this.#act), handle);
+    return new WebEditor(this.#project, this.#dialogs, this.#act, asMainDocument(saved.document), new MountedView(element, this.#act), handle);
   }
 
   async choose(button: "Save my version" | "Use the version on disk" | "Cancel"): Promise<void> {
@@ -164,10 +164,10 @@ export function createWebConformanceHost(fixture: Uint8Array, act: Act): Conform
       await act(async () => { opened = await openGameSettings(project, path, element); });
       if (!opened.ok) {
         element.remove();
-        throw new Error(opened.error.kind === "case-conflict" ? opened.error.message : `${opened.error.document}: ${opened.error.error.message}`);
+        throw new Error(opened.error.kind === "case-conflict" || opened.error.kind === "unsupported" ? opened.error.message : `${opened.error.document}: ${opened.error.error.message}`);
       }
       await settle(act);
-      return new WebEditor(project, dialogs, act, opened.document, new MountedView(element, act), opened.view);
+      return new WebEditor(project, dialogs, act, asMainDocument(opened.document), new MountedView(element, act), opened.view);
     },
     async saveAll() {
       const results = await project.workspace.saveAll();

@@ -237,7 +237,7 @@ export function createBinaryDocument<Model, Command, Fields extends object>(
 }
 
 /** @internal Keep a recovered revision unsaved until this document actually writes it or explicitly reloads it. */
-export function markRecoveredDocumentDirty(document: EditorDocument<never, never>): void {
+export function markRecoveredDocumentDirty(document: EditorDocument<DocumentSnapshot<unknown>, unknown>): void {
   if (!(document instanceof BinaryDocument)) throw new Error("Recovery requires a document created by the editor model.");
   document.markRecoveredDirty();
 }

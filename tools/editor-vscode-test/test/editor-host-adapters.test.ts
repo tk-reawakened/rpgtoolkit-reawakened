@@ -2,7 +2,7 @@ import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { createDocumentIdentity, openMainDocument, type MainDocumentSnapshot } from "@tk-reawakened/editor-model";
+import { asMainDocument, createDocumentIdentity, openMainDocument, type MainDocumentSnapshot } from "@tk-reawakened/editor-model";
 import { createVscodeFileSystemWithPort, handleEditorHostRequest, recoverMainDocument, resolveRecoveryConflict, RemoteDocument, vscodeCapabilities, type VscodeApi, type VscodeFileSystemPort } from "@tk-reawakened/host-vscode/testing";
 import type { ViewDocument } from "@tk-reawakened/editor-ui";
 
@@ -54,6 +54,7 @@ test("real web and VS Code adapters keep mounted title edits dirty and named aft
     model: vscodeOpened.document,
     capabilities: vscodeCapabilities(true),
     didEdit: (_editId: string) => undefined,
+    preview: async () => ({ ok: false as const, message: "A main file has no picture." }),
     saveThroughWorkbench: () => vscodeOpened.document.save(),
     resolveConflict: async (choice: "keep-local" | "reload") => vscodeOpened.document.resolveConflict(choice),
   };
@@ -63,10 +64,10 @@ test("real web and VS Code adapters keep mounted title edits dirty and named aft
     getState: () => undefined,
     setState: () => undefined,
   };
-  remote = new RemoteDocument(vscodeOpened.document.getSnapshot(), api);
+  remote = new RemoteDocument("main", vscodeOpened.document.getSnapshot(), api);
   const vscodeElement = document.createElement("div");
   document.body.append(vscodeElement);
-  await assertFailedMountedSave(remote, vscodeElement);
+  await assertFailedMountedSave(remote as unknown as ViewDocument, vscodeElement);
   deepEqual(vscodeBytes, original);
 });
 
@@ -129,6 +130,7 @@ test("web and VS Code adapters persist identical edited bytes through the workbe
     model: vscodeOpened.document,
     capabilities: vscodeCapabilities(true),
     didEdit: () => undefined,
+    preview: async () => ({ ok: false as const, message: "A main file has no picture." }),
     saveThroughWorkbench: async () => {
       workbenchSaveCalls += 1;
       return vscodeOpened.document.save();
@@ -138,7 +140,7 @@ test("web and VS Code adapters persist identical edited bytes through the workbe
   await handleEditorHostRequest(hostDocument, { type: "save", requestId: "save-1" }, (reply) => {
     if (reply.type !== "save-result") return;
     vscodeSaveSucceeded = reply.result.ok;
-    savedSnapshots.push(reply.snapshot);
+    savedSnapshots.push(reply.snapshot as MainDocumentSnapshot);
   });
   equal(workbenchSaveCalls, 1, "the webview save request must use the host's VS Code save lifecycle");
   equal(vscodeSaveSucceeded, true);
@@ -179,7 +181,7 @@ test("VS Code backup recovery requires an explicit choice before saving", async 
   };
   const recovered = await recoverMainDocument(createVscodeFileSystemWithPort(root, port, "file:///project"), identity, backup);
   ok(recovered.ok);
-  equal(recovered.document.getSnapshot().gameTitle, title);
+  equal(asMainDocument(recovered.document).getSnapshot().gameTitle, title);
   equal(recovered.document.getSnapshot().dirty, true);
   const refused = await recovered.document.save();
   ok(!refused.ok);
@@ -216,7 +218,7 @@ test("hot-exit recovery preserves both versions when the title changed while VS 
 
   const recovered = await recoverMainDocument(storage, identity, backup);
   ok(recovered.ok);
-  equal(recovered.document.getSnapshot().gameTitle, "Unsaved before exit");
+  equal(asMainDocument(recovered.document).getSnapshot().gameTitle, "Unsaved before exit");
   equal(recovered.document.getSnapshot().conflict?.externalTitle, "Changed while closed");
   deepEqual(recovered.document.serialize(), backup);
   const refused = await recovered.document.save();
@@ -228,7 +230,7 @@ test("hot-exit recovery preserves both versions when the title changed while VS 
   equal(recovered.document.getSnapshot().dirty, true);
   const recoveredAgain = await recoverMainDocument(storage, identity, recovered.document.serialize());
   ok(recoveredAgain.ok);
-  equal(recoveredAgain.document.getSnapshot().gameTitle, "Unsaved before exit");
+  equal(asMainDocument(recoveredAgain.document).getSnapshot().gameTitle, "Unsaved before exit");
   equal(recoveredAgain.document.getSnapshot().conflict?.externalTitle, "Changed while closed");
   const refusedAgain = await recoveredAgain.document.save();
   ok(!refusedAgain.ok);
@@ -236,7 +238,7 @@ test("hot-exit recovery preserves both versions when the title changed while VS 
   equal(writes, 0);
   deepEqual(disk, externalBytes);
   ok((await resolveRecoveryConflict(recovered.document, "reload")).ok);
-  equal(recovered.document.getSnapshot().gameTitle, "Changed while closed");
+  equal(asMainDocument(recovered.document).getSnapshot().gameTitle, "Changed while closed");
   deepEqual(disk, externalBytes);
 });
 
@@ -268,7 +270,7 @@ for (const watcher of [true, false]) test(`recovery Keep retains matching local 
     ok(!result.ok);
     equal(result.failure.kind, "conflict");
   }
-  equal(recovered.document.getSnapshot().gameTitle, "Recovered B");
+  equal(asMainDocument(recovered.document).getSnapshot().gameTitle, "Recovered B");
   equal(recovered.document.getSnapshot().dirty, true);
   deepEqual(disk, externalBytes);
   equal(writes, 0);
@@ -320,13 +322,14 @@ test("two rejected recovery choices never discard local work when disk first mat
     model: recovered.document,
     capabilities: vscodeCapabilities(false),
     didEdit: () => undefined,
+    preview: async () => ({ ok: false as const, message: "A main file has no picture." }),
     saveThroughWorkbench: () => recovered.document.save(),
     resolveConflict: (choice: "keep-local" | "reload") => resolveRecoveryConflict(recovered.document, choice),
   };
   const choose = async () => handleEditorHostRequest(bridge, { type: "resolve-conflict", choice: "keep-local", requestId: "choice" }, (reply) => {
     if (reply.type === "conflict-result") {
       outcomes.push(reply.result.ok);
-      equal(reply.snapshot.gameTitle, "Recovered C");
+      equal((reply.snapshot as MainDocumentSnapshot).gameTitle, "Recovered C");
       equal(reply.snapshot.dirty, true);
     }
   });
@@ -340,7 +343,7 @@ test("two rejected recovery choices never discard local work when disk first mat
   const external = disk.slice();
   await choose();
   deepEqual(outcomes, [false, false]);
-  equal(recovered.document.getSnapshot().gameTitle, "Recovered C");
+  equal(asMainDocument(recovered.document).getSnapshot().gameTitle, "Recovered C");
   equal(recovered.document.getSnapshot().conflict?.externalTitle, "External D");
   equal(recovered.document.getSnapshot().dirty, true);
   deepEqual(recovered.document.serialize(), backup);
@@ -375,7 +378,7 @@ test("a later disk change still prevents saving after choosing the recovered ver
   equal(saved.failure.kind, "conflict");
   equal(writes, 0);
   deepEqual(disk, newer);
-  equal(recovered.document.getSnapshot().gameTitle, "Recovered");
+  equal(asMainDocument(recovered.document).getSnapshot().gameTitle, "Recovered");
 });
 
 test("even identical disk and backup bytes need a recovery decision before save", async () => {
@@ -388,7 +391,7 @@ test("even identical disk and backup bytes need a recovery decision before save"
   };
   const recovered = await recoverMainDocument(storage, identity, original);
   ok(recovered.ok);
-  equal(recovered.document.getSnapshot().conflict?.externalTitle, recovered.document.getSnapshot().gameTitle);
+  equal(recovered.document.getSnapshot().conflict?.externalTitle, asMainDocument(recovered.document).getSnapshot().gameTitle);
   const refused = await recovered.document.save();
   ok(!refused.ok);
   equal(refused.failure.kind, "conflict");
@@ -420,7 +423,7 @@ test("an unreadable disk version keeps recovery pending and cannot be accepted b
   deepEqual(recovered.document.serialize(), original);
   readable = true;
   equal((await resolveRecoveryConflict(recovered.document, "keep-local")).ok, false);
-  equal(recovered.document.getSnapshot().conflict?.externalTitle, recovered.document.getSnapshot().gameTitle);
+  equal(recovered.document.getSnapshot().conflict?.externalTitle, asMainDocument(recovered.document).getSnapshot().gameTitle);
   ok((await resolveRecoveryConflict(recovered.document, "keep-local")).ok);
 });
 
@@ -442,7 +445,7 @@ test("watcher checks cannot discard recovery after another writer matches a reco
   ok(external.document.apply({ type: "set-game-title", title: "Changed again" }).ok);
   disk = external.document.serialize();
   equal(await recovered.document.checkExternal(), "conflict");
-  equal(recovered.document.getSnapshot().gameTitle, "Same as disk");
+  equal(asMainDocument(recovered.document).getSnapshot().gameTitle, "Same as disk");
   equal(recovered.document.getSnapshot().conflict?.externalTitle, "Changed again");
 });
 

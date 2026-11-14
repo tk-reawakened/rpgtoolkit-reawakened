@@ -1,7 +1,7 @@
-import { createDocumentWorkspace, type DocumentViewLease, type DocumentWorkspace, type MainDocument, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import { createDocumentWorkspace, previewBoard, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PlatformServices, ProjectHandle, SettingValue, SettingsLayer } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { mount, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { mount, type BoardViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { createPageDialogs } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
@@ -159,29 +159,64 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
 }
 
 /** One editor tab owns a lease even while its mounted view is hidden. */
-export interface GameSettingsView extends ViewHandle, DocumentViewLease {
+export interface EditorView extends ViewHandle, DocumentViewLease {
   hide(): void;
   show(element: HTMLElement): void;
 }
 
-/** A mounted settings view over a workspace document, or why the document did not open. */
-export type GameSettingsOpenResult =
+/** @deprecated The first editor was the game settings; the same view handle serves every kind (ADR 0026). */
+export type GameSettingsView = EditorView;
+
+/** A mounted view over a workspace document, or why the document did not open. */
+export type EditorOpenResult =
   | Exclude<WorkspaceOpenResult, { readonly ok: true }>
-  | { readonly ok: true; readonly document: MainDocument; readonly view: GameSettingsView };
+  | { readonly ok: true; readonly document: AnyDocument; readonly view: EditorView };
+
+/** @deprecated Use `EditorOpenResult`. */
+export type GameSettingsOpenResult = EditorOpenResult;
 
 /**
- * Open `path` in the project's workspace (one model per document, D1.2). Hide destroys only the mounted UI; closing
- * the tab goes through its lease, and disposing an abandoned tab releases its ownership (D3.7).
+ * Open `path` in the project's workspace (one model per document, D1.2) and mount the view of its kind. Hide destroys
+ * only the mounted UI; closing the tab goes through its lease, and disposing an abandoned tab releases its ownership (D3.7).
  */
-export async function openGameSettings(project: WebProject, path: string, element: HTMLElement): Promise<GameSettingsOpenResult> {
+export async function openEditor(project: WebProject, path: string, element: HTMLElement): Promise<EditorOpenResult> {
   const opened = await project.workspace.open(path);
   if (!opened.ok) return opened;
-  return { ok: true, document: opened.document, view: mountGameSettings(project, opened.document, element) };
+  return { ok: true, document: opened.document, view: mountEditor(project, opened.document, element) };
+}
+
+/** @deprecated The name of the first editor; it opens a document of any registered kind. */
+export const openGameSettings = openEditor;
+
+/**
+ * What a view binds to for `document`: the workspace's document itself, with a board's picture composed from this
+ * project's files by the one board compositor (AD-29). The workspace types a document by its lifecycle only, so the
+ * kind is what says which command and snapshot types it has.
+ */
+function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContext["document"] {
+  if (document.kind !== "board") return document as unknown as ViewDocument;
+  const board = document as unknown as Omit<BoardViewDocument, "preview">;
+  // Explicit forwarding: a document's methods read its private fields, so they are called on the document itself.
+  const view: BoardViewDocument = {
+    kind: board.kind,
+    identity: board.identity,
+    getSnapshot: () => board.getSnapshot(),
+    subscribe: (listener) => board.subscribe(listener),
+    apply: (command) => board.apply(command),
+    save: () => board.save(),
+    resolveConflict: (choice) => board.resolveConflict(choice),
+    preview: async () => {
+      const preview = await previewBoard(project.services.fs, project.project.id, document.serialize());
+      return preview.ok ? { ok: true as const, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings } : preview;
+    },
+  };
+  return view;
 }
 
 /** Make a view owner over a document the project already has open. */
-export function mountGameSettings(project: WebProject, document: MainDocument, element: HTMLElement): GameSettingsView {
+export function mountEditor(project: WebProject, document: AnyDocument, element: HTMLElement): EditorView {
   const lease = project.workspace.attachView(document);
+  const viewDocument = viewDocumentFor(project, document);
   let mounted: ViewHandle | null = null;
   let notice: HTMLElement | null = null;
   let disposed = false;
@@ -193,7 +228,7 @@ export function mountGameSettings(project: WebProject, document: MainDocument, e
   };
   const show = (container: HTMLElement): void => {
     if (disposed || mounted !== null) throw new Error("Cannot show a disposed or already mounted editor view.");
-    mounted = mount(container, { document, services: project.services });
+    mounted = mount(container, { document: viewDocument, services: project.services });
     notice = project.sessionCopy ? container.ownerDocument.createElement("p") : null;
     if (notice) {
       notice.setAttribute("role", "status");
@@ -204,6 +239,9 @@ export function mountGameSettings(project: WebProject, document: MainDocument, e
   show(element);
   return { close: () => lease.close(), hide, show, dispose: () => { hide(); lease.dispose(); disposed = true; } };
 }
+
+/** @deprecated The name of the first editor; it mounts a document of any registered kind. */
+export const mountGameSettings = mountEditor;
 
 export { createPageDialogs } from "./dialogs.ts";
 export { createWebFileSystem } from "./filesystem.ts";
