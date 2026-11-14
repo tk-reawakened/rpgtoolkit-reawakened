@@ -88,7 +88,7 @@ export async function runVscodeLaunchProof(
   const title = editor.getByLabel("Game title");
   await expect(title).toBeVisible();
   await title.fill("VS Code launch proof");
-  await title.press("Enter");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
   await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
   await runCommand(page, expect, "Test: Run Example Game");
   await expect.poll(readBacking, { timeout: 30_000 }).toEqual(expectedBytes);
@@ -216,7 +216,7 @@ export async function runVscodeGuardProof(
   const editor = await waitForEditorFrame(page, "VS Code guard editor");
   const title = editor.getByLabel("Game title");
   await title.fill("Save must fail");
-  await title.press("Enter");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
   await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
   await runCommand(page, expect, "Test: Fail Saves");
   await runCommand(page, expect, "Test: Run Example Program");
@@ -230,7 +230,7 @@ export async function runVscodeGuardProof(
   await runCommand(page, expect, "Test: Run Example Program");
   await expect(page.getByText("Fixture read paused")).toBeVisible({ timeout: 30_000 });
   await title.fill("Race saved");
-  await title.press("Enter");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
   await editor.getByRole("button", { name: "Save", exact: true }).click();
   await expect.poll(readBacking, { timeout: 30_000 }).toEqual(raced);
   await runCommand(page, expect, "Test: Resume Program Read");
@@ -508,7 +508,7 @@ export async function runVscodeWebProof(
   await expect(recoveredEditor.getByRole("button", { name: "Keep my version" })).toBeVisible();
   await recoveredEditor.getByRole("button", { name: "Keep my version" }).click();
   await runCommand(page, expect, "Notifications: Clear All Notifications");
-  await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
+  await expect(recoveredEditor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
   expect(await readWorkspaceBytes(page, expect)).toEqual(externalAfterRestart);
   expect(await host.readBacking()).toEqual(externalAfterRestart);
   await verifySentinel();

@@ -418,7 +418,7 @@ test("an edit before the player handshake prevents a stale game from starting", 
   await page.getByRole("button", { name: "Run game", exact: true }).click();
   await requested;
   await page.getByLabel("Game title").fill("Changed during player setup");
-  await page.getByLabel("Game title").press("Enter");
+  await page.getByRole("button", { name: "Apply changes" }).click();
   release();
   await expect(page.getByLabel("Current run")).toContainText("changed while the run was being prepared");
   await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);

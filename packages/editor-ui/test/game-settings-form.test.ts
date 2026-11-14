@@ -79,6 +79,7 @@ async function click(target: HTMLButtonElement): Promise<void> {
 
 test("a staged field changes nothing until Apply, which makes one edit and reports it to the host", async () => {
   const s = await shown();
+  const before = s.doc.getSnapshot().settings;
   equal(staged(s.el), "No staged settings.");
   equal(button(s.el, "Apply changes").disabled, true);
   await type(field(s.el, "Initial board"), "forest.brd");
@@ -99,6 +100,22 @@ test("a staged field changes nothing until Apply, which makes one edit and repor
   equal(s.doc.getSnapshot().settings.extendToFullScreen, true);
   equal(staged(s.el), "No staged settings.");
   equal(field(s.el, "Initial board").value, "forest.brd", "the field now shows the document's value");
+
+  await act(() => { ok(s.doc.undo().ok); });
+  equal(s.doc.getSnapshot().settings.initBoard, before.initBoard);
+  equal(s.doc.getSnapshot().settings.resolution, before.resolution);
+  equal(s.doc.getSnapshot().settings.extendToFullScreen, before.extendToFullScreen);
+  equal(field(s.el, "Initial board").value, before.initBoard);
+  equal(field<HTMLSelectElement>(s.el, "Resolution").value, String(before.resolution));
+  equal(field<HTMLInputElement>(s.el, "Full screen").checked, before.extendToFullScreen);
+
+  await act(() => { ok(s.doc.redo().ok); });
+  equal(s.doc.getSnapshot().edits.length, 1, "redo restores the one multi-field Apply edit");
+  equal(s.doc.getSnapshot().settings.initBoard, "forest.brd");
+  equal(s.doc.getSnapshot().settings.resolution, 2);
+  equal(s.doc.getSnapshot().settings.extendToFullScreen, true);
+  equal(field(s.el, "Initial board").value, "forest.brd");
+
 });
 
 test("Cancel drops what was staged and leaves the document and its file as they were", async () => {
