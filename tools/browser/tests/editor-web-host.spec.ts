@@ -246,6 +246,7 @@ test("a saved folder game launches in the live player from the editor", async ({
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByRole("button", { name: "Run", exact: true }).click();
   await page.getByLabel("Game title").fill("Saved launch proof");
   await page.getByRole("button", { name: "Run", exact: true }).click();
   await page.getByRole("button", { name: "Run game", exact: true }).click();
@@ -403,6 +404,7 @@ test("an edit before the player handshake prevents a stale game from starting", 
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByRole("button", { name: "Run", exact: true }).click();
   let observed!: () => void;
   let release!: () => void;
   const requested = new Promise<void>((resolve) => { observed = resolve; });

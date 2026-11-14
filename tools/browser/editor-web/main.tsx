@@ -1,8 +1,9 @@
 import { createSessionCopy, createWorkbench, listRecentWebProjects, openWebProject, reopenWebProject, type WebProject, type Workbench } from "@tk-reawakened/host-web";
-import { createDocumentIdentity, type AnyDocument } from "@tk-reawakened/editor-model";
-import { BinaryReader, projectFolder, readMainFile } from "@tk-reawakened/core";
+import { createDocumentIdentity, type AnyDocument, projectLayoutOfMain } from "@tk-reawakened/editor-model";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
 
+/** Launching needs this deployment's same-origin runner-web player page (ADR 0022 D8). */
+const playerOptions = { playerUrl: "/packages/runner-web/app/index.html" };
 const status = document.querySelector<HTMLElement>("#host-status")!;
 const settings = document.querySelector<HTMLElement>("#settings")!;
 const folderButton = document.querySelector<HTMLButtonElement>("#open-project")!;
@@ -14,7 +15,7 @@ const recentLabel = document.querySelector<HTMLLabelElement>("#recent-project-la
 const recentSelect = document.querySelector<HTMLSelectElement>("#recent-project")!;
 const reopenButton = document.querySelector<HTMLButtonElement>("#reopen-project")!;
 const actions = document.querySelector<HTMLElement>("#document-actions")!;
-const playerOptions = { playerUrl: "/packages/runner-web/app/index.html" };
+
 /** The one project this page shows: its workspace, tabs and mounted workbench. */
 interface Shown {
   readonly project: WebProject;
@@ -276,11 +277,7 @@ async function showProject(project: WebProject, path: string, request: number): 
   const element = document.createElement("section");
   element.hidden = true;
   settings.append(element);
-  const bytes = await project.services.fs.readProject(project.project.id, path);
-  const main = bytes.ok ? readMainFile(new BinaryReader(bytes.value, path)) : null;
-  const folder = main?.ok ? projectFolder("", main.value).replace(/\/$/, "") : "";
-  const listed = folder === "" ? null : await project.services.fs.list(folder);
-  const workbench = createWorkbench(project, element, { projectLayout: { projectFolder: listed?.ok ? folder : "" } });
+  const workbench = createWorkbench(project, element, { projectLayout: await projectLayoutOfMain(project.services.fs, project.project.id, path) });
   let candidate!: Shown;
   const unsubscribeTabs = workbench.tabs.subscribe(() => updateActions(candidate));
   candidate = { project, workbench, element, unsubscribeTabs };

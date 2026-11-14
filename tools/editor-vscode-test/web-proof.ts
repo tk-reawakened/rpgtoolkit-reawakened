@@ -224,6 +224,7 @@ export async function runVscodeGuardProof(
   await expect(page.getByText(/Program launch refused:.*changed/i)).toBeVisible({ timeout: 30_000 });
   expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
 }
+
 /** Exercise the shipped VS Code custom editor with real sprite bytes through the workspace bridge. */
 export async function runVscodeSpriteWebProof(
   page: Page,

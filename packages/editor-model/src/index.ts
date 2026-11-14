@@ -195,6 +195,7 @@ export {
   copyIntoReservedFolder,
   linkFor,
   listCandidates,
+  projectLayoutOfMain,
   referencePath,
   reservedFolder,
   unusableName,
