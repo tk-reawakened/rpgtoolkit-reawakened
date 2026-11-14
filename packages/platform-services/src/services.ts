@@ -142,13 +142,24 @@ export interface ShellService {
 }
 
 /**
- * The part of AD-20 that stories 11.17 and 11.3 need: `capabilities`, `fs`, `project`, `settings`, `document` and
- * `dialogs`.
+ * Package export host operations (AD-20 `export`, shaped by story 12.9). `sha256` supplies the descriptor's archive
+ * digest. `downloadFile` hands the author an ordinary download of one file; it is invoked by a direct user action and
+ * never writes into the project. A host that cannot offer downloads does not provide this service, and package export
+ * is unavailable there (VS Code: its extension cannot save a package without a no-replace, link-safe write).
+ */
+export interface PackageExportService {
+  sha256(bytes: Uint8Array): Promise<PlatformResult<string>>;
+  downloadFile(fileName: string, bytes: Uint8Array): Promise<PlatformResult<void>>;
+}
+
+/**
+ * The part of AD-20 that stories 11.17, 11.3 and 12.9 need: `capabilities`, `fs`, `project`, `settings`, `document`,
+ * `dialogs` and the package-export operations.
  *
- * AD-20 also lists `run`, `export`, `clipboard` and `language.connect()` (`shell.openExternal` is declared, for 11.4). They are not declared
- * yet: AD-20 names their methods but not their parameters, and the entries that first use them (11.9 run, 11.14 export,
- * the program editor's language client) fix those shapes against a real caller. A host that implements this interface
- * is not asked for them until then.
+ * AD-20 also lists `run`, `clipboard` and `language.connect()` (`shell.openExternal` is declared, for 11.4). They are not
+ * declared yet: AD-20 names their methods but not their parameters, and the entries that first use them (11.9 run, the
+ * program editor's language client) fix those shapes against a real caller. A host that implements this interface is
+ * not asked for them until then.
  */
 export interface PlatformServices {
   readonly capabilities: Capabilities;
@@ -159,4 +170,6 @@ export interface PlatformServices {
   readonly dialogs: DialogService;
   /** Present when the host declares `openExternal`. */
   readonly shell?: ShellService;
+  /** Descriptor digest and download operations used by package export. */
+  readonly packageExport?: PackageExportService;
 }

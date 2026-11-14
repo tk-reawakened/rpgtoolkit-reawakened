@@ -12,7 +12,8 @@
     "onCustomEditor:tkr.gameSettings",
     "onCustomEditor:tkr.board",
     "onCustomEditor:tkr.tileBitmap",
-    "onView:tkr.game"
+    "onView:tkr.game",
+    "onCommand:tkr.packageGame"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/extension.browser.js",
@@ -37,8 +38,21 @@
       {
         "command": "tkr.newBoard",
         "title": "RPG Toolkit: New board"
+      },
+      {
+        "command": "tkr.packageGame",
+        "title": "RPG Toolkit: Package game"
       }
     ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "tkr.packageGame",
+          "when": "resourceExtname == .gam",
+          "group": "navigation@7"
+        }
+      ]
+    },
     "customEditors": [
       {
         "viewType": "tkr.gameSettings",

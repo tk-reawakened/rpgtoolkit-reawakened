@@ -86,6 +86,7 @@ export async function listCandidates(
         pending.push(path);
         continue;
       }
+      if (entry.kind !== "file") continue;
       const dot = entry.name.lastIndexOf(".");
       const extension = dot <= 0 ? "" : asciiLower(entry.name.slice(dot));
       if (extensions.length > 0 && !extensions.includes(extension)) continue;

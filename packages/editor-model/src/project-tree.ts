@@ -153,7 +153,7 @@ export function createProjectTree(options: ProjectTreeOptions): ProjectTree {
   const read = async (folder: string): Promise<void> => {
     const result = await fs.list(folder);
     if (result.ok) {
-      listed.set(folder, result.value.map((entry) => ({ name: entry.name, kind: entry.kind })));
+      listed.set(folder, result.value.filter((entry): entry is { readonly name: string; readonly kind: "file" | "directory" } => entry.kind !== "link").map((entry) => ({ name: entry.name, kind: entry.kind })));
       failures = failures.filter((failure) => failure.path !== folder);
     } else {
       listed.set(folder, []);
@@ -320,7 +320,7 @@ export async function listGame(fs: Pick<FileSystemService, "list">, layout: Proj
       for (const entry of entries.value) {
         const path = `${current}/${entry.name}`;
         if (entry.kind === "directory") pending.push(path);
-        else files.push({ path, name: entry.name, openable: kindForPath(path) !== null });
+        else if (entry.kind === "file") files.push({ path, name: entry.name, openable: kindForPath(path) !== null });
       }
     }
     if (files.length === 0) continue;

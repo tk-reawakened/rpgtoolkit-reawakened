@@ -95,7 +95,26 @@ At start-up the engine reads the last 12 bytes of its own file. If they begin wi
 
 The editor's **"Make package"** (T-70) **writes a distribution package** — a `.tpk`-compatible ZIP, the project folder at the archive root exactly as for a `.tpk`, that differs from a legacy pak in two ways: the main file is kept at its [README.md](README.md#paths-inside-files) path `Main/<game>.gam` rather than the legacy root `main.gam`, and the archive also holds a **`manifest.json`** at the root, next to the game files. <!-- OWNER: chose to keep our main file at its §1.5 path `Main/<game>.gam` (and name it in the manifest) rather than the legacy pak's root `main.gam`, because a legacy pak's embedded main is found by the engine and our package names it in `manifest.json`; a reader that accepts both forms ignores the difference. -->
 
-**History-store exclusion (future Reawakened output only).** When history storage is implemented, the Reawakened distribution-package writer must omit its reserved folder and the exporter inventory check must assert that exclusion (ADR 0022 D12.7). The folder's path/name is not set here. This does not change the legacy `.tpk` PAK input contract above.
+**Exporter exclusions (12.9, future Reawakened output only).** The distribution-package inventory omits:
+
+* `Saved/` and main files other than the selected `Main/<game>.gam`, as for the PAK input contract above;
+* every file whose extension is `.tkrscn`, `.tkrtile` or `.tkrpack`, compared with the package path's ASCII-folded extension (ADR 0019 decision 6);
+* every `*.spec.prg` creator test, matched case-insensitively (ADR 0022 D9 and TOOL-5);
+* the project-root reserved editor-history directory `.tkr-history/`, including all descendants (ADR 0022 D12.7).
+
+The editor reserves `.tkr-history/` for project-local history; it is not a game asset or a second history system. The exporter inventory check verifies each exclusion against the files it actually collected, rather than assuming a name filter worked. This rule applies to the distribution package this project writes and does not change the legacy `.tpk` PAK input contract. The `.tkr-history/` choice is a Reawakened reserved path; it does not alter what legacy packages may contain.
+
+The export workflow first saves open documents, inventories through the host's project filesystem, and refuses unreadable paths, folded duplicates, symbolic links, missing main/startup files, or any input the distribution writer rejects under L1–L19. It presents the inventory and exclusions before output, and writes nothing until the author confirms.
+
+**Where the outputs go (owner ruling on #1719).** The editor does not write the package into the project folder or anywhere else through the host filesystem. No host gives it a no-replace create that is safe against another window or process creating the destination, or swapping a directory for a link, between a check and the write. Where a host cannot guarantee that, the export uses a download the author starts, or is unavailable, and never replaces an existing file:
+
+* a browser offers ordinary downloads of the `.tpk` and the descriptor, each started by its own click after the author has reviewed the inventory; the bytes downloaded are exactly the bytes reviewed, and nothing is written into the project folder. The two files are separate downloads, and the descriptor's `file` field names the package, so a browser that renames one of them on a name collision (for example "game (1).tpk") breaks the pair. The page says so and tells the author to put the names back (or remove the older copy first) before installing; it cannot see the names the browser finally used;
+* VS Code does not export packages. Its extension has no no-replace create (`workspace.fs.writeFile` replaces what is there, and a check followed by a write can be beaten in between), the chosen folder may be swapped for a link after it is picked, and its directory walk cannot be made immune to the same swap, so the `RPG Toolkit: Package game` command says that packaging is not available in VS Code, reads nothing and writes nothing;
+* any other host without downloads says that package export is unavailable there, and writes nothing.
+
+A known limit in the browser: its folder handles are walked one directory at a time, but the browser does not tell the exporter whether an entry is a link to somewhere else on the computer, so the exporter cannot refuse such a link (L23). The inventory lists every file that will be packaged and the author must tick that they reviewed it before either download is enabled; the page warns that a listed file that does not belong to the game means the package must not be used. This is a review control, not host enforcement (tracked in #2498).
+
+**The descriptor version** is entered by the author during export. The current `.gam` format has no game-version field, so the exporter does not invent one or edit the game file to store it.
 
 The manifest is UTF-8 JSON with **exactly three fields**:
 
@@ -125,7 +144,7 @@ The descriptor is **UTF-8 JSON with exactly seven fields**:
 | `size` | the package's byte length, a non-negative integer |
 | `gameId` | the identity a library row and that game's settings are keyed by (the `GameId` AD-17 derives in core) |
 | `title` | the game's display name, a non-empty string |
-| `version` | the game's own version string, as the author wrote it |
+| `version` | the non-empty release-version string entered by the author during export; the `.gam` file has no version field |
 
 A host that registers a package validates the descriptor against the file it names — the SHA-256 and the size must
 match, or the install is refused with the reason — and stores the six fields in its library registry. **Installing is

@@ -162,6 +162,24 @@ export async function runVscodeWebProof(
   await enableWorkbenchTraceLogging(page, expect);
   await openGame(page, gamePath, expect);
 
+  // The package command is contributed to both the command palette and .gam Explorer context menu.
+  const packageCommand = await commandPalette(page, expect);
+  await packageCommand.fill(">RPG Toolkit: Package game");
+  const packageEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "RPG Toolkit: Package game" }).first();
+  await expect(packageEntry).toBeVisible();
+  await packageCommand.press("Escape");
+  await expect(page.locator(".quick-input-widget")).toBeHidden();
+
+  const packageCommandInput = await commandPalette(page, expect);
+  await packageCommandInput.fill(">Test: Execute Package Game");
+  const packageCommandEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Test: Execute Package Game" }).first();
+  await expect(packageCommandEntry).toBeVisible();
+  await packageCommandEntry.click();
+  // VS Code cannot save the package without risking a silent overwrite or a followed swapped link, so the command
+  // explains that and writes nothing.
+  await expect(page.getByText(/Packaging a game is not available in VS Code/).first()).toBeVisible({ timeout: 15_000 });
+  await page.keyboard.press("Escape");
+
   const editor = await waitForEditorFrame(page, "initial Game settings editor");
   const titleField = editor.getByLabel("Game title");
   await expectVisibleWithFrameDiagnostics(page, titleField, expect, "initial Game title field");
@@ -1069,7 +1087,14 @@ async function findBytesPanelFrame(page: Page, selector: string): Promise<Frame 
 
 async function openGame(page: Page, gamePath: string, expect: Expect): Promise<void> {
   await focusWorkbench(page);
-  const gameFile = page.getByRole("treeitem", { name: gamePath.split("/").at(-1)!, exact: true });
+  const segments = gamePath.split("/");
+  for (const folder of segments.slice(0, -1)) {
+    const folderItem = page.getByRole("treeitem", { name: folder, exact: true });
+    await folderItem.click();
+    await expect(folderItem).toBeVisible();
+    await folderItem.press("ArrowRight");
+  }
+  const gameFile = page.getByRole("treeitem", { name: segments.at(-1)!, exact: true });
   await expect(gameFile).toBeVisible();
   await gameFile.dblclick();
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: gamePath.split("/").at(-1)! }).first()).toBeVisible();

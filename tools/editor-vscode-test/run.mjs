@@ -55,7 +55,7 @@ const [expectedBytes, recoveredBytes, autosaveBytes, externalBytes, sentinelByte
 ]);
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
 for (const choice of ["cancel", "keep"]) {
-  const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game);
+  const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, workspace);
   const spriteDirectory = resolve(proofWorkspace, "Chrs");
   await mkdir(spriteDirectory, { recursive: true });
   await copyFile(spriteFile, resolve(proofWorkspace, spritePath));

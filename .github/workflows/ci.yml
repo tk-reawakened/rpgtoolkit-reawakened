@@ -638,13 +638,14 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
         run: |
           workspace="$(mktemp -d "${RUNNER_TEMP:-/tmp}/tkr-vscode-web.XXXXXX")"
-          cp docs/spec/examples/game/Main/example.gam "$workspace/example.gam"
-          mkdir -p "$workspace/.vscode"
+          cp -R docs/spec/examples/game/Game/Example/. "$workspace/"
+          mkdir -p "$workspace/Main" "$workspace/.vscode"
+          cp docs/spec/examples/game/Main/example.gam "$workspace/Main/example.gam"
           printf '{\n  "files.autoSave": "off"\n}\n' > "$workspace/.vscode/settings.json"
           xvfb-run -a pnpm --dir tools/editor-vscode-test proof -- \
             --extension extensions/editor \
             --workspace "$workspace" \
-            --game example.gam
+            --game Main/example.gam
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
       - run: pnpm fixtures:fetch
