@@ -126,7 +126,7 @@ test("browser context is retained per project and cannot leak across workspace f
   const beta = await provider.openCustomDocument({ path: `/beta/${GAME}` }, undefined);
   ok(alpha.browserSession !== beta.browserSession, "each project has its own browser session");
   alpha.browserSession.update({
-    selection: { kind: "tiles", path: "Tiles/village.tst", reference: "Tiles\\village.tst1", label: "village.tst tile 1", boardTile: "Tiles\\village.tst1" },
+    selection: { kind: "tiles", path: "Tiles/village.tst", reference: "Tiles\\village.tst1", label: "village.tst tile 1", boardTile: "Tiles\\village.tst1", stamp: null },
     path: "Tiles/village.tst",
   });
   equal(alpha.browserSession.getSnapshot().selection?.reference, "Tiles\\village.tst1");

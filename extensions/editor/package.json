@@ -1,7 +1,7 @@
 {
   "name": "editor",
   "displayName": "RPG Toolkit Editor",
-  "description": "Game settings and board editor for RPG Toolkit projects.",
+  "description": "Game settings, board and tile bitmap editors for RPG Toolkit projects.",
   "version": "0.0.1",
   "publisher": "tk-reawakened",
   "license": "MIT",
@@ -11,6 +11,7 @@
   "activationEvents": [
     "onCustomEditor:tkr.gameSettings",
     "onCustomEditor:tkr.board",
+    "onCustomEditor:tkr.tileBitmap",
     "onView:tkr.game"
   ],
   "main": "./dist/extension.js",
@@ -51,6 +52,16 @@
         "selector": [
           {
             "filenamePattern": "*.brd"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tkr.tileBitmap",
+        "displayName": "RPG Toolkit Tile Bitmap Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.tbm"
           }
         ],
         "priority": "default"

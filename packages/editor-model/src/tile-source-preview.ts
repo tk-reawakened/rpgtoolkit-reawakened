@@ -21,7 +21,7 @@ export type TileSourcePreview =
   | { readonly kind: "tileset"; readonly tiles: readonly TilePreviewPixels[] }
   | { readonly kind: "single"; readonly preview: TilePreviewPixels }
   | { readonly kind: "animation"; readonly frameCount: number; readonly speed: number; readonly preview: TilePreviewPixels | null }
-  | { readonly kind: "bitmap"; readonly preview: TilePreviewPixels };
+  | { readonly kind: "bitmap"; readonly preview: TilePreviewPixels; readonly size: { readonly width: number; readonly height: number } };
 
 export type TileSourcePreviewResult =
   | { readonly ok: true; readonly value: TileSourcePreview }
@@ -167,9 +167,13 @@ export function createTileSourcePreviewer(
     if (!composed.ok) return failure(composed.error.message);
     return {
       ok: true,
-      value: { kind: "bitmap", preview: { width: composed.value.w, height: composed.value.h, pixels: composed.value.rgba } },
+      value: {
+        kind: "bitmap",
+        preview: { width: composed.value.w, height: composed.value.h, pixels: composed.value.rgba },
+        size: { width: bitmap.value.width, height: bitmap.value.height },
+      },
     };
   }
 
-  return { previewSource };
+  return { previewSource, previewTile: (reference: string) => previewReference(reference) };
 }

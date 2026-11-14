@@ -3,13 +3,14 @@ import { boardCodec, createBoardDocument, openBoardDocument, type BoardDocument 
 import type { DocumentSnapshot, DocumentStorage, EditorDocument, OpenResult } from "./binary-document.ts";
 import type { DocumentIdentity } from "./identity.ts";
 import { createMainDocument, mainCodec, openMainDocument, type MainDocument } from "./main-document.ts";
+import { createTileBitmapDocument, openTileBitmapDocument, tileBitmapCodec, type TileBitmapDocument } from "./tile-bitmap-document.ts";
 
 /**
  * The registry of document kinds (ADR 0026 decisions 1, 2 and 9). A kind has an identifier, a label, the extensions it
  * claims and a way to open its bytes. A host asks the registry which kind a path is and drives the one document
  * contract; it holds no list of kinds of its own, so a kind registered here works in every host.
  *
- * The first release registers the two Toolkit 3 kinds that exist. A kind's views are registered in `editor-ui`.
+ * The first release registers the Toolkit 3 kinds that exist: the main file, the board and the tile bitmap. A kind's views are registered in `editor-ui`.
  */
 
 /** A document whose commands the caller does not know: the lifecycle surface every kind shares (ADR 0022 D1 to D3). */
@@ -74,6 +75,21 @@ export const DOCUMENT_KINDS: readonly DocumentKind[] = [
     isCommand: boardCodec.isCommand,
     recoveryMarker: () => null,
   },
+  {
+    id: "tile-bitmap",
+    label: "Tile bitmap",
+    description: "A picture built from tiles, each cell with its own shade, used as a stamp or wherever an image is accepted.",
+    extensions: [".tbm"],
+    storage: "legacy-binary",
+    open: openTileBitmapDocument,
+    create: createTileBitmapDocument,
+    summarise: (bytes, path) => {
+      const read = tileBitmapCodec.read(bytes, path);
+      return read.ok ? tileBitmapCodec.summary(read.value) : null;
+    },
+    isCommand: tileBitmapCodec.isCommand,
+    recoveryMarker: () => null,
+  },
 ];
 
 /** The extension of `path` ASCII-folded, with the dot; `""` when it has none. */
@@ -108,4 +124,10 @@ export function asMainDocument(document: AnyDocument): MainDocument {
 export function asBoardDocument(document: AnyDocument): BoardDocument {
   if (document.kind !== "board") throw new Error(`${document.identity.path} is a ${document.kind} document, not a board.`);
   return document as unknown as BoardDocument;
+}
+
+/** The document as a tile bitmap document (see `asMainDocument`). */
+export function asTileBitmapDocument(document: AnyDocument): TileBitmapDocument {
+  if (document.kind !== "tile-bitmap") throw new Error(`${document.identity.path} is a ${document.kind} document, not a tile bitmap.`);
+  return document as unknown as TileBitmapDocument;
 }

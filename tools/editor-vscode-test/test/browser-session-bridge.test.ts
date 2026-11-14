@@ -12,6 +12,7 @@ const selection = {
   reference: "Tiles/village.tst2",
   label: "village tile 2",
   boardTile: "Tiles/village.tst2",
+  stamp: null,
 };
 
 test("asynchronous split-view patches merge independently and preserve unknown session fields", async () => {

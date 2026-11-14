@@ -19,6 +19,11 @@ window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
         session: remote.browserSession,
         fs: { list: (path) => remote.browserList(path), read: (path) => remote.browserRead(path) },
         layout: { projectFolder: "" },
+        // A linked visit: the extension host opens the file in its own editor and remembers the way back.
+        openSource: async (path) => {
+          const outcome = await remote.visit(path);
+          return outcome.ok ? null : outcome.message;
+        },
       },
     });
     return;

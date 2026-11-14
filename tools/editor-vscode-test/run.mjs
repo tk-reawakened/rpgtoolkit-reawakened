@@ -4,7 +4,7 @@ import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
-import { createEmptyBoard, writeBoard } from "@tk-reawakened/core";
+import { createEmptyBoard, TILE_BITMAP_MAGIC, writeBoard, writeTileBitmap } from "@tk-reawakened/core";
 import { runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
@@ -50,12 +50,15 @@ for (const choice of ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game);
   const boardPath = "Boards/village.brd";
   const otherBoardPath = "Boards/other.brd";
+  const bitmapPath = "Bitmap/house.tbm";
   const boardBytes = createBoardBytes();
   await mkdir(resolve(proofWorkspace, "Boards"), { recursive: true });
+  await mkdir(resolve(proofWorkspace, "Bitmap"), { recursive: true });
   await mkdir(resolve(proofWorkspace, "Tiles"), { recursive: true });
   await Promise.all([
     writeFile(resolve(proofWorkspace, boardPath), boardBytes),
     writeFile(resolve(proofWorkspace, otherBoardPath), boardBytes),
+    writeFile(resolve(proofWorkspace, bitmapPath), createBitmapBytes(false)),
     copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, "Tiles/village.tst")),
   ]);
   let persistentFs;
@@ -179,7 +182,7 @@ for (const choice of ["cancel", "keep"]) {
       }
     };
     const readBacking = async (path = game) => new Uint8Array(await readFile(resolve(proofWorkspace, path)));
-    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath });
+    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath, bitmapPath, bitmapSaved: createBitmapBytes(true) });
     console.log(`vscode.dev settings and board proof passed (${choice})`);
   } catch (error) {
     failure = error;
@@ -228,6 +231,17 @@ async function findGameFiles(directory) {
   }
   return files;
 }
+/** The 2 × 1 proof bitmap: tile 1 plain and tile 2 shaded; `edited` is what the proof's two edits must leave in the file. */
+function createBitmapBytes(edited) {
+  const cell = (tile, r = 0, g = 0, b = 0) => ({ tile, r, g, b });
+  const drawn = edited ? [cell("village.tst1", -255, 0, 0), cell("village.tst1", 10, -20, 30)] : [cell("village.tst1"), cell("village.tst2", 10, -20, 30)];
+  // x outer, y inner, with the stored extra column and row after the drawn cells (docs/spec/formats/tiles.md#tile-bitmap-tbm).
+  const cells = [drawn[0], cell("pad.gph", 1, 2, 3), drawn[1], cell("pad.gph", 1, 2, 3), cell("pad.gph", 1, 2, 3), cell("pad.gph", 1, 2, 3)];
+  const written = writeTileBitmap({ magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 2, height: 1, cells, residue: Uint8Array.from([7, 7, 7]) });
+  if (!written.ok) throw new Error(`Could not create authored tile bitmap proof fixture: ${written.error.message}`);
+  return written.value;
+}
+
 function createBoardBytes() {
   const empty = createEmptyBoard();
   const board = {

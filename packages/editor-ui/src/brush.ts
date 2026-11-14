@@ -1,5 +1,11 @@
 export type BrowserAssetKind = "tiles" | "bitmaps";
 
+/** The size in tiles of a tile bitmap chosen as a whole stamp brush (T-24). */
+export interface BrowserStamp {
+  readonly width: number;
+  readonly height: number;
+}
+
 /** One explicitly chosen source, retained while panels and board tabs change. */
 export interface BrowserSelection {
   readonly kind: BrowserAssetKind;
@@ -8,6 +14,8 @@ export interface BrowserSelection {
   readonly label: string;
   /** A complete tile reference can be placed in a board cell; other sources remain browse-only until their editor/tool exists. */
   readonly boardTile: string | null;
+  /** A tile bitmap is a whole stamp brush: its size in tiles. `null` for a source that is not a stamp. `path` names the `.tbm`, which a placing tool reads. */
+  readonly stamp: BrowserStamp | null;
 }
 
 export interface BrowserState {

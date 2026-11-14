@@ -19,8 +19,32 @@ export {
   type SetTileCommand,
 } from "./board-document.ts";
 export { previewBoard, type BoardPicture, type BoardPreview, type BoardPreviewOptions, type PreviewStorage } from "./board-preview.ts";
+export {
+  colourOfShade,
+  createTileBitmapDocument,
+  lightnessOfShade,
+  openTileBitmapDocument,
+  shadeOfColour,
+  shadeWithLightness,
+  tileBitmapCellAt,
+  tileBitmapCodec,
+  TILE_BITMAP_MAX_TILES,
+  TILE_BITMAP_MIN_TILES,
+  TILE_SHADE_MAX,
+  TILE_SHADE_MIN,
+  type SetBitmapCellCommand,
+  type SetBitmapShadeCommand,
+  type SetBitmapSizeCommand,
+  type TileBitmapCommand,
+  type TileBitmapDocument,
+  type TileBitmapDocumentFields,
+  type TileBitmapDocumentSnapshot,
+  type TileBitmapOpenResult,
+  type TileShade,
+} from "./tile-bitmap-document.ts";
+export { previewTileBitmap, type TileBitmapPicture } from "./tile-bitmap-preview.ts";
 export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePreview, type TileSourcePreviewResult } from "./tile-source-preview.ts";
-export { asBoardDocument, asMainDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
+export { asBoardDocument, asMainDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export { createDocumentIdentity, type DocumentIdentity } from "./identity.ts";
 export {
   createMainDocument,
