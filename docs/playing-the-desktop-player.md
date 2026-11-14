@@ -13,9 +13,9 @@ Press F3 to show or hide the diagnostic overlay. It is hidden when the player st
 
 | What works | Limits |
 |---|---|
-| `pnpm desktop:run --game <your.tpk>` opens any packaged game that has its `.tpk.json` descriptor beside it. A macOS launch of a small authored package showed that package's own board on the canvas, with the status reporting a player position. | One observed package, not a claim that every game is playable. |
+| `pnpm desktop:run --game <your.tpk>` opens a package whose `.tpk.json` descriptor sits beside it. `pnpm desktop:authored` builds the small authored example from `docs/spec/examples/game`, opens that non-demo package in Electron, enters `village.brd`, and requires more than 1,000 non-black pixels read from its attached WebGL2 canvas. The desktop CI lane runs this proof on macOS, Linux and Windows. | This proves one authored package, not that every game is playable. |
 | Closing the game window ends the game: the window, the player process and the `pnpm desktop:run` command all stop, including on macOS, where an application usually stays open after its last window closes. | — |
-| Keyboard movement works in the Electron window: `pnpm desktop:input` sends a trusted right-arrow key event to the running player and the reported position moves one 32-pixel step (`208, 191` → `240, 191` on the authored probe package). | Pointer input (click to walk) is wired but not proven the same way as keys. |
+| Keyboard movement works in the Electron window: `pnpm desktop:input` sends trusted key events and proves the player's position changes. It defaults to the demo package; pass `--game <path>` to select another package. | Pointer input (click to walk) is wired but not proven the same way as keys. |
 | The window shows the game at the resolution its own main file asks for — 640×480, 800×600, 1024×768 or a custom size. The whole frame fits and is centred on black. | The window starts at 960×720 and can be resized. The picture normally uses whole-number scaling; if 1× cannot fit, it shrinks fractionally to keep the whole frame visible. |
 | A board larger than the frame scrolls: the camera follows the player and clamps to the board's edges. A smaller board is centred. | — |
 | A save is written to the desktop host's own storage, under the package's canonical game key. | A save does **not** move between hosts yet: the browser and desktop keep separate stores, so a save made in one is not visible to the other. |
@@ -112,12 +112,14 @@ Then run a measurement or open a visible player window:
 ```sh
 pnpm desktop:measure
 pnpm desktop:input --game fixtures/packages/demo.tpk
+pnpm desktop:authored
 pnpm desktop:run --game fixtures/packages/demo.tpk
 ```
 
-The rebuilt demo package names the stock menu and battle systems. Once the title screens have finished and the player is
-on the board, press **Enter** to open the menu and **Escape** to close it. Rebuild both the package and the player after
-updating: an older package made from the sample may not name the stock systems.
+The authored proof builds a deterministic `.tpk` from the repository's small spec example and stores it in a temporary
+directory. It opens that package in the real Electron player, enters its `village.brd`, reads the attached canvas's
+WebGL2 pixels, and fails unless the frame contains visible non-black board pixels. It does not use or commit a legacy
+sample game.
 
 `pnpm desktop:input` opens the player, sends real key events through Chromium's debugging protocol, and prints the player
 position before and after — it exits non-zero when the key did not move the player.

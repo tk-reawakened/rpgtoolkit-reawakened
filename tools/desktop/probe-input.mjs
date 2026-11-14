@@ -1,6 +1,7 @@
 // Prove one real key press reaches the live engine inside the Electron window (entry 9.16).
 //
 //   node tools/desktop/probe-input.mjs --host-metrics
+//   node tools/desktop/probe-input.mjs --authored-board
 //   node tools/desktop/probe-input.mjs --game /path/to/game.tpk
 //
 // It launches the built desktop player exactly as `desktop:run` does, but with Chromium's remote debugging port open,
@@ -89,8 +90,30 @@ function hostMetricsPackagePath() {
   return packageFile;
 }
 
+function authoredBoardPackagePath() {
+  temporaryPackageDirectory = mkdtempSync(join(tmpdir(), "tkr-authored-board-"));
+  process.once("exit", () => {
+    if (temporaryPackageDirectory !== null) rmSync(temporaryPackageDirectory, { recursive: true, force: true });
+  });
+  const packageFile = join(temporaryPackageDirectory, "authored-example.tpk");
+  execFileSync(
+    process.execPath,
+    [
+      join(root, "tools", "make-package", "run.mjs"),
+      join(root, "docs", "spec", "examples", "game"),
+      "--out", packageFile,
+      "--title", "Authored example village",
+      "--version", "1",
+    ],
+    { cwd: root, stdio: "inherit" },
+  );
+  return packageFile;
+}
+
+
 function packagePath() {
   if (process.argv.includes("--host-metrics")) return hostMetricsPackagePath();
+  if (process.argv.includes("--authored-board")) return authoredBoardPackagePath();
   const named = argument("--game", null);
   if (named !== null) return named;
   const out = join(root, "fixtures", "packages", "demo.tpk");
@@ -557,10 +580,44 @@ async function main() {
       await press("Enter");
       await new Promise((wait) => setTimeout(wait, 600));
     }
-    if ((await status()).board === null) throw new Error("the session never entered a board");
+    const enteredBoard = await status();
+    if (enteredBoard.board === null || enteredBoard.board === undefined) throw new Error("the session never entered a board");
     if ((await settled()) === null) throw new Error("the board never settled to a stable player position");
     const before = await status();
     if (before.player === null || before.player === undefined) throw new Error("the board never showed a player");
+
+    let authoredBoardProof = null;
+    if (process.argv.includes("--authored-board")) {
+      const boardPixels = await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+        const canvas = document.querySelector("#screen");
+        const gl = canvas?.getContext("webgl2");
+        if (canvas === null || !document.contains(canvas) || gl === null || gl === undefined) {
+          resolve({ error: "the authored board has no attached WebGL2 canvas" });
+          return;
+        }
+        const pixels = new Uint8Array(canvas.width * canvas.height * 4);
+        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        let nonBlack = 0;
+        let frameHash = 2166136261;
+        for (let index = 0; index < pixels.length; index += 1) {
+          frameHash = Math.imul(frameHash ^ pixels[index], 16777619);
+          if (index % 4 === 0 && (pixels[index] !== 0 || pixels[index + 1] !== 0 || pixels[index + 2] !== 0)) nonBlack += 1;
+        }
+        resolve({ width: canvas.width, height: canvas.height, nonBlack, frameHash });
+      })))`);
+      if (typeof enteredBoard.board !== "string" || !enteredBoard.board.toLowerCase().includes("village")) {
+        throw new Error(`authored package did not enter its own village board: ${JSON.stringify(enteredBoard.board)}`);
+      }
+      if (boardPixels.error !== undefined || boardPixels.width < 1 || boardPixels.height < 1
+        || boardPixels.nonBlack <= 1000 || boardPixels.frameHash === 0) {
+        throw new Error(`authored village pixels were not presented on the Electron canvas: ${JSON.stringify(boardPixels)}`);
+      }
+      authoredBoardProof = {
+        packageTitle: "Authored example village",
+        board: enteredBoard.board,
+        presentedPixels: boardPixels,
+      };
+    }
 
     // A direction is only meaningful while a key is pressed (#1122): phase (a) taps once and expects exactly
     // one 32-pixel tile on the tapped axis with no perpendicular drift; phase (b) holds and expects continuous
@@ -616,6 +673,7 @@ async function main() {
       emulatedScaleBoundary,
       attempts,
       moved,
+      ...(authoredBoardProof === null ? {} : { authoredBoard: authoredBoardProof }),
       csp,
     };
     console.log(JSON.stringify(report, null, 2));
@@ -623,6 +681,7 @@ async function main() {
   } catch (error) {
     console.log(JSON.stringify({ package: pkg, error: String(error), log: log.join("") }, null, 2));
     process.exitCode = 1;
+  }
   } finally {
     mainDebugger.close();
     page.close();
