@@ -321,6 +321,20 @@ def write_gam(path):
     w.string('TK DEFAULT').i8(0).i8(0).s32(colorref(255, 0, 0)).s32(0).s32(0).i8(0)
     w.s16(2).s32(0).s32(colorref(255, 255, 255)).s32(1 | 2 | 4)
     for key in [0xCD, 0, 0xD0, 0, 0xCB, 0, 0xC8, 0]: w.s16(key)
+    actions = [
+        ('up', ['key:ArrowUp', 'pad:12', 'pad:axis1-'], False),
+        ('down', ['key:ArrowDown', 'pad:13', 'pad:axis1+'], False),
+        ('left', ['key:ArrowLeft', 'pad:14', 'pad:axis0-'], False),
+        ('right', ['key:ArrowRight', 'pad:15', 'pad:axis0+'], False),
+        ('confirm', ['key:Enter', 'key:Space', 'pad:0'], False),
+        ('cancel', ['key:Escape', 'pad:1'], False),
+        ('menu', ['key:Enter', 'pad:9'], False),
+        ('game.heal', ['key:KeyH'], True),
+    ]
+    w.raw(b'TRKINP\0').u8(1).u8(1).u16(len(actions))
+    for name, controls, locked in actions:
+        w.string(name).u8(1 if locked else 0).u16(len(controls))
+        for control in controls: w.string(control)
     open(path, 'wb').write(w.b)
 
 def write_battle_files():

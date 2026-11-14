@@ -26,6 +26,11 @@ import {
   MAIN_AUDIO_MAX_VOICE_CAP,
   MAIN_AUDIO_MIN_TRACKS,
   MAIN_AUDIO_MIN_VOICE_CAP,
+  MAIN_INPUT_EXTENSION_TAG,
+  MAIN_INPUT_MAX_ACTIONS,
+  MAIN_INPUT_MAX_ACTION_NAME_BYTES,
+  MAIN_INPUT_MAX_CONTROL_ID_BYTES,
+  MAIN_INPUT_MAX_CONTROLS,
   MAIN_MAGIC,
   MAIN_MAX_MINOR,
   MAIN_MIN_MINOR,
@@ -35,6 +40,7 @@ import {
   MAIN_SECTION,
   type MainFile,
   type MainFileAudioSettings,
+  type MainFileInputSettings,
 } from "./model.ts";
 import { asciiLower } from "./layout.ts";
 
@@ -317,7 +323,8 @@ function checkModel(writer: BinaryWriter, model: MainFile): Result<never> | unde
     if (seen.has(folded)) return fail(writer, `duplicate TKR package name "${name}" (docs/spec/formats/main-file.md#tkr-package-list-extension)`);
     seen.add(folded);
   }
-  return checkAudioSettings(writer, model.audioSettings);
+  const audioError = checkAudioSettings(writer, model.audioSettings);
+  return audioError ?? checkInputSettings(writer, model.inputSettings);
 }
 
 /**
@@ -356,6 +363,30 @@ function checkAudioSettings(writer: BinaryWriter, settings: MainFileAudioSetting
   const font = settings.defaultSoundFont;
   if (font !== null && (typeof font !== "string" || font.length === 0 || font.length > MAIN_AUDIO_MAX_FONT_BYTES || font.includes("\0"))) {
     return fail(writer, `a TKR audio default SoundFont must be 1–${MAIN_AUDIO_MAX_FONT_BYTES} bytes and must not contain NUL (${anchor})`);
+  }
+  return undefined;
+}
+/** Validate the optional action-binding block before any bytes are written. */
+function checkInputSettings(writer: BinaryWriter, settings: MainFileInputSettings | null): Result<never> | undefined {
+  if (settings === null) return undefined;
+  const anchor = "docs/spec/formats/main-file.md#tkr-input-extension";
+  if (settings === undefined || typeof settings !== "object" || typeof settings.controllerEnabled !== "boolean" || !settings.actions || typeof settings.actions !== "object" || Array.isArray(settings.actions)) {
+    return fail(writer, `TKR input settings must be null or a complete settings object (${anchor})`);
+  }
+  const names = Object.keys(settings.actions);
+  if (names.length > MAIN_INPUT_MAX_ACTIONS) return fail(writer, `TKR input action count ${names.length} exceeds ${MAIN_INPUT_MAX_ACTIONS} (${anchor})`);
+  const actionPattern = /^(?:up|down|left|right|confirm|cancel|menu|game\.(?:[a-z][a-z0-9]*)(?:\.[a-z][a-z0-9]*)*)$/;
+  const controlPattern = /^(?:key:[A-Za-z][A-Za-z0-9]*|pad:(?:[0-9]|1[0-6])|pad:axis[01][+-])$/;
+  for (const name of names) {
+    const binding = settings.actions[name]!;
+    if (name.length === 0 || name.length > MAIN_INPUT_MAX_ACTION_NAME_BYTES || name.includes("\0") || !actionPattern.test(name)) return fail(writer, `invalid TKR action name "${name}" (${anchor})`);
+    if (!binding || typeof binding.locked !== "boolean" || !Array.isArray(binding.controls) || binding.controls.length > MAIN_INPUT_MAX_CONTROLS) return fail(writer, `invalid binding for TKR action "${name}" (${anchor})`);
+    const seen = new Set<string>();
+    for (const control of binding.controls) {
+      if (typeof control !== "string" || control.length === 0 || control.length > MAIN_INPUT_MAX_CONTROL_ID_BYTES || control.includes("\0") || !controlPattern.test(control)) return fail(writer, `invalid TKR control id "${String(control)}" (${anchor})`);
+      if (seen.has(control)) return fail(writer, `duplicate TKR control id "${control}" in action "${name}" (${anchor})`);
+      seen.add(control);
+    }
   }
   return undefined;
 }
@@ -606,6 +637,24 @@ export function writeMainFile(model: MainFile): Result<Uint8Array> {
       writer.u8(1);
       const font = writer.str(model.audioSettings.defaultSoundFont);
       if (!font.ok) return font;
+    }
+  }
+  // The input block follows audio settings and precedes opaque residue.
+  if (model.inputSettings !== null) {
+    writer.writeBytes(MAIN_INPUT_EXTENSION_TAG);
+    writer.u8(1);
+    writer.u8(model.inputSettings.controllerEnabled ? 1 : 0);
+    const actions = Object.entries(model.inputSettings.actions);
+    writer.u16(actions.length);
+    for (const [name, binding] of actions) {
+      const actionName = writer.str(name);
+      if (!actionName.ok) return actionName;
+      writer.u8(binding.locked ? 1 : 0);
+      writer.u16(binding.controls.length);
+      for (const control of binding.controls) {
+        const controlId = writer.str(control);
+        if (!controlId.ok) return controlId;
+      }
     }
   }
   writer.writeBytes(model.residue);

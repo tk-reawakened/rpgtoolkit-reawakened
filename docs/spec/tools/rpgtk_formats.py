@@ -122,6 +122,28 @@ def parse_gam(r):
         r.s16('pfHeuristic'); r.s32('drawVectors'); r.s32('pathColor'); r.s32('movementControls')
         for d in ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE']:
             r.s16(f'movementKey[{d}]')
+    # TKR extension order: package list, audio settings, input settings. The
+    # input block is shown field-by-field; unrelated trailing bytes stay opaque.
+    if r.d[r.p:r.p + 7] == b'TKRPLUG\0':
+        r.raw(7, 'TKR package-list marker', 'TKRPLUG\\0')
+        n = r.u16('TKR package count')
+        for i in range(n): r.string(f'TKR package[{i}]')
+    if r.d[r.p:r.p + 7] == b'TRKAUD\0':
+        r.raw(7, 'TKR audio-settings marker', 'TRKAUD\\0')
+        n = r.u16('TKR audio track count')
+        for i in range(n): r.string(f'TKR audio track[{i}]'); r.u16(f'TKR audio voice count[{i}]')
+        r.u16('TKR audio voice cap')
+        if r.u8('TKR audio font-present'): r.string('TKR audio default SoundFont')
+    if r.d[r.p:r.p + 7] == b'TRKINP\0':
+        r.raw(7, 'TKR input-settings marker', 'TRKINP\\0')
+        r.u8('TKR input schema')
+        r.u8('TKR controller enabled')
+        n = r.u16('TKR input action count')
+        for i in range(n):
+            r.string(f'TKR action[{i}] name')
+            r.u8(f'TKR action[{i}] flags')
+            c = r.u16(f'TKR action[{i}] control count')
+            for j in range(c): r.string(f'TKR action[{i}] control[{j}]')
 
 # ---------------------------------------------------------------- board (.brd)
 def parse_brd(r):
