@@ -248,7 +248,8 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
 
   // An untitled editor takes the tab's place, which hides the custom editor (retainContextWhenHidden: false).
   await editor.evaluate(() => { (window as ProofWindow & { __tkrAliveMarker?: string }).__tkrAliveMarker = "before-hiding"; });
-  await runCommandMatching(page, expect, "New Untitled", "a new untitled editor");
+  // Exercise recovery from a real palette dismissal before dispatch.
+  await runCommandMatching(page, expect, "New Untitled", "a new untitled editor", true);
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: /Untitled/ })).toBeVisible();
   await closeActiveEditor(page, expect);
   editor = await waitForEditorFrame(page, "settings editor shown again");
@@ -354,13 +355,29 @@ async function runCommand(page: Page, expect: Expect, title: string): Promise<vo
 }
 
 /** Accept the focused command with Enter, without waiting for a moving quick-pick row to become mouse-stable. */
-async function runCommandMatching(page: Page, expect: Expect, search: string, label: string): Promise<void> {
-  const commandInput = await commandPalette(page, expect);
-  await commandInput.fill(`>${search}`);
-  const command = page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
-  await expect(command, `VS Code selects ${label}`).toBeVisible();
+async function runCommandMatching(page: Page, expect: Expect, search: string, label: string, dismissFirstAttempt = false): Promise<void> {
+  const widget = page.locator(".quick-input-widget");
+  let commandInput: Locator | undefined;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      commandInput = await commandPalette(page, expect);
+      await commandInput.fill(`>${search}`);
+      if (dismissFirstAttempt && attempt === 0) {
+        await commandInput.press("Escape");
+        await expect(widget).toBeHidden();
+      }
+      const command = page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
+      await expect(command, `VS Code selects ${label}`).toBeVisible();
+      break;
+    } catch (error) {
+      if (attempt === 2 || await widget.isVisible()) throw error;
+      commandInput = undefined;
+    }
+  }
+  if (commandInput === undefined) throw new Error(`VS Code did not select ${label}`);
+  // Retry only before dispatch; once Enter is pressed, never execute the command again.
   await commandInput.press("Enter");
-  await expect(page.locator(".quick-input-widget")).toBeHidden();
+  await expect(widget).toBeHidden();
 }
 async function enableWorkbenchTraceLogging(page: Page, expect: Expect): Promise<void> {
   // Use VS Code's built-in logger controls so working-copy and backup-tracker trace events are captured.
