@@ -89,6 +89,7 @@ test("VS Code bridge accepts pre-battle character snapshots", async () => {
   const path = "Chrs/older.tem";
   const bytes = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/character/character_minor4.tem", import.meta.url)));
   const opened = await openSpriteDocument("character", createVscodeFileSystemWithPort({ path: "/project" }, {
+    isSymbolicLink: (type) => (type & 64) !== 0,
     isDirectory: (type) => (type & 2) !== 0,
     joinPath: (base, ...parts) => ({ path: `${base.path}/${parts.join("/")}` }),
     parent: (uri) => ({ path: uri.path.slice(0, uri.path.lastIndexOf("/")) }),
@@ -116,6 +117,7 @@ test("the VS Code sprite bridge previews project GIFs and saves edits that survi
   ]);
   const root = { path: "/project" };
   const port: VscodeFileSystemPort<typeof root> = {
+    isSymbolicLink: (type) => (type & 64) !== 0,
     isDirectory: (type) => (type & 2) !== 0,
     joinPath: (base, ...parts) => ({ path: `${base.path}/${parts.join("/")}` }),
     parent: (uri) => ({ path: uri.path.slice(0, uri.path.lastIndexOf("/")) }),
