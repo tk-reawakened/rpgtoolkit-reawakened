@@ -1,5 +1,6 @@
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import {
   BinaryReader,
@@ -509,6 +510,11 @@ test.describe("packaged movement policy", () => {
       await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${fixture.name}`);
       await page.waitForFunction(() => (window.__live?.tick ?? 0) >= 8);
       expect(await page.evaluate(() => window.__live?.diagnostics?.some(({ code }) => code === "input.gamepad-api-unavailable"))).toBeFalsy();
+      // This full-player proof takes several seconds because it starts, reloads, and advances a real browser session.
+      // Service workers are blocked for this group so they cannot bypass the generated package's Playwright routes.
+      await page.reload();
+      await page.waitForFunction(() => (window.__live?.tick ?? 0) >= 8);
+      expect(await page.evaluate(() => window.__live?.diagnostics?.some(({ code }) => code === "input.gamepad-api-unavailable"))).toBeFalsy();
 
       await page.keyboard.press("q");
       if (controller === "a stationary pad") {
@@ -523,6 +529,40 @@ test.describe("packaged movement policy", () => {
           code === "input.gamepad-api-unavailable" && file === "controller.gam"));
       }
     });
+  }
+});
+
+// Full integration proof: a service worker must install and control a real package on the next launch.
+test("controller policy survives a service-worker-controlled player reload", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "getGamepads", { configurable: true, value: () => [] });
+  });
+  const fixture = packageWithoutStartupProgram(
+    `controller-reload-${randomUUID()}.tpk`, undefined, 'wait()\nmainfile("controller.gam")\nend()',
+    { movementControls: 0, movementScanCodes: Array(8).fill(0), useJoystick: 0 }, true,
+  );
+  const packagePath = resolve("fixtures/packages", fixture.name);
+  const descriptorPath = `${packagePath}.json`;
+  writeFileSync(packagePath, fixture.packageBytes);
+  try {
+    writeFileSync(descriptorPath, JSON.stringify(fixture.descriptor));
+    await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${fixture.name}`);
+    await page.waitForFunction(() => (window.__live?.tick ?? 0) >= 8);
+    await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+    await page.reload();
+    await page.waitForFunction(() => navigator.serviceWorker.controller !== null && (window.__live?.tick ?? 0) >= 8);
+    expect(await page.evaluate(() => window.__live?.diagnostics?.some(({ code }) => code === "input.gamepad-api-unavailable"))).toBeFalsy();
+    await page.keyboard.press("q");
+    await page.waitForFunction(() => {
+      const probe = window as Window & { __session?: { engine: { gamepadPolicy(): { file: string } | null } } };
+      return probe.__session?.engine.gamepadPolicy()?.file === "controller.gam";
+    });
+    expect(await page.evaluate(() => window.__live?.diagnostics?.some(({ code }) => code === "input.gamepad-api-unavailable"))).toBeFalsy();
+  } finally {
+    unlinkSync(packagePath);
+    try { unlinkSync(descriptorPath); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
 });
 

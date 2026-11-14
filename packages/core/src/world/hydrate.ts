@@ -206,8 +206,10 @@ function worldBoard(
     runtime: {
       tileEdits: [],
       tileTypes: Array.from({ length: board.sizeL * grid.width * grid.height }, () => "NORMAL"),
+      tileBuffers: {},
     },
   };
+
   return bakeLights(hydrated);
 }
 

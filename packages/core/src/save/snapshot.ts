@@ -77,6 +77,7 @@ import { migrateMenuSections } from "../menu/migrate.ts";
 import { surfaceByteLength } from "../raster/surfaces.ts";
 import { assetKey } from "../formats/resolver/resolver.ts";
 import { createDisplaySection, HOST_FEATURES_SCHEMA_VERSION, DISPLAY_SCHEMA_VERSION, normalizeDisplayGeometry, normalizeHostFeatures } from "./sections/host.ts";
+import { boardGrid, COORD_ISO_ROTATED } from "../formats/board/model.ts";
 /** Upgrade the old empty battle placeholder to the fighter-reference section. */
 function migrateBattle(record: Record<string, unknown>, schema: Record<string, unknown>): void {
   const version = schema.battle;
@@ -222,13 +223,37 @@ function migrateHostSections(record: Record<string, unknown>, schema: Record<str
     schema[name] = versionNow;
   }
 }
-
 /** Upgrade old world snapshots while retaining field-by-field absence for the main-file fallback. */
+function migrateRotatedTileEditIndices(world: Record<string, unknown>): void {
+  if (!isRecord(world.board)) return;
+  const board = world.board;
+  const { sizeX, sizeY, coordType } = board;
+  if (
+    typeof sizeX !== "number" || !Number.isSafeInteger(sizeX) || sizeX <= 0
+    || typeof sizeY !== "number" || !Number.isSafeInteger(sizeY) || sizeY <= 0
+    || typeof coordType !== "number" || (coordType & COORD_ISO_ROTATED) === 0
+    || !isRecord(board.runtime) || !Array.isArray(board.runtime.tileEdits)
+  ) return;
+  const oldLayerArea = sizeX * sizeY;
+  const grid = boardGrid(sizeX, sizeY, coordType);
+  const newLayerArea = grid.width * grid.height;
+  if (!Number.isSafeInteger(oldLayerArea) || !Number.isSafeInteger(newLayerArea)) return;
+  for (const edit of board.runtime.tileEdits) {
+    if (!isRecord(edit) || typeof edit.index !== "number" || !Number.isSafeInteger(edit.index) || edit.index < 0) continue;
+    const layer = Math.floor(edit.index / oldLayerArea);
+    const withinLayerIndex = edit.index % oldLayerArea;
+    const migrated = layer * newLayerArea + withinLayerIndex;
+    if (!Number.isSafeInteger(migrated)) shapeError("the snapshot's world.board.runtime.tileEdits index cannot be migrated safely");
+    edit.index = migrated;
+  }
+}
+
 function migrateWorld(record: Record<string, unknown>, schema: Record<string, unknown>): void {
   const version = schema.world;
   if (typeof version !== "number") shapeError("the snapshot's `schema` has no numeric `world` version");
   if (version > SCHEMA_VERSIONS.world) shapeError(`the snapshot's world schema version ${String(version)} is newer than supported version ${SCHEMA_VERSIONS.world}`);
   const world = recordAt(record.world, "world");
+  if (version < SCHEMA_VERSIONS.world) migrateRotatedTileEditIndices(world);
   const movement = world.movement === undefined ? {} : recordAt(world.movement, "world.movement");
   world.movement = {
     walking: movement.walking === undefined ? null : movement.walking,

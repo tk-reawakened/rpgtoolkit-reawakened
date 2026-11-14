@@ -149,7 +149,7 @@ tracker_id = "#1359"
 slug = "epic-editor-p1"
 title = "P1 editor tools"
 covers = ["CAP-16"]
-after = [{ epic = 2, needs = "tile, artwork, actor and battle format readers/writers" }, { epic = 4, needs = "lighting and shared composition for editor/export" }, { epic = 10, needs = "existing language-service formatting and migration operations" }, { epic = 11, needs = "shared document, navigation, language and settings contracts" }, { epic = 12, needs = "board editing, shared sprite graphics and contextual tileset browser" }]
+after = [{ epic = 2, needs = "tile, artwork, actor and battle format readers/writers (2.2, 2.3, 2.6, 2.7, 2.8, 2.16)" }, { epic = 4, needs = "lighting and shared composition for editor/export (4.13, 4.14, 4.15, 4.18)" }, { epic = 10, needs = "existing language-service formatting and migration operations (10.5, 10.7)" }, { epic = 11, needs = "shared document, navigation, language and settings contracts (11.1, 11.2, 11.3, 11.4, 11.6, 11.7) and shared history/checkpoint recovery (11.14)" }, { epic = 27, needs = "existing native clip I/O (27.4), native-text authority integration (27.6), tile/pack contracts (27.11, 27.12) and their document/checker providers (27.13), before richer artwork source work" }, { epic = 12, needs = "board and browser providers (12.1, 12.2), shared sprite/animation/stamp and board objects (12.4, 12.7, 12.8, 12.11), native scene/collision integration (12.16, 12.17) and connected acceptance (12.12)" }]
 
 [[epic]]
 id = 14
