@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { BinaryReader, readBoard } from "@tk-reawakened/core";
+import { BinaryReader, readBoard, writeTileBitmap } from "@tk-reawakened/core";
 import {
   boardExtent,
   boardToScreen,
@@ -24,6 +24,31 @@ import {
 
 const tileset = Array.from(readFileSync(new URL("../../../docs/spec/examples/versions/tileset/tileset_detail1.tst", import.meta.url)));
 const VIEW = { width: 640, height: 384 };
+/**
+ * The page that hosts the workbench. This is the proof page `workbench.html`, not yet the shipped `index.html`, which shows
+ * settings only (#2355). When the shipped page hosts the shared workbench, point this at its URL.
+ */
+const WORKBENCH_URL = "/tools/browser/editor-web/workbench.html";
+
+/** A one-cell tile bitmap of the second tile with a red-and-blue-shifting tint: stamping it over that tile changes only the shading. */
+const tintStamp = (() => {
+  const written = writeTileBitmap({
+    magic: "TK3 TILEBITMAP",
+    major: 3,
+    minor: 0,
+    width: 1,
+    height: 1,
+    cells: [
+      { tile: "village.tst2", r: 90, g: 0, b: -60 },
+      { tile: "", r: 0, g: 0, b: 0 },
+      { tile: "", r: 0, g: 0, b: 0 },
+      { tile: "", r: 0, g: 0, b: 0 },
+    ],
+    residue: new Uint8Array(0),
+  });
+  if (!written.ok) throw new Error(written.error.message);
+  return Array.from(written.value);
+})();
 
 interface ProofWindow extends Window { __tkrCspViolations?: string[] }
 
@@ -85,8 +110,8 @@ for (const system of SYSTEMS) {
         (target.__tkrCspViolations ??= []).push(event.effectiveDirective);
       });
     });
-    const folder = await installFolder(page, [{ path: "Tiles/village.tst", bytes: tileset }]);
-    await page.goto("/tools/browser/editor-web/workbench.html");
+    const folder = await installFolder(page, [{ path: "Tiles/village.tst", bytes: tileset }, { path: "Bitmap/tint.tbm", bytes: tintStamp }]);
+    await page.goto(WORKBENCH_URL);
     await page.getByRole("button", { name: "Open project folder" }).click();
 
     // The board is made through the workbench's own dialog.
@@ -249,6 +274,34 @@ for (const system of SYSTEMS) {
     await page.keyboard.press("Control+z");
     await expect.poll(() => tileButtons(page, "village.tst2").count()).toBe(base);
     await expect(state(page)).toHaveText("All changes saved");
+
+    // A stamp that changes only the shading (the tile under it is the stamp's own tile) still redraws the rendered canvas,
+    // and so do its Undo and Redo. The picture depends on the shading as well as the tiles.
+    await page.getByRole("button", { name: "Draw", exact: true }).click();
+    await canvas.scrollIntoViewIfNeeded();
+    box = (await canvas.boundingBox())!;
+    const middleOfCell = onPage(box, viewport, shape, centre);
+    await page.mouse.click(middleOfCell.x, middleOfCell.y);
+    await expect(tileButtons(page, "village.tst2")).toHaveCount(base + 1);
+    // Only the second layer is shown, so the pixel under test is that layer's own (the first layer's tile is drawn there too).
+    await page.getByLabel("Layer 1", { exact: false }).first().uncheck();
+    await expect.poll(pixel).not.toBe(emptyPixel);
+    const plainPixel = await pixel();
+    await page.locator(".tkr-tileset-browser select").selectOption("Bitmap/tint.tbm");
+    await page.locator('[data-browser-reference="tint.tbm"] .tkr-tileset-browser-source').click();
+    await expect(page.locator(".tkr-board-brush-state")).toHaveText("Stamp: tint.tbm, 1 × 1 cells");
+    // Choosing the source scrolled the page: measure the canvas again before pointing at it.
+    await canvas.scrollIntoViewIfNeeded();
+    box = (await canvas.boundingBox())!;
+    const stampAt = onPage(box, viewport, shape, centre);
+    await page.mouse.click(stampAt.x, stampAt.y);
+    await expect(tileButtons(page, "village.tst2")).toHaveCount(base + 1);
+    await expect.poll(pixel, { message: "the canvas shows the tint although no tile changed" }).not.toBe(plainPixel);
+    const tintedPixel = await pixel();
+    await page.keyboard.press("Control+z");
+    await expect.poll(pixel, { message: "the canvas shows the undo of the tint" }).toBe(plainPixel);
+    await page.keyboard.press("Control+Shift+z");
+    await expect.poll(pixel, { message: "the canvas shows the redo of the tint" }).toBe(tintedPixel);
     expect(await page.evaluate(() => (window as ProofWindow).__tkrCspViolations ?? [])).toEqual([]);
   });
 }

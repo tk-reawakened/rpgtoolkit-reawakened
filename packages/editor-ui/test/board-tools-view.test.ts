@@ -432,3 +432,106 @@ test("flood preferences are read when the gesture happens: a change after the vi
   equal(tool(s, "flood").getAttribute("aria-pressed"), "true", "the tool stayed, as the new preference says");
   equal(tileAt(s, 1, s.centre), ROCK, "and the fill went through the other layer");
 });
+
+/** The rendered canvas of a view: what the last `drawImage` onto the board canvas took its pixels from (the engine's picture). */
+function captureRenderedPicture(): { pixelAt(canvas: HTMLCanvasElement, x: number, y: number): string; restore(): void } {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "getContext");
+  const pictures = new WeakMap<HTMLCanvasElement, { data: Uint8ClampedArray; width: number }>();
+  const shown = new WeakMap<HTMLCanvasElement, HTMLCanvasElement>();
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value: function (this: HTMLCanvasElement) {
+      const canvas = this;
+      const noop = (): void => undefined;
+      return new Proxy({}, {
+        get: (_target, property) => {
+          if (property === "putImageData") return (image: ImageData) => { pictures.set(canvas, { data: image.data, width: image.width }); };
+          if (property === "drawImage") return (source: HTMLCanvasElement) => { shown.set(canvas, source); };
+          if (property === "createImageData") return (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) });
+          return noop;
+        },
+        set: () => true,
+      }) as unknown as CanvasRenderingContext2D;
+    },
+  });
+  return {
+    pixelAt(canvas, x, y) {
+      const source = shown.get(canvas);
+      const picture = source === undefined ? undefined : pictures.get(source);
+      if (picture === undefined) return "not drawn";
+      const at = (y * picture.width + x) * 4;
+      return [...picture.data.subarray(at, at + 4)].join(",");
+    },
+    restore() {
+      if (descriptor !== undefined) Object.defineProperty(HTMLCanvasElement.prototype, "getContext", descriptor);
+    },
+  };
+}
+
+test("a stamp that changes only the shading redraws the canvas, and so do its undo and redo (rendered pixels)", async () => {
+  const bitmap: TileBitmap = {
+    magic: TILE_BITMAP_MAGIC,
+    major: 3,
+    minor: 0,
+    width: 1,
+    height: 1,
+    cells: [
+      { tile: ROCK, r: 90, g: 0, b: -60 },
+      { tile: "", r: 0, g: 0, b: 0 },
+      { tile: "", r: 0, g: 0, b: 0 },
+      { tile: "", r: 0, g: 0, b: 0 },
+    ],
+    residue: new Uint8Array(),
+  };
+  const written = writeTileBitmap(bitmap);
+  ok(written.ok);
+  const rendering = captureRenderedPicture();
+  try {
+    const s = await setup("2d", { files: { "Bitmap/tint.tbm": written.value } });
+    await brush(s, ROCK);
+    await click(s, s.centre);
+    await settle();
+    const target = canvas(s);
+    const pixel = (): string => rendering.pixelAt(target, s.centre.x * 32 + 16, s.centre.y * 32 + 16);
+    const plain = pixel();
+    ok(plain !== "not drawn" && !plain.startsWith("0,0,0,"), `the tile is drawn: ${plain}`);
+    // The stamp's one cell is the tile already there, so only the shading changes.
+    await act(() => s.session.update({ selection: { kind: "bitmaps", path: "Bitmap/tint.tbm", reference: "tint.tbm", label: "tint.tbm", boardTile: null } as never }));
+    await settle();
+    const edits = s.host.editedEvents.length;
+    await click(s, s.centre);
+    await settle();
+    equal(s.host.editedEvents.length, edits + 1, "a shade-only stamp is an edit");
+    const tinted = pixel();
+    ok(tinted !== plain, `the canvas shows the tint: ${plain} then ${tinted}`);
+    await act(() => button(s, ".tkr-board-undo").click());
+    await settle();
+    equal(pixel(), plain, "the canvas shows the undo");
+    await act(() => button(s, ".tkr-board-redo").click());
+    await settle();
+    equal(pixel(), tinted, "the canvas shows the redo");
+  } finally {
+    rendering.restore();
+  }
+});
+
+test("a preference changed with no render in between is the one the next keyboard gesture uses", async () => {
+  const s = await setup("2d");
+  await brush(s, ROCK);
+  await act(() => tool(s, "flood").click());
+  const first = (): HTMLButtonElement => s.el.querySelector<HTMLButtonElement>('.tkr-board-cell[tabindex="0"]')!;
+  // The source changes and Space follows in the same turn: Space on a cell sets the cursor and applies the tool in one
+  // handler, so the view has not drawn again since the source changed. A copy taken at the last render would be stale.
+  s.prefs = { revertToDrawAfterFlood: false, recursiveFlood: true };
+  await act(() => { first().dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true })); });
+  await settle();
+  equal(tool(s, "flood").getAttribute("aria-pressed"), "true", "the new 'stay on Flood' preference was used");
+  equal(tileAt(s, 1, { x: 0, y: 0 }), ROCK, "and the new 'across layers' preference was used");
+  // And back the other way with the same shortcut.
+  await act(() => tool(s, "flood").click());
+  s.prefs = { revertToDrawAfterFlood: true, recursiveFlood: false };
+  await brush(s, GRASS);
+  await act(() => { first().dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true })); });
+  await settle();
+  equal(tool(s, "draw").getAttribute("aria-pressed"), "true", "the changed 'return to Draw' preference was used");
+});

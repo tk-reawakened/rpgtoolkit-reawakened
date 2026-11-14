@@ -637,24 +637,33 @@ test("an iso-rotated board's keyboard cursor starts on the board and reaches eve
   equal(reached.size, onBoard.length, "the arrow keys reach every on-board cell");
 });
 
-test("a cursor left off the board by a change under the editor is brought back onto it", () => {
-  const s = rig("iso-rotated", 6, 5, 1);
-  const off = (() => {
-    const board = s.doc.getSnapshot();
-    for (let y = 0; y < board.grid.height; y += 1) for (let x = 0; x < board.grid.width; x += 1) if (!cellOnBoard(board, x, y)) return { x, y };
-    throw new Error("no off-board cell");
-  })();
-  // A cursor can only be set on the board, so make the editor's state hold one that is not (a reload of another size).
+test("a cursor that was on the board and is left off it by a change under the editor is brought back onto it", () => {
   const wide = rig("2d", 12, 12, 1);
-  const editor = createBoardEditor({ board: () => wide.doc.getSnapshot(), apply: (command) => wide.doc.apply(command), brush: () => null, pickTile: () => false, preferences: () => DEFAULT_EDITOR_PREFERENCES });
-  editor.setCursor({ x: 11, y: 11 });
-  const rotated = s.doc.getSnapshot();
-  const moving = createBoardEditor({ board: () => rotated, apply: (command) => s.doc.apply(command), brush: () => null, pickTile: () => false, preferences: () => DEFAULT_EDITOR_PREFERENCES });
-  ok(!cellOnBoard(rotated, off.x, off.y));
-  deepEqual(moving.getState().cursor, moving.getState().cursor);
-  ok(cellOnBoard(rotated, moving.getState().cursor.x, moving.getState().cursor.y));
-  moving.sync();
-  ok(cellOnBoard(rotated, moving.getState().cursor.x, moving.getState().cursor.y));
+  const small = rig("2d", 6, 6, 1);
+  let current = wide.doc.getSnapshot();
+  const editor = createBoardEditor({ board: () => current, apply: (command) => wide.doc.apply(command), brush: () => null, pickTile: () => false, preferences: () => DEFAULT_EDITOR_PREFERENCES });
+  editor.setCursor({ x: 10, y: 9 });
+  deepEqual(editor.getState().cursor, { x: 10, y: 9 });
+  ok(cellOnBoard(current, 10, 9));
+  // The board under the editor is replaced by a smaller one (a reload): the cursor's cell is no longer on it.
+  current = small.doc.getSnapshot();
+  ok(!cellOnBoard(current, 10, 9), "the old cursor cell is now off the board");
+  editor.sync();
+  const repaired = editor.getState().cursor;
+  ok(cellOnBoard(current, repaired.x, repaired.y), `the cursor is back on the board at ${repaired.x},${repaired.y}`);
+  // And on an iso-rotated board, whose stored grid has cells with no place on the picture.
+  const rotated = rig("iso-rotated", 6, 5, 1);
+  const bigRotated = rig("iso-rotated", 12, 12, 1);
+  current = bigRotated.doc.getSnapshot();
+  const rotatedEditor = createBoardEditor({ board: () => current, apply: (command) => bigRotated.doc.apply(command), brush: () => null, pickTile: () => false, preferences: () => DEFAULT_EDITOR_PREFERENCES });
+  const far = { x: 20, y: 15 };
+  ok(cellOnBoard(current, far.x, far.y));
+  rotatedEditor.setCursor(far);
+  current = rotated.doc.getSnapshot();
+  ok(!cellOnBoard(current, far.x, far.y));
+  rotatedEditor.sync();
+  const back = rotatedEditor.getState().cursor;
+  ok(cellOnBoard(current, back.x, back.y), "an iso-rotated cursor is brought onto the picture too");
 });
 
 test("finishing a rectangle with Ctrl+Space fills it even when it was started without Ctrl, and the middle was empty", async () => {
@@ -668,15 +677,36 @@ test("finishing a rectangle with Ctrl+Space fills it even when it was started wi
   equal(tileAt(s, 0, 4, 4), GRASS, "Ctrl when the rectangle is finished fills it");
   equal(tileAt(s, 0, 3, 5), GRASS);
   equal(edits(s), 1);
-  // Without Ctrl at the end it stays hollow, even if Ctrl was held at the start.
-  s.editor.setCursor({ x: 0, y: 0 });
+});
+
+test("finishing a rectangle without Ctrl leaves it hollow even when Ctrl was held to start it", async () => {
+  const s = rig("2d", 10, 10, 1);
+  s.editor.setTool("rectangle");
+  s.editor.setCursor({ x: 2, y: 2 });
   await s.editor.activate(ctrl);
-  s.editor.moveCursor(1, 0);
-  s.editor.moveCursor(0, 1);
-  s.editor.moveCursor(1, 1);
-  s.editor.setCursor({ x: 8, y: 8 });
-  const hollowBefore = tileAt(s, 0, 7, 7);
-  equal(hollowBefore, "");
+  s.editor.moveCursor(4, 0);
+  s.editor.moveCursor(0, 4);
+  deepEqual(s.editor.getState().pending !== null && s.editor.getState().pending!.kind, "corner", "the first corner is still pending");
+  await s.editor.activate(none);
+  equal(edits(s), 1);
+  for (let y = 2; y <= 6; y += 1) {
+    for (let x = 2; x <= 6; x += 1) {
+      const edge = x === 2 || x === 6 || y === 2 || y === 6;
+      equal(tileAt(s, 0, x, y), edge ? GRASS : "", `column ${x}, row ${y} is ${edge ? "on the edge" : "inside"}`);
+    }
+  }
+});
+
+test("a command with a valid tile and a shade for a place the board does not have is refused whole (#2543)", () => {
+  const s = rig("2d", 6, 6, 2);
+  const before = s.doc.serialize();
+  for (const bad of [{ layer: 0, x: 9, y: 0 }, { layer: 5, x: 0, y: 0 }, { layer: 0, x: -1, y: 0 }, { layer: 0, x: 0.5, y: 0 }]) {
+    const refused = s.doc.apply({ type: "set-tiles", gesture: "stamp", cells: [{ layer: 0, x: 1, y: 1, tile: GRASS }], shades: [{ layer: 0, x: 2, y: 2, r: 10, g: 0, b: 0 }, { ...bad, r: 5, g: 0, b: 0 }] });
+    equal(refused.ok, false, JSON.stringify(bad));
+    match(refused.ok ? "" : refused.rejection.message, /outside the board/);
+    deepEqual(s.doc.serialize(), before, "neither the tile nor the good tint was applied");
+  }
+  equal(edits(s), 0);
 });
 
 test("a pointer drag with Ctrl held only when it is released fills the rectangle", async () => {
@@ -701,4 +731,43 @@ test("releasing a Draw or Erase drag somewhere the last move did not reach paint
   await s.editor.pointerUp(at(s, { x: 6, y: 1 }), none);
   for (const x of [1, 2, 3, 4, 5, 6]) equal(tileAt(s, 0, x, 1), "", `erased column ${x}`);
   equal(tileAt(s, 0, 7, 1), GRASS, "past the release cell is untouched");
+});
+
+test("one command that tints the same cell on several layers sets every one of them, atomically, and survives undo, save and reopen (#2542)", async () => {
+  const s = rig("2d", 6, 6, 3);
+  const before = s.doc.serialize();
+  const same = { x: 2, y: 3 };
+  const result = s.doc.apply({
+    type: "set-tiles",
+    gesture: "stamp",
+    cells: [],
+    shades: [
+      { layer: 0, ...same, r: 10, g: 20, b: 30 },
+      { layer: 1, ...same, r: -40, g: 0, b: 5 },
+      { layer: 2, ...same, r: 100, g: -100, b: 0 },
+      // A later assignment for the same layer and cell wins.
+      { layer: 2, ...same, r: 70, g: -70, b: 0 },
+    ],
+  });
+  ok(result.ok, result.ok ? "" : result.rejection.message);
+  equal(edits(s), 1, "three layers, one edit");
+  deepEqual(tintOn(s, 0, same.x, same.y), [10, 20, 30]);
+  deepEqual(tintOn(s, 1, same.x, same.y), [-40, 0, 5]);
+  deepEqual(tintOn(s, 2, same.x, same.y), [70, -70, 0]);
+  deepEqual(tintOn(s, 1, same.x + 1, same.y), [0, 0, 0], "a neighbouring cell is untouched");
+  const once = s.doc.serialize();
+  // Saved and opened again, the board holds the same tints.
+  const host = createMemoryPlatformServices({ files: { "Boards/t.brd": once } });
+  const reopened = createBoardDocument(host.fs, createDocumentIdentity("memory-project", "Boards/t.brd"), once);
+  ok(reopened.ok);
+  if (reopened.ok) {
+    equal(reopened.document.getSnapshot().readOnly, null, "a board with shading is still written by the same-version writer");
+    deepEqual(reopened.document.serialize(), once);
+  }
+  // Setting the same tints again changes nothing; one Undo takes all three layers back.
+  equal(s.doc.apply({ type: "set-tiles", gesture: "stamp", cells: [], shades: [{ layer: 0, ...same, r: 10, g: 20, b: 30 }, { layer: 2, ...same, r: 70, g: -70, b: 0 }] }).ok, false);
+  ok(s.doc.undo().ok);
+  deepEqual(s.doc.serialize(), before);
+  ok(s.doc.redo().ok);
+  deepEqual(s.doc.serialize(), once);
 });

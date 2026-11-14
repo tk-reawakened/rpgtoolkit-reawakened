@@ -98,6 +98,12 @@ export interface BoardDocumentFields {
   readonly layerTitles: readonly string[];
   /** The tile lookup table: `tileMatrix` holds indices into it, and `""` is the empty cell. */
   readonly lut: readonly string[];
+  /**
+   * The tile shading layers, as stored (`docs/spec/formats/board.md#tile-shading`). The picture depends on them, so a view that
+   * redraws the picture when the tiles change redraws it when this does: the array is the model's own and is replaced only
+   * when the shading changes (a stamp's tints, or an undo or redo of them).
+   */
+  readonly shadeLayers: readonly BoardShadeLayer[];
   /** One lookup-table index per cell, layer-major then row-major (`docs/spec/formats/board.md#vector-layout-minor-4-and-later`). */
   readonly tileMatrix: readonly number[];
 }
@@ -258,13 +264,18 @@ function planShades(board: Board, shades: readonly ShadeAssignment[]): { readonl
     return layers.length - 1;
   };
   const changed = new Set<number>();
+  // One wanted tint per cell *and layer*: the same cell on two layers is two assignments, and a later one for the same layer wins.
   const final = new Map<number, ShadeAssignment>();
   for (const shade of shades) {
-    // The shading has no layers of its own: a cell is its place in the grid.
-    if (cellOf(grid, board.sizeL, shade.layer, shade.x, shade.y) !== null) final.set(shade.y * grid.width + shade.x, shade);
+    const key = cellOf(grid, board.sizeL, shade.layer, shade.x, shade.y);
+    // A tint for a place the board does not have is a refusal, never a silent skip: the command is all or nothing.
+    if (key === null) return { ok: false, message: `Layer ${shade.layer}, column ${shade.x}, row ${shade.y} is outside the board, so it cannot be tinted.` };
+    final.set(key, shade);
   }
   const edits: { cell: number; layerNumber: number; delta: readonly [number, number, number] }[] = [];
-  for (const [cell, shade] of final) {
+  for (const shade of final.values()) {
+    // The shading has no layers of its own: a cell is its place in the grid.
+    const cell = shade.y * grid.width + shade.x;
     const layerNumber = shade.layer + 1;
     const wanted = [shade.r, shade.g, shade.b] as const;
     if (!wanted.every((channel) => Number.isInteger(channel) && channel >= SHADE_MIN && channel <= SHADE_MAX)) {
@@ -419,6 +430,7 @@ export const boardCodec: DocumentCodec<Board, BoardCommand, BoardDocumentFields>
     layerTitles: model.layerTitles,
     lut: model.lut,
     tileMatrix: model.tileMatrix,
+    shadeLayers: model.shadeLayers,
   }),
 };
 

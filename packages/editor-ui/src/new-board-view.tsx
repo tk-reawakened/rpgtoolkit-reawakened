@@ -39,6 +39,8 @@ export function NewBoardView({ initial, templates, describeTemplate, onCreate, o
   const [attempted, setAttempted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  /** A template has been chosen and its layout, size and background are still being read: the fields are not its yet. */
+  const [describing, setDescribing] = useState(false);
   const first = useRef<HTMLInputElement>(null);
   /** Counts template choices, so a slow answer for an earlier choice never replaces a later one. */
   const choice = useRef(0);
@@ -53,11 +55,16 @@ export function NewBoardView({ initial, templates, describeTemplate, onCreate, o
   const choose = (template: string): void => {
     const mine = ++choice.current;
     setFailure(null);
-    if (template === "") return setSettings({ ...settings, template: null });
+    if (template === "") {
+      setDescribing(false);
+      return setSettings({ ...settings, template: null });
+    }
+    setDescribing(true);
     // Shown at once, so the list says what was chosen while the template is read.
     setSettings({ ...settings, template });
     void describeTemplate(template).then((found) => {
       if (mine !== choice.current) return;
+      setDescribing(false);
       if (typeof found === "string") {
         setSettings((current) => ({ ...current, template: null }));
         return setFailure(found);
@@ -75,7 +82,8 @@ export function NewBoardView({ initial, templates, describeTemplate, onCreate, o
   const submit = (event: Event): void => {
     event.preventDefault();
     setAttempted(true);
-    if (problems.length > 0 || busy) return;
+    // A template's own layout, size and background are what the fields must hold when it is chosen: wait for them.
+    if (problems.length > 0 || busy || describing) return;
     setBusy(true);
     setFailure(null);
     void onCreate(typed).then((result) => { if (!result.ok) setFailure(result.message); }).finally(() => setBusy(false));
@@ -127,7 +135,8 @@ export function NewBoardView({ initial, templates, describeTemplate, onCreate, o
         <input id={`${ids}-background`} type="text" value={settings.backgroundImage} aria-describedby={described("background", "backgroundImage")} onInput={(event) => setSettings({ ...settings, backgroundImage: event.currentTarget.value })} />
       ))}
       {failure === null ? null : <p class="tkr-new-board-error" role="alert">{failure}</p>}
-      <button type="submit" class="tkr-new-board-create" disabled={busy}>Create board</button>
+      {describing ? <p class="tkr-new-board-summary" role="status">Reading the template…</p> : null}
+      <button type="submit" class="tkr-new-board-create" disabled={busy || describing}>Create board</button>
       <button type="button" class="tkr-new-board-cancel" disabled={busy} onClick={cancel}>Cancel</button>
     </form>
   );

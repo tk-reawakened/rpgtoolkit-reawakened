@@ -202,7 +202,9 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
       (error: unknown) => { if (current) setPicture({ ok: false, message: error instanceof Error ? error.message : String(error) }); },
     );
     return () => { current = false; };
-  }, [doc, snapshot.tileMatrix, snapshot.lut, requestKey]);
+  // Everything the picture is made of that an edit can change: the tiles and their references, and the shading (a stamp can
+  // change only the shading, and so can its undo and redo).
+  }, [doc, snapshot.tileMatrix, snapshot.lut, snapshot.shadeLayers, requestKey]);
 
   useEffect(() => {
     if (!focusCell.current) return;

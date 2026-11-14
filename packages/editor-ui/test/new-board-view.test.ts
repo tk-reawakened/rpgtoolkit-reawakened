@@ -189,3 +189,38 @@ test("Cancel and Escape do nothing while the board is being made, so a board is 
   await act(() => rig.el.querySelector<HTMLButtonElement>(".tkr-new-board-cancel")!.click());
   equal(rig.cancelled, 1);
 });
+
+test("a chosen template cannot be created from until its own layout, size and background have been read (#2546)", async () => {
+  const rig = await show([{ path: "Boards/start.brd", name: "start.brd" }]);
+  rig.hold = true;
+  await type(field(rig, "Name"), "second");
+  const select = field<HTMLSelectElement>(rig, "Start from");
+  await act(() => { select.value = "Boards/start.brd"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  const create = rig.el.querySelector<HTMLButtonElement>(".tkr-new-board-create")!;
+  equal(create.disabled, true, "Create waits for the template");
+  match(rig.el.textContent ?? "", /Reading the template/);
+  await submit(rig);
+  equal(rig.created.length, 0, "submitting with Enter does not make a board with the old size, layout or background either");
+  await act(async () => { rig.describing.get("Boards/start.brd")!(); await Promise.resolve(); });
+  await act(async () => { await Promise.resolve(); });
+  equal(create.disabled, false);
+  await submit(rig);
+  equal(rig.created.length, 1);
+  deepEqual(
+    [rig.created[0]?.template, rig.created[0]?.coordSystem, rig.created[0]?.width, rig.created[0]?.backgroundImage],
+    ["Boards/start.brd", "iso-rotated", 7, "sky.png"],
+    "the board is made with the template's own fields",
+  );
+});
+
+test("a template that cannot be read does not leave Create waiting", async () => {
+  const rig = await show([{ path: "Boards/bad.brd", name: "bad.brd" }]);
+  rig.hold = true;
+  const select = field<HTMLSelectElement>(rig, "Start from");
+  await act(() => { select.value = "Boards/bad.brd"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  equal(rig.el.querySelector<HTMLButtonElement>(".tkr-new-board-create")!.disabled, true);
+  await act(async () => { rig.describing.get("Boards/bad.brd")!(); await Promise.resolve(); });
+  await act(async () => { await Promise.resolve(); });
+  match(alerts(rig).join(" "), /gone/);
+  equal(rig.el.querySelector<HTMLButtonElement>(".tkr-new-board-create")!.disabled, false);
+});
