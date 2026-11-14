@@ -1,4 +1,4 @@
-import { kindForPath, classifyImageReference, spriteAnimationCanvasPreview, spriteAnimationPreview, spriteBasesFromFile, spriteGifPreview, spritePicturePreview, spriteProjectAssetPath, spriteTileAnimationFirstFrame, spriteTileBitmapPreview, spriteTileBitmapReferences, spriteTilePreview, type ActorBase, type ActorPoint, type ApplyResult, type SaveResult, type SpriteCommand, type SpriteDocumentSnapshot, type SpritePreviewFrame } from "@tk-reawakened/editor-model";
+import { kindForPath, classifyImageReference, spriteAnimationCanvasPreview, spriteAnimationPreview, spriteBasesFromFile, spriteGifPreview, spritePicturePreview, spriteProjectAssetPath, spriteTileBitmapPreviewFromAssets, spriteTileFrameFromReference, type ActorBase, type ActorPoint, type ApplyResult, type SaveResult, type SpriteCommand, type SpriteDocumentSnapshot, type SpritePreviewFrame } from "@tk-reawakened/editor-model";
 import type { Capabilities, DocumentEdited, FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useDocumentSnapshot } from "./use-document.ts";
@@ -48,27 +48,9 @@ function tileAnimationPath(reference: string): boolean {
   return reference.toLowerCase().endsWith(".tan");
 }
 
-async function readTileFrame(fs: Pick<FileSystemService, "readProject">, projectId: string, reference: string, depth = 0): Promise<SpritePreviewFrame | null> {
-  if (depth >= 8) return null;
-  if (tileAnimationPath(reference)) {
-    const path = imagePath("Tiles", reference);
-    const read = await fs.readProject(projectId, path);
-    if (!read.ok) return null;
-    const firstFrame = spriteTileAnimationFirstFrame(read.value, path);
-    return firstFrame === null ? null : readTileFrame(fs, projectId, firstFrame, depth + 1);
-  }
-  const tile = classifyImageReference(reference);
-  if (tile.kind === "tile") {
-    const path = imagePath("Tiles", tile.tileset);
-    const read = await fs.readProject(projectId, path);
-    return read.ok ? spriteTilePreview(read.value, path, tile.index) : null;
-  }
-  if (tile.kind === "singleTile") {
-    const path = imagePath("Tiles", tile.path);
-    const read = await fs.readProject(projectId, path);
-    return read.ok ? spriteTilePreview(read.value, path) : null;
-  }
-  return null;
+async function readProjectAsset(fs: Pick<FileSystemService, "readProject">, projectId: string, path: string): Promise<Uint8Array | null> {
+  const read = await fs.readProject(projectId, path);
+  return read.ok ? read.value : null;
 }
 
 function spritePoint(svg: SVGSVGElement, clientX: number, clientY: number): ActorPoint | null {
@@ -128,21 +110,13 @@ function AnimationPreview({ file, fs, projectId, id }: { readonly file: string; 
         let source: SpritePreviewFrame | null = null;
         let isPicture = false;
         if (reference.kind === "tile" || reference.kind === "singleTile" || tileAnimationPath(frame.image)) {
-          source = await readTileFrame(fs, projectId, frame.image);
+          source = await spriteTileFrameFromReference(frame.image, (path) => readProjectAsset(fs, projectId, path));
         } else if (reference.kind === "tileBitmap") {
           const bitmapPath = imagePath("Bitmap", reference.path);
           const bitmap = await fs.readProject(projectId, bitmapPath);
           if (bitmap.ok) {
-            const refs = spriteTileBitmapReferences(bitmap.value, bitmapPath);
-            if (refs !== null) {
-              const tiles = new Map<string, SpritePreviewFrame>();
-              for (const tileReference of refs) {
-                const tile = await readTileFrame(fs, projectId, tileReference);
-                if (tile !== null) tiles.set(tileReference, tile);
-              }
-              source = spriteTileBitmapPreview(bitmap.value, bitmapPath, tiles);
-              isPicture = true;
-            }
+            source = await spriteTileBitmapPreviewFromAssets(bitmap.value, bitmapPath, (path) => readProjectAsset(fs, projectId, path));
+            isPicture = true;
           }
         } else if (reference.kind === "picture") {
           const imageFile = imagePath("Bitmap", reference.path);

@@ -1,4 +1,5 @@
 import {
+  classifyImageReference,
   BinaryReader,
   assetKey,
   compositeTileBitmap,
@@ -21,7 +22,7 @@ import {
   type TileBitmapTile,
 } from "@tk-reawakened/core";
 export type { ActorBase, ActorPoint } from "@tk-reawakened/core";
-export { classifyImageReference } from "@tk-reawakened/core";
+export { classifyImageReference };
 import {
   createBinaryDocument,
   openBinaryDocument,
@@ -310,6 +311,51 @@ export function spriteProjectAssetPath(folder: string, reference: string): strin
 export function spriteTileAnimationFirstFrame(bytes: Uint8Array, path: string): string | null {
   const animation = readTileAnimation(new BinaryReader(bytes, path));
   return animation.ok ? animation.value.frames[0] ?? null : null;
+}
+export type SpriteAssetLoader = (path: string) => Promise<Uint8Array | null>;
+
+/** Resolve a direct tile, single-tile graphic, or animated tile using project-relative asset paths. */
+export async function spriteTileFrameFromReference(
+  reference: string,
+  load: SpriteAssetLoader,
+  depth = 0,
+): Promise<SpritePreviewFrame | null> {
+  if (depth >= 8) return null;
+  if (reference.toLowerCase().endsWith(".tan")) {
+    const path = spriteProjectAssetPath("Tiles", reference);
+    const bytes = await load(path);
+    if (bytes === null) return null;
+    const firstFrame = spriteTileAnimationFirstFrame(bytes, path);
+    return firstFrame === null ? null : spriteTileFrameFromReference(firstFrame, load, depth + 1);
+  }
+  const tile = classifyImageReference(reference);
+  if (tile.kind === "tile") {
+    const path = spriteProjectAssetPath("Tiles", tile.tileset);
+    const bytes = await load(path);
+    return bytes === null ? null : spriteTilePreview(bytes, path, tile.index);
+  }
+  if (tile.kind === "singleTile") {
+    const path = spriteProjectAssetPath("Tiles", tile.path);
+    const bytes = await load(path);
+    return bytes === null ? null : spriteTilePreview(bytes, path);
+  }
+  return null;
+}
+
+/** Compose a TBM after resolving its tile refs, including TAN refs, through the shared project asset loader. */
+export async function spriteTileBitmapPreviewFromAssets(
+  bytes: Uint8Array,
+  path: string,
+  load: SpriteAssetLoader,
+): Promise<SpritePreviewFrame | null> {
+  const references = spriteTileBitmapReferences(bytes, path);
+  if (references === null) return null;
+  const tiles = new Map<string, SpritePreviewFrame>();
+  for (const reference of references) {
+    const frame = await spriteTileFrameFromReference(reference, load);
+    if (frame !== null) tiles.set(reference, frame);
+  }
+  return spriteTileBitmapPreview(bytes, path, tiles);
 }
 
 /** Draw a picture on the ANM canvas; direct tile frames retain their native size and transparency. */

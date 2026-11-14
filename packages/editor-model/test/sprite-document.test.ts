@@ -4,7 +4,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { createDocumentIdentity, openSpriteDocument, spriteAnimationCanvasPreview, spriteAnimationPreview, spriteGifPreview, spritePicturePreview, spriteProjectAssetPath, spriteTileAnimationFirstFrame, spriteTileBitmapPreview, spriteTileBitmapReferences, spriteTilePreview, type SpriteActorKind, type SpriteDocument } from "../src/index.ts";
+import { createDocumentIdentity, openSpriteDocument, spriteAnimationCanvasPreview, spriteAnimationPreview, spriteGifPreview, spritePicturePreview, spriteProjectAssetPath, spriteTileAnimationFirstFrame, spriteTileBitmapPreview, spriteTileBitmapPreviewFromAssets, spriteTileBitmapReferences, spriteTilePreview, type SpriteActorKind, type SpriteDocument } from "../src/index.ts";
+import { BinaryReader, readTileBitmap, writeTileBitmap } from "@tk-reawakened/core";
 import { exampleAnimation, exampleCharacter, exampleItem, examplePicture } from "./fixtures.ts";
 
 const COLLISION = { points: [{ x: -18, y: -16 }, { x: 18, y: -16 }, { x: 18, y: 0 }, { x: -18, y: 0 }] };
@@ -101,7 +102,7 @@ test("older actor formats stay at their original minor and refuse fields not sto
   }
 });
 
-test("sprite previews preserve ANM canvases and frame keys, decode tile references and compose tile bitmaps", () => {
+test("sprite previews preserve ANM canvases and frame keys, resolve TAN tiles inside TBM pictures, and compose tile bitmaps", async () => {
   const animation = spriteAnimationPreview(exampleAnimation(), "Misc/animation_minor3.anm");
   ok(animation !== null);
   equal(animation.width, 32);
@@ -141,6 +142,35 @@ test("sprite previews preserve ANM canvases and frame keys, decode tile referenc
   ok(composed !== null);
   equal(composed.width, 64);
   equal(composed.height, 32);
+  const parsed = readTileBitmap(new BinaryReader(bitmap, "Bitmap/test.tbm"));
+  ok(parsed.ok);
+  let replaced = false;
+  const tanBitmap = writeTileBitmap({
+    ...parsed.value,
+    cells: parsed.value.cells.map((cell) => {
+      if (cell.tile === "village.tst8") {
+        replaced = true;
+        return { ...cell, tile: "water.tan" };
+      }
+      return cell.tile === "village.tst9" ? { ...cell, tile: "village.tst1" } : cell;
+    }),
+  });
+  ok(tanBitmap.ok && replaced, "the fixture's first TBM tile was replaced by a TAN reference");
+  const water = new Uint8Array(readFileSync(tanPath));
+  const loadedPaths: string[] = [];
+  const resolved = await spriteTileBitmapPreviewFromAssets(tanBitmap.value, "Bitmap/test.tbm", async (path) => {
+    loadedPaths.push(path);
+    if (path === "Tiles/water.tan") return water;
+    if (path === "Tiles/village.tst") return tiles;
+    return null;
+  });
+  ok(resolved !== null);
+  deepEqual(loadedPaths, ["Tiles/water.tan", "Tiles/village.tst", "Tiles/village.tst"], "a TAN cell resolves its first frame through the nested Tiles asset root");
+  const expected = spriteTileBitmapPreview(tanBitmap.value, "Bitmap/test.tbm", new Map([["water.tan", tile9], ["village.tst1", tile]]));
+  ok(expected !== null);
+  equal(resolved.width, expected.width);
+  equal(resolved.height, expected.height);
+  deepEqual(Array.from(resolved.rgba), Array.from(expected.rgba), "TBM pixels include the actual first TAN frame, not an unresolved/blank tile");
 });
 
 test("sprite picture and GIF previews use shared image decoders", () => {

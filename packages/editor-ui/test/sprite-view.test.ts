@@ -149,6 +149,40 @@ test("custom stance drafts stay with their stance across acknowledgement and del
   handle.dispose();
   s.el.remove();
 });
+test("conflict reload discards filename drafts and a later blur cannot restore them", async () => {
+  const path = "Chrs/conflict-reload.tem";
+  const s = await setup("character", path, exampleCharacter());
+  const remote = await openSpriteDocument("character", s.host.fs, createDocumentIdentity("memory-project", path));
+  if (!remote.ok) throw new Error("could not open the remote sprite revision");
+  ok((await s.doc.apply({ type: "set-sprite-timing", speed: 0.5, idleTime: 4 })).ok);
+  ok(remote.document.apply({ type: "set-sprite-timing", speed: 1.25, idleTime: 2 }).ok);
+  const externalBytes = remote.document.serialize();
+  const externalWrite = await s.host.fs.writeProject("memory-project", path, externalBytes);
+  ok(externalWrite.ok);
+  const handle = await show(s);
+  const field = s.el.querySelector<HTMLInputElement>('input[aria-label="South animation file"]');
+  ok(field !== null);
+  await act(() => {
+    field.value = "Misc/discard-this-draft.anm";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    field.focus();
+  });
+  equal(await s.doc.checkExternal(), "conflict");
+  const reload = [...s.el.querySelectorAll("button")].find((button) => button.textContent === "Reload from disk");
+  ok(reload !== undefined);
+  await act(async () => { reload.click(); await Promise.resolve(); });
+  equal(s.doc.getSnapshot().conflict, null);
+  equal(s.doc.getSnapshot().dirty, false);
+  equal(s.doc.getSnapshot().speed, 1.25);
+  equal(field.value, remote.document.getSnapshot().movementAnimations[0], "reload removes the unsubmitted filename draft and reveals disk content");
+  const reloadedBytes = s.doc.serialize();
+  await act(() => { field.focus(); field.blur(); });
+  equal(s.doc.getSnapshot().movementAnimations[0], remote.document.getSnapshot().movementAnimations[0], "blur after reload cannot apply the discarded filename");
+  equal(s.doc.getSnapshot().dirty, false);
+  deepEqual(s.doc.serialize(), reloadedBytes);
+  handle.dispose();
+  s.el.remove();
+});
 
 test("sprite save waits for queued polygon edits and writes their acknowledged bytes", async () => {
   const s = await setup("character", "Chrs/queued-save.tem", exampleCharacter());

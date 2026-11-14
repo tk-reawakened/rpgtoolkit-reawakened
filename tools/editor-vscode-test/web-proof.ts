@@ -17,6 +17,43 @@ type ProofHost = {
   choice: "cancel" | "keep";
 };
 
+/** Exercise the shipped VS Code custom editor with real sprite bytes through the workspace bridge. */
+export async function runVscodeSpriteWebProof(
+  page: Page,
+  expect: Expect,
+  workbenchUrl: string,
+  spritePath: string,
+  originalBytes: Uint8Array,
+  host: Pick<ProofHost, "readBacking">,
+): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
+  const chrsFolder = page.getByRole("treeitem", { name: "Chrs", exact: true });
+  await expect(chrsFolder).toBeVisible();
+  await chrsFolder.click();
+  await openGame(page, spritePath, expect);
+  let editor = await waitForEditorFrame(page, "opened sprite graphics editor");
+  const view = editor.getByRole("region", { name: "character sprite graphics" });
+  await expect(view).toBeVisible();
+  const south = view.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file");
+  await expect(south).toBeVisible();
+  await south.fill("Misc/vscode-web-proof.anm");
+  await south.press("Tab");
+  await expect(view.getByText("Graphics change recorded. Save the document to keep it.", { exact: true })).toBeVisible();
+  await view.getByRole("button", { name: "Save sprite" }).click();
+  await expect(view.getByText("Sprite saved.", { exact: true })).toBeVisible();
+  const savedBytes = await host.readBacking(spritePath);
+  expect(savedBytes).not.toEqual(originalBytes);
+  await closeActiveEditor(page, expect);
+  await openGame(page, spritePath, expect);
+  editor = await waitForEditorFrame(page, "reopened sprite graphics editor");
+  const reopened = editor.getByRole("region", { name: "character sprite graphics" });
+  const reopenedSouth = reopened.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file");
+  await expect(reopenedSouth).toHaveValue("Misc/vscode-web-proof.anm");
+  await expect(reopened.getByText("All sprite changes saved.", { exact: true })).toBeVisible();
+  expect(await host.readBacking(spritePath)).toEqual(savedBytes);
+}
+
 /** Run against vscode-test-web's actual browser workbench, not an extension-host mock. */
 export async function runVscodeWebProof(
   page: Page,
@@ -272,8 +309,16 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
   const expectAutosave = async (value: string): Promise<void> => {
     await expect.poll(async () => {
-      const settings = JSON.parse(new TextDecoder().decode(await host.readBacking(".vscode/settings.json"))) as Record<string, unknown>;
-      return settings["files.autoSave"];
+      // The proof bridge opens settings.json with O_TRUNC before writing its body; poll through that transient empty file.
+      const bytes = await host.readBacking(".vscode/settings.json");
+      try {
+        const settings: unknown = JSON.parse(new TextDecoder().decode(bytes));
+        if (typeof settings !== "object" || settings === null || !("files.autoSave" in settings)) return null;
+        return settings["files.autoSave"];
+      } catch (error) {
+        if (error instanceof SyntaxError) return null;
+        throw error;
+      }
     }, { message: `VS Code persists files.autoSave=${value}` }).toBe(value);
   };
   let failure: unknown;

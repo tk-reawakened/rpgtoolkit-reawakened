@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
-import { access, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
-import { runVscodeWebProof } from "./web-proof.ts";
+import { runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -32,6 +32,10 @@ if (gameFiles.length !== 1 || resolve(workspace, game) !== gameFiles[0]) {
   throw new Error(`The VS Code web proof workspace must contain exactly one .gam file, matching --game; found ${gameFiles.length}`);
 }
 await access(gameFiles[0]);
+const spritePath = "Chrs/__tkr_sprite_proof.tem";
+const spriteFile = resolve(root, "docs/spec/examples/versions/character/character_minor8.tem");
+await access(spriteFile);
+const spriteBytes = new Uint8Array(await readFile(spriteFile));
 const title = `VS Code web proof ${Date.now()}`;
 const recoveredTitle = `${title} recovered`;
 const autosaveTitle = `${title} autosaved`;
@@ -47,6 +51,9 @@ const [expectedBytes, recoveredBytes, autosaveBytes, externalBytes, sentinelByte
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
 for (const choice of ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game);
+  const spriteDirectory = resolve(proofWorkspace, "Chrs");
+  await mkdir(spriteDirectory, { recursive: true });
+  await copyFile(spriteFile, resolve(proofWorkspace, spritePath));
   let browser;
   let persistentFs;
   let trackedProcess;
@@ -168,6 +175,10 @@ for (const choice of ["cancel", "keep"]) {
       }
     };
     const readBacking = async (path = game) => new Uint8Array(await readFile(resolve(proofWorkspace, path)));
+    if (choice === "cancel") {
+      await runVscodeSpriteWebProof(page, expect, workbenchUrl, spritePath, spriteBytes, { readBacking });
+      console.log("vscode.dev sprite save/reopen proof passed");
+    }
     await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice });
     console.log(`vscode.dev settings proof passed (${choice})`);
   } catch (error) {

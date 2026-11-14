@@ -28,6 +28,8 @@ export {
   spriteGifPreview,
   spriteTileAnimationFirstFrame,
   spriteProjectAssetPath,
+  spriteTileFrameFromReference,
+  spriteTileBitmapPreviewFromAssets,
   type SpriteGifPreview,
   spriteBasesFromFile,
   spritePicturePreview,
