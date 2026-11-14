@@ -119,8 +119,9 @@ async function openFile(page: Page, path: string): Promise<void> {
   const old = (await surface(primary(page)).elementHandles())[0];
   const parts = path.split("/");
   for (const folder of parts.slice(0, -1)) {
-    const row = page.getByRole("treeitem", { name: `${folder}, folder, closed`, exact: true });
-    if (await row.count()) await row.press("ArrowRight");
+    const row = page.getByRole("treeitem", { name: new RegExp(`^${folder}, folder, (?:closed|open)$`) });
+    await expect(row).toBeVisible();
+    if (await row.getAttribute("aria-expanded") === "false") await row.press("ArrowRight");
   }
   const item = page.getByRole("treeitem", { name: new RegExp(`^${parts.at(-1)}(?:,|$)`) });
   await item.dblclick();
@@ -250,7 +251,9 @@ test("actual browser art gestures stay private until accepted, share history, an
   const accepted = changed(artBytes, [...line, { x: 9, y: 7, rgba: pink }, { x: 0, y: 0, rgba: pink }]);
 
   await main.getByLabel("Brush color").fill("#31c098");
+  await canvas.scrollIntoViewIfNeeded();
   await beginStroke(page, canvas, 14, 15);
+  await expectPixel(page, canvas, 14, 15, green);
   await page.keyboard.press("ControlOrMeta+s");
   await expect.poll(() => storedBytes(page, folder, "Tiles/art.tst")).toEqual(accepted);
   await expectPixel(page, canvas, 14, 15, green);

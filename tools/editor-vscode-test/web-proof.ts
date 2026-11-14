@@ -371,6 +371,7 @@ async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHos
     const state = frame.locator(".tkr-board-state");
     const tile2 = frame.locator('.tkr-board-cell[aria-label$=": village.tst2"]');
     await expect(state).toHaveText("All changes saved");
+    await frame.getByLabel("Source", { exact: true }).selectOption({ label: "village.tst (tst)" });
     const rock = frame.locator('[data-browser-reference="village.tst2"] .tkr-tileset-browser-source');
     await rock.click();
     await expect(rock).toHaveAttribute("aria-pressed", "true");

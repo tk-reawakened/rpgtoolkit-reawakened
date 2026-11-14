@@ -203,6 +203,14 @@ export async function runVscodeArtProof(page: Page, expect: Expect, host: Native
   await expectPixel(canvas(first), expect, 24, 25, recoveryColor);
   await expect(first.locator(".tkr-tileset-art-state")).toHaveText("Unsaved changes");
   expect(await host.readBacking(host.artPath)).toEqual(mine);
+  // The existing legacy hot-exit format has no original disk baseline: recovery deliberately requires a choice.
+  const recoveryConflict = first.getByRole("group", { name: "Changed on disk" });
+  await expect(recoveryConflict).toBeVisible();
+  await expect(first.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await recoveryConflict.getByRole("button", { name: "Keep my version", exact: true }).click();
+  await expect(recoveryConflict).toBeHidden();
+  await expect(first.locator(".tkr-tileset-art-state")).toHaveText("Unsaved changes");
+  expect(await host.readBacking(host.artPath)).toEqual(mine);
   await first.getByRole("button", { name: "Save", exact: true }).click();
   await expect(first.locator(".tkr-tileset-art-state")).toHaveText("All changes saved");
   expect(await host.readBacking(host.artPath)).toEqual(recovered);

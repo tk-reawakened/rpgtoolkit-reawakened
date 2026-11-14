@@ -388,8 +388,7 @@ export function TilesetArtView({ doc, capabilities, onEdited }: TilesetArtViewPr
               cancelGesture();
               return;
             }
-            const point = coordinateAt(event.clientX, event.clientY, active.width, active.height);
-            stage(current, point.x, point.y);
+            // Commit exactly the previewed pixels; layout/scroll changes alone must not invent a release segment.
             const changes: Pixel[] = Array.from(current.changes, (key) => ({
               x: key % active.width,
               y: Math.floor(key / active.width),
