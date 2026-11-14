@@ -60,7 +60,7 @@ const programProof = process.env.TKR_VSCODE_PROGRAM_PROOF === "1";
 const guardProof = process.env.TKR_VSCODE_GUARD_PROOF === "1";
 if ((launchProof || boardProof || programProof || guardProof) && game !== "Main/example.gam") throw new Error("The launch proof requires docs/spec/examples/game and --game Main/example.gam");
 for (const choice of launchProof || boardProof || programProof || guardProof ? ["cancel"] : ["cancel", "keep"]) {
-  const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game);
+  const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, workspace);
   const spriteDirectory = resolve(proofWorkspace, "Chrs");
   await mkdir(spriteDirectory, { recursive: true });
   await copyFile(spriteFile, resolve(proofWorkspace, spritePath));
