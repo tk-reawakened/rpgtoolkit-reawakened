@@ -49,6 +49,8 @@ interface Setup {
   readonly workspace: ReturnType<typeof createDocumentWorkspace>;
   readonly editorSlot: () => HTMLElement | null;
   readonly openPaths: string[];
+  readonly packageCalls: string[];
+  readonly publishCalls: string[];
 }
 
 async function setup(capabilities: readonly ("folderWrite" | "fileWatch" | "openExternal")[] = ["folderWrite", "openExternal"]): Promise<Setup> {
@@ -66,6 +68,8 @@ async function setup(capabilities: readonly ("folderWrite" | "fileWatch" | "open
   const opened: AnyDocument[] = [];
   const openPaths: string[] = [];
   let slot: HTMLElement | null = null;
+  const packageCalls: string[] = [];
+  const publishCalls: string[] = [];
   await act(() => {
     mountShell(el, {
       layout,
@@ -73,6 +77,7 @@ async function setup(capabilities: readonly ("folderWrite" | "fileWatch" | "open
       tree,
       projectLayout: { projectFolder: "" },
       fs: host.fs,
+      canWriteFolder: capabilities.includes("folderWrite"),
       onOpened: (result) => {
         if (result.via === "document") {
           opened.push(result.document);
@@ -85,13 +90,28 @@ async function setup(capabilities: readonly ("folderWrite" | "fileWatch" | "open
           if (result.ok && result.via === "document") tabs.open(result.document);
         });
       },
-      onPackage: async () => ({ ok: false, message: "Package export is not configured in this test." }),
+      onPackage: async (mainPath, version) => {
+        packageCalls.push(`${mainPath}@${version}`);
+        return {
+          ok: true,
+          prepared: {
+            package: { fileName: "game.tpk", bytes: new Uint8Array([1]) },
+            descriptor: { fileName: "game.tpk.json", bytes: new Uint8Array([2]) },
+            includedFiles: ["Main/example.gam"],
+            excludedFiles: ["Saved/save.sav"],
+          },
+        };
+      },
+      onPublish: async (mainPath) => {
+        publishCalls.push(mainPath);
+        return { ok: true, destination: "Build/game.tpk" };
+      },
       onDownload: async () => ({ ok: true }),
       onEditorElement: (element) => { slot = element; },
     });
   });
   await settle();
-  return { host, el, opened, layout, tabs, tree, workspace, editorSlot: () => slot, openPaths };
+  return { host, el, opened, layout, tabs, tree, workspace, editorSlot: () => slot, openPaths, packageCalls, publishCalls };
 }
 
 const key = async (target: Element, name: string, init: KeyboardEventInit = {}): Promise<void> => {
@@ -284,6 +304,34 @@ test("panels show, hide and resize from buttons and the keyboard, and hiding kee
   ok(files() !== null);
   ok(s.editorSlot() !== null, "the editor slot is offered to the host");
 });
+test("package preflight displays its inventory and requires review before publishing", async () => {
+  const s = await setup();
+  await click(button(s.el, "Package game…"));
+  await settle();
+  const version = s.el.querySelector<HTMLInputElement>('input[type="text"][maxlength="128"]');
+  ok(version);
+  await act(() => { version.value = "1.2.3"; version.dispatchEvent(new Event("input", { bubbles: true })); });
+  await click(button(s.el, "Prepare package"));
+  await settle();
+  deepEqual(s.packageCalls, ["Main/example.gam@1.2.3"]);
+  deepEqual(s.publishCalls, []);
+  const save = button(s.el, "Save package and descriptor…");
+  equal(save.disabled, true, "publication waits for explicit inventory review");
+  const details = s.el.querySelector("details");
+  match(s.el.textContent ?? "", /Package output: game\.tpk; install descriptor: game\.tpk\.json/);
+  match(s.el.textContent ?? "", /saved project files from the time it completed/);
+  ok(details);
+  await click(details.querySelector("summary")!);
+  match(details.textContent ?? "", /Main\/example\.gam/);
+  match(details.textContent ?? "", /Saved\/save\.sav/);
+  const reviewed = s.el.querySelector<HTMLInputElement>('input[type="checkbox"]');
+  ok(reviewed);
+  await act(() => { reviewed.checked = true; reviewed.dispatchEvent(new Event("change", { bubbles: true })); });
+  await click(save);
+  deepEqual(s.publishCalls, ["Main/example.gam"]);
+  match(s.el.querySelector('[role="status"]')?.textContent ?? "", /saved to Build\/game\.tpk/);
+});
+
 
 test("the shell writes no style attribute and no inline handler attribute (strict CSP, ADR 0025 decision 6)", async () => {
   const s = await setup();

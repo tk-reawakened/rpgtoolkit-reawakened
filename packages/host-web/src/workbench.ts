@@ -153,6 +153,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     tree,
     projectLayout,
     fs: services.fs,
+    canWriteFolder: services.capabilities.has("folderWrite"),
     version,
     onOpened: (result) => {
       if (result.via === "document") show(result.document);
@@ -160,12 +161,11 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     onOpenPath: (path) => { void openPath(path); },
     onPackage: async (mainPath, releaseVersion) => {
       const prepared = await prepareGamePackage({ workspace, services, mainPath, version: releaseVersion });
-      if (!prepared.ok) return prepared;
-      if (!services.capabilities.has("folderWrite")) return { ok: true, prepared: prepared.value, destination: null };
-      const published = await publishGamePackage(services, mainPath, prepared.value);
-      return published.ok
-        ? { ok: true, prepared: prepared.value, destination: published.path }
-        : published;
+      return prepared.ok ? { ok: true, prepared: prepared.value } : prepared;
+    },
+    onPublish: async (mainPath, prepared) => {
+      const published = await publishGamePackage(services, mainPath, prepared);
+      return published.ok ? { ok: true, destination: published.path } : published;
     },
     onDownload: async (artifact) => {
       const result = await services.packageExport?.downloadFile(artifact.fileName, artifact.bytes);

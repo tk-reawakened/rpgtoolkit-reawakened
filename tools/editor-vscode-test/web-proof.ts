@@ -225,7 +225,21 @@ export async function runVscodeWebProof(
   expect(await readWorkspaceBytes(page, expect)).toEqual(recovered);
   await expect.poll(() => frameCspViolations(page, finalEditor, consoleViolations)).toEqual([]);
 
-  // Story 11.3: the document lifecycle in real VS Code, and the ADR 0022 D11.6 measurement.
+  // The package command is contributed to both the command palette and .gam Explorer context menu.
+  const packageCommand = await commandPalette(page, expect);
+  await packageCommand.fill(">RPG Toolkit: Package game");
+  const packageEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "RPG Toolkit: Package game" }).first();
+  await expect(packageEntry).toBeVisible();
+  await packageCommand.press("Escape");
+  await expect(page.locator(".quick-input-widget")).toBeHidden();
+
+  const gameFile = page.getByRole("treeitem", { name: gamePath.split("/").at(-1)!, exact: true });
+  await gameFile.click({ button: "right" });
+  const packageContextAction = page.getByRole("menuitem", { name: "RPG Toolkit: Package game", exact: true });
+  await expect(packageContextAction).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(packageContextAction).toBeHidden();
+
   await runLifecycleScenarios(page, expect, autosaveTitle, autosaveBytes, host);
 }
 
