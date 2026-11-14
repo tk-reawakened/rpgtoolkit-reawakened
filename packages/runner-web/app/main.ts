@@ -32,6 +32,7 @@ declare global {
   interface Window {
     __report?: unknown;
     __live?: LiveReport;
+    __liveHistory?: { tick: number; stateHash: string }[];
     /** The package load's state, kept current while it runs and after. */
     __load?: LoadState;
     /** A lane's clock for stall timing and the spinner; the page uses `performance.now` when it is absent. */
@@ -385,6 +386,15 @@ async function bootEditorGame(
     }
     scene = { board: payload.scene.board, program: payload.scene.program };
   }
+  const snapshotDetails = document.querySelector<HTMLDetailsElement>("#run-snapshot");
+  const snapshotOutput = snapshotDetails?.querySelector("pre") ?? null;
+  const snapshot: unknown = snapshotOutput === null ? null : JSON.parse(snapshotOutput.textContent ?? "null");
+  if (snapshotOutput !== null && (typeof snapshot !== "object" || snapshot === null || !("stateHash" in snapshot)
+    || !(snapshot.stateHash === null || typeof snapshot.stateHash === "string"))) throw new Error("invalid run snapshot");
+  const renderSnapshot = (): void => {
+    if (snapshotOutput !== null && snapshotDetails?.open) snapshotOutput.textContent = JSON.stringify(snapshot, null, 2);
+  };
+  snapshotDetails?.addEventListener("toggle", renderSnapshot);
   const folder = payload.projectFolder.replace(/^\/+|\/+$/g, "");
   if (folder !== "" && !folder.toLowerCase().startsWith("game/")) throw new Error("the game folder must be under Game/");
   const assetRoot = folder === "" ? { kind: "package" as const } : { kind: "game" as const, projectPath: folder.slice(5) };
@@ -412,6 +422,41 @@ async function bootEditorGame(
   const hostViewport: HostViewport = { canvas: screen, viewport: stage };
   const clock = (): number => performance.now();
   let dispose: (() => void) | null = null;
+  let sessionForQuit: LiveSession | null = null;
+  let quitBeforeReady = false;
+  const rememberLiveHash = (tick: number, stateHash: string): void => {
+    if (stateHash === "") return;
+    const history = window.__liveHistory ?? [];
+    history.push({ tick, stateHash });
+    if (history.length > 256) history.shift();
+    window.__liveHistory = history;
+  };
+  const updateSnapshotHash = (stateHash: string): void => {
+    if (typeof snapshot === "object" && snapshot !== null && "stateHash" in snapshot
+      && stateHash !== "" && snapshot.stateHash !== stateHash) {
+      snapshot.stateHash = stateHash;
+      renderSnapshot();
+    }
+  };
+  const onQuit = (): void => {
+    if (sessionForQuit === null) {
+      quitBeforeReady = true;
+      return;
+    }
+    const stateHash = sessionForQuit.stateHash();
+    const tick = sessionForQuit.tick();
+    const board = sessionForQuit.boardKey();
+    const diagnostics = sessionForQuit.diagnostics();
+    const live = { ...(window.__live ?? { drawHash: "", player: null }), tick, board, stateHash,
+      player: sessionForQuit.playerPosition(), diagnostics };
+    window.__live = live;
+    window.__report = live;
+    rememberLiveHash(tick, stateHash);
+    updateSnapshotHash(stateHash);
+    channel.postMessage({ state: "ended", tick, board, stateHash, stalledOn: null,
+      diagnostics, message: "The game ended." });
+    dispose?.();
+  };
   const session = await createLiveSession({
     interactive: true, files, mainFile: payload.main, gameIdentity: payload.project, assetRoot, seed: payload.seed,
     ...(scene === undefined ? {} : { scene }),
@@ -419,8 +464,14 @@ async function bootEditorGame(
     decode: decode.create,
     ...(audioWorkletUrl === undefined ? {} : { audioWorkletUrl }),
     ...(blobs === null ? {} : { blobs }),
-    onQuit: () => { channel.postMessage({ state: "ended", tick: 0, board: null, stalledOn: null, diagnostics: [], message: "The game ended." }); dispose?.(); },
+    onQuit,
   });
+  sessionForQuit = session;
+  if (quitBeforeReady) {
+    onQuit();
+    decode.dispose();
+    return;
+  }
   window.__session = session;
   const spinner = document.querySelector<HTMLElement>("#spinner");
   const overlay = spinner === null ? null : createStallOverlay({ element: spinner, state: session.loadState, clock });
@@ -429,12 +480,20 @@ async function bootEditorGame(
     storage: { persisted: "not-requested", quota: "not-needed", kept: false, error: null }, error: null,
   };
   dispose = startLiveLoop(session, screen, report, overlay, () => load, hostViewport, (live) => {
+    updateSnapshotHash(live.stateHash);
+    rememberLiveHash(live.tick, live.stateHash);
     channel.postMessage({ state: live.error ? "failed" : live.stalls?.blocking ? "stalled" : "running",
       tick: live.tick, board: live.board, stateHash: live.stateHash, stalledOn: live.stalls?.blocking ?? null,
       diagnostics: live.diagnostics ?? [], message: live.error ?? null });
   });
-  channel.onmessage = (event) => { if (event.data === "stop") { dispose?.(); decode.dispose(); channel.close(); } };
-  window.addEventListener("pagehide", () => { dispose?.(); decode.dispose(); channel.close(); }, { once: true });
+  const stop = (): void => {
+    dispose?.();
+    decode.dispose();
+    channel.close();
+    snapshotDetails?.removeEventListener("toggle", renderSnapshot);
+  };
+  channel.onmessage = (event) => { if (event.data === "stop") stop(); };
+  window.addEventListener("pagehide", stop, { once: true });
 }
 
 async function runParity(session: LiveSession, report: HTMLPreElement, game: string, pack: string | null, extra: () => object = () => ({})): Promise<void> {

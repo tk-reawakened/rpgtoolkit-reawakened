@@ -34,6 +34,10 @@
         "command": "tkr.editorWebProof.runExampleBoard",
         "title": "Test: Run Example Board"
       },
+      {
+        "command": "tkr.editorWebProof.stopRunHandle",
+        "title": "Test: Stop Run Handle"
+      },
       { "command": "tkr.editorWebProof.failSaves", "title": "Test: Fail Saves" },
       { "command": "tkr.editorWebProof.allowSaves", "title": "Test: Allow Saves" },
       { "command": "tkr.editorWebProof.pauseProgramRead", "title": "Test: Pause Program Read" },

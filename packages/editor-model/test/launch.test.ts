@@ -4,10 +4,11 @@
 import { createHash } from "node:crypto";
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
+import { BinaryReader, readBoard, writeBoard } from "@tk-reawakened/core";
 import type { Capability, GameLaunch, ProgramLaunch } from "@tk-reawakened/platform-services";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { createDocumentWorkspace, createLauncher } from "../src/index.ts";
-import { exampleMain, titleOf, withTitle } from "./fixtures.ts";
+import { boardStartUnit, createDocumentWorkspace, createLauncher } from "../src/index.ts";
+import { exampleBoard, exampleMain, titleOf, withTitle } from "./fixtures.ts";
 
 const MAIN = "Main/example.gam";
 const sha = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
@@ -123,4 +124,37 @@ test("a later edit and save never reach the running game; a new launch is a new 
   deepEqual(host.runs[0]!.files.get(MAIN), exampleMain(9));
   deepEqual(host.runs[1]!.files.get(MAIN), withTitle(exampleMain(9), "After the run started"));
   ok(first.handle.snapshot.targets[0]!.sha256 !== second.handle.snapshot.targets[0]!.sha256);
+});
+
+test("the launcher owns one run: a new run stops the one before, and disposing stops it and refuses launches finishing or begun after", async () => {
+  const { host, launcher } = await setUp();
+  const earlier = await launcher.launch(game);
+  ok(earlier.ok);
+  const first = await launcher.launch(game);
+  ok(first.ok);
+  ok(host.runs[0]!.stopped(), "a new run stops the one before");
+  ok(!host.runs[1]!.stopped());
+  equal(launcher.current(), first.handle);
+  const late = launcher.launch(game);
+  launcher.dispose();
+  ok(host.runs[1]!.stopped(), "the current run stops with the launcher");
+  const lateOutcome = await late;
+  ok(!lateOutcome.ok);
+  equal(lateOutcome.message, "The project was closed, so nothing was run.");
+  ok(host.runs[2]!.stopped(), "a run that started after disposal is stopped at once");
+  equal(launcher.current(), first.handle, "a refused launch does not replace the current run");
+  const after = await launcher.launch(game);
+  ok(!after.ok);
+  equal(host.runs.length, 3);
+});
+
+test("a start board's coordinate unit comes from its saved coordType flag 4, and unreadable bytes have none", () => {
+  const read = readBoard(new BinaryReader(exampleBoard(4)));
+  ok(read.ok);
+  equal(read.value.coordType & 4, 0);
+  equal(boardStartUnit(exampleBoard(4)), "tile");
+  const pixelBoard = writeBoard({ ...read.value, coordType: read.value.coordType | 4 });
+  ok(pixelBoard.ok);
+  equal(boardStartUnit(pixelBoard.value), "pixel");
+  equal(boardStartUnit(new Uint8Array([2])), null);
 });

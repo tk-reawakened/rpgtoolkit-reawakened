@@ -1,7 +1,7 @@
 import { listGame, type GameGroup, type Launcher, type ProjectLayout } from "@tk-reawakened/editor-model";
 import type { BoardStart, FileSystemService, Launch, LaunchKind, RunHandle, RunSnapshot, RunStatus } from "@tk-reawakened/platform-services";
 import { Fragment, type ComponentChildren } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 
 export interface RunViewProps {
   /** Starts runs through the host's `run` service, saving first (ADR 0022 D8.2). */
@@ -42,6 +42,23 @@ const STATE_LABEL: Readonly<Record<RunStatus["state"], string>> = {
 
 function filesOf(groups: readonly GameGroup[], kind: GameGroup["kind"], extension: string): string[] {
   return (groups.find((group) => group.kind === kind)?.files ?? []).map((file) => file.path).filter((path) => path.toLowerCase().endsWith(extension));
+}
+
+/** Every saved main (`.gam`) file anywhere in the project, sorted; a folder that cannot be listed is skipped. */
+async function listMains(fs: Pick<FileSystemService, "list">): Promise<string[]> {
+  const mains: string[] = [];
+  const pending = [""];
+  while (pending.length > 0) {
+    const folder = pending.pop()!;
+    const listed = await fs.list(folder);
+    if (!listed.ok) continue;
+    for (const entry of listed.value) {
+      const path = folder === "" ? entry.name : `${folder}/${entry.name}`;
+      if (entry.kind === "directory") pending.push(path);
+      else if (entry.name.toLowerCase().endsWith(".gam")) mains.push(path);
+    }
+  }
+  return mains.sort();
 }
 
 /** The first 12 hex digits of a hash: enough to tell two snapshots apart at a glance; the full value is in the title. */
@@ -89,6 +106,8 @@ function Snapshot({ snapshot }: { readonly snapshot: RunSnapshot }) {
       <dd>{snapshot.seed}</dd>
       <dt>Runner</dt>
       <dd>{snapshot.runner}</dd>
+      <dt>State hash</dt>
+      <dd>{snapshot.stateHash ?? "Not reported yet"}</dd>
     </dl>
   );
 }
@@ -101,7 +120,6 @@ function StatusLine({ status }: { readonly status: RunStatus }) {
   return (
     <>
       <p class="tkr-run-state">{`${STATE_LABEL[status.state]}${detail} (tick ${status.tick}${where})`}</p>
-      {status.stateHash === null ? null : <p>State hash: <code>{status.stateHash}</code></p>}
       {status.diagnostics.length === 0 ? null : (
         <ul class="tkr-run-diagnostics" aria-label="Run problems">
           {status.diagnostics.map((diagnostic, index) => (
@@ -187,14 +205,15 @@ export function RunView({ launcher, fs, layout, active = null, version }: RunVie
   const [windowGraphic, setWindowGraphic] = useState("");
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
-  const [run, setRun] = useState<RunHandle | null>(null);
+  const [run, setRun] = useState<RunHandle | null>(() => launcher.current());
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
   const [status, setStatus] = useState<RunStatus | null>(null);
 
   useEffect(() => {
     let current = true;
-    void Promise.all([fs.list("Main"), listGame(fs, layout)]).then(([listedMains, listed]) => {
+    void Promise.all([listMains(fs), listGame(fs, layout)]).then(([mains, listed]) => {
       if (!current) return;
-      const mains = listedMains.ok ? listedMains.value.filter((entry) => entry.kind === "file" && entry.name.toLowerCase().endsWith(".gam")).map((entry) => `Main/${entry.name}`).sort() : [];
       setChoices({
         mains,
         boards: filesOf(listed.groups, "boards", ".brd"),
@@ -225,6 +244,8 @@ export function RunView({ launcher, fs, layout, active = null, version }: RunVie
     setBusy(true);
     setRefusal(null);
     void launcher.launch(request).then((outcome) => {
+      // The launcher owns the run; a Run view hidden while it started shows it from `launcher.current()` when reopened.
+      if (!mounted.current) return;
       setBusy(false);
       if (!outcome.ok) {
         setRefusal(outcome.message);
@@ -234,7 +255,7 @@ export function RunView({ launcher, fs, layout, active = null, version }: RunVie
     });
   };
   const base = { main: chosenMain, projectFolder: layout.projectFolder };
-  const noMain = chosenMain === "" ? "This project has no main file in Main/." : null;
+  const noMain = chosenMain === "" ? "This project has no main (.gam) file." : null;
 
   const section = (kind: LaunchKind, description: string, body: ComponentChildren, missing: string | null, request: () => Launch) => {
     const reason = launcher.unavailable(kind) ?? noMain ?? missing;

@@ -1,3 +1,4 @@
+import { BinaryReader, readBoard, usesPixelCoordinates } from "@tk-reawakened/core";
 import { LAUNCH_CAPABILITY, platformError, platformOk, type Launch, type LaunchKind, type PlatformServices, type RunHandle } from "@tk-reawakened/platform-services";
 import type { DocumentWorkspace } from "./workspace.ts";
 
@@ -11,6 +12,9 @@ import type { DocumentWorkspace } from "./workspace.ts";
  *    the run would not be what the creator sees. Nothing is ever run from unsaved memory.
  * 3. The host reads the saved files once and returns a handle with the run's snapshot (D8.3); later edits never reach
  *    that run (D8.4). Running again is a new launch and a new snapshot.
+ * 4. The launcher owns its latest run, not the view that asked for it: hiding and reopening a Run view shows the same
+ *    run, a new run stops the one before it, and disposing the launcher stops its run, so no player is left without a
+ *    Stop control.
  */
 
 /** Why a launch did not start. */
@@ -31,6 +35,10 @@ export interface Launcher {
   unavailable(kind: LaunchKind): string | null;
   /** Save, then start the launch. The promise never rejects: a refusal is a value with its reason. */
   launch(launch: Launch): Promise<LaunchOutcome>;
+  /** The latest run this launcher started, kept after it finishes, until a new run replaces it; `null` before the first. */
+  current(): RunHandle | null;
+  /** Stop the current run; a launch still preparing is stopped as it starts and is refused. Later launches are refused. */
+  dispose(): void;
 }
 
 export interface LauncherOptions {
@@ -45,15 +53,35 @@ const WHAT: Readonly<Record<LaunchKind, string>> = {
   program: "run a program test",
 };
 
+/**
+ * The coordinate unit of a saved start board, for `prepareRun`: board pixels when its `coordType` sets the "Use pixel
+ * coordinates" flag 4, one-based tiles otherwise (`docs/spec/formats/board.md#coordinates`); `null` when the bytes are
+ * not a readable board.
+ */
+export function boardStartUnit(bytes: Uint8Array): "tile" | "pixel" | null {
+  const board = readBoard(new BinaryReader(bytes));
+  if (!board.ok) return null;
+  return usesPixelCoordinates(board.value.coordType) ? "pixel" : "tile";
+}
+
 export function createLauncher({ services, workspace }: LauncherOptions): Launcher {
   const unavailable = (kind: LaunchKind): string | null => {
     if (services.run !== undefined && services.capabilities.has(LAUNCH_CAPABILITY[kind])) return null;
     const reason = services.run?.unavailable[kind] ?? "it has no game runner.";
     return `This host cannot ${WHAT[kind]}: ${reason}`;
   };
+  let latest: RunHandle | null = null;
+  let disposed = false;
+  const closed = "The project was closed, so nothing was run.";
   return {
     unavailable,
+    current: () => latest,
+    dispose() {
+      disposed = true;
+      latest?.stop();
+    },
     async launch(launch) {
+      if (disposed) return { ok: false, reason: "unavailable", message: closed };
       const refused = unavailable(launch.kind);
       const run = services.run;
       if (refused !== null || run === undefined) return { ok: false, reason: "unavailable", message: refused ?? "" };
@@ -90,6 +118,13 @@ export function createLauncher({ services, workspace }: LauncherOptions): Launch
           ? { ok: false, reason: "unavailable", message: started.error.message }
           : { ok: false, reason: "refused", message: started.error.message };
       }
+      if (disposed) {
+        started.value.stop();
+        return { ok: false, reason: "unavailable", message: closed };
+      }
+      const previous = latest;
+      latest = started.value;
+      previous?.stop();
       return { ok: true, handle: started.value };
     },
   };

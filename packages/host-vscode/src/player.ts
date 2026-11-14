@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { createRunHandle, prepareBoardLaunch, prepareRun, prepareSceneLaunch, platformError, platformOk, type BoardLaunch, type Launch, type ProgramLaunch, type PreparedRun, type PlatformResult, type RunHandle, type RunService, type RunStartGuard, type RunStatus } from "@tk-reawakened/platform-services";
+import { boardStartUnit } from "@tk-reawakened/editor-model";
 import { createVscodeFileSystem } from "./filesystem.ts";
 
 
@@ -88,7 +89,7 @@ export function createVscodeRunService(context: vscode.ExtensionContext, root: v
     const savedResult = await saveBeforeRun(generation);
     if (!savedResult.ok) return savedResult;
     const savedGeneration = savedResult.value;
-    const prepared = await prepareRun(fs, launch, { projectId, runner: "runner-web" });
+    const prepared = await prepareRun(fs, launch, { projectId, runner: "runner-web", startUnit: boardStartUnit });
     if (!prepared.ok) return prepared;
     let scene: { readonly board: string; readonly program: string } | undefined;
     if (launch.kind === "board") {
@@ -204,6 +205,11 @@ export function createVscodeRunService(context: vscode.ExtensionContext, root: v
       } else if (value.type === "status") {
         const statusValue = playerStatus(value.status);
         if (statusValue === undefined) return;
+        if (handle === undefined && statusValue.state === "failed") {
+          finish(platformError("unavailable", statusValue.message ?? "The run could not be started."));
+          panel.dispose();
+          return;
+        }
         report?.(statusValue);
         status.text = statusValue.state === "running" ? `$(play) ${launchLabel} tick ${statusValue.tick}`
           : statusValue.state === "stalled" ? `$(loading~spin) Waiting for ${statusValue.stalledOn ?? "an asset"}`

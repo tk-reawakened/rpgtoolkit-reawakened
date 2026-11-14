@@ -4,7 +4,7 @@
 // run is the same every time (G3).
 import { bindProjectFileSystem, type DirectoryEntry, type FileChange, type FileKind, type FileStat } from "./fs.ts";
 import { platformError, platformOk, type Disposable, type PlatformError, type PlatformResult } from "./result.ts";
-import { createRunHandle, LAUNCH_CAPABILITY, launchUnavailable, prepareRun, type Launch, type RunHandle, type RunSnapshot, type RunStartGuard, type RunStatus } from "./run.ts";
+import { createRunHandle, LAUNCH_CAPABILITY, launchUnavailable, prepareRun, type Launch, type PrepareRunOptions, type RunHandle, type RunSnapshot, type RunStartGuard, type RunStatus } from "./run.ts";
 import type {
   Capability,
   DialogQuestion,
@@ -80,6 +80,11 @@ export interface MemoryPlatformOptions {
   readonly capabilities?: readonly Capability[];
   /** Why the double cannot do a launch whose capability it was made without; a fixed sentence by default. */
   readonly runRefusal?: string;
+  /**
+   * The coordinate unit `prepareRun` reads from a start board (see `PrepareRunOptions.startUnit`). The double reads no
+   * board format, so every start board uses one-based tile coordinates unless a test supplies a reader.
+   */
+  readonly startUnit?: PrepareRunOptions["startUnit"];
 }
 
 const DEFAULT_PROJECT: ProjectHandle = { id: "memory-project", name: "Memory project" };
@@ -283,13 +288,13 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
   const start = async (launch: Launch, guard?: RunStartGuard): Promise<PlatformResult<RunHandle>> => {
     const reason = unavailable[launch.kind];
     if (reason !== undefined) return launchUnavailable(launch.kind, reason);
-    const prepared = await prepareRun(fs, launch, { projectId: project.id, runner: "memory-runner" });
+    const prepared = await prepareRun(fs, launch, { projectId: project.id, runner: "memory-runner", startUnit: options.startUnit ?? (() => "tile") });
     if (!prepared.ok) return prepared;
     const allowed = guard?.();
     if (allowed !== undefined && !allowed.ok) return allowed;
     let stopped = false;
     const { handle, report } = createRunHandle(prepared.value.snapshot, () => { stopped = true; });
-    runs.push({ launch, snapshot: prepared.value.snapshot, files: prepared.value.files, handle, report, stopped: () => stopped });
+    runs.push({ launch, snapshot: handle.snapshot, files: prepared.value.files, handle, report, stopped: () => stopped });
     report({ state: "running" });
     return platformOk(handle);
   };

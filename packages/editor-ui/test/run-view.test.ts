@@ -6,9 +6,10 @@ import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { createDocumentWorkspace, createLauncher, type AnyDocument } from "@tk-reawakened/editor-model";
+import { createDocumentWorkspace, createLauncher, type AnyDocument, type Launcher } from "@tk-reawakened/editor-model";
 import type { Capability } from "@tk-reawakened/platform-services";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
+import type { ViewHandle } from "@tk-reawakened/editor-ui";
 import { exampleBoard, exampleMain } from "./fixtures.ts";
 
 type Index = typeof import("../src/index.ts");
@@ -35,27 +36,47 @@ const FILES = {
 };
 const sha = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
-const settle = async (): Promise<void> => {
-  for (let round = 0; round < 6; round += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-};
-
 interface Setup {
   readonly host: MemoryPlatformServices;
   readonly el: HTMLElement;
   readonly main: AnyDocument;
+  readonly finishLaunch: () => Promise<unknown>;
+  readonly launcher: Launcher;
+  readonly view: ViewHandle;
 }
 
-async function setup(capabilities: readonly Capability[], active: string | null = null): Promise<Setup> {
+async function setup(capabilities: readonly Capability[], active: string | null = null, mainPath = MAIN): Promise<Setup> {
   document.body.replaceChildren();
-  const host = createMemoryPlatformServices({ files: FILES, capabilities: ["folderWrite", ...capabilities], runRefusal: "its player boots only from the main file's start-up." });
+  const files = { ...Object.fromEntries(Object.entries(FILES).filter(([path]) => path !== MAIN)), [mainPath]: exampleMain(9) };
+  const host = createMemoryPlatformServices({ files, capabilities: ["folderWrite", ...capabilities], runRefusal: "its player boots only from the main file's start-up." });
   const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
-  const opened = await workspace.open(MAIN);
+  const opened = await workspace.open(mainPath);
   ok(opened.ok);
   const el = document.createElement("div");
   document.body.append(el);
-  await act(() => { mountRun(el, { launcher: createLauncher({ services: host, workspace }), fs: host.fs, layout: { projectFolder: "" }, active }); });
-  await settle();
-  return { host, el, main: opened.document };
+  const launcher = createLauncher({ services: host, workspace });
+  const start = launcher.launch.bind(launcher);
+  let pending: Promise<unknown> = Promise.resolve();
+  launcher.launch = (request) => {
+    const result = start(request);
+    pending = result;
+    return result;
+  };
+  let view: ViewHandle | undefined;
+  await act(() => { view = mountRun(el, { launcher, fs: host.fs, layout: { projectFolder: "" }, active }); });
+  // The panel lists the project asynchronously; every section renders the Board choice once that listing lands.
+  const listed = (): boolean => [...el.querySelectorAll("option")].some((option) => option.value === "Boards/village.brd");
+  if (!listed()) {
+    await new Promise<void>((resolve) => {
+      const observer = new MutationObserver(() => {
+        if (!listed()) return;
+        observer.disconnect();
+        resolve();
+      });
+      observer.observe(el, { childList: true, subtree: true });
+    });
+  }
+  return { host, el, main: opened.document, finishLaunch: () => pending, launcher, view: view! };
 }
 
 function launchButton(el: HTMLElement, name: string): HTMLButtonElement {
@@ -100,9 +121,8 @@ async function type(input: HTMLInputElement, value: string): Promise<void> {
   });
 }
 
-async function click(button: HTMLButtonElement): Promise<void> {
-  await act(() => { button.click(); });
-  await settle();
+async function click(button: HTMLButtonElement, finishLaunch: Setup["finishLaunch"]): Promise<void> {
+  await act(async () => { button.click(); await finishLaunch(); });
 }
 
 test("the three launches are distinct, and one the host cannot do is disabled with the host's reason", async () => {
@@ -118,9 +138,9 @@ test("the three launches are distinct, and one the host cannot do is disabled wi
 });
 
 test("Run game saves unsaved work first and shows the run's snapshot and status", async () => {
-  const { el, host, main } = await setup(["runGame"]);
+  const { el, host, main, finishLaunch } = await setup(["runGame"]);
   ok(main.apply({ type: "set-game-title", title: "Run from the panel" }).ok);
-  await click(launchButton(el, "Run game"));
+  await click(launchButton(el, "Run game"), finishLaunch);
   equal(host.runs.length, 1);
   equal(main.getSnapshot().dirty, false, "saved before the run");
   const current = el.querySelector('[aria-label="Current run"]');
@@ -136,23 +156,49 @@ test("Run game saves unsaved work first and shows the run's snapshot and status"
   await act(() => host.runs[0]!.report({ state: "running", stalledOn: null, tick: 13, diagnostics: [{ code: "asset.missing", file: "Boards/village.brd", line: 0, message: "Tiles/gone.tst is missing" }] }));
   equal(current.querySelector(".tkr-run-diagnostics li")?.textContent, "Boards/village.brd: Tiles/gone.tst is missing (asset.missing)");
   const stop = [...current.querySelectorAll("button")].find((button) => button.textContent === "Stop")!;
-  await click(stop);
+  await act(() => { stop.click(); });
   ok(host.runs[0]!.stopped());
   equal(current.querySelector(".tkr-run-state")?.textContent, "Ended: The run was stopped. (tick 13, on Boards/village.brd)");
 });
 
+test("hiding the Run panel keeps the run, a reopened panel shows it with Stop, and a new run stops the one before", async () => {
+  const { el, host, launcher, view, finishLaunch } = await setup(["runGame"]);
+  await click(launchButton(el, "Run game"), finishLaunch);
+  await act(() => { view.dispose(); });
+  ok(!host.runs[0]!.stopped(), "hiding the panel does not stop the game");
+  const reopened = document.createElement("div");
+  document.body.append(reopened);
+  await act(() => { mountRun(reopened, { launcher, fs: host.fs, layout: { projectFolder: "" } }); });
+  const current = reopened.querySelector('[aria-label="Current run"]');
+  ok(current, "the reopened panel shows the run the launcher owns");
+  equal(current.querySelector(".tkr-run-state")?.textContent, "Running (tick 0)");
+  ok([...current.querySelectorAll("button")].some((button) => button.textContent === "Stop"));
+  await act(async () => { await launcher.launch({ kind: "game", main: MAIN, projectFolder: "" }); });
+  ok(host.runs[0]!.stopped(), "the earlier run is stopped, not orphaned");
+  ok(!host.runs[1]!.stopped());
+  equal(launcher.current(), host.runs[1]!.handle);
+});
+
+test("a main file outside Main/ is found and run", async () => {
+  const { el, host, finishLaunch } = await setup(["runGame"], null, "Games/Only.gam");
+  const button = launchButton(el, "Run game");
+  equal(button.disabled, false);
+  await click(button, finishLaunch);
+  equal(host.runs[0]!.launch.main, "Games/Only.gam");
+});
+
 test("a failed save stops the run and the panel names the document", async () => {
-  const { el, host, main } = await setup(["runGame"]);
+  const { el, host, main, finishLaunch } = await setup(["runGame"]);
   ok(main.apply({ type: "set-game-title", title: "Not run" }).ok);
   host.failWrites({ code: "permission-denied", message: "read-only" });
-  await click(launchButton(el, "Run game"));
+  await click(launchButton(el, "Run game"), finishLaunch);
   equal(host.runs.length, 0);
   const alert = el.querySelector('[role="alert"]');
   ok(alert?.textContent?.startsWith(`${MAIN} could not be saved`), alert?.textContent ?? "no alert");
 });
 
 test("Test board requires a party and preserves selection order with the first member as leader", async () => {
-  const { el, host } = await setup(["runGame", "runBoard"], "Boards/village.brd");
+  const { el, host, finishLaunch } = await setup(["runGame", "runBoard"], "Boards/village.brd");
   const section = fieldset(el, "Test board");
   equal(labelled<HTMLSelectElement>(section, "Board", "select").value, "Boards/village.brd");
   const runButton = launchButton(el, "Test board");
@@ -166,20 +212,20 @@ test("Test board requires a party and preserves selection order with the first m
   await choose(party, "Chrs/second.tem");
   await choose(party, "Chrs/hero.tem", "Chrs/second.tem");
   equal(runButton.disabled, false);
-  await click(runButton);
+  await click(runButton, finishLaunch);
   deepEqual(host.runs[0]!.launch, { kind: "board", main: MAIN, projectFolder: "", start: { board: "Boards/village.brd", x: 4, y: 7, layer: 1 }, party: ["Chrs/second.tem", "Chrs/hero.tem"] });
   equal(el.querySelector('[aria-label="Run snapshot"] dd')?.textContent, "Board test at Boards/village.brd (4, 7, layer 1)");
 });
 
 test("Test program runs one program under the fixture the panel names", async () => {
-  const { el, host } = await setup(["runProgram"]);
+  const { el, host, finishLaunch } = await setup(["runProgram"]);
   const section = fieldset(el, "Test program");
   await choose(labelled<HTMLSelectElement>(section, "Start board", "select"), "Boards/caves.brd");
   await type(labelled<HTMLInputElement>(section, "Layer", "input"), "2");
   await type(labelled<HTMLInputElement>(section, "Font", "input"), "Arial");
   await type(labelled<HTMLInputElement>(section, "Font size", "input"), "14");
   await choose(labelled<HTMLSelectElement>(section, "Message window picture", "select"), "Bitmap/window.png");
-  await click(launchButton(el, "Test program"));
+  await click(launchButton(el, "Test program"), finishLaunch);
   deepEqual(host.runs[0]!.launch, {
     kind: "program",
     main: MAIN,

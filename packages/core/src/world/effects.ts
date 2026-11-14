@@ -3,6 +3,7 @@ import type { EffectRecord } from "../script/effects.ts";
 import type { GameState } from "../save/state.ts";
 import type { AssetKey } from "../ports/keys.ts";
 import type { WorldBoard, WorldPoint, WorldProgram, WorldTile, WorldTileEdit, WorldVector } from "./model.ts";
+import { worldBoardGrid } from "./model.ts";
 import { invalidatePathfindingCache } from "../sprites/pathfinding.ts";
 import { resolvePixelMovement } from "./movement-settings.ts";
 
@@ -27,7 +28,17 @@ function cloneProgram(program: WorldProgram): WorldProgram {
   return { ...program, points: program.points.map(clonePoint) };
 }
 function tile(asset: string): WorldTile {
-  return { asset: asset as AssetKey, tile: 0, nativeWidth: 32, nativeHeight: 32, width: 32, height: 32 };
+  return { asset: asset as AssetKey, tile: 1, nativeWidth: 32, nativeHeight: 32, width: 32, height: 32 };
+}
+function copyTile(value: WorldTile | null): WorldTile | null {
+  if (value === null) return null;
+  return {
+    ...value,
+    ...(value.tint === undefined ? {} : { tint: { ...value.tint } }),
+    ...(value.animation === undefined ? {} : {
+      animation: { ...value.animation, frames: value.animation.frames.map((frame) => copyTile(frame)!) },
+    }),
+  };
 }
 function boardOrNull(state: GameState): WorldBoard | null {
   return state.world.board ?? null;
@@ -41,16 +52,18 @@ function replaceLayerTile(board: WorldBoard, index: number, layerIndex: number, 
     tiles[index] = next;
     return { ...layer, tiles };
   });
-  const edit: WorldTileEdit = { index: layerIndex * board.sizeX * board.sizeY + index, tile: next, previous, scope, ...(owner === undefined ? {} : { owner }) };
-  const runtime = board.runtime ?? { tileEdits: [], tileTypes: [] };
+  const { width, height } = worldBoardGrid(board);
+  const edit: WorldTileEdit = { index: layerIndex * width * height + index, tile: next, previous, scope, ...(owner === undefined ? {} : { owner }) };
+  const runtime = board.runtime ?? { tileEdits: [], tileTypes: [], tileBuffers: {} };
   return { ...board, layers, runtime: { ...runtime, tileEdits: [...runtime.tileEdits, edit] } };
 }
 function tileIndex(board: WorldBoard, x: number, y: number, layer: number): { index: number; layerIndex: number } | null {
   const layerIndex = layer - 1;
   const tileX = x - 1;
   const tileY = y - 1;
-  if (tileX < 0 || tileY < 0 || tileX >= board.sizeX || tileY >= board.sizeY || layerIndex < 0 || layerIndex >= board.layers.length) return null;
-  return { index: tileY * board.sizeX + tileX, layerIndex };
+  const { width, height } = worldBoardGrid(board);
+  if (tileX < 0 || tileY < 0 || tileX >= width || tileY >= height || layerIndex < 0 || layerIndex >= board.layers.length) return null;
+  return { index: tileY * width + tileX, layerIndex };
 }
 function pointsFromCount(points: readonly WorldPoint[], count: number): WorldPoint[] {
   if (count <= 0) return [];
@@ -132,6 +145,20 @@ export function applyWorldEffect(state: GameState, effect: EffectRecord): void {
     const tileArg = effect.name === "put" && effect.args.length === 3 ? 2 : 3;
     const location = tileIndex(board, x, y, layer);
     if (location !== null) next = replaceLayerTile(board, location.index, location.layerIndex, tile(stringArg(effect, tileArg)), effect.name === "put" ? "program" : "board", effect.name === "put" ? effect.thread : undefined);
+  } else if (effect.name === "scan") {
+    const location = tileIndex(board, numberArg(effect, 0), numberArg(effect, 1), 1);
+    if (location !== null) {
+      const tileBuffers = { ...(board.runtime?.tileBuffers ?? {}) };
+      tileBuffers[String(numberArg(effect, 2))] = copyTile(board.layers[location.layerIndex]?.tiles[location.index] ?? null);
+      next = { ...board, runtime: { ...(board.runtime ?? { tileEdits: [], tileTypes: [], tileBuffers: {} }), tileBuffers } };
+    }
+  } else if (effect.name === "mem") {
+    const location = tileIndex(board, numberArg(effect, 0), numberArg(effect, 1), 1);
+    const tileBuffers = board.runtime?.tileBuffers ?? {};
+    const key = String(numberArg(effect, 2));
+    if (location !== null && Object.hasOwn(tileBuffers, key)) {
+      next = replaceLayerTile(board, location.index, location.layerIndex, copyTile(tileBuffers[key] ?? null), "program", effect.thread);
+    }
   } else if (effect.name === "setambientlevel") {
     const { activeAmbient: _active, ...rest } = board;
     next = { ...rest, ambient: { r: numberArg(effect, 0), g: numberArg(effect, 1), b: numberArg(effect, 2) } };
@@ -163,7 +190,7 @@ export function applyWorldEffect(state: GameState, effect: EffectRecord): void {
       const tileTypes = [...(board.runtime?.tileTypes ?? [])];
       const flat = layer * board.sizeX * board.sizeY + (y - 1) * board.sizeX + (x - 1);
       tileTypes[flat] = stringArg(effect, 2, "NORMAL");
-      next = { ...board, runtime: { ...(board.runtime ?? { tileEdits: [], tileTypes: [] }), tileTypes } };
+      next = { ...board, runtime: { ...(board.runtime ?? { tileEdits: [], tileTypes: [], tileBuffers: {} }), tileTypes } };
     }
   }
   if (next !== board) {
@@ -211,9 +238,10 @@ export function expireProgramTileEdits(state: GameState): void {
   }
 
   const layers = board.layers.map((layer) => ({ ...layer, tiles: [...layer.tiles] }));
+  const { width, height } = worldBoardGrid(board);
   for (const [flatIndex, original] of baseline) {
-    const layerIndex = Math.floor(flatIndex / (board.sizeX * board.sizeY));
-    const index = flatIndex % (board.sizeX * board.sizeY);
+    const layerIndex = Math.floor(flatIndex / (width * height));
+    const index = flatIndex % (width * height);
     const layer = layers[layerIndex];
     if (layer !== undefined) layer.tiles[index] = visible.has(flatIndex) ? visible.get(flatIndex)! : original;
   }

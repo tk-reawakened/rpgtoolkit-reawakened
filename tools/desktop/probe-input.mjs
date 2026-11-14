@@ -1,6 +1,7 @@
 // Prove one real key press reaches the live engine inside the Electron window (entry 9.16).
 //
 //   node tools/desktop/probe-input.mjs --host-metrics
+//   node tools/desktop/probe-input.mjs --authored-board
 //   node tools/desktop/probe-input.mjs --game /path/to/game.tpk
 //
 // It launches the built desktop player exactly as `desktop:run` does, but with Chromium's remote debugging port open,
@@ -13,15 +14,15 @@
 
 import { spawn } from "node:child_process";
 import { execFileSync } from "node:child_process";
-import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { judgeMovement } from "./probe-judge.mjs";
 import { electronBinary } from "./electron-binary.mjs";
 import { probeDesktopCsp } from "./probe-csp.mjs";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { browserDebuggingPort, parseDebuggerPort, waitForDebuggerPort } from "./debugger-ports.mjs";
 import { BinaryReader, deriveGameId, derivePackageIdentity, loadPackage, readDistributionManifest, readMainFile, writeDistributionPackage, writeMainFile } from "@tk-reawakened/core";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -33,15 +34,19 @@ function argument(name, fallback) {
   return at >= 0 ? resolve(process.argv[at + 1] ?? "") : fallback;
 }
 
-/** A port the OS says is free, so two runs never collide. */
-function freePort() {
-  return new Promise((done) => {
-    const server = createServer();
-    server.listen(0, "127.0.0.1", () => {
-      const port = server.address().port;
-      server.close(() => done(port));
-    });
-  });
+
+async function cleanupProbe(child, stopped, mainDebugger, page, userDataDirectory) {
+  mainDebugger?.close();
+  page?.close();
+  if (child !== null) {
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    if (stopped !== null) await stopped;
+  }
+  removeTemporaryDirectory(userDataDirectory);
+  if (temporaryPackageDirectory !== null) {
+    removeTemporaryDirectory(temporaryPackageDirectory);
+    temporaryPackageDirectory = null;
+  }
 }
 
 let temporaryPackageDirectory = null;
@@ -89,8 +94,81 @@ function hostMetricsPackagePath() {
   return packageFile;
 }
 
+function copyDirectoryContents(source, destination) {
+  mkdirSync(destination, { recursive: true });
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    const sourcePath = join(source, entry.name);
+    const destinationPath = join(destination, entry.name);
+    if (entry.isDirectory()) {
+      copyDirectoryContents(sourcePath, destinationPath);
+    } else if (entry.isFile()) {
+      writeFileSync(destinationPath, readFileSync(sourcePath));
+    } else {
+      throw new Error(`authored package source contains an unsupported entry: ${sourcePath}`);
+    }
+  }
+}
+
+function authoredGrassTerrainColors() {
+  const tileSet = readFileSync(join(root, "docs", "spec", "examples", "game", "Game", "Example", "Tiles", "village.tst"));
+  const headerBytes = 6;
+  if (tileSet.readUInt16LE(0) !== 20 || tileSet.readUInt16LE(2) < 1 || tileSet.readUInt16LE(4) !== 1) {
+    throw new Error("the authored village grass tile no longer uses a detail-1 .tst tileset");
+  }
+  // The board shades layer-1 cell (0,0) by (-60,-60,-40) via its layer-2 shade record.
+  // Its layer-1 gradient adds (80,70,0) there, so the net tint is (20,10,-40).
+  // Cell center (16,16) lies before gradient node (320,64) and receives its first endpoint.
+  // See docs/spec/examples/listings/board.brd.txt and docs/spec/formats/tiles.md#shading.
+  const colors = new Map();
+  for (let x = 4; x < 28; x += 1) {
+    for (let y = 4; y < 28; y += 1) {
+      const offset = headerBytes + x * 32 * 3 + y * 3;
+      const sourceColor = [tileSet[offset], tileSet[offset + 1], tileSet[offset + 2]];
+      if (sourceColor.join(",") === "0,1,2") continue;
+      const color = [
+        Math.max(0, Math.min(255, sourceColor[0] + 20)),
+        Math.max(0, Math.min(255, sourceColor[1] + 10)),
+        Math.max(0, Math.min(255, sourceColor[2] - 40)),
+      ];
+      const key = color.join(",");
+      colors.set(key, color);
+    }
+  }
+  if (colors.size < 8) throw new Error("the authored village grass tile no longer contains its expected varied terrain pixels");
+  return [...colors.values()].slice(0, 8);
+}
+
+function authoredBoardPackagePath() {
+  temporaryPackageDirectory = mkdtempSync(join(tmpdir(), "tkr-authored-board-"));
+  process.once("exit", () => {
+    if (temporaryPackageDirectory !== null) rmSync(temporaryPackageDirectory, { recursive: true, force: true });
+  });
+  const sourceRoot = join(root, "docs", "spec", "examples", "game");
+  const projectRoot = join(temporaryPackageDirectory, "project");
+  const packageFile = join(temporaryPackageDirectory, "authored-example.tpk");
+  // Distribution packages place Main/ and project asset directories at their root.
+  // Stage the example's authored project files from Game/Example at that root.
+  copyDirectoryContents(join(sourceRoot, "Game", "Example"), projectRoot);
+  mkdirSync(join(projectRoot, "Main"), { recursive: true });
+  writeFileSync(join(projectRoot, "Main", "example.gam"), readFileSync(join(sourceRoot, "Main", "example.gam")));
+  execFileSync(
+    process.execPath,
+    [
+      join(root, "tools", "make-package", "run.mjs"),
+      projectRoot,
+      "--out", packageFile,
+      "--title", "Authored example village",
+      "--version", "1",
+    ],
+    { cwd: root, stdio: "inherit" },
+  );
+  return packageFile;
+}
+
+
 function packagePath() {
   if (process.argv.includes("--host-metrics")) return hostMetricsPackagePath();
+  if (process.argv.includes("--authored-board")) return authoredBoardPackagePath();
   const named = argument("--game", null);
   if (named !== null) return named;
   const out = join(root, "fixtures", "packages", "demo.tpk");
@@ -311,48 +389,79 @@ const KEY = {
   ArrowUp: { key: "ArrowUp", code: "ArrowUp", windowsVirtualKeyCode: 38, nativeVirtualKeyCode: 38, text: "", unmodifiedText: "" },
 };
 
-async function main() {
-  const pkg = packagePath();
-  const port = await freePort();
-  let inspectorPort = await freePort();
-  if (inspectorPort === port) inspectorPort = await freePort();
-  const child = spawn(
-    electronBinary(),
-    [
-      `--remote-debugging-port=${port}`,
-      `--inspect=127.0.0.1:${inspectorPort}`,
-      ...(process.platform === "linux" ? ["--enable-unsafe-swiftshader"] : []),
-      dist,
-      "--serve", root,
-      "--game", pkg,
-      "--page", "packages/runner-desktop/app/player.html",
-    ],
-    {
-      cwd: root,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        ELECTRON_ENABLE_LOGGING: "0",
-        ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
-      },
-    },
-  );
-  const log = [];
-  child.stdout.on("data", (chunk) => log.push(String(chunk)));
-  child.stderr.on("data", (chunk) => log.push(String(chunk)));
-
-  let pageTarget;
-  let page;
-  let mainDebugger;
+function removeTemporaryDirectory(directory) {
+  if (directory === null) return;
   try {
-    pageTarget = await targets(port);
-    page = connect(pageTarget.webSocketDebuggerUrl);
-    mainDebugger = connect(await nodeDebuggerTarget(inspectorPort));
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   } catch (error) {
-    page?.close();
-    mainDebugger?.close();
-    child.kill();
-    throw new Error(`${String(error)}\n${log.join("")}`);
+    console.error(`probe-input: left ${directory} behind (${error instanceof Error ? error.message : String(error)})`);
+  }
+}
+
+async function main() {
+  let pkg = null;
+  let userDataDirectory = null;
+  let child = null;
+  let stopped = null;
+  let page = null;
+  let mainDebugger = null;
+  const log = [];
+  let inspectorOutput = "";
+  let inspectorPort = null;
+  const captureLog = (chunk) => {
+    const text = String(chunk);
+    log.push(text);
+    if (inspectorPort === null) {
+      inspectorOutput = `${inspectorOutput}${text}`.slice(-4096);
+      const match = /Debugger listening on ws:\/\/127\.0\.0\.1:(\d+)\//.exec(inspectorOutput);
+      if (match !== null) inspectorPort = parseDebuggerPort(match[1]);
+    }
+  };
+
+  try {
+    pkg = packagePath();
+    userDataDirectory = mkdtempSync(join(tmpdir(), "tkr-desktop-input-"));
+    child = spawn(
+      electronBinary(),
+      [
+        "--remote-debugging-port=0",
+        "--remote-debugging-address=127.0.0.1",
+        "--inspect=127.0.0.1:0",
+        `--user-data-dir=${userDataDirectory}`,
+        ...(process.platform === "linux" ? ["--enable-unsafe-swiftshader"] : []),
+        dist,
+        "--user-data-dir", userDataDirectory,
+        "--serve", root,
+        "--game", pkg,
+        "--page", "packages/runner-desktop/app/player.html",
+      ],
+      {
+        cwd: root,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          ELECTRON_ENABLE_LOGGING: "0",
+          ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
+        },
+      },
+    );
+    child.once("error", (error) => log.push(`Electron failed to start: ${error.message}\n`));
+    stopped = new Promise((resolve) => child.once("close", (code, signal) => resolve({ code, signal })));
+    child.stdout.on("data", captureLog);
+    child.stderr.on("data", captureLog);
+
+    const [browserPort, nodePort] = await Promise.all([
+      waitForDebuggerPort("Chromium remote-debugging port", () => browserDebuggingPort(userDataDirectory), stopped),
+      waitForDebuggerPort("Node inspector port", () => inspectorPort, stopped),
+    ]);
+    const pageTarget = await targets(browserPort);
+    page = connect(pageTarget.webSocketDebuggerUrl);
+    mainDebugger = connect(await nodeDebuggerTarget(nodePort));
+  } catch (error) {
+    await cleanupProbe(child, stopped, mainDebugger, page, userDataDirectory);
+    console.log(JSON.stringify({ package: pkg, error: String(error), log: log.join("") }, null, 2));
+    process.exitCode = 1;
+    return;
   }
   const evaluate = async (expression) => {
     const result = await page.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
@@ -397,6 +506,19 @@ async function main() {
     const opened = await status();
     if (opened === null) throw new Error("the live page published no status");
     if (opened.error !== undefined) throw new Error(String(opened.error));
+
+    const ownershipResult = await mainDebugger.send("Runtime.evaluate", {
+      expression: `({ pid: process.pid, userDataDirectory: process.mainModule.require("electron").app.getPath("userData") })`,
+      returnByValue: true,
+    });
+    const ownership = ownershipResult.result.value;
+    if (ownership?.pid !== child.pid || ownership?.userDataDirectory !== userDataDirectory) {
+      throw new Error(`desktop debugger attached to the wrong Electron process/profile: ${JSON.stringify({
+        expectedPid: child.pid,
+        expectedUserDataDirectory: userDataDirectory,
+        actual: ownership,
+      })}`);
+    }
 
     const overlay = async () => evaluate(`({ hidden: document.querySelector("#live-status").hidden,
       width: document.querySelector("#viewport").clientWidth, height: document.querySelector("#viewport").clientHeight,
@@ -542,10 +664,122 @@ async function main() {
       await press("Enter");
       await new Promise((wait) => setTimeout(wait, 600));
     }
-    if ((await status()).board === null) throw new Error("the session never entered a board");
+    const enteredBoard = await status();
+    if (enteredBoard.board === null || enteredBoard.board === undefined) throw new Error("the session never entered a board");
     if ((await settled()) === null) throw new Error("the board never settled to a stable player position");
     const before = await status();
     if (before.player === null || before.player === undefined) throw new Error("the board never showed a player");
+
+    let authoredBoardProof = null;
+    if (process.argv.includes("--authored-board")) {
+      if (typeof enteredBoard.board !== "string" || !enteredBoard.board.toLowerCase().includes("village")) {
+        throw new Error(`authored package did not enter its own village board: ${JSON.stringify(enteredBoard.board)}`);
+      }
+      const fractionalTarget = resizeTargets[0];
+      if (fractionalTarget[0] >= 640 || fractionalTarget[1] >= 480) {
+        throw new Error(`authored board proof lacks a sub-1x viewport: ${JSON.stringify(fractionalTarget)}`);
+      }
+      const beforeFractionalArea = await evaluate(`(() => {
+        const area = document.querySelector("#viewport").getBoundingClientRect();
+        return { width: area.width, height: area.height };
+      })()`);
+      await resizeWindowContent(mainDebugger, fractionalTarget[0], fractionalTarget[1], beforeFractionalArea);
+      let fractionalGeometry = null;
+      let lastFractionalGeometry = null;
+      for (let attempt = 0; attempt < 40 && fractionalGeometry === null; attempt += 1) {
+        const observation = await evaluate(`(() => {
+          const area = document.querySelector("#viewport").getBoundingClientRect();
+          const session = window.__session;
+          const geometry = session.displayGeometry();
+          const view = session.viewSize();
+          return { area: { width: area.width, height: area.height }, geometry, view };
+        })()`);
+        lastFractionalGeometry = observation;
+        const scale = Math.min(
+          observation.geometry.game.width / observation.view.width,
+          observation.geometry.game.height / observation.view.height,
+        );
+        if (Math.abs(observation.area.width - fractionalTarget[0]) < 0.5
+          && Math.abs(observation.area.height - fractionalTarget[1]) < 0.5
+          && Math.abs(observation.geometry.content.width - observation.area.width) < 0.01
+          && Math.abs(observation.geometry.content.height - observation.area.height) < 0.01
+          && scale > 0 && scale < 1) {
+          fractionalGeometry = observation;
+        } else {
+          await sleep(50);
+        }
+      }
+      if (fractionalGeometry === null) {
+        throw new Error(`authored board proof did not reach a measured sub-1x viewport: ${JSON.stringify(lastFractionalGeometry)}`);
+      }
+      const fractionalScale = Math.min(
+        fractionalGeometry.geometry.game.width / fractionalGeometry.view.width,
+        fractionalGeometry.geometry.game.height / fractionalGeometry.view.height,
+      );
+      if (fractionalScale >= 1 || fractionalScale <= 0) {
+        throw new Error(`authored board proof did not use fractional game scaling: ${fractionalScale}`);
+      }
+
+      const expectedGrassColors = JSON.stringify(authoredGrassTerrainColors());
+      const boardPixels = await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+        const canvas = document.querySelector("#screen");
+        const session = window.__session;
+        const gl = canvas?.getContext("webgl2");
+        if (canvas === null || !document.contains(canvas) || session === undefined || gl === null || gl === undefined) {
+          resolve({ error: "the authored board has no attached WebGL2 canvas or live session" });
+          return;
+        }
+        const pixels = new Uint8Array(canvas.width * canvas.height * 4);
+        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        let nonBlack = 0;
+        let frameHash = 2166136261;
+        for (let index = 0; index < pixels.length; index += 1) {
+          frameHash = Math.imul(frameHash ^ pixels[index], 16777619);
+          if (index % 4 === 0 && (pixels[index] !== 0 || pixels[index + 1] !== 0 || pixels[index + 2] !== 0)) nonBlack += 1;
+        }
+        const view = session.viewSize();
+        const geometry = session.displayGeometry();
+        const terrainLeft = (view.width - 16 * 32) / 2;
+        const terrainTop = (view.height - 12 * 32) / 2;
+        const bufferScaleX = canvas.width / geometry.content.width;
+        const bufferScaleY = canvas.height / geometry.content.height;
+        const hostScaleX = geometry.game.width / view.width;
+        const hostScaleY = geometry.game.height / view.height;
+        const x0 = Math.max(0, Math.floor((geometry.game.x + terrainLeft * hostScaleX) * bufferScaleX));
+        const y0 = Math.max(0, Math.floor((geometry.game.y + terrainTop * hostScaleY) * bufferScaleY));
+        const x1 = Math.min(canvas.width, Math.ceil((geometry.game.x + (terrainLeft + 32) * hostScaleX) * bufferScaleX));
+        const y1 = Math.min(canvas.height, Math.ceil((geometry.game.y + (terrainTop + 32) * hostScaleY) * bufferScaleY));
+        const observed = new Set();
+        for (let y = y0; y < y1; y += 1) {
+          for (let x = x0; x < x1; x += 1) {
+            const offset = ((canvas.height - 1 - y) * canvas.width + x) * 4;
+            observed.add([pixels[offset], pixels[offset + 1], pixels[offset + 2]].join(","));
+          }
+        }
+        const expected = ${expectedGrassColors};
+        const matched = expected.filter(color => observed.has(color.join(",")));
+        resolve({
+          width: canvas.width,
+          height: canvas.height,
+          nonBlack,
+          frameHash,
+          displayScale: Math.min(hostScaleX, hostScaleY),
+          grassTileRegion: { x0, y0, x1, y1 },
+          expectedGrassColors: expected.length,
+          matchedGrassColors: matched.length,
+          observedGrassColors: observed.size,
+        });
+      })))`);
+      if (boardPixels.error !== undefined || boardPixels.width < 1 || boardPixels.height < 1
+        || boardPixels.nonBlack <= 1000 || boardPixels.frameHash === 0 || boardPixels.matchedGrassColors < 4) {
+        throw new Error(`authored village terrain pixels were not presented on the Electron canvas: ${JSON.stringify(boardPixels)}`);
+      }
+      authoredBoardProof = {
+        packageTitle: "Authored example village",
+        board: enteredBoard.board,
+        presentedPixels: boardPixels,
+      };
+    }
 
     // A direction is only meaningful while a key is pressed (#1122): phase (a) taps once and expects exactly
     // one 32-pixel tile on the tapped axis with no perpendicular drift; phase (b) holds and expects continuous
@@ -554,34 +788,37 @@ async function main() {
     // (core movement contract), which is why a tap held briefly still lands exactly one tile.
     let moved = null;
     const attempts = [];
-    let cursor = before.player;
-    for (const name of ["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"]) {
-      await keyDown(name);
-      await sleep(100);
-      await keyUp(name);
-      const tapped = await settled();
-      if (tapped === null || tapped.player === null || tapped.player === undefined) throw new Error("the player vanished or never settled during the tap phase");
-      await keyDown(name);
-      await sleep(1200);
-      await keyUp(name);
-      const held = await settled();
-      if (held === null || held.player === null || held.player === undefined) throw new Error("the player vanished or never settled during the hold phase");
-      const verdict = judgeMovement(name, cursor, tapped.player, held.player);
-      attempts.push({
-        key: name,
-        before: cursor,
-        afterTap: tapped.player,
-        afterHold: held.player,
-        tap: verdict.tap,
-        hold: verdict.hold,
-        tapOk: verdict.tapOk,
-        holdOk: verdict.holdOk,
-      });
-      if (verdict.tapOk && verdict.holdOk) {
-        moved = { key: name, tap: verdict.tap, hold: verdict.hold };
-        break;
+    // Keyboard movement remains the separate desktop:input proof; this mode targets only authored pixel presentation.
+    if (authoredBoardProof === null) {
+      let cursor = before.player;
+      for (const name of ["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"]) {
+        await keyDown(name);
+        await sleep(100);
+        await keyUp(name);
+        const tapped = await settled();
+        if (tapped === null || tapped.player === null || tapped.player === undefined) throw new Error("the player vanished or never settled during the tap phase");
+        await keyDown(name);
+        await sleep(1200);
+        await keyUp(name);
+        const held = await settled();
+        if (held === null || held.player === null || held.player === undefined) throw new Error("the player vanished or never settled during the hold phase");
+        const verdict = judgeMovement(name, cursor, tapped.player, held.player);
+        attempts.push({
+          key: name,
+          before: cursor,
+          afterTap: tapped.player,
+          afterHold: held.player,
+          tap: verdict.tap,
+          hold: verdict.hold,
+          tapOk: verdict.tapOk,
+          holdOk: verdict.holdOk,
+        });
+        if (verdict.tapOk && verdict.holdOk) {
+          moved = { key: name, tap: verdict.tap, hold: verdict.hold };
+          break;
+        }
+        cursor = held.player;
       }
-      cursor = held.player;
     }
     const finalTick = (await status()).tick;
 
@@ -592,7 +829,7 @@ async function main() {
 
     const report = {
       package: pkg,
-      error: moved === null
+      error: authoredBoardProof === null && moved === null
         ? "no direction proved a one-tile tap (exactly 32 px on the tapped axis, no perpendicular drift) plus a continued hold (>= 64 px on that axis, perpendicular delta < 16 px)"
         : null,
       tick: finalTick,
@@ -601,6 +838,7 @@ async function main() {
       emulatedScaleBoundary,
       attempts,
       moved,
+      ...(authoredBoardProof === null ? {} : { authoredBoard: authoredBoardProof }),
       csp,
     };
     console.log(JSON.stringify(report, null, 2));
@@ -609,13 +847,7 @@ async function main() {
     console.log(JSON.stringify({ package: pkg, error: String(error), log: log.join("") }, null, 2));
     process.exitCode = 1;
   } finally {
-    mainDebugger.close();
-    page.close();
-    child.kill();
-    if (temporaryPackageDirectory !== null) {
-      rmSync(temporaryPackageDirectory, { recursive: true, force: true });
-      temporaryPackageDirectory = null;
-    }
+    await cleanupProbe(child, stopped, mainDebugger, page, userDataDirectory);
   }
 }
 

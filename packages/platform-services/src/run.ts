@@ -181,6 +181,8 @@ export interface RunSnapshot {
   } | null;
   /** The runner build that ran it, as the host names it. */
   readonly runner: string;
+  /** Most recently observed runtime state hash, or `null` until the runner reports one; retained when the run ends. */
+  readonly stateHash: string | null;
 }
 
 /** One located problem a run reported (AD-24 `TickReport` diagnostics). */
@@ -321,6 +323,13 @@ export interface PrepareRunOptions {
   readonly projectId: string;
   /** The runner build, recorded in the snapshot. */
   readonly runner: string;
+  /**
+   * The coordinate unit of a start board's saved bytes, or `null` when they are not a readable board. A start's x/y are
+   * one-based tile coordinates unless the board sets `coordType`'s "Use pixel coordinates" flag 4, where they are
+   * absolute board pixels from 0 (`docs/spec/engine/main-loop-and-startup.md`, board test). Hosts pass the editor
+   * model's board reader; this package reads no board format.
+   */
+  readonly startUnit: (board: Uint8Array) => "tile" | "pixel" | null;
   /** SHA-256 of `bytes`; the platform's Web Crypto by default. */
   readonly sha256?: (bytes: Uint8Array) => Promise<string>;
 }
@@ -399,7 +408,7 @@ function utf8(text: string): Uint8Array {
   return new Uint8Array(out);
 }
 
-/** A position must be whole-numbered; x/y may be 0 for absolute pixel coordinates, while layers start at 1. */
+/** A position must be whole-numbered; x/y may be 0 only on a pixel-coordinate board (checked once the board is read), while layers start at 1. */
 function badStart(start: BoardStart, role: string): string | null {
   for (const [name, value] of [["x", start.x], ["y", start.y], ["layer", start.layer]] as const) {
     const minimum = name === "layer" ? 1 : 0;
@@ -466,6 +475,18 @@ export async function prepareRun(
       targets.push({ path: stored, sha256: "" });
     }
   }
+  if (start !== null) {
+    const role = launch.kind === "board" ? "start" : "fixture start";
+    const board = byKey.get(fold(start.board));
+    if (board === undefined) return platformError("not-found", `The run needs the board ${start.board}, which the project does not have.`);
+    const unit = options.startUnit(files.get(board)!);
+    if (unit === null) return platformError("invalid-request", `The ${role} board ${board} is not a readable board file.`);
+    if (unit === "tile") {
+      for (const [name, value] of [["x", start.x], ["y", start.y]] as const) {
+        if (value < 1) return platformError("invalid-request", `The ${role}'s ${name} is a one-based tile coordinate on ${board}, so it must be at least 1; it is ${value}.`);
+      }
+    }
+  }
 
   const records: string[] = [];
   let manifest: string;
@@ -505,6 +526,7 @@ export async function prepareRun(
         start: start === null ? null : { ...start, board: byKey.get(fold(start.board)) ?? start.board },
       },
       runner: options.runner,
+      stateHash: null,
     },
   });
 }
@@ -521,15 +543,18 @@ export function launchUnavailable(kind: LaunchKind, reason: string): PlatformRes
  */
 export function createRunHandle(snapshot: RunSnapshot, onStop: () => void): { readonly handle: RunHandle; report(status: Partial<RunStatus>): void } {
   let status: RunStatus = { state: "starting", tick: 0, board: null, stateHash: null, stalledOn: null, diagnostics: [], message: null };
+  const recordedSnapshot = { ...snapshot };
+  recordedSnapshot.stateHash = null;
   const listeners = new Set<(status: RunStatus) => void>();
   const finished = (): boolean => status.state === "ended" || status.state === "failed";
   const report = (change: Partial<RunStatus>): void => {
     if (finished()) return;
     status = { ...status, ...change };
+    if (status.stateHash !== null && status.stateHash !== "") recordedSnapshot.stateHash = status.stateHash;
     for (const listener of [...listeners]) listener(status);
   };
   const handle: RunHandle = {
-    snapshot,
+    snapshot: recordedSnapshot,
     status: () => status,
     onStatus(listener) {
       listeners.add(listener);

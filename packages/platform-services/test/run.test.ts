@@ -186,9 +186,48 @@ test("a run keeps the bytes it was given: a later save neither reaches it nor ke
   notEqual(second.value.snapshot.manifest, first.value.snapshot.manifest, "the edited board changes the manifest, so the runs are told apart");
 });
 
+test("a start position follows its board's coordinate unit: 0 is refused on tile boards, allowed on pixel boards, and an unreadable board is refused", async () => {
+  const units: Record<string, "tile" | "pixel" | null> = { "start board": "tile", "cave board": "pixel", broken: null };
+  const host = createMemoryPlatformServices({
+    files: { ...FILES, "Boards/broken.brd": text("broken") },
+    capabilities: ALL_RUNS,
+    startUnit: (bytes) => units[String.fromCharCode(...bytes)] ?? null,
+  });
+  const board = (start: BoardLaunch["start"]): BoardLaunch => ({ kind: "board", main: "Main/game.gam", projectFolder: "", start, party: ["Chrs/hero.tem"] });
+  const tileZero = await host.run!.startGame(board({ board: "Boards/start.brd", x: 0, y: 1, layer: 1 }));
+  ok(!tileZero.ok);
+  equal(tileZero.error.code, "invalid-request");
+  equal(tileZero.error.message, "The start's x is a one-based tile coordinate on Boards/start.brd, so it must be at least 1; it is 0.");
+  const fixtureZero = await host.run!.startProgram({ ...program, fixture: { ...program.fixture, start: { board: "Boards/start.brd", x: 1, y: 0, layer: 1 } } });
+  ok(!fixtureZero.ok);
+  equal(fixtureZero.error.message, "The fixture start's y is a one-based tile coordinate on Boards/start.brd, so it must be at least 1; it is 0.");
+  const unreadable = await host.run!.startGame(board({ board: "Boards/broken.brd", x: 1, y: 1, layer: 1 }));
+  ok(!unreadable.ok);
+  equal(unreadable.error.message, "The start board Boards/broken.brd is not a readable board file.");
+  equal(host.runs.length, 0);
+  ok((await host.run!.startGame(board({ board: "Boards/start.brd", x: 1, y: 1, layer: 1 }))).ok, "the first tile is (1, 1)");
+  const pixelOrigin = await host.run!.startGame(board({ board: "Boards/cave.brd", x: 0, y: 0, layer: 1 }));
+  ok(pixelOrigin.ok, "a pixel board's origin is (0, 0)");
+  deepEqual(pixelOrigin.value.snapshot.start, { board: "Boards/cave.brd", x: 0, y: 0, layer: 1 });
+});
+
+test("a board party of five distinct characters starts in order, and a missing member is refused by name", async () => {
+  const members = ["Chrs/e.tem", "Chrs/a.tem", "Chrs/d.tem", "Chrs/b.tem", "Chrs/c.tem"];
+  const host = createMemoryPlatformServices({ files: { ...FILES, ...Object.fromEntries(members.map((path) => [path, text(path)])) }, capabilities: ALL_RUNS });
+  const launch: BoardLaunch = { kind: "board", main: "Main/game.gam", projectFolder: "", start: { board: "Boards/start.brd", x: 1, y: 1, layer: 1 }, party: members };
+  const five = await host.run!.startGame(launch);
+  ok(five.ok);
+  deepEqual(five.value.snapshot.party, members, "the party keeps the chosen order; the first member leads");
+  const missing = await host.run!.startGame({ ...launch, party: ["Chrs/a.tem", "Chrs/gone.tem"] });
+  ok(!missing.ok);
+  equal(missing.error.code, "not-found");
+  equal(missing.error.message, "The run needs the party member Chrs/gone.tem, which the project does not have.");
+  equal(host.runs.length, 1);
+});
+
 test("the manifest is SHA-256 over sorted, length-prefixed (path, hash) records", async () => {
   const host = createMemoryPlatformServices({ files: { "Main/game.gam": text("main"), "b": text("B"), "a/c": text("C") } });
-  const prepared = await prepareRun(host.fs, game, { projectId: "memory-project", runner: "test" });
+  const prepared = await prepareRun(host.fs, game, { projectId: "memory-project", runner: "test", startUnit: () => "tile" });
   ok(prepared.ok);
   const field = (value: string): string => `${value.length}:${value}`;
   const records = [`${field("b")}${field(sha(text("B")))}`, `${field("a/c")}${field(sha(text("C")))}`].sort();
@@ -199,16 +238,22 @@ test("a handle reports status changes until the run finishes, and stopping it en
   const host = createMemoryPlatformServices({ files: FILES, capabilities: ALL_RUNS });
   const started = await host.run!.startGame(game);
   ok(started.ok);
+  equal(started.value.snapshot.stateHash, null, "starting a run does not invent a runtime result");
+  const manifest = started.value.snapshot.manifest;
   const seen: RunStatus["state"][] = [];
   const listener = started.value.onStatus((status) => seen.push(status.state));
   host.runs[0]!.report({ state: "stalled", stalledOn: "Boards/start.brd", tick: 3 });
   equal(started.value.status().stalledOn, "Boards/start.brd");
-  host.runs[0]!.report({ state: "running", stalledOn: null, board: "Boards/start.brd", tick: 4 });
+  host.runs[0]!.report({ state: "running", stalledOn: null, board: "Boards/start.brd", tick: 4, stateHash: "f98144eaae49f086" });
   started.value.stop();
   started.value.stop();
-  host.runs[0]!.report({ state: "running" });
+  host.runs[0]!.report({ state: "running", stateHash: "not-a-result-after-stop" });
   listener.dispose();
   deepEqual(seen, ["stalled", "running", "ended"]);
   equal(started.value.status().message, "The run was stopped.");
   ok(host.runs[0]!.stopped());
+  const recorded: unknown = JSON.parse(JSON.stringify(started.value.snapshot));
+  ok(typeof recorded === "object" && recorded !== null && "stateHash" in recorded);
+  equal(recorded.stateHash, "f98144eaae49f086", "the exported snapshot retains the last live result after stop");
+  equal(started.value.snapshot.manifest, manifest, "runtime observations do not alter saved-input identity");
 });

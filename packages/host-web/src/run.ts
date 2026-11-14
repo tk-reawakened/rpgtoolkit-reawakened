@@ -1,4 +1,5 @@
 import { createRunHandle, platformError, platformOk, prepareBoardLaunch, prepareRun, prepareSceneLaunch, type FileSystemService, type Launch, type RunDiagnostic, type RunHandle, type RunService, type RunStartGuard, type RunStatus } from "@tk-reawakened/platform-services";
+import { boardStartUnit } from "@tk-reawakened/editor-model";
 
 function isDiagnostic(value: unknown): value is RunDiagnostic {
   return typeof value === "object" && value !== null
@@ -11,7 +12,7 @@ function isDiagnostic(value: unknown): value is RunDiagnostic {
 /** Launch saved project bytes in the same-origin live player. The frame is host chrome; it owns no editor state. */
 export function createWebRunService(fs: FileSystemService, projectId: string, playerUrl: string): RunService {
   const start = async (launch: Launch, guard?: RunStartGuard) => {
-      const prepared = await prepareRun(fs, launch, { projectId, runner: "runner-web" });
+      const prepared = await prepareRun(fs, launch, { projectId, runner: "runner-web", startUnit: boardStartUnit });
       if (!prepared.ok) return prepared;
       const scene = launch.kind === "game" ? null : launch.kind === "board"
         ? prepareBoardLaunch({ ...launch, start: { ...launch.start, board: prepared.value.snapshot.start!.board }, party: prepared.value.snapshot.party })

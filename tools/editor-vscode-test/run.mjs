@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
-import { access, cp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
-import { runVscodeBoardProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeProgramProof, runVscodeWebProof } from "./web-proof.ts";
+import { createEmptyBoard, writeBoard } from "@tk-reawakened/core";
+import { buildNewBoard } from "@tk-reawakened/editor-model";
+import { requestNativeReload, runVscodeBoardProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeProgramProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -32,6 +34,12 @@ if (gameFiles.length !== 1 || resolve(workspace, game) !== gameFiles[0]) {
   throw new Error(`The VS Code web proof workspace must contain exactly one .gam file, matching --game; found ${gameFiles.length}`);
 }
 await access(gameFiles[0]);
+const spritePath = "Chrs/__tkr_sprite_proof.tem";
+const spriteFile = resolve(root, "docs/spec/examples/versions/character/character_minor8.tem");
+const spritePreviewGifFile = resolve(root, "packages/core/test/fixtures/authored/gif-anim89a.gif");
+await access(spritePreviewGifFile);
+await access(spriteFile);
+const spriteBytes = new Uint8Array(await readFile(spriteFile));
 const title = `VS Code web proof ${Date.now()}`;
 const recoveredTitle = `${title} recovered`;
 const autosaveTitle = `${title} autosaved`;
@@ -52,12 +60,34 @@ const guardProof = process.env.TKR_VSCODE_GUARD_PROOF === "1";
 if ((launchProof || boardProof || programProof || guardProof) && game !== "Main/example.gam") throw new Error("The launch proof requires docs/spec/examples/game and --game Main/example.gam");
 for (const choice of launchProof || boardProof || programProof || guardProof ? ["cancel"] : ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game);
-  let browser;
+  const spriteDirectory = resolve(proofWorkspace, "Chrs");
+  await mkdir(spriteDirectory, { recursive: true });
+  await copyFile(spriteFile, resolve(proofWorkspace, spritePath));
+  await mkdir(resolve(proofWorkspace, "Misc"), { recursive: true });
+  await copyFile(spritePreviewGifFile, resolve(proofWorkspace, "Misc/vscode-web-proof.gif"));
+  const boardPath = "Boards/village.brd";
+  const otherBoardPath = "Boards/other.brd";
+  const boardBytes = createBoardBytes();
+  await mkdir(resolve(proofWorkspace, "Boards"), { recursive: true });
+  await mkdir(resolve(proofWorkspace, "Tiles"), { recursive: true });
+  const canvasBoards = [["2d", "top-down", 0], ["iso-stacked", "iso-stacked", 1], ["iso-rotated", "iso-rotated", 2]].map(([system, label, coordType]) => ({ system, label, coordType, path: `Boards/canvas-${label}.brd` }));
+  await Promise.all([
+    ...canvasBoards.map(async ({ system, path }) => {
+      const built = buildNewBoard({ name: "canvas", coordSystem: system, pixelCoordinates: false, width: 8, height: 8, layers: 2, backgroundImage: "", template: null });
+      if (!built.ok) throw new Error(`Could not create the canvas proof board: ${built.message}`);
+      await writeFile(resolve(proofWorkspace, path), built.bytes);
+    }),
+    writeFile(resolve(proofWorkspace, boardPath), boardBytes),
+    writeFile(resolve(proofWorkspace, otherBoardPath), boardBytes),
+    copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, "Tiles/village.tst")),
+  ]);
   let persistentFs;
+  let browser;
   let trackedProcess;
   let failure;
   let cleanupErrors = [];
   const browserDiagnostics = [];
+  const probeDiagnostics = [];
   try {
     if (launchProof || boardProof || programProof || guardProof) {
       await cp(resolve(workspace, "Game"), resolve(proofWorkspace, "Game"), { recursive: true });
@@ -102,12 +132,12 @@ for (const choice of launchProof || boardProof || programProof || guardProof ? [
       const token = persistentFs.token;
       const trace = `async (kind, value) => { const response = await fetch("http://127.0.0.1:${bridgePort}/${token}", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "trace", kind, value }) }); if (!response.ok) throw new Error("Proof trace failed"); }`;
       // The bundler numbers the `vscode` namespace by how many modules import it, so the name is read from the build.
-      const namespace = /executeCommand: async \(command2\) => await (vscode\d*)\.commands\.executeCommand\(command2\)/.exec(source)?.[1];
+      const namespace = /saveEditor: async \(uri\) => await (vscode\d*)\.workspace\.save\(uri\)/.exec(source)?.[1];
       if (namespace === undefined) throw new Error("Built VS Code adapter no longer matches the proof instrumentation");
       const probes = [
         [
-          `executeCommand: async (command2) => await ${namespace}.commands.executeCommand(command2)`,
-          `executeCommand: async (command2) => { await (${trace})("command", command2); return await ${namespace}.commands.executeCommand(command2); }`,
+          `saveEditor: async (uri) => await ${namespace}.workspace.save(uri)`,
+          `saveEditor: async (uri) => { await (${trace})("save-request", uri.path); return await ${namespace}.workspace.save(uri); }`,
         ],
         [
           "saveCustomDocument: (document2) => core.saveCustomDocument(document2)",
@@ -127,7 +157,15 @@ for (const choice of launchProof || boardProof || programProof || guardProof ? [
     const recordBrowserDiagnostic = (message) => { if (browserDiagnostics.length < 100) browserDiagnostics.push(message.replaceAll(persistentFs.token, "[redacted]")); };
     const newPage = async () => {
       const page = await browser.newPage();
-      page.on("console", (message) => { if (message.type() === "error") recordBrowserDiagnostic(`[console] ${message.text()}`); });
+      page.on("console", (message) => {
+        const text = message.text();
+        if (text.includes("[vscode-web-proof-probe]") && probeDiagnostics.length < 100) {
+          probeDiagnostics.push(`[console] ${text.replaceAll(persistentFs.token, "[redacted]")}`);
+        }
+        if (message.type() === "error" || /CommandService#executeCommand workbench\.action\.reloadWindow/.test(text)) {
+          recordBrowserDiagnostic(`[console] ${text}`);
+        }
+      });
       page.on("pageerror", (error) => recordBrowserDiagnostic(`[pageerror] ${error.stack ?? error.message}`));
       page.on("requestfailed", (request) => recordBrowserDiagnostic(`[requestfailed] ${request.url()}: ${request.failure()?.errorText ?? "unknown failure"}`));
       return page;
@@ -152,14 +190,7 @@ for (const choice of launchProof || boardProof || programProof || guardProof ? [
       };
       await currentPage.route(script, holdBootstrap);
       try {
-        await currentPage.locator(".monaco-workbench").click({ position: { x: 5, y: 5 } });
-        await currentPage.keyboard.press("ControlOrMeta+Shift+P");
-        const input = currentPage.locator(".quick-input-widget input").last();
-        await expect(input).toBeVisible();
-        await input.fill(">Developer: Reload Window");
-        const command = currentPage.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Developer: Reload Window" }).first();
-        await expect(command).toBeVisible();
-        await command.click();
+        await requestNativeReload(currentPage, expect);
         const timeout = Promise.withResolvers();
         const timer = setTimeout(() => timeout.reject(new Error("Workbench bootstrap did not pause")), 30_000);
         try { await Promise.race([paused.promise, timeout.promise]); } finally { clearTimeout(timer); }
@@ -195,8 +226,12 @@ for (const choice of launchProof || boardProof || programProof || guardProof ? [
       await runVscodeLaunchProof(page, expect, workbenchUrl, game, readBacking, launchBytes);
       console.log("vscode.dev live player launch proof passed");
     } else {
-      await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice });
-      console.log(`vscode.dev settings proof passed (${choice})`);
+      if (choice === "cancel") {
+        await runVscodeSpriteWebProof(page, expect, workbenchUrl, spritePath, spriteBytes, { readBacking });
+        console.log("vscode.dev sprite save/reopen proof passed");
+      }
+      await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath, canvasBoards: canvasBoards.map(({ path, label, coordType }) => ({ path, label, coordType })) });
+      console.log(`vscode.dev settings and board proof passed (${choice})`);
     }
   } catch (error) {
     failure = error;
@@ -210,6 +245,7 @@ for (const choice of launchProof || boardProof || programProof || guardProof ? [
   const proofFailure = combineProofErrors(failure, cleanupErrors);
   if (proofFailure !== undefined) {
     if (browserDiagnostics.length > 0) console.error(`[vscode-web:failure-diagnostics]\n${browserDiagnostics.join("\n")}`);
+    if (probeDiagnostics.length > 0) console.error(`[vscode-web:probe-diagnostics]\n${probeDiagnostics.join("\n")}`);
     throw proofFailure;
   }
 }
@@ -244,6 +280,27 @@ async function findGameFiles(directory) {
     else if (entry.isFile() && entry.name.toLowerCase().endsWith(".gam")) files.push(path);
   }
   return files;
+}
+function createBoardBytes() {
+  const empty = createEmptyBoard();
+  const board = {
+    ...empty,
+    sizeX: 2,
+    sizeY: 2,
+    sizeL: 1,
+    layerTitles: ["", ""],
+    lut: ["", "village.tst1", "village.tst2"],
+    tileMatrix: [1, 2, 2, 1],
+    tileRuns: [
+      { lutIndex: 1, count: 1, marker: false },
+      { lutIndex: 2, count: 1, marker: true },
+      { lutIndex: 2, count: 1, marker: false },
+      { lutIndex: 1, count: 1, marker: false },
+    ],
+  };
+  const written = writeBoard(board);
+  if (!written.ok) throw new Error(`Could not create authored board proof fixture: ${written.error.message}`);
+  return written.value;
 }
 
 

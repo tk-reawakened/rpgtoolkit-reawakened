@@ -1,8 +1,11 @@
 const vscode = require("vscode");
 const proofSecret = "__TKR_PROOF_SECRET__";
-
 let autosaveOffGate;
 let releaseAutosaveOff;
+let lastRunHandle;
+let runHandlePanel;
+let lastStopHash = null;
+
 function activate(context) {
   console.info("[vscode-web-proof-probe] activated");
   const filesystem = new PersistentFileSystem();
@@ -10,6 +13,26 @@ function activate(context) {
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
   context.subscriptions.push(status);
   const report = (text) => { status.text = text; status.show(); };
+  const publishRunHandle = (handle) => {
+    lastRunHandle = handle;
+    if (runHandlePanel === undefined) {
+      const nonce = crypto.randomUUID().replace(/-/g, "");
+      runHandlePanel = vscode.window.createWebviewPanel("tkr.editorWebProof.runHandle", "Run Handle Proof",
+        vscode.ViewColumn.Beside, { enableScripts: true, enableCommandUris: ["tkr.editorWebProof.stopRunHandle"] });
+      runHandlePanel.onDidDispose(() => { runHandlePanel = undefined; });
+      runHandlePanel.webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}';"></head><body><pre id="tkr-run-handle-snapshot"></pre><pre id="tkr-run-handle-status"></pre><pre id="tkr-run-handle-stopped-hash"></pre><a id="tkr-stop-run-handle" href="command:tkr.editorWebProof.stopRunHandle">Stop run</a><script nonce="${nonce}">window.addEventListener("message", event => { document.querySelector("#tkr-run-handle-snapshot").textContent = JSON.stringify(event.data.snapshot); document.querySelector("#tkr-run-handle-status").textContent = JSON.stringify(event.data.status); document.querySelector("#tkr-run-handle-stopped-hash").textContent = JSON.stringify(event.data.stoppedHash); });</script></body></html>`;
+      context.subscriptions.push(runHandlePanel);
+    }
+    renderRunHandle();
+  };
+  const renderRunHandle = () => {
+    if (runHandlePanel === undefined || lastRunHandle === undefined) return;
+    void runHandlePanel.webview.postMessage({ snapshot: lastRunHandle.snapshot, status: lastRunHandle.status(), stoppedHash: lastStopHash });
+  };
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.stopRunHandle", () => {
+    lastStopHash = lastRunHandle?.snapshot.stateHash ?? null;
+    lastRunHandle?.stop();
+  }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.failSaves", () => { filesystem.failSaves = true; }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.allowSaves", () => { filesystem.failSaves = false; }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.pauseProgramRead", () => {
@@ -34,7 +57,11 @@ function activate(context) {
         party: ["Game/Example/Chrs/ada.tem"],
         start: { board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1 } },
     });
-    report(result?.ok ? "Program launch accepted" : `Program launch refused: ${result?.error?.message ?? "unknown error"}`);
+    if (result?.ok) {
+      publishRunHandle(result.value);
+      result.value.onStatus(renderRunHandle);
+      report("Program launch accepted");
+    } else report(`Program launch refused: ${result?.error?.message ?? "unknown error"}`);
   }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.runExampleBoard", async () => {
     const workspace = vscode.workspace.workspaceFolders?.[0];
@@ -45,7 +72,11 @@ function activate(context) {
       party: ["Game/Example/Chrs/ada.tem"],
       start: { board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1 },
     });
-    report(result?.ok ? "Board launch accepted" : `Board launch refused: ${result?.error?.message ?? "unknown error"}`);
+    if (result?.ok) {
+      publishRunHandle(result.value);
+      result.value.onStatus(renderRunHandle);
+      report("Board launch accepted");
+    } else report(`Board launch refused: ${result?.error?.message ?? "unknown error"}`);
   }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.copyMainFileBytes", async () => {
     console.info("[vscode-web-proof-probe] copy command invoked");
@@ -62,14 +93,31 @@ function activate(context) {
     const encoded = btoa(binary);
     const id = crypto.randomUUID();
     console.info(`[vscode-web-proof-probe] displaying ${encoded.length} base64 characters in a temporary read-only webview`);
+    const reloadCommand = `tkr.editorWebProof.reloadWindow.${id}`;
     const panel = vscode.window.createWebviewPanel(
       "tkr.editorWebProof.persistedBytes",
       `Persisted Main File Bytes #${id}`,
       vscode.ViewColumn.Beside,
-      { enableScripts: false },
+      { enableScripts: false, enableCommandUris: [reloadCommand] },
     );
-    context.subscriptions.push(panel);
-    panel.webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none';"></head><body><pre id="tkr-proof-persisted-bytes-${id}">${encoded}</pre></body></html>`;
+    const reloadRegistration = vscode.commands.registerCommand(reloadCommand, async () => {
+      console.info("[vscode-web-proof-probe] requesting native reload");
+      let ownedTab;
+      for (const group of vscode.window.tabGroups.all) {
+        for (const tab of group.tabs) {
+          if (!(tab.input instanceof vscode.TabInputWebview) || tab.label !== panel.title) continue;
+          if (ownedTab !== undefined) throw new Error("The reload control matched more than one probe tab");
+          ownedTab = tab;
+        }
+      }
+      if (ownedTab === undefined || !await vscode.window.tabGroups.close(ownedTab)) {
+        throw new Error("The owned reload control tab did not close");
+      }
+      return vscode.commands.executeCommand("workbench.action.reloadWindow");
+    });
+    panel.onDidDispose(() => reloadRegistration.dispose());
+    context.subscriptions.push(panel, reloadRegistration);
+    panel.webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none';"></head><body><pre id="tkr-proof-persisted-bytes-${id}">${encoded}</pre><a href="command:${reloadCommand}">Reload workbench</a></body></html>`;
     console.info(`[vscode-web-proof-probe] persisted bytes published in read-only webview #${id}`);
   }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.writeGameBytes", async (encoded) => {

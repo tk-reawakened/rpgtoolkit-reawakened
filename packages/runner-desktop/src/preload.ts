@@ -7,6 +7,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 import type { LaunchInfo } from "@tk-reawakened/runner-web";
+import type { DesktopDebugOptions } from "./debug-options.ts";
 
 export type DesktopHost = {
   /**
@@ -17,7 +18,7 @@ export type DesktopHost = {
   /** Which rule named the game, the rows to offer, and the sentence that says why nothing opened. */
   launchInfo(): Promise<LaunchInfo>;
   /** This run's overlay override and whether the diagnostics strip was asked for (E-05, main-file row 58). */
-  debug(): Promise<{ readonly drawVectorsFlags: number; readonly diagnostics: boolean }>;
+  debug(): Promise<DesktopDebugOptions>;
   readBlob(area: "saves" | "files", gameId: string, path: string): Promise<Uint8Array | null>;
   writeBlob(area: "saves" | "files", gameId: string, path: string, bytes: Uint8Array): Promise<boolean>;
   listBlobs(area: "saves" | "files", gameId: string): Promise<string[]>;
