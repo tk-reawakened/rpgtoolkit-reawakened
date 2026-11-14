@@ -6,7 +6,7 @@
 // `apps/`. Nothing here is a dev server: the bundles are the artefacts the lane serves.
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -46,6 +46,7 @@ for (const entry of entries) {
 }
 const editorWebOut = join(here, "editor-web", "dist", "editor-web.js");
 mkdirSync(dirname(editorWebOut), { recursive: true });
+copyFileSync(join(root, "packages/editor-ui/src/tileset-browser.css"), join(dirname(editorWebOut), "tileset-browser.css"));
 await build({
   entryPoints: [join(here, "editor-web", "main.tsx")],
   outfile: editorWebOut,
