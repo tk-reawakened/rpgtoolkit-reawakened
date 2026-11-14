@@ -641,11 +641,13 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
         run: |
           workspace="$(mktemp -d "${RUNNER_TEMP:-/tmp}/tkr-vscode-web.XXXXXX")"
-          cp docs/spec/examples/game/Main/example.gam "$workspace/example.gam"
-          mkdir -p "$workspace/.vscode"
+          cp -R docs/spec/examples/game/Game/Example/. "$workspace/"
+          mkdir -p "$workspace/Main" "$workspace/.vscode"
+          cp docs/spec/examples/game/Main/example.gam "$workspace/Main/example.gam"
           printf '{\n  "files.autoSave": "off"\n}\n' > "$workspace/.vscode/settings.json"
-          # Downloading replaces the cache directory; keep its parent writable without root DAC bypass.
-          export TKR_VSCODE_TEST_DATA_DIR="$workspace/vscode-builds"
+          # Keep the replaceable VS Code cache beside, not inside, the source fixture: later proof iterations copy that fixture as a project.
+          cache_root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/tkr-vscode-cache.XXXXXX")"
+          export TKR_VSCODE_TEST_DATA_DIR="$cache_root/builds"
           # Root's DAC override defeats the chmod-based physical write-refusal proof (#2659).
           # Drop only those capabilities for this proof, retaining the same workspace and real filesystem.
           set --
@@ -655,7 +657,7 @@ jobs:
           "$@" xvfb-run -a pnpm --dir tools/editor-vscode-test proof -- \
             --extension extensions/editor \
             --workspace "$workspace" \
-            --game example.gam
+            --game Main/example.gam
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
       - run: pnpm fixtures:fetch

@@ -14,6 +14,7 @@
     "onCustomEditor:tkr.tileset",
     "onCustomEditor:tkr.tileBitmap",
     "onView:tkr.game",
+    "onCommand:tkr.packageGame",
     "onCommand:tkr.runGame",
     "onCommand:tkr.startProgram",
     "onCommand:tkr.startBoard",
@@ -50,8 +51,21 @@
       {
         "command": "tkr.newBoard",
         "title": "RPG Toolkit: New board"
+      },
+      {
+        "command": "tkr.packageGame",
+        "title": "RPG Toolkit: Package game"
       }
     ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "tkr.packageGame",
+          "when": "resourceExtname == .gam",
+          "group": "navigation@7"
+        }
+      ]
+    },
     "customEditors": [
       {
         "viewType": "tkr.gameSettings",

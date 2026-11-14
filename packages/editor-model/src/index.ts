@@ -296,6 +296,14 @@ export {
   type SavedLayout,
 } from "./layout.ts";
 export { createTabs, type TabsSnapshot, type TabState, type Tabs } from "./tabs.ts";
+export {
+  prepareGamePackage,
+  type PackageArtifact,
+  type PackageExportOutcome,
+  type PrepareGamePackageOptions,
+  type PreparedGamePackage,
+} from "./package-export.ts";
+export { packageDescriptorFor, type PackageDescriptorOutcome } from "./package-export-write.ts";
 export { ASSET_FOLDERS, type AssetKind } from "@tk-reawakened/core";
 export { boardStartUnit, createLauncher, type Launcher, type LauncherOptions, type LaunchOutcome, type LaunchRefusal } from "./launcher.ts";
 export {

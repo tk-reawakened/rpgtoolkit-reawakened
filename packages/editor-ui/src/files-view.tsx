@@ -1,11 +1,19 @@
-import type { ProjectTree, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
+import type { PackageArtifact, PreparedGamePackage, ProjectTree, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
+import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useDocumentSnapshot } from "./use-document.ts";
 
 let viewsMade = 0;
 
+export type PackageActionOutcome =
+  | { readonly ok: true; readonly prepared: PreparedGamePackage }
+  | { readonly ok: false; readonly message: string };
+
 export interface FilesViewProps {
   readonly tree: ProjectTree;
+  readonly fs: Pick<FileSystemService, "list">;
+  readonly onPackage: (mainPath: string, version: string) => Promise<PackageActionOutcome>;
+  readonly onDownload: (artifact: PackageArtifact) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
   /** Called after a file opens, so the host can show its editor (a Toolkit document) in a tab. */
   readonly onOpened?: (result: Extract<TreeOpenResult, { readonly ok: true }>, row: TreeRow) => void;
   /** Ask the host for the new-board questions (T-20); the button is shown only when the host can answer. */
@@ -26,7 +34,7 @@ function routeNote(row: TreeRow): string {
  * so nothing needs a pointer or a context menu. A refusal or a host failure is shown in a live region; nothing is
  * renamed or deleted without the tree's own checks and, for delete, the user's confirmation.
  */
-export function FilesView({ tree, onOpened, onNewBoard }: FilesViewProps) {
+export function FilesView({ tree, fs, onOpened, onNewBoard, onPackage, onDownload }: FilesViewProps) {
   const snapshot = useDocumentSnapshot(tree);
   const [ids] = useState(() => {
     viewsMade += 1;
@@ -36,6 +44,14 @@ export function FilesView({ tree, onOpened, onNewBoard }: FilesViewProps) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [packageOpen, setPackageOpen] = useState(false);
+  const [mainFiles, setMainFiles] = useState<readonly string[]>([]);
+  const [mainPath, setMainPath] = useState("");
+  const [packageVersion, setPackageVersion] = useState("");
+  const [packageBusy, setPackageBusy] = useState(false);
+  const [packageMessage, setPackageMessage] = useState("");
+  const [prepared, setPrepared] = useState<PreparedGamePackage | null>(null);
+  const [inventoryReviewed, setInventoryReviewed] = useState(false);
   const focusRow = useRef(false);
   const list = useRef<HTMLDivElement>(null);
   const rows = snapshot.rows;
@@ -59,6 +75,54 @@ export function FilesView({ tree, onOpened, onNewBoard }: FilesViewProps) {
   const run = (action: () => Promise<unknown>): void => {
     setBusy(true);
     void action().finally(() => setBusy(false));
+  };
+  const openPackage = (): void => {
+    setPackageOpen(true);
+    setPrepared(null);
+    setPackageMessage("Loading main files…");
+    void fs.list("Main").then((listing) => {
+      if (!listing.ok) {
+        setMainFiles([]);
+        setMainPath("");
+        setPackageMessage(`Could not list Main/: ${listing.error.message}`);
+        return;
+      }
+      const paths = listing.value
+        .filter((entry) => entry.kind === "file" && entry.name.toLowerCase().endsWith(".gam"))
+        .map((entry) => `Main/${entry.name}`);
+      setMainFiles(paths);
+      setMainPath(paths[0] ?? "");
+      setPackageMessage(paths.length === 0 ? "No .gam main files were found in Main/." : "");
+    }).catch(() => setPackageMessage("Could not list the project's Main folder."));
+  };
+  const packageGame = (): void => {
+    if (mainPath.length === 0 || packageVersion.trim().length === 0) {
+      setPackageMessage("Choose a main file and enter its release version.");
+      return;
+    }
+    setPackageBusy(true);
+    setPrepared(null);
+    setInventoryReviewed(false);
+    setPackageMessage("Saving open documents and checking the package…");
+    void onPackage(mainPath, packageVersion).then((outcome) => {
+      if (!outcome.ok) {
+        setPackageMessage(outcome.message);
+        return;
+      }
+      setPrepared(outcome.prepared);
+      setPackageMessage("Preflight passed. Review the inventory below, then download the package and its install descriptor.");
+    }).catch(() => setPackageMessage("Package export failed before completion. No successful export was reported."))
+      .finally(() => setPackageBusy(false));
+  };
+  const download = (artifact: PackageArtifact): void => {
+    setPackageBusy(true);
+    setPackageMessage(`Starting download for ${artifact.fileName}…`);
+    void onDownload(artifact).then((result) => {
+      setPackageMessage(result.ok
+        ? `Download started for ${artifact.fileName}. If your browser saved it under a different name (for example with " (1)" added because a file of that name already existed), rename it back to exactly ${artifact.fileName} before using it.`
+        : result.message);
+    }).catch(() => setPackageMessage(`Could not start the download for ${artifact.fileName}.`))
+      .finally(() => setPackageBusy(false));
   };
   const open = (row: TreeRow): void => {
     if (row.kind === "directory") {
@@ -128,7 +192,83 @@ export function FilesView({ tree, onOpened, onNewBoard }: FilesViewProps) {
         </button>
         <button type="button" class="tkr-files-rename" disabled={busy || current === null} onClick={() => current !== null && startRename(current)}>Rename…</button>
         <button type="button" class="tkr-files-delete" disabled={busy || current === null} onClick={() => current !== null && run(() => tree.remove(current.path))}>Delete…</button>
+        <button type="button" class="tkr-files-package" disabled={packageBusy} onClick={openPackage}>Package game…</button>
       </div>
+      {packageOpen ? (
+        <div class="tkr-files-package-panel" role="group" aria-label="Package game">
+          <h3>Package game</h3>
+          <p>Creates a playable TPK archive and its sibling install descriptor. Saved/, other Main files, editor-only assets, test-only programs, and .tkr-history/ are excluded.</p>
+          <label for={`${ids}-main`}>Main game file</label>
+          <select
+            id={`${ids}-main`}
+            value={mainPath}
+            onChange={(event) => {
+              const next = event.currentTarget.value;
+              setMainPath(next);
+              setPrepared(null);
+              setInventoryReviewed(false);
+              if (prepared !== null) setPackageMessage("Main file changed. Prepare and review the package again.");
+            }}
+            disabled={packageBusy || mainFiles.length === 0}
+          >
+            {mainFiles.map((path) => <option key={path} value={path}>{path}</option>)}
+          </select>
+          <label for={`${ids}-version`}>Release version</label>
+          <input
+            id={`${ids}-version`}
+            type="text"
+            required
+            maxLength={128}
+            value={packageVersion}
+            onInput={(event) => {
+              setPackageVersion(event.currentTarget.value);
+              setPrepared(null);
+              setInventoryReviewed(false);
+              if (prepared !== null) setPackageMessage("Release version changed. Prepare and review the package again.");
+            }}
+            disabled={packageBusy}
+          />
+          <div class="tkr-files-package-actions">
+            <button type="button" disabled={packageBusy || mainFiles.length === 0 || packageVersion.trim().length === 0} onClick={packageGame}>
+              {packageBusy ? "Working…" : "Prepare package"}
+            </button>
+            <button type="button" disabled={packageBusy} onClick={() => setPackageOpen(false)}>Close</button>
+          </div>
+          {packageMessage.length === 0 ? null : <p class="tkr-files-package-status" role="status">{packageMessage}</p>}
+          {prepared === null ? null : (
+            <div class="tkr-files-package-result">
+              <p>{prepared.includedFiles.length} files included; {prepared.excludedFiles.length} excluded.</p>
+              <p>Package output: <code>{prepared.package.fileName}</code>; install descriptor: <code>{prepared.descriptor.fileName}</code>.</p>
+              <p>This preflight uses the saved project files from the time it completed, and the downloads carry exactly the bytes reviewed here. The files are offered as ordinary downloads; this page does not write into the project folder, so nothing in the project is replaced.</p>
+              <p>The package and its descriptor are two separate downloads, and the descriptor names the package file. Keep both together under exactly the names shown above. Your browser may rename a download when a file of that name already exists (for example "{prepared.package.fileName} (1)"); if it renames only one of the pair, or either differs from the names above, rename it back (or remove the older copy first) before installing, or the descriptor will not match the package.</p>
+              <p>This page cannot tell whether a folder entry is a link to somewhere else on your computer. Every file that will be packaged is listed in the inventory below; do not use the package if it lists files that do not belong to your game.</p>
+              <details>
+                <summary>Included and excluded file inventory</summary>
+                <h4>Included</h4>
+                <ul>{prepared.includedFiles.map((path) => <li key={`in-${path}`}>{path}</li>)}</ul>
+                <h4>Excluded</h4>
+                {prepared.excludedFiles.length === 0
+                  ? <p>No excluded files were found.</p>
+                  : <ul>{prepared.excludedFiles.map((path) => <li key={`out-${path}`}>{path}</li>)}</ul>}
+              </details>
+              <label for={`${ids}-reviewed`}>
+                <input
+                  id={`${ids}-reviewed`}
+                  type="checkbox"
+                  checked={inventoryReviewed}
+                  disabled={packageBusy}
+                  onChange={(event) => setInventoryReviewed(event.currentTarget.checked)}
+                />
+                I reviewed the included and excluded files.
+              </label>
+              <div class="tkr-files-package-downloads">
+                <button type="button" disabled={packageBusy || !inventoryReviewed} onClick={() => download(prepared.package)}>Download {prepared.package.fileName}</button>
+                <button type="button" disabled={packageBusy || !inventoryReviewed} onClick={() => download(prepared.descriptor)}>Download {prepared.descriptor.fileName}</button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
       {renaming === null ? null : (
         <div class="tkr-files-rename-row" role="group" aria-label={`Rename ${renaming}`}>
           <label for={`${ids}-name`}>New name for {renaming}</label>

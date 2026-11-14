@@ -59,7 +59,7 @@ export function bindProjectFileSystem(
 }
 
 /** What a path names. */
-export type FileKind = "file" | "directory";
+export type FileKind = "file" | "directory" | "link";
 
 /** One child of a folder. */
 export interface DirectoryEntry {
@@ -67,6 +67,7 @@ export interface DirectoryEntry {
   readonly name: string;
   readonly kind: FileKind;
 }
+
 
 /** What `stat` reports. */
 export interface FileStat {

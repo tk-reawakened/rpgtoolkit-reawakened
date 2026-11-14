@@ -9,6 +9,7 @@ import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
 import { DEFAULT_EDITOR_PREFERENCES } from "@tk-reawakened/editor-model";
 
+import { registerPackageGameCommand } from "./package-game-command.ts";
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
 const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileset", "tkr.tileBitmap"] as const;
 
@@ -25,6 +26,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   registerVscodeGameRunner(context, () => generation, (root) => createVscodeServices(root, context, () => generation).run!);
   context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(() => { generation += 1; }));
   registerGameView(context);
+  registerPackageGameCommand(context);
   const changes = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<GameDocument<vscode.Uri>>>();
   context.subscriptions.push(changes);
   const port: GameEditorPort<vscode.Uri> = {
