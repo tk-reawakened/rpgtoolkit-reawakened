@@ -7,11 +7,15 @@ import { test } from 'node:test';
 
 const audit = resolve('tools/release/audit-extension.mjs');
 
-function run({ license = 'MIT', notice = 'fixture', external = 'vscode' } = {}) {
+function run({ license = 'MIT', notice = 'fixture', external = 'vscode', direct = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'tkr-bundle-'));
   try {
     mkdirSync(join(root, 'node_modules/fixture/lib/esm'), { recursive: true });
     mkdirSync(join(root, 'extensions/rpgcode/dist'), { recursive: true });
+    writeFileSync(join(root, 'extensions/rpgcode/package.json'), JSON.stringify({
+      name: 'rpgcode-language',
+      dependencies: direct ? { fixture: '1.0.0' } : {},
+    }));
     writeFileSync(join(root, 'node_modules/fixture/package.json'), JSON.stringify({ name: 'fixture', version: '1.0.0', license }));
     // Some ESM packages have a nested package.json without a name or licence.
     writeFileSync(join(root, 'node_modules/fixture/lib/esm/package.json'), '{"type":"module"}');
@@ -23,9 +27,9 @@ function run({ license = 'MIT', notice = 'fixture', external = 'vscode' } = {}) 
 }
 
 test('accepts accounted bundled code with a permissive licence', () => {
-  const result = run();
+  const result = run({ direct: true });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /fixture@1\.0\.0: MIT OK/);
+  assert.match(result.stdout, /fixture@1\.0\.0 \[direct\]: MIT OK/);
 });
 
 test('rejects a forbidden bundled licence', () => {
@@ -44,4 +48,16 @@ test('rejects an unaccounted external dependency', () => {
   const result = run({ external: 'unknown-package' });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /unaccounted external/);
+});
+
+test('accepts known non-copyleft bundled transitive code', () => {
+  const result = run({ license: 'CC-BY-4.0' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /fixture@1\.0\.0 \[transitive\]: CC-BY-4\.0 OK/);
+});
+
+test('rejects a non-Blue-Oak direct extension dependency', () => {
+  const result = run({ license: 'CC-BY-4.0', direct: true });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /not on the Blue Oak Council permissive list/);
 });

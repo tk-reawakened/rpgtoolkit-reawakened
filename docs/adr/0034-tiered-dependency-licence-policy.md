@@ -47,8 +47,13 @@ The policy must still prevent copyleft obligations from reaching shipped product
 * **Allow every transitive licence except an explicit copyleft-name list.** Rejected because unknown and restricted licences could pass, and the licence expression may not be classifiable. The gate remains fail-closed for unknown, unlicensed, or restrictive terms.
 * **Allow any licence that is not copyleft, including non-commercial or no-redistribution terms.** Rejected because those terms can prevent the project from distributing its own products even without copyleft.
 
+## Implementation
+
+The checker keeps Blue Oak Council List v16 as the pinned source for direct-dependency ratings. For known non-Blue-Oak transitive licences, `tools/licences/config.json` contains the reviewed exact-ID allowlist in `transitiveNonCopyleft`; an identifier absent from both the Blue Oak list and that allowlist fails closed. The current entry is `CC-BY-4.0`; its attribution and notice duties remain in force. Copyleft and explicitly blocked licences are rejected at either tier.
+
+The workspace gate derives direct production packages from the workspace's production dependency graph. Release audits derive them from the artifact's direct package manifest and label every audited package as direct or transitive.
+
 ## Deferred
 
-* The implementation must choose and document a pinned, reviewable source for classifying known transitive licence expressions as copyleft, restricted, or permissible, without turning Blue Oak ratings back into a transitive requirement.
 * This ADR does not approve a specific Monaco version, a specific Codicons payload, or the 11.7 editor integration. The exact files, upstream terms, notices, and production bundle still need verification before #1705 can ship.
 * The existing standalone-asset policy is unchanged; any broader change to that policy needs a separate owner decision.
