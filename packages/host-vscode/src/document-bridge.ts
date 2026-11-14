@@ -27,9 +27,8 @@ export function isSpriteSnapshot(snapshot: BridgedSnapshot, kind: string): snaps
   );
   if (!("actorType" in snapshot) || snapshot.actorType !== kind || (kind !== "character" && kind !== "item")) return false;
   if (!("actorName" in snapshot) || typeof snapshot.actorName !== "string" || !("minor" in snapshot) || typeof snapshot.minor !== "number" || !Number.isInteger(snapshot.minor)) return false;
-  if (!("movementAnimations" in snapshot) || !isStringList(snapshot.movementAnimations) || snapshot.movementAnimations.length !== 8) return false;
-  if (!("idleAnimations" in snapshot) || !isStringList(snapshot.idleAnimations) || snapshot.idleAnimations.length !== 8) return false;
-  if (!("battleAnimations" in snapshot) || !isStringList(snapshot.battleAnimations) || snapshot.battleAnimations.length !== (kind === "character" ? 5 : 1)) return false;
+  const expectedBattleStances = kind === "character" ? snapshot.minor < 5 ? 0 : 5 : 1;
+  if (!("battleAnimations" in snapshot) || !isStringList(snapshot.battleAnimations) || snapshot.battleAnimations.length !== expectedBattleStances) return false;
   if (!("customStances" in snapshot) || !Array.isArray(snapshot.customStances) || !snapshot.customStances.every((stance: unknown) =>
     typeof stance === "object" && stance !== null && "handle" in stance && typeof stance.handle === "string"
     && "animation" in stance && typeof stance.animation === "string")) return false;

@@ -45,6 +45,7 @@ function spriteViewDocument(remote: RemoteDocument): SpriteViewDocument | null {
     subscribe: (listener) => remote.subscribe(listener),
     apply: (command) => remote.apply(command),
     save: () => remote.save(),
+    resolveConflict: (choice) => remote.resolveConflict(choice),
   };
 }
 

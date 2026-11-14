@@ -1,4 +1,4 @@
-import { kindForPath, spriteAnimationPreview, spriteBasesFromFile, spriteGifPreview, spritePicturePreview, type ActorBase, type ActorPoint, type ApplyResult, type SaveResult, type SpriteCommand, type SpriteDocumentSnapshot, type SpritePreviewFrame } from "@tk-reawakened/editor-model";
+import { kindForPath, classifyImageReference, spriteAnimationCanvasPreview, spriteAnimationPreview, spriteBasesFromFile, spriteGifPreview, spritePicturePreview, spriteTileBitmapPreview, spriteTileBitmapReferences, spriteTilePreview, type ActorBase, type ActorPoint, type ApplyResult, type SaveResult, type SpriteCommand, type SpriteDocumentSnapshot, type SpritePreviewFrame } from "@tk-reawakened/editor-model";
 import type { DocumentEdited, FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useDocumentSnapshot } from "./use-document.ts";
@@ -14,6 +14,7 @@ export interface SpriteViewDocument {
   subscribe(listener: () => void): () => void;
   apply(command: SpriteCommand): ApplyResult | Promise<ApplyResult>;
   save(): Promise<SaveResult>;
+  resolveConflict(choice: "keep-local" | "reload"): { readonly ok: boolean; readonly message?: string } | Promise<{ readonly ok: boolean; readonly message?: string }>;
 }
 
 export interface SpriteViewProps {
@@ -76,7 +77,7 @@ function AnimationPreview({ file, fs, projectId, id }: { readonly file: string; 
           return;
         }
         setDelay(gif.delay);
-        setFrames(gif.frames);
+        setFrames(gif.frames.map((page) => spriteAnimationCanvasPreview(page, page.width, page.height, gif.transparent)));
         setMessage(`Animated GIF preview: ${gif.frames.length} page${gif.frames.length === 1 ? "" : "s"}.`);
         return;
       }
@@ -87,17 +88,50 @@ function AnimationPreview({ file, fs, projectId, id }: { readonly file: string; 
       }
       setDelay(animation.delay);
       const loaded: SpritePreviewFrame[] = [];
-      for (const image of animation.images) {
-        if (/\.(?:tst|iso|gph|tbm)$/i.test(image)) continue;
-        const imageFile = imagePath("Bitmap", image);
-        const picture = await fs.readProject(projectId, imageFile);
-        if (!active || !picture.ok) continue;
-        const decoded = spritePicturePreview(picture.value, imageFile);
-        if (decoded !== null) loaded.push(decoded);
+      const readTile = async (reference: string): Promise<SpritePreviewFrame | null> => {
+        const tile = classifyImageReference(reference);
+        if (tile.kind === "tile") {
+          const tilePath = imagePath("Tiles", tile.tileset);
+          const bytes = await fs.readProject(projectId, tilePath);
+          return bytes.ok ? spriteTilePreview(bytes.value, tilePath, tile.index) : null;
+        }
+        if (tile.kind === "singleTile") {
+          const tilePath = imagePath("Tiles", tile.path);
+          const bytes = await fs.readProject(projectId, tilePath);
+          return bytes.ok ? spriteTilePreview(bytes.value, tilePath) : null;
+        }
+        return null;
+      };
+      for (const frame of animation.frames) {
+        const reference = classifyImageReference(frame.image);
+        let source: SpritePreviewFrame | null = null;
+        if (reference.kind === "tile" || reference.kind === "singleTile") {
+          source = await readTile(frame.image);
+        } else if (reference.kind === "tileBitmap") {
+          const bitmapPath = imagePath("Bitmap", reference.path);
+          const bitmap = await fs.readProject(projectId, bitmapPath);
+          if (bitmap.ok) {
+            const refs = spriteTileBitmapReferences(bitmap.value, bitmapPath);
+            if (refs !== null) {
+              const tiles = new Map<string, SpritePreviewFrame>();
+              for (const tileReference of refs) {
+                const tile = await readTile(tileReference);
+                if (tile !== null) tiles.set(tileReference, tile);
+              }
+              source = spriteTileBitmapPreview(bitmap.value, bitmapPath, tiles);
+            }
+          }
+        } else if (reference.kind === "picture") {
+          const imageFile = imagePath("Bitmap", reference.path);
+          const picture = await fs.readProject(projectId, imageFile);
+          if (picture.ok) source = spritePicturePreview(picture.value, imageFile);
+        }
+        if (!active) return;
+        if (source !== null) loaded.push(spriteAnimationCanvasPreview(source, animation.width, animation.height, frame.transparent));
       }
       if (!active) return;
       setFrames(loaded);
-      setMessage(loaded.length === 0 ? "No previewable picture frames were found in this animation." : `Animation preview: ${loaded.length} picture frame${loaded.length === 1 ? "" : "s"}.`);
+      setMessage(loaded.length === 0 ? "No previewable picture frames were found in this animation." : `Animation preview: ${loaded.length} frame${loaded.length === 1 ? "" : "s"} on a ${animation.width} × ${animation.height} canvas.`);
     }).catch((error: unknown) => {
       if (active) setMessage(`Preview unavailable: ${error instanceof Error ? error.message : "project file could not be read"}`);
     });
@@ -146,9 +180,17 @@ export function SpriteView({ doc, fs, onEdited }: SpriteViewProps) {
   const draggingPoint = useRef<number | null>(null);
   const dragCoordinate = useRef<ActorPoint | null>(null);
   const suppressClick = useRef(false);
+  const stanceSignature = JSON.stringify(snapshot.customStances);
+  useEffect(() => {
+    setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith("custom-") && !key.startsWith("custom-name-"))));
+  }, [stanceSignature]);
+  const pendingBaseCommands = useRef(0);
+  const baseQueue = useRef<Promise<void>>(Promise.resolve());
   const readOnly = snapshot.readOnly !== null;
   const disabled = readOnly;
   const bases = snapshot.vectorBases ?? [];
+  const baseDraft = useRef(copiedBases(bases));
+  if (pendingBaseCommands.current === 0) baseDraft.current = copiedBases(bases);
   const selected = bases[selectedBase] ?? { points: [] };
   const selectedPoints = selected.points.map((point, index) => dragPreview?.index === index ? dragPreview.point : point);
   const submit = async (command: SpriteCommand): Promise<boolean> => {
@@ -158,6 +200,7 @@ export function SpriteView({ doc, fs, onEdited }: SpriteViewProps) {
         setFeedback(result.rejection.message);
         return false;
       }
+      if (command.type === "add-custom-stance" || command.type === "delete-custom-stance" || command.type === "rename-custom-stance") setDrafts({});
       setFeedback("Graphics change recorded. Save the document to keep it.");
       onEdited({ document: doc.identity.key, editId: result.editId, label: "Edit sprite graphics" });
       return true;
@@ -165,6 +208,16 @@ export function SpriteView({ doc, fs, onEdited }: SpriteViewProps) {
       setFeedback(error instanceof Error ? error.message : "The graphics edit could not be applied.");
       return false;
     }
+  };
+  const submitBases = (next: readonly ActorBase[]): void => {
+    baseDraft.current = copiedBases(next);
+    pendingBaseCommands.current += 1;
+    const queued = baseQueue.current.then(async () => {
+      const success = await submit({ type: "set-sprite-bases", bases: copiedBases(next) });
+      pendingBaseCommands.current -= 1;
+      if (!success && pendingBaseCommands.current === 0) baseDraft.current = copiedBases(doc.getSnapshot().vectorBases ?? []);
+    });
+    baseQueue.current = queued.catch(() => undefined);
   };
   const field = (key: string, current: string, label: string, group: "walk" | "idle" | "battle" | "custom", index: number, supports: boolean) => {
     const value = drafts[key] ?? current;
@@ -180,32 +233,32 @@ export function SpriteView({ doc, fs, onEdited }: SpriteViewProps) {
     </div>;
   };
   const setPoint = (pointIndex: number, axis: "x" | "y", value: number): void => {
-    if (disabled || snapshot.graphicsUnavailable !== null) return;
-    const next = copiedBases(bases);
+    if (disabled || snapshot.graphicsUnavailable !== null || !Number.isInteger(value)) return;
+    const next = copiedBases(baseDraft.current);
     const points = [...(next[selectedBase]?.points ?? [])];
     const point = points[pointIndex];
     if (point === undefined) return;
     points[pointIndex] = { ...point, [axis]: value };
     const changed = [...next];
     changed[selectedBase] = { points };
-    if (changed[0] !== undefined && changed[1] !== undefined) void submit({ type: "set-sprite-bases", bases: changed });
+    if (changed[0] !== undefined && changed[1] !== undefined) submitBases(changed);
   };
   const movePoint = (pointIndex: number, point: ActorPoint): void => {
     if (disabled || snapshot.graphicsUnavailable !== null) return;
-    const next = copiedBases(bases);
+    const next = copiedBases(baseDraft.current);
     const points = [...(next[selectedBase]?.points ?? [])];
     if (points[pointIndex] === undefined) return;
     points[pointIndex] = point;
     const changed = [...next];
     changed[selectedBase] = { points };
-    if (changed[0] !== undefined && changed[1] !== undefined) void submit({ type: "set-sprite-bases", bases: changed });
+    if (changed[0] !== undefined && changed[1] !== undefined) submitBases(changed);
   };
   const replaceBase = (index: number, points: readonly ActorPoint[]): void => {
     if (disabled || snapshot.graphicsUnavailable !== null) return;
-    const next = copiedBases(bases);
+    const next = copiedBases(baseDraft.current);
     const changed = [...next];
     changed[index] = { points };
-    if (changed[0] !== undefined && changed[1] !== undefined) void submit({ type: "set-sprite-bases", bases: changed });
+    if (changed[0] !== undefined && changed[1] !== undefined) submitBases(changed);
   };
   const assignWalk = async (): Promise<void> => {
     if (template.split("*").length !== 2) {
@@ -267,7 +320,7 @@ export function SpriteView({ doc, fs, onEdited }: SpriteViewProps) {
     </fieldset>}
     <fieldset disabled={disabled}>
       <legend>Custom stances</legend>
-      {snapshot.customStances.map((stance, index) => <div class="tkr-sprite-custom" key={`${stance.handle}-${index}`}>
+      {snapshot.customStances.map((stance, index) => <div class="tkr-sprite-custom" key={`${stance.handle}-${stance.animation}`}>
         <label>Stance name<input value={drafts[`custom-name-${index}`] ?? stance.handle} disabled={snapshot.minor < (snapshot.actorType === "character" ? 5 : 4)} onInput={(event) => setDrafts({ ...drafts, [`custom-name-${index}`]: event.currentTarget.value })} onBlur={() => {
           const name = drafts[`custom-name-${index}`] ?? stance.handle;
           if (name !== stance.handle) void submit({ type: "rename-custom-stance", index, name: name.trim() });
@@ -299,16 +352,18 @@ export function SpriteView({ doc, fs, onEdited }: SpriteViewProps) {
           <button type="button" aria-pressed={selectedBase === 0} onClick={() => setSelectedBase(0)}>Collision polygon</button>
           <button type="button" aria-pressed={selectedBase === 1} onClick={() => setSelectedBase(1)}>Activation polygon</button>
         </div>
+        <button type="button" onClick={() => replaceBase(selectedBase, [...(baseDraft.current[selectedBase]?.points ?? []), { x: 0, y: 0 }])} disabled={disabled || snapshot.graphicsUnavailable !== null}>Add polygon point at origin</button>
         <svg class="tkr-sprite-base-canvas" viewBox="-40 -40 80 60" role="img" aria-label={`Sprite origin and ${selectedBase === 0 ? "collision" : "activation"} polygon. Click to add a point; drag a point to move it.`} onClick={(event) => {
           if (suppressClick.current) {
             suppressClick.current = false;
             return;
           }
           const point = spritePoint(event.currentTarget, event.clientX, event.clientY);
-          if (point !== null) replaceBase(selectedBase, [...selected.points, point]);
+          if (point !== null) replaceBase(selectedBase, [...(baseDraft.current[selectedBase]?.points ?? []), point]);
         }} onPointerDown={(event) => {
-          const index = Number((event.target as Element).getAttribute("data-point-index"));
-          if (!Number.isInteger(index) || selected.points[index] === undefined) return;
+          const indexValue = (event.target as Element).getAttribute("data-point-index");
+          if (indexValue === null) return;
+          const index = Number(indexValue);
           event.preventDefault();
           draggingPoint.current = index;
           dragCoordinate.current = selected.points[index] ?? null;
@@ -356,7 +411,13 @@ export function SpriteView({ doc, fs, onEdited }: SpriteViewProps) {
         <button type="button" onClick={() => void importBases()}>Import both bases</button>
       </>}
     </fieldset>
-    <button type="button" onClick={() => void doc.save()} disabled={disabled || !snapshot.dirty || snapshot.saving}>{snapshot.saving ? "Saving…" : "Save sprite"}</button>
+    {snapshot.conflict !== null && <div role="group" aria-label="External file conflict">
+      <p role="status">{snapshot.conflict.message}</p>
+      <button type="button" onClick={() => void Promise.resolve(doc.resolveConflict("keep-local")).then((result) => setFeedback(result.ok ? "Conflict resolved; local edits are ready to save." : result.message ?? "Could not keep local changes."))}>Keep local edits</button>
+      <button type="button" onClick={() => void Promise.resolve(doc.resolveConflict("reload")).then((result) => setFeedback(result.ok ? "Reloaded the file from disk." : result.message ?? "Could not reload the file."))}>Reload from disk</button>
+    </div>}
+    {snapshot.saveError !== null && <p role="alert">{snapshot.saveError.message}</p>}
+    <button type="button" onClick={() => void doc.save().then((result) => setFeedback(result.ok ? "Sprite saved." : result.failure.message))} disabled={disabled || !snapshot.dirty || snapshot.saving}>{snapshot.saving ? "Saving…" : "Save sprite"}</button>
     <p role="status" aria-live="polite">{feedback || (snapshot.dirty ? "Unsaved sprite changes." : "All sprite changes saved.")}</p>
   </section>;
 }

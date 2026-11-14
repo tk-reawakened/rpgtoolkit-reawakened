@@ -1,8 +1,13 @@
 import {
   BinaryReader,
+  assetKey,
+  compositeTileBitmap,
   decodeGif,
   decodeTexture,
+  decodeTileTexture,
   readAnimation,
+  readTileBitmap,
+  tileBitmapCell,
   readCharacter,
   readItem,
   writeCharacter,
@@ -12,8 +17,10 @@ import {
   type ActorStance,
   type Character,
   type Item,
+  type TileBitmapTile,
 } from "@tk-reawakened/core";
 export type { ActorBase, ActorPoint } from "@tk-reawakened/core";
+export { classifyImageReference } from "@tk-reawakened/core";
 import {
   createBinaryDocument,
   openBinaryDocument,
@@ -277,13 +284,83 @@ export function spriteBasesFromFile(kind: SpriteActorKind, bytes: Uint8Array, pa
 }
 
 
-export function spriteAnimationPreview(bytes: Uint8Array, path: string): { readonly images: readonly string[]; readonly delay: number } | null {
+export interface SpriteAnimationPreview {
+  readonly width: number;
+  readonly height: number;
+  readonly frames: readonly { readonly image: string; readonly transparent: { readonly r: number; readonly g: number; readonly b: number } }[];
+  readonly delay: number;
+}
+
+export function spriteAnimationPreview(bytes: Uint8Array, path: string): SpriteAnimationPreview | null {
   const animation = readAnimation(new BinaryReader(bytes, path));
   if (!animation.ok) return null;
   return {
-    images: animation.value.frames.map((frame) => frame.image).filter((image) => image !== ""),
+    width: animation.value.width,
+    height: animation.value.height,
+    frames: animation.value.frames.filter((frame) => frame.image !== "").map((frame) => ({ image: frame.image, transparent: frame.transparent })),
     delay: animation.value.delay,
   };
+}
+
+/** Copy an animation source at the canvas origin, clipping without scaling and applying that frame's COLORREF key. */
+export function spriteAnimationCanvasPreview(source: SpritePreviewFrame, width: number, height: number, transparent: { readonly r: number; readonly g: number; readonly b: number }): SpritePreviewFrame {
+  const rgba = new Uint8Array(width * height * 4);
+  const keyR = transparent.r;
+  const keyG = transparent.g;
+  const keyB = transparent.b;
+  for (let y = 0; y < Math.min(height, source.height); y += 1) {
+    for (let x = 0; x < Math.min(width, source.width); x += 1) {
+      const from = (y * source.width + x) * 4;
+      const to = (y * width + x) * 4;
+      const r = source.rgba[from] ?? 0;
+      const g = source.rgba[from + 1] ?? 0;
+      const b = source.rgba[from + 2] ?? 0;
+      rgba[to] = r;
+      rgba[to + 1] = g;
+      rgba[to + 2] = b;
+      rgba[to + 3] = r === keyR && g === keyG && b === keyB ? 0 : source.rgba[from + 3] ?? 0;
+    }
+  }
+  return { width, height, rgba };
+}
+
+/** Decode one 1-based .tst/.iso cell or .gph through the core's shared tile renderer. */
+export function spriteTilePreview(bytes: Uint8Array, path: string, index = 1): SpritePreviewFrame | null {
+  const decoded = decodeTileTexture(assetKey(path), bytes);
+  if (!decoded.ok) return null;
+  if (path.toLowerCase().endsWith(".gph")) return { width: decoded.texture.w, height: decoded.texture.h, rgba: decoded.texture.rgba };
+  const tileWidth = path.toLowerCase().endsWith(".iso") ? decoded.texture.h * 2 : decoded.texture.h;
+  if (!Number.isInteger(index) || index < 1 || (index - 1) * tileWidth + tileWidth > decoded.texture.w) return null;
+  const rgba = new Uint8Array(tileWidth * decoded.texture.h * 4);
+  for (let y = 0; y < decoded.texture.h; y += 1) {
+    const from = (y * decoded.texture.w + (index - 1) * tileWidth) * 4;
+    rgba.set(decoded.texture.rgba.subarray(from, from + tileWidth * 4), y * tileWidth * 4);
+  }
+  return { width: tileWidth, height: decoded.texture.h, rgba };
+}
+
+/** Names of tile assets required to compose a .tbm animation frame. */
+export function spriteTileBitmapReferences(bytes: Uint8Array, path: string): readonly string[] | null {
+  const parsed = readTileBitmap(new BinaryReader(bytes, path));
+  if (!parsed.ok) return null;
+  const references = new Set<string>();
+  for (let x = 0; x < Math.max(0, parsed.value.width); x += 1) {
+    for (let y = 0; y < Math.max(0, parsed.value.height); y += 1) {
+      const cell = tileBitmapCell(parsed.value, x, y);
+      if (cell !== undefined && cell.tile !== "") references.add(cell.tile);
+    }
+  }
+  return [...references];
+}
+
+/** Compose a .tbm from its resolved tiles using the engine's shared compositor. */
+export function spriteTileBitmapPreview(bytes: Uint8Array, path: string, tiles: ReadonlyMap<string, SpritePreviewFrame>): SpritePreviewFrame | null {
+  const parsed = readTileBitmap(new BinaryReader(bytes, path));
+  if (!parsed.ok) return null;
+  const resolved = new Map<string, TileBitmapTile>();
+  for (const [reference, frame] of tiles) resolved.set(reference, { w: frame.width, h: frame.height, rgba: frame.rgba });
+  const composed = compositeTileBitmap(parsed.value, resolved);
+  return composed.ok ? { width: composed.value.w, height: composed.value.h, rgba: composed.value.rgba } : null;
 }
 
 /** An already-decoded picture frame for the shared sprite editor preview (AD-28, images.md#the-shared-decode-contract). */
@@ -299,12 +376,19 @@ export function spritePicturePreview(bytes: Uint8Array, path: string): SpritePre
   return image.ok ? { width: image.value.w, height: image.value.h, rgba: image.value.rgba } : null;
 }
 
+export interface SpriteGifPreview {
+  readonly frames: readonly SpritePreviewFrame[];
+  readonly delay: number;
+  readonly transparent: { readonly r: number; readonly g: number; readonly b: number };
+}
+
 /** Decode every GIF page with the same shared provider used by animation playback (AD-28, images.md#gif). */
-export function spriteGifPreview(bytes: Uint8Array, path: string): { readonly frames: readonly SpritePreviewFrame[]; readonly delay: number } | null {
+export function spriteGifPreview(bytes: Uint8Array, path: string): SpriteGifPreview | null {
   const gif = decodeGif(bytes, path);
   if (!gif.ok || gif.value.frames.length === 0) return null;
   return {
     frames: gif.value.frames.map((frame) => ({ width: gif.value.w, height: gif.value.h, rgba: frame.rgba })),
     delay: gif.value.frames[0]?.delay ?? 0,
+    transparent: gif.value.transparent,
   };
 }

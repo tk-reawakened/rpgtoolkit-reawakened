@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { asMainDocument, createDocumentIdentity, openMainDocument, openSpriteDocument, type MainDocumentSnapshot, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
-import { createVscodeFileSystemWithPort, handleEditorHostRequest, recoverMainDocument, resolveRecoveryConflict, RemoteDocument, vscodeCapabilities, type VscodeApi, type VscodeFileSystemPort } from "@tk-reawakened/host-vscode/testing";
+import { createVscodeFileSystemWithPort, handleEditorHostRequest, isSpriteSnapshot, recoverMainDocument, resolveRecoveryConflict, RemoteDocument, vscodeCapabilities, type VscodeApi, type VscodeFileSystemPort } from "@tk-reawakened/host-vscode/testing";
 import type { SpriteViewDocument, ViewDocument } from "@tk-reawakened/editor-ui";
 
 let mount: typeof import("@tk-reawakened/editor-ui").mount;
@@ -77,6 +77,27 @@ test("real web and VS Code adapters keep mounted title edits dirty and named aft
   await assertFailedMountedSave(remote as unknown as ViewDocument, vscodeElement);
   deepEqual(vscodeBytes, original);
 });
+test("VS Code bridge accepts pre-battle character snapshots", async () => {
+  const path = "Chrs/older.tem";
+  const bytes = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/character/character_minor4.tem", import.meta.url)));
+  const opened = await openSpriteDocument("character", createVscodeFileSystemWithPort({ path: "/project" }, {
+    isDirectory: (type) => (type & 2) !== 0,
+    joinPath: (base, ...parts) => ({ path: `${base.path}/${parts.join("/")}` }),
+    parent: (uri) => ({ path: uri.path.slice(0, uri.path.lastIndexOf("/")) }),
+    async readDirectory() { return []; },
+    async readFile() { return bytes; },
+    async createDirectory() {},
+    async writeFile() {},
+    async stat() { return { type: 1, size: bytes.length, mtime: 1 }; },
+    async delete() {},
+    async rename() {},
+    async watch() { return { dispose() {} }; },
+    errorCode() { return undefined; },
+  }, "file:///project"), createDocumentIdentity("file:///project", path));
+  ok(opened.ok);
+  equal(opened.document.getSnapshot().battleAnimations.length, 0);
+  ok(isSpriteSnapshot(opened.document.getSnapshot(), "character"));
+});
 test("the VS Code sprite bridge previews project GIFs and saves edits that survive reopening", async () => {
   const actorPath = "Chrs/hero.tem";
   const actorFile = "/project/Chrs/hero.tem";
@@ -141,6 +162,7 @@ test("the VS Code sprite bridge previews project GIFs and saves edits that survi
     subscribe: (listener) => remote.subscribe(listener),
     apply: (command) => remote.apply(command),
     save: () => remote.save(),
+    resolveConflict: (choice) => remote.resolveConflict(choice),
   };
   const element = document.createElement("div");
   document.body.append(element);

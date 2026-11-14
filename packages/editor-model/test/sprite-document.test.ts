@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { createDocumentIdentity, openSpriteDocument, spriteAnimationPreview, spriteGifPreview, spritePicturePreview, type SpriteActorKind, type SpriteDocument } from "../src/index.ts";
+import { createDocumentIdentity, openSpriteDocument, spriteAnimationCanvasPreview, spriteAnimationPreview, spriteGifPreview, spritePicturePreview, spriteTileBitmapPreview, spriteTileBitmapReferences, spriteTilePreview, type SpriteActorKind, type SpriteDocument } from "../src/index.ts";
 import { exampleAnimation, exampleCharacter, exampleItem, examplePicture } from "./fixtures.ts";
 
 const COLLISION = { points: [{ x: -18, y: -16 }, { x: 18, y: -16 }, { x: 18, y: 0 }, { x: -18, y: 0 }] };
@@ -101,12 +101,39 @@ test("older actor formats stay at their original minor and refuse fields not sto
   }
 });
 
-test("sprite previews use the documented ANM, image and shared GIF decoders", () => {
+test("sprite previews preserve ANM canvases and frame keys, decode tile references and compose tile bitmaps", () => {
   const animation = spriteAnimationPreview(exampleAnimation(), "Misc/animation_minor3.anm");
   ok(animation !== null);
-  deepEqual(animation.images, ["village.tst15", "village.tst16"]);
+  equal(animation.width, 32);
+  equal(animation.height, 32);
+  deepEqual(animation.frames.map((frame) => frame.image), ["village.tst15", "village.tst16"]);
+  deepEqual(animation.frames[0]?.transparent, { r: 255, g: 255, b: 255 });
   equal(animation.delay, 0.15);
 
+  const keyed = spriteAnimationCanvasPreview({ width: 2, height: 1, rgba: new Uint8Array([10, 20, 30, 255, 255, 255, 255, 255]) }, 3, 2, { r: 255, g: 255, b: 255 });
+  equal(keyed.width, 3);
+  equal(keyed.height, 2);
+  deepEqual(Array.from(keyed.rgba), [10, 20, 30, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+  const tilePath = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "docs", "spec", "examples", "versions", "tileset", "tileset_detail1.tst");
+  const tiles = new Uint8Array(readFileSync(tilePath));
+  const tile = spriteTilePreview(tiles, "Tiles/village.tst", 1);
+  ok(tile !== null);
+  equal(tile.width, 32);
+  equal(tile.height, 32);
+  const bitmapPath = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "docs", "spec", "examples", "versions", "tile-bitmap", "tilebitmap.tbm");
+  const bitmap = new Uint8Array(readFileSync(bitmapPath));
+  const references = spriteTileBitmapReferences(bitmap, "Bitmap/test.tbm");
+  deepEqual(references, ["village.tst8", "village.tst9"]);
+  const tile9 = spriteTilePreview(tiles, "Tiles/village.tst", 2);
+  ok(tile9 !== null);
+  const composed = spriteTileBitmapPreview(bitmap, "Bitmap/test.tbm", new Map([["village.tst8", tile], ["village.tst9", tile9]]));
+  ok(composed !== null);
+  equal(composed.width, 64);
+  equal(composed.height, 32);
+});
+
+test("sprite picture and GIF previews use shared image decoders", () => {
   const picture = spritePicturePreview(examplePicture(), "Bitmap/tileset_detail1.png");
   ok(picture !== null);
   ok(picture.width > 0 && picture.height > 0);

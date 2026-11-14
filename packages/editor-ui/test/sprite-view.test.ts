@@ -72,14 +72,36 @@ test("characters and items share accessible stance, filename assignment and nume
 
     await act(() => s.el.querySelector<HTMLButtonElement>('button[aria-pressed="false"]')?.click());
     const coordinateLabel = [...s.el.querySelectorAll("label")].find((label) => label.textContent === "Point 1 X");
-    ok(coordinateLabel !== undefined, "polygon points have a keyboard-accessible numeric alternative");
+    if (coordinateLabel === undefined) throw new Error("numeric polygon X coordinate label is missing");
     const coordinate = s.el.querySelector<HTMLInputElement>(`#${coordinateLabel.htmlFor}`);
     if (coordinate === null) throw new Error("numeric polygon coordinate is missing");
+    const yLabel = [...s.el.querySelectorAll("label")].find((label) => label.textContent === "Point 1 Y");
+    if (yLabel === undefined) throw new Error("numeric polygon Y coordinate is missing");
+    const yCoordinate = s.el.querySelector<HTMLInputElement>(`#${yLabel.htmlFor}`);
+    if (yCoordinate === null) throw new Error("numeric polygon Y coordinate is missing");
     await act(async () => {
       coordinate.value = "-12";
       coordinate.dispatchEvent(new Event("change", { bubbles: true }));
+      yCoordinate.value = "7";
+      yCoordinate.dispatchEvent(new Event("change", { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    deepEqual(s.doc.getSnapshot().vectorBases?.[1]?.points[0], { x: -12, y: 7 }, "fast X/Y edits preserve both axes");
+    const pointCount = s.doc.getSnapshot().vectorBases?.[1]?.points.length ?? 0;
+    await act(async () => {
+      const svg = s.el.querySelector<SVGSVGElement>(".tkr-sprite-base-canvas");
+      ok(svg !== null);
+      svg.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    equal(s.doc.getSnapshot().vectorBases?.[1]?.points.length, pointCount, "a background pointer down does not drag vertex zero");
+    await act(async () => {
+      const add = [...s.el.querySelectorAll("button")].find((button) => button.textContent === "Add polygon point at origin");
+      ok(add !== undefined);
+      add.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    equal(s.doc.getSnapshot().vectorBases?.[1]?.points.length, pointCount + 1, "polygon points can be added with the keyboard-accessible button");
 
     await act(async () => {
       const save = [...s.el.querySelectorAll("button")].find((button) => button.textContent === "Save sprite");
