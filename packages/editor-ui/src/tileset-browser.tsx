@@ -1,11 +1,13 @@
-import { BinaryReader, expandTileToRgba, readTileAnimation, readTileBitmap, readTileset, tileDimensions, compositeTileBitmap } from "@tk-reawakened/core";
+import { assetKey, BinaryReader, compositeTileBitmap, decodeTileTexture, expandTileToRgba, readTileAnimation, readTileBitmap, readTileset, tileDimensions } from "@tk-reawakened/core";
 import { listCandidates, type AssetCandidate, type ProjectLayout } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { BrowserSession, BrowserAssetKind, BrowserSelection } from "./brush.ts";
 
+let browsersMade = 0;
+
 const SOURCES = [
-  { kind: "tiles" as const, extensions: [".tst", ".iso", ".tan"] },
+  { kind: "tiles" as const, extensions: [".tst", ".iso", ".tan", ".gph"] },
   { kind: "bitmaps" as const, extensions: [".tbm"] },
 ] as const;
 
@@ -43,11 +45,17 @@ export interface TilesetBrowserProps {
 /** T-24's shared board palette; its source editor remains unavailable until the P1 provider owns those writes. */
 export function TilesetBrowser({ context }: TilesetBrowserProps) {
   const { fs, layout, session } = context;
+  const [ids] = useState(() => {
+    browsersMade += 1;
+    return `tkr-tileset-browser-${browsersMade}`;
+  });
   const initial = session.getSnapshot();
   const [sources, setSources] = useState<readonly Source[]>([]);
   const [path, setPath] = useState<string | null>(initial.path);
   const [items, setItems] = useState<readonly BrowserSelection[]>([]);
   const [previews, setPreviews] = useState<ReadonlyMap<string, TilePreview>>(new Map());
+  const [loadedPath, setLoadedPath] = useState<string | null>(null);
+  const loadedPathRef = useRef<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [menu, setMenu] = useState<BrowserSelection | null>(null);
   const [brush, setBrush] = useState<BrowserSelection | null>(initial.selection);
@@ -55,9 +63,21 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const menuInvoker = useRef<HTMLElement | null>(null);
   const request = useRef(0);
+  const sourceCache = useRef<readonly Source[]>([]);
+  const observedPath = useRef(initial.path);
   const activeSource = sources.find((source) => source.path === path) ?? null;
 
-  useEffect(() => session.subscribe(() => setBrush(session.getSnapshot().selection)), [session]);
+  useEffect(() => session.subscribe(() => {
+    const state = session.getSnapshot();
+    setBrush(state.selection);
+    if (state.path !== observedPath.current) {
+      observedPath.current = state.path;
+      const source = sourceCache.current.find((candidate) => candidate.path === state.path);
+      if (source !== undefined) void load(source, sourceCache.current);
+      else setPath(state.path);
+    }
+    if (list.current !== null && loadedPathRef.current === state.path && list.current.scrollTop !== state.scrollTop) list.current.scrollTop = state.scrollTop;
+  }), [session]);
   useEffect(() => {
     let active = true;
     void Promise.all(SOURCES.map(async ({ kind, extensions }) => {
@@ -68,10 +88,12 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
       const all = results.flatMap(({ kind, candidates }) => candidates.map((candidate): Source => ({
         ...candidate,
         kind,
-        boardTile: suffix(candidate.path) === ".tan" ? candidate.reference.replaceAll("/", "\\") : null,
+        boardTile: [".tan", ".gph"].includes(suffix(candidate.path)) ? candidate.reference.replaceAll("/", "\\") : null,
       })));
+      sourceCache.current = all;
       setSources(all);
       const restored = all.find((source) => source.path === session.getSnapshot().path) ?? all[0] ?? null;
+      observedPath.current = restored?.path ?? null;
       setPath(restored?.path ?? null);
       if (restored !== null) void load(restored, all);
       const failures = results.flatMap((result) => result.failures.map(({ path: folder, error }) => `${folder}: ${error.message}`));
@@ -82,9 +104,6 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
     return () => { active = false; request.current += 1; };
   }, [fs, layout, session]);
 
-  useEffect(() => {
-    if (list.current !== null) list.current.scrollTop = session.getSnapshot().scrollTop;
-  }, [session]);
   useEffect(() => {
     if (menu !== null) menuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   }, [menu]);
@@ -101,12 +120,18 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
       context2d.putImageData(image, 0, 0);
     }
   }, [items, previews]);
+  useEffect(() => {
+    if (list.current !== null && loadedPath === path) list.current.scrollTop = session.getSnapshot().scrollTop;
+  }, [loadedPath, path, session]);
 
   async function load(source: Source, available = sources): Promise<void> {
+    loadedPathRef.current = null;
+    setLoadedPath(null);
     const currentRequest = ++request.current;
+    observedPath.current = source.path;
     setPath(source.path);
     setMessage(null);
-    session.update({ path: source.path, scrollTop: list.current?.scrollTop ?? session.getSnapshot().scrollTop });
+    session.update({ path: source.path, scrollTop: session.getSnapshot().scrollTop });
     const isCurrent = (): boolean => currentRequest === request.current;
     try {
       const result = await fs.read(source.path);
@@ -115,6 +140,8 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
         setItems([]);
         setPreviews(new Map());
         setMessage(`Cannot read ${source.path}: ${result.error.message}`);
+        loadedPathRef.current = source.path;
+        setLoadedPath(source.path);
         return;
       }
       const reference = sourceReference(source);
@@ -139,6 +166,18 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
         if (!isCurrent()) return;
         setItems(nextItems);
         setPreviews(nextPreviews);
+        loadedPathRef.current = source.path;
+        setLoadedPath(source.path);
+        return;
+      }
+      if (suffix(source.path) === ".gph") {
+        const decoded = decodeTileTexture(assetKey(reference), result.value);
+        if (!decoded.ok) throw new Error(decoded.error?.message ?? `Cannot decode ${source.path}`);
+        const selection: BrowserSelection = { kind: source.kind, path: source.path, reference, label: source.name, boardTile: source.boardTile };
+        setItems([selection]);
+        setPreviews(new Map([[reference, { width: decoded.texture.w, height: decoded.texture.h, pixels: decoded.texture.rgba }]]));
+        loadedPathRef.current = source.path;
+        setLoadedPath(source.path);
         return;
       }
       const selection: BrowserSelection = { kind: source.kind, path: source.path, reference, label: source.name, boardTile: source.boardTile };
@@ -149,7 +188,7 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
         const frame = animation.value.frames.find((entry) => entry !== "");
         if (frame !== undefined) preview = await previewReference(frame, available);
         if (!isCurrent()) return;
-        setMessage(`Animated tile: ${animation.value.frames.length} frames at ${animation.value.speed} ticks per frame. Select the animation as a board brush.`);
+        setMessage(`Animated tile: ${animation.value.frames.length} frames at ${1000 / animation.value.speed} ms per frame. Select the animation as a board brush.`);
       } else {
         const bitmap = readTileBitmap(new BinaryReader(result.value, source.path));
         if (!bitmap.ok) throw new Error(bitmap.error.message);
@@ -166,35 +205,48 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
         preview = { width: composed.value.w, height: composed.value.h, pixels: composed.value.rgba };
         setMessage("Tile bitmap preview. Bitmap sources are browse-only here; select a tile or animation for a board brush.");
       }
-      if (!isCurrent()) return;
       setItems([selection]);
       setPreviews(preview === undefined ? new Map() : new Map([[selection.reference, preview]]));
+      loadedPathRef.current = source.path;
+      setLoadedPath(source.path);
     } catch (error) {
       if (!isCurrent()) return;
       setItems([]);
       setPreviews(new Map());
       setMessage(error instanceof Error ? `${source.path}: ${error.message}` : String(error));
-    }
+      loadedPathRef.current = source.path;
+      setLoadedPath(source.path);
+  }
   }
 
   async function previewReference(reference: string, available: readonly Source[]): Promise<TilePreview | undefined> {
-    const match = /^(.*\.(?:tst|iso))(\d+)$/i.exec(reference.replaceAll("/", "\\"));
-    if (match === null) return undefined;
-    const source = available.find((candidate) => sourceReference(candidate).toLowerCase() === match[1]!.toLowerCase());
+    const normalized = reference.replaceAll("/", "\\");
+    const single = /\.gph$/i.test(normalized);
+    const match = single ? null : /^(.*\.(?:tst|iso))(\d+)$/i.exec(normalized);
+    if (!single && match === null) return undefined;
+    const wantedSource = single ? normalized.toLowerCase() : match![1]!.toLowerCase();
+    const source = available.find((candidate) => sourceReference(candidate).toLowerCase() === wantedSource);
     if (source === undefined) return undefined;
     const bytes = await fs.read(source.path);
     if (!bytes.ok) return undefined;
+    const decoded = decodeTileTexture(assetKey(source.reference), bytes.value);
+    if (!decoded.ok) return undefined;
+    if (single) return { width: decoded.texture.w, height: decoded.texture.h, pixels: decoded.texture.rgba };
+
     const parsed = readTileset(bytes.value, source.path);
     if (!parsed.ok) return undefined;
-    const index = Number(match[2]) - 1;
+    const index = Number(match![2]) - 1;
     if (!Number.isInteger(index) || index < 0 || index >= parsed.value.tiles.length) return undefined;
-    const rgba = expandTileToRgba(parsed.value, index);
-    if (!rgba.ok) return undefined;
-    const { width, height } = tileDimensions(parsed.value.detail);
-    const pixels = new Uint8Array(rgba.value.length);
-    for (let x = 0; x < width; x += 1) for (let y = 0; y < height; y += 1) {
-      const offset = (x * height + y) * 4;
-      pixels.set(rgba.value.subarray(offset, offset + 4), (y * width + x) * 4);
+    const width = decoded.texture.w / parsed.value.tiles.length;
+    if (!Number.isInteger(width)) return undefined;
+    const height = decoded.texture.h;
+    const pixels = new Uint8Array(width * height * 4);
+    const offsetX = index * width;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const sourceOffset = (y * decoded.texture.w + offsetX + x) * 4;
+        pixels.set(decoded.texture.rgba.subarray(sourceOffset, sourceOffset + 4), (y * width + x) * 4);
+      }
     }
     return { width, height, pixels };
   }
@@ -219,12 +271,9 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
     const row = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-browser-reference]") : null;
     const item = items.find((candidate) => candidate.reference === row?.dataset.browserReference);
     if (event.shiftKey && event.key === "F10" && item !== undefined) {
-      event.preventDefault();
-      const invoker = event.target instanceof HTMLElement ? event.target : row;
+      const control = event.target instanceof Element ? event.target.closest<HTMLButtonElement>("button") : null;
+      const invoker = control !== null && row?.contains(control) ? control : row?.querySelector<HTMLButtonElement>("button") ?? row;
       if (invoker !== null) openMenu(item, invoker);
-    } else if (event.key.toLowerCase() === "l" && !event.ctrlKey && !event.metaKey && !event.altKey && item?.boardTile !== null && item !== undefined) {
-      event.preventDefault();
-      choose(item);
     }
   };
 
@@ -238,8 +287,8 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
   return (
     <section class="tkr-tileset-browser" aria-label="Tileset browser" onKeyDown={keyboard}>
       <h2 class="tkr-tileset-browser-heading">Tileset browser</h2>
-      <label for="tkr-tileset-source">Source</label>
-      <select id="tkr-tileset-source" value={path ?? ""} onChange={(event) => {
+      <label for={`${ids}-source`}>Source</label>
+      <select id={`${ids}-source`} value={path ?? ""} onChange={(event) => {
         const source = sources.find((candidate) => candidate.path === event.currentTarget.value);
         if (source !== undefined) void load(source);
       }}>
@@ -274,21 +323,22 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
               ) : null}
               <span>{item.label}</span>
             </button>
-            <button type="button" aria-keyshortcuts="L" disabled={item.boardTile === null} onClick={() => choose(item)}>
+            <button type="button" class="tkr-tileset-browser-select-brush" disabled={item.boardTile === null} onClick={() => choose(item)}>
               Select brush
             </button>
             <button type="button" onClick={(event) => openMenu(item, event.currentTarget)}>More actions</button>
             {menu === item ? (
               <div ref={menuRef} class="tkr-tileset-browser-menu" role="group" aria-label={`${item.label} actions`} onKeyDown={menuKeys}>
                 <button type="button" disabled={item.boardTile === null} onClick={() => choose(item)}>Select as board brush</button>
-                <button type="button" disabled aria-describedby="tkr-source-edit-unavailable">Edit source unavailable (P1)</button>
+                <button type="button" disabled aria-describedby={`${ids}-source-edit-unavailable`}>Edit source unavailable (P1)</button>
+                <button type="button" onClick={closeMenu}>Close actions</button>
               </div>
             ) : null}
           </div>
         ))}
       </div>
 
-      <p id="tkr-source-edit-unavailable" class="tkr-tileset-browser-note" role="note">
+      <p id={`${ids}-source-edit-unavailable`} class="tkr-tileset-browser-note" role="note">
         Source editing is unavailable until the P1 tile editor provider exists. Browsing and brush selection do not change source files or paint a board.
       </p>
       {activeSource === null ? <p class="tkr-tileset-browser-empty" role="status">No tilesets, animated tiles or tile bitmaps are available.</p> : null}

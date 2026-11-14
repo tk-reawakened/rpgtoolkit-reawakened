@@ -15,7 +15,8 @@
     "./browser-session": {
       "types": "./dist/brush.d.ts",
       "default": "./dist/brush.js"
-    }
+    },
+    "./tileset-browser.css": "./src/tileset-browser.css"
   },
   "dependencies": {
     "@tk-reawakened/core": "workspace:*",

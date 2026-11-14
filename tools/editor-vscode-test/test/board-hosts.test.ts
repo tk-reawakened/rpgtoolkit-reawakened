@@ -16,6 +16,7 @@ const gam = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/gam
 const tileset = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/tileset/tileset_detail1.tst", import.meta.url)));
 
 const PATH = "Boards/village.brd";
+const SECOND_PATH = "Boards/other.brd";
 
 /** A 2×2, one-layer board of the committed two-tile tileset: tiles 1, 2 / 2, 1. */
 function smallBoard(): Uint8Array {
@@ -41,12 +42,13 @@ function smallBoard(): Uint8Array {
 }
 
 const original = smallBoard();
-const FILES = { [PATH]: original, "Tiles/village.tst": tileset };
+
+const FILES = { [PATH]: original, [SECOND_PATH]: original, "Tiles/village.tst": tileset };
 
 /** The bytes the model makes of putting `tile` on a cell: the oracle for what a host must write. */
-function expectedBytes(layer: number, x: number, y: number, tile: string): Uint8Array {
-  const host = createMemoryPlatformServices({ files: { [PATH]: original } });
-  const opened = createBoardDocument(host.fs, createDocumentIdentity("oracle", PATH), original);
+function expectedBytes(path: string, layer: number, x: number, y: number, tile: string): Uint8Array {
+  const host = createMemoryPlatformServices({ files: { [path]: original } });
+  const opened = createBoardDocument(host.fs, createDocumentIdentity("oracle", path), original);
   ok(opened.ok);
   ok(opened.document.apply({ type: "set-tile", layer, x, y, tile }).ok);
   return opened.document.serialize();
@@ -175,7 +177,7 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
 
       const saved = await host.disk(PATH);
       ok(saved !== null);
-      deepEqual(saved, expectedBytes(0, 1, 1, "village.tst2"), "the file holds exactly the model's bytes for that one edit");
+      deepEqual(saved, expectedBytes(PATH, 0, 1, 1, "village.tst2"), "the file holds exactly the model's bytes for that one edit");
       notDeepEqual(saved, original);
 
       const afterSave = pixels(await first.picture());
@@ -191,6 +193,66 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       equal(second.workbenchDirty(), false);
       deepEqual(pixels(await second.picture()), afterSave, "the reopened picture is the saved one");
       await second.close();
+    });
+
+    test("brush selection survives board switches, paints only on request, and saves through reopen", async () => {
+      document.body.replaceChildren();
+      const host = hosts.find((candidate) => candidate.name === entry)!.make();
+      const first = await host.open(PATH);
+      await settle(act, 4);
+      const browser = first.element.querySelector<HTMLElement>(".tkr-tileset-browser");
+      ok(browser !== null);
+      const secondTile = browser.querySelector<HTMLElement>('[data-browser-reference="village.tst2"]');
+      const selectBrush = secondTile?.querySelector<HTMLButtonElement>(".tkr-tileset-browser-source");
+      ok(selectBrush !== null && selectBrush !== undefined);
+      const before = cell(first, 1, 1).getAttribute("aria-label");
+      await act(() => selectBrush.click());
+      equal(cell(first, 1, 1).getAttribute("aria-label"), before, "choosing a brush never paints");
+      equal(first.workbenchDirty(), false);
+      deepEqual(await host.disk(PATH), original, "selection leaves the source board bytes untouched");
+
+      const paint = first.element.querySelector<HTMLButtonElement>(".tkr-board-brush");
+      ok(paint !== null && !paint.disabled);
+      await act(() => { paint.click(); });
+      await settle(act, 4);
+      equal(cell(first, 1, 1).getAttribute("aria-label"), "Column 1, row 1: village.tst2");
+      equal(first.workbenchDirty(), true, "only the explicit paint action edits the board");
+      const save = first.element.querySelector<HTMLButtonElement>(".tkr-board-save");
+      ok(save !== null && !save.disabled);
+      await act(() => { save.click(); });
+      await untilState(first, "All changes saved");
+      const savedFirst = await host.disk(PATH);
+      ok(savedFirst !== null);
+      deepEqual(savedFirst, expectedBytes(PATH, 0, 0, 0, "village.tst2"));
+      await first.close();
+
+      const reopenedFirst = await host.open(PATH);
+      await settle(act, 4);
+      equal(cell(reopenedFirst, 1, 1).getAttribute("aria-label"), "Column 1, row 1: village.tst2");
+      await reopenedFirst.close();
+
+      const second = await host.open(SECOND_PATH);
+      await settle(act, 4);
+      equal(cell(second, 1, 1).getAttribute("aria-label"), "Column 1, row 1: village.tst1", "the other board opens unchanged");
+      equal(second.workbenchDirty(), false, "opening a board with a retained brush does not paint it");
+      const retained = second.element.querySelector<HTMLElement>('[data-browser-reference="village.tst2"] .tkr-tileset-browser-source');
+      ok(retained !== null && retained.getAttribute("aria-pressed") === "true", "the selected brush remains visible after switching boards");
+      const secondPaint = second.element.querySelector<HTMLButtonElement>(".tkr-board-brush");
+      ok(secondPaint !== null && !secondPaint.disabled);
+      await act(() => { secondPaint.click(); });
+      await settle(act, 4);
+      equal(cell(second, 1, 1).getAttribute("aria-label"), "Column 1, row 1: village.tst2");
+      const secondSave = second.element.querySelector<HTMLButtonElement>(".tkr-board-save");
+      ok(secondSave !== null && !secondSave.disabled);
+      await act(() => { secondSave.click(); });
+      await untilState(second, "All changes saved");
+      deepEqual(await host.disk(SECOND_PATH), expectedBytes(SECOND_PATH, 0, 0, 0, "village.tst2"));
+      deepEqual(await host.disk(PATH), savedFirst, "painting the active second board leaves the first board unchanged");
+      await second.close();
+      const reopenedSecond = await host.open(SECOND_PATH);
+      await settle(act, 4);
+      equal(cell(reopenedSecond, 1, 1).getAttribute("aria-label"), "Column 1, row 1: village.tst2");
+      await reopenedSecond.close();
     });
   });
 }

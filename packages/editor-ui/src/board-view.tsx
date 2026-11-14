@@ -51,6 +51,7 @@ export function BoardView({ doc, capabilities, onEdited, browser }: BoardViewPro
   const canvas = useRef<HTMLCanvasElement>(null);
   const tileField = useRef<HTMLInputElement>(null);
   const grid = useRef<HTMLDivElement>(null);
+  const browserRoot = useRef<HTMLDivElement>(null);
   const focusCell = useRef(false);
   useEffect(() => browser?.session.subscribe(() => setBrush(browser.session.getSnapshot().selection)) ?? undefined, [browser]);
 
@@ -235,6 +236,7 @@ export function BoardView({ doc, capabilities, onEdited, browser }: BoardViewPro
                       type="button"
                       class={active ? "tkr-board-cell tkr-board-cell-selected" : "tkr-board-cell"}
                       tabIndex={active ? 0 : -1}
+                      aria-keyshortcuts={active && browser !== undefined ? "L" : undefined}
                       aria-label={`Column ${cx + 1}, row ${cy + 1}: ${here === null || here === "" ? "empty" : here}`}
                       onClick={() => setSelected({ x: cx, y: cy })}
                       onKeyDown={(event) => {
@@ -245,6 +247,9 @@ export function BoardView({ doc, capabilities, onEdited, browser }: BoardViewPro
                         } else if (event.key === "Enter") {
                           event.preventDefault();
                           tileField.current?.focus();
+                        } else if (event.key.toLowerCase() === "l" && !event.ctrlKey && !event.metaKey && !event.altKey && browser !== undefined) {
+                          event.preventDefault();
+                          browserRoot.current?.querySelector<HTMLSelectElement>("select")?.focus();
                         }
                       }}
                     >
@@ -307,7 +312,7 @@ export function BoardView({ doc, capabilities, onEdited, browser }: BoardViewPro
       {failure === null || (failure.kind === "conflict" && conflict !== null) ? null : (
         <p class="tkr-board-error" role="alert">{failure.message}</p>
       )}
-      {browser === undefined ? null : <TilesetBrowser context={browser} />}
+      {browser === undefined ? null : <div ref={browserRoot}><TilesetBrowser context={browser} /></div>}
     </section>
   );
 }
