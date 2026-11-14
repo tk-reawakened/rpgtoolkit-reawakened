@@ -137,3 +137,21 @@ export {
 } from "./layout.ts";
 export { createTabs, type TabsSnapshot, type TabState, type Tabs } from "./tabs.ts";
 export { ASSET_FOLDERS, type AssetKind } from "@tk-reawakened/core";
+export {
+  createPreferences,
+  PREFERENCE_CATALOGUE,
+  preferenceById,
+  validatePreference,
+  vscodeContributions,
+  type PreferenceEntry,
+  type PreferenceProblem,
+  type PreferenceResult,
+  type PreferenceRow,
+  type PreferenceSource,
+  type PreferenceType,
+  type PreferenceValidation,
+  type Preferences,
+  type PreferencesOptions,
+  type PreferencesSnapshot,
+  type VscodeConfiguration,
+} from "./preferences.ts";
