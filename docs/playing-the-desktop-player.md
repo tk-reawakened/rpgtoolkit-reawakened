@@ -13,7 +13,7 @@ Press F3 to show or hide the diagnostic overlay. It is hidden when the player st
 
 | What works | Limits |
 |---|---|
-| `pnpm desktop:run --game <your.tpk>` opens a package whose `.tpk.json` descriptor sits beside it. `pnpm desktop:authored` stages the repository's authored example as a valid distribution package, opens it in Electron, enters `village.brd`, and reads the actual WebGL2 framebuffer. It checks that at least four of eight distinct RGB colors from the authored grass tile appear in board cell (0,0), away from the example's sprites and overlays; blank or uniformly colored output fails. The desktop CI lane runs this proof on macOS, Linux and Windows. | This proves one authored package, not that every game is playable. |
+| `pnpm desktop:run --game <your.tpk>` opens a package whose `.tpk.json` descriptor sits beside it. `pnpm desktop:authored` stages the repository's authored example as a valid distribution package, opens it in Electron, enters `village.brd`, and reads the actual WebGL2 framebuffer at a measured sub-1× viewport. It maps board cell (0,0) through the host game rectangle and checks for at least four of eight distinct RGB colors from the authored grass tile; blank or uniformly colored output fails. The desktop CI lane runs this proof on macOS, Linux and Windows. | This proves one authored package, not that every game is playable. |
 | Closing the game window ends the game: the window, the player process and the `pnpm desktop:run` command all stop, including on macOS, where an application usually stays open after its last window closes. | — |
 | Keyboard movement works in the Electron window: `pnpm desktop:input` sends trusted key events and proves the player's position changes. It defaults to the demo package; pass `--game <path>` to select another package. | Pointer input (click to walk) is wired but not proven the same way as keys. |
 | The window shows the game at the resolution its own main file asks for — 640×480, 800×600, 1024×768 or a custom size. The whole frame fits and is centred on black. | The window starts at 960×720 and can be resized. The picture normally uses whole-number scaling; if 1× cannot fit, it shrinks fractionally to keep the whole frame visible. |
@@ -119,9 +119,10 @@ pnpm desktop:run --game fixtures/packages/demo.tpk
 The authored proof stages the example's `Game/Example` project assets at the distribution package root, alongside
 `Main/example.gam`, then builds a deterministic `.tpk` in a temporary directory. This matches the package layout
 contract without including the whole authoring tree or a legacy game. It opens the package in real Electron and enters
-`village.brd`. The check reads the attached canvas's WebGL2 framebuffer and requires at least four of eight distinct
-RGB colors sampled from tile 1 of `Tiles/village.tst` in the terrain cell (0,0). That cell is grass and is free of the
-example's sprites and overlays; requiring multiple fixture-derived colors rejects blank or uniformly colored output.
+`village.brd`, then resizes to a measured sub-1× viewport. The check reads the attached canvas's WebGL2 framebuffer
+and maps centered board cell (0,0) through `host.display.game` and the logical view size. It requires at least four of
+eight distinct RGB colors sampled from tile 1 of `Tiles/village.tst`. That cell is grass and is free of the example's
+sprites and overlays; requiring multiple fixture-derived colors rejects blank or uniformly colored output.
 
 `pnpm desktop:input` opens the player, sends real key events through Chromium's debugging protocol, and prints the player
 position before and after — it exits non-zero when the key did not move the player.

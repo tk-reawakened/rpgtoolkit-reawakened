@@ -629,6 +629,54 @@ async function main() {
 
     let authoredBoardProof = null;
     if (process.argv.includes("--authored-board")) {
+      if (typeof enteredBoard.board !== "string" || !enteredBoard.board.toLowerCase().includes("village")) {
+        throw new Error(`authored package did not enter its own village board: ${JSON.stringify(enteredBoard.board)}`);
+      }
+      const fractionalTarget = resizeTargets[0];
+      if (fractionalTarget[0] >= 640 || fractionalTarget[1] >= 480) {
+        throw new Error(`authored board proof lacks a sub-1x viewport: ${JSON.stringify(fractionalTarget)}`);
+      }
+      const beforeFractionalArea = await evaluate(`(() => {
+        const area = document.querySelector("#viewport").getBoundingClientRect();
+        return { width: area.width, height: area.height };
+      })()`);
+      await resizeWindowContent(mainDebugger, fractionalTarget[0], fractionalTarget[1], beforeFractionalArea);
+      let fractionalGeometry = null;
+      let lastFractionalGeometry = null;
+      for (let attempt = 0; attempt < 40 && fractionalGeometry === null; attempt += 1) {
+        const observation = await evaluate(`(() => {
+          const area = document.querySelector("#viewport").getBoundingClientRect();
+          const session = window.__session;
+          const geometry = session.displayGeometry();
+          const view = session.viewSize();
+          return { area: { width: area.width, height: area.height }, geometry, view };
+        })()`);
+        lastFractionalGeometry = observation;
+        const scale = Math.min(
+          observation.geometry.game.width / observation.view.width,
+          observation.geometry.game.height / observation.view.height,
+        );
+        if (Math.abs(observation.area.width - fractionalTarget[0]) < 0.5
+          && Math.abs(observation.area.height - fractionalTarget[1]) < 0.5
+          && Math.abs(observation.geometry.content.width - observation.area.width) < 0.01
+          && Math.abs(observation.geometry.content.height - observation.area.height) < 0.01
+          && scale > 0 && scale < 1) {
+          fractionalGeometry = observation;
+        } else {
+          await sleep(50);
+        }
+      }
+      if (fractionalGeometry === null) {
+        throw new Error(`authored board proof did not reach a measured sub-1x viewport: ${JSON.stringify(lastFractionalGeometry)}`);
+      }
+      const fractionalScale = Math.min(
+        fractionalGeometry.geometry.game.width / fractionalGeometry.view.width,
+        fractionalGeometry.geometry.game.height / fractionalGeometry.view.height,
+      );
+      if (fractionalScale >= 1 || fractionalScale <= 0) {
+        throw new Error(`authored board proof did not use fractional game scaling: ${fractionalScale}`);
+      }
+
       const expectedGrassColors = JSON.stringify(authoredGrassTerrainColors());
       const boardPixels = await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
         const canvas = document.querySelector("#screen");
@@ -650,12 +698,14 @@ async function main() {
         const geometry = session.displayGeometry();
         const terrainLeft = (view.width - 16 * 32) / 2;
         const terrainTop = (view.height - 12 * 32) / 2;
-        const scaleX = canvas.width / geometry.content.width;
-        const scaleY = canvas.height / geometry.content.height;
-        const x0 = Math.max(0, Math.floor((geometry.game.x - geometry.content.x + terrainLeft) * scaleX));
-        const y0 = Math.max(0, Math.floor((geometry.game.y - geometry.content.y + terrainTop) * scaleY));
-        const x1 = Math.min(canvas.width, Math.ceil((geometry.game.x - geometry.content.x + terrainLeft + 32 * geometry.game.width / view.width) * scaleX));
-        const y1 = Math.min(canvas.height, Math.ceil((geometry.game.y - geometry.content.y + terrainTop + 32 * geometry.game.height / view.height) * scaleY));
+        const bufferScaleX = canvas.width / geometry.content.width;
+        const bufferScaleY = canvas.height / geometry.content.height;
+        const hostScaleX = geometry.game.width / view.width;
+        const hostScaleY = geometry.game.height / view.height;
+        const x0 = Math.max(0, Math.floor((geometry.game.x + terrainLeft * hostScaleX) * bufferScaleX));
+        const y0 = Math.max(0, Math.floor((geometry.game.y + terrainTop * hostScaleY) * bufferScaleY));
+        const x1 = Math.min(canvas.width, Math.ceil((geometry.game.x + (terrainLeft + 32) * hostScaleX) * bufferScaleX));
+        const y1 = Math.min(canvas.height, Math.ceil((geometry.game.y + (terrainTop + 32) * hostScaleY) * bufferScaleY));
         const observed = new Set();
         for (let y = y0; y < y1; y += 1) {
           for (let x = x0; x < x1; x += 1) {
@@ -670,15 +720,13 @@ async function main() {
           height: canvas.height,
           nonBlack,
           frameHash,
+          displayScale: Math.min(hostScaleX, hostScaleY),
           grassTileRegion: { x0, y0, x1, y1 },
           expectedGrassColors: expected.length,
           matchedGrassColors: matched.length,
           observedGrassColors: observed.size,
         });
       })))`);
-      if (typeof enteredBoard.board !== "string" || !enteredBoard.board.toLowerCase().includes("village")) {
-        throw new Error(`authored package did not enter its own village board: ${JSON.stringify(enteredBoard.board)}`);
-      }
       if (boardPixels.error !== undefined || boardPixels.width < 1 || boardPixels.height < 1
         || boardPixels.nonBlack <= 1000 || boardPixels.frameHash === 0 || boardPixels.matchedGrassColors < 4) {
         throw new Error(`authored village terrain pixels were not presented on the Electron canvas: ${JSON.stringify(boardPixels)}`);
