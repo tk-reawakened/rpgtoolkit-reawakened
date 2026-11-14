@@ -641,6 +641,8 @@ jobs:
           cp docs/spec/examples/game/Main/example.gam "$workspace/example.gam"
           mkdir -p "$workspace/.vscode"
           printf '{\n  "files.autoSave": "off"\n}\n' > "$workspace/.vscode/settings.json"
+          # The checkout is runner-owned; create the proof's root-owned download cache before dropping DAC bypass.
+          mkdir -p .vscode-test-web
           # Root's DAC override defeats the chmod-based physical write-refusal proof (#2659).
           # Drop only those capabilities for this proof, retaining the same workspace and real filesystem.
           set --
