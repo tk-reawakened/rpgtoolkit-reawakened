@@ -41,6 +41,7 @@ export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps)
   // A newer keystroke belongs to the user, not to the command currently being applied.
   const draftRevision = useRef(0);
   const titleCommit = useRef<{ readonly title: string; readonly revision: number } | null>(null);
+  const previousTitle = useRef(snapshot.gameTitle);
   // A live region announces an inserted element, not an unchanged one: a failure that arrives as a new value is rendered
   // under a new key, so the same words twice are announced twice.
   const commitFlight = useRef<Promise<boolean> | null>(null);
@@ -58,6 +59,8 @@ export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps)
   // way the marker is finished once the title it named is in force, so a later document change is never ignored (a
   // revert after a commit used to leave its stale draft on screen).
   useEffect(() => {
+    if (previousTitle.current === snapshot.gameTitle) return;
+    previousTitle.current = snapshot.gameTitle;
     const committing = titleCommit.current;
     if (committing !== null) {
       titleCommit.current = null;
