@@ -24,9 +24,11 @@ import {
   hashGameState,
   hashState,
   projectGameLedger,
+  selectRecovery,
   removeActorSprite,
   restoreGameState,
-  snapshot,
+  utf8Decode,
+  utf8Encode,
   tagNonFinite,
   type CallableValue,
   type GameLedgerV1,
@@ -37,7 +39,8 @@ import {
   type SpriteActor,
   type Thread,
   type Value,
-  type WorldBoard,
+  type RecoveryStorage,
+  type RecoveryValidate,
   type WorldItem,
   type WorldTile,
 } from "../src/index.ts";
@@ -1081,12 +1084,53 @@ test("world-v2 rotated tile edits migrate for expiry and recovery", () => {
       },
     },
   };
-  const preMigrationLedger = projectGameLedger(state);
-  const savedV3MetadataHash = hashGameLedgerV3(preMigrationLedger, null);
-  const savedV4MetadataHash = hashGameLedgerV4(preMigrationLedger, null);
+  // Independently pinned from pre-migration origin/main 00cc44c via
+  // `node --test --test-name-pattern='baseline rotated tile-edit metadata hash derivation' test/save-ledger.test.ts`
+  // using its v3 and v4 ledger hash implementations on this exact fixture.
+  const savedV3MetadataHash = "6791521790b02622";
+  const savedV4MetadataHash = "289fec60760bdb59";
 
   const oldSave = JSON.parse(snapshot(state)) as { schema: { world: number } };
   oldSave.schema.world = 2;
+  const candidateBytes = utf8Encode(JSON.stringify(oldSave));
+  const validateLegacyCandidate: RecoveryValidate = (bytes) => {
+    const candidate = restoreGameState(utf8Decode(bytes));
+    const candidateLedger = projectGameLedger(candidate);
+    return {
+      tick: candidate.time.tick,
+      ledgerHash: hashGameLedger(candidateLedger),
+      compatibleLedgerHashes: [
+        hashGameLedgerV3(candidateLedger, candidate.world.board ?? null),
+        hashGameLedgerV4(candidateLedger, candidate.world.board ?? null),
+      ],
+    };
+  };
+  for (const legacyHash of [savedV3MetadataHash, savedV4MetadataHash]) {
+    const gameId = "0123456789abcdef";
+    const generationPath = `${gameId}/recovery/generations/000000000001`;
+    const tick = state.time.tick;
+    const files = new Map<string, Uint8Array>([
+      [`${generationPath}/candidate.bin`, candidateBytes],
+      [`${generationPath}/meta.json`, utf8Encode(JSON.stringify({
+        version: 1, generation: 1, tick, ledgerHash: legacyHash,
+      }))],
+      [`${gameId}/recovery/current.json`, utf8Encode(JSON.stringify({
+        version: 1, gameId, generation: 1, tick, ledgerHash: legacyHash,
+      }))],
+    ]);
+    const storage: RecoveryStorage = {
+      read: (path) => files.get(path)?.slice() ?? null,
+      write: (path, bytes) => files.set(path, bytes.slice()),
+      writeAtomic: (path, bytes) => files.set(path, bytes.slice()),
+      list: (prefix) => [...files.keys()].filter((path) => path.startsWith(prefix)),
+      remove: (path) => { files.delete(path); },
+    };
+    const selected = selectRecovery(storage, { gameId }, validateLegacyCandidate);
+    ok(selected !== null, `legacy candidate with hash ${legacyHash} remains selectable`);
+    equal(selected.ledgerHash, legacyHash);
+    deepEqual(selected.bytes, candidateBytes);
+  }
+
   const restored = restoreGameState(JSON.stringify(oldSave));
   equal(restored.schema.world, 3);
   deepEqual(restored.world.board?.runtime?.tileEdits.map(({ index }) => index), [2, 2, 18]);
