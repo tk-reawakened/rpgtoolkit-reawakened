@@ -286,7 +286,7 @@ test("a delayed acknowledgement preserves a newer character draft and distinct f
   }
 });
 
-test("queued special-move edits compose independently edited fields", async () => {
+test("special-move edits submitted before acknowledgements compose independently edited fields", async () => {
   const setupView = await setup();
   try {
     const initialMove = setupView.doc.getSnapshot().character?.specialMoves[12];
@@ -316,6 +316,7 @@ test("queued special-move edits compose independently edited fields", async () =
 
     await editInput(setupView.el, "Condition variable", "Quest[meteor]!");
     await act(save);
+    equal(acknowledgements.length, 2, "the second accepted move command is submitted without waiting for the first acknowledgement");
     const first = acknowledgements.shift();
     if (first === undefined) throw new Error("the first move command is not waiting for acknowledgement");
     await act(() => first());
@@ -324,7 +325,7 @@ test("queued special-move edits compose independently edited fields", async () =
     equal(acknowledgements.length, 1);
 
     const second = acknowledgements.shift();
-    if (second === undefined) throw new Error("the queued move command was not applied");
+    if (second === undefined) throw new Error("the second move command was not submitted");
     await act(() => second());
     await settle();
     deepEqual(setupView.doc.getSnapshot().character?.specialMoves[12], {
@@ -336,7 +337,7 @@ test("queued special-move edits compose independently edited fields", async () =
   }
 });
 
-test("discrete controls retain the latest choice while earlier acknowledgements are held", async () => {
+test("discrete controls submit every latest choice while earlier acknowledgements are held", async () => {
   const setupView = await setup();
   try {
     const initial = setupView.doc.getSnapshot().character;
@@ -379,7 +380,7 @@ test("discrete controls retain the latest choice while earlier acknowledgements 
     await changeSelect("Level-up type", levelTypeFirst);
     await changeSelect("Level-up type", initialLevelUpType);
     await settle();
-    equal(acknowledgements.length, 1);
+    equal(acknowledgements.length, 6, "all accepted discrete commands reached the document while acknowledgements were held");
 
     for (let index = 0; index < 6; index += 1) {
       const acknowledge = acknowledgements.shift();
@@ -396,7 +397,8 @@ test("discrete controls retain the latest choice while earlier acknowledgements 
   }
 });
 
-test("conflict reload clears character drafts and invalidates queued character commands", async () => {
+
+test("conflict reload clears character drafts and invalidates in-flight character commands", async () => {
   const setupView = await setup();
   try {
     const initialMove = setupView.doc.getSnapshot().character?.specialMoves[12];
@@ -535,7 +537,7 @@ test("items expose no character-only authoring fields", async () => {
   }
 });
 
-test("a save waits for every submitted character edit, including ones queued behind a held acknowledgement (#2613)", async () => {
+test("a save waits for every submitted character edit while acknowledgements are held (#2613)", async () => {
   const pendingEdits = createPendingEdits();
   const setupView = await setup(exampleCharacter(), { pendingEdits });
   try {
@@ -551,24 +553,24 @@ test("a save waits for every submitted character edit, including ones queued beh
     await editInput(setupView.el, "Character name", "Ada Lovelace");
     await editInput(setupView.el, "Health (HP)", "123");
     await settle();
-    // A is with the document, awaiting its acknowledgement; B is queued behind it and has not been given to the document.
-    equal(held.length, 1);
+    // Both commands were handed to the document at acceptance; the page is still waiting for their acknowledgements.
+    equal(held.length, 2);
     equal(pendingEdits.busy(), true);
-    equal(setupView.doc.getSnapshot().character?.stats.hp === 123, false, "B is not in the document yet");
+    equal(setupView.doc.getSnapshot().character?.stats.hp === 123, false, "the held mock has not completed the second command");
 
     let settled = false;
     const waiting = pendingEdits.settle().then(() => { settled = true; });
     await settle();
-    equal(settled, false, "a save that ran now would leave B out");
+    equal(settled, false, "a save that ran now would not have completed both edit requests");
 
     const first = held.shift();
     if (first === undefined) throw new Error("the first edit is not waiting");
     await act(() => first());
     await settle();
-    equal(settled, false, "B is with the document but its acknowledgement is held too");
+    equal(settled, false, "the second acknowledgement is still held");
     equal(held.length, 1);
     const second = held.shift();
-    if (second === undefined) throw new Error("the queued edit was not given to the document");
+    if (second === undefined) throw new Error("the second edit was not submitted");
     await act(() => second());
     await waiting;
     equal(settled, true);

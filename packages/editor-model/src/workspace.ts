@@ -121,9 +121,8 @@ export interface DocumentWorkspace {
   /** The open documents, in the order they were opened. */
   documents(): readonly AnyDocument[];
   /**
-   * What the views of `document` have accepted from the user but not yet handed to it (#2613). Views register their work
-   * here; Save All, close, revert and Save As wait for it first, so an edit still queued behind an acknowledgement is
-   * saved, asked about and reverted with the rest instead of being left out of a save that reports the document clean.
+   * What the views of `document` have submitted but not yet received results for (#2613). Views register their in-flight
+   * work here; Save All, close, revert and Save As wait for those requests before acting on the whole document.
    */
   pendingEdits(document: AnyDocument): PendingEdits;
   /** Undo the latest edit this host heard of that is still in force, by its `editId`. */
@@ -261,8 +260,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     }
     // A document-level close cannot invalidate a model still owned by views.
     if (view === undefined && attached !== undefined && attached.size > 0) return { closed: false, reason: "cancelled" };
-    // An edit a view still holds belongs to the document: it must be in it before the document is asked about, so that a
-    // document with only queued edits is not closed as clean.
+    // Complete every submitted request before deciding whether this document is dirty and what to ask about.
     await pendingEditsOf(document).settle();
     const snapshot = document.getSnapshot();
     if (documents.get(document.identity.key) === document && (snapshot.dirty || snapshot.conflict !== null)) {
@@ -342,8 +340,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     },
     async saveAll() {
       const results: SaveAllEntry[] = [];
-      // Every view's queued edits reach its document before any dirty flag is read: an edit still queued would otherwise
-      // leave its document looking clean and unsaved.
+      // Every view's accepted requests must complete before any dirty flag is read.
       await Promise.all([...documents.values()].map((document) => pendingEditsOf(document).settle()));
       for (const document of [...documents.values()]) {
         await pendingEditsOf(document).settle();

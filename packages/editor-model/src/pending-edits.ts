@@ -1,14 +1,12 @@
 /**
- * Edits a view has accepted from the user but has not yet finished handing to its document (#2613).
+ * Edits a view has submitted to its document but has not yet received a result for (#2613).
  *
- * A view may not be able to give a command to the document at once: it can apply commands one after another, so that a
- * command built from the latest snapshot sees the one before it, and an adapter (a webview talking to its extension
- * host) acknowledges each command later. Until the view's last command is acknowledged, the document is not what the
- * user sees, and saving, closing, reverting or backing it up would leave the later edits out without a word.
+ * A webview's document calls are asynchronous. A view can submit several commands before their acknowledgements return;
+ * until each request has answered, the view's status and error feedback are unsettled. Save, close, revert and backup
+ * wait for currently attached views to finish those requests before reading or writing the document.
  *
- * The view therefore registers its work here. Every path that reads or writes the document as a whole (save all, close,
- * revert, Save As, VS Code's save, backup and close) first waits for `settle`. The registry is DOM-free, so the browser
- * host's workspace and a VS Code webview use the same one.
+ * The view registers its in-flight work here. The registry is DOM-free, so the browser host's workspace and a VS Code
+ * webview use the same one.
  */
 
 /** One view's submitted-but-unacknowledged edits. */

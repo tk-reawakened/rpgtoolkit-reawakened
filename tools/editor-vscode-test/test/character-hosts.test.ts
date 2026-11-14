@@ -1,7 +1,6 @@
-// #1716, #2609 and #2613 in the real hosts: a character edit the view has accepted but not yet handed to its document
-// (queued behind an acknowledgement that is held) is saved, backed up and asked about by the host's own save, close and
-// backup, and the bytes on disk and the reopened view prove it. The browser host's workspace and VS Code's provider
-// behind its webview bridge each run every case. Nothing here sleeps: acknowledgements are held and released.
+// #1716, #2609 and #2613 in the real hosts: accepted character edits are submitted to their document immediately, while
+// acknowledgements may still be held. Host save, close and backup operate on the shared document; bytes on disk and a
+// reopened view prove the result. Nothing here sleeps: acknowledgements are held and released.
 import { equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, before, describe, test } from "node:test";
@@ -80,7 +79,7 @@ function saved(bytes: Uint8Array | null): { readonly name: string; readonly hp: 
 
 const same = (left: Uint8Array | null, right: Uint8Array): boolean => left !== null && left.length === right.length && left.every((byte, index) => byte === right[index]);
 
-/** The fixture's character is already named Ada, so the name edit uses another name and is a real edit. A is with the document and its acknowledgement is held; B was accepted after it and waits in the view. */
+/** The fixture's character is already named Ada, so these are real edits. Both commands are sent while their acknowledgements are held. */
 async function holdTwoEdits(tab: CharacterProofTab): Promise<{ release(): void }> {
   const hold = tab.holdEditAcknowledgements();
   await edit(tab, "Character name", "Ada Lovelace");
@@ -98,7 +97,7 @@ for (const name of ["browser host", "VS Code desktop", "VS Code for the Web"]) {
       return found.make(controlSettleTimers);
     };
 
-    test("the host's save waits for an edit queued behind a held acknowledgement, writes both, and the reopened view shows them", async () => {
+    test("the host's save waits for both submitted edits while acknowledgements are held, writes both, and the reopened view shows them", async () => {
       const proof = host();
       const tab = await openReady(proof);
       const hold = await holdTwoEdits(tab);
@@ -106,7 +105,7 @@ for (const name of ["browser host", "VS Code desktop", "VS Code for the Web"]) {
 
       const saving = tab.saveFromWorkbench();
       await settle(act);
-      ok(same(await proof.disk(PATH), ORIGINAL), "nothing is written while the view still holds an edit: that save would have left it out");
+      ok(same(await proof.disk(PATH), ORIGINAL), "nothing is written while the edit acknowledgements are still held");
 
       hold.release();
       equal(await saving, true);
@@ -125,14 +124,14 @@ for (const name of ["browser host", "VS Code desktop", "VS Code for the Web"]) {
       await reopened.close("discard");
     });
 
-    test("closing and choosing Save writes an edit still queued in the view, and the reopened view shows it", async () => {
+    test("closing and choosing Save writes both submitted edits while acknowledgements are held", async () => {
       const proof = host();
       const tab = await openReady(proof);
       const hold = await holdTwoEdits(tab);
 
       const closing = tab.close("save");
       await settle(act);
-      ok(same(await proof.disk(PATH), ORIGINAL), "the close is waiting for the queued edit, not discarding it");
+      ok(same(await proof.disk(PATH), ORIGINAL), "the close waits for the held acknowledgements before writing");
 
       hold.release();
       equal(await closing, true);
@@ -179,7 +178,29 @@ for (const name of ["VS Code desktop", "VS Code for the Web"]) {
       return found.make(controlSettleTimers);
     };
 
-    test("a hot-exit backup includes an edit still queued in the view", async () => {
+    test("a nonfinal view can close with held acknowledgements and its sibling still saves every accepted edit (#2652)", async () => {
+      const proof = host();
+      const first = await openReady(proof);
+      const acknowledgements = await holdTwoEdits(first);
+      try {
+        const sibling = await openReady(proof);
+        equal(input(sibling, "Character name").value, "Ada Lovelace");
+        equal(input(sibling, "Health (HP)").value, "123");
+
+        // The same document stays open in sibling, so VS Code closes this dirty tab without a save prompt.
+        equal(await first.close("cancel"), true);
+        equal(await sibling.saveFromWorkbench(), true);
+        await settle(act);
+        const written = saved(await proof.disk(PATH));
+        equal(written.name, "Ada Lovelace");
+        equal(written.hp, 123);
+        await sibling.close("cancel");
+      } finally {
+        acknowledgements.release();
+      }
+    });
+
+    test("a hot-exit backup includes edits submitted while the view awaits acknowledgements", async () => {
       const proof = host();
       const tab = await openReady(proof);
       const hold = await holdTwoEdits(tab);
@@ -192,7 +213,7 @@ for (const name of ["VS Code desktop", "VS Code for the Web"]) {
       await tab.close("discard");
     });
 
-    test("a save refuses, with the edits kept unsaved, when the view cannot hand over its queued edit in time, and succeeds once it can", async () => {
+    test("a save refuses while an acknowledgement is held, and succeeds once it arrives", async () => {
       const proof = host(true);
       const expire = proof.expireSettleTimers;
       ok(expire !== undefined, "this host lets the proof end the wait by hand");

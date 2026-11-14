@@ -53,7 +53,7 @@ export interface CharacterAuthoringViewProps {
   readonly capabilities: Capabilities;
   readonly onEdited: (event: DocumentEdited) => void;
   readonly pickAsset?: (request: { readonly kind: AssetKind; readonly extensions: readonly string[]; readonly field: string }) => Promise<PickOutcome>;
-  /** Where this view reports edits it has accepted but not yet handed to the document, so the host's save, close and revert wait for them (#2613). */
+  /** Track submitted edit acknowledgements so host save, close and revert can settle this view's work (#2613). */
   readonly pendingEdits?: PendingEdits;
 }
 
@@ -145,9 +145,10 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
   const [drafts, setDrafts] = useState<Drafts>({});
   const [feedback, setFeedback] = useState("");
   const [pendingCount, setPendingCount] = useState(0);
-  const queue = useRef<Promise<void>>(Promise.resolve());
-  // Every edit counts from the moment the user's change is accepted, not from the moment the queue reaches it: a save,
-  // close or revert that runs while an acknowledgement is held waits for the whole queue (#2613).
+  // Move commands are composed synchronously at acceptance, then posted immediately so the extension host owns them
+  // before this view can be closed. Keep pending move values only while their acknowledgements are outstanding.
+  const optimisticMoves = useRef(new Map<number, Move>());
+  const pendingMoveSubmissions = useRef(0);
   const submitted = useRef(createEditTracker());
   const draftVersions = useRef(new Map<string, number>());
   const mutationGeneration = useRef(0);
@@ -169,9 +170,9 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
     return doc.subscribe(() => {
       const previous = observedSnapshot.current;
       const next = doc.getSnapshot();
-      observedSnapshot.current = next;
       if (previous.conflict !== null && next.conflict === null && !next.dirty && next.edits.length === 0) {
         mutationGeneration.current += 1;
+        optimisticMoves.current.clear();
         pendingDraftKeys.current.clear();
         draftVersions.current.clear();
         setDrafts({});
@@ -192,6 +193,7 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
     }
     setPendingCount((count) => count + 1);
     const apply = async (): Promise<void> => {
+      let moveSubmission = false;
       try {
         if (generation !== mutationGeneration.current) return;
         if (doc.getSnapshot().conflict !== null) {
@@ -205,10 +207,20 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
             setFeedback("The character fields are no longer available.");
             return;
           }
-          command = commandInput(latest);
+          const withPendingMoves: CharacterAuthoringFields = optimisticMoves.current.size === 0
+            ? latest
+            : { ...latest, specialMoves: latest.specialMoves.map((move, index) => optimisticMoves.current.get(index) ?? move) };
+          command = commandInput(withPendingMoves);
         } else {
           command = commandInput;
         }
+        if (command.type === "set-character-move") {
+          optimisticMoves.current.set(command.index, command.value);
+          pendingMoveSubmissions.current += 1;
+          moveSubmission = true;
+        }
+        // Submit now, rather than keeping accepted edits in a page-local queue behind an earlier acknowledgement.
+        // If this tab closes while that acknowledgement is outstanding, the document already owns every command.
         const result = await doc.apply(command);
         if (generation !== mutationGeneration.current) return;
         if (!result.ok) {
@@ -227,6 +239,10 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
       } catch (error) {
         if (generation === mutationGeneration.current) setFeedback(error instanceof Error ? error.message : "The character change could not be applied.");
       } finally {
+        if (moveSubmission) {
+          pendingMoveSubmissions.current -= 1;
+          if (pendingMoveSubmissions.current === 0) optimisticMoves.current.clear();
+        }
         for (const [key] of clear) {
           const pending = pendingDraftKeys.current.get(key);
           if (pending?.generation !== generation) continue;
@@ -237,7 +253,7 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
         finishSubmission();
       }
     };
-    queue.current = queue.current.then(apply, apply);
+    void apply();
   };
 
   if (character === null) return <section class="tkr-character-authoring" aria-label="Character authoring"><p>This document has no character-only fields.</p></section>;
