@@ -8,6 +8,8 @@ export interface FilesViewProps {
   readonly tree: ProjectTree;
   /** Called after a file opens, so the host can show its editor (a Toolkit document) in a tab. */
   readonly onOpened?: (result: Extract<TreeOpenResult, { readonly ok: true }>, row: TreeRow) => void;
+  /** Ask the host for the new-board questions (T-20); the button is shown only when the host can answer. */
+  readonly onNewBoard?: () => void;
 }
 
 /** What opening a file does, in words for a person choosing: the row's own label and the toolbar's. */
@@ -24,7 +26,7 @@ function routeNote(row: TreeRow): string {
  * so nothing needs a pointer or a context menu. A refusal or a host failure is shown in a live region; nothing is
  * renamed or deleted without the tree's own checks and, for delete, the user's confirmation.
  */
-export function FilesView({ tree, onOpened }: FilesViewProps) {
+export function FilesView({ tree, onOpened, onNewBoard }: FilesViewProps) {
   const snapshot = useDocumentSnapshot(tree);
   const [ids] = useState(() => {
     viewsMade += 1;
@@ -118,6 +120,7 @@ export function FilesView({ tree, onOpened }: FilesViewProps) {
     <section class="tkr-files" aria-label="Files">
       <h2 class="tkr-files-heading">Files</h2>
       <div class="tkr-files-toolbar" role="toolbar" aria-label="File actions">
+        {onNewBoard === undefined ? null : <button type="button" class="tkr-files-new-board" disabled={busy} onClick={onNewBoard}>New board…</button>}
         <button type="button" class="tkr-files-refresh" disabled={busy} onClick={() => run(() => tree.refresh())}>Refresh</button>
         <button type="button" class="tkr-files-collapse" onClick={() => tree.collapseAll()}>Collapse all</button>
         <button type="button" class="tkr-files-open" disabled={busy || current === null} onClick={() => current !== null && open(current)}>
