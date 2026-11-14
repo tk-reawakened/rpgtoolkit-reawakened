@@ -2,8 +2,8 @@ import { mount, type SpriteViewDocument, type ViewContext } from "@tk-reawakened
 import { RemoteDocument, isSpriteSnapshot, type BridgeMessage, type VscodeApi } from "./document-bridge.js";
 declare function acquireVsCodeApi(): VscodeApi;
 
-// A hidden webview is destroyed and this script runs again when it is shown: the document and its history stay in the
-// extension host, and `ready` fetches them back (ADR 0022 D3.7).
+// A hidden webview retains this page; if VS Code recreates a disposed page, the document and its history stay in the extension host,
+// and `ready` fetches them back (ADR 0022 D3.7).
 const api = acquireVsCodeApi();
 let remoteDocument: RemoteDocument | undefined;
 window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {

@@ -9,8 +9,8 @@
 //   tab only if it is still dirty; Save As calls `saveCustomDocumentAs`, then moves the source's save point to the latest
 //   edit and replaces the source tab with the destination. This is `MainThreadCustomEditorModel.saveCustomEditor`,
 //   `saveCustomEditorAs` and `EditorGroupView`'s close confirmation in VS Code's source;
-// * a webview is a separate page that talks to the extension host only through asynchronous, structured-cloned
-//   messages, and with `retainContextWhenHidden: false` a hidden tab's page is destroyed and loaded again when shown;
+// * a webview is a separate page that talks to the extension host only through asynchronous, structured-cloned messages;
+//   this adapter models the page-recreation path, while the real-workbench proof checks the provider's retained hidden page;
 // * the desktop watcher reports every change below the folder, including the extension's own writes.
 //
 // The real-workbench proof (`web-proof.ts`, run in CI against `@vscode/test-web`) checks the same behaviours in VS Code
@@ -234,7 +234,7 @@ interface Page {
   handle: ViewHandle | null;
 }
 
-/** One webview page. A hidden page is destroyed; showing it loads the page again, which asks the extension for the document. */
+/** The simulated webview page; this adapter exercises the page-recreation path. */
 class Webview {
   readonly #act: Act;
   readonly #listeners = new Set<(message: unknown) => unknown>();

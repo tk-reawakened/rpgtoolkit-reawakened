@@ -48,7 +48,7 @@ export interface ConformanceEditor {
   choose(button: "Save my version" | "Use the version on disk" | "Cancel"): Promise<void>;
   /** Whether the mounted view currently offers an action. */
   hasButton(label: string): boolean;
-  /** Hide the tab (its webview or view is destroyed) and show it again. */
+  /** Hide and show the tab; whether its view survives depends on the host lifecycle. */
   hide(): Promise<void>;
   show(): Promise<void>;
 }

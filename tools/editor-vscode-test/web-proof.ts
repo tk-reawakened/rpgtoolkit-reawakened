@@ -272,6 +272,21 @@ export async function runVscodeSpriteWebProof(
   await authoring.getByLabel("Character name", { exact: true }).fill("Vscode proof");
   await authoring.getByLabel("Health (HP)", { exact: true }).fill("77");
   await authoring.getByLabel("Health (HP)", { exact: true }).press("Tab");
+  // Switch away before the webview-side character queue has any reason to be drained, then save all while it is hidden.
+  await editor.evaluate(() => { (window as ProofWindow & { __tkrCharacterAlive?: string }).__tkrCharacterAlive = "before-hiding"; });
+  await runCommandMatching(page, expect, "New Untitled", "a new untitled editor", true);
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: /Untitled/ })).toBeVisible();
+  await runCommand(page, expect, "File: Save All");
+  await expect.poll(() => host.readBacking(spritePath), { timeout: 30_000 }).not.toEqual(originalBytes);
+  await closeActiveEditor(page, expect);
+  editor = await waitForEditorFrame(page, "character editor shown again after Save All");
+  const characterViewAlive = await editor.evaluate(() => (window as ProofWindow & { __tkrCharacterAlive?: string }).__tkrCharacterAlive);
+  if (characterViewAlive !== "before-hiding") throw new Error("VS Code destroyed the retained character-editor page while its tab was hidden");
+  const restoredAuthoring = editor.getByRole("region", { name: "Character authoring" });
+  await expect(restoredAuthoring.getByLabel("Character name", { exact: true })).toHaveValue("Vscode proof");
+  await expect(restoredAuthoring.getByLabel("Health (HP)", { exact: true })).toHaveValue("77");
+  const savedBytes = await host.readBacking(spritePath);
+  expect(savedBytes).not.toEqual(originalBytes);
   const previewStylesheet = editor.locator('link[rel="stylesheet"][href$="tileset-browser.css"]');
   await expect(previewStylesheet).toHaveCount(1);
   expect(await previewStylesheet.evaluate((link) => (link as HTMLLinkElement).sheet !== null)).toBe(true);
@@ -313,10 +328,6 @@ export async function runVscodeSpriteWebProof(
   });
   expect(previewLayout.overlayWidth).toBe(previewLayout.stageWidth);
   expect(previewLayout.overlayHeight).toBe(previewLayout.stageHeight);
-  await view.getByRole("button", { name: "Save sprite" }).click();
-  await expect(view.getByText("Sprite saved.", { exact: true })).toBeVisible();
-  const savedBytes = await host.readBacking(spritePath);
-  expect(savedBytes).not.toEqual(originalBytes);
   await closeActiveEditor(page, expect);
   await openGame(page, spritePath, expect);
   editor = await waitForEditorFrame(page, "reopened sprite graphics editor");
@@ -556,7 +567,7 @@ export async function runVscodeWebProof(
   expect(await readWorkspaceBytes(page, expect)).toEqual(recovered);
   await expect.poll(() => frameCspViolations(page, finalEditor, consoleViolations)).toEqual([]);
 
-  await runLifecycleScenarios(page, expect, autosaveTitle, autosaveBytes, host);
+  await runLifecycleScenarios(page, expect, autosaveTitle, autosaveBytes, host, gamePath);
   // The packaged custom editor runs in the actual VS Code webview and persists boards through its working-copy provider.
   await runBoardBrowserScenario(page, expect, host);
   const artFrame = await runVscodeArtProof(page, expect, host, {
@@ -942,40 +953,45 @@ async function waitForCustomEditorFrame(page: Page, label: string, selector: str
 /**
  * The lifecycle cases that only the real workbench can prove (story 11.3; ADR 0022 D3.7, D3.6, D11.6):
  *
- * * a hidden webview loses nothing — VS Code destroys it (`retainContextWhenHidden: false`), the model stays in the
- *   extension host, and the page loaded again shows the unsaved title, the dirty state and the same document;
+ * * a hidden webview keeps its page and accepted view state alive, and Save All can settle that hidden editor;
  * * a cancelled close keeps the editor and its work — the workbench asks, and Cancel is an answer;
  * * `files.autoSave: afterDelay` drives `saveCustomDocument`: the file reaches the edited bytes with no Save pressed,
  *   which is the proof the ADR left unverified. Whatever the outcome, autosave is turned off again.
  */
-async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: string, autosaveBytes: Uint8Array, host: ProofHost): Promise<void> {
+async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: string, autosaveBytes: Uint8Array, host: ProofHost, gamePath: string): Promise<void> {
   const hiddenTitle = "Still here after hiding";
   let editor = await waitForEditorFrame(page, "lifecycle settings editor");
   const field = editor.getByLabel("Game title");
+  const beforeHiddenSave = await host.readBacking(gamePath);
   await field.fill(hiddenTitle);
   await editor.getByRole("button", { name: "Apply changes" }).click();
   await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
 
-  // An untitled editor takes the tab's place, which hides the custom editor (retainContextWhenHidden: false).
+  // A retained custom-editor page keeps its accepted view state while another editor has focus.
   await editor.evaluate(() => { (window as ProofWindow & { __tkrAliveMarker?: string }).__tkrAliveMarker = "before-hiding"; });
-  // Exercise recovery from a real palette dismissal before dispatch.
   await runCommandMatching(page, expect, "New Untitled", "a new untitled editor", true);
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: /Untitled/ })).toBeVisible();
+  await runCommand(page, expect, "File: Save All");
+  await expect.poll(() => host.readBacking(gamePath), { timeout: 30_000 }).not.toEqual(beforeHiddenSave);
   await closeActiveEditor(page, expect);
   editor = await waitForEditorFrame(page, "settings editor shown again");
   const alive = await editor.evaluate(() => (window as ProofWindow & { __tkrAliveMarker?: string }).__tkrAliveMarker);
-  if (alive !== undefined) throw new Error("VS Code kept the hidden webview's page alive, so this proof cannot show a re-created view");
+  if (alive !== "before-hiding") throw new Error("VS Code destroyed the retained custom-editor page when its tab was hidden");
   await expectValueWithFrameDiagnostics(page, editor.getByLabel("Game title"), hiddenTitle, expect);
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("All changes saved");
+  const cancelTitle = "Still here after cancelling close";
+  await editor.getByLabel("Game title").fill(cancelTitle);
+  await editor.getByRole("button", { name: "Apply changes" }).click();
   await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
-
   await runCommand(page, expect, "View: Close Editor");
   const dialog = page.locator(".monaco-dialog-box");
   await expect(dialog).toBeVisible({ timeout: 20_000 });
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(dialog).toBeHidden();
   editor = await waitForEditorFrame(page, "settings editor after a cancelled close");
-  await expectValueWithFrameDiagnostics(page, editor.getByLabel("Game title"), hiddenTitle, expect);
+  await expectValueWithFrameDiagnostics(page, editor.getByLabel("Game title"), cancelTitle, expect);
   await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
+
 
   const autosaveField = editor.getByLabel("Game title");
   await autosaveField.fill(autosaveTitle);
