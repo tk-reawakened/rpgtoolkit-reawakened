@@ -1,7 +1,7 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { TextEncoder } from "node:util";
 import { test } from "node:test";
-import { addActor, applyEmitterOp, assetKey, IR_VERSION, createAssetIndex, createEmptyBoard, createEmptyCharacter, createEmptyMainFile, createEngine, decodeSurfaceBytes, ENGINE_DEFAULT_MANIFEST, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, encodeSurfaceBytes, hashDrawList, hashGameState, PACKAGE_ROOT, rasterizePresentation, readSurfacePixels, snapshotGameSave, TILE_BITMAP_MAGIC, writeBoard, writeCharacter, writeMainFile, writeTileBitmap, writeTileset, type Board, type CommandView, type DrawCommand, type EffectRecord, type Engine, type EnginePhaseRegistration, type GameState, type PackageCatalogueEntry, type PluginDefinition, type RasterSurfaces, type ResolvedPlugin, type SurfaceId } from "../src/index.ts";
+import { addActor, applyEmitterOp, assetKey, IR_VERSION, createAssetIndex, createEmptyBoard, createEmptyCharacter, createEmptyMainFile, createEngine, decodeSurfaceBytes, ENGINE_DEFAULT_MANIFEST, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, encodeSurfaceBytes, hashDrawList, hashGameState, PACKAGE_ROOT, rasterizePresentation, readSurfacePixels, snapshotGameSave, TILE_BITMAP_MAGIC, writeBoard, writeCharacter, writeMainFile, writeTileBitmap, writeTileset, type Board, type CommandView, type DrawCommand, type DrawList, type EffectRecord, type Engine, type EnginePhaseRegistration, type GameState, type PackageCatalogueEntry, type PluginDefinition, type RasterSurfaces, type ResolvedPlugin, type SurfaceId } from "../src/index.ts";
 import { applyUiEffect } from "../src/script/packs/ui.ts";
 import { resetUiForProgramStart } from "../src/save/sections/ui.ts";
 import { resolveManifestPlugins } from "../src/engine/boot.ts";
@@ -192,23 +192,28 @@ test("batched tick observation does not expose synchronized engine projection to
   equal(plainReport.stateHash, observedReport.stateHash);
 });
 
-test("batched tick hashes match independent advancing references for changing state and draw", () => {
+test("batched tick hashes match independent advancing references for changing board background", () => {
   const make = (tickObserver?: Parameters<typeof createEngine>[0]["tickObserver"]) => {
     let drawSequence = 0;
     const changeDraw: EnginePhaseRegistration = {
       phase: "animation",
       run: (state) => {
         drawSequence += 1;
-        state.ui.message = { ...state.ui.message, visible: true, text: `tick-${drawSequence}` };
+        const board = state.world.board;
+        if (board === null) throw new Error("expected loaded test board");
+        state.world.board = { ...board, background: { r: drawSequence * 40, g: 0, b: 0 } };
       },
     };
     return loadedEngine([changeDraw], undefined, undefined, undefined, tickObserver);
   };
   const reference = make();
   const expected: { readonly tick: number; readonly stateHash: string; readonly drawHash: string }[] = [];
+  const drawLists: DrawList[] = [];
   for (let index = 0; index < 3; index += 1) {
     const report = reference.advance(1, []);
-    expected.push({ tick: report.tickAfter, stateHash: report.stateHash, drawHash: hashDrawList(reference.drawList()) });
+    const drawList = reference.drawList();
+    drawLists.push(drawList);
+    expected.push({ tick: report.tickAfter, stateHash: report.stateHash, drawHash: hashDrawList(drawList) });
   }
   const actual: typeof expected = [];
   const observed = make((entry) => { actual.push(entry); });
@@ -217,6 +222,7 @@ test("batched tick hashes match independent advancing references for changing st
   deepEqual(actual, expected);
   equal(new Set(expected.map((entry) => entry.stateHash)).size, 3);
   equal(new Set(expected.map((entry) => entry.drawHash)).size, 3);
+  equal(new Set(drawLists.map((list) => hashDrawList({ ...list, tick: 0 }))).size, 3);
 });
 
 test("pointer cancellation before a focus-loss tick cannot activate a button slot", () => {
