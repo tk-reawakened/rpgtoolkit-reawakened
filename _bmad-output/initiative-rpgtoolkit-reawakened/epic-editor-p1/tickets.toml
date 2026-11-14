@@ -1,16 +1,17 @@
-# Epic 13 P1 editor breakdown. Cross-epic dependencies name provider entries.
+# Owner-approved Epic 13 refinement; tracker IDs mirror the GitHub breakdown.
 
 [[entry]]
 id = 2
 tracker_id = "#1726"
 type = "story"
 title = "Art library reuse evidence decision"
-description = "Compare maintained pixel-editor libraries and a native implementation against all T-36 operations, G6 licensing including transitive dependencies, host embedding, keyboard access, offline operation and AD-19 document integration before any art dependency is installed."
-verify = "A person reviews reproducible candidate, version, license and transitive evidence, working host integration findings, coverage and limitations, and approves either a qualifying choice or the in-house route."
+description = "Choose reusable components for our owned art editor, using the published research to verify pinned licence/provenance and transitives, full T-36 coverage, browser-led interaction, offline hosts and shared document integration before admission."
+verify = "A person reviews reproducible component/adaptation evidence, working host and history integration, coverage gaps and ownership boundaries, and approves the admitted components or specific in-house implementations without reopening the owned-editor decision."
 covers = ["CAP-16"]
 after = ["11.1"]
 hitl = true
 risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-art-library-reuse-evidence-decision-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 1
@@ -23,42 +24,86 @@ covers = ["CAP-16"]
 after = [2, "2.2", "11.1", "11.2", "11.3", "11.4", "12.1", "12.2"]
 hitl = false
 risk = "medium"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-tile-edit-tracer-and-p1-integration-seam-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
+
+[[entry]]
+id = 21
+tracker_id = "#2320"
+type = "story"
+title = "Editable artwork source and interchange contracts"
+description = "Specify persistent layers, frames, recipes and source-to-output relationships by extending the Epic 27 tile/pack contracts where appropriate, and define standard image/sheet/animation interchange and exact multi-cell timing/lowering before implementation."
+verify = "The owner approves normative source and interchange contracts with worked roof, water, kitbash and external-sheet examples, preservation and recovery rules, and an explicit mapping to real runtime outputs without an unapproved format or timing assumption."
+covers = ["CAP-16"]
+after = ["27.11", "27.12"]
+hitl = true
+risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-editable-artwork-source-and-interchange-contracts-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
+refine = true
+
+[[entry]]
+id = 22
+tracker_id = "#2321"
+type = "story"
+title = "Persistent editable artwork documents"
+description = "Implement the approved source contract through the existing native-data and editor document services, preserving layers, frames, recipes, original sources and stable region identities separately from generated outputs."
+verify = "Save and reopen a layered animated source with recipes, then edit one property and exercise undo, save refusal, missing sources and checkpoint recovery without flattening the source, losing unrelated data or misreporting output freshness."
+covers = ["CAP-16"]
+after = [1, 21, "27.13", "27.6", "11.14"]
+hitl = false
+risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-persistent-editable-artwork-documents-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 3
 tracker_id = "#1728"
 type = "story"
 title = "Complete pixel tile artwork editor"
-description = "Complete the T-36 pixel editor using the entry 2 decision, including all drawing, palette, transformations, image import, layering, shading, effects and append or overwrite save modes."
-verify = "Fixtures exercise every T-36 operation, keyboard/numeric editing, transparent pixels and iso preview, staged cancellation and undo, and each saved tile reopens and renders in the runner."
+description = "Complete every T-36 drawing, palette, transformation, image-import, layering, shading and effect operation in our browser-led editor, retaining legacy append/overwrite modes and the persistent source supplied by 22."
+verify = "Independent expected results cover every T-36 operation, keyboard/numeric access, transparent and isometric pixels, preview/cancel and undo, with preserved editable layers on reopen and saved legacy tiles rendered by the runner."
 covers = ["CAP-16"]
-after = [1, 2]
+after = [1, 2, 22]
 hitl = false
 risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-complete-pixel-tile-artwork-editor-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
+
+[[entry]]
+id = 23
+tracker_id = "#2322"
+type = "story"
+title = "Sheet-first drawing and reusable region brushes"
+description = "Add a shared sheet canvas with continuous cross-cell strokes, growing workspace, multi-cell selection and reusable region brushes without changing stable tile identities or copying artwork into each board placement."
+verify = "Draw a roof across cell boundaries, move and transform a selected region, reuse its brush on two boards, grow the sheet and save/reopen while checking exact pixels, stroke-level undo and unchanged existing references."
+covers = ["CAP-16"]
+after = [3, "12.8"]
+hitl = false
+risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-sheet-first-drawing-and-reusable-region-brushes-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 4
 tracker_id = "#1729"
 type = "story"
 title = "Tile grabber with reviewed extraction"
-description = "Extract standard, isometric and pixel-doubled legacy 16-pixel tiles from images into a selected tileset with explicit preview and staged confirmation."
-verify = "Selection and whole-image cases check grid-origin movement, half-tile offset, transparency, partial edge padding, skip-blank and skip-partial options, cancel, save, reopen and runner render."
+description = "Integrate standard, isometric and pixel-doubled legacy tile extraction into one reviewed source-import flow with explicit grid origin, cell size, margins, gaps, transparency and partial-cell choices."
+verify = "An odd-spacing source and legacy cases verify exact extracted pixels, grid movement, half-tile offset, alpha/key conversion, skip/pad options, cancel and failure retention, save/reopen and runner output."
 covers = ["CAP-16"]
 after = [3, "2.3"]
 hitl = false
 risk = "medium"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-tile-grabber-with-reviewed-extraction-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 5
 tracker_id = "#1730"
 type = "story"
 title = "Tileset curation and single tile conversion"
-description = "Provide staged two-set curation, single-tile conversion and safe impact disclosure for indexed legacy tile references."
-verify = "Tests cover wildcard GPH import, export, duplicate removal, insert/delete/blank/move/reorder, display width, supported TST and ISO transfer directions, cancel and reopened rendered indices."
+description = "Curate legacy sets and native stable-identity regions through the shared browser, retaining staged GPH conversion and two-set operations while disclosing known and uncertain reference effects."
+verify = "Legacy import/export and index-sensitive curation retain their documented behavior, while native reorder, duplicate and transfer keep board, stamp and animation references correct and cancellation preserves both sources."
 covers = ["CAP-16"]
-after = [4]
+after = [4, 23, "27.13", "12.16"]
 hitl = false
 risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-tileset-curation-and-single-tile-conversion-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 6
@@ -71,6 +116,46 @@ covers = ["CAP-16"]
 after = [5, "12.2"]
 hitl = false
 risk = "medium"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-animated-tile-authoring-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
+
+[[entry]]
+id = 24
+tracker_id = "#2323"
+type = "story"
+title = "Contextual artwork edits and local variants"
+description = "Open artwork from selected board or scene placements with neighbour and usage context, offering shared editing or a new local variant and returning to the original camera and selection through existing navigation."
+verify = "Repair a shelf seam shared by two scenes, then make one selected roof unique and recolour it, proving the other scene is unchanged, collision/under metadata survives, return context is restored and partial save failures remain recoverable."
+covers = ["CAP-16"]
+after = [23, "12.16", "12.17"]
+hitl = false
+risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-contextual-artwork-edits-and-local-variants-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
+
+[[entry]]
+id = 25
+tracker_id = "#2324"
+type = "story"
+title = "Artwork timeline and multi-cell animation creation"
+description = "Create editable tile and region animations from sheet selections with frame duplication, ordering, onion skin and tiled/in-context playback, using the approved timing/lowering contract and existing TAN and clip providers."
+verify = "Author a multi-cell water loop, edit a duplicated frame, save/reopen source and outputs, and compare frame boundaries, empty-frame behavior and coordinated playback against independent expected runner states without substituting editor preview."
+covers = ["CAP-16"]
+after = [6, 23, "12.7", "27.4"]
+hitl = false
+risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-artwork-timeline-and-multi-cell-animation-creation-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
+
+[[entry]]
+id = 26
+tracker_id = "#2325"
+type = "story"
+title = "Reusable non-destructive kitbash recipes"
+description = "Compose referenced source pieces, transforms and editable adjustments into reusable recipes with saved parameters, explicit overrides and source-change regeneration while preserving original pixels and stable output identities."
+verify = "Build a house from shared pieces, revise one source and a local override, then regenerate and reopen while checking exact affected outputs, preserved overrides, unchanged originals and truthful stale/missing-source diagnostics."
+covers = ["CAP-16"]
+after = [23]
+hitl = false
+risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-reusable-non-destructive-kitbash-recipes-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 7
@@ -83,18 +168,72 @@ covers = ["CAP-16"]
 after = ["12.1"]
 hitl = true
 risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-auto-tile-sample-evidence-and-ordering-ruling-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 8
 tracker_id = "#1733"
 type = "story"
 title = "Neighbour aware auto tiling"
-description = "Implement T-25 painting using the approved sample-derived index map and eight-neighbour corner gating, re-evaluating affected neighbours."
-verify = "All mapped neighbourhood variants match independent approved community sample evidence and painting or erasing recomputes adjacent cells across board edges and undo/redo."
+description = "Implement T-25 sample-ordered legacy painting and approved native terrain rules using eight-neighbour corner gating, missing-role diagnostics and re-evaluation of affected neighbours through the existing board/scene commands."
+verify = "Legacy variants match independent approved samples, native role assignments match authored expected arrangements, and paint/erase across boundaries preserves adjacent cells, undo and source identity without claiming a universal variant order."
 covers = ["CAP-16"]
-after = [1, "12.1", "12.2", 7]
+after = [1, "12.1", "12.2", 7, "27.13", "12.16"]
 hitl = false
 risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-neighbour-aware-auto-tiling-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
+
+[[entry]]
+id = 27
+tracker_id = "#2326"
+type = "story"
+title = "Terrain recipe generation and painting sandbox"
+description = "Generate the approved native terrain variant set from editable base and edge recipes, with a sandbox for islands, corners, junctions and narrow passages that uses the actual terrain-painting provider."
+verify = "Generate all required variants, compare independent expected neighbourhoods in the sandbox and a saved scene, revise an input and preserve overrides, and distinguish native role order from sample-backed legacy order."
+covers = ["CAP-16"]
+after = [26, 8, "12.17"]
+hitl = false
+risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-terrain-recipe-generation-and-painting-sandbox-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
+
+[[entry]]
+id = 28
+tracker_id = "#2327"
+type = "story"
+title = "Isometric artwork and three-face construction"
+description = "Build reusable flat-to-isometric and top/left/right-face artwork with explicit dimensions, anchors, projection and tall-block decomposition, preserving editable sources and consuming existing collision/under placement services."
+verify = "Construct and revise an isometric archway and tall block, compare projected pixels, anchors, seams and source preservation, and place saved outputs in a real scene with correct collision, walk-behind and no destructive view toggle."
+covers = ["CAP-16"]
+after = [26, "12.17"]
+hitl = false
+risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-isometric-artwork-and-three-face-construction-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
+
+[[entry]]
+id = 29
+tracker_id = "#2328"
+type = "story"
+title = "Standard artwork exchange without mandatory drawing tools"
+description = "Implement the approved image/sheet and animation interchange contract so externally authored art can be imported, used and exported with explicit metadata/loss disclosure and no requirement to open our drawing UI."
+verify = "Use independent externally authored fixtures to create and run a game without our drawing UI, then exchange a mixed-workflow asset while checking pixels, regions, alpha, frame order/timing and retained editable originals."
+covers = ["CAP-16"]
+after = [4, 25, 26]
+hitl = false
+risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-standard-artwork-exchange-without-mandatory-drawing-tools-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
+
+[[entry]]
+id = 30
+tracker_id = "#2329"
+type = "story"
+title = "External artist handoff and reviewed reimport"
+description = "Add host-capability-aware external handoff and explicit reimport with changed-source review, stable-region mapping, pending-edit conflicts and output regeneration, without requiring automatic watchers or a particular external application."
+verify = "Revise an external sheet while local edits exist, review moved/removed regions and affected uses, then accept or cancel reimport and exercise failed output writes while preserving originals, local work and recoverable per-file results."
+covers = ["CAP-16"]
+after = [29, 24]
+hitl = false
+risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-external-artist-handoff-and-reviewed-reimport-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 9
@@ -107,6 +246,7 @@ covers = ["CAP-16"]
 after = [1, "2.6", "11.3", "11.4", "11.6", "12.4"]
 hitl = false
 risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-enemy-definition-editor-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 10
@@ -119,6 +259,7 @@ covers = ["CAP-16"]
 after = [9, "2.7"]
 hitl = false
 risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-special-move-and-status-effect-editors-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 11
@@ -131,6 +272,7 @@ covers = ["CAP-16"]
 after = [10]
 hitl = false
 risk = "medium"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-battle-background-editor-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 12
@@ -143,6 +285,7 @@ covers = ["CAP-16"]
 after = [1, "4.13", "12.1", "12.11"]
 hitl = false
 risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-board-shading-and-lighting-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 13
@@ -155,6 +298,7 @@ covers = ["CAP-16"]
 after = [12, "12.11"]
 hitl = false
 risk = "medium"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-expanded-board-clipboard-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 14
@@ -167,6 +311,7 @@ covers = ["CAP-16"]
 after = [13, "4.14", "4.15", "4.18"]
 hitl = false
 risk = "medium"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-clean-board-image-export-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 15
@@ -179,6 +324,7 @@ covers = ["CAP-16"]
 after = [14, "2.8", "2.16"]
 hitl = false
 risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-explicit-board-coordinate-and-legacy-upgrades-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 16
@@ -191,30 +337,7 @@ covers = ["CAP-16"]
 after = [1, "11.3", "11.7", "10.5", "10.7"]
 hitl = false
 risk = "high"
-
-[[entry]]
-id = 18
-tracker_id = "#1742"
-type = "story"
-title = "Refactor sweep"
-description = "Remove duplication and address cleanup findings from the completed P1 entries without adding deferred feature scope."
-verify = "Review maps each change to completed work and focused regression cases exercise affected document, browser, board and asset seams."
-covers = ["CAP-16"]
-after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20]
-hitl = false
-risk = "medium"
-
-[[entry]]
-id = 19
-tracker_id = "#1743"
-type = "story"
-title = "Epic 13 end to end acceptance"
-description = "Exercise every P1 tool across its actual editor and runner integration after the sweep, including asset creation, board use, conversions and error recovery."
-verify = "A documented web and VS Code journey round-trips all P1 legacy assets, uses an edited bitmap font in the runner, verifies sample-backed auto-tiling and overlay-free exports, and proves upgrades and failure paths preserve source."
-covers = ["CAP-16"]
-after = [18, "12.1", "12.2"]
-hitl = false
-risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-reviewed-script-formatting-and-migration-workflows-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 20
@@ -227,3 +350,31 @@ covers = ["CAP-16"]
 after = [1]
 hitl = false
 risk = "medium"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-restore-the-legacy-bitmap-font-editor-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
+
+[[entry]]
+id = 18
+tracker_id = "#1742"
+type = "story"
+title = "Refactor sweep"
+description = "Remove duplication and address cleanup findings from the completed P1 entries without adding deferred feature scope."
+verify = "Review maps each change to completed work and focused regression cases exercise affected document, browser, board and asset seams."
+covers = ["CAP-16"]
+after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]
+hitl = false
+risk = "medium"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-refactor-sweep-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
+
+[[entry]]
+id = 19
+tracker_id = "#1743"
+type = "story"
+title = "Epic 13 end to end acceptance"
+description = "Exercise all legacy P1 tools and wholly internal, wholly external and mixed artwork journeys through actual editor, saved-output and runner integration after the sweep."
+verify = "Web and VS Code acceptance covers every T-ID plus shelf seam, roof, water, kitbash, terrain, isometric and external-reimport journeys, proving saved-source preservation, bitmap-font use, real playback, export, upgrade and per-file recovery outcomes."
+covers = ["CAP-16"]
+after = [18, "12.12"]
+hitl = false
+risk = "high"
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-epic-13-end-to-end-acceptance-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
+
