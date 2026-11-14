@@ -54,8 +54,6 @@ const [expectedBytes, recoveredBytes, autosaveBytes, externalBytes, sentinelByte
   createWebAdapterBytes(gameFiles[0], "__tkr_sentinel.gam", sentinelTitle),
 ]);
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
-for (const choice of ["cancel", "keep"]) {
-  const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, workspace);
 const launchProof = process.env.TKR_VSCODE_LAUNCH_PROOF === "1";
 const boardProof = process.env.TKR_VSCODE_BOARD_PROOF === "1";
 const programProof = process.env.TKR_VSCODE_PROGRAM_PROOF === "1";

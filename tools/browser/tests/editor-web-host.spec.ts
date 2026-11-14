@@ -1,9 +1,7 @@
-import { readdirSync, readFileSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
