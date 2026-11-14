@@ -2,7 +2,7 @@
 type: feature
 title: "Build the settings model and view over an in-memory platform-services double"
 ticket: 17
-status: draft
+status: done
 ---
 
 ## Scope
@@ -27,3 +27,17 @@ Over the double, on real `.gam` bytes: editing the title, saving and reopening g
 Owner rulings, 2026-11-10: the `platform-services` interface is its own package, and the tracer field is the game title. The outside check for this high-risk story is 11.18: the same model and view code, unchanged, passes the shared behaviour test on two real hosts.
 
 Prerequisites: 11.16 (toolchain), 2.9 (the main-file reader and writer, whose supported versions are checked here).
+
+## Closure evidence
+
+GitHub #1832 was closed by merged PR #1837. Rechecked at `699522d2` on 2026-11-13; this reconciles the stale draft status, not new implementation.
+
+| Acceptance | Running evidence |
+|---|---|
+| Edit, save and reopen preserve the other bytes, minor and residue | `packages/editor-model/test/main-document.test.ts:46-69,82-103` |
+| A command is accepted or rejected whole | `packages/editor-model/test/main-document.test.ts:198-218`; `packages/editor-ui/test/settings-view.test.ts:162-173` |
+| Failed save keeps the edit, dirty state and named error | `packages/editor-model/test/main-document.test.ts:250-278`; `packages/editor-ui/test/settings-view.test.ts:131-160` |
+| Disposing the view preserves the document and undo stack | `packages/editor-ui/test/settings-view.test.ts:196-249` |
+| Editor packages do not import hosts | `tools/deps/test/graph.test.mjs:528-571`; `tools/editor-ui-toolchain/test/tsx-scopes.test.mjs:65-97` |
+
+After `pnpm exec tsc -b packages/editor-ui`, the seven toolchain, graph, provenance, model and view test files listed in #1832's closure comment passed 163 tests in 15.36 seconds. This audit does not substitute for the later real-host proof.
