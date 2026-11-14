@@ -377,6 +377,14 @@ async function bootEditorGame(
     return result;
   };
   const files = toFiles(payload.files);
+  let scene: { board: string; program: string } | undefined;
+  if ("scene" in payload) {
+    if (typeof payload.scene !== "object" || payload.scene === null || !("board" in payload.scene)
+      || typeof payload.scene.board !== "string" || !("program" in payload.scene) || typeof payload.scene.program !== "string") {
+      throw new Error("invalid isolated scene launch");
+    }
+    scene = { board: payload.scene.board, program: payload.scene.program };
+  }
   const folder = payload.projectFolder.replace(/^\/+|\/+$/g, "");
   if (folder !== "" && !folder.toLowerCase().startsWith("game/")) throw new Error("the game folder must be under Game/");
   const assetRoot = folder === "" ? { kind: "package" as const } : { kind: "game" as const, projectPath: folder.slice(5) };
@@ -406,6 +414,7 @@ async function bootEditorGame(
   let dispose: (() => void) | null = null;
   const session = await createLiveSession({
     interactive: true, files, mainFile: payload.main, gameIdentity: payload.project, assetRoot, seed: payload.seed,
+    ...(scene === undefined ? {} : { scene }),
     bundled, gl: context, hostViewport, clock,
     decode: decode.create,
     ...(audioWorkletUrl === undefined ? {} : { audioWorkletUrl }),
@@ -421,7 +430,7 @@ async function bootEditorGame(
   };
   dispose = startLiveLoop(session, screen, report, overlay, () => load, hostViewport, (live) => {
     channel.postMessage({ state: live.error ? "failed" : live.stalls?.blocking ? "stalled" : "running",
-      tick: live.tick, board: live.board, stalledOn: live.stalls?.blocking ?? null,
+      tick: live.tick, board: live.board, stateHash: live.stateHash, stalledOn: live.stalls?.blocking ?? null,
       diagnostics: live.diagnostics ?? [], message: live.error ?? null });
   });
   channel.onmessage = (event) => { if (event.data === "stop") { dispose?.(); decode.dispose(); channel.close(); } };

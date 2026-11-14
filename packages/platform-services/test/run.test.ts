@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import { createHash } from "node:crypto";
 import { deepEqual, equal, notDeepEqual, notEqual, ok } from "node:assert/strict";
-import { prepareRun, type GameLaunch, type ProgramLaunch, type RunStatus } from "../src/index.ts";
+import { prepareRun, prepareSceneLaunch, type GameLaunch, type ProgramLaunch, type RunStatus } from "../src/index.ts";
 import { createMemoryPlatformServices } from "../src/testing.ts";
 
 const text = (value: string): Uint8Array => new Uint8Array([...value].map((character) => character.charCodeAt(0)));
@@ -84,6 +84,19 @@ test("program snapshots retain the complete fixture, including every setting tha
     notDeepEqual(other.value.snapshot, first.value.snapshot);
     equal(other.value.snapshot.fixture, first.value.snapshot.fixture, "the reference is preserved even when its contents change");
   }
+});
+
+test("a scene fixture uses saved program text and documented setup without writing a project program", () => {
+  const prepared = prepareSceneLaunch(program, new Map(Object.entries(FILES)));
+  ok(prepared.ok);
+  equal(prepared.value.board, "Boards/cave.brd");
+  equal(prepared.value.program, 'Font("Arial")\nFontSize(14)\nWinGraphic("Bitmap/window.png")\nAddPlayer("Chrs/hero.tem")\nSend("Boards/cave.brd",9,5,1)\nmwin("hi");\n');
+  const boardless = prepareSceneLaunch({ ...program, fixture: { id: "none", party: [] } }, new Map(Object.entries(FILES)));
+  ok(!boardless.ok);
+  equal(boardless.error.code, "unavailable");
+  const injected = prepareSceneLaunch({ ...program, fixture: { ...program.fixture, font: 'bad")\nQuit(' } }, new Map(Object.entries(FILES)));
+  ok(!injected.ok);
+  equal(injected.error.code, "invalid-request");
 });
 
 test("a launch the host does not declare is refused with its reason, and nothing runs", async () => {

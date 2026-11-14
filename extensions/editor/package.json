@@ -12,7 +12,9 @@
     "onCustomEditor:tkr.gameSettings",
     "onCustomEditor:tkr.board",
     "onView:tkr.game",
-    "onCommand:tkr.runGame"
+    "onCommand:tkr.runGame",
+    "onCommand:tkr.startProgram",
+    "onCommand:tkr.testProgram"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/extension.browser.js",
@@ -37,6 +39,10 @@
       {
         "command": "tkr.runGame",
         "title": "RPG Toolkit: Run Game"
+      },
+      {
+        "command": "tkr.testProgram",
+        "title": "RPG Toolkit: Test Program"
       }
     ],
     "customEditors": [

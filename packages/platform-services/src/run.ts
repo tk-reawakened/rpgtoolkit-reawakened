@@ -154,6 +154,8 @@ export interface RunStatus {
   readonly tick: number;
   /** The board the game is on, or `null` before board entry or when the runner cannot say. */
   readonly board: string | null;
+  /** Deterministic hash of the most recently observed runtime state, or null before one is available. */
+  readonly stateHash: string | null;
   /** The asset the engine waits on while `stalled`; `null` otherwise. */
   readonly stalledOn: string | null;
   /** The located problems the run reported, latest last, as far as the runner exposes them. */
@@ -198,6 +200,66 @@ export interface RunService {
 
 /** The capability each launch kind needs. */
 export const LAUNCH_CAPABILITY = { game: "runGame", board: "runBoard", program: "runProgram" } as const;
+
+/** An isolated board-backed scene and its in-memory RPGCode setup. */
+export interface PreparedSceneLaunch {
+  readonly board: string;
+  readonly program: string;
+}
+
+/**
+ * Stage test preferences through documented RPGCode rather than modifying engine state or writing `sys_test.prg`.
+ * SceneInit requires a board and has no main-file defaults or game identity; refuse inputs it cannot express.
+ */
+export function prepareSceneLaunch(
+  launch: ProgramLaunch,
+  files: ReadonlyMap<string, Uint8Array>,
+): PlatformResult<PreparedSceneLaunch> {
+  const fixture = launch.fixture;
+  const start = fixture.start;
+  if (start === undefined) return platformError("unavailable", "The isolated scene runner requires an explicit fixture board.");
+  const problem = badStart(start, "start");
+  if (problem !== null) return platformError("invalid-request", problem);
+  const root = launch.projectFolder.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  const relative = (path: string): string | null => {
+    const name = path.replace(/\\/g, "/");
+    return root === "" ? name : fold(name).startsWith(`${fold(root)}/`) ? name.slice(root.length + 1) : null;
+  };
+  // The RPGCode lexer has no string escape syntax. Never let a filename become injected code.
+  const quote = (text: string | null): string | null => text === null || /["\r\n]/.test(text) ? null : `"${text}"`;
+  const board = relative(start.board);
+  const boardString = quote(board);
+  const party = fixture.party.map((path) => quote(relative(path)));
+  const font = fixture?.font === undefined ? null : quote(fixture.font);
+  const graphic = fixture?.windowGraphic === undefined ? null : quote(relative(fixture.windowGraphic));
+  if (board === null || boardString === null || party.some((member) => member === null)
+    || (fixture?.font !== undefined && font === null)
+    || (fixture?.windowGraphic !== undefined && graphic === null)) {
+    return platformError("invalid-request", "A fixture value is outside the game folder or cannot be represented as an RPGCode string.");
+  }
+  if (fixture?.fontSize !== undefined && (!Number.isFinite(fixture.fontSize) || fixture.fontSize <= 0)) {
+    return platformError("invalid-request", "The fixture font size must be a finite number above zero.");
+  }
+  const lines: string[] = [];
+  if (font !== null) lines.push(`Font(${font})`);
+  if (fixture?.fontSize !== undefined) lines.push(`FontSize(${fixture.fontSize})`);
+  if (graphic !== null) lines.push(`WinGraphic(${graphic})`);
+  for (const member of party) lines.push(`AddPlayer(${member})`);
+  lines.push(`Send(${boardString},${start.x},${start.y},${start.layer})`);
+  let bytes: Uint8Array | undefined;
+  const wanted = fold(launch.program);
+  for (const [path, contents] of files) if (fold(path) === wanted) { bytes = contents; break; }
+  if (bytes === undefined) return platformError("not-found", `The program ${launch.program} is not in the saved snapshot.`);
+  const Decoder: unknown = Reflect.get(globalThis, "TextDecoder");
+  if (typeof Decoder !== "function") return platformError("unavailable", "This host cannot decode the saved program.");
+  try {
+    const decoder = Reflect.construct(Decoder, ["windows-1252"]) as { decode(bytes: Uint8Array): string };
+    lines.push(decoder.decode(bytes));
+  } catch {
+    return platformError("unavailable", "This host cannot decode the saved program as Windows-1252.");
+  }
+  return platformOk({ board, program: `${lines.join("\n")}\n` });
+}
 /** What a host runs: the snapshot and the frozen bytes it identifies, by project-relative path as stored. */
 export interface PreparedRun {
   readonly snapshot: RunSnapshot;
@@ -404,7 +466,7 @@ export function launchUnavailable(kind: LaunchKind, reason: string): PlatformRes
  * `ended` once and calls the host's `onStop` so it can close its runner.
  */
 export function createRunHandle(snapshot: RunSnapshot, onStop: () => void): { readonly handle: RunHandle; report(status: Partial<RunStatus>): void } {
-  let status: RunStatus = { state: "starting", tick: 0, board: null, stalledOn: null, diagnostics: [], message: null };
+  let status: RunStatus = { state: "starting", tick: 0, board: null, stateHash: null, stalledOn: null, diagnostics: [], message: null };
   const listeners = new Set<(status: RunStatus) => void>();
   const finished = (): boolean => status.state === "ended" || status.state === "failed";
   const report = (change: Partial<RunStatus>): void => {

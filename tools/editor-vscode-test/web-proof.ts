@@ -54,6 +54,47 @@ export async function runVscodeLaunchProof(
   expect(playing?.stateHash).toBeTruthy();
 }
 
+/** Exercise a saved program and fixture through the real VS Code web extension and packaged player. */
+export async function runVscodeProgramProof(page: Page, expect: Expect, workbenchUrl: string): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await runCommand(page, expect, "Test: Run Example Program");
+  let player: Frame | undefined;
+  await expect.poll(async () => {
+    for (const frame of page.frames()) {
+      if (await frame.locator("#screen").count() > 0) { player = frame; return true; }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  const frame = player as Frame | undefined;
+  if (frame === undefined) throw new Error("Program player frame was not found");
+  const scene = async () => await frame.evaluate(() => {
+    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string; font?: { size: number }; source?: { asset?: string } }> } } } | undefined;
+    const live = Reflect.get(window, "__live") as { board: string | null; stateHash: string; player: unknown } | undefined;
+    const all = session?.engine.drawList().commands ?? [];
+    const commands = all.filter((command) => command.kind === "text");
+    return { live, text: commands.map((command) => command.text), sizes: commands.map((command) => command.font?.size),
+      assets: all.filter((command) => command.kind === "blit").map((command) => command.source?.asset) };
+  });
+  await expect.poll(async () => (await scene()).text?.join(" ") ?? "", { timeout: 30_000 }).toContain("VS CODE FIXTURE PROOF");
+  const result = await scene();
+  expect(result.live?.board).toContain("village.brd");
+  expect(result.live?.player).toEqual({ x: 48, y: 63 });
+  expect(result.live?.stateHash).toBeTruthy();
+  expect(result.sizes).toContain(18);
+  expect(result.assets).toContain("game/example/bitmap/window.png");
+  const snapshot = JSON.parse(await frame.locator("#run-snapshot pre").textContent() ?? "null") as {
+    kind: string; fixtureSettings: { font: string; fontSize: number; windowGraphic: string; party: string[] };
+    targets: Array<{ path: string; sha256: string }>;
+  };
+  expect(snapshot.kind).toBe("program");
+  expect(snapshot.fixtureSettings).toMatchObject({
+    font: "Liberation Sans", fontSize: 18, windowGraphic: "Game/Example/Bitmap/window.png",
+    party: ["Game/Example/Chrs/ada.tem"],
+  });
+  expect(snapshot.targets.find((target) => target.path === "Game/Example/Prg/start.prg")?.sha256).toMatch(/^[a-f0-9]{64}$/);
+}
+
 /** Run against vscode-test-web's actual browser workbench, not an extension-host mock. */
 export async function runVscodeWebProof(
   page: Page,

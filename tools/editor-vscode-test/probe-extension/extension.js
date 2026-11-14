@@ -11,6 +11,18 @@ function activate(context) {
       vscode.Uri.joinPath(workspace.uri, "Main", "example.gam"),
       vscode.Uri.joinPath(workspace.uri, "Game", "Example"));
   }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.runExampleProgram", async () => {
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    const result = await vscode.commands.executeCommand("tkr.testProgram", workspace.uri, {
+      kind: "program", main: "Main/example.gam", projectFolder: "Game/Example",
+      program: "Game/Example/Prg/start.prg",
+      fixture: { id: "VS Code proof", font: "Liberation Sans", fontSize: 18, windowGraphic: "Game/Example/Bitmap/window.png",
+        party: ["Game/Example/Chrs/ada.tem"],
+        start: { board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1 } },
+    });
+    if (!result?.ok) throw new Error(`Program launch failed: ${result?.error?.message ?? "unknown error"}`);
+  }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.copyMainFileBytes", async () => {
     console.info("[vscode-web-proof-probe] copy command invoked");
     const workspace = vscode.workspace.workspaceFolders?.[0];

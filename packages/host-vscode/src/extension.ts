@@ -3,6 +3,7 @@ import { vscodeCapabilities } from "./capabilities.ts";
 import { createGameEditorProvider, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
+import { createVscodeServices } from "./services.ts";
 import { registerVscodeGameRunner } from "./player.ts";
 import { registerGameView } from "./game-view.ts";
 
@@ -17,7 +18,7 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext): string
 
 export function registerGameSettings(context: vscode.ExtensionContext): void {
   let generation = 0;
-  registerVscodeGameRunner(context, () => generation);
+  registerVscodeGameRunner(context, () => generation, (root) => createVscodeServices(root, context, () => generation).run!);
   context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(() => { generation += 1; }));
   registerGameView(context);
   const changes = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<GameDocument<vscode.Uri>>>();

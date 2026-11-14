@@ -101,6 +101,7 @@ function StatusLine({ status }: { readonly status: RunStatus }) {
   return (
     <>
       <p class="tkr-run-state">{`${STATE_LABEL[status.state]}${detail} (tick ${status.tick}${where})`}</p>
+      {status.stateHash === null ? null : <p>State hash: <code>{status.stateHash}</code></p>}
       {status.diagnostics.length === 0 ? null : (
         <ul class="tkr-run-diagnostics" aria-label="Run problems">
           {status.diagnostics.map((diagnostic, index) => (
@@ -269,7 +270,7 @@ export function RunView({ launcher, fs, layout, active = null, version }: RunVie
       )}
       {section(
         "program",
-        "Runs one program on its own, with the test settings below instead of the rest of the game.",
+        "Runs one program in a fresh isolated board scene with the test settings below; game save data is unavailable.",
         <>
           <Select label="Program" value={chosenProgram} options={choices.programs} onChange={setProgram} />
           <Select label="Start board" value={fixtureBoard} options={choices.boards} onChange={setFixtureBoard} none="No board" />
@@ -285,7 +286,7 @@ export function RunView({ launcher, fs, layout, active = null, version }: RunVie
           </label>
           <Select label="Message window picture" value={windowGraphic} options={choices.pictures} onChange={setWindowGraphic} none="None" />
         </>,
-        chosenProgram === "" ? "This project has no programs to test." : null,
+        chosenProgram === "" ? "This project has no programs to test." : fixtureBoard === "" ? "Choose a fixture board for the isolated scene runner." : null,
         () => ({
           kind: "program",
           ...base,

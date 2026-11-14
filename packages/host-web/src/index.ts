@@ -92,7 +92,10 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
   // The browser cannot hand a file to the operating system's default application, so `openExternal` is not declared: the
   // file tree says so instead of pretending (T-03).
   if (dialogs.pickFile !== undefined) capabilities.add("pickFile");
-  if (options.playerUrl !== undefined) capabilities.add("runGame");
+  if (options.playerUrl !== undefined) {
+    capabilities.add("runGame");
+    capabilities.add("runProgram");
+  }
   const workspace = createDocumentWorkspace({ projectId: project.id, services: { fs, dialogs, capabilities } });
   const services: PlatformServices = {
     capabilities,

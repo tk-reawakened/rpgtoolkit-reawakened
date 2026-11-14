@@ -195,6 +195,55 @@ test("a saved folder game launches in the live player from the editor", async ({
   await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
 });
 
+test("a board-backed program runs its declared fixture in the real browser player", async ({ page }) => {
+  const root = fileURLToPath(new URL("../../../docs/spec/examples/game", import.meta.url));
+  const files: PickerInput[] = [];
+  const collect = (folder: string): void => {
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) collect(path);
+      else files.push({ path: relative(root, path).replaceAll("\\", "/"), bytes: Array.from(readFileSync(path)) });
+    }
+  };
+  collect(root);
+  files.push({ path: "Game/Example/Bitmap/window.png", bytes: Array.from(readFileSync(new URL("../../../media/cursors/tkr-arrow.png", import.meta.url))) });
+  const startup = files.findIndex((file) => file.path === "Game/Example/Prg/start.prg");
+  expect(startup).toBeGreaterThanOrEqual(0);
+  files[startup] = { path: "Game/Example/Prg/start.prg", bytes: Array.from(new TextEncoder().encode('mwin("FIXTURE PROGRAM PROOF")\nwait()\n')) };
+  await installFolderPicker(page, files);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByRole("combobox", { name: "Program", exact: true }).selectOption("Game/Example/Prg/start.prg");
+  await page.getByRole("combobox", { name: "Start board" }).selectOption("Game/Example/Boards/village.brd");
+  await page.getByRole("listbox", { name: "Party", exact: true }).nth(1).selectOption("Game/Example/Chrs/ada.tem");
+  await page.getByRole("textbox", { name: "Font", exact: true }).fill("Liberation Sans");
+  await page.getByRole("spinbutton", { name: "Font size" }).fill("18");
+  await page.getByRole("combobox", { name: "Message window picture" }).selectOption("Game/Example/Bitmap/window.png");
+  await page.getByRole("button", { name: "Test program", exact: true }).click();
+  const frame = page.frameLocator('iframe[title="Running game"]');
+  const scene = async () => frame.locator("#screen").evaluate(() => {
+    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string; font?: { size: number }; source?: { asset?: string } }> } } } | undefined;
+    const live = Reflect.get(window, "__live") as { board: string | null; stateHash: string; player: unknown } | undefined;
+    const all = session?.engine.drawList().commands ?? [];
+    const commands = all.filter((command) => command.kind === "text");
+    return { live, text: commands.map((command) => command.text), sizes: commands.map((command) => command.font?.size),
+      assets: all.filter((command) => command.kind === "blit").map((command) => command.source?.asset) };
+  });
+  await expect.poll(async () => (await scene()).text?.join(" ") ?? "", { timeout: 30_000 }).toContain("FIXTURE PROGRAM PROOF");
+  const result = await scene();
+  expect(result.live?.board).toContain("village.brd");
+  expect(result.live?.player).toEqual({ x: 16, y: 31 });
+  expect(result.live?.stateHash).toBeTruthy();
+  expect(result.sizes).toContain(18);
+  expect(result.assets).toContain("game/example/bitmap/window.png");
+  await expect(page.getByLabel("Current run")).toContainText("State hash:");
+  await expect(page.getByLabel("Run snapshot")).toContainText("Liberation Sans");
+  await expect(page.getByLabel("Run snapshot")).toContainText("Game/Example/Bitmap/window.png");
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+});
+
 // The real browser page is held at the player load boundary to prove an edit during the handoff cannot start stale bytes.
 test("an edit before the player handshake prevents a stale game from starting", async ({ page }) => {
   await installFolderPicker(page, [{ path: "Main/example.gam", bytes: validMain }]);

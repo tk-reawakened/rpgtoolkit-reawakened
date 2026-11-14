@@ -10,6 +10,7 @@
   "activationEvents": [
     "onFileSystem:tkr-testfs",
     "onCommand:tkr.editorWebProof.runExampleGame",
+    "onCommand:tkr.editorWebProof.runExampleProgram",
     "onCommand:tkr.editorWebProof.copyMainFileBytes",
     "onCommand:tkr.editorWebProof.writeGameBytes",
     "onCommand:tkr.editorWebProof.enableAutosave",
@@ -20,6 +21,10 @@
       {
         "command": "tkr.editorWebProof.runExampleGame",
         "title": "Test: Run Example Game"
+      },
+      {
+        "command": "tkr.editorWebProof.runExampleProgram",
+        "title": "Test: Run Example Program"
       },
       {
         "command": "tkr.editorWebProof.copyMainFileBytes",
