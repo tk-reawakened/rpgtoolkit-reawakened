@@ -15,9 +15,13 @@ remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1359"
 
 Tile editor, tile grabber, tileset and bitmap font editors, enemy, special move, status effect and battle background editors, lighting and shading, the auto-tiler, undo and clipboard, export image and legacy upgrade wizards.
 
+Owner-approved expansion: a connected artwork workspace with persistent layered/animated sources, sheet-first drawing, contextual variants, reusable recipes, terrain and isometric construction, and standard-format external artist workflows. The story split and repository/GitHub publication were approved together; implementation still follows the contract gates below.
+
 ## Outcome
 
 Authors get the full legacy toolset beyond P0; the CAP-16 success check is the signal.
+
+The supplied tools cover the complete artwork workflow without making them mandatory: authors can succeed with external tools and supported exchange formats, or mix both routes without losing their editable sources.
 
 ## Done when
 
@@ -25,15 +29,23 @@ Authors get the full legacy toolset beyond P0; the CAP-16 success check is the s
 2. The auto-tiler picks tiles from the 8-neighbour rules and matches the variant order of community sample sets.
 3. Export image writes the current view or the whole board without editor overlays.
 4. The coordinate and legacy-board upgrades of T-30 and T-31 run in the editor with correct object movement.
+5. A reusable kit can be drawn across cells, edited in board/scene context, animated and assembled from recipes; saving and reopening retains layers, frames, recipe parameters, stable references and originals separately from generated game assets.
+6. Terrain and isometric construction produce verified saved outputs usable by the actual board/scene and runner providers, with the existing collision and walk-behind contracts intact.
+7. An author can complete artwork in third-party tools, exchange it through the specified formats and run the game without using our drawing UI; reviewed reimport handles changed regions and pending edits without silently discarding work.
 
 ## Boundaries
 
 P1 tools of editor-features section 11. Not P0 or P2.
 
+The expanded artwork requirements below map to CAP-16. Epic 11 continues to own shared documents, history, navigation, host capabilities and run/test services; Epic 12 owns the shared browser, generic animation editing, native scene placement and collision integration; Epic 27 owns the baseline native tile/pack contracts and their I/O/checker. This epic owns the artwork-specific contract extension and implementation after those providers, not a second format family, browser or lifecycle. An application-specific editable-file adapter is separate scope; standard exchange must not depend on one. No new core runtime format reader is authorized here.
+
 ## References
 
 - spec - _bmad-output/initiative-rpgtoolkit-reawakened/spec-rpgtoolkit-reawakened/spec-rpgtoolkit-reawakened.md, section Capabilities
 - reference - docs/editor-features.md, sections 4, 6, 7, 11
+- decision - [Artwork refinement decisions and scope](discovery/art-workspace-refinement.md)
+- research - [Pixel-art platform investigation](../../../docs/findings/pixel-art-platform/research.md)
+- architecture - [Owned editor and permissive reuse](../../../docs/adr/0031-owned-art-editor-with-permissive-reuse.md)
 
 ## Notes
 
@@ -57,3 +69,11 @@ P1 tools of editor-features section 11. Not P0 or P2.
 - Art-tool reuse remains an evidence-gated choice, not a selected dependency: entry 2 compares suitable maintained candidates and an in-house route for license/transitives G6, host/keyboard/offline support, document/undo integration and required pixel operations before any new dependency is installed; if no candidate qualifies, implement in-house.
 - Auto-tiler ordering is not established by the generic blob rule: entry 7 must obtain and document rights-cleared community samples and independently verify indexed variants, recording provenance and ambiguous cases before entry 8 may implement a mapping; absence of adequate evidence blocks parity, never invent an order or read GPL source.
 - Shared registration and integration is owned by entry 1; art, board and database stories modify their own feature modules, with ordering inside each lane and adapter/registry changes routed through the initial stable registration contract; none creates a second browser. No synchronised multi-cell animation channel, cross-document atomic undo, plugin UI or hot reload is assumed.
+
+- Decision (2026-11-13, owner approved breakdown and publication): product direction is owned editor with permissive reuse and browser-led interaction; 13.2 selects components, not whether to own the product. The source preservation and third-party workflow requirements below reflect the owner's subsequent decisions, not additional scope approved merely by ADR 0031.
+- Added CAP-16 requirements: A-1 persistent editable layers/frames/recipes and source/output separation → 21–22; A-2 sheet-first drawing and reusable region brush → 23; A-3 shared/local contextual editing → 24; A-4 artwork timeline and multi-cell water animation → 21, 25; A-5 reusable non-destructive recipes → 26; A-6 terrain generator and actual-provider sandbox → 27; A-7 isometric construction, anchors and tall blocks → 28; A-8 standard external exchange, handoff and reviewed reimport without compulsory drawing UI → 21, 29–30. Existing T-ID requirements remain assigned; 18 and 19 close the full union.
+- Sequencing: entry 1 remains the small legacy tracer after entry 2. Entry 21 specifies and obtains approval for source/interchange/timing changes before entry 22 implements persistence; 3 then supplies the complete toolset and 23 its sheet interaction. Contextual variants consume 12.16/12.17; animation consumes 13.6, 12.7 and 27.4. Terrain and iso consume the recipe service and existing scene/collision providers. Native generation never substitutes for entry 7's sample-derived legacy compatibility evidence.
+- Contract gate: 21 must settle storage ownership, exact animation timing and supported output lowering in normative docs and a separate docs-first commit before dependent code. Do not smuggle a new native extension, per-frame runtime timing, synchronised channels or source schema into a UI implementation. If a new kind or runtime contract is necessary, obtain the required ADR/contract approval as part of 21 before its implementation can start; the committed capability must not be reduced to a preview or unsupported message.
+- Complete, not captive: our tools must supply the artwork workflow, but external artists can use standard exchange without our drawing UI. Preserve original third-party source files; accepting their rendered output does not claim structural import or lossless editable round trips. PNG follows the existing image policy. The precise sheet/animation metadata exchange is a required output of 21, not an unnamed assumed JSON convention.
+- Parallel ownership: entries consume shared commands/models rather than edit private copies. The source service and registration seam belong to 22 and 1; each later feature owns its own UI module and adapter. Route shared model/interface changes through their named prerequisite owner. Browser-driven presentation does not relax saved-source, host I/O, licensing, preservation or core determinism contracts.
+

@@ -7,7 +7,24 @@ import { access, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "../lifecycle.ts";
+import { autosaveSetting, cleanupTestRun, combineProofErrors, decodePersistedBytes, trackProcess, waitForHttpServer } from "../lifecycle.ts";
+
+test("autosave observations tolerate an incomplete write without accepting invalid settings", () => {
+  const bytes = (value: string) => new TextEncoder().encode(value);
+  assert.match(String(autosaveSetting(bytes('{"files.autoSave":'))), /^invalid settings JSON:/);
+  assert.equal(autosaveSetting(bytes('{"files.autoSave":"afterDelay"}')), "afterDelay");
+  assert.equal(autosaveSetting(bytes("null")), "invalid settings JSON: expected an object");
+  assert.notEqual(autosaveSetting(bytes('{"files.autoSave":"off"}')), "afterDelay");
+});
+
+test("the persisted-byte probe can observe an empty file without accepting malformed payloads", () => {
+  const empty = decodePersistedBytes("", "panel");
+  assert.deepEqual(empty, new Uint8Array());
+  assert.notDeepEqual(empty, new Uint8Array([1, 2]), "an empty observation cannot satisfy a nonempty save");
+  assert.deepEqual(decodePersistedBytes("AQI=", "panel"), new Uint8Array([1, 2]));
+  assert.throws(() => decodePersistedBytes("AQ?=", "panel"), /panel.*valid Base64/);
+  assert.throws(() => decodePersistedBytes("A", "panel"), /panel.*valid Base64/);
+});
 
 test("the process tracker captures asynchronous spawn errors and observes close", async () => {
   const missingExecutable = join(tmpdir(), `missing-vscode-test-${randomUUID()}`);

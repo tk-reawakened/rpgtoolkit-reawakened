@@ -32,8 +32,9 @@ import {
   type PluginDefinition,
   type WorldBoard,
 } from "../src/index.ts";
-import { configureMainFileMovement, movementBindingCollisions, registerGameAction } from "../src/input/input.ts";
+import { configureMainFileMovement, movementBindingCollisions, processGamepadEvents, registerGameAction } from "../src/input/input.ts";
 import { mainFileMovementSettings } from "../src/input/movement-settings.ts";
+import { restoreGameState, snapshot } from "../src/save/index.ts";
 import { applySpriteEffect } from "../src/script/packs/movement.ts";
 import { setWaypoint } from "../src/sprites/runtime.ts";
 import { createScriptServices } from "./script-test-services.ts";
@@ -687,6 +688,16 @@ test("an explicitly effective directional control walks while an unbound arrow r
   }
 });
 
+test("a remapped movement key leaves the old arrow available to Get", () => {
+  const state = withMovementPolicy(5, [0x26, 0, 0xd0, 0, 0xcb, 0, 0xc8, 0]);
+  const thread = startProgram(state.vm, { kind: "inline", ir: "1", text: "answer = Get()" });
+  tick(state, 0, [key("ArrowRight", true)]);
+  runThreadsPhase(state.vm, createScriptServices(state), 100);
+  equal(thread.status, "finished");
+  equal(state.vm.globals.answer, "RIGHT");
+  equal(state.sprites.players[0]!.movement.active, null);
+});
+
 test("a collision reports each binding and dispatches all actions in ACT-4 order", () => {
   const state = withMovementPolicy(1, [0x39, 0, 0x39, 0, 0, 0, 0, 0]);
   for (const name of ["game.z", "game.a"]) {
@@ -695,10 +706,36 @@ test("a collision reports each binding and dispatches all actions in ACT-4 order
   deepEqual(movementBindingCollisions(state.input), [
     { code: "Space", actions: ["right", "down", "confirm", "game.z", "game.a"] },
   ]);
-  tick(state, 0, [{ kind: "key", code: "Space", name: " ", char: " ", down: true }]);
+  const transitions: string[] = [];
+  const event = { kind: "key", code: "Space", name: " ", char: " " } as const;
+  applyInputEvent(state.input, { ...event, down: true }, undefined, (action, down) => transitions.push(`${action}:${down}`));
+  tick(state, 0);
   equal(state.input.keys.length, 1);
   deepEqual(state.input.keys[0]!.resolvedActions, ["down", "right", "confirm", "game.z", "game.a"]);
   equal(state.sprites.players[0]!.movement.active?.facing, "E");
+  applyInputEvent(state.input, { ...event, down: false }, undefined, (action, down) => transitions.push(`${action}:${down}`));
+  deepEqual(transitions, [
+    "down:true", "right:true", "confirm:true", "game.z:true", "game.a:true",
+    "down:false", "right:false", "confirm:false", "game.z:false", "game.a:false",
+  ]);
+  equal(state.input.keys.length, 1, "release does not append another raw key");
+});
+
+test("a movement key shared with the menu and game actions emits all ordered edges", () => {
+  const state = withMovementPolicy(1, [0x1c, 0, 0x1c, 0, 0, 0, 0, 0]);
+  ok(registerGameAction(state.input, { name: "game.spell", label: "Spell", controls: ["key:Enter"], icon: null, group: null, locked: false, hidden: false }));
+  const transitions: string[] = [];
+  const event = { kind: "key", code: "Enter", name: "ENTER", char: null } as const;
+  for (const down of [true, false]) {
+    applyInputEvent(state.input, { ...event, down }, undefined, (action, pressed) => transitions.push(`${action}:${pressed}`));
+  }
+  deepEqual(state.input.keys.map(({ name, resolvedActions }) => ({ name, resolvedActions })), [{
+    name: "ENTER", resolvedActions: ["down", "right", "confirm", "menu", "game.spell"],
+  }]);
+  deepEqual(transitions, [
+    "down:true", "right:true", "confirm:true", "menu:true", "game.spell:true",
+    "down:false", "right:false", "confirm:false", "menu:false", "game.spell:false",
+  ]);
 });
 
 test("a disabled pad contributes no movement, actions or active device state", () => {
@@ -710,4 +747,49 @@ test("a disabled pad contributes no movement, actions or active device state", (
     equal(state.input.gamepads["0"]?.connected ?? false, enabled);
     equal(state.input.keys.some(({ resolvedActions }) => resolvedActions.includes("confirm")), enabled);
   }
+});
+test("disabled policy defensively ignores stale connected pad records", () => {
+  // Build the saved controller state through the public input path on a plain-data save fixture.
+  const state = createGameState({ seed: 1 });
+  state.input = createInputSection();
+  configureMainFileMovement(state.input, mainFileMovementSettings({
+    ...createEmptyMainFile(), minor: 9, movementControls: 0, movementScanCodes: arrowScanCodes, useJoystick: 1,
+  }, "main.gam").settings);
+  applyInputEvent(state.input, { kind: "gamepad", device: 0, connected: true, axes: { x: 1000, y: 0 }, buttons: 1 });
+  processGamepadEvents(state.input);
+  const saved = snapshot(state);
+  const restored = restoreGameState(saved);
+  const disabled = mainFileMovementSettings({
+    ...createEmptyMainFile(), minor: 9, movementControls: 0, movementScanCodes: arrowScanCodes, useJoystick: 0,
+  }, "main.gam").settings;
+  configureMainFileMovement(restored.input, disabled);
+  // Deliberately reintroduce the genuine stale save after policy activation as a defensive guard case;
+  // the engine test exercises the real restore-before-configure ordering.
+  Object.assign(restored.input, restoreGameState(saved).input);
+
+  const before = restoreGameState(snapshot(restored)).input;
+  const connectionTransitions: { device: number; connected: boolean }[] = [];
+  const actionTransitions: [string, boolean, number][] = [];
+  for (const event of [
+    { kind: "gamepad", device: 1, connected: true, axes: { x: 0, y: 0 }, buttons: 1 << 1 },
+    { kind: "gamepad", device: 0, connected: false, axes: { x: 0, y: 0 }, buttons: 0 },
+  ] as const) applyInputEvent(restored.input, event);
+  processGamepadEvents(
+    restored.input,
+    (transition) => connectionTransitions.push(transition),
+    (action, down, firstSeq) => actionTransitions.push([action, down, firstSeq]),
+  );
+
+  deepEqual(restored.input.gamepads, before.gamepads, "the saved connected pad is unchanged and no new pad is added");
+  deepEqual(restored.input.actions, before.actions);
+  deepEqual(restored.input.actionPadMasks, before.actionPadMasks);
+  deepEqual(restored.input.semanticActionSources, before.semanticActionSources);
+  deepEqual(restored.input.pendingActions, before.pendingActions);
+  deepEqual(restored.input.pendingKeySequences, before.pendingKeySequences);
+  deepEqual(restored.input.keys, before.keys);
+  equal(restored.input.nextSeq, before.nextSeq);
+  deepEqual(restored.input.directionOrder, before.directionOrder);
+  deepEqual(connectionTransitions, []);
+  deepEqual(actionTransitions, []);
+  deepEqual(restored.input.pendingGamepads, [], "raw event staging is drained after processing");
 });

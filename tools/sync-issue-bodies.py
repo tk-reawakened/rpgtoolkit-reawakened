@@ -9,6 +9,7 @@ store gives byte-identical bodies and a second run patches nothing:
     ## Acceptance Criteria     <- entry.verify
     ## Prerequisites          <- entry.after, by ref and issue link
     ## Flags                  <- type, risk, hitl, the two checkpoints
+    ## Decisions and blockers  <- entry.unknown, blocked_at and blocked_reason
     ## References             <- entry.covers, then entry.references
     ## Guard-Rails            <- the epic's area lines
 
@@ -50,6 +51,7 @@ EPIC_AREA_MAP = {
     "epic-web-runner-packaging": "core",
     "epic-editor-foundation": "editor",
     "epic-editor-assets-p0": "editor",
+    "epic-editor-p1": "editor",
     "epic-headless-sessions": "tooling",
 }
 
@@ -101,6 +103,22 @@ def index_entries(initiative: Path) -> dict[str, dict]:
     return entries
 
 
+def entry_id(value: object) -> str:
+    """Match the store's integer interpretation of digit-only entry IDs."""
+    value = str(value)
+    return str(int(value)) if value.isascii() and value.isdecimal() else value
+
+
+def store_rows(root: Path, initiative: Path) -> dict[tuple[str, str], dict]:
+    """Read the stock resolver's plan-derived blockers once."""
+    result = subprocess.run(
+        [sys.executable, str(root / "_bmad/method/scripts/tickets.py"), "--project-root", str(root), "status", str(initiative)],
+        capture_output=True, text=True, check=True, cwd=root,
+    )
+    rows = json.loads(result.stdout).get("tickets", [])
+    return {(str(row["epic"]), entry_id(row["id"])): row for row in rows}
+
+
 def prerequisite_line(ref: object, entries: dict[str, dict], siblings: dict[str, dict]) -> str:
     text_ref = str(ref)
     if text_ref.isdigit() and siblings.get(text_ref) is not None:
@@ -143,6 +161,22 @@ def build_body(entry: dict, area: str, entries: dict[str, dict], siblings: dict[
     lines.append(f"- plan checkpoint: {yes(entry.get('plan_checkpoint'))}")
     lines.append(f"- done checkpoint: {yes(entry.get('done_checkpoint'))}")
     lines.append("")
+    unknown = text(entry.get("unknown"))
+    blocked_at = text(entry.get("blocked_at"))
+    blocked_reason = text(entry.get("blocked_reason"))
+    blocked = text(entry.get("status")) == "blocked"
+    if unknown or blocked or blocked_at or blocked_reason:
+        lines.append("## Decisions and blockers")
+        lines.append("")
+        if blocked:
+            lines.append("- Status: blocked")
+        if unknown:
+            lines.append(f"- Decision or unknown recorded in the store: {unknown}")
+        if blocked_at:
+            lines.append(f"- Blocked at: {blocked_at}")
+        if blocked_reason:
+            lines.append(f"- Blocked reason: {blocked_reason}")
+        lines.append("")
     lines.append("## References")
     lines.append("")
     for cover in entry.get("covers", []):
@@ -152,7 +186,7 @@ def build_body(entry: dict, area: str, entries: dict[str, dict], siblings: dict[
     lines.append("")
     lines.append("## Guard-Rails (docs/guardrails.md)")
     lines.append("")
-    lines.append("- [x] **G7 Clean-Room**: Implemented from `docs/` only. No legacy GPL source consulted.")
+    lines.append("- [ ] **G7 Clean-Room**: Implement from `docs/` only; do not consult legacy GPL source.")
     if area == "core":
         lines.append("- [ ] **G1 Step-Machine**: Script VM state remains plain JSON data.")
         lines.append("- [ ] **G2/G3 Core Boundaries**: `core` touches no I/O, DOM, Node, or non-deterministic APIs.")
@@ -175,6 +209,7 @@ def main() -> int:
     root = Path(__file__).resolve().parent.parent
     initiative = root / "_bmad-output" / INITIATIVE
     entries = index_entries(initiative)
+    store = store_rows(root, initiative)
     token = "" if args.dry_run else get_gh_token()
 
     epics = [initiative / slug for slug in args.epic] if args.epic else sorted(
@@ -195,7 +230,11 @@ def main() -> int:
                 continue
             total += 1
             number = int(tracker.removeprefix("#"))
-            body = build_body(entry, area, entries, siblings)
+            row = store.get((epic_dir.name, entry_id(entry["id"])), {})
+            merged = {**entry, "status": row.get("status", entry.get("status")),
+                      "blocked_at": row.get("blocked_at", entry.get("blocked_at")),
+                      "blocked_reason": row.get("blocked_reason", entry.get("blocked_reason"))}
+            body = build_body(merged, area, entries, siblings)
             if args.dry_run:
                 print(f"--- {epic_dir.name} {entry['id']} -> #{number}")
                 print(body)

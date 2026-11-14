@@ -1,7 +1,7 @@
 ---
 title: 'RPGCode deterministic doubles and spies'
 type: 'feature'
-ticket: '#2042'
+ticket: 2042
 created: '2026-11-11'
 status: 'in-review'
 baseline_revision: 'f06ab8af36d5b8763d593ada6ad9831b2485df7b'

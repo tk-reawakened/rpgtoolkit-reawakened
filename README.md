@@ -41,6 +41,7 @@ One known limit: the old Toolkit allowed Windows-only add-ons called plugins, an
 - [Specification](docs/spec/README.md): what Toolkit 3.1 does, byte by byte and behaviour by behaviour (the legacy file formats the player has to read, and the engine's behaviour)
 - [Editor features](docs/editor-features.md): what the editor does
 - [Editor ecosystem proposal](docs/editor-ecosystem/README.md): how the editors grow beyond the Toolkit 3 file types (proposed, not decided)
+- [Art editor direction](docs/adr/0031-owned-art-editor-with-permissive-reuse.md): our own integrated art editor, built with suitable permissively licensed code and libraries (direction accepted; components not selected)
 - [Architecture options](docs/architecture-options.md) and [decision records](docs/adr/0001-typescript-core.md): how it's built, and why
 - [Script execution observers](docs/adr/0010-script-execution-observers.md): observation-only closing-game census
 - [CodeGraph navigation](docs/codegraph.md) and [independent RPGCode grammar proposal](docs/adr/0011-tree-sitter-rpgcode.md): developer navigation and editor syntax design

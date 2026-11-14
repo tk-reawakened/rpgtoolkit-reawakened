@@ -1,9 +1,10 @@
-import { createDocumentWorkspace, previewBoard, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
-import type { Capability, DialogService, PlatformServices, ProjectHandle, SettingValue, SettingsLayer } from "@tk-reawakened/platform-services";
+import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import type { Capability, DialogService, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { mount, type BoardViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
-import { createPageDialogs } from "./dialogs.ts";
+import { createBrowserSession, mount, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
+import { createWebSettings, type UserSettingsStorage } from "./settings.ts";
 import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
 
 /**
@@ -17,6 +18,8 @@ export interface WebProject {
   readonly project: ProjectHandle;
   readonly sessionCopy: boolean;
   readonly workspace: DocumentWorkspace;
+  /** Browser selection and scroll are retained per this project, shared only by its mounted views. */
+  readonly browserSession: BrowserSession;
   /** Retire this project from its host session; accepted operations remain bound to their original project. */
   deactivate(): void;
 }
@@ -24,6 +27,8 @@ export interface WebProject {
 /** What a browser project is made with; `dialogs` defaults to the page's own modal dialogs. */
 export interface WebProjectOptions {
   readonly dialogs?: DialogService;
+  /** Where the user layer of the editor settings is kept; the page's `localStorage` by default, memory when there is none. */
+  readonly userSettings?: UserSettingsStorage | null;
 }
 
 type DirectoryPickerWindow = Window & {
@@ -67,16 +72,25 @@ function pageDialogs(): DialogService {
   return {
     ask: (question) => (made ??= createPageDialogs(document)).ask(question),
     pickSavePath: (request) => (made ??= createPageDialogs(document)).pickSavePath(request),
+    // Present only where the browser has a file picker, so the `pickFile` capability is honest (T-05).
+    ...(typeof window !== "undefined" && canPickFile(window) ? { pickFile: (request: Parameters<NonNullable<DialogService["pickFile"]>>[0]) => pickOutsideFile(window, request) } : {}),
   };
+}
+
+function webUserStorage(options: WebProjectOptions): UserSettingsStorage | null {
+  if (options.userSettings !== undefined) return options.userSettings;
+  return typeof localStorage === "undefined" ? null : localStorage;
 }
 
 /** A project over a folder handle the host has already registered under `project` (or a test's own handle). */
 export function createFolderProject(root: FileSystemDirectoryHandle, project: ProjectHandle, options: WebProjectOptions = {}): WebProject {
   let active = true;
-  const values = new Map<string, SettingValue>();
   const capabilities = new Set(FOLDER_CAPABILITIES);
   const fs = bindProjectFileSystem(project.id, createWebFileSystem(root, project.id), () => active);
   const dialogs = options.dialogs ?? pageDialogs();
+  // The browser cannot hand a file to the operating system's default application, so `openExternal` is not declared: the
+  // file tree says so instead of pretending (T-03).
+  if (dialogs.pickFile !== undefined) capabilities.add("pickFile");
   const workspace = createDocumentWorkspace({ projectId: project.id, services: { fs, dialogs, capabilities } });
   const services: PlatformServices = {
     capabilities,
@@ -88,18 +102,11 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
         return recent ? platformOk(recent) : platformError("unavailable", "Browser project persistence is unavailable.");
       },
     },
-    settings: {
-      get: async (layer, id) => platformOk(values.get(`${layer}:${id}`) ?? null),
-      set: async (layer: SettingsLayer, id: string, value) => {
-        const key = `${layer}:${id}`;
-        if (value === null) values.delete(key); else values.set(key, value);
-        return platformOk(undefined);
-      },
-    },
+    settings: createWebSettings(fs, webUserStorage(options), capabilities.has("folderWrite")),
     document: workspace.document,
     dialogs,
   };
-  return { services, project, sessionCopy: false, workspace, deactivate: () => { active = false; workspace.dispose(); } };
+  return { services, project, sessionCopy: false, workspace, browserSession: createBrowserSession(), deactivate: () => { active = false; workspace.dispose(); } };
 }
 
 
@@ -151,11 +158,11 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
     capabilities,
     fs,
     project: { open: async () => platformOk(project), recent: async () => platformOk([project]) },
-    settings: { get: async () => platformOk(null), set: async () => platformError("unavailable", "Settings are unavailable in a session copy.") },
+    settings: createWebSettings(fs, webUserStorage(options), false),
     document: workspace.document,
     dialogs,
   };
-  return { services, project, sessionCopy: true, workspace, deactivate: () => { active = false; workspace.dispose(); } };
+  return { services, project, sessionCopy: true, workspace, browserSession: createBrowserSession(), deactivate: () => { active = false; workspace.dispose(); } };
 }
 
 /** One editor tab owns a lease even while its mounted view is hidden. */
@@ -195,7 +202,7 @@ export const openGameSettings = openEditor;
  */
 function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContext["document"] {
   if (document.kind !== "board") return document as unknown as ViewDocument;
-  const board = document as unknown as Omit<BoardViewDocument, "preview">;
+  const board = document as unknown as Omit<BoardViewDocument, "preview" | "undo" | "redo"> & Required<Pick<BoardViewDocument, "undo" | "redo">>;
   // Explicit forwarding: a document's methods read its private fields, so they are called on the document itself.
   const view: BoardViewDocument = {
     kind: board.kind,
@@ -205,17 +212,38 @@ function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContex
     apply: (command) => board.apply(command),
     save: () => board.save(),
     resolveConflict: (choice) => board.resolveConflict(choice),
-    preview: async () => {
-      const preview = await previewBoard(project.services.fs, project.project.id, document.serialize());
+    preview: async (request) => {
+      const preview = await previewBoard(project.services.fs, project.project.id, document.serialize(), request);
       return preview.ok ? { ok: true as const, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings } : preview;
     },
+    // The workspace keeps no stack of its own for the view: Undo and Redo are the document's.
+    undo: () => board.undo(),
+    redo: () => board.redo(),
   };
   return view;
 }
 
-/** Make a view owner over a document the project already has open. */
-export function mountEditor(project: WebProject, document: AnyDocument, element: HTMLElement): EditorView {
-  const lease = project.workspace.attachView(document);
+const boardPreferenceSources = new WeakMap<WebProject, BoardPreferencesSource>();
+
+/** The board-editor preferences of a project, read from its settings (T-33) once and shared by every board view of it. */
+function boardPreferencesFor(project: WebProject): BoardPreferencesSource {
+  const known = boardPreferenceSources.get(project);
+  if (known !== undefined) return known;
+  const preferences = createPreferences({ settings: project.services.settings, projectLayer: project.services.capabilities.has("folderWrite") });
+  void preferences.refresh();
+  const source: BoardPreferencesSource = { get: () => editorPreferencesFrom(preferences.getSnapshot()), subscribe: (listener) => preferences.subscribe(listener) };
+  boardPreferenceSources.set(project, source);
+  return source;
+}
+
+/** A mounted view with no ownership of its document: whoever mounted it holds the document's lease. */
+export interface DocumentView extends ViewHandle {
+  hide(): void;
+  show(element: HTMLElement): void;
+}
+
+/** Mount the view of `document`'s kind into `element`. It holds no lease: the caller (a tab, or `mountEditor`) does. */
+export function mountDocumentView(project: WebProject, document: AnyDocument, element: HTMLElement, projectLayout: ProjectLayout = { projectFolder: "" }): DocumentView {
   const viewDocument = viewDocumentFor(project, document);
   let mounted: ViewHandle | null = null;
   let notice: HTMLElement | null = null;
@@ -228,7 +256,12 @@ export function mountEditor(project: WebProject, document: AnyDocument, element:
   };
   const show = (container: HTMLElement): void => {
     if (disposed || mounted !== null) throw new Error("Cannot show a disposed or already mounted editor view.");
-    mounted = mount(container, { document: viewDocument, services: project.services });
+    mounted = mount(container, {
+      document: viewDocument,
+      services: project.services,
+      browser: { session: project.browserSession, fs: project.services.fs, layout: projectLayout },
+      boardPreferences: boardPreferencesFor(project),
+    });
     notice = project.sessionCopy ? container.ownerDocument.createElement("p") : null;
     if (notice) {
       notice.setAttribute("role", "status");
@@ -237,11 +270,20 @@ export function mountEditor(project: WebProject, document: AnyDocument, element:
     }
   };
   show(element);
-  return { close: () => lease.close(), hide, show, dispose: () => { hide(); lease.dispose(); disposed = true; } };
+  return { hide, show, dispose: () => { hide(); disposed = true; } };
+}
+
+/** Make a view owner over a document the project already has open. */
+export function mountEditor(project: WebProject, document: AnyDocument, element: HTMLElement): EditorView {
+  const lease = project.workspace.attachView(document);
+  const view = mountDocumentView(project, document, element);
+  return { close: () => lease.close(), hide: view.hide, show: view.show, dispose: () => { view.dispose(); lease.dispose(); } };
 }
 
 /** @deprecated The name of the first editor; it mounts a document of any registered kind. */
 export const mountGameSettings = mountEditor;
 
 export { createPageDialogs } from "./dialogs.ts";
+export { createWorkbench, type Workbench, type WorkbenchOptions } from "./workbench.ts";
 export { createWebFileSystem } from "./filesystem.ts";
+export { createWebSettings, PROJECT_SETTINGS_PATH, type UserSettingsStorage } from "./settings.ts";

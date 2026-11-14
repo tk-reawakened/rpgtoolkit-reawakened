@@ -599,15 +599,15 @@ tracker_id = "#1045"
 tracker_status = "done"
 type = "bug"
 title = "Title-screen text and menu persist after entering a board"
-description = "Board arrival replaces the world without clearing the startup screen text and message-window state."
-verify = "After the owner ruling, first-board and later-transition tests prove the required UI clearing and preservation; removing the clearing contribution fails a regression test."
+description = "Title-screen text and the message window can persist visibly after the first board appears."
+verify = "First-board and later-transition tests assert that finished title text and the message window are not composed over the board, outermost start resets stored message text and script draws, board loads preserve an open window and unrelated UI settings, and removing the lifecycle contribution fails a regression test."
 covers = ["CAP-2"]
 after = [20]
 hitl = true
 risk = "high"
 refine = true
 references = ["issue - #1045", "ruling - #642", "merged fix - PR #1117 (185101d2)", "follow-up - PR #1137 (4ca0a3b9)", "spec - docs/spec/engine/main-loop-and-startup.md#reawakened-script-surface-lifecycle"]
-notes = ["Merged: PR #1117 (185101d2) clears the script-screen text layer and message-window state on board entry; follow-up PR #1137 (4ca0a3b9) composes the surface for a promoted enter program and engine UI messages. Issue #1045 is closed."]
+notes = ["Merged: PR #1117 (185101d2) implements the outermost-program message-window lifecycle; board loads do not themselves reset the window or script layer. Follow-up PR #1137 (4ca0a3b9) composes the surface for a promoted enter program and engine UI messages. Issue #1045 is closed; #642 retains its separate open question."]
 
 [[entry]]
 id = 39

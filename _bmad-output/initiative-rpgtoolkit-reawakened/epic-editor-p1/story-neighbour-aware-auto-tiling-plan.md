@@ -14,10 +14,12 @@ Implement T-25 painting using the approved sample-derived index map and eight-ne
 
 Show missing role assignments and tested arrangements; do not assert a standard order without verified samples.
 
+Also consume the approved native rule contract through 27.13 and the scene editing route from 12.16. Label native role assignments explicitly; native generation does not prove compatibility with community sample ordering. Entry 27 supplies the generator and sandbox later; this entry owns the painting command they call, not duplicate terrain logic.
+
 ## Verification
 
 All mapped neighbourhood variants match independent approved community sample evidence and painting or erasing recomputes adjacent cells across board edges and undo/redo.
 
 ## Dependencies and decisions
 
-Prerequisites: 1, 12.1, 12.2, 7. Apply the epic Notes, format specs, AD-18/19/20/22/29 and connected-authoring direction; T-25 maps to CAP-16. Preserve version and residue, use the existing shared model and browser, and route host access through platform-services. Where provider or host capability is unavailable, preserve data and report the limitation; do not simulate it.
+Prerequisites: 1, 12.1, 12.2, 7, 27.13, 12.16. Apply the epic Notes and the approved native and legacy format specifications; T-25 maps to CAP-16. Preserve undo/history ownership and re-evaluate the affected neighbourhood through the actual board/scene provider.

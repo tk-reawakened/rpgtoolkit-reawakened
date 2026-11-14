@@ -5,22 +5,296 @@
   "version": "0.0.1",
   "publisher": "tk-reawakened",
   "license": "MIT",
-  "engines": { "vscode": "^1.90.0" },
-  "activationEvents": ["onCustomEditor:tkr.gameSettings", "onCustomEditor:tkr.board"],
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "activationEvents": [
+    "onCustomEditor:tkr.gameSettings",
+    "onCustomEditor:tkr.board",
+    "onView:tkr.game"
+  ],
   "main": "./dist/extension.js",
   "browser": "./dist/extension.browser.js",
   "contributes": {
-    "customEditors": [{
-      "viewType": "tkr.gameSettings",
-      "displayName": "RPG Toolkit Game Settings",
-      "selector": [{ "filenamePattern": "*.gam" }],
-      "priority": "default"
-    }, {
-      "viewType": "tkr.board",
-      "displayName": "RPG Toolkit Board Editor",
-      "selector": [{ "filenamePattern": "*.brd" }],
-      "priority": "default"
-    }]
+    "views": {
+      "explorer": [
+        {
+          "id": "tkr.game",
+          "name": "Game"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "tkr.openGameFile",
+        "title": "RPG Toolkit: Open game file"
+      },
+      {
+        "command": "tkr.refreshGame",
+        "title": "RPG Toolkit: Refresh the Game view"
+      },
+      {
+        "command": "tkr.newBoard",
+        "title": "RPG Toolkit: New board"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "tkr.gameSettings",
+        "displayName": "RPG Toolkit Game Settings",
+        "selector": [
+          {
+            "filenamePattern": "*.gam"
+          },
+          {
+            "filenamePattern": "*.tem"
+          },
+          {
+            "filenamePattern": "*.itm"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tkr.board",
+        "displayName": "RPG Toolkit Board Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.brd"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "configuration": {
+      "title": "RPG Toolkit",
+      "properties": {
+        "rpgToolkit.editor.backgroundImage": {
+          "description": "Background image. A picture shown behind the editor's panels. Leave it empty for a plain background. Give a path inside your project, such as Bitmaps/backdrop.png; it is only looked up when the editor opens.",
+          "scope": "window",
+          "type": "string",
+          "default": "",
+          "maxLength": 260
+        },
+        "rpgToolkit.editor.showSplash": {
+          "description": "Show the splash screen. Show the title picture while the editor opens.",
+          "scope": "window",
+          "type": "boolean",
+          "default": true
+        },
+        "rpgToolkit.editor.showTips": {
+          "description": "Show a tip when the editor opens. Show one hint about the editor each time it opens.",
+          "scope": "window",
+          "type": "boolean",
+          "default": true
+        },
+        "rpgToolkit.editor.language": {
+          "description": "Interface language. The language of the editor's own words. English is the only language the editor ships.",
+          "scope": "window",
+          "type": "string",
+          "default": "en",
+          "enum": [
+            "en"
+          ],
+          "enumDescriptions": [
+            "English"
+          ]
+        },
+        "rpgToolkit.syntax.keyword.color": {
+          "description": "Keyword colour. The colour of RPGCode commands and keywords in the program editor.",
+          "scope": "window",
+          "type": "string",
+          "default": "#0000ff",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "patternErrorMessage": "Enter a colour as # and six hexadecimal digits."
+        },
+        "rpgToolkit.syntax.comment.color": {
+          "description": "Comment colour. The colour of comments in the program editor.",
+          "scope": "window",
+          "type": "string",
+          "default": "#008000",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "patternErrorMessage": "Enter a colour as # and six hexadecimal digits."
+        },
+        "rpgToolkit.syntax.string.color": {
+          "description": "String colour. The colour of text in quotation marks in the program editor.",
+          "scope": "window",
+          "type": "string",
+          "default": "#a31515",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "patternErrorMessage": "Enter a colour as # and six hexadecimal digits."
+        },
+        "rpgToolkit.syntax.number.color": {
+          "description": "Number colour. The colour of numbers in the program editor.",
+          "scope": "window",
+          "type": "string",
+          "default": "#098658",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "patternErrorMessage": "Enter a colour as # and six hexadecimal digits."
+        },
+        "rpgToolkit.syntax.keyword.bold": {
+          "description": "Bold keywords. Draw RPGCode keywords in bold.",
+          "scope": "window",
+          "type": "boolean",
+          "default": false
+        },
+        "rpgToolkit.syntax.comment.italic": {
+          "description": "Italic comments. Draw comments in italics.",
+          "scope": "window",
+          "type": "boolean",
+          "default": true
+        },
+        "rpgToolkit.board.revertToDrawAfterFlood": {
+          "description": "Return to Draw after a flood fill. After a flood fill, switch the board editor back to the Draw tool.",
+          "scope": "window",
+          "type": "boolean",
+          "default": true
+        },
+        "rpgToolkit.board.showVectorPointIndices": {
+          "description": "Show vector point numbers. Draw each point's number beside the points of a vector shape.",
+          "scope": "window",
+          "type": "boolean",
+          "default": false
+        },
+        "rpgToolkit.board.recursiveFlood": {
+          "description": "Flood fill across layers. Let a flood fill continue through every layer instead of the current layer only.",
+          "scope": "window",
+          "type": "boolean",
+          "default": false
+        },
+        "rpgToolkit.board.showNewBoardDialog": {
+          "description": "Ask before creating a board. Show the new-board questions each time you create a board.",
+          "scope": "window",
+          "type": "boolean",
+          "default": true
+        },
+        "rpgToolkit.board.new.coordSystem": {
+          "description": "New board: layout. The layout the new-board questions start with, which is the one you chose for your last new board.",
+          "scope": "window",
+          "type": "string",
+          "default": "2d",
+          "enum": [
+            "2d",
+            "iso-stacked",
+            "iso-rotated"
+          ],
+          "enumDescriptions": [
+            "Top-down (2D)",
+            "Isometric, stacked",
+            "Isometric, rotated"
+          ]
+        },
+        "rpgToolkit.board.new.pixelCoordinates": {
+          "description": "New board: use pixel coordinates. Whether the new-board questions start with pixel coordinates on, as in your last new board.",
+          "scope": "window",
+          "type": "boolean",
+          "default": false
+        },
+        "rpgToolkit.board.new.width": {
+          "description": "New board: width. The width in tiles the new-board questions start with.",
+          "scope": "window",
+          "type": "integer",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "rpgToolkit.board.new.height": {
+          "description": "New board: height. The height in tiles the new-board questions start with.",
+          "scope": "window",
+          "type": "integer",
+          "default": 15,
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "rpgToolkit.board.new.layers": {
+          "description": "New board: layers. The number of layers the new-board questions start with.",
+          "scope": "window",
+          "type": "integer",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 64
+        },
+        "rpgToolkit.board.startLocationDisplay": {
+          "description": "Show the player start. Where the board editor draws the player's start cross: only on the board the game begins on, or on every board. A game can set this for everyone who edits it.",
+          "scope": "window",
+          "type": "string",
+          "default": "initial",
+          "enum": [
+            "initial",
+            "every"
+          ],
+          "enumDescriptions": [
+            "Only on the first board",
+            "On every board"
+          ]
+        },
+        "rpgToolkit.board.objectColor.program": {
+          "description": "Program marker colour. The colour of program markers on a board.",
+          "scope": "window",
+          "type": "string",
+          "default": "#ffff00",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "patternErrorMessage": "Enter a colour as # and six hexadecimal digits."
+        },
+        "rpgToolkit.board.objectColor.item": {
+          "description": "Item marker colour. The colour of item markers on a board.",
+          "scope": "window",
+          "type": "string",
+          "default": "#00ffff",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "patternErrorMessage": "Enter a colour as # and six hexadecimal digits."
+        },
+        "rpgToolkit.board.objectColor.sprite": {
+          "description": "Character marker colour. The colour of character markers on a board.",
+          "scope": "window",
+          "type": "string",
+          "default": "#ff00ff",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "patternErrorMessage": "Enter a colour as # and six hexadecimal digits."
+        },
+        "rpgToolkit.board.objectColor.vector": {
+          "description": "Vector colour. The colour of vector shapes on a board.",
+          "scope": "window",
+          "type": "string",
+          "default": "#ff0000",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "patternErrorMessage": "Enter a colour as # and six hexadecimal digits."
+        }
+      }
+    }
   },
-  "scripts": { "build": "node ../../packages/host-vscode/build.mjs && node build.mjs" }
+  "scripts": {
+    "build": "node ../../packages/host-vscode/build.mjs && node build.mjs"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "restrictedConfigurations": [
+        "rpgToolkit.editor.backgroundImage",
+        "rpgToolkit.editor.showSplash",
+        "rpgToolkit.editor.showTips",
+        "rpgToolkit.editor.language",
+        "rpgToolkit.syntax.keyword.color",
+        "rpgToolkit.syntax.comment.color",
+        "rpgToolkit.syntax.string.color",
+        "rpgToolkit.syntax.number.color",
+        "rpgToolkit.syntax.keyword.bold",
+        "rpgToolkit.syntax.comment.italic",
+        "rpgToolkit.board.revertToDrawAfterFlood",
+        "rpgToolkit.board.showVectorPointIndices",
+        "rpgToolkit.board.recursiveFlood",
+        "rpgToolkit.board.showNewBoardDialog",
+        "rpgToolkit.board.new.coordSystem",
+        "rpgToolkit.board.new.pixelCoordinates",
+        "rpgToolkit.board.new.width",
+        "rpgToolkit.board.new.height",
+        "rpgToolkit.board.new.layers",
+        "rpgToolkit.board.objectColor.program",
+        "rpgToolkit.board.objectColor.item",
+        "rpgToolkit.board.objectColor.sprite",
+        "rpgToolkit.board.objectColor.vector"
+      ],
+      "description": "Personal editor preferences set by an untrusted project are ignored."
+    }
+  }
 }

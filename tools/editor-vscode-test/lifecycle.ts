@@ -67,3 +67,23 @@ export function combineProofErrors(primary: unknown, cleanupErrors: readonly unk
   if (primary === undefined && additional.length === 0) return undefined;
   return new AggregateError(primary === undefined ? [...additional] : [primary, ...additional], "VS Code web proof or cleanup failed");
 }
+
+/** Report an incomplete settings write as a poll observation, not an aborted proof. */
+export function autosaveSetting(bytes: Uint8Array): unknown {
+  try {
+    const settings: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    if (settings === null || typeof settings !== "object" || Array.isArray(settings)) return "invalid settings JSON: expected an object";
+    return (settings as Record<string, unknown>)["files.autoSave"];
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return `invalid settings JSON: ${error.message}`;
+  }
+}
+
+/** Decode a byte-probe payload, including the valid encoding of an empty file. */
+export function decodePersistedBytes(encoded: string, panelId: string): Uint8Array {
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+    throw new Error(`Probe panel ${panelId} did not contain a valid Base64 persisted-byte payload (${encoded.length} characters)`);
+  }
+  return Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+}

@@ -617,11 +617,12 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
     name: "capabilities are truthful: each one declared is backed by behaviour, and none other is claimed",
     async run(host, fixture) {
       for (const capability of host.capabilities) {
-        check(["folderWrite", "fileWatch", "stableProjectHandle", "backup", "conflictReload", "conflictAutoSave"].includes(capability), `${host.name} claims only what it does (${capability})`);
+        check(["folderWrite", "fileWatch", "stableProjectHandle", "backup", "conflictReload", "conflictAutoSave", "pickFile"].includes(capability), `${host.name} claims only what it does (${capability})`);
       }
       const browser = host.name === "browser host";
       same(host.capabilities.has("conflictReload"), browser, "conflictReload is declared only by the browser host");
       same(host.capabilities.has("conflictAutoSave"), browser, "conflictAutoSave is declared only by the browser host");
+      // `pickFile` is backed by `test/navigation-vscode.test.ts` and `test/navigation-browser.test.ts`, which choose a file from outside and copy it in.
       const editor = await host.open(GAME);
       await editor.type("Written through the host");
       await editor.save();
