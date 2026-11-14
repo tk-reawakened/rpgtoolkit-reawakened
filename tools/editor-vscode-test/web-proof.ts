@@ -227,6 +227,7 @@ export async function runVscodeWebProof(
   expect(await readWorkspaceBytes(page, expect)).toEqual(recovered);
   await expect.poll(() => frameCspViolations(page, finalEditor, consoleViolations)).toEqual([]);
 
+  await runLifecycleScenarios(page, expect, autosaveTitle, autosaveBytes, host);
   // The packaged custom editor runs in the actual VS Code webview and persists boards through its working-copy provider.
   await runBoardBrowserScenario(page, expect, host);
 }

@@ -36,6 +36,14 @@ function sourceReference(source: Source): string {
   return source.reference.replaceAll("/", "\\");
 }
 
+function withoutTilesPrefix(reference: string): string {
+  const normalized = reference.replaceAll("/", "\\");
+  const prefix = "Tiles\\";
+  return assetKey(normalized.slice(0, prefix.length)) === assetKey(prefix)
+    ? normalized.slice(prefix.length)
+    : normalized;
+}
+
 export interface TilesetBrowserContext {
   readonly session: BrowserSession;
   readonly fs: Pick<FileSystemService, "list" | "read">;
@@ -227,20 +235,33 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
     reference: string,
     available: readonly Source[],
     decodedCache: Map<string, Promise<DecodedSourcePreview | null>>,
+    resolving = new Set<string>(),
   ): Promise<TilePreview | undefined> {
-    const normalized = reference.replaceAll("/", "\\");
-    const single = /\.gph$/i.test(normalized);
-    const match = single ? null : /^(.*\.(?:tst|iso))(\d+)$/i.exec(normalized);
-    if (!single && match === null) return undefined;
-    const wantedSourceKey = assetKey(single ? normalized : match![1]!);
-    const source = available.find((candidate) => assetKey(sourceReference(candidate)) === wantedSourceKey);
+    const relative = withoutTilesPrefix(reference);
+    const single = /\.gph$/i.test(relative);
+    const animated = /\.tan$/i.test(relative);
+    const match = single || animated ? null : /^(.*\.(?:tst|iso))(\d+)$/i.exec(relative);
+    if (!single && !animated && match === null) return undefined;
+    const wantedSourceKey = assetKey(single || animated ? relative : match![1]!);
+    const source = available.find((candidate) => assetKey(withoutTilesPrefix(sourceReference(candidate))) === wantedSourceKey);
     if (source === undefined) return undefined;
-    const key = assetKey(sourceReference(source));
+    const key = assetKey(withoutTilesPrefix(sourceReference(source)));
+    if (resolving.has(key)) return undefined;
     let decoded = decodedCache.get(key);
     if (decoded === undefined) {
       decoded = (async (): Promise<DecodedSourcePreview | null> => {
         const bytes = await fs.read(source.path);
         if (!bytes.ok) return null;
+        if (suffix(source.path) === ".tan") {
+          const animation = readTileAnimation(new BinaryReader(bytes.value, source.path));
+          if (!animation.ok) return null;
+          const frame = animation.value.frames.find((entry) => entry !== "");
+          if (frame === undefined) return null;
+          const nextResolving = new Set(resolving);
+          nextResolving.add(key);
+          const preview = await previewReference(frame, available, decodedCache, nextResolving);
+          return preview === undefined ? null : { preview, tileCount: null };
+        }
         const texture = decodeTileTexture(assetKey(source.reference), bytes.value);
         if (!texture.ok) return null;
         const ext = suffix(source.path);
@@ -258,7 +279,7 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
     }
     const data = await decoded;
     if (data === null) return undefined;
-    if (single) return data.preview;
+    if (single || animated) return data.preview;
     const index = Number(match![2]) - 1;
     if (data.tileCount === null || !Number.isInteger(index) || index < 0 || index >= data.tileCount) return undefined;
     const width = data.preview.width / data.tileCount;

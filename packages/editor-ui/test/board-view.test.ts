@@ -569,6 +569,91 @@ test("bitmap previews resolve .gph and scale 16px tiles to their documented pixe
     if (canvasDescriptor !== undefined) Object.defineProperty(HTMLCanvasElement.prototype, "getContext", canvasDescriptor);
   }
 });
+test("tile bitmap previews resolve Tiles-prefixed references and animated-tile frames pixel-for-pixel", async () => {
+  const flowerBytes = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/files/flower.gph", import.meta.url)));
+  const makeAnimation = (frame: string) => writeTileAnimation({
+    magic: TILE_ANIMATION_MAGIC,
+    major: 2,
+    minor: 0,
+    speed: 10,
+    frameCount: 1,
+    frames: [frame],
+  });
+  const animation = makeAnimation("Tiles/middle.tan");
+  const nestedAnimation = makeAnimation("Tiles/flower.gph");
+  const bitmap = writeTileBitmap({
+    magic: TILE_BITMAP_MAGIC,
+    major: 3,
+    minor: 0,
+    width: 1,
+    height: 1,
+    cells: [
+      { tile: "Tiles/walk.tan", r: 0, g: 0, b: 0 },
+      { tile: "", r: 0, g: 0, b: 0 },
+      { tile: "", r: 0, g: 0, b: 0 },
+      { tile: "", r: 0, g: 0, b: 0 },
+    ],
+    residue: new Uint8Array(),
+  });
+  ok(animation.ok && nestedAnimation.ok && bitmap.ok);
+  const decodedFlower = decodeTileTexture(assetKey("flower.gph"), flowerBytes);
+  const parsedBitmap = readTileBitmap(new BinaryReader(bitmap.value, "Bitmap/animated.tbm"));
+  ok(decodedFlower.ok && parsedBitmap.ok);
+  const expected = compositeTileBitmap(parsedBitmap.value, new Map([
+    ["Tiles/walk.tan", { w: decodedFlower.texture.w, h: decodedFlower.texture.h, rgba: decodedFlower.texture.rgba }],
+  ]));
+  ok(expected.ok);
+  const s = await setup(exampleBoard(), createBrowserSession(), {
+    "Tiles/walk.tan": animation.value,
+    "Tiles/middle.tan": nestedAnimation.value,
+    "Tiles/flower.gph": flowerBytes,
+    "Bitmap/animated.tbm": bitmap.value,
+  });
+  const canvasDescriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "getContext");
+  const originalGetContext = HTMLCanvasElement.prototype.getContext;
+  const drawnPixels = new WeakMap<HTMLCanvasElement, Uint8ClampedArray>();
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value: function (this: HTMLCanvasElement, type: string) {
+      if (this.dataset.previewReference === undefined) return originalGetContext.call(this, "2d");
+      const canvas = this;
+      return {
+        createImageData(width: number, height: number) {
+          return { width, height, colorSpace: "srgb", data: new Uint8ClampedArray(width * height * 4) };
+        },
+        putImageData(image: ImageData) { drawnPixels.set(canvas, image.data); },
+        getImageData() { return { data: drawnPixels.get(canvas) }; },
+      } as unknown as CanvasRenderingContext2D;
+    },
+  });
+  let handle: ViewHandle | undefined;
+  try {
+    handle = await show(s);
+    const source = s.el.querySelector<HTMLSelectElement>(".tkr-tileset-browser select");
+    ok(source !== null);
+    await act(async () => {
+      source.value = "Bitmap/animated.tbm";
+      source.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      for (let turn = 0; turn < 100 && s.el.querySelector('[data-browser-reference="Bitmap/animated.tbm"] canvas') === null; turn += 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    });
+    const preview = s.el.querySelector<HTMLCanvasElement>(".tkr-tileset-browser-preview");
+    ok(preview !== null, `a Tiles-prefixed TAN cell resolves through its first non-empty GPH frame; item=${s.el.querySelector(".tkr-tileset-browser-item")?.textContent}; message=${s.el.querySelector(".tkr-tileset-browser-message")?.textContent}; sources=${[...(source?.options ?? [])].map((option) => option.value).join(",")}`);
+    equal(preview.width, expected.value.w);
+    equal(preview.height, expected.value.h);
+    const context = preview.getContext("2d");
+    ok(context !== null);
+    deepEqual([...context.getImageData(0, 0, preview.width, preview.height).data], [...expected.value.rgba], "TAN-backed bitmap pixels equal the canonical tile-bitmap composition");
+  } finally {
+    handle?.dispose();
+    if (canvasDescriptor !== undefined) Object.defineProperty(HTMLCanvasElement.prototype, "getContext", canvasDescriptor);
+  }
+});
+
 test("tile-reference matching folds ASCII path characters without conflating Unicode case", async () => {
   const single = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/files/flower.gph", import.meta.url)));
   const bitmapFor = (reference: string): Uint8Array => {
