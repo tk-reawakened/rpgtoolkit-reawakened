@@ -3,8 +3,11 @@ import type {
   BoardCommand,
   BoardDocumentSnapshot,
   BoardPicture,
+  BoardPreviewRequest,
   ConflictChoice,
   ConflictResult,
+  EditorPreferences,
+  HistoryResult,
   MainCommand,
   MainDocument,
   MainDocumentSnapshot,
@@ -18,6 +21,7 @@ import { createElement, render } from "preact";
 import { AssetPickerView, type AssetPickerViewProps } from "./asset-picker-view.tsx";
 import { Shell, type ShellProps } from "./shell.tsx";
 import { BoardView } from "./board-view.tsx";
+import { NewBoardView, type NewBoardViewProps } from "./new-board-view.tsx";
 import { PreferencesView, type PreferencesViewProps } from "./preferences-view.tsx";
 import { SettingsView } from "./settings-view.tsx";
 import { TileBitmapView } from "./tile-bitmap-view.tsx";
@@ -39,8 +43,23 @@ export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCom
 
 /** What a board view needs beyond the shared surface: a picture of the board as the engine draws it (AD-29). */
 export interface BoardViewDocument extends ViewDocument<BoardDocumentSnapshot, BoardCommand> {
-  /** Compose the board as it is now, saved or not. The promise never rejects: failure is a value with a reason. */
-  preview(): Promise<BoardPicture>;
+  /**
+   * Compose the board as it is now, saved or not, with only the layers and background `request` asks for (every layer
+   * and the background when it asks for nothing). The promise never rejects: failure is a value with a reason.
+   */
+  preview(request?: BoardPreviewRequest): Promise<BoardPicture>;
+  /**
+   * Undo and redo the latest edit. A host whose workbench owns the undo stack (VS Code's custom editors) leaves these out:
+   * the view then shows no Undo or Redo button and says to use the host's own Undo.
+   */
+  undo?(): HistoryResult | Promise<HistoryResult>;
+  redo?(): HistoryResult | Promise<HistoryResult>;
+}
+
+/** The board-editor preferences in force (T-33), read by the board view and told when they change. */
+export interface BoardPreferencesSource {
+  get(): EditorPreferences;
+  subscribe(listener: () => void): () => void;
 }
 
 /** What a tile bitmap view needs beyond the shared surface: a picture of the cells as the engine composes them, from the project's tiles. */
@@ -60,6 +79,8 @@ export interface ViewContext {
   readonly services: Pick<PlatformServices, "document" | "capabilities"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject"> };
   /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
   readonly browser?: TilesetBrowserContext;
+  /** The board-editor preferences (flood behaviour); the defaults of the catalogue when the host gives none. */
+  readonly boardPreferences?: BoardPreferencesSource;
 }
 /** The handle a host keeps to a mounted view. */
 export interface ViewHandle {
@@ -89,12 +110,18 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   const browser = ctx.browser === undefined ? {} : { browser: ctx.browser };
   render(
     isBoardView(document)
-      ? createElement(BoardView, { doc: document, capabilities, onEdited, ...browser })
+      ? createElement(BoardView, {
+        doc: document,
+        capabilities,
+        onEdited,
+        ...browser,
+        ...(ctx.boardPreferences === undefined ? {} : { preferences: ctx.boardPreferences }),
+      })
       : isTileBitmapView(document)
         ? createElement(TileBitmapView, { doc: document, capabilities, onEdited, ...browser })
         : isSpriteView(document)
           ? createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited })
-        : createElement(SettingsView, { doc: document, capabilities, onEdited }),
+          : createElement(SettingsView, { doc: document, capabilities, onEdited }),
     el,
   );
   let disposed = false;
@@ -132,4 +159,9 @@ export function mountAssetPicker(el: HTMLElement, props: AssetPickerViewProps): 
 /** Render the editor preferences into `el`. */
 export function mountPreferences(el: HTMLElement, props: PreferencesViewProps): ViewHandle {
   return mountElement(el, createElement(PreferencesView, props));
+}
+
+/** Render the new-board questions into `el`. */
+export function mountNewBoard(el: HTMLElement, props: NewBoardViewProps): ViewHandle {
+  return mountElement(el, createElement(NewBoardView, props));
 }

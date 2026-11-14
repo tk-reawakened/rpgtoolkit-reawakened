@@ -79,3 +79,11 @@ export function autosaveSetting(bytes: Uint8Array): unknown {
     return `invalid settings JSON: ${error.message}`;
   }
 }
+
+/** Decode a byte-probe payload, including the valid encoding of an empty file. */
+export function decodePersistedBytes(encoded: string, panelId: string): Uint8Array {
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+    throw new Error(`Probe panel ${panelId} did not contain a valid Base64 persisted-byte payload (${encoded.length} characters)`);
+  }
+  return Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+}

@@ -8,7 +8,7 @@ const api = acquireVsCodeApi();
 let remoteDocument: RemoteDocument | undefined;
 window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
   if (event.data.type === "initialize") {
-    const remote = new RemoteDocument(event.data.kind, event.data.snapshot, event.data.browserState, api);
+    const remote = new RemoteDocument(event.data.kind, event.data.snapshot, event.data.browserState, api, event.data.boardPreferences);
     remoteDocument = remote;
     const fs = {
       readProject: (projectId: string, path: string) => remote.readProject(projectId, path),
@@ -33,6 +33,7 @@ window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
             return outcome.ok ? null : outcome.message;
           },
         },
+        boardPreferences: remote.boardPreferences,
       });
     }
     return;

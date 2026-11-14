@@ -1,5 +1,7 @@
+import { BinaryReader, readBoard } from "@tk-reawakened/core";
+import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, Frame, Locator, Page } from "@playwright/test";
-import { autosaveSetting, combineProofErrors } from "./lifecycle.ts";
+import { autosaveSetting, combineProofErrors, decodePersistedBytes } from "./lifecycle.ts";
 
 const copyBytesCommand = "Test: Copy Main File Bytes";
 
@@ -26,6 +28,8 @@ type ProofHost = {
   bitmapPicture(edited: boolean): { width: number; height: number; data: number[] };
   /** What the file must hold after the proof's two edits and Save, written by hand from the stored layout. */
   bitmapSaved: Uint8Array;
+  /** Boards of each coordinate layout (`coordType` 0, 1, 2), each 8 × 8 with two layers, for the canvas scenario. */
+  canvasBoards: { path: string; label: string; coordType: number }[];
 };
 
 /** Exercise the shipped VS Code custom editor with real sprite bytes through the workspace bridge. */
@@ -340,6 +344,171 @@ export async function runVscodeWebProof(
   // The same packaged extension edits a tile bitmap through the shared browser and persists it through the same provider.
   await runBitmapBrowserScenario(page, expect, host);
   await runBitmapSelectionRetentionScenario(page, expect, host);
+  // Story 12.10: the real canvas, mouse, wheel, keyboard and the workbench's own undo, on all three coordinate layouts.
+  await runBoardCanvasScenario(page, expect, host);
+}
+
+const CANVAS_VIEW = { width: 640, height: 384 };
+
+/**
+ * Story 12.10 in the packaged custom editor inside VS Code for the Web: for each coordinate layout a board is drawn on with
+ * the real mouse, navigated with the real wheel (zoom around the pointer, scroll across and down), a layer is hidden, and
+ * the workbench's own Undo and Redo (VS Code owns the stack) take the gesture back and forth; the saved file in the
+ * workspace holds exactly the drawn cells. Selection, zoom and scroll leave the file and the dirty state alone.
+ */
+async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHost): Promise<void> {
+  for (const entry of host.canvasBoards) {
+    const shape: BoardShape = { sizeX: 8, sizeY: 8, coordType: entry.coordType };
+    const extent = boardExtent(shape);
+    const centre = pixelToCell(shape, extent.width / 2, extent.height / 2)!;
+    const near = (dx: number, dy: number): Cell => ({ x: centre.x + dx, y: centre.y + dy });
+    const before = await host.readBacking(entry.path);
+    const frame = await openProjectBoard(page, entry.path, expect);
+    const state = frame.locator(".tkr-board-state");
+    const tile2 = frame.locator('.tkr-board-cell[aria-label$=": village.tst2"]');
+    await expect(state).toHaveText("All changes saved");
+    const rock = frame.locator('[data-browser-reference="village.tst2"] .tkr-tileset-browser-source');
+    await rock.click();
+    await expect(rock).toHaveAttribute("aria-pressed", "true");
+
+    const canvas = frame.locator("canvas.tkr-board-canvas");
+    await canvas.scrollIntoViewIfNeeded();
+    let box = (await canvas.boundingBox())!;
+    expect(box.width, `${entry.label}: the canvas is on the page`).toBeGreaterThan(100);
+    let viewport: Viewport = clampViewport(shape, { x: 0, y: 0, zoomIndex: 2, width: CANVAS_VIEW.width, height: CANVAS_VIEW.height });
+    const onPage = (view: Viewport, cell: Cell): { x: number; y: number } => {
+      const middle = cellCentre(shape, cell.x, cell.y);
+      const screen = boardToScreen(view, middle.x, middle.y);
+      return { x: box.x + (screen.x * box.width) / CANVAS_VIEW.width, y: box.y + (screen.y * box.height) / CANVAS_VIEW.height };
+    };
+    const toCanvas = (point: { x: number; y: number }): { x: number; y: number } => ({ x: ((point.x - box.x) * CANVAS_VIEW.width) / box.width, y: ((point.y - box.y) * CANVAS_VIEW.height) / box.height });
+
+    // What the rendered canvas shows at the middle cell: the engine's picture is on it (the board's own black, not the editor's grey).
+    const middle = boardToScreen(viewport, cellCentre(shape, centre.x, centre.y).x, cellCentre(shape, centre.x, centre.y).y);
+    const pixel = (): Promise<string> => canvas.evaluate((element, point) => {
+      const context = (element as HTMLCanvasElement).getContext("2d")!;
+      return Array.from(context.getImageData(Math.round(point.x), Math.round(point.y), 1, 1).data).join(",");
+    }, middle);
+    await expect.poll(pixel).toBe("0,0,0,255");
+    const emptyPixel = await pixel();
+
+    // Navigation first: the real wheel zooms and scrolls; none of it is an edit, so the file and the state stay as they were.
+    const focus = onPage(viewport, centre);
+    await page.mouse.move(focus.x, focus.y);
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, -100);
+    await page.keyboard.up("Control");
+    await expect(frame.locator(".tkr-board-zoom")).toHaveText("200%");
+    viewport = zoomTo(shape, viewport, 3, toCanvas(focus));
+    await page.mouse.wheel(0, 60);
+    viewport = clampViewport(shape, { ...viewport, y: viewport.y + 30 });
+    await page.keyboard.down("Shift");
+    await page.mouse.wheel(0, 40);
+    await page.keyboard.up("Shift");
+    viewport = clampViewport(shape, { ...viewport, x: viewport.x + 20 });
+    await expect(state).toHaveText("All changes saved");
+    expect(await host.readBacking(entry.path), `${entry.label}: navigation does not touch the file`).toEqual(before);
+
+    // One real click at the zoomed and scrolled view paints the cell the layout snaps that pixel to.
+    const topLeft = screenToBoard(viewport, 0, 0);
+    const target = pixelToCell(shape, topLeft.x + CANVAS_VIEW.width / 8, topLeft.y + CANVAS_VIEW.height / 8);
+    expect(target, `${entry.label}: a cell lies inside the zoomed view`).not.toBeNull();
+    const click = onPage(viewport, target!);
+    await page.mouse.click(click.x, click.y);
+    await expect(state).toHaveText("Unsaved changes");
+    await expect(tile2).toHaveCount(1);
+    await expect(frame.getByRole("button", { name: `Column ${target!.x + 1}, row ${target!.y + 1}: village.tst2`, exact: true })).toBeVisible();
+
+    // VS Code owns the undo stack: its own Undo takes the click back (this editor has no Undo button of its own).
+    await expect(frame.getByRole("button", { name: "Undo", exact: true })).toHaveCount(0);
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(tile2).toHaveCount(0);
+    await expect(state).toHaveText("All changes saved");
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(tile2).toHaveCount(1);
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(tile2).toHaveCount(0);
+
+    // Back to 100%, then one drag across the board.
+    await page.mouse.move(focus.x, focus.y);
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, 100);
+    await page.keyboard.up("Control");
+    await expect(frame.locator(".tkr-board-zoom")).toHaveText("100%");
+    viewport = clampViewport(shape, { x: 0, y: 0, zoomIndex: 2, width: CANVAS_VIEW.width, height: CANVAS_VIEW.height });
+    const from = onPage(viewport, near(-2, -1));
+    const to = onPage(viewport, near(2, 1));
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 8 });
+    await page.mouse.up();
+    await expect(state).toHaveText("Unsaved changes");
+    const drawn = await tile2.count();
+    expect(drawn, `${entry.label}: the drag drew a line of cells`).toBeGreaterThanOrEqual(5);
+    // The pointer left the focus on the canvas, so the keys below are pressed on the board, not on the page body.
+    await expect(canvas).toBeFocused();
+    await expect.poll(pixel, { message: `${entry.label}: the rendered canvas shows the drawn tile` }).not.toBe(emptyPixel);
+    const drawnPixel = await pixel();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(tile2, `${entry.label}: one Undo takes the whole drag back`).toHaveCount(0);
+    await expect.poll(pixel, { message: `${entry.label}: the canvas shows the undo` }).toBe(emptyPixel);
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(tile2).toHaveCount(drawn);
+    await expect.poll(pixel, { message: `${entry.label}: the canvas shows the redo` }).toBe(drawnPixel);
+
+    // Hiding a layer changes the picture only.
+    const withTile = drawnPixel;
+    await frame.getByLabel("Layer", { exact: true }).selectOption({ index: 1 });
+    await frame.getByLabel("Layer 1", { exact: false }).first().uncheck();
+    await expect.poll(pixel).not.toBe(withTile);
+    await frame.getByRole("button", { name: "Show all", exact: true }).click();
+    await expect.poll(pixel).toBe(withTile);
+
+    // Save through VS Code's own save, and read the saved board from the workspace.
+    await frame.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(state).toHaveText("All changes saved");
+    const saved = await host.readBacking(entry.path);
+    const read = readBoard(new BinaryReader(saved));
+    expect(read.ok).toBe(true);
+    if (read.ok) {
+      expect(read.value.coordType).toBe(entry.coordType);
+      const painted = read.value.tileMatrix.filter((index) => index !== 0);
+      expect(painted.length).toBe(drawn);
+      expect(painted.every((index) => read.value.lut[index] === "village.tst2")).toBe(true);
+    }
+
+    // The Rectangle tool on this layout with the real mouse: the edge, then Ctrl fills it; VS Code's Undo takes the fill back.
+    await frame.getByRole("button", { name: "Rectangle", exact: true }).click();
+    await canvas.scrollIntoViewIfNeeded();
+    box = (await canvas.boundingBox())!;
+    const cornerA = onPage(viewport, near(-3, -2));
+    const cornerB = onPage(viewport, near(3, 2));
+    // The grid shows the current layer (the second, since the layer was changed above), which holds no tiles yet.
+    const base = await tile2.count();
+    await page.mouse.move(cornerA.x, cornerA.y);
+    await page.mouse.down();
+    await page.mouse.move(cornerB.x, cornerB.y, { steps: 6 });
+    await page.mouse.up();
+    await expect(state).toHaveText("Unsaved changes");
+    const edge = await tile2.count();
+    expect(edge, `${entry.label}: the rectangle added cells`).toBeGreaterThan(base);
+    await page.mouse.move(cornerA.x, cornerA.y);
+    await page.keyboard.down("Control");
+    await page.mouse.down();
+    await page.mouse.move(cornerB.x, cornerB.y, { steps: 6 });
+    await page.mouse.up();
+    await page.keyboard.up("Control");
+    await expect.poll(() => tile2.count()).toBeGreaterThan(edge);
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(() => tile2.count()).toBe(edge);
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(() => tile2.count()).toBe(base);
+    await expect(state).toHaveText("All changes saved");
+    await closeActiveEditor(page, expect);
+    const reopened = await openProjectBoard(page, entry.path, expect);
+    await expect(reopened.locator('.tkr-board-cell[aria-label$=": village.tst2"]')).toHaveCount(drawn);
+    await closeActiveEditor(page, expect);
+  }
 }
 
 /**
@@ -864,7 +1033,7 @@ export async function requestNativeReload(page: Page, expect: Expect): Promise<v
 async function readWorkspaceBytes(page: Page, expect: Expect): Promise<Uint8Array> {
   const { tab: panelTab, frame: panelFrame, id: panelId } = await openPersistedBytesPanel(page, expect);
   const encoded = (await panelFrame.locator(`#tkr-proof-persisted-bytes-${panelId}`).innerText()).trim();
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new Error(`Probe panel ${panelId} did not contain a valid Base64 persisted-byte payload`);
+  const bytes = decodePersistedBytes(encoded, panelId);
 
   await panelTab.hover();
   const closeButton = panelTab.getByRole("button", { name: /^Close/ });
@@ -873,7 +1042,7 @@ async function readWorkspaceBytes(page: Page, expect: Expect): Promise<Uint8Arra
   await expect(panelTab).toBeHidden({ timeout: 15_000 });
   const settingsFrame = await waitForEditorFrame(page, "settings editor restored after byte probe");
   await expectVisibleWithFrameDiagnostics(page, settingsFrame.getByLabel("Game title"), expect, "settings editor after byte probe");
-  return Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+  return bytes;
 }
 
 async function waitForBytesPanelFrame(page: Page, panelId: string): Promise<Frame> {

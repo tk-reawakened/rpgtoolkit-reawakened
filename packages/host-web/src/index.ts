@@ -1,7 +1,7 @@
-import { createDocumentWorkspace, previewBoard, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { createBrowserSession, mount, type BoardViewDocument, type BrowserSession, type TileBitmapViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createBrowserSession, mount, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type TileBitmapViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { createWebSettings, type UserSettingsStorage } from "./settings.ts";
@@ -216,7 +216,7 @@ function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContex
     return view;
   }
   if (document.kind !== "board") return document as unknown as ViewDocument;
-  const board = document as unknown as Omit<BoardViewDocument, "preview">;
+  const board = document as unknown as Omit<BoardViewDocument, "preview" | "undo" | "redo"> & Required<Pick<BoardViewDocument, "undo" | "redo">>;
   // Explicit forwarding: a document's methods read its private fields, so they are called on the document itself.
   const view: BoardViewDocument = {
     kind: board.kind,
@@ -226,12 +226,28 @@ function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContex
     apply: (command) => board.apply(command),
     save: () => board.save(),
     resolveConflict: (choice) => board.resolveConflict(choice),
-    preview: async () => {
-      const preview = await previewBoard(project.services.fs, project.project.id, document.serialize());
+    preview: async (request) => {
+      const preview = await previewBoard(project.services.fs, project.project.id, document.serialize(), request);
       return preview.ok ? { ok: true as const, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings } : preview;
     },
+    // The workspace keeps no stack of its own for the view: Undo and Redo are the document's.
+    undo: () => board.undo(),
+    redo: () => board.redo(),
   };
   return view;
+}
+
+const boardPreferenceSources = new WeakMap<WebProject, BoardPreferencesSource>();
+
+/** The board-editor preferences of a project, read from its settings (T-33) once and shared by every board view of it. */
+function boardPreferencesFor(project: WebProject): BoardPreferencesSource {
+  const known = boardPreferenceSources.get(project);
+  if (known !== undefined) return known;
+  const preferences = createPreferences({ settings: project.services.settings, projectLayer: project.services.capabilities.has("folderWrite") });
+  void preferences.refresh();
+  const source: BoardPreferencesSource = { get: () => editorPreferencesFrom(preferences.getSnapshot()), subscribe: (listener) => preferences.subscribe(listener) };
+  boardPreferenceSources.set(project, source);
+  return source;
 }
 
 /** A mounted view with no ownership of its document: whoever mounted it holds the document's lease. */
@@ -264,6 +280,7 @@ export function mountDocumentView(
       document: viewDocument,
       services: project.services,
       browser: { session: project.browserSession, fs: project.services.fs, layout: projectLayout, ...(openSource === undefined ? {} : { openSource }) },
+      boardPreferences: boardPreferencesFor(project),
     });
     notice = project.sessionCopy ? container.ownerDocument.createElement("p") : null;
     if (notice) {

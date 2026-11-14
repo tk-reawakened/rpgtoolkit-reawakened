@@ -345,7 +345,7 @@ class Webview {
         postMessage: (request) => this.#send(request),
         getState: () => undefined,
         setState: () => undefined,
-      });
+      }, message.boardPreferences);
       page.remote = remote;
       page.handle = mount(page.element, {
         document: remote as unknown as ViewContext["document"],
@@ -360,6 +360,7 @@ class Webview {
             return outcome.ok ? null : outcome.message;
           },
         },
+        boardPreferences: remote.boardPreferences,
       });
       return;
     }

@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { compositeTileBitmap, createEmptyBoard, expandTileToRgba, readTileBitmap, readTileset, tileDimensions, TILE_BITMAP_MAGIC, writeBoard, writeTileBitmap, BinaryReader } from "@tk-reawakened/core";
+import { buildNewBoard } from "@tk-reawakened/editor-model";
 import { requestNativeReload, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
@@ -68,7 +69,13 @@ for (const choice of ["cancel", "keep"]) {
   await mkdir(resolve(proofWorkspace, "Boards"), { recursive: true });
   await mkdir(resolve(proofWorkspace, "Bitmap"), { recursive: true });
   await mkdir(resolve(proofWorkspace, "Tiles"), { recursive: true });
+  const canvasBoards = [["2d", "top-down", 0], ["iso-stacked", "iso-stacked", 1], ["iso-rotated", "iso-rotated", 2]].map(([system, label, coordType]) => ({ system, label, coordType, path: `Boards/canvas-${label}.brd` }));
   await Promise.all([
+    ...canvasBoards.map(async ({ system, path }) => {
+      const built = buildNewBoard({ name: "canvas", coordSystem: system, pixelCoordinates: false, width: 8, height: 8, layers: 2, backgroundImage: "", template: null });
+      if (!built.ok) throw new Error(`Could not create the canvas proof board: ${built.message}`);
+      await writeFile(resolve(proofWorkspace, path), built.bytes);
+    }),
     writeFile(resolve(proofWorkspace, boardPath), boardBytes),
     writeFile(resolve(proofWorkspace, otherBoardPath), boardBytes),
     writeFile(resolve(proofWorkspace, bitmapPath), createBitmapBytes(false)),
@@ -81,6 +88,7 @@ for (const choice of ["cancel", "keep"]) {
   let failure;
   let cleanupErrors = [];
   const browserDiagnostics = [];
+  const probeDiagnostics = [];
   try {
     persistentFs = await startPersistentFs(proofWorkspace, `http://localhost:${port}`);
     const workbenchUrl = `http://localhost:${port}/`;
@@ -144,8 +152,12 @@ for (const choice of ["cancel", "keep"]) {
     const newPage = async () => {
       const page = await browser.newPage();
       page.on("console", (message) => {
-        if (message.type() === "error" || /CommandService#executeCommand workbench\.action\.reloadWindow|\[vscode-web-proof-probe\] requesting native reload/.test(message.text())) {
-          recordBrowserDiagnostic(`[console] ${message.text()}`);
+        const text = message.text();
+        if (text.includes("[vscode-web-proof-probe]") && probeDiagnostics.length < 100) {
+          probeDiagnostics.push(`[console] ${text.replaceAll(persistentFs.token, "[redacted]")}`);
+        }
+        if (message.type() === "error" || /CommandService#executeCommand workbench\.action\.reloadWindow/.test(text)) {
+          recordBrowserDiagnostic(`[console] ${text}`);
         }
       });
       page.on("pageerror", (error) => recordBrowserDiagnostic(`[pageerror] ${error.stack ?? error.message}`));
@@ -197,7 +209,7 @@ for (const choice of ["cancel", "keep"]) {
       await runVscodeSpriteWebProof(page, expect, workbenchUrl, spritePath, spriteBytes, { readBacking });
       console.log("vscode.dev sprite save/reopen proof passed");
     }
-    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath, bitmapPath, otherBitmapPath, bitmapSaved: createBitmapBytes(true), bitmapPicture: (edited) => expectedBitmapPicture(createBitmapBytes(edited)) });
+    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath, bitmapPath, otherBitmapPath, bitmapSaved: createBitmapBytes(true), bitmapPicture: (edited) => expectedBitmapPicture(createBitmapBytes(edited)), canvasBoards: canvasBoards.map(({ path, label, coordType }) => ({ path, label, coordType })) });
     console.log(`vscode.dev settings and board proof passed (${choice})`);
   } catch (error) {
     failure = error;
@@ -211,6 +223,7 @@ for (const choice of ["cancel", "keep"]) {
   const proofFailure = combineProofErrors(failure, cleanupErrors);
   if (proofFailure !== undefined) {
     if (browserDiagnostics.length > 0) console.error(`[vscode-web:failure-diagnostics]\n${browserDiagnostics.join("\n")}`);
+    if (probeDiagnostics.length > 0) console.error(`[vscode-web:probe-diagnostics]\n${probeDiagnostics.join("\n")}`);
     throw proofFailure;
   }
 }

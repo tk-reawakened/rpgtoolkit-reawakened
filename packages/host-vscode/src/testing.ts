@@ -8,3 +8,5 @@ export { isSpriteSnapshot } from "./document-bridge.js";
 export { recoverDocument, recoverMainDocument, resolveRecoveryConflict } from "./document-backup.ts";
 export type { BackupRecoveryResult } from "./document-backup.ts";
 export type { AssetPickRequest, BridgedDocument, ReturnOutcome, VisitOutcome, BridgeMessage, EditorHostRequest, VscodeApi } from "./document-bridge.js";
+export { runNewBoard } from "./new-board.ts";
+export type { NewBoardEnvironment, NewBoardOutcome, NewBoardUi } from "./new-board.ts";

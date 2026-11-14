@@ -1,4 +1,4 @@
-import { createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
+import { DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, FileSystemService, PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
@@ -46,6 +46,10 @@ export interface GameEditorPort<Uri extends UriLike> {
    * a document the workbench is about to open (one model per identity, ADR 0022 D1.2).
    */
   openEditor(uri: Uri): Promise<void>;
+  /** The board-editor preferences (T-33) in force in `folder`, from the host's own settings; the catalogue's defaults when the port gives none. */
+  boardPreferences?(folder: WorkspaceFolderLike<Uri>): EditorPreferences;
+  /** Call `listener` when the settings that make `boardPreferences` change; the returned handle stops it. */
+  watchBoardPreferences?(folder: WorkspaceFolderLike<Uri>, listener: () => void): { dispose(): void };
   /** Show a pick list and resolve with the chosen item's id, or `undefined` when the user dismisses it. */
   quickPick(items: readonly { readonly id: string; readonly label: string; readonly description?: string }[], placeholder: string): Promise<string | undefined>;
 }
@@ -103,6 +107,12 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     this.#workspace.release(this.model);
   }
 
+  /** The board-editor preferences the webview reads (T-33). */
+  boardPreferences(): EditorPreferences {
+    const folder = this.#port.folderOf(this.uri);
+    return folder === undefined ? DEFAULT_EDITOR_PREFERENCES : this.#port.boardPreferences?.(folder) ?? DEFAULT_EDITOR_PREFERENCES;
+  }
+
   /** Follow a link from this document to the file at `path` in a new editor, remembering where it came from (story 11.4). */
   visit(path: string): Promise<VisitOutcome> {
     return this.#navigation.visit(this, path);
@@ -127,11 +137,11 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     return this.#fs.read(path);
   }
 
-  /** The picture of a board or a tile bitmap, composed here from the project's files by the one compositor of its kind (AD-29); a webview reads no files. */
-  async preview(): Promise<BoardPicture> {
+  /** The picture of a board or a tile bitmap, composed here from the project's files by the one compositor of its kind (AD-29); a webview reads no files. A board's request narrows it to the layers and background shown. */
+  async preview(request?: BoardPreviewRequest): Promise<BoardPicture> {
     if (this.model.kind === "tile-bitmap") return previewTileBitmap(this.#fs, this.model.identity.projectId, this.model.serialize());
     if (this.model.kind !== "board") return { ok: false, message: `A ${this.model.kind} document has no picture.` };
-    const preview = await previewBoard(this.#fs, this.model.identity.projectId, this.model.serialize());
+    const preview = await previewBoard(this.#fs, this.model.identity.projectId, this.model.serialize(), request);
     return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings } : preview;
   }
   /** Read a project-relative preview asset through this document's project-bound host filesystem. */
@@ -392,6 +402,10 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const browserSubscription = document.browserSession.subscribe((changes) => {
         void webview.postMessage({ type: "browser-state", changes });
       });
+      const folder = port.folderOf(document.uri);
+      const preferenceWatch = folder === undefined ? undefined : port.watchBoardPreferences?.(folder, () => {
+        void webview.postMessage({ type: "board-preferences", preferences: document.boardPreferences() });
+      });
       const messages = webview.onDidReceiveMessage(async (message: unknown) => {
         if (!isEditorHostRequest(message)) return;
         await handleEditorHostRequest(document, message, (reply) => webview.postMessage(reply));
@@ -399,6 +413,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const disposal = webview.onDidDispose(() => {
         subscription();
         browserSubscription();
+        preferenceWatch?.dispose();
         messages.dispose();
         disposal.dispose();
       });
