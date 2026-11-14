@@ -210,9 +210,9 @@ function assignTiles(board: Board, assignments: readonly TileAssignment[]): Boar
 const SHADE_MIN = -255;
 const SHADE_MAX = 255;
 
-/** One shade layer's cells, three channels each, row by row; `null` when its records cover more cells than the grid (a file the editor will not rewrite). */
-function decodeShade(layer: BoardShadeLayer, cells: number): Int16Array | null {
-  const values = new Int16Array(cells * 3);
+/** One shade layer's cells, three channels each, row by row, in 32 bits so that sums of many shades are exact until they are checked against ±255; `null` when its records cover more cells than the grid (a file the editor will not rewrite). */
+function decodeShade(layer: BoardShadeLayer, cells: number): Int32Array | null {
+  const values = new Int32Array(cells * 3);
   let at = 0;
   for (const record of layer.records) {
     const count = record.runCount > 1 ? record.runCount : 1;
@@ -227,7 +227,7 @@ function decodeShade(layer: BoardShadeLayer, cells: number): Int16Array | null {
 }
 
 /** Run-length encode shade cells: equal neighbours become one record (the stored count is at most an `i16`). */
-function encodeShade(values: Int16Array, cells: number): BoardShadeRecord[] {
+function encodeShade(values: Int32Array, cells: number): BoardShadeRecord[] {
   const records: BoardShadeRecord[] = [];
   for (let at = 0; at < cells;) {
     const r = values[at * 3]!;
@@ -250,9 +250,9 @@ function planShades(board: Board, shades: readonly ShadeAssignment[]): { readonl
   if (shades.length === 0) return { ok: true, layers: board.shadeLayers };
   const grid = boardGrid(board.sizeX, board.sizeY, board.coordType);
   const cells = grid.width * grid.height;
-  const decoded: (Int16Array | null)[] = [];
+  const decoded: (Int32Array | null)[] = [];
   const layers = [...board.shadeLayers];
-  const values = (index: number): Int16Array | null => {
+  const values = (index: number): Int32Array | null => {
     if (decoded[index] === undefined) decoded[index] = decodeShade(layers[index]!, cells);
     return decoded[index]!;
   };
@@ -260,7 +260,7 @@ function planShades(board: Board, shades: readonly ShadeAssignment[]): { readonl
   const castOnto = (castLayer: number): number => {
     const found = layers.findIndex((layer) => layer.castLayer === castLayer);
     if (found !== -1) return found;
-    layers.push({ castLayer, records: encodeShade(new Int16Array(cells * 3), cells) });
+    layers.push({ castLayer, records: encodeShade(new Int32Array(cells * 3), cells) });
     return layers.length - 1;
   };
   const changed = new Set<number>();

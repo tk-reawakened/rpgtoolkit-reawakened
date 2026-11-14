@@ -830,3 +830,29 @@ test("a multi-layer tint whose final shades are valid is accepted whatever order
     deepEqual(opened.document.serialize(), shaded.value);
   }
 });
+
+test("a tint whose arithmetic leaves the 16-bit range is refused, not wrapped into a valid-looking shade (#2552)", () => {
+  const built = buildNewBoard({ name: "t", coordSystem: "2d", pixelCoordinates: false, width: 6, height: 6, layers: 2, backgroundImage: "", template: null });
+  ok(built.ok);
+  if (!built.ok) return;
+  const read = readBoard(new BinaryReader(built.bytes));
+  ok(read.ok);
+  if (!read.ok) return;
+  // 257 shades on every layer, each red 255: the cell's tint on layer 1 is 257 × 255 = 65535, far past what the sum of
+  // stored shades is meant to be, though each stored shade is valid.
+  const shades = Array.from({ length: 257 }, () => ({ castLayer: 0, records: [{ runCount: 36, r: 255, g: 0, b: 0 }] }));
+  const shaded = writeBoard({ ...read.value, shadeLayers: shades });
+  ok(shaded.ok);
+  if (!shaded.ok) return;
+  const host = createMemoryPlatformServices({ files: { "Boards/t.brd": shaded.value } });
+  const opened = createBoardDocument(host.fs, createDocumentIdentity("memory-project", "Boards/t.brd"), shaded.value);
+  ok(opened.ok);
+  if (!opened.ok) return;
+  const before = opened.document.serialize();
+  // Asking for tint 1 on layer 1 needs a delta of −65534: in 16 bits that wraps to 2, which would look valid.
+  const refused = opened.document.apply({ type: "set-tiles", gesture: "stamp", cells: [], shades: [{ layer: 0, x: 2, y: 2, r: 1, g: 0, b: 0 }] });
+  equal(refused.ok, false, "the delta is out of range, however it would wrap");
+  match(refused.ok ? "" : refused.rejection.message, /cannot hold that tint/);
+  deepEqual(opened.document.serialize(), before, "nothing changed");
+  equal(opened.document.getSnapshot().edits.length, 0);
+});
