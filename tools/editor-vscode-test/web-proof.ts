@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { BinaryReader, readBoard } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, Frame, Locator, Page } from "@playwright/test";
