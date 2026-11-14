@@ -18,6 +18,7 @@ import { BoardView } from "./board-view.tsx";
 import { PreferencesView, type PreferencesViewProps } from "./preferences-view.tsx";
 import { SettingsView } from "./settings-view.tsx";
 import { SpriteView, type SpriteViewDocument } from "./sprite-view.tsx";
+import type { TilesetBrowserContext } from "./tileset-browser.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
 export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCommand> {
@@ -42,7 +43,13 @@ export interface BoardViewDocument extends ViewDocument<BoardDocumentSnapshot, B
 export interface ViewContext {
   /** The document the view shows and edits. The view never owns it. */
   readonly document: ViewDocument | BoardViewDocument | SpriteViewDocument;
+  /**
+   * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
+   * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
+   */
   readonly services: Pick<PlatformServices, "document" | "capabilities"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject"> };
+  /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
+  readonly browser?: TilesetBrowserContext;
 }
 /** The handle a host keeps to a mounted view. */
 export interface ViewHandle {
@@ -67,7 +74,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   if (isSpriteView(document) && fs === undefined) throw new Error("A sprite view requires project-file read access.");
   render(
     isBoardView(document)
-      ? createElement(BoardView, { doc: document, capabilities, onEdited })
+      ? createElement(BoardView, { doc: document, capabilities, onEdited, ...(ctx.browser === undefined ? {} : { browser: ctx.browser }) })
       : isSpriteView(document)
         ? createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited })
         : createElement(SettingsView, { doc: document, capabilities, onEdited }),

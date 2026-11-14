@@ -1,5 +1,6 @@
 import { createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, FileSystemService, PlatformResult } from "@tk-reawakened/platform-services";
+import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
 import { handleEditorHostRequest, isEditorHostRequest, type AssetPickRequest, type BridgedDocument, type BridgeMessage, type ReturnOutcome, type VisitOutcome } from "./document-bridge.ts";
 
@@ -69,6 +70,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   readonly uri: Uri;
   readonly model: AnyDocument;
   readonly capabilities: readonly Capability[];
+  readonly browserSession: BrowserSession;
   readonly #workspace: DocumentWorkspace;
   readonly #fs: FileSystemService;
   readonly #navigation: DocumentNavigation<Uri>;
@@ -78,10 +80,11 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   #saves = 0;
   #lastSave: SaveResult = { ok: true };
 
-  constructor(uri: Uri, model: AnyDocument, workspace: DocumentWorkspace, fs: FileSystemService, navigation: DocumentNavigation<Uri>, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void) {
+  constructor(uri: Uri, model: AnyDocument, workspace: DocumentWorkspace, fs: FileSystemService, navigation: DocumentNavigation<Uri>, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void, browserSession: BrowserSession) {
     this.uri = uri;
     this.model = model;
     this.capabilities = port.capabilities;
+    this.browserSession = browserSession;
     this.#workspace = workspace;
     this.#fs = fs;
     this.#navigation = navigation;
@@ -113,6 +116,15 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   /** Let the user choose an asset for a field of this document, through the host's own pick list and dialogs (T-05). */
   pickAsset(request: AssetPickRequest): Promise<PickOutcome> {
     return this.#navigation.pickAsset(this, request);
+  }
+
+  /** Project-relative reads for the shared tileset browser; the workspace-bound filesystem cannot cross projects. */
+  browserList(path: string) {
+    return this.#fs.list(path);
+  }
+
+  browserRead(path: string) {
+    return this.#fs.read(path);
   }
 
   /** The picture of a board, composed here from the project's files by the one board compositor (AD-29); a webview reads no files. */
@@ -217,14 +229,14 @@ export interface GameEditorProvider<Uri extends UriLike> {
 
 /** Make the provider. `fire` is `onDidChangeCustomDocument`'s emitter. */
 export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void): GameEditorProvider<Uri> {
-  const workspaces = new Map<string, { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits }>();
-  type Project = { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly path: string };
+  const workspaces = new Map<string, { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSession: BrowserSession }>();
+  type Project = { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSession: BrowserSession; readonly path: string };
   const projectIn = (folder: WorkspaceFolderLike<Uri>, uri: Uri): Project => {
     let project = workspaces.get(folder.key);
     if (project === undefined) {
       const fs = port.fileSystem(folder);
       const workspace = createDocumentWorkspace({ projectId: folder.key, services: { fs, dialogs: port.dialogs(folder), capabilities: new Set(port.capabilities) } });
-      project = { fs, workspace, visits: createVisits(workspace) };
+      project = { fs, workspace, visits: createVisits(workspace), browserSession: createBrowserSession() };
       workspaces.set(folder.key, project);
     }
     return { ...project, path: uri.path.slice(folder.uri.path.replace(/\/$/, "").length + 1) };
@@ -307,7 +319,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     async openCustomDocument(uri, backupId) {
       const folder = port.folderOf(uri);
       if (folder === undefined) throw new Error(`${nameOf(uri)} is outside the open workspace`);
-      const { workspace, fs, path } = projectIn(folder, uri);
+      const { workspace, fs, path, browserSession } = projectIn(folder, uri);
       if (backupId !== undefined) {
         const resolved = await resolveDocumentPath(fs, path);
         if (!resolved.ok) throw new Error(resolved.kind === "case-conflict" ? resolved.message : `${nameOf(uri)}: ${resolved.error.message}`);
@@ -317,7 +329,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         const recovered = await recoverDocument(kind, fs, identity, await port.readBackup(backupId));
         if (!recovered.ok) throw new Error(`${nameOf(uri)}: ${recovered.error.error.message}`);
         if (!workspace.adopt(recovered.document)) throw new Error(`${path} is already open in another editor under another spelling.`);
-        return new GameDocument(uri, recovered.document, workspace, fs, navigation, port, fire);
+        return new GameDocument(uri, recovered.document, workspace, fs, navigation, port, fire, browserSession);
       }
       const known = new Set(workspace.documents());
       const opened = await workspace.open(path);
@@ -329,7 +341,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       if (known.has(opened.document)) {
         throw new Error(`${path} is already open as ${opened.document.identity.path}; one file is opened once.`);
       }
-      return new GameDocument(uri, opened.document, workspace, fs, navigation, port, fire);
+      return new GameDocument(uri, opened.document, workspace, fs, navigation, port, fire, browserSession);
     },
     async saveCustomDocument(document) {
       const result = await document.save();
@@ -374,12 +386,16 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     resolveCustomEditor(document, webview) {
       const publish = () => { void webview.postMessage({ type: "snapshot", snapshot: document.model.getSnapshot() }); };
       const subscription = document.model.subscribe(publish);
+      const browserSubscription = document.browserSession.subscribe((changes) => {
+        void webview.postMessage({ type: "browser-state", changes });
+      });
       const messages = webview.onDidReceiveMessage(async (message: unknown) => {
         if (!isEditorHostRequest(message)) return;
         await handleEditorHostRequest(document, message, (reply) => webview.postMessage(reply));
       });
       const disposal = webview.onDidDispose(() => {
         subscription();
+        browserSubscription();
         messages.dispose();
         disposal.dispose();
       });

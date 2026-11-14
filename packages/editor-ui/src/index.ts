@@ -4,4 +4,6 @@ export { mount, mountAssetPicker, mountPreferences, mountShell, type BoardViewDo
 export type { AssetPickerViewProps } from "./asset-picker-view.tsx";
 export { SpriteView, type SpriteViewDocument, type SpriteViewProps } from "./sprite-view.tsx";
 export type { PreferencesViewProps } from "./preferences-view.tsx";
+export { createBrowserSession, type BrowserSession, type BrowserState, type BrowserSelection } from "./brush.ts";
+export type { TilesetBrowserContext } from "./tileset-browser.tsx";
 export type { ShellProps } from "./shell.tsx";

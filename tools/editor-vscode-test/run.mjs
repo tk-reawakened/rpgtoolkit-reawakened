@@ -4,6 +4,7 @@ import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
+import { createEmptyBoard, writeBoard } from "@tk-reawakened/core";
 import { runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
@@ -54,8 +55,18 @@ for (const choice of ["cancel", "keep"]) {
   const spriteDirectory = resolve(proofWorkspace, "Chrs");
   await mkdir(spriteDirectory, { recursive: true });
   await copyFile(spriteFile, resolve(proofWorkspace, spritePath));
-  let browser;
+  const boardPath = "Boards/village.brd";
+  const otherBoardPath = "Boards/other.brd";
+  const boardBytes = createBoardBytes();
+  await mkdir(resolve(proofWorkspace, "Boards"), { recursive: true });
+  await mkdir(resolve(proofWorkspace, "Tiles"), { recursive: true });
+  await Promise.all([
+    writeFile(resolve(proofWorkspace, boardPath), boardBytes),
+    writeFile(resolve(proofWorkspace, otherBoardPath), boardBytes),
+    copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, "Tiles/village.tst")),
+  ]);
   let persistentFs;
+  let browser;
   let trackedProcess;
   let failure;
   let cleanupErrors = [];
@@ -179,8 +190,8 @@ for (const choice of ["cancel", "keep"]) {
       await runVscodeSpriteWebProof(page, expect, workbenchUrl, spritePath, spriteBytes, { readBacking });
       console.log("vscode.dev sprite save/reopen proof passed");
     }
-    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice });
-    console.log(`vscode.dev settings proof passed (${choice})`);
+    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath });
+    console.log(`vscode.dev settings and board proof passed (${choice})`);
   } catch (error) {
     failure = error;
   } finally {
@@ -227,6 +238,27 @@ async function findGameFiles(directory) {
     else if (entry.isFile() && entry.name.toLowerCase().endsWith(".gam")) files.push(path);
   }
   return files;
+}
+function createBoardBytes() {
+  const empty = createEmptyBoard();
+  const board = {
+    ...empty,
+    sizeX: 2,
+    sizeY: 2,
+    sizeL: 1,
+    layerTitles: ["", ""],
+    lut: ["", "village.tst1", "village.tst2"],
+    tileMatrix: [1, 2, 2, 1],
+    tileRuns: [
+      { lutIndex: 1, count: 1, marker: false },
+      { lutIndex: 2, count: 1, marker: true },
+      { lutIndex: 2, count: 1, marker: false },
+      { lutIndex: 1, count: 1, marker: false },
+    ],
+  };
+  const written = writeBoard(board);
+  if (!written.ok) throw new Error(`Could not create authored board proof fixture: ${written.error.message}`);
+  return written.value;
 }
 
 
