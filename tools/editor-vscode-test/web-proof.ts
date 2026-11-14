@@ -17,6 +17,8 @@ type ProofHost = {
   sentinelTitle: string;
   sentinelBytes: Uint8Array;
   choice: "cancel" | "keep";
+  boardPath: string;
+  otherBoardPath: string;
 };
 
 /** Run against vscode-test-web's actual browser workbench, not an extension-host mock. */
@@ -239,8 +241,91 @@ export async function runVscodeWebProof(
   expect(await readWorkspaceBytes(page, expect)).toEqual(recovered);
   await expect.poll(() => frameCspViolations(page, finalEditor, consoleViolations)).toEqual([]);
 
-  // Story 11.3: the document lifecycle in real VS Code, and the ADR 0022 D11.6 measurement.
   await runLifecycleScenarios(page, expect, autosaveTitle, autosaveBytes, host);
+  // The packaged custom editor runs in the actual VS Code webview and persists boards through its working-copy provider.
+  await runBoardBrowserScenario(page, expect, host);
+}
+
+async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHost): Promise<void> {
+  const firstPath = host.boardPath;
+  const secondPath = host.otherBoardPath;
+  const firstBefore = await host.readBacking(firstPath);
+  const secondBefore = await host.readBacking(secondPath);
+  const first = await openProjectBoard(page, firstPath, expect);
+  await expect(first.getByRole("grid")).toBeVisible();
+  await expect(first.getByRole("button", { name: "Column 1, row 1: village.tst1" })).toBeVisible();
+  const tile = first.locator('[data-browser-reference="village.tst2"]');
+  await expect(tile).toBeVisible();
+  const source = tile.locator(".tkr-tileset-browser-source");
+  await source.click();
+  await expect(source).toHaveAttribute("aria-pressed", "true");
+  await source.press("Shift+F10");
+  const menuAction = first.getByRole("button", { name: "Select as board brush" });
+  await expect(menuAction).toBeFocused();
+  await menuAction.press("Escape");
+  await expect(menuAction).toBeHidden();
+  await expect(source).toBeFocused();
+  await expect(first.getByRole("button", { name: "Column 1, row 1: village.tst1" })).toBeVisible();
+  expect(await host.readBacking(firstPath)).toEqual(firstBefore);
+  const paintFirst = first.getByRole("button", { name: "Paint village.tst tile 2 here" });
+  await expect(paintFirst).toBeEnabled();
+  await paintFirst.click();
+  await expect(first.getByRole("button", { name: "Column 1, row 1: village.tst2" })).toBeVisible();
+  await first.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(first.getByRole("status")).toHaveText("All changes saved");
+  const firstSaved = await host.readBacking(firstPath);
+  expect(firstSaved).not.toEqual(firstBefore);
+  await closeActiveEditor(page, expect);
+
+  const second = await openProjectBoard(page, secondPath, expect);
+  await expect(second.getByRole("button", { name: "Column 1, row 1: village.tst1" })).toBeVisible();
+  expect(await host.readBacking(secondPath)).toEqual(secondBefore);
+  const retained = second.locator('[data-browser-reference="village.tst2"] .tkr-tileset-browser-source');
+  await expect(retained).toHaveAttribute("aria-pressed", "true");
+  const paintSecond = second.getByRole("button", { name: "Paint village.tst tile 2 here" });
+  await expect(paintSecond).toBeEnabled();
+  await paintSecond.click();
+  await expect(second.getByRole("button", { name: "Column 1, row 1: village.tst2" })).toBeVisible();
+  await second.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(second.getByRole("status")).toHaveText("All changes saved");
+  const secondSaved = await host.readBacking(secondPath);
+  expect(secondSaved).not.toEqual(secondBefore);
+  expect(await host.readBacking(firstPath)).toEqual(firstSaved);
+  await closeActiveEditor(page, expect);
+
+  const reopened = await openProjectBoard(page, secondPath, expect);
+  await expect(reopened.getByRole("button", { name: "Column 1, row 1: village.tst2" })).toBeVisible();
+  expect(await host.readBacking(secondPath)).toEqual(secondSaved);
+  await closeActiveEditor(page, expect);
+}
+
+async function openProjectBoard(page: Page, path: string, expect: Expect): Promise<Frame> {
+  await focusWorkbench(page);
+  const folder = page.getByRole("treeitem", { name: "Boards", exact: true });
+  await expect(folder).toBeVisible();
+  if (await folder.getAttribute("aria-expanded") !== "true") await folder.click();
+  const item = page.getByRole("treeitem", { name: path.split("/").at(-1)!, exact: true });
+  await expect(item).toBeVisible();
+  await item.dblclick();
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).toBeVisible();
+  return await waitForBoardFrame(page, path);
+}
+
+async function waitForBoardFrame(page: Page, label: string): Promise<Frame> {
+  const deadline = Date.now() + 30_000;
+  let pause = 100;
+  while (Date.now() < deadline) {
+    const outer = await page.locator("iframe.webview:visible").first().elementHandle({ timeout: 250 }).catch(() => null);
+    if (outer) {
+      const outerFrame = await outer.contentFrame().catch(() => null);
+      const content = outerFrame?.childFrames().find((frame) => frame.name() === "pending-frame");
+      if (content && await content.locator(".tkr-board").count().catch(() => 0) > 0) return content;
+    }
+    await page.waitForTimeout(pause);
+    pause = Math.min(pause * 2, 1_000);
+  }
+  await logFrameDiagnostics(page, `packaged board custom editor not found for ${label}`);
+  throw new Error(`Timed out waiting for actual VS Code board custom editor for ${label}`);
 }
 
 /**

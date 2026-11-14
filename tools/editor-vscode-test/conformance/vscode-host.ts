@@ -319,10 +319,20 @@ class Webview {
   #receive(page: Page, message: BridgeMessage): void {
     if (this.#page !== page) return;
     if (message.type === "initialize") {
-      page.remote = new RemoteDocument(message.kind, message.snapshot, { postMessage: (request) => this.#send(request), getState: () => undefined, setState: () => undefined });
+      const remote = new RemoteDocument(message.kind, message.snapshot, message.browserState, {
+        postMessage: (request) => this.#send(request),
+        getState: () => undefined,
+        setState: () => undefined,
+      });
+      page.remote = remote;
       page.handle = mount(page.element, {
-        document: page.remote as unknown as ViewContext["document"],
+        document: remote as unknown as ViewContext["document"],
         services: { document: { edited: () => undefined }, capabilities: new Set(message.capabilities) },
+        browser: {
+          session: remote.browserSession,
+          fs: { list: (path) => remote.browserList(path), read: (path) => remote.browserRead(path) },
+          layout: { projectFolder: "" },
+        },
       });
       return;
     }

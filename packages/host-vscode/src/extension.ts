@@ -11,7 +11,8 @@ const VIEW_TYPES = ["tkr.gameSettings", "tkr.board"] as const;
 function html(webview: vscode.Webview, context: vscode.ExtensionContext): string {
   const nonce = [...crypto.getRandomValues(new Uint8Array(18))].map((value) => value.toString(16).padStart(2, "0")).join("");
   const bundle = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "webview.js"));
-  return `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource}; script-src 'nonce-${nonce}'; style-src 'self' ${webview.cspSource} 'nonce-${nonce}';"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RPG Toolkit editor</title></head><body><div id="root"></div><script nonce="${nonce}" src="${bundle}"></script></body></html>`;
+  const stylesheet = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "tileset-browser.css"));
+  return `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource}; script-src 'nonce-${nonce}'; style-src 'self' ${webview.cspSource} 'nonce-${nonce}';"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="${stylesheet}"><title>RPG Toolkit editor</title></head><body><div id="root"></div><script nonce="${nonce}" src="${bundle}"></script></body></html>`;
 }
 
 export function registerGameSettings(context: vscode.ExtensionContext): void {

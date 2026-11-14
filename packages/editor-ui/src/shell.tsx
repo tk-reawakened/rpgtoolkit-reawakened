@@ -12,7 +12,7 @@ export interface ShellProps {
   readonly tabs: Tabs;
   readonly tree: ProjectTree;
   readonly projectLayout: ProjectLayout;
-  readonly fs: Pick<FileSystemService, "list">;
+  readonly fs: Pick<FileSystemService, "list" | "read">;
   /** A file was opened from the Files panel (a document, or the OS took it). */
   readonly onOpened: (result: Extract<TreeOpenResult, { readonly ok: true }>, row: TreeRow) => void;
   /** The Game panel asks for a file to be opened; the host opens it through the tree, as Files does. */

@@ -6,7 +6,7 @@ const extensionRoot = dirname(fileURLToPath(import.meta.url));
 const source = resolve(extensionRoot, "../../packages/host-vscode/dist");
 const destination = resolve(extensionRoot, "dist");
 await mkdir(destination, { recursive: true });
-for (const file of ["extension.js", "extension.js.map", "extension.browser.js", "extension.browser.js.map", "webview.js", "webview.js.map"]) {
+for (const file of ["extension.js", "extension.js.map", "extension.browser.js", "extension.browser.js.map", "webview.js", "webview.js.map", "tileset-browser.css"]) {
   await cp(resolve(source, file), resolve(destination, file));
 }
 const manifest = JSON.parse(await readFile(resolve(extensionRoot, "package.json"), "utf8"));
