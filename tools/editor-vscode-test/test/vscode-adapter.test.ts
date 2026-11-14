@@ -5,8 +5,8 @@ import { createVscodeFileSystemWithPort, vscodeCapabilities, type VscodeFileSyst
 interface Uri { readonly path: string }
 const root: Uri = { path: "/project" };
 test("VS Code reports only capabilities backed by its workspace adapter", () => {
-  deepEqual(new Set(vscodeCapabilities(true)), new Set(["folderWrite", "fileWatch", "stableProjectHandle", "backup"]));
-  deepEqual(new Set(vscodeCapabilities(false)), new Set(["folderWrite", "stableProjectHandle", "backup"]), "a browser VS Code claims no live change detection");
+  deepEqual(new Set(vscodeCapabilities(true)), new Set(["folderWrite", "fileWatch", "stableProjectHandle", "backup", "pickFile"]));
+  deepEqual(new Set(vscodeCapabilities(false)), new Set(["folderWrite", "stableProjectHandle", "backup", "pickFile"]), "a browser VS Code claims no live change detection");
 });
 const original = new Uint8Array([1, 2, 3]);
 const files = new Map([["/project/Main.gam", original.slice()]]);
