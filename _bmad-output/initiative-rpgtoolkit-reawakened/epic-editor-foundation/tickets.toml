@@ -79,6 +79,20 @@ hitl = false
 risk = "high"
 
 [[entry]]
+id = 21
+tracker_id = "#2246"
+type = "bug"
+title = "Preserve VS Code web proof files across workbench restarts"
+description = "The VS Code web proof loses saved fixture writes when the extension host restarts, preventing a real-workbench proof of external changes while closed. The test harness must preserve workspace bytes across restarts without implying anything about production filesystem providers."
+verify = "Using a test-only persistent store, independently verify exact saved bytes after a real workbench restart. After confirmed backup completion, stop the workbench, independently change the backing file, and restart: recovered content is dirty while storage retains the external bytes. In fresh cases, Keep and Cancel preserve both versions; only an explicit save of the intended editor may replace external bytes. Observe command dispatch and a second dirty editor to prove no unrelated Save or Revert occurs."
+covers = ["CAP-15", "CAP-18", "T-06"]
+references = ["Issue: #2246 (observed test-web filesystem behavior and reproduction)", "Decision: ADR 0022 D14.2 (VS Code conflict choices)"]
+after = [3]
+refine = true
+hitl = false
+risk = "high"
+
+[[entry]]
 id = 4
 tracker_id = "#1702"
 type = "story"
