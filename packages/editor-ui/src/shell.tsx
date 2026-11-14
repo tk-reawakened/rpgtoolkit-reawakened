@@ -5,7 +5,6 @@ import { useDocumentSnapshot } from "./use-document.ts";
 import { FilesView } from "./files-view.tsx";
 import { GameView } from "./game-view.tsx";
 import { TabStrip } from "./tab-strip.tsx";
-import { TilesetBrowser } from "./tileset-browser.tsx";
 import { Workbench } from "./workbench.tsx";
 
 export interface ShellProps {
@@ -45,7 +44,6 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, onOpened, onOpenP
       panels={{
         files: <FilesView tree={tree} onOpened={onOpened} />,
         game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
-        tileset: <TilesetBrowser fs={fs} layout={projectLayout} />,
       }}
     >
       <EditorSlot onElement={onEditorElement} />

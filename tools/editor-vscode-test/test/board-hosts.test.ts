@@ -106,6 +106,37 @@ function pixels(picture: BoardPicture): Uint8Array {
 }
 
 for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) {
+  test("the retained browser selects a brush without painting and returns menu focus on Escape", async () => {
+    document.body.replaceChildren();
+    const host = hosts.find((candidate) => candidate.name === entry)!.make();
+    const tab = await host.open(PATH);
+    await settle(act, 4);
+    const browser = tab.element.querySelector<HTMLElement>(".tkr-tileset-browser");
+    ok(browser !== null, "the active board contains its tileset browser");
+    ok(browser.querySelector("canvas.tkr-tileset-browser-preview"), "tileset items have decoded visual previews");
+    const source = browser.querySelector<HTMLButtonElement>(".tkr-tileset-browser-source");
+    ok(source !== null);
+    const before = cell(tab, 1, 1).getAttribute("aria-label");
+
+    await act(() => {
+      source.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true }));
+    });
+    await settle(act, 2);
+    const action = browser.querySelector<HTMLButtonElement>('[role="group"] button:not(:disabled)');
+    ok(action !== null, "keyboard context action is available");
+    equal(document.activeElement, action, "opening the keyboard context action moves focus into it");
+    await act(() => { action.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    await settle(act, 2);
+    equal(document.activeElement, source, "Escape returns focus to the invoking tile");
+
+    await act(() => { source.click(); });
+    await settle(act);
+    equal(source.getAttribute("aria-pressed"), "true", "choosing the tile selects it as the brush");
+    equal(cell(tab, 1, 1).getAttribute("aria-label"), before, "selection alone does not paint the active board");
+    equal(tab.workbenchDirty(), false, "selection alone does not dirty the board");
+    await tab.close();
+  });
+
   describe(`board proof: ${entry}`, () => {
     test("a tile is changed, saved and reopened, and the picture is the engine's", async () => {
       document.body.replaceChildren();

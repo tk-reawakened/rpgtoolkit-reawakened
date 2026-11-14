@@ -10,30 +10,31 @@ export interface BrowserSelection {
   readonly boardTile: string | null;
 }
 
-const listeners = new Set<() => void>();
-let selection: BrowserSelection | null = null;
-let browserPath: string | null = null;
-let browserScrollTop = 0;
-
-export function getBrowserSelection(): BrowserSelection | null {
-  return selection;
+export interface BrowserState {
+  readonly selection: BrowserSelection | null;
+  readonly path: string | null;
+  readonly scrollTop: number;
 }
 
-export function selectBrowserSource(next: BrowserSelection): void {
-  selection = next;
-  for (const listener of listeners) listener();
+export interface BrowserSession {
+  getSnapshot(): BrowserState;
+  subscribe(listener: () => void): () => void;
+  update(update: Partial<BrowserState>): void;
 }
 
-export function subscribeBrowserSelection(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
-export function getBrowserContext(): { readonly path: string | null; readonly scrollTop: number } {
-  return { path: browserPath, scrollTop: browserScrollTop };
-}
-
-export function retainBrowserContext(path: string | null, scrollTop: number): void {
-  browserPath = path;
-  browserScrollTop = scrollTop;
+/** A host-owned session is shared only by views in the same project/workspace. */
+export function createBrowserSession(initial: BrowserState = { selection: null, path: null, scrollTop: 0 }): BrowserSession {
+  let snapshot = initial;
+  const listeners = new Set<() => void>();
+  return {
+    getSnapshot: () => snapshot,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    update(update) {
+      snapshot = { ...snapshot, ...update };
+      for (const listener of listeners) listener();
+    },
+  };
 }

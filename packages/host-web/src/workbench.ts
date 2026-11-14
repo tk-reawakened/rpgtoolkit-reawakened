@@ -75,7 +75,6 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   const layout = createLayoutModel([
     { id: "files", title: "Files", side: "left", visible: true, size: 240, minSize: 128, maxSize: 480 },
     { id: "game", title: "Game", side: "left", visible: false, size: 240, minSize: 128, maxSize: 480 },
-    { id: "tileset", title: "Tileset", side: "right", visible: true, size: 240, minSize: 128, maxSize: 480 },
   ]);
   let slot: HTMLElement | null = null;
   const views = new Map<string, { readonly document: AnyDocument; readonly view: DocumentView; shownIn: HTMLElement | null }>();
@@ -118,7 +117,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           const container = slot.ownerDocument.createElement("div");
           container.className = "tkr-editor-pane";
           slot.append(container);
-          entry = { document, view: mountDocumentView(project, document, container), shownIn: container };
+          entry = { document, view: mountDocumentView(project, document, container, projectLayout), shownIn: container };
           views.set(tab.key, entry);
         } else if (entry.shownIn === null) {
           const container = slot.ownerDocument.createElement("div");

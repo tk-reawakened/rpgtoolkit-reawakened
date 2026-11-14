@@ -288,38 +288,6 @@ test("panels show, hide and resize from buttons and the keyboard, and hiding kee
 });
 
 
-test("the tileset browser retains brush context, offers keyboard and menu selection, and never edits a source", async () => {
-  const s = await setup(["folderWrite", "openExternal"], {
-    ...FILES,
-    "Tiles/test.tst": new Uint8Array([20, 0, 2, 0, 1, 0]),
-    "Bitmap/test.tbm": new Uint8Array([0]),
-  });
-  const panel = (): HTMLElement | null => s.el.querySelector("#tkr-panel-tileset");
-  const source = (): HTMLButtonElement | null => panel()?.querySelector(".tkr-tileset-browser-source") ?? null;
-  await settle();
-  ok(panel() !== null);
-  equal(source()?.textContent, "test.tst tile 1");
-  const bytes = s.host.bytesOf("Tiles/test.tst");
-  await key(source()!, "L");
-  equal(source()?.getAttribute("aria-pressed"), "true");
-  deepEqual(s.host.bytesOf("Tiles/test.tst"), bytes, "choosing a brush never mutates its source");
-
-  await key(source()!, "F10", { shiftKey: true });
-  ok(panel()?.querySelector('[role="group"][aria-label="test.tst tile 1 actions"]') !== null, "Shift+F10 opens the item menu");
-  match(panel()?.querySelector(".tkr-tileset-browser-note")?.textContent ?? "", /unavailable until the P1 tile editor provider exists/);
-  equal(panel()?.querySelector('button[aria-disabled="true"][aria-describedby="tkr-source-edit-unavailable"]')?.textContent, "Edit source (P1 unavailable)");
-
-  const scroll = panel()?.querySelector<HTMLElement>(".tkr-tileset-browser-list");
-  if (scroll !== null && scroll !== undefined) {
-    scroll.scrollTop = 27;
-    scroll.dispatchEvent(new Event("scroll"));
-  }
-  await click(button(s.el, "Tileset"));
-  equal(panel(), null, "hiding the panel removes the view without clearing its browser context");
-  await click(button(s.el, "Tileset"));
-  equal(source()?.getAttribute("aria-pressed"), "true");
-  equal(panel()?.querySelector<HTMLElement>(".tkr-tileset-browser-list")?.scrollTop, 27);
-});
 test("the shell writes no style attribute and no inline handler attribute (strict CSP, ADR 0025 decision 6)", async () => {
   const s = await setup();
   await click(button(s.el, "Game"));

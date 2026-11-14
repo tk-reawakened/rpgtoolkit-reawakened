@@ -1,9 +1,11 @@
 import { boardTileAt, type ApplyResult, type BoardPicture, type ConflictChoice, type SaveFailure } from "@tk-reawakened/editor-model";
 import type { Capabilities, DocumentEdited } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { getBrowserSelection, subscribeBrowserSelection, type BrowserSelection } from "./brush.ts";
+import type { TilesetBrowserContext } from "./tileset-browser.tsx";
 import type { BoardViewDocument } from "./mount.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
+import type { BrowserSelection } from "./brush.ts";
+import { TilesetBrowser } from "./tileset-browser.tsx";
 
 /** How many views have been given ids (ids must be unique in the page; see `SettingsView`). */
 let viewsMade = 0;
@@ -15,6 +17,7 @@ export interface BoardViewProps {
   readonly doc: BoardViewDocument;
   readonly capabilities: Capabilities;
   readonly onEdited: (event: DocumentEdited) => void;
+  readonly browser?: TilesetBrowserContext;
 }
 
 /** The text on a cell: the tile's own name without its folder, `·` for the empty cell. */
@@ -29,7 +32,7 @@ function cellText(tile: string | null): string {
  * with the arrow keys, and Enter on a cell goes to the tile field.
  * Only classes and ARIA attributes are used, never a `style` attribute (ADR 0025 decision 6).
  */
-export function BoardView({ doc, capabilities, onEdited }: BoardViewProps) {
+export function BoardView({ doc, capabilities, onEdited, browser }: BoardViewProps) {
   const snapshot = useDocumentSnapshot(doc);
   const [ids] = useState(() => {
     viewsMade += 1;
@@ -44,12 +47,12 @@ export function BoardView({ doc, capabilities, onEdited }: BoardViewProps) {
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
-  const [brush, setBrush] = useState<BrowserSelection | null>(getBrowserSelection());
+  const [brush, setBrush] = useState<BrowserSelection | null>(browser?.session.getSnapshot().selection ?? null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const tileField = useRef<HTMLInputElement>(null);
   const grid = useRef<HTMLDivElement>(null);
   const focusCell = useRef(false);
-  useEffect(() => subscribeBrowserSelection(() => setBrush(getBrowserSelection())), []);
+  useEffect(() => browser?.session.subscribe(() => setBrush(browser.session.getSnapshot().selection)) ?? undefined, [browser]);
 
   const { grid: size, layers } = snapshot;
   const readOnly = snapshot.readOnly !== null;
@@ -304,6 +307,7 @@ export function BoardView({ doc, capabilities, onEdited }: BoardViewProps) {
       {failure === null || (failure.kind === "conflict" && conflict !== null) ? null : (
         <p class="tkr-board-error" role="alert">{failure.message}</p>
       )}
+      {browser === undefined ? null : <TilesetBrowser context={browser} />}
     </section>
   );
 }

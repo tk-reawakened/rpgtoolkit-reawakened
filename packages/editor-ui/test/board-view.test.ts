@@ -5,15 +5,16 @@ import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { boardTileAt, createDocumentIdentity, openBoardDocument, previewBoard, type BoardDocument } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { selectBrowserSource } from "../dist/brush.js";
-import type { BoardViewDocument } from "../src/mount.ts";
+import { TILE_ANIMATION_MAGIC, TILE_BITMAP_MAGIC, writeTileAnimation, writeTileBitmap, type TileAnimation, type TileBitmap } from "@tk-reawakened/core";
+import { createBrowserSession, type BrowserSession } from "../dist/brush.js";
+import type { BoardViewDocument, ViewHandle } from "../src/mount.ts";
+import type { TilesetBrowserContext } from "../src/tileset-browser.tsx";
 import { exampleBoard, exampleTileset } from "./fixtures.ts";
 
 const PATH = "Boards/village.brd";
 const identity = createDocumentIdentity("memory-project", PATH);
 
-type Mount = typeof import("../src/index.ts").mount;
-let mount: Mount;
+let mount: typeof import("../src/index.ts").mount;
 let act: (callback: () => void | Promise<void>) => Promise<void> | void;
 
 before(async () => {
@@ -28,11 +29,16 @@ interface Setup {
   readonly host: MemoryPlatformServices;
   readonly doc: BoardDocument;
   readonly view: BoardViewDocument;
+  readonly browser: TilesetBrowserContext;
   readonly el: HTMLElement;
 }
 
-async function setup(bytes: Uint8Array = exampleBoard()): Promise<Setup> {
-  const host = createMemoryPlatformServices({ files: { [PATH]: bytes, "Tiles/village.tst": exampleTileset() } });
+async function setup(
+  bytes: Uint8Array = exampleBoard(),
+  session: BrowserSession = createBrowserSession(),
+  extraFiles: Readonly<Record<string, Uint8Array>> = {},
+): Promise<Setup> {
+  const host = createMemoryPlatformServices({ files: { [PATH]: bytes, "Tiles/village.tst": exampleTileset(), ...extraFiles } });
   const opened = await openBoardDocument(host.fs, identity);
   if (!opened.ok) throw new Error(`open failed: ${JSON.stringify(opened.error)}`);
   const doc = opened.document;
@@ -55,13 +61,13 @@ async function setup(bytes: Uint8Array = exampleBoard()): Promise<Setup> {
   };
   const el = document.createElement("div");
   document.body.append(el);
-  return { host, doc, view, el };
+  return { host, doc, view, browser: { session, fs: host.fs, layout: { projectFolder: "" } }, el };
 }
 
-async function show(s: Setup): Promise<ReturnType<Mount>> {
-  let handle: ReturnType<Mount> | undefined;
+async function show(s: Setup, browser: TilesetBrowserContext = s.browser): Promise<ViewHandle> {
+  let handle: ViewHandle | undefined;
   await act(() => {
-    handle = mount(s.el, { document: s.view, services: s.host });
+    handle = mount(s.el, { document: s.view, services: s.host, browser });
   });
   // The picture arrives after the view's first render.
   await act(async () => {
@@ -231,15 +237,19 @@ test("disposing the view removes it and its subscription", async () => {
   await s.doc.apply({ type: "set-tile", layer: 0, x: 0, y: 0, tile: "village.tst2" });
   equal(s.el.childNodes.length, 0, "a change after dispose draws nothing");
 });
-test("brush choice does not paint and an explicit action edits only the board view receiving it", async () => {
-  const first = await setup();
-  const second = await setup();
+test("brush choice is retained per project, never paints on selection, and paints only the active board", async () => {
+  const session = createBrowserSession();
+  const first = await setup(exampleBoard(), session);
+  const second = await setup(exampleBoard(), session);
+  const otherProject = await setup(exampleBoard(), createBrowserSession());
   const firstHandle = await show(first);
   const secondHandle = await show(second);
+  const otherHandle = await show(otherProject);
   const before = boardTileAt(first.doc.getSnapshot(), 0, 0, 0);
-  await act(() => selectBrowserSource({ kind: "tiles", path: "Tiles/village.tst", reference: "village.tst2", label: "village.tst tile 2", boardTile: "village.tst2" }));
+  await act(() => session.update({ selection: { kind: "tiles", path: "Tiles/village.tst", reference: "village.tst2", label: "village.tst tile 2", boardTile: "village.tst2" } }));
   equal(boardTileAt(first.doc.getSnapshot(), 0, 0, 0), before, "selection alone never changes either board");
   equal(boardTileAt(second.doc.getSnapshot(), 0, 0, 0), before);
+  equal(otherProject.el.querySelector<HTMLButtonElement>(".tkr-board-brush")?.disabled, true, "another project does not inherit the brush");
   const paint = second.el.querySelector<HTMLButtonElement>(".tkr-board-brush");
   ok(paint !== null);
   ok(!paint.disabled, `brush action should be enabled: ${paint.textContent}`);
@@ -248,4 +258,119 @@ test("brush choice does not paint and an explicit action edits only the board vi
   equal(boardTileAt(first.doc.getSnapshot(), 0, 0, 0), before, "painting targets only the board whose action was invoked");
   firstHandle.dispose();
   secondHandle.dispose();
+  otherHandle.dispose();
+});
+test("a stale asset read cannot replace the selected source, and source plus scroll context survive remount", async () => {
+  const slowPath = "Tiles/a-slow.tst";
+  const fastPath = "Tiles/b-fast.tst";
+  const s = await setup(exampleBoard(), createBrowserSession(), {
+    [slowPath]: exampleTileset(),
+    [fastPath]: exampleTileset(),
+  });
+  let releaseSlow!: () => void;
+  let markSlowStarted!: () => void;
+  const slowGate = new Promise<void>((resolve) => { releaseSlow = resolve; });
+  const slowStarted = new Promise<void>((resolve) => { markSlowStarted = resolve; });
+  const browser: TilesetBrowserContext = {
+    ...s.browser,
+    fs: {
+      list: (path) => s.host.fs.list(path),
+      read: async (path) => {
+        if (path === slowPath) {
+          markSlowStarted();
+          await slowGate;
+        }
+        return s.host.fs.read(path);
+      },
+    },
+  };
+  const handle = await show(s, browser);
+  await slowStarted;
+  const source = s.el.querySelector<HTMLSelectElement>("#tkr-tileset-source");
+  ok(source !== null);
+  await act(async () => {
+    source.value = fastPath;
+    source.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  match(s.el.querySelector(".tkr-tileset-browser-item")?.textContent ?? "", /b-fast\.tst tile 1/);
+  releaseSlow();
+  await act(async () => { await Promise.resolve(); });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  match(s.el.querySelector(".tkr-tileset-browser-item")?.textContent ?? "", /b-fast\.tst tile 1/, "the stale slow read cannot replace the fast source");
+
+  const list = s.el.querySelector<HTMLElement>(".tkr-tileset-browser-list");
+  ok(list !== null);
+  await act(() => {
+    list.scrollTop = 37;
+    list.dispatchEvent(new Event("scroll"));
+  });
+  equal(s.browser.session.getSnapshot().path, fastPath);
+  equal(s.browser.session.getSnapshot().scrollTop, 37);
+  handle.dispose();
+  await show(s, browser);
+  equal(s.el.querySelector<HTMLSelectElement>("#tkr-tileset-source")?.value, fastPath, "the active source is restored when the board view remounts");
+  equal(s.el.querySelector<HTMLElement>(".tkr-tileset-browser-list")?.scrollTop, 37, "the browser scroll position is restored");
+});
+test("animated tiles are selectable brushes while tile bitmaps stay browse-only with an explained edit limit", async () => {
+  const animation: TileAnimation = {
+    magic: TILE_ANIMATION_MAGIC,
+    major: 2,
+    minor: 0,
+    speed: 5,
+    frameCount: 1,
+    frames: ["village.tst2"],
+  };
+  const bitmap: TileBitmap = {
+    magic: TILE_BITMAP_MAGIC,
+    major: 3,
+    minor: 0,
+    width: 1,
+    height: 1,
+    cells: [
+      { tile: "village.tst2", r: 0, g: 0, b: 0 },
+      { tile: "", r: 0, g: 0, b: 0 },
+      { tile: "", r: 0, g: 0, b: 0 },
+      { tile: "", r: 0, g: 0, b: 0 },
+    ],
+    residue: new Uint8Array(),
+  };
+  const animationBytes = writeTileAnimation(animation);
+  const bitmapBytes = writeTileBitmap(bitmap);
+  ok(animationBytes.ok);
+  ok(bitmapBytes.ok);
+  const s = await setup(exampleBoard(), createBrowserSession(), {
+    "Tiles/walk.tan": animationBytes.value,
+    "Bitmap/portrait.tbm": bitmapBytes.value,
+  });
+  await show(s);
+  const source = s.el.querySelector<HTMLSelectElement>("#tkr-tileset-source");
+  ok(source !== null);
+  await act(async () => {
+    source.value = "Tiles/walk.tan";
+    source.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const animationBrush = s.el.querySelector<HTMLButtonElement>(".tkr-tileset-browser-item button[aria-keyshortcuts='L']");
+  ok(animationBrush !== null && !animationBrush.disabled);
+  match(s.el.querySelector('[role="alert"]')?.textContent ?? "", /Animated tile: 1 frames at 5 ticks per frame/);
+  await act(() => animationBrush.click());
+  equal(s.browser.session.getSnapshot().selection?.reference, "walk.tan");
+  equal(s.doc.getSnapshot().dirty, false, "animation selection does not edit the board");
+
+  await act(async () => {
+    source.value = "Bitmap/portrait.tbm";
+    source.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+  });
+  for (let turn = 0; turn < 100 && s.el.querySelector<HTMLButtonElement>(".tkr-tileset-browser-item button[aria-keyshortcuts='L']")?.disabled !== true; turn += 1) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  const bitmapBrush = s.el.querySelector<HTMLButtonElement>(".tkr-tileset-browser-item button[aria-keyshortcuts='L']");
+  ok(bitmapBrush !== null && bitmapBrush.disabled, `a bitmap is available to browse but not as a board brush; source=${source.value}, options=${[...source.options].map((option) => option.value).join(",")}, item=${s.el.querySelector(".tkr-tileset-browser-item")?.textContent}, message=${s.el.querySelector(".tkr-tileset-browser-message")?.textContent}`);
+  match(s.el.querySelector(".tkr-tileset-browser-message")?.textContent ?? "", /Bitmap sources are browse-only/);
+  match(s.el.querySelector(".tkr-tileset-browser-note")?.textContent ?? "", /Source editing is unavailable until the P1 tile editor provider exists/);
+  equal(s.doc.getSnapshot().dirty, false);
 });
