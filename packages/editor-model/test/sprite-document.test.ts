@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { createDocumentIdentity, openSpriteDocument, spriteAnimationCanvasPreview, spriteAnimationPreview, spriteGifPreview, spritePicturePreview, spriteProjectAssetPath, spriteTileAnimationFirstFrame, spriteTileBitmapPreview, spriteTileBitmapPreviewFromAssets, spriteTileBitmapReferences, spriteTilePreview, type SpriteActorKind, type SpriteDocument } from "../src/index.ts";
-import { BinaryReader, readTileBitmap, writeTileBitmap } from "@tk-reawakened/core";
+import { actorInputFromCharacter, BinaryReader, createActorRecord, readCharacter, readTileBitmap, writeCharacter, writeTileBitmap } from "@tk-reawakened/core";
 import { exampleAnimation, exampleCharacter, exampleItem, examplePicture } from "./fixtures.ts";
 
 const COLLISION = { points: [{ x: -18, y: -16 }, { x: 18, y: -16 }, { x: 18, y: 0 }, { x: -18, y: 0 }] };
@@ -158,8 +158,54 @@ test("character authoring fields apply independently, undo and round-trip withou
   equal(saved.levelIncreases[3], 7);
   equal(saved.levelUpProgram, "Prg/levelup.prg");
   equal(saved.levelUpType, 1);
+  const runtimeCharacter = readCharacter(new BinaryReader(reopened.document.serialize()));
+  ok(runtimeCharacter.ok);
+  const runtimeActor = actorInputFromCharacter(path, "party", runtimeCharacter.value);
+  const actorRecord = createActorRecord(1, runtimeActor);
+  equal(actorRecord.stats.maxHp, saved.stats.maxHp);
+  equal(runtimeActor.stats.experience, saved.stats.experience);
+  equal(runtimeActor.progression.levelType, saved.firstLevelExp);
   deepEqual(reopened.document.serialize(), host.bytesOf(path));
   deepEqual(reopened.document.serialize().slice(-2), Uint8Array.of(0xa5, 0x5a), "untouched residue survives edits");
+});
+
+test("rejects runtime-invalid negative edits but preserves untouched legacy stats", async () => {
+  const { doc } = await open("character", "Chrs/negative-edits.tem", exampleCharacter());
+  const negativeEdits = [
+    { type: "set-character-stat", field: "experience", value: -1 },
+    { type: "set-character-stat", field: "level", value: -1 },
+    { type: "set-character-stat", field: "maxHp", value: -1 },
+    { type: "set-character-stat", field: "maxSmp", value: -1 },
+    { type: "set-character-growth", field: "firstLevelExp", value: -1 },
+    { type: "set-character-growth", field: "experienceIncrease", value: -1 },
+    { type: "set-character-growth", field: "maxLevel", value: -1 },
+    { type: "set-character-increase", index: 0, value: -1 },
+  ] as const;
+  for (const command of negativeEdits) {
+    const result = doc.apply(command);
+    ok(!result.ok, `${command.type} ${"field" in command ? command.field : ""} rejects a negative runtime value`);
+    equal(doc.getSnapshot().dirty, false);
+  }
+  apply(doc, { type: "set-character-stat", field: "hp", value: -1 });
+  apply(doc, { type: "set-character-stat", field: "dp", value: -2 });
+  apply(doc, { type: "set-character-stat", field: "fp", value: -3 });
+  apply(doc, { type: "set-character-stat", field: "smp", value: -4 });
+  const validNegativeStats = readCharacter(new BinaryReader(doc.serialize()));
+  ok(validNegativeStats.ok);
+  equal(createActorRecord(1, actorInputFromCharacter("Chrs/negative-edits.tem", "party", validNegativeStats.value)).stats.hp, -1);
+
+  const parsed = readCharacter(new BinaryReader(exampleCharacter()));
+  ok(parsed.ok);
+  const legacy = writeCharacter({ ...parsed.value, stats: { ...parsed.value.stats, experience: -5 } });
+  ok(legacy.ok);
+  const reopened = await open("character", "Chrs/legacy-negative.tem", legacy.value);
+  const invalidRepair = reopened.doc.apply({ type: "set-character-stat", field: "experience", value: -6 });
+  ok(!invalidRepair.ok);
+  apply(reopened.doc, { type: "set-character-text", field: "name", value: "Keep legacy value" });
+  ok((await reopened.doc.save()).ok);
+  const persisted = readCharacter(new BinaryReader(reopened.doc.serialize()));
+  ok(persisted.ok);
+  equal(persisted.value.stats.experience, -5);
 });
 
 test("character minor 3 bounds first-level experience to a byte and items expose no character contract", async () => {

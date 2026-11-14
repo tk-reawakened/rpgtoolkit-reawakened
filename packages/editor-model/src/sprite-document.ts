@@ -282,6 +282,13 @@ function invalidValue(model: SpriteActor, command: SpriteCommand): string | null
   if (command.type === "set-character-move" && command.index >= 201) return "Choose one of the 201 stored special-move slots.";
   if (command.type === "set-character-increase" && command.index >= 4) return "Choose one of the four level-increase fields.";
   if (command.type === "set-character-moves-enabled" && command.value !== 0 && command.value !== 1) return "Special-move flag must be 0 or 1.";
+  if (command.type === "set-character-stat" && (command.field === "experience" || command.field === "level" || command.field === "maxHp" || command.field === "maxSmp") && command.value < 0) {
+    return `${command.field} cannot be negative in actor runtime data.`;
+  }
+  if (command.type === "set-character-growth" && command.field !== "levelUpProgram" && command.field !== "levelUpType" && typeof command.value === "number" && command.value < 0) {
+    return `${command.field} cannot be negative in actor runtime data.`;
+  }
+  if (command.type === "set-character-increase" && command.value < 0) return "Level increases cannot be negative in actor runtime data.";
   if (command.type === "set-character-growth" && command.field === "levelUpType" && command.value !== 0 && command.value !== 1) return "Level-up type must be 0 (percentage) or 1 (fixed-point).";
   if (command.type === "set-sprite-animation") {
     const max = command.group === "walk" || command.group === "idle" ? 8 : command.group === "battle" ? (actorType(model) === "character" ? 5 : 1) : (model.customStances ?? []).length;
