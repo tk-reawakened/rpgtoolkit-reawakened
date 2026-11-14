@@ -273,6 +273,14 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
   const expectAutosave = async (value: string): Promise<void> => {
     await expect.poll(async () => {
+      try {
+        return new TextDecoder().decode(await host.readBacking(".vscode/tkr-autosave-command-complete"));
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+        throw error;
+      }
+    }, { message: `VS Code completed the autosave ${value} command` }).toBe(value);
+    await expect.poll(async () => {
       const settings = JSON.parse(new TextDecoder().decode(await host.readBacking(".vscode/settings.json"))) as Record<string, unknown>;
       return settings["files.autoSave"];
     }, { message: `VS Code persists files.autoSave=${value}` }).toBe(value);

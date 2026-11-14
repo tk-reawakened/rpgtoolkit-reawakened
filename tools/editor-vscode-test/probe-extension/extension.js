@@ -42,6 +42,12 @@ function activate(context) {
     const configuration = vscode.workspace.getConfiguration("files");
     await configuration.update("autoSave", value, vscode.ConfigurationTarget.Workspace);
     if (value !== "off") await configuration.update("autoSaveDelay", 1000, vscode.ConfigurationTarget.Workspace);
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.joinPath(workspace.uri, ".vscode", "tkr-autosave-command-complete"),
+      new TextEncoder().encode(value),
+    );
     console.info(`[vscode-web-proof-probe] files.autoSave=${String(configuration.get("autoSave"))} delay=${String(configuration.get("autoSaveDelay"))}`);
   };
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.enableAutosave", setAutosave("afterDelay")));
