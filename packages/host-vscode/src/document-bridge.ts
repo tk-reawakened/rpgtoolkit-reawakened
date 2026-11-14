@@ -1,5 +1,5 @@
-import { ASSET_FOLDERS, kindById, type AnyDocument, type AssetKind, type ApplyResult, type BoardPicture, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type PickOutcome, type SaveResult } from "@tk-reawakened/editor-model";
-import type { Capability, DirectoryEntry, PlatformResult } from "@tk-reawakened/platform-services";
+import { ASSET_FOLDERS, DEFAULT_EDITOR_PREFERENCES, kindById, type AnyDocument, type AssetKind, type ApplyResult, type BoardPicture, type BoardPreviewRequest, type EditorPreferences, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type PickOutcome, type SaveResult, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
+import { platformError, type Capability, type DirectoryEntry, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession, type BrowserState, type BrowserStatePatch } from "@tk-reawakened/editor-ui/browser-session";
 
 /** What a view asks to choose: an asset of `kind` for a field, accepting `extensions` (lower-case with the dot; empty accepts any). */
@@ -17,15 +17,38 @@ export type ReturnOutcome = { readonly ok: true; readonly path: string; readonly
 
 /** A snapshot as it crosses the bridge: plain data, whatever the kind (the kind says which fields it has). */
 export type BridgedSnapshot = DocumentSnapshot<unknown>;
+export function isSpriteSnapshot(snapshot: BridgedSnapshot, kind: string): snapshot is SpriteDocumentSnapshot {
+  const isStringList = (value: unknown): value is readonly string[] =>
+    Array.isArray(value) && value.every((entry: unknown) => typeof entry === "string");
+  const isBasePair = (value: unknown): boolean => value === null || (
+    Array.isArray(value) && value.length === 2 && value.every((base: unknown) =>
+      typeof base === "object" && base !== null && "points" in base && Array.isArray(base.points) && base.points.length >= 3
+      && base.points.every((point: unknown) => typeof point === "object" && point !== null && "x" in point && "y" in point
+        && typeof point.x === "number" && Number.isInteger(point.x) && typeof point.y === "number" && Number.isInteger(point.y)))
+  );
+  if (!("actorType" in snapshot) || snapshot.actorType !== kind || (kind !== "character" && kind !== "item")) return false;
+  if (!("actorName" in snapshot) || typeof snapshot.actorName !== "string" || !("minor" in snapshot) || typeof snapshot.minor !== "number" || !Number.isInteger(snapshot.minor)) return false;
+  const expectedBattleStances = kind === "character" ? snapshot.minor < 5 ? 0 : 5 : 1;
+  if (!("battleAnimations" in snapshot) || !isStringList(snapshot.battleAnimations) || snapshot.battleAnimations.length !== expectedBattleStances) return false;
+  if (!("customStances" in snapshot) || !Array.isArray(snapshot.customStances) || !snapshot.customStances.every((stance: unknown) =>
+    typeof stance === "object" && stance !== null && "handle" in stance && typeof stance.handle === "string"
+    && "animation" in stance && typeof stance.animation === "string")) return false;
+  if (!("speed" in snapshot) || (snapshot.speed !== null && typeof snapshot.speed !== "number")) return false;
+  if (!("idleTime" in snapshot) || (snapshot.idleTime !== null && typeof snapshot.idleTime !== "number")) return false;
+  if (!("vectorBases" in snapshot) || !isBasePair(snapshot.vectorBases)) return false;
+  return "graphicsUnavailable" in snapshot && (snapshot.graphicsUnavailable === null || typeof snapshot.graphicsUnavailable === "string");
+}
 
 export type BridgeMessage =
-  | { readonly type: "initialize"; readonly kind: string; readonly snapshot: BridgedSnapshot; readonly capabilities: readonly Capability[]; readonly browserState: BrowserState }
+  | { readonly type: "initialize"; readonly kind: string; readonly snapshot: BridgedSnapshot; readonly capabilities: readonly Capability[]; readonly browserState: BrowserState; readonly boardPreferences: EditorPreferences }
+  | { readonly type: "board-preferences"; readonly preferences: EditorPreferences }
   | { readonly type: "snapshot"; readonly snapshot: BridgedSnapshot }
   | { readonly type: "browser-state"; readonly changes: BrowserStatePatch }
   | { readonly type: "edit-result"; readonly requestId: string; readonly result: ApplyResult; readonly snapshot: BridgedSnapshot }
   | { readonly type: "save-result"; readonly requestId: string; readonly result: SaveResult; readonly snapshot: BridgedSnapshot }
   | { readonly type: "conflict-result"; readonly requestId: string; readonly result: ConflictResult; readonly snapshot: BridgedSnapshot }
   | { readonly type: "preview-result"; readonly requestId: string; readonly picture: BoardPicture }
+  | { readonly type: "read-project-result"; readonly requestId: string; readonly result: PlatformResult<Uint8Array> }
   | { readonly type: "visit-result"; readonly requestId: string; readonly outcome: VisitOutcome }
   | { readonly type: "return-result"; readonly requestId: string; readonly outcome: ReturnOutcome }
   | { readonly type: "pick-result"; readonly requestId: string; readonly outcome: PickOutcome }
@@ -37,7 +60,8 @@ export type EditorHostRequest =
   | { readonly type: "edit"; readonly command: unknown; readonly requestId: string }
   | { readonly type: "save"; readonly requestId: string }
   | { readonly type: "resolve-conflict"; readonly choice: ConflictChoice; readonly requestId: string }
-  | { readonly type: "preview"; readonly requestId: string }
+  | { readonly type: "preview"; readonly requestId: string; readonly request?: BoardPreviewRequest }
+  | { readonly type: "read-project"; readonly requestId: string; readonly path: string }
   | { readonly type: "visit"; readonly requestId: string; readonly path: string }
   | { readonly type: "return-visit"; readonly requestId: string }
   | { readonly type: "pick-asset"; readonly requestId: string; readonly request: AssetPickRequest }
@@ -57,11 +81,14 @@ export interface BridgedDocument {
   didEdit(editId: string): void;
   saveThroughWorkbench(): Promise<SaveResult>;
   resolveConflict(choice: ConflictChoice): Promise<ConflictResult>;
-  /** The picture of the board as the one compositor draws it from the project's files; only a board has one. */
-  preview(): Promise<BoardPicture>;
+  /** The picture of the board as the one compositor draws it from the project's files, with only the layers and background the request shows; only a board has one. */
+  preview(request?: BoardPreviewRequest): Promise<BoardPicture>;
+  /** The board-editor preferences in force for this document's project (T-33). */
+  boardPreferences(): EditorPreferences;
   visit(path: string): Promise<VisitOutcome>;
   returnFromVisit(): Promise<ReturnOutcome>;
   pickAsset(request: AssetPickRequest): Promise<PickOutcome>;
+  readProject(path: string): Promise<PlatformResult<Uint8Array>>;
 }
 
 /** Extension-host document actions are authoritative; UI saves enter VS Code's custom-editor lifecycle. */
@@ -77,6 +104,7 @@ export async function handleEditorHostRequest(
       snapshot: document.model.getSnapshot(),
       capabilities: document.capabilities,
       browserState: document.browserSession.getSnapshot(),
+      boardPreferences: document.boardPreferences(),
     });
   } else if (request.type === "browser-context") {
     applyBrowserStatePatch(document.browserSession, request.changes);
@@ -87,15 +115,17 @@ export async function handleEditorHostRequest(
   } else if (request.type === "edit") {
     // A command is data from a webview: it is applied only if it has the shape of this document's kind (never trust a webview).
     const result: ApplyResult = kindById(document.model.kind)?.isCommand(request.command) === true
-      ? document.model.apply(request.command)
+      ? document.model.apply(request.command as never)
       : { ok: false, rejection: { reason: "invalid", message: `That is not an edit this ${document.model.kind} document understands.` } };
     if (result.ok) document.didEdit(result.editId);
     await postMessage({ type: "edit-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
   } else if (request.type === "save") {
     const result = await document.saveThroughWorkbench();
     await postMessage({ type: "save-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
+  } else if (request.type === "read-project") {
+    await postMessage({ type: "read-project-result", requestId: request.requestId, result: await document.readProject(request.path) });
   } else if (request.type === "preview") {
-    await postMessage({ type: "preview-result", requestId: request.requestId, picture: await document.preview() });
+    await postMessage({ type: "preview-result", requestId: request.requestId, picture: await document.preview(request.request) });
   } else if (request.type === "visit") {
     await postMessage({ type: "visit-result", requestId: request.requestId, outcome: await document.visit(request.path) });
   } else if (request.type === "return-visit") {
@@ -114,6 +144,15 @@ function isAssetPickRequest(value: unknown): value is AssetPickRequest {
     && "kind" in value && typeof value.kind === "string" && Object.prototype.hasOwnProperty.call(ASSET_FOLDERS, value.kind)
     && "extensions" in value && Array.isArray(value.extensions) && value.extensions.every((extension) => typeof extension === "string")
     && "field" in value && typeof value.field === "string" && value.field !== "";
+}
+
+/** Whether a value from a webview asks for a picture the way `BoardPreviewRequest` says: layer numbers and a background flag, nothing else. */
+function isPreviewRequest(value: unknown): value is BoardPreviewRequest {
+  if (typeof value !== "object" || value === null) return false;
+  const layers = "visibleLayers" in value ? value.visibleLayers : undefined;
+  const background = "showBackground" in value ? value.showBackground : undefined;
+  const layersOk = layers === undefined || (Array.isArray(layers) && layers.length <= 1024 && layers.every((layer) => Number.isInteger(layer) && layer >= 0));
+  return layersOk && (background === undefined || typeof background === "boolean");
 }
 
 function isProjectPath(value: unknown): value is string {
@@ -160,11 +199,12 @@ export function isEditorHostRequest(value: unknown): value is EditorHostRequest 
   if (value.type === "browser-context") return "changes" in value && isBrowserStatePatch(value.changes);
   if (!("requestId" in value) || typeof value.requestId !== "string") return false;
   if (value.type === "browser-list" || value.type === "browser-read") return "path" in value && isProjectPath(value.path);
-  if (value.type === "save" || value.type === "preview" || value.type === "return-visit") return true;
+  if (value.type === "save" || value.type === "return-visit") return true;
+  if (value.type === "preview") return !("request" in value) || value.request === undefined || isPreviewRequest(value.request);
   if (value.type === "visit") return "path" in value && typeof value.path === "string" && value.path !== "";
   if (value.type === "pick-asset") return "request" in value && isAssetPickRequest(value.request);
   if (value.type === "resolve-conflict") return "choice" in value && (value.choice === "keep-local" || value.choice === "reload");
-  // The command's own shape is checked against the document's kind when it is applied.
+  if (value.type === "read-project") return "path" in value && typeof value.path === "string" && value.path !== "";
   return value.type === "edit" && "command" in value && typeof value.command === "object" && value.command !== null;
 }
 
@@ -181,14 +221,25 @@ export class RemoteDocument {
   private readonly pendingPreviews = new Map<string, (picture: BoardPicture) => void>();
   private readonly pendingVisits = new Map<string, (outcome: VisitOutcome) => void>();
   private readonly pendingReturns = new Map<string, (outcome: ReturnOutcome) => void>();
-  private readonly pendingPicks = new Map<string, (result: PickOutcome) => void>();
+  private readonly pendingProjectReads = new Map<string, (result: PlatformResult<Uint8Array>) => void>();
+  private readonly pendingPicks = new Map<string, (outcome: PickOutcome) => void>();
   private readonly pendingBrowserLists = new Map<string, (result: PlatformResult<readonly DirectoryEntry[]>) => void>();
   private readonly pendingBrowserReads = new Map<string, (result: PlatformResult<Uint8Array>) => void>();
   private nextRequest = 0;
   private readonly vscode: VscodeApi;
   private applyingBrowserState = false;
 
-  constructor(kind: string, snapshot: BridgedSnapshot, browserState: BrowserState, vscode: VscodeApi) {
+  /** The board-editor preferences the extension host last sent; a view reads them when it acts. */
+  readonly boardPreferences: { get(): EditorPreferences; subscribe(listener: () => void): () => void };
+  private preferences: EditorPreferences;
+  private readonly preferenceListeners = new Set<() => void>();
+
+  constructor(kind: string, snapshot: BridgedSnapshot, browserState: BrowserState, vscode: VscodeApi, preferences: EditorPreferences = DEFAULT_EDITOR_PREFERENCES) {
+    this.preferences = preferences;
+    this.boardPreferences = {
+      get: () => this.preferences,
+      subscribe: (listener) => { this.preferenceListeners.add(listener); return () => void this.preferenceListeners.delete(listener); },
+    };
     this.kind = kind;
     this.snapshot = snapshot;
     this.identity = snapshot.identity;
@@ -209,6 +260,14 @@ export class RemoteDocument {
       this.vscode.postMessage({ type: "edit", command, requestId });
     });
   }
+  readProject(projectId: string, path: string): Promise<PlatformResult<Uint8Array>> {
+    if (projectId !== this.identity.projectId) return Promise.resolve(platformError("unavailable", "The document's project is unavailable."));
+    const requestId = `read-project-${++this.nextRequest}`;
+    return new Promise((resolve) => {
+      this.pendingProjectReads.set(requestId, resolve);
+      this.vscode.postMessage({ type: "read-project", requestId, path });
+    });
+  }
 
   save(): Promise<SaveResult> {
     const requestId = `save-${++this.nextRequest}`;
@@ -221,11 +280,11 @@ export class RemoteDocument {
   }
 
   /** The board's picture, composed by the extension host from the project's files (the webview reads no files). */
-  preview(): Promise<BoardPicture> {
+  preview(request?: BoardPreviewRequest): Promise<BoardPicture> {
     const requestId = `preview-${++this.nextRequest}`;
     return new Promise((resolve) => {
       this.pendingPreviews.set(requestId, resolve);
-      this.vscode.postMessage({ type: "preview", requestId });
+      this.vscode.postMessage({ type: "preview", requestId, ...(request === undefined ? {} : { request }) });
     });
   }
 
@@ -280,6 +339,11 @@ export class RemoteDocument {
   }
 
   receive(message: BridgeMessage): void {
+    if (message.type === "board-preferences") {
+      this.preferences = message.preferences;
+      for (const listener of [...this.preferenceListeners]) listener();
+      return;
+    }
     if (message.type === "browser-state") {
       this.applyingBrowserState = true;
       try {
@@ -295,6 +359,10 @@ export class RemoteDocument {
     }
     if (message.type === "browser-read-result") {
       this.settle(this.pendingBrowserReads, message.requestId, message.result);
+      return;
+    }
+    if (message.type === "read-project-result") {
+      this.settle(this.pendingProjectReads, message.requestId, message.result);
       return;
     }
     if (message.type === "preview-result") {

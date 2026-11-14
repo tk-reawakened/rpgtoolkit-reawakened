@@ -33,6 +33,10 @@
       {
         "command": "tkr.refreshGame",
         "title": "RPG Toolkit: Refresh the Game view"
+      },
+      {
+        "command": "tkr.newBoard",
+        "title": "RPG Toolkit: New board"
       }
     ],
     "customEditors": [
@@ -42,6 +46,12 @@
         "selector": [
           {
             "filenamePattern": "*.gam"
+          },
+          {
+            "filenamePattern": "*.tem"
+          },
+          {
+            "filenamePattern": "*.itm"
           }
         ],
         "priority": "default"
@@ -169,6 +179,52 @@
           "type": "boolean",
           "default": true
         },
+        "rpgToolkit.board.new.coordSystem": {
+          "description": "New board: layout. The layout the new-board questions start with, which is the one you chose for your last new board.",
+          "scope": "window",
+          "type": "string",
+          "default": "2d",
+          "enum": [
+            "2d",
+            "iso-stacked",
+            "iso-rotated"
+          ],
+          "enumDescriptions": [
+            "Top-down (2D)",
+            "Isometric, stacked",
+            "Isometric, rotated"
+          ]
+        },
+        "rpgToolkit.board.new.pixelCoordinates": {
+          "description": "New board: use pixel coordinates. Whether the new-board questions start with pixel coordinates on, as in your last new board.",
+          "scope": "window",
+          "type": "boolean",
+          "default": false
+        },
+        "rpgToolkit.board.new.width": {
+          "description": "New board: width. The width in tiles the new-board questions start with.",
+          "scope": "window",
+          "type": "integer",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "rpgToolkit.board.new.height": {
+          "description": "New board: height. The height in tiles the new-board questions start with.",
+          "scope": "window",
+          "type": "integer",
+          "default": 15,
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "rpgToolkit.board.new.layers": {
+          "description": "New board: layers. The number of layers the new-board questions start with.",
+          "scope": "window",
+          "type": "integer",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 64
+        },
         "rpgToolkit.board.startLocationDisplay": {
           "description": "Show the player start. Where the board editor draws the player's start cross: only on the board the game begins on, or on every board. A game can set this for everyone who edits it.",
           "scope": "window",
@@ -239,6 +295,11 @@
         "rpgToolkit.board.showVectorPointIndices",
         "rpgToolkit.board.recursiveFlood",
         "rpgToolkit.board.showNewBoardDialog",
+        "rpgToolkit.board.new.coordSystem",
+        "rpgToolkit.board.new.pixelCoordinates",
+        "rpgToolkit.board.new.width",
+        "rpgToolkit.board.new.height",
+        "rpgToolkit.board.new.layers",
         "rpgToolkit.board.objectColor.program",
         "rpgToolkit.board.objectColor.item",
         "rpgToolkit.board.objectColor.sprite",

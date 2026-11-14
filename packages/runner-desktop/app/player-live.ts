@@ -92,7 +92,10 @@ async function play(host: DesktopHost, opened: { readonly name: string; readonly
   const session = await createLiveSession({
     audioArtifactHost: "desktop",
     interactive: true,
-    ...(debug === undefined || debug.drawVectorsFlags === 0 ? {} : { debug: { drawVectorsFlags: debug.drawVectorsFlags } }),
+    ...(debug === undefined ? {} : { debug: {
+      ...(debug.drawVectorsFlags === null ? {} : { drawVectorsFlags: debug.drawVectorsFlags }),
+      ...(debug.pathColor === null ? {} : { pathColor: debug.pathColor }),
+    } }),
     mainFile: pkg.main,
     gameIdentity: pkg.gameIdentity,
     files,
@@ -122,10 +125,10 @@ async function play(host: DesktopHost, opened: { readonly name: string; readonly
   window.__session = session;
   // The diagnostics strip is a runner feature, not a project setting: it appears only when this run asked for it.
   const diagnostics = debug?.diagnostics === true ? document.querySelector<HTMLElement>("#diagnostics") : null;
-  stopPlayer = run(session, canvas, status, { canvas, viewport }, viewport, diagnostics);
+  stopPlayer = run(session, canvas, status, { canvas, viewport }, viewport, diagnostics, debug?.forceFps === true);
 }
 
-function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElement, hostViewport: HostViewport, stage: HTMLElement, diagnostics: HTMLElement | null): () => void {
+function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElement, hostViewport: HostViewport, stage: HTMLElement, diagnostics: HTMLElement | null, forceFps: boolean): () => void {
   const stepMs = 1000 / 60;
   let previous = performance.now();
   let accumulator = 0;
@@ -263,7 +266,7 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
         const fps = titleFrames * 1_000 / (nowMs - titleWindowStart);
         titleFrames = 0;
         titleWindowStart = nowMs;
-        if (bar.showFps) document.title = formatTitleBar(bar, fps);
+        if (bar.showFps || forceFps) document.title = formatTitleBar(bar, fps);
       }
       if (diagnostics !== null && (updateTitle || diagnostics.textContent === "")) {
         const located = session.diagnostics();

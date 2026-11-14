@@ -117,13 +117,17 @@ async function beginStroke(page: Page, canvas: Locator, x: number, y: number, en
 
 async function openFile(page: Page, path: string): Promise<void> {
   const old = (await surface(primary(page)).elementHandles())[0];
-  await page.getByLabel("Project file").fill(path);
-  await page.getByRole("button", { name: "Open project file" }).click();
+  const parts = path.split("/");
+  for (const folder of parts.slice(0, -1)) {
+    const row = page.getByRole("treeitem", { name: `${folder}, folder, closed`, exact: true });
+    if (await row.count()) await row.press("ArrowRight");
+  }
+  const item = page.getByRole("treeitem", { name: new RegExp(`^${parts.at(-1)}(?:,|$)`) });
+  await item.dblclick();
   if (old !== undefined) {
     await expect.poll(() => old.evaluate((element) => !element.isConnected)).toBe(true);
     await old.dispose();
   }
-  await expect(primary(page).getByRole("heading", { name: "Tile artwork" })).toBeVisible();
 }
 
 async function setup(page: Page): Promise<string> {
@@ -258,7 +262,7 @@ test("actual browser art gestures stay private until accepted, share history, an
   const saved = changed(accepted, [{ x: 14, y: 15, rgba: green }]);
   await expect.poll(() => storedBytes(page, folder, "Tiles/art.tst")).toEqual(saved);
   await mirrorButton.click();
-  await expect(mirror).toHaveCount(0);
+  await expect(mirrorRoot).toBeHidden();
   await mirrorButton.click();
   await expect(mirror).toBeVisible();
   await expectPixel(page, mirror, 14, 15, green);
@@ -275,10 +279,10 @@ test("actual browser art gestures stay private until accepted, share history, an
   await openFile(page, "Tiles/art.tst");
   await expectPixel(page, surface(main), 14, 15, green);
   expect(await storedBytes(page, folder, "Tiles/art.tst")).toEqual(saved);
-  await page.getByLabel("Project file").fill("Notes/artist.txt");
-  await page.getByRole("button", { name: "Open project file" }).click();
-  await expect(page.locator("#host-status")).toContainText("Notes/artist.txt");
-  await expect(page.locator("#host-status")).not.toContainText(/TypeError|undefined/);
+  const notes = page.getByRole("treeitem", { name: "Notes, folder, closed", exact: true });
+  await notes.press("ArrowRight");
+  await page.getByRole("treeitem", { name: "artist.txt, cannot be opened here", exact: true }).dblclick();
+  await expect(page.locator(".tkr-files-message")).toContainText("artist.txt");
   await expectPixel(page, surface(main), 14, 15, green);
   expect(await storedBytes(page, folder, "Tiles/art.tst")).toEqual(saved);
   expect(await storedBytes(page, folder, "Main/example.gam")).toEqual(mainBytes);

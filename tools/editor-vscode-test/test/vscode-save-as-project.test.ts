@@ -101,7 +101,7 @@ function workspace(other: WorkspaceFolderLike<Uri> = BETA) {
     uriFor: () => { throw new Error("not used"); },
     openEditor: () => Promise.reject(new Error("not used")),
     quickPick: () => Promise.reject(new Error("not used")),
-    executeCommand: () => Promise.reject(new Error("not used")),
+    saveEditor: () => Promise.reject(new Error("not used")),
   }, (event) => { edits.push(event); });
 
   /** Open `path` and edit its title, as a user typing in the view would: the model accepts it and the workbench records it. */

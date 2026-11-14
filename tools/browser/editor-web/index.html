@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'">
     <link rel="stylesheet" href="./dist/tileset-browser.css">
-    <title>RPG Toolkit game settings</title>
+    <title>RPG Toolkit editor</title>
   </head>
   <body>
     <main>
-      <h1>RPG Toolkit game settings</h1>
-      <p>Open a project folder for direct writes, or open one game as a session copy.</p>
+      <h1>RPG Toolkit editor</h1>
+      <p>Open a project folder for direct writes, or open one game as a session copy. Use the Files panel to open other project documents.</p>
       <button id="open-project" type="button">Open project folder</button>
       <label for="open-session">Open .gam session copy</label>
       <input id="open-session" type="file" accept=".gam">
@@ -21,11 +21,7 @@
       <select id="project-game" hidden></select>
       <button id="open-selected-game" type="button" hidden>Open selected game</button>
       <div id="document-actions" role="toolbar" aria-label="Document" hidden>
-        <label for="project-file">Project file</label>
-        <input id="project-file" type="text">
-        <button id="open-file" type="button">Open project file</button>
         <button id="mirror-view" type="button" aria-pressed="false">Second view</button>
-        <button id="save-current" type="button">Save current</button>
         <button id="undo" type="button">Undo</button>
         <button id="redo" type="button">Redo</button>
         <button id="save-as" type="button">Save as…</button>
@@ -33,8 +29,8 @@
         <button id="revert" type="button">Revert</button>
         <button id="close" type="button">Close</button>
       </div>
-      <p id="host-status" role="status" aria-live="polite">No game open.</p>
-      <section id="settings" aria-label="Settings editor"></section>
+      <p id="host-status" role="status" aria-live="polite">No document open.</p>
+      <section id="settings" aria-label="Editor workbench"></section>
       <section id="mirror" aria-label="Second document view" hidden></section>
     </main>
     <script src="./dist/editor-web.js"></script>

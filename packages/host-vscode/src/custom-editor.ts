@@ -1,5 +1,5 @@
-import { createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
-import type { Capability, DialogService, FileSystemService } from "@tk-reawakened/platform-services";
+import { DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
+import type { Capability, DialogService, FileSystemService, PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
 import { handleEditorHostRequest, isEditorHostRequest, type AssetPickRequest, type BridgedDocument, type BridgeMessage, type ReturnOutcome, type VisitOutcome } from "./document-bridge.ts";
@@ -36,8 +36,8 @@ export interface GameEditorPort<Uri extends UriLike> {
   readBackup(id: string): Promise<Uint8Array>;
   writeBackup(destination: Uri, bytes: Uint8Array): Promise<string>;
   deleteBackup(destination: Uri): Promise<void>;
-  /** Run a workbench command on the active editor: `workbench.action.files.save` or `workbench.action.files.revert`. */
-  executeCommand(command: "workbench.action.files.save" | "workbench.action.files.revert"): Promise<unknown>;
+  /** Ask VS Code to save the editor for this URI, regardless of which editor has focus. */
+  saveEditor(uri: Uri): Promise<Uri | undefined>;
   /** The URI of the project-relative `path` in `folder`. */
   uriFor(folder: WorkspaceFolderLike<Uri>, path: string): Uri;
   /**
@@ -46,6 +46,10 @@ export interface GameEditorPort<Uri extends UriLike> {
    * a document the workbench is about to open (one model per identity, ADR 0022 D1.2).
    */
   openEditor(uri: Uri): Promise<void>;
+  /** The board-editor preferences (T-33) in force in `folder`, from the host's own settings; the catalogue's defaults when the port gives none. */
+  boardPreferences?(folder: WorkspaceFolderLike<Uri>): EditorPreferences;
+  /** Call `listener` when the settings that make `boardPreferences` change; the returned handle stops it. */
+  watchBoardPreferences?(folder: WorkspaceFolderLike<Uri>, listener: () => void): { dispose(): void };
   /** Show a pick list and resolve with the chosen item's id, or `undefined` when the user dismisses it. */
   quickPick(items: readonly { readonly id: string; readonly label: string; readonly description?: string }[], placeholder: string): Promise<string | undefined>;
 }
@@ -94,13 +98,19 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
 
   /** Hand an accepted edit to VS Code's undo stack; VS Code undoes it by its `editId` (AD-19). */
   didEdit(editId: string): void {
-    const label = this.model.getSnapshot().edits.find((edit) => edit.editId === editId)?.label ?? "Edit";
+    const label = this.model.getSnapshot().edits.find((edit: { readonly editId: string; readonly label: string }) => edit.editId === editId)?.label ?? "Edit";
     this.#fire({ document: this, label, undo: () => { this.model.undo(editId); }, redo: () => { this.model.redo(editId); } });
   }
 
   /** VS Code disposes a custom document when its last editor closes; the workbench has already asked about unsaved work. */
   dispose(): void {
     this.#workspace.release(this.model);
+  }
+
+  /** The board-editor preferences the webview reads (T-33). */
+  boardPreferences(): EditorPreferences {
+    const folder = this.#port.folderOf(this.uri);
+    return folder === undefined ? DEFAULT_EDITOR_PREFERENCES : this.#port.boardPreferences?.(folder) ?? DEFAULT_EDITOR_PREFERENCES;
   }
 
   /** Follow a link from this document to the file at `path` in a new editor, remembering where it came from (story 11.4). */
@@ -128,10 +138,14 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   }
 
   /** The picture of a board, composed here from the project's files by the one board compositor (AD-29); a webview reads no files. */
-  async preview(): Promise<BoardPicture> {
+  async preview(request?: BoardPreviewRequest): Promise<BoardPicture> {
     if (this.model.kind !== "board") return { ok: false, message: `A ${this.model.kind} document has no picture.` };
-    const preview = await previewBoard(this.#fs, this.model.identity.projectId, this.model.serialize());
+    const preview = await previewBoard(this.#fs, this.model.identity.projectId, this.model.serialize(), request);
     return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings } : preview;
+  }
+  /** Read a project-relative preview asset through this document's project-bound host filesystem. */
+  readProject(path: string): Promise<PlatformResult<Uint8Array>> {
+    return this.#fs.readProject(this.model.identity.projectId, path);
   }
 
   /**
@@ -171,8 +185,9 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   async saveThroughWorkbench(): Promise<SaveResult> {
     const path = this.model.identity.path;
     const before = this.#saves;
+    let accepted = false;
     try {
-      await this.#port.executeCommand("workbench.action.files.save");
+      accepted = (await this.#port.saveEditor(this.uri)) !== undefined;
     } catch (error) {
       // The provider's own failure when it ran (a refused write, or edits that kept outrunning it); otherwise VS Code's.
       if (this.#saves !== before && !this.#lastSave.ok) return this.#lastSave;
@@ -184,7 +199,8 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
         message: `Could not save ${path}: ${error instanceof Error ? error.message : String(error)}`,
       } };
     }
-    if (this.#saves === before) {
+    if (!accepted && this.#saves !== before && !this.#lastSave.ok) return this.#lastSave;
+    if (!accepted || this.#saves === before) {
       return { ok: false, failure: { document: path, kind: "write", code: null, message: `Could not save ${path}: VS Code did not save this custom document.` } };
     }
     return this.#lastSave;
@@ -385,6 +401,10 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const browserSubscription = document.browserSession.subscribe((changes) => {
         void webview.postMessage({ type: "browser-state", changes });
       });
+      const folder = port.folderOf(document.uri);
+      const preferenceWatch = folder === undefined ? undefined : port.watchBoardPreferences?.(folder, () => {
+        void webview.postMessage({ type: "board-preferences", preferences: document.boardPreferences() });
+      });
       const messages = webview.onDidReceiveMessage(async (message: unknown) => {
         if (!isEditorHostRequest(message)) return;
         await handleEditorHostRequest(document, message, (reply) => webview.postMessage(reply));
@@ -392,6 +412,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const disposal = webview.onDidDispose(() => {
         subscription();
         browserSubscription();
+        preferenceWatch?.dispose();
         messages.dispose();
         disposal.dispose();
       });

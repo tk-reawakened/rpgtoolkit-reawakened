@@ -1,9 +1,10 @@
-import { foldPath } from "@tk-reawakened/core";
-import { boardCodec, createBoardDocument, openBoardDocument, type BoardDocument } from "./board-document.ts";
+import { BinaryReader, foldPath, readCharacter, readItem } from "@tk-reawakened/core";
+import { boardCodec, createBoardDocument, openBoardDocument, type BoardCommand, type BoardDocument } from "./board-document.ts";
 import type { DocumentSnapshot, DocumentStorage, EditorDocument, OpenResult } from "./binary-document.ts";
+import { characterSpriteCodec, createSpriteDocument, openSpriteDocument, type SpriteCommand, type SpriteDocument } from "./sprite-document.ts";
 import type { DocumentIdentity } from "./identity.ts";
-import { createMainDocument, mainCodec, openMainDocument, type MainDocument } from "./main-document.ts";
-import { createTilesetArtDocument, openTilesetArtDocument, tilesetArtCodec } from "./tileset-art-document.ts";
+import { createMainDocument, mainCodec, openMainDocument, type MainCommand, type MainDocument } from "./main-document.ts";
+import { createTilesetArtDocument, openTilesetArtDocument, tilesetArtCodec, type TilesetArtCommand } from "./tileset-art-document.ts";
 
 /**
  * The registry of document kinds (ADR 0026 decisions 1, 2 and 9). A kind has an identifier, a label, the extensions it
@@ -13,8 +14,10 @@ import { createTilesetArtDocument, openTilesetArtDocument, tilesetArtCodec } fro
  * A kind's views are registered in `editor-ui`.
  */
 
-/** A document whose commands the caller does not know: the lifecycle surface every kind shares (ADR 0022 D1 to D3). */
-export type AnyDocument = EditorDocument<DocumentSnapshot<unknown>, unknown>;
+/** The command-data union; it keeps dynamic hosts typed without making commands `any`. */
+export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | TilesetArtCommand;
+/** A document whose concrete kind is checked before commands are applied. */
+export type AnyDocument = EditorDocument<DocumentSnapshot<AnyCommand>, AnyCommand>;
 
 /** What Toolkit 3 file the kind stands for, and which row of ADR 0022 D2 it follows. */
 export type StorageClass = "legacy-binary";
@@ -90,6 +93,21 @@ export const DOCUMENT_KINDS: readonly DocumentKind[] = [
     isCommand: tilesetArtCodec.isCommand,
     recoveryMarker: () => null,
   },
+  ...(["character", "item"] as const).map((id) => ({
+    id,
+    label: id === "character" ? "Character" : "Item",
+    description: id === "character" ? "A player character and its sprite graphics." : "An item and its board sprite graphics.",
+    extensions: [id === "character" ? ".tem" : ".itm"],
+    storage: "legacy-binary" as const,
+    open: (storage: DocumentStorage, identity: DocumentIdentity) => openSpriteDocument(id, storage, identity),
+    create: (storage: DocumentStorage, identity: DocumentIdentity, bytes: Uint8Array) => createSpriteDocument(id, storage, identity, bytes),
+    summarise: (bytes: Uint8Array, path: string) => {
+      const parsed = id === "character" ? readCharacter(new BinaryReader(bytes, path)) : readItem(new BinaryReader(bytes, path));
+      return parsed.ok ? `${id === "character" ? "Character" : "Item"}: ${parsed.value.name}` : null;
+    },
+    isCommand: characterSpriteCodec.isCommand,
+    recoveryMarker: () => null,
+  })),
 ];
 
 /** The extension of `path` ASCII-folded, with the dot; `""` when it has none. */
