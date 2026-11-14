@@ -16,6 +16,7 @@ import { AssetPickerView, type AssetPickerViewProps } from "./asset-picker-view.
 import { Shell, type ShellProps } from "./shell.tsx";
 import { RunView, type RunViewProps } from "./run-view.tsx";
 import { BoardView } from "./board-view.tsx";
+import { PreferencesView, type PreferencesViewProps } from "./preferences-view.tsx";
 import { SettingsView } from "./settings-view.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
@@ -104,4 +105,9 @@ export function mountAssetPicker(el: HTMLElement, props: AssetPickerViewProps): 
 /** Render the Run panel (T-07, T-41) into `el`, for a host page that shows it without the shell. */
 export function mountRun(el: HTMLElement, props: RunViewProps): ViewHandle {
   return mountElement(el, createElement(RunView, props));
+}
+
+/** Render the editor preferences into `el`. */
+export function mountPreferences(el: HTMLElement, props: PreferencesViewProps): ViewHandle {
+  return mountElement(el, createElement(PreferencesView, props));
 }
