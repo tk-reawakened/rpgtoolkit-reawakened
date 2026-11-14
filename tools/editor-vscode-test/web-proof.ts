@@ -1009,6 +1009,9 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
     let acknowledgementFailed = false;
     try {
       await runCommand(page, expect, "Test: Pause Autosave Off");
+      await expect.poll(() => readMarker("armed"), {
+        message: "VS Code armed the autosave-off completion barrier before Off is dispatched",
+      }).toBe("off");
       await runCommand(page, expect, "Test: Turn Autosave Off");
       let autosaveAcknowledged = false;
       acknowledgement = expectAutosave("off").then(
