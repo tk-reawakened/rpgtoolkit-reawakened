@@ -67,3 +67,15 @@ export function combineProofErrors(primary: unknown, cleanupErrors: readonly unk
   if (primary === undefined && additional.length === 0) return undefined;
   return new AggregateError(primary === undefined ? [...additional] : [primary, ...additional], "VS Code web proof or cleanup failed");
 }
+
+/** Report an incomplete settings write as a poll observation, not an aborted proof. */
+export function autosaveSetting(bytes: Uint8Array): unknown {
+  try {
+    const settings: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    if (settings === null || typeof settings !== "object" || Array.isArray(settings)) return "invalid settings JSON: expected an object";
+    return (settings as Record<string, unknown>)["files.autoSave"];
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return `invalid settings JSON: ${error.message}`;
+  }
+}

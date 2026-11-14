@@ -1,10 +1,12 @@
 import { Buffer } from "node:buffer";
-import { deepEqual, equal } from "node:assert/strict";
+import { deepEqual, equal, ok } from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { discoverProjectSpecs, runSpecProject } from "../src/index.ts";
+import { createAssetIndex, PACKAGE_ROOT } from "@tk-reawakened/core";
+import { discoverProjectSpecs, runSpecFile, runSpecProject } from "../src/index.ts";
+import type { SpecProgramLoader } from "../src/runner.ts";
 
 function writeProjectFile(root: string, path: string, source: string): void {
   const file = join(root, path);
@@ -97,6 +99,130 @@ test("project consumer resolves Prg includes and decodes project scripts as Wind
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("project thread programs run during cooperative waits but pause during blocking waits", () => {
+  const root = mkdtempSync(join(tmpdir(), "script-spec-project-thread-"));
+  try {
+    writeProjectFile(root, "Prg/worker.prg", [
+      "while (true) {",
+      "  ticked = ticked + 1",
+      "  threadSleep(getThreadId(), 1 / 60)",
+      "}",
+    ].join("\n"));
+    writeProjectFile(root, "thread.spec.prg", [
+      'it("runs project programs as threads", () => {',
+      "  ticked = 0",
+      "  inlineRan = 0",
+      '  workerId = thread("worker.prg", 0)',
+      '  inlineId = thread("inlineRan = 1", 0)',
+      "  specTicks(3)",
+      "  running = ticked",
+      "  sleep(3)",
+      "  expect(running).toBeTruthy()",
+      "  expect(ticked).toBe(running)",
+      "  expect(inlineRan).toBe(1)",
+      "  killThread(workerId)",
+      "  killThread(inlineId)",
+      "})",
+    ].join("\n"));
+
+    const report = runSpecProject(root);
+    equal(report.files[0]?.cases[0]?.ok, true);
+    deepEqual(report.failures, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("project thread load failures report, continue the caller, and register no thread", () => {
+  const root = mkdtempSync(join(tmpdir(), "script-spec-project-thread-load-"));
+  try {
+    const programDirectory = join(root, "Prg");
+    mkdirSync(programDirectory, { recursive: true });
+    writeFileSync(join(programDirectory, "compiled.prg"), Buffer.from([0]));
+    writeProjectFile(root, "Prg/malformed.prg", "if (\n");
+    writeProjectFile(root, "thread-load.spec.prg", [
+      'it("continues after load failures", () => {',
+      "  compiledId = 99",
+      '  compiledResult = thread("compiled.prg", 0, compiledId)',
+      "  compiledContinued = 1",
+      "  expect(compiledContinued).toBe(1)",
+      "  expect(compiledResult).toBe(0)",
+      "  expect(compiledId).toBe(0)",
+      "  expect(() => killThread(compiledResult)).toThrow()",
+      "  malformedId = 99",
+      '  malformedResult = thread("malformed.prg", 0, malformedId)',
+      "  malformedContinued = 1",
+      "  expect(malformedContinued).toBe(1)",
+      "  expect(malformedResult).toBe(0)",
+      "  expect(malformedId).toBe(0)",
+      "  expect(() => killThread(malformedResult)).toThrow()",
+      "})",
+    ].join("\n"));
+
+    const report = runSpecProject(root);
+    const result = report.files[0]?.cases[0];
+    ok(result);
+    equal(result.outcomes.filter((outcome) => outcome.kind === "pass").length, 8);
+    equal(result.outcomes.some((outcome) => outcome.actual.startsWith("program.compiled:")), true);
+    equal(result.outcomes.some((outcome) => outcome.actual.startsWith("syntax.error:")), true);
+    equal(result.outcomes.some((outcome) => outcome.actual.startsWith("spec.timeout:")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("inline thread preflight applies redirects before registration", () => {
+  const root = mkdtempSync(join(tmpdir(), "script-spec-project-thread-redirect-"));
+  try {
+    writeProjectFile(root, "Prg/broken.prg", "if (\n");
+    writeProjectFile(root, "thread-redirect.spec.prg", [
+      'it("preflights redirected inline code", () => {',
+      '  redirect("oldCall", "broken.missingFunction")',
+      "  threadId = 99",
+      '  result = thread("oldCall()", 0, threadId)',
+      "  continued = 1",
+      "  expect(continued).toBe(1)",
+      "  expect(result).toBe(0)",
+      "  expect(threadId).toBe(0)",
+      "  expect(() => killThread(result)).toThrow()",
+      "})",
+    ].join("\n"));
+
+    const report = runSpecProject(root);
+    const result = report.files[0]?.cases[0];
+    ok(result);
+    equal(result.outcomes.filter((outcome) => outcome.kind === "pass").length, 4);
+    equal(result.outcomes.some((outcome) => outcome.actual.startsWith("syntax.error:")), true);
+    equal(result.outcomes.some((outcome) => outcome.actual.startsWith("spec.timeout:")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("thread preflight reports an indexed program whose loader cannot read it", () => {
+  const loader: SpecProgramLoader = {
+    index: createAssetIndex(["Prg/unreadable.prg"]),
+    root: PACKAGE_ROOT,
+    read: () => undefined,
+  };
+  const report = runSpecFile("unreadable.spec.prg", [
+    'it("continues after a missing source read", () => {',
+    "  threadId = 99",
+    '  result = thread("unreadable.prg", 0, threadId)',
+    "  continued = 1",
+    "  expect(continued).toBe(1)",
+    "  expect(result).toBe(0)",
+    "  expect(threadId).toBe(0)",
+    "  expect(() => killThread(result)).toThrow()",
+    "})",
+  ].join("\n"), { loader });
+  const result = report.cases[0];
+  ok(result);
+  equal(result.outcomes.filter((outcome) => outcome.kind === "pass").length, 4);
+  equal(result.outcomes.some((outcome) => outcome.actual.startsWith("program.missing:")), true);
+  equal(result.outcomes.some((outcome) => outcome.actual.startsWith("spec.timeout:")), false);
 });
 
 test("package specs execute the manifest's real startup, not an unrelated Prg file", () => {
