@@ -1,8 +1,8 @@
 import { after, before, test } from "node:test";
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { createDocumentIdentity, openSpriteDocument, type ApplyResult, type SpriteCommand } from "@tk-reawakened/editor-model";
-import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
+import { createDocumentIdentity, openSpriteDocument, type ApplyResult, type PickOutcome, type SpriteCommand } from "@tk-reawakened/editor-model";
+import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import type { SpriteViewDocument } from "../src/sprite-view.tsx";
 import type { CharacterAuthoringViewProps } from "../src/character-authoring-view.tsx";
 import { exampleCharacter, exampleItem } from "./fixtures.ts";
@@ -31,24 +31,34 @@ interface Setup {
   readonly unmount: () => void;
 }
 
-async function setup(bytes: Uint8Array = exampleCharacter()): Promise<Setup> {
+async function setup(
+  bytes: Uint8Array = exampleCharacter(),
+  services: Pick<CharacterAuthoringViewProps, "pickAsset" | "visit"> = {},
+): Promise<Setup> {
   const host = createMemoryPlatformServices({ files: { "Chrs/hero.tem": bytes } });
   const opened = await openSpriteDocument("character", host.fs, createDocumentIdentity("memory-project", "Chrs/hero.tem"));
   if (!opened.ok) throw new Error(`could not open character: ${JSON.stringify(opened.error)}`);
   const el = document.createElement("div");
   document.body.append(el);
   let unmount = (): void => {};
+  await act(() => { unmount = renderView(el, { doc: opened.document, fs: host.fs, capabilities: host.capabilities, onEdited: () => {}, ...services }); });
   return { doc: opened.document, el, unmount };
 }
 
 async function editInput(el: HTMLElement, label: string, value: string): Promise<void> {
+  const input = el.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
+  if (input === null) throw new Error(`No input named ${label}`);
   await act(() => {
-    const input = el.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
-    if (input === null) throw new Error(`No input named ${label}`);
     input.value = value;
     input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new Event("blur", { bubbles: true }));
   });
+  await act(() => input.dispatchEvent(new Event("blur", { bubbles: true })));
+}
+
+async function clickButton(el: HTMLElement, label: string): Promise<void> {
+  const button = el.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+  if (button === null) throw new Error(`No button named ${label}`);
+  await act(() => button.click());
 }
 
 async function settle(): Promise<void> {
@@ -77,6 +87,10 @@ function deferred<T>(): Deferred<T> {
 test("character authoring edits bindings, starting stats, picture, move conditions, equipment and progression", async () => {
   const setupView = await setup();
   try {
+    const unavailablePicker = setupView.el.querySelector<HTMLButtonElement>('button[aria-label="Choose profile bitmap…"]');
+    ok(unavailablePicker);
+    equal(unavailablePicker.disabled, true);
+    ok(setupView.el.textContent?.includes("Asset picker unavailable here; enter a project reference above."));
     await editInput(setupView.el, "Character name", "Ariadne");
     await editInput(setupView.el, "Experience variable", "Hero[experience]!");
     await editInput(setupView.el, "Health (HP)", "125");
@@ -148,6 +162,89 @@ test("character authoring edits bindings, starting stats, picture, move conditio
     setupView.el.remove();
   }
 });
+test("project asset pickers leave cancelled references unchanged and support linked special-move authoring", async () => {
+  const requests: Array<Parameters<NonNullable<CharacterAuthoringViewProps["pickAsset"]>>[0]> = [];
+  const visited: string[] = [];
+  const outcomes: PickOutcome[] = [
+    { chosen: false },
+    { chosen: true, reference: "hero.bmp" },
+    { chosen: true, reference: "portrait.tan" },
+    { chosen: true, reference: "levelup.prg" },
+    { chosen: true, reference: "meteor.spc" },
+  ];
+  const setupView = await setup(exampleCharacter(), {
+    pickAsset: async (request) => {
+      requests.push(request);
+      const outcome = outcomes.shift();
+      if (outcome === undefined) throw new Error("unexpected asset picker request");
+      return outcome;
+    },
+    visit: async (path) => {
+      visited.push(path);
+      return { ok: true, path };
+    },
+  });
+  try {
+    const initialPicture = setupView.doc.getSnapshot().character?.profilePicture;
+    await clickButton(setupView.el, "Choose profile bitmap…");
+    await settle();
+    equal(setupView.doc.getSnapshot().character?.profilePicture, initialPicture);
+
+    await clickButton(setupView.el, "Choose profile bitmap…");
+    await settle();
+    equal(setupView.doc.getSnapshot().character?.profilePicture, "hero.bmp");
+    await clickButton(setupView.el, "Choose profile tile…");
+    await settle();
+    equal(setupView.doc.getSnapshot().character?.profilePicture, "portrait.tan");
+    await clickButton(setupView.el, "Choose level-up program");
+    await settle();
+    equal(setupView.doc.getSnapshot().character?.levelUpProgram, "levelup.prg");
+    await clickButton(setupView.el, "Open level-up program");
+    await settle();
+    const slot = setupView.el.querySelector<HTMLSelectElement>('select[aria-label="Special-move slot"]');
+    ok(slot);
+    await act(() => {
+      slot.value = "12";
+      slot.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await clickButton(setupView.el, "Choose special-move file…");
+    await settle();
+    equal(setupView.el.querySelector<HTMLInputElement>('input[aria-label="Special-move file"]')?.value, "meteor.spc");
+    await clickButton(setupView.el, "Apply special-move slot 12");
+    await settle();
+    equal(setupView.doc.getSnapshot().character?.specialMoves[12]?.file, "meteor.spc");
+    await clickButton(setupView.el, "Open special-move file");
+    await settle();
+
+    deepEqual(requests.map(({ kind, extensions }) => ({ kind, extensions })), [
+      { kind: "bitmaps", extensions: [".bmp", ".png", ".jpg", ".gif", ".tbm"] },
+      { kind: "tiles", extensions: [".tan", ".gph"] },
+      { kind: "programs", extensions: [".prg"] },
+      { kind: "specialMoves", extensions: [".spc"] },
+    ]);
+    deepEqual(visited, ["Prg/levelup.prg", "SpcMove/meteor.spc"]);
+  } finally {
+    setupView.unmount();
+    setupView.el.remove();
+  }
+});
+
+test("an asset picker result cannot replace a reference typed while the picker is open", async () => {
+  const gate = deferred<PickOutcome>();
+  const setupView = await setup(exampleCharacter(), { pickAsset: () => gate.promise });
+  try {
+    await clickButton(setupView.el, "Choose profile bitmap…");
+    await editInput(setupView.el, "Profile picture reference", "typed-while-open.bmp");
+    await act(() => gate.resolve({ chosen: true, reference: "picked.bmp" }));
+    await settle();
+    equal(setupView.doc.getSnapshot().character?.profilePicture, "typed-while-open.bmp");
+    equal(setupView.el.querySelector<HTMLInputElement>('input[aria-label="Profile picture reference"]')?.value, "typed-while-open.bmp");
+  } finally {
+    setupView.unmount();
+    setupView.el.remove();
+  }
+});
+
 
 test("a delayed acknowledgement preserves a newer character draft and distinct field edits", async () => {
   const setupView = await setup();
