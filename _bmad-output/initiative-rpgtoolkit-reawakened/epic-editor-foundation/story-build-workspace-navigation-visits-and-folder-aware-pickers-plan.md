@@ -2,7 +2,7 @@
 type: feature
 title: "Build workspace navigation visits and folder-aware pickers"
 ticket: 4
-status: draft
+status: done
 ---
 
 ## Scope
@@ -16,6 +16,8 @@ Keyboard users can show/hide/resize panels and navigate tabs, select or create w
 ## Verification
 
 Both hosts navigate one project from Game and Files, open one document from two routes, return from a linked visit, and safely copy an outside asset into its reserved folder.
+
+Completion: #1702 closed by merged PR #2288. At `4dce26b4`, `navigation-browser.test.ts` and `navigation-vscode.test.ts` passed the two-route, visit/return and outside-copy checks; `packages/editor-ui/test/shell.test.ts` and `packages/editor-model/test/asset-picker.test.ts` passed keyboard and explicit-confirmation checks.
 
 ## Decisions and prerequisites
 

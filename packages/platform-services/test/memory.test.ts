@@ -222,3 +222,28 @@ test("a case-only rename changes the stored case and keeps the content; a taken 
   equal(taken.ok, false);
   if (!taken.ok) equal(taken.error.code, "already-exists");
 });
+
+test("pickFile answers in turn with copies of the bytes, and cancels when none is left (T-05)", async () => {
+  const host = createMemoryPlatformServices();
+  const bytes = new Uint8Array([1, 2, 3]);
+  host.answerFilePicks({ name: "hero.png", bytes }, null);
+  const first = await host.dialogs.pickFile?.({ title: "Choose a picture", extensions: [".png"] });
+  deepEqual(first, { name: "hero.png", bytes: new Uint8Array([1, 2, 3]) });
+  bytes[0] = 9;
+  deepEqual(first?.bytes, new Uint8Array([1, 2, 3]), "the answer is a copy: the caller's array is not shared");
+  equal(await host.dialogs.pickFile?.({ title: "Again", extensions: [] }), null, "an answer of null cancels");
+  equal(await host.dialogs.pickFile?.({ title: "None left", extensions: [] }), null, "with none left a request is cancelled");
+  deepEqual(host.filePickRequests.map((request) => request.title), ["Choose a picture", "Again", "None left"]);
+});
+
+test("shell.openExternal records an existing project file and refuses a missing or malformed path", async () => {
+  const host = createMemoryPlatformServices({ files: { "Misc/readme.txt": new Uint8Array([1]) } });
+  ok((await host.shell?.openExternal("Misc/readme.txt"))?.ok);
+  const missing = await host.shell?.openExternal("Misc/none.txt");
+  ok(missing !== undefined && !missing.ok);
+  equal(missing.error.code, "not-found");
+  const bad = await host.shell?.openExternal("../outside.txt");
+  ok(bad !== undefined && !bad.ok);
+  equal(bad.error.code, "invalid-path");
+  deepEqual(host.openedExternally, ["Misc/readme.txt"]);
+});

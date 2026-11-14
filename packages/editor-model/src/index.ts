@@ -64,3 +64,64 @@ export {
   type WorkspaceOpenResult,
   type WorkspaceOptions,
 } from "./workspace.ts";
+export {
+  createAssetPicker,
+  type AssetPicker,
+  type AssetPickerOptions,
+  type AssetPickerSnapshot,
+  type PickOutcome,
+} from "./asset-picker.ts";
+export {
+  copyIntoReservedFolder,
+  linkFor,
+  listCandidates,
+  referencePath,
+  reservedFolder,
+  unusableName,
+  type AssetCandidate,
+  type CopyInResult,
+  type LinkOutcome,
+  type ListFailure,
+  type ProjectLayout,
+} from "./reserved-folders.ts";
+export {
+  createProjectTree,
+  listGame,
+  type GameGroup,
+  type ProjectTree,
+  type ProjectTreeOptions,
+  type TreeOpenResult,
+  type TreeOperationResult,
+  type TreeRow,
+  type TreeSnapshot,
+} from "./project-tree.ts";
+export { createVisits, type ReturnResult, type VisitEntry, type VisitResult, type VisitSnapshot, type Visits } from "./visits.ts";
+export {
+  createLayoutModel,
+  PANEL_SIZE_STEP,
+  type DockSide,
+  type LayoutModel,
+  type PanelDefinition,
+  type PanelState,
+  type SavedLayout,
+} from "./layout.ts";
+export { createTabs, type TabsSnapshot, type TabState, type Tabs } from "./tabs.ts";
+export { ASSET_FOLDERS, type AssetKind } from "@tk-reawakened/core";
+export {
+  createPreferences,
+  PREFERENCE_CATALOGUE,
+  preferenceById,
+  validatePreference,
+  vscodeContributions,
+  type PreferenceEntry,
+  type PreferenceProblem,
+  type PreferenceResult,
+  type PreferenceRow,
+  type PreferenceSource,
+  type PreferenceType,
+  type PreferenceValidation,
+  type Preferences,
+  type PreferencesOptions,
+  type PreferencesSnapshot,
+  type VscodeConfiguration,
+} from "./preferences.ts";

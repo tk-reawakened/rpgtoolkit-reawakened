@@ -24,7 +24,11 @@ export type Capability =
   /** The host can save the active conflicted document after the user chooses to keep its version. */
   | "conflictAutoSave"
   /** The host has source control to show (ADR 0022 D13.1). */
-  | "scm";
+  | "scm"
+  /** `shell.openExternal` works: the host can hand a project file to the operating system's default application (T-03). */
+  | "openExternal"
+  /** `dialogs.pickFile` works: the host can let the user choose a file from outside the project (T-05). */
+  | "pickFile";
 
 /** The set of capabilities a host declares. */
 export type Capabilities = ReadonlySet<Capability>;
@@ -98,6 +102,20 @@ export interface SavePathRequest {
   readonly suggested: string;
 }
 
+/** What `dialogs.pickFile` is asked. */
+export interface FilePickRequest {
+  /** What the user is choosing, in words for the dialog's title. */
+  readonly title: string;
+  /** Lower-case extensions with the dot that the dialog offers first (`[".png", ".bmp"]`); the user may still see others. */
+  readonly extensions: readonly string[];
+}
+
+/** A file the user chose from outside the project: its name as the host gave it, and its bytes. */
+export interface OutsideFile {
+  readonly name: string;
+  readonly bytes: Uint8Array;
+}
+
 /**
  * The `dialogs` surface of AD-20. Every host shows its own native or page dialog; `editor-model` and `editor-ui` only
  * ask. A dialog never decides on its own: dismissing it answers the question's `cancel`.
@@ -107,13 +125,27 @@ export interface DialogService {
   ask<Id extends string>(question: DialogQuestion<Id>): Promise<Id>;
   /** Ask for the project-relative path to save a copy to (Save As, ADR 0022 D3.4); `null` when the user cancels. */
   pickSavePath(request: SavePathRequest): Promise<string | null>;
+  /**
+   * Ask the user to choose a file from outside the project and read it (T-05); `null` when the user cancels. Present only
+   * on a host that declares the `pickFile` capability; a caller checks the capability and says so when it is missing.
+   */
+  pickFile?(request: FilePickRequest): Promise<OutsideFile | null>;
+}
+
+/** The `shell` surface of AD-20, as far as story 11.4 needs it. */
+export interface ShellService {
+  /**
+   * Open the project file at `path` in the operating system's default application (T-03: a file that is not a Toolkit
+   * document). `unavailable` when the host cannot; present only with the `openExternal` capability.
+   */
+  openExternal(path: string): Promise<PlatformResult<void>>;
 }
 
 /**
  * The part of AD-20 that stories 11.17 and 11.3 need: `capabilities`, `fs`, `project`, `settings`, `document` and
  * `dialogs`.
  *
- * AD-20 also lists `run`, `export`, `clipboard`, `language.connect()` and `shell.openExternal`. They are not declared
+ * AD-20 also lists `run`, `export`, `clipboard` and `language.connect()` (`shell.openExternal` is declared, for 11.4). They are not declared
  * yet: AD-20 names their methods but not their parameters, and the entries that first use them (11.9 run, 11.14 export,
  * the program editor's language client) fix those shapes against a real caller. A host that implements this interface
  * is not asked for them until then.
@@ -125,4 +157,6 @@ export interface PlatformServices {
   readonly settings: SettingsService;
   readonly document: DocumentService;
   readonly dialogs: DialogService;
+  /** Present when the host declares `openExternal`. */
+  readonly shell?: ShellService;
 }
