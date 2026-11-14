@@ -9,7 +9,7 @@ This evidence separates a rights-cleared generic blob mapping from the still-unp
 - Three files from two OpenGameArt listings were acquired for inspection; both source pages identify their associated works as CC0-1.0.
 - Guy's 2014 sample documents an eight-bit neighbour mask and shows a packed 7×8 sheet with mask labels. Independent image review confirms 47 distinct canonical masks and nine duplicate packing slots. An earlier transcription misread row 6, column 2 as 85; the source reads 95.
 - Ultrahuntr's 2023 CC0 template is a useful counterexample to treating every 47-like sheet as the same order; the image has no per-cell mask labels and a commenter explicitly asks what a group of corners means. It does not establish a variant order.
-- The generic CC0 samples do not establish Toolkit compatibility. The existing fixture manifest pins six games from `tk-reawakened/ludotheque` and the `demo`/`Basic` games from `chrisbmatthews/rpgtoolkit`. The Ludotheque README describes interoperability/testing research while retaining author copyright; the Basic tileset's `base EULA.txt` is an uncompleted template. Research observation under the documented fixture route is distinct from redistributing or admitting artwork. No game artwork from either fixture repository was inspected in this evidence round, so no Toolkit-specific mapping is established.
+- The generic CC0 samples do not establish Toolkit compatibility. The pinned fixture manifest includes six games from `tk-reawakened/ludotheque` and the `demo`/`Basic` games from `chrisbmatthews/rpgtoolkit`. The Ludotheque README describes interoperability/testing research while retaining author copyright; the Basic tileset's `base EULA.txt` is an uncompleted template. A follow-up inspected selected pinned game tilesets and board data using the documented fixture route, without reading engine source or committing artwork. It establishes only partial placed-edge evidence; no complete Toolkit-specific mapping is established.
 
 ## Acquired sample inventory and rights
 
@@ -26,7 +26,82 @@ The repository pins a research starting point in [`tools/fixtures/sources.json`]
 
 The [Ludotheque README at the pinned revision](https://github.com/tk-reawakened/ludotheque/blob/0489f5da225438f8fcd62d958711dc7bad7e8207/README.md) retains author copyright and expressly describes non-commercial preservation, engine interoperability and automated regression testing. It grants no blanket artwork reuse license. The Basic sample's [`Tiles/base EULA.txt` at the pinned revision](https://github.com/chrisbmatthews/rpgtoolkit/blob/9191b9191c9bda0998c6faae16929b3331ed2ead/build/game/Basic/Tiles/base%20EULA.txt) is an uncompleted template, not a sample-specific grant. Missing redistribution permission does not establish an inspection prohibition. Record exact sample identities, provenance and research observations separately from permissions needed to reproduce or ship any artwork.
 
-Next identify a concrete Toolkit-community sample and inspect its functional ordering through the documented fixture-research route where applicable, without consulting engine source or committing the artwork. Record origin, hashes, attribution and the basis for that use; obtain any further permissions needed before reproducing or admitting assets. The rights-cleared sample and human-approved mapping acceptance gate remains in force; it is not a reason to invent a prohibition on all fixture observation.
+The fixture-data follow-up below finds partial placed-case evidence, but no author-declared complete sample order. It does not satisfy the rights-cleared sample or human-approved mapping gate.
+
+## Pinned community-data observations
+
+### Provenance and permission
+
+Functional observations below were made from the fixture directories fetched by the repository's documented `tools/fixtures/fetch.mjs` route, using the exact pins in [`tools/fixtures/sources.json`](../../tools/fixtures/sources.json). The Ludotheque source is commit [`0489f5da225438f8fcd62d958711dc7bad7e8207`](https://github.com/tk-reawakened/ludotheque/tree/0489f5da225438f8fcd62d958711dc7bad7e8207); the Toolkit sample-data source is commit [`9191b9191c9bda0998c6faae16929b3331ed2ead`](https://github.com/chrisbmatthews/rpgtoolkit/tree/9191b9191c9bda0998c6faae16929b3331ed2ead), fetched only below `build/game/`. The pinned Ludotheque README says that game assets remain their original authors' copyrighted property and describes non-commercial historical preservation, interoperability and regression testing. Its per-game notes identify Final Destiny as Christopher B. Matthews' 2002 game recovered from Internet Archive; School's Out 2 as Phred's game recovered from mysticsoftware.net; Caoquest as a community game recovered from mysticsoftware.net; and Chimeran Empire as Hyren's game recovered from mysticsoftware.net. The Toolkit `Basic/Tiles/base EULA.txt` at its pinned revision is a placeholder template, not a license for `default.tst`. These origins and the fixture-fetch route support functional observation; they do **not** grant artwork redistribution or shipping rights. No artwork or whole game is included here.
+
+### Sample and observed placements
+
+| Pinned data | Evidence and full SHA-256 | What it establishes / does not establish |
+|---|---|---|
+| Final Destiny `Tiles/default.tst` and `Boards/Water and Bridge.brd` | Tileset `c0afe3a346c9b26c888970a9f26dfca4adc7c4901f430e01aa602dcdfdf7a01d`; board `99c222766c1fb497a8d6539ab2774dfd8e73eb5023e50e0fbc3fd83e041b11d9`. | The 143-tile, detail-1 set and 19×11×8 board are parseable under the documented format. On layer 1, `default.tst63` is placed at x=8, y=1–5 and 7–11; `default.tst62` at x=12, y=1–5 and 7–11; `default.tst2` fills x=9–11 at those same ten rows; and `default.tst83` crosses x=8–12 at y=6. Indexed imagery and the board scene independently confirm the west/east straight shoreline edges and one three-tile channel with a crossing. This does not establish a full mask order. |
+| School's Out 2 Demo `Tiles/terrain_set.tst` and `Boards/Overworld.brd` | Tileset `5ea10bc6a4b8188a841ff0e2651fabe395a920bee60a9b7bef8ff46787e00dfe`; board `a5ba5a1e4e17d9cc9f0e650c84122ae7190b63a3e9a7b5168dfcd57c0f8d18ea`. | The board has 19 layer-1 references spanning 15 distinct terrain-set indices: `106:1, 108:1, 116:1, 117:1, 118:1, 122:1, 123:1, 125:1, 126:3, 128:2, 131:1, 132:2, 133:1, 198:1, 199:1`. This corrects the earlier count/list discrepancy tracked by [#2408](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2408). The observed subset is not a complete or documented 47-neighbour order. |
+| Caoquest `Tiles/Forest_Set.tst` and `Tiles/castle_set_1.tst` | `Forest_Set.tst` `016567c1cb89459267e3b7dd8b43caf86124bab85449706164e70666840d4fff`; `castle_set_1.tst` `4d11e020f25d0b552f0ea1d48c4a125e9d153063c1c304435613ba1cab6741fb`. | Board data contains literal indexed tile placements, but the pinned game includes no documentation declaring an auto-tiling order. |
+| Chimeran Empire `Tiles/RPGMaker954.tst` and `Boards/Beach 1.brd` | `RPGMaker954.tst` `e9743f1eda420928e5136f717dd29521c6c128e5a6eefbcadebc5c72ea682aad`; `Beach 1.brd` `433c183764fe070115234560c148dde4caa2fc9aaa53ce8ed98c40c777f44ac9`. | The sheet contains water/shore imagery, but Beach 1 references RPGMaker951 and `Beach East.tan`; the `.tan` format specifies animation frame references, not a neighbour map. No ordering evidence follows from this sheet alone. |
+| Toolkit `Basic` and `demo` `Tiles/default.tst` | Both identical at SHA-256 `f5f17032bb6001744989d6d4ca296b9e4b700ac70da860de93d3f47e92e24374`. | These are 140-tile fixture versions; the Basic EULA is a placeholder. Neither set supplies a sample-specific permission or ordering declaration. |
+
+The complete fixture acquisition is reproducible from the repository root:
+
+```sh
+samples="$(mktemp -d)"
+node tools/fixtures/fetch.mjs "$samples"
+```
+
+The following read-only Python command expands the documented minor-2/3 board cell runs, resolves LUT indices to tile filenames, and prints the exact placements/counts above. It reads the fetched game data and the repository's spec-derived reader; it does not open engine source:
+
+```sh
+python3 - "$samples/fixtures/legacy" <<'PY'
+import re, sys
+from collections import Counter
+from pathlib import Path
+sys.path.insert(0, "docs/spec/tools")
+import rpgtk_formats as fmt
+root = Path(sys.argv[1])
+
+def board(relative):
+    reader = fmt.Reader((root / relative).read_bytes(), relative)
+    fmt.parse_brd(reader)
+    trace = reader.trace
+    value = lambda name: next(v for _, _, f, v in trace if f == name)
+    sx, sy, sl = (value(k) for k in ("sizeX", "sizeY", "sizeL"))
+    lut = []
+    for _, _, field, val in trace:
+        m = re.fullmatch(r"LUT\[(\d+)\]", field)
+        if m:
+            i = int(m[1])
+            while len(lut) <= i: lut.append("")
+            lut[i] = val
+    cells = []
+    for i, (_, _, field, val) in enumerate(trace):
+        if re.fullmatch(r"cell \d+", field):
+            cells.extend([trace[i + 1][3]] * -val if val < 0 else [val])
+    assert len(cells) == sx * sy * sl
+    return sx, sy, lut, cells
+
+for file, pattern in (
+    ("FinalDestiny/Boards/Water and Bridge.brd", r"default\.tst(\d+)"),
+    ("School2Demo/Boards/Overworld.brd", r"terrain_set\.tst(\d+)"),
+):
+    sx, sy, lut, cells = board(file)
+    hits = []
+    for z, slot in enumerate(cells[:sx * sy]):
+        m = re.fullmatch(pattern, lut[slot], re.I) if 0 <= slot < len(lut) else None
+        if m: hits.append((int(m[1]), z % sx + 1, z // sx + 1))
+    print(file, "layer-1 references:", len(hits),
+          "distinct indices:", len({tile for tile, _, _ in hits}))
+    print("index counts:", dict(sorted(Counter(tile for tile, _, _ in hits).items())))
+    if file.startswith("FinalDestiny/"):
+        for tile in (2, 62, 63, 83):
+            print(f"default.tst{tile} placements:",
+                  [(x, y) for n, x, y in hits if n == tile])
+PY
+```
+
+The samples provide only the placements stated above. In particular, the Final Destiny board does not place the artwork's island/corner-looking variants, and the other pinned data has no author-declared full lookup table. We do not infer corner gating, island, inner/outer-corner or junction masks from generic blob ordering or from appearance alone.
 
 ## Mapping contract and complete generic candidate
 
@@ -85,11 +160,11 @@ The accompanying `commune_1.png` image illustrates the terrain artwork in the sa
 
 The current evidence answers: “What is one published, CC0 blob-mask convention, and what would its generic ascending-mask IDs mean?” It does **not** answer: “What order do the relevant Toolkit community auto-tile samples use?” The user-facing T-25 description says sample-set ordering is required for compatibility; the general 47-mask rule is not a substitute.
 
-**Recommendation:** retain the ascending-mask list as a named generic candidate and the corrected 7×8 diagram as a generic indexed reference. Do not bake either into the legacy mapping or mark #1733 unblocked. Investigate specific Toolkit-community samples through the documented fixture route, recording exact set/version, origin, research-use basis, any redistribution permissions, image/metadata hashes, cell geometry, slot assignments and independently checked scenes. Preserve every disagreement with the generic reference. If eligible evidence cannot be acquired, retain the blocker and request an owner ruling rather than inferring a waiver of legacy parity.
+- **Recommendation:** retain the ascending-mask list as a named generic candidate and the corrected 7×8 diagram as a generic indexed reference. The pinned game-data survey below establishes only partial edge placement, not a full community order. Do not bake either generic candidate into the legacy mapping or mark #1733 unblocked. The missing sample-derived mapping and human approval remain explicit blockers; do not infer a waiver of legacy parity.
 
 ### Human approval still required
 
-A reviewer/owner must approve whether a concrete sample's provenance and rights satisfy the acceptance requirement and approve its independently established Toolkit index mapping, or leave implementation blocked. The generic diagram no longer has an unresolved completeness discrepancy. This report records no Toolkit mapping approval; 13.8 remains blocked on 13.7.
+A reviewer/owner must approve whether the pinned sample provenance and available permissions satisfy the acceptance requirement, and approve a complete independently established Toolkit index-to-neighbour mapping; alternatively, a rights-cleared sample with that evidence must be acquired. The fixture route permits functional observation but is not an artwork license. The generic diagram is complete only as a generic mask transcription; this report records no Toolkit mapping approval. Story 13.7 remains incomplete and 13.8 remains blocked.
 
 ## References
 
