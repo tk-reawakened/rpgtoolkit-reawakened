@@ -59,6 +59,8 @@ The editor's script test-runner differs: on overflow it waits for a key and clea
 
 **Debug drawing** (main file `drawVectors`): outlines of board vectors, sprite polygons, paths and destinations, drawn over the game.
 
+**Desktop per-run debug options (E-05; story 9.32).** A player can enable the FPS title with `--fps`, select overlay kinds with `--debug board,sprite,path,destination`, and set their colour with `--debug-colour '#rrggbb'` (six hexadecimal digits; quote the value in shells where `#` starts a comment). When launching through Electron, put `--` before `--debug` so Electron does not consume it as Node's obsolete debug flag. The existing individual `--debug-vectors`, `--debug-sprites`, `--debug-path` and `--debug-destination` switches select the same respective kinds; selections supplied together, including repeated `--debug` options, are combined. If the colour option is repeated, its last value wins. If no overlay selection is supplied, the main file's overlay mask remains the default; otherwise the selected mask replaces it for this run. If `--fps` or `--debug-colour` is absent, the corresponding main-file value remains the default. Invalid or missing `--debug` and `--debug-colour` values are refused rather than silently ignored. None of these options changes the game file, including after a later game save.
+
 ## Input
 
 | Input | Effect |

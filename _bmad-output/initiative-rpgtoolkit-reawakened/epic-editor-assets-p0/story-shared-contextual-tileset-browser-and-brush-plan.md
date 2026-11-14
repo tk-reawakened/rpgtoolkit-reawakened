@@ -2,7 +2,7 @@
 type: feature
 title: "Shared contextual tileset browser and brush"
 ticket: 2
-status: built
+status: done
 ---
 
 # Shared contextual tileset browser and brush
