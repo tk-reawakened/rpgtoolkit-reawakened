@@ -275,6 +275,54 @@ function continuedCodeRows(lines: readonly string[], lookup: Tk2CommandLookup | 
   return rows;
 }
 
+/** Lower inline ReturnMethod at statement boundaries without touching literals or comments. */
+function lowerInlineReturns(text: string): string {
+  if (!/\breturnmethod\b/i.test(text)) return text;
+  let result = "";
+  let copied = 0;
+  let statement = false;
+  for (let i = 0; i < text.length;) {
+    const char = text[i]!;
+    if (char === '"') {
+      i += 1;
+      while (i < text.length && text[i] !== '"' && text[i] !== "\n") i += 1;
+      if (text[i] === '"') i += 1;
+      statement = false;
+    } else if ((char === "/" && text[i + 1] === "/") || (char === "*" && text[i + 1] === "*")) {
+      while (i < text.length && text[i] !== "\n") i += 1;
+    } else if (char === "/" && text[i + 1] === "*") {
+      i += 2;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i += 1;
+      if (i < text.length) i += 2;
+    } else if (char === "\n") {
+      statement = false;
+      i += 1;
+    } else if (/\s/.test(char)) {
+      i += 1;
+    } else if (char === "{" || char === ";") {
+      statement = true;
+      i += 1;
+    } else if (/[A-Za-z_]/.test(char)) {
+      const start = i;
+      i += 1;
+      while (i < text.length && /[A-Za-z0-9_]/.test(text[i]!)) i += 1;
+      if (statement && text.slice(start, i).toLowerCase() === "returnmethod") {
+        let next = i;
+        while (next < text.length && (text[next] === " " || text[next] === "\t")) next += 1;
+        if (text[next] === "(") {
+          result += text.slice(copied, start) + "return";
+          copied = i;
+        }
+      }
+      statement = false;
+    } else {
+      statement = false;
+      i += 1;
+    }
+  }
+  return copied === 0 ? text : result + text.slice(copied);
+}
+
 function normaliseTk2Internal(text: string, lookup: Tk2CommandLookup | undefined, literals: Map<number, string> | null): string {
   const codeWithoutStrings = text.replace(/"[^"\n]*"/g, "");
   if (/^\s*#?\s*if\b[^\n]*\bthen\s*<|^\s*<(?=[#\s]|$)|^\s*>\s*$/im.test(codeWithoutStrings)) {
@@ -282,12 +330,12 @@ function normaliseTk2Internal(text: string, lookup: Tk2CommandLookup | undefined
   }
   const lines = text.split("\n");
   const continued = continuedCodeRows(lines, lookup);
-  return lines.map((line, index) => normaliseLine(line, lookup, (value) => {
+  return lowerInlineReturns(lines.map((line, index) => normaliseLine(line, lookup, (value) => {
     if (literals === null) {
       throw new ScriptError("syntax.unsupported", "Cannot convert loose dialogue containing a double quote: 3.1 has no unshadowable quote literal encoding (LEX-8).", { file: "", line: index + 1 });
     }
     literals.set(index + 1, value);
-  }, continued.has(index))).join("\n");
+  }, continued.has(index))).join("\n"));
 }
 
 /** Convert TK2 source into equivalent 3.1 source, or report an unrepresentable literal. */

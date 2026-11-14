@@ -1,7 +1,7 @@
 ---
 title: 'RPGCode line coverage'
 type: 'bugfix'
-ticket: '#2041'
+ticket: 2041
 created: '2026-11-11'
 status: 'in-review'
 baseline_revision: 'f06ab8af36d5b8763d593ada6ad9831b2485df7b'

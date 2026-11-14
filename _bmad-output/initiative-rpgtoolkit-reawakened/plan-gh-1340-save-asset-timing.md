@@ -1,7 +1,7 @@
 ---
 title: 'Preserve shared asset readiness across Save and Load (#1340)'
 type: 'bugfix'
-ticket: ''
+ticket: 1340
 tracker_id: '#1340'
 created: '2026-11-07'
 status: 'built'

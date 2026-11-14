@@ -138,6 +138,9 @@ Random-encounter evaluation belongs to `triggers`, after a completed whole-tile 
 
 **Reawakened rule (OWNER; battle return audio; Jensen, 2026-10-26).** The battle lifecycle queues `battleEnded` from `threads` only after outcome handling completes. The existing `events` phase delivers it before later phases; the engine re-exposes the active board and emits `boardReturned` with that board's key in the same event phase. This is a return to the still-active board, not a board transition or an `entered` event. The board/audio owner reads `bkgMusic` directly from the active board and posts `music.play` (source `board`, including a null request for a silent board) before the later `audio` phase. No new phase is added, and no lookup by `battle.boardKey` occurs.
 
+**Completed-tick observation (test and diagnostic runners).** An engine may be initialized with an optional tick observer. After each completed fixed tick, the engine synchronizes its engine-local projection and settles writes blocked by a quit request, then reports that tick's number and deterministic state and draw-list hashes before another tick begins. The observer is not a simulation phase and does not replace or split the runner's batched `advance` calls. It receives hashes only; observing a tick MUST NOT change game state, save bytes, diagnostics, or host requests. Draw-list observation uses the current logical draw list without committing a presented frame between ticks, preserving the batch's normal presentation boundary.
+
+
 <!-- OWNER: Jensen, 2026-10-19; Epic 20, entry 20.1 phase-pipeline ruling. Source: _bmad-output/initiative-rpgtoolkit-reawakened/epic-actors/epic-actors.md and architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md (AD-26). -->
 
 ### Blocking programs

@@ -13,6 +13,7 @@ import {
   runClosingGame,
   type ClosingFiles,
   type ClosingGameRecord,
+  type ClosingBatchTrace,
   type ClosingGameRun,
 } from "@tk-reawakened/runner-harness";
 
@@ -21,6 +22,7 @@ export type ClosingGameReport = {
   readonly record: ClosingGameRecord;
   /** A disagreement between the plan's three tick batchings, or an empty list. */
   readonly batchProblems: readonly string[];
+  readonly batchTickHashes: readonly ClosingBatchTrace[];
 };
 
 export type ClosingPageReport = {
@@ -58,7 +60,7 @@ export async function runClosingCheck(options: {
   return {
     ok: check.ok,
     lines: check.lines,
-    games: runs.map((run) => ({ name: run.name, record: run.record, batchProblems: run.batchProblems })),
+    games: runs.map((run) => ({ name: run.name, record: run.record, batchProblems: run.batchProblems, batchTickHashes: run.batchTickHashes })),
   };
 }
 

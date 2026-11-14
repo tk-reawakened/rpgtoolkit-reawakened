@@ -22,6 +22,7 @@ import {
   type InputRecord,
   type MainFile,
 } from "../src/index.ts";
+import type { Engine } from "../src/ports/engine.ts";
 
 function mainFile(overrides: Partial<MainFile>): Uint8Array {
   const written = writeMainFile({
@@ -83,7 +84,7 @@ function gameFiles(main: Uint8Array): { readonly files: Map<AssetKey, Uint8Array
 }
 
 /** Boot the game and run until its board is up, answering asset requests from `files`. */
-function boot(files: Map<AssetKey, Uint8Array>, paths: readonly string[], debug?: Parameters<typeof createEngine>[0]["debug"]) {
+function boot(files: Map<AssetKey, Uint8Array>, paths: readonly string[], debug?: Parameters<typeof createEngine>[0]["debug"], sprites?: Parameters<typeof createEngine>[0]["sprites"]) {
   const engine = createEngine({
     seed: 1,
     assetIndex: createAssetIndex(paths),
@@ -95,6 +96,7 @@ function boot(files: Map<AssetKey, Uint8Array>, paths: readonly string[], debug?
     maxTicks: 200,
     startup: { presence: { hasPlayer: () => true }, savedGame: { load: () => ({ kind: "missing" }), restored: () => false } },
     ...(debug === undefined ? {} : { debug }),
+    ...(sprites === undefined ? {} : { sprites }),
   });
   const step = (replies: InputRecord[] = []): void => {
     const report = engine.advance(1, replies);
@@ -152,6 +154,20 @@ test("a runner's per-run debug flags override the project for that run", () => {
   const recolouredList = recoloured.drawList(0, { shading: false, images: false, sprites: false });
   if (recolouredList === null) throw new Error("the board frame is absent");
   deepEqual(lines(recolouredList.commands)[0]?.rgb, { r: 200, g: 1, b: 2 });
+});
+
+test("a per-run colour overrides sprite outlines without changing their default orange", () => {
+  const { files, paths } = gameFiles(mainFile({}));
+  const sprites = [{ id: "test", key: "test", layer: 1, x: 0, y: 0, drawId: 1, collisionBase: [{ x: 4, y: 4 }, { x: 12, y: 4 }, { x: 12, y: 12 }] }];
+  const defaultEngine = boot(files, paths, { drawVectorsFlags: 2 }, sprites);
+  const recolouredEngine = boot(files, paths, { drawVectorsFlags: 2, pathColor: { r: 10, g: 20, b: 255 } }, sprites);
+  const draw = (engine: Engine) => {
+    const frame = engine.drawList(0, { shading: false, images: false, sprites: false });
+    if (frame === null) throw new Error("the board frame is absent");
+    return lines(frame.commands).filter((line) => line.x1 === 4 && line.y1 === 4 && line.x2 === 12 && line.y2 === 4);
+  };
+  deepEqual(draw(defaultEngine).map((line) => line.rgb), [{ r: 255, g: 128, b: 0 }]);
+  deepEqual(draw(recolouredEngine).map((line) => line.rgb), [{ r: 10, g: 20, b: 255 }]);
 });
 
 test("a file older than the pathColor row falls back to white rather than the model's zero sentinel", () => {
