@@ -287,7 +287,7 @@ Within an explicitly authorized isolated evaluation—not a silent production de
 
 A 16×8 control exercises rectangular handling; a 32×32 tile proves the real legacy route; a representative multi-cell sheet examines the proposed product rather than just a toy canvas. They are different evidence needs, not interchangeable benchmarks. Desktop-specific claims additionally require the packaged Electron surface before being advertised.
 
-This report supplies the desk-research baseline. Fresh package, provenance and browser evidence is recorded in [the 13.2 candidate evaluation](story-13.2-candidate-evidence.md); it does **not** close 13.2 because the working shared-host/history integration, strict-CSP/offline host evidence and person-reviewed component or specific in-house implementation decision are still owed. [R9]
+This report supplies the desk-research baseline. Fresh package, provenance and actual browser evidence—including a JollyPixel 7.0.0 staging-buffer probe—is recorded in [the 13.2 candidate evaluation](story-13.2-candidate-evidence.md). It does **not** close 13.2: no art document has accepted/persisted a pixel command or demonstrated shared host history across real browser and VS Code surfaces; art-specific keyboard, strict-CSP, offline-local-asset and save/conflict behavior remain unproved. ADR 0031 already approves the owned-editor direction and ordinary internal modules. A person still needs to review the evidence and actual art-host findings; any exact external package/source/assets proposed for production remain subject to their G6/notice/provenance admission gate. T-36 implementation belongs to 13.3. [R9]
 
 ### Storage and scope decision
 
