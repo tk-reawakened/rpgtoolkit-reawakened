@@ -21,6 +21,7 @@ import { probeDesktopCsp } from "./probe-csp.mjs";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { browserDebuggingPort, parseDebuggerPort, waitForDebuggerPort } from "./debugger-ports.mjs";
 import { BinaryReader, deriveGameId, derivePackageIdentity, loadPackage, readDistributionManifest, readMainFile, writeDistributionPackage, writeMainFile } from "@tk-reawakened/core";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -32,38 +33,6 @@ function argument(name, fallback) {
   return at >= 0 ? resolve(process.argv[at + 1] ?? "") : fallback;
 }
 
-function parsePort(value) {
-  const port = Number(value);
-  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
-}
-
-/** Chromium writes the OS-assigned remote-debugging port into this profile-specific file. */
-function browserDebuggingPort(userDataDirectory) {
-  try {
-    const contents = readFileSync(join(userDataDirectory, "DevToolsActivePort"), "utf8");
-    const match = /^(\d+)\r?\n/.exec(contents);
-    return match === null ? null : parsePort(match[1]);
-  } catch (error) {
-    if (error.code === "ENOENT") return null;
-    throw error;
-  }
-}
-
-async function waitForDebuggerPort(description, getPort, stopped) {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    const port = getPort();
-    if (port !== null) return port;
-    const exit = await Promise.race([
-      stopped.then((result) => ({ result })),
-      new Promise((resolve) => setTimeout(resolve, 100, null)),
-    ]);
-    if (exit !== null) {
-      const { code, signal } = exit.result;
-      throw new Error(`Electron exited before ${description} became available (code ${code}, signal ${signal})`);
-    }
-  }
-  throw new Error(`Electron did not publish its ${description} within 20 seconds`);
-}
 
 async function cleanupProbe(child, stopped, mainDebugger, page, userDataDirectory) {
   mainDebugger?.close();
@@ -371,7 +340,7 @@ async function main() {
     if (inspectorPort === null) {
       inspectorOutput = `${inspectorOutput}${text}`.slice(-4096);
       const match = /Debugger listening on ws:\/\/127\.0\.0\.1:(\d+)\//.exec(inspectorOutput);
-      if (match !== null) inspectorPort = parsePort(match[1]);
+      if (match !== null) inspectorPort = parseDebuggerPort(match[1]);
     }
   };
 
