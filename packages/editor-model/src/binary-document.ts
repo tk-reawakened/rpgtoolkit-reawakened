@@ -193,8 +193,8 @@ export interface DocumentCodec<Model, Command, Fields extends object = Record<ne
   apply(model: Model, command: Command): Model;
   /** The words an undo menu shows for `command` (AD-19). */
   label(command: Command): string;
-  /** Refuse a command whose result the writer cannot store or the reader would not give back; `null` accepts it. */
-  refuse(next: Model, command: Command): Rejection | null;
+  /** Refuse a command whose result the writer cannot store or the reader would not give back, or that changes nothing; `null` accepts it. */
+  refuse(next: Model, command: Command, previous: Model): Rejection | null;
   /** A short name for a model, shown beside a conflict so the user can tell the versions apart; `null` when it has none. */
   summary(model: Model): string | null;
   /** The snapshot fields this kind adds to the shared ones. */
@@ -326,7 +326,7 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
       return { ok: false, rejection: { reason: "read-only", message: this.#readOnly.message } };
     }
     const next = this.#codec.apply(this.#model, command);
-    const refusal = this.#codec.refuse(next, command);
+    const refusal = this.#codec.refuse(next, command, this.#model);
     if (refusal !== null) return { ok: false, rejection: refusal };
     const record: EditRecord<Command> = { editId: `edit-${this.#nextId}`, label: this.#codec.label(command), command };
     this.#nextId += 1;

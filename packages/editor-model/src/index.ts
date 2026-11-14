@@ -1,5 +1,24 @@
 // The DOM-free, framework-free document model of the editor (AD-19, ADR 0022 D2). It imports `core` for the format
 // readers and writers and `platform-services` for the file system door, and nothing else (G2).
+export {
+  BinaryDocument,
+  type DocumentCodec,
+  type DocumentSnapshot,
+  type EditorDocument,
+} from "./binary-document.ts";
+export {
+  boardCodec,
+  boardTileAt,
+  createBoardDocument,
+  openBoardDocument,
+  type BoardCommand,
+  type BoardDocument,
+  type BoardDocumentFields,
+  type BoardDocumentSnapshot,
+  type BoardOpenResult,
+  type SetTileCommand,
+} from "./board-document.ts";
+export { DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export { createDocumentIdentity, type DocumentIdentity } from "./identity.ts";
 export {
   createMainDocument,
@@ -13,7 +32,9 @@ export {
   type ExternalChange,
   type ExternalCheck,
   type HistoryResult,
+  mainCodec,
   type MainCommand,
+  type MainDocumentFields,
   type MainDocument,
   type MainDocumentSnapshot,
   type OpenError,
