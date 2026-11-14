@@ -30,6 +30,8 @@ Since the snapshot above, story 11.18 adds the first real host slice: the shared
 
 The real vscode.dev proof exercises the mounted VS Code editor under CSP, edits and saves the `.gam`, and checks its bytes after restarting the workbench. It also changes the file while the workbench is stopped and verifies that recovery keeps both versions and leaves another dirty editor alone. The proof uses its own temporary persistent filesystem; it does not establish durability for every production filesystem provider. A separate shared-adapter integration test compares bytes saved through the web and VS Code adapters. These checks complement, rather than replace, the host-adapter failure and fetched-corpus tests.
 
+The editor's framing policy is delivered as `Content-Security-Policy: frame-ancestors 'none'` and `X-Frame-Options: DENY` response headers by `pnpm browser:serve`; the other CSP directives remain in the page's meta policy. The Playwright proof verifies that this header blocks a cross-origin iframe. This is the supported local static-serving boundary, not a guarantee for arbitrary static hosting or CDN deployments: any other deployment serving this HTML must configure the equivalent response headers, since a meta policy cannot enforce `frame-ancestors`.
+
 ## Follow-on implementation: the document lifecycle (story 11.3)
 
 Story 11.3 adds the promises of ADR 0022 D3 to the shared code and proves them in both hosts:
