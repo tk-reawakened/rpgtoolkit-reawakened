@@ -1,6 +1,7 @@
 import {
   createAssetPicker,
   createLayoutModel,
+  createPreferences,
   createProjectTree,
   createTabs,
   createVisits,
@@ -16,7 +17,7 @@ import {
   type Visits,
 } from "@tk-reawakened/editor-model";
 import type { AssetKind } from "@tk-reawakened/core";
-import { mountAssetPicker, mountShell, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { mountAssetPicker, mountPreferences, mountShell, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, type DocumentView, type WebProject } from "./index.ts";
 
 /** The setting that keeps the layout: panel identifiers, sides, visibility and sizes only (ADR 0022 D7.1). */
@@ -49,6 +50,12 @@ export interface Workbench {
   returnFromVisit(): Promise<ReturnResult>;
   /** Show a folder-aware picker over the workbench and resolve with its outcome; unchosen leaves the field as it was. */
   pickAsset(request: PickAssetRequest): Promise<PickOutcome>;
+  /**
+   * Show the editor preferences over the workbench (T-08). They are read from and saved to the host's settings (the
+   * browser's storage for the user layer, `.tkr/editor-settings.json` for the project layer) and never to the game.
+   * Escape or the Close button closes them and gives focus back to where it was. Opening them twice shows one.
+   */
+  openPreferences(): void;
   /** The layout as identifiers and numbers. */
   saveLayout(): SavedLayout;
   dispose(): void;
@@ -73,6 +80,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   const views = new Map<string, { readonly document: AnyDocument; readonly view: DocumentView; shownIn: HTMLElement | null }>();
   let version = 0;
   let disposed = false;
+  let openPrefs: (() => void) | null = null;
 
   // Restore the saved layout without waiting for it: the defaults show until it arrives.
   void services.settings.get("user", LAYOUT_SETTING).then((saved) => {
@@ -201,8 +209,41 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
         overlay.querySelector<HTMLElement>('[role="option"], button')?.focus();
       });
     },
+    openPreferences() {
+      if (openPrefs !== null) return;
+      const doc = element.ownerDocument;
+      const before = doc.activeElement;
+      const overlay = doc.createElement("div");
+      overlay.className = "tkr-picker-overlay";
+      overlay.setAttribute("role", "dialog");
+      overlay.setAttribute("aria-modal", "true");
+      overlay.setAttribute("aria-label", "Editor preferences");
+      const body = doc.createElement("div");
+      const close = doc.createElement("button");
+      close.type = "button";
+      close.textContent = "Close";
+      overlay.append(close, body);
+      element.append(overlay);
+      const preferences = createPreferences({ settings: services.settings, projectLayer: services.capabilities.has("folderWrite") });
+      const handle = mountPreferences(body, { preferences });
+      const closePreferences = (): void => {
+        if (openPrefs === null) return;
+        openPrefs = null;
+        handle.dispose();
+        preferences.dispose();
+        overlay.remove();
+        if (before instanceof HTMLElement) before.focus();
+      };
+      overlay.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") closePreferences();
+      });
+      close.addEventListener("click", closePreferences);
+      openPrefs = closePreferences;
+      close.focus();
+    },
     saveLayout,
     dispose() {
+      openPrefs?.();
       disposed = true;
       unsubscribeTabs();
       unsubscribeLayout();
