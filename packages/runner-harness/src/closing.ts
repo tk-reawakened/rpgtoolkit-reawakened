@@ -18,6 +18,7 @@ import {
   createEngine,
   derivePackageIdentity,
   fnv1a64,
+  hashDrawList,
   hashGameState,
   PACKAGE_ROOT,
   placeplayerPixel,
