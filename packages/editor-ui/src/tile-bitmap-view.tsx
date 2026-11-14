@@ -234,6 +234,11 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
       setRefusal(`Each shade is a number from ${TILE_SHADE_MIN} to ${TILE_SHADE_MAX}.`);
       return;
     }
+    if (!Number.isInteger(value) || value < TILE_SHADE_MIN || value > TILE_SHADE_MAX) {
+      // Refused here, before it can enter the pending shade that later edits of this cell start from.
+      setRefusal(`Each shade is a whole number from ${TILE_SHADE_MIN} to ${TILE_SHADE_MAX}.`);
+      return;
+    }
     commitShade({ ...baseShade(), [channel]: value }, [channel], { [channel]: text });
   };
   const commitTile = (): void => {

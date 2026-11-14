@@ -524,3 +524,20 @@ test("a tile bitmap with no cells is no stamp but keeps its edit action, and cho
   deepEqual(opened, ["Bitmap/empty.tbm"]);
   equal(s.session.getSnapshot().selection, null);
 });
+
+test("an out-of-range shade is refused before it is sent, so a valid edit sent while answers are outstanding is not poisoned by it", async () => {
+  const s = await setup();
+  await show(s);
+  s.gate.holding = true;
+  await type(control(s.el, ".tkr-bitmap-shade-r"), "300");
+  equal(s.gate.queue.length, 0, "the invalid Red was never sent");
+  match(alerts(s.el)[0] ?? "", /Each shade is a whole number from -255 to 255/);
+  await type(control(s.el, ".tkr-bitmap-shade-g"), "77");
+  equal(s.gate.queue.length, 1);
+  const queued = s.gate.queue.splice(0);
+  s.gate.holding = false;
+  await act(() => { for (const apply of queued) apply(); });
+  await settle(2);
+  equal(cell(s.el, 1, 1).getAttribute("aria-label"), "Column 1, row 1: village.tst1, shade 5, 77, 7", "Green landed with Red as the document has it");
+  equal(control<HTMLInputElement>(s.el, ".tkr-bitmap-shade-r").value, "300", "the invalid text stays in its field to be corrected");
+});

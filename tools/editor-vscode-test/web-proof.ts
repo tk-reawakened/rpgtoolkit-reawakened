@@ -251,12 +251,16 @@ export async function runVscodeWebProof(
  * message still in flight when its panel is disposed, so no faster close is promised.
  */
 async function runBitmapSelectionRetentionScenario(page: Page, expect: Expect, host: ProofHost): Promise<void> {
+  // The previous scenario left the 2 × 2 `house.tbm` stamp chosen, so this one chooses the 3 × 1 `other.tbm` stamp: losing
+  // the new choice leaves the old one showing, which fails the first check below.
+  const otherName = host.otherBitmapPath.split("/").at(-1)!;
   const house = await openProjectFile(page, host.bitmapPath, expect, ".tkr-bitmap");
-  await house.locator(".tkr-tileset-browser select").selectOption({ value: host.bitmapPath });
+  await house.locator(".tkr-tileset-browser select").selectOption({ value: host.otherBitmapPath });
+  await expect(house.locator(`[data-browser-reference="${otherName}"]`)).toBeVisible();
   await house.getByRole("button", { name: "Select stamp brush" }).click();
   await closeActiveEditor(page, expect);
   const other = await openProjectFile(page, host.otherBitmapPath, expect, ".tkr-bitmap");
-  await expect(other.locator(".tkr-bitmap-brush")).toContainText("A whole stamp (2 × 2 tiles) is chosen");
+  await expect(other.locator(".tkr-bitmap-brush")).toContainText("A whole stamp (3 × 1 tiles) is chosen");
   await other.locator(".tkr-tileset-browser select").selectOption({ value: "Tiles/village.tst" });
   await other.locator('[data-browser-reference="village.tst2"] .tkr-tileset-browser-source').click();
   await closeActiveEditor(page, expect);
