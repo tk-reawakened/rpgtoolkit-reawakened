@@ -20,6 +20,10 @@ If a task seems to need breaking a rule, stop and ask. Exceptions require an ADR
 
 Setup, choosing a ticket, the checks to run and the pull-request flow are in [CONTRIBUTING.md](CONTRIBUTING.md). People and AI agents follow the same rules.
 
+## The editor is not the deterministic runtime
+
+**Owner direction, 2026-11-13 ([ADR 0031](docs/adr/0031-owned-art-editor-with-permissive-reuse.md)): let browser capabilities drive the editor experience.** Build our own integrated art editor, but reuse suitable permissively licensed code, libraries and selective forks. Do not turn engine-only determinism or platform restrictions into a requirement to rebuild the browser's layout, native controls, focus/accessibility, pointer/pen/touch, canvas or UI scheduling. We need consistent document/edit/save outcomes, not 100% control or identical platform behavior across hosts. Host I/O still goes through platform-services, game-faithful previews still use the engine's composition rules, and existing licence, provenance, CSP and framework decisions remain binding. Owning the product does not mean owning every platform mechanism.
+
 ## Working notes
 
 - The desktop player's diagnostics are hidden by default; press F3 to toggle their overlay. Errors appear automatically. The overlay must not shrink the game viewport.
