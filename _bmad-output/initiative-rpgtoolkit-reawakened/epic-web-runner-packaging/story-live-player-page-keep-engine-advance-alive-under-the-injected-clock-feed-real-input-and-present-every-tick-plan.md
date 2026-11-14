@@ -3,7 +3,7 @@ title: 'Live player page: keep engine.advance() alive under the injected clock, 
 type: feature
 ticket: 16
 created: '2026-11-01'
-status: in-progress
+status: done
 baseline_revision: '58abc1966540f18bd541914608a0f74331f11780'
 route: full
 route_source: auto
