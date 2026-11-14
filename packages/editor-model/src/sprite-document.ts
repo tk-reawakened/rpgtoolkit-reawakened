@@ -196,7 +196,8 @@ function apply(model: SpriteActor, command: SpriteCommand): SpriteActor {
   }
   if (command.type === "delete-custom-stance") return { ...model, customStances: (model.customStances ?? []).filter((_stance, index) => index !== command.index) };
   if (command.type === "set-sprite-timing") return { ...model, speed: command.speed, idleTime: command.idleTime };
-  return { ...model, vectorBases: command.bases.map((base) => ({ points: base.points.map((point) => ({ ...point })) })) };
+  if (command.type === "set-sprite-bases") return { ...model, vectorBases: command.bases.map((base) => ({ points: base.points.map((point) => ({ ...point })) })) };
+  return model;
 }
 
 function fieldSnapshot(model: SpriteActor): SpriteDocumentFields {
