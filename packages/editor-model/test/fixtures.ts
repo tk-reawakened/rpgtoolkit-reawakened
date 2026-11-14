@@ -114,3 +114,21 @@ const boards = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "
 export function exampleBoard(minor: 2 | 3 | 4): Uint8Array {
   return new Uint8Array(readFileSync(join(boards, `board_minor${minor}.brd`)));
 }
+
+const actorExamples = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "docs", "spec", "examples", "versions");
+
+export function exampleCharacter(minor = 8): Uint8Array {
+  return new Uint8Array(readFileSync(join(actorExamples, "character", `character_minor${minor}.tem`)));
+}
+
+export function exampleItem(minor = 7): Uint8Array {
+  return new Uint8Array(readFileSync(join(actorExamples, "item", `item_minor${minor}.itm`)));
+}
+
+export function exampleAnimation(): Uint8Array {
+  return new Uint8Array(readFileSync(join(actorExamples, "animation", "animation_minor3.anm")));
+}
+
+export function examplePicture(): Uint8Array {
+  return new Uint8Array(readFileSync(join(actorExamples, "tileset", "tileset_detail1.png")));
+}

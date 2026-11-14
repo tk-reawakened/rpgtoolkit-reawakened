@@ -5,13 +5,13 @@ import { test } from "node:test";
 import { platformError } from "@tk-reawakened/platform-services";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { createDocumentWorkspace, createLayoutModel, createProjectTree, createTabs, createVisits, listGame } from "../src/index.ts";
-import { exampleBoard, exampleMain } from "./fixtures.ts";
+import { exampleBoard, exampleCharacter, exampleMain } from "./fixtures.ts";
 
 const FILES = {
   "Main/example.gam": exampleMain(9),
   "Boards/village.brd": exampleBoard(4),
   "Boards/caves/mine.brd": exampleBoard(4),
-  "Chrs/hero.tem": new Uint8Array([1]),
+  "Chrs/hero.tem": exampleCharacter(),
   "Misc/readme.txt": new Uint8Array([2]),
 } as const;
 
@@ -83,18 +83,28 @@ test("a document reached from the tree and from the Game list is one model, and 
   const { host, tree, workspace } = setup();
   await tree.refresh();
   await tree.toggle("Boards");
+  await tree.toggle("Chrs");
   const game = await listGame(host.fs, { projectFolder: "" });
   deepEqual(game.groups.map((group) => group.label), ["Boards", "Characters", "Animations"], "Misc is the animations folder, so its readme is listed there, as not openable");
   equal(game.groups[2]!.files[0]?.openable, false);
   const boards = game.groups[0]!;
   deepEqual(boards.files.map((file) => [file.path, file.openable]), [["Boards/caves/mine.brd", true], ["Boards/village.brd", true]]);
-  equal(game.groups[1]!.files[0]?.openable, false, "a .tem has no editor yet: the Game list says so instead of offering it");
+  const characters = game.groups[1]!;
+  deepEqual(characters.files.map((file) => [file.path, file.openable]), [["Chrs/hero.tem", true]], "registered character files are openable from the Game list");
   const viaFiles = await tree.open("Boards/village.brd");
   const viaGame = await tree.open(boards.files[1]!.path);
   ok(viaFiles.ok && viaGame.ok && viaFiles.via === "document" && viaGame.via === "document");
-  equal(viaFiles.document, viaGame.document, "one document from two routes");
-  equal(workspace.documents().length, 1);
+  equal(viaFiles.document, viaGame.document, "one board document from two routes");
+  const spriteViaTree = await tree.open("Chrs/hero.tem");
+  const spriteViaGame = await tree.open(characters.files[0]!.path);
+  ok(spriteViaTree.ok && spriteViaGame.ok && spriteViaTree.via === "document" && spriteViaGame.via === "document");
+  equal(spriteViaTree.document.kind, "character");
+  equal(spriteViaTree.document.identity.projectId, "memory-project");
+  equal(spriteViaTree.document.identity.path, "Chrs/hero.tem");
+  equal(spriteViaTree.document, spriteViaGame.document, "the tree and Game list share one character model identity");
+  equal(workspace.documents().length, 2, "one board model and one character model are open");
   equal(tree.getSnapshot().rows.find((row) => row.path === "Boards/village.brd")?.open, true);
+  equal(tree.getSnapshot().rows.find((row) => row.path === "Chrs/hero.tem")?.open, true);
 });
 
 test("rename and delete refuse while a document under the path is open, and delete asks first", async () => {

@@ -47,3 +47,11 @@ export function exampleBoard(): Uint8Array {
 export function exampleTileset(): Uint8Array {
   return new Uint8Array(readFileSync(join(boards, "tileset", "tileset_detail1.tst")));
 }
+
+export function exampleCharacter(minor = 8): Uint8Array {
+  return new Uint8Array(readFileSync(join(boards, "character", `character_minor${minor}.tem`)));
+}
+
+export function exampleItem(minor = 7): Uint8Array {
+  return new Uint8Array(readFileSync(join(boards, "item", `item_minor${minor}.itm`)));
+}
