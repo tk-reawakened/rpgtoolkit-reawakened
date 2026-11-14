@@ -25,6 +25,11 @@ export interface TilesetBrowserContext {
   readonly session: BrowserSession;
   readonly fs: Pick<FileSystemService, "list" | "read">;
   readonly layout: ProjectLayout;
+  /**
+   * Open the source file at `path` in its editor through the host (a tab, a linked visit). It resolves with `null` when
+   * the editor opened and with a reason otherwise. A host with no tab to open leaves it out, and the browser then says so.
+   */
+  readonly openSource?: (path: string) => Promise<string | null>;
 }
 
 export interface TilesetBrowserProps {
@@ -146,7 +151,7 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
         const nextPreviews = new Map<string, TilePreviewPixels>();
         rendered.value.tiles.forEach((preview, index) => {
           const tileReference = `${reference}${index + 1}`;
-          nextItems.push({ kind: "tiles", path: source.path, reference: tileReference, label: `${source.name} tile ${index + 1}`, boardTile: tileReference });
+          nextItems.push({ kind: "tiles", path: source.path, reference: tileReference, label: `${source.name} tile ${index + 1}`, boardTile: tileReference, stamp: null });
           nextPreviews.set(tileReference, preview);
         });
         setItems(nextItems);
@@ -155,12 +160,26 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
         setLoadedPath(source.path);
         return;
       }
-      const selection: BrowserSelection = { kind: source.kind, path: source.path, reference, label: source.name, boardTile: source.boardTile };
+      const selection: BrowserSelection = {
+        kind: source.kind,
+        path: source.path,
+        reference,
+        label: source.name,
+        boardTile: source.boardTile,
+        // A bitmap that draws no cells is not a stamp; it stays a source that can be opened and repaired.
+        stamp: rendered.value.kind === "bitmap" && rendered.value.size.width > 0 && rendered.value.size.height > 0 ? rendered.value.size : null,
+      };
       const preview = rendered.value.preview;
       if (rendered.value.kind === "animation") {
         setMessage(`Animated tile: ${rendered.value.frameCount} frames at ${1000 / rendered.value.speed} ms per frame. Select the animation as a board brush.`);
       } else if (rendered.value.kind === "bitmap") {
-        setMessage("Tile bitmap preview. Bitmap sources are browse-only here; select a tile or animation for a board brush.");
+        const { size, missing } = rendered.value;
+        setMessage(
+          (selection.stamp === null
+            ? "Tile bitmap with no cells, so it cannot be a stamp brush. Open it in the tile bitmap editor to give it a size."
+            : `Tile bitmap, ${size.width} × ${size.height} tiles. Select it as a whole stamp brush, or open it in the tile bitmap editor.`) +
+            (missing.length === 0 ? "" : ` ${missing.length === 1 ? "A tile it names is" : `${missing.length} tiles it names are`} missing from the project (${missing.join(", ")}), so those cells are drawn empty; open it to repair them.`),
+        );
       }
       setItems([selection]);
       setPreviews(preview === null ? new Map() : new Map([[selection.reference, preview]]));
@@ -185,6 +204,15 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
   const choose = (item: BrowserSelection): void => {
     session.update({ selection: item });
     closeMenu();
+  };
+
+  const editSource = (item: BrowserSelection): void => {
+    closeMenu();
+    const opened: Promise<string | null> = context.openSource?.(item.path) ?? Promise.resolve("This host cannot open another editor from the browser.");
+    void opened.then(
+      (reason) => { if (reason !== null) setMessage(`Cannot open ${item.path}: ${reason}`); },
+      (error: unknown) => setMessage(`Cannot open ${item.path}: ${error instanceof Error ? error.message : String(error)}`),
+    );
   };
 
   const openMenu = (item: BrowserSelection, invoker: HTMLElement): void => {
@@ -239,7 +267,11 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
               type="button"
               class={brush?.reference === item.reference ? "tkr-tileset-browser-source tkr-tileset-browser-source-selected" : "tkr-tileset-browser-source"}
               aria-pressed={brush?.reference === item.reference}
-              onClick={() => item.boardTile === null ? session.update({ selection: item }) : choose(item)}
+              onClick={() => {
+                // A source that is neither a board tile nor a stamp (a bitmap with no cells) is never a brush.
+                if (item.boardTile !== null) choose(item);
+                else if (item.stamp !== null) session.update({ selection: item });
+              }}
             >
               {previews.has(item.reference) ? (
                 <canvas
@@ -251,14 +283,22 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
               ) : null}
               <span>{item.label}</span>
             </button>
-            <button type="button" class="tkr-tileset-browser-select-brush" disabled={item.boardTile === null} onClick={() => choose(item)}>
-              Select brush
+            <button type="button" class="tkr-tileset-browser-select-brush" disabled={item.boardTile === null && item.stamp === null} onClick={() => choose(item)}>
+              {item.kind === "bitmaps" ? "Select stamp brush" : "Select brush"}
             </button>
             <button type="button" onClick={(event) => openMenu(item, event.currentTarget)}>More actions</button>
             {menu === item ? (
               <div ref={menuRef} class="tkr-tileset-browser-menu" role="group" aria-label={`${item.label} actions`} onKeyDown={menuKeys}>
-                <button type="button" disabled={item.boardTile === null} onClick={() => choose(item)}>Select as board brush</button>
-                <button type="button" disabled aria-describedby={`${ids}-source-edit-unavailable`}>Edit source unavailable (P1)</button>
+                {item.kind !== "bitmaps" ? (
+                  <button type="button" disabled={item.boardTile === null} onClick={() => choose(item)}>Select as board brush</button>
+                ) : (
+                  <button type="button" disabled={item.stamp === null} onClick={() => choose(item)}>Select as stamp brush</button>
+                )}
+                {item.kind !== "bitmaps" || context.openSource === undefined ? (
+                  <button type="button" disabled aria-describedby={`${ids}-source-edit-unavailable`}>Edit source unavailable (P1)</button>
+                ) : (
+                  <button type="button" onClick={() => editSource(item)}>Edit tile bitmap</button>
+                )}
                 <button type="button" onClick={closeMenu}>Close actions</button>
               </div>
             ) : null}
@@ -267,7 +307,7 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
       </div>
 
       <p id={`${ids}-source-edit-unavailable`} class="tkr-tileset-browser-note" role="note">
-        Source editing is unavailable until the P1 tile editor provider exists. Browsing and brush selection do not change source files or paint a board.
+        Source editing is unavailable until the P1 tile editor provider exists, except for tile bitmaps, which open in the tile bitmap editor. Browsing and brush selection do not change source files or paint a board.
       </p>
       {activeSource === null ? <p class="tkr-tileset-browser-empty" role="status">No tilesets, animated tiles or tile bitmaps are available.</p> : null}
       {message === null ? null : <p class="tkr-tileset-browser-message" role="alert">{message}</p>}

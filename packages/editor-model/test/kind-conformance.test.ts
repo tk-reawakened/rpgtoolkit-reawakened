@@ -3,6 +3,7 @@
 // authored fixture for its kind and no engine (the owner's test-speed rule).
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
+import { TILE_BITMAP_MAGIC, writeTileBitmap } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { createDocumentIdentity, DOCUMENT_KINDS, kindForPath, type AnyCommand, type AnyDocument } from "../src/index.ts";
 import { exampleBoard, exampleCharacter, exampleItem, exampleMain, exampleTileset } from "./fixtures.ts";
@@ -15,6 +16,22 @@ interface KindCase {
   readonly accepted: AnyCommand;
   /** A command the kind rejects whole. */
   readonly rejected: unknown;
+}
+
+/** A 2 × 1 tile bitmap with its stored extra column and row: (2 + 1) × (1 + 1) cells, x outer. */
+function exampleTileBitmap(): Uint8Array {
+  const cell = (tile: string) => ({ tile, r: 0, g: 0, b: 0 });
+  const written = writeTileBitmap({
+    magic: TILE_BITMAP_MAGIC,
+    major: 3,
+    minor: 0,
+    width: 2,
+    height: 1,
+    cells: [cell("village.tst1"), cell(""), cell(""), cell(""), cell(""), cell("")],
+    residue: new Uint8Array(),
+  });
+  if (!written.ok) throw new Error(written.error.message);
+  return written.value;
 }
 
 const CASES: readonly KindCase[] = [
@@ -31,6 +48,13 @@ const CASES: readonly KindCase[] = [
     bytes: exampleBoard(4),
     accepted: { type: "set-tile", layer: 0, x: 1, y: 1, tile: "village.tst8" },
     rejected: { type: "set-tile", layer: 0, x: 9, y: 9, tile: "village.tst8" },
+  },
+  {
+    kind: "tile-bitmap",
+    path: "Bitmap/house.tbm",
+    bytes: exampleTileBitmap(),
+    accepted: { type: "set-bitmap-cell", x: 1, y: 0, tile: "village.tst2" },
+    rejected: { type: "set-bitmap-cell", x: 2, y: 0, tile: "village.tst2" },
   },
   {
     kind: "character",

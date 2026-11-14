@@ -1,7 +1,7 @@
 {
   "name": "editor",
   "displayName": "RPG Toolkit Editor",
-  "description": "Game settings, boards and experimental tileset artwork for Reawakened projects.",
+  "description": "Game settings, boards, tile bitmap editing and experimental tileset artwork for Reawakened projects.",
   "version": "0.0.1",
   "publisher": "tk-reawakened",
   "license": "MIT",
@@ -12,6 +12,7 @@
     "onCustomEditor:tkr.gameSettings",
     "onCustomEditor:tkr.board",
     "onCustomEditor:tkr.tileset",
+    "onCustomEditor:tkr.tileBitmap",
     "onView:tkr.game"
   ],
   "main": "./dist/extension.js",
@@ -72,6 +73,16 @@
         "selector": [
           {
             "filenamePattern": "*.tst"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tkr.tileBitmap",
+        "displayName": "RPG Toolkit Tile Bitmap Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.tbm"
           }
         ],
         "priority": "default"

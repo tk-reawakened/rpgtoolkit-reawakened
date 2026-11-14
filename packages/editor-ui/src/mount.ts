@@ -12,6 +12,9 @@ import type {
   MainDocument,
   MainDocumentSnapshot,
   SaveResult,
+  TileBitmapCommand,
+  TileBitmapDocumentSnapshot,
+  TileBitmapPicture,
   TilesetArtCommand,
   TilesetArtSnapshot,
 } from "@tk-reawakened/editor-model";
@@ -23,6 +26,7 @@ import { BoardView } from "./board-view.tsx";
 import { NewBoardView, type NewBoardViewProps } from "./new-board-view.tsx";
 import { PreferencesView, type PreferencesViewProps } from "./preferences-view.tsx";
 import { SettingsView } from "./settings-view.tsx";
+import { TileBitmapView } from "./tile-bitmap-view.tsx";
 import { SpriteView, type SpriteViewDocument } from "./sprite-view.tsx";
 import type { TilesetBrowserContext } from "./tileset-browser.tsx";
 import { TilesetArtView } from "./tileset-art-view.tsx";
@@ -64,10 +68,16 @@ export interface BoardPreferencesSource {
 /** The legacy tileset's pixel-editing surface, with history owned by its document. */
 export type TilesetArtViewDocument = ViewDocument<TilesetArtSnapshot, TilesetArtCommand>;
 
+/** What a tile bitmap view needs beyond the shared surface: a picture of the cells as the engine composes them, from the project's tiles. */
+export interface TileBitmapViewDocument extends ViewDocument<TileBitmapDocumentSnapshot, TileBitmapCommand> {
+  /** Compose the bitmap as it is now, saved or not. The promise never rejects: failure is a value with a reason. */
+  preview(): Promise<TileBitmapPicture>;
+}
+
 /** What a host gives a view when it mounts it (ADR 0025 decision 4). */
 export interface ViewContext {
   /** The document the view shows and edits. The view never owns it. */
-  readonly document: ViewDocument | BoardViewDocument | SpriteViewDocument | TilesetArtViewDocument;
+  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | SpriteViewDocument | TilesetArtViewDocument;
   /**
    * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
@@ -92,6 +102,10 @@ function isTilesetArtView(document: ViewContext["document"]): document is Tilese
   return document.kind === "tileset";
 }
 
+function isTileBitmapView(document: ViewContext["document"]): document is TileBitmapViewDocument {
+  return document.kind === "tile-bitmap";
+}
+
 function isSpriteView(document: ViewContext["document"]): document is SpriteViewDocument {
   return document.kind === "character" || document.kind === "item";
 }
@@ -112,6 +126,13 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
     });
   } else if (isTilesetArtView(document)) {
     view = createElement(TilesetArtView, { doc: document, capabilities, onEdited });
+  } else if (isTileBitmapView(document)) {
+    view = createElement(TileBitmapView, {
+      doc: document,
+      capabilities,
+      onEdited,
+      ...(ctx.browser === undefined ? {} : { browser: ctx.browser }),
+    });
   } else if (isSpriteView(document)) {
     const fs = ctx.services.fs;
     if (fs === undefined) throw new Error("A sprite view requires project-file read access.");

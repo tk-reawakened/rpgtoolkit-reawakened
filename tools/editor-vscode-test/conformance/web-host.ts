@@ -2,7 +2,7 @@
 // case-sensitive in-memory folder in place of File System Access. The browser host is its own workbench, so every user
 // action is the call its page makes (`openGameSettings`, `workspace.undo`, `workspace.close`, ...), and every question it
 // asks goes through its `dialogs` service, answered here as the user would.
-import { asMainDocument, previewBoard, type BoardPicture, type MainDocument } from "@tk-reawakened/editor-model";
+import { asMainDocument, previewBoard, previewTileBitmap, type BoardPicture, type MainDocument } from "@tk-reawakened/editor-model";
 import type { DialogQuestion, DialogService } from "@tk-reawakened/platform-services";
 import { createFolderProject, mountGameSettings, openEditor, openGameSettings, type GameSettingsOpenResult, type GameSettingsView, type WebProject } from "@tk-reawakened/host-web/testing";
 import { GAME, SECOND, retitled, type CloseAnswer, type ConformanceEditor, type ConformanceHost } from "./suite.ts";
@@ -241,6 +241,7 @@ export function createWebBoardProofHost(gam: Uint8Array, files: Readonly<Record<
         element,
         workbenchDirty: () => model.getSnapshot().dirty,
         picture: async () => {
+          if (model.kind === "tile-bitmap") return previewTileBitmap(project.services.fs, project.project.id, model.serialize());
           const preview = await previewBoard(project.services.fs, project.project.id, model.serialize());
           return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings } : preview;
         },
