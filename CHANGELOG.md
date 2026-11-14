@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Decision records now have unique numbers, and CI checks for duplicate ADR numbers even on documentation-only changes (#1840).
 - RPGCode `thread()` now loads an existing project program before falling back to executing its argument as inline code (#2106).
 - The VS Code web proof retries settings observations while the file is being written, while still failing on persistent invalid JSON or the wrong autosave value (#2399).
 - Desktop CSP probes no longer overwrite the shared audio worklet while testing decoder failures, so concurrent probes keep their own generated assets (#2345).
