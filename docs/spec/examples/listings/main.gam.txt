@@ -1,4 +1,4 @@
-# main.gam: game/Main/example.gam (1898 bytes), parse ends at EOF: True
+# main.gam: game/Main/example.gam (2177 bytes), parse ends at EOF: True
 # offset  bytes (first 12)                         field = value
 000000  52 50 47 54 4c 4b 49 54 20 4d 41 49 .. header = 'RPGTLKIT MAIN'
 00000e  02 00                                  majorVer = 2
@@ -71,4 +71,52 @@
 000764  00 00                                  movementKey[NW] = 0
 000766  c8 00                                  movementKey[N] = 200
 000768  00 00                                  movementKey[NE] = 0
-00076a  <end of parse; file length 0x76a>
+00076a  54 52 4b 49 4e 50 00                   TKR input-settings marker = 'TRKINP\\0'
+000771  01                                     TKR input schema = 1
+000772  01                                     TKR controller enabled = 1
+000773  08 00                                  TKR input action count = 8
+000775  75 70 00                               TKR action[0] name = 'up'
+000778  00                                     TKR action[0] flags = 0
+000779  03 00                                  TKR action[0] control count = 3
+00077b  6b 65 79 3a 41 72 72 6f 77 55 70 00    TKR action[0] control[0] = 'key:ArrowUp'
+000787  70 61 64 3a 31 32 00                   TKR action[0] control[1] = 'pad:12'
+00078e  70 61 64 3a 61 78 69 73 31 2d 00       TKR action[0] control[2] = 'pad:axis1-'
+000799  64 6f 77 6e 00                         TKR action[1] name = 'down'
+00079e  00                                     TKR action[1] flags = 0
+00079f  03 00                                  TKR action[1] control count = 3
+0007a1  6b 65 79 3a 41 72 72 6f 77 44 6f 77 .. TKR action[1] control[0] = 'key:ArrowDown'
+0007af  70 61 64 3a 31 33 00                   TKR action[1] control[1] = 'pad:13'
+0007b6  70 61 64 3a 61 78 69 73 31 2b 00       TKR action[1] control[2] = 'pad:axis1+'
+0007c1  6c 65 66 74 00                         TKR action[2] name = 'left'
+0007c6  00                                     TKR action[2] flags = 0
+0007c7  03 00                                  TKR action[2] control count = 3
+0007c9  6b 65 79 3a 41 72 72 6f 77 4c 65 66 .. TKR action[2] control[0] = 'key:ArrowLeft'
+0007d7  70 61 64 3a 31 34 00                   TKR action[2] control[1] = 'pad:14'
+0007de  70 61 64 3a 61 78 69 73 30 2d 00       TKR action[2] control[2] = 'pad:axis0-'
+0007e9  72 69 67 68 74 00                      TKR action[3] name = 'right'
+0007ef  00                                     TKR action[3] flags = 0
+0007f0  03 00                                  TKR action[3] control count = 3
+0007f2  6b 65 79 3a 41 72 72 6f 77 52 69 67 .. TKR action[3] control[0] = 'key:ArrowRight'
+000801  70 61 64 3a 31 35 00                   TKR action[3] control[1] = 'pad:15'
+000808  70 61 64 3a 61 78 69 73 30 2b 00       TKR action[3] control[2] = 'pad:axis0+'
+000813  63 6f 6e 66 69 72 6d 00                TKR action[4] name = 'confirm'
+00081b  00                                     TKR action[4] flags = 0
+00081c  03 00                                  TKR action[4] control count = 3
+00081e  6b 65 79 3a 45 6e 74 65 72 00          TKR action[4] control[0] = 'key:Enter'
+000828  6b 65 79 3a 53 70 61 63 65 00          TKR action[4] control[1] = 'key:Space'
+000832  70 61 64 3a 30 00                      TKR action[4] control[2] = 'pad:0'
+000838  63 61 6e 63 65 6c 00                   TKR action[5] name = 'cancel'
+00083f  00                                     TKR action[5] flags = 0
+000840  02 00                                  TKR action[5] control count = 2
+000842  6b 65 79 3a 45 73 63 61 70 65 00       TKR action[5] control[0] = 'key:Escape'
+00084d  70 61 64 3a 31 00                      TKR action[5] control[1] = 'pad:1'
+000853  6d 65 6e 75 00                         TKR action[6] name = 'menu'
+000858  00                                     TKR action[6] flags = 0
+000859  02 00                                  TKR action[6] control count = 2
+00085b  6b 65 79 3a 45 6e 74 65 72 00          TKR action[6] control[0] = 'key:Enter'
+000865  70 61 64 3a 39 00                      TKR action[6] control[1] = 'pad:9'
+00086b  67 61 6d 65 2e 68 65 61 6c 00          TKR action[7] name = 'game.heal'
+000875  01                                     TKR action[7] flags = 1
+000876  01 00                                  TKR action[7] control count = 1
+000878  6b 65 79 3a 4b 65 79 48 00             TKR action[7] control[0] = 'key:KeyH'
+000881  <end of parse; file length 0x881>
