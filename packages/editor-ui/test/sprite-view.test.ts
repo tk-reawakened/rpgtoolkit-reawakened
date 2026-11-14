@@ -298,6 +298,52 @@ test("duplicate stance deletes undo against their exact history identities", asy
   s.el.remove();
 });
 
+test("undoing an added stance retires its key before the next add", async () => {
+  const s = await setup("character", "Chrs/undo-add-new-add.tem", exampleCharacter());
+  const handle = await show(s);
+  const rows = () => [...s.el.querySelectorAll<HTMLElement>(".tkr-sprite-custom")];
+  await act(() => { ok(s.doc.apply({ type: "add-custom-stance", name: "Temporary", file: "" }).ok); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  const temporary = rows().at(-1)?.querySelectorAll<HTMLInputElement>("input")[1];
+  ok(temporary !== undefined);
+  await act(() => {
+    temporary.value = "must-not-leak.anm";
+    temporary.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(() => { ok(s.doc.undo().ok, "undo removes the temporary stance"); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  await act(() => { ok(s.doc.apply({ type: "add-custom-stance", name: "Replacement", file: "" }).ok); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  equal(rows().at(-1)?.querySelectorAll<HTMLInputElement>("input")[1]?.value, "", "a new stance receives a fresh key rather than reusing the undone stance draft");
+  handle.dispose();
+  s.el.remove();
+});
+
+test("delete undo redo undo preserves the surviving duplicate stance identity", async () => {
+  const s = await setup("character", "Chrs/delete-undo-redo-undo.tem", exampleCharacter());
+  const handle = await show(s);
+  const rows = () => [...s.el.querySelectorAll<HTMLElement>(".tkr-sprite-custom")];
+  await act(() => { ok(s.doc.apply({ type: "add-custom-stance", name: "X", file: "" }).ok); });
+  await act(() => { ok(s.doc.apply({ type: "add-custom-stance", name: "X", file: "" }).ok); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  const x2 = rows().at(-1)?.querySelectorAll<HTMLInputElement>("input")[1];
+  ok(x2 !== undefined);
+  await act(() => {
+    x2.value = "x2-survives-cycle.anm";
+    x2.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(() => rows()[1]?.querySelector<HTMLButtonElement>("button")?.click());
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  await act(() => { ok(s.doc.undo().ok, "undo restores deleted X1"); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  await act(() => { ok(s.doc.redo().ok, "redo deletes X1 again"); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  await act(() => { ok(s.doc.undo().ok, "a second undo restores X1 with its original row key"); });
+  equal(rows()[2]?.querySelectorAll<HTMLInputElement>("input")[1]?.value, "x2-survives-cycle.anm", "the surviving X2 draft stays on X2 after delete/undo/redo/undo");
+  handle.dispose();
+  s.el.remove();
+});
+
 test("Remove point rebases on the acknowledged coordinate edit", async () => {
   const s = await setup("character", "Chrs/queued-remove-point.tem", exampleCharacter());
   const original = s.doc.getSnapshot().vectorBases![1]!.points.map((point) => ({ ...point }));
@@ -386,6 +432,97 @@ test("deferred double removal waits for fresh point indices", async () => {
   releaseSecond();
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
   deepEqual(s.doc.getSnapshot().vectorBases![1]!.points, [points[1], points[3], points[4]], "the two user removals target A then C despite the index shift");
+  handle.dispose();
+  s.el.remove();
+});
+
+test("blocked pointer gesture cannot add a vertex after structural acknowledgement", async () => {
+  const s = await setup("character", "Chrs/blocked-pointer.tem", exampleCharacter());
+  const bases = s.doc.getSnapshot().vectorBases!.map((base) => ({ points: base.points.map((point) => ({ ...point })) }));
+  bases[1] = { points: [{ x: 1, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 3 }, { x: 4, y: 4 }, { x: 5, y: 5 }] };
+  ok((await s.doc.apply({ type: "set-sprite-bases", bases })).ok);
+  const apply = s.doc.apply.bind(s.doc);
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const firstStarted = new Promise<void>((resolve) => { started = resolve; });
+  replaceApply(s.doc, async (command) => {
+    if (command.type === "set-sprite-bases") {
+      started();
+      await gate;
+    }
+    return apply(command);
+  });
+  const handle = await show(s);
+  await act(() => s.el.querySelector<HTMLButtonElement>('button[aria-pressed="false"]')?.click());
+  const removeFirst = [...s.el.querySelectorAll("button")].find((button) => button.textContent === "Remove point 1");
+  ok(removeFirst !== undefined);
+  await act(() => removeFirst.click());
+  await act(async () => { await firstStarted; await new Promise((resolve) => setTimeout(resolve, 0)); });
+  const svg = s.el.querySelector<SVGSVGElement>(".tkr-sprite-base-canvas");
+  ok(svg !== null);
+  Object.defineProperty(svg, "getScreenCTM", { value: () => ({ inverse: () => ({}) }) });
+  Object.defineProperty(svg, "createSVGPoint", { value: () => ({ x: 0, y: 0, matrixTransform: () => ({ x: 0, y: 0 }) }) });
+  const vertex = svg.querySelector('[data-point-index="2"]');
+  ok(vertex !== null);
+  const pointer = (type: string): Event => {
+    const event = new Event(type, { bubbles: true });
+    Object.defineProperty(event, "pointerId", { value: 73 });
+    return event;
+  };
+  await act(() => { vertex.dispatchEvent(pointer("pointerdown")); });
+  release();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  await act(() => {
+    svg.dispatchEvent(pointer("pointerup"));
+    svg.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  equal(s.doc.getSnapshot().vectorBases![1]!.points.length, 4, "the blocked down/up/click sequence adds no vertex after the prior removal is acknowledged");
+  handle.dispose();
+  s.el.remove();
+});
+
+test("coordinate input cannot retarget a shifted vertex during pending removal", async () => {
+  const s = await setup("character", "Chrs/coordinate-during-remove.tem", exampleCharacter());
+  const bases = s.doc.getSnapshot().vectorBases!.map((base) => ({ points: base.points.map((point) => ({ ...point })) }));
+  const points = [{ x: 1, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 3 }, { x: 4, y: 4 }, { x: 5, y: 5 }];
+  bases[1] = { points };
+  ok((await s.doc.apply({ type: "set-sprite-bases", bases })).ok);
+  const apply = s.doc.apply.bind(s.doc);
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const firstStarted = new Promise<void>((resolve) => { started = resolve; });
+  let applications = 0;
+  replaceApply(s.doc, async (command) => {
+    if (command.type === "set-sprite-bases") {
+      applications += 1;
+      if (applications === 1) {
+        started();
+        await gate;
+      }
+    }
+    return apply(command);
+  });
+  const handle = await show(s);
+  await act(() => s.el.querySelector<HTMLButtonElement>('button[aria-pressed="false"]')?.click());
+  const removeFirst = [...s.el.querySelectorAll("button")].find((button) => button.textContent === "Remove point 1");
+  ok(removeFirst !== undefined);
+  await act(() => removeFirst.click());
+  await act(async () => { await firstStarted; await new Promise((resolve) => setTimeout(resolve, 0)); });
+  const xLabel = [...s.el.querySelectorAll("label")].find((label) => label.textContent === "Point 3 X");
+  ok(xLabel !== undefined);
+  const staleCoordinate = s.el.querySelector<HTMLInputElement>(`#${xLabel.htmlFor}`);
+  ok(staleCoordinate !== null);
+  equal(staleCoordinate.disabled, true, "coordinate inputs are disabled while removal may change their row identity");
+  await act(() => {
+    staleCoordinate.value = "99";
+    staleCoordinate.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  release();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  equal(applications, 1, "the disabled stale coordinate does not enqueue a second polygon command");
+  deepEqual(s.doc.getSnapshot().vectorBases![1]!.points, points.slice(1), "the shifted D vertex retains its original coordinates");
   handle.dispose();
   s.el.remove();
 });
