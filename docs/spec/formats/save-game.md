@@ -282,12 +282,15 @@ The ledger includes party membership, selection, steps and the sub-tile step
 remainder; all live actor
 identities and game values, including stats, statuses and progression; inventory
 items, equipment assignments and gold; script globals and redirects; current
-board identity, placements, items, board edits and trigger progress; encounter
-progress, RNG and tick. Preserve identity allocation and order where they
-affect future behavior. Inventory equipment assignments are authoritative;
-actor equipment bonuses and references are derived and must be validated or
-rebuilt consistently. Conflicting board-item and sprite placement data must be
-resolved by a documented authority rule, not silently discarded.
+board identity, placements, items, board edits, tile types, per-position scan
+buffers and trigger progress; encounter progress, RNG and tick. Scan buffers are
+keyed by position and retain a copied tile value (or an empty tile) as durable
+board state, independent of the program thread that called `scan`. Preserve
+identity allocation and order where they affect future behavior. Inventory
+equipment assignments are authoritative; actor equipment bonuses and references
+are derived and must be validated or rebuilt consistently. Conflicting board-item
+and sprite placement data must be resolved by a documented authority rule, not
+silently discarded.
 
 Game-owned objects and closure cells reachable from persistent roots belong
 with their transitive references; foreground-local-only data must not turn the
@@ -320,15 +323,18 @@ a non-cryptographic progress comparison and accidental-change detector, not
 authentication, a security boundary, collision-proof equality, the existing
 runtime replay hash, or a checksum of the entire save.
 
-The movement-settings addition advances the ledger envelope from version 3 to
-version 4. A recovery validator recomputes the current v4 hash and the recognized
-v3 hash (the same migrated projection with the newly added `world.movement`
-field omitted). It reports the v3 hash as explicitly compatible for selection of
-existing promoted checkpoints; the recovery store accepts only the recomputed
-current hash or one of those validator-approved compatibility hashes. A
-selected v3 checkpoint retains its stored v3 hash for pointer/metadata agreement.
-New promotions always persist the v4 hash, so re-promoting a v3 candidate
-migrates it. Other old or unknown ledger versions are not implicitly accepted.
+The movement-settings addition advanced the ledger envelope from version 3 to
+version 4. The scan-buffer addition advances it from version 4 to version 5. A
+recovery validator recomputes the current v5 hash and the recognized v4 hash
+(the same migrated projection with the newly added
+`world.board.runtime.tileBuffers` field omitted), as well as the recognized v3
+hash (the v4 projection with `world.movement` omitted). It reports v4 and v3
+hashes as explicitly compatible for selection of existing promoted checkpoints;
+the recovery store accepts only the recomputed current hash or one of those
+validator-approved compatibility hashes. A selected older checkpoint retains
+its stored hash for pointer/metadata agreement. New promotions always persist
+the v5 hash, so re-promoting an older candidate migrates it. Other old or unknown
+ledger versions are not implicitly accepted.
 
 Implementation must validate field shapes, identities and cross-references,
 handle old saves and incompatible assets without silent progress loss, and
