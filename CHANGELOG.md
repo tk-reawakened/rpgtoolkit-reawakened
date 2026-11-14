@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Each desktop input probe now uses its own Electron profile, so overlapping runs do not share the single-instance lock (#2003). Temporary-profile cleanup retries Windows file locks without masking the probe result (#2344).
 - Owner ruling accepted the Monaco CSP posture for standalone editor pages that host Monaco: inline styles and self fonts are allowed while scripts stay strict; VS Code keeps native text editing and strict styles. Worker/offline behavior and Monaco/codicon G6 licensing remain 11.7 gates ([ADR 0029](docs/adr/0029-monaco-csp-style-src.md); [#1705](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1705)).
 - Ordinary tests skip the Final Destiny battle-background case when its sample files have not been fetched; strict runs still reject the skip and require the real fixture (#2178).
 - Updated the development-only Capacitor CLI to remove the reported `uuid` and `glob` advisory paths; the `minimatch` advisory remains open (#2019–#2021).
