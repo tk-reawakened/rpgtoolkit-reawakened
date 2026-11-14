@@ -2,7 +2,7 @@
 type: feature
 title: "Shared sprite graphics stances and bases"
 ticket: 4
-status: built
+status: done
 ---
 
 # Shared sprite graphics stances and bases
