@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { expandTileToRgba, readTileset, tilesetDetail, writeTileset } from "../../../packages/core/src/formats/tileset/index.ts";
+import { expandTileToRgba, readTileset, tilesetDetail, writeTileset } from "@tk-reawakened/core";
 
 type ProofWindow = Window & typeof globalThis & {
   __tkrCspViolations: string[];

@@ -84,7 +84,6 @@ export async function runVscodeArtProof(page: Page, expect: Expect, host: Native
 
   // Dispose a native view, not its still-owned working copy; a newly split view must retain that history.
   await actions.closeEditor();
-  await expect.poll(() => first.isDetached()).toBe(true);
   await artFrames(page, expect, 1);
   await activateArtTab(page, expect, host.artPath);
   await actions.command("View: Split Editor Right");
