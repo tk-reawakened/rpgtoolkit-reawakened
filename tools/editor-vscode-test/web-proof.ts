@@ -19,6 +19,10 @@ type ProofHost = {
   otherBoardPath: string;
   /** A fully drawn 2 × 2 tile bitmap over `Tiles/village.tst`: tile 1 everywhere except a shaded (10, -20, 30) tile 2 at column 2, row 1. */
   bitmapPath: string;
+  /** A 3 × 1 tile bitmap of shaded tile 2, which the browser's Edit tile bitmap action must open. */
+  otherBitmapPath: string;
+  /** The pixels the core compositor makes of the proof bitmap, before (`false`) and after (`true`) the proof's edits. */
+  bitmapPicture(edited: boolean): { width: number; height: number; data: number[] };
   /** What the file must hold after the proof's two edits and Save, written by hand from the stored layout. */
   bitmapSaved: Uint8Array;
 };
@@ -295,10 +299,13 @@ async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHo
 async function runBitmapBrowserScenario(page: Page, expect: Expect, host: ProofHost): Promise<void> {
   const path = host.bitmapPath;
   const before = await host.readBacking(path);
+  const otherBefore = await host.readBacking(host.otherBitmapPath);
   const first = await openProjectFile(page, path, expect, ".tkr-bitmap");
   await expect(first.getByRole("heading", { name: "Tile bitmap" })).toBeVisible();
   await expect(first.locator(".tkr-bitmap-summary")).toContainText("2 × 2 tiles, 64 × 64 pixels");
   await expect(first.locator("canvas.tkr-bitmap-canvas")).toBeVisible();
+  // What the webview's canvas holds is read back and compared with the compositor's own picture of the file.
+  await expectCanvasPixels(first, expect, host.bitmapPicture(false));
   await expect(first.getByRole("button", { name: "Column 2, row 1: village.tst2, shade 10, -20, 30" })).toBeVisible();
   // The grid is laid out as a grid: the second column is to the right on the same line, the second row below.
   const box = async (name: string | RegExp) => {
@@ -323,9 +330,12 @@ async function runBitmapBrowserScenario(page: Page, expect: Expect, host: ProofH
   await first.getByRole("button", { name: /^Column 2, row 1:/ }).click();
   await expect(first.getByRole("button", { name: "Column 2, row 1: village.tst1, shade 10, -20, 30" })).toBeVisible();
   await first.getByRole("button", { name: /^Column 1, row 1:/ }).click();
-  await first.getByLabel("Red", { exact: true }).fill("-255");
-  await first.getByLabel("Red", { exact: true }).press("Enter");
+  const red = first.getByLabel("Red", { exact: true });
+  await red.fill("-255");
+  await expect(red).toHaveValue("-255");
+  await red.press("Enter");
   await expect(first.getByRole("button", { name: "Column 1, row 1: village.tst1, shade -255, 0, 0" })).toBeVisible();
+  await expectCanvasPixels(first, expect, host.bitmapPicture(true));
   await expect(first.locator(".tkr-bitmap-state")).toHaveText("Unsaved changes");
   expect(await host.readBacking(path)).toEqual(before);
   await first.getByRole("button", { name: "Save", exact: true }).click();
@@ -343,7 +353,31 @@ async function runBitmapBrowserScenario(page: Page, expect: Expect, host: ProofH
   await expect(reopened.locator(".tkr-bitmap-brush")).toContainText("A whole stamp (2 × 2 tiles) is chosen");
   await expect(reopened.locator(".tkr-bitmap-state")).toHaveText("All changes saved");
   expect(await host.readBacking(path)).toEqual(host.bitmapSaved);
+  await expectCanvasPixels(reopened, expect, host.bitmapPicture(true));
+
+  // Edit tile bitmap opens exactly the chosen file in its own editor, and shows that file, not this one.
+  const otherName = host.otherBitmapPath.split("/").at(-1)!;
+  await reopened.locator(".tkr-tileset-browser select").selectOption({ value: host.otherBitmapPath });
+  const item = reopened.locator(`[data-browser-reference="${otherName}"]`);
+  await expect(item).toBeVisible();
+  await item.getByRole("button", { name: "More actions" }).click();
+  await item.getByRole("button", { name: "Edit tile bitmap" }).click();
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: otherName }).first()).toBeVisible();
+  const other = await waitForCustomEditorFrame(page, host.otherBitmapPath, ".tkr-bitmap-summary:has-text('3 × 1 tiles')");
+  await expect(other.getByRole("button", { name: "Column 3, row 1: village.tst2, shade 1, 2, 3" })).toBeVisible();
+  expect(await host.readBacking(host.otherBitmapPath)).toEqual(otherBefore);
   await closeActiveEditor(page, expect);
+  await closeActiveEditor(page, expect);
+}
+
+/** Wait until the frame's tile bitmap canvas holds exactly `expected` (RGBA, row by row). */
+async function expectCanvasPixels(frame: Frame, expect: Expect, expected: { width: number; height: number; data: number[] }): Promise<void> {
+  await expect.poll(async () => await frame.locator("canvas.tkr-bitmap-canvas").evaluate((element, want) => {
+    const canvas = element as HTMLCanvasElement;
+    if (canvas.width !== want.width || canvas.height !== want.height) return false;
+    const seen = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+    return seen.length === want.data.length && want.data.every((value, index) => seen[index] === value);
+  }, expected), { message: "the webview's canvas shows the pixels the compositor makes of the file" }).toBe(true);
 }
 
 async function openProjectBoard(page: Page, path: string, expect: Expect): Promise<Frame> {

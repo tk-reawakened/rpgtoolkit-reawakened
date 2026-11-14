@@ -350,6 +350,11 @@ class Webview {
           session: remote.browserSession,
           fs: { list: (path) => remote.browserList(path), read: (path) => remote.browserRead(path) },
           layout: { projectFolder: "" },
+          // As `webview.tsx` supplies it: a linked visit through the extension host.
+          openSource: async (path) => {
+            const outcome = await remote.visit(path);
+            return outcome.ok ? null : outcome.message;
+          },
         },
       });
       return;
@@ -772,6 +777,8 @@ export interface BoardProofTab {
 export interface BoardProofHost {
   readonly name: string;
   open(path: string): Promise<BoardProofTab>;
+  /** The project-relative paths of the documents the workbench has open, in the order they were opened. */
+  openPaths(): readonly string[];
   disk(path: string): Promise<Uint8Array | null>;
   settle(): Promise<void>;
 }
@@ -790,6 +797,7 @@ export function createVscodeBoardProofHost(desktop: boolean, gam: Uint8Array, fi
         close: async () => { await editor.close("discard"); },
       };
     },
+    openPaths: () => host.openPaths(),
     disk: (path) => host.disk(path),
     settle: () => host.settle(),
   };

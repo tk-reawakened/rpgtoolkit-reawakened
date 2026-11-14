@@ -47,6 +47,8 @@ interface Tab {
 interface Host {
   readonly name: string;
   open(path: string): Promise<Tab>;
+  /** The documents the host's workbench has open; the browser host has no workbench in this proof. */
+  openPaths?(): readonly string[];
   disk(path: string): Promise<Uint8Array | null>;
 }
 
@@ -207,6 +209,28 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       ok(retained !== null && retained.getAttribute("aria-pressed") === "true", "the stamp stays chosen in the browser after another document opens");
       equal(other.workbenchDirty(), false);
       await other.close();
+    });
+
+    test("Edit tile bitmap in the browser opens exactly the chosen file through the host", async () => {
+      document.body.replaceChildren();
+      const host = hosts.find((candidate) => candidate.name === entry)!.make();
+      if (host.openPaths === undefined) return; // the browser host's tab opening is proved in tools/browser/tests/editor-tile-bitmap.spec.ts
+      const first = await openReady(host, PATH);
+      const source = control<HTMLSelectElement>(first, ".tkr-tileset-browser select");
+      await act(() => {
+        source.value = OTHER_PATH;
+        source.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await until(() => first.element.querySelector(".tkr-tileset-browser-select-brush")?.textContent === "Select stamp brush");
+      deepEqual(host.openPaths(), [PATH]);
+      await act(() => { control<HTMLButtonElement>(first, ".tkr-tileset-browser-item button:last-of-type").click(); });
+      const edit = [...first.element.querySelectorAll<HTMLButtonElement>(".tkr-tileset-browser-menu button")].find((button) => button.textContent === "Edit tile bitmap");
+      ok(edit !== undefined && !edit.disabled, "the host supplies a way to open the source");
+      await act(() => { edit.click(); });
+      await until(() => host.openPaths!().length === 2);
+      deepEqual(host.openPaths(), [PATH, OTHER_PATH], "the host opened the chosen file, not the one that was open");
+      equal(first.workbenchDirty(), false);
+      await first.close();
     });
   });
 }

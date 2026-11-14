@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { access, copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
-import { createEmptyBoard, TILE_BITMAP_MAGIC, writeBoard, writeTileBitmap } from "@tk-reawakened/core";
+import { compositeTileBitmap, createEmptyBoard, expandTileToRgba, readTileBitmap, readTileset, tileDimensions, TILE_BITMAP_MAGIC, writeBoard, writeTileBitmap, BinaryReader } from "@tk-reawakened/core";
 import { runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
@@ -51,6 +52,7 @@ for (const choice of ["cancel", "keep"]) {
   const boardPath = "Boards/village.brd";
   const otherBoardPath = "Boards/other.brd";
   const bitmapPath = "Bitmap/house.tbm";
+  const otherBitmapPath = "Bitmap/other.tbm";
   const boardBytes = createBoardBytes();
   await mkdir(resolve(proofWorkspace, "Boards"), { recursive: true });
   await mkdir(resolve(proofWorkspace, "Bitmap"), { recursive: true });
@@ -59,6 +61,7 @@ for (const choice of ["cancel", "keep"]) {
     writeFile(resolve(proofWorkspace, boardPath), boardBytes),
     writeFile(resolve(proofWorkspace, otherBoardPath), boardBytes),
     writeFile(resolve(proofWorkspace, bitmapPath), createBitmapBytes(false)),
+    writeFile(resolve(proofWorkspace, otherBitmapPath), createOtherBitmapBytes()),
     copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, "Tiles/village.tst")),
   ]);
   let persistentFs;
@@ -182,7 +185,7 @@ for (const choice of ["cancel", "keep"]) {
       }
     };
     const readBacking = async (path = game) => new Uint8Array(await readFile(resolve(proofWorkspace, path)));
-    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath, bitmapPath, bitmapSaved: createBitmapBytes(true) });
+    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath, bitmapPath, otherBitmapPath, bitmapSaved: createBitmapBytes(true), bitmapPicture: (edited) => expectedBitmapPicture(createBitmapBytes(edited)) });
     console.log(`vscode.dev settings and board proof passed (${choice})`);
   } catch (error) {
     failure = error;
@@ -242,6 +245,36 @@ function createBitmapBytes(edited) {
   const written = writeTileBitmap({ magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 2, height: 2, cells, residue: Uint8Array.from([7, 7, 7]) });
   if (!written.ok) throw new Error(`Could not create authored tile bitmap proof fixture: ${written.error.message}`);
   return written.value;
+}
+
+/** The 3 × 1 bitmap the Edit tile bitmap action must open: every cell is tile 2 shaded (1, 2, 3), unlike the 2 × 2 proof bitmap. */
+function createOtherBitmapBytes() {
+  const cell = (tile, r = 0, g = 0, b = 0) => ({ tile, r, g, b });
+  const pad = cell("pad.gph", 1, 2, 3);
+  const shaded = cell("village.tst2", 1, 2, 3);
+  const written = writeTileBitmap({ magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 3, height: 1, cells: [shaded, pad, shaded, pad, shaded, pad, pad, pad], residue: new Uint8Array() });
+  if (!written.ok) throw new Error(`Could not create authored second tile bitmap proof fixture: ${written.error.message}`);
+  return written.value;
+}
+
+/** What the core compositor makes of `bytes` over the proof tileset: the oracle the proof compares the webview's canvas with. */
+function expectedBitmapPicture(bytes) {
+  const tilesetBytes = readFileSync(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"));
+  const tileset = readTileset(new Uint8Array(tilesetBytes), "village.tst");
+  const bitmap = readTileBitmap(new BinaryReader(bytes, "proof.tbm"));
+  if (!tileset.ok || !bitmap.ok) throw new Error("Could not read the proof bitmap or tileset for the pixel oracle");
+  const { width, height } = tileDimensions(tileset.value.detail);
+  const tiles = new Map();
+  tileset.value.tiles.forEach((_, index) => {
+    const column = expandTileToRgba(tileset.value, index);
+    if (!column.ok) throw new Error(column.error.message);
+    const rgba = new Uint8Array(width * height * 4);
+    for (let x = 0; x < width; x += 1) for (let y = 0; y < height; y += 1) rgba.set(column.value.subarray((x * height + y) * 4, (x * height + y) * 4 + 4), (y * width + x) * 4);
+    tiles.set(`village.tst${index + 1}`, { w: width, h: height, rgba });
+  });
+  const composed = compositeTileBitmap(bitmap.value, tiles);
+  if (!composed.ok) throw new Error(composed.error.message);
+  return { width: composed.value.w, height: composed.value.h, data: [...composed.value.rgba] };
 }
 
 function createBoardBytes() {

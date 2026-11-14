@@ -167,7 +167,12 @@ export function createTileSourcePreviewer(
     if (!bitmap.ok) return failure(bitmap.error.message);
     const tiles = new Map<string, { w: number; h: number; rgba: Uint8Array }>();
     const missing: string[] = [];
-    for (const cell of bitmap.value.cells) {
+    // Only the drawn cells name tiles that matter: the stored extra column and row are never drawn (docs/spec/formats/tiles.md#tile-bitmap-tbm).
+    const drawn = bitmap.value.cells.filter((_, index) => {
+      const rows = bitmap.value.height + 1;
+      return Math.floor(index / rows) < bitmap.value.width && index % rows < bitmap.value.height;
+    });
+    for (const cell of drawn) {
       if (cell.tile === "" || tiles.has(cell.tile)) continue;
       const preview = await previewReference(cell.tile);
       if (preview === undefined) {

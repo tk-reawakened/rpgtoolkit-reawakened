@@ -315,3 +315,11 @@ test("the preview is the core compositor's picture of the cells over the project
   ok(!none.ok);
   match(none.message, /no drawn cells/);
 });
+
+test("the stored extra row and column are never drawn, so a tile they name is not reported missing", async () => {
+  const host = createMemoryPlatformServices({ files: { "Tiles/village.tst": tileset } });
+  const model = bitmap(2, 1, () => cell("village.tst1"), cell("pad.gph", 1, 2, 3));
+  const picture = await previewTileBitmap(host.fs, "memory-project", bytesOf(model));
+  ok(picture.ok);
+  deepEqual(picture.warnings, []);
+});
