@@ -224,26 +224,35 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
     const currentEdits = new Map(snapshot.edits.map((edit) => [edit.editId, edit] as const));
     const addedEdits = snapshot.edits.filter((edit) => !observedEdits.current.has(edit.editId));
     const removedEdits = [...observedEdits.current.values()].filter((edit) => !currentEdits.has(edit.editId)).reverse();
-    const removeIdentity = (identity: StanceHistoryIdentity, fallbackIndex = identity.index): void => {
+    let workingStances = [...observedStances.current];
+    const removeIdentity = (identity: StanceHistoryIdentity, fallbackIndex = identity.index): number => {
       const keyIndex = customStanceKeys.current!.indexOf(identity.key);
       const index = keyIndex >= 0 ? keyIndex : fallbackIndex;
       if (keyIndex >= 0) customStanceKeys.current!.splice(keyIndex, 1);
       identity.index = index;
+      return index;
     };
-    const insertIdentity = (identity: StanceHistoryIdentity): void => {
-      if (customStanceKeys.current!.includes(identity.key)) return;
+    const insertIdentity = (identity: StanceHistoryIdentity): number => {
+      if (customStanceKeys.current!.includes(identity.key)) return customStanceKeys.current!.indexOf(identity.key);
       const index = Math.max(0, Math.min(identity.index, customStanceKeys.current!.length));
       customStanceKeys.current!.splice(index, 0, identity.key);
       identity.index = index;
+      return index;
     };
 
     for (const edit of removedEdits) {
       if (edit.command.type === "delete-custom-stance") {
         const identity = stanceHistory.current.get(edit.editId);
-        if (identity !== undefined) insertIdentity(identity);
+        if (identity !== undefined) {
+          const index = insertIdentity(identity);
+          workingStances.splice(index, 0, { handle: identity.handle, animation: identity.animation });
+        }
       } else if (edit.command.type === "add-custom-stance") {
         const identity = stanceHistory.current.get(edit.editId);
-        if (identity !== undefined) removeIdentity(identity);
+        if (identity !== undefined) {
+          const index = removeIdentity(identity);
+          workingStances.splice(index, 1);
+        }
       }
     }
     for (const edit of addedEdits) {
@@ -258,14 +267,15 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
           };
           stanceHistory.current.set(identity.editId, identity);
         }
-        if (!customStanceKeys.current.includes(identity.key)) insertIdentity(identity);
+        const index = insertIdentity(identity);
+        workingStances.splice(index, 0, { handle: identity.handle, animation: identity.animation });
       } else if (edit.command.type === "delete-custom-stance") {
         let identity = stanceHistory.current.get(edit.editId);
         if (identity === undefined) {
           const index = edit.command.index;
           const pendingIndex = pendingStanceDeletes.current.findIndex((pending) => pending.index === index);
           const pending = pendingIndex < 0 ? undefined : pendingStanceDeletes.current.splice(pendingIndex, 1)[0];
-          const stance = observedStances.current[index];
+          const stance = workingStances[index];
           const key = pending?.key ?? customStanceKeys.current[index];
           if (key !== undefined && (pending !== undefined || stance !== undefined)) {
             identity = {
@@ -275,7 +285,10 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
             stanceHistory.current.set(identity.editId, identity);
           }
         }
-        if (identity !== undefined) removeIdentity(identity, edit.command.index);
+        if (identity !== undefined) {
+          const index = removeIdentity(identity, edit.command.index);
+          workingStances.splice(index, 1);
+        }
       }
     }
     if (pendingCustomStanceOperations.current === 0 && customStanceKeys.current.length !== snapshot.customStances.length) {

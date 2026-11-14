@@ -427,6 +427,29 @@ test("coalesced delete and add reconcile stance keys when the row count is uncha
   s.el.remove();
 });
 
+test("coalesced temporary stance add and delete preserve existing drafts", async () => {
+  const s = await setup("character", "Chrs/coalesced-add-delete.tem", exampleCharacter());
+  const handle = await show(s);
+  const rows = () => [...s.el.querySelectorAll<HTMLElement>(".tkr-sprite-custom")];
+  await act(() => { ok(s.doc.apply({ type: "add-custom-stance", name: "Survivor", file: "" }).ok); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  const survivorAnimation = rows().at(-1)?.querySelectorAll<HTMLInputElement>("input")[1];
+  ok(survivorAnimation !== undefined);
+  await act(() => {
+    survivorAnimation.value = "survivor-draft.anm";
+    survivorAnimation.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const customCount = s.doc.getSnapshot().customStances.length;
+  await act(() => {
+    ok(s.doc.apply({ type: "add-custom-stance", name: "Temporary", file: "" }).ok);
+    ok(s.doc.apply({ type: "delete-custom-stance", index: customCount }).ok);
+  });
+  equal(s.doc.getSnapshot().customStances.length, customCount, "coalesced add and delete leave the row count unchanged");
+  equal(rows().at(-1)?.querySelectorAll<HTMLInputElement>("input")[1]?.value, "survivor-draft.anm", "the existing row retains its draft when a later added row is deleted in the same render");
+  handle.dispose();
+  s.el.remove();
+});
+
 test("Remove point rebases on the acknowledged coordinate edit", async () => {
   const s = await setup("character", "Chrs/queued-remove-point.tem", exampleCharacter());
   const original = s.doc.getSnapshot().vectorBases![1]!.points.map((point) => ({ ...point }));
@@ -573,6 +596,115 @@ test("blocked pointer release outside does not poison the next drag", async () =
   });
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
   deepEqual(s.doc.getSnapshot().vectorBases![1]!.points, [{ x: 2, y: 2 }, { x: 12, y: 13 }, { x: 4, y: 4 }, { x: 5, y: 5 }], "outside release clears the blocked pointer id so the next drag with the same id applies");
+  handle.dispose();
+  s.el.remove();
+});
+
+test("blocked pointer release inside suppresses the following click", async () => {
+  const s = await setup("character", "Chrs/blocked-pointer-inside.tem", exampleCharacter());
+  const bases = s.doc.getSnapshot().vectorBases!.map((base) => ({ points: base.points.map((point) => ({ ...point })) }));
+  bases[1] = { points: [{ x: 1, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 3 }, { x: 4, y: 4 }, { x: 5, y: 5 }] };
+  ok((await s.doc.apply({ type: "set-sprite-bases", bases })).ok);
+  const apply = s.doc.apply.bind(s.doc);
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const firstStarted = new Promise<void>((resolve) => { started = resolve; });
+  replaceApply(s.doc, async (command) => {
+    if (command.type === "set-sprite-bases") {
+      started();
+      await gate;
+    }
+    return apply(command);
+  });
+  const handle = await show(s);
+  await act(() => s.el.querySelector<HTMLButtonElement>('button[aria-pressed="false"]')?.click());
+  const removeFirst = [...s.el.querySelectorAll("button")].find((button) => button.textContent === "Remove point 1");
+  ok(removeFirst !== undefined);
+  await act(() => removeFirst.click());
+  await act(async () => { await firstStarted; await new Promise((resolve) => setTimeout(resolve, 0)); });
+  const svg = s.el.querySelector<SVGSVGElement>(".tkr-sprite-base-canvas");
+  ok(svg !== null);
+  Object.defineProperty(svg, "getScreenCTM", { value: () => ({ inverse: () => ({}) }) });
+  Object.defineProperty(svg, "createSVGPoint", { value: () => ({
+    x: 0,
+    y: 0,
+    matrixTransform() { return { x: this.x, y: this.y }; },
+  }) });
+  const pointer = (type: string): Event => {
+    const event = new Event(type, { bubbles: true });
+    Object.defineProperty(event, "pointerId", { value: 91 });
+    Object.defineProperty(event, "clientX", { value: 0 });
+    Object.defineProperty(event, "clientY", { value: 0 });
+    return event;
+  };
+  const blockedVertex = svg.querySelector('[data-point-index="2"]');
+  ok(blockedVertex !== null);
+  await act(() => { blockedVertex.dispatchEvent(pointer("pointerdown")); });
+  release();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  await act(() => {
+    svg.dispatchEvent(pointer("pointerup"));
+    svg.dispatchEvent(new Event("click", { bubbles: true }));
+  });
+  equal(s.doc.getSnapshot().vectorBases![1]!.points.length, 4, "the inside release followed by its click does not append a point");
+  handle.dispose();
+  s.el.remove();
+});
+
+test("blocked pointer cancellation clears the gesture before the next drag", async () => {
+  const s = await setup("character", "Chrs/blocked-pointer-cancel.tem", exampleCharacter());
+  const bases = s.doc.getSnapshot().vectorBases!.map((base) => ({ points: base.points.map((point) => ({ ...point })) }));
+  bases[1] = { points: [{ x: 1, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 3 }, { x: 4, y: 4 }, { x: 5, y: 5 }] };
+  ok((await s.doc.apply({ type: "set-sprite-bases", bases })).ok);
+  const apply = s.doc.apply.bind(s.doc);
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const firstStarted = new Promise<void>((resolve) => { started = resolve; });
+  replaceApply(s.doc, async (command) => {
+    if (command.type === "set-sprite-bases") {
+      started();
+      await gate;
+    }
+    return apply(command);
+  });
+  const handle = await show(s);
+  await act(() => s.el.querySelector<HTMLButtonElement>('button[aria-pressed="false"]')?.click());
+  const removeFirst = [...s.el.querySelectorAll("button")].find((button) => button.textContent === "Remove point 1");
+  ok(removeFirst !== undefined);
+  await act(() => removeFirst.click());
+  await act(async () => { await firstStarted; await new Promise((resolve) => setTimeout(resolve, 0)); });
+  const svg = s.el.querySelector<SVGSVGElement>(".tkr-sprite-base-canvas");
+  ok(svg !== null);
+  Object.defineProperty(svg, "getScreenCTM", { value: () => ({ inverse: () => ({}) }) });
+  Object.defineProperty(svg, "createSVGPoint", { value: () => ({
+    x: 0,
+    y: 0,
+    matrixTransform() { return { x: this.x, y: this.y }; },
+  }) });
+  const pointer = (type: string, x = 0, y = 0): Event => {
+    const event = new Event(type, { bubbles: true });
+    Object.defineProperty(event, "pointerId", { value: 92 });
+    Object.defineProperty(event, "clientX", { value: x });
+    Object.defineProperty(event, "clientY", { value: y });
+    return event;
+  };
+  const blockedVertex = svg.querySelector('[data-point-index="2"]');
+  ok(blockedVertex !== null);
+  await act(() => { blockedVertex.dispatchEvent(pointer("pointerdown")); });
+  await act(() => { svg.dispatchEvent(pointer("pointercancel")); });
+  release();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  const nextVertex = svg.querySelector('[data-point-index="1"]');
+  ok(nextVertex !== null);
+  await act(() => { nextVertex.dispatchEvent(pointer("pointerdown", 2, 3)); });
+  await act(() => {
+    svg.dispatchEvent(pointer("pointermove", 12, 13));
+    svg.dispatchEvent(pointer("pointerup", 12, 13));
+  });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  deepEqual(s.doc.getSnapshot().vectorBases![1]!.points, [{ x: 2, y: 2 }, { x: 12, y: 13 }, { x: 4, y: 4 }, { x: 5, y: 5 }], "cancellation clears the blocked pointer id so the next drag can move a point");
   handle.dispose();
   s.el.remove();
 });
