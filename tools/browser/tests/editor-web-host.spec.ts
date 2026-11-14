@@ -226,6 +226,7 @@ test("browser Save As replaces its sole source tab, then reopening the source re
   await expect(title).toHaveValue("Example Game");
   await expect(page.getByRole("tab", { name: "Main/example.gam", exact: true })).toBeVisible();
   await title.fill("Saved as a copy");
+  await page.getByRole("button", { name: "Apply changes" }).click();
   await page.getByRole("button", { name: "Save as…", exact: true }).click();
   const saveDialog = page.getByRole("dialog", { name: "Save Main/example.gam as" });
   await saveDialog.getByLabel("Save Main/example.gam as").fill("Main/copy.gam");
@@ -289,7 +290,8 @@ test("overlapping slow folder and newer session opens keep only the latest proje
   await page.getByLabel("Open .gam session copy").setInputFiles("docs/spec/examples/versions/main/main_minor4.gam");
   await expect(page.getByLabel("Game title")).toBeVisible();
   await expect(page.locator("#host-status")).toContainText("main_minor4.gam");
-  await expect(page.locator("#settings > section")).toHaveCount(1);
+  await expect(page.getByRole("tab", { name: "main_minor4.gam", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Only.gam", exact: true })).toHaveCount(0);
 });
 
 test("a cancelled close during project switch keeps the dirty project and cleans the hidden candidate", async ({ page }) => {
@@ -300,13 +302,14 @@ test("a cancelled close during project switch keeps the dirty project and cleans
   const title = page.getByLabel("Game title");
   await expect(title).toBeVisible();
   await title.fill("Unsaved project that must remain open");
+  await page.getByRole("button", { name: "Apply changes" }).click();
   await page.getByRole("button", { name: "Open project folder" }).click();
   const confirmation = page.getByRole("dialog");
   await expect(confirmation).toBeVisible();
   await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(title).toHaveValue("Unsaved project that must remain open");
   await expect(page.locator("#host-status")).toContainText("is still open; Main/Only.gam was not opened.");
-  await expect(page.locator("#settings > section")).toHaveCount(1);
+  await expect(page.getByRole("tab", { name: "Main/Only.gam", exact: true })).toHaveCount(0);
 });
 
 test("browser storage failure never exposes the picked folder as writable", async ({ page }) => {
