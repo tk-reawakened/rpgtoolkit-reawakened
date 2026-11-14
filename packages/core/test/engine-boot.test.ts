@@ -94,7 +94,6 @@ type GameSpec = {
   readonly audioSettings?: MainFileAudioSettings | null;
   readonly pixelMovement?: number;
   readonly soundFonts?: readonly string[];
-  /** Battle background files by filename; they are added under `Bkrounds/`. */
   readonly battleBackgrounds?: Readonly<Record<string, { readonly music: string; readonly menuMoveSound: string; readonly menuChooseSound: string; readonly readySound: string; readonly cantDoSound: string }>>;
   /** Menu cursor sounds by filename. */
   readonly cursorSounds?: { readonly move?: string; readonly select?: string; readonly cancel?: string };
@@ -3665,6 +3664,31 @@ test("pre-manifest checkpoints are refused without changing normal save bytes", 
   const recovered = restoreRecoveryCandidate(new TextDecoder().decode(candidate.bytes), state.audio);
   equal(recovered.recoveryAssets.version, 1);
   ok(recovered.recoveryAssets.board.key === "boards/start.brd");
+});
+
+test("recovery fingerprints and verifies tile assets reachable only through saved scan buffers", () => {
+  const missing = recoveryFixture();
+  const board = missing.state.world.board;
+  if (board?.runtime === undefined) throw new Error("recovery fixture has no runtime board");
+  board.runtime.tileBuffers["7"] = {
+    asset: assetKey("tiles/missing.gph"), tile: 1, nativeWidth: 32, nativeHeight: 32, width: 32, height: 32,
+  };
+  startRecoveryProgram(missing.state, "checkpoint()\nend()");
+  missing.engine.advance(1, []);
+  equal(missing.engine.recoveryCandidate(), null, "an uncacheable scan-buffer tile refuses checkpoint capture");
+
+  const { game, candidate } = recoveryCandidateWithDurableState();
+  const root = JSON.parse(new TextDecoder().decode(candidate)) as {
+    world: { board: { runtime: { tileBuffers: Record<string, unknown> } } };
+  };
+  root.world.board.runtime.tileBuffers["7"] = {
+    asset: "tiles/missing.gph", tile: 1, nativeWidth: 32, nativeHeight: 32, width: 32, height: 32,
+  };
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles, undefined, undefined, encoder.encode(JSON.stringify(root)));
+  const result = run(engine, game.files, 30);
+  equal(engine.recoveryStatus(), "failed");
+  ok(result.diagnostics.some(({ code }) => code === "recovery.asset-missing"));
 });
 
 test("a pre-battle candidate ignores transient program-scope tile assets", () => {

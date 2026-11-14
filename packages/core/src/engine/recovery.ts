@@ -273,7 +273,7 @@ function restoreBoard(authored: WorldBoard, saved: LedgerBoard): WorldBoard {
   const tileBuffers: NonNullable<WorldBoard["runtime"]>["tileBuffers"] = {};
   if (saved.runtime.state === "present") {
     tileTypes = [...saved.runtime.value.tileTypes];
-    const layerArea = saved.sizeX * saved.sizeY;
+    const layerArea = (authored.gridWidth ?? saved.sizeX) * (authored.gridHeight ?? saved.sizeY);
     for (const edit of saved.runtime.value.tileEdits) {
       const layerIndex = Math.floor(edit.index / layerArea);
       const tileIndex = edit.index % layerArea;

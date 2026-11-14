@@ -436,7 +436,13 @@ export function hashGameLedgerV4(ledger: GameLedgerV1): string {
   return hashState({ domain: GAME_LEDGER_DOMAIN, version: 4, ledger: legacyLedger } as never);
 }
 
-function ledgerWithoutTileBuffers(ledger: GameLedgerV1): GameLedgerV1 {
+type LedgerBoardRuntimeV4 = Omit<LedgerBoardRuntime, "tileBuffers">;
+type LedgerBoardV4 = Omit<LedgerBoard, "runtime"> & { readonly runtime: LedgerPresence<LedgerBoardRuntimeV4> };
+type GameLedgerV4 = Omit<GameLedgerV1, "world"> & {
+  readonly world: Omit<LedgerWorld, "board"> & { readonly board: LedgerPresence<LedgerBoardV4> };
+};
+
+function ledgerWithoutTileBuffers(ledger: GameLedgerV1): GameLedgerV4 {
   const board = ledger.world.board;
   if (board.state !== "present" || board.value.runtime.state !== "present") return ledger;
   const { tileBuffers: _tileBuffers, ...runtime } = board.value.runtime.value;
