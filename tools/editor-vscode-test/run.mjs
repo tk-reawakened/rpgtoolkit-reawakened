@@ -64,6 +64,7 @@ for (const choice of ["cancel", "keep"]) {
   let failure;
   let cleanupErrors = [];
   const browserDiagnostics = [];
+  const probeDiagnostics = [];
   try {
     persistentFs = await startPersistentFs(proofWorkspace, `http://localhost:${port}`);
     const workbenchUrl = `http://localhost:${port}/`;
@@ -127,8 +128,12 @@ for (const choice of ["cancel", "keep"]) {
     const newPage = async () => {
       const page = await browser.newPage();
       page.on("console", (message) => {
-        if (message.type() === "error" || /CommandService#executeCommand workbench\.action\.reloadWindow|\[vscode-web-proof-probe\] requesting native reload/.test(message.text())) {
-          recordBrowserDiagnostic(`[console] ${message.text()}`);
+        const text = message.text();
+        if (text.includes("[vscode-web-proof-probe]") && probeDiagnostics.length < 100) {
+          probeDiagnostics.push(`[console] ${text.replaceAll(persistentFs.token, "[redacted]")}`);
+        }
+        if (message.type() === "error" || /CommandService#executeCommand workbench\.action\.reloadWindow/.test(text)) {
+          recordBrowserDiagnostic(`[console] ${text}`);
         }
       });
       page.on("pageerror", (error) => recordBrowserDiagnostic(`[pageerror] ${error.stack ?? error.message}`));
@@ -190,6 +195,7 @@ for (const choice of ["cancel", "keep"]) {
   const proofFailure = combineProofErrors(failure, cleanupErrors);
   if (proofFailure !== undefined) {
     if (browserDiagnostics.length > 0) console.error(`[vscode-web:failure-diagnostics]\n${browserDiagnostics.join("\n")}`);
+    if (probeDiagnostics.length > 0) console.error(`[vscode-web:probe-diagnostics]\n${probeDiagnostics.join("\n")}`);
     throw proofFailure;
   }
 }
