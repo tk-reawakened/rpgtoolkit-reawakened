@@ -32,7 +32,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): void {
       return destination.toString();
     },
     deleteBackup: async (destination) => { await vscode.workspace.fs.delete(destination); },
-    executeCommand: async (command) => await vscode.commands.executeCommand(command),
+    saveEditor: async (uri) => await vscode.workspace.save(uri),
     uriFor: (folder, path) => vscode.Uri.joinPath(folder.uri, ...path.split("/")),
     // `vscode.open` opens the file in the editor registered for it (a board opens in the board editor, by default).
     openEditor: async (uri) => { await vscode.commands.executeCommand("vscode.open", uri); },

@@ -384,14 +384,11 @@ class Workbench {
         script.pickLists.push({ placeholder, labels: items.map((item) => item.label) });
         return script.picks.shift();
       },
-      executeCommand: async (command) => {
-        const target = this.active?.copy;
-        if (target === undefined) return;
-        if (command === "workbench.action.files.save") await target.save();
-        else {
-          this.host.revertCommands += 1;
-          await target.revert();
-        }
+      saveEditor: async (uri) => {
+        const target = this.copies.get(uri.path);
+        if (target === undefined) return undefined;
+        await target.save();
+        return uri;
       },
     }, (event) => {
       for (const copy of this.copies.values()) if (copy.custom === event.document) copy.record(event);
