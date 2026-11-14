@@ -7,8 +7,8 @@ import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/t
 import { platformOk } from "@tk-reawakened/platform-services";
 import { PACKAGE_LIMITS, loadPackage, newProjectMainFile, readDistributionManifest, utf8Decode, utf8Encode, writeMainFile } from "@tk-reawakened/core";
 
-function authoredMain(startupPrg = "start.prg", initBoard = "start.brd", initChar = ""): Uint8Array {
-  const result = writeMainFile({ ...newProjectMainFile(), gameTitle: "A Test Game", startupPrg, initBoard, initChar });
+function authoredMain(startupPrg = "start.prg", initBoard = "start.brd", initChar = "", gameTitle = "A Test Game"): Uint8Array {
+  const result = writeMainFile({ ...newProjectMainFile(), gameTitle, startupPrg, initBoard, initChar });
   if (!result.ok) throw new Error(result.error.message);
   return result.value;
 }
@@ -82,19 +82,51 @@ test("file-only suffix exclusions do not discard folders whose names use editor-
   workspace.dispose();
 });
 
-test("preflight excludes prior package exports saved in the project", async () => {
+test("preflight excludes only identity-verified previous exports and preserves ordinary TPK assets", async () => {
+  const original = packageHost(authoredFiles());
+  const first = await prepareGamePackage({ workspace: original.workspace, services: original.services, mainPath: "Main/demo.gam", version: "1" });
+  ok(first.ok, first.ok ? "" : first.message);
+  original.workspace.dispose();
+
+  const archivePath = `Releases/${first.value.package.fileName}`;
+  const descriptorPath = `Releases/${first.value.descriptor.fileName}`;
   const { workspace, services } = packageHost({
     ...authoredFiles(),
-    "Releases/previous.tpk": utf8Encode("prior package"),
-    "Releases/previous.tpk.json": utf8Encode("prior descriptor"),
+    [archivePath]: first.value.package.bytes,
+    [descriptorPath]: first.value.descriptor.bytes,
+    "Misc/catalogue.tpk": utf8Encode("ordinary project data"),
+    "Misc/catalogue.tpk.json": utf8Encode("ordinary project metadata"),
   });
   const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "2" });
   ok(outcome.ok, outcome.ok ? "" : outcome.message);
-  ok(!outcome.value.includedFiles.includes("Releases/previous.tpk"));
-  ok(!outcome.value.includedFiles.includes("Releases/previous.tpk.json"));
-  ok(outcome.value.excludedFiles.includes("Releases/previous.tpk"));
-  ok(outcome.value.excludedFiles.includes("Releases/previous.tpk.json"));
+  ok(!outcome.value.includedFiles.includes(archivePath));
+  ok(!outcome.value.includedFiles.includes(descriptorPath));
+  ok(outcome.value.excludedFiles.includes(archivePath));
+  ok(outcome.value.excludedFiles.includes(descriptorPath));
+  ok(outcome.value.includedFiles.includes("Misc/catalogue.tpk"));
+  ok(outcome.value.includedFiles.includes("Misc/catalogue.tpk.json"));
   workspace.dispose();
+});
+
+test("preflight retains a valid nested package and descriptor for a different game", async () => {
+  const otherFiles = { ...authoredFiles(), "Main/demo.gam": authoredMain("start.prg", "start.brd", "", "Another Game") };
+  const other = packageHost(otherFiles);
+  const prior = await prepareGamePackage({ workspace: other.workspace, services: other.services, mainPath: "Main/demo.gam", version: "1" });
+  ok(prior.ok, prior.ok ? "" : prior.message);
+  other.workspace.dispose();
+
+  const archivePath = `Archives/${prior.value.package.fileName}`;
+  const descriptorPath = `Archives/${prior.value.descriptor.fileName}`;
+  const current = packageHost({
+    ...authoredFiles(),
+    [archivePath]: prior.value.package.bytes,
+    [descriptorPath]: prior.value.descriptor.bytes,
+  });
+  const outcome = await prepareGamePackage({ workspace: current.workspace, services: current.services, mainPath: "Main/demo.gam", version: "2" });
+  ok(outcome.ok, outcome.ok ? "" : outcome.message);
+  ok(outcome.value.includedFiles.includes(archivePath));
+  ok(outcome.value.includedFiles.includes(descriptorPath));
+  current.workspace.dispose();
 });
 
 test("preflight accepts an empty optional startup program without a program asset", async () => {

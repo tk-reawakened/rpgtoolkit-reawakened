@@ -1,13 +1,12 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
-import { utf8Encode } from "@tk-reawakened/core";
 import type { PreparedGamePackage } from "@tk-reawakened/editor-model";
 import { savePackageWithSaveAs, type PackageSavePort } from "../src/package-save.ts";
 
 function prepared(): PreparedGamePackage {
   return {
-    package: { fileName: "game.tpk", bytes: utf8Encode("archive") },
-    descriptor: { fileName: "game.tpk.json", bytes: utf8Encode(JSON.stringify({ schema: 1, file: "game.tpk", sha256: "hash", size: 7, gameId: "id", title: "Game", version: "1" })) },
+    package: { fileName: "game.tpk", bytes: new TextEncoder().encode("archive") },
+    descriptor: { fileName: "game.tpk.json", bytes: new TextEncoder().encode(JSON.stringify({ schema: 1, file: "game.tpk", sha256: "hash", size: 7, gameId: "id", title: "Game", version: "1" })) },
     includedFiles: [], excludedFiles: [],
   };
 }

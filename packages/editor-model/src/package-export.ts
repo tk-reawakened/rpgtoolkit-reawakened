@@ -3,7 +3,9 @@ import {
   deriveGameId,
   derivePackageIdentity,
   foldPath,
+  loadPackage,
   PACKAGE_LIMITS,
+  readDistributionManifest,
   readMainFile,
   stripTypeFolder,
   utf8Decode,
@@ -62,9 +64,63 @@ function isExcluded(path: string, mainPath: string, kind: "file" | "directory"):
   if (segments[0] === "main" && segments.length > 1 && folded !== foldPath(mainPath)) return true;
   if (kind === "directory") return false;
   const basename = segments.at(-1) ?? "";
-  if (basename.endsWith(".spec.prg") || basename.endsWith(".tpk") || basename.endsWith(".tpk.json")) return true;
+  if (basename.endsWith(".spec.prg")) return true;
   const dot = basename.lastIndexOf(".");
   return dot >= 0 && EDITOR_ONLY_EXTENSIONS.has(basename.slice(dot));
+}
+
+const INSTALL_DESCRIPTOR_FIELDS = ["schema", "file", "sha256", "size", "gameId", "title", "version"] as const;
+
+async function previousExportGameId(
+  descriptorFile: PackageFile,
+  packageFile: PackageFile,
+  packageExport: PackageExportService,
+): Promise<string | null> {
+  if (!descriptorFile.path.toLowerCase().endsWith(".tpk.json")) return null;
+  const packageName = packageFile.path.slice(packageFile.path.lastIndexOf("/") + 1);
+  if (foldPath(descriptorFile.path) !== foldPath(`${packageFile.path}.json`)) return null;
+
+  let descriptor: unknown;
+  try { descriptor = JSON.parse(utf8Decode(descriptorFile.bytes)); }
+  catch { return null; }
+  if (
+    typeof descriptor !== "object" ||
+    descriptor === null ||
+    Array.isArray(descriptor) ||
+    Object.keys(descriptor).length !== INSTALL_DESCRIPTOR_FIELDS.length ||
+    !INSTALL_DESCRIPTOR_FIELDS.every((field) => Object.hasOwn(descriptor, field))
+  ) return null;
+  const record = descriptor as Record<(typeof INSTALL_DESCRIPTOR_FIELDS)[number], unknown>;
+  if (
+    record.schema !== 1 ||
+    record.file !== packageName ||
+    typeof record.sha256 !== "string" ||
+    !/^[0-9a-f]{64}$/.test(record.sha256) ||
+    record.size !== packageFile.bytes.byteLength ||
+    typeof record.gameId !== "string" ||
+    typeof record.title !== "string" ||
+    record.title.trim().length === 0 ||
+    typeof record.version !== "string" ||
+    record.version.trim().length === 0
+  ) return null;
+
+  try {
+    const digest = await packageExport.sha256(packageFile.bytes);
+    if (!digest.ok || digest.value !== record.sha256) return null;
+  } catch {
+    return null;
+  }
+  const loaded = loadPackage({ kind: "tpk", name: packageName, bytes: packageFile.bytes });
+  if (!loaded.ok) return null;
+  const manifest = readDistributionManifest(loaded.value);
+  if (!manifest.ok) return null;
+  const gameFiles = loaded.value.files.filter((file) => foldPath(file.path) !== "manifest.json");
+  const mainFile = gameFiles.find((file) => foldPath(file.path) === foldPath(manifest.value.main));
+  if (mainFile === undefined) return null;
+  const main = readMainFile(new BinaryReader(mainFile.bytes, manifest.value.main));
+  if (!main.ok || main.value.gameTitle.trim() !== record.title) return null;
+  const gameId = deriveGameId(mainFile.bytes, derivePackageIdentity(gameFiles));
+  return gameId === record.gameId ? gameId : null;
 }
 
 function folderKindFailure(path: string): string {
@@ -129,6 +185,40 @@ async function collectFiles(fs: FileSystemService, mainPath: string): Promise<Fi
   return { ok: true, files, excludedFiles };
 }
 
+/** Exclude only complete, current-project exports; unrelated or unverifiable package assets remain data. */
+async function excludeVerifiedPreviousExports(
+  collected: CollectedFiles,
+  mainFile: PackageFile,
+  packageExport: PackageExportService,
+  const byPath = new Map<string, PackageFile>(collected.files.map((file) => [foldPath(file.path), file]));
+  const groups = new Map<string, Set<string>>();
+  for (const descriptor of collected.files) {
+    if (!descriptor.path.toLowerCase().endsWith(".tpk.json")) continue;
+    const archive = byPath.get(foldPath(descriptor.path.slice(0, -".json".length)));
+    if (archive === undefined) continue;
+    const gameId = await previousExportGameId(descriptor, archive, packageExport);
+    if (gameId === null) continue;
+    const paths = groups.get(gameId) ?? new Set<string>();
+    paths.add(descriptor.path);
+    paths.add(archive.path);
+    groups.set(gameId, paths);
+  }
+
+  const excludedPaths = new Set<string>();
+  for (const [gameId, paths] of groups) {
+    const projectFiles = collected.files.filter((file) => !paths.has(file.path));
+    if (deriveGameId(mainFile.bytes, derivePackageIdentity(projectFiles)) === gameId) {
+      for (const path of paths) excludedPaths.add(path);
+    }
+  }
+  if (excludedPaths.size === 0) return collected;
+  return {
+    ok: true,
+    files: collected.files.filter((file) => !excludedPaths.has(file.path)),
+    excludedFiles: [...collected.excludedFiles, ...excludedPaths].sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
+  };
+}
+
 function requiredAssetPath(folder: "Prg" | "Boards" | "Chrs", reference: string): string | null {
   const kind = folder === "Prg" ? "programs" : folder === "Boards" ? "boards" : "characters";
   const stripped = stripTypeFolder(kind, reference).replaceAll(String.fromCharCode(92), "/");
@@ -163,10 +253,11 @@ export async function prepareGamePackage(options: PrepareGamePackageOptions): Pr
   const mainResult = readMainFile(new BinaryReader(mainFile.bytes, options.mainPath));
   if (!mainResult.ok) return failure(`Could not read ${options.mainPath}: ${mainResult.error.message}`);
   const main = mainResult.value;
+  const inventory = await excludeVerifiedPreviousExports(collected, mainFile, exportService);
   if (main.gameTitle.trim().length === 0) return failure("Set a game title in the main file before packaging.");
   if (main.initBoard.trim().length === 0) return failure("Set an initial board in the main file before packaging.");
 
-  const available = new Set(collected.files.map(({ path }) => foldPath(path)));
+  const available = new Set(inventory.files.map(({ path }) => foldPath(path)));
   const requiredAssets: readonly (readonly [string, "Prg" | "Boards" | "Chrs", string])[] = [
     ...(main.startupPrg === "" ? [] : [["startup program", "Prg", main.startupPrg] as const]),
     ["initial board", "Boards", main.initBoard],
@@ -184,16 +275,16 @@ export async function prepareGamePackage(options: PrepareGamePackageOptions): Pr
   const manifest = {
     schema: 1,
     main: mainFile.path,
-    index: collected.files.map(({ path }) => path),
+    index: inventory.files.map(({ path }) => path),
   };
-  const archive = writeDistributionPackage({ files: collected.files, manifest });
+  const archive = writeDistributionPackage({ files: inventory.files, manifest });
   if (!archive.ok) return failure(`Package preflight failed: ${archive.error.message}`);
 
   const digest = await exportService.sha256(archive.value);
   if (!digest.ok) return failure(`Could not calculate the install descriptor's SHA-256: ${digest.error.message}`);
   if (!/^[0-9a-f]{64}$/.test(digest.value)) return failure("The host returned an invalid SHA-256 digest for the package.");
 
-  const gameId = deriveGameId(mainFile.bytes, derivePackageIdentity(collected.files));
+  const gameId = deriveGameId(mainFile.bytes, derivePackageIdentity(inventory.files));
   const descriptor = {
     schema: 1,
     file: packageName,
@@ -219,8 +310,8 @@ export async function prepareGamePackage(options: PrepareGamePackageOptions): Pr
     value: {
       package: { fileName: packageName, bytes: archive.value },
       descriptor: { fileName: `${packageName}.json`, bytes: descriptorBytes },
-      includedFiles: collected.files.map(({ path }) => path),
-      excludedFiles: collected.excludedFiles,
+      includedFiles: inventory.files.map(({ path }) => path),
+      excludedFiles: inventory.excludedFiles,
     },
   };
 }
