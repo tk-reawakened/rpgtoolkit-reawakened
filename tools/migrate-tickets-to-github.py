@@ -253,8 +253,23 @@ def main():
             lines.append("")
         if after:
             lines.append(f"## Prerequisites\n- Depends on: {', '.join(str(a) for a in after)}\n")
+        unknown = str(t.get("unknown") or "").strip()
+        blocked_at = str(t.get("blocked_at") or "").strip()
+        blocked_reason = str(t.get("blocked_reason") or "").strip()
+        blocked = str(t.get("status") or "").strip() == "blocked"
+        if unknown or blocked or blocked_at or blocked_reason:
+            lines.append("## Decisions and blockers")
+            if blocked:
+                lines.append("- Status: blocked")
+            if unknown:
+                lines.append(f"- Decision or unknown recorded in the store: {unknown}")
+            if blocked_at:
+                lines.append(f"- Blocked at: {blocked_at}")
+            if blocked_reason:
+                lines.append(f"- Blocked reason: {blocked_reason}")
+            lines.append("")
         lines.append("## Guard-Rails (docs/guardrails.md)")
-        lines.append("- [x] **G7 Clean-Room**: Implemented from `docs/` only. No legacy GPL source consulted.")
+        lines.append("- [ ] **G7 Clean-Room**: Implement from `docs/` only; do not consult legacy GPL source.")
         if area == "core":
             lines.append("- [ ] **G1 Step-Machine**: Script VM state remains plain JSON data.")
             lines.append("- [ ] **G2/G3 Core Boundaries**: `core` touches no I/O, DOM, Node, or non-deterministic APIs.")
