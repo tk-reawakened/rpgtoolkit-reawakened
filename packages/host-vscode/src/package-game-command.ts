@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { createDocumentWorkspace, prepareGamePackage } from "@tk-reawakened/editor-model";
 import { savePackageWithSaveAs, type PackageDestinationKind, type PackageSavePort } from "./package-save.ts";
+import { validatePackageDestination } from "./package-destination.ts";
 import { createVscodeServices } from "./services.ts";
 
 const SAVE_LABEL = "Choose where to save…";
@@ -9,7 +10,7 @@ function vscodeSavePort(projectRoot: vscode.Uri): PackageSavePort<vscode.Uri> {
   const fileName = (uri: vscode.Uri): string => uri.path.slice(uri.path.lastIndexOf("/") + 1);
   return {
     chooseDestination: async (suggested) => await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.joinPath(projectRoot, suggested),
+      defaultUri: vscode.Uri.joinPath(projectRoot, ".tkr-exports", suggested),
       saveLabel: "Save package",
       title: "Save RPG Toolkit package",
       filters: { "RPG Toolkit package": ["tpk"] },
@@ -17,6 +18,7 @@ function vscodeSavePort(projectRoot: vscode.Uri): PackageSavePort<vscode.Uri> {
     fileName,
     sibling: (uri, name) => uri.with({ path: `${uri.path.slice(0, uri.path.lastIndexOf("/") + 1)}${name}` }),
     describe: (uri) => vscode.workspace.asRelativePath(uri, false),
+    validateDestination: async (uri) => validatePackageDestination(projectRoot, uri),
     inspect: async (uri): Promise<PackageDestinationKind> => {
       try {
         const stat = await vscode.workspace.fs.stat(uri);
@@ -38,7 +40,13 @@ function vscodeSavePort(projectRoot: vscode.Uri): PackageSavePort<vscode.Uri> {
       );
       return answer === "Replace";
     },
-    write: async (uri, bytes) => { await vscode.workspace.fs.writeFile(uri, bytes); },
+    write: async (uri, bytes) => {
+      const refusal = validatePackageDestination(projectRoot, uri);
+      if (refusal === undefined && uri.scheme === projectRoot.scheme && uri.authority === projectRoot.authority && uri.path.startsWith(`${projectRoot.path.replace(/\/$/, "")}/.tkr-exports/`)) {
+        await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(projectRoot, ".tkr-exports"));
+      }
+      await vscode.workspace.fs.writeFile(uri, bytes);
+    },
   };
 }
 

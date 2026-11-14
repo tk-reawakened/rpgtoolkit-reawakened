@@ -2,6 +2,7 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import type { PreparedGamePackage } from "@tk-reawakened/editor-model";
 import { savePackageWithSaveAs, type PackageSavePort } from "../src/package-save.ts";
+import { validatePackageDestination } from "../src/package-destination.ts";
 
 function prepared(): PreparedGamePackage {
   return {
@@ -19,6 +20,7 @@ function port(overrides: Partial<PackageSavePort<string>> = {}) {
     fileName: (path) => path.slice(path.lastIndexOf("/") + 1),
     sibling: (path, name) => `${path.slice(0, path.lastIndexOf("/") + 1)}${name}`,
     describe: (path) => path,
+    validateDestination: async () => undefined,
     inspect: async () => "missing",
     confirmReplace: async (paths) => { replaced = paths; return false; },
     write: async (path, bytes) => { writes.push([path, bytes]); },
@@ -70,4 +72,27 @@ test("package Save As reports an incomplete pair when descriptor write fails", a
   equal(result.ok, false);
   if (!result.ok) ok(result.message.includes("export is incomplete"));
   deepEqual(fs.writes.map(([path]) => path), ["out/game.tpk"]);
+});
+
+test("package destinations are restricted to the reserved project export folder or outside the project", () => {
+  const root = { scheme: "file", authority: "", path: "/work/game" };
+  equal(validatePackageDestination(root, { ...root, path: "/work/game/.tkr-exports/game.tpk" }), undefined);
+  equal(validatePackageDestination(root, { ...root, path: "/work/game/.tkr-exports/nested/game.tpk" })?.includes("save outside"), true);
+  equal(validatePackageDestination(root, { ...root, path: "/work/game/Releases/game.tpk" })?.includes(".tkr-exports"), true);
+  equal(validatePackageDestination(root, { ...root, path: "/work/elsewhere/game.tpk" }), undefined);
+  equal(validatePackageDestination(root, { ...root, scheme: "vscode-remote", authority: "ssh-host", path: "/work/game/Releases/game.tpk" }), undefined);
+});
+
+test("package Save As refuses non-reserved in-project destinations before inspecting or writing", async () => {
+  let inspected = 0;
+  const fs = port({
+    chooseDestination: async () => "/project/Releases/game.tpk",
+    validateDestination: async () => "Choose .tkr-exports under this project or save outside the project folder.",
+    inspect: async () => { inspected += 1; return "missing"; },
+  });
+  const result = await savePackageWithSaveAs(fs.value, prepared());
+  equal(result.ok, false);
+  if (!result.ok) ok(result.message.includes("save outside the project folder"));
+  equal(inspected, 0);
+  equal(fs.writes.length, 0);
 });

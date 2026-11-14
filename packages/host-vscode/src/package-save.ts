@@ -7,7 +7,7 @@ export interface PackageSavePort<Destination> {
   fileName(destination: Destination): string;
   sibling(destination: Destination, fileName: string): Destination;
   describe(destination: Destination): string;
-  inspect(destination: Destination): Promise<PackageDestinationKind>;
+  validateDestination(destination: Destination): Promise<string | undefined>;
   confirmReplace(existing: readonly Destination[]): Promise<boolean>;
   write(destination: Destination, bytes: Uint8Array): Promise<void>;
 }
@@ -23,6 +23,10 @@ function reason(error: unknown): string { return error instanceof Error && error
 export async function savePackageWithSaveAs<Destination>(port: PackageSavePort<Destination>, prepared: PreparedGamePackage): Promise<PackageSaveOutcome> {
   const chosen = await port.chooseDestination(prepared.package.fileName);
   if (chosen === undefined) return { ok: false, cancelled: true, message: "Package export was cancelled; nothing was written." };
+  let destinationProblem: string | undefined;
+  try { destinationProblem = await port.validateDestination(chosen); }
+  catch (error) { return failed(`Could not validate ${port.describe(chosen)}: ${reason(error)}. Nothing was written.`); }
+  if (destinationProblem !== undefined) return failed(`${destinationProblem} Nothing was written.`);
   const packageName = port.fileName(chosen);
   const descriptor = packageDescriptorFor(prepared, packageName);
   if (!descriptor.ok) return failed(`${descriptor.message} Nothing was written.`);

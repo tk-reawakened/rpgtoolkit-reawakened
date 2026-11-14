@@ -82,51 +82,27 @@ test("file-only suffix exclusions do not discard folders whose names use editor-
   workspace.dispose();
 });
 
-test("preflight excludes only identity-verified previous exports and preserves ordinary TPK assets", async () => {
-  const original = packageHost(authoredFiles());
-  const first = await prepareGamePackage({ workspace: original.workspace, services: original.services, mainPath: "Main/demo.gam", version: "1" });
-  ok(first.ok, first.ok ? "" : first.message);
-  original.workspace.dispose();
-
-  const archivePath = `Releases/${first.value.package.fileName}`;
-  const descriptorPath = `Releases/${first.value.descriptor.fileName}`;
-  const { workspace, services } = packageHost({
+test("preflight excludes every reserved export while retaining package assets elsewhere after project edits", async () => {
+  const files = {
     ...authoredFiles(),
-    [archivePath]: first.value.package.bytes,
-    [descriptorPath]: first.value.descriptor.bytes,
+    "Main/demo.gam": authoredMain("start.prg", "start.brd", "", "Edited Game"),
+    ".tkr-exports/Edited-Game.tpk": utf8Encode("previous archive"),
+    ".tkr-exports/Edited-Game.tpk.json": utf8Encode("previous descriptor"),
+    ".tkr-exports/older/another.tpk": utf8Encode("another prior archive"),
+    ".tkr-exports/older/another.tpk.json": utf8Encode("another prior descriptor"),
     "Misc/catalogue.tpk": utf8Encode("ordinary project data"),
     "Misc/catalogue.tpk.json": utf8Encode("ordinary project metadata"),
-  });
+  };
+  const { workspace, services } = packageHost(files);
   const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "2" });
   ok(outcome.ok, outcome.ok ? "" : outcome.message);
-  ok(!outcome.value.includedFiles.includes(archivePath));
-  ok(!outcome.value.includedFiles.includes(descriptorPath));
-  ok(outcome.value.excludedFiles.includes(archivePath));
-  ok(outcome.value.excludedFiles.includes(descriptorPath));
+  for (const path of [".tkr-exports/Edited-Game.tpk", ".tkr-exports/Edited-Game.tpk.json", ".tkr-exports/older/another.tpk", ".tkr-exports/older/another.tpk.json"]) {
+    ok(!outcome.value.includedFiles.includes(path), `${path} should not be recursively packaged`);
+    ok(outcome.value.excludedFiles.includes(path), `${path} should be reported as excluded`);
+  }
   ok(outcome.value.includedFiles.includes("Misc/catalogue.tpk"));
   ok(outcome.value.includedFiles.includes("Misc/catalogue.tpk.json"));
   workspace.dispose();
-});
-
-test("preflight retains a valid nested package and descriptor for a different game", async () => {
-  const otherFiles = { ...authoredFiles(), "Main/demo.gam": authoredMain("start.prg", "start.brd", "", "Another Game") };
-  const other = packageHost(otherFiles);
-  const prior = await prepareGamePackage({ workspace: other.workspace, services: other.services, mainPath: "Main/demo.gam", version: "1" });
-  ok(prior.ok, prior.ok ? "" : prior.message);
-  other.workspace.dispose();
-
-  const archivePath = `Archives/${prior.value.package.fileName}`;
-  const descriptorPath = `Archives/${prior.value.descriptor.fileName}`;
-  const current = packageHost({
-    ...authoredFiles(),
-    [archivePath]: prior.value.package.bytes,
-    [descriptorPath]: prior.value.descriptor.bytes,
-  });
-  const outcome = await prepareGamePackage({ workspace: current.workspace, services: current.services, mainPath: "Main/demo.gam", version: "2" });
-  ok(outcome.ok, outcome.ok ? "" : outcome.message);
-  ok(outcome.value.includedFiles.includes(archivePath));
-  ok(outcome.value.includedFiles.includes(descriptorPath));
-  current.workspace.dispose();
 });
 
 test("preflight accepts an empty optional startup program without a program asset", async () => {
