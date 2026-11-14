@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import type { PlatformServices, ProjectHandle, SettingValue, SettingsLayer } from "@tk-reawakened/platform-services";
-import { platformOk } from "@tk-reawakened/platform-services";
+import { platformError, platformOk } from "@tk-reawakened/platform-services";
 import { vscodeCapabilities } from "./capabilities.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
@@ -28,7 +28,12 @@ export function createVscodeServices(root: vscode.Uri): PlatformServices {
         return platformOk(undefined);
       },
     },
-    document: { edited: () => undefined },
-    dialogs: createVscodeDialogs(root),
+    packageExport: {
+      sha256: async (bytes) => {
+        const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+        return platformOk([...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join(""));
+      },
+      downloadFile: async () => platformError("unavailable", "VS Code package files are saved through Save As, not downloaded."),
+    },
   };
 }
