@@ -99,6 +99,41 @@ test("project consumer resolves Prg includes and decodes project scripts as Wind
   }
 });
 
+test("project thread programs run during cooperative waits but pause during blocking waits", () => {
+  const root = mkdtempSync(join(tmpdir(), "script-spec-project-thread-"));
+  try {
+    writeProjectFile(root, "Prg/worker.prg", [
+      "while (true) {",
+      "  ticked = ticked + 1",
+      "  threadSleep(getThreadId(), 1 / 60)",
+      "}",
+    ].join("\n"));
+    writeProjectFile(root, "thread.spec.prg", [
+      'it("runs project programs as threads", () => {',
+      "  ticked = 0",
+      "  inlineRan = 0",
+      '  workerId = thread("worker.prg", 0)',
+      '  inlineId = thread("inlineRan = 1", 0)',
+      "  specTicks(3)",
+      "  running = ticked",
+      "  sleep(3)",
+      "  expect(running).toBeTruthy()",
+      "  expect(ticked).toBe(running)",
+      "  expect(inlineRan).toBe(1)",
+      "  killThread(workerId)",
+      "  killThread(inlineId)",
+      "})",
+    ].join("\n"));
+
+    const report = runSpecProject(root);
+    equal(report.files[0]?.cases[0]?.ok, true);
+    deepEqual(report.failures, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
 test("package specs execute the manifest's real startup, not an unrelated Prg file", () => {
   const root = mkdtempSync(join(tmpdir(), "script-spec-package-"));
   try {

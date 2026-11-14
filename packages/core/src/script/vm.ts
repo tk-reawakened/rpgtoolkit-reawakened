@@ -118,6 +118,7 @@ import {
   type ProgramRef,
   type StatementRange,
 } from "./program.ts";
+import { resolveProgram } from "./loader.ts";
 import {
   assembleCommands,
   bindingOf,
@@ -3548,8 +3549,13 @@ function dispatchResolved(
         }
       }
       if (action === "thread") {
+        const file = effect.args?.[1] as string;
+        const loader = services.loader;
+        const ref = loader !== undefined && resolveProgram(loader, file) !== undefined
+          ? fileProgramRef(loader, file, vm.redirects)
+          : { kind: "inline" as const, text: file, ir: IR_VERSION };
         startThread(vm, {
-          ref: { kind: "inline", text: effect.args?.[1] as string, ir: IR_VERSION },
+          ref,
           kind: effect.args?.[2] === true ? "persistent" : "board",
           owner: "script",
         });
