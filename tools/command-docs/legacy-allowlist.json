@@ -94,8 +94,6 @@
     "catalogue/itemwalkspeed",
     "catalogue/shopcolors",
     "catalogue/restorearrayscreen",
-    "world/scan",
-    "world/mem",
     "catalogue/characterspeed",
     "catalogue/walkspeed",
     "catalogue/createitem",
