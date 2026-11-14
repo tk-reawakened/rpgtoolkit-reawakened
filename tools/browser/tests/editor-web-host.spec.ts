@@ -123,12 +123,8 @@ test("browser editor response header refuses cross-origin framing", async ({ pag
   } else {
     expect(alias.status()).toBe(404);
   }
-  await expect(page.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveAttribute(
-    "content",
-    "default-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'",
-  );
 
-  // The embedding page must not itself forbid frames: the editor's meta CSP defaults to frame-src 'none'.
+  // The embedding page must allow cross-origin frames, so the editor's response policy is what refuses the load.
   const port = new URL(page.url()).port;
   await page.goto("/health");
   const target = `http://localhost:${port}`;

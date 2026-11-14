@@ -5,6 +5,8 @@
 * **Starting point:** the editors RPG Toolkit 3.1 shipped, as inventoried in [editor-features.md](../editor-features.md). The legacy source was not opened ([ADR 0006](../adr/0006-clean-room-spec-extraction.md)).
 * **Evidence limits:** the review of our own editors was done by reading the code and the planning records on 2026-11-11. The comparison with other tools was written **without network access** to their documentation, so every statement about Godot, GDevelop and RPG Maker is marked unverified ([benchmark](benchmark.md#evidence-status)).
 
+**Accepted editor-wide direction, 2026-11-13:** the editor is not the deterministic runtime. Let browser capabilities and suitable libraries drive its platform behavior; do not build a replacement browser platform merely to control layout, input, focus, accessibility, canvas or UI scheduling. Share editing/save semantics, not necessarily identical UI behavior across hosts. [ADR 0031](../adr/0031-owned-art-editor-with-permissive-reuse.md) records this principle and the choice to build our own art editor with permissive reuse; it does not approve the rest of this ecosystem proposal.
+
 ## In plain terms
 
 Today the editor plan is a list of the tools the Toolkit 3 editor had: one tool for each Toolkit 3 file type. That is the right plan for being able to open, edit and save an old game. It is not enough to stand beside Godot, GDevelop and RPG Maker, because those tools are not a fixed list of editors. Each one is a **system for having editors**: a new kind of data gets a form, a place in the project, a preview and a way to be extended, without anyone rebuilding the application.
@@ -28,7 +30,7 @@ None of this replaces the five editor epics. It changes **how** their editors ar
 | One document per file; the host owns undo and save timing | AD-19, [ADR 0022](../adr/0022-shared-editor-authoring-contracts.md) D1 to D4 | The document contract here is ADR 0022's, made general. It adds no new promise. |
 | `editor-ui` reaches the host only through `platform-services` | [G2](../guardrails.md), AD-20 | Kinds and views register in `editor-model` and `editor-ui`. A host holds adapters and chrome only. |
 | The core does no I/O and gains no reader by accident | G2, [ADR 0019](../adr/0019-tkr-authoring-formats.md) decision 3 | A new kind is an editor document first. The engine reads it only after its own ADR. |
-| Renderers replay draw lists | G4 | Every preview runs the real engine and replays its draw list. No editor draws its own idea of the game. |
+| Game renderers replay draw lists | G4 | A preview claiming actual game output uses the engine's composition rules. Ordinary editor UI and artwork-editing canvases may use browser facilities and drawing libraries under [ADR 0031](../adr/0031-owned-art-editor-with-permissive-reuse.md); they are not game renderers. |
 | Start from what the creator is trying to do | [editor experience bank](../editor-experience-bank.md) | A new kind needs a creator situation before it gets a contract ([admission test](document-kinds.md#admission-test-for-a-new-kind)). |
 | Build only what a real caller needs | [plugin-editor study](../../_bmad-output/initiative-rpgtoolkit-reawakened/research-editor-ux-for-beginners/flows/09-plugin-editors.md) ("avoid a speculative universal UI framework") | Each part below is built by the first story that needs it, and no earlier ([roadmap](roadmap.md)). |
 

@@ -53,6 +53,14 @@
       {
         "command": "tkr.editorWebProof.disableAutosave",
         "title": "Test: Turn Autosave Off"
+      },
+      {
+        "command": "tkr.editorWebProof.pauseAutosaveOff",
+        "title": "Test: Pause Autosave Off"
+      },
+      {
+        "command": "tkr.editorWebProof.releaseAutosaveOff",
+        "title": "Test: Release Autosave Off"
       }
     ]
   }

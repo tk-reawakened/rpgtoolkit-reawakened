@@ -1,5 +1,5 @@
 import { createSessionCopy, listRecentWebProjects, mountGameSettings, openGameSettings, openWebProject, reopenWebProject, type GameSettingsOpenResult, type GameSettingsView, type WebProject } from "@tk-reawakened/host-web";
-import { createLauncher, type MainDocument } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, createLauncher, type AnyDocument, type MainDocument } from "@tk-reawakened/editor-model";
 import { BinaryReader, projectFolder, readMainFile } from "@tk-reawakened/core";
 import { mountRun, type ViewHandle } from "@tk-reawakened/editor-ui";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
@@ -29,6 +29,13 @@ let shown: Shown | null = null;
 let openedProject: WebProject | null = null;
 let projectWithChoices: WebProject | null = null;
 let openRequest = 0;
+interface PendingDocumentOpen {
+  count: number;
+  closing: Promise<void> | undefined;
+  readonly abandonedDocuments: AnyDocument[];
+}
+/** Opens are scoped to a workspace instance, not just its stable project id. */
+const pendingDocumentOpens = new WeakMap<WebProject["workspace"], Map<string, PendingDocumentOpen>>();
 
 folderButton.addEventListener("click", () => {
   const request = ++openRequest;
@@ -154,19 +161,58 @@ function hideProjectChoices(): void {
  * old document is closed, which asks before losing unsaved work (ADR 0022 D3.6). Cancelling keeps the old document.
  */
 async function show(project: WebProject, path: string, request: number): Promise<void> {
+  const identityKey = createDocumentIdentity(project.project.id, path).key;
+  let opens = pendingDocumentOpens.get(project.workspace);
+  if (opens === undefined) {
+    opens = new Map();
+    pendingDocumentOpens.set(project.workspace, opens);
+  }
+  let pending = opens.get(identityKey);
+  if (pending === undefined) {
+    pending = { count: 0, closing: undefined, abandonedDocuments: [] };
+    opens.set(identityKey, pending);
+  }
+  pending.count += 1;
   const candidateElement = document.createElement("div");
   candidateElement.hidden = true;
   settings.append(candidateElement);
   let result: GameSettingsOpenResult;
   try {
+    // A failed close leaves the document queued for a later attempt, but must not block this acquisition.
+    if (pending.closing !== undefined) {
+      try {
+        await pending.closing;
+      } catch {
+        // finishDocumentOpen restored the document to the cleanup queue.
+      }
+    }
+    if (request !== openRequest) {
+      candidateElement.remove();
+      await finishDocumentOpen(project.workspace, identityKey);
+      return;
+    }
     result = await openGameSettings(project, path, candidateElement);
   } catch (error) {
     candidateElement.remove();
+    await finishDocumentOpen(project.workspace, identityKey);
     throw error;
   }
   if (request !== openRequest) {
-    if (result.ok) result.view.dispose();
-    candidateElement.remove();
+    try {
+      if (result.ok) await abandonCandidate(project, result.document, result.view, identityKey);
+    } finally {
+      candidateElement.remove();
+      await finishDocumentOpen(project.workspace, identityKey);
+    }
+    return;
+  }
+  await finishDocumentOpen(project.workspace, identityKey);
+  if (request !== openRequest) {
+    try {
+      if (result.ok) await abandonCandidate(project, result.document, result.view, identityKey);
+    } finally {
+      candidateElement.remove();
+    }
     return;
   }
   if (!result.ok) {
@@ -178,7 +224,7 @@ async function show(project: WebProject, path: string, request: number): Promise
   if (previous !== null && previous.document !== result.document) {
     const closed = await previous.view.close();
     if (!closed.closed) {
-      result.view.dispose();
+      await abandonCandidate(project, result.document, result.view, identityKey);
       candidateElement.remove();
       if (project !== previous.project) project.deactivate();
       status.textContent = closed.reason === "cancelled"
@@ -187,7 +233,7 @@ async function show(project: WebProject, path: string, request: number): Promise
       return;
     }
     if (request !== openRequest) {
-      result.view.dispose();
+      await abandonCandidate(project, result.document, result.view, identityKey);
       candidateElement.remove();
       return;
     }
@@ -209,6 +255,49 @@ async function show(project: WebProject, path: string, request: number): Promise
     layout: { projectFolder: folder?.ok ? candidate : "" },
   });
 }
+
+/** Close stale documents only after same-workspace opens have finished mounting or failing. */
+async function finishDocumentOpen(workspace: WebProject["workspace"], identityKey: string): Promise<void> {
+  const opens = pendingDocumentOpens.get(workspace);
+  const pending = opens?.get(identityKey);
+  if (opens === undefined || pending === undefined) return;
+  pending.count -= 1;
+  if (pending.count > 0) return;
+  while (pending.abandonedDocuments.length > 0) {
+    const abandoned = pending.abandonedDocuments.pop()!;
+    const closing = workspace.close(abandoned).then(() => {});
+    pending.closing = closing;
+    try {
+      await closing;
+    } catch {
+      pending.abandonedDocuments.push(abandoned);
+      return;
+    } finally {
+      pending.closing = undefined;
+    }
+    if (pending.count > 0) return;
+  }
+  opens.delete(identityKey);
+  if (opens.size === 0) pendingDocumentOpens.delete(workspace);
+}
+
+/** Release the candidate view immediately; workspace.close respects any active view still owning the document. */
+async function abandonCandidate(
+  project: WebProject,
+  document: AnyDocument,
+  view: GameSettingsView,
+  identityKey: string,
+): Promise<void> {
+  view.dispose();
+  const pending = pendingDocumentOpens.get(project.workspace)?.get(identityKey);
+  if (pending !== undefined && pending.count > 0) {
+    pending.abandonedDocuments.push(document);
+    return;
+  }
+  await project.workspace.close(document);
+}
+
+
 
 function replaceShown(next: Shown | null): void {
   const previous = shown;
