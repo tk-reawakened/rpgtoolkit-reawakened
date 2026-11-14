@@ -13,7 +13,6 @@
 
 import { spawn } from "node:child_process";
 import { execFileSync } from "node:child_process";
-import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { judgeMovement } from "./probe-judge.mjs";
@@ -33,15 +32,51 @@ function argument(name, fallback) {
   return at >= 0 ? resolve(process.argv[at + 1] ?? "") : fallback;
 }
 
-/** A port the OS says is free, so two runs never collide. */
-function freePort() {
-  return new Promise((done) => {
-    const server = createServer();
-    server.listen(0, "127.0.0.1", () => {
-      const port = server.address().port;
-      server.close(() => done(port));
-    });
-  });
+function parsePort(value) {
+  const port = Number(value);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
+}
+
+/** Chromium writes the OS-assigned remote-debugging port into this profile-specific file. */
+function browserDebuggingPort(userDataDirectory) {
+  try {
+    const contents = readFileSync(join(userDataDirectory, "DevToolsActivePort"), "utf8");
+    const match = /^(\d+)\r?\n/.exec(contents);
+    return match === null ? null : parsePort(match[1]);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function waitForDebuggerPort(description, getPort, stopped) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const port = getPort();
+    if (port !== null) return port;
+    const exit = await Promise.race([
+      stopped.then((result) => ({ result })),
+      new Promise((resolve) => setTimeout(resolve, 100, null)),
+    ]);
+    if (exit !== null) {
+      const { code, signal } = exit.result;
+      throw new Error(`Electron exited before ${description} became available (code ${code}, signal ${signal})`);
+    }
+  }
+  throw new Error(`Electron did not publish its ${description} within 20 seconds`);
+}
+
+async function cleanupProbe(child, stopped, mainDebugger, page, userDataDirectory) {
+  mainDebugger?.close();
+  page?.close();
+  if (child !== null) {
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    if (stopped !== null) await stopped;
+  }
+  removeTemporaryDirectory(userDataDirectory);
+  if (temporaryPackageDirectory !== null) {
+    removeTemporaryDirectory(temporaryPackageDirectory);
+    temporaryPackageDirectory = null;
+  }
 }
 
 let temporaryPackageDirectory = null;
@@ -321,53 +356,68 @@ function removeTemporaryDirectory(directory) {
 }
 
 async function main() {
-  const pkg = packagePath();
-  const userDataDirectory = mkdtempSync(join(tmpdir(), "tkr-desktop-input-"));
-  const port = await freePort();
-  let inspectorPort = await freePort();
-  if (inspectorPort === port) inspectorPort = await freePort();
-  const child = spawn(
-    electronBinary(),
-    [
-      `--remote-debugging-port=${port}`,
-      `--inspect=127.0.0.1:${inspectorPort}`,
-      ...(process.platform === "linux" ? ["--enable-unsafe-swiftshader"] : []),
-      dist,
-      "--user-data-dir", userDataDirectory,
-      "--serve", root,
-      "--game", pkg,
-      "--page", "packages/runner-desktop/app/player.html",
-    ],
-    {
-      cwd: root,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        ELECTRON_ENABLE_LOGGING: "0",
-        ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
-      },
-    },
-  );
+  let pkg = null;
+  let userDataDirectory = null;
+  let child = null;
+  let stopped = null;
+  let page = null;
+  let mainDebugger = null;
   const log = [];
-  const stopped = new Promise((resolve) => child.once("exit", resolve));
-  child.stdout.on("data", (chunk) => log.push(String(chunk)));
-  child.stderr.on("data", (chunk) => log.push(String(chunk)));
+  let inspectorOutput = "";
+  let inspectorPort = null;
+  const captureLog = (chunk) => {
+    const text = String(chunk);
+    log.push(text);
+    if (inspectorPort === null) {
+      inspectorOutput = `${inspectorOutput}${text}`.slice(-4096);
+      const match = /Debugger listening on ws:\/\/127\.0\.0\.1:(\d+)\//.exec(inspectorOutput);
+      if (match !== null) inspectorPort = parsePort(match[1]);
+    }
+  };
 
-  let pageTarget;
-  let page;
-  let mainDebugger;
   try {
-    pageTarget = await targets(port);
+    pkg = packagePath();
+    userDataDirectory = mkdtempSync(join(tmpdir(), "tkr-desktop-input-"));
+    child = spawn(
+      electronBinary(),
+      [
+        "--remote-debugging-port=0",
+        "--remote-debugging-address=127.0.0.1",
+        "--inspect=127.0.0.1:0",
+        `--user-data-dir=${userDataDirectory}`,
+        ...(process.platform === "linux" ? ["--enable-unsafe-swiftshader"] : []),
+        dist,
+        "--serve", root,
+        "--game", pkg,
+        "--page", "packages/runner-desktop/app/player.html",
+      ],
+      {
+        cwd: root,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          ELECTRON_ENABLE_LOGGING: "0",
+          ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
+        },
+      },
+    );
+    child.once("error", (error) => log.push(`Electron failed to start: ${error.message}\n`));
+    stopped = new Promise((resolve) => child.once("close", (code, signal) => resolve({ code, signal })));
+    child.stdout.on("data", captureLog);
+    child.stderr.on("data", captureLog);
+
+    const [browserPort, nodePort] = await Promise.all([
+      waitForDebuggerPort("Chromium remote-debugging port", () => browserDebuggingPort(userDataDirectory), stopped),
+      waitForDebuggerPort("Node inspector port", () => inspectorPort, stopped),
+    ]);
+    const pageTarget = await targets(browserPort);
     page = connect(pageTarget.webSocketDebuggerUrl);
-    mainDebugger = connect(await nodeDebuggerTarget(inspectorPort));
+    mainDebugger = connect(await nodeDebuggerTarget(nodePort));
   } catch (error) {
-    page?.close();
-    mainDebugger?.close();
-    child.kill();
-    await stopped;
-    removeTemporaryDirectory(userDataDirectory);
-    removeTemporaryDirectory(temporaryPackageDirectory);
-    throw new Error(`${String(error)}\n${log.join("")}`);
+    await cleanupProbe(child, stopped, mainDebugger, page, userDataDirectory);
+    console.log(JSON.stringify({ package: pkg, error: String(error), log: log.join("") }, null, 2));
+    process.exitCode = 1;
+    return;
   }
   const evaluate = async (expression) => {
     const result = await page.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
@@ -624,15 +674,7 @@ async function main() {
     console.log(JSON.stringify({ package: pkg, error: String(error), log: log.join("") }, null, 2));
     process.exitCode = 1;
   } finally {
-    mainDebugger.close();
-    page.close();
-    child.kill();
-    await stopped;
-    removeTemporaryDirectory(userDataDirectory);
-    if (temporaryPackageDirectory !== null) {
-      removeTemporaryDirectory(temporaryPackageDirectory);
-      temporaryPackageDirectory = null;
-    }
+    await cleanupProbe(child, stopped, mainDebugger, page, userDataDirectory);
   }
 }
 
