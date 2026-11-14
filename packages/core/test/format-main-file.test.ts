@@ -651,6 +651,86 @@ test("the audio reader rejects malformed envelopes at a located offset", () => {
   rejects(badFlag);
   rejects(audioTail(AUDIO_TRACKS, 20, "Media/town.sf2").slice(0, -3));
 });
+// --- TKR input-settings extension --------------------------------------------
+// docs/spec/formats/main-file.md#tkr-input-extension
+function inputTail(
+  settings: { readonly controllerEnabled: boolean; readonly actions: Readonly<Record<string, { readonly controls: readonly string[]; readonly locked: boolean }>> },
+  residue: readonly number[] = [],
+): Uint8Array {
+  const writer = new BinaryWriter();
+  writer.writeBytes(new Uint8Array([0x54, 0x52, 0x4b, 0x49, 0x4e, 0x50, 0]));
+  writer.u8(1);
+  writer.u8(settings.controllerEnabled ? 1 : 0);
+  const actions = Object.entries(settings.actions);
+  writer.u16(actions.length);
+  for (const [name, binding] of actions) {
+    putStr(writer, name);
+    writer.u8(binding.locked ? 1 : 0);
+    writer.u16(binding.controls.length);
+    for (const control of binding.controls) putStr(writer, control);
+  }
+  writer.writeBytes(new Uint8Array(residue));
+  return writer.toBytes();
+}
+
+test("TKR input block round-trips with package/audio ordering and opaque residue", () => {
+  const legacy = readBuilt(buildGam(9));
+  const inputSettings = {
+    controllerEnabled: false,
+    actions: {
+      up: { controls: ["key:ArrowUp", "pad:12"], locked: true },
+      "game.heal": { controls: ["key:KeyH"], locked: false },
+    },
+  };
+  const model = {
+    ...legacy,
+    packagePlugins: ["quests"],
+    packagePluginsExtension: true,
+    audioSettings: { tracks: AUDIO_TRACKS, voiceCap: 20, defaultSoundFont: null },
+    inputSettings,
+    residue: new Uint8Array([0x99, 0x00]),
+  };
+  const bytes = unwrap(writeMainFile(model));
+  const decoded = unwrap(readMainFile(new BinaryReader(bytes, "input.gam")));
+  deepEqual(decoded.inputSettings, inputSettings);
+  deepEqual(decoded.residue, model.residue);
+  deepEqual(unwrap(writeMainFile(decoded)), bytes);
+  equal(legacy.inputSettings, null);
+  const empty = unwrap(readMainFile(new BinaryReader(withTail(unwrap(writeMainFile(legacy)), inputTail({ controllerEnabled: true, actions: {} })))));
+  deepEqual(empty.inputSettings, { controllerEnabled: true, actions: {} });
+  const partialMarker = new Uint8Array([0x54, 0x52, 0x4b]);
+  const unknownTail = unwrap(readMainFile(new BinaryReader(withTail(unwrap(writeMainFile(legacy)), partialMarker))));
+  equal(unknownTail.inputSettings, null);
+  deepEqual(unknownTail.residue, partialMarker);
+  deepEqual(unwrap(writeMainFile(unknownTail)).slice(-partialMarker.length), partialMarker);
+});
+
+test("TKR input reader rejects malformed and truncated blocks at file offsets", () => {
+  const base = unwrap(writeMainFile(readBuilt(buildGam(9))));
+  const rejects = (tail: Uint8Array): void => {
+    const result = readMainFile(new BinaryReader(withTail(base, tail), "bad-input.gam"));
+    equal(result.ok, false);
+    if (!result.ok) {
+      equal(result.error.offset >= base.length, true);
+      equal(result.error.message.includes("tkr-input-extension"), true);
+    }
+  };
+  rejects(inputTail({ controllerEnabled: true, actions: { "bad.name": { controls: [], locked: false } } }));
+  const badSchema = inputTail({ controllerEnabled: true, actions: {} });
+  badSchema[7] = 2;
+  rejects(badSchema);
+  const badFlag = inputTail({ controllerEnabled: true, actions: { up: { controls: [], locked: false } } });
+  badFlag[13] = 2;
+  rejects(badFlag);
+  const badController = inputTail({ controllerEnabled: true, actions: {} });
+  badController[8] = 2;
+  rejects(badController);
+  rejects(inputTail({ controllerEnabled: true, actions: { up: { controls: ["mouse:0"], locked: false } } }));
+  rejects(inputTail({ controllerEnabled: true, actions: { up: { controls: ["pad:0", "pad:0"], locked: false } } }));
+  rejects(new Uint8Array([0x54, 0x52, 0x4b, 0x49, 0x4e, 0x50, 0]));
+  rejects(inputTail({ controllerEnabled: true, actions: { up: { controls: [], locked: false } } }).slice(0, -1));
+});
+
 
 
 

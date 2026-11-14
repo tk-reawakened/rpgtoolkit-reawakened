@@ -4,8 +4,10 @@ import type { Diagnostic } from "../ports/engine.ts";
 // Main-file rows 45, 60 and 61 (docs/spec/formats/main-file.md#layout).
 const MOVEMENT_DIRECTIONS = ["right", "southeast", "down", "southwest", "left", "northwest", "up", "northeast"] as const;
 
-// DirectInput offsets paired with the host-independent physical key codes in the input port.
-const PHYSICAL_KEYS: Readonly<Record<number, string>> = {
+// DirectInput offsets paired with the host-independent physical key codes in the input port
+// (docs/spec/formats/main-file.md#layout row 61). Exported so the editor captures a movement key as the same offset
+// the player resolves.
+export const DIRECT_INPUT_PHYSICAL_KEYS: Readonly<Record<number, string>> = {
   0x01: "Escape",
   0x02: "Digit1", 0x03: "Digit2", 0x04: "Digit3", 0x05: "Digit4", 0x06: "Digit5",
   0x07: "Digit6", 0x08: "Digit7", 0x09: "Digit8", 0x0a: "Digit9", 0x0b: "Digit0",
@@ -56,7 +58,7 @@ export function mainFileMovementSettings(main: MainFile, file: string, binary = 
   for (const [slot, direction] of MOVEMENT_DIRECTIONS.entries()) {
     const scanCode = scanCodes[slot] ?? 0;
     if (scanCode === 0) continue;
-    const code = PHYSICAL_KEYS[scanCode];
+    const code = DIRECT_INPUT_PHYSICAL_KEYS[scanCode];
     if (code === undefined) {
       diagnostics.push({
         code: "input.unsupported-scan-code", file, line: 0,

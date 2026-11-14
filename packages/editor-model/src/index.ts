@@ -23,6 +23,19 @@ export {
   type TileGesture,
 } from "./board-document.ts";
 export {
+  createTilesetArtDocument,
+  openTilesetArtDocument,
+  tilesetArtCodec,
+  type PaintTilesetPixelsCommand,
+  type TilesetArtCommand,
+  type TilesetArtDocument,
+  type TilesetArtFields,
+  type TilesetArtOpenResult,
+  type TilesetArtSnapshot,
+  type TilesetArtTile,
+  type TilesetPixelChange,
+} from "./tileset-art-document.ts";
+export {
   BOARD_COORD_SYSTEMS,
   DEFAULT_NEW_BOARD,
   NEW_BOARD_MAX_LAYERS,
@@ -166,10 +179,40 @@ export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePrevi
 export { asBoardDocument, asMainDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export { createDocumentIdentity, type DocumentIdentity } from "./identity.ts";
 export {
+  applyMainSettings,
+  changedSettings,
+  DEBUG_DRAWING_BITS,
+  DEFAULT_CURSOR,
+  ENEMY_SLOTS,
+  EXT_KEY_SLOTS,
+  KNOWN_PACKAGES,
+  keyOfScanCode,
+  MAIN_SETTING_KEYS,
+  MAIN_SETTINGS,
+  mainSettingsNotes,
+  mainSettingsOf,
+  MOVEMENT_DIRECTION_LABELS,
+  pluginSources,
+  scanCodeOfKey,
+  SETTINGS_CATEGORIES,
+  settingsErrors,
+  settingStored,
+  settingsWarnings,
+  type MainSettingKey,
+  type MainSettings,
+  type MainSettingsChanges,
+  type PluginSource,
+  type SettingInfo,
+  type SettingIssue,
+  type SettingsCategory,
+  type SettingsNote,
+} from "./game-settings.ts";
+export {
   createMainDocument,
   markRecoveredDocumentDirty,
   openMainDocument,
   type ApplyResult,
+  type ApplySettingsCommand,
   type ConflictChoice,
   type ConflictResult,
   type DocumentStorage,
@@ -219,6 +262,7 @@ export {
   copyIntoReservedFolder,
   linkFor,
   listCandidates,
+  projectLayoutOfMain,
   referencePath,
   reservedFolder,
   unusableName,
@@ -259,6 +303,7 @@ export {
 } from "./package-export.ts";
 export { packageDescriptorFor, type PackageDescriptorOutcome } from "./package-export-write.ts";
 export { ASSET_FOLDERS, type AssetKind } from "@tk-reawakened/core";
+export { boardStartUnit, createLauncher, type Launcher, type LauncherOptions, type LaunchOutcome, type LaunchRefusal } from "./launcher.ts";
 export {
   createPreferences,
   PREFERENCE_CATALOGUE,

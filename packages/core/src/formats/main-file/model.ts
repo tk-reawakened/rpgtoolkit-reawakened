@@ -59,6 +59,25 @@ export const MAIN_AUDIO_MIN_VOICE_CAP = 1;
 export const MAIN_AUDIO_MAX_VOICE_CAP = 32;
 /** The five built-in tracks, always first in this order (docs/spec/engine/audio-media.md#media-4). */
 export const MAIN_AUDIO_BUILTIN_TRACKS: readonly string[] = ["music", "sfx", "ambience", "voice", "ui"];
+/** TKR input-settings extension (docs/spec/formats/main-file.md#tkr-input-extension). */
+export const MAIN_INPUT_EXTENSION_TAG = new Uint8Array([0x54, 0x52, 0x4b, 0x49, 0x4e, 0x50, 0x00]);
+export const MAIN_INPUT_MAX_ACTIONS = 512;
+export const MAIN_INPUT_MAX_ACTION_NAME_BYTES = 64;
+export const MAIN_INPUT_MAX_CONTROLS = 8;
+export const MAIN_INPUT_MAX_CONTROL_ID_BYTES = 32;
+
+/** One game's default binding record (docs/spec/engine/display-input-audio.md#act-3). */
+export interface MainFileActionBinding {
+  readonly controls: readonly string[];
+  readonly locked: boolean;
+}
+
+/** TKR input-settings block (docs/spec/formats/main-file.md#tkr-input-extension). */
+export interface MainFileInputSettings {
+  readonly controllerEnabled: boolean;
+  readonly actions: Readonly<Record<string, MainFileActionBinding>>;
+}
+
 
 /**
  * Decode the stored `gameSpeed` byte (docs/spec/formats/main-file.md#layout row 38). At minor ≥ 8 the
@@ -221,6 +240,8 @@ export interface MainFile {
   /** Whether the TKR package-list block was present, including an explicit empty list. */
   readonly packagePluginsExtension?: boolean;
   /** The TKR audio-settings block, or `null` when the file carries none. */
+  /** The TKR input-settings block, or `null` when absent. */
+  readonly inputSettings: MainFileInputSettings | null;
   readonly audioSettings: MainFileAudioSettings | null;
   /** Row 30: `0`/`1`. */
   readonly useDayNight: number;

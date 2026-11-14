@@ -1,0 +1,88 @@
+.tkr-tileset-art {
+  display: grid;
+  gap: 0.75rem;
+  align-content: start;
+  color: var(--vscode-foreground, inherit);
+}
+
+.tkr-tileset-art-heading {
+  margin: 0;
+}
+
+.tkr-tileset-art-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tkr-tileset-art-controls select {
+  min-width: 5rem;
+}
+
+.tkr-tileset-art-controls input[type="color"] {
+  width: 3rem;
+  min-height: 2rem;
+  padding: 0.125rem;
+}
+
+.tkr-tileset-art-canvas-wrap {
+  display: grid;
+  justify-items: start;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.tkr-tileset-art-canvas {
+  display: block;
+  width: min(100%, 512px);
+  height: auto;
+  aspect-ratio: 1;
+  image-rendering: pixelated;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  background-color: Canvas;
+  background-image:
+    linear-gradient(45deg, color-mix(in srgb, CanvasText 12%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, CanvasText 12%, transparent) 75%),
+    linear-gradient(45deg, color-mix(in srgb, CanvasText 12%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, CanvasText 12%, transparent) 75%);
+  background-position: 0 0, 8px 8px;
+  background-size: 16px 16px;
+  box-shadow: 0 0 0 1px currentColor;
+}
+
+.tkr-tileset-art-canvas:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder, Highlight);
+  outline-offset: 2px;
+}
+
+.tkr-tileset-art-instructions,
+.tkr-tileset-art-note,
+.tkr-tileset-art-state,
+.tkr-tileset-art-empty {
+  margin: 0;
+}
+
+.tkr-tileset-art-error,
+.tkr-tileset-art-conflict [role="alert"] {
+  color: var(--vscode-errorForeground, #b00020);
+}
+
+.tkr-tileset-art-conflict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid currentColor;
+}
+
+.tkr-tileset-art-conflict p {
+  margin: 0;
+}
+
+.tkr-tileset-art button,
+.tkr-tileset-art select,
+.tkr-tileset-art input {
+  font: inherit;
+}

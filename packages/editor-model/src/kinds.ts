@@ -4,6 +4,7 @@ import type { DocumentSnapshot, DocumentStorage, EditorDocument, OpenResult } fr
 import { characterSpriteCodec, createSpriteDocument, openSpriteDocument, type SpriteCommand, type SpriteDocument } from "./sprite-document.ts";
 import type { DocumentIdentity } from "./identity.ts";
 import { createMainDocument, mainCodec, openMainDocument, type MainCommand, type MainDocument } from "./main-document.ts";
+import { createTilesetArtDocument, openTilesetArtDocument, tilesetArtCodec, type TilesetArtCommand } from "./tileset-art-document.ts";
 import { createTileBitmapDocument, openTileBitmapDocument, tileBitmapCodec, type TileBitmapCommand, type TileBitmapDocument } from "./tile-bitmap-document.ts";
 
 /**
@@ -11,11 +12,11 @@ import { createTileBitmapDocument, openTileBitmapDocument, tileBitmapCodec, type
  * claims and a way to open its bytes. A host asks the registry which kind a path is and drives the one document
  * contract; it holds no list of kinds of its own, so a kind registered here works in every host.
  *
- * The first release registers the main, board, tile bitmap, character and item Toolkit 3 kinds. A kind's views are registered in `editor-ui`.
+ * A kind's views are registered in `editor-ui`.
  */
 
 /** The command-data union; it keeps dynamic hosts typed without making commands `any`. */
-export type AnyCommand = MainCommand | BoardCommand | TileBitmapCommand | SpriteCommand;
+export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | TilesetArtCommand | TileBitmapCommand;
 /** A document whose concrete kind is checked before commands are applied. */
 export type AnyDocument = EditorDocument<DocumentSnapshot<AnyCommand>, AnyCommand>;
 
@@ -76,6 +77,21 @@ export const DOCUMENT_KINDS: readonly DocumentKind[] = [
       return read.ok ? boardCodec.summary(read.value) : null;
     },
     isCommand: boardCodec.isCommand,
+    recoveryMarker: () => null,
+  },
+  {
+    id: "tileset",
+    label: "Tileset artwork prototype",
+    description: "Edit legacy tileset pixels without changing their stored format.",
+    extensions: [".tst"],
+    storage: "legacy-binary",
+    open: openTilesetArtDocument,
+    create: createTilesetArtDocument,
+    summarise: (bytes, path) => {
+      const read = tilesetArtCodec.read(bytes, path);
+      return read.ok ? tilesetArtCodec.summary(read.value) : null;
+    },
+    isCommand: tilesetArtCodec.isCommand,
     recoveryMarker: () => null,
   },
   {

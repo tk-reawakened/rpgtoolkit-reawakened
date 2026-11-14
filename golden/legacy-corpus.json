@@ -36,17 +36,17 @@
         "Bitmap/contest1.gif": "dac7af861d3babf4",
         "Bitmap/contest2.gif": "fabfb971517c18b1",
         "Bitmap/contest3.gif": "f96e20e4a66970fd",
-        "Main/Aljo'sEditor.gam": "cf8db4291fafe120",
-        "Main/BusDriver.gam": "736cccfdd9a7647c",
-        "Main/DEMO.GAM": "35164940b25e3f28",
-        "Main/Pong.gam": "c85b4bef1aa7e4b5",
-        "Main/Popcorn.gam": "4e487ffce8a69cfa",
-        "Main/RPGCodeed.gam": "4cc3337a319bd574",
-        "Main/RPGFrogger.gam": "59427654d423f8cc",
-        "Main/Test.gam": "af4962783b4ec91a",
-        "Main/Thequest.gam": "876f3349f50a3145",
-        "Main/Tkthemovie.gam": "26ec151aa5ca52bc",
-        "Main/monopoly.gam": "68a6f84ee926e19a"
+        "Main/Aljo'sEditor.gam": "cf50b629997eec88",
+        "Main/BusDriver.gam": "e1e373385dcaee74",
+        "Main/DEMO.GAM": "a40d55c5f5f767a2",
+        "Main/Pong.gam": "a6bf5f64c726cecd",
+        "Main/Popcorn.gam": "8dfcb633920ee650",
+        "Main/RPGCodeed.gam": "a2c5caf9f25b207a",
+        "Main/RPGFrogger.gam": "3eb6e037a14030f2",
+        "Main/Test.gam": "8bc2d1911c249920",
+        "Main/Thequest.gam": "2ded381ccdf02cf5",
+        "Main/Tkthemovie.gam": "9cad5284ee9d6376",
+        "Main/monopoly.gam": "3c9adca50e013020"
       }
     },
     "Caoquest": {
@@ -124,7 +124,7 @@
         "Item/red1.itm": "97ffcc56188195d8",
         "Item/water.itm": "5dd296b9c53f02c3",
         "Item/wisdom.itm": "b2372439c50ded35",
-        "Main/caoquest.gam": "b88fcb703c0437ee",
+        "Main/caoquest.gam": "36ce0819e59df456",
         "Misc/combo.anm": "1d954cac560ad67e",
         "Misc/combo1.anm": "560feb5e44962677",
         "Misc/duoslash.anm": "902a90501a6d8ccc",
@@ -432,7 +432,7 @@
         "Item/Weave Fang.itm": "bd4c64053e96b830",
         "Item/Woman 2.itm": "78883930fb12ca9e",
         "Item/Woman.itm": "8cb1c49d0d4c2e84",
-        "Main/ChimeranEmpire.gam": "e2af4bfd54d7c951",
+        "Main/ChimeranEmpire.gam": "3884ef463e9739b9",
         "Misc/Bolt 1.anm": "24bec2bc663eeed3",
         "Misc/Falling Swords.anm": "a0a2a0aa1b9da908",
         "Misc/Fire 1.anm": "a77e421e82db40c4",
@@ -587,8 +587,8 @@
         "Item/Sword +1.itm": "556d4eca4938186b",
         "Item/Sword.itm": "77c187881539bab8",
         "Item/fjaoefo.itm": "808d08b6db546fea",
-        "Main/Demo.gam": "364408ffec25f2dc",
-        "Main/FinalDestiny.gam": "c0abca8c61cd6445",
+        "Main/Demo.gam": "4e4476d1c7940164",
+        "Main/FinalDestiny.gam": "a32044c349ae5fd3",
         "SpcMove/Critical.spc": "507346ed60c6de33",
         "SpcMove/Heal.spc": "47b0b7d4680266ce",
         "SpcMove/Poison move.spc": "39ff996ed0172763",
@@ -638,7 +638,7 @@
         "Bitmap/winner1.gif": "e567ea82b060d1b1",
         "Bitmap/winner2.gif": "fad3c8f857439ce1",
         "Bitmap/winner3.gif": "a1df5baac955e0a1",
-        "Main/LittleManWithaPeaShooter.gam": "13ba4a167d7bafc3"
+        "Main/LittleManWithaPeaShooter.gam": "0afcd5d41a75b539"
       }
     },
     "School2Demo": {
@@ -735,7 +735,7 @@
         "Item/dyno.itm": "53ae6d4e7bfe893e",
         "Item/hologram.itm": "d1733094b7082f6f",
         "Item/semoreNPC.itm": "58ce977517cce3c2",
-        "Main/Schoolsout2.gam": "1b6ace6dc42b4375",
+        "Main/Schoolsout2.gam": "87005452606fb4f5",
         "SpcMove/Poison Pin.spc": "965bab78285956dc",
         "StatusE/Poisoned.ste": "56d0147e3db473a2",
         "Tiles/DBZ.tst": "bc19ed57a00c7b41",
@@ -809,7 +809,7 @@
         "Misc/start/start_w.anm": "4b21a38102db8252",
         "Tiles/char.tst": "ceb8114a907c3a88",
         "Tiles/default.tst": "738b26d112a1e71c",
-        "demo.gam": "d595b17c64b3741d"
+        "demo.gam": "5aad503887cada33"
       }
     }
   },

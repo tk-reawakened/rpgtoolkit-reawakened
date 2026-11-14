@@ -47,6 +47,7 @@ for (const entry of entries) {
 const editorWebOut = join(here, "editor-web", "dist", "editor-web.js");
 mkdirSync(dirname(editorWebOut), { recursive: true });
 copyFileSync(join(root, "packages/editor-ui/src/tileset-browser.css"), join(dirname(editorWebOut), "tileset-browser.css"));
+copyFileSync(join(root, "packages/editor-ui/src/tileset-art.css"), join(dirname(editorWebOut), "tileset-art.css"));
 await build({
   entryPoints: [join(here, "editor-web", "main.tsx")],
   outfile: editorWebOut,
@@ -54,6 +55,8 @@ await build({
   alias: {
     ...bundleOptions.alias,
     "@tk-reawakened/host-web": join(root, "packages/host-web/src/index.ts"),
+    "@tk-reawakened/editor-model": join(root, "packages/editor-model/src/index.ts"),
+    "@tk-reawakened/editor-ui": join(root, "packages/editor-ui/src/index.ts"),
   },
 });
 console.log("built tools/browser/editor-web/dist/editor-web.js");

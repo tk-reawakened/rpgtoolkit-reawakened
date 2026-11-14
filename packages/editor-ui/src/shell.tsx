@@ -1,10 +1,12 @@
 import type { LayoutModel, PackageArtifact, ProjectLayout, ProjectTree, Tabs, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
+import type { Launcher, LayoutModel, ProjectLayout, ProjectTree, Tabs, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useRef } from "preact/hooks";
 import { useDocumentSnapshot } from "./use-document.ts";
 import { FilesView, type PackageActionOutcome } from "./files-view.tsx";
 import { GameView } from "./game-view.tsx";
 import { TabStrip } from "./tab-strip.tsx";
+import { RunView } from "./run-view.tsx";
 import { Workbench } from "./workbench.tsx";
 
 export interface ShellProps {
@@ -27,6 +29,8 @@ export interface ShellProps {
   readonly onNewBoard?: () => void;
   /** Changes when the project's files may have, so the Game panel reads them again. */
   readonly version?: unknown;
+  /** Starts runs through the host's `run` service; with it the shell has a Run panel (T-07, T-41). */
+  readonly launcher?: Launcher;
 }
 
 /** The editor slot: an element the host mounts the active editor into, and the shell never draws into. */
@@ -41,8 +45,10 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
 export function Shell({ layout, tabs, tree, projectLayout, fs, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, version }: ShellProps) {
+export function Shell({ layout, tabs, tree, projectLayout, fs, onOpened, onOpenPath, onEditorElement, onNewBoard, version, launcher }: ShellProps) {
   // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
   const tabsSnapshot = useDocumentSnapshot(tabs);
+  const active = tabsSnapshot.tabs.find((tab) => tab.key === tabsSnapshot.active)?.path ?? null;
   return (
     <Workbench
       layout={layout}
@@ -50,6 +56,7 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, onOpened, onOpenP
       panels={{
         files: <FilesView tree={tree} fs={fs} onOpened={onOpened} onPackage={onPackage} onDownload={onDownload} {...(onNewBoard === undefined ? {} : { onNewBoard })} />,
         game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
+        ...(launcher === undefined ? {} : { run: <RunView launcher={launcher} fs={fs} layout={projectLayout} active={active} version={[version, tabsSnapshot.tabs.length]} /> }),
       }}
     >
       <EditorSlot onElement={onEditorElement} />
