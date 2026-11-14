@@ -6,6 +6,7 @@ import { useDocumentSnapshot } from "./use-document.ts";
 const DIRECTIONS = ["South", "North", "East", "West", "North-west", "North-east", "South-west", "South-east"] as const;
 const DIRECTION_CODES = ["S", "N", "E", "W", "NW", "NE", "SW", "SE"] as const;
 let viewsMade = 0;
+let customStancesMade = 0;
 
 export interface SpriteViewDocument {
   readonly kind: string;
@@ -26,11 +27,6 @@ export interface SpriteViewProps {
 
 type BaseEdit = (bases: readonly ActorBase[]) => readonly ActorBase[];
 
-function customStanceId(stances: readonly SpriteDocumentSnapshot["customStances"][number][], index: number): string {
-  const stance = stances[index]!;
-  const occurrence = stances.slice(0, index).filter((other) => other.handle === stance.handle && other.animation === stance.animation).length;
-  return JSON.stringify([stance.handle, stance.animation, occurrence]);
-}
 
 function copiedBases(bases: readonly ActorBase[]): readonly ActorBase[] {
   return bases.map((base) => ({ points: base.points.map((point) => ({ ...point })) }));
@@ -184,15 +180,22 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
   const draggingPoint = useRef<number | null>(null);
   const dragCoordinate = useRef<ActorPoint | null>(null);
   const suppressClick = useRef(false);
-  const stanceSignature = JSON.stringify(snapshot.customStances);
-  const liveCustomDrafts = new Set(snapshot.customStances.flatMap((_stance, index) => {
-    const id = customStanceId(snapshot.customStances, index);
-    return [`custom-name:${id}`, `custom-animation:${id}`];
-  }));
+  const newCustomStanceKey = (): string => `${formId}-custom-${++customStancesMade}`;
+  const customStanceKeys = useRef<string[] | null>(null);
+  const pendingCustomStanceOperations = useRef(0);
+  if (customStanceKeys.current === null) {
+    customStanceKeys.current = snapshot.customStances.map(() => newCustomStanceKey());
+  } else if (snapshot.customStances.length > customStanceKeys.current.length) {
+    while (customStanceKeys.current.length < snapshot.customStances.length) customStanceKeys.current.push(newCustomStanceKey());
+  } else if (pendingCustomStanceOperations.current === 0 && customStanceKeys.current.length !== snapshot.customStances.length) {
+    customStanceKeys.current = snapshot.customStances.map(() => newCustomStanceKey());
+  }
+  const stanceKeySignature = customStanceKeys.current.join(",");
+  const liveCustomDrafts = new Set(customStanceKeys.current.flatMap((id) => [`custom-name:${id}`, `custom-animation:${id}`]));
   useEffect(() => {
     setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([key]) =>
       (!key.startsWith("custom-name:") && !key.startsWith("custom-animation:")) || liveCustomDrafts.has(key))));
-  }, [stanceSignature]);
+  }, [stanceKeySignature]);
   const pendingBaseCommands = useRef(0);
   const queuedBaseEdits = useRef<BaseEdit[]>([]);
   const baseQueue = useRef<Promise<void>>(Promise.resolve());
@@ -246,6 +249,23 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
     delete next[key];
     return next;
   });
+  const addCustomStance = async (name: string): Promise<void> => {
+    pendingCustomStanceOperations.current += 1;
+    const success = await submit({ type: "add-custom-stance", name, file: "" });
+    pendingCustomStanceOperations.current -= 1;
+    if (success) {
+      const expected = doc.getSnapshot().customStances.length;
+      while (customStanceKeys.current!.length < expected) customStanceKeys.current!.push(newCustomStanceKey());
+    }
+    setDrafts((current) => ({ ...current }));
+  };
+  const deleteCustomStance = async (index: number): Promise<void> => {
+    pendingCustomStanceOperations.current += 1;
+    const success = await submit({ type: "delete-custom-stance", index });
+    pendingCustomStanceOperations.current -= 1;
+    if (success) customStanceKeys.current!.splice(index, 1);
+    setDrafts((current) => ({ ...current }));
+  };
   const saveSprite = async (): Promise<void> => {
     while (pendingBaseCommands.current > 0) await baseQueue.current;
     const result = await doc.save();
@@ -296,6 +316,16 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
     submitBases((current) => {
       const next = [...copiedBases(current)];
       next[index] = { points: points.map((point) => ({ ...point })) };
+      return next;
+    });
+  };
+  const appendBasePoint = (index: number, point: ActorPoint): void => {
+    if (disabled || snapshot.graphicsUnavailable !== null) return;
+    submitBases((current) => {
+      const next = [...copiedBases(current)];
+      const base = next[index];
+      if (base === undefined) return current;
+      next[index] = { points: [...base.points, { ...point }] };
       return next;
     });
   };
@@ -360,7 +390,7 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
     <fieldset disabled={disabled}>
       <legend>Custom stances</legend>
       {snapshot.customStances.map((stance, index) => {
-        const id = customStanceId(snapshot.customStances, index);
+        const id = customStanceKeys.current![index]!;
         const nameKey = `custom-name:${id}`;
         const animationKey = `custom-animation:${id}`;
         const name = drafts[nameKey] ?? stance.handle;
@@ -370,10 +400,10 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
             if (name !== stance.handle && !disabled) void submit({ type: "rename-custom-stance", index, name: name.trim() }).then((success) => { if (success) clearDraft(nameKey, name); });
           }} /></label>
           {field(animationKey, stance.animation, `${stance.handle} animation`, "custom", index, supported)}
-          <button type="button" onClick={() => void submit({ type: "delete-custom-stance", index })} disabled={disabled || !supported}>Delete stance</button>
+          <button type="button" onClick={() => void deleteCustomStance(index)} disabled={disabled || !supported}>Delete stance</button>
         </div>;
       })}
-      <form onSubmit={(event) => { event.preventDefault(); const form = event.currentTarget; const name = String(new FormData(form).get("stance-name") ?? "").trim(); if (name !== "") void submit({ type: "add-custom-stance", name, file: "" }); form.reset(); }}>
+      <form onSubmit={(event) => { event.preventDefault(); const form = event.currentTarget; const name = String(new FormData(form).get("stance-name") ?? "").trim(); if (name !== "") void addCustomStance(name); form.reset(); }}>
         <label>New custom stance name<input name="stance-name" required maxLength={128} disabled={snapshot.minor < (snapshot.actorType === "character" ? 5 : 4)} /></label>
         <button type="submit" disabled={disabled || snapshot.minor < (snapshot.actorType === "character" ? 5 : 4)}>Add custom stance</button>
       </form>
@@ -397,14 +427,14 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
           <button type="button" aria-pressed={selectedBase === 0} onClick={() => setSelectedBase(0)}>Collision polygon</button>
           <button type="button" aria-pressed={selectedBase === 1} onClick={() => setSelectedBase(1)}>Activation polygon</button>
         </div>
-        <button type="button" onClick={() => replaceBase(selectedBase, [...(baseDraft.current[selectedBase]?.points ?? []), { x: 0, y: 0 }])} disabled={disabled || snapshot.graphicsUnavailable !== null}>Add polygon point at origin</button>
+        <button type="button" onClick={() => appendBasePoint(selectedBase, { x: 0, y: 0 })} disabled={disabled || snapshot.graphicsUnavailable !== null}>Add polygon point at origin</button>
         <svg class="tkr-sprite-base-canvas" viewBox="-40 -40 80 60" role="img" aria-label={`Sprite origin and ${selectedBase === 0 ? "collision" : "activation"} polygon. Click to add a point; drag a point to move it.`} onClick={(event) => {
           if (suppressClick.current) {
             suppressClick.current = false;
             return;
           }
           const point = spritePoint(event.currentTarget, event.clientX, event.clientY);
-          if (point !== null) replaceBase(selectedBase, [...(baseDraft.current[selectedBase]?.points ?? []), point]);
+          if (point !== null) appendBasePoint(selectedBase, point);
         }} onPointerDown={(event) => {
           const indexValue = (event.target as Element).getAttribute("data-point-index");
           if (indexValue === null) return;

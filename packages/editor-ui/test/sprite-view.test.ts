@@ -149,6 +149,93 @@ test("custom stance drafts stay with their stance across acknowledgement and del
   handle.dispose();
   s.el.remove();
 });
+
+test("duplicate stance rename keeps stable row drafts through a deferred acknowledgement", async () => {
+  const s = await setup("character", "Chrs/duplicate-drafts.tem", exampleCharacter());
+  ok((await s.doc.apply({ type: "add-custom-stance", name: "First", file: "" })).ok);
+  ok((await s.doc.apply({ type: "add-custom-stance", name: "Second", file: "" })).ok);
+  const apply = s.doc.apply.bind(s.doc);
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const firstApply = new Promise<void>((resolve) => { started = resolve; });
+  replaceApply(s.doc, async (command) => {
+    if (command.type === "rename-custom-stance") {
+      started();
+      await gate;
+    }
+    return apply(command);
+  });
+  const handle = await show(s);
+  const rows = () => [...s.el.querySelectorAll<HTMLElement>(".tkr-sprite-custom")];
+  const firstName = rows()[1]?.querySelector<HTMLInputElement>("input");
+  const secondAnimation = rows()[2]?.querySelectorAll<HTMLInputElement>("input")[1];
+  if (firstName == null || secondAnimation == null) throw new Error("duplicate custom stance inputs are missing");
+  await act(() => {
+    secondAnimation.value = "second-row-draft.anm";
+    secondAnimation.dispatchEvent(new Event("input", { bubbles: true }));
+    firstName.value = "Second";
+    firstName.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(() => { firstName.focus(); secondAnimation.focus(); });
+  await firstApply;
+  await act(() => {
+    firstName.value = "Second newer draft";
+    firstName.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  release();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  deepEqual(s.doc.getSnapshot().customStances.slice(-2).map((stance) => stance.handle), ["Second", "Second"]);
+  equal(rows()[1]?.querySelector<HTMLInputElement>("input")?.value, "Second newer draft", "acknowledgement does not clear a newer draft for the same renamed row");
+  equal(rows()[2]?.querySelectorAll<HTMLInputElement>("input")[1]?.value, "second-row-draft.anm", "a duplicate rename cannot transfer the neighboring row's draft");
+  handle.dispose();
+  s.el.remove();
+});
+
+test("Add point queued behind a rejected coordinate rebases on acknowledged geometry", async () => {
+  const s = await setup("character", "Chrs/rejected-add-point.tem", exampleCharacter());
+  const originalBases = s.doc.getSnapshot().vectorBases!;
+  const originalPoint = originalBases[1]!.points[0]!;
+  const originalLength = originalBases[1]!.points.length;
+  const apply = s.doc.apply.bind(s.doc);
+  const rejection = s.doc.apply({ type: "set-sprite-bases", bases: [] });
+  ok(!rejection.ok);
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const firstApply = new Promise<void>((resolve) => { started = resolve; });
+  let rejectFirst = true;
+  replaceApply(s.doc, async (command) => {
+    if (command.type === "set-sprite-bases" && rejectFirst) {
+      rejectFirst = false;
+      started();
+      await gate;
+      return rejection;
+    }
+    return apply(command);
+  });
+  const handle = await show(s);
+  await act(() => s.el.querySelector<HTMLButtonElement>('button[aria-pressed="false"]')?.click());
+  const xLabel = [...s.el.querySelectorAll("label")].find((label) => label.textContent === "Point 1 X");
+  ok(xLabel !== undefined);
+  const x = s.el.querySelector<HTMLInputElement>(`#${xLabel.htmlFor}`);
+  ok(x !== null);
+  await act(() => { x.value = "-12"; x.dispatchEvent(new Event("change", { bubbles: true })); });
+  await firstApply;
+  await act(() => {
+    const add = [...s.el.querySelectorAll("button")].find((button) => button.textContent === "Add polygon point at origin");
+    ok(add !== undefined);
+    add.click();
+  });
+  release();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  const points = s.doc.getSnapshot().vectorBases![1]!.points;
+  deepEqual(points[0], originalPoint, "the rejected coordinate is not carried into the next edit");
+  equal(points.length, originalLength + 1, "Add appends to the acknowledged polygon");
+  deepEqual(points.at(-1), { x: 0, y: 0 });
+  handle.dispose();
+  s.el.remove();
+});
 test("conflict reload discards filename drafts and a later blur cannot restore them", async () => {
   const path = "Chrs/conflict-reload.tem";
   const s = await setup("character", path, exampleCharacter());
