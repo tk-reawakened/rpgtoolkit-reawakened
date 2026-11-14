@@ -32,11 +32,10 @@ export interface BoardPreviewOptions {
   readonly tick?: number;
 }
 
-export type BoardPreview =
+/** What a view shows: the picture, or why there is none. It holds no command list, so a host can post it to a webview. */
+export type BoardPicture =
   | {
       readonly ok: true;
-      /** The command list the compositor emitted: the same value the engine's frame holds for this board. */
-      readonly drawList: DrawList;
       readonly width: number;
       readonly height: number;
       /** `width × height` RGBA bytes, row-major. */
@@ -45,6 +44,13 @@ export type BoardPreview =
       readonly warnings: readonly string[];
     }
   | { readonly ok: false; readonly message: string };
+
+export type BoardPreview =
+  | (Extract<BoardPicture, { readonly ok: true }> & {
+      /** The command list the compositor emitted: the same value the engine's frame holds for this board. */
+      readonly drawList: DrawList;
+    })
+  | Extract<BoardPicture, { readonly ok: false }>;
 
 /** The cell size of the top-down compositor (`docs/spec/formats/tiles.md`). */
 const TILE_PIXELS = 32;

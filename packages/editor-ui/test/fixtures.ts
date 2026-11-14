@@ -35,3 +35,15 @@ export function titleOf(bytes: Uint8Array): string {
   const { start, end } = titleSpan(bytes);
   return String.fromCharCode(...bytes.subarray(start, end));
 }
+
+const boards = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "docs", "spec", "examples", "versions");
+
+/** The committed 4×3 board of two layers (`board_minor4.brd`), whose cells name `village.tst1` and `village.tst8`. */
+export function exampleBoard(): Uint8Array {
+  return new Uint8Array(readFileSync(join(boards, "board", "board_minor4.brd")));
+}
+
+/** The committed two-tile tileset. */
+export function exampleTileset(): Uint8Array {
+  return new Uint8Array(readFileSync(join(boards, "tileset", "tileset_detail1.tst")));
+}

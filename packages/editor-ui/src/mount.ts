@@ -1,23 +1,43 @@
-import type { ApplyResult, ConflictChoice, ConflictResult, MainCommand, MainDocument, MainDocumentSnapshot, SaveResult } from "@tk-reawakened/editor-model";
+import type {
+  ApplyResult,
+  BoardCommand,
+  BoardDocumentSnapshot,
+  BoardPicture,
+  ConflictChoice,
+  ConflictResult,
+  MainCommand,
+  MainDocument,
+  MainDocumentSnapshot,
+  SaveResult,
+} from "@tk-reawakened/editor-model";
 import type { PlatformServices } from "@tk-reawakened/platform-services";
 import { createElement, render } from "preact";
+import { BoardView } from "./board-view.tsx";
 import { SettingsView } from "./settings-view.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
-export interface ViewDocument {
+export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCommand> {
+  /** The registered kind of the document (ADR 0026 decision 1); `mount` picks the view by it. */
+  readonly kind: string;
   readonly identity: MainDocument["identity"];
-  getSnapshot(): MainDocumentSnapshot;
+  getSnapshot(): Snapshot;
   subscribe(listener: () => void): () => void;
-  apply(command: MainCommand): ApplyResult | Promise<ApplyResult>;
+  apply(command: Command): ApplyResult | Promise<ApplyResult>;
   save(): Promise<SaveResult>;
   /** Settle a change made on disk by another program (ADR 0022 D3.5). */
   resolveConflict(choice: ConflictChoice): ConflictResult | Promise<ConflictResult>;
 }
 
+/** What a board view needs beyond the shared surface: a picture of the board as the engine draws it (AD-29). */
+export interface BoardViewDocument extends ViewDocument<BoardDocumentSnapshot, BoardCommand> {
+  /** Compose the board as it is now, saved or not. The promise never rejects: failure is a value with a reason. */
+  preview(): Promise<BoardPicture>;
+}
+
 /** What a host gives a view when it mounts it (ADR 0025 decision 4). */
 export interface ViewContext {
   /** The document the view shows and edits. The view never owns it. */
-  readonly document: ViewDocument;
+  readonly document: ViewDocument | BoardViewDocument;
   /**
    * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
@@ -31,14 +51,19 @@ export interface ViewHandle {
   dispose(): void;
 }
 
-/** Render the settings view into `el`. */
+function isBoardView(document: ViewContext["document"]): document is BoardViewDocument {
+  return document.kind === "board";
+}
+
+/** Render the view of the document's kind into `el` (ADR 0026 decision 2: views are registered here, models in `editor-model`). */
 export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
+  const onEdited = (event: Parameters<PlatformServices["document"]["edited"]>[0]): void => ctx.services.document.edited(event);
+  const capabilities = ctx.services.capabilities;
+  const document = ctx.document;
   render(
-    createElement(SettingsView, {
-      doc: ctx.document,
-      capabilities: ctx.services.capabilities,
-      onEdited: (event) => ctx.services.document.edited(event),
-    }),
+    isBoardView(document)
+      ? createElement(BoardView, { doc: document, capabilities, onEdited })
+      : createElement(SettingsView, { doc: document, capabilities, onEdited }),
     el,
   );
   let disposed = false;
