@@ -51,7 +51,7 @@ export interface CharacterAuthoringViewProps {
 
 type TextField = "name" | "profilePicture" | "specialMoveCategory" | "levelUpProgram";
 type Command = SpriteCommand;
-type Move = CharacterAuthoringFields["specialMoves"][number];
+type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
 type MoveField = (typeof MOVE_FIELDS)[number][0];
 type CommandInput = Command | ((latest: CharacterAuthoringFields) => Command);
 type Cleanup = readonly (readonly [string, string])[];
@@ -308,7 +308,7 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
           <option value="0">Yes</option><option value="1">No</option>
         </select>
       </label>
-      <MoveEditor character={character} disabled={disabled} drafts={drafts} editText={editText} clearDrafts={clearDrafts} hasPendingPrefix={hasPendingPrefix} requestAsset={requestAsset} pickerAvailable={pickAsset !== undefined} visit={visit} submit={submit} feedback={setFeedback} />
+      <MoveEditor character={character} disabled={disabled} drafts={drafts} editText={editText} clearDrafts={clearDrafts} hasPendingPrefix={hasPendingPrefix} requestAsset={requestAsset} pickerAvailable={pickAsset !== undefined} {...(visit === undefined ? {} : { visit })} submit={submit} feedback={setFeedback} />
     </fieldset>
 
     <fieldset disabled={disabled}>
@@ -337,7 +337,7 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
 
     <fieldset disabled={disabled}>
       <legend>Level progression</legend>
-      {numericInput("Experience for first level-up", "growth:firstLevelExp", character.firstLevelExp, character.minor === 3 ? INT8_MIN : INT32_MIN, character.minor === 3 ? INT8_MAX : INT32_MAX, (value) => ({ type: "set-character-growth", field: "firstLevelExp", value }))}
+      {numericInput("Experience for first level-up", "growth:firstLevelExp", character.firstLevelExp, snapshot.minor === 3 ? INT8_MIN : INT32_MIN, snapshot.minor === 3 ? INT8_MAX : INT32_MAX, (value) => ({ type: "set-character-growth", field: "firstLevelExp", value }))}
       {numericInput("Experience increase per level", "growth:experienceIncrease", character.experienceIncrease, INT16_MIN, INT16_MAX, (value) => ({ type: "set-character-growth", field: "experienceIncrease", value }))}
       {numericInput("Maximum level (0 disables progression)", "growth:maxLevel", character.maxLevel, INT32_MIN, INT32_MAX, (value) => ({ type: "set-character-growth", field: "maxLevel", value }))}
       {INCREASES.map(([index, label]) => numericInput(`${label} increase per level`, `increase:${index}`, character.levelIncreases[index] ?? 0, INT16_MIN, INT16_MAX, (value) => ({ type: "set-character-increase", index, value })))}
@@ -382,7 +382,7 @@ function MoveEditor({
   const slotKey = (field: MoveField): string => `move:${slot}:${field}`;
   const save = (): void => {
     const clear: Array<readonly [string, string]> = [];
-    const patch: Partial<Move> = {};
+    const patch: Partial<Mutable<Move>> = {};
     for (const [field] of MOVE_FIELDS) {
       const key = slotKey(field);
       const raw = drafts[key];
@@ -426,7 +426,10 @@ function MoveEditor({
     {MOVE_FIELDS.map(([field, label]) => {
       const key = slotKey(field);
       const value = String(current[field]);
-      return <label key={field}>{label}<input aria-label={label} type={field === "minExp" || field === "minLevel" ? "number" : "text"} step="1" value={drafts[key] ?? value} disabled={disabled} onInput={(event) => editText(key, event.currentTarget.value)} /></label>;
+      const input = field === "minExp" || field === "minLevel"
+        ? <input aria-label={label} type="number" step="1" value={drafts[key] ?? value} disabled={disabled} onInput={(event) => editText(key, event.currentTarget.value)} />
+        : <input aria-label={label} type="text" value={drafts[key] ?? value} disabled={disabled} onInput={(event) => editText(key, event.currentTarget.value)} />;
+      return <label key={field}>{label}{input}</label>;
     })}
     <div role="group" aria-label="Special-move reference actions">
       <button type="button" aria-label="Choose special-move file…" disabled={disabled || !pickerAvailable} onClick={() => { void requestAsset(slotKey("file"), { kind: "specialMoves", extensions: [".spc"], field: "the special-move file" }); }}>Choose special-move file…</button>
