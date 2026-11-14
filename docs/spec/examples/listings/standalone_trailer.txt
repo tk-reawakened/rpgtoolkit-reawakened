@@ -1,5 +1,5 @@
 # standalone EXE trailer (placeholder engine bytes)
-002624  43 4d 50 31                            magic = 'CMP1'
-002628  67 00 00 00                            engine length E (= ZIP offset) = 103
-00262c  bd 25 00 00                            ZIP length Z = 9661
-002630  <end of parse; file length 0x2630>
+0026af  43 4d 50 31                            magic = 'CMP1'
+0026b3  67 00 00 00                            engine length E (= ZIP offset) = 103
+0026b7  48 26 00 00                            ZIP length Z = 9800
+0026bb  <end of parse; file length 0x26bb>

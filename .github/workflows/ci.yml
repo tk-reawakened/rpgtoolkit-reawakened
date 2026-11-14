@@ -125,6 +125,9 @@ jobs:
           cache: pnpm
       # ADR numbering uses only Node built-ins, so keep the docs-only gate independent of dependency installation.
       - run: node --test tools/adr-numbering.test.mjs && node tools/adr-numbering.mjs
+      # Keep the independent spec reader's writer and extension parsing covered by the
+      # docs-only gate, without installing Python dependencies.
+      - run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s docs/spec/tools -p 'test_*.py' -v
       - run: pnpm install --frozen-lockfile
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm build:outputs:test && pnpm build:outputs:check

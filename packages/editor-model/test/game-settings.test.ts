@@ -269,11 +269,20 @@ test("the notes disclose kept data and stored-only rows", () => {
   ok(notes.some((message) => /Stored-only fields/.test(message)));
 });
 
-test("a TKR input block remains byte-identical when package and audio settings are edited", async () => {
-  const input = Uint8Array.from([84, 82, 75, 73, 78, 80, 0, 1, 1, 0, 0]);
-  const { host, doc } = await opened(concat(exampleMain(9), input));
+test("a TKR input block and unknown residue survive when package and audio settings are edited", async () => {
+  const inputBlock = Uint8Array.from([84, 82, 75, 73, 78, 80, 0, 1, 1, 0, 0]);
+  const opaque = Uint8Array.from([0xde, 0xad, 0xbe, 0xef]);
+  const { host, doc } = await opened(concat(exampleMain(9), inputBlock, opaque));
   const result = doc.apply({ type: "apply-settings", changes: { packages: ["stock_menu"], defaultSoundFont: "media/gm.sf2" } });
   ok(result.ok, result.ok ? "" : result.rejection.message);
   ok((await doc.save()).ok);
-  deepEqual(read(storedBytes(host)).residue, input);
+  const written = storedBytes(host);
+  const decoded = read(written);
+  deepEqual(decoded.inputSettings, { controllerEnabled: true, actions: {} });
+  deepEqual(decoded.residue, opaque);
+  deepEqual(
+    written.subarray(written.length - inputBlock.length - opaque.length),
+    concat(inputBlock, opaque),
+    "the recognized input block and unknown trailing bytes remain byte-identical",
+  );
 });
