@@ -103,6 +103,7 @@ export type WorldTileEdit = DataRecord & {
 export type WorldRuntime = DataRecord & {
   readonly tileEdits: WorldTileEdit[];
   readonly tileTypes: string[];
+  readonly tileBuffers: Record<string, WorldTile | null>;
 };
 
 /** Runtime emitter key for a loaded board (EMIT-8, ACT-9). */

@@ -90,8 +90,8 @@ export type {
 /** The ledger's hash domain: hashes are comparable only within it (and this version). */
 export const GAME_LEDGER_DOMAIN = "tkr.game-ledger";
 
-/** The ledger projection version; it is independent of every section schema version. */
-export const GAME_LEDGER_VERSION = 4;
+/** The ledger's hash domain: hashes are comparable only within it (and this version). */
+export const GAME_LEDGER_VERSION = 5;
 
 /** Party roster, selection, steps and the sub-tile movement remainder. */
 export type LedgerParty = {
@@ -266,10 +266,11 @@ export type LedgerTileEdit = {
   readonly owner: number | null;
 };
 
-/** Durable runtime board state: board-scope tile edits and the tile types. */
+/** Durable runtime board state: board-scope tile edits, scan buffers and tile types. */
 export type LedgerBoardRuntime = {
   readonly tileEdits: LedgerTileEdit[];
   readonly tileTypes: string[];
+  readonly tileBuffers: Record<string, LedgerTile | null>;
 };
 
 /** The current board's durable values; authored layers and images are rebuilt from its asset. */
@@ -429,12 +430,31 @@ export function hashGameLedger(ledger: GameLedgerV1): string {
   return hashState(envelope);
 }
 
-/**
- * Hash the pre-movement v3 ledger envelope for validating already-promoted
- * recovery checkpoints. New checkpoints must use `hashGameLedger`.
- */
+/** Hash the previous v4 projection for already-promoted recovery checkpoints. */
+export function hashGameLedgerV4(ledger: GameLedgerV1): string {
+  const legacyLedger = ledgerWithoutTileBuffers(ledger);
+  return hashState({ domain: GAME_LEDGER_DOMAIN, version: 4, ledger: legacyLedger } as never);
+}
+
+function ledgerWithoutTileBuffers(ledger: GameLedgerV1): GameLedgerV1 {
+  const board = ledger.world.board;
+  if (board.state !== "present" || board.value.runtime.state !== "present") return ledger;
+  const { tileBuffers: _tileBuffers, ...runtime } = board.value.runtime.value;
+  return {
+    ...ledger,
+    world: {
+      ...ledger.world,
+      board: {
+        ...board,
+        value: { ...board.value, runtime: { state: "present", value: runtime } },
+      },
+    },
+  };
+}
+/** Hash the pre-movement v3 projection for already-promoted recovery checkpoints. */
 export function hashGameLedgerV3(ledger: GameLedgerV1): string {
-  const legacyLedger = { ...ledger, world: { board: ledger.world.board } };
+  const previous = ledgerWithoutTileBuffers(ledger);
+  const legacyLedger = { ...previous, world: { board: previous.world.board } };
   return hashState({ domain: GAME_LEDGER_DOMAIN, version: 3, ledger: legacyLedger } as never);
 }
 
@@ -751,11 +771,21 @@ function projectBoardRuntime(value: unknown, path: string): LedgerBoardRuntime {
       owner: edit.owner === undefined ? null : ledgerInteger(edit.owner, `${editPath}.owner`, 1),
     });
   });
+  const tileBuffers = runtime.tileBuffers === undefined
+    ? {}
+    : ledgerRecord(runtime.tileBuffers, `${path}.tileBuffers`);
   return {
     tileEdits,
     tileTypes: ledgerList(runtime.tileTypes, `${path}.tileTypes`)
       .map((entry, index) => ledgerText(entry, `${path}.tileTypes[${index}]`)),
+    tileBuffers: Object.fromEntries(
+      Object.entries(tileBuffers).map(([position, tile]) => [
+        position,
+        projectTile(tile, `${path}.tileBuffers[${position}]`),
+      ]),
+    ),
   };
+
 }
 
 function projectTint(value: unknown, path: string): LedgerTint {

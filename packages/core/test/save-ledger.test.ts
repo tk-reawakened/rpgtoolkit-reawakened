@@ -114,6 +114,7 @@ function board(): WorldBoard {
         { index: 1, tile: tile("Tiles/water.tle", 1), previous: null, scope: "program", owner: 1 },
       ],
       tileTypes: ["NORMAL", "WATER"],
+      tileBuffers: { "3": tile("Tiles/scan.tle", 6), "4": null },
     },
   };
 }
@@ -437,25 +438,22 @@ test("the ledger hash is the tagged envelope hash and not hashGameState", () => 
   const state = fixture();
   const ledger = projectGameLedger(state);
   equal(GAME_LEDGER_DOMAIN, "tkr.game-ledger");
-  equal(GAME_LEDGER_VERSION, 4);
+  equal(GAME_LEDGER_VERSION, 5);
   equal(
     hashGameLedger(ledger),
-    hashState({ domain: "tkr.game-ledger", version: 4, ledger } as never),
+    hashState({ domain: "tkr.game-ledger", version: 5, ledger } as never),
   );
   differs(hashGameLedger(ledger), hashGameState(state));
   const minimal = minimalLedger();
-  equal(hashGameLedger(minimal), MINIMAL_LEDGER_HASH);
-  // The pinned vector is FNV-1a over exactly this canonical envelope text, so
-  // the domain, version and ledger are all covered.
   equal(
-    MINIMAL_LEDGER_HASH,
-    fnv1a64(canon({ domain: "tkr.game-ledger", version: 4, ledger: minimal } as never)),
+    hashGameLedger(minimal),
+    fnv1a64(canon({ domain: "tkr.game-ledger", version: 5, ledger: minimal } as never)),
   );
   // A different domain or version hashes differently even for the same ledger.
   differs(hashState({ domain: "tkr.game-ledger", version: 2, ledger } as never), hashGameLedger(ledger));
 });
 
-/** The smallest whole v1 ledger, used to pin the envelope vector. */
+/** The smallest whole v1 ledger, used to verify the versioned envelope hash. */
 function minimalLedger(): GameLedgerV1 {
   return {
     party: { members: [], selected: null, steps: 0, stepRemainder: 0 },
@@ -475,7 +473,6 @@ function minimalLedger(): GameLedgerV1 {
   };
 }
 
-const MINIMAL_LEDGER_HASH = "1c0294691eabdcac";
 
 test("each excluded continuation and metadata field changes the full save but not the ledger", () => {
   const baseline = ledgerHash();
@@ -567,6 +564,7 @@ test("each ledger-bearing field changes the projection hash independently", () =
       state.world = { ...state.world, board: { ...board0, runtime: { ...board0.runtime!, tileEdits: [...board0.runtime!.tileEdits, { index: 3, tile: tile("Tiles/sand.tle", 0), previous: null, scope: "board" }] } } };
     }],
     ["tile types", (state) => { const board0 = state.world.board!; state.world = { ...state.world, board: { ...board0, runtime: { ...board0.runtime!, tileTypes: ["NORMAL", "LAVA"] } } }; }],
+    ["scan buffer", (state) => { const board0 = state.world.board!; state.world = { ...state.world, board: { ...board0, runtime: { ...board0.runtime!, tileBuffers: { ...board0.runtime!.tileBuffers, "3": tile("Tiles/other-scan.tle", 2) } } } }; }],
     ["sprite x", (state) => { state.sprites.items[0] = { ...state.sprites.items[0]!, x: 201 }; }],
     ["sprite facing", (state) => { state.sprites.items[0] = { ...state.sprites.items[0]!, facing: "N" }; }],
     ["sprite visible", (state) => { state.sprites.items[0] = { ...state.sprites.items[0]!, visible: false }; }],

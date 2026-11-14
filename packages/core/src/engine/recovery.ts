@@ -270,6 +270,7 @@ function restoreBoard(authored: WorldBoard, saved: LedgerBoard): WorldBoard {
   const layers = authored.layers.map((layer) => ({ ...layer, tiles: [...layer.tiles] }));
   const tileEdits: NonNullable<WorldBoard["runtime"]>["tileEdits"] = [];
   let tileTypes = [...(authored.runtime?.tileTypes ?? [])];
+  const tileBuffers: NonNullable<WorldBoard["runtime"]>["tileBuffers"] = {};
   if (saved.runtime.state === "present") {
     tileTypes = [...saved.runtime.value.tileTypes];
     const layerArea = saved.sizeX * saved.sizeY;
@@ -289,6 +290,9 @@ function restoreBoard(authored: WorldBoard, saved: LedgerBoard): WorldBoard {
         ...(edit.owner === null ? {} : { owner: edit.owner }),
       });
     }
+    for (const [position, tile] of Object.entries(saved.runtime.value.tileBuffers)) {
+      tileBuffers[position] = tile === null ? null : restoreWorldTile(tile);
+    }
   } else if (saved.runtime.state === "null") {
     throw new Error("the saved board runtime cannot be null");
   }
@@ -301,7 +305,7 @@ function restoreBoard(authored: WorldBoard, saved: LedgerBoard): WorldBoard {
     rawItems,
     items: rawItems.filter((item) => item.itemFile !== ""),
     layers,
-    runtime: { tileEdits, tileTypes },
+    runtime: { tileEdits, tileTypes, tileBuffers },
   };
 }
 

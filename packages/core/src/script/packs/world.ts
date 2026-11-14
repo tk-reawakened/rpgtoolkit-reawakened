@@ -84,6 +84,21 @@ const PUT: BuiltinSpec = {
   doc: docs("Put a tile on the board until the program ends.", "Record a board tile replacement for the current turn; arguments are x, y, optional one-based layer, and tile asset key. The effect is applied before the next statement and does not wait."),
   call: (view, args) => { board(view); if (args.length !== 3 && args.length !== 4) throw new ScriptError("builtin.bad-arg", '"put" expects x,y,tile or x,y,layer,tile'); return effect(args); },
 };
+const SCAN_MEM_PARAMS = [
+  { name: "x", optional: false, byRef: false, variadic: false },
+  { name: "y", optional: false, byRef: false, variadic: false },
+  { name: "pos", optional: false, byRef: false, variadic: false },
+] as const;
+const SCAN: BuiltinSpec = {
+  name: "scan", aliases: [], params: SCAN_MEM_PARAMS,
+  doc: docs("Save a board tile in a scan buffer.", "Copy the visible layer-one tile at one-based board coordinates x,y into the independent buffer identified by pos. The call does not wait."),
+  call: (view, args) => { board(view); if (args.length !== 3) throw new ScriptError("builtin.bad-arg", '"scan" expects x,y,pos'); return effect(args); },
+};
+const MEM: BuiltinSpec = {
+  name: "mem", aliases: [], params: SCAN_MEM_PARAMS,
+  doc: docs("Restore a scanned board tile.", "Replace the visible layer-one tile at one-based board coordinates x,y with the saved value in buffer pos; an empty tile is restored as empty, and an unset buffer does nothing. The call does not wait."),
+  call: (view, args) => { board(view); if (args.length !== 3) throw new ScriptError("builtin.bad-arg", '"mem" expects x,y,pos'); return effect(args); },
+};
 const LAYER_PUT: BuiltinSpec = {
   name: "layerput", aliases: [], params: [{ name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, { name: "layer", optional: false, byRef: false, variadic: false }, { name: "tile", optional: false, byRef: false, variadic: false }],
   doc: docs("Put a tile on a board layer until the board is left.", "Record a replacement at x, y and one-based layer using the tile asset key; apply it immediately and do not wait."),
@@ -281,7 +296,7 @@ const PIXEL_MOVEMENT: BuiltinSpec = {
 
 
 const WORLD_COMMANDS: readonly BuiltinSpec[] = [
-  GET_NAME, PUT, LAYER_PUT, tileGetter("getboardtile", "boardgettile"), TILE_TYPE_GET, TILE_TYPE, PIXEL_MOVEMENT,
+  GET_NAME, PUT, LAYER_PUT, SCAN, MEM, tileGetter("getboardtile", "boardgettile"), TILE_TYPE_GET, TILE_TYPE, PIXEL_MOVEMENT,
   noArgs("animatedtiles", [{ name: "list", optional: true, byRef: true, variadic: false }]),
   noArgs("parallax", [{ name: "setting", optional: false, byRef: false, variadic: false }]), AMBIENT, FORCE_REDRAW,
   GET_VECTOR, SET_VECTOR, GET_VECTOR_POINT, SET_VECTOR_POINT, GET_PROGRAM, SET_PROGRAM, GET_PROGRAM_POINT, SET_PROGRAM_POINT, PRG,

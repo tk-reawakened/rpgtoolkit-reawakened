@@ -1,7 +1,7 @@
 // Engine-level checks of the drawing seams the default battle screen stands on (docs/spec/engine/main-loop-and-startup.md#e-57,
 // docs/spec/engine/rpgcode-functions.md#e-56, #reawakened-pinnedanimation, docs/spec/engine/display-input-audio.md#e-110).
 import { test } from "node:test";
-import { deepEqual, equal, ok } from "node:assert/strict";
+import { deepEqual, equal, notDeepEqual, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -398,6 +398,7 @@ test("a sized script animation samples a composed tile bitmap at its own size (#
 });
 
 test("tile-bitmap animation waits for every picture dependency before its clock starts (#1321)", () => {
+
   const game = boot('id = animation("wide.anm", 0, 0, 1)\nthreadSleep(getThreadId(), 120)\nend()\n', wideFiles("multi.tbm"));
   const first = game.requests.find((entry) => entry.key === "tiles/two.tst");
   const second = game.requests.find((entry) => entry.key === "tiles/one.gph");
@@ -407,6 +408,36 @@ test("tile-bitmap animation waits for every picture dependency before its clock 
   ok(animation !== undefined && animation.loaded);
   ok(animation.originTick >= second.tick, "the animation starts after both picture dependencies are available");
   deepEqual(pixel(game.frame(), 56, 8), [220, 30, 30, 255]);
+});
+test("scan and mem restore the captured tile through the real board renderer", () => {
+  const tileset = (r: number, g: number, b: number) => {
+    const pixels = new Uint8Array(32 * 32 * 3);
+    for (let at = 0; at < pixels.length; at += 3) {
+      pixels[at] = r;
+      pixels[at + 1] = g;
+      pixels[at + 2] = b;
+    }
+    return unwrap(writeTileset({
+      version: 20,
+      detail: { code: 1, size: 32, bytesPerPixel: 3, isometric: false },
+      tiles: [{ pixels }],
+      residue: new Uint8Array(),
+    }));
+  };
+  const game = boot(
+    'put(1,1,"tiles/red.tst")\nscan(1,1,7)\nput(1,1,"tiles/green.tst")\nphase=1\nwait()\nmem(1,1,7)\nphase=2\nwait()\n',
+    { "Tiles/red.tst": tileset(255, 0, 0), "Tiles/green.tst": tileset(0, 255, 0) },
+  );
+  equal(game.state().vm.globals.phase, 1);
+  equal(game.state().world.board?.layers[0]?.tiles[0]?.asset, "tiles/green.tst");
+  const greenPixels = game.frame().rgba.slice();
+
+  game.advance(1, ["SPACE"]);
+
+  equal(game.state().vm.globals.phase, 2);
+  equal(game.state().world.board?.layers[0]?.tiles[0]?.asset, "tiles/red.tst");
+  notDeepEqual(game.frame().rgba, greenPixels, "restoring the captured tile changes the rendered frame pixels");
+  deepEqual(game.state().world.board?.runtime?.tileBuffers["7"]?.asset, "tiles/red.tst");
 });
 
 test("a pinned animation with one picture keeps its original animation-phase start tick", () => {
