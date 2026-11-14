@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import { BinaryReader, readBoard } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors, decodePersistedBytes } from "./lifecycle.ts";
 import { runVscodeArtProof } from "./art-proof.ts";
+import { openNativeQuickOpenFile } from "./native-quick-open.ts";
 
 const copyBytesCommand = "Test: Copy Main File Bytes";
 
@@ -390,6 +392,23 @@ export async function runVscodeWebProof(
   await enableWorkbenchTraceLogging(page, expect);
   await openGame(page, gamePath, expect);
 
+  // The package command is contributed to both the command palette and .gam Explorer context menu.
+  const packageCommand = await commandPalette(page, expect);
+  await packageCommand.fill(">RPG Toolkit: Package game");
+  const packageEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "RPG Toolkit: Package game" }).first();
+  await expect(packageEntry).toBeVisible();
+  await packageCommand.press("Escape");
+  await expect(page.locator(".quick-input-widget")).toBeHidden();
+
+  const packageCommandInput = await commandPalette(page, expect);
+  await packageCommandInput.fill(">Test: Execute Package Game");
+  const packageCommandEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Test: Execute Package Game" }).first();
+  await expect(packageCommandEntry).toBeVisible();
+  await packageCommandEntry.click();
+  await expect(page.getByText(/Preflight passed:/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/Included \(\d+\):/)).toBeVisible();
+  await page.keyboard.press("Escape");
+
   const editor = await waitForEditorFrame(page, "initial Game settings editor");
   const titleField = editor.getByLabel("Game title");
   await expectVisibleWithFrameDiagnostics(page, titleField, expect, "initial Game title field");
@@ -414,6 +433,40 @@ export async function runVscodeWebProof(
   await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
   expect(await host.readBacking()).toEqual(saved);
 
+
+  // Save through the registered package command's Save As dialog in the real VS Code web workbench, then inspect its
+  // persisted package and descriptor independently of the UI.
+  const publishCommand = await commandPalette(page, expect);
+  await publishCommand.fill(">Test: Execute Package Game");
+  const publishEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Test: Execute Package Game" }).first();
+  await expect(publishEntry).toBeVisible();
+  await publishEntry.click();
+  await expect(page.getByText(/Preflight passed:/)).toBeVisible({ timeout: 15_000 });
+  const inventoryDialog = page.getByRole("dialog");
+  await expect(inventoryDialog.getByText(/Included \(\d+\):/)).toBeVisible();
+  await inventoryDialog.getByRole("button", { name: "Choose where to save…", exact: true }).click();
+  const packageBase = title.trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "game";
+  const packageName = `${packageBase}.tpk`;
+  const savePath = page.getByRole("textbox", { name: "Folder path" });
+  await expect(savePath).toHaveValue(`/.tkr-exports/${packageName}`);
+  await page.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "The folder .tkr-exports does not exist. Would you like to create it?" })).toBeVisible();
+  await page.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(page.getByText(/Package saved to .* and install descriptor saved to/).first()).toBeVisible({ timeout: 15_000 });
+  const packageBytes = await host.readBacking(`.tkr-exports/${packageName}`);
+  const descriptorBytes = await host.readBacking(`.tkr-exports/${packageName}.json`);
+  const descriptor = JSON.parse(new TextDecoder().decode(descriptorBytes)) as {
+    file: string;
+    sha256: string;
+    size: number;
+    title: string;
+    version: string;
+  };
+  expect(descriptor.file).toBe(packageName);
+  expect(descriptor.sha256).toBe(createHash("sha256").update(packageBytes).digest("hex"));
+  expect(descriptor.size).toBe(packageBytes.byteLength);
+  expect(descriptor.title).toBe(title);
+  expect(descriptor.version).toBe("1.0.0");
   await openGame(page, gamePath, expect);
   let reopenedEditor = await waitForEditorFrame(page, "reopened Game settings editor");
   assertNoCspConsoleViolations(consoleViolations, "before installing the reopened settings-document CSP listener");
@@ -784,6 +837,7 @@ async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHo
   const first = await openProjectBoard(page, firstPath, expect);
   await expect(first.getByRole("grid")).toBeVisible();
   await expect(first.getByRole("button", { name: "Column 1, row 1: village.tst1" })).toBeVisible();
+  await first.locator(".tkr-tileset-browser select").selectOption({ value: "Tiles/village.tst" });
   await first.getByRole("combobox", { name: "Source", exact: true }).selectOption({ label: "village.tst (tst)" });
   const tile = first.locator('[data-browser-reference="village.tst2"]');
   await expect(tile).toBeVisible();
@@ -920,15 +974,10 @@ async function openProjectBoard(page: Page, path: string, expect: Expect): Promi
   return openProjectFile(page, path, expect, ".tkr-board");
 }
 
-/** Open the project file at `path` from the Explorer and return the custom editor frame whose content contains `selector`. */
+/** Open the exact workspace-relative file through VS Code's native Quick Open. */
 async function openProjectFile(page: Page, path: string, expect: Expect, selector: string): Promise<Frame> {
   await focusWorkbench(page);
-  const folder = page.getByRole("treeitem", { name: path.split("/")[0]!, exact: true });
-  await expect(folder).toBeVisible();
-  if (await folder.getAttribute("aria-expanded") !== "true") await folder.click();
-  const item = page.getByRole("treeitem", { name: path.split("/").at(-1)!, exact: true });
-  await expect(item).toBeVisible();
-  await item.dblclick();
+  await openNativeQuickOpenFile(page, expect, path);
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).toBeVisible();
   return await waitForCustomEditorFrame(page, path, selector);
 }
@@ -1338,6 +1387,9 @@ async function openGame(page: Page, gamePath: string, expect: Expect): Promise<v
   const segments = gamePath.split("/");
   for (const folder of segments.slice(0, -1)) {
     const folderItem = page.getByRole("treeitem", { name: folder, exact: true });
+    await folderItem.click();
+    await expect(folderItem).toBeVisible();
+    await folderItem.press("ArrowRight");
     await expect(folderItem).toBeVisible();
     if (await folderItem.getAttribute("aria-expanded") !== "true") await folderItem.click();
   }

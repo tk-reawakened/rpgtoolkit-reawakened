@@ -13,6 +13,7 @@ const files = new Map([["/project/Main.gam", original.slice()]]);
 const permission = Object.assign(new Error("read-only project"), { code: "NoPermissions" });
 const notFound = Object.assign(new Error("missing"), { code: "FileNotFound" });
 const port: VscodeFileSystemPort<Uri> = {
+  isSymbolicLink: (type) => (type & 64) !== 0,
   isDirectory: (type) => (type & 2) !== 0,
   joinPath: (base, ...parts) => ({ path: `${base.path}/${parts.join("/")}` }),
   parent: (uri) => ({ path: uri.path.slice(0, uri.path.lastIndexOf("/")) }),
@@ -32,9 +33,9 @@ test("VS Code workspace filesystem rejects traversal and preserves old bytes on 
   const fs = createVscodeFileSystemWithPort(root, port, "file:///project");
   const listed = await fs.list("");
   ok(listed.ok);
-  if (listed.ok) deepEqual(listed.value, [{ name: "Main.gam", kind: "file" }, { name: "linked", kind: "directory" }]);
+  if (listed.ok) deepEqual(listed.value, [{ name: "Main.gam", kind: "file" }, { name: "linked", kind: "link" }]);
   const linkedStat = await fs.stat("linked");
-  ok(linkedStat.ok && linkedStat.value.kind === "directory");
+  ok(linkedStat.ok && linkedStat.value.kind === "link");
   const invalid = await fs.read("../outside.gam");
   equal(invalid.ok, false);
   if (!invalid.ok) equal(invalid.error.code, "invalid-path");

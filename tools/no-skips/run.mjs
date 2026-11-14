@@ -124,7 +124,8 @@ export function resolveGroup(root, group) {
     return matched.map((name) => posix.join("packages", "core", "test", name));
   }
   if (group === "editor-host") {
-    const hostFiles = listPackageTestFiles(rootPath, "host-web").map((name) => posix.join("packages", "host-web", "test", name));
+    const hostFiles = ["host-web", "host-vscode"].flatMap((pkg) =>
+      listPackageTestFiles(rootPath, pkg).map((name) => posix.join("packages", pkg, "test", name)));
     const integrationDir = join(rootPath, "tools", "editor-vscode-test", "test");
     const integrationFiles = existsSync(integrationDir)
       ? readdirSync(integrationDir, { withFileTypes: true })

@@ -3,6 +3,7 @@ import { createVscodeFileSystemWithPort, type VscodeFileSystemPort } from "./fil
 
 const port: VscodeFileSystemPort<vscode.Uri> = {
   isDirectory: (type) => (type & vscode.FileType.Directory) !== 0,
+  isSymbolicLink: (type) => (type & vscode.FileType.SymbolicLink) !== 0,
   joinPath: (root, ...segments) => vscode.Uri.joinPath(root, ...segments),
   parent: (uri) => { const index = uri.path.lastIndexOf("/"); return uri.with({ path: uri.path.slice(0, index) }); },
   readDirectory: async (uri) => await vscode.workspace.fs.readDirectory(uri),

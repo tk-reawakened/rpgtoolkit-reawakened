@@ -49,6 +49,8 @@ interface Setup {
   readonly workspace: ReturnType<typeof createDocumentWorkspace>;
   readonly editorSlot: () => HTMLElement | null;
   readonly openPaths: string[];
+  readonly packageCalls: string[];
+  readonly downloadCalls: string[];
 }
 
 async function setup(
@@ -70,6 +72,8 @@ async function setup(
   const opened: AnyDocument[] = [];
   const openPaths: string[] = [];
   let slot: HTMLElement | null = null;
+  const packageCalls: string[] = [];
+  const downloadCalls: string[] = [];
   await act(() => {
     mountShell(el, {
       layout,
@@ -89,11 +93,27 @@ async function setup(
           if (result.ok && result.via === "document") tabs.open(result.document);
         });
       },
+      onPackage: async (mainPath, version) => {
+        packageCalls.push(`${mainPath}@${version}`);
+        return {
+          ok: true,
+          prepared: {
+            package: { fileName: "game.tpk", bytes: new Uint8Array([1]) },
+            descriptor: { fileName: "game.tpk.json", bytes: new Uint8Array([2]) },
+            includedFiles: ["Main/example.gam"],
+            excludedFiles: ["Saved/save.sav"],
+          },
+        };
+      },
+      onDownload: async (artifact) => {
+        downloadCalls.push(artifact.fileName);
+        return { ok: true };
+      },
       onEditorElement: (element) => { slot = element; },
     });
   });
   await settle();
-  return { host, el, opened, layout, tabs, tree, workspace, editorSlot: () => slot, openPaths };
+  return { host, el, opened, layout, tabs, tree, workspace, editorSlot: () => slot, openPaths, packageCalls, downloadCalls };
 }
 
 const key = async (target: Element, name: string, init: KeyboardEventInit = {}): Promise<void> => {
@@ -286,6 +306,68 @@ test("panels show, hide and resize from buttons and the keyboard, and hiding kee
   ok(files() !== null);
   ok(s.editorSlot() !== null, "the editor slot is offered to the host");
 });
+test("package preflight displays its inventory and requires review before any download, and never writes into the project", async () => {
+  const s = await setup();
+  await click(button(s.el, "Package game…"));
+  await settle();
+  const version = s.el.querySelector<HTMLInputElement>('input[type="text"][maxlength="128"]');
+  ok(version);
+  await act(() => { version.value = "1.2.3"; version.dispatchEvent(new Event("input", { bubbles: true })); });
+  await click(button(s.el, "Prepare package"));
+  await settle();
+  deepEqual(s.packageCalls, ["Main/example.gam@1.2.3"]);
+  deepEqual(s.downloadCalls, []);
+  equal(
+    [...s.el.querySelectorAll("button")].some((candidate) => /Save package and descriptor/.test(candidate.textContent ?? "")),
+    false,
+    "the page never offers to write the package into the project folder",
+  );
+  const downloadPackage = button(s.el, "Download game.tpk");
+  const downloadDescriptor = button(s.el, "Download game.tpk.json");
+  equal(downloadPackage.disabled, true, "downloads wait for explicit inventory review");
+  equal(downloadDescriptor.disabled, true, "downloads wait for explicit inventory review");
+  const details = s.el.querySelector("details");
+  match(s.el.textContent ?? "", /Package output: game\.tpk; install descriptor: game\.tpk\.json/);
+  match(s.el.textContent ?? "", /saved project files from the time it completed/);
+  ok(details);
+  await click(details.querySelector("summary")!);
+  match(details.textContent ?? "", /Main\/example\.gam/);
+  match(details.textContent ?? "", /Saved\/save\.sav/);
+  const reviewed = s.el.querySelector<HTMLInputElement>('input[type="checkbox"]');
+  ok(reviewed);
+  await act(() => { reviewed.checked = true; reviewed.dispatchEvent(new Event("change", { bubbles: true })); });
+  await click(downloadPackage);
+  deepEqual(s.downloadCalls, ["game.tpk"]);
+  match(s.el.querySelector('[role="status"]')?.textContent ?? "", /Download started for game\.tpk/);
+  await click(downloadDescriptor);
+  deepEqual(s.downloadCalls, ["game.tpk", "game.tpk.json"]);
+  match(s.el.querySelector('[role="status"]')?.textContent ?? "", /Download started for game\.tpk\.json/);
+});
+test("changing the release version invalidates the prepared inventory and its confirmation", async () => {
+  const s = await setup();
+  await click(button(s.el, "Package game…"));
+  const version = s.el.querySelector<HTMLInputElement>('input[type="text"][maxlength="128"]')!;
+  await act(() => { version.value = "1.2.3"; version.dispatchEvent(new Event("input", { bubbles: true })); });
+  await click(button(s.el, "Prepare package"));
+  equal(s.el.querySelector(".tkr-files-package-result")?.textContent?.includes("game.tpk"), true);
+  await act(() => { version.value = "2.0.0"; version.dispatchEvent(new Event("input", { bubbles: true })); });
+  equal(s.el.querySelector(".tkr-files-package-result"), null);
+  match(s.el.querySelector(".tkr-files-package-status")?.textContent ?? "", /Release version changed\. Prepare and review the package again\./);
+});
+
+test("package release version remains visible and actionable after closing and reopening the panel", async () => {
+  const s = await setup();
+  await click(button(s.el, "Package game…"));
+  const version = s.el.querySelector<HTMLInputElement>('input[type="text"][maxlength="128"]')!;
+  await act(() => { version.value = "2.3.4"; version.dispatchEvent(new Event("input", { bubbles: true })); });
+  await click(button(s.el, "Close"));
+  equal(s.el.querySelector(".tkr-files-package-panel"), null);
+  await click(button(s.el, "Package game…"));
+  const reopened = s.el.querySelector<HTMLInputElement>('input[type="text"][maxlength="128"]')!;
+  equal(reopened.value, "2.3.4");
+  equal(button(s.el, "Prepare package").disabled, false);
+});
+
 
 
 test("the shell writes no style attribute and no inline handler attribute (strict CSP, ADR 0025 decision 6)", async () => {
