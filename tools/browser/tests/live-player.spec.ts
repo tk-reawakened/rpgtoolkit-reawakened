@@ -1,5 +1,6 @@
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import {
   BinaryReader,
@@ -509,6 +510,11 @@ test.describe("packaged movement policy", () => {
       await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${fixture.name}`);
       await page.waitForFunction(() => (window.__live?.tick ?? 0) >= 8);
       expect(await page.evaluate(() => window.__live?.diagnostics?.some(({ code }) => code === "input.gamepad-api-unavailable"))).toBeFalsy();
+      // This full-player proof takes several seconds because it starts, reloads, and advances a real browser session.
+      // Service workers are blocked for this group so they cannot bypass the generated package's Playwright routes.
+      await page.reload();
+      await page.waitForFunction(() => (window.__live?.tick ?? 0) >= 8);
+      expect(await page.evaluate(() => window.__live?.diagnostics?.some(({ code }) => code === "input.gamepad-api-unavailable"))).toBeFalsy();
 
       await page.keyboard.press("q");
       if (controller === "a stationary pad") {
@@ -523,6 +529,40 @@ test.describe("packaged movement policy", () => {
           code === "input.gamepad-api-unavailable" && file === "controller.gam"));
       }
     });
+  }
+});
+
+// Full integration proof: a service worker must install and control a real package on the next launch.
+test("controller policy survives a service-worker-controlled player reload", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "getGamepads", { configurable: true, value: () => [] });
+  });
+  const fixture = packageWithoutStartupProgram(
+    `controller-reload-${randomUUID()}.tpk`, undefined, 'wait()\nmainfile("controller.gam")\nend()',
+    { movementControls: 0, movementScanCodes: Array(8).fill(0), useJoystick: 0 }, true,
+  );
+  const packagePath = resolve("fixtures/packages", fixture.name);
+  const descriptorPath = `${packagePath}.json`;
+  writeFileSync(packagePath, fixture.packageBytes);
+  try {
+    writeFileSync(descriptorPath, JSON.stringify(fixture.descriptor));
+    await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${fixture.name}`);
+    await page.waitForFunction(() => (window.__live?.tick ?? 0) >= 8);
+    await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+    await page.reload();
+    await page.waitForFunction(() => navigator.serviceWorker.controller !== null && (window.__live?.tick ?? 0) >= 8);
+    expect(await page.evaluate(() => window.__live?.diagnostics?.some(({ code }) => code === "input.gamepad-api-unavailable"))).toBeFalsy();
+    await page.keyboard.press("q");
+    await page.waitForFunction(() => {
+      const probe = window as Window & { __session?: { engine: { gamepadPolicy(): { file: string } | null } } };
+      return probe.__session?.engine.gamepadPolicy()?.file === "controller.gam";
+    });
+    expect(await page.evaluate(() => window.__live?.diagnostics?.some(({ code }) => code === "input.gamepad-api-unavailable"))).toBeFalsy();
+  } finally {
+    unlinkSync(packagePath);
+    try { unlinkSync(descriptorPath); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
 });
 
@@ -857,13 +897,22 @@ test("live standard gamepad input drives the title action and gameplay movement"
   });
 
   for (let index = 0; index < 3; index += 1) {
-    const tickBefore = await page.evaluate(() => window.__live?.tick ?? 0);
-    await page.evaluate(() => (window as Window & { __setGamepad?: (axisX: number, buttonA: boolean) => void }).__setGamepad?.(0, true));
-    await page.waitForFunction((tick) =>
-      (window as Window & { __gamepadConsumed?: readonly { tick: number; event: { buttons?: number } }[] }).__gamepadConsumed?.some((input) => input.tick >= tick && input.event.buttons === 1) === true,
-    tickBefore, { timeout: 15_000 });
-    await page.evaluate(() => (window as Window & { __setGamepad?: (axisX: number, buttonA: boolean) => void }).__setGamepad?.(0, false));
-    await page.waitForFunction((tick) => (window.__live?.tick ?? 0) > tick + 1, tickBefore, { timeout: 15_000 });
+    for (const pressed of [true, false]) {
+      const offset = await page.evaluate((buttonA) => {
+        const target = window as Window & {
+          __gamepadConsumed?: readonly unknown[];
+          __setGamepad?: (axisX: number, buttonA: boolean) => void;
+        };
+        if (target.__setGamepad === undefined) throw new Error("gamepad test control is unavailable");
+        const consumed = target.__gamepadConsumed?.length ?? 0;
+        target.__setGamepad(0, buttonA);
+        return consumed;
+      }, pressed);
+      await page.waitForFunction(({ offset, buttons }) =>
+        (window as Window & { __gamepadConsumed?: readonly { event: { buttons?: number } }[] })
+          .__gamepadConsumed?.slice(offset).some((input) => input.event.buttons === buttons) === true,
+      { offset, buttons: pressed ? 1 : 0 }, { timeout: 15_000 });
+    }
   }
   await page.waitForFunction(() => window.__live?.board !== null && window.__live?.board !== undefined, undefined, { timeout: 45_000 });
   const initial = await page.evaluate(() => window.__live as LiveReport);

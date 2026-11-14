@@ -1,7 +1,7 @@
 ---
 title: 'Complete the RPGCode linter rule families'
 type: 'bugfix'
-ticket: ''
+ticket: 2073
 created: '2026-11-12'
 status: 'draft'
 baseline_revision: '67387db6ae5f937138f30edd6aaf06cfb48b4393'

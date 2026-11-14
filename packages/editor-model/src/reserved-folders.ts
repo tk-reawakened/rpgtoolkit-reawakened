@@ -1,4 +1,4 @@
-import { ASSET_FOLDERS, asciiLower, foldPath, stripTypeFolder, toSlashes, type AssetKind } from "@tk-reawakened/core";
+import { ASSET_FOLDERS, BinaryReader, asciiLower, foldPath, projectFolder, readMainFile, stripTypeFolder, toSlashes, type AssetKind } from "@tk-reawakened/core";
 import type { DialogService, FileSystemService, OutsideFile, PlatformError } from "@tk-reawakened/platform-services";
 
 /**
@@ -11,6 +11,19 @@ import type { DialogService, FileSystemService, OutsideFile, PlatformError } fro
 /** Where a project's asset folders are: `""` when the type folders sit at the project root, else the project folder's path. */
 export interface ProjectLayout {
   readonly projectFolder: string;
+}
+
+/**
+ * Where the game named by the main file at `mainPath` keeps its type folders: the project folder the main file declares when
+ * that folder exists in the project, else the project root. A main file that cannot be read gives the root.
+ */
+export async function projectLayoutOfMain(fs: Pick<FileSystemService, "readProject" | "list">, projectId: string, mainPath: string): Promise<ProjectLayout> {
+  const bytes = await fs.readProject(projectId, mainPath);
+  if (!bytes.ok) return { projectFolder: "" };
+  const main = readMainFile(new BinaryReader(bytes.value, mainPath));
+  const candidate = main.ok ? projectFolder("", main.value).replace(/\/$/, "") : "";
+  if (candidate === "") return { projectFolder: "" };
+  return { projectFolder: (await fs.list(candidate)).ok ? candidate : "" };
 }
 
 /** The project-relative path of the folder `kind` lives in, with `/` separators. */

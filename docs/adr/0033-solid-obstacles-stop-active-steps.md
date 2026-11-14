@@ -1,4 +1,4 @@
-# ADR 0019 — Solid obstacles stop active movement steps
+# ADR 0033 — Solid obstacles stop active movement steps
 
 * **Status:** Accepted by the owner, 2026-11-07
 * **Date:** 2026-11-07

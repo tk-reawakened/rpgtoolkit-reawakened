@@ -318,6 +318,18 @@ python3 tools/create-epic-on-github.py epic-slug
 
 The first command mirrors story issues and their tracker IDs. The second creates or syncs the `[Epic N]` parent, writes its `tracker_id` to the initiative index, adds it to Project 3, and links all published story issues as native sub-issues. It also syncs parent/story statuses from BMAD ticket metadata. Use `--dry-run` on either command to preview the planned actions.
 
+If the parent already exists, put its issue number in the initiative index's `tracker_id` before running the second command. The script refuses to create a duplicate with the same title; recording the existing number lets it reuse that parent and repair missing links.
+
+After syncing, check that the parent belongs to the roadmap and that its published stories are linked:
+
+```sh
+PARENT=1883 # replace with the parent issue number
+gh issue view "$PARENT" --json projectItems
+gh api "repos/tk-reawakened/rpgtoolkit-reawakened/issues/$PARENT/sub_issues" --paginate
+```
+
+Compare the returned project and sub-issues with the epic's `tickets.toml`; a successful dry run previews actions but does not verify or change GitHub.
+
 ## Doing the work
 
 1. **Docs first.** If the spec is wrong or silent, fix it in its own commit first (G7). Then write the code from the spec.

@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { mkdir } from "node:fs/promises";
+import { cp, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -14,3 +14,4 @@ await Promise.all([
   build({ entryPoints: [resolve(root, "../runner-web/src/audio-worklet.ts")], outfile: resolve(out, "audio-worklet.js"), bundle: true, platform: "browser", format: "iife", target: "es2022" }),
   build({ entryPoints: [resolve(root, "../runner-web/src/decode-worker.ts")], outfile: resolve(out, "decode-worker.js"), bundle: true, platform: "browser", format: "iife", target: "es2022" }),
 ]);
+await cp(resolve(root, "../editor-ui/src/tileset-browser.css"), resolve(out, "tileset-browser.css"));

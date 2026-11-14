@@ -5,10 +5,19 @@ import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-interface ProofWindow extends Window { __tkrCspViolations?: string[] }
+interface ProofWindow extends Window {
+  __tkrCspViolations?: string[];
+  __tkrTestFolder?: FileSystemDirectoryHandle;
+  __tkrSlowReadStarted?: boolean;
+}
 type PickerInput = { readonly path: string; readonly bytes: readonly number[] };
 
 const validMain = Array.from(readFileSync(new URL("../../../docs/spec/examples/game/Main/example.gam", import.meta.url)));
+const validCharacter = Array.from(readFileSync(new URL("../../../docs/spec/examples/versions/character/character_minor8.tem", import.meta.url)));
+const validItem = Array.from(readFileSync(new URL("../../../docs/spec/examples/versions/item/item_minor7.itm", import.meta.url)));
+
+// Keep the action timeline when this intermittently stalls in CI (#2550).
+test.use({ trace: "retain-on-failure" });
 
 test("browser host mounts the shared settings view and keeps CSP quiet while editing a session copy", async ({ page }) => {
   await page.addInitScript(() => {
@@ -18,7 +27,7 @@ test("browser host mounts the shared settings view and keeps CSP quiet while edi
     });
   });
   await page.goto("/tools/browser/editor-web/index.html");
-  await expect(page.getByRole("heading", { name: "RPG Toolkit game settings" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "RPG Toolkit editor" })).toBeVisible();
   await page.locator("#open-session").setInputFiles("docs/spec/examples/game/Main/example.gam");
   const title = page.getByLabel("Game title");
   await expect(title).toBeVisible();
@@ -29,6 +38,54 @@ test("browser host mounts the shared settings view and keeps CSP quiet while edi
   await expect(title).toHaveValue(nextTitle);
   await expect(page.getByRole("status").filter({ hasText: "All changes saved" })).toBeVisible();
   await expect.poll(() => page.evaluate(() => (window as ProofWindow).__tkrCspViolations ?? [])).toEqual([]);
+});
+test("browser workbench opens, edits, saves, and reopens character and item sprite documents", async ({ page }) => {
+  const characterPath = "Chrs/ada.tem";
+  const itemPath = "Item/chest.itm";
+  await installFolderPicker(page, [
+    { path: "Main/example.gam", bytes: validMain },
+    { path: characterPath, bytes: validCharacter },
+    { path: itemPath, bytes: validItem },
+  ]);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await page.waitForFunction(() => (window as ProofWindow).__tkrTestFolder !== undefined);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+
+  await page.getByRole("treeitem", { name: "Chrs, folder, closed", exact: true }).press("ArrowRight");
+  const character = page.getByRole("treeitem", { name: /ada\.tem, character editor/ });
+  await character.dblclick();
+  await expect(page.getByRole("tab", { name: characterPath, exact: true })).toBeVisible();
+  const characterAnimation = page.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file");
+  await characterAnimation.fill("Misc/ada_walk_s.anm");
+  await page.getByRole("button", { name: "Save all", exact: true }).click();
+  await expect(page.locator("#host-status")).toContainText(`Saved ${characterPath}.`);
+  await page.locator("#close").click();
+  await character.dblclick();
+  await expect(page.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file")).toHaveValue("Misc/ada_walk_s.anm");
+
+  await page.getByRole("treeitem", { name: "Item, folder, closed", exact: true }).press("ArrowRight");
+  const item = page.getByRole("treeitem", { name: /chest\.itm, item editor/ });
+  await item.dblclick();
+  await expect(page.getByRole("tab", { name: itemPath, exact: true })).toBeVisible();
+  const itemAnimation = page.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file");
+  await itemAnimation.fill("Misc/chest_walk_s.anm");
+  await page.getByRole("button", { name: "Save all", exact: true }).click();
+  await expect(page.locator("#host-status")).toContainText(`Saved ${itemPath}.`);
+  await page.locator("#close").click();
+  await item.dblclick();
+  await expect(page.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file")).toHaveValue("Misc/chest_walk_s.anm");
+});
+test("a newer browser open wins over a slow folder document read", async ({ page }) => {
+  await installFolderPicker(page, [{ path: "Only.gam", bytes: validMain }], true, false, true);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await page.waitForFunction(() => (window as ProofWindow).__tkrTestFolder !== undefined);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await page.waitForFunction(() => (window as ProofWindow).__tkrSlowReadStarted === true);
+  await page.getByLabel("Open .gam session copy").setInputFiles("docs/spec/examples/versions/main/main_minor4.gam");
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  await expect(page.locator("#host-status")).toContainText("main_minor4.gam");
+  await expect(page.locator("#settings > section")).toHaveCount(1);
 });
 
 test("browser folder handle and identity survive reload and re-selection", async ({ page }) => {
@@ -182,6 +239,7 @@ test("a saved folder game launches in the live player from the editor", async ({
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByRole("button", { name: "Run", exact: true }).click();
   await page.getByLabel("Game title").fill("Saved launch proof");
   await page.getByRole("button", { name: "Run game", exact: true }).click();
   const frame = page.frameLocator('iframe[title="Running game"]');
@@ -251,6 +309,7 @@ test("a board-backed program runs its declared fixture in the real browser playe
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByRole("button", { name: "Run", exact: true }).click();
   await page.getByRole("combobox", { name: "Program", exact: true }).selectOption("Game/Example/Prg/start.prg");
   await page.getByRole("combobox", { name: "Start board" }).selectOption("Game/Example/Boards/village.brd");
   await page.getByRole("listbox", { name: "Party", exact: true }).nth(1).selectOption("Game/Example/Chrs/ada.tem");
@@ -302,6 +361,7 @@ test("a board test starts a fresh selected board, party and position in the real
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByRole("button", { name: "Run", exact: true }).click();
   await page.getByRole("spinbutton", { name: "Column" }).fill("2");
   await page.getByRole("spinbutton", { name: "Row" }).fill("2");
   const party = page.getByRole("listbox", { name: "Party", exact: true }).first();
@@ -335,6 +395,7 @@ test("an edit before the player handshake prevents a stale game from starting", 
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByRole("button", { name: "Run", exact: true }).click();
   let observed!: () => void;
   let release!: () => void;
   const requested = new Promise<void>((resolve) => { observed = resolve; });
@@ -353,11 +414,24 @@ test("an edit before the player handshake prevents a stale game from starting", 
   await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
 });
 
-type BrowserPickerSetup = { readonly files: readonly PickerInput[]; readonly indexedDbAvailable: boolean; readonly denyPermission: boolean };
+type BrowserPickerSetup = { readonly files: readonly PickerInput[]; readonly indexedDbAvailable: boolean; readonly denyPermission: boolean; readonly delayMainRead: boolean };
 
-async function installFolderPicker(page: Page, files: readonly PickerInput[], indexedDbAvailable = true, denyPermission = false): Promise<void> {
+async function installFolderPicker(page: Page, files: readonly PickerInput[], indexedDbAvailable = true, denyPermission = false, delayMainRead = false): Promise<void> {
   const folderName = `TkrTest-${randomUUID()}`;
-  await page.addInitScript(async ({ files: inputs, indexedDbAvailable: canPersist, denyPermission: deny, folderName: name }: BrowserPickerSetup & { readonly folderName: string }) => {
+  await page.addInitScript(async ({ files: inputs, indexedDbAvailable: canPersist, denyPermission: deny, delayMainRead: delay, folderName: name }: BrowserPickerSetup & { readonly folderName: string }) => {
+    let armed = false;
+    let delayed = false;
+    if (delay) {
+      const originalGetFile = FileSystemFileHandle.prototype.getFile;
+      FileSystemFileHandle.prototype.getFile = async function () {
+        if (armed && !delayed && this.name.toLowerCase().endsWith(".gam")) {
+          delayed = true;
+          (window as ProofWindow).__tkrSlowReadStarted = true;
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        return originalGetFile.call(this);
+      };
+    }
     const storage = await navigator.storage.getDirectory();
     const root = await storage.getDirectoryHandle(name, { create: true });
     for (const input of inputs) {
@@ -370,7 +444,9 @@ async function installFolderPicker(page: Page, files: readonly PickerInput[], in
       await writable.write(new Uint8Array(input.bytes));
       await writable.close();
     }
+    armed = true;
     Object.defineProperty(window, "showDirectoryPicker", { configurable: true, value: async () => root });
+    (window as ProofWindow).__tkrTestFolder = root;
     if (!canPersist) {
       Object.defineProperty(indexedDB, "open", { configurable: true, value: () => { throw new DOMException("Storage blocked", "SecurityError"); } });
     }
@@ -378,6 +454,6 @@ async function installFolderPicker(page: Page, files: readonly PickerInput[], in
       Object.defineProperty(FileSystemHandle.prototype, "requestPermission", { configurable: true, value: async () => "denied" });
     }
     Reflect.set(window, "__tkrPickerReady", true);
-  }, { files, indexedDbAvailable, denyPermission, folderName });
+  }, { files, indexedDbAvailable, denyPermission, delayMainRead, folderName });
 }
 
