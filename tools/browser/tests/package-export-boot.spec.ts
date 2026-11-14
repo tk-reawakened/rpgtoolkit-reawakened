@@ -27,6 +27,7 @@ test("the reviewed editor download boots in the real web runner without its sour
   const files = editorProjectFiles();
   const folderName = `TkrPackageBoot-${randomUUID()}`;
   await page.addInitScript(async ({ inputs, name }: { readonly inputs: readonly ProjectInput[]; readonly name: string }) => {
+    if (!window.location.pathname.endsWith("/tools/browser/editor-web/index.html")) return;
     const storage = await navigator.storage.getDirectory();
     const root = await storage.getDirectoryHandle(name, { create: true });
     for (const input of inputs) {
@@ -43,6 +44,7 @@ test("the reviewed editor download boots in the real web runner without its sour
   }, { inputs: files, name: folderName });
 
   await page.goto("/tools/browser/editor-web/index.html");
+  await page.waitForFunction(() => (window as RunnerWindow).__tkrTestFolder !== undefined);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
   await page.getByRole("button", { name: "Package game…", exact: true }).click();
@@ -94,8 +96,22 @@ test("the reviewed editor download boots in the real web runner without its sour
     });
   });
   await page.route(`**/${packageName}.json`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: descriptorBytes }));
+  await page.evaluate(async (name) => {
+    const storage = await navigator.storage.getDirectory();
+    await storage.removeEntry(name, { recursive: true });
+  }, folderName);
+  await expect.poll(() => page.evaluate(async (name) => {
+    const storage = await navigator.storage.getDirectory();
+    try {
+      await storage.getDirectoryHandle(name);
+      return true;
+    } catch {
+      return false;
+    }
+  }, folderName)).toBe(false);
 
   await page.goto(`/packages/runner-web/app/index.html?package=${packageName}&mode=whole`);
+  expect(await page.evaluate(() => (window as RunnerWindow).__tkrTestFolder)).toBeUndefined();
   await page.waitForFunction(() => (window as RunnerWindow).__live !== undefined, undefined, { timeout: 45_000 });
   for (let press = 0; press < 6; press += 1) {
     const board = await page.evaluate(() => (window as RunnerWindow).__live?.board);

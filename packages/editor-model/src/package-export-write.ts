@@ -134,8 +134,9 @@ export async function publishGamePackage(
 
     const descriptorRename = await services.fs.rename(descriptorTempPath, descriptorPath);
     if (!descriptorRename.ok) {
-      const rollback = await cleanup(services.fs, [selected, descriptorTempPath]);
-      return existsError(`Could not publish the install descriptor: ${descriptorRename.error.message}.${cleanupMessage(rollback)}`);
+      return existsError(
+        `The package was published at ${selected}, but the install descriptor could not be published: ${descriptorRename.error.message}. The package was left in place to avoid deleting a path that may have since been replaced; the descriptor may remain at ${descriptorTempPath}.`,
+      );
     }
     return { ok: true, path: selected };
   });

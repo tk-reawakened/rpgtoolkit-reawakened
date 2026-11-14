@@ -71,6 +71,17 @@ test("preflight creates a readable playable TPK and exact sibling install descri
   workspace.dispose();
 });
 
+test("file-only suffix exclusions do not discard folders whose names use editor-only extensions", async () => {
+  const { workspace, services } = packageHost({
+    ...authoredFiles(),
+    "Bitmap/menu.tkrtile/background.png": utf8Encode("background image"),
+  });
+  const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
+  ok(outcome.ok, outcome.ok ? "" : outcome.message);
+  ok(outcome.value.includedFiles.includes("Bitmap/menu.tkrtile/background.png"));
+  workspace.dispose();
+});
+
 test("preflight refuses a missing startup program or initial board", async () => {
   for (const [files, missingLabel] of [
     [authoredFiles("missing.prg"), "startup program"],
@@ -118,6 +129,41 @@ test("preflight refuses symbolic links before reading through them", async () =>
   });
   equal(result.ok, false);
   if (!result.ok) match(result.message, /symbolic link.*L23/);
+  deepEqual(reads, []);
+  workspace.dispose();
+});
+
+test("preflight refuses a directory replaced by a symbolic link during listing before reading outside files", async () => {
+  const { host, workspace, services } = packageHost({
+    ...authoredFiles(),
+    "Data/original.bin": utf8Encode("inside"),
+  });
+  let dataStats = 0;
+  const reads: string[] = [];
+  const fs = {
+    ...host.fs,
+    async list(path: string) {
+      return path === "Data" ? platformOk([{ name: "outside.bin", kind: "file" as const }]) : host.fs.list(path);
+    },
+    async stat(path: string) {
+      if (path === "Data" && ++dataStats === 2) {
+        return platformOk({ kind: "link" as const, size: 0, modifiedMs: 0 });
+      }
+      return host.fs.stat(path);
+    },
+    async read(path: string) {
+      reads.push(path);
+      return host.fs.read(path);
+    },
+  };
+  const result = await prepareGamePackage({
+    workspace,
+    services: { ...services, fs },
+    mainPath: "Main/demo.gam",
+    version: "1",
+  });
+  equal(result.ok, false);
+  if (!result.ok) match(result.message, /symbolic link.*Data.*L23/);
   deepEqual(reads, []);
   workspace.dispose();
 });
@@ -208,6 +254,35 @@ test("concurrent exports to the same destination serialize and never replace the
   equal(outcomes.filter((outcome) => !outcome.ok && outcome.message.includes("already exists")).length, 1);
   ok(host.bytesOf("Build/concurrent.tpk") !== undefined);
   ok(host.bytesOf("Build/concurrent.tpk.json") !== undefined);
+  workspace.dispose();
+});
+
+test("descriptor publication failure never deletes a package path replaced by another writer", async () => {
+  const { host, workspace, services } = packageHost(authoredFiles());
+  const prepared = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
+  ok(prepared.ok, prepared.ok ? "" : prepared.message);
+  const selected = "Build/raced.tpk";
+  const competitorBytes = utf8Encode("other writer's file");
+  const fs = {
+    ...host.fs,
+    async rename(from: string, to: string) {
+      if (to === selected) {
+        const published = await host.fs.rename(from, to);
+        if (published.ok) {
+          const replaced = await host.fs.write(to, competitorBytes);
+          ok(replaced.ok);
+        }
+        return published;
+      }
+      if (to === `${selected}.json`) return platformError("io-error", "simulated descriptor publication failure");
+      return host.fs.rename(from, to);
+    },
+  };
+  host.answerSavePaths(selected);
+  const result = await publishGamePackage({ ...services, fs }, "Main/demo.gam", prepared.value);
+  equal(result.ok, false);
+  if (!result.ok) match(result.message, /package was published.*left in place/);
+  deepEqual(host.bytesOf(selected), competitorBytes);
   workspace.dispose();
 });
 

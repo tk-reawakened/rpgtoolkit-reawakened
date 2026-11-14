@@ -375,8 +375,14 @@ onActive("#save-as", async (current, active) => {
   const saved = await current.project.workspace.saveAs(active);
   if (!saved.ok) return saved.reason === "cancelled" ? null : saved.failure.message;
   if (shown !== current) return null;
+  const sourceTab = active.identity.key;
+  const sourceClosed = saved.document === active
+    ? { closed: true }
+    : await current.workbench.tabs.close(sourceTab);
+  if (shown !== current) return null;
   current.workbench.tabs.open(saved.document);
-  return `${current.project.project.name}: ${saved.document.identity.path} (saved as a copy of ${active.identity.path})`;
+  const sourceNotice = sourceClosed.closed ? "" : ` The source ${active.identity.path} remains open.`;
+  return `${current.project.project.name}: ${saved.document.identity.path} (saved as a copy of ${active.identity.path}).${sourceNotice}`;
 });
 document.querySelector<HTMLButtonElement>("#save-all")!.addEventListener("click", () => {
   const current = shown;

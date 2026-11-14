@@ -54,16 +54,21 @@ function failure(message: string): { readonly ok: false; readonly message: strin
   return { ok: false, message };
 }
 
-function isExcluded(path: string, mainPath: string): boolean {
+function isExcluded(path: string, mainPath: string, kind: "file" | "directory"): boolean {
   const folded = foldPath(path);
   const segments = folded.split("/");
   if (segments[0] === RESERVED_HISTORY_FOLDER) return true;
   if (segments[0] === "saved") return true;
   if (segments[0] === "main" && segments.length > 1 && folded !== foldPath(mainPath)) return true;
+  if (kind === "directory") return false;
   const basename = segments.at(-1) ?? "";
   if (basename.endsWith(".spec.prg")) return true;
   const dot = basename.lastIndexOf(".");
   return dot >= 0 && EDITOR_ONLY_EXTENSIONS.has(basename.slice(dot));
+}
+
+function folderKindFailure(path: string): string {
+  return `The project folder ${path || "root"} changed while the package inventory was being read; retry preflight.`;
 }
 
 function safeEntryName(name: string): boolean {
@@ -79,15 +84,23 @@ async function collectFiles(fs: FileSystemService, mainPath: string): Promise<Fi
 
   while (pending.length > 0) {
     const folder = pending.pop()!;
+    const before = await fs.stat(folder.path);
+    if (!before.ok) return failure(`Could not check ${folder.path || "the project root"} before listing it: ${before.error.message}`);
+    if (before.value.kind === "link") return failure(`The project contains a symbolic link at ${folder.path || "the project root"}; loose-folder links are refused (L23).`);
+    if (before.value.kind !== "directory") return failure(folderKindFailure(folder.path));
     const listing = await fs.list(folder.path);
     if (!listing.ok) return failure(`Could not inventory ${folder.path || "the project root"}: ${listing.error.message}`);
+    const after = await fs.stat(folder.path);
+    if (!after.ok) return failure(`Could not check ${folder.path || "the project root"} after listing it: ${after.error.message}`);
+    if (after.value.kind === "link") return failure(`The project contains a symbolic link at ${folder.path || "the project root"}; loose-folder links are refused (L23).`);
+    if (after.value.kind !== "directory") return failure(folderKindFailure(folder.path));
     for (const entry of listing.value) {
       entriesSeen += 1;
       if (entriesSeen > PACKAGE_LIMITS.maxEntries) return failure(`The project exceeds the package entry limit (${PACKAGE_LIMITS.maxEntries}, L2).`);
       if (!safeEntryName(entry.name)) return failure(`The project contains an unsafe path entry in ${folder.path || "the project root"}.`);
       const path = folder.path === "" ? entry.name : `${folder.path}/${entry.name}`;
       if (entry.kind === "link") return failure(`The project contains a symbolic link at ${path}; loose-folder links are refused (L23).`);
-      const excluded = folder.excluded || isExcluded(path, mainPath);
+      const excluded = folder.excluded || isExcluded(path, mainPath, entry.kind);
       if (entry.kind === "directory") {
         pending.push({ path, excluded });
       } else if (excluded) {

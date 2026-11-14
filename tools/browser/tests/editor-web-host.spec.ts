@@ -161,6 +161,33 @@ test("browser folder handle and identity survive reload and re-selection", async
   await expect(page.locator("#recent-project")).toHaveValue(identity);
 });
 
+test("browser Save As replaces its sole source tab, then reopening the source reads its original bytes", async ({ page }) => {
+  await installFolderPicker(page, sampleProjectFiles());
+  await page.goto("/tools/browser/editor-web/index.html");
+  await waitForFolderPicker(page);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  const title = page.getByLabel("Game title");
+  await expect(title).toBeVisible();
+  await expect(title).toHaveValue("Example Game");
+  await expect(page.getByRole("tab", { name: "Main/example.gam", exact: true })).toBeVisible();
+  await title.fill("Saved as a copy");
+  await page.getByRole("button", { name: "Save as…", exact: true }).click();
+  const saveDialog = page.getByRole("dialog", { name: "Save Main/example.gam as" });
+  await saveDialog.getByLabel("Save Main/example.gam as").fill("Main/copy.gam");
+  await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator("#host-status")).toContainText("Main/copy.gam (saved as a copy of Main/example.gam)");
+  await expect(page.getByRole("tab", { name: "Main/copy.gam", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Main/example.gam", exact: true })).toHaveCount(0);
+  await expect(title).toHaveValue("Saved as a copy");
+
+  const main = page.getByRole("treeitem", { name: "Main, folder, closed", exact: true });
+  await main.press("ArrowRight");
+  await page.getByRole("treeitem").filter({ hasText: "example.gam" }).dblclick();
+  await expect(page.getByRole("tab", { name: "Main/example.gam", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Main/copy.gam", exact: true })).toBeVisible();
+  await expect(title).toHaveValue("Example Game");
+});
+
 test("browser folder open requires explicit selection when multiple nested games are found", async ({ page }) => {
   await installFolderPicker(page, [
     { path: "Games/First.gam", bytes: validMain },
