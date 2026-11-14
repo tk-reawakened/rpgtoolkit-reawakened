@@ -59,6 +59,23 @@ function project() {
   return { root, dialogs, web, element };
 }
 
+/**
+ * Mount a workbench inside `act`, so the views' effects (the file list, the saved layout arriving) are flushed by it and
+ * not by a browser frame timer whose timing depends on how busy the machine is.
+ */
+async function benchFor(web: ReturnType<typeof project>["web"], element: HTMLElement): Promise<ReturnType<typeof createWorkbench>> {
+  let made!: ReturnType<typeof createWorkbench>;
+  await act(() => { made = createWorkbench(web, element); });
+  await settle(act);
+  return made;
+}
+
+/** Wait, by letting the page run, until `condition` holds; a condition that never holds fails with its own message. */
+async function until(condition: () => boolean, message: string): Promise<void> {
+  for (let round = 0; round < 300 && !condition(); round += 1) await settle(act, 1);
+  ok(condition(), message);
+}
+
 const key = async (target: Element | null, name: string, init: KeyboardEventInit = {}): Promise<void> => {
   if (target === null) throw new Error("no element to press a key on");
   await act(() => { target.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true, ...init })); });
@@ -82,8 +99,7 @@ const button = (element: HTMLElement, label: string): HTMLButtonElement => {
 
 test("one project is navigated from Files and from Game into one board document, in one tab and one editor", async () => {
   const { web, element } = project();
-  const bench = createWorkbench(web, element);
-  await settle(act);
+  const bench = await benchFor(web, element);
   await key(row(element, "Boards"), "ArrowRight");
   await key(row(element, "Boards"), "ArrowDown");
   await key(row(element, "caves"), "ArrowDown");
@@ -104,8 +120,7 @@ test("one project is navigated from Files and from Game into one board document,
 
 test("a board's tab shows an unsaved edit, and closing it asks; a refused close keeps the editor and its edit", async () => {
   const { web, element, dialogs } = project();
-  const bench = createWorkbench(web, element);
-  await settle(act);
+  const bench = await benchFor(web, element);
   await bench.openPath("Boards/village.brd");
   await settle(act);
   const doc = web.workspace.documents()[0]!;
@@ -122,8 +137,7 @@ test("a board's tab shows an unsaved edit, and closing it asks; a refused close 
 
 test("a linked visit opens the target in a tab and returns to its origin, reopening it from the file if it was closed", async () => {
   const { web, element, dialogs } = project();
-  const bench = createWorkbench(web, element);
-  await settle(act);
+  const bench = await benchFor(web, element);
   await bench.openPath("Boards/village.brd");
   const origin = web.workspace.documents()[0]!;
   const visited = await bench.visit(origin, "Boards/caves/mine.brd");
@@ -153,8 +167,7 @@ test("a linked visit opens the target in a tab and returns to its origin, reopen
 
 test("an outside asset is copied into its reserved folder only after the user agrees, and a refusal changes nothing", async () => {
   const { web, element, dialogs, root } = project();
-  const bench = createWorkbench(web, element);
-  await settle(act);
+  const bench = await benchFor(web, element);
   ok(web.services.capabilities.has("pickFile"), "this host declares that it can choose a file from outside");
 
   const cancelled = bench.pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" });
@@ -180,8 +193,7 @@ test("an outside asset is copied into its reserved folder only after the user ag
 
 test("the browser says what it cannot do: no rename, no handing a file to the OS", async () => {
   const { web, element } = project();
-  const bench = createWorkbench(web, element);
-  await settle(act);
+  const bench = await benchFor(web, element);
   await click(row(element, "Misc"));
   await key(row(element, "Misc"), "ArrowRight");
   match(row(element, "readme.txt").getAttribute("aria-label") ?? "", /cannot be opened here/);
@@ -198,8 +210,7 @@ test("the browser says what it cannot do: no rename, no handing a file to the OS
 
 test("the layout is kept as identifiers and restored by a new workbench on the same project, panels resize from the keyboard", async () => {
   const { web, element } = project();
-  const first = createWorkbench(web, element);
-  await settle(act);
+  const first = await benchFor(web, element);
   await click(button(element, "Game"));
   const separator = element.querySelector<HTMLElement>('[role="separator"][aria-label="Resize Files"]');
   await key(separator, "ArrowRight", { shiftKey: true });
@@ -213,10 +224,9 @@ test("the layout is kept as identifiers and restored by a new workbench on the s
   document.body.replaceChildren();
   const again = document.createElement("div");
   document.body.append(again);
-  const second = createWorkbench(web, again);
-  await settle(act);
-  equal(again.querySelector('[role="separator"][aria-label="Resize Files"]')?.getAttribute("aria-valuenow"), "304", "the size came back");
-  ok(again.querySelector("#tkr-panel-game") !== null, "so did the Game panel");
+  const second = await benchFor(web, again);
+  await until(() => again.querySelector('[role="separator"][aria-label="Resize Files"]')?.getAttribute("aria-valuenow") === "304", "the saved size comes back");
+  await until(() => again.querySelector("#tkr-panel-game") !== null, `so does the Game panel; stored layout: ${stored.ok ? String(stored.value) : "none"}; panels now: ${JSON.stringify(second.layout.getPanels().map((panel) => [panel.id, panel.visible, panel.size]))}`);
   notEqual(second.layout.getPanels().find((panel) => panel.id === "game")?.visible, false);
   second.dispose();
 });
