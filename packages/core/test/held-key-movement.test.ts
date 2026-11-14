@@ -32,8 +32,9 @@ import {
   type PluginDefinition,
   type WorldBoard,
 } from "../src/index.ts";
-import { configureMainFileMovement, movementBindingCollisions, registerGameAction } from "../src/input/input.ts";
+import { configureMainFileMovement, movementBindingCollisions, processGamepadEvents, registerGameAction } from "../src/input/input.ts";
 import { mainFileMovementSettings } from "../src/input/movement-settings.ts";
+import { restoreGameState, snapshot } from "../src/save/index.ts";
 import { applySpriteEffect } from "../src/script/packs/movement.ts";
 import { setWaypoint } from "../src/sprites/runtime.ts";
 import { createScriptServices } from "./script-test-services.ts";
@@ -710,4 +711,49 @@ test("a disabled pad contributes no movement, actions or active device state", (
     equal(state.input.gamepads["0"]?.connected ?? false, enabled);
     equal(state.input.keys.some(({ resolvedActions }) => resolvedActions.includes("confirm")), enabled);
   }
+});
+test("disabled policy defensively ignores stale connected pad records", () => {
+  // Build the saved controller state through the public input path on a plain-data save fixture.
+  const state = createGameState({ seed: 1 });
+  state.input = createInputSection();
+  configureMainFileMovement(state.input, mainFileMovementSettings({
+    ...createEmptyMainFile(), minor: 9, movementControls: 0, movementScanCodes: arrowScanCodes, useJoystick: 1,
+  }, "main.gam").settings);
+  applyInputEvent(state.input, { kind: "gamepad", device: 0, connected: true, axes: { x: 1000, y: 0 }, buttons: 1 });
+  processGamepadEvents(state.input);
+  const saved = snapshot(state);
+  const restored = restoreGameState(saved);
+  const disabled = mainFileMovementSettings({
+    ...createEmptyMainFile(), minor: 9, movementControls: 0, movementScanCodes: arrowScanCodes, useJoystick: 0,
+  }, "main.gam").settings;
+  configureMainFileMovement(restored.input, disabled);
+  // Deliberately reintroduce the genuine stale save after policy activation as a defensive guard case;
+  // the engine test exercises the real restore-before-configure ordering.
+  Object.assign(restored.input, restoreGameState(saved).input);
+
+  const before = restoreGameState(snapshot(restored)).input;
+  const connectionTransitions: { device: number; connected: boolean }[] = [];
+  const actionTransitions: [string, boolean, number][] = [];
+  for (const event of [
+    { kind: "gamepad", device: 1, connected: true, axes: { x: 0, y: 0 }, buttons: 1 << 1 },
+    { kind: "gamepad", device: 0, connected: false, axes: { x: 0, y: 0 }, buttons: 0 },
+  ] as const) applyInputEvent(restored.input, event);
+  processGamepadEvents(
+    restored.input,
+    (transition) => connectionTransitions.push(transition),
+    (action, down, firstSeq) => actionTransitions.push([action, down, firstSeq]),
+  );
+
+  deepEqual(restored.input.gamepads, before.gamepads, "the saved connected pad is unchanged and no new pad is added");
+  deepEqual(restored.input.actions, before.actions);
+  deepEqual(restored.input.actionPadMasks, before.actionPadMasks);
+  deepEqual(restored.input.semanticActionSources, before.semanticActionSources);
+  deepEqual(restored.input.pendingActions, before.pendingActions);
+  deepEqual(restored.input.pendingKeySequences, before.pendingKeySequences);
+  deepEqual(restored.input.keys, before.keys);
+  equal(restored.input.nextSeq, before.nextSeq);
+  deepEqual(restored.input.directionOrder, before.directionOrder);
+  deepEqual(connectionTransitions, []);
+  deepEqual(actionTransitions, []);
+  deepEqual(restored.input.pendingGamepads, [], "raw event staging is drained after processing");
 });

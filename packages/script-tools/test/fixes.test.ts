@@ -90,6 +90,45 @@ test("a bare TK2 index stays a variable index and is flagged for review (#2050)"
   ].join("\n"));
   equal(sameLowering("#m[key] = 1", 'm["key"] = 1'), false, "quoting the index would change the program");
 });
+test("many bare indices retain review order and line endings without repeated whole-file scans", () => {
+  const body = ["#m[first][second] = 1", ...Array.from({ length: 512 }, (_, index) => `#m[key${index}] = 1`)];
+  const source = body.join("\r\n");
+  const originalSplit = String.prototype.split;
+  let fullFileLineSplits = 0;
+  Object.defineProperty(String.prototype, "split", {
+    configurable: true,
+    writable: true,
+    value: function (this: string, separator?: string | RegExp, limit?: number): string[] {
+      if (separator === "\n" && this.includes("m[first][second]") && this.includes("m[key511]")) fullFileLineSplits++;
+      return Reflect.apply(originalSplit, this, [separator, limit]) as string[];
+    },
+  });
+
+  const actions = (() => {
+    try {
+      return legacyFixes(source, "tk2");
+    } finally {
+      Object.defineProperty(String.prototype, "split", { configurable: true, writable: true, value: originalSplit });
+    }
+  })();
+
+  ok(fullFileLineSplits <= 8, `full-file line splitting should be bounded independently of index count; got ${fullFileLineSplits}`);
+  equal(actions.length, 1);
+  const fix = actions[0]!;
+  equal(fix.reviews?.length, 514);
+  deepEqual(fix.reviews?.slice(0, 3).map(({ line, index }) => [line, index]), [
+    [1, "first"],
+    [1, "second"],
+    [2, "key0"],
+  ]);
+  deepEqual(fix.reviews?.slice(-1).map(({ line, index }) => [line, index]), [[513, "key511"]]);
+  const converted = applyEdits(source, fix.edits);
+  equal(converted.split("\r\n").length, body.length);
+  equal(converted.includes("\n"), true);
+  equal(converted.replaceAll("\r\n", "").includes("\n"), false, "CRLF endings are preserved");
+  equal(converted.split("\r\n")[0], `m[first][second] = 1 // TKR review: ${REVIEW("first")}; ${REVIEW("second")}`);
+});
+
 
 test("a variable whose value differs from its spelling indexes by value in both dialects", () => {
   const source = '#key$ = "other"\n#m[key$]$ = "by value"\n#m["key"]$ = "literal"\n#Mwin(m["other"])\n#Mwin(m["key"])\n#Mwin(m[key$])';

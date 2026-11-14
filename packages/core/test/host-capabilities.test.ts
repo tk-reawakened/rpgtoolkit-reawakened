@@ -1,6 +1,9 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { test } from "node:test";
-import { createAssetIndex, createEmptyBoard, createEngine, createGameState, PACKAGE_ROOT, queueNativeEvent, readEvent, writeBoard, type GameState } from "../src/index.ts";
+import { createAssetIndex, createEmptyBoard, createEmptyMainFile, createEngine, createGameState, PACKAGE_ROOT, queueNativeEvent, readEvent, writeBoard, type GameState } from "../src/index.ts";
+import { configureMainFileMovement } from "../src/input/input.ts";
+import { mainFileMovementSettings } from "../src/input/movement-settings.ts";
+import { restoreGameState, snapshot } from "../src/save/index.ts";
 
 const updatedGeometry = {
   content: { width: 1280, height: 720 },
@@ -140,6 +143,49 @@ test("viewport changes and gamepad connection edges queue script-visible game ev
   equal(globals.viewportcount, 1, "an unchanged geometry update must not create a resize event");
   equal(disconnected.consumed.length, 1);
 });
+test("disabled pad records remain logged without mutating restored pads or dispatching transitions", () => {
+  const { engine, live } = makeEngine();
+  engine.advance(1, []);
+  const initialTick = engine.advance(0, []).tickAfter;
+  engine.advance(1, [
+    { tick: initialTick, event: { kind: "gamepad", device: 2, connected: true, axes: { x: 1000, y: 0 }, buttons: 1 } },
+  ]);
+  const state = live.state;
+  if (state === null) throw new Error("expected live engine state");
+  const saved = snapshot(state);
+  const savedInput = restoreGameState(saved).input;
+  equal(savedInput.gamepads["2"]?.connected, true, "the enabled-session save contains a real connected pad");
+  // Restore first, then apply the disabled main-file policy, matching the engine's restore/configure order.
+  Object.assign(state.input, savedInput);
+  const disabledPolicy = mainFileMovementSettings({
+    ...createEmptyMainFile(), minor: 9, movementControls: 0, useJoystick: 0,
+  }, "main.gam").settings;
+  equal(disabledPolicy.controllerEnabled, false);
+  configureMainFileMovement(state.input, disabledPolicy);
+  equal(state.input.gamepads["2"], undefined, "applying disabled policy clears the restored pad");
+  equal(state.input.actions.right, false, "applying disabled policy clears its held action");
+  const baseline = createGameState({ seed: 1 });
+  baseline.input = state.input;
+  const before = restoreGameState(snapshot(baseline)).input;
+  const disabledTick = engine.advance(0, []).tickAfter;
+  const tick = engine.advance(1, [
+    { tick: disabledTick, event: { kind: "gamepad", device: 3, connected: true, axes: { x: 0, y: 0 }, buttons: 1 << 1 } },
+    { tick: disabledTick, event: { kind: "gamepad", device: 3, connected: false, axes: { x: 0, y: 0 }, buttons: 0 } },
+  ]);
+  deepEqual(tick.consumed.map((record) => record.event), [
+    { kind: "gamepad", device: 3, connected: true, axes: { x: 0, y: 0 }, buttons: 1 << 1 },
+    { kind: "gamepad", device: 3, connected: false, axes: { x: 0, y: 0 }, buttons: 0 },
+  ], "disabled raw gamepad records remain in the engine's consumed log");
+  deepEqual(state.input.gamepads, before.gamepads);
+  deepEqual(state.input.actions, before.actions);
+  deepEqual(state.input.actionPadMasks, before.actionPadMasks);
+  deepEqual(state.input.semanticActionSources, before.semanticActionSources);
+  deepEqual(state.input.pendingActions, before.pendingActions);
+  const globals = globalsOf(live);
+  equal(globals.gamepadconnected, 1, "disabled connect does not dispatch a connection callback");
+  equal(globals.gamepaddisconnected, 0, "disabled disconnect does not dispatch a disconnection callback");
+});
+
 
 test("native viewport listeners receive the documented detail field names", () => {
   const state = createGameState({ seed: 9 });

@@ -1,4 +1,4 @@
-import { combineProofErrors } from "./lifecycle.ts";
+import { autosaveSetting, combineProofErrors } from "./lifecycle.ts";
 
 const copyBytesCommand = "Test: Copy Main File Bytes";
 
@@ -309,16 +309,7 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
   const expectAutosave = async (value: string): Promise<void> => {
     await expect.poll(async () => {
-      // The proof bridge opens settings.json with O_TRUNC before writing its body; poll through that transient empty file.
-      const bytes = await host.readBacking(".vscode/settings.json");
-      try {
-        const settings: unknown = JSON.parse(new TextDecoder().decode(bytes));
-        if (typeof settings !== "object" || settings === null || !("files.autoSave" in settings)) return null;
-        return settings["files.autoSave"];
-      } catch (error) {
-        if (error instanceof SyntaxError) return null;
-        throw error;
-      }
+      return autosaveSetting(await host.readBacking(".vscode/settings.json"));
     }, { message: `VS Code persists files.autoSave=${value}` }).toBe(value);
   };
   let failure: unknown;
